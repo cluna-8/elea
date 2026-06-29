@@ -188,9 +188,7 @@ async def chat_completions(
                 json=raw_request_json,
                 timeout=15.0
             )
-            litellm_connected = False
             if response.status_code == 200:
-                litellm_connected = True
                 res_data = response.json()
                 llm_raw_response = res_data["choices"][0]["message"]["content"]
                 prompt_tokens = res_data["usage"]["prompt_tokens"]

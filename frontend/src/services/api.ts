@@ -308,4 +308,47 @@ export const api = {
     }
     return res.json();
   },
+
+  // --- Analytics ---
+  getAnalyticsSummary: async (range: "day" | "week" | "month"): Promise<any> => {
+    const res = await fetch(`${API_BASE}/analytics/summary?range=${range}`);
+    if (!res.ok) throw new Error("Failed to fetch analytics summary");
+    return res.json();
+  },
+
+  getEngineStatus: async (): Promise<{ status: "online" | "offline"; checked_at: string }> => {
+    const res = await fetch(`${API_BASE}/analytics/engine-status`);
+    if (!res.ok) return { status: "offline", checked_at: new Date().toISOString() };
+    return res.json();
+  },
+
+  exportAuditLogs: async (filters: {
+    pii_detected?: boolean;
+    compliance_status?: string;
+    from_date?: string;
+    to_date?: string;
+  }): Promise<void> => {
+    const params = new URLSearchParams();
+    if (filters.pii_detected !== undefined) params.append("pii_detected", String(filters.pii_detected));
+    if (filters.compliance_status) params.append("compliance_status", filters.compliance_status);
+    if (filters.from_date) params.append("from_date", filters.from_date);
+    if (filters.to_date) params.append("to_date", filters.to_date);
+
+    const res = await fetch(`${API_BASE}/audit-logs/export?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to export audit logs");
+
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "audit_export.csv";
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };
