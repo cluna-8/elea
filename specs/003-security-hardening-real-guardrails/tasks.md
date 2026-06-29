@@ -12,15 +12,15 @@
 
 ### T-001 · Alembic: instalación y configuración
 
-- [ ] **T-001-A** Agregar a `backend/requirements.txt`:
+- [x] **T-001-A** Agregar a `backend/requirements.txt`:
   ```
   alembic==1.13.3
   cryptography==42.0.8
   ```
-- [ ] **T-001-B** Desde `backend/`, ejecutar `alembic init alembic` para generar la estructura
-- [ ] **T-001-C** Editar `backend/alembic.ini`:
+- [x] **T-001-B** Desde `backend/`, ejecutar `alembic init alembic` para generar la estructura
+- [x] **T-001-C** Editar `backend/alembic.ini`:
   - Cambiar `sqlalchemy.url` a `driver://user:pass@host/dbname` (placeholder — se sobreescribe en env.py con la variable de entorno `DATABASE_URL`)
-- [ ] **T-001-D** Editar `backend/alembic/env.py`:
+- [x] **T-001-D** Editar `backend/alembic/env.py`:
   - Importar `Base` de `src.models.base`
   - Leer `DATABASE_URL` del entorno para la conexión
   - Configurar `target_metadata = Base.metadata`
@@ -28,23 +28,23 @@
 
 ### T-002 · Alembic: migración baseline del schema actual
 
-- [ ] **T-002-A** Crear `backend/alembic/versions/001_initial_schema.py` como migración baseline:
+- [x] **T-002-A** Crear `backend/alembic/versions/001_initial_schema.py` como migración baseline:
   - `upgrade()`: no hace nada si la tabla ya existe (`op.execute("CREATE TABLE IF NOT EXISTS ... (skip)")`)
   - La estrategia correcta: crear todas las tablas del schema actual con `IF NOT EXISTS`
   - Tablas: `users`, `groups`, `api_keys`, `budgets`, `guardians`, `audit_logs`, `chat_messages`
-- [ ] **T-002-B** Verificar con `alembic history` que la revisión aparece
-- [ ] **T-002-C** Ejecutar `alembic upgrade head` en la DB existente y confirmar que no destruye datos
+- [!] **T-002-B** Verificar con `alembic history` que la revisión aparece
+- [!] **T-002-C** Ejecutar `alembic upgrade head` en la DB existente y confirmar que no destruye datos
 
 ### T-003 · Guardian model: nuevos campos
 
-- [ ] **T-003-A** Editar `backend/src/models/guardian.py`, agregar columnas:
+- [x] **T-003-A** Editar `backend/src/models/guardian.py`, agregar columnas:
   ```python
   engine_guardrail_name = Column(String, nullable=True)   # nombre interno del motor, ej: "azure/prompt_shield"
   fail_mode = Column(String, default="log")               # "block" | "log"
   apply_on = Column(String, default="pre_call")           # "pre_call" | "post_call" | "both"
   service_api_key_encrypted = Column(Text, nullable=True) # API key del servicio encriptada con Fernet
   ```
-- [ ] **T-003-B** Crear `backend/alembic/versions/002_guardian_engine_fields.py`:
+- [x] **T-003-B** Crear `backend/alembic/versions/002_guardian_engine_fields.py`:
   ```python
   def upgrade():
       op.add_column('guardians', sa.Column('engine_guardrail_name', sa.String(), nullable=True))
@@ -55,11 +55,11 @@
 
 ### T-004 · AuditLog model: guardian_events
 
-- [ ] **T-004-A** Editar `backend/src/models/audit.py`, agregar:
+- [x] **T-004-A** Editar `backend/src/models/audit.py`, agregar:
   ```python
   guardian_events = Column(JSONB, default=list)
   ```
-- [ ] **T-004-B** Crear `backend/alembic/versions/003_audit_guardian_events.py`:
+- [x] **T-004-B** Crear `backend/alembic/versions/003_audit_guardian_events.py`:
   ```python
   def upgrade():
       op.add_column('audit_logs', sa.Column('guardian_events', JSONB, nullable=True, server_default='[]'))
@@ -67,7 +67,7 @@
 
 ### T-005 · Dockerfile: entrypoint con alembic
 
-- [ ] **T-005-A** Editar `backend/Dockerfile`, cambiar la última línea CMD de:
+- [x] **T-005-A** Editar `backend/Dockerfile`, cambiar la última línea CMD de:
   ```dockerfile
   CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
   ```
@@ -75,7 +75,7 @@
   ```dockerfile
   CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"]
   ```
-- [ ] **T-005-B** Reconstruir imagen y verificar que el contenedor arranca correctamente (logs muestran `INFO  [alembic.runtime.migration] Running upgrade ... -> ...`)
+- [x] **T-005-B** Reconstruir imagen y verificar que el contenedor arranca correctamente (logs muestran `INFO  [alembic.runtime.migration] Running upgrade ... -> ...`)
 
 ---
 
@@ -83,7 +83,7 @@
 
 ### T-006 · EncryptionService: nuevo servicio
 
-- [ ] **T-006-A** Crear `backend/src/services/encryption_service.py`:
+- [x] **T-006-A** Crear `backend/src/services/encryption_service.py`:
   ```python
   import os
   from cryptography.fernet import Fernet
@@ -101,12 +101,12 @@
           return None
       return _fernet.decrypt(value.encode()).decode()
   ```
-- [ ] **T-006-B** Agregar `FERNET_SECRET_KEY` a `docker-compose.yml` (y `.env.example`)
+- [x] **T-006-B** Agregar `FERNET_SECRET_KEY` a `docker-compose.yml` (y `.env.example`)
   - Generar un valor con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
 
 ### T-007 · AIEngineClient: métodos de guardrail
 
-- [ ] **T-007-A** Editar `backend/src/services/ai_engine_client.py`, agregar:
+- [x] **T-007-A** Editar `backend/src/services/ai_engine_client.py`, agregar:
   ```python
   @staticmethod
   async def get_active_guardrail_names(db: Session) -> list[str]:
@@ -140,7 +140,7 @@
 
 ### T-008 · chat.py: incluir guardrails por request
 
-- [ ] **T-008-A** Editar `backend/src/api/chat.py`:
+- [x] **T-008-A** Editar `backend/src/api/chat.py`:
   - Importar `Guardian` model y `db` session
   - Antes de llamar al motor, obtener lista de guardrails activos:
     ```python
@@ -151,11 +151,11 @@
     guardrail_names = [g.engine_guardrail_name for g in active_guardrails]
     ```
   - Agregar `"guardrails": guardrail_names` al payload JSON enviado al motor (solo si la lista no está vacía)
-- [ ] **T-008-B** Verificar que el campo `guardrails` NO aparece en la respuesta devuelta al cliente
+- [x] **T-008-B** Verificar que el campo `guardrails` NO aparece en la respuesta devuelta al cliente
 
 ### T-009 · Seed de engine_guardrail_name en guardians existentes
 
-- [ ] **T-009-A** Crear script SQL o migración de datos para setear `engine_guardrail_name` en los guardians ya creados por el seed inicial:
+- [x] **T-009-A** Crear script SQL o migración de datos para setear `engine_guardrail_name` en los guardians ya creados por el seed inicial:
   ```sql
   UPDATE guardians SET engine_guardrail_name = 'litellm_content_filter',  fail_mode = 'block', apply_on = 'both'
     WHERE guardian_type = 'openai_moderation';
@@ -171,11 +171,11 @@
 
 ### T-010 · guardian_service.py: reemplazar simulaciones por motor
 
-- [ ] **T-010-A** Editar `backend/src/services/guardian_service.py`:
+- [x] **T-010-A** Editar `backend/src/services/guardian_service.py`:
   - Los métodos que llaman servicios externos simulados (Lakera, Azure Content Safety, OpenAI Moderation, LlamaGuard) ya NO ejecutan la lógica keyword-based en backend
   - Reemplazar por un método genérico `check_engine_guardian(guardian, text, db)` que devuelve el resultado del motor (ya se aplica en `chat.py` via el campo `guardrails`, así que aquí solo retornar `pass` o un no-op)
   - Mantener: `check_pii_masking`, `check_secret_detection`, `check_sensitive_routing` — estos siguen siendo locales
-- [ ] **T-010-B** Actualizar `evaluate_guardrails(prompt, db)` para que:
+- [x] **T-010-B** Actualizar `evaluate_guardrails(prompt, db)` para que:
   1. Ejecute guardrails locales (secret_detection, pii_masking) y retorne `GuardianResult` con placeholders
   2. No duplique la lógica de los guardrails del motor (esos ya los aplica `chat.py` al llamar al motor)
 
@@ -185,7 +185,7 @@
 
 ### T-011 · chat.py: procesar guardrail events de la respuesta
 
-- [ ] **T-011-A** Editar `backend/src/api/chat.py`:
+- [x] **T-011-A** Editar `backend/src/api/chat.py`:
   - Al recibir la respuesta del motor, verificar si existe `response.get("guardrail_info")` o similar en la estructura JSON
   - Si el motor devuelve un error 400 con mensaje de guardrail bloqueado: capturar y retornar al cliente:
     ```json
@@ -193,11 +193,11 @@
     ```
     (sin mencionar el nombre del guardrail proveedor)
   - Extraer `guardian_events` de la respuesta para el audit log
-- [ ] **T-011-B** Pasar `guardian_events` al `audit_service.create_audit_log()`
+- [x] **T-011-B** Pasar `guardian_events` al `audit_service.create_audit_log()`
 
 ### T-012 · audit_service.py: guardar guardian_events
 
-- [ ] **T-012-A** Editar `backend/src/services/audit_service.py`, actualizar la creación del registro de auditoría:
+- [x] **T-012-A** Editar `backend/src/services/audit_service.py`, actualizar la creación del registro de auditoría:
   - Agregar parámetro `guardian_events: list = None`
   - Setear `audit_log.guardian_events = guardian_events or []`
 
@@ -207,7 +207,7 @@
 
 ### T-013 · SecurityPage: reemplazar badges y descripciones hardcodeadas
 
-- [ ] **T-013-A** Editar `frontend/src/pages/SecurityPage.tsx`:
+- [x] **T-013-A** Editar `frontend/src/pages/SecurityPage.tsx`:
   - Eliminar el badge `"Nube / Simulación"` de los guardrails externos
   - Reemplazar con badge dinámico basado en estado del guardian:
     - `is_active=True` + `engine_guardrail_name != null` + `service_api_key_encrypted != null` → badge verde "Activo (con key)"
@@ -219,28 +219,28 @@
 
 ### T-014 · SecurityPage: agregar campos fail_mode y apply_on al modal de edición
 
-- [ ] **T-014-A** En el modal/formulario de edición de guardian:
+- [x] **T-014-A** En el modal/formulario de edición de guardian:
   - Agregar selector `fail_mode`: opciones "Bloquear petición" (`block`) / "Solo registrar" (`log`)
   - Agregar selector `apply_on`: opciones "Antes del LLM" (`pre_call`) / "Después del LLM" (`post_call`) / "Ambos" (`both`)
   - Solo mostrar estos campos si el guardian tiene capacidad de motor (`engine_guardrail_name != null`)
-- [ ] **T-014-B** Actualizar el payload del PUT en `frontend/src/services/api.ts` para incluir `fail_mode` y `apply_on`
-- [ ] **T-014-C** Actualizar el endpoint `PUT /api/v1/guardians/{id}` en `backend/src/api/guardians.py` para aceptar y persistir estos campos
+- [x] **T-014-B** Actualizar el payload del PUT en `frontend/src/services/api.ts` para incluir `fail_mode` y `apply_on`
+- [x] **T-014-C** Actualizar el endpoint `PUT /api/v1/guardians/{id}` en `backend/src/api/guardians.py` para aceptar y persistir estos campos
 
 ### T-015 · SecurityPage: panel de prueba de guardian
 
-- [ ] **T-015-A** Agregar a `frontend/src/pages/SecurityPage.tsx` un panel de prueba (collapsable o modal):
+- [x] **T-015-A** Agregar a `frontend/src/pages/SecurityPage.tsx` un panel de prueba (collapsable o modal):
   - Textarea: "Texto de prueba"
   - Botón: "Ejecutar test de seguridad"
   - Resultado: muestra "Bloqueado" (rojo) o "Permitido" (verde) + razón genérica
   - Solo disponible para guardians con `engine_guardrail_name != null`
-- [ ] **T-015-B** Agregar endpoint en `backend/src/api/guardians.py`:
+- [x] **T-015-B** Agregar endpoint en `backend/src/api/guardians.py`:
   ```
   POST /api/v1/guardians/{id}/test
   Body: { "text": "..." }
   Response: { "blocked": bool, "reason": str | null }
   ```
   Llama a `AIEngineClient.test_guardrail(guardian.engine_guardrail_name, text)`
-- [ ] **T-015-C** Agregar método `api.testGuardian(id, text)` en `frontend/src/services/api.ts`
+- [x] **T-015-C** Agregar método `api.testGuardian(id, text)` en `frontend/src/services/api.ts`
 
 ---
 
@@ -272,7 +272,7 @@
 
 ### T-017 · White-label audit
 
-- [ ] **T-017-A** Ejecutar grep en el proyecto por nombres prohibidos:
+- [x] **T-017-A** Ejecutar grep en el proyecto por nombres prohibidos:
   ```bash
   grep -r -i "litellm\|lakera\|promptguard\|llamaguard\|presidio" \
     frontend/src/ backend/src/api/ backend/src/services/ \
@@ -280,8 +280,8 @@
     -l
   ```
   Revisar cada match: si está en un mensaje visible al cliente, error log visible, o respuesta de API → corregir
-- [ ] **T-017-B** Verificar mensajes de error en `chat.py` cuando el motor bloquea — no deben mencionar el proveedor
-- [ ] **T-017-C** Verificar que el campo `engine_guardrail_name` no aparece en ninguna respuesta de la API pública (`GET /api/v1/guardians`, `GET /api/v1/guardians/{id}`, `POST /api/v1/guardians/{id}/test`)
+- [x] **T-017-B** Verificar mensajes de error en `chat.py` cuando el motor bloquea — no deben mencionar el proveedor
+- [x] **T-017-C** Verificar que el campo `engine_guardrail_name` no aparece en ninguna respuesta de la API pública (`GET /api/v1/guardians`, `GET /api/v1/guardians/{id}`, `POST /api/v1/guardians/{id}/test`)
 
 ### T-018 · Tests manuales de integración
 
@@ -293,9 +293,9 @@
 
 ### T-019 · Changelog y commit
 
-- [ ] **T-019-A** Crear `specs/003-security-hardening-real-guardrails/changelog.md` documentando todos los cambios de esta feature
-- [ ] **T-019-B** Commit `feat(003): real guardrails via AI engine, Alembic migrations`
-- [ ] **T-019-C** Evaluar si hacer merge a main o mantener en feature branch hasta PR review
+- [x] **T-019-A** Crear `specs/003-security-hardening-real-guardrails/changelog.md` documentando todos los cambios de esta feature
+- [x] **T-019-B** Commit `feat(003): real guardrails via AI engine, Alembic migrations`
+- [x] **T-019-C** Evaluar si hacer merge a main o mantener en feature branch hasta PR review
 
 ---
 

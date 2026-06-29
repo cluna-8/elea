@@ -10,7 +10,7 @@
 
 ### T-001 · analytics.py: endpoint summary
 
-- [ ] **T-001-A** Crear `backend/src/api/analytics.py`:
+- [x] **T-001-A** Crear `backend/src/api/analytics.py`:
   - `GET /api/v1/analytics/summary?range=day|week|month`
   - Calcula `from_date` según el range (hoy, -7 días, -30 días desde NOW())
   - Query SQL agregada sobre `audit_logs` filtrando `timestamp >= from_date`
@@ -37,14 +37,14 @@
   - `guardian_activations.by_guardian`: agregar los `guardian_events` JSONB usando `jsonb_array_elements`; joinear `guardians.name` por `engine_guardrail_name` para nombre white-label
   - `guardian_blocks`: count de rows donde `compliance_status = 'blocked_by_policy'` OR `guardian_events` no está vacío con bloqueo
 
-- [ ] **T-001-B** Agregar `GET /api/v1/analytics/engine-status` en el mismo router:
+- [x] **T-001-B** Agregar `GET /api/v1/analytics/engine-status` en el mismo router:
   - Hace `GET {ENGINE_URL}/health` o `GET {ENGINE_URL}/health/readiness`
   - Retorna `{"status": "online" | "offline", "checked_at": "..."}`
   - Timeout de 2s, no lanza excepción si offline (retorna `{"status": "offline"}`)
 
 ### T-002 · Registrar analytics router
 
-- [ ] **T-002-A** Editar `backend/src/api/__init__.py`:
+- [x] **T-002-A** Editar `backend/src/api/__init__.py`:
   - Importar y registrar el router de analytics con prefix `/analytics`
 
 ---
@@ -53,14 +53,14 @@
 
 ### T-003 · audit.py: filtro de fechas en listado
 
-- [ ] **T-003-A** Leer `backend/src/api/audit.py` para entender su estructura actual
-- [ ] **T-003-B** Agregar parámetros `from_date: Optional[str] = None` y `to_date: Optional[str] = None` al endpoint `GET /api/v1/audit-logs`
+- [x] **T-003-A** Leer `backend/src/api/audit.py` para entender su estructura actual
+- [x] **T-003-B** Agregar parámetros `from_date: Optional[str] = None` y `to_date: Optional[str] = None` al endpoint `GET /api/v1/audit-logs`
   - Si `from_date` provisto, filtrar `AuditLog.timestamp >= datetime.fromisoformat(from_date)`
   - Si `to_date` provisto, filtrar `AuditLog.timestamp <= datetime.fromisoformat(to_date)`
 
 ### T-004 · audit.py: exportación CSV
 
-- [ ] **T-004-A** Agregar endpoint `GET /api/v1/audit-logs/export` en `backend/src/api/audit.py`:
+- [x] **T-004-A** Agregar endpoint `GET /api/v1/audit-logs/export` en `backend/src/api/audit.py`:
   - Parámetros: mismos filtros que el listado (`pii_detected`, `compliance_status`, `from_date`, `to_date`)
   - Usa `fastapi.responses.StreamingResponse` con un generador Python
   - Content-Type: `text/csv`
@@ -75,30 +75,30 @@
 
 ### T-005 · DashboardPage.tsx: KPI cards + top modelos + guardianes
 
-- [ ] **T-005-A** Crear `frontend/src/pages/DashboardPage.tsx`:
+- [x] **T-005-A** Crear `frontend/src/pages/DashboardPage.tsx`:
   - Estado inicial: `range = "week"`, `summary = null`, `engineStatus = null`, `loading = true`
   - `useEffect`: fetches paralelos a `api.getAnalyticsSummary(range)` y `api.getEngineStatus()`
   - Cuando cambia `range`, re-fetch el summary
 
-- [ ] **T-005-B** UI — Selector de período:
+- [x] **T-005-B** UI — Selector de período:
   - 3 botones: "Hoy" / "Semana" / "Mes" (activo resaltado con bg-primary)
 
-- [ ] **T-005-C** UI — 4 KPI cards en grid 2x2:
+- [x] **T-005-C** UI — 4 KPI cards en grid 2x2:
   - Peticiones totales (ícono de mensaje)
   - Costo total USD (formato `$X.XXXX`)
   - Incidentes PII (cantidad de `pii_incidents`)
   - Bloqueos de guardianes (`guardian_activations.total`)
   - Cada card: número grande en blanco, label pequeño en text-secondary
 
-- [ ] **T-005-D** UI — Estado del sistema (2 indicadores):
+- [x] **T-005-D** UI — Estado del sistema (2 indicadores):
   - Motor de IA: dot verde "Online" / rojo "Offline"
   - Guardianes activos: `X activos` (cuenta los guardians del GET /guardians donde is_active=true)
 
-- [ ] **T-005-E** UI — Top modelos (tabla simple):
+- [x] **T-005-E** UI — Top modelos (tabla simple):
   - Columnas: Modelo | Peticiones | Costo USD
   - Máximo 5 filas, ordenado por peticiones desc
 
-- [ ] **T-005-F** UI — Barras de activación de guardianes:
+- [x] **T-005-F** UI — Barras de activación de guardianes:
   - Para cada entry en `guardian_activations.by_guardian`:
     - Nombre del guardián (text-xs)
     - Barra CSS: `<div style={{ width: `${(count/max)*100}%` }}` en color primary/20 con texto de count
@@ -106,7 +106,7 @@
 
 ### T-006 · api.ts: nuevos métodos de analytics
 
-- [ ] **T-006-A** Agregar a `frontend/src/services/api.ts`:
+- [x] **T-006-A** Agregar a `frontend/src/services/api.ts`:
   ```typescript
   getAnalyticsSummary: async (range: "day" | "week" | "month"): Promise<any> => { ... }
   getEngineStatus: async (): Promise<{ status: "online" | "offline"; checked_at: string }> => { ... }
@@ -121,11 +121,11 @@
 
 ### T-007 · AuditPage.tsx: guardian_events column + expand + fechas + export
 
-- [ ] **T-007-A** Agregar columna "Guardianes" en la tabla de logs:
+- [x] **T-007-A** Agregar columna "Guardianes" en la tabla de logs:
   - Si `guardian_events?.length > 0`: badge `[N guardián(es)]` en color warning
   - Si `guardian_events?.length === 0 || null`: texto `—`
 
-- [ ] **T-007-B** Expand de fila:
+- [x] **T-007-B** Expand de fila:
   - Click en cualquier fila la expande (toggle `expandedRow` state)
   - La fila expandida muestra un panel debajo con:
     - Prompt tokens / Completion tokens / Latencia / Costo
@@ -133,16 +133,16 @@
     - `guardian_events`: si hay eventos, lista con nombre del evento (sin mencionar proveedor)
     - `compliance_status`: descripción legible
 
-- [ ] **T-007-C** Filtro de fechas:
+- [x] **T-007-C** Filtro de fechas:
   - Dos inputs tipo `date` (desde / hasta) en la barra de filtros
   - Formato ISO para la API
 
-- [ ] **T-007-D** Botón "Exportar CSV":
+- [x] **T-007-D** Botón "Exportar CSV":
   - Llama a `api.exportAuditLogs(filtros activos)`
   - El browser recibe el CSV y lo descarga automáticamente
   - Deshabilitar durante la descarga con texto "Exportando..."
 
-- [ ] **T-007-E** Actualizar la interfaz TypeScript `AuditLog` en `AuditPage.tsx` para incluir `guardian_events: any[]`
+- [x] **T-007-E** Actualizar la interfaz TypeScript `AuditLog` en `AuditPage.tsx` para incluir `guardian_events: any[]`
 
 ---
 
@@ -150,7 +150,7 @@
 
 ### T-008 · App.tsx: agregar Dashboard
 
-- [ ] **T-008-A** Editar `frontend/src/App.tsx`:
+- [x] **T-008-A** Editar `frontend/src/App.tsx`:
   - Importar `DashboardPage`
   - Agregar `"dashboard"` al tipo `Page`
   - Agregar "Panel Principal" como primer item en `navigation`
@@ -168,8 +168,8 @@
 
 ### T-010 · Changelog + commit
 
-- [ ] **T-010-A** Crear `specs/004-analytics-compliance-dashboard/changelog.md`
-- [ ] **T-010-B** Commit `feat(004): analytics dashboard + audit CSV export + guardian events`
+- [x] **T-010-A** Crear `specs/004-analytics-compliance-dashboard/changelog.md`
+- [x] **T-010-B** Commit `feat(004): analytics dashboard + audit CSV export + guardian events`
 
 ---
 
