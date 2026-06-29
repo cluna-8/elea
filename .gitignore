@@ -1,0 +1,62 @@
+# Universal
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+ENV/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / React
+node_modules/
+.pnp/
+.pnp.js
+coverage/
+dist/
+build/
+.svelte-kit/
+.next/
+.out/
+.vuepress/dist
+.serverless/
+.dynamodb/
+.replit
+.svelte
+.turbo
+.vercel
+.yarn-state.yml
+yarn-error.log
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# Environments
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Agent & Specify
+.agents/credentials/
+.agents/tokens/
+.agents/skills/ui-ux-pro-max-skill/
+.specify/memory/credentials.json
+.specify/memory/tokens.json

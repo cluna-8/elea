@@ -1,0 +1,122 @@
+model_list:
+  # =========================================================================
+  # ENTERPRISE & COMPLIANT PROVIDERS (Nativamente soportados por LiteLLM)
+  # =========================================================================
+
+  # --- AWS Bedrock (Compliance corporativo y encriptación KMS) ---
+  - model_name: bedrock-claude-3-5-sonnet
+    litellm_params:
+      model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
+      aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
+      aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
+      aws_region_name: "os.environ/AWS_REGION_NAME"
+  
+  - model_name: bedrock-llama3-70b
+    litellm_params:
+      model: bedrock/meta.llama3-70b-instruct-v1:0
+      aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
+      aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
+      aws_region_name: "os.environ/AWS_REGION_NAME"
+
+  # --- Google Vertex AI (GCP Compliance, residencia de datos local) ---
+  - model_name: vertex-gemini-1.5-pro
+    litellm_params:
+      model: vertex_ai/gemini-1.5-pro
+      vertex_project: "os.environ/VERTEX_PROJECT"
+      vertex_location: "os.environ/VERTEX_LOCATION"
+      vertex_credentials: "os.environ/VERTEX_CREDENTIALS"
+  
+  - model_name: vertex-gemini-1.5-flash
+    litellm_params:
+      model: vertex_ai/gemini-1.5-flash
+      vertex_project: "os.environ/VERTEX_PROJECT"
+      vertex_location: "os.environ/VERTEX_LOCATION"
+      vertex_credentials: "os.environ/VERTEX_CREDENTIALS"
+
+  # --- Azure OpenAI (Enterprise SLA de Microsoft, HIPAA-compliant) ---
+  - model_name: azure-gpt-4o
+    litellm_params:
+      model: azure/gpt-4o-mini
+      api_key: "os.environ/AZURE_API_KEY"
+      api_base: "os.environ/AZURE_API_BASE"
+      api_version: "os.environ/AZURE_API_VERSION"
+
+  - model_name: azure-gpt-3.5-turbo
+    litellm_params:
+      model: azure/gpt-3.5-turbo
+      api_key: "os.environ/AZURE_API_KEY"
+      api_base: "os.environ/AZURE_API_BASE"
+      api_version: "os.environ/AZURE_API_VERSION"
+
+  # --- IBM WatsonX (Garantías de propiedad intelectual y legal) ---
+  - model_name: watsonx-granite-chat
+    litellm_params:
+      model: watsonx/ibm/granite-13b-chat-v2
+      ibm_api_key: "os.environ/WATSONX_API_KEY"
+      ibm_project_id: "os.environ/WATSONX_PROJECT_ID"
+      ibm_url: "os.environ/WATSONX_URL"
+
+  # =========================================================================
+  # STANDARD CLOUD & LOCAL PROVIDERS
+  # =========================================================================
+
+  # --- Google AI Studio (Gemini) ---
+  - model_name: gemini-1.5-pro
+    litellm_params:
+      model: gemini/gemini-1.5-pro
+      api_key: "os.environ/GEMINI_API_KEY"
+
+  - model_name: gemini-1.5-flash
+    litellm_params:
+      model: gemini/gemini-1.5-flash
+      api_key: "os.environ/GEMINI_API_KEY"
+
+  # --- OpenAI ---
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  # --- Anthropic ---
+  - model_name: claude-3-5-sonnet
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-20240620
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+  # --- Groq (Modelos rápidos de Llama y Mixtral) ---
+  - model_name: groq-llama3-8b
+    litellm_params:
+      model: groq/llama3-8b-8192
+      api_key: "os.environ/GROQ_API_KEY"
+
+  - model_name: groq-mixtral-8x7b
+    litellm_params:
+      model: groq/mixtral-8x7b-32768
+      api_key: "os.environ/GROQ_API_KEY"
+
+  # --- Cloudflare Workers AI (Serverless de baja latencia) ---
+  - model_name: cloudflare-llama3-8b
+    litellm_params:
+      model: cloudflare/@cf/meta/llama-3-8b-instruct
+      api_key: "os.environ/CLOUDFLARE_API_KEY"
+      api_base: "os.environ/CLOUDFLARE_API_BASE"
+
+  # --- Ollama Local (100% On-Premise, sin salida a Internet) ---
+  - model_name: ollama-llama3
+    litellm_params:
+      model: ollama/llama3
+      api_base: "http://host.docker.internal:11434"
+
+  - model_name: ollama-mistral
+    litellm_params:
+      model: ollama/mistral
+      api_base: "http://host.docker.internal:11434"
+
+litellm_settings:
+  drop_params: true
+  set_verbose: true

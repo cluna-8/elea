@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: basa-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-basa_gateway}
+      POSTGRES_USER: ${POSTGRES_USER:-basa_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-basasecurepass123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - basa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-basa_admin} -d ${POSTGRES_DB:-basa_gateway}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: basa-litellm
+    ports:
+      - "4000:4000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-basa_admin}:${POSTGRES_PASSWORD:-basasecurepass123}@db:5432/${POSTGRES_DB:-basa_gateway}
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_API_BASE=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_API_VERSION=${AZURE_API_VERSION}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    entrypoint: ["litellm", "--config", "/app/config.yaml", "--detailed_debug"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - basa-network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health/readiness\")' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: basa-backend
+    ports:
+      - "8081:8000"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-basa_gateway}
+      - POSTGRES_USER=${POSTGRES_USER:-basa_admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-basasecurepass123}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - LITELLM_API_BASE=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_API_BASE=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_API_VERSION=${AZURE_API_VERSION}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./backend:/app
+      - ./litellm:/app/litellm_config
+    depends_on:
+      db:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    networks:
+      - basa-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: basa-frontend
+    ports:
+      - "8080:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - basa-network
+    depends_on:
+      - backend
+
+networks:
+  basa-network:
+    driver: bridge
+
+volumes:
+  pgdata:

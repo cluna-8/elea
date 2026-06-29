@@ -1,0 +1,39 @@
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+specs/
+design-system/
+AGENTS.md
+README.md
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv/
+**/venv/
+**/.pytest_cache/
+
+# Node
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/.next/
+**/.svelte-kit/
+**/*.log
+
+# Environments
+.env
+*.env
+.env.*
+
+# Local IDE/Editor configs
+.vscode/
+.idea/
+.specify/
+.agents/

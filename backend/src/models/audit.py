@@ -1,0 +1,27 @@
+import uuid
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Numeric, Integer
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from ..database import Base
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+    model = Column(String, nullable=False)
+    prompt_tokens = Column(Integer, nullable=False)
+    completion_tokens = Column(Integer, nullable=False)
+    cost_usd = Column(Numeric(10, 6), nullable=False)
+    pii_detected = Column(Boolean, default=False)
+    masked_entities = Column(JSONB, nullable=True) # e.g., [{"type": "PERSON", "count": 2}]
+    compliance_status = Column(String, nullable=False) # passed, flagged_high_risk, blocked_by_policy
+    latency_ms = Column(Integer, nullable=False)
+    tokens_saved_by_optimization = Column(Integer, default=0) # Tokens saved by Headroom
+
+    # Relationships
+    user = relationship("User", back_populates="audit_logs")
+    api_key = relationship("APIKey", back_populates="audit_logs")
