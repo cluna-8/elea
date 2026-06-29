@@ -294,5 +294,18 @@ export const api = {
     });
     if (!res.ok) throw new Error("Failed to update guardian");
     return res.json();
-  }
+  },
+
+  testGuardian: async (id: string, text: string): Promise<{ blocked: boolean; reason: string | null }> => {
+    const res = await fetch(`${API_BASE}/guardians/${id}/test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Error al ejecutar el test del guardián.");
+    }
+    return res.json();
+  },
 };

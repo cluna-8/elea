@@ -20,7 +20,8 @@ class AuditLog(Base):
     masked_entities = Column(JSONB, nullable=True) # e.g., [{"type": "PERSON", "count": 2}]
     compliance_status = Column(String, nullable=False) # passed, flagged_high_risk, blocked_by_policy
     latency_ms = Column(Integer, nullable=False)
-    tokens_saved_by_optimization = Column(Integer, default=0) # Tokens saved by Headroom
+    tokens_saved_by_optimization = Column(Integer, default=0)
+    guardian_events = Column(JSONB, default=list)           # guardrail events returned by the AI engine
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")
