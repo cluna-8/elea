@@ -110,6 +110,52 @@ model_list:
       model: ollama/mistral
       api_base: "http://host.docker.internal:11434"
 
+# guardrails:
+#   Para activar guardianes engine-backed, descomentar el bloque correspondiente
+#   y agregar la API key al .env antes de reiniciar LiteLLM.
+#
+#   --- litellm_content_filter (requiere OPENAI_API_KEY) ---
+#   - guardrail_name: "litellm_content_filter"
+#     litellm_params:
+#       guardrail: openai_moderation
+#       mode: pre_call
+#       default_on: false
+#
+#   --- promptguard (requiere LAKERA_API_KEY) ---
+#   - guardrail_name: "promptguard"
+#     litellm_params:
+#       guardrail: lakera_v2
+#       api_key: "os.environ/LAKERA_API_KEY"
+#       mode: pre_call
+#       default_on: false
+#
+#   --- azure/text_moderations (requiere AZURE_CONTENT_SAFETY_API_KEY + AZURE_CONTENT_SAFETY_ENDPOINT) ---
+#   - guardrail_name: "azure/text_moderations"
+#     litellm_params:
+#       guardrail: azure/text_moderations
+#       api_key: "os.environ/AZURE_CONTENT_SAFETY_API_KEY"
+#       api_base: "os.environ/AZURE_CONTENT_SAFETY_ENDPOINT"
+#       mode: pre_call
+#       default_on: false
+#
+#   --- azure/prompt_shield (requiere AZURE_CONTENT_SAFETY_API_KEY + AZURE_CONTENT_SAFETY_ENDPOINT) ---
+#   - guardrail_name: "azure/prompt_shield"
+#     litellm_params:
+#       guardrail: azure/prompt_shield
+#       api_key: "os.environ/AZURE_CONTENT_SAFETY_API_KEY"
+#       api_base: "os.environ/AZURE_CONTENT_SAFETY_ENDPOINT"
+#       mode: pre_call
+#       default_on: false
+#
+#   --- bedrock_guardrails (requiere AWS keys + BEDROCK_GUARDRAIL_ID + BEDROCK_GUARDRAIL_VERSION) ---
+#   - guardrail_name: "bedrock_guardrails"
+#     litellm_params:
+#       guardrail: bedrock
+#       guardrailIdentifier: "os.environ/BEDROCK_GUARDRAIL_ID"
+#       guardrailVersion: "os.environ/BEDROCK_GUARDRAIL_VERSION"
+#       mode: pre_call
+#       default_on: false
+
 litellm_settings:
   drop_params: true
   set_verbose: true
