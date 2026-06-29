@@ -6,14 +6,16 @@ import { AuditPage } from "./pages/AuditPage";
 import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { DashboardPage } from "./pages/DashboardPage";
 
-type Page = "playground" | "users" | "security" | "policies" | "audit" | "models";
+type Page = "dashboard" | "playground" | "users" | "security" | "policies" | "audit" | "models";
 
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<Page>("playground");
+  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [isLogged, setIsLogged] = useState<boolean>(!!localStorage.getItem("basa_admin_logged"));
 
   const navigation = [
+    { id: "dashboard", name: "Panel Principal" },
     { id: "playground", name: "Playground" },
     { id: "models", name: "Modelos & Ollama" },
     { id: "users", name: "Usuarios & Presupuestos" },
@@ -93,6 +95,7 @@ export const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto bg-background p-6">
+        {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "playground" && <PlaygroundPage />}
         {currentPage === "models" && <ModelsPage />}
         {currentPage === "users" && <UsersPage />}
