@@ -8,32 +8,42 @@ import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { authStorage, SessionUser, ROLE_LABELS, ROLE_PERMISSIONS } from "./services/auth";
 
 type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models" | "docs";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
-  const [isLogged, setIsLogged] = useState<boolean>(!!localStorage.getItem("basa_admin_logged"));
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(authStorage.getUser());
 
   const navigation = [
-    { id: "dashboard", name: "Panel Principal" },
-    { id: "playground", name: "Playground" },
-    { id: "models", name: "Modelos & Ollama" },
-    { id: "users", name: "Usuarios & Presupuestos" },
-    { id: "security", name: "Seguridad y Guardianes" },
-    { id: "compliance", name: "Políticas de Cumplimiento" },
-    { id: "audit", name: "Logs de Auditoría" },
-    { id: "docs", name: "Documentación" },
+    { id: "dashboard", name: "Panel Principal", roles: null },
+    { id: "playground", name: "Playground", roles: null },
+    { id: "models", name: "Modelos & Ollama", roles: null },
+    { id: "users", name: "Usuarios & Presupuestos", roles: ["admin"] },
+    { id: "security", name: "Seguridad y Guardianes", roles: ["admin", "compliance_officer"] },
+    { id: "compliance", name: "Políticas de Cumplimiento", roles: ["admin", "compliance_officer"] },
+    { id: "audit", name: "Logs de Auditoría", roles: ["admin", "compliance_officer"] },
+    { id: "docs", name: "Documentación", roles: null },
   ];
 
-  const handleLogout = () => {
-    localStorage.removeItem("basa_admin_logged");
-    setIsLogged(false);
+  const handleLogin = (user: SessionUser) => {
+    setCurrentUser(user);
+    setCurrentPage("dashboard");
   };
 
-  if (!isLogged) {
-    return <LoginPage onLoginSuccess={() => setIsLogged(true)} />;
+  const handleLogout = () => {
+    authStorage.clear();
+    setCurrentUser(null);
+  };
+
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={handleLogin} />;
   }
+
+  const visibleNav = navigation.filter(item =>
+    !item.roles || item.roles.includes(currentUser.role)
+  );
 
   return (
     <div className="flex h-screen bg-background overflow-hidden font-sans">
@@ -54,7 +64,7 @@ export const App: React.FC = () => {
 
           {/* Navigation Links */}
           <nav className="flex-1 px-4 py-6 space-y-1">
-            {navigation.map((item) => {
+            {visibleNav.map((item) => {
               const isActive = currentPage === item.id;
               return (
                 <button
@@ -73,16 +83,16 @@ export const App: React.FC = () => {
           </nav>
         </div>
 
-        {/* Logged in Admin Profile & Logout */}
+        {/* Current User & Logout */}
         <div className="p-4 border-t border-slate-700/50 space-y-3">
           <div className="flex items-center justify-between bg-background/40 p-2.5 rounded-xl border border-slate-700/30">
-            <div className="text-left">
-              <p className="text-xs font-bold text-white leading-none">Admin BASA</p>
-              <span className="text-[9px] text-text-secondary font-mono">Super Admin</span>
+            <div className="text-left overflow-hidden">
+              <p className="text-xs font-bold text-white leading-none truncate">{currentUser.username}</p>
+              <span className="text-[9px] text-primary font-mono">{ROLE_LABELS[currentUser.role] || currentUser.role}</span>
             </div>
             <button
               onClick={handleLogout}
-              className="text-xs text-text-secondary hover:text-danger font-semibold transition-all"
+              className="text-xs text-text-secondary hover:text-danger font-semibold transition-all shrink-0 ml-2"
             >
               Salir
             </button>

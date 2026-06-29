@@ -24,6 +24,8 @@ class KeyCreateSchema(BaseModel):
     models: Optional[List[str]] = None
     expires_at: Optional[datetime] = None
     compliance_project_id: Optional[UUID] = None
+    rpm_limit: Optional[int] = 60
+    tpm_limit: Optional[int] = 100000
 
 
 class KeyResponseSchema(BaseModel):
@@ -34,6 +36,8 @@ class KeyResponseSchema(BaseModel):
     group_id: Optional[UUID]
     is_active: bool
     compliance_project_id: Optional[UUID] = None
+    rpm_limit: Optional[int] = 60
+    tpm_limit: Optional[int] = 100000
     created_at: datetime
 
     class Config:
@@ -112,6 +116,8 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
         group_id=key_in.group_id,
         expires_at=key_in.expires_at,
         compliance_project_id=key_in.compliance_project_id,
+        rpm_limit=key_in.rpm_limit or 60,
+        tpm_limit=key_in.tpm_limit or 100000,
     )
     db.add(db_key)
 

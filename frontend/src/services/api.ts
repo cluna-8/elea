@@ -67,6 +67,17 @@ export interface AuditLog {
 }
 
 export const api = {
+  // --- Auth ---
+  login: async (username: string, password: string): Promise<{ access_token: string; user: any }> => {
+    const res = await fetch(`${API_BASE}/users/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Credenciales incorrectas."); }
+    return res.json();
+  },
+
   // --- Users & Groups ---
   getUsers: async (): Promise<User[]> => {
     const res = await fetch(`${API_BASE}/users`);
@@ -242,6 +253,9 @@ export const api = {
     budget_duration?: string;
     models?: string[];
     expires_at?: string;
+    rpm_limit?: number;
+    tpm_limit?: number;
+    compliance_project_id?: string;
   }): Promise<any> => {
     const res = await fetch(`${API_BASE}/keys`, {
       method: "POST",
@@ -494,6 +508,52 @@ export const api = {
   revokeConsent: async (consentId: string): Promise<any> => {
     const res = await fetch(`${API_BASE}/compliance/consent/${consentId}`, { method: "DELETE" });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al revocar consentimiento"); }
+    return res.json();
+  },
+
+  // --- Reports (GDPR Art. 30 / Audit Export) ---
+  exportRAT: async (): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reports/rat`);
+    if (!res.ok) throw new Error("Error al exportar el RAT");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "RAT_Art30_GDPR.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  exportDSAR: async (subjectIdentifier: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reports/dsar/${encodeURIComponent(subjectIdentifier)}`);
+    if (!res.ok) throw new Error("Error al exportar el DSAR");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "DSAR_export.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  exportHumanReviewLog: async (): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reports/human-review-log`);
+    if (!res.ok) throw new Error("Error al exportar revisiones");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "Revisiones_Humanas.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  getExecutiveSummary: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE}/reports/executive`);
+    if (!res.ok) throw new Error("Failed to fetch executive summary");
     return res.json();
   },
 

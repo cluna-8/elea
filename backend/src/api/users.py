@@ -3,18 +3,44 @@ from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
 import hashlib
+from pydantic import BaseModel
 
 from ..database import get_db
 from ..models.user import User, Group
 from ..schemas.user import UserCreate, UserResponse, GroupCreate, GroupResponse, UserBase
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
+from ..auth.session import create_session_token
+from ..auth.rbac import require_role
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/login")
+def login(body: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == body.username, User.is_active == True).first()
+    if not user or user.password_hash != hash_password(body.password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales incorrectas.")
+    token = create_session_token(str(user.id), user.role, user.username)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "username": user.username,
+            "role": user.role,
+            "email": user.email,
+        },
+    }
 
 
 # --- Group Endpoints ---
@@ -52,7 +78,8 @@ def list_groups(db: Session = Depends(get_db)):
 
 # --- User Endpoints ---
 
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_role("admin"))])
 async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == user_in.username).first():
         raise HTTPException(status_code=400, detail="Username already registered")

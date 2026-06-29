@@ -67,6 +67,8 @@ export const UsersPage: React.FC = () => {
   const [keyGroupId, setKeyGroupId] = useState("");
   const [keyMaxBudget, setKeyMaxBudget] = useState("");
   const [keyBudgetDuration, setKeyBudgetDuration] = useState("30d");
+  const [keyRpmLimit, setKeyRpmLimit] = useState("60");
+  const [keyTpmLimit, setKeyTpmLimit] = useState("100000");
 
   const [budgetUserId, setBudgetUserId] = useState("");
   const [budgetGroupId, setBudgetGroupId] = useState("");
@@ -204,6 +206,8 @@ export const UsersPage: React.FC = () => {
       if (keyMaxBudget) payload.max_budget = parseFloat(keyMaxBudget);
       if (keyBudgetDuration) payload.budget_duration = keyBudgetDuration;
       if (keyComplianceProjectId) payload.compliance_project_id = keyComplianceProjectId;
+      if (keyRpmLimit) payload.rpm_limit = parseInt(keyRpmLimit, 10);
+      if (keyTpmLimit) payload.tpm_limit = parseInt(keyTpmLimit, 10);
 
       const res = await api.createKey(payload);
       setGeneratedKey(res.plain_key);
@@ -214,6 +218,8 @@ export const UsersPage: React.FC = () => {
       setKeyMaxBudget("");
       setKeyBudgetDuration("30d");
       setKeyComplianceProjectId("");
+      setKeyRpmLimit("60");
+      setKeyTpmLimit("100000");
       await fetchData();
     } catch (err) {
       alert("Error al generar la llave virtual.");
@@ -569,6 +575,7 @@ export const UsersPage: React.FC = () => {
                     <th className="p-3">Asociado a</th>
                     <th className="p-3">Compliance</th>
                     <th className="p-3">Token Preview</th>
+                    <th className="p-3">Límites RPM/TPM</th>
                     <th className="p-3">Consumo Real</th>
                     <th className="p-3">Fecha Creación</th>
                     <th className="p-3 text-right">Acciones</th>
@@ -596,6 +603,11 @@ export const UsersPage: React.FC = () => {
                             : <span className="text-slate-600">Heredado</span>}
                         </td>
                         <td className="p-3 font-mono text-text-secondary text-[11px]">{k.key_preview}</td>
+                        <td className="p-3 text-[10px]">
+                          <span className="text-text-secondary">{(k as any).rpm_limit ?? 60} rpm</span>
+                          <span className="text-slate-600 mx-1">/</span>
+                          <span className="text-text-secondary">{((k as any).tpm_limit ?? 100000).toLocaleString()} tpm</span>
+                        </td>
                         <td className="p-3 font-mono text-xs">
                           {(() => {
                             const s = keySpend[k.id];
@@ -854,6 +866,26 @@ export const UsersPage: React.FC = () => {
                     <option value="30d">Mensual</option>
                     <option value="365d">Anual</option>
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Límite RPM <span className="text-slate-500">(solicitudes/min)</span></label>
+                  <input
+                    type="number" min="1" max="10000"
+                    value={keyRpmLimit}
+                    onChange={(e) => setKeyRpmLimit(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Límite TPM <span className="text-slate-500">(tokens/min)</span></label>
+                  <input
+                    type="number" min="1000" max="10000000"
+                    value={keyTpmLimit}
+                    onChange={(e) => setKeyTpmLimit(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary text-xs"
+                  />
                 </div>
               </div>
               <div className="space-y-1.5">

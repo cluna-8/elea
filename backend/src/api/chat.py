@@ -5,7 +5,7 @@ import httpx
 import logging
 import yaml
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -24,6 +24,7 @@ from ..services.compliance_service import ComplianceService
 from ..services.routing_service import RoutingService
 from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
+from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
 from ..services import ai_engine_client
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
@@ -64,6 +65,7 @@ HUMAN_REVIEW_FLAG_ES = (
 @router.post("/completions")
 async def chat_completions(
     request: ChatRequest,
+    response: Response,
     authorization: Optional[str] = Header(None),
     x_processing_purpose: Optional[str] = Header(None, alias="X-Processing-Purpose"),
     db: Session = Depends(get_db)
@@ -102,7 +104,20 @@ async def chat_completions(
     if not user and not group:
         # Fallback to default user (Playground UI dashboard session)
         user = get_or_create_default_user(db)
-        
+
+    # 1a. Rate Limiting (RPM check before any expensive processing)
+    _rpm_remaining = None
+    _tpm_remaining = None
+    if api_key_obj:
+        try:
+            _rpm_remaining = check_rpm(api_key_obj.id, api_key_obj.rpm_limit or 60)
+        except RateLimitExceeded as e:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=e.message,
+                headers={"Retry-After": str(e.retry_after)},
+            )
+
     policy = get_or_create_default_policy(db)
 
     # 1. Budget Enforcement
@@ -378,6 +393,21 @@ async def chat_completions(
             "note": "Respuesta simulada (motor fuera de línea)"
         }
 
+    # 6b. TPM check (after LLM: we now know actual token counts)
+    if api_key_obj:
+        try:
+            _tpm_remaining = check_tpm(
+                api_key_obj.id,
+                api_key_obj.tpm_limit or 100000,
+                prompt_tokens + completion_tokens,
+            )
+        except RateLimitExceeded as e:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=e.message,
+                headers={"Retry-After": str(e.retry_after)},
+            )
+
     # 7. Layer 4: Unmasking
     final_response = PresidioService.unmask_text(llm_raw_response, placeholder_map)
 
@@ -439,6 +469,13 @@ async def chat_completions(
         model=request.model,
         override_cost=Decimal(str(cost))
     )
+
+    # Attach rate limit headers if a virtual key was used
+    if api_key_obj:
+        if _rpm_remaining is not None:
+            response.headers["X-RateLimit-Remaining-Requests"] = str(_rpm_remaining)
+        if _tpm_remaining is not None:
+            response.headers["X-RateLimit-Remaining-Tokens"] = str(_tpm_remaining)
 
     # Return complete metadata package for the UI layer animation
     return {

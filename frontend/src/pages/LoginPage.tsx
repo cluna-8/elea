@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Shield, Lock, User, AlertCircle, Sparkles } from "lucide-react";
+import { api } from "../services/api";
+import { authStorage, SessionUser } from "../services/auth";
 
 interface LoginPageProps {
-  onLoginSuccess: () => void;
+  onLoginSuccess: (user: SessionUser) => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
@@ -11,21 +13,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
-
-    // Simulate small delay for premium UX feel
-    setTimeout(() => {
-      if (username === "admin" && password === "admin") {
-        localStorage.setItem("basa_admin_logged", "true");
-        onLoginSuccess();
-      } else {
-        setError("Credenciales incorrectas. Pruebe con admin / admin.");
-        setLoading(false);
-      }
-    }, 800);
+    try {
+      const res = await api.login(username, password);
+      authStorage.save(res.access_token, res.user as SessionUser);
+      onLoginSuccess(res.user as SessionUser);
+    } catch (err: any) {
+      setError(err.message || "Credenciales incorrectas.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

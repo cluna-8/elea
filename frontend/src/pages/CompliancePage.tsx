@@ -307,6 +307,32 @@ export const CompliancePage: React.FC = () => {
             </div>
           </div>
 
+          {/* ── Export buttons ───────────────────────────────────────── */}
+          <div className="bg-panel border border-slate-700/40 rounded-xl p-4">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Exportar documentos GDPR</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={async () => { try { await api.exportRAT(); } catch (e: any) { showMsg(e.message, true); } }}
+                className="px-3 py-1.5 text-xs border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors">
+                ↓ RAT — Art. 30 GDPR (CSV)
+              </button>
+              <button
+                onClick={async () => { try { await api.exportHumanReviewLog(); } catch (e: any) { showMsg(e.message, true); } }}
+                className="px-3 py-1.5 text-xs border border-warning/40 text-warning rounded hover:bg-warning/10 transition-colors">
+                ↓ Log Revisiones Humanas (CSV)
+              </button>
+              <button
+                onClick={async () => {
+                  const id = prompt("Identificador del sujeto (username o ID):");
+                  if (!id) return;
+                  try { await api.exportDSAR(id); } catch (e: any) { showMsg(e.message, true); }
+                }}
+                className="px-3 py-1.5 text-xs border border-slate-600 text-text-secondary rounded hover:text-white hover:border-slate-500 transition-colors">
+                ↓ DSAR por sujeto (CSV)
+              </button>
+            </div>
+          </div>
+
           {/* ── Review Queue ──────────────────────────────────────────── */}
           <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between">
