@@ -141,7 +141,7 @@ async def generate_key(
     plain_key: str = data["key"]
     return {
         "plain_key": plain_key,
-        "engine_key_token": plain_key[:10],
+        "engine_key_token": plain_key,
     }
 
 

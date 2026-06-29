@@ -6,9 +6,9 @@ from ..models.user import User
 # Model pricing per 1,000,000 tokens (Input, Output) in USD
 MODEL_PRICING = {
     "gpt-4o": {"input": Decimal("5.00"), "output": Decimal("15.00")},
-    "azure-gpt-4o": {"input": Decimal("2.50"), "output": Decimal("10.00")},
-    "gemini-1.5-pro": {"input": Decimal("1.25"), "output": Decimal("5.00")},
-    "gemini-1.5-flash": {"input": Decimal("0.075"), "output": Decimal("0.30")},
+    "azure-gpt-4o-mini": {"input": Decimal("0.165"), "output": Decimal("0.66")},
+    "gemini-2.5-flash": {"input": Decimal("0.30"), "output": Decimal("2.50")},
+    "gemini-2.5-flash-lite": {"input": Decimal("0.075"), "output": Decimal("0.30")},
     "gpt-4o-mini": {"input": Decimal("0.15"), "output": Decimal("0.60")},
     "claude-3-5-sonnet": {"input": Decimal("3.00"), "output": Decimal("15.00")},
     "default": {"input": Decimal("5.00"), "output": Decimal("15.00")}

@@ -22,10 +22,7 @@ export const PlaygroundPage: React.FC = () => {
   const [rightPanelTab, setRightPanelTab] = useState<"layers" | "debugger">("layers");
 
   // Virtual Keys & Overrides Configuration
-  const [virtualKeys, setVirtualKeys] = useState<any[]>([]);
-  const [selectedKey, setSelectedKey] = useState("");
   const [customKey, setCustomKey] = useState("");
-  const [useCustomKey, setUseCustomKey] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
 
   // Policy overrides: "default" | "active" | "inactive"
@@ -46,9 +43,6 @@ export const PlaygroundPage: React.FC = () => {
         if (fetchedModels.length > 0) {
           setSelectedModel(fetchedModels[0].model_name);
         }
-
-        const fetchedKeys = await api.getKeys();
-        setVirtualKeys(fetchedKeys);
       } catch (err) {
         console.error("Error al cargar datos del Playground:", err);
       }
@@ -79,7 +73,7 @@ export const PlaygroundPage: React.FC = () => {
     if (overrideAiAct !== "default") overrides.override_ai_act_mode = overrideAiAct === "active";
     if (overrideHeadroom !== "default") overrides.override_headroom_mode = overrideHeadroom === "active";
 
-    const keyToUse = useCustomKey ? customKey : selectedKey;
+    const keyToUse = customKey;
 
     try {
       const steps = [0, 1, 2, 3, 4];
@@ -219,52 +213,18 @@ export const PlaygroundPage: React.FC = () => {
                 {/* Virtual Key Selector */}
                 <div className="space-y-3">
                   <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider block">
-                    Clave de Acceso (Virtual Key / Bearer Token)
+                    Virtual Key (Bearer Token)
                   </span>
-                  
-                  <div className="flex gap-4 text-xs">
-                    <label className="flex items-center gap-2 cursor-pointer text-white">
-                      <input
-                        type="radio"
-                        checked={!useCustomKey}
-                        onChange={() => setUseCustomKey(false)}
-                        className="accent-primary"
-                      />
-                      Clave de Gateway
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer text-white">
-                      <input
-                        type="radio"
-                        checked={useCustomKey}
-                        onChange={() => setUseCustomKey(true)}
-                        className="accent-primary"
-                      />
-                      Bearer Token Externo
-                    </label>
-                  </div>
-
-                  {!useCustomKey ? (
-                    <select
-                      value={selectedKey}
-                      onChange={(e) => setSelectedKey(e.target.value)}
-                      className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none"
-                    >
-                      <option value="">Ninguna (Llamada pública / Sin token)</option>
-                      {virtualKeys.map((k) => (
-                        <option key={k.id} value={k.key}>
-                          {k.name} ({k.key.substring(0, 12)}...)
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="password"
-                      placeholder="Pegue su token de portador (Bearer sk-...)"
-                      value={customKey}
-                      onChange={(e) => setCustomKey(e.target.value)}
-                      className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
-                    />
-                  )}
+                  <input
+                    type="password"
+                    placeholder="Pegue su virtual key sk-... (vacío = sin autenticación)"
+                    value={customKey}
+                    onChange={(e) => setCustomKey(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
+                  />
+                  <p className="text-[10px] text-text-secondary">
+                    Genere una llave en la sección Usuarios → Llaves Virtuales y péguela aquí.
+                  </p>
                 </div>
 
                 {/* Policy Overrides */}

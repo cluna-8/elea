@@ -33,17 +33,10 @@ model_list:
       vertex_location: "os.environ/VERTEX_LOCATION"
       vertex_credentials: "os.environ/VERTEX_CREDENTIALS"
 
-  # --- Azure OpenAI (Enterprise SLA de Microsoft, HIPAA-compliant) ---
-  - model_name: azure-gpt-4o
+  # --- Azure AI Foundry (Enterprise SLA de Microsoft, HIPAA-compliant) ---
+  - model_name: azure-gpt-4o-mini
     litellm_params:
       model: azure/gpt-4o-mini
-      api_key: "os.environ/AZURE_API_KEY"
-      api_base: "os.environ/AZURE_API_BASE"
-      api_version: "os.environ/AZURE_API_VERSION"
-
-  - model_name: azure-gpt-3.5-turbo
-    litellm_params:
-      model: azure/gpt-3.5-turbo
       api_key: "os.environ/AZURE_API_KEY"
       api_base: "os.environ/AZURE_API_BASE"
       api_version: "os.environ/AZURE_API_VERSION"
@@ -61,14 +54,14 @@ model_list:
   # =========================================================================
 
   # --- Google AI Studio (Gemini) ---
-  - model_name: gemini-1.5-pro
+  - model_name: gemini-2.5-flash
     litellm_params:
-      model: gemini/gemini-1.5-pro
+      model: gemini/gemini-2.5-flash
       api_key: "os.environ/GEMINI_API_KEY"
 
-  - model_name: gemini-1.5-flash
+  - model_name: gemini-2.5-flash-lite
     litellm_params:
-      model: gemini/gemini-1.5-flash
+      model: gemini/gemini-2.5-flash-lite
       api_key: "os.environ/GEMINI_API_KEY"
 
   # --- OpenAI ---
@@ -121,6 +114,8 @@ litellm_settings:
   drop_params: true
   set_verbose: true
 
+router_settings:
+  disable_cooldowns: true
+
 general_settings:
-  store_model_in_db: true
   master_key: "os.environ/LITELLM_MASTER_KEY"
