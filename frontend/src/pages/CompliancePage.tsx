@@ -83,6 +83,12 @@ export const CompliancePage: React.FC = () => {
   // DPO Dashboard
   const [dashboard, setDashboard] = useState<any | null>(null);
 
+  // Human Review Queue
+  const [pendingReviews, setPendingReviews] = useState<any[]>([]);
+  const [reviewModal, setReviewModal] = useState<{ token: string; action: "approved" | "rejected" } | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+
   const showMsg = (msg: string, isErr = false) => {
     if (isErr) setError(msg); else setSuccess(msg);
     setTimeout(() => { setSuccess(""); setError(""); }, 3000);
@@ -95,22 +101,45 @@ export const CompliancePage: React.FC = () => {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [p, d, r, ds, db] = await Promise.all([
+      const [p, d, r, ds, db, pr] = await Promise.all([
         api.getComplianceProjects(),
         api.getDPAs(),
         api.getRetentionPolicies(),
         api.getDSRs(),
         api.getComplianceDashboard(),
+        api.getPendingReviews(),
       ]);
       setProjects(p);
       setDPAs(d);
       setRetention(r);
       setDSRs(ds);
       setDashboard(db);
+      setPendingReviews(pr);
     } catch (e: any) {
       showMsg(e.message || "Error al cargar datos de compliance.", true);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openReviewModal = (token: string, action: "approved" | "rejected") => {
+    setReviewNotes("");
+    setReviewModal({ token, action });
+  };
+
+  const submitReview = async () => {
+    if (!reviewModal) return;
+    setReviewSubmitting(true);
+    try {
+      await api.submitReview(reviewModal.token, { action: reviewModal.action, notes: reviewNotes });
+      showMsg(reviewModal.action === "approved" ? "Respuesta aprobada." : "Respuesta rechazada.");
+      setReviewModal(null);
+      const pr = await api.getPendingReviews();
+      setPendingReviews(pr);
+    } catch (e: any) {
+      showMsg(e.message, true);
+    } finally {
+      setReviewSubmitting(false);
     }
   };
 
@@ -276,6 +305,73 @@ export const CompliancePage: React.FC = () => {
               </div>
               <p className="text-[10px] text-text-secondary">{dashboard.human_review.pending} pendientes · {dashboard.human_review.completed} completadas</p>
             </div>
+          </div>
+
+          {/* ── Review Queue ──────────────────────────────────────────── */}
+          <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-white">Cola de Revisión Humana</p>
+                <p className="text-[10px] text-text-secondary mt-0.5">Respuestas de IA pendientes de validación sanitaria</p>
+              </div>
+              <div className="flex items-center gap-3">
+                {pendingReviews.length > 0 && (
+                  <span className="text-[9px] font-mono px-2 py-0.5 rounded border border-warning/40 text-warning bg-warning/10">
+                    {pendingReviews.length} PENDIENTE{pendingReviews.length > 1 ? "S" : ""}
+                  </span>
+                )}
+                <button onClick={async () => { const pr = await api.getPendingReviews(); setPendingReviews(pr); }}
+                  className="text-xs text-text-secondary hover:text-white border border-slate-700 rounded px-3 py-1.5">
+                  Actualizar
+                </button>
+              </div>
+            </div>
+
+            {pendingReviews.length === 0 ? (
+              <div className="text-center py-8 text-xs text-text-secondary">
+                No hay respuestas pendientes de revisión.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-700/40">
+                      <th className="text-left py-2 px-3 text-text-secondary font-medium">Fecha</th>
+                      <th className="text-left py-2 px-3 text-text-secondary font-medium">Token de revisión</th>
+                      <th className="text-left py-2 px-3 text-text-secondary font-medium">Audit Log</th>
+                      <th className="text-right py-2 px-3 text-text-secondary font-medium">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/20">
+                    {pendingReviews.map((r: any) => (
+                      <tr key={r.review_token} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-2.5 px-3 text-text-secondary whitespace-nowrap">
+                          {r.created_at ? new Date(r.created_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-white">
+                          {r.review_token ? `${r.review_token.slice(0, 8)}…` : "—"}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-text-secondary">
+                          {r.audit_log_id ? `${r.audit_log_id.slice(0, 8)}…` : "—"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex gap-2 justify-end">
+                            <button onClick={() => openReviewModal(r.review_token, "approved")}
+                              className="px-3 py-1 text-[10px] font-semibold rounded border border-success/40 text-success bg-success/10 hover:bg-success/20 transition-colors">
+                              ✓ Aprobar
+                            </button>
+                            <button onClick={() => openReviewModal(r.review_token, "rejected")}
+                              className="px-3 py-1 text-[10px] font-semibold rounded border border-danger/40 text-danger bg-danger/10 hover:bg-danger/20 transition-colors">
+                              ✗ Rechazar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -650,6 +746,41 @@ export const CompliancePage: React.FC = () => {
             <div className="flex gap-2 justify-end pt-2">
               <button onClick={() => setShowDPAModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg">Cancelar</button>
               <button onClick={saveDPA} className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs">Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Human Review ───────────────────────────────────────────── */}
+      {reviewModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-white">
+              {reviewModal.action === "approved" ? "Aprobar respuesta de IA" : "Rechazar respuesta de IA"}
+            </h2>
+            <p className="text-xs text-text-secondary">
+              Token: <span className="font-mono text-white">{reviewModal.token.slice(0, 8)}…</span>
+            </p>
+            {reviewModal.action === "rejected" && (
+              <p className="text-[10px] text-warning bg-warning/10 border border-warning/20 rounded px-3 py-2">
+                Al rechazar, la respuesta quedará marcada como no validada. El solicitante deberá ser notificado manualmente.
+              </p>
+            )}
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Notas del revisor {reviewModal.action === "rejected" && "*"}</label>
+              <textarea rows={3} value={reviewNotes} onChange={e => setReviewNotes(e.target.value)}
+                placeholder={reviewModal.action === "approved" ? "Opcional — observaciones clínicas" : "Motivo del rechazo"}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none" />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => setReviewModal(null)} disabled={reviewSubmitting}
+                className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg disabled:opacity-50">
+                Cancelar
+              </button>
+              <button onClick={submitReview} disabled={reviewSubmitting || (reviewModal.action === "rejected" && !reviewNotes.trim())}
+                className={`font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50 ${reviewModal.action === "approved" ? "bg-success text-background" : "bg-danger text-white"}`}>
+                {reviewSubmitting ? "Procesando…" : reviewModal.action === "approved" ? "Confirmar aprobación" : "Confirmar rechazo"}
+              </button>
             </div>
           </div>
         </div>

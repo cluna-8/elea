@@ -20,6 +20,18 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: basa-redis
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    networks:
+      - basa-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: basa-litellm
@@ -34,11 +46,15 @@ services:
       - AZURE_API_BASE=${AZURE_OPENAI_ENDPOINT}
       - AZURE_API_VERSION=${AZURE_API_VERSION}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - REDIS_HOST=basa-redis
+      - REDIS_PORT=6379
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
     entrypoint: ["litellm", "--config", "/app/config.yaml", "--detailed_debug"]
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - basa-network

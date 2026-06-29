@@ -496,4 +496,19 @@ export const api = {
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al revocar consentimiento"); }
     return res.json();
   },
+
+  // --- Human Review Queue ---
+  getPendingReviews: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/review/pending`);
+    if (!res.ok) throw new Error("Failed to fetch pending reviews");
+    return res.json();
+  },
+
+  submitReview: async (token: string, data: { reviewer_id?: string; action: string; notes?: string }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/review/${token}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al procesar la revisión"); }
+    return res.json();
+  },
 };
