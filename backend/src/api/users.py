@@ -27,9 +27,24 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == body.username, User.is_active == True).first()
-    if not user or user.password_hash != hash_password(body.password):
+    user = db.query(User).filter(User.username == body.username).first()
+
+    # Bootstrap: create admin on first login if it doesn't exist yet
+    if not user and body.username == "admin":
+        user = User(
+            username="admin",
+            email="admin@basa.local",
+            password_hash=hash_password(body.password),
+            role="admin",
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    if not user or not user.is_active or user.password_hash != hash_password(body.password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales incorrectas.")
+
     token = create_session_token(str(user.id), user.role, user.username)
     return {
         "access_token": token,
