@@ -424,11 +424,14 @@ async def chat_completions(
     latency_ms = int((time.time() - start_time) * 1000)
     cost = actual_cost if actual_cost is not None else BudgetService.calculate_cost(request.model, prompt_tokens, completion_tokens)
 
-    # Store human review record if required
+    # Store human review record if required — save the AI response (not the prompt)
     if _review_token_val:
+        # Strip the review flag banner before storing so the reviewer sees the clean response
+        clean_response = llm_raw_response if llm_raw_response else final_response.split("\n\n---\n")[0]
         review_entry = HumanReview(
             review_token=_review_token_val,
-            created_at=datetime.utcnow().isoformat()
+            created_at=datetime.utcnow().isoformat(),
+            response_text=clean_response,
         )
         db.add(review_entry)
         db.flush()

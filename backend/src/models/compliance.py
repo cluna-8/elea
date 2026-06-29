@@ -68,6 +68,7 @@ class HumanReview(Base):
     notes = Column(Text, nullable=True)
     reviewed_at = Column(String, nullable=True)
     created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+    response_text = Column(Text, nullable=True)
 
 
 class RetentionPolicy(Base):

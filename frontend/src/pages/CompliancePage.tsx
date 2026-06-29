@@ -470,12 +470,23 @@ export const CompliancePage: React.FC = () => {
                             </p>
                           </div>
                         )}
-                        <div className="col-span-2 md:col-span-4">
-                          <p className="text-text-secondary uppercase tracking-wider mb-0.5">Nota sobre el contenido</p>
-                          <p className="text-slate-400 italic">
-                            El texto del prompt y la respuesta no se almacenan (GDPR Art. 5). La validación se basa en los metadatos de contexto y en el conocimiento clínico del revisor sobre la sesión.
+                      </div>
+
+                      {/* AI Response text */}
+                      <div className="px-4 pb-4">
+                        <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-2">Respuesta de IA a validar</p>
+                        {r.response_text ? (
+                          <div className="bg-background/60 border border-slate-700/50 rounded-lg p-3 text-xs text-white leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
+                            {r.response_text}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-500 italic">
+                            Texto no disponible — esta revisión fue generada antes de la actualización del sistema.
                           </p>
-                        </div>
+                        )}
+                        <p className="text-[9px] text-slate-600 mt-1.5">
+                          El prompt del paciente no se almacena (GDPR Art. 5 — minimización de datos).
+                        </p>
                       </div>
                     </div>
                   );

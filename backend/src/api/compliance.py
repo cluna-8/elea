@@ -292,6 +292,7 @@ def list_pending_reviews(db: Session = Depends(get_db)):
             "review_token": str(r.review_token),
             "audit_log_id": str(r.audit_log_id) if r.audit_log_id else None,
             "created_at": r.created_at,
+            "response_text": r.response_text,
             "context": {
                 "model": log.model if log else None,
                 "processing_purpose": log.processing_purpose if log else None,
