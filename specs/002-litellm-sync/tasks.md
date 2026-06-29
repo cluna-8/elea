@@ -12,12 +12,12 @@
 
 **Purpose**: Crear la infraestructura de comunicación con LiteLLM. Ninguna feature de sync puede empezar sin esto.
 
-- [ ] T001 Actualizar `litellm/config.yaml` — agregar `general_settings.store_model_in_db: true` y verificar que `LITELLM_MASTER_KEY` esté referenciado
-- [ ] T002 Crear `backend/src/services/ai_engine_client.py` — wrapper async con `httpx` para los endpoints: `POST /team/new`, `POST /user/new`, `POST /key/generate`, `GET /key/info`, `GET /user/info`, `GET /team/info`, `DELETE /key/delete`
-- [ ] T003 [P] Agregar campo `engine_team_id: String nullable` al modelo `Group` en `backend/src/models/user.py`
-- [ ] T004 [P] Agregar campo `engine_user_id: String nullable` al modelo `User` en `backend/src/models/user.py`
-- [ ] T005 [P] Agregar campo `engine_key_token: String nullable` (primeros 10 chars de la sk-...) al modelo `APIKey` en `backend/src/models/budget.py`
-- [ ] T006 Actualizar `backend/src/schemas/user.py` — agregar `engine_team_id` y `engine_user_id` en los schemas de response `GroupResponse` y `UserResponse`
+- [x] T001 Actualizar `litellm/config.yaml` — agregar `general_settings.store_model_in_db: true` y verificar que `LITELLM_MASTER_KEY` esté referenciado
+- [x] T002 Crear `backend/src/services/ai_engine_client.py` — wrapper async con `httpx` para los endpoints: `POST /team/new`, `POST /user/new`, `POST /key/generate`, `GET /key/info`, `GET /user/info`, `GET /team/info`, `DELETE /key/delete`
+- [x] T003 [P] Agregar campo `engine_team_id: String nullable` al modelo `Group` en `backend/src/models/user.py`
+- [x] T004 [P] Agregar campo `engine_user_id: String nullable` al modelo `User` en `backend/src/models/user.py`
+- [x] T005 [P] Agregar campo `engine_key_token: String nullable` (primeros 10 chars de la sk-...) al modelo `APIKey` en `backend/src/models/budget.py`
+- [x] T006 Actualizar `backend/src/schemas/user.py` — agregar `engine_team_id` y `engine_user_id` en los schemas de response `GroupResponse` y `UserResponse`
 
 **Checkpoint**: El AIEngineClient existe, los modelos tienen los nuevos campos, y LiteLLM está configurado para aceptar gestión de keys via API.
 

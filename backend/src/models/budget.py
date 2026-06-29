@@ -29,7 +29,8 @@ class APIKey(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     key_hash = Column(String, unique=True, nullable=False, index=True)
-    key_preview = Column(String, nullable=False) # e.g., basa_sk_...
+    key_preview = Column(String, nullable=False)
+    engine_key_token = Column(String, nullable=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
     name = Column(String, nullable=False)
