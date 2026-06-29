@@ -65,7 +65,7 @@ HUMAN_REVIEW_FLAG_ES = (
 @router.post("/completions")
 async def chat_completions(
     request: ChatRequest,
-    response: Response,
+    http_resp: Response,
     authorization: Optional[str] = Header(None),
     x_processing_purpose: Optional[str] = Header(None, alias="X-Processing-Purpose"),
     db: Session = Depends(get_db)
@@ -473,9 +473,9 @@ async def chat_completions(
     # Attach rate limit headers if a virtual key was used
     if api_key_obj:
         if _rpm_remaining is not None:
-            response.headers["X-RateLimit-Remaining-Requests"] = str(_rpm_remaining)
+            http_resp.headers["X-RateLimit-Remaining-Requests"] = str(_rpm_remaining)
         if _tpm_remaining is not None:
-            response.headers["X-RateLimit-Remaining-Tokens"] = str(_tpm_remaining)
+            http_resp.headers["X-RateLimit-Remaining-Tokens"] = str(_tpm_remaining)
 
     # Return complete metadata package for the UI layer animation
     return {
