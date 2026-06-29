@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -14,10 +14,16 @@ class Group(Base):
     engine_team_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Compliance profile fields (Feature 006)
+    default_legal_basis = Column(String, nullable=True)       # e.g. art_9_2_h
+    default_risk_level = Column(String, nullable=True)        # e.g. high_risk_annex3
+    compliance_project_id = Column(UUID(as_uuid=True), ForeignKey("compliance_projects.id"), nullable=True)
+
     # Relationships
     users = relationship("User", back_populates="group")
     api_keys = relationship("APIKey", back_populates="group")
     budgets = relationship("Budget", back_populates="group")
+    compliance_project = relationship("ComplianceProject", foreign_keys=[compliance_project_id])
 
 class User(Base):
     __tablename__ = "users"
@@ -38,3 +44,4 @@ class User(Base):
     api_keys = relationship("APIKey", back_populates="user")
     budgets = relationship("Budget", back_populates="user")
     audit_logs = relationship("AuditLog", back_populates="user")
+    consent_records = relationship("ConsentRecord", back_populates="user")
