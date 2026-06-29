@@ -524,6 +524,12 @@ export const api = {
     return res.json();
   },
 
+  getAllConsents: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/consent`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch consents");
+    return res.json();
+  },
+
   // --- Reports (GDPR Art. 30 / Audit Export) ---
   exportRAT: async (): Promise<void> => {
     const res = await fetch(`${API_BASE}/reports/rat`, { headers: authHeaders() });

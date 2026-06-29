@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
 
-type Tab = "projects" | "dpas" | "dsr" | "retention" | "dpo";
+type Tab = "projects" | "dpas" | "dsr" | "retention" | "dpo" | "consents";
 
 const LEGAL_BASIS_LABELS: Record<string, string> = {
   art_9_2_h: "Art. 9(2)(h) — Prestación sanitaria",
@@ -89,6 +89,13 @@ export const CompliancePage: React.FC = () => {
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
+  // Consents
+  const [consents, setConsents] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentForm, setConsentForm] = useState({ user_id: "", consent_type: "ai_use", notes: "" });
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
+
   const showMsg = (msg: string, isErr = false) => {
     if (isErr) setError(msg); else setSuccess(msg);
     setTimeout(() => { setSuccess(""); setError(""); }, 3000);
@@ -101,13 +108,15 @@ export const CompliancePage: React.FC = () => {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [p, d, r, ds, db, pr] = await Promise.all([
+      const [p, d, r, ds, db, pr, cs, us] = await Promise.all([
         api.getComplianceProjects(),
         api.getDPAs(),
         api.getRetentionPolicies(),
         api.getDSRs(),
         api.getComplianceDashboard(),
         api.getPendingReviews(),
+        api.getAllConsents(),
+        api.getUsers(),
       ]);
       setProjects(p);
       setDPAs(d);
@@ -115,6 +124,8 @@ export const CompliancePage: React.FC = () => {
       setDSRs(ds);
       setDashboard(db);
       setPendingReviews(pr);
+      setConsents(cs);
+      setUsers(us);
     } catch (e: any) {
       showMsg(e.message || "Error al cargar datos de compliance.", true);
     } finally {
@@ -217,6 +228,32 @@ export const CompliancePage: React.FC = () => {
     } catch (e: any) { showMsg(e.message, true); }
   };
 
+  // ── Consents ─────────────────────────────────────────────────────────────────
+
+  const saveConsent = async () => {
+    if (!consentForm.user_id) { showMsg("Selecciona un usuario.", true); return; }
+    setConsentSubmitting(true);
+    try {
+      await api.recordConsent({ user_id: consentForm.user_id, consent_type: consentForm.consent_type, notes: consentForm.notes || undefined });
+      showMsg("Consentimiento registrado.");
+      setShowConsentModal(false);
+      setConsentForm({ user_id: "", consent_type: "ai_use", notes: "" });
+      const cs = await api.getAllConsents();
+      setConsents(cs);
+    } catch (e: any) { showMsg(e.message, true); }
+    finally { setConsentSubmitting(false); }
+  };
+
+  const revokeConsent = async (consentId: string) => {
+    if (!confirm("¿Revocar este consentimiento?")) return;
+    try {
+      await api.revokeConsent(consentId);
+      showMsg("Consentimiento revocado.");
+      const cs = await api.getAllConsents();
+      setConsents(cs);
+    } catch (e: any) { showMsg(e.message, true); }
+  };
+
   // ── Retention ────────────────────────────────────────────────────────────────
 
   const saveRetention = async () => {
@@ -232,6 +269,7 @@ export const CompliancePage: React.FC = () => {
     { id: "projects", label: "Proyectos" },
     { id: "dpas", label: "DPAs" },
     { id: "dsr", label: "Derechos del Interesado" },
+    { id: "consents", label: "Consentimientos" },
     { id: "retention", label: "Retención de Datos" },
   ];
 
@@ -306,6 +344,50 @@ export const CompliancePage: React.FC = () => {
               <p className="text-[10px] text-text-secondary">{dashboard.human_review.pending} pendientes · {dashboard.human_review.completed} completadas</p>
             </div>
           </div>
+
+          {/* ── Processing Purpose Distribution ─────────────────────── */}
+          {dashboard.processing_purpose_distribution && Object.keys(dashboard.processing_purpose_distribution).length > 0 && (() => {
+            const PURPOSE_LABELS: Record<string, string> = {
+              clinical_decision: "Decisión clínica",
+              administrative: "Administrativo",
+              research: "Investigación",
+              training: "Formación",
+              sin_especificar: "Sin especificar",
+            };
+            const PURPOSE_COLORS: Record<string, string> = {
+              clinical_decision: "bg-primary",
+              administrative: "bg-success",
+              research: "bg-warning",
+              training: "bg-purple-400",
+              sin_especificar: "bg-slate-600",
+            };
+            const dist = dashboard.processing_purpose_distribution as Record<string, number>;
+            const total = Object.values(dist).reduce((a, b) => a + b, 0);
+            return (
+              <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-3">
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                  Distribución por Propósito de Tratamiento
+                </p>
+                <div className="space-y-2">
+                  {Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([purpose, count]) => {
+                    const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                    return (
+                      <div key={purpose} className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-text-secondary">{PURPOSE_LABELS[purpose] || purpose}</span>
+                          <span className="text-xs font-mono text-white">{count} ({pct}%)</span>
+                        </div>
+                        <div className="w-full bg-slate-700 rounded-full h-1.5">
+                          <div className={`${PURPOSE_COLORS[purpose] || "bg-slate-400"} h-1.5 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-text-secondary">{total} transacciones totales clasificadas</p>
+              </div>
+            );
+          })()}
 
           {/* ── Human Review Toggle ──────────────────────────────────── */}
           <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-3">
@@ -652,7 +734,7 @@ export const CompliancePage: React.FC = () => {
                     <th className="p-3">Recibida</th>
                     <th className="p-3">Responsable</th>
                     <th className="p-3">Estado</th>
-                    <th className="p-3"></th>
+                    <th className="p-3">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/30 text-white font-mono">
@@ -667,10 +749,16 @@ export const CompliancePage: React.FC = () => {
                           {d.status === "open" ? "Abierta" : d.status === "completed" ? "Completada" : d.status}
                         </span>
                       </td>
-                      <td className="p-3">
+                      <td className="p-3 flex gap-3 items-center">
                         {d.status === "open" && (
                           <button onClick={() => completeDSR(d.id)} className="text-success hover:underline text-[10px]">Completar</button>
                         )}
+                        <button
+                          onClick={async () => { try { await api.exportDSAR(d.subject_identifier); } catch (e: any) { showMsg(e.message, true); } }}
+                          className="text-primary hover:underline text-[10px]"
+                          title="Exportar datos del sujeto (DSAR)">
+                          ↓ Exportar
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -721,6 +809,74 @@ export const CompliancePage: React.FC = () => {
           <button onClick={saveRetention} className="bg-primary hover:bg-primary/90 text-background font-semibold px-5 py-2 rounded-lg text-xs">
             Guardar Políticas de Retención
           </button>
+        </div>
+      )}
+
+      {/* ── Consents ──────────────────────────────────────────────────────── */}
+      {tab === "consents" && (
+        <div className="space-y-4">
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
+            <strong>GDPR Art. 7 y 9:</strong> El consentimiento para el uso de IA en datos de salud debe ser explícito, revocable en cualquier momento y documentado con marca temporal e IP de origen.
+          </div>
+
+          <div className="flex justify-between items-center">
+            <p className="text-xs text-text-secondary">{consents.length} registros de consentimiento</p>
+            <button onClick={() => { setConsentForm({ user_id: "", consent_type: "ai_use", notes: "" }); setShowConsentModal(true); }}
+              className="bg-primary hover:bg-primary/90 text-background font-semibold px-4 py-2 rounded-lg text-xs">
+              + Registrar Consentimiento
+            </button>
+          </div>
+
+          {consents.length === 0 ? (
+            <div className="bg-panel border border-slate-700/40 rounded-lg p-8 text-center text-xs text-text-secondary">
+              No hay registros de consentimiento. Registra el primero para comenzar el seguimiento.
+            </div>
+          ) : (
+            <div className="bg-panel border border-slate-700/40 rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-background/40 border-b border-slate-700/50 text-text-secondary">
+                  <tr>
+                    <th className="p-3">Usuario</th>
+                    <th className="p-3">Tipo</th>
+                    <th className="p-3">Versión</th>
+                    <th className="p-3">Otorgado</th>
+                    <th className="p-3">Estado</th>
+                    <th className="p-3">Revocado</th>
+                    <th className="p-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/30 text-white">
+                  {consents.map((c: any) => {
+                    const user = users.find((u: any) => u.id === c.user_id);
+                    const CONSENT_LABELS: Record<string, string> = {
+                      ai_use: "Uso de IA",
+                      data_processing: "Tratamiento de datos",
+                      special_category: "Categoría especial (Art. 9)",
+                    };
+                    return (
+                      <tr key={c.id} className="hover:bg-background/20">
+                        <td className="p-3 font-semibold">{user?.username || <span className="font-mono text-text-secondary text-[10px]">{String(c.user_id).slice(0, 8)}…</span>}</td>
+                        <td className="p-3 text-text-secondary">{CONSENT_LABELS[c.consent_type] || c.consent_type}</td>
+                        <td className="p-3 font-mono text-text-secondary">{c.version}</td>
+                        <td className="p-3 font-mono text-text-secondary text-[10px]">{c.granted_at ? new Date(c.granted_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="p-3">
+                          {c.is_active
+                            ? <span className="text-success font-semibold">Activo</span>
+                            : <span className="text-slate-500">Revocado</span>}
+                        </td>
+                        <td className="p-3 font-mono text-text-secondary text-[10px]">{c.revoked_at ? new Date(c.revoked_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="p-3">
+                          {c.is_active && (
+                            <button onClick={() => revokeConsent(String(c.id))} className="text-danger hover:underline text-[10px]">Revocar</button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -901,6 +1057,53 @@ export const CompliancePage: React.FC = () => {
               <button onClick={submitReview} disabled={reviewSubmitting || (reviewModal.action === "rejected" && !reviewNotes.trim())}
                 className={`font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50 ${reviewModal.action === "approved" ? "bg-success text-background" : "bg-danger text-white"}`}>
                 {reviewSubmitting ? "Procesando…" : reviewModal.action === "approved" ? "Confirmar aprobación" : "Confirmar rechazo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Consent ────────────────────────────────────────────────── */}
+      {showConsentModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-white">Registrar Consentimiento</h2>
+            <p className="text-[10px] text-text-secondary">El consentimiento quedará registrado con la IP de origen y marca temporal. Si ya existe uno activo del mismo tipo, será revocado automáticamente.</p>
+
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Usuario *</label>
+              <select value={consentForm.user_id} onChange={e => setConsentForm(f => ({ ...f, user_id: e.target.value }))}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                <option value="">— Seleccionar usuario —</option>
+                {users.map((u: any) => <option key={u.id} value={u.id}>{u.username} ({u.email})</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Tipo de consentimiento *</label>
+              <select value={consentForm.consent_type} onChange={e => setConsentForm(f => ({ ...f, consent_type: e.target.value }))}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                <option value="ai_use">Uso de IA</option>
+                <option value="data_processing">Tratamiento de datos</option>
+                <option value="special_category">Categoría especial (Art. 9 — datos de salud)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Notas (opcional)</label>
+              <textarea rows={2} value={consentForm.notes} onChange={e => setConsentForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="ej: Consentimiento verbal recogido durante consulta del 30/06/2026"
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none" />
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <button onClick={() => setShowConsentModal(false)} disabled={consentSubmitting}
+                className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg disabled:opacity-50">
+                Cancelar
+              </button>
+              <button onClick={saveConsent} disabled={consentSubmitting || !consentForm.user_id}
+                className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50">
+                {consentSubmitting ? "Registrando…" : "Registrar"}
               </button>
             </div>
           </div>

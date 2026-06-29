@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -363,6 +363,13 @@ def get_compliance_dashboard(db: Session = Depends(get_db)):
     total_reviews = db.query(HumanReview).count()
     completed_reviews = total_reviews - pending_reviews
 
+    purpose_rows = (
+        db.query(AuditLog.processing_purpose, func.count(AuditLog.id))
+        .group_by(AuditLog.processing_purpose)
+        .all()
+    )
+    purpose_distribution = {(p or "sin_especificar"): c for p, c in purpose_rows}
+
     return {
         "projects": {
             "total": len(projects),
@@ -393,4 +400,5 @@ def get_compliance_dashboard(db: Session = Depends(get_db)):
             "completed": completed_reviews,
             "completion_rate": round(completed_reviews / total_reviews * 100, 1) if total_reviews else 100,
         },
+        "processing_purpose_distribution": purpose_distribution,
     }
