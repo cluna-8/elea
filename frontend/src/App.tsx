@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
-import { PoliciesPage } from "./pages/PoliciesPage";
+import { CompliancePage } from "./pages/CompliancePage";
 import { AuditPage } from "./pages/AuditPage";
 import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 
-type Page = "dashboard" | "playground" | "users" | "security" | "policies" | "audit" | "models";
+type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -20,7 +20,7 @@ export const App: React.FC = () => {
     { id: "models", name: "Modelos & Ollama" },
     { id: "users", name: "Usuarios & Presupuestos" },
     { id: "security", name: "Seguridad y Guardianes" },
-    { id: "policies", name: "Políticas de Cumplimiento" },
+    { id: "compliance", name: "Políticas de Cumplimiento" },
     { id: "audit", name: "Logs de Auditoría" },
   ];
 
@@ -100,7 +100,7 @@ export const App: React.FC = () => {
         {currentPage === "models" && <ModelsPage />}
         {currentPage === "users" && <UsersPage />}
         {currentPage === "security" && <SecurityPage />}
-        {currentPage === "policies" && <PoliciesPage />}
+        {currentPage === "compliance" && <CompliancePage />}
         {currentPage === "audit" && <AuditPage />}
       </main>
     </div>

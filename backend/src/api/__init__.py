@@ -7,6 +7,7 @@ from .chat import router as chat_router
 from .keys import router as keys_router
 from .guardians import router as guardians_router
 from .analytics import router as analytics_router
+from .compliance import router as compliance_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(users_router)
@@ -17,3 +18,4 @@ api_router.include_router(chat_router)
 api_router.include_router(keys_router)
 api_router.include_router(guardians_router)
 api_router.include_router(analytics_router)
+api_router.include_router(compliance_router)

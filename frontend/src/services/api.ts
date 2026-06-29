@@ -351,4 +351,105 @@ export const api = {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   },
+
+  // --- Compliance ---
+  getComplianceProjects: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/projects`);
+    if (!res.ok) throw new Error("Failed to fetch compliance projects");
+    return res.json();
+  },
+
+  createComplianceProject: async (project: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/projects`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al crear proyecto"); }
+    return res.json();
+  },
+
+  updateComplianceProject: async (id: string, project: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/projects/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(project),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar proyecto"); }
+    return res.json();
+  },
+
+  deleteComplianceProject: async (id: string): Promise<void> => {
+    await fetch(`${API_BASE}/compliance/projects/${id}`, { method: "DELETE" });
+  },
+
+  getDPAs: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/dpas`);
+    if (!res.ok) throw new Error("Failed to fetch DPAs");
+    return res.json();
+  },
+
+  createDPA: async (dpa: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dpas`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dpa),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al registrar DPA"); }
+    return res.json();
+  },
+
+  updateDPA: async (id: string, dpa: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dpas/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dpa),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar DPA"); }
+    return res.json();
+  },
+
+  deleteDPA: async (id: string): Promise<void> => {
+    await fetch(`${API_BASE}/compliance/dpas/${id}`, { method: "DELETE" });
+  },
+
+  getDSRs: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr`);
+    if (!res.ok) throw new Error("Failed to fetch DSRs");
+    return res.json();
+  },
+
+  createDSR: async (dsr: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(dsr),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al crear solicitud"); }
+    return res.json();
+  },
+
+  updateDSR: async (id: string, update: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr/${id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(update),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar solicitud"); }
+    return res.json();
+  },
+
+  searchDSR: async (subjectId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr/search?subject_id=${encodeURIComponent(subjectId)}`);
+    if (!res.ok) throw new Error("Failed to search DSR");
+    return res.json();
+  },
+
+  getRetentionPolicies: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/retention`);
+    if (!res.ok) throw new Error("Failed to fetch retention policies");
+    return res.json();
+  },
+
+  updateRetentionPolicies: async (policies: any[]): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/retention`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(policies),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al guardar retención"); }
+    return res.json();
+  },
+
+  getComplianceDashboard: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dashboard`);
+    if (!res.ok) throw new Error("Failed to fetch compliance dashboard");
+    return res.json();
+  },
 };

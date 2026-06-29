@@ -1,8 +1,10 @@
 import time
 import os
+import uuid
 import httpx
 import logging
 import yaml
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -12,6 +14,8 @@ from ..database import get_db
 from ..models.user import User
 from ..models.policy import SecurityPolicy
 from ..models.guardian import Guardian
+from ..models.compliance import ComplianceProject, HumanReview
+from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
 from ..services.budget_service import BudgetService
 from ..services.presidio_service import PresidioService
@@ -153,6 +157,37 @@ async def chat_completions(
     is_gdpr_active = request.override_gdpr_mode if request.override_gdpr_mode is not None else policy.gdpr_mode
     if routed_model == request.model:
         routed_model = RoutingService.get_route_model(request.model, is_gdpr_active)
+
+    # 5b. Compliance checks (GDPR/AI Act) — add ≤5ms, run before LLM call
+    active_projects = db.query(ComplianceProject).filter(ComplianceProject.is_active == True).all()
+    eu_safe_prefixes = ("azure-", "bedrock-", "vertex-", "ollama-")
+    for proj in active_projects:
+        if proj.eu_region_required and not any(routed_model.startswith(p) for p in eu_safe_prefixes):
+            logger.warning("EU region enforcement blocked model %s for project %s", routed_model, proj.name)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="La política de residencia de datos exige procesamiento en la UE. El modelo seleccionado no está disponible para esta solicitud."
+            )
+
+    # Determine if AI disclosure should be delivered this session
+    _deliver_disclosure = False
+    _disclosure_message = None
+    _review_token_val = None
+    for proj in active_projects:
+        if proj.ai_disclosure_enabled and not _deliver_disclosure:
+            from datetime import timedelta
+            from sqlalchemy import func
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            recent = db.query(AuditLog).filter(
+                AuditLog.api_key_id == (api_key_obj.id if api_key_obj else None),
+                AuditLog.timestamp >= one_hour_ago,
+                AuditLog.ai_disclosure_delivered == True
+            ).first()
+            if not recent:
+                _deliver_disclosure = True
+                _disclosure_message = proj.ai_disclosure_message or DEFAULT_DISCLOSURE_ES
+        if proj.human_review_required and not _review_token_val:
+            _review_token_val = uuid.uuid4()
 
     # 6. Layer 3: LLM Execution with active guardrails
     llm_raw_response = ""
@@ -301,12 +336,25 @@ async def chat_completions(
     # 7. Layer 4: Unmasking
     final_response = PresidioService.unmask_text(llm_raw_response, placeholder_map)
 
+    # Apply AI disclosure (prepend to final response if this is a new session)
+    if _deliver_disclosure and _disclosure_message:
+        final_response = f"ℹ️ {_disclosure_message}\n\n{final_response}"
+
     # 8. Logging and Budget Update
     latency_ms = int((time.time() - start_time) * 1000)
     cost = actual_cost if actual_cost is not None else BudgetService.calculate_cost(request.model, prompt_tokens, completion_tokens)
-    
+
+    # Store human review record if required
+    if _review_token_val:
+        review_entry = HumanReview(
+            review_token=_review_token_val,
+            created_at=datetime.utcnow().isoformat()
+        )
+        db.add(review_entry)
+        db.flush()
+
     # Save to Audit Log
-    AuditService.log_transaction(
+    audit_log = AuditService.log_transaction(
         db=db,
         model=request.model,
         prompt_tokens=prompt_tokens,
@@ -319,8 +367,15 @@ async def chat_completions(
         tokens_saved_by_optimization=tokens_saved,
         user_id=user.id if user else None,
         api_key_id=api_key_obj.id if api_key_obj else None,
-        guardian_events=guardian_events
+        guardian_events=guardian_events,
+        review_token=_review_token_val,
+        ai_disclosure_delivered=_deliver_disclosure,
     )
+
+    # Link review record to audit log
+    if _review_token_val and audit_log:
+        review_entry.audit_log_id = audit_log.id
+        db.commit()
     
     # Deduct from Budget
     from decimal import Decimal
