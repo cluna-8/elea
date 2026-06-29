@@ -11,6 +11,7 @@ class Group(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, unique=True, nullable=False, index=True)
     description = Column(String, nullable=True)
+    engine_team_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -27,6 +28,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     role = Column(String, nullable=False) # admin, compliance_officer, clinician, developer
     group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
+    engine_user_id = Column(String, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

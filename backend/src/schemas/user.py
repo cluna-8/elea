@@ -12,6 +12,7 @@ class GroupCreate(GroupBase):
 
 class GroupResponse(GroupBase):
     id: UUID
+    engine_team_id: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -29,6 +30,7 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: UUID
+    engine_user_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

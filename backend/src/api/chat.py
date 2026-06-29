@@ -23,8 +23,8 @@ from ..services.guardian_service import GuardianService
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
 logger = logging.getLogger("basa-secure-gateway.chat")
 
-LITELLM_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
-LITELLM_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
+_ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
+_ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 
 class ChatRequest(BaseModel):
     message: str
@@ -63,11 +63,13 @@ async def chat_completions(
     group = None
     api_key_obj = None
     
+    client_key: Optional[str] = None  # forwarded to engine if it's a real engine key
+
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "").strip()
         import hashlib
         token_hash = hashlib.sha256(token.encode()).hexdigest()
-        
+
         from ..models.budget import APIKey
         api_key_obj = db.query(APIKey).filter(APIKey.key_hash == token_hash, APIKey.is_active == True).first()
         if not api_key_obj:
@@ -75,11 +77,15 @@ async def chat_completions(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Llave virtual (Virtual Key) inválida o inactiva."
             )
-        
+
         if api_key_obj.user_id:
             user = api_key_obj.user
         if api_key_obj.group_id:
             group = api_key_obj.group
+
+        # If this is a real engine key, forward it so the engine enforces the budget
+        if api_key_obj.engine_key_token:
+            client_key = token
             
     if not user and not group:
         # Fallback to default user (Playground UI dashboard session)
@@ -163,10 +169,11 @@ async def chat_completions(
                 "messages": [{"role": "user", "content": optimized_prompt}],
                 "temperature": 0.3
             }
+            engine_auth_key = client_key if client_key else _ENGINE_MASTER_KEY
             response = await client.post(
-                f"{LITELLM_URL}/v1/chat/completions",
+                f"{_ENGINE_URL}/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {LITELLM_KEY}",
+                    "Authorization": f"Bearer {engine_auth_key}",
                     "Content-Type": "application/json"
                 },
                 json=raw_request_json,
@@ -251,7 +258,7 @@ async def chat_completions(
             "model": routed_model,
             "messages": [{"role": "user", "content": optimized_prompt}],
             "temperature": 0.3,
-            "note": "Petición simulada (LiteLLM fuera de línea)"
+            "note": "Petición simulada (motor fuera de línea)"
         }
         raw_response_json = {
             "id": "chatcmpl-simulated-12345",
@@ -271,7 +278,7 @@ async def chat_completions(
                 "completion_tokens": completion_tokens,
                 "total_tokens": prompt_tokens + completion_tokens
             },
-            "note": "Respuesta simulada (LiteLLM fuera de línea)"
+            "note": "Respuesta simulada (motor fuera de línea)"
         }
 
     # 7. Layer 4: Unmasking
@@ -456,7 +463,7 @@ async def register_model(model_in: ModelCreateSchema):
             config_data = yaml.safe_load(f) or {}
     except Exception as e:
         logger.error(f"Failed to read litellm config: {e}")
-        raise HTTPException(status_code=500, detail="Failed to read LiteLLM configuration")
+        raise HTTPException(status_code=500, detail="Failed to read model configuration")
 
     if "model_list" not in config_data:
         config_data["model_list"] = []
@@ -485,7 +492,7 @@ async def register_model(model_in: ModelCreateSchema):
             yaml.safe_dump(config_data, f, default_flow_style=False)
     except Exception as e:
         logger.error(f"Failed to write litellm config: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save LiteLLM configuration")
+        raise HTTPException(status_code=500, detail="Failed to save model configuration")
 
     return {"status": "success", "message": f"Model {model_in.model_name} registered successfully"}
 
@@ -500,7 +507,7 @@ async def delete_model(model_name: str):
             config_data = yaml.safe_load(f) or {}
     except Exception as e:
         logger.error(f"Failed to read litellm config: {e}")
-        raise HTTPException(status_code=500, detail="Failed to read LiteLLM configuration")
+        raise HTTPException(status_code=500, detail="Failed to read model configuration")
 
     if "model_list" not in config_data:
         raise HTTPException(status_code=404, detail="No models configured")
@@ -516,6 +523,6 @@ async def delete_model(model_name: str):
             yaml.safe_dump(config_data, f, default_flow_style=False)
     except Exception as e:
         logger.error(f"Failed to write litellm config: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save LiteLLM configuration")
+        raise HTTPException(status_code=500, detail="Failed to save model configuration")
 
     return {"status": "success", "message": f"Model {model_name} deleted successfully"}
