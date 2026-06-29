@@ -24,6 +24,9 @@ class UserBase(BaseModel):
     role: str # admin, compliance_officer, clinician, developer
     group_id: Optional[UUID] = None
     is_active: Optional[bool] = True
+    legal_basis: Optional[str] = None
+    risk_level: Optional[str] = None
+    compliance_project_id: Optional[UUID] = None
 
 class UserCreate(UserBase):
     password: str

@@ -36,6 +36,11 @@ class User(Base):
     group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
     engine_user_id = Column(String, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
+
+    # Individual compliance override (takes precedence over group defaults)
+    legal_basis = Column(String, nullable=True)
+    risk_level = Column(String, nullable=True)
+    compliance_project_id = Column(UUID(as_uuid=True), ForeignKey("compliance_projects.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -45,3 +50,4 @@ class User(Base):
     budgets = relationship("Budget", back_populates="user")
     audit_logs = relationship("AuditLog", back_populates="user")
     consent_records = relationship("ConsentRecord", back_populates="user")
+    compliance_project = relationship("ComplianceProject", foreign_keys=[compliance_project_id])

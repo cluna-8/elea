@@ -38,9 +38,11 @@ class APIKey(Base):
     expires_at = Column(DateTime, nullable=True)
     rpm_limit = Column(Integer, default=60)
     tpm_limit = Column(Integer, default=100000)
+    compliance_project_id = Column(UUID(as_uuid=True), ForeignKey("compliance_projects.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     user = relationship("User", back_populates="api_keys")
     group = relationship("Group", back_populates="api_keys")
     audit_logs = relationship("AuditLog", back_populates="api_key")
+    compliance_project = relationship("ComplianceProject", foreign_keys=[compliance_project_id])

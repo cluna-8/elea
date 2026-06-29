@@ -23,6 +23,7 @@ class KeyCreateSchema(BaseModel):
     budget_duration: Optional[str] = "30d"
     models: Optional[List[str]] = None
     expires_at: Optional[datetime] = None
+    compliance_project_id: Optional[UUID] = None
 
 
 class KeyResponseSchema(BaseModel):
@@ -32,6 +33,7 @@ class KeyResponseSchema(BaseModel):
     user_id: Optional[UUID]
     group_id: Optional[UUID]
     is_active: bool
+    compliance_project_id: Optional[UUID] = None
     created_at: datetime
 
     class Config:
@@ -45,6 +47,7 @@ class KeyGeneratedResponse(BaseModel):
     plain_key: str
     user_id: Optional[UUID]
     group_id: Optional[UUID]
+    compliance_project_id: Optional[UUID] = None
     created_at: datetime
 
 
@@ -108,6 +111,7 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
         user_id=key_in.user_id,
         group_id=key_in.group_id,
         expires_at=key_in.expires_at,
+        compliance_project_id=key_in.compliance_project_id,
     )
     db.add(db_key)
 
@@ -130,6 +134,7 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
         plain_key=plain_key,
         user_id=db_key.user_id,
         group_id=db_key.group_id,
+        compliance_project_id=db_key.compliance_project_id,
         created_at=db_key.created_at,
     )
 

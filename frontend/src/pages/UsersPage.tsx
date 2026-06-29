@@ -54,6 +54,14 @@ export const UsersPage: React.FC = () => {
   const [teamName, setTeamName] = useState("");
   const [teamDesc, setTeamDesc] = useState("");
 
+  // Per-user compliance
+  const [userLegalBasis, setUserLegalBasis] = useState("");
+  const [userRiskLevel, setUserRiskLevel] = useState("");
+  const [userComplianceProjectId, setUserComplianceProjectId] = useState("");
+
+  // Per-key compliance
+  const [keyComplianceProjectId, setKeyComplianceProjectId] = useState("");
+
   const [keyName, setKeyName] = useState("");
   const [keyUserId, setKeyUserId] = useState("");
   const [keyGroupId, setKeyGroupId] = useState("");
@@ -148,11 +156,17 @@ export const UsersPage: React.FC = () => {
         role,
         group_id: groupId || undefined,
         is_active: true,
+        legal_basis: userLegalBasis || undefined,
+        risk_level: userRiskLevel || undefined,
+        compliance_project_id: userComplianceProjectId || undefined,
       });
       setShowUserModal(false);
       setUsername("");
       setEmail("");
       setGroupId("");
+      setUserLegalBasis("");
+      setUserRiskLevel("");
+      setUserComplianceProjectId("");
       await fetchData();
     } catch (err) {
       alert("Error al crear el usuario.");
@@ -189,6 +203,7 @@ export const UsersPage: React.FC = () => {
       if (keyGroupId) payload.group_id = keyGroupId;
       if (keyMaxBudget) payload.max_budget = parseFloat(keyMaxBudget);
       if (keyBudgetDuration) payload.budget_duration = keyBudgetDuration;
+      if (keyComplianceProjectId) payload.compliance_project_id = keyComplianceProjectId;
 
       const res = await api.createKey(payload);
       setGeneratedKey(res.plain_key);
@@ -198,6 +213,7 @@ export const UsersPage: React.FC = () => {
       setKeyGroupId("");
       setKeyMaxBudget("");
       setKeyBudgetDuration("30d");
+      setKeyComplianceProjectId("");
       await fetchData();
     } catch (err) {
       alert("Error al generar la llave virtual.");
@@ -440,17 +456,28 @@ export const UsersPage: React.FC = () => {
                         <th className="p-3">Email</th>
                         <th className="p-3">Rol</th>
                         <th className="p-3">Equipo</th>
+                        <th className="p-3">Riesgo AI Act</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/30 text-xs text-white">
-                      {users.map((u) => {
+                      {users.map((u: any) => {
                         const groupName = groups.find((g) => g.id === u.group_id)?.name || "Sin Equipo";
+                        const effectiveRisk = u.risk_level ||
+                          complianceGroups.find((g: any) => g.id === u.group_id)?.default_risk_level;
+                        const risk = effectiveRisk ? RISK_BADGE[effectiveRisk] : null;
                         return (
                           <tr key={u.id} className="hover:bg-background/20 transition-colors">
                             <td className="p-3 font-semibold">{u.username}</td>
                             <td className="p-3 text-text-secondary">{u.email}</td>
                             <td className="p-3 uppercase text-[10px] font-mono text-primary font-semibold">{u.role}</td>
                             <td className="p-3 text-text-secondary">{groupName}</td>
+                            <td className="p-3">
+                              {risk ? (
+                                <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${risk.cls}`}>
+                                  {risk.label}{u.risk_level ? "" : " ↑"}
+                                </span>
+                              ) : <span className="text-slate-600 text-[10px]">—</span>}
+                            </td>
                           </tr>
                         );
                       })}
@@ -540,6 +567,7 @@ export const UsersPage: React.FC = () => {
                   <tr className="bg-background/40 border-b border-slate-700/50 text-xs text-text-secondary">
                     <th className="p-3">Nombre / Identificador</th>
                     <th className="p-3">Asociado a</th>
+                    <th className="p-3">Compliance</th>
                     <th className="p-3">Token Preview</th>
                     <th className="p-3">Consumo Real</th>
                     <th className="p-3">Fecha Creación</th>
@@ -561,6 +589,11 @@ export const UsersPage: React.FC = () => {
                           <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700/50 text-text-secondary">
                             {owner}
                           </span>
+                        </td>
+                        <td className="p-3 text-[10px]">
+                          {(k as any).compliance_project_id
+                            ? <span className="text-primary font-semibold">{complianceProjects.find((p: any) => p.id === (k as any).compliance_project_id)?.name || "Proyecto asignado"}</span>
+                            : <span className="text-slate-600">Heredado</span>}
                         </td>
                         <td className="p-3 font-mono text-text-secondary text-[11px]">{k.key_preview}</td>
                         <td className="p-3 font-mono text-xs">
@@ -823,6 +856,20 @@ export const UsersPage: React.FC = () => {
                   </select>
                 </div>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-text-secondary font-medium">Proyecto de compliance (Opcional)</label>
+                <select
+                  value={keyComplianceProjectId}
+                  onChange={(e) => setKeyComplianceProjectId(e.target.value)}
+                  className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white"
+                >
+                  <option value="">Sin asignar (hereda del usuario/equipo)</option>
+                  {complianceProjects.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.is_active ? "" : " (inactivo)"}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-text-secondary">Si se asigna, esta llave usará las reglas de ese proyecto independientemente del usuario o equipo.</p>
+              </div>
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
                 <button type="button" onClick={() => setShowKeyModal(false)} className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white">
                   Cancelar
@@ -977,6 +1024,54 @@ export const UsersPage: React.FC = () => {
                   ))}
                 </select>
               </div>
+
+              {/* Compliance override */}
+              <div className="border-t border-slate-700/40 pt-3 space-y-3">
+                <p className="text-[10px] text-text-secondary uppercase tracking-wider font-semibold">Perfil de compliance individual (sobreescribe el del equipo)</p>
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Base legal GDPR</label>
+                  <select
+                    value={userLegalBasis}
+                    onChange={(e) => setUserLegalBasis(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none"
+                  >
+                    <option value="">Heredar del equipo</option>
+                    <option value="art_9_2_h">Art. 9(2)(h) — Prestación sanitaria</option>
+                    <option value="art_9_2_j">Art. 9(2)(j) — Investigación</option>
+                    <option value="art_9_2_a">Art. 9(2)(a) — Consentimiento explícito</option>
+                    <option value="art_6_1_c">Art. 6(1)(c) — Obligación legal</option>
+                    <option value="art_6_1_e">Art. 6(1)(e) — Interés público</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Nivel de riesgo AI Act</label>
+                  <select
+                    value={userRiskLevel}
+                    onChange={(e) => setUserRiskLevel(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none"
+                  >
+                    <option value="">Heredar del equipo</option>
+                    <option value="minimal">Riesgo Mínimo</option>
+                    <option value="limited">Riesgo Limitado</option>
+                    <option value="high_risk_annex3">Alto Riesgo — Annex III</option>
+                    <option value="high_risk_annex1">Alto Riesgo — MDR</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Proyecto de compliance</label>
+                  <select
+                    value={userComplianceProjectId}
+                    onChange={(e) => setUserComplianceProjectId(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none"
+                  >
+                    <option value="">Heredar del equipo</option>
+                    {complianceProjects.map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-750">
                 <button
                   type="button"
