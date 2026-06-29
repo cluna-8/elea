@@ -65,44 +65,59 @@ class GuardianService:
                 }
             )
             g4 = Guardian(
-                name="Moderación de Contenido (OpenAI Moderation)",
+                name="Filtro de Contenido Inapropiado",
                 guardian_type="openai_moderation",
                 is_active=False,
+                engine_guardrail_name="litellm_content_filter",
+                fail_mode="block",
+                apply_on="both",
                 config={
                     "action": "BLOCK",
                     "categories": ["hate", "harassment", "self-harm", "sexual", "violence"]
                 }
             )
             g5 = Guardian(
-                name="Filtro de Inyección de Prompts (Lakera AI)",
+                name="Protección Anti-Jailbreak y Anti-Inyección",
                 guardian_type="lakera_prompt_injection",
                 is_active=False,
+                engine_guardrail_name="promptguard",
+                fail_mode="block",
+                apply_on="pre_call",
                 config={
                     "action": "BLOCK",
                     "threshold": 0.7
                 }
             )
             g6 = Guardian(
-                name="Moderación de Seguridad (Azure Content Safety)",
+                name="Moderación de Seguridad (Azure)",
                 guardian_type="azure_content_safety",
                 is_active=False,
+                engine_guardrail_name="azure/text_moderations",
+                fail_mode="block",
+                apply_on="both",
                 config={
                     "action": "BLOCK",
                     "severity_threshold": 4
                 }
             )
             g7 = Guardian(
-                name="Clasificación de Seguridad (LlamaGuard)",
+                name="Escudo Anti-Jailbreak (Azure)",
                 guardian_type="llamaguard_moderations",
                 is_active=False,
+                engine_guardrail_name="azure/prompt_shield",
+                fail_mode="block",
+                apply_on="pre_call",
                 config={
                     "action": "BLOCK"
                 }
             )
             g8 = Guardian(
-                name="Políticas de AWS (Bedrock Guardrails)",
+                name="Políticas de Temas Restringidos (AWS)",
                 guardian_type="bedrock_guardrails",
                 is_active=False,
+                engine_guardrail_name="bedrock_guardrails",
+                fail_mode="block",
+                apply_on="pre_call",
                 config={
                     "action": "BLOCK",
                     "blocked_topics": ["consejo financiero", "asesoría legal no autorizada"]
@@ -291,70 +306,20 @@ class GuardianService:
                 "triggers": triggers
             }
 
-        # 4. Prompt Injection Guardian (Lakera AI / PromptGuard Simulation)
-        injection_guardian = next((g for g in guardians if g.guardian_type == "lakera_prompt_injection" and g.is_active), None)
-        if injection_guardian:
-            # Common prompt injection phrases
-            injection_keywords = ["ignore previous instructions", "system prompt", "dan mode", "jailbreak", "reveal your instructions"]
-            prompt_lower = processed_prompt.lower()
-            matched_injections = [k for k in injection_keywords if k in prompt_lower]
-            if matched_injections:
-                return {
-                    "prompt": processed_prompt,
-                    "model": routed_model,
-                    "blocked": True,
-                    "block_reason": f"Seguridad (Lakera AI): Se detectó un intento de inyección de prompt / jailbreak ({matched_injections[0]}).",
-                    "placeholder_map": placeholder_map,
-                    "entities_detected": entities_detected,
-                    "triggers": [{
-                        "guardian": injection_guardian.name,
-                        "action": "BLOCK",
-                        "detail": f"Intento de inyección: {matched_injections[0]}"
-                    }]
-                }
-
-        # 5. Content Moderation Guardians (OpenAI / Azure Content Safety Simulation)
-        mod_guardian = next((g for g in guardians if g.guardian_type in ["openai_moderation", "azure_content_safety"] and g.is_active), None)
-        if mod_guardian:
-            # Harmful keywords simulation
-            harmful_keywords = ["bomba", "matar", "suicidio", "terrorista", "armas de fuego", "hacker"]
-            prompt_lower = processed_prompt.lower()
-            matched_harm = [k for k in harmful_keywords if k in prompt_lower]
-            if matched_harm:
-                return {
-                    "prompt": processed_prompt,
-                    "model": routed_model,
-                    "blocked": True,
-                    "block_reason": f"Seguridad (Moderación): Contenido bloqueado debido a políticas de seguridad sobre violencia/daño ({matched_harm[0]}).",
-                    "placeholder_map": placeholder_map,
-                    "entities_detected": entities_detected,
-                    "triggers": [{
-                        "guardian": mod_guardian.name,
-                        "action": "BLOCK",
-                        "detail": f"Contenido inseguro: {matched_harm[0]}"
-                    }]
-                }
-
-        # 6. AWS Bedrock Guardrails Simulation
-        bedrock_guardian = next((g for g in guardians if g.guardian_type == "bedrock_guardrails" and g.is_active), None)
-        if bedrock_guardian:
-            blocked_topics = bedrock_guardian.config.get("blocked_topics", [])
-            prompt_lower = processed_prompt.lower()
-            matched_topics = [t for t in blocked_topics if t in prompt_lower]
-            if matched_topics:
-                return {
-                    "prompt": processed_prompt,
-                    "model": routed_model,
-                    "blocked": True,
-                    "block_reason": f"Seguridad (Bedrock Guardrails): La consulta trata sobre un tema restringido ({matched_topics[0]}).",
-                    "placeholder_map": placeholder_map,
-                    "entities_detected": entities_detected,
-                    "triggers": [{
-                        "guardian": bedrock_guardian.name,
-                        "action": "BLOCK",
-                        "detail": f"Tema prohibido: {matched_topics[0]}"
-                    }]
-                }
+        # 4-6. Engine-backed guardrails (prompt injection, content moderation, bedrock, etc.)
+        # These are executed by the AI engine on each request via the `guardrails` parameter
+        # passed in chat.py. No local simulation needed — engine handles the blocking.
+        # We only record which engine-backed guardrails are configured so they appear in the UI.
+        engine_guardians = [
+            g for g in guardians
+            if g.is_active and getattr(g, "engine_guardrail_name", None)
+        ]
+        if engine_guardians:
+            triggers.append({
+                "guardian": "Motor de IA",
+                "action": "DELEGATED",
+                "detail": f"Guardianes activos en motor: {', '.join(g.engine_guardrail_name for g in engine_guardians)}"
+            })
 
         return {
             "prompt": processed_prompt,

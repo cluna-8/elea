@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any
 from ..database import get_db
 from ..models.user import User
 from ..models.policy import SecurityPolicy
+from ..models.guardian import Guardian
 from ..api.policy import get_or_create_default_policy
 from ..services.budget_service import BudgetService
 from ..services.presidio_service import PresidioService
@@ -19,6 +20,7 @@ from ..services.compliance_service import ComplianceService
 from ..services.routing_service import RoutingService
 from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
+from ..services import ai_engine_client
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
 logger = logging.getLogger("basa-secure-gateway.chat")
@@ -152,16 +154,20 @@ async def chat_completions(
     if routed_model == request.model:
         routed_model = RoutingService.get_route_model(request.model, is_gdpr_active)
 
-    # 6. Layer 3: LLM Execution (LiteLLM call with fallback)
+    # 6. Layer 3: LLM Execution with active guardrails
     llm_raw_response = ""
     prompt_tokens = len(optimized_prompt) // 4  # Estimate
     completion_tokens = 0
-    
-    logger.info(f"Sending request to LiteLLM: model={routed_model}")
+    guardian_events: list = []
+
+    logger.info(f"Sending request to AI engine: model={routed_model}")
     actual_cost = None
     raw_request_json = None
     raw_response_json = None
-    
+
+    # Collect active engine-backed guardrails from DB
+    active_engine_guardrails = await ai_engine_client.get_active_guardrail_names(db)
+
     try:
         async with httpx.AsyncClient() as client:
             raw_request_json = {
@@ -169,6 +175,9 @@ async def chat_completions(
                 "messages": [{"role": "user", "content": optimized_prompt}],
                 "temperature": 0.3
             }
+            if active_engine_guardrails:
+                raw_request_json["guardrails"] = active_engine_guardrails
+
             engine_auth_key = client_key if client_key else _ENGINE_MASTER_KEY
             response = await client.post(
                 f"{_ENGINE_URL}/v1/chat/completions",
@@ -187,17 +196,27 @@ async def chat_completions(
                 prompt_tokens = res_data["usage"]["prompt_tokens"]
                 completion_tokens = res_data["usage"]["completion_tokens"]
                 raw_response_json = res_data
-                
-                # Extract exact cost from LiteLLM headers
-                litellm_cost_str = response.headers.get("x-litellm-response-cost")
-                if litellm_cost_str:
+
+                # Capture guardrail events returned by the engine (if any)
+                guardian_events = res_data.get("guardrail_info", {}).get("guardrail_events", []) or []
+
+                # Extract exact cost from engine headers
+                cost_str = response.headers.get("x-litellm-response-cost")
+                if cost_str:
                     try:
                         from decimal import Decimal
-                        actual_cost = Decimal(litellm_cost_str)
+                        actual_cost = Decimal(cost_str)
                     except Exception:
                         pass
+            elif response.status_code == 400:
+                # Engine blocked the request via a guardrail — do NOT expose provider names
+                logger.warning("AI engine blocked request (guardrail): %s", response.text)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La petición fue bloqueada por las políticas de seguridad configuradas."
+                )
             else:
-                logger.error(f"LiteLLM returned status {response.status_code}: {response.text}")
+                logger.error("AI engine returned status %s: %s", response.status_code, response.text)
                 error_detail = "Basa Gateway error"
                 try:
                     error_json = response.json()
@@ -205,14 +224,14 @@ async def chat_completions(
                         error_detail = error_json["error"]["message"]
                 except Exception:
                     error_detail = response.text
-                
-                # White-label the error message
+
+                # White-label
+                error_detail = error_detail.replace("litellm", "Basa Gateway").replace("LiteLLM", "Basa Gateway")
                 if "litellm." in error_detail:
                     parts = error_detail.split(":", 1)
                     if len(parts) > 1:
                         error_detail = parts[1].strip()
-                error_detail = error_detail.replace("litellm", "Basa Gateway").replace("LiteLLM", "Basa Gateway")
-                
+
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Error del modelo ({routed_model}): {error_detail}"
@@ -301,7 +320,8 @@ async def chat_completions(
         latency_ms=latency_ms,
         tokens_saved_by_optimization=tokens_saved,
         user_id=user.id if user else None,
-        api_key_id=api_key_obj.id if api_key_obj else None
+        api_key_id=api_key_obj.id if api_key_obj else None,
+        guardian_events=guardian_events
     )
     
     # Deduct from Budget

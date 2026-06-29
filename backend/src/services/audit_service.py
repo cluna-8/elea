@@ -22,7 +22,8 @@ class AuditService:
         latency_ms: int,
         tokens_saved_by_optimization: int = 0,
         user_id: Optional[UUID] = None,
-        api_key_id: Optional[UUID] = None
+        api_key_id: Optional[UUID] = None,
+        guardian_events: Optional[List[Dict[str, Any]]] = None,
     ) -> AuditLog:
         """
         Creates a secure audit log entry for a transaction.
@@ -52,6 +53,7 @@ class AuditService:
                 compliance_status=compliance_status,
                 latency_ms=latency_ms,
                 tokens_saved_by_optimization=tokens_saved_by_optimization,
+                guardian_events=guardian_events or [],
                 timestamp=datetime.utcnow()
             )
             

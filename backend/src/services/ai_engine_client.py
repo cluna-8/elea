@@ -161,3 +161,34 @@ async def get_key_spend(engine_key_token: str) -> dict:
 async def delete_key(engine_key_token: str) -> None:
     """Revokes a key in the AI engine."""
     await _delete("/key/delete", {"keys": [engine_key_token]})
+
+
+# --- Guardrails ---
+
+async def get_active_guardrail_names(db) -> list[str]:
+    """Returns the engine_guardrail_name of all active guardians that have one."""
+    from ..models.guardian import Guardian
+    guardians = db.query(Guardian).filter(
+        Guardian.is_active == True,
+        Guardian.engine_guardrail_name.isnot(None)
+    ).all()
+    return [g.engine_guardrail_name for g in guardians]
+
+
+async def test_guardrail(guardrail_name: str, test_text: str) -> dict:
+    """Sends a minimal request to the engine with a single guardrail to test it."""
+    payload = {
+        "model": "gemini-2.5-flash-lite",
+        "messages": [{"role": "user", "content": test_text}],
+        "guardrails": [guardrail_name],
+        "stream": False,
+        "max_tokens": 10,
+    }
+    try:
+        await _post("/v1/chat/completions", payload)
+        return {"blocked": False, "reason": None}
+    except AIEngineClientError as e:
+        err = str(e)
+        if "400" in err:
+            return {"blocked": True, "reason": "La petición fue bloqueada por las políticas de seguridad."}
+        raise
