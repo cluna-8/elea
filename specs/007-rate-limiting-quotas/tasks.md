@@ -8,5 +8,5 @@
 - [x] T-005: Return X-RateLimit-Remaining-* headers in chat response
 
 ## Phase 2 — Frontend
-- [ ] T-006: Show rpm_limit / tpm_limit columns in keys table
-- [ ] T-007: Add rpm/tpm inputs to key creation modal
+- [x] T-006: Show rpm_limit / tpm_limit columns in keys table
+- [x] T-007: Add rpm/tpm inputs to key creation modal
