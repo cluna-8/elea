@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { api, User, Budget, Group, SpendInfo } from "../services/api";
 
+const LEGAL_BASIS_SHORT: Record<string, string> = {
+  art_9_2_h: "Art. 9(2)(h) Sanitario",
+  art_9_2_j: "Art. 9(2)(j) Investigación",
+  art_9_2_a: "Art. 9(2)(a) Consentimiento",
+  art_6_1_c: "Art. 6(1)(c) Obligación legal",
+  art_6_1_e: "Art. 6(1)(e) Interés público",
+};
+
+const RISK_BADGE: Record<string, { label: string; cls: string }> = {
+  minimal:           { label: "Mínimo",         cls: "text-slate-400 border-slate-700" },
+  limited:           { label: "Limitado",        cls: "text-primary border-primary/30" },
+  high_risk_annex3:  { label: "Alto — Annex III", cls: "text-warning border-warning/30" },
+  high_risk_annex1:  { label: "Alto — MDR",       cls: "text-danger border-danger/30" },
+};
+
 interface VirtualKey {
   id: string;
   name: string;
@@ -12,7 +27,7 @@ interface VirtualKey {
 }
 
 export const UsersPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"teams" | "keys">("teams");
+  const [activeTab, setActiveTab] = useState<"teams" | "keys" | "compliance">("teams");
   const [users, setUsers] = useState<User[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -52,6 +67,25 @@ export const UsersPage: React.FC = () => {
   const [resetPeriod, setResetPeriod] = useState("monthly");
 
   const [copied, setCopied] = useState(false);
+
+  // Compliance profile state
+  const [complianceGroups, setComplianceGroups] = useState<any[]>([]);
+  const [complianceProjects, setComplianceProjects] = useState<any[]>([]);
+  const [showComplianceModal, setShowComplianceModal] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<any | null>(null);
+  const [complianceForm, setComplianceForm] = useState({ default_legal_basis: "", default_risk_level: "", compliance_project_id: "" });
+  const [complianceMsg, setComplianceMsg] = useState("");
+
+  const fetchComplianceData = async () => {
+    try {
+      const [cGroups, cProjects] = await Promise.all([
+        api.getGroupsCompliance(),
+        api.getComplianceProjects(),
+      ]);
+      setComplianceGroups(cGroups);
+      setComplianceProjects(cProjects);
+    } catch {}
+  };
 
   const fetchData = async () => {
     try {
@@ -101,6 +135,7 @@ export const UsersPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+    fetchComplianceData();
   }, []);
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -218,6 +253,33 @@ export const UsersPage: React.FC = () => {
     }
   };
 
+  const openComplianceModal = (g: any) => {
+    setEditingGroup(g);
+    setComplianceForm({
+      default_legal_basis: g.default_legal_basis || "",
+      default_risk_level: g.default_risk_level || "",
+      compliance_project_id: g.compliance_project_id || "",
+    });
+    setShowComplianceModal(true);
+  };
+
+  const saveComplianceProfile = async () => {
+    if (!editingGroup) return;
+    try {
+      await api.updateGroupCompliance(editingGroup.id, {
+        default_legal_basis: complianceForm.default_legal_basis || undefined,
+        default_risk_level: complianceForm.default_risk_level || undefined,
+        compliance_project_id: complianceForm.compliance_project_id || null,
+      });
+      setComplianceMsg("Perfil actualizado correctamente.");
+      setShowComplianceModal(false);
+      fetchComplianceData();
+      setTimeout(() => setComplianceMsg(""), 3000);
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-24 text-xs font-mono text-text-secondary">
@@ -262,6 +324,14 @@ export const UsersPage: React.FC = () => {
         >
           Llaves Virtuales (Virtual Keys)
         </button>
+        <button
+          onClick={() => { setActiveTab("compliance"); fetchComplianceData(); }}
+          className={`pb-2.5 border-b-2 transition-all ${
+            activeTab === "compliance" ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-white"
+          }`}
+        >
+          Perfiles de Compliance
+        </button>
       </div>
 
       {activeTab === "teams" ? (
@@ -296,8 +366,23 @@ export const UsersPage: React.FC = () => {
                     return (
                       <div key={g.id} className="border border-slate-700/40 bg-background/15 rounded p-4 space-y-3">
                         <div>
-                          <h3 className="text-xs font-bold text-white">{g.name}</h3>
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="text-xs font-bold text-white">{g.name}</h3>
+                            {(() => {
+                              const cg = complianceGroups.find((x: any) => x.id === g.id);
+                              const risk = cg?.default_risk_level ? RISK_BADGE[cg.default_risk_level] : null;
+                              return risk ? (
+                                <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border shrink-0 ${risk.cls}`}>{risk.label}</span>
+                              ) : null;
+                            })()}
+                          </div>
                           <p className="text-[11px] text-text-secondary mt-0.5">{g.description || "Sin descripción."}</p>
+                          {(() => {
+                            const cg = complianceGroups.find((x: any) => x.id === g.id);
+                            return cg?.default_legal_basis ? (
+                              <p className="text-[10px] text-primary mt-1">{LEGAL_BASIS_SHORT[cg.default_legal_basis] || cg.default_legal_basis}</p>
+                            ) : null;
+                          })()}
                         </div>
                         <div className="text-[11px] text-text-secondary space-y-2">
                           <div>Miembros activos: <span className="text-white font-semibold">{membersCount}</span></div>
@@ -515,6 +600,154 @@ export const UsersPage: React.FC = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Compliance Tab ──────────────────────────────────────────────── */}
+      {activeTab === "compliance" && (
+        <div className="space-y-4">
+          {complianceMsg && (
+            <div className="bg-success/10 border border-success/20 text-success px-4 py-2.5 rounded-lg text-xs">{complianceMsg}</div>
+          )}
+
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Perfiles de Compliance por Equipo</h2>
+              <p className="text-xs text-text-secondary mt-0.5">Asigna base legal GDPR, nivel de riesgo AI Act y proyecto de compliance a cada equipo.</p>
+            </div>
+          </div>
+
+          {complianceGroups.length === 0 ? (
+            <div className="bg-panel border border-slate-700/40 rounded-lg p-8 text-center text-xs text-text-secondary">
+              No hay equipos creados. Crea equipos en la pestaña "Equipos, Miembros & Presupuestos".
+            </div>
+          ) : (
+            <div className="bg-panel border border-slate-700/40 rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-background/40 border-b border-slate-700/50 text-text-secondary uppercase tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3">Equipo</th>
+                    <th className="px-4 py-3">Base Legal GDPR</th>
+                    <th className="px-4 py-3">Nivel Riesgo AI Act</th>
+                    <th className="px-4 py-3">Proyecto Compliance</th>
+                    <th className="px-4 py-3">Miembros</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/30 text-white">
+                  {complianceGroups.map((g: any) => {
+                    const risk = g.default_risk_level ? RISK_BADGE[g.default_risk_level] : null;
+                    return (
+                      <tr key={g.id} className="hover:bg-background/20">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold">{g.name}</p>
+                          <p className="text-[10px] text-text-secondary mt-0.5">{g.description || "—"}</p>
+                        </td>
+                        <td className="px-4 py-3 text-primary text-[11px]">
+                          {g.default_legal_basis ? (LEGAL_BASIS_SHORT[g.default_legal_basis] || g.default_legal_basis) : <span className="text-slate-600">Sin configurar</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {risk ? (
+                            <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border ${risk.cls}`}>{risk.label}</span>
+                          ) : <span className="text-slate-600 text-[10px]">Sin configurar</span>}
+                        </td>
+                        <td className="px-4 py-3 text-[11px] text-text-secondary">
+                          {g.compliance_project_name || <span className="text-slate-600">Sin asignar</span>}
+                        </td>
+                        <td className="px-4 py-3 text-text-secondary">{g.user_count}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => openComplianceModal(g)}
+                            className="text-primary hover:underline text-xs font-semibold"
+                          >
+                            Editar perfil
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Info box */}
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
+            <strong>¿Para qué sirve esto?</strong> Cada equipo puede tener una base legal GDPR y nivel de riesgo AI Act diferente.
+            Cuando un usuario de ese equipo haga una llamada al chat, el sistema aplicará automáticamente el proyecto de compliance asignado — con sus reglas de notificación IA, revisión humana y región EU.
+          </div>
+        </div>
+      )}
+
+      {/* ── Compliance Profile Modal ─────────────────────────────────────── */}
+      {showComplianceModal && editingGroup && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-white">Perfil de Compliance — {editingGroup.name}</h2>
+
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Base legal GDPR por defecto</label>
+              <select
+                value={complianceForm.default_legal_basis}
+                onChange={e => setComplianceForm(f => ({ ...f, default_legal_basis: e.target.value }))}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+              >
+                <option value="">Sin configurar</option>
+                <option value="art_9_2_h">Art. 9(2)(h) — Prestación sanitaria</option>
+                <option value="art_9_2_j">Art. 9(2)(j) — Investigación / interés público</option>
+                <option value="art_9_2_a">Art. 9(2)(a) — Consentimiento explícito</option>
+                <option value="art_6_1_c">Art. 6(1)(c) — Obligación legal</option>
+                <option value="art_6_1_e">Art. 6(1)(e) — Misión de interés público</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Nivel de riesgo AI Act</label>
+              <select
+                value={complianceForm.default_risk_level}
+                onChange={e => setComplianceForm(f => ({ ...f, default_risk_level: e.target.value }))}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+              >
+                <option value="">Sin configurar</option>
+                <option value="minimal">Riesgo Mínimo</option>
+                <option value="limited">Riesgo Limitado</option>
+                <option value="high_risk_annex3">Alto Riesgo — Annex III (diagnóstico clínico)</option>
+                <option value="high_risk_annex1">Alto Riesgo — Annex I (MDR, producto sanitario)</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Proyecto de compliance asignado</label>
+              <select
+                value={complianceForm.compliance_project_id}
+                onChange={e => setComplianceForm(f => ({ ...f, compliance_project_id: e.target.value }))}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+              >
+                <option value="">Sin asignar (usa política global)</option>
+                {complianceProjects.map((p: any) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.is_active ? "" : " (inactivo)"}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-text-secondary mt-1">
+                Si se asigna un proyecto, sus reglas (notificación IA, región EU, revisión humana) se aplicarán a las llamadas de los miembros de este equipo.
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                onClick={() => setShowComplianceModal(false)}
+                className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveComplianceProfile}
+                className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

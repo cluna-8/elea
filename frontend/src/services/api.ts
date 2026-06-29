@@ -452,4 +452,48 @@ export const api = {
     if (!res.ok) throw new Error("Failed to fetch compliance dashboard");
     return res.json();
   },
+
+  // --- Groups compliance ---
+  getGroupsCompliance: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/groups`);
+    if (!res.ok) throw new Error("Failed to fetch groups");
+    return res.json();
+  },
+
+  updateGroupCompliance: async (groupId: string, data: { default_legal_basis?: string; default_risk_level?: string; compliance_project_id?: string | null }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/groups/${groupId}/compliance`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar perfil de compliance"); }
+    return res.json();
+  },
+
+  assignUserGroup: async (userId: string, groupId: string | null): Promise<any> => {
+    const res = await fetch(`${API_BASE}/groups/users/${userId}/group`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group_id: groupId }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al asignar grupo"); }
+    return res.json();
+  },
+
+  // --- Consent ---
+  getUserConsents: async (userId: string): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/consent/${userId}`);
+    if (!res.ok) throw new Error("Failed to fetch consents");
+    return res.json();
+  },
+
+  recordConsent: async (data: { user_id: string; consent_type: string; version?: string; notes?: string }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/consent`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al registrar consentimiento"); }
+    return res.json();
+  },
+
+  revokeConsent: async (consentId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/consent/${consentId}`, { method: "DELETE" });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al revocar consentimiento"); }
+    return res.json();
+  },
 };
