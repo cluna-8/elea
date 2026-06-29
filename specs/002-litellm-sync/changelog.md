@@ -43,4 +43,23 @@ Implementación completa de la sincronización real con el motor de IA: grupos, 
 
 ---
 
-<!-- Las sesiones de implementación se agregan aquí a medida que se van completando -->
+## Sesión 3 — 2026-06-29: Fase 6 — Polish & White-label audit
+
+### Resumen
+Corrección del pipeline de chat para forwarding de keys reales al motor, auditoría y limpieza de strings white-label en mensajes visibles al cliente.
+
+### Archivos modificados
+
+| Archivo | Cambios |
+|---------|---------|
+| `backend/src/api/chat.py` | Variables internas renombradas a `_ENGINE_URL`/`_ENGINE_MASTER_KEY`. Si la key del cliente tiene `engine_key_token`, se forwardea esa key al motor (enforcement real de budget). 4 mensajes de error client-facing limpiados de referencias al motor. |
+
+### Decisiones técnicas
+- **Forwarding selectivo**: solo keys con `engine_key_token` se forwardean al motor. Las sesiones del Playground (sin key) siguen usando el master key internamente.
+- **Variables internas**: `LITELLM_URL`/`LITELLM_KEY` renombradas a `_ENGINE_URL`/`_ENGINE_MASTER_KEY` para consistencia white-label en el código fuente.
+
+### Resultado final
+- 28/28 tasks completadas ✅
+- 0 strings con nombres de tecnología subyacente visibles al cliente
+- Frontend limpio (0 ocurrencias)
+- Backend: solo referencias en logs internos, rutas de archivo de config, y variables de entorno (infraestructura, no producto)

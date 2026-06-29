@@ -88,12 +88,12 @@
 
 **Purpose**: Asegurar consistencia, manejo de edge cases, y validar el flujo completo.
 
-- [ ] T024 Verificar que el `Authorization: Bearer sk-...` llega correctamente al motor desde nuestro endpoint de chat (`backend/src/api/chat.py`) — actualmente usa el master key, debe usar la key del cliente
-- [ ] T025 [P] Validar edge case: grupo sin `engine_team_id` al generar una key — retornar error claro al cliente sin mencionar tecnología: "Este equipo no soporta generación de keys. Recréalo para activar esta función."
-- [ ] T029 [P] Auditoría white-label: grep en todo `backend/src/` y `frontend/src/` buscando strings "litellm", "LiteLLM", "openai" en mensajes de error, nombres de campos de respuesta y logs. Corregir cualquier ocurrencia encontrada.
-- [ ] T026 [P] Validar edge case: LiteLLM devuelve `spend: null` — normalizar a `0.0` en el AIEngineClient
-- [ ] T027 Actualizar `specs/002-litellm-sync/changelog.md` con todo lo implementado, bugs encontrados y decisiones técnicas
-- [ ] T028 Commit final y merge a `master` con tag `v1.1.0`
+- [x] T024 Verificar que el `Authorization: Bearer sk-...` llega correctamente al motor desde nuestro endpoint de chat (`backend/src/api/chat.py`) — actualmente usa el master key, debe usar la key del cliente
+- [x] T025 [P] Validar edge case: grupo sin `engine_team_id` al generar una key — retornar error claro al cliente sin mencionar tecnología: "Este equipo no soporta generación de keys. Recréalo para activar esta función."
+- [x] T029 [P] Auditoría white-label: grep en todo `backend/src/` y `frontend/src/` buscando strings "litellm", "LiteLLM", "openai" en mensajes de error, nombres de campos de respuesta y logs. Corregir cualquier ocurrencia encontrada.
+- [x] T026 [P] Validar edge case: LiteLLM devuelve `spend: null` — normalizar a `0.0` en el AIEngineClient
+- [x] T027 Actualizar `specs/002-litellm-sync/changelog.md` con todo lo implementado, bugs encontrados y decisiones técnicas
+- [x] T028 Commit final y merge a `master` con tag `v1.1.0`
 
 ---
 
