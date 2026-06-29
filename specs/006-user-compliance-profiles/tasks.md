@@ -31,9 +31,9 @@
 
 - [x] **T-019** `frontend/src/pages/UsersPage.tsx`: selector de grupo en modal de crear usuario + columna grupo en tabla
 - [x] **T-020** Sección "Grupos" en `UsersPage.tsx`: tabla de grupos con proyecto de compliance + miembros
-- [ ] **T-021** `CompliancePage.tsx` pestaña DSR: botón "Exportar datos" por solicitud individual
-- [ ] **T-022** Añadir pestaña "Consentimientos" en `CompliancePage.tsx`: tabla por usuario + formulario nuevo
-- [ ] **T-023** Panel DPO: tarjeta de distribución de propósitos de tratamiento (clínico / admin / investigación)
+- [x] **T-021** `CompliancePage.tsx` pestaña DSR: botón "Exportar datos" por solicitud individual
+- [x] **T-022** Añadir pestaña "Consentimientos" en `CompliancePage.tsx`: tabla por usuario + formulario nuevo
+- [x] **T-023** Panel DPO: tarjeta de distribución de propósitos de tratamiento (clínico / admin / investigación)
 - [x] **T-024** `frontend/src/services/api.ts`: métodos para grupos, consentimientos, exportación DSR y reports
 
 ## Fase 5 — Docs y Git
