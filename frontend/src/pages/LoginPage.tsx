@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Shield, Lock, User, AlertCircle, Sparkles } from "lucide-react";
+import { Lock, User, AlertCircle, Sparkles } from "lucide-react";
+import logoImg from "../logo.png";
 import { api } from "../services/api";
 import { authStorage, SessionUser } from "../services/auth";
 
@@ -36,11 +37,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
       <div className="w-full max-w-md bg-panel border border-slate-700/50 rounded-2xl p-8 shadow-2xl backdrop-blur-md relative">
         <div className="flex flex-col items-center text-center mb-8">
-          <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center border border-primary/20 mb-4">
-            <Shield className="w-8 h-8 text-primary animate-pulse" />
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-wide">BASA Secure AI Gateway</h1>
-          <p className="text-sm text-text-secondary mt-1">by basa dev</p>
+          <img src={logoImg} alt="Basa Secure AI Gateway" className="h-14 w-auto object-contain mb-4" />
+          <p className="text-sm text-text-secondary mt-1">Pasarela segura de IA sanitaria</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">

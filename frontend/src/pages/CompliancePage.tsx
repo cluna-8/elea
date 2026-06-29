@@ -307,6 +307,41 @@ export const CompliancePage: React.FC = () => {
             </div>
           </div>
 
+          {/* ── Human Review Toggle ──────────────────────────────────── */}
+          <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-3">
+            <div>
+              <p className="text-sm font-bold text-white">Control de Revisión Humana</p>
+              <p className="text-[10px] text-text-secondary mt-0.5">Activar o desactivar la cola de revisión por proyecto. Cuando está activo, cada respuesta de IA requiere validación antes de considerarse definitiva.</p>
+            </div>
+            {projects.filter((p: any) => p.is_active).length === 0 ? (
+              <p className="text-xs text-text-secondary">No hay proyectos activos.</p>
+            ) : (
+              <div className="space-y-2">
+                {projects.filter((p: any) => p.is_active).map((p: any) => (
+                  <div key={p.id} className="flex items-center justify-between bg-background/40 border border-slate-700/30 rounded-lg px-4 py-2.5">
+                    <div>
+                      <p className="text-xs font-semibold text-white">{p.name}</p>
+                      <p className="text-[10px] text-text-secondary">{RISK_LABELS[p.ai_act_risk_level]?.label || p.ai_act_risk_level}</p>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.updateComplianceProject(p.id, { ...p, human_review_required: !p.human_review_required });
+                          showMsg(p.human_review_required ? "Revisión humana desactivada." : "Revisión humana activada.");
+                          loadAll();
+                        } catch (e: any) { showMsg(e.message, true); }
+                      }}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${p.human_review_required ? "bg-warning" : "bg-slate-700"}`}
+                      title={p.human_review_required ? "Desactivar revisión humana" : "Activar revisión humana"}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${p.human_review_required ? "translate-x-4" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* ── Export buttons ───────────────────────────────────────── */}
           <div className="bg-panel border border-slate-700/40 rounded-xl p-4">
             <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Exportar documentos GDPR</p>

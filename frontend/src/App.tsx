@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import logoImg from "./logo.png";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { CompliancePage } from "./pages/CompliancePage";
@@ -50,16 +51,9 @@ export const App: React.FC = () => {
       {/* Sidebar Navigation */}
       <aside className="w-64 bg-panel border-r border-slate-700/50 flex flex-col justify-between shrink-0">
         <div className="flex flex-col flex-1">
-          {/* Logo / Branding (White label - by basa dev) */}
-          <div className="p-6 border-b border-slate-700/50">
-            <div>
-              <h1 className="font-bold text-white tracking-tight leading-none text-md">
-                Basa Secure AI Gateway
-              </h1>
-              <span className="text-[10px] text-primary font-semibold tracking-wider uppercase font-mono mt-1.5 block">
-                by basa dev
-              </span>
-            </div>
+          {/* Logo / Branding */}
+          <div className="p-5 border-b border-slate-700/50">
+            <img src={logoImg} alt="Basa Secure AI Gateway" className="h-10 w-auto object-contain" />
           </div>
 
           {/* Navigation Links */}
