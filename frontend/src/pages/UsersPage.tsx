@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { api, User, Budget, Group } from "../services/api";
+import { api, User, Budget, Group, SpendInfo } from "../services/api";
 
 interface VirtualKey {
   id: string;
@@ -17,6 +17,8 @@ export const UsersPage: React.FC = () => {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [keys, setKeys] = useState<VirtualKey[]>([]);
+  const [groupSpend, setGroupSpend] = useState<Record<string, SpendInfo>>({});
+  const [keySpend, setKeySpend] = useState<Record<string, SpendInfo>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +42,8 @@ export const UsersPage: React.FC = () => {
   const [keyName, setKeyName] = useState("");
   const [keyUserId, setKeyUserId] = useState("");
   const [keyGroupId, setKeyGroupId] = useState("");
+  const [keyMaxBudget, setKeyMaxBudget] = useState("");
+  const [keyBudgetDuration, setKeyBudgetDuration] = useState("30d");
 
   const [budgetUserId, setBudgetUserId] = useState("");
   const [budgetGroupId, setBudgetGroupId] = useState("");
@@ -56,13 +60,38 @@ export const UsersPage: React.FC = () => {
         api.getUsers(),
         api.getBudgets(),
         api.getGroups(),
-        api.getKeys()
+        api.getKeys(),
       ]);
       setUsers(fetchedUsers);
       setBudgets(fetchedBudgets);
       setGroups(fetchedGroups);
       setKeys(fetchedKeys);
       setError(null);
+
+      // Fetch real spend for groups and keys that have engine IDs
+      const spendResults = await Promise.allSettled([
+        ...fetchedGroups
+          .filter((g) => g.engine_team_id)
+          .map((g) => api.getGroupSpend(g.id).then((s) => ({ id: g.id, spend: s }))),
+        ...fetchedKeys
+          .filter((k: any) => k.engine_key_token)
+          .map((k: any) => api.getKeySpend(k.id).then((s) => ({ id: k.id, spend: s }))),
+      ]);
+
+      const newGroupSpend: Record<string, SpendInfo> = {};
+      const newKeySpend: Record<string, SpendInfo> = {};
+
+      spendResults.forEach((r) => {
+        if (r.status === "fulfilled") {
+          const { id, spend } = r.value as { id: string; spend: SpendInfo };
+          const isGroup = fetchedGroups.some((g) => g.id === id);
+          if (isGroup) newGroupSpend[id] = spend;
+          else newKeySpend[id] = spend;
+        }
+      });
+
+      setGroupSpend(newGroupSpend);
+      setKeySpend(newKeySpend);
     } catch (err) {
       setError("Error al cargar datos de la pasarela.");
     } finally {
@@ -123,13 +152,17 @@ export const UsersPage: React.FC = () => {
       const payload: any = { name: keyName };
       if (keyUserId) payload.user_id = keyUserId;
       if (keyGroupId) payload.group_id = keyGroupId;
+      if (keyMaxBudget) payload.max_budget = parseFloat(keyMaxBudget);
+      if (keyBudgetDuration) payload.budget_duration = keyBudgetDuration;
 
       const res = await api.createKey(payload);
-      setGeneratedKey(res.key);
+      setGeneratedKey(res.plain_key);
       setShowKeyModal(false);
       setKeyName("");
       setKeyUserId("");
       setKeyGroupId("");
+      setKeyMaxBudget("");
+      setKeyBudgetDuration("30d");
       await fetchData();
     } catch (err) {
       alert("Error al generar la llave virtual.");
@@ -255,7 +288,10 @@ export const UsersPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {groups.map((g) => {
                     const membersCount = users.filter((u) => u.group_id === g.id).length;
-                    const budget = budgets.find((b) => b.group_id === g.id);
+                    const spend = groupSpend[g.id];
+                    const spendPercent = spend?.spend_usd != null && spend?.max_budget
+                      ? Math.min(100, (spend.spend_usd / spend.max_budget) * 100)
+                      : null;
 
                     return (
                       <div key={g.id} className="border border-slate-700/40 bg-background/15 rounded p-4 space-y-3">
@@ -263,18 +299,29 @@ export const UsersPage: React.FC = () => {
                           <h3 className="text-xs font-bold text-white">{g.name}</h3>
                           <p className="text-[11px] text-text-secondary mt-0.5">{g.description || "Sin descripción."}</p>
                         </div>
-                        <div className="text-[11px] text-text-secondary space-y-1">
+                        <div className="text-[11px] text-text-secondary space-y-2">
                           <div>Miembros activos: <span className="text-white font-semibold">{membersCount}</span></div>
                           <div>
-                            Presupuesto mensual:{" "}
-                            {budget ? (
-                              <span className="text-success font-bold font-mono">
-                                ${Number(budget.current_spend_usd).toFixed(2)} / ${Number(budget.max_spend_usd).toFixed(2)}
+                            Consumo real:{" "}
+                            {spend?.spend_usd != null ? (
+                              <span className={`font-bold font-mono ${spendPercent! > 90 ? "text-danger" : spendPercent! > 70 ? "text-warning" : "text-success"}`}>
+                                ${spend.spend_usd.toFixed(4)}
+                                {spend.max_budget != null && ` / $${spend.max_budget.toFixed(2)}`}
                               </span>
                             ) : (
-                              <span className="text-slate-500 font-mono">No asignado</span>
+                              <span className="text-slate-500 font-mono">
+                                {g.engine_team_id ? "Cargando..." : "Sin presupuesto activo"}
+                              </span>
                             )}
                           </div>
+                          {spendPercent != null && (
+                            <div className="w-full bg-slate-800 rounded-full h-1 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${spendPercent > 90 ? "bg-danger" : spendPercent > 70 ? "bg-warning" : "bg-primary"}`}
+                                style={{ width: `${spendPercent}%` }}
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -409,6 +456,7 @@ export const UsersPage: React.FC = () => {
                     <th className="p-3">Nombre / Identificador</th>
                     <th className="p-3">Asociado a</th>
                     <th className="p-3">Token Preview</th>
+                    <th className="p-3">Consumo Real</th>
                     <th className="p-3">Fecha Creación</th>
                     <th className="p-3 text-right">Acciones</th>
                   </tr>
@@ -430,6 +478,19 @@ export const UsersPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="p-3 font-mono text-text-secondary text-[11px]">{k.key_preview}</td>
+                        <td className="p-3 font-mono text-xs">
+                          {(() => {
+                            const s = keySpend[k.id];
+                            if (!s || s.spend_usd == null) return <span className="text-slate-500">—</span>;
+                            const pct = s.max_budget ? Math.min(100, (s.spend_usd / s.max_budget) * 100) : null;
+                            return (
+                              <span className={pct != null && pct > 90 ? "text-danger" : pct != null && pct > 70 ? "text-warning" : "text-success"}>
+                                ${s.spend_usd.toFixed(4)}
+                                {s.max_budget != null && <span className="text-slate-500"> / ${s.max_budget.toFixed(2)}</span>}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="p-3 text-text-secondary">
                           {new Date(k.created_at).toLocaleDateString("es-AR", {
                             day: "numeric",
@@ -454,6 +515,91 @@ export const UsersPage: React.FC = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Key Creation Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 bg-background/85 backdrop-blur-sm flex justify-center items-center p-4 z-50">
+          <div className="bg-panel border border-slate-700 rounded-xl max-w-md w-full p-6 space-y-4 text-white text-xs">
+            <h3 className="text-sm font-bold uppercase tracking-wider">Generar Llave Virtual</h3>
+            <form onSubmit={handleCreateKey} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-text-secondary font-medium">Nombre de la Llave</label>
+                <input
+                  type="text"
+                  required
+                  value={keyName}
+                  onChange={(e) => setKeyName(e.target.value)}
+                  placeholder="ej: cardiologia-produccion"
+                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-text-secondary font-medium block">Equipo</span>
+                  <select
+                    value={keyGroupId}
+                    onChange={(e) => { setKeyGroupId(e.target.value); if (e.target.value) setKeyUserId(""); }}
+                    className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white"
+                  >
+                    <option value="">Seleccionar Equipo</option>
+                    {groups.filter((g) => g.engine_team_id).map((g) => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <span className="text-[10px] text-text-secondary font-medium block">O Usuario</span>
+                  <select
+                    value={keyUserId}
+                    onChange={(e) => { setKeyUserId(e.target.value); if (e.target.value) setKeyGroupId(""); }}
+                    className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white"
+                  >
+                    <option value="">Seleccionar Usuario</option>
+                    {users.filter((u) => u.engine_user_id).map((u) => (
+                      <option key={u.id} value={u.id}>{u.username}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Presupuesto Máx. (USD)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={keyMaxBudget}
+                    onChange={(e) => setKeyMaxBudget(e.target.value)}
+                    placeholder="ej: 50.00"
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Período de Reinicio</label>
+                  <select
+                    value={keyBudgetDuration}
+                    onChange={(e) => setKeyBudgetDuration(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none"
+                  >
+                    <option value="1d">Diario</option>
+                    <option value="7d">Semanal</option>
+                    <option value="30d">Mensual</option>
+                    <option value="365d">Anual</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-700/50">
+                <button type="button" onClick={() => setShowKeyModal(false)} className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-white">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={actionLoading} className="px-4 py-2 rounded bg-primary hover:bg-primary/95 text-background font-bold transition-all">
+                  {actionLoading ? "Generando..." : "Generar"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

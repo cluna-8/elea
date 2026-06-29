@@ -4,7 +4,14 @@ export interface Group {
   id: string;
   name: string;
   description?: string;
+  engine_team_id?: string;
   created_at: string;
+}
+
+export interface SpendInfo {
+  spend_usd: number | null;
+  max_budget: number | null;
+  remaining: number | null;
 }
 
 export interface User {
@@ -13,6 +20,7 @@ export interface User {
   email: string;
   role: string;
   group_id?: string;
+  engine_user_id?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -226,21 +234,48 @@ export const api = {
     return res.json();
   },
 
-  createKey: async (key: { name: string; user_id?: string; group_id?: string; expires_at?: string }): Promise<any> => {
+  createKey: async (key: {
+    name: string;
+    user_id?: string;
+    group_id?: string;
+    max_budget?: number;
+    budget_duration?: string;
+    models?: string[];
+    expires_at?: string;
+  }): Promise<any> => {
     const res = await fetch(`${API_BASE}/keys`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(key),
     });
-    if (!res.ok) throw new Error("Failed to generate key");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to generate key");
+    }
     return res.json();
   },
 
   deleteKey: async (id: string): Promise<any> => {
-    const res = await fetch(`${API_BASE}/keys/${id}`, {
-      method: "DELETE",
-    });
+    const res = await fetch(`${API_BASE}/keys/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed to revoke key");
+    return res.json();
+  },
+
+  getKeySpend: async (keyId: string): Promise<SpendInfo> => {
+    const res = await fetch(`${API_BASE}/keys/${keyId}/spend`);
+    if (!res.ok) return { spend_usd: null, max_budget: null, remaining: null };
+    return res.json();
+  },
+
+  getGroupSpend: async (groupId: string): Promise<SpendInfo> => {
+    const res = await fetch(`${API_BASE}/users/groups/${groupId}/spend`);
+    if (!res.ok) return { spend_usd: null, max_budget: null, remaining: null };
+    return res.json();
+  },
+
+  getUserSpend: async (userId: string): Promise<SpendInfo> => {
+    const res = await fetch(`${API_BASE}/users/${userId}/spend`);
+    if (!res.ok) return { spend_usd: null, max_budget: null, remaining: null };
     return res.json();
   },
 

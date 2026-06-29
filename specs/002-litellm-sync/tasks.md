@@ -29,9 +29,9 @@
 
 **Independent Test**: Crear un grupo "Cardiología" via la UI o Swagger, luego llamar a `GET litellm:4000/team/info?team_id=<engine_team_id>` y verificar que existe en LiteLLM.
 
-- [ ] T007 [US1] Modificar `create_group` en `backend/src/api/users.py` — después de guardar en DB, llamar a `AIEngineClient.create_team(name, max_budget)` y actualizar el registro con el `engine_team_id` devuelto
-- [ ] T008 [US1] Agregar manejo de error: si LiteLLM falla al crear el team, hacer rollback del grupo en nuestra DB y retornar HTTP 503
-- [ ] T009 [US1] Actualizar `GroupResponse` schema para incluir `engine_team_id` en la respuesta de la API
+- [x] T007 [US1] Modificar `create_group` en `backend/src/api/users.py` — después de guardar en DB, llamar a `AIEngineClient.create_team(name, max_budget)` y actualizar el registro con el `engine_team_id` devuelto
+- [x] T008 [US1] Agregar manejo de error: si LiteLLM falla al crear el team, hacer rollback del grupo en nuestra DB y retornar HTTP 503
+- [x] T009 [US1] Actualizar `GroupResponse` schema para incluir `engine_team_id` en la respuesta de la API
 
 **Checkpoint**: Crear un grupo via Swagger crea el team en LiteLLM y devuelve `engine_team_id` en la respuesta.
 
@@ -43,11 +43,11 @@
 
 **Independent Test**: Generar una key via UI, usarla en un `curl` contra `POST /api/v1/chat/completions` y verificar que la request se procesa. Luego revocarla y verificar que retorna 401.
 
-- [ ] T010 [US1] Refactorizar `generate_key` en `backend/src/api/keys.py` — reemplazar la generación local por llamada a `AIEngineClient.generate_key(name, team_id, user_id, max_budget, budget_duration, models)`
-- [ ] T011 [US1] La key `sk-...` devuelta por LiteLLM se muestra una sola vez en la respuesta. En DB se guarda: `key_hash` (SHA-256 de la sk-...), `key_preview` (sk-...últimos6), `engine_key_token` (primeros 10 chars para referenciarla en LiteLLM)
-- [ ] T012 [US1] Agregar manejo de error: si falla el guardado en DB después de crear la key en LiteLLM, intentar revocar la key en LiteLLM (rollback best-effort)
-- [ ] T013 [US4] Refactorizar `revoke_key` en `backend/src/api/keys.py` — antes de eliminar de nuestra DB, llamar a `AIEngineClient.delete_key(engine_key_token)`. Si LiteLLM falla, igual eliminar de nuestra DB (la key ya no será aceptada por nuestra capa de auth)
-- [ ] T014 [US1] Actualizar el schema de respuesta de generación de key para incluir `plain_key` (la sk-... real) en el campo existente — sin cambios en el contrato de la API
+- [x] T010 [US1] Refactorizar `generate_key` en `backend/src/api/keys.py` — reemplazar la generación local por llamada a `AIEngineClient.generate_key(name, team_id, user_id, max_budget, budget_duration, models)`
+- [x] T011 [US1] La key `sk-...` devuelta por LiteLLM se muestra una sola vez en la respuesta. En DB se guarda: `key_hash` (SHA-256 de la sk-...), `key_preview` (sk-...últimos6), `engine_key_token` (primeros 10 chars para referenciarla en LiteLLM)
+- [x] T012 [US1] Agregar manejo de error: si falla el guardado en DB después de crear la key en LiteLLM, intentar revocar la key en LiteLLM (rollback best-effort)
+- [x] T013 [US4] Refactorizar `revoke_key` en `backend/src/api/keys.py` — antes de eliminar de nuestra DB, llamar a `AIEngineClient.delete_key(engine_key_token)`. Si LiteLLM falla, igual eliminar de nuestra DB (la key ya no será aceptada por nuestra capa de auth)
+- [x] T014 [US1] Actualizar el schema de respuesta de generación de key para incluir `plain_key` (la sk-... real) en el campo existente — sin cambios en el contrato de la API
 
 **Checkpoint**: Generar una key via Swagger devuelve una `sk-...` real. Usarla en curl procesa la request. Revocarla hace que LiteLLM retorne 401.
 
@@ -59,9 +59,9 @@
 
 **Independent Test**: Crear un usuario "dr.garcia@hospital.es" via UI, luego llamar a `GET litellm:4000/user/info?user_id=<engine_user_id>` y verificar que existe.
 
-- [ ] T015 [US3] Modificar `create_user` en `backend/src/api/users.py` — llamar a `AIEngineClient.create_user(user_id, email)` y guardar el `engine_user_id` devuelto
-- [ ] T016 [US3] Agregar manejo de error: si LiteLLM falla al crear el usuario, hacer rollback y retornar HTTP 503
-- [ ] T017 [US3] Actualizar `UserResponse` schema para incluir `engine_user_id` en la respuesta
+- [x] T015 [US3] Modificar `create_user` en `backend/src/api/users.py` — llamar a `AIEngineClient.create_user(user_id, email)` y guardar el `engine_user_id` devuelto
+- [x] T016 [US3] Agregar manejo de error: si LiteLLM falla al crear el usuario, hacer rollback y retornar HTTP 503
+- [x] T017 [US3] Actualizar `UserResponse` schema para incluir `engine_user_id` en la respuesta
 
 **Checkpoint**: Crear un usuario via Swagger crea también el usuario en LiteLLM.
 
@@ -73,12 +73,12 @@
 
 **Independent Test**: Procesar 2-3 requests desde el Playground, abrir la página de Usuarios y verificar que el gasto es mayor a $0.00.
 
-- [ ] T018 [P] [US2] Agregar endpoint `GET /api/v1/keys/{key_id}/spend` en `backend/src/api/keys.py` — lee `engine_key_token` de DB y llama a `AIEngineClient.get_key_info(token)`, retorna `{spend_usd, max_budget, remaining}`
-- [ ] T019 [P] [US2] Agregar endpoint `GET /api/v1/groups/{group_id}/spend` en `backend/src/api/users.py` — llama a `AIEngineClient.get_team_info(engine_team_id)`, retorna `{spend_usd, max_budget, remaining}`
-- [ ] T020 [P] [US2] Agregar endpoint `GET /api/v1/users/{user_id}/spend` en `backend/src/api/users.py` — llama a `AIEngineClient.get_user_info(engine_user_id)`
-- [ ] T021 [US2] Actualizar `frontend/src/services/api.ts` — agregar `getKeySpend(keyId)`, `getGroupSpend(groupId)`, `getUserSpend(userId)`
-- [ ] T022 [US2] Actualizar `frontend/src/pages/UsersPage.tsx` — agregar columna "Gasto actual" con barra de progreso (spend/max_budget %) y colores: verde < 70%, amarillo 70-90%, rojo > 90%
-- [ ] T023 [US2] En `UsersPage.tsx`, los registros legacy (sin `engine_team_id`) muestran `-` en la columna de gasto sin errores
+- [x] T018 [P] [US2] Agregar endpoint `GET /api/v1/keys/{key_id}/spend` en `backend/src/api/keys.py` — lee `engine_key_token` de DB y llama a `AIEngineClient.get_key_info(token)`, retorna `{spend_usd, max_budget, remaining}`
+- [x] T019 [P] [US2] Agregar endpoint `GET /api/v1/groups/{group_id}/spend` en `backend/src/api/users.py` — llama a `AIEngineClient.get_team_info(engine_team_id)`, retorna `{spend_usd, max_budget, remaining}`
+- [x] T020 [P] [US2] Agregar endpoint `GET /api/v1/users/{user_id}/spend` en `backend/src/api/users.py` — llama a `AIEngineClient.get_user_info(engine_user_id)`
+- [x] T021 [US2] Actualizar `frontend/src/services/api.ts` — agregar `getKeySpend(keyId)`, `getGroupSpend(groupId)`, `getUserSpend(userId)`
+- [x] T022 [US2] Actualizar `frontend/src/pages/UsersPage.tsx` — agregar columna "Gasto actual" con barra de progreso (spend/max_budget %) y colores: verde < 70%, amarillo 70-90%, rojo > 90%
+- [x] T023 [US2] En `UsersPage.tsx`, los registros legacy (sin `engine_team_id`) muestran `-` en la columna de gasto sin errores
 
 **Checkpoint**: La UI muestra gasto real en la página de Usuarios después de procesar requests en el Playground.
 
