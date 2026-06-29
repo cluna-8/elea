@@ -2,13 +2,14 @@ import React, { useState } from "react";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { CompliancePage } from "./pages/CompliancePage";
+import { DocsPage } from "./pages/DocsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 
-type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models";
+type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models" | "docs";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -22,6 +23,7 @@ export const App: React.FC = () => {
     { id: "security", name: "Seguridad y Guardianes" },
     { id: "compliance", name: "Políticas de Cumplimiento" },
     { id: "audit", name: "Logs de Auditoría" },
+    { id: "docs", name: "Documentación" },
   ];
 
   const handleLogout = () => {
@@ -102,6 +104,7 @@ export const App: React.FC = () => {
         {currentPage === "security" && <SecurityPage />}
         {currentPage === "compliance" && <CompliancePage />}
         {currentPage === "audit" && <AuditPage />}
+        {currentPage === "docs" && <DocsPage />}
       </main>
     </div>
   );
