@@ -14,6 +14,7 @@ from ..database import get_db
 from ..models.user import User
 from ..models.policy import SecurityPolicy
 from ..models.guardian import Guardian
+from ..models.audit import AuditLog
 from ..models.compliance import ComplianceProject, HumanReview
 from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
