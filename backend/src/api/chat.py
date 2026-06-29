@@ -56,10 +56,16 @@ def get_or_create_default_user(db: Session) -> User:
         db.refresh(user)
     return user
 
+HUMAN_REVIEW_FLAG_ES = (
+    "⚠️ **Pendiente de validación sanitaria.** Esta respuesta ha sido generada por inteligencia artificial "
+    "y está siendo revisada por un profesional sanitario. No aplique estas indicaciones hasta recibir confirmación."
+)
+
 @router.post("/completions")
 async def chat_completions(
-    request: ChatRequest, 
+    request: ChatRequest,
     authorization: Optional[str] = Header(None),
+    x_processing_purpose: Optional[str] = Header(None, alias="X-Processing-Purpose"),
     db: Session = Depends(get_db)
 ):
     start_time = time.time()
@@ -158,8 +164,46 @@ async def chat_completions(
     if routed_model == request.model:
         routed_model = RoutingService.get_route_model(request.model, is_gdpr_active)
 
-    # 5b. Compliance checks (GDPR/AI Act) — add ≤5ms, run before LLM call
-    active_projects = db.query(ComplianceProject).filter(ComplianceProject.is_active == True).all()
+    # 5b. Compliance — resolve project via hierarchy: key → user → group → global
+    from datetime import timedelta
+    from ..models.budget import APIKey as APIKeyModel
+
+    resolved_project = None
+    # 1. Key-level
+    if api_key_obj and getattr(api_key_obj, "compliance_project_id", None):
+        resolved_project = db.query(ComplianceProject).filter(
+            ComplianceProject.id == api_key_obj.compliance_project_id,
+            ComplianceProject.is_active == True
+        ).first()
+    # 2. User-level
+    if not resolved_project and user and getattr(user, "compliance_project_id", None):
+        resolved_project = db.query(ComplianceProject).filter(
+            ComplianceProject.id == user.compliance_project_id,
+            ComplianceProject.is_active == True
+        ).first()
+    # 3. Group-level
+    if not resolved_project and group and getattr(group, "compliance_project_id", None):
+        resolved_project = db.query(ComplianceProject).filter(
+            ComplianceProject.id == group.compliance_project_id,
+            ComplianceProject.is_active == True
+        ).first()
+    # 4. Global fallback
+    active_projects = [resolved_project] if resolved_project else \
+        db.query(ComplianceProject).filter(ComplianceProject.is_active == True).all()
+
+    _applied_project_name = resolved_project.name if resolved_project else None
+    _applied_risk_level = (
+        getattr(api_key_obj, "risk_level", None) or  # not stored on key, but future-proof
+        (getattr(user, "risk_level", None) if user else None) or
+        (getattr(group, "default_risk_level", None) if group else None)
+    )
+    _applied_legal_basis = (
+        (getattr(user, "legal_basis", None) if user else None) or
+        (getattr(group, "default_legal_basis", None) if group else None)
+    )
+    _user_group_id = group.id if group else None
+
+    # EU region enforcement
     eu_safe_prefixes = ("azure-", "bedrock-", "vertex-", "ollama-")
     for proj in active_projects:
         if proj.eu_region_required and not any(routed_model.startswith(p) for p in eu_safe_prefixes):
@@ -169,14 +213,14 @@ async def chat_completions(
                 detail="La política de residencia de datos exige procesamiento en la UE. El modelo seleccionado no está disponible para esta solicitud."
             )
 
-    # Determine if AI disclosure should be delivered this session
+    # Determine if AI disclosure and human review apply
     _deliver_disclosure = False
     _disclosure_message = None
     _review_token_val = None
+    _human_review_flag = False   # hybrid model: flag without blocking
+
     for proj in active_projects:
         if proj.ai_disclosure_enabled and not _deliver_disclosure:
-            from datetime import timedelta
-            from sqlalchemy import func
             one_hour_ago = datetime.utcnow() - timedelta(hours=1)
             recent = db.query(AuditLog).filter(
                 AuditLog.api_key_id == (api_key_obj.id if api_key_obj else None),
@@ -188,6 +232,7 @@ async def chat_completions(
                 _disclosure_message = proj.ai_disclosure_message or DEFAULT_DISCLOSURE_ES
         if proj.human_review_required and not _review_token_val:
             _review_token_val = uuid.uuid4()
+            _human_review_flag = True
 
     # 6. Layer 3: LLM Execution with active guardrails
     llm_raw_response = ""
@@ -336,9 +381,13 @@ async def chat_completions(
     # 7. Layer 4: Unmasking
     final_response = PresidioService.unmask_text(llm_raw_response, placeholder_map)
 
-    # Apply AI disclosure (prepend to final response if this is a new session)
+    # Apply AI disclosure (prepend if this is a new session)
     if _deliver_disclosure and _disclosure_message:
         final_response = f"ℹ️ {_disclosure_message}\n\n{final_response}"
+
+    # Hybrid man-in-the-loop: append flag at the end (response delivered, not blocked)
+    if _human_review_flag:
+        final_response = f"{final_response}\n\n---\n{HUMAN_REVIEW_FLAG_ES}"
 
     # 8. Logging and Budget Update
     latency_ms = int((time.time() - start_time) * 1000)
@@ -370,6 +419,8 @@ async def chat_completions(
         guardian_events=guardian_events,
         review_token=_review_token_val,
         ai_disclosure_delivered=_deliver_disclosure,
+        processing_purpose=x_processing_purpose,
+        user_group_id=_user_group_id,
     )
 
     # Link review record to audit log
@@ -410,7 +461,14 @@ async def chat_completions(
                 "gdpr_active": is_gdpr_active,
                 "routed_model": routed_model,
                 "ai_act_status": compliance_result["status"],
-                "ai_act_reason": compliance_result["reason"]
+                "ai_act_reason": compliance_result["reason"],
+                "applied_project": _applied_project_name,
+                "applied_risk_level": _applied_risk_level,
+                "applied_legal_basis": _applied_legal_basis,
+                "ai_disclosure_delivered": _deliver_disclosure,
+                "human_review_pending": _human_review_flag,
+                "review_token": str(_review_token_val) if _review_token_val else None,
+                "processing_purpose": x_processing_purpose,
             },
             "layer_llm": {
                 "model_used": routed_model,
