@@ -393,44 +393,93 @@ export const CompliancePage: React.FC = () => {
                 No hay respuestas pendientes de revisión.
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-700/40">
-                      <th className="text-left py-2 px-3 text-text-secondary font-medium">Fecha</th>
-                      <th className="text-left py-2 px-3 text-text-secondary font-medium">Token de revisión</th>
-                      <th className="text-left py-2 px-3 text-text-secondary font-medium">Audit Log</th>
-                      <th className="text-right py-2 px-3 text-text-secondary font-medium">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/20">
-                    {pendingReviews.map((r: any) => (
-                      <tr key={r.review_token} className="hover:bg-slate-800/30 transition-colors">
-                        <td className="py-2.5 px-3 text-text-secondary whitespace-nowrap">
-                          {r.created_at ? new Date(r.created_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-white">
-                          {r.review_token ? `${r.review_token.slice(0, 8)}…` : "—"}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-text-secondary">
-                          {r.audit_log_id ? `${r.audit_log_id.slice(0, 8)}…` : "—"}
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <div className="flex gap-2 justify-end">
-                            <button onClick={() => openReviewModal(r.review_token, "approved")}
-                              className="px-3 py-1 text-[10px] font-semibold rounded border border-success/40 text-success bg-success/10 hover:bg-success/20 transition-colors">
-                              ✓ Aprobar
-                            </button>
-                            <button onClick={() => openReviewModal(r.review_token, "rejected")}
-                              className="px-3 py-1 text-[10px] font-semibold rounded border border-danger/40 text-danger bg-danger/10 hover:bg-danger/20 transition-colors">
-                              ✗ Rechazar
-                            </button>
+              <div className="space-y-3">
+                {pendingReviews.map((r: any) => {
+                  const ctx = r.context;
+                  const PURPOSE_LABELS: Record<string, string> = {
+                    clinical_decision: "Decisión clínica",
+                    administrative: "Administrativo",
+                    research: "Investigación",
+                    training: "Formación",
+                  };
+                  return (
+                    <div key={r.review_token} className="border border-warning/20 bg-warning/5 rounded-lg overflow-hidden">
+                      {/* Header row */}
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-warning/10">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="text-[10px] font-mono text-text-secondary">
+                            {r.created_at ? new Date(r.created_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                          </span>
+                          {ctx?.processing_purpose && (
+                            <span className="text-[9px] px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary font-semibold">
+                              {PURPOSE_LABELS[ctx.processing_purpose] || ctx.processing_purpose}
+                            </span>
+                          )}
+                          {ctx?.pii_detected && (
+                            <span className="text-[9px] px-2 py-0.5 rounded bg-warning/10 border border-warning/30 text-warning font-semibold">
+                              PHI detectado
+                            </span>
+                          )}
+                          {ctx?.guardian_events?.length > 0 && (
+                            <span className="text-[9px] px-2 py-0.5 rounded bg-danger/10 border border-danger/30 text-danger font-semibold">
+                              {ctx.guardian_events.length} evento{ctx.guardian_events.length > 1 ? "s" : ""} guardián
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button onClick={() => openReviewModal(r.review_token, "approved")}
+                            className="px-3 py-1 text-[10px] font-semibold rounded border border-success/40 text-success bg-success/10 hover:bg-success/20 transition-colors">
+                            ✓ Aprobar
+                          </button>
+                          <button onClick={() => openReviewModal(r.review_token, "rejected")}
+                            className="px-3 py-1 text-[10px] font-semibold rounded border border-danger/40 text-danger bg-danger/10 hover:bg-danger/20 transition-colors">
+                            ✗ Rechazar
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Context detail */}
+                      <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px]">
+                        <div>
+                          <p className="text-text-secondary uppercase tracking-wider mb-0.5">Modelo</p>
+                          <p className="text-white font-mono">{ctx?.model || "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-text-secondary uppercase tracking-wider mb-0.5">Tokens (prompt / resp.)</p>
+                          <p className="text-white font-mono">
+                            {ctx?.prompt_tokens ?? "—"} / {ctx?.completion_tokens ?? "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-text-secondary uppercase tracking-wider mb-0.5">Estado compliance</p>
+                          <p className={`font-semibold ${ctx?.compliance_status === "passed" ? "text-success" : "text-warning"}`}>
+                            {ctx?.compliance_status || "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-text-secondary uppercase tracking-wider mb-0.5">Disclosure IA</p>
+                          <p className={ctx?.ai_disclosure_delivered ? "text-success" : "text-slate-500"}>
+                            {ctx?.ai_disclosure_delivered ? "Entregado" : "No entregado"}
+                          </p>
+                        </div>
+                        {ctx?.masked_entities?.length > 0 && (
+                          <div className="col-span-2 md:col-span-4">
+                            <p className="text-text-secondary uppercase tracking-wider mb-0.5">Entidades enmascaradas</p>
+                            <p className="text-warning font-mono">
+                              {ctx.masked_entities.map((e: any) => `${e.type} ×${e.count}`).join(" · ")}
+                            </p>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        )}
+                        <div className="col-span-2 md:col-span-4">
+                          <p className="text-text-secondary uppercase tracking-wider mb-0.5">Nota sobre el contenido</p>
+                          <p className="text-slate-400 italic">
+                            El texto del prompt y la respuesta no se almacenan (GDPR Art. 5). La validación se basa en los metadatos de contexto y en el conocimiento clínico del revisor sobre la sesión.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

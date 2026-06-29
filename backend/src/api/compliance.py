@@ -284,15 +284,27 @@ def submit_review(review_token: UUID, payload: HumanReviewSubmit, db: Session = 
 
 @router.get("/review/pending")
 def list_pending_reviews(db: Session = Depends(get_db)):
-    pending = db.query(HumanReview).filter(HumanReview.reviewed_at == None).all()
-    return [
-        {
+    pending = db.query(HumanReview).filter(HumanReview.reviewed_at == None).order_by(HumanReview.created_at.desc()).all()
+    result = []
+    for r in pending:
+        log = db.query(AuditLog).filter(AuditLog.id == r.audit_log_id).first() if r.audit_log_id else None
+        result.append({
             "review_token": str(r.review_token),
             "audit_log_id": str(r.audit_log_id) if r.audit_log_id else None,
             "created_at": r.created_at,
-        }
-        for r in pending
-    ]
+            "context": {
+                "model": log.model if log else None,
+                "processing_purpose": log.processing_purpose if log else None,
+                "prompt_tokens": log.prompt_tokens if log else None,
+                "completion_tokens": log.completion_tokens if log else None,
+                "pii_detected": log.pii_detected if log else False,
+                "masked_entities": log.masked_entities if log else [],
+                "compliance_status": log.compliance_status if log else None,
+                "guardian_events": log.guardian_events if log else [],
+                "ai_disclosure_delivered": log.ai_disclosure_delivered if log else False,
+            } if log else None,
+        })
+    return result
 
 
 # ── Retention Policies ────────────────────────────────────────────────────────
