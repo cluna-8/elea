@@ -99,12 +99,12 @@ def upgrade():
 
     # Seed default retention policies
     op.execute("""
-        INSERT INTO retention_policies (log_type, retention_days, justification)
+        INSERT INTO retention_policies (id, log_type, retention_days, justification)
         VALUES
-            ('prompt_content', 90, 'Contenido de prompts y respuestas. Período mínimo para soporte técnico y auditoría de incidencias. Revisable por el DPO según DPIA del centro.'),
-            ('usage_metadata', 365, 'Metadatos de uso (tokens, coste, modelo, timestamps). Necesario para auditoría de costes y análisis de rendimiento durante 12 meses.'),
-            ('security_events', 365, 'Eventos de guardianes y alertas de seguridad. Necesario para detectar patrones de ataque y cumplir requisitos ENS.'),
-            ('config_audit', 730, 'Cambios de configuración del sistema. Mínimo 24 meses para trazabilidad de decisiones administrativas. No reducible por debajo de 365 días.')
+            (gen_random_uuid(), 'prompt_content', 90, 'Contenido de prompts y respuestas. Período mínimo para soporte técnico y auditoría de incidencias. Revisable por el DPO según DPIA del centro.'),
+            (gen_random_uuid(), 'usage_metadata', 365, 'Metadatos de uso (tokens, coste, modelo, timestamps). Necesario para auditoría de costes y análisis de rendimiento durante 12 meses.'),
+            (gen_random_uuid(), 'security_events', 365, 'Eventos de guardianes y alertas de seguridad. Necesario para detectar patrones de ataque y cumplir requisitos ENS.'),
+            (gen_random_uuid(), 'config_audit', 730, 'Cambios de configuración del sistema. Mínimo 24 meses para trazabilidad de decisiones administrativas. No reducible por debajo de 365 días.')
         ON CONFLICT (log_type) DO NOTHING
     """)
 
