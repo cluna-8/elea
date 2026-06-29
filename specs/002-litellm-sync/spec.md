@@ -83,7 +83,7 @@ Como administrador, quiero poder revocar una virtual key inmediatamente si sospe
 - **LiteLLM no disponible al crear un recurso**: Si LiteLLM devuelve error al crear user/team/key, el backend NO debe persistir el registro en nuestra DB (transacción atómica: o ambos o ninguno).
 - **Key creada en LiteLLM pero falla el guardado local**: Si nuestra DB falla después de crear la key en LiteLLM, se debe intentar revocar la key en LiteLLM para evitar keys huérfanas.
 - **Gasto reportado por LiteLLM es `null`**: Si LiteLLM devuelve `spend: null` para una key nueva (sin requests), la UI debe mostrar `$0.00` sin errores.
-- **Team sin `litellm_team_id`** (registros del MVP anterior): Al consultar el gasto de un team sin `litellm_team_id`, el backend devuelve `spend: null` y la UI muestra `-` sin crashear.
+- **Team sin `engine_team_id`** (registros del MVP anterior): Al consultar el gasto de un team sin `engine_team_id`, el backend devuelve `spend: null` y la UI muestra `-` sin crashear.
 
 ---
 
@@ -91,24 +91,25 @@ Como administrador, quiero poder revocar una virtual key inmediatamente si sospe
 
 ### Functional Requirements
 
-- **FR-001**: El sistema MUST llamar a `POST /team/new` en LiteLLM al crear un grupo/equipo y persistir el `litellm_team_id` retornado.
-- **FR-002**: El sistema MUST llamar a `POST /user/new` en LiteLLM al crear un usuario y persistir el `litellm_user_id` retornado.
-- **FR-003**: El sistema MUST generar virtual keys mediante `POST /key/generate` en LiteLLM (no localmente), pasando `max_budget`, `budget_duration`, `models`, y `team_id` o `user_id`.
-- **FR-004**: El sistema MUST mostrar la key real `sk-...` devuelta por LiteLLM al usuario exactamente una vez. Solo se almacena el hash SHA-256 y el preview en nuestra DB.
-- **FR-005**: El sistema MUST revocar keys en LiteLLM (`DELETE /key/delete`) antes de eliminarlas de nuestra DB.
-- **FR-006**: El sistema MUST exponer un endpoint `GET /api/v1/keys/{key_id}/spend` que consulte `GET /key/info` en LiteLLM y retorne el gasto actual.
-- **FR-007**: El sistema MUST exponer un endpoint `GET /api/v1/users/{user_id}/spend` que consulte `GET /user/info` en LiteLLM.
-- **FR-008**: El sistema MUST exponer un endpoint `GET /api/v1/groups/{group_id}/spend` que consulte `GET /team/info` en LiteLLM.
+- **FR-001**: El sistema MUST llamar al motor de IA al crear un grupo/equipo y persistir el `engine_team_id` retornado.
+- **FR-002**: El sistema MUST llamar al motor de IA al crear un usuario y persistir el `engine_user_id` retornado.
+- **FR-003**: El sistema MUST generar virtual keys a través del motor de IA (no localmente), pasando `max_budget`, `budget_duration`, `models`, y `team_id` o `user_id`.
+- **FR-004**: El sistema MUST mostrar la key real `sk-...` devuelta por el motor al usuario exactamente una vez. Solo se almacena el hash SHA-256 y el preview en nuestra DB.
+- **FR-005**: El sistema MUST revocar keys en el motor de IA antes de eliminarlas de nuestra DB.
+- **FR-006**: El sistema MUST exponer un endpoint `GET /api/v1/keys/{key_id}/spend` que consulte el gasto real al motor y retorne `{spend_usd, max_budget, remaining}`.
+- **FR-007**: El sistema MUST exponer un endpoint `GET /api/v1/users/{user_id}/spend` que retorne el gasto del usuario.
+- **FR-008**: El sistema MUST exponer un endpoint `GET /api/v1/groups/{group_id}/spend` que retorne el gasto del equipo.
 - **FR-009**: La UI MUST mostrar el gasto real en la página de Usuarios, con barra de progreso respecto al `max_budget`.
-- **FR-010**: Si LiteLLM no está disponible durante la creación de un recurso, el sistema MUST retornar HTTP 503 y NO persistir el registro localmente.
-- **FR-011**: El `litellm/config.yaml` MUST tener habilitado `general_settings.store_model_in_db: true` y el `LITELLM_MASTER_KEY` configurado para habilitar la gestión de keys via API.
+- **FR-010**: Si el motor de IA no está disponible durante la creación de un recurso, el sistema MUST retornar HTTP 503 y NO persistir el registro localmente.
+- **FR-011**: El motor de IA MUST tener habilitada la gestión de keys via API con `store_model_in_db: true`.
+- **FR-012**: El sistema MUST ser completamente white-label. Ningún nombre de tecnología de terceros (motores de IA subyacentes, proxies, librerías) debe aparecer en: respuestas de la API, mensajes de error, logs visibles al cliente, nombres de campos en la API pública, ni en la UI. Los archivos de configuración de infraestructura interna quedan excluidos de esta regla.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Group (actualizado)**: Agrega campo `litellm_team_id: String` — el ID del team en LiteLLM, usado para consultas de gasto y generación de keys de equipo.
-- **User (actualizado)**: Agrega campo `litellm_user_id: String` — el ID del usuario en LiteLLM, usado para asociar keys personales.
-- **APIKey (actualizado)**: Agrega campo `litellm_key_token: String` — los primeros 12 caracteres de la `sk-...` real, para poder referenciarla en LiteLLM. El campo existente `key_hash` pasa a hashear la key real de LiteLLM.
-- **LiteLLMClient (nuevo servicio)**: Wrapper HTTP para la API de gestión de LiteLLM. No es una entidad de BD, es un servicio de infraestructura.
+- **Group (actualizado)**: Agrega campo `engine_team_id: String` — identificador del equipo en el motor de IA interno. Opaco para el cliente.
+- **User (actualizado)**: Agrega campo `engine_user_id: String` — identificador del usuario en el motor de IA interno. Opaco para el cliente.
+- **APIKey (actualizado)**: Agrega campo `engine_key_token: String` — referencia interna para operar sobre la key en el motor. El campo existente `key_hash` hashea la key real. Ninguno de estos campos se expone en la API pública.
+- **AIEngineClient (nuevo servicio)**: Wrapper HTTP para la API de gestión del motor de IA subyacente. No es una entidad de BD. El nombre del motor no aparece en el nombre del servicio ni en sus logs externalizados.
 
 ---
 
@@ -117,17 +118,19 @@ Como administrador, quiero poder revocar una virtual key inmediatamente si sospe
 ### Measurable Outcomes
 
 - **SC-001**: Una key generada via nuestra UI puede usarse directamente en un `curl` contra nuestro backend FastAPI (`Authorization: Bearer sk-...`) y la request se procesa correctamente.
-- **SC-002**: Con budget=$0.01 asignado via UI, LiteLLM bloquea automáticamente la siguiente request después de que el gasto supera ese límite, sin intervención de nuestro backend.
+- **SC-002**: Con budget=$0.01 asignado via UI, el motor de IA bloquea automáticamente la siguiente request después de que el gasto supera ese límite, sin intervención de nuestro backend.
 - **SC-003**: La columna "Gasto actual" en la UI de Usuarios muestra valores mayores a $0.00 después de procesar requests reales desde el Playground.
 - **SC-004**: Revocar una key via UI hace que la siguiente request con esa key retorne 401 en menos de 2 segundos.
-- **SC-005**: Cero keys huérfanas en LiteLLM — cada key en LiteLLM debe tener un registro correspondiente en nuestra DB, y viceversa.
+- **SC-005**: Cero keys huérfanas en el motor — cada key activa en el motor debe tener un registro correspondiente en nuestra DB, y viceversa.
+- **SC-006**: Ninguna respuesta de la API pública (`/api/v1/...`), mensaje de error, ni elemento de la UI contiene el nombre de ningún motor, librería o proveedor de IA subyacente.
 
 ---
 
 ## Assumptions
 
-- **LiteLLM acepta `LITELLM_MASTER_KEY`**: El master key configurado en `.env` es válido y LiteLLM está levantado con acceso a su DB antes de que el backend intente sincronizar.
-- **Registros del MVP anterior son legacy**: Los users/groups/keys creados en el MVP (feature 001) no tienen `litellm_team_id` ni `litellm_user_id`. La UI los mostrará con gasto `-` sin errores. No se migrarán automáticamente.
-- **Budget en USD**: LiteLLM trabaja con `max_budget` en USD. Los presupuestos en tokens del MVP se mantienen como información visual en nuestra UI pero no se sincronizan con LiteLLM (LiteLLM no tiene límites nativos de tokens por key en la versión OSS).
-- **El cliente usa nuestro FastAPI como proxy**: Los clientes externos envían sus keys a nuestro backend (`http://basa-gateway:8081/api/v1/chat/completions`), no directamente a LiteLLM. Esto garantiza que las capas de seguridad (PII masking, guardianes) siempre se ejecutan.
-- **LiteLLM OSS**: Se usa la versión open-source de LiteLLM, sin features Enterprise (auto-rotación de keys, SSO, etc.).
+- **Motor de IA disponible**: El motor interno está levantado y tiene acceso a su DB antes de que el backend intente sincronizar recursos.
+- **Registros del MVP anterior son legacy**: Los users/groups/keys creados en el MVP (feature 001) no tienen `engine_team_id` ni `engine_user_id`. La UI los mostrará con gasto `-` sin errores. No se migrarán automáticamente.
+- **Budget en USD**: El motor trabaja con `max_budget` en USD. Los presupuestos en tokens del MVP se mantienen como información visual en nuestra UI pero no se sincronizan con el motor (no tiene límites nativos de tokens por key en la versión OSS).
+- **El cliente usa nuestro FastAPI como proxy**: Los clientes externos envían sus keys a nuestro backend (`http://basa-gateway:8081/api/v1/chat/completions`), nunca directamente al motor interno. Esto garantiza que las capas de seguridad (PII masking, guardianes) siempre se ejecutan.
+- **Motor OSS**: Se usa la versión open-source del motor de IA, sin features Enterprise (auto-rotación de keys, SSO, etc.).
+- **Separación infraestructura / producto**: Los archivos de configuración internos (`config.yaml`, variables de entorno del servidor) pueden referenciar nombres de tecnología. Lo que no puede hacerlo es el código de la capa de producto: nombres de clases, campos de DB, respuestas de API, logs de aplicación y UI.
