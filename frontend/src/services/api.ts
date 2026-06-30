@@ -295,6 +295,12 @@ export const api = {
     });
   },
 
+  getModelsPricing: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/chat/models/pricing`, { headers: authHeaders() });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
   // --- Virtual Keys ---
   getKeys: async (): Promise<any[]> => {
     const res = await fetch(`${API_BASE}/keys`, { headers: authHeaders() });

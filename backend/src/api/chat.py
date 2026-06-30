@@ -757,3 +757,32 @@ async def set_fallback(model_name: str, body: FallbackBody):
         raise HTTPException(status_code=500, detail="Failed to write config")
 
     return {"status": "ok"}
+
+
+@router.get("/models/pricing")
+async def get_models_pricing():
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                f"{_ENGINE_URL}/model/info",
+                headers={"Authorization": f"Bearer {_ENGINE_MASTER_KEY}"}
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+
+    result = []
+    for m in data.get("data", []):
+        info = m.get("model_info", {})
+        input_cost = info.get("input_cost_per_token", 0) or 0
+        output_cost = info.get("output_cost_per_token", 0) or 0
+        result.append({
+            "model_name": m.get("model_name"),
+            "input_cost_per_million": round(float(input_cost) * 1_000_000, 4),
+            "output_cost_per_million": round(float(output_cost) * 1_000_000, 4),
+            "max_tokens": info.get("max_tokens"),
+            "max_input_tokens": info.get("max_input_tokens"),
+        })
+    return result
