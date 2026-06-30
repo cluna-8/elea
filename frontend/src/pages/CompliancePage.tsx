@@ -452,6 +452,10 @@ export const CompliancePage: React.FC = () => {
 
           {/* ── Review Queue ──────────────────────────────────────────── */}
           <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-4">
+          <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
+            <span className="text-warning font-bold shrink-0">⚠</span>
+            <span>La revisión en esta cola es un <strong className="text-white">proceso interno de supervisión</strong>. No constituye validación clínica certificada ni reemplaza la responsabilidad profesional del facultativo sobre el uso de la respuesta de IA.</span>
+          </div>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-white">Cola de Revisión Humana</p>
@@ -692,6 +696,10 @@ export const CompliancePage: React.FC = () => {
       {/* ── DSR ───────────────────────────────────────────────────────────── */}
       {tab === "dsr" && (
         <div className="space-y-6">
+          <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
+            <span className="text-warning font-bold shrink-0">⚠</span>
+            <span>Este módulo es una herramienta de <strong className="text-white">registro y seguimiento interno</strong>. No sustituye el proceso legal de respuesta al interesado ni garantiza cumplimiento automatizado del plazo de 30 días. Validar con el DPO y asesoría jurídica antes de usar en producción.</span>
+          </div>
           {/* Search */}
           <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">Búsqueda por Identificador de Sujeto</h2>
@@ -815,6 +823,10 @@ export const CompliancePage: React.FC = () => {
       {/* ── Consents ──────────────────────────────────────────────────────── */}
       {tab === "consents" && (
         <div className="space-y-4">
+          <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
+            <span className="text-warning font-bold shrink-0">⚠</span>
+            <span>Este módulo registra consentimientos para <strong className="text-white">auditoría interna</strong>. No incluye firma digital ni verificación criptográfica. El consentimiento legalmente válido debe obtenerse a través del sistema clínico origen (HIS/EMR) o proceso físico documentado.</span>
+          </div>
           <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
             <strong>GDPR Art. 7 y 9:</strong> El consentimiento para el uso de IA en datos de salud debe ser explícito, revocable en cualquier momento y documentado con marca temporal e IP de origen.
           </div>

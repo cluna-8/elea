@@ -1,174 +1,92 @@
-model_list:
-  # =========================================================================
-  # ENTERPRISE & COMPLIANT PROVIDERS (Nativamente soportados por LiteLLM)
-  # =========================================================================
-
-  # --- AWS Bedrock (Compliance corporativo y encriptación KMS) ---
-  - model_name: bedrock-claude-3-5-sonnet
-    litellm_params:
-      model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
-      aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
-      aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
-      aws_region_name: "os.environ/AWS_REGION_NAME"
-  
-  - model_name: bedrock-llama3-70b
-    litellm_params:
-      model: bedrock/meta.llama3-70b-instruct-v1:0
-      aws_access_key_id: "os.environ/AWS_ACCESS_KEY_ID"
-      aws_secret_access_key: "os.environ/AWS_SECRET_ACCESS_KEY"
-      aws_region_name: "os.environ/AWS_REGION_NAME"
-
-  # --- Google Vertex AI (GCP Compliance, residencia de datos local) ---
-  - model_name: vertex-gemini-1.5-pro
-    litellm_params:
-      model: vertex_ai/gemini-1.5-pro
-      vertex_project: "os.environ/VERTEX_PROJECT"
-      vertex_location: "os.environ/VERTEX_LOCATION"
-      vertex_credentials: "os.environ/VERTEX_CREDENTIALS"
-  
-  - model_name: vertex-gemini-1.5-flash
-    litellm_params:
-      model: vertex_ai/gemini-1.5-flash
-      vertex_project: "os.environ/VERTEX_PROJECT"
-      vertex_location: "os.environ/VERTEX_LOCATION"
-      vertex_credentials: "os.environ/VERTEX_CREDENTIALS"
-
-  # --- Azure AI Foundry (Enterprise SLA de Microsoft, HIPAA-compliant) ---
-  - model_name: azure-gpt-4o-mini
-    litellm_params:
-      model: azure/gpt-4o-mini
-      api_key: "os.environ/AZURE_API_KEY"
-      api_base: "os.environ/AZURE_API_BASE"
-      api_version: "os.environ/AZURE_API_VERSION"
-
-  # --- IBM WatsonX (Garantías de propiedad intelectual y legal) ---
-  - model_name: watsonx-granite-chat
-    litellm_params:
-      model: watsonx/ibm/granite-13b-chat-v2
-      ibm_api_key: "os.environ/WATSONX_API_KEY"
-      ibm_project_id: "os.environ/WATSONX_PROJECT_ID"
-      ibm_url: "os.environ/WATSONX_URL"
-
-  # =========================================================================
-  # STANDARD CLOUD & LOCAL PROVIDERS
-  # =========================================================================
-
-  # --- Google AI Studio (Gemini) ---
-  - model_name: gemini-2.5-flash
-    litellm_params:
-      model: gemini/gemini-2.5-flash
-      api_key: "os.environ/GEMINI_API_KEY"
-
-  - model_name: gemini-2.5-flash-lite
-    litellm_params:
-      model: gemini/gemini-2.5-flash-lite
-      api_key: "os.environ/GEMINI_API_KEY"
-
-  # --- OpenAI ---
-  - model_name: gpt-4o
-    litellm_params:
-      model: openai/gpt-4o
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  - model_name: gpt-4o-mini
-    litellm_params:
-      model: openai/gpt-4o-mini
-      api_key: "os.environ/OPENAI_API_KEY"
-
-  # --- Anthropic ---
-  - model_name: claude-3-5-sonnet
-    litellm_params:
-      model: anthropic/claude-3-5-sonnet-20240620
-      api_key: "os.environ/ANTHROPIC_API_KEY"
-
-  # --- Groq (Modelos rápidos de Llama y Mixtral) ---
-  - model_name: groq-llama3-8b
-    litellm_params:
-      model: groq/llama3-8b-8192
-      api_key: "os.environ/GROQ_API_KEY"
-
-  - model_name: groq-mixtral-8x7b
-    litellm_params:
-      model: groq/mixtral-8x7b-32768
-      api_key: "os.environ/GROQ_API_KEY"
-
-  # --- Cloudflare Workers AI (Serverless de baja latencia) ---
-  - model_name: cloudflare-llama3-8b
-    litellm_params:
-      model: cloudflare/@cf/meta/llama-3-8b-instruct
-      api_key: "os.environ/CLOUDFLARE_API_KEY"
-      api_base: "os.environ/CLOUDFLARE_API_BASE"
-
-  # --- Ollama Local (100% On-Premise, sin salida a Internet) ---
-  - model_name: ollama-llama3
-    litellm_params:
-      model: ollama/llama3
-      api_base: "http://host.docker.internal:11434"
-
-  - model_name: ollama-mistral
-    litellm_params:
-      model: ollama/mistral
-      api_base: "http://host.docker.internal:11434"
-
-# guardrails:
-#   Para activar guardianes engine-backed, descomentar el bloque correspondiente
-#   y agregar la API key al .env antes de reiniciar LiteLLM.
-#
-#   --- litellm_content_filter (requiere OPENAI_API_KEY real en .env) ---
-#   - guardrail_name: "litellm_content_filter"
-#     litellm_params:
-#       guardrail: openai_moderation
-#       api_key: "os.environ/OPENAI_API_KEY"
-#       mode: pre_call
-#       default_on: false
-#
-#   --- promptguard (requiere LAKERA_API_KEY) ---
-#   - guardrail_name: "promptguard"
-#     litellm_params:
-#       guardrail: lakera_v2
-#       api_key: "os.environ/LAKERA_API_KEY"
-#       mode: pre_call
-#       default_on: false
-#
-#   --- azure/text_moderations (requiere AZURE_CONTENT_SAFETY_API_KEY + AZURE_CONTENT_SAFETY_ENDPOINT) ---
-#   - guardrail_name: "azure/text_moderations"
-#     litellm_params:
-#       guardrail: azure/text_moderations
-#       api_key: "os.environ/AZURE_CONTENT_SAFETY_API_KEY"
-#       api_base: "os.environ/AZURE_CONTENT_SAFETY_ENDPOINT"
-#       mode: pre_call
-#       default_on: false
-#
-#   --- azure/prompt_shield (requiere AZURE_CONTENT_SAFETY_API_KEY + AZURE_CONTENT_SAFETY_ENDPOINT) ---
-#   - guardrail_name: "azure/prompt_shield"
-#     litellm_params:
-#       guardrail: azure/prompt_shield
-#       api_key: "os.environ/AZURE_CONTENT_SAFETY_API_KEY"
-#       api_base: "os.environ/AZURE_CONTENT_SAFETY_ENDPOINT"
-#       mode: pre_call
-#       default_on: false
-#
-#   --- bedrock_guardrails (requiere AWS keys + BEDROCK_GUARDRAIL_ID + BEDROCK_GUARDRAIL_VERSION) ---
-#   - guardrail_name: "bedrock_guardrails"
-#     litellm_params:
-#       guardrail: bedrock
-#       guardrailIdentifier: "os.environ/BEDROCK_GUARDRAIL_ID"
-#       guardrailVersion: "os.environ/BEDROCK_GUARDRAIL_VERSION"
-#       mode: pre_call
-#       default_on: false
-
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
 litellm_settings:
-  drop_params: true
-  set_verbose: true
   cache: true
   cache_params:
-    type: redis
-    host: "os.environ/REDIS_HOST"
+    host: os.environ/REDIS_HOST
     port: 6379
     ttl: 3600
-
+    type: redis
+  drop_params: true
+  set_verbose: true
+model_list:
+- litellm_params:
+    aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+    aws_region_name: os.environ/AWS_REGION_NAME
+    aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+    model: bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0
+  model_name: bedrock-claude-3-5-sonnet
+- litellm_params:
+    aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
+    aws_region_name: os.environ/AWS_REGION_NAME
+    aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
+    model: bedrock/meta.llama3-70b-instruct-v1:0
+  model_name: bedrock-llama3-70b
+- litellm_params:
+    model: vertex_ai/gemini-1.5-pro
+    vertex_credentials: os.environ/VERTEX_CREDENTIALS
+    vertex_location: os.environ/VERTEX_LOCATION
+    vertex_project: os.environ/VERTEX_PROJECT
+  model_name: vertex-gemini-1.5-pro
+- litellm_params:
+    model: vertex_ai/gemini-1.5-flash
+    vertex_credentials: os.environ/VERTEX_CREDENTIALS
+    vertex_location: os.environ/VERTEX_LOCATION
+    vertex_project: os.environ/VERTEX_PROJECT
+  model_name: vertex-gemini-1.5-flash
+- litellm_params:
+    api_base: os.environ/AZURE_API_BASE
+    api_key: os.environ/AZURE_API_KEY
+    api_version: os.environ/AZURE_API_VERSION
+    model: azure/gpt-4o-mini
+  model_name: azure-gpt-4o-mini
+- litellm_params:
+    ibm_api_key: os.environ/WATSONX_API_KEY
+    ibm_project_id: os.environ/WATSONX_PROJECT_ID
+    ibm_url: os.environ/WATSONX_URL
+    model: watsonx/ibm/granite-13b-chat-v2
+  model_name: watsonx-granite-chat
+- litellm_params:
+    api_key: os.environ/GEMINI_API_KEY
+    model: gemini/gemini-2.5-flash
+  model_name: gemini-2.5-flash
+- litellm_params:
+    api_key: os.environ/GEMINI_API_KEY
+    model: gemini/gemini-2.5-flash-lite
+  model_name: gemini-2.5-flash-lite
+- litellm_params:
+    api_key: os.environ/OPENAI_API_KEY
+    model: openai/gpt-4o
+  model_name: gpt-4o
+- litellm_params:
+    api_key: os.environ/OPENAI_API_KEY
+    model: openai/gpt-4o-mini
+  model_name: gpt-4o-mini
+- litellm_params:
+    api_key: os.environ/ANTHROPIC_API_KEY
+    model: anthropic/claude-3-5-sonnet-20240620
+  model_name: claude-3-5-sonnet
+- litellm_params:
+    api_key: os.environ/GROQ_API_KEY
+    model: groq/llama3-8b-8192
+  model_name: groq-llama3-8b
+- litellm_params:
+    api_key: os.environ/GROQ_API_KEY
+    model: groq/mixtral-8x7b-32768
+  model_name: groq-mixtral-8x7b
+- litellm_params:
+    api_base: os.environ/CLOUDFLARE_API_BASE
+    api_key: os.environ/CLOUDFLARE_API_KEY
+    model: cloudflare/@cf/meta/llama-3-8b-instruct
+  model_name: cloudflare-llama3-8b
+- litellm_params:
+    api_base: http://172.26.0.1:11434
+    model: ollama/gemma4:31b-cloud
+  model_name: ollama-gemma4-31b
+- litellm_params:
+    api_base: http://172.26.0.1:11434
+    model: ollama/qwen3.5:2b
+  model_name: ollama-qwen3-2b
 router_settings:
   disable_cooldowns: true
-
-general_settings:
-  master_key: "os.environ/LITELLM_MASTER_KEY"
+  fallbacks: []

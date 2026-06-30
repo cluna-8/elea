@@ -54,6 +54,15 @@ export const UsersPage: React.FC = () => {
   const [teamName, setTeamName] = useState("");
   const [teamDesc, setTeamDesc] = useState("");
 
+  // Assign group modal
+  const [assignGroupUser, setAssignGroupUser] = useState<any | null>(null);
+  const [assignGroupId, setAssignGroupId] = useState("");
+
+  // Edit budget modal
+  const [editingBudget, setEditingBudget] = useState<any | null>(null);
+  const [editBudgetUsd, setEditBudgetUsd] = useState("");
+  const [editBudgetTokens, setEditBudgetTokens] = useState("");
+
   // Per-user compliance
   const [userLegalBasis, setUserLegalBasis] = useState("");
   const [userRiskLevel, setUserRiskLevel] = useState("");
@@ -275,6 +284,34 @@ export const UsersPage: React.FC = () => {
     }
   };
 
+  const handleUpdateBudget = async () => {
+    if (!editingBudget) return;
+    try {
+      await api.updateBudget(editingBudget.id, {
+        max_spend_usd: parseFloat(editBudgetUsd),
+        max_tokens: parseInt(editBudgetTokens),
+        reset_period: editingBudget.reset_period,
+        user_id: editingBudget.user_id || undefined,
+        group_id: editingBudget.group_id || undefined,
+      });
+      setEditingBudget(null);
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || "Error al actualizar presupuesto.");
+    }
+  };
+
+  const handleAssignGroup = async () => {
+    if (!assignGroupUser) return;
+    try {
+      await api.updateUser(assignGroupUser.id, assignGroupUser, { group_id: assignGroupId || null });
+      setAssignGroupUser(null);
+      await fetchData();
+    } catch (err: any) {
+      alert(err.message || "Error al asignar equipo.");
+    }
+  };
+
   const openComplianceModal = (g: any) => {
     setEditingGroup(g);
     setComplianceForm({
@@ -471,6 +508,7 @@ export const UsersPage: React.FC = () => {
                         <th className="p-3">Rol</th>
                         <th className="p-3">Equipo</th>
                         <th className="p-3">Riesgo AI Act</th>
+                        <th className="p-3"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/30 text-xs text-white">
@@ -491,6 +529,14 @@ export const UsersPage: React.FC = () => {
                                   {risk.label}{u.risk_level ? "" : " ↑"}
                                 </span>
                               ) : <span className="text-slate-600 text-[10px]">—</span>}
+                            </td>
+                            <td className="p-3">
+                              <button
+                                onClick={() => { setAssignGroupUser(u); setAssignGroupId(u.group_id || ""); }}
+                                className="text-xs text-primary hover:underline font-semibold"
+                              >
+                                Asignar equipo
+                              </button>
                             </td>
                           </tr>
                         );
@@ -534,7 +580,15 @@ export const UsersPage: React.FC = () => {
                   <div key={b.id} className="border border-slate-700/40 rounded p-3.5 bg-background/10 space-y-2 text-xs">
                     <div className="flex justify-between items-center font-semibold">
                       <span className="text-white truncate">{targetName}</span>
-                      <span className="font-mono text-success">${Number(b.current_spend_usd).toFixed(2)} / ${Number(b.max_spend_usd).toFixed(2)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-success">${Number(b.current_spend_usd).toFixed(4)} / ${Number(b.max_spend_usd).toFixed(2)}</span>
+                        <button
+                          onClick={() => { setEditingBudget(b); setEditBudgetUsd(String(b.max_spend_usd)); setEditBudgetTokens(String(b.max_tokens)); }}
+                          className="text-[10px] text-primary hover:underline font-semibold"
+                        >
+                          Editar
+                        </button>
+                      </div>
                     </div>
                     
                     {/* Progress Bar */}
@@ -1236,6 +1290,76 @@ export const UsersPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Budget Modal ────────────────────────────────────────────── */}
+      {editingBudget && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-sm font-bold text-white">Editar presupuesto</h2>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs text-text-secondary">Límite USD</label>
+                <input
+                  type="number"
+                  step="0.001"
+                  value={editBudgetUsd}
+                  onChange={e => setEditBudgetUsd(e.target.value)}
+                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-text-secondary">Límite Tokens</label>
+                <input
+                  type="number"
+                  value={editBudgetTokens}
+                  onChange={e => setEditBudgetTokens(e.target.value)}
+                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => setEditingBudget(null)} className="px-4 py-2 rounded border border-slate-700 text-xs text-text-secondary hover:text-white transition-colors">Cancelar</button>
+              <button onClick={handleUpdateBudget} className="px-4 py-2 rounded bg-primary hover:bg-primary/95 text-background text-xs font-bold transition-all">Guardar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Assign Group Modal ───────────────────────────────────────────── */}
+      {assignGroupUser && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-sm p-6 space-y-4">
+            <h2 className="text-sm font-bold text-white">Asignar equipo — {assignGroupUser.username}</h2>
+            <div className="space-y-1">
+              <label className="text-xs text-text-secondary">Equipo</label>
+              <select
+                value={assignGroupId}
+                onChange={e => setAssignGroupId(e.target.value)}
+                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary"
+              >
+                <option value="">Sin equipo</option>
+                {groups.map((g: any) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setAssignGroupUser(null)}
+                className="px-4 py-2 rounded border border-slate-700 text-xs text-text-secondary hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAssignGroup}
+                className="px-4 py-2 rounded bg-primary hover:bg-primary/95 text-background text-xs font-bold transition-all"
+              >
+                Guardar
+              </button>
+            </div>
           </div>
         </div>
       )}

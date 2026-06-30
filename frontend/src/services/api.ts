@@ -106,6 +106,17 @@ export const api = {
     return res.json();
   },
 
+  updateUser: async (userId: string, current: User, patch: { group_id?: string | null; role?: string; compliance_project_id?: string | null }): Promise<User> => {
+    const body = { username: current.username, email: current.email, role: current.role, is_active: current.is_active, ...patch };
+    const res = await fetch(`${API_BASE}/users/${userId}`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("Failed to update user");
+    return res.json();
+  },
+
   getGroups: async (): Promise<Group[]> => {
     const res = await fetch(`${API_BASE}/users/groups`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch groups");
@@ -136,6 +147,16 @@ export const api = {
       body: JSON.stringify(budget),
     });
     if (!res.ok) throw new Error("Failed to create budget");
+    return res.json();
+  },
+
+  updateBudget: async (budgetId: string, patch: { max_spend_usd?: number; max_tokens?: number; reset_period?: string; user_id?: string; group_id?: string }): Promise<Budget> => {
+    const res = await fetch(`${API_BASE}/budgets/${budgetId}`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error("Failed to update budget");
     return res.json();
   },
 

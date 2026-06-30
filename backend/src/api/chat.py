@@ -109,26 +109,36 @@ async def chat_completions(
 
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "").strip()
-        import hashlib
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
 
-        from ..models.budget import APIKey
-        api_key_obj = db.query(APIKey).filter(APIKey.key_hash == token_hash, APIKey.is_active == True).first()
-        if not api_key_obj:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Llave virtual (Virtual Key) inválida o inactiva."
-            )
+        if token.startswith("sk-"):
+            # Virtual key path: validate against DB
+            import hashlib
+            token_hash = hashlib.sha256(token.encode()).hexdigest()
+            from ..models.budget import APIKey
+            api_key_obj = db.query(APIKey).filter(APIKey.key_hash == token_hash, APIKey.is_active == True).first()
+            if not api_key_obj:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Llave virtual (Virtual Key) inválida o inactiva."
+                )
+            if api_key_obj.user_id:
+                user = api_key_obj.user
+            if api_key_obj.group_id:
+                group = api_key_obj.group
+            if api_key_obj.engine_key_token:
+                client_key = token
+        else:
+            # JWT session path: identify the logged-in user and their group
+            from ..auth.session import decode_session_token
+            from ..models.user import User as UserModel
+            payload = decode_session_token(token)
+            if payload:
+                uid = payload.get("sub")
+                if uid:
+                    user = db.query(UserModel).filter(UserModel.id == uid, UserModel.is_active == True).first()
+                    if user and user.group_id:
+                        group = user.group
 
-        if api_key_obj.user_id:
-            user = api_key_obj.user
-        if api_key_obj.group_id:
-            group = api_key_obj.group
-
-        # If this is a real engine key, forward it so the engine enforces the budget
-        if api_key_obj.engine_key_token:
-            client_key = token
-            
     if not user and not group:
         # Fallback to default user (Playground UI dashboard session)
         user = get_or_create_default_user(db)
@@ -231,8 +241,7 @@ async def chat_completions(
             ComplianceProject.is_active == True
         ).first()
     # 4. Global fallback
-    active_projects = [resolved_project] if resolved_project else \
-        db.query(ComplianceProject).filter(ComplianceProject.is_active == True).all()
+    active_projects = [resolved_project] if resolved_project else []
 
     _applied_project_name = resolved_project.name if resolved_project else None
     _applied_risk_level = (
@@ -477,7 +486,7 @@ async def chat_completions(
         tokens_saved_by_optimization=tokens_saved,
         user_id=user.id if user else None,
         api_key_id=api_key_obj.id if api_key_obj else None,
-        guardian_events=guardian_events,
+        guardian_events=(guardian_triggers or []) + (guardian_events or []),
         review_token=_review_token_val,
         ai_disclosure_delivered=_deliver_disclosure,
         processing_purpose=x_processing_purpose,
