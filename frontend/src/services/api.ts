@@ -1,4 +1,15 @@
+import { authStorage } from "./auth";
+
 const API_BASE = "http://localhost:8081/api/v1";
+
+function authHeaders(): Record<string, string> {
+  const token = authStorage.getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function jsonHeaders(): Record<string, string> {
+  return { "Content-Type": "application/json", ...authHeaders() };
+}
 
 export interface Group {
   id: string;
@@ -67,9 +78,20 @@ export interface AuditLog {
 }
 
 export const api = {
+  // --- Auth ---
+  login: async (username: string, password: string): Promise<{ access_token: string; user: any }> => {
+    const res = await fetch(`${API_BASE}/users/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Credenciales incorrectas."); }
+    return res.json();
+  },
+
   // --- Users & Groups ---
   getUsers: async (): Promise<User[]> => {
-    const res = await fetch(`${API_BASE}/users`);
+    const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch users");
     return res.json();
   },
@@ -77,7 +99,7 @@ export const api = {
   createUser: async (user: Omit<User, "id" | "created_at" | "updated_at"> & { password?: string }): Promise<User> => {
     const res = await fetch(`${API_BASE}/users`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ ...user, password: user.password || "defaultpass123" }),
     });
     if (!res.ok) throw new Error("Failed to create user");
@@ -85,7 +107,7 @@ export const api = {
   },
 
   getGroups: async (): Promise<Group[]> => {
-    const res = await fetch(`${API_BASE}/users/groups`);
+    const res = await fetch(`${API_BASE}/users/groups`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch groups");
     return res.json();
   },
@@ -93,7 +115,7 @@ export const api = {
   createGroup: async (group: Omit<Group, "id" | "created_at">): Promise<Group> => {
     const res = await fetch(`${API_BASE}/users/groups`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(group),
     });
     if (!res.ok) throw new Error("Failed to create group");
@@ -102,7 +124,7 @@ export const api = {
 
   // --- Budgets ---
   getBudgets: async (): Promise<Budget[]> => {
-    const res = await fetch(`${API_BASE}/budgets`);
+    const res = await fetch(`${API_BASE}/budgets`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch budgets");
     return res.json();
   },
@@ -110,7 +132,7 @@ export const api = {
   createBudget: async (budget: Omit<Budget, "id" | "current_spend_usd" | "current_tokens" | "last_reset_at" | "created_at" | "updated_at">): Promise<Budget> => {
     const res = await fetch(`${API_BASE}/budgets`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(budget),
     });
     if (!res.ok) throw new Error("Failed to create budget");
@@ -119,7 +141,7 @@ export const api = {
 
   // --- Security Policy ---
   getSecurityPolicy: async (): Promise<SecurityPolicy> => {
-    const res = await fetch(`${API_BASE}/security/policy`);
+    const res = await fetch(`${API_BASE}/security/policy`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch security policy");
     return res.json();
   },
@@ -127,7 +149,7 @@ export const api = {
   updateSecurityPolicy: async (policy: SecurityPolicy): Promise<SecurityPolicy> => {
     const res = await fetch(`${API_BASE}/security/policy`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(policy),
     });
     if (!res.ok) throw new Error("Failed to update security policy");
@@ -135,7 +157,7 @@ export const api = {
   },
 
   getPolicies: async (): Promise<SecurityPolicy[]> => {
-    const res = await fetch(`${API_BASE}/security/policies`);
+    const res = await fetch(`${API_BASE}/security/policies`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch policies");
     return res.json();
   },
@@ -143,7 +165,7 @@ export const api = {
   createPolicy: async (policy: Omit<SecurityPolicy, "id" | "created_at" | "updated_at">): Promise<SecurityPolicy> => {
     const res = await fetch(`${API_BASE}/security/policies`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(policy),
     });
     if (!res.ok) throw new Error("Failed to create policy");
@@ -153,7 +175,7 @@ export const api = {
   updatePolicyById: async (id: string, policy: SecurityPolicy): Promise<SecurityPolicy> => {
     const res = await fetch(`${API_BASE}/security/policies/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(policy),
     });
     if (!res.ok) throw new Error("Failed to update policy");
@@ -163,6 +185,7 @@ export const api = {
   deletePolicy: async (id: string): Promise<any> => {
     const res = await fetch(`${API_BASE}/security/policies/${id}`, {
       method: "DELETE",
+      headers: authHeaders(),
     });
     if (!res.ok) throw new Error("Failed to delete policy");
     return res.json();
@@ -170,7 +193,7 @@ export const api = {
 
   // --- Audit Logs ---
   getAuditLogs: async (): Promise<{ total: number; logs: AuditLog[] }> => {
-    const res = await fetch(`${API_BASE}/audit-logs`);
+    const res = await fetch(`${API_BASE}/audit-logs`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch audit logs");
     return res.json();
   },
@@ -187,7 +210,7 @@ export const api = {
       override_headroom_mode?: boolean;
     }
   ): Promise<any> => {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
     if (virtualKey) {
       headers["Authorization"] = `Bearer ${virtualKey}`;
     }
@@ -204,7 +227,7 @@ export const api = {
   },
 
   getModels: async (): Promise<any[]> => {
-    const res = await fetch(`${API_BASE}/chat/models`);
+    const res = await fetch(`${API_BASE}/chat/models`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch models");
     return res.json();
   },
@@ -212,7 +235,7 @@ export const api = {
   createModel: async (model: { model_name: string; provider: string; model_id: string; api_key?: string; api_base?: string }): Promise<any> => {
     const res = await fetch(`${API_BASE}/chat/models`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(model),
     });
     if (!res.ok) throw new Error("Failed to create model");
@@ -222,14 +245,38 @@ export const api = {
   deleteModel: async (modelName: string): Promise<any> => {
     const res = await fetch(`${API_BASE}/chat/models/${modelName}`, {
       method: "DELETE",
+      headers: authHeaders(),
     });
     if (!res.ok) throw new Error("Failed to delete model");
     return res.json();
   },
 
+  updateModelCredential: async (modelName: string, litellmParams: Record<string, string>): Promise<void> => {
+    const res = await fetch(`${API_BASE}/chat/models/${modelName}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ litellm_params: litellmParams }),
+    });
+    if (!res.ok) throw new Error("Failed to update model credential");
+  },
+
+  getFallbacks: async (): Promise<Record<string, string>> => {
+    const res = await fetch(`${API_BASE}/chat/fallbacks`, { headers: authHeaders() });
+    if (!res.ok) return {};
+    return res.json();
+  },
+
+  setFallback: async (modelName: string, fallbackModel: string | null): Promise<void> => {
+    await fetch(`${API_BASE}/chat/fallbacks/${modelName}`, {
+      method: "PUT",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ fallback_model: fallbackModel }),
+    });
+  },
+
   // --- Virtual Keys ---
   getKeys: async (): Promise<any[]> => {
-    const res = await fetch(`${API_BASE}/keys`);
+    const res = await fetch(`${API_BASE}/keys`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch keys");
     return res.json();
   },
@@ -242,10 +289,13 @@ export const api = {
     budget_duration?: string;
     models?: string[];
     expires_at?: string;
+    rpm_limit?: number;
+    tpm_limit?: number;
+    compliance_project_id?: string;
   }): Promise<any> => {
     const res = await fetch(`${API_BASE}/keys`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(key),
     });
     if (!res.ok) {
@@ -256,32 +306,32 @@ export const api = {
   },
 
   deleteKey: async (id: string): Promise<any> => {
-    const res = await fetch(`${API_BASE}/keys/${id}`, { method: "DELETE" });
+    const res = await fetch(`${API_BASE}/keys/${id}`, { method: "DELETE", headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to revoke key");
     return res.json();
   },
 
   getKeySpend: async (keyId: string): Promise<SpendInfo> => {
-    const res = await fetch(`${API_BASE}/keys/${keyId}/spend`);
+    const res = await fetch(`${API_BASE}/keys/${keyId}/spend`, { headers: authHeaders() });
     if (!res.ok) return { spend_usd: null, max_budget: null, remaining: null };
     return res.json();
   },
 
   getGroupSpend: async (groupId: string): Promise<SpendInfo> => {
-    const res = await fetch(`${API_BASE}/users/groups/${groupId}/spend`);
+    const res = await fetch(`${API_BASE}/users/groups/${groupId}/spend`, { headers: authHeaders() });
     if (!res.ok) return { spend_usd: null, max_budget: null, remaining: null };
     return res.json();
   },
 
   getUserSpend: async (userId: string): Promise<SpendInfo> => {
-    const res = await fetch(`${API_BASE}/users/${userId}/spend`);
+    const res = await fetch(`${API_BASE}/users/${userId}/spend`, { headers: authHeaders() });
     if (!res.ok) return { spend_usd: null, max_budget: null, remaining: null };
     return res.json();
   },
 
   // --- Security Guardians ---
   getGuardians: async (): Promise<any[]> => {
-    const res = await fetch(`${API_BASE}/guardians`);
+    const res = await fetch(`${API_BASE}/guardians`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch guardians");
     return res.json();
   },
@@ -289,7 +339,7 @@ export const api = {
   updateGuardian: async (id: string, guardian: any): Promise<any> => {
     const res = await fetch(`${API_BASE}/guardians/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify(guardian),
     });
     if (!res.ok) throw new Error("Failed to update guardian");
@@ -299,7 +349,7 @@ export const api = {
   testGuardian: async (id: string, text: string): Promise<{ blocked: boolean; reason: string | null }> => {
     const res = await fetch(`${API_BASE}/guardians/${id}/test`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders(),
       body: JSON.stringify({ text }),
     });
     if (!res.ok) {
@@ -311,13 +361,13 @@ export const api = {
 
   // --- Analytics ---
   getAnalyticsSummary: async (range: "day" | "week" | "month"): Promise<any> => {
-    const res = await fetch(`${API_BASE}/analytics/summary?range=${range}`);
+    const res = await fetch(`${API_BASE}/analytics/summary?range=${range}`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch analytics summary");
     return res.json();
   },
 
   getEngineStatus: async (): Promise<{ status: "online" | "offline"; checked_at: string }> => {
-    const res = await fetch(`${API_BASE}/analytics/engine-status`);
+    const res = await fetch(`${API_BASE}/analytics/engine-status`, { headers: authHeaders() });
     if (!res.ok) return { status: "offline", checked_at: new Date().toISOString() };
     return res.json();
   },
@@ -334,7 +384,7 @@ export const api = {
     if (filters.from_date) params.append("from_date", filters.from_date);
     if (filters.to_date) params.append("to_date", filters.to_date);
 
-    const res = await fetch(`${API_BASE}/audit-logs/export?${params.toString()}`);
+    const res = await fetch(`${API_BASE}/audit-logs/export?${params.toString()}`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to export audit logs");
 
     const blob = await res.blob();
@@ -350,5 +400,217 @@ export const api = {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  },
+
+  // --- Compliance ---
+  getComplianceProjects: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/projects`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch compliance projects");
+    return res.json();
+  },
+
+  createComplianceProject: async (project: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/projects`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(project),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al crear proyecto"); }
+    return res.json();
+  },
+
+  updateComplianceProject: async (id: string, project: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/projects/${id}`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(project),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar proyecto"); }
+    return res.json();
+  },
+
+  deleteComplianceProject: async (id: string): Promise<void> => {
+    await fetch(`${API_BASE}/compliance/projects/${id}`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  getDPAs: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/dpas`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch DPAs");
+    return res.json();
+  },
+
+  createDPA: async (dpa: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dpas`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(dpa),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al registrar DPA"); }
+    return res.json();
+  },
+
+  updateDPA: async (id: string, dpa: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dpas/${id}`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(dpa),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar DPA"); }
+    return res.json();
+  },
+
+  deleteDPA: async (id: string): Promise<void> => {
+    await fetch(`${API_BASE}/compliance/dpas/${id}`, { method: "DELETE", headers: authHeaders() });
+  },
+
+  getDSRs: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch DSRs");
+    return res.json();
+  },
+
+  createDSR: async (dsr: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(dsr),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al crear solicitud"); }
+    return res.json();
+  },
+
+  updateDSR: async (id: string, update: any): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr/${id}`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(update),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar solicitud"); }
+    return res.json();
+  },
+
+  searchDSR: async (subjectId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dsr/search?subject_id=${encodeURIComponent(subjectId)}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to search DSR");
+    return res.json();
+  },
+
+  getRetentionPolicies: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/retention`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch retention policies");
+    return res.json();
+  },
+
+  updateRetentionPolicies: async (policies: any[]): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/retention`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(policies),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al guardar retención"); }
+    return res.json();
+  },
+
+  getComplianceDashboard: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/dashboard`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch compliance dashboard");
+    return res.json();
+  },
+
+  // --- Groups compliance ---
+  getGroupsCompliance: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/groups`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch groups");
+    return res.json();
+  },
+
+  updateGroupCompliance: async (groupId: string, data: { default_legal_basis?: string; default_risk_level?: string; compliance_project_id?: string | null }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/groups/${groupId}/compliance`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(data),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar perfil de compliance"); }
+    return res.json();
+  },
+
+  assignUserGroup: async (userId: string, groupId: string | null): Promise<any> => {
+    const res = await fetch(`${API_BASE}/groups/users/${userId}/group`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ group_id: groupId }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al asignar grupo"); }
+    return res.json();
+  },
+
+  // --- Consent ---
+  getUserConsents: async (userId: string): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/consent/${userId}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch consents");
+    return res.json();
+  },
+
+  recordConsent: async (data: { user_id: string; consent_type: string; version?: string; notes?: string }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/consent`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(data),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al registrar consentimiento"); }
+    return res.json();
+  },
+
+  revokeConsent: async (consentId: string): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/consent/${consentId}`, { method: "DELETE", headers: authHeaders() });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al revocar consentimiento"); }
+    return res.json();
+  },
+
+  getAllConsents: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/consent`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch consents");
+    return res.json();
+  },
+
+  // --- Reports (GDPR Art. 30 / Audit Export) ---
+  exportRAT: async (): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reports/rat`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Error al exportar el RAT");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "RAT_Art30_GDPR.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  exportDSAR: async (subjectIdentifier: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reports/dsar/${encodeURIComponent(subjectIdentifier)}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Error al exportar el DSAR");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "DSAR_export.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  exportHumanReviewLog: async (): Promise<void> => {
+    const res = await fetch(`${API_BASE}/reports/human-review-log`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Error al exportar revisiones");
+    const blob = await res.blob();
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="(.+?)"/);
+    const filename = match ? match[1] : "Revisiones_Humanas.csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  getExecutiveSummary: async (): Promise<any> => {
+    const res = await fetch(`${API_BASE}/reports/executive`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch executive summary");
+    return res.json();
+  },
+
+  // --- Human Review Queue ---
+  getPendingReviews: async (): Promise<any[]> => {
+    const res = await fetch(`${API_BASE}/compliance/review/pending`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch pending reviews");
+    return res.json();
+  },
+
+  submitReview: async (token: string, data: { reviewer_id?: string; action: string; notes?: string }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/compliance/review/${token}`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(data),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al procesar la revisión"); }
+    return res.json();
   },
 };

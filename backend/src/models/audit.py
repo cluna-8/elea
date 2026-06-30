@@ -22,6 +22,10 @@ class AuditLog(Base):
     latency_ms = Column(Integer, nullable=False)
     tokens_saved_by_optimization = Column(Integer, default=0)
     guardian_events = Column(JSONB, default=list)           # guardrail events returned by the AI engine
+    review_token = Column(UUID(as_uuid=True), nullable=True)
+    ai_disclosure_delivered = Column(Boolean, default=False)
+    processing_purpose = Column(String, nullable=True)   # clinical_decision | administrative | research | training
+    user_group_id = Column(UUID(as_uuid=True), nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="audit_logs")

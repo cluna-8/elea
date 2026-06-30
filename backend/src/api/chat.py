@@ -1,9 +1,11 @@
 import time
 import os
+import uuid
 import httpx
 import logging
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Response, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
@@ -12,6 +14,9 @@ from ..database import get_db
 from ..models.user import User
 from ..models.policy import SecurityPolicy
 from ..models.guardian import Guardian
+from ..models.audit import AuditLog
+from ..models.compliance import ComplianceProject, HumanReview
+from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
 from ..services.budget_service import BudgetService
 from ..services.presidio_service import PresidioService
@@ -20,6 +25,7 @@ from ..services.compliance_service import ComplianceService
 from ..services.routing_service import RoutingService
 from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
+from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
 from ..services import ai_engine_client
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
@@ -27,6 +33,33 @@ logger = logging.getLogger("basa-secure-gateway.chat")
 
 _ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
 _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
+
+_EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama"}
+
+
+def _get_config_path() -> str:
+    path = "/app/litellm_config/config.yaml"
+    if not os.path.exists(path):
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
+    return path
+
+
+def _check_configured(params: dict, model_full: str) -> bool:
+    api_key = params.get("api_key", "")
+    if isinstance(api_key, str) and api_key.startswith("os.environ/"):
+        env_var = api_key.split("/", 1)[1]
+        return bool(os.getenv(env_var, "").strip())
+    if api_key:
+        return True
+    if "bedrock" in model_full:
+        return bool(os.getenv("AWS_ACCESS_KEY_ID", "").strip() and os.getenv("AWS_SECRET_ACCESS_KEY", "").strip())
+    if "vertex_ai" in model_full:
+        return bool(os.getenv("VERTEX_CREDENTIALS", "").strip())
+    if "watsonx" in model_full:
+        return bool(os.getenv("WATSONX_API_KEY", "").strip())
+    if "ollama" in model_full or "host.docker.internal" in params.get("api_base", "") or "localhost" in params.get("api_base", ""):
+        return True
+    return False
 
 class ChatRequest(BaseModel):
     message: str
@@ -52,10 +85,17 @@ def get_or_create_default_user(db: Session) -> User:
         db.refresh(user)
     return user
 
+HUMAN_REVIEW_FLAG_ES = (
+    "⚠️ **Pendiente de validación sanitaria.** Esta respuesta ha sido generada por inteligencia artificial "
+    "y está siendo revisada por un profesional sanitario. No aplique estas indicaciones hasta recibir confirmación."
+)
+
 @router.post("/completions")
 async def chat_completions(
-    request: ChatRequest, 
+    request: ChatRequest,
+    http_resp: Response,
     authorization: Optional[str] = Header(None),
+    x_processing_purpose: Optional[str] = Header(None, alias="X-Processing-Purpose"),
     db: Session = Depends(get_db)
 ):
     start_time = time.time()
@@ -92,7 +132,20 @@ async def chat_completions(
     if not user and not group:
         # Fallback to default user (Playground UI dashboard session)
         user = get_or_create_default_user(db)
-        
+
+    # 1a. Rate Limiting (RPM check before any expensive processing)
+    _rpm_remaining = None
+    _tpm_remaining = None
+    if api_key_obj:
+        try:
+            _rpm_remaining = check_rpm(api_key_obj.id, api_key_obj.rpm_limit or 60)
+        except RateLimitExceeded as e:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=e.message,
+                headers={"Retry-After": str(e.retry_after)},
+            )
+
     policy = get_or_create_default_policy(db)
 
     # 1. Budget Enforcement
@@ -153,6 +206,76 @@ async def chat_completions(
     is_gdpr_active = request.override_gdpr_mode if request.override_gdpr_mode is not None else policy.gdpr_mode
     if routed_model == request.model:
         routed_model = RoutingService.get_route_model(request.model, is_gdpr_active)
+
+    # 5b. Compliance — resolve project via hierarchy: key → user → group → global
+    from datetime import timedelta
+    from ..models.budget import APIKey as APIKeyModel
+
+    resolved_project = None
+    # 1. Key-level
+    if api_key_obj and getattr(api_key_obj, "compliance_project_id", None):
+        resolved_project = db.query(ComplianceProject).filter(
+            ComplianceProject.id == api_key_obj.compliance_project_id,
+            ComplianceProject.is_active == True
+        ).first()
+    # 2. User-level
+    if not resolved_project and user and getattr(user, "compliance_project_id", None):
+        resolved_project = db.query(ComplianceProject).filter(
+            ComplianceProject.id == user.compliance_project_id,
+            ComplianceProject.is_active == True
+        ).first()
+    # 3. Group-level
+    if not resolved_project and group and getattr(group, "compliance_project_id", None):
+        resolved_project = db.query(ComplianceProject).filter(
+            ComplianceProject.id == group.compliance_project_id,
+            ComplianceProject.is_active == True
+        ).first()
+    # 4. Global fallback
+    active_projects = [resolved_project] if resolved_project else \
+        db.query(ComplianceProject).filter(ComplianceProject.is_active == True).all()
+
+    _applied_project_name = resolved_project.name if resolved_project else None
+    _applied_risk_level = (
+        getattr(api_key_obj, "risk_level", None) or  # not stored on key, but future-proof
+        (getattr(user, "risk_level", None) if user else None) or
+        (getattr(group, "default_risk_level", None) if group else None)
+    )
+    _applied_legal_basis = (
+        (getattr(user, "legal_basis", None) if user else None) or
+        (getattr(group, "default_legal_basis", None) if group else None)
+    )
+    _user_group_id = group.id if group else None
+
+    # EU region enforcement
+    eu_safe_prefixes = ("azure-", "bedrock-", "vertex-", "ollama-")
+    for proj in active_projects:
+        if proj.eu_region_required and not any(routed_model.startswith(p) for p in eu_safe_prefixes):
+            logger.warning("EU region enforcement blocked model %s for project %s", routed_model, proj.name)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="La política de residencia de datos exige procesamiento en la UE. El modelo seleccionado no está disponible para esta solicitud."
+            )
+
+    # Determine if AI disclosure and human review apply
+    _deliver_disclosure = False
+    _disclosure_message = None
+    _review_token_val = None
+    _human_review_flag = False   # hybrid model: flag without blocking
+
+    for proj in active_projects:
+        if proj.ai_disclosure_enabled and not _deliver_disclosure:
+            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+            recent = db.query(AuditLog).filter(
+                AuditLog.api_key_id == (api_key_obj.id if api_key_obj else None),
+                AuditLog.timestamp >= one_hour_ago,
+                AuditLog.ai_disclosure_delivered == True
+            ).first()
+            if not recent:
+                _deliver_disclosure = True
+                _disclosure_message = proj.ai_disclosure_message or DEFAULT_DISCLOSURE_ES
+        if proj.human_review_required and not _review_token_val:
+            _review_token_val = uuid.uuid4()
+            _human_review_flag = True
 
     # 6. Layer 3: LLM Execution with active guardrails
     llm_raw_response = ""
@@ -298,15 +421,50 @@ async def chat_completions(
             "note": "Respuesta simulada (motor fuera de línea)"
         }
 
+    # 6b. TPM check (after LLM: we now know actual token counts)
+    if api_key_obj:
+        try:
+            _tpm_remaining = check_tpm(
+                api_key_obj.id,
+                api_key_obj.tpm_limit or 100000,
+                prompt_tokens + completion_tokens,
+            )
+        except RateLimitExceeded as e:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=e.message,
+                headers={"Retry-After": str(e.retry_after)},
+            )
+
     # 7. Layer 4: Unmasking
     final_response = PresidioService.unmask_text(llm_raw_response, placeholder_map)
+
+    # Apply AI disclosure (prepend if this is a new session)
+    if _deliver_disclosure and _disclosure_message:
+        final_response = f"ℹ️ {_disclosure_message}\n\n{final_response}"
+
+    # Hybrid man-in-the-loop: append flag at the end (response delivered, not blocked)
+    if _human_review_flag:
+        final_response = f"{final_response}\n\n---\n{HUMAN_REVIEW_FLAG_ES}"
 
     # 8. Logging and Budget Update
     latency_ms = int((time.time() - start_time) * 1000)
     cost = actual_cost if actual_cost is not None else BudgetService.calculate_cost(request.model, prompt_tokens, completion_tokens)
-    
+
+    # Store human review record if required — save the AI response (not the prompt)
+    if _review_token_val:
+        # Strip the review flag banner before storing so the reviewer sees the clean response
+        clean_response = llm_raw_response if llm_raw_response else final_response.split("\n\n---\n")[0]
+        review_entry = HumanReview(
+            review_token=_review_token_val,
+            created_at=datetime.utcnow().isoformat(),
+            response_text=clean_response,
+        )
+        db.add(review_entry)
+        db.flush()
+
     # Save to Audit Log
-    AuditService.log_transaction(
+    audit_log = AuditService.log_transaction(
         db=db,
         model=request.model,
         prompt_tokens=prompt_tokens,
@@ -319,8 +477,17 @@ async def chat_completions(
         tokens_saved_by_optimization=tokens_saved,
         user_id=user.id if user else None,
         api_key_id=api_key_obj.id if api_key_obj else None,
-        guardian_events=guardian_events
+        guardian_events=guardian_events,
+        review_token=_review_token_val,
+        ai_disclosure_delivered=_deliver_disclosure,
+        processing_purpose=x_processing_purpose,
+        user_group_id=_user_group_id,
     )
+
+    # Link review record to audit log
+    if _review_token_val and audit_log:
+        review_entry.audit_log_id = audit_log.id
+        db.commit()
     
     # Deduct from Budget
     from decimal import Decimal
@@ -333,6 +500,13 @@ async def chat_completions(
         model=request.model,
         override_cost=Decimal(str(cost))
     )
+
+    # Attach rate limit headers if a virtual key was used
+    if api_key_obj:
+        if _rpm_remaining is not None:
+            http_resp.headers["X-RateLimit-Remaining-Requests"] = str(_rpm_remaining)
+        if _tpm_remaining is not None:
+            http_resp.headers["X-RateLimit-Remaining-Tokens"] = str(_tpm_remaining)
 
     # Return complete metadata package for the UI layer animation
     return {
@@ -355,7 +529,14 @@ async def chat_completions(
                 "gdpr_active": is_gdpr_active,
                 "routed_model": routed_model,
                 "ai_act_status": compliance_result["status"],
-                "ai_act_reason": compliance_result["reason"]
+                "ai_act_reason": compliance_result["reason"],
+                "applied_project": _applied_project_name,
+                "applied_risk_level": _applied_risk_level,
+                "applied_legal_basis": _applied_legal_basis,
+                "ai_disclosure_delivered": _deliver_disclosure,
+                "human_review_pending": _human_review_flag,
+                "review_token": str(_review_token_val) if _review_token_val else None,
+                "processing_purpose": x_processing_purpose,
             },
             "layer_llm": {
                 "model_used": routed_model,
@@ -382,93 +563,31 @@ class ModelCreateSchema(BaseModel):
 
 @router.get("/models")
 async def list_available_models():
-    config_path = "/app/litellm_config/config.yaml"
-    if not os.path.exists(config_path):
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
-    
-    models_detail = []
+    config_path = _get_config_path()
     try:
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                config_data = yaml.safe_load(f) or {}
-            for m in config_data.get("model_list", []):
-                params = m.get("litellm_params", {})
-                model_full = params.get("model", "")
-                
-                # Check if API Key or credentials are configured
-                is_key_configured = False
-                api_key = params.get("api_key", "")
-                
-                if isinstance(api_key, str) and api_key.startswith("os.environ/"):
-                    env_var_name = api_key.split("/", 1)[1]
-                    env_value = os.getenv(env_var_name, "").strip()
-                    if env_value:
-                        is_key_configured = True
-                elif api_key:
-                    is_key_configured = True
-                else:
-                    # Special check for providers with other credentials
-                    if "bedrock" in model_full:
-                        aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
-                        aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
-                        if aws_key and aws_secret:
-                            is_key_configured = True
-                    elif "vertex_ai" in model_full:
-                        vertex_cred = os.getenv("VERTEX_CREDENTIALS", "").strip()
-                        if vertex_cred:
-                            is_key_configured = True
-                    elif "watsonx" in model_full:
-                        ibm_key = os.getenv("WATSONX_API_KEY", "").strip()
-                        if ibm_key:
-                            is_key_configured = True
-                    elif "ollama" in model_full or "localhost" in params.get("api_base", ""):
-                        # Local models don't need credentials
-                        is_key_configured = True
-                
-                if is_key_configured:
-                    provider = "local"
-                    model_id = model_full
-                    if "/" in model_full:
-                        provider, model_id = model_full.split("/", 1)
-                    
-                    models_detail.append({
-                        "model_name": m.get("model_name"),
-                        "provider": provider,
-                        "model_id": model_id,
-                        "api_base": params.get("api_base")
-                    })
-            
-            # If we filtered and found active models, return them
-            if models_detail:
-                return models_detail
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+
+        result = []
+        for m in config_data.get("model_list", []):
+            params = m.get("litellm_params", {})
+            model_full = params.get("model", "")
+            provider = "local"
+            model_id = model_full
+            if "/" in model_full:
+                provider, model_id = model_full.split("/", 1)
+            result.append({
+                "model_name": m.get("model_name"),
+                "provider": provider,
+                "model_id": model_id,
+                "api_base": params.get("api_base"),
+                "is_configured": _check_configured(params, model_full),
+                "is_eu_compliant": provider in _EU_COMPLIANT_PROVIDERS,
+            })
+        return result
     except Exception as e:
-        logger.warning(f"Failed to read models from config.yaml: {e}")
-        
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{LITELLM_URL}/v1/models",
-                headers={"Authorization": f"Bearer {LITELLM_KEY}"},
-                timeout=5.0
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return [
-                    {
-                        "model_name": m["id"],
-                        "provider": "unknown",
-                        "model_id": m["id"],
-                        "api_base": None
-                    }
-                    for m in data.get("data", [])
-                ]
-    except Exception as e:
-        logger.warning(f"Failed to fetch models from LiteLLM: {e}")
-    
-    return [
-        {"model_name": "claude-3-5-sonnet", "provider": "anthropic", "model_id": "claude-3-5-sonnet-20240620", "api_base": None},
-        {"model_name": "gpt-4o", "provider": "openai", "model_id": "gpt-4o", "api_base": None}
-    ]
+        logger.warning("Failed to read models from config.yaml: %s", e)
+        return []
 
 @router.post("/models")
 async def register_model(model_in: ModelCreateSchema):
@@ -516,15 +635,12 @@ async def register_model(model_in: ModelCreateSchema):
 
 @router.delete("/models/{model_name}")
 async def delete_model(model_name: str):
-    config_path = "/app/litellm_config/config.yaml"
-    if not os.path.exists(config_path):
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
-        
+    config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
             config_data = yaml.safe_load(f) or {}
     except Exception as e:
-        logger.error(f"Failed to read litellm config: {e}")
+        logger.error("Failed to read config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to read model configuration")
 
     if "model_list" not in config_data:
@@ -532,7 +648,6 @@ async def delete_model(model_name: str):
 
     original_len = len(config_data["model_list"])
     config_data["model_list"] = [m for m in config_data["model_list"] if m.get("model_name") != model_name]
-
     if len(config_data["model_list"]) == original_len:
         raise HTTPException(status_code=404, detail="Model not found")
 
@@ -540,7 +655,96 @@ async def delete_model(model_name: str):
         with open(config_path, "w") as f:
             yaml.safe_dump(config_data, f, default_flow_style=False)
     except Exception as e:
-        logger.error(f"Failed to write litellm config: {e}")
+        logger.error("Failed to write config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save model configuration")
 
     return {"status": "success", "message": f"Model {model_name} deleted successfully"}
+
+
+class ModelCredentialSchema(BaseModel):
+    litellm_params: Optional[dict] = None  # provider-specific fields merged into litellm_params
+
+
+@router.patch("/models/{model_name}")
+async def update_model_credential(model_name: str, body: ModelCredentialSchema):
+    """Merge litellm_params fields for an existing model in config.yaml."""
+    config_path = _get_config_path()
+    try:
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.error("Failed to read config: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to read model configuration")
+
+    found = False
+    for m in config_data.get("model_list", []):
+        if m.get("model_name") == model_name:
+            if body.litellm_params:
+                m.setdefault("litellm_params", {}).update(
+                    {k: v for k, v in body.litellm_params.items() if v}
+                )
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    try:
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config_data, f, default_flow_style=False)
+    except Exception as e:
+        logger.error("Failed to write config: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save model configuration")
+
+    return {"status": "success", "message": f"Model {model_name} updated"}
+
+
+# --- Fallback configuration ---
+
+class FallbackBody(BaseModel):
+    fallback_model: Optional[str] = None
+
+
+@router.get("/fallbacks")
+async def get_fallbacks():
+    """Returns the current fallback map: {model_name: fallback_model_name}."""
+    config_path = _get_config_path()
+    try:
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+        raw = config_data.get("router_settings", {}).get("fallbacks", [])
+        result: dict = {}
+        for item in raw:
+            for k, v in item.items():
+                result[k] = v[0] if v else None
+        return result
+    except Exception:
+        return {}
+
+
+@router.put("/fallbacks/{model_name}")
+async def set_fallback(model_name: str, body: FallbackBody):
+    """Set or clear the fallback model for a given model. Written to config.yaml router_settings."""
+    config_path = _get_config_path()
+    try:
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to read config")
+
+    if "router_settings" not in config_data:
+        config_data["router_settings"] = {"disable_cooldowns": True}
+
+    fallbacks = config_data["router_settings"].get("fallbacks", [])
+    fallbacks = [item for item in fallbacks if model_name not in item]
+    if body.fallback_model:
+        fallbacks.append({model_name: [body.fallback_model]})
+    config_data["router_settings"]["fallbacks"] = fallbacks
+
+    try:
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config_data, f, default_flow_style=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to write config")
+
+    return {"status": "ok"}

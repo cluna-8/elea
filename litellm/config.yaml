@@ -114,10 +114,11 @@ model_list:
 #   Para activar guardianes engine-backed, descomentar el bloque correspondiente
 #   y agregar la API key al .env antes de reiniciar LiteLLM.
 #
-#   --- litellm_content_filter (requiere OPENAI_API_KEY) ---
+#   --- litellm_content_filter (requiere OPENAI_API_KEY real en .env) ---
 #   - guardrail_name: "litellm_content_filter"
 #     litellm_params:
 #       guardrail: openai_moderation
+#       api_key: "os.environ/OPENAI_API_KEY"
 #       mode: pre_call
 #       default_on: false
 #
@@ -159,6 +160,12 @@ model_list:
 litellm_settings:
   drop_params: true
   set_verbose: true
+  cache: true
+  cache_params:
+    type: redis
+    host: "os.environ/REDIS_HOST"
+    port: 6379
+    ttl: 3600
 
 router_settings:
   disable_cooldowns: true

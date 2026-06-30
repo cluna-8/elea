@@ -1,0 +1,86 @@
+# Changelog — Feature 010: Model Catalog, Fallback Automático & SSO Roadmap
+
+## [1.0.0] — 2026-06-30
+
+### Added
+
+**Backend — `backend/src/api/chat.py`**
+- Helpers `_get_config_path()`, `_check_configured()`, constante `_EU_COMPLIANT_PROVIDERS` extraídos como funciones reutilizables (antes inline en cada endpoint)
+- `GET /chat/models` rediseñado: devuelve TODOS los modelos del config.yaml con `is_configured: bool` e `is_eu_compliant: bool`. Antes filtraba solo los que tenían credencial configurada, lo que ocultaba el catálogo completo al admin.
+- `PATCH /chat/models/{model_name}` — actualiza `api_key` y/o `api_base` de un modelo ya existente en config.yaml. Permite configurar modelos pre-existentes desde la UI sin editar archivos.
+- `GET /chat/fallbacks` — lee `router_settings.fallbacks` del config.yaml y devuelve `{model_name: fallback_model_name}`.
+- `PUT /chat/fallbacks/{model_name}` — escribe la entrada de fallback en `router_settings.fallbacks`. Si `fallback_model` es null, elimina la entrada.
+
+**Frontend — `frontend/src/services/api.ts`**
+- `updateModelCredential(modelName, apiKey, apiBase?)` — PATCH /chat/models/{name}
+- `getFallbacks()` — GET /chat/fallbacks
+- `setFallback(modelName, fallbackModel | null)` — PUT /chat/fallbacks/{name}
+
+**Frontend — `frontend/src/pages/ModelsPage.tsx`** (reescritura completa)
+- Vista principal: tabla de modelos activos con columnas Nombre, Proveedor, Compliance (UE/Cloud), Fallback (select auto-guardado), Eliminar
+- Modal catálogo: se abre con "+ Agregar Modelo"; muestra todos los modelos del config.yaml con filtros Todos / Solo UE / Local
+- Badges por modelo en catálogo: proveedor, "UE Compliant" (verde), "✓ Activo" o "Sin credencial" + hint del env var necesario
+- Modal activación: al hacer click en "Configurar" sobre modelo sin credencial; formulario con campo API key + API base (condicional por proveedor)
+- Sección "Modelo personalizado" dentro del catálogo (pestaña dentro del modal) para registrar modelos fuera del catálogo estándar
+
+**Frontend — `frontend/src/pages/UsersPage.tsx`**
+- Nuevo tab "Autenticación & SSO" (4to tab)
+- Grid de 7 proveedores con nombre, protocolo, target, descripción y badge Activo/Próximamente:
+  - Azure AD / Entra ID — OIDC/OAuth 2.0 — Enterprise — Próximamente
+  - Google Workspace — OIDC/OAuth 2.0 — SME/Clínicas — Próximamente
+  - Okta — OIDC/SAML 2.0 — Enterprise — Próximamente
+  - Auth0 — OIDC/OAuth 2.0 — Universal — Próximamente
+  - Keycloak — OIDC/SAML 2.0 — Self-hosted — Próximamente
+  - SAML 2.0 genérico — SAML 2.0 — Enterprise heredado — Próximamente
+  - Usuario & Contraseña (JWT) — JWT HS256 — Usuarios internos — **Activo**
+
+### Fixed
+- Bug en `GET /chat/models`: referencias a variables `LITELLM_URL` y `LITELLM_KEY` no definidas en el bloque de fallback al motor IA. Corregidas a `_ENGINE_URL` y `_ENGINE_MASTER_KEY`.
+- Eliminación de código duplicado en `delete_model` que hardcodeaba el path del config (ahora usa `_get_config_path()`).
+
+### Design Decisions
+- **Todos los modelos visibles**: el catálogo muestra los 14 modelos del config.yaml independientemente de si tienen credenciales. Esto permite al admin entender qué proveedores están disponibles y qué necesita configurar para activarlos.
+- **Fallback nativo del motor**: los fallbacks se escriben en `router_settings.fallbacks` del config.yaml y son procesados por el motor IA internamente. No se requiere lógica adicional en el backend de Basa.
+- **SSO solo visual**: los proveedores SSO se muestran como roadmap. No hay implementación de OAuth2/OIDC en esta feature — el objetivo es informar al admin y permitir planificar la integración con el equipo de Basa.
+- **Credenciales en config.yaml**: al activar un modelo desde la UI, la API key se escribe directamente en config.yaml (no en .env). Esto es consistente con el comportamiento existente del endpoint `POST /chat/models`. En producción, se recomienda preferir variables de entorno en .env para claves sensibles.
+
+---
+
+## [1.1.0] — 2026-06-30
+
+### Added (correcciones post-1.0.0)
+
+**Backend — `backend/src/api/chat.py`**
+- `PATCH /chat/models/{model_name}` rediseñado: acepta `litellm_params: dict` genérico en lugar de `api_key/api_base`. Hace merge con los params existentes, permitiendo configurar campos específicos de cada proveedor (aws_access_key_id, vertex_project, ibm_api_key, etc.)
+
+**Backend — `backend/src/services/guardian_service.py`**
+- Umbral de re-seed cambiado de `< 8` a `< 9`
+- Agregado guardián `presidio` (g9): type=`presidio`, inactivo por defecto, config con `analyzer_url`, `anonymizer_url`, `language` (es), `entities`, `action` (MASK)
+
+**Backend — `backend/src/services/presidio_service.py`**
+- Agregado `analyze_text_http(text, analyzer_url, language, entities)`: llama a `POST {analyzer_url}/analyze` de Presidio Analyzer HTTP API. Fallback silencioso a regex si el servicio no responde.
+- Agregado `anonymize_text_http(text, anonymizer_url, analyzer_results)`: llama a `POST {anonymizer_url}/anonymize` de Presidio Anonymizer HTTP API.
+
+**Frontend — `frontend/src/services/api.ts`**
+- `updateModelCredential` actualizado: firma cambiada a `(modelName, litellmParams: Record<string,string>)`
+
+**Frontend — `frontend/src/pages/ModelsPage.tsx`**
+- `PROVIDER_FIELDS` — mapa de campos específicos por proveedor con label, placeholder, type y hint contextual:
+  - `bedrock`: aws_access_key_id, aws_secret_access_key, aws_region_name (hint de regiones EU)
+  - `azure`: api_key, api_base, api_version
+  - `vertex_ai`: vertex_project, vertex_location, vertex_credentials
+  - `watsonx`: ibm_api_key, ibm_project_id, ibm_url
+  - `cloudflare`: api_key, api_base (hint de Account ID)
+  - `ollama`: api_base (con mensaje explicativo, sin key requerida)
+  - `openai/anthropic/gemini/groq`: api_key único
+- Modal Configurar: usa `PROVIDER_FIELDS` para renderizar los inputs correctos por proveedor; el botón Guardar recoge todos los fields como `litellm_params` dict y llama a PATCH
+
+**Frontend — `frontend/src/pages/SecurityPage.tsx`**
+- `presidio` agregado a `GUARDIAN_DESCRIPTIONS` y `GUARDIAN_ICONS`
+- `isPresidio` flag en el panel de config
+- Panel Presidio: campos Analyzer URL, Anonymizer URL, Idioma, Acción + nota de setup con imágenes Docker de Microsoft + aviso de fallback a regex
+
+### Design Decisions (1.1.0)
+- **Per-provider fields**: cada proveedor de IA tiene una estructura de credenciales diferente (Bedrock usa AWS IAM, Vertex usa Service Accounts, WatsonX usa IBM IAM). El modal unifica todo con una sola config por proveedor en lugar de un campo genérico.
+- **Presidio como guardián separado**: Presidio convive con el guardián `pii_masking` (regex). Presidio está inactivo por defecto y requiere infraestructura adicional. El regex sigue siendo el default para entornos sin servicios Presidio desplegados.
+- **HTTP fallback silencioso en Presidio**: si el Analyzer no responde, `analyze_text_http` devuelve `[]` (lista vacía) y el pipeline continúa con regex. Nunca rompe el flujo de chat.

@@ -29,8 +29,8 @@ class GuardianService:
                 # Refresh list
                 guardians = db.query(Guardian).all()
 
-        # If we have less than 8 guardians, let's clear and re-seed to get the full catalog
-        if len(guardians) < 8:
+        # If we have less than 9 guardians, re-seed to get the full catalog
+        if len(guardians) < 9:
             # Delete existing to prevent duplicates
             db.query(Guardian).delete()
             db.commit()
@@ -124,9 +124,22 @@ class GuardianService:
                 }
             )
             
-            db.add_all([g1, g2, g3, g4, g5, g6, g7, g8])
+            g9 = Guardian(
+                name="Detección NLP de PII/PHI (Presidio)",
+                guardian_type="presidio",
+                is_active=False,
+                config={
+                    "analyzer_url": "",
+                    "anonymizer_url": "",
+                    "language": "es",
+                    "entities": ["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "LOCATION", "CREDIT_CARD", "IBAN_CODE"],
+                    "action": "MASK",
+                }
+            )
+
+            db.add_all([g1, g2, g3, g4, g5, g6, g7, g8, g9])
             db.commit()
-            guardians = [g1, g2, g3, g4, g5, g6, g7, g8]
+            guardians = [g1, g2, g3, g4, g5, g6, g7, g8, g9]
             
         return guardians
 

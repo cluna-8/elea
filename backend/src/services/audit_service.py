@@ -24,6 +24,10 @@ class AuditService:
         user_id: Optional[UUID] = None,
         api_key_id: Optional[UUID] = None,
         guardian_events: Optional[List[Dict[str, Any]]] = None,
+        review_token=None,
+        ai_disclosure_delivered: bool = False,
+        processing_purpose: Optional[str] = None,
+        user_group_id=None,
     ) -> AuditLog:
         """
         Creates a secure audit log entry for a transaction.
@@ -54,6 +58,10 @@ class AuditService:
                 latency_ms=latency_ms,
                 tokens_saved_by_optimization=tokens_saved_by_optimization,
                 guardian_events=guardian_events or [],
+                review_token=review_token,
+                ai_disclosure_delivered=ai_disclosure_delivered,
+                processing_purpose=processing_purpose,
+                user_group_id=user_group_id,
                 timestamp=datetime.utcnow()
             )
             
