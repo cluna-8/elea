@@ -179,7 +179,7 @@ Gestiona los usuarios humanos de la plataforma y sus grupos de compliance.
 
 ### Grupos de compliance
 
-Un grupo vincula a un conjunto de usuarios con una base legal GDPR y un nivel de riesgo AI Act predeterminados. El sistema aplica automáticamente las reglas del grupo en cada llamada.
+Un grupo vincula a un conjunto de usuarios con una base legal GDPR y un nivel de riesgo AI Act predeterminados. El sistema aplica automáticamente las reglas del grupo en cada llamada de chat.
 
 ```json
 POST /api/v1/users/groups
@@ -192,6 +192,24 @@ POST /api/v1/users/groups
 ```
 
 Grupos predeterminados del sistema: `Médicos`, `Enfermería`, `Administración`, `Investigación`.
+
+### Asignar equipo a un usuario existente (desde la UI)
+
+En **Usuarios** → tabla de usuarios → botón **"Asignar equipo"** → seleccionar grupo → Guardar.
+
+El usuario quedará vinculado al grupo y sus reglas de compliance se aplicarán en las siguientes llamadas de chat. Las llamadas en sesión activa (JWT) y por llave virtual heredan el grupo del usuario.
+
+> **Orden de resolución compliance**: llave virtual → usuario → grupo → sin reglas. Si ninguno tiene proyecto asignado, el chat funciona sin restricciones adicionales.
+
+### Crear / editar usuario por API
+
+```bash
+# Editar usuario (requiere todos los campos)
+curl -X PUT http://localhost:8081/api/v1/users/{id} \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "dr.garcia", "email": "garcia@hospital.es", "role": "clinician", "group_id": "uuid-grupo"}'
+```
 
 ---
 
@@ -227,6 +245,12 @@ POST /api/v1/keys
 ```
 
 La llave generada se muestra **una sola vez** en la respuesta. El sistema solo guarda su hash SHA-256.
+
+### Editar presupuesto existente (desde la UI)
+
+En **Usuarios** → tab "Presupuestos" → botón **"Editar"** en la tarjeta del presupuesto → modificar límite USD y/o tokens → Guardar.
+
+Los cambios aplican inmediatamente a las siguientes llamadas. El gasto acumulado no se resetea al editar.
 
 ### Respuesta de gasto
 
@@ -300,6 +324,8 @@ POST /api/v1/guardians/{id}/test
 ---
 
 ## 6. Módulo: Compliance GDPR / EU AI Act
+
+> **Nota sobre alcance**: Los módulos DSR, Consentimientos y Cola de Revisión Humana son **herramientas de registro y seguimiento interno**. Facilitan el cumplimiento operativo pero no tienen valor legal autónomo sin integración con procesos jurídicos formales, firma digital cualificada o sistemas HIS/EMR del centro. Consultar con el DPO antes de usarlos como evidencia en auditorías regulatorias.
 
 Gestiona los proyectos de compliance que gobiernan cómo se procesan los datos en cada contexto clínico.
 
@@ -855,6 +881,59 @@ curl -X POST http://localhost:8081/api/v1/chat/models \
   }'
 ```
 
+### Ver precios de modelos activos
+
+**Modelos** → tabla de modelos activos → columna **"Precio / 1M tokens"**.
+
+Muestra el coste de entrada (IN) y salida (OUT) en USD por millón de tokens. Los modelos Ollama locales aparecen como **"Gratis"**.
+
+```bash
+# Endpoint directo
+curl http://localhost:8081/api/v1/chat/models/pricing \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# → [{"model_name": "gpt-4o", "input_cost_per_million": 2.5, "output_cost_per_million": 10.0, ...}]
+```
+
+Los precios provienen de la tabla de costes de LiteLLM (actualizada con cada versión del motor). Para modelos Ollama u otros locales, se configuran a $0 en `litellm/config.yaml`:
+
+```yaml
+model_info:
+  input_cost_per_token: 0
+  output_cost_per_token: 0
+```
+
+### Conectar Ollama (modelos locales en Linux)
+
+1. Instalar Ollama y configurar para escuchar en todas las interfaces:
+   ```bash
+   # /etc/systemd/system/ollama.service.d/override.conf
+   [Service]
+   Environment="OLLAMA_HOST=0.0.0.0"
+   ```
+   ```bash
+   sudo systemctl daemon-reload && sudo systemctl restart ollama
+   ```
+
+2. Obtener la IP del gateway del contenedor de Docker:
+   ```bash
+   docker inspect <litellm-container-name> | grep Gateway
+   # → "Gateway": "172.26.0.1"
+   ```
+
+3. Configurar en `litellm/config.yaml`:
+   ```yaml
+   - litellm_params:
+       api_base: http://172.26.0.1:11434
+       model: ollama/llama3:8b
+     model_name: ollama-llama3-8b
+     model_info:
+       input_cost_per_token: 0
+       output_cost_per_token: 0
+   ```
+
+4. Reiniciar el stack: `docker compose restart litellm`
+
 ### Revocar una llave comprometida
 
 ```bash
@@ -919,9 +998,14 @@ Panel DPO → Cola de Revisión Humana → seleccionar item
 
 ### Uso básico desde el Playground
 
+El Playground tiene dos modos de autenticación:
+
+- **Sesión actual** (predeterminado): usa la sesión del usuario logueado. No requiere ninguna llave. Aplica el presupuesto y compliance asignados al usuario y su grupo.
+- **Llave virtual**: introduce manualmente una `sk-basa-...` para probar los permisos y presupuesto específicos de esa llave.
+
 1. Navegar a **Playground**
-2. Seleccionar modelo (ej: `gpt-4o`)
-3. Introducir la llave virtual asignada por el administrador
+2. Seleccionar modo de auth (Sesión actual / Llave virtual)
+3. Seleccionar modelo (ej: `gpt-4o`)
 4. Escribir el prompt: *"Paciente 68 años, fiebre 39°C y disnea. ¿Protocolo inicial?"*
 5. El gateway enmascara automáticamente cualquier PHI antes de enviarlo al modelo
 6. La respuesta llega con el aviso de IA y, si el proyecto lo requiere, con el banner ⚠️ de revisión pendiente

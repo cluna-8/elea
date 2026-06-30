@@ -46,6 +46,58 @@
 
 ---
 
+## [1.2.0] — 2026-06-30 (QA Session — cross-feature fixes)
+
+### Fixed
+
+**Backend — `backend/src/api/chat.py`**
+- Auth pipeline reescrito: distingue llave virtual (`sk-` prefix, valida contra hash SHA-256 en DB) de sesión JWT (decodifica con HS256, resuelve usuario y grupo). Antes solo se aceptaban llaves virtuales, lo que bloqueaba el Playground con "Llave virtual inválida" cuando el usuario usaba su sesión.
+- Resolución de grupo para sesiones JWT: si el usuario tiene `group_id`, se carga `user.group` para aplicar compliance del equipo. Antes las reglas de grupo no se aplicaban en sesiones de frontend.
+- Alcance del proyecto de compliance corregido: si la llave/usuario/grupo no tiene proyecto asignado, se devuelve `[]` (sin reglas). Antes se aplicaban **todos** los proyectos activos a cualquier sesión, causando que "Pendiente de validación sanitaria" apareciera para todos los usuarios sin asignación.
+- `guardian_events` en audit log: los eventos de guardianes locales (`guardian_triggers` del pipeline Basa) ya se fusionan con los eventos del motor IA (`guardian_events`). Antes ambas listas eran independientes y los triggers locales no aparecían en el log.
+
+**Backend — `backend/src/services/guardian_service.py`**
+- Secret detection regex de OpenAI API Key relajado: `sk-[a-zA-Z0-9]{10,}` (antes `{48}`, que requería exactamente 48 chars y perdía claves de test cortas).
+
+**Frontend — `frontend/src/pages/PlaygroundPage.tsx`**
+- Selector de modo de autenticación: botones "Sesión actual" (JWT, default) / "Llave virtual" (input manual). Antes el Playground solo aceptaba llave virtual introducida manualmente, lo que era confuso para usuarios que ya tenían sesión abierta.
+
+**Frontend — `frontend/src/pages/UsersPage.tsx`**
+- Botón "Asignar equipo" en tabla de usuarios: abre modal con selector de grupo; llama a `PUT /users/{id}` con todos los campos requeridos. Antes no había forma de asignar un grupo a un usuario existente desde la UI.
+- Botón "Editar" en tarjetas de presupuesto: abre modal para modificar límite USD y tokens; llama a `PUT /budgets/{id}` con todos los campos requeridos. Antes no había forma de editar un presupuesto existente desde la UI.
+- Spend de presupuesto con 4 decimales: `$0.0040` en lugar de `$0` para gastos pequeños.
+
+**Frontend — `frontend/src/pages/CompliancePage.tsx`**
+- Banner de uso interno en tab DSR: advierte que el módulo es herramienta de registro interno y no sustituye el proceso legal.
+- Banner en Consentimientos: advierte que no hay firma digital — su valor legal depende del sistema origen.
+- Banner en Cola de Revisión Humana: advierte que es supervisión interna, no validación clínica con valor legal.
+
+### Added
+
+**Backend — `backend/src/api/chat.py`**
+- `GET /chat/models/pricing`: consulta `GET {ENGINE_URL}/model/info` y devuelve lista de modelos con `input_cost_per_million`, `output_cost_per_million`, `max_tokens`, `max_input_tokens`. Multiplica `*_cost_per_token` × 1 000 000 para display.
+
+**Frontend — `frontend/src/services/api.ts`**
+- `getModelsPricing()` — GET /chat/models/pricing
+- `updateUser(userId, current, patch)` — PUT /users/{id} con merge de campos actuales
+- `updateBudget(budgetId, patch)` — PUT /budgets/{id}
+
+**Frontend — `frontend/src/pages/ModelsPage.tsx`**
+- Columna "Precio / 1M tokens" en tabla de modelos activos: carga en paralelo con modelos; muestra IN / OUT en USD o "Gratis" para modelos Ollama locales.
+
+**`litellm/config.yaml`**
+- `model_info: input_cost_per_token: 0 / output_cost_per_token: 0` para `ollama-gemma4-31b` y `ollama-qwen3-2b`. Los modelos locales aparecen con precio $0 en el widget y en audit logs.
+
+**`docker-compose.yml`**
+- `extra_hosts: - "host.docker.internal:host-gateway"` en servicio litellm para resolución de nombre en Linux.
+
+### Design Decisions (1.2.0)
+- **Orden de resolución compliance**: llave virtual → usuario → grupo → vacío. Sin asignación explícita, ninguna regla de compliance aplica. Esto evita que reglas de proyectos "médicos" se apliquen a usuarios administrativos no asignados.
+- **Playground dual-auth**: el modo "Sesión actual" usa el JWT de la sesión (el mismo que usa toda la UI) y no requiere ninguna llave. El modo "Llave virtual" permite probar el presupuesto y permisos exactos de una llave específica.
+- **Banners de uso interno en compliance**: los módulos DSR, Consentimientos y Cola de Revisión tienen valor como herramienta de registro interno, pero sin integración con firma digital / HIS / asesoría jurídica no tienen valor legal autónomo. Los banners previenen malentendidos sin deshabilitar las funcionalidades.
+
+---
+
 ## [1.1.0] — 2026-06-30
 
 ### Added (correcciones post-1.0.0)
