@@ -171,7 +171,7 @@ class GuardianService:
 
         if is_secret_active:
             patterns = {
-                "OpenAI API Key": r"sk-[a-zA-Z0-9]{48}",
+                "OpenAI API Key": r"sk-[a-zA-Z0-9]{10,}",
                 "Google API Key": r"AIzaSy[a-zA-Z0-9_-]{33}",
                 "Generic Secret": r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}"
             }

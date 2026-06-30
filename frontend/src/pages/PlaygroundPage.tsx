@@ -22,6 +22,7 @@ export const PlaygroundPage: React.FC = () => {
   const [rightPanelTab, setRightPanelTab] = useState<"layers" | "debugger">("layers");
 
   // Virtual Keys & Overrides Configuration
+  const [authMode, setAuthMode] = useState<"session" | "key">("session");
   const [customKey, setCustomKey] = useState("");
   const [showConfig, setShowConfig] = useState(false);
 
@@ -73,7 +74,7 @@ export const PlaygroundPage: React.FC = () => {
     if (overrideAiAct !== "default") overrides.override_ai_act_mode = overrideAiAct === "active";
     if (overrideHeadroom !== "default") overrides.override_headroom_mode = overrideHeadroom === "active";
 
-    const keyToUse = customKey;
+    const keyToUse = authMode === "key" ? customKey : undefined;
 
     try {
       const steps = [0, 1, 2, 3, 4];
@@ -210,21 +211,53 @@ export const PlaygroundPage: React.FC = () => {
               className="border-b border-slate-700/50 bg-slate-800/20 overflow-hidden"
             >
               <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Virtual Key Selector */}
+                {/* Auth Mode Selector */}
                 <div className="space-y-3">
                   <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider block">
-                    Virtual Key (Bearer Token)
+                    Autenticación
                   </span>
-                  <input
-                    type="password"
-                    placeholder="Pegue su virtual key sk-... (vacío = sin autenticación)"
-                    value={customKey}
-                    onChange={(e) => setCustomKey(e.target.value)}
-                    className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
-                  />
-                  <p className="text-[10px] text-text-secondary">
-                    Genere una llave en la sección Usuarios → Llaves Virtuales y péguela aquí.
-                  </p>
+                  <div className="flex rounded border border-slate-700 overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode("session")}
+                      className={`flex-1 py-2 px-3 transition-colors font-semibold ${
+                        authMode === "session"
+                          ? "bg-primary text-background"
+                          : "bg-background text-text-secondary hover:text-white"
+                      }`}
+                    >
+                      Sesión actual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode("key")}
+                      className={`flex-1 py-2 px-3 transition-colors font-semibold border-l border-slate-700 ${
+                        authMode === "key"
+                          ? "bg-primary text-background"
+                          : "bg-background text-text-secondary hover:text-white"
+                      }`}
+                    >
+                      Llave virtual
+                    </button>
+                  </div>
+                  {authMode === "session" ? (
+                    <p className="text-[10px] text-text-secondary">
+                      Usando el usuario logueado. El gasto se atribuye a tu cuenta.
+                    </p>
+                  ) : (
+                    <>
+                      <input
+                        type="password"
+                        placeholder="sk-..."
+                        value={customKey}
+                        onChange={(e) => setCustomKey(e.target.value)}
+                        className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
+                      />
+                      <p className="text-[10px] text-text-secondary">
+                        Probá como un usuario/integración específica. El gasto se atribuye a esa llave.
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 {/* Policy Overrides */}

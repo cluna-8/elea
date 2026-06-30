@@ -93,6 +93,7 @@ type CatalogFilter = "all" | "eu" | "local";
 export const ModelsPage: React.FC = () => {
   const [allModels, setAllModels] = useState<ModelDetail[]>([]);
   const [fallbacks, setFallbacks] = useState<Record<string, string>>({});
+  const [pricing, setPricing] = useState<Record<string, { input: number; output: number; max_tokens?: number }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -125,9 +126,12 @@ export const ModelsPage: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [models, fb] = await Promise.all([api.getModels(), api.getFallbacks()]);
+      const [models, fb, px] = await Promise.all([api.getModels(), api.getFallbacks(), api.getModelsPricing()]);
       setAllModels(models);
       setFallbacks(fb);
+      const pxMap: Record<string, { input: number; output: number; max_tokens?: number }> = {};
+      for (const p of px) pxMap[p.model_name] = { input: p.input_cost_per_million, output: p.output_cost_per_million, max_tokens: p.max_tokens };
+      setPricing(pxMap);
     } catch {
       setError("Error al cargar configuración de modelos.");
     } finally {
@@ -253,6 +257,7 @@ export const ModelsPage: React.FC = () => {
                   <th className="p-3 text-xs font-semibold text-text-secondary">Nombre</th>
                   <th className="p-3 text-xs font-semibold text-text-secondary">Proveedor</th>
                   <th className="p-3 text-xs font-semibold text-text-secondary">Compliance</th>
+                  <th className="p-3 text-xs font-semibold text-text-secondary">Precio / 1M tokens</th>
                   <th className="p-3 text-xs font-semibold text-text-secondary">Fallback automático</th>
                   <th className="p-3 text-xs font-semibold text-text-secondary text-right">Acción</th>
                 </tr>
@@ -278,6 +283,20 @@ export const ModelsPage: React.FC = () => {
                             Cloud estándar
                           </span>
                         )}
+                      </td>
+                      <td className="p-3">
+                        {(() => {
+                          const px = pricing[m.model_name];
+                          if (!px) return <span className="text-slate-600 text-[10px]">—</span>;
+                          if (px.input === 0 && px.output === 0)
+                            return <span className="text-[10px] font-mono text-success font-bold">Gratis</span>;
+                          return (
+                            <div className="text-[10px] font-mono leading-tight">
+                              <div className="text-text-secondary">IN <span className="text-white">${px.input.toFixed(2)}</span></div>
+                              <div className="text-text-secondary">OUT <span className="text-white">${px.output.toFixed(2)}</span></div>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="p-3">
                         <select
