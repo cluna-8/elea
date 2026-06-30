@@ -2,103 +2,28 @@ import React, { useState, useEffect } from "react";
 import { api, SecurityPolicy } from "../services/api";
 
 const GUARDIAN_DESCRIPTIONS: Record<string, string> = {
-  pii_masking: "Escanea el texto y aplica enmascaramiento o bloqueo sobre entidades sensibles (personas, DNI, email, teléfono).",
-  secret_detection: "Detecta claves privadas de API o tokens de seguridad y los redacta o bloquea antes de enviarlos.",
-  sensitive_routing: "Enruta de forma transparente prompts con términos clínicos sensibles a un modelo local (on-premise).",
-  openai_moderation: "Filtro de contenido inapropiado — detecta odio, acoso, autolesiones, violencia y contenido sexual.",
+  pii_masking: "Escanea el texto en busca de entidades sensibles (personas, DNI, email, teléfono) y las enmascara o bloquea.",
+  secret_detection: "Detecta claves de API o tokens de seguridad y los redacta antes de enviarlos al modelo.",
+  sensitive_routing: "Enruta prompts con términos clínicos sensibles a un modelo local on-premise de forma transparente.",
+  openai_moderation: "Filtro de contenido: detecta odio, acoso, autolesiones, violencia y contenido sexual.",
   lakera_prompt_injection: "Defensa en tiempo real contra ataques de jailbreak e inyecciones de prompts adversarias.",
-  azure_content_safety: "Clasificación y mitigación de contenido inapropiado o violento mediante filtros de seguridad en la nube.",
+  azure_content_safety: "Clasificación y mitigación de contenido inapropiado mediante filtros de seguridad en la nube.",
   llamaguard_moderations: "Escudo anti-jailbreak que analiza el prompt antes de enviarlo al modelo.",
   bedrock_guardrails: "Aplicación de temas prohibidos y filtros de seguridad corporativos en las peticiones.",
 };
 
+const GUARDIAN_ICONS: Record<string, string> = {
+  pii_masking: "⬡",
+  secret_detection: "◈",
+  sensitive_routing: "⇄",
+  openai_moderation: "◉",
+  lakera_prompt_injection: "⚡",
+  azure_content_safety: "◈",
+  llamaguard_moderations: "◉",
+  bedrock_guardrails: "◈",
+};
+
 const LOCAL_TYPES = new Set(["pii_masking", "secret_detection", "sensitive_routing"]);
-
-function GuardianBadge({ g }: { g: any }) {
-  if (LOCAL_TYPES.has(g.guardian_type)) {
-    return (
-      <span className="text-[9px] bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded font-mono">
-        Local
-      </span>
-    );
-  }
-  if (g.is_active && g.has_service_key) {
-    return (
-      <span className="text-[9px] bg-success/10 text-success border border-success/20 px-2 py-0.5 rounded font-mono">
-        Activo (con key)
-      </span>
-    );
-  }
-  if (g.is_active) {
-    return (
-      <span className="text-[9px] bg-success/10 text-success border border-success/20 px-2 py-0.5 rounded font-mono">
-        Activo
-      </span>
-    );
-  }
-  return (
-    <span className="text-[9px] bg-slate-800 text-text-secondary border border-slate-700 px-2 py-0.5 rounded font-mono">
-      Inactivo
-    </span>
-  );
-}
-
-function GuardianTestPanel({ guardian, onClose }: { guardian: any; onClose: () => void }) {
-  const [testText, setTestText] = useState("");
-  const [result, setResult] = useState<{ blocked: boolean; reason: string | null } | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const runTest = async () => {
-    if (!testText.trim()) return;
-    setTesting(true);
-    setResult(null);
-    setError(null);
-    try {
-      const res = await api.testGuardian(guardian.id, testText);
-      setResult(res);
-    } catch (e: any) {
-      setError(e.message || "Error al ejecutar el test.");
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  return (
-    <div className="bg-background/40 border border-slate-700/30 rounded p-4 space-y-3">
-      <div className="flex justify-between items-center">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Panel de Prueba</span>
-        <button onClick={onClose} className="text-[10px] text-text-secondary hover:text-white">Cerrar</button>
-      </div>
-      <textarea
-        rows={3}
-        placeholder="Ingrese un texto de prueba para este guardián..."
-        value={testText}
-        onChange={(e) => setTestText(e.target.value)}
-        className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white placeholder-text-secondary focus:ring-1 focus:ring-primary resize-none"
-      />
-      <button
-        onClick={runTest}
-        disabled={testing || !testText.trim()}
-        className="bg-primary hover:bg-primary/90 disabled:opacity-50 text-background font-semibold px-4 py-1.5 rounded text-xs transition-all"
-      >
-        {testing ? "Ejecutando..." : "Ejecutar test"}
-      </button>
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-2 rounded text-xs">
-          {error}
-        </div>
-      )}
-      {result && (
-        <div className={`px-3 py-2 rounded text-xs border ${result.blocked ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-success/10 border-success/20 text-success"}`}>
-          <span className="font-bold">{result.blocked ? "BLOQUEADO" : "PERMITIDO"}</span>
-          {result.reason && <span className="ml-2 text-text-secondary">{result.reason}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export const SecurityPage: React.FC = () => {
   const [policy, setPolicy] = useState<SecurityPolicy | null>(null);
@@ -106,52 +31,41 @@ export const SecurityPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [testPanelFor, setTestPanelFor] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [testText, setTestText] = useState("");
+  const [testResult, setTestResult] = useState<{ blocked: boolean; reason: string | null } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
+    (async () => {
       try {
-        const policyData = await api.getSecurityPolicy();
+        const [policyData, guardiansData] = await Promise.all([
+          api.getSecurityPolicy(),
+          api.getGuardians(),
+        ]);
         setPolicy(policyData);
-        const guardiansData = await api.getGuardians();
         setGuardians(guardiansData);
-      } catch (err) {
-        console.error("Error fetching security data:", err);
+      } catch {
+        // silent
       } finally {
         setLoading(false);
       }
-    };
-    fetchData();
+    })();
   }, []);
 
-  const handleTogglePolicy = () => {
-    if (!policy) return;
-    setPolicy({ ...policy, is_active: !policy.is_active });
-  };
-
-  const handleToggleHeadroom = () => {
-    if (!policy) return;
-    setPolicy({ ...policy, headroom_mode: !policy.headroom_mode });
-  };
-
   const handleToggleGuardian = (id: string) => {
-    setGuardians((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, is_active: !g.is_active } : g))
-    );
+    setGuardians((prev) => prev.map((g) => (g.id === id ? { ...g, is_active: !g.is_active } : g)));
   };
 
   const handleGuardianConfigChange = (id: string, key: string, value: any) => {
     setGuardians((prev) =>
-      prev.map((g) =>
-        g.id === id ? { ...g, config: { ...g.config, [key]: value } } : g
-      )
+      prev.map((g) => (g.id === id ? { ...g, config: { ...g.config, [key]: value } } : g))
     );
   };
 
   const handleGuardianFieldChange = (id: string, field: string, value: any) => {
-    setGuardians((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, [field]: value } : g))
-    );
+    setGuardians((prev) => prev.map((g) => (g.id === id ? { ...g, [field]: value } : g)));
   };
 
   const handleSave = async () => {
@@ -171,10 +85,36 @@ export const SecurityPage: React.FC = () => {
       }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
+    } catch {
       alert("Error al guardar la configuración de seguridad.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSelectCard = (id: string) => {
+    if (selectedId === id) {
+      setSelectedId(null);
+    } else {
+      setSelectedId(id);
+      setTestText("");
+      setTestResult(null);
+      setTestError(null);
+    }
+  };
+
+  const runTest = async (guardian: any) => {
+    if (!testText.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      const res = await api.testGuardian(guardian.id, testText);
+      setTestResult(res);
+    } catch (e: any) {
+      setTestError(e.message || "Error al ejecutar el test.");
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -186,16 +126,22 @@ export const SecurityPage: React.FC = () => {
     );
   }
 
+  const selected = guardians.find((g) => g.id === selectedId) || null;
+  const isLocal = selected ? LOCAL_TYPES.has(selected.guardian_type) : false;
+  const isPii = selected?.guardian_type === "pii_masking";
+  const isSecret = selected?.guardian_type === "secret_detection";
+  const isRouting = selected?.guardian_type === "sensitive_routing";
+  const isLakera = selected?.guardian_type === "lakera_prompt_injection";
+  const isBedrock = selected?.guardian_type === "bedrock_guardrails";
+
   return (
-    <div className="space-y-8 p-6 max-w-4xl mx-auto pb-16">
+    <div className="space-y-8 pb-16">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-700/30">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
-            Seguridad y Guardianes
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Seguridad y Guardianes</h1>
           <p className="text-xs text-text-secondary mt-1">
-            Configure enmascaramiento PHI/PII, guardianes de seguridad activos y optimización de contexto.
+            Configure guardianes de seguridad, enmascaramiento PHI/PII y optimización de contexto.
           </p>
         </div>
         <button
@@ -208,237 +154,304 @@ export const SecurityPage: React.FC = () => {
       </div>
 
       {saveSuccess && (
-        <div className="bg-success/10 border border-success/20 text-success px-4 py-2.5 rounded-lg text-xs flex items-center gap-2">
-          <span>¡Configuración de seguridad actualizada con éxito!</span>
+        <div className="bg-success/10 border border-success/20 text-success px-4 py-2.5 rounded-lg text-xs">
+          ¡Configuración actualizada con éxito!
         </div>
       )}
 
-      {/* SECTION: Guardianes */}
+      {/* ── Guardians card grid ── */}
       <div className="space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
-          Catálogo de Guardianes de Seguridad
+          Guardianes de Seguridad
         </h2>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {guardians.map((g) => {
-            const isPii = g.guardian_type === "pii_masking";
-            const isSecret = g.guardian_type === "secret_detection";
-            const isRouting = g.guardian_type === "sensitive_routing";
-            const isLocal = LOCAL_TYPES.has(g.guardian_type);
-            const isLakera = g.guardian_type === "lakera_prompt_injection";
-            const isBedrock = g.guardian_type === "bedrock_guardrails";
-            const isEngineGuardian = !isLocal;
-            const showTestPanel = testPanelFor === g.id;
+            const local = LOCAL_TYPES.has(g.guardian_type);
+            const isSelected = selectedId === g.id;
 
             return (
-              <div key={g.id} className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-4">
-                <div className="flex justify-between items-start">
-                  <div className="space-y-1 flex-1 mr-4">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm font-bold text-white">{g.name}</h3>
-                      <GuardianBadge g={g} />
-                    </div>
-                    <p className="text-xs text-text-secondary">
-                      {GUARDIAN_DESCRIPTIONS[g.guardian_type] || "Guardián de seguridad configurable."}
-                    </p>
+              <div
+                key={g.id}
+                onClick={() => handleSelectCard(g.id)}
+                className={`border rounded-lg p-4 space-y-3 cursor-pointer transition-all ${
+                  isSelected
+                    ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20"
+                    : g.is_active
+                    ? "border-success/20 bg-success/5 hover:border-slate-600"
+                    : "border-slate-700/40 bg-background/10 hover:border-slate-600"
+                }`}
+              >
+                {/* Row 1: icon + name + status */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-text-secondary text-base leading-none flex-shrink-0">
+                      {GUARDIAN_ICONS[g.guardian_type] || "◈"}
+                    </span>
+                    <span className="font-semibold text-white text-xs truncate">{g.name}</span>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <button
-                      onClick={() => handleToggleGuardian(g.id)}
-                      className={`px-3 py-1 rounded text-xs font-semibold border transition-all whitespace-nowrap ${
-                        g.is_active
-                          ? "bg-success/10 border-success/30 text-success"
-                          : "bg-slate-800 border-slate-700 text-text-secondary"
-                      }`}
-                    >
-                      {g.is_active ? "Activo" : "Inactivo"}
-                    </button>
-                    {isEngineGuardian && (
-                      <button
-                        onClick={() => setTestPanelFor(showTestPanel ? null : g.id)}
-                        className="px-2 py-0.5 rounded text-[10px] border border-slate-600 text-text-secondary hover:text-white hover:border-primary transition-all"
-                      >
-                        {showTestPanel ? "Cerrar test" : "Probar"}
-                      </button>
-                    )}
-                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleToggleGuardian(g.id); }}
+                    className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                      g.is_active
+                        ? "bg-success/10 border-success/30 text-success"
+                        : "bg-slate-800 border-slate-700 text-text-secondary hover:border-slate-600"
+                    }`}
+                  >
+                    {g.is_active ? "Activo" : "Inactivo"}
+                  </button>
                 </div>
 
-                {g.is_active && (
-                  <div className="bg-background/20 border border-slate-700/30 rounded p-4 space-y-4 text-xs text-white">
+                {/* Row 2: type chips */}
+                <div className="flex gap-1.5 flex-wrap">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                    local
+                      ? "bg-primary/10 border-primary/20 text-primary"
+                      : "bg-slate-800 border-slate-700 text-text-secondary"
+                  }`}>
+                    {local ? "Local" : "Motor IA"}
+                  </span>
+                  {!local && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 border border-slate-700 text-text-secondary">
+                      {g.apply_on || "pre_call"}
+                    </span>
+                  )}
+                </div>
 
-                    {/* Engine-backed: fail_mode + apply_on */}
-                    {isEngineGuardian && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <span className="text-xs text-text-secondary">Modo de fallo</span>
-                          <select
-                            value={g.fail_mode || "log"}
-                            onChange={(e) => handleGuardianFieldChange(g.id, "fail_mode", e.target.value)}
-                            className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                          >
-                            <option value="block">Bloquear petición</option>
-                            <option value="log">Solo registrar</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-xs text-text-secondary">Aplicar en</span>
-                          <select
-                            value={g.apply_on || "pre_call"}
-                            onChange={(e) => handleGuardianFieldChange(g.id, "apply_on", e.target.value)}
-                            className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                          >
-                            <option value="pre_call">Antes del modelo (pre_call)</option>
-                            <option value="post_call">Después del modelo (post_call)</option>
-                            <option value="both">Ambos</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
+                {/* Row 3: description */}
+                <p className="text-[11px] text-text-secondary leading-relaxed line-clamp-2">
+                  {GUARDIAN_DESCRIPTIONS[g.guardian_type] || "Guardián de seguridad configurable."}
+                </p>
 
-                    {/* PII Masking Config */}
-                    {isPii && (
-                      <div className="space-y-3">
-                        <div className="flex flex-col md:flex-row gap-4">
-                          <div className="flex-1 space-y-1">
-                            <span className="text-xs text-text-secondary">Acción del Guardián</span>
-                            <select
-                              value={g.config.action || "MASK"}
-                              onChange={(e) => handleGuardianConfigChange(g.id, "action", e.target.value)}
-                              className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                            >
-                              <option value="MASK">Enmascarar (Reemplazar con marcadores)</option>
-                              <option value="BLOCK">Bloquear petición entera</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs text-text-secondary">
-                            Nombres y Términos Personalizados a Capturar
-                          </label>
-                          <textarea
-                            rows={2}
-                            placeholder="Ej: Juan Pérez, María Rodríguez, Carlos Gómez"
-                            value={(g.config.custom_names || []).join(", ")}
-                            onChange={(e) => {
-                              const list = e.target.value.split(",").map((n: string) => n.trim()).filter((n: string) => n !== "");
-                              handleGuardianConfigChange(g.id, "custom_names", list);
-                            }}
-                            className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white placeholder-text-secondary focus:ring-1 focus:ring-primary"
-                          />
-                          <p className="text-[10px] text-text-secondary">
-                            Estos nombres se enmascaran como <code>&lt;PERSON_N&gt;</code> de forma determinista, sin modelos predictivos.
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Secret Detection Config */}
-                    {isSecret && (
-                      <div className="space-y-1.5">
-                        <span className="text-xs text-text-secondary">Acción del Guardián</span>
-                        <select
-                          value={g.config.action || "BLOCK"}
-                          onChange={(e) => handleGuardianConfigChange(g.id, "action", e.target.value)}
-                          className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                        >
-                          <option value="BLOCK">Bloquear (Impedir envío del prompt con llaves detectadas)</option>
-                          <option value="REDACT">Redactar (Reemplazar con [SECRETO_REDACTADO])</option>
-                        </select>
-                      </div>
-                    )}
-
-                    {/* Sensitive Routing Config */}
-                    {isRouting && (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <span className="text-xs text-text-secondary">Modelo Local (On-Premise)</span>
-                            <input
-                              type="text"
-                              value={g.config.on_premise_model || "ollama-llama3"}
-                              onChange={(e) => handleGuardianConfigChange(g.id, "on_premise_model", e.target.value)}
-                              className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <span className="text-xs text-text-secondary">Sesión Persistente</span>
-                            <select
-                              value={g.config.sticky_session ? "true" : "false"}
-                              onChange={(e) => handleGuardianConfigChange(g.id, "sticky_session", e.target.value === "true")}
-                              className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                            >
-                              <option value="true">Activa (toda la sesión en local)</option>
-                              <option value="false">Inactiva (solo el prompt que contiene datos)</option>
-                            </select>
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-xs text-text-secondary">Términos Clínicos Sensibles (separados por comas)</span>
-                          <textarea
-                            rows={2}
-                            value={(g.config.keywords || []).join(", ")}
-                            onChange={(e) => {
-                              const list = e.target.value.split(",").map((k: string) => k.trim()).filter((k: string) => k !== "");
-                              handleGuardianConfigChange(g.id, "keywords", list);
-                            }}
-                            className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Lakera / PromptGuard threshold */}
-                    {isLakera && (
-                      <div className="space-y-2">
-                        <span className="text-xs text-text-secondary">Umbral de Detección (Threshold)</span>
-                        <input
-                          type="range"
-                          min="0.1"
-                          max="1.0"
-                          step="0.05"
-                          value={g.config.threshold || 0.7}
-                          onChange={(e) => handleGuardianConfigChange(g.id, "threshold", parseFloat(e.target.value))}
-                          className="w-full accent-primary bg-background border border-slate-700 rounded"
-                        />
-                        <div className="flex justify-between text-[9px] text-text-secondary font-mono">
-                          <span>Sensible (0.1)</span>
-                          <span className="text-primary font-bold">Actual: {g.config.threshold || 0.7}</span>
-                          <span>Estricto (1.0)</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Bedrock: blocked topics */}
-                    {isBedrock && (
-                      <div className="space-y-2">
-                        <span className="text-xs text-text-secondary">Temas Restringidos (separados por comas)</span>
-                        <textarea
-                          rows={2}
-                          placeholder="Ej: consejo financiero, asesoría legal no autorizada"
-                          value={(g.config.blocked_topics || []).join(", ")}
-                          onChange={(e) => {
-                            const list = e.target.value.split(",").map((t: string) => t.trim()).filter((t: string) => t !== "");
-                            handleGuardianConfigChange(g.id, "blocked_topics", list);
-                          }}
-                          className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Test panel (only for engine-backed guardians) */}
-                {showTestPanel && (
-                  <GuardianTestPanel guardian={g} onClose={() => setTestPanelFor(null)} />
-                )}
+                {/* Row 4: configure hint */}
+                <div className="flex items-center justify-between pt-0.5">
+                  <span className={`text-[10px] transition-colors ${isSelected ? "text-primary" : "text-text-secondary"}`}>
+                    {isSelected ? "▲ Configurando" : "▼ Configurar"}
+                  </span>
+                  {!local && (
+                    <span className="text-[10px] text-text-secondary">Motor externo</span>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
+
+        {/* ── Config panel (below grid, for selected guardian) ── */}
+        {selected && (
+          <div className="border border-primary/20 rounded-lg bg-background/30 p-5 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm font-bold text-white">{selected.name}</span>
+                <span className="ml-2 text-xs text-text-secondary">— Configuración</span>
+              </div>
+              <button
+                onClick={() => setSelectedId(null)}
+                className="text-text-secondary hover:text-white text-xs"
+              >
+                Cerrar ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs text-white">
+              {/* Engine: fail_mode + apply_on */}
+              {!isLocal && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-text-secondary font-medium">Modo de fallo</label>
+                    <select
+                      value={selected.fail_mode || "log"}
+                      onChange={(e) => handleGuardianFieldChange(selected.id, "fail_mode", e.target.value)}
+                      className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
+                    >
+                      <option value="block">Bloquear petición</option>
+                      <option value="log">Solo registrar</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-text-secondary font-medium">Aplicar en</label>
+                    <select
+                      value={selected.apply_on || "pre_call"}
+                      onChange={(e) => handleGuardianFieldChange(selected.id, "apply_on", e.target.value)}
+                      className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
+                    >
+                      <option value="pre_call">Antes del modelo (pre_call)</option>
+                      <option value="post_call">Después del modelo (post_call)</option>
+                      <option value="both">Ambos</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* PII Masking */}
+              {isPii && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-text-secondary font-medium">Acción</label>
+                    <select
+                      value={selected.config.action || "MASK"}
+                      onChange={(e) => handleGuardianConfigChange(selected.id, "action", e.target.value)}
+                      className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
+                    >
+                      <option value="MASK">Enmascarar (reemplazar con marcadores)</option>
+                      <option value="BLOCK">Bloquear petición entera</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-text-secondary font-medium">
+                      Nombres personalizados a capturar
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="Ej: Juan Pérez, María Rodríguez"
+                      value={(selected.config.custom_names || []).join(", ")}
+                      onChange={(e) => {
+                        const list = e.target.value.split(",").map((n: string) => n.trim()).filter(Boolean);
+                        handleGuardianConfigChange(selected.id, "custom_names", list);
+                      }}
+                      className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary resize-none"
+                    />
+                    <p className="text-[10px] text-text-secondary">
+                      Se enmascaran como <code>&lt;PERSON_N&gt;</code> de forma determinista.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Secret Detection */}
+              {isSecret && (
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Acción</label>
+                  <select
+                    value={selected.config.action || "BLOCK"}
+                    onChange={(e) => handleGuardianConfigChange(selected.id, "action", e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
+                  >
+                    <option value="BLOCK">Bloquear (impedir envío con llaves detectadas)</option>
+                    <option value="REDACT">Redactar (reemplazar con [SECRETO_REDACTADO])</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Sensitive Routing */}
+              {isRouting && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-text-secondary font-medium">Modelo local (on-premise)</label>
+                      <input
+                        type="text"
+                        value={selected.config.on_premise_model || "ollama-llama3"}
+                        onChange={(e) => handleGuardianConfigChange(selected.id, "on_premise_model", e.target.value)}
+                        className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-text-secondary font-medium">Sesión persistente</label>
+                      <select
+                        value={selected.config.sticky_session ? "true" : "false"}
+                        onChange={(e) => handleGuardianConfigChange(selected.id, "sticky_session", e.target.value === "true")}
+                        className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
+                      >
+                        <option value="true">Activa (toda la sesión en local)</option>
+                        <option value="false">Inactiva (solo el prompt afectado)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-text-secondary font-medium">Términos clínicos sensibles</label>
+                    <textarea
+                      rows={2}
+                      value={(selected.config.keywords || []).join(", ")}
+                      onChange={(e) => {
+                        const list = e.target.value.split(",").map((k: string) => k.trim()).filter(Boolean);
+                        handleGuardianConfigChange(selected.id, "keywords", list);
+                      }}
+                      className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary resize-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Lakera threshold */}
+              {isLakera && (
+                <div className="space-y-2">
+                  <label className="text-text-secondary font-medium">Umbral de detección</label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.05"
+                    value={selected.config.threshold || 0.7}
+                    onChange={(e) => handleGuardianConfigChange(selected.id, "threshold", parseFloat(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                  <div className="flex justify-between text-[10px] text-text-secondary font-mono">
+                    <span>Sensible (0.1)</span>
+                    <span className="text-primary font-bold">Actual: {selected.config.threshold || 0.7}</span>
+                    <span>Estricto (1.0)</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Bedrock blocked topics */}
+              {isBedrock && (
+                <div className="space-y-1.5">
+                  <label className="text-text-secondary font-medium">Temas restringidos</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Ej: consejo financiero, asesoría legal no autorizada"
+                    value={(selected.config.blocked_topics || []).join(", ")}
+                    onChange={(e) => {
+                      const list = e.target.value.split(",").map((t: string) => t.trim()).filter(Boolean);
+                      handleGuardianConfigChange(selected.id, "blocked_topics", list);
+                    }}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary resize-none"
+                  />
+                </div>
+              )}
+
+              {/* Test panel (engine-backed only) */}
+              {!isLocal && (
+                <div className="border-t border-slate-700/30 pt-4 space-y-3">
+                  <label className="text-text-secondary font-medium">Panel de prueba</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Ingresá texto de prueba para este guardián..."
+                    value={testText}
+                    onChange={(e) => setTestText(e.target.value)}
+                    className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary resize-none"
+                  />
+                  <button
+                    onClick={() => runTest(selected)}
+                    disabled={testing || !testText.trim()}
+                    className="bg-primary hover:bg-primary/90 disabled:opacity-40 text-background font-semibold px-4 py-1.5 rounded text-xs transition-all"
+                  >
+                    {testing ? "Ejecutando..." : "Ejecutar test"}
+                  </button>
+                  {testError && (
+                    <div className="bg-danger/10 border border-danger/20 text-danger px-3 py-2 rounded text-xs">{testError}</div>
+                  )}
+                  {testResult && (
+                    <div className={`px-3 py-2 rounded text-xs border font-semibold ${
+                      testResult.blocked
+                        ? "bg-danger/10 border-danger/20 text-danger"
+                        : "bg-success/10 border-success/20 text-success"
+                    }`}>
+                      {testResult.blocked ? "BLOQUEADO" : "PERMITIDO"}
+                      {testResult.reason && (
+                        <span className="ml-2 font-normal text-text-secondary">{testResult.reason}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* SECTION: Context Optimization (Headroom) */}
+      {/* ── Headroom ── */}
       <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-4">
         <div className="flex justify-between items-start">
           <div className="space-y-1">
@@ -450,7 +463,7 @@ export const SecurityPage: React.FC = () => {
             </p>
           </div>
           <button
-            onClick={handleToggleHeadroom}
+            onClick={() => policy && setPolicy({ ...policy, headroom_mode: !policy.headroom_mode })}
             className={`px-3 py-1 rounded text-xs font-semibold border transition-all ${
               policy?.headroom_mode
                 ? "bg-success/10 border-success/30 text-success"
@@ -460,13 +473,10 @@ export const SecurityPage: React.FC = () => {
             {policy?.headroom_mode ? "Activo" : "Inactivo"}
           </button>
         </div>
-
         <div className="bg-background/40 border border-slate-700/20 rounded p-4 text-xs text-text-secondary">
-          <p>
-            Al activar Headroom, los textos redundantes, espacios extra y comentarios de código se limpian localmente
-            en la pasarela. Los prompts extensos (contextos RAG) se optimizan logrando ahorrar entre un 60% y 95% de tokens,
-            reduciendo la factura mensual de APIs y acelerando la velocidad de respuesta del modelo.
-          </p>
+          Al activar Headroom, los textos redundantes y comentarios de código se limpian localmente en la
+          pasarela. Los prompts extensos se optimizan logrando ahorrar entre un 60% y 95% de tokens,
+          reduciendo costos de API y acelerando la respuesta del modelo.
         </div>
       </div>
     </div>
