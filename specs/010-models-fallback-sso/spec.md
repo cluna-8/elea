@@ -57,7 +57,19 @@ router_settings:
 | SAML 2.0 genérico | SAML 2.0 | Enterprise heredado | Próximamente |
 | Usuario & Contraseña (JWT) | JWT HS256 | Usuarios internos | **Activo** |
 
+## Presidio — Guardián NLP real
+
+Presidio corre como dos microservicios HTTP independientes (imágenes oficiales de Microsoft):
+- `mcr.microsoft.com/presidio-analyzer` — detecta entidades PII/PHI usando NLP (spaCy)
+- `mcr.microsoft.com/presidio-anonymizer` — anonimiza el texto según los resultados del analyzer
+
+Integración en Basa:
+- El guardián tipo `presidio` almacena `analyzer_url` y `anonymizer_url` en su config JSON
+- `presidio_service.py` expone `analyze_text_http` y `anonymize_text_http` que llaman las APIs REST
+- Si los servicios no están disponibles, el call falla silenciosamente y el regex de `pii_masking` actúa como fallback
+- La integración en el pipeline de `guardian_service.py` (usar Presidio cuando esté configurado) queda pendiente para feature 011
+
 ## Fuera de alcance (010)
+- Integración de Presidio en el pipeline de chat (feature 011 — T-032)
 - Implementación real de SSO (autenticación contra proveedor externo)
 - Hot-reload del motor al cambiar config.yaml (requiere llamada a `/reload` del motor)
-- Presidio/spaCy (feature 011)
