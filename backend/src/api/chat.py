@@ -662,13 +662,12 @@ async def delete_model(model_name: str):
 
 
 class ModelCredentialSchema(BaseModel):
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
+    litellm_params: Optional[dict] = None  # provider-specific fields merged into litellm_params
 
 
 @router.patch("/models/{model_name}")
 async def update_model_credential(model_name: str, body: ModelCredentialSchema):
-    """Update the API key/base for an existing model in config.yaml."""
+    """Merge litellm_params fields for an existing model in config.yaml."""
     config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
@@ -680,10 +679,10 @@ async def update_model_credential(model_name: str, body: ModelCredentialSchema):
     found = False
     for m in config_data.get("model_list", []):
         if m.get("model_name") == model_name:
-            if body.api_key:
-                m.setdefault("litellm_params", {})["api_key"] = body.api_key
-            if body.api_base:
-                m.setdefault("litellm_params", {})["api_base"] = body.api_base
+            if body.litellm_params:
+                m.setdefault("litellm_params", {}).update(
+                    {k: v for k, v in body.litellm_params.items() if v}
+                )
             found = True
             break
 

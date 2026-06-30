@@ -1,5 +1,6 @@
 import re
 import logging
+import httpx
 from typing import Dict, List, Tuple, Any
 
 logger = logging.getLogger("basa-secure-gateway.privacy")
@@ -91,3 +92,42 @@ class PresidioService:
         for placeholder, original_val in placeholder_map.items():
             unmasked_text = unmasked_text.replace(placeholder, original_val)
         return unmasked_text
+
+    # ── Presidio HTTP API (real NLP) ──────────────────────────────────────────
+
+    @staticmethod
+    async def analyze_text_http(
+        text: str,
+        analyzer_url: str,
+        language: str = "es",
+        entities: List[str] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Call a Presidio Analyzer HTTP service. Returns entities in the same format as analyze_text."""
+        payload: dict = {"text": text, "language": language}
+        if entities:
+            payload["entities"] = entities
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.post(f"{analyzer_url.rstrip('/')}/analyze", json=payload)
+                r.raise_for_status()
+                return r.json()
+        except Exception as e:
+            logger.warning("Presidio Analyzer unreachable (%s), falling back to regex: %s", analyzer_url, e)
+            return []
+
+    @staticmethod
+    async def anonymize_text_http(
+        text: str,
+        anonymizer_url: str,
+        analyzer_results: List[Dict[str, Any]],
+    ) -> str:
+        """Call a Presidio Anonymizer HTTP service. Returns anonymized text."""
+        payload = {"text": text, "analyzer_results": analyzer_results}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.post(f"{anonymizer_url.rstrip('/')}/anonymize", json=payload)
+                r.raise_for_status()
+                return r.json().get("text", text)
+        except Exception as e:
+            logger.warning("Presidio Anonymizer unreachable (%s): %s", anonymizer_url, e)
+            return text

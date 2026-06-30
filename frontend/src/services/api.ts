@@ -251,11 +251,11 @@ export const api = {
     return res.json();
   },
 
-  updateModelCredential: async (modelName: string, apiKey: string, apiBase?: string): Promise<void> => {
+  updateModelCredential: async (modelName: string, litellmParams: Record<string, string>): Promise<void> => {
     const res = await fetch(`${API_BASE}/chat/models/${modelName}`, {
       method: "PATCH",
       headers: jsonHeaders(),
-      body: JSON.stringify({ api_key: apiKey, api_base: apiBase }),
+      body: JSON.stringify({ litellm_params: litellmParams }),
     });
     if (!res.ok) throw new Error("Failed to update model credential");
   },

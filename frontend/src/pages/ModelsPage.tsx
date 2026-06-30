@@ -38,6 +38,56 @@ const PROVIDER_CREDENTIAL_HINT: Record<string, string> = {
   local: "Sin credencial (local)",
 };
 
+interface ProviderField {
+  key: string;
+  label: string;
+  placeholder: string;
+  type?: "text" | "password" | "url";
+  hint?: string;
+}
+
+const PROVIDER_FIELDS: Record<string, ProviderField[]> = {
+  openai: [
+    { key: "api_key", label: "API Key", placeholder: "sk-...", type: "password" },
+  ],
+  anthropic: [
+    { key: "api_key", label: "API Key", placeholder: "sk-ant-...", type: "password" },
+  ],
+  gemini: [
+    { key: "api_key", label: "API Key", placeholder: "AIza...", type: "password" },
+  ],
+  groq: [
+    { key: "api_key", label: "API Key", placeholder: "gsk_...", type: "password" },
+  ],
+  cloudflare: [
+    { key: "api_key", label: "API Token", placeholder: "...", type: "password" },
+    { key: "api_base", label: "Account URL", placeholder: "https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai/v1", type: "url", hint: "Reemplazá ACCOUNT_ID con tu ID de cuenta de Cloudflare" },
+  ],
+  azure: [
+    { key: "api_key", label: "Azure API Key", placeholder: "...", type: "password" },
+    { key: "api_base", label: "Azure Endpoint", placeholder: "https://my-resource.openai.azure.com/", type: "url" },
+    { key: "api_version", label: "API Version", placeholder: "2024-02-01" },
+  ],
+  bedrock: [
+    { key: "aws_access_key_id", label: "AWS Access Key ID", placeholder: "AKIA...", type: "password" },
+    { key: "aws_secret_access_key", label: "AWS Secret Access Key", placeholder: "...", type: "password" },
+    { key: "aws_region_name", label: "Región AWS", placeholder: "us-east-1", hint: "Elegí una región con data center en la UE para compliance: eu-west-1, eu-central-1" },
+  ],
+  vertex_ai: [
+    { key: "vertex_project", label: "GCP Project ID", placeholder: "my-project-123" },
+    { key: "vertex_location", label: "Región GCP", placeholder: "us-central1", hint: "Para compliance UE: europe-west1, europe-west4" },
+    { key: "vertex_credentials", label: "Service Account JSON (path)", placeholder: "/secrets/gcp-credentials.json", hint: "Path al archivo JSON de credenciales dentro del contenedor" },
+  ],
+  watsonx: [
+    { key: "ibm_api_key", label: "IBM API Key", placeholder: "...", type: "password" },
+    { key: "ibm_project_id", label: "Project ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" },
+    { key: "ibm_url", label: "WatsonX URL", placeholder: "https://us-south.ml.cloud.ibm.com", type: "url" },
+  ],
+  ollama: [
+    { key: "api_base", label: "API Base URL", placeholder: "http://host.docker.internal:11434", type: "url", hint: "Usá host.docker.internal para acceder a Ollama corriendo en el host desde Docker" },
+  ],
+};
+
 type CatalogFilter = "all" | "eu" | "local";
 
 export const ModelsPage: React.FC = () => {
@@ -54,8 +104,7 @@ export const ModelsPage: React.FC = () => {
 
   // Activate modal (for a specific unconfigured model)
   const [activatingModel, setActivatingModel] = useState<ModelDetail | null>(null);
-  const [activateKey, setActivateKey] = useState("");
-  const [activateBase, setActivateBase] = useState("");
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
 
   // Custom model form (inside catalog)
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -117,11 +166,14 @@ export const ModelsPage: React.FC = () => {
     setActionLoading(true);
     setError("");
     try {
-      await api.updateModelCredential(activatingModel.model_name, activateKey, activateBase || undefined);
-      setSuccessMsg(`Modelo ${activatingModel.model_name} configurado. Reinicia el motor para aplicar.`);
+      const params: Record<string, string> = {};
+      for (const [k, v] of Object.entries(fieldValues)) {
+        if (v.trim()) params[k] = v.trim();
+      }
+      await api.updateModelCredential(activatingModel.model_name, params);
+      setSuccessMsg(`Modelo ${activatingModel.model_name} configurado. Reiniciá el motor IA para aplicar los cambios.`);
       setActivatingModel(null);
-      setActivateKey("");
-      setActivateBase("");
+      setFieldValues({});
       await load();
     } catch {
       setError("Error al configurar el modelo.");
@@ -426,78 +478,83 @@ export const ModelsPage: React.FC = () => {
       )}
 
       {/* ─── Activate / Configure Model Modal ─── */}
-      {activatingModel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md shadow-2xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white">Configurar: {activatingModel.model_name}</h2>
-              <button onClick={() => setActivatingModel(null)} className="text-text-secondary hover:text-white">✕</button>
-            </div>
+      {activatingModel && (() => {
+        const fields = PROVIDER_FIELDS[activatingModel.provider] || [
+          { key: "api_key", label: "API Key", placeholder: "...", type: "password" as const },
+        ];
+        const isLocal = activatingModel.provider === "ollama" || activatingModel.provider === "local";
+        const hasRequiredFields = isLocal || fields.some((f) => fieldValues[f.key]?.trim());
 
-            <div className="flex gap-2 flex-wrap">
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-800 border border-slate-700 text-text-secondary">
-                {PROVIDER_LABELS[activatingModel.provider] || activatingModel.provider}
-              </span>
-              {activatingModel.is_eu_compliant && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-success/10 border border-success/20 text-success">
-                  UE Compliant
-                </span>
-              )}
-            </div>
-
-            {PROVIDER_CREDENTIAL_HINT[activatingModel.provider] !== "Sin credencial (local)" ? (
-              <>
-                <div className="bg-background/30 rounded p-3 text-[11px] text-text-secondary">
-                  <p className="font-semibold text-white mb-1">Credenciales requeridas</p>
-                  <p className="font-mono text-warning/80">{PROVIDER_CREDENTIAL_HINT[activatingModel.provider]}</p>
-                  <p className="mt-2">
-                    Podés configurarlas aquí (se guardan en config) o en el archivo{" "}
-                    <span className="font-mono text-white">.env</span> y reiniciar el motor.
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+            <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md shadow-2xl p-6 space-y-5">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-bold text-white">{activatingModel.model_name}</h2>
+                  <p className="text-[11px] text-text-secondary mt-0.5">
+                    {PROVIDER_LABELS[activatingModel.provider] || activatingModel.provider}
                   </p>
                 </div>
-                <div className="space-y-3 text-xs">
-                  <div className="space-y-1">
-                    <label className="text-text-secondary font-medium">API Key</label>
-                    <input
-                      type="password"
-                      value={activateKey}
-                      onChange={(e) => setActivateKey(e.target.value)}
-                      placeholder="sk-..."
-                      className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
-                    />
-                  </div>
-                  {(activatingModel.provider === "azure" || activatingModel.provider === "ollama" || activatingModel.provider === "cloudflare") && (
-                    <div className="space-y-1">
-                      <label className="text-text-secondary font-medium">API Base URL</label>
-                      <input
-                        value={activateBase}
-                        onChange={(e) => setActivateBase(e.target.value)}
-                        placeholder="https://..."
-                        className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
-                      />
-                    </div>
-                  )}
+                <button onClick={() => { setActivatingModel(null); setFieldValues({}); }} className="text-text-secondary hover:text-white">✕</button>
+              </div>
+
+              {/* Badges */}
+              <div className="flex gap-2 flex-wrap">
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-800 border border-slate-700 text-text-secondary">
+                  {PROVIDER_LABELS[activatingModel.provider] || activatingModel.provider}
+                </span>
+                {activatingModel.is_eu_compliant && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-success/10 border border-success/20 text-success">
+                    UE Compliant
+                  </span>
+                )}
+              </div>
+
+              {isLocal ? (
+                <div className="space-y-3 text-xs text-text-secondary">
+                  <p>
+                    Ollama no requiere API key. El servicio debe estar corriendo en{" "}
+                    <span className="font-mono text-white">{activatingModel.api_base || "http://host.docker.internal:11434"}</span>.
+                  </p>
+                  <p className="text-success">Si Ollama está activo, este modelo debería aparecer como configurado automáticamente.</p>
                 </div>
-                <button
-                  onClick={handleActivate}
-                  disabled={actionLoading || !activateKey}
-                  className="w-full bg-primary hover:bg-primary/90 disabled:opacity-40 text-background font-bold py-2 rounded text-xs"
-                >
-                  {actionLoading ? "Guardando..." : "Guardar credencial"}
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-xs text-text-secondary">
-                  Ollama no requiere credencial. Asegurate de tener el servidor corriendo en{" "}
-                  <span className="font-mono text-white">{activatingModel.api_base || "http://localhost:11434"}</span>.
-                </p>
-                <p className="text-xs text-success">Este modelo debería aparecer como activo si Ollama está corriendo.</p>
-              </>
-            )}
+              ) : (
+                <>
+                  <div className="bg-background/30 border border-slate-700/30 rounded p-3 text-[11px] text-text-secondary space-y-1">
+                    <p className="font-semibold text-white">Credenciales requeridas</p>
+                    <p>Los valores se guardan en el archivo de configuración del motor IA. También podés configurarlos en <span className="font-mono text-white">.env</span> y reiniciar.</p>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    {fields.map((f) => (
+                      <div key={f.key} className="space-y-1.5">
+                        <label className="text-text-secondary font-medium">{f.label}</label>
+                        <input
+                          type={f.type || "text"}
+                          value={fieldValues[f.key] || ""}
+                          onChange={(e) => setFieldValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                          placeholder={f.placeholder}
+                          className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
+                        />
+                        {f.hint && <p className="text-[10px] text-warning/70">{f.hint}</p>}
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleActivate}
+                    disabled={actionLoading || !hasRequiredFields}
+                    className="w-full bg-primary hover:bg-primary/90 disabled:opacity-40 text-background font-bold py-2 rounded text-xs transition-all"
+                  >
+                    {actionLoading ? "Guardando..." : "Guardar configuración"}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
