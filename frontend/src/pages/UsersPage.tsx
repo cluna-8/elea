@@ -27,7 +27,7 @@ interface VirtualKey {
 }
 
 export const UsersPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"teams" | "keys" | "compliance">("teams");
+  const [activeTab, setActiveTab] = useState<"teams" | "keys" | "compliance" | "auth">("teams");
   const [users, setUsers] = useState<User[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -353,6 +353,14 @@ export const UsersPage: React.FC = () => {
           }`}
         >
           Perfiles de Compliance
+        </button>
+        <button
+          onClick={() => setActiveTab("auth")}
+          className={`pb-2.5 border-b-2 transition-all ${
+            activeTab === "auth" ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-white"
+          }`}
+        >
+          Autenticación & SSO
         </button>
       </div>
 
@@ -1228,6 +1236,117 @@ export const UsersPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "auth" && (
+        <div className="space-y-6">
+          <div className="bg-panel border border-slate-700/40 rounded-lg p-5">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary mb-1">
+              Métodos de Autenticación Disponibles
+            </h2>
+            <p className="text-xs text-text-secondary mb-5">
+              Métodos de login soportados por la plataforma. Los marcados como "Próximamente" están en roadmap
+              y pueden activarse como feature adicional.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                {
+                  name: "Azure AD / Microsoft Entra ID",
+                  type: "OIDC / OAuth 2.0",
+                  target: "Enterprise",
+                  description: "Integración con el directorio corporativo de Microsoft. Ideal para hospitales y grandes organizaciones con licencias Microsoft 365.",
+                  badge: "Próximamente",
+                  badgeCls: "text-warning border-warning/30 bg-warning/5",
+                  icon: "🔷",
+                },
+                {
+                  name: "Google Workspace",
+                  type: "OIDC / OAuth 2.0",
+                  target: "SME / Clínicas",
+                  description: "Login con cuentas Google corporativas. Recomendado para organizaciones medianas que usan Google Workspace.",
+                  badge: "Próximamente",
+                  badgeCls: "text-warning border-warning/30 bg-warning/5",
+                  icon: "🔴",
+                },
+                {
+                  name: "Okta",
+                  type: "OIDC / SAML 2.0",
+                  target: "Enterprise",
+                  description: "Proveedor de identidad enterprise líder. Soporta MFA avanzado, políticas de acceso condicional y auditoría detallada.",
+                  badge: "Próximamente",
+                  badgeCls: "text-warning border-warning/30 bg-warning/5",
+                  icon: "⚡",
+                },
+                {
+                  name: "Auth0",
+                  type: "OIDC / OAuth 2.0",
+                  target: "Universal",
+                  description: "Plataforma de identidad flexible. Soporta múltiples proveedores sociales y enterprise simultáneamente.",
+                  badge: "Próximamente",
+                  badgeCls: "text-warning border-warning/30 bg-warning/5",
+                  icon: "🔐",
+                },
+                {
+                  name: "Keycloak",
+                  type: "OIDC / SAML 2.0",
+                  target: "Self-hosted",
+                  description: "Solución open source autohospedada para gestión de identidad. Sin dependencias externas, ideal para entornos de alta seguridad.",
+                  badge: "Próximamente",
+                  badgeCls: "text-warning border-warning/30 bg-warning/5",
+                  icon: "🗝️",
+                },
+                {
+                  name: "SAML 2.0 genérico",
+                  type: "SAML 2.0",
+                  target: "Enterprise heredado",
+                  description: "Protocolo estándar para integración con sistemas legacy (AD FS, Shibboleth, PingFederate). Compatible con cualquier IdP SAML.",
+                  badge: "Próximamente",
+                  badgeCls: "text-warning border-warning/30 bg-warning/5",
+                  icon: "🏛️",
+                },
+                {
+                  name: "Usuario & Contraseña (JWT)",
+                  type: "JWT HS256 / 24h TTL",
+                  target: "Usuarios internos",
+                  description: "Autenticación local integrada. Gestión de usuarios desde el panel de administración. Sin dependencias externas.",
+                  badge: "Activo",
+                  badgeCls: "text-success border-success/30 bg-success/5",
+                  icon: "✓",
+                },
+              ].map((p) => (
+                <div
+                  key={p.name}
+                  className="border border-slate-700/40 rounded-lg p-4 space-y-3 bg-background/10"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{p.icon}</span>
+                      <span className="font-semibold text-white text-xs">{p.name}</span>
+                    </div>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border flex-shrink-0 ${p.badgeCls}`}>
+                      {p.badge}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 border border-slate-700 text-text-secondary">
+                      {p.type}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 border border-slate-700 text-text-secondary">
+                      {p.target}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-text-secondary leading-relaxed">{p.description}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 p-3 rounded-lg bg-background/30 border border-slate-700/30 text-xs text-text-secondary">
+              Para habilitar un proveedor SSO, contactá al equipo de Basa o abrí un ticket indicando el proveedor
+              elegido y el dominio corporativo. La integración tarda típicamente 1–2 días de configuración.
+            </div>
           </div>
         </div>
       )}

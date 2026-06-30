@@ -34,6 +34,33 @@ logger = logging.getLogger("basa-secure-gateway.chat")
 _ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
 _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 
+_EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama"}
+
+
+def _get_config_path() -> str:
+    path = "/app/litellm_config/config.yaml"
+    if not os.path.exists(path):
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
+    return path
+
+
+def _check_configured(params: dict, model_full: str) -> bool:
+    api_key = params.get("api_key", "")
+    if isinstance(api_key, str) and api_key.startswith("os.environ/"):
+        env_var = api_key.split("/", 1)[1]
+        return bool(os.getenv(env_var, "").strip())
+    if api_key:
+        return True
+    if "bedrock" in model_full:
+        return bool(os.getenv("AWS_ACCESS_KEY_ID", "").strip() and os.getenv("AWS_SECRET_ACCESS_KEY", "").strip())
+    if "vertex_ai" in model_full:
+        return bool(os.getenv("VERTEX_CREDENTIALS", "").strip())
+    if "watsonx" in model_full:
+        return bool(os.getenv("WATSONX_API_KEY", "").strip())
+    if "ollama" in model_full or "host.docker.internal" in params.get("api_base", "") or "localhost" in params.get("api_base", ""):
+        return True
+    return False
+
 class ChatRequest(BaseModel):
     message: str
     model: str
@@ -536,93 +563,31 @@ class ModelCreateSchema(BaseModel):
 
 @router.get("/models")
 async def list_available_models():
-    config_path = "/app/litellm_config/config.yaml"
-    if not os.path.exists(config_path):
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
-    
-    models_detail = []
+    config_path = _get_config_path()
     try:
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                config_data = yaml.safe_load(f) or {}
-            for m in config_data.get("model_list", []):
-                params = m.get("litellm_params", {})
-                model_full = params.get("model", "")
-                
-                # Check if API Key or credentials are configured
-                is_key_configured = False
-                api_key = params.get("api_key", "")
-                
-                if isinstance(api_key, str) and api_key.startswith("os.environ/"):
-                    env_var_name = api_key.split("/", 1)[1]
-                    env_value = os.getenv(env_var_name, "").strip()
-                    if env_value:
-                        is_key_configured = True
-                elif api_key:
-                    is_key_configured = True
-                else:
-                    # Special check for providers with other credentials
-                    if "bedrock" in model_full:
-                        aws_key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
-                        aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
-                        if aws_key and aws_secret:
-                            is_key_configured = True
-                    elif "vertex_ai" in model_full:
-                        vertex_cred = os.getenv("VERTEX_CREDENTIALS", "").strip()
-                        if vertex_cred:
-                            is_key_configured = True
-                    elif "watsonx" in model_full:
-                        ibm_key = os.getenv("WATSONX_API_KEY", "").strip()
-                        if ibm_key:
-                            is_key_configured = True
-                    elif "ollama" in model_full or "localhost" in params.get("api_base", ""):
-                        # Local models don't need credentials
-                        is_key_configured = True
-                
-                if is_key_configured:
-                    provider = "local"
-                    model_id = model_full
-                    if "/" in model_full:
-                        provider, model_id = model_full.split("/", 1)
-                    
-                    models_detail.append({
-                        "model_name": m.get("model_name"),
-                        "provider": provider,
-                        "model_id": model_id,
-                        "api_base": params.get("api_base")
-                    })
-            
-            # If we filtered and found active models, return them
-            if models_detail:
-                return models_detail
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+
+        result = []
+        for m in config_data.get("model_list", []):
+            params = m.get("litellm_params", {})
+            model_full = params.get("model", "")
+            provider = "local"
+            model_id = model_full
+            if "/" in model_full:
+                provider, model_id = model_full.split("/", 1)
+            result.append({
+                "model_name": m.get("model_name"),
+                "provider": provider,
+                "model_id": model_id,
+                "api_base": params.get("api_base"),
+                "is_configured": _check_configured(params, model_full),
+                "is_eu_compliant": provider in _EU_COMPLIANT_PROVIDERS,
+            })
+        return result
     except Exception as e:
-        logger.warning(f"Failed to read models from config.yaml: {e}")
-        
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{LITELLM_URL}/v1/models",
-                headers={"Authorization": f"Bearer {LITELLM_KEY}"},
-                timeout=5.0
-            )
-            if response.status_code == 200:
-                data = response.json()
-                return [
-                    {
-                        "model_name": m["id"],
-                        "provider": "unknown",
-                        "model_id": m["id"],
-                        "api_base": None
-                    }
-                    for m in data.get("data", [])
-                ]
-    except Exception as e:
-        logger.warning(f"Failed to fetch models from LiteLLM: {e}")
-    
-    return [
-        {"model_name": "claude-3-5-sonnet", "provider": "anthropic", "model_id": "claude-3-5-sonnet-20240620", "api_base": None},
-        {"model_name": "gpt-4o", "provider": "openai", "model_id": "gpt-4o", "api_base": None}
-    ]
+        logger.warning("Failed to read models from config.yaml: %s", e)
+        return []
 
 @router.post("/models")
 async def register_model(model_in: ModelCreateSchema):
@@ -670,15 +635,12 @@ async def register_model(model_in: ModelCreateSchema):
 
 @router.delete("/models/{model_name}")
 async def delete_model(model_name: str):
-    config_path = "/app/litellm_config/config.yaml"
-    if not os.path.exists(config_path):
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
-        
+    config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
             config_data = yaml.safe_load(f) or {}
     except Exception as e:
-        logger.error(f"Failed to read litellm config: {e}")
+        logger.error("Failed to read config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to read model configuration")
 
     if "model_list" not in config_data:
@@ -686,7 +648,6 @@ async def delete_model(model_name: str):
 
     original_len = len(config_data["model_list"])
     config_data["model_list"] = [m for m in config_data["model_list"] if m.get("model_name") != model_name]
-
     if len(config_data["model_list"]) == original_len:
         raise HTTPException(status_code=404, detail="Model not found")
 
@@ -694,7 +655,97 @@ async def delete_model(model_name: str):
         with open(config_path, "w") as f:
             yaml.safe_dump(config_data, f, default_flow_style=False)
     except Exception as e:
-        logger.error(f"Failed to write litellm config: {e}")
+        logger.error("Failed to write config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save model configuration")
 
     return {"status": "success", "message": f"Model {model_name} deleted successfully"}
+
+
+class ModelCredentialSchema(BaseModel):
+    api_key: Optional[str] = None
+    api_base: Optional[str] = None
+
+
+@router.patch("/models/{model_name}")
+async def update_model_credential(model_name: str, body: ModelCredentialSchema):
+    """Update the API key/base for an existing model in config.yaml."""
+    config_path = _get_config_path()
+    try:
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.error("Failed to read config: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to read model configuration")
+
+    found = False
+    for m in config_data.get("model_list", []):
+        if m.get("model_name") == model_name:
+            if body.api_key:
+                m.setdefault("litellm_params", {})["api_key"] = body.api_key
+            if body.api_base:
+                m.setdefault("litellm_params", {})["api_base"] = body.api_base
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    try:
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config_data, f, default_flow_style=False)
+    except Exception as e:
+        logger.error("Failed to write config: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save model configuration")
+
+    return {"status": "success", "message": f"Model {model_name} updated"}
+
+
+# --- Fallback configuration ---
+
+class FallbackBody(BaseModel):
+    fallback_model: Optional[str] = None
+
+
+@router.get("/fallbacks")
+async def get_fallbacks():
+    """Returns the current fallback map: {model_name: fallback_model_name}."""
+    config_path = _get_config_path()
+    try:
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+        raw = config_data.get("router_settings", {}).get("fallbacks", [])
+        result: dict = {}
+        for item in raw:
+            for k, v in item.items():
+                result[k] = v[0] if v else None
+        return result
+    except Exception:
+        return {}
+
+
+@router.put("/fallbacks/{model_name}")
+async def set_fallback(model_name: str, body: FallbackBody):
+    """Set or clear the fallback model for a given model. Written to config.yaml router_settings."""
+    config_path = _get_config_path()
+    try:
+        with open(config_path, "r") as f:
+            config_data = yaml.safe_load(f) or {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to read config")
+
+    if "router_settings" not in config_data:
+        config_data["router_settings"] = {"disable_cooldowns": True}
+
+    fallbacks = config_data["router_settings"].get("fallbacks", [])
+    fallbacks = [item for item in fallbacks if model_name not in item]
+    if body.fallback_model:
+        fallbacks.append({model_name: [body.fallback_model]})
+    config_data["router_settings"]["fallbacks"] = fallbacks
+
+    try:
+        with open(config_path, "w") as f:
+            yaml.safe_dump(config_data, f, default_flow_style=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to write config")
+
+    return {"status": "ok"}
