@@ -32,23 +32,28 @@ class BudgetService:
         """
         Returns all budgets that apply to this request (personal and/or group).
         Both layers apply simultaneously — the request is blocked if ANY is exhausted.
+        When the user has a personal budget, the group budget is ALSO checked (dual-layer).
+        When the user has no personal budget, only the group budget applies.
         """
         budgets = []
+        resolved_group_id = group_id
+
         if user_id:
             personal = BudgetService.get_personal_budget(db, user_id)
             if personal:
                 budgets.append(personal)
-            elif not group_id:
-                # No personal budget — fall back to the group via user record
-                user = db.query(User).filter(User.id == user_id).first()
-                if user and user.group_id:
-                    group_b = BudgetService.get_group_budget(db, user.group_id)
-                    if group_b:
-                        budgets.append(group_b)
-        if group_id:
-            group_b = BudgetService.get_group_budget(db, group_id)
+
+            # Resolve group_id from the user record if not passed explicitly
+            if not resolved_group_id:
+                user_obj = db.query(User).filter(User.id == user_id).first()
+                if user_obj and user_obj.group_id:
+                    resolved_group_id = str(user_obj.group_id)
+
+        if resolved_group_id:
+            group_b = BudgetService.get_group_budget(db, resolved_group_id)
             if group_b and group_b not in budgets:
                 budgets.append(group_b)
+
         return budgets
 
     @staticmethod
@@ -62,20 +67,23 @@ class BudgetService:
         return BudgetService.get_personal_budget(db, user_id)
 
     @staticmethod
+    def _budget_has_credit(budget: "Budget") -> bool:
+        return (
+            budget.current_spend_usd < budget.max_spend_usd
+            and budget.current_tokens < budget.max_tokens
+        )
+
+    @staticmethod
     def has_sufficient_budget(db: Session, user_id: str = None, group_id: str = None) -> bool:
         """
-        Dual-layer check: blocks if ANY applicable budget (personal or group) is exhausted.
-        If no budget exists for either layer, the request is allowed.
+        Fallback model: allow if AT LEAST ONE applicable budget has remaining credit.
+        Personal is the primary allocation; group is the departmental fallback.
+        If no budget is configured, the request is allowed.
         """
         budgets = BudgetService.get_applicable_budgets(db, user_id=user_id, group_id=group_id)
         if not budgets:
             return True
-        for budget in budgets:
-            if budget.current_spend_usd >= budget.max_spend_usd:
-                return False
-            if budget.current_tokens >= budget.max_tokens:
-                return False
-        return True
+        return any(BudgetService._budget_has_credit(b) for b in budgets)
 
     @staticmethod
     def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> Decimal:
@@ -90,7 +98,9 @@ class BudgetService:
     @staticmethod
     def update_budget(db: Session, user_id: str = None, group_id: str = None, prompt_tokens: int = 0, completion_tokens: int = 0, model: str = "", override_cost: Decimal = None) -> None:
         """
-        Dual-layer deduction: deducts cost from ALL applicable budgets (personal and/or group).
+        Parallel deduction: each budget tracks its own spend independently.
+        - Personal budget deducts from personal (only while it has credit).
+        - Group budget deducts from group (only while it has credit).
         """
         budgets = BudgetService.get_applicable_budgets(db, user_id=user_id, group_id=group_id)
         if not budgets:
@@ -98,6 +108,7 @@ class BudgetService:
         cost = override_cost if override_cost is not None else BudgetService.calculate_cost(model, prompt_tokens, completion_tokens)
         total_tokens = prompt_tokens + completion_tokens
         for budget in budgets:
-            budget.current_spend_usd += cost
-            budget.current_tokens += total_tokens
+            if BudgetService._budget_has_credit(budget):
+                budget.current_spend_usd += cost
+                budget.current_tokens += total_tokens
         db.commit()
