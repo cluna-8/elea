@@ -11,6 +11,13 @@ function jsonHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", ...authHeaders() };
 }
 
+function handleExpiredSession(res: Response): void {
+  if (res.status === 401) {
+    authStorage.clear();
+    window.location.reload();
+  }
+}
+
 export interface Group {
   id: string;
   name: string;
@@ -160,6 +167,14 @@ export const api = {
     return res.json();
   },
 
+  deleteBudget: async (budgetId: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/budgets/${budgetId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error("Failed to delete budget");
+  },
+
   // --- Security Policy ---
   getSecurityPolicy: async (): Promise<SecurityPolicy> => {
     const res = await fetch(`${API_BASE}/security/policy`, { headers: authHeaders() });
@@ -240,6 +255,7 @@ export const api = {
       headers,
       body: JSON.stringify({ message, model, ...overrides }),
     });
+    handleExpiredSession(res);
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
       throw new Error(errData.detail || "Failed to send chat message");
