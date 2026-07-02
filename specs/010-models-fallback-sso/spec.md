@@ -1,5 +1,8 @@
 # Feature 010 — Model Catalog, Fallback Automático & SSO Roadmap
 
+**Status**: Implementado ✅ (mergeado a master, 2026-07-01)
+**Branch**: `feature/010-models-fallback-sso`
+
 ## Objetivo
 Tres mejoras al sistema de gestión de modelos y autenticación:
 

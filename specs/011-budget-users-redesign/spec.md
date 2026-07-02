@@ -1,5 +1,8 @@
 # Spec 011 — Budget Dual-Layer & Users/Keys UX Redesign
 
+**Status**: Implementado ✅ (mergeado a master, 2026-07-01)
+**Branch**: `feature/011-budget-users-redesign`
+
 ## Contexto
 
 Durante el QA de las features 001–010 se identificaron los siguientes problemas:

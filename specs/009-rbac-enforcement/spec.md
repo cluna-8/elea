@@ -1,5 +1,8 @@
 # Feature 009 — RBAC & Permission Enforcement
 
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
+**Branch**: `feature/009-rbac-enforcement`
+
 ## Objetivo
 Aplicar control de acceso basado en roles en todos los endpoints de la API. Los roles ya existen en la DB (`admin`, `compliance_officer`, `clinician`, `developer`) pero no están siendo validados.
 

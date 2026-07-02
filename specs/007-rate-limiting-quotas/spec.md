@@ -1,5 +1,8 @@
 # Feature 007 — Rate Limiting & Quotas (Redis-backed)
 
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
+**Branch**: `feature/007-rate-limiting`
+
 ## Objetivo
 Implementar rate limiting por clave virtual usando Redis, aplicando los límites `rpm_limit` y `tpm_limit` que ya existen en el modelo `APIKey`. Devuelve 429 con `Retry-After` cuando se supera el umbral.
 

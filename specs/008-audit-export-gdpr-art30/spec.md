@@ -1,5 +1,8 @@
 # Feature 008 — Audit Export & Registros de Tratamiento (GDPR Art. 30)
 
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
+**Branch**: `feature/008-audit-export`
+
 ## Objetivo
 Generar documentos exportables que cubran las obligaciones de registro del GDPR y la EU AI Act: Registro de Actividades de Tratamiento (RAT/RoPA), exportación DSAR por sujeto, e informe ejecutivo para la AESIA.
 

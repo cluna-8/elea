@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-29
 
-**Status**: Draft
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
 
 **Input**: User description: "Llevar el sistema a producción real usando LiteLLM como fuente de verdad para la gestión de usuarios, equipos, presupuestos y virtual keys. El backend actúa como capa de seguridad y orquestación; LiteLLM gestiona el enforcement financiero nativo."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-29
 
-**Status**: Draft
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
 
 **Input**: Reemplazar todas las simulaciones de seguridad (keyword lists, regex) por guardrails reales usando el sistema de guardrails del motor de IA interno (46 providers disponibles). El admin puede activar, configurar y testear cada guardrail desde la UI. Agregar migrations versionadas con Alembic.
 

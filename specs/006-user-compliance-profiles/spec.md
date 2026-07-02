@@ -1,5 +1,8 @@
 # Feature 006 — User Compliance Profiles
 
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
+**Branch**: `feature/006-user-compliance-profiles`
+
 ## Objetivo
 
 Vincular usuarios y grupos a proyectos de compliance, añadir base legal diferenciada por rol clínico, registrar consentimiento explícito, y añadir Redis para caché de respuestas y rate limiting real.

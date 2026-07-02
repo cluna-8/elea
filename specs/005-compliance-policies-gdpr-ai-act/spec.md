@@ -1,7 +1,7 @@
 # Feature Specification: Compliance Policies — GDPR & EU AI Act
 **Feature Branch**: `feature/005-compliance-policies`
 **Version**: 1.0.0
-**Status**: In Progress
+**Status**: Implementado ✅ (mergeado a master, 2026-06-29)
 **Date**: 2026-06-29
 
 ---
