@@ -76,8 +76,8 @@ class BudgetService:
     @staticmethod
     def has_sufficient_budget(db: Session, user_id: str = None, group_id: str = None) -> bool:
         """
-        Fallback model: allow if AT LEAST ONE applicable budget has remaining credit.
-        Personal is the primary allocation; group is the departmental fallback.
+        Allow if AT LEAST ONE applicable budget has remaining credit (personal OR group).
+        Sequential model: personal is charged first; group is the fallback layer.
         If no budget is configured, the request is allowed.
         """
         budgets = BudgetService.get_applicable_budgets(db, user_id=user_id, group_id=group_id)
@@ -98,9 +98,8 @@ class BudgetService:
     @staticmethod
     def update_budget(db: Session, user_id: str = None, group_id: str = None, prompt_tokens: int = 0, completion_tokens: int = 0, model: str = "", override_cost: Decimal = None) -> None:
         """
-        Parallel deduction: each budget tracks its own spend independently.
-        - Personal budget deducts from personal (only while it has credit).
-        - Group budget deducts from group (only while it has credit).
+        Sequential deduction: personal budget is charged first; group budget is the fallback.
+        Only one layer is charged per request — whichever has credit first (personal > group).
         """
         budgets = BudgetService.get_applicable_budgets(db, user_id=user_id, group_id=group_id)
         if not budgets:
@@ -111,4 +110,5 @@ class BudgetService:
             if BudgetService._budget_has_credit(budget):
                 budget.current_spend_usd += cost
                 budget.current_tokens += total_tokens
+                break  # charge the first budget with credit; personal exhausted → group kicks in
         db.commit()

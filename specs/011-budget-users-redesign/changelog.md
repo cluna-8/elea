@@ -10,9 +10,14 @@
   - Nuevo método `get_personal_budget(db, user_id)` — busca presupuesto personal del usuario.
   - Nuevo método `get_group_budget(db, group_id)` — busca presupuesto del grupo.
   - Nuevo método `get_applicable_budgets(db, user_id, group_id)` — devuelve la lista de presupuestos que aplican a la request (personal + grupo si ambos existen; solo grupo si no hay personal; fallback a grupo vía user.group_id si no se pasa group_id explícito).
-  - `has_sufficient_budget`: ahora verifica TODOS los presupuestos aplicables. Bloquea si cualquiera está agotado (USD o tokens).
-  - `update_budget`: ahora descuenta de TODOS los presupuestos aplicables en una sola transacción. Ya no retorna el budget (retorna None).
+  - `has_sufficient_budget`: permite si AL MENOS UNO tiene crédito (`any()`). Bloquea solo si todos están agotados.
+  - `update_budget`: modelo secuencial — cobra del primer presupuesto con crédito (`break`). Orden: personal → grupo. Solo una capa se carga por request.
   - `get_budget_by_owner` y `get_user_budget` conservados por compatibilidad.
+
+### Corrección post-QA — lógica de cargo (2026-07-02)
+- **Bug**: `update_budget` descontaba de TODOS los presupuestos con crédito simultáneamente, haciendo que cada request agotara personal Y grupo al mismo tiempo.
+- **Fix**: agregado `break` tras el primer presupuesto cargado. El personal se agota solo con requests propias; el grupo actúa como fallback cuando el personal se agota.
+- El comportamiento de gate (`has_sufficient_budget`) era correcto y no cambió.
 
 ## Frontend
 

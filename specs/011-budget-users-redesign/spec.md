@@ -15,28 +15,32 @@ Durante el QA de las features 001–010 se identificaron los siguientes problema
 ## Objetivos
 
 - Permitir eliminar presupuestos desde la UI.
-- Implementar doble capa presupuestaria: personal Y grupo se evalúan simultáneamente. Bloquea si cualquiera de los dos está agotado.
+- Implementar doble capa presupuestaria con modelo secuencial: el personal se consume primero; cuando se agota, el grupo actúa como fallback. Bloquea solo cuando ambos están agotados.
 - Rediseñar UsersPage con 5 tabs bien separadas.
 - Mejorar display y UX general de presupuestos.
 
-## Modelo de negocio: doble capa presupuestaria
+## Modelo de negocio: doble capa presupuestaria (secuencial)
+
+El personal se consume primero. El grupo actúa como reserva departamental. Solo se carga una capa por request.
 
 ```
-Ejemplo: usuario admin, grupo cardiologia
-  Personal: $10.00 → gasta $9.50 → queda $0.50  ← LIMITA al individuo
-  Grupo:     $5.00 → gasta $4.80 → queda $0.20  ← LIMITA al departamento
+Ejemplo: usuario dr.garcia, grupo cardiologia
+  Personal: $10.00 → queda $0.50  ← asignación individual
+  Grupo:     $5.00 → queda $2.00  ← bolsa departamental (sin tocar aún)
 
-  Próxima request de $0.30:
-    ¿Personal suficiente? $0.50 >= $0.30 → ✓
-    ¿Grupo suficiente?    $0.20 >= $0.30 → ✗ BLOQUEA (grupo agotado)
+  Request de $0.30:
+    Personal tiene crédito ($0.50) → cobra $0.30 del personal → para
+    Grupo: no se toca
 
-  Próxima request de $0.10:
-    ¿Personal suficiente? $0.50 >= $0.10 → ✓
-    ¿Grupo suficiente?    $0.20 >= $0.10 → ✓
-    → PASA, descuenta $0.10 de AMBOS
+  Cuando personal se agota (queda $0.00):
+    Personal agotado → siguiente request carga del grupo
+    Grupo tiene crédito ($2.00) → cobra del grupo
+
+  Cuando ambos agotados → BLOQUEA (402)
 ```
 
-Cuando ambos aplican, el gasto se descuenta de los dos simultáneamente.
+**Regla de gate (`has_sufficient_budget`):** permite si AL MENOS UNO tiene crédito (`any()`).
+**Regla de cargo (`update_budget`):** cobra del primero con crédito y para (`break`). Orden: personal → grupo.
 
 ## Diseño de tabs — UsersPage
 
@@ -72,15 +76,14 @@ Cuando ambos aplican, el gasto se descuenta de los dos simultáneamente.
 
 ### Cambio en BudgetService
 - `has_sufficient_budget(db, user_id, group_id)`:
-  - Si el usuario tiene presupuesto personal → verifica personal
-  - Si el usuario está en un grupo con presupuesto → verifica grupo TAMBIÉN
-  - Si cualquiera está agotado → bloquea
-  - Si ninguno existe → permite (sin límite)
+  - Permite si AL MENOS UNO (personal o grupo) tiene crédito (`any()`)
+  - Bloquea solo si TODOS están agotados
+  - Sin presupuestos → permite (sin límite)
 
 - `update_budget(db, user_id, group_id, ...)`:
-  - Si el usuario tiene presupuesto personal → descuenta de personal
-  - Si el usuario está en un grupo con presupuesto → descuenta de grupo TAMBIÉN
-  - Ambas operaciones en la misma transacción
+  - Cobra del PRIMERO con crédito en orden `[personal, grupo]` y para (`break`)
+  - Solo una capa se carga por request
+  - Transacción única
 
 ## Consideración: LiteLLM
 
