@@ -130,17 +130,24 @@ async def chat_completions(
         else:
             # JWT session path: identify the logged-in user and their group
             from ..auth.session import decode_session_token
-            from ..models.user import User as UserModel
+            from ..models.user import User as UserModel, Group as GroupModel
             payload = decode_session_token(token)
             if payload:
                 uid = payload.get("sub")
                 if uid:
                     user = db.query(UserModel).filter(UserModel.id == uid, UserModel.is_active == True).first()
                     if user and user.group_id:
-                        group = user.group
+                        group = db.query(GroupModel).filter(GroupModel.id == user.group_id).first()
+            else:
+                # Token present but invalid/expired — reject so the frontend forces re-login
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Sesión expirada. Por favor, vuelve a iniciar sesión.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
     if not user and not group:
-        # Fallback to default user (Playground UI dashboard session)
+        # Fallback: no Authorization header at all (direct API access, scripts, curl)
         user = get_or_create_default_user(db)
 
     # 1a. Rate Limiting (RPM check before any expensive processing)
