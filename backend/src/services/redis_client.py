@@ -11,7 +11,7 @@ def get_redis() -> redis.Redis | None:
     global _client
     if _client is not None:
         return _client
-    host = os.getenv("REDIS_HOST", "basa-redis")
+    host = os.getenv("REDIS_HOST", "eu-redis")
     port = int(os.getenv("REDIS_PORT", "6379"))
     try:
         _client = redis.Redis(host=host, port=port, db=0, decode_responses=True, socket_connect_timeout=2)
