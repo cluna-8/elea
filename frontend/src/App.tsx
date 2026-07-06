@@ -9,9 +9,10 @@ import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { CostsPage } from "./pages/CostsPage";
 import { authStorage, SessionUser, ROLE_LABELS, ROLE_PERMISSIONS } from "./services/auth";
 
-type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models" | "docs";
+type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -21,6 +22,7 @@ export const App: React.FC = () => {
     { id: "dashboard", name: "Panel Principal", roles: null },
     { id: "playground", name: "Playground", roles: null },
     { id: "models", name: "Modelos & Ollama", roles: null },
+    { id: "costs", name: "Costos", roles: ["admin", "compliance_officer"] },
     { id: "users", name: "Usuarios & Presupuestos", roles: ["admin"] },
     { id: "security", name: "Seguridad y Guardianes", roles: ["admin", "compliance_officer"] },
     { id: "compliance", name: "Políticas de Cumplimiento", roles: ["admin", "compliance_officer"] },
@@ -104,6 +106,7 @@ export const App: React.FC = () => {
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "playground" && <PlaygroundPage />}
         {currentPage === "models" && <ModelsPage />}
+        {currentPage === "costs" && <CostsPage />}
         {currentPage === "users" && <UsersPage />}
         {currentPage === "security" && <SecurityPage />}
         {currentPage === "compliance" && <CompliancePage />}

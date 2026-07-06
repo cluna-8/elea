@@ -58,6 +58,58 @@ export interface Budget {
   updated_at: string;
 }
 
+export interface ModelPricing {
+  model_name: string;
+  input_cost_per_million: number;
+  output_cost_per_million: number;
+  max_tokens?: number | null;
+  max_input_tokens?: number | null;
+}
+
+export interface CostModelBreakdown {
+  model: string;
+  cost_usd: number;
+  requests: number;
+  tokens_saved: number;
+}
+
+export interface CostEntityBreakdown {
+  name: string;
+  cost_usd: number;
+  requests: number;
+  tokens_saved: number;
+}
+
+export interface CostSummary {
+  range: string;
+  total_cost_usd: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  tokens_saved: number;
+  total_requests: number;
+  cost_saved_estimate_usd: number | null;
+  top_models: CostModelBreakdown[];
+  by_user: CostEntityBreakdown[];
+  by_group: CostEntityBreakdown[];
+}
+
+export type CompressionVeredicto = "conviene" | "no_conviene" | "usd_no_disponible";
+
+export interface CompressionAnalysis {
+  tokens_original: number;
+  tokens_compressed: number;
+  tokens_saved: number;
+  cost_saved_usd: number | null;
+  would_compress: boolean;
+  veredicto: CompressionVeredicto;
+  ratio: number;
+  threshold: number;
+  model: string | null;
+  aggressiveness: string;
+  strategy: string;
+  strategy_applied?: string;
+}
+
 export interface SecurityPolicy {
   id?: string;
   name: string;
@@ -654,6 +706,27 @@ export const api = {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(data),
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al procesar la revisión"); }
+    return res.json();
+  },
+
+  // --- Costs (Ahorro de Costes IA) ---
+  getCostsSummary: async (range: "day" | "week" | "month"): Promise<CostSummary> => {
+    const res = await fetch(`${API_BASE}/costs/summary?range=${range}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch costs summary");
+    return res.json();
+  },
+
+  calculateCompression: async (req: {
+    prompt: string;
+    model?: string | null;
+    threshold?: number | null;
+    aggressiveness?: string;
+    strategy?: string;
+  }): Promise<CompressionAnalysis> => {
+    const res = await fetch(`${API_BASE}/costs/calculator`, {
+      method: "POST", headers: jsonHeaders(), body: JSON.stringify(req),
+    });
+    if (!res.ok) throw new Error("Failed to run compression calculator");
     return res.json();
   },
 };
