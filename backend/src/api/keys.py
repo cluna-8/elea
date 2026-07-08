@@ -11,8 +11,13 @@ from ..models.budget import APIKey
 from ..models.user import User, Group
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
+from ..auth.rbac import require_role
 
-router = APIRouter(prefix="/keys", tags=["Virtual Keys"])
+router = APIRouter(
+    prefix="/keys",
+    tags=["Virtual Keys"],
+    dependencies=[Depends(require_role("admin", "developer"))],
+)
 
 
 class KeyCreateSchema(BaseModel):
@@ -95,6 +100,8 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
             models=key_in.models,
             team_id=engine_team_id,
             user_id=engine_user_id,
+            rpm_limit=key_in.rpm_limit,
+            tpm_limit=key_in.tpm_limit,
         )
     except AIEngineClientError:
         raise HTTPException(

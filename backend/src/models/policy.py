@@ -13,6 +13,7 @@ class SecurityPolicy(Base):
     entity_configs = Column(JSONB, nullable=False) # e.g., {"PERSON": "MASK", "US_SSN": "BLOCK"}
     gdpr_mode = Column(Boolean, default=True)
     ai_act_mode = Column(Boolean, default=True)
-    headroom_mode = Column(Boolean, default=False) # Context optimization flag
+    headroom_mode = Column(Boolean, default=False) # Deprecado: usar compression_mode (spec 012 US4)
+    compression_mode = Column(Boolean, default=False) # Context optimization flag global (renombrado de headroom_mode)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

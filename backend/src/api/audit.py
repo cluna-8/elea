@@ -12,8 +12,13 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models.audit import AuditLog
+from ..auth.rbac import require_role
 
-router = APIRouter(prefix="/audit-logs", tags=["Audit Logs"])
+router = APIRouter(
+    prefix="/audit-logs",
+    tags=["Audit Logs"],
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],
+)
 logger = logging.getLogger("basa-secure-gateway.audit")
 
 

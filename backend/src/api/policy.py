@@ -4,10 +4,15 @@ from uuid import UUID
 
 from ..database import get_db
 from ..models.policy import SecurityPolicy
+from ..auth.rbac import require_role
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 
-router = APIRouter(prefix="/security", tags=["Security & Optimization"])
+router = APIRouter(
+    prefix="/security",
+    tags=["Security & Optimization"],
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],
+)
 
 class PolicyCreateSchema(BaseModel):
     name: str

@@ -16,11 +16,15 @@ from ..auth.rbac import require_role
 router = APIRouter(prefix="/reports", tags=["Compliance Reports"])
 
 LEGAL_BASIS_LABELS = {
-    "art_9_2_h": "Art. 9(2)(h) GDPR — Prestación sanitaria",
+    "art_9_2_h": "Art. 9(2)(h) GDPR — Prestación sanitaria / farmacovigilancia",
     "art_9_2_j": "Art. 9(2)(j) GDPR — Interés público / investigación",
     "art_9_2_a": "Art. 9(2)(a) GDPR — Consentimiento explícito",
+    "art_9_2_b": "Art. 9(2)(b) GDPR — Empleo / RRHH",
+    "art_9_2_f": "Art. 9(2)(f) GDPR — Reivindicación de derechos",
     "art_6_1_c": "Art. 6(1)(c) GDPR — Obligación legal",
     "art_6_1_e": "Art. 6(1)(e) GDPR — Misión de interés público",
+    "art_6_1_b": "Art. 6(1)(b) GDPR — Ejecución de contrato",
+    "art_6_1_f": "Art. 6(1)(f) GDPR — Interés legítimo",
 }
 
 RISK_LABELS = {
@@ -59,9 +63,9 @@ def export_rat(db: Session = Depends(get_db)):
         rows.append({
             "nombre_actividad": p.name,
             "descripcion": p.description or "",
-            "finalidad": p.processing_purpose if hasattr(p, "processing_purpose") else "Prestación de servicios sanitarios asistidos por IA",
+            "finalidad": p.processing_purpose if hasattr(p, "processing_purpose") else "Asistencia IA para actividades de pharma, marketing y gastos",
             "base_juridica": LEGAL_BASIS_LABELS.get(p.legal_basis, p.legal_basis or ""),
-            "categoria_datos": "Datos de categoría especial — Art. 9 GDPR (datos de salud)" if p.data_category == "health_data" else p.data_category or "",
+            "categoria_datos": "Datos de categoría especial — Art. 9 GDPR (datos de salud)" if p.data_category == "health_data" else ("Datos de categoría especial — Art. 9 GDPR (datos de empleados)" if p.data_category == "employee_data" else p.data_category or ""),
             "nivel_riesgo_ai_act": RISK_LABELS.get(p.ai_act_risk_level, p.ai_act_risk_level or ""),
             "region_procesamiento": "Unión Europea" if p.eu_region_required else "Sin restricción de región",
             "revision_humana": "Sí" if p.human_review_required else "No",

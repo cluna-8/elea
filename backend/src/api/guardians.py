@@ -9,8 +9,13 @@ from ..models.guardian import Guardian
 from ..services.guardian_service import GuardianService
 from ..services import ai_engine_client
 from ..services.encryption_service import encrypt, decrypt
+from ..auth.rbac import require_role
 
-router = APIRouter(prefix="/guardians", tags=["Security Guardians"])
+router = APIRouter(
+    prefix="/guardians",
+    tags=["Security Guardians"],
+    dependencies=[Depends(require_role("admin"))],
+)
 
 
 class GuardianSchema(BaseModel):

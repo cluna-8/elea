@@ -10,8 +10,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.user import Group, User
 from ..models.compliance import ComplianceProject
+from ..auth.rbac import require_role
 
-router = APIRouter(prefix="/groups", tags=["Groups"])
+router = APIRouter(
+    prefix="/groups",
+    tags=["Groups"],
+    dependencies=[Depends(require_role("admin"))],
+)
 logger = logging.getLogger("basa-secure-gateway.groups")
 
 

@@ -9,9 +9,22 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.user import User
 
-SECRET_KEY = os.getenv("FERNET_SECRET_KEY", "basa-jwt-secret-fallback-2025")
+# Dedicated JWT secret — MUST be set in the environment (JWT_SECRET_KEY). We never fall back
+# to a hard-coded/predictable key (security: fail-closed). We also never reuse the Fernet
+# key, so a compromise of one secret does not imply a compromise of the other.
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_HOURS = 24
+
+
+def _ensure_secret() -> str:
+    """Fail-closed: refuse to issue/decode JWTs without a dedicated secret in prod."""
+    if not SECRET_KEY or len(SECRET_KEY) < 32:
+        raise RuntimeError(
+            "JWT_SECRET_KEY is missing or too short (>=32 chars required). "
+            "Set it in the environment (.env) — do NOT reuse FERNET_SECRET_KEY."
+        )
+    return SECRET_KEY
 
 
 def create_session_token(user_id: str, role: str, username: str) -> str:
@@ -21,13 +34,16 @@ def create_session_token(user_id: str, role: str, username: str) -> str:
         "username": username,
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(payload, _ensure_secret(), algorithm=ALGORITHM)
 
 
 def decode_session_token(token: str) -> Optional[dict]:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return jwt.decode(token, _ensure_secret(), algorithms=[ALGORITHM])
     except JWTError:
+        return None
+    except RuntimeError:
+        # No JWT secret configured — cannot validate any token.
         return None
 
 

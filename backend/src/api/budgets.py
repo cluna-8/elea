@@ -6,8 +6,13 @@ from uuid import UUID
 from ..database import get_db
 from ..models.budget import Budget
 from ..schemas.budget import BudgetCreate, BudgetResponse
+from ..auth.rbac import require_role
 
-router = APIRouter(prefix="/budgets", tags=["Budgets"])
+router = APIRouter(
+    prefix="/budgets",
+    tags=["Budgets"],
+    dependencies=[Depends(require_role("admin"))],
+)
 
 @router.post("", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED)
 def create_budget(budget_in: BudgetCreate, db: Session = Depends(get_db)):

@@ -10,8 +10,13 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.consent import ConsentRecord
 from ..models.user import User
+from ..auth.rbac import require_role
 
-router = APIRouter(prefix="/compliance/consent", tags=["Consent"])
+router = APIRouter(
+    prefix="/compliance/consent",
+    tags=["Consent"],
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],
+)
 logger = logging.getLogger("basa-secure-gateway.consent")
 
 CONSENT_VERSION = "1.0"

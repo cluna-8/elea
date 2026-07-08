@@ -4,19 +4,27 @@ from typing import Tuple, Dict, Any
 
 logger = logging.getLogger("basa-secure-gateway.compliance")
 
-# Prohibited AI practices under EU AI Act (Article 5)
+# Prohibited AI practices under EU AI Act (Article 5) — universales (aplican a cualquier sector)
 PROHIBITED_KEYWORDS = [
     r"social\s*scoring", r"score\s*social", r"clasificación\s*social",
     r"subliminal\s*manipulation", r"manipulación\s*subliminal",
     r"biometric\s*categorization", r"categorización\s*biométrica"
 ]
 
-# High-risk AI systems under EU AI Act (Annex III)
+# High-risk AI systems under EU AI Act (Annex III) — framings relevantes para pharma + marketing + gastos.
+# Nota: este gate es heurístico (regex), no sustituye la DPIA ni la evaluación de conformidad.
 HIGH_RISK_KEYWORDS = [
-    r"diagnóstico\s*autónomo", r"diagnostico\s*autonomo",
-    r"decisión\s*médica\s*automática", r"decision\s*medica\s*automatica",
+    # Pharma / regulatorio
+    r"farmacovigilancia\s*automatizada", r"farmacovigilancia\s*autónoma",
+    r"decisión\s*regulatoria\s*autónoma", r"decision\s*regulatoria\s*autonoma",
+    r"ensayo\s*clínico\s*autónomo", r"ensayo\s*clinico\s*autonomo",
+    # RRHH / gastos (evaluación automatizada de personas — Annex III)
     r"evaluación\s*de\s*crédito", r"credit\s*scoring",
-    r"automated\s*hiring", r"evaluación\s*de\s*cv", r"selección\s*de\s*personal\s*automática"
+    r"automated\s*hiring", r"evaluación\s*de\s*cv", r"selección\s*de\s*personal\s*automática",
+    r"scoring\s*de\s*empleados", r"evaluación\s*automatizada\s*de\s*representantes",
+    r"evaluacion\s*automatizada\s*de\s*representantes",
+    # Marketing (personalización manipuladora / subliminal de ads)
+    r"personalización\s*manipuladora", r"personalizacion\s*manipuladora",
 ]
 
 class ComplianceService:

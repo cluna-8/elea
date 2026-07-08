@@ -14,17 +14,24 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models.policy import SecurityPolicy
+from ..models.user import Group
 from ..services.optimization_service import OptimizationService
+from ..auth.rbac import require_role
 
 logger = logging.getLogger("basa-secure-gateway.costs")
 
-router = APIRouter(prefix="/costs", tags=["Costs"])
+router = APIRouter(
+    prefix="/costs",
+    tags=["Costs"],
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],
+)
 
 _ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
 _ENGINE_KEY = os.getenv("LITELLM_MASTER_KEY", "")
@@ -106,6 +113,7 @@ def get_costs_summary(
                 COALESCE(SUM(prompt_tokens), 0)                  AS total_prompt_tokens,
                 COALESCE(SUM(completion_tokens), 0)              AS total_completion_tokens,
                 COALESCE(SUM(tokens_saved_by_optimization), 0)   AS tokens_saved,
+                COALESCE(SUM(cost_saved_usd), 0)                 AS cost_saved_usd,
                 COUNT(*)                                         AS total_requests
             FROM audit_logs
             WHERE timestamp >= :from_dt AND timestamp <= :to_dt
@@ -115,6 +123,7 @@ def get_costs_summary(
     ).first()
 
     tokens_saved = int(row.tokens_saved or 0)
+    cost_saved_usd = float(row.cost_saved_usd or 0)
     avg_rate = _avg_input_cost_per_token()
     cost_saved_estimate = round(tokens_saved * avg_rate, 6) if avg_rate else None
 
@@ -142,7 +151,8 @@ def get_costs_summary(
             SELECT u.username                                AS name,
                    COALESCE(SUM(a.cost_usd), 0)              AS cost_usd,
                    COUNT(*)                                   AS requests,
-                   COALESCE(SUM(a.tokens_saved_by_optimization), 0) AS tokens_saved
+                   COALESCE(SUM(a.tokens_saved_by_optimization), 0) AS tokens_saved,
+                   COALESCE(SUM(a.cost_saved_usd), 0)        AS cost_saved_usd
             FROM audit_logs a
             LEFT JOIN users u ON u.id = a.user_id
             WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
@@ -161,7 +171,8 @@ def get_costs_summary(
             SELECT COALESCE(g.name, '— sin grupo —')        AS name,
                    COALESCE(SUM(a.cost_usd), 0)              AS cost_usd,
                    COUNT(*)                                   AS requests,
-                   COALESCE(SUM(a.tokens_saved_by_optimization), 0) AS tokens_saved
+                   COALESCE(SUM(a.tokens_saved_by_optimization), 0) AS tokens_saved,
+                   COALESCE(SUM(a.cost_saved_usd), 0)        AS cost_saved_usd
             FROM audit_logs a
             LEFT JOIN groups g ON g.id = a.user_group_id
             WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
@@ -179,6 +190,7 @@ def get_costs_summary(
         "total_prompt_tokens": int(row.total_prompt_tokens or 0),
         "total_completion_tokens": int(row.total_completion_tokens or 0),
         "tokens_saved": tokens_saved,
+        "cost_saved_usd": cost_saved_usd,
         "total_requests": int(row.total_requests or 0),
         "cost_saved_estimate_usd": cost_saved_estimate,
         "top_models": [
@@ -196,6 +208,7 @@ def get_costs_summary(
                 "cost_usd": float(b.cost_usd or 0),
                 "requests": int(b.requests or 0),
                 "tokens_saved": int(b.tokens_saved or 0),
+                "cost_saved_usd": float(b.cost_saved_usd or 0),
             }
             for b in by_user
         ],
@@ -205,6 +218,7 @@ def get_costs_summary(
                 "cost_usd": float(b.cost_usd or 0),
                 "requests": int(b.requests or 0),
                 "tokens_saved": int(b.tokens_saved or 0),
+                "cost_saved_usd": float(b.cost_saved_usd or 0),
             }
             for b in by_group
         ],
@@ -255,3 +269,88 @@ def calculate_compression(req: CalculatorRequest):
     analysis["aggressiveness"] = req.aggressiveness
     analysis["strategy"] = req.strategy
     return analysis
+
+
+# ---------------------------------------------------------------------- #
+# Config de compresión — US4 (global + por grupo)
+# ---------------------------------------------------------------------- #
+def _active_policy(db: Session) -> SecurityPolicy:
+    return db.query(SecurityPolicy).filter(SecurityPolicy.is_active == True).first() or \
+        db.query(SecurityPolicy).first()
+
+
+@router.get("/config")
+def get_cost_config(db: Session = Depends(get_db)):
+    """Config global de compresión (Ahorro de Costes IA)."""
+    policy = _active_policy(db)
+    enabled = bool(getattr(policy, "compression_mode", None) or getattr(policy, "headroom_mode", False))
+    return {
+        "enabled": enabled,
+        "default_strategy": "deterministic",
+        "default_threshold": OptimizationService.DEFAULT_THRESHOLD,
+        "default_aggressiveness": "medium",
+    }
+
+
+class CostConfigUpdate(BaseModel):
+    enabled: bool
+
+
+@router.put("/config")
+def update_cost_config(req: CostConfigUpdate, db: Session = Depends(get_db)):
+    """Activa/desactiva la compresión globalmente."""
+    policy = _active_policy(db)
+    if policy is None:
+        from ..models.policy import SecurityPolicy as SP
+        policy = SP(name="default", is_active=True, compression_mode=req.enabled)
+        db.add(policy)
+    else:
+        policy.compression_mode = req.enabled
+        policy.headroom_mode = req.enabled  # mantener sincronizado el flag viejo
+    db.commit()
+    return {"enabled": req.enabled}
+
+
+class GroupCompressionConfig(BaseModel):
+    mode: str = Field("off", pattern="^(off|deterministic|headroom)$")
+    strategy: str = Field("deterministic", pattern="^(deterministic|headroom)$")
+    threshold_tokens: int | None = Field(None)
+    aggressiveness: str = Field("medium", pattern="^(low|medium|high)$")
+    cache_enabled: bool = False
+
+
+@router.get("/groups/{group_id}/compression")
+def get_group_compression(group_id: str, db: Session = Depends(get_db)):
+    g = db.query(Group).filter(Group.id == group_id).first()
+    if not g:
+        raise HTTPException(status_code=404, detail="Grupo no encontrado")
+    return {
+        "group_id": str(g.id),
+        "group_name": g.name,
+        "mode": g.compression_mode or "off",
+        "strategy": g.compression_strategy or "deterministic",
+        "threshold_tokens": g.compression_threshold_tokens,
+        "aggressiveness": g.compression_aggressiveness or "medium",
+        "cache_enabled": bool(g.compression_cache_enabled),
+    }
+
+
+@router.put("/groups/{group_id}/compression")
+def update_group_compression(group_id: str, req: GroupCompressionConfig, db: Session = Depends(get_db)):
+    g = db.query(Group).filter(Group.id == group_id).first()
+    if not g:
+        raise HTTPException(status_code=404, detail="Grupo no encontrado")
+    g.compression_mode = req.mode
+    g.compression_strategy = req.strategy
+    g.compression_threshold_tokens = req.threshold_tokens
+    g.compression_aggressiveness = req.aggressiveness
+    g.compression_cache_enabled = req.cache_enabled
+    db.commit()
+    return {
+        "group_id": str(g.id),
+        "mode": g.compression_mode,
+        "strategy": g.compression_strategy,
+        "threshold_tokens": g.compression_threshold_tokens,
+        "aggressiveness": g.compression_aggressiveness,
+        "cache_enabled": bool(g.compression_cache_enabled),
+    }

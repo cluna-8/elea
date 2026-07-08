@@ -1,10 +1,19 @@
 # Spec 012 — Ahorro de Costes IA: Compresión de Tokens y Reducción de Costes
 
-**Status**: Draft — US1 + US2 implementados (v0.1.0); US3–US6 pendientes
-**Branch**: `feature/012-ahorro-costes-ia`
+**Status**: ✅ CERRADO — US1–US6 implementados (v0.5.0, en rama feature). Fase 0 hardening CERRADA. **20/20 tests pasan**. US5: estrategia `llm` descartada por restricción "no gastar tokens para ahorrar tokens" (circular); implementada caché Redis por hash (sin tokens) + guard fail-open. US6: telemetría ratio de compresión por modelo + guardia de reversión ante respuesta anómala.
+**Branch**: `feature/012-ahorro-costes-ia` (merged US3/US4 a master 2026-07-07)
 **Created**: 2026-07-03
 
 ## Contexto
+
+> **Dominio del producto**: el gateway sirve a **pharma + gastos + marketing** (no hospitales /
+> atención al paciente). Que el sector sea "salud" no implica que los prompts traten sobre
+> pacientes: los casos de uso típicos son copy de campañas, análisis de gastos, reportes de
+> performance de ads, catálogos de producto y RAG regulatorio. La compresión brilla en
+> **contenido estructurado** (líneas de gasto, items de campaña, chunks de RAG, tool outputs) —
+> que es justo lo que estos flujos ensamblan. El motor PII/PHI (GDPR) se mantiene: los datos
+> sensibles son sobre todo **PII comercial** (rep, empleados, HCP) y, cuando aplica, **PHI**
+> (farmacovigilancia / ensayos clínicos).
 
 La compresión de contexto existe hoy como una **implementación parcial y con bugs**:
 
@@ -89,9 +98,9 @@ Como administrador, quiero que el ahorro real de tokens y USD de cada request co
 
 Como administrador, quiero activar/desactivar la compresión y configurar su comportamiento por grupo/usuario (estrategia, umbral, agresividad, modelo compresor, caché) desde la sección Costos, en vez de un flag global.
 
-**Why this priority**: da control fino y por contexto (un grupo de investigación con prompts largos quiere LLM; un grupo de clínica con prompts cortos quiere off). Depende de US1 (compresor) y se beneficia de US2 (Costos).
+**Why this priority**: da control fino y por contexto (un equipo de marketing con campañas largas quiere headroom; un equipo de gastos con prompts cortos quiere off). Depende de US1 (compresor) y se beneficia de US2 (Costos).
 
-**Independent Test**: desde Costos activo compresión determinista para el grupo "Cardiología" con umbral 512; las requests de ese grupo se comprimen, las de otro grupo no.
+**Independent Test**: desde Costos activo compresión headroom para el grupo "Marketing Q3" con umbral 512; las requests de ese grupo se comprimen, las de otro grupo no.
 
 **Acceptance Scenarios**:
 
@@ -123,7 +132,7 @@ Como administrador de un grupo con prompts muy largos, quiero que un modelo bara
 
 ### User Story 6 — Telemetría y guardia de calidad (Priority: P3)
 
-Como administrador/DPO, quiero ver métricas de compresión por modelo y una guardia que revierta al prompt original si la respuesta degrada, para confiar en que la compresión no perjudica la calidad clínica.
+Como administrador/DPO, quiero ver métricas de compresión por modelo y una guardia que revierta al prompt original si la respuesta degrada, para confiar en que la compresión no perjudica la calidad de las respuestas.
 
 **Why this priority**: confianza y observabilidad. Cierra el spec con seguridad de calidad.
 

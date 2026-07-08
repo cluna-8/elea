@@ -8,8 +8,13 @@ from sqlalchemy import text
 import httpx
 
 from ..database import get_db
+from ..auth.rbac import require_authenticated
 
-router = APIRouter(prefix="/analytics", tags=["Analytics"])
+router = APIRouter(
+    prefix="/analytics",
+    tags=["Analytics"],
+    dependencies=[Depends(require_authenticated())],
+)
 logger = logging.getLogger("basa-secure-gateway.analytics")
 
 _ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
@@ -42,21 +47,27 @@ def get_analytics_summary(
             COALESCE(SUM(prompt_tokens), 0)                     AS total_prompt_tokens,
             COALESCE(SUM(completion_tokens), 0)                 AS total_completion_tokens,
             COALESCE(SUM(tokens_saved_by_optimization), 0)      AS tokens_saved,
+            COALESCE(SUM(cost_saved_usd), 0)                    AS cost_saved_usd,
             COALESCE(ROUND(AVG(latency_ms)), 0)                 AS avg_latency_ms,
             COUNT(*) FILTER (WHERE pii_detected = TRUE)         AS pii_incidents,
             COUNT(*) FILTER (WHERE compliance_status = 'allowed' OR compliance_status = 'passed') AS compliance_passed,
-            COUNT(*) FILTER (WHERE compliance_status = 'blocked_prohibited' OR compliance_status = 'blocked_by_policy') AS compliance_blocked
+            COUNT(*) FILTER (WHERE compliance_status = 'blocked_prohibited' OR compliance_status = 'blocked_by_policy') AS compliance_blocked,
+            COUNT(*) FILTER (WHERE compression_reversed = TRUE) AS compression_reversions
         FROM audit_logs
         WHERE timestamp >= :from_dt AND timestamp <= :to_dt
     """)
     core_row = db.execute(core_sql, {"from_dt": from_dt, "to_dt": to_dt}).fetchone()
 
-    # Per-model breakdown
+    # Per-model breakdown (spec 012 US6 — ratio de compresión + ahorro por modelo)
     models_sql = text("""
         SELECT
             model,
             COUNT(*)           AS requests,
-            COALESCE(SUM(cost_usd), 0) AS cost_usd
+            COALESCE(SUM(cost_usd), 0) AS cost_usd,
+            COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+            COALESCE(SUM(tokens_saved_by_optimization), 0) AS tokens_saved,
+            COALESCE(SUM(cost_saved_usd), 0) AS cost_saved_usd,
+            COUNT(*) FILTER (WHERE compression_reversed = TRUE) AS reversions
         FROM audit_logs
         WHERE timestamp >= :from_dt AND timestamp <= :to_dt
         GROUP BY model
@@ -115,12 +126,26 @@ def get_analytics_summary(
         "total_prompt_tokens": core_row.total_prompt_tokens or 0,
         "total_completion_tokens": core_row.total_completion_tokens or 0,
         "tokens_saved_by_optimization": core_row.tokens_saved or 0,
+        "cost_saved_usd": float(core_row.cost_saved_usd or 0),
         "avg_latency_ms": int(core_row.avg_latency_ms or 0),
         "pii_incidents": core_row.pii_incidents or 0,
         "compliance_passed": core_row.compliance_passed or 0,
         "compliance_blocked": core_row.compliance_blocked or 0,
+        "compression_reversions": core_row.compression_reversions or 0,
         "models": [
-            {"model": r.model, "requests": r.requests, "cost_usd": float(r.cost_usd)}
+            {
+                "model": r.model,
+                "requests": r.requests,
+                "cost_usd": float(r.cost_usd or 0),
+                # spec 012 US6 — ratio de compresión + ahorro por modelo
+                "prompt_tokens": int(r.prompt_tokens or 0),
+                "tokens_saved": int(r.tokens_saved or 0),
+                "cost_saved_usd": float(r.cost_saved_usd or 0),
+                "compression_ratio": round(
+                    (r.tokens_saved or 0) / r.prompt_tokens, 4
+                ) if (r.prompt_tokens or 0) > 0 else 0.0,
+                "reversions": int(r.reversions or 0),
+            }
             for r in model_rows
         ],
         "guardian_activations": {

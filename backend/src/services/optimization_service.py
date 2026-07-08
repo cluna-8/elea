@@ -57,6 +57,57 @@ _PLACEHOLDER_RE = re.compile(r"\[(?:PII|PHI)_\d+\]")
 _URL_RE = re.compile(r"https?://[^\s]+|www\.[^\s]+")
 
 
+# --- Caché de compresión por hash (spec 012 US5) — sin tokens ---
+# Cachea el resultado de comprimir un prompt para no recomprimir duplicados.
+# No gasta tokens: solo evita recomputar (y, si la estrategia LLM llegara a
+# activarse, evitaría re-llamar al modelo). Fail-open: si Redis no está, comprime.
+_CACHE_ENABLED = os.getenv("COMPRESSION_CACHE_ENABLED", "true").lower() == "true"
+_CACHE_TTL = int(os.getenv("COMPRESSION_CACHE_TTL", "86400"))  # 24h por defecto
+
+
+def _cache_key(text: str, strategy: str, aggressiveness: str) -> str:
+    import hashlib
+    h = hashlib.sha256(f"{strategy}|{aggressiveness}|{text}".encode()).hexdigest()
+    return f"basa:compress:{h}"
+
+
+def _cache_get(key: str):
+    """Return cached (compressed, saved) tuple or None. Fail-open (None on any error)."""
+    try:
+        from .redis_client import get_redis
+        r = get_redis()
+        if r is None:
+            return None
+        raw = r.get(key)
+        if not raw:
+            return None
+        import json
+        data = json.loads(raw)
+        return data.get("compressed"), int(data.get("saved", 0))
+    except Exception as e:  # fail-open
+        logger.warning(f"compression cache get failed ({e}) — recomputing")
+        return None
+
+
+def _cache_set(key: str, compressed: str, saved: int) -> None:
+    """Store a compressed result. Fail-open (silent on error)."""
+    try:
+        from .redis_client import get_redis
+        r = get_redis()
+        if r is None:
+            return
+        import json
+        r.setex(key, _CACHE_TTL, json.dumps({"compressed": compressed, "saved": saved}))
+    except Exception as e:  # fail-open
+        logger.warning(f"compression cache set failed ({e}) — skipping cache")
+
+
+# --- Guardia de calidad (spec 012 US6): detección de respuesta anómala ---
+# Una respuesta drásticamente corta/vacía tras compresión sugiere que la compresión
+# degradó el prompt; la guardia reintenta con el prompt original (chat.py).
+_REVERSAL_MIN_CHARS = int(os.getenv("COMPRESSION_REVERSAL_MIN_CHARS", "5"))
+
+
 class OptimizationService:
     DEFAULT_THRESHOLD = DEFAULT_THRESHOLD
 
@@ -70,6 +121,7 @@ class OptimizationService:
         threshold: int = DEFAULT_THRESHOLD,
         aggressiveness: str = "medium",
         strategy: str = "deterministic",
+        cache_enabled: bool = True,
     ) -> Tuple[str, int]:
         """Compress ``text`` and return (compressed, tokens_saved).
 
@@ -81,13 +133,39 @@ class OptimizationService:
           * ``headroom`` — módulo local headroom (SmartCrusher, Rust) para contenido
             estructurado (JSON/logs/RAG/arrays); cae al determinista para prosa o si falla.
             No gasta tokens ni requiere torch.
+          * ``llm`` — **descartado** por la restricción verbatim "no gastar tokens para
+            ahorrar tokens" (compresión LLM-asistida = circular). Cae a ``headroom`` si el
+            contenido es estructurado, si no a ``deterministic``. Nunca gasta tokens.
+
+        ``cache_enabled`` (spec 012 US5): si Redis está disponible, cachea el resultado
+        por hash(prompt+strategy+aggressiveness) para no recomprimir duplicados. No gasta
+        tokens. Fail-open: si Redis falta, comprime sin caché.
         """
         if not enabled or not text:
             return text, 0
 
+        # US5 — estrategia 'llm' descartada (gasta tokens → circular). Fall-open a
+        # headroom/deterministic sin llamar a ningún modelo.
+        if strategy == "llm":
+            logger.info(
+                "compression strategy 'llm' is disabled (token-spending constraint) — "
+                "falling back to headroom/deterministic, no tokens spent"
+            )
+            stripped = text.lstrip()
+            strategy = "headroom" if (stripped.startswith("{") or stripped.startswith("[")) else "deterministic"
+
         original_tokens = count_tokens(text)
         if original_tokens < threshold:
             return text, 0
+
+        # US5 — caché por hash (fail-open)
+        if cache_enabled and _CACHE_ENABLED:
+            key = _cache_key(text, strategy, aggressiveness)
+            cached = _cache_get(key)
+            if cached is not None:
+                compressed, saved = cached
+                logger.info(f"compression cache HIT (saved {saved}) — skipping recompute")
+                return compressed, saved
 
         if strategy == "headroom":
             compressed, saved, applied = OptimizationService._headroom_compress(text)
@@ -96,6 +174,8 @@ class OptimizationService:
                     f"headroom compression: {original_tokens} -> {original_tokens - saved} tokens "
                     f"(saved {saved}, applied={applied})"
                 )
+                if cache_enabled and _CACHE_ENABLED:
+                    _cache_set(_cache_key(text, strategy, aggressiveness), compressed, saved)
                 return compressed, saved
             # sin ahorro (prosa o no-JSON) -> cae al determinista abajo
 
@@ -112,7 +192,29 @@ class OptimizationService:
             f"Context compressed: {original_tokens} -> {compressed_tokens} tokens "
             f"(saved {saved}, aggressiveness={aggressiveness})"
         )
+        if cache_enabled and _CACHE_ENABLED and saved > 0:
+            _cache_set(_cache_key(text, "deterministic", aggressiveness), compressed, saved)
         return compressed, saved
+
+    # ------------------------------------------------------------------ #
+    # Guardia de calidad (spec 012 US6) — detección de respuesta anómala
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def response_is_anomalous(content: str, completion_tokens: int) -> bool:
+        """Heurística: ¿la respuesta tras compresión es anómala (degradada)?
+
+        Se activa cuando la respuesta está vacía, sin contenido útil, o el motor
+        reporta 0 tokens de completion. La guardia de chat.py usa esto para reintentar
+        con el prompt original y marcar ``compression_reversed``.
+        """
+        if completion_tokens is not None and completion_tokens <= 0:
+            return True
+        if content is None:
+            return True
+        stripped = content.strip()
+        if not stripped:
+            return True
+        return len(stripped) < _REVERSAL_MIN_CHARS
 
     # ------------------------------------------------------------------ #
     # Compresor determinista seguro

@@ -19,6 +19,13 @@ class Group(Base):
     default_risk_level = Column(String, nullable=True)        # e.g. high_risk_annex3
     compliance_project_id = Column(UUID(as_uuid=True), ForeignKey("compliance_projects.id"), nullable=True)
 
+    # Compresión de contexto por grupo (spec 012 US4) — override del flag global
+    compression_mode = Column(String, default="off")              # off | deterministic | headroom
+    compression_strategy = Column(String, default="deterministic")  # deterministic | headroom
+    compression_threshold_tokens = Column(Integer, nullable=True)   # None -> default del servicio
+    compression_aggressiveness = Column(String, default="medium")   # low | medium | high
+    compression_cache_enabled = Column(Boolean, default=False)
+
     # Relationships
     users = relationship("User", back_populates="group")
     api_keys = relationship("APIKey", back_populates="group")

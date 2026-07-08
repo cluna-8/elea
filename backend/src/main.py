@@ -1,4 +1,6 @@
+import os
 import logging
+from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,12 +16,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger("basa-secure-gateway")
 
-# Create database tables on startup (automatic migration for development)
-try:
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created successfully.")
-except Exception as e:
-    logger.error(f"Error creating database tables: {e}")
+
+def _run_alembic_upgrade_head() -> None:
+    """Apply Alembic migrations to head on startup (idempotent).
+
+    This is the source of truth for the DB schema in production: the running schema is
+    driven by migrations, not by SQLAlchemy model metadata drift. Disabled when
+    RUN_ALEMBIC_ON_STARTUP != 'true' (default: enabled).
+    """
+    if os.getenv("RUN_ALEMBIC_ON_STARTUP", "true").lower() != "true":
+        logger.info("Alembic auto-run disabled by RUN_ALEMBIC_ON_STARTUP env.")
+        return
+    try:
+        from alembic.config import Config
+        from alembic import command
+
+        backend_root = Path(__file__).resolve().parent.parent
+        cfg = Config(str(backend_root / "alembic.ini"))
+        cfg.set_main_option("script_location", str(backend_root / "alembic"))
+        command.upgrade(cfg, "head")
+        logger.info("Alembic migrations applied (upgrade head).")
+    except Exception as e:
+        # Do not crash startup: log loudly so ops notice. Inference will still fail fast
+        # on schema mismatch, which is preferable to silent drift.
+        logger.error("Alembic auto-run failed (schema may be stale): %s", e)
+
+
+def _create_tables_legacy() -> None:
+    """Dev convenience: create tables from model metadata. Gated behind
+    CREATE_TABLES_ON_STARTUP=true (default: false) because create_all can mask
+    migration drift — only the legacy/dev path uses it. Production uses Alembic.
+    """
+    if os.getenv("CREATE_TABLES_ON_STARTUP", "false").lower() != "true":
+        return
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created (CREATE_TABLES_ON_STARTUP=true).")
+    except Exception as e:
+        logger.error("Error creating database tables: %s", e)
+
+
+# Schema initialization: Alembic is the source of truth (default). create_all is opt-in for dev.
+if os.getenv("CREATE_TABLES_ON_STARTUP", "false").lower() == "true":
+    _create_tables_legacy()
+else:
+    _run_alembic_upgrade_head()
 
 app = FastAPI(
     title="Basa Secure AI Gateway API (by basa dev)",
@@ -40,10 +81,17 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 
-# Global exception handler
+# Global exception handler — never leak tracebacks to the client. Full tracebacks in server
+# logs are gated behind DEBUG=true (default off in production) to keep logs low-noise and avoid
+# accidental disclosure if logs are aggregated/shipped.
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+    _debug = os.getenv("DEBUG", "false").lower() == "true"
+    logger.error(
+        "Unhandled exception on %s %s: %s",
+        request.method, request.url.path, exc,
+        exc_info=_debug,
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

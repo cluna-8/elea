@@ -120,11 +120,18 @@ async def generate_key(
     models: Optional[list] = None,
     team_id: Optional[str] = None,
     user_id: Optional[str] = None,
+    rpm_limit: Optional[int] = None,
+    tpm_limit: Optional[int] = None,
 ) -> dict:
     """
     Generates a virtual key in the AI engine.
     Returns {plain_key, engine_key_token} where engine_key_token is the
     first 10 chars used to reference the key in future engine calls.
+
+    rpm/tpm/max_budget are forwarded to LiteLLM so the proxy enforces them at the
+    edge as a hard backstop (USE-LITE). Our Redis rate-limiter remains the soft
+    layer that also covers JWT sessions and powers the X-RateLimit-* response
+    headers + audit (KEEP-WITH-REASON).
     """
     payload: dict = {"key_alias": name}
     if max_budget is not None:
@@ -136,6 +143,10 @@ async def generate_key(
         payload["team_id"] = team_id
     if user_id:
         payload["user_id"] = user_id
+    if rpm_limit is not None:
+        payload["rpm_limit"] = rpm_limit
+    if tpm_limit is not None:
+        payload["tpm_limit"] = tpm_limit
 
     data = await _post("/key/generate", payload)
     plain_key: str = data["key"]

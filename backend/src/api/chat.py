@@ -5,6 +5,7 @@ import httpx
 import logging
 import yaml
 from datetime import datetime
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -27,12 +28,17 @@ from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
 from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
 from ..services import ai_engine_client
+from ..auth.rbac import require_role, require_authenticated
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
 logger = logging.getLogger("basa-secure-gateway.chat")
 
 _ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
 _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
+
+# Guardia de calidad (spec 012 US6): reintenta con el prompt original si la respuesta
+# tras compresión es anómala (vacía/muy corta). Fail-open; raro (solo si se comprimió).
+_REVERSAL_GUARD = os.getenv("COMPRESSION_REVERSAL_GUARD", "true").lower() == "true"
 
 _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama"}
 
@@ -210,14 +216,43 @@ async def chat_completions(
     entities_detected = guardian_res["entities_detected"]
     guardian_triggers = guardian_res["triggers"]
 
-    # 4. Layer 1.5: Context Optimization (Headroom)
+    # 4. Layer 1.5: Context Optimization (Ahorro de Costes IA — spec 012)
     optimized_prompt = masked_prompt
     tokens_saved = 0
-    is_headroom_active = request.override_headroom_mode if request.override_headroom_mode is not None else policy.headroom_mode
+    strategy_applied = "none"
+    compression_reversed = False  # spec 012 US6 — guardia de reversión
+
+    # Resolver config de compresión: override request > grupo > política global
+    comp_cache_enabled = True
+    if request.override_headroom_mode is not None:
+        is_headroom_active = request.override_headroom_mode
+        comp_strategy = "deterministic"
+        comp_threshold = OptimizationService.DEFAULT_THRESHOLD
+        comp_aggressiveness = "medium"
+    elif group is not None and getattr(group, "compression_mode", "off") not in (None, "off"):
+        is_headroom_active = True
+        comp_strategy = group.compression_mode  # 'deterministic' | 'headroom'
+        comp_threshold = group.compression_threshold_tokens or OptimizationService.DEFAULT_THRESHOLD
+        comp_aggressiveness = group.compression_aggressiveness or "medium"
+        comp_cache_enabled = bool(getattr(group, "compression_cache_enabled", True))
+    else:
+        _pol_comp = getattr(policy, "compression_mode", None)
+        if _pol_comp is None:
+            _pol_comp = getattr(policy, "headroom_mode", False)
+        is_headroom_active = bool(_pol_comp)
+        comp_strategy = "deterministic"
+        comp_threshold = OptimizationService.DEFAULT_THRESHOLD
+        comp_aggressiveness = "medium"
+
     if is_headroom_active:
+        # Auto-detect contenido estructurado -> headroom incluso si la estrategia dice deterministic
+        stripped = masked_prompt.lstrip()
+        eff_strategy = "headroom" if (comp_strategy == "headroom" or stripped.startswith("{") or stripped.startswith("[")) else "deterministic"
         optimized_prompt, tokens_saved = OptimizationService.compress_context(
-            masked_prompt, is_headroom_active
+            masked_prompt, True, comp_threshold, comp_aggressiveness, eff_strategy,
+            cache_enabled=comp_cache_enabled,
         )
+        strategy_applied = eff_strategy if tokens_saved > 0 else "none"
 
     # 5. Layer 2: GDPR & Routing (Apply GDPR routing only if sensitive routing did not change the model)
     is_gdpr_active = request.override_gdpr_mode if request.override_gdpr_mode is not None else policy.gdpr_mode
@@ -339,9 +374,57 @@ async def chat_completions(
 
                 # Extract exact cost from engine headers
                 cost_str = response.headers.get("x-litellm-response-cost")
+
+                # --- Guardia de calidad (spec 012 US6) — reversión ante anomalía ---
+                # Si se aplicó compresión y la respuesta es anómala (vacía/muy corta),
+                # reintenta UNA vez con el prompt original (sin comprimir) y marca el
+                # evento. Solo se activa cuando hubo compresión real (raro). Fail-open:
+                # cualquier fallo del reintento deja la respuesta original intacta.
+                if (
+                    _REVERSAL_GUARD
+                    and tokens_saved > 0
+                    and OptimizationService.response_is_anomalous(llm_raw_response, completion_tokens)
+                ):
+                    logger.warning(
+                        "compression reversal guard triggered (tokens_saved=%s, completion_tokens=%s) "
+                        "— retrying with the original uncompressed prompt",
+                        tokens_saved, completion_tokens,
+                    )
+                    try:
+                        reversal_req = dict(raw_request_json)
+                        reversal_req["messages"] = [{"role": "user", "content": masked_prompt}]
+                        rev_response = await client.post(
+                            f"{_ENGINE_URL}/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {engine_auth_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json=reversal_req,
+                            timeout=15.0,
+                        )
+                        if rev_response.status_code == 200:
+                            rev_data = rev_response.json()
+                            rev_content = rev_data["choices"][0]["message"]["content"]
+                            # Solo aceptar el reintento si mejora la respuesta
+                            if rev_content and len(rev_content.strip()) > len((llm_raw_response or "").strip()):
+                                llm_raw_response = rev_content
+                                prompt_tokens = rev_data["usage"]["prompt_tokens"]
+                                completion_tokens = rev_data["usage"]["completion_tokens"]
+                                raw_response_json = rev_data
+                                tokens_saved = 0  # se descuenta el ahorro: se usó el prompt original
+                                strategy_applied = "none"
+                                compression_reversed = True
+                                rev_cost = rev_response.headers.get("x-litellm-response-cost")
+                                if rev_cost:
+                                    try:
+                                        actual_cost = Decimal(rev_cost)
+                                    except Exception:
+                                        pass
+                                logger.info("compression reversal succeeded — original prompt restored")
+                    except Exception as rev_err:  # fail-open: nunca rompe el flujo
+                        logger.warning("compression reversal retry failed (%s) — keeping original response", rev_err)
                 if cost_str:
                     try:
-                        from decimal import Decimal
                         actual_cost = Decimal(cost_str)
                     except Exception:
                         pass
@@ -390,52 +473,15 @@ async def chat_completions(
                 detail=f"Error al ejecutar el modelo: {err_msg}"
             )
             
-        logger.warning(f"Failed to connect to LiteLLM, using simulated response: {e}")
-        # Simulated response fallback to ensure playground works beautifully without keys
-        time.sleep(1.0) # Simulate network delay
-        
-        # If prompt was masked, we return a response that references the placeholders
-        # so the unmasking layer can be demonstrated visually!
-        placeholder_refs = ", ".join(placeholder_map.keys())
-        if placeholder_refs:
-            llm_raw_response = (
-                f"[Simulado - {routed_model}] He recibido la información de {placeholder_refs}. "
-                "Según los protocolos médicos de BASA, el paciente requiere reposo clínico y monitoreo de temperatura."
-            )
-        else:
-            llm_raw_response = (
-                f"[Simulado - {routed_model}] He procesado tu consulta correctamente. "
-                "La pasarela segura de BASA ha verificado este canal de comunicación."
-            )
-        completion_tokens = len(llm_raw_response) // 4
-        
-        # Populate simulated JSONs for debugger
-        raw_request_json = {
-            "model": routed_model,
-            "messages": [{"role": "user", "content": optimized_prompt}],
-            "temperature": 0.3,
-            "note": "Petición simulada (motor fuera de línea)"
-        }
-        raw_response_json = {
-            "id": "chatcmpl-simulated-12345",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": routed_model,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": llm_raw_response
-                },
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": prompt_tokens + completion_tokens
-            },
-            "note": "Respuesta simulada (motor fuera de línea)"
-        }
+        # No response object => we never reached the AI engine (connection refused / timeout).
+        # Fail-closed: do NOT fabricate a response. LiteLLM handles model-level fallbacks
+        # (router_settings.fallbacks) and retries (num_retries) on its side; if it is unreachable
+        # the gateway cannot serve inference and must surface the outage honestly.
+        logger.error("AI engine unreachable, failing closed (no simulated response): %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="El motor de IA no está disponible. Reintente en unos minutos.",
+        )
 
     # 6b. TPM check (after LLM: we now know actual token counts)
     if api_key_obj:
@@ -479,6 +525,13 @@ async def chat_completions(
         db.add(review_entry)
         db.flush()
 
+    # Ahorro USD real (spec 012 US3) — calculado sobre el modelo final enrutado
+    cost_saved_usd = Decimal("0")
+    if tokens_saved > 0:
+        from ..services.budget_service import MODEL_PRICING
+        _pricing = MODEL_PRICING.get(routed_model, MODEL_PRICING.get("default"))
+        cost_saved_usd = (Decimal(tokens_saved) / Decimal("1000000")) * _pricing["input"]
+
     # Save to Audit Log
     audit_log = AuditService.log_transaction(
         db=db,
@@ -491,6 +544,9 @@ async def chat_completions(
         compliance_status=compliance_result["status"],
         latency_ms=latency_ms,
         tokens_saved_by_optimization=tokens_saved,
+        cost_saved_usd=float(cost_saved_usd),
+        compression_strategy=strategy_applied,        # spec 012 US6 — telemetría por estrategia
+        compression_reversed=compression_reversed,    # spec 012 US6 — guardia de reversión
         user_id=user.id if user else None,
         api_key_id=api_key_obj.id if api_key_obj else None,
         guardian_events=(guardian_triggers or []) + (guardian_events or []),
@@ -506,7 +562,6 @@ async def chat_completions(
         db.commit()
     
     # Deduct from Budget
-    from decimal import Decimal
     BudgetService.update_budget(
         db=db,
         user_id=user.id if user else None,
@@ -537,9 +592,12 @@ async def chat_completions(
             },
             "layer_optimization": {
                 "active": is_headroom_active,
+                "strategy_applied": strategy_applied,
                 "original_length": len(masked_prompt),
                 "optimized_length": len(optimized_prompt),
-                "tokens_saved": tokens_saved
+                "tokens_saved": tokens_saved,
+                "cost_saved_usd": float(cost_saved_usd),
+                "reversed": compression_reversed
             },
             "layer_compliance": {
                 "gdpr_active": is_gdpr_active,
@@ -577,7 +635,7 @@ class ModelCreateSchema(BaseModel):
     api_key: Optional[str] = None
     api_base: Optional[str] = None
 
-@router.get("/models")
+@router.get("/models", dependencies=[Depends(require_authenticated())])
 async def list_available_models():
     config_path = _get_config_path()
     try:
@@ -605,7 +663,7 @@ async def list_available_models():
         logger.warning("Failed to read models from config.yaml: %s", e)
         return []
 
-@router.post("/models")
+@router.post("/models", dependencies=[Depends(require_role("admin", "developer"))])
 async def register_model(model_in: ModelCreateSchema):
     config_path = "/app/litellm_config/config.yaml"
     if not os.path.exists(config_path):
@@ -649,7 +707,7 @@ async def register_model(model_in: ModelCreateSchema):
 
     return {"status": "success", "message": f"Model {model_in.model_name} registered successfully"}
 
-@router.delete("/models/{model_name}")
+@router.delete("/models/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def delete_model(model_name: str):
     config_path = _get_config_path()
     try:
@@ -681,7 +739,7 @@ class ModelCredentialSchema(BaseModel):
     litellm_params: Optional[dict] = None  # provider-specific fields merged into litellm_params
 
 
-@router.patch("/models/{model_name}")
+@router.patch("/models/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def update_model_credential(model_name: str, body: ModelCredentialSchema):
     """Merge litellm_params fields for an existing model in config.yaml."""
     config_path = _get_config_path()
@@ -721,7 +779,7 @@ class FallbackBody(BaseModel):
     fallback_model: Optional[str] = None
 
 
-@router.get("/fallbacks")
+@router.get("/fallbacks", dependencies=[Depends(require_role("admin", "developer"))])
 async def get_fallbacks():
     """Returns the current fallback map: {model_name: fallback_model_name}."""
     config_path = _get_config_path()
@@ -738,7 +796,7 @@ async def get_fallbacks():
         return {}
 
 
-@router.put("/fallbacks/{model_name}")
+@router.put("/fallbacks/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def set_fallback(model_name: str, body: FallbackBody):
     """Set or clear the fallback model for a given model. Written to config.yaml router_settings."""
     config_path = _get_config_path()
@@ -766,7 +824,7 @@ async def set_fallback(model_name: str, body: FallbackBody):
     return {"status": "ok"}
 
 
-@router.get("/models/pricing")
+@router.get("/models/pricing", dependencies=[Depends(require_authenticated())])
 async def get_models_pricing():
     try:
         import httpx
