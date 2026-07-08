@@ -48,9 +48,10 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - REDIS_HOST=eu-redis
       - REDIS_PORT=6379
+      - LITELLM_LOG=INFO
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
-    entrypoint: ["litellm", "--config", "/app/config.yaml", "--detailed_debug"]
+    entrypoint: ["litellm", "--config", "/app/config.yaml"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -88,6 +89,7 @@ services:
       - AZURE_API_VERSION=${AZURE_API_VERSION}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - FERNET_SECRET_KEY=${FERNET_SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     volumes:
       - ./backend:/app
       - ./litellm:/app/litellm_config
