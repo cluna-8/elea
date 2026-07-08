@@ -29,7 +29,7 @@ export const authStorage = {
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
   compliance_officer: "Oficial de Compliance",
-  clinician: "Clínico",
+  clinician: "Especialista",
   developer: "Desarrollador",
 };
 

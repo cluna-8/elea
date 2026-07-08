@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api } from "../services/api";
-import type { CostSummary, CompressionAnalysis, ModelPricing } from "../services/api";
+import type { CostSummary, CompressionAnalysis, ModelPricing, CostConfig, GroupCompressionConfig, Group } from "../services/api";
 
 type Range = "day" | "week" | "month";
 
@@ -94,20 +94,71 @@ export const CostsPage: React.FC = () => {
   const [calcLoading, setCalcLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Compression config (US4)
+  const [costConfig, setCostConfig] = useState<CostConfig | null>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupConfigs, setGroupConfigs] = useState<Record<string, GroupCompressionConfig>>({});
+  const [configSaving, setConfigSaving] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [s, p] = await Promise.all([api.getCostsSummary(range), api.getModelsPricing()]);
+      const [s, p, cfg, grps] = await Promise.all([
+        api.getCostsSummary(range),
+        api.getModelsPricing(),
+        api.getCostConfig().catch(() => null),
+        api.getGroups().catch(() => [] as Group[]),
+      ]);
       setSummary(s as CostSummary);
       setPricing((p as ModelPricing[]) || []);
+      if (cfg) setCostConfig(cfg);
+      setGroups(grps as Group[]);
       if (!model && (p as ModelPricing[]).length) setModel((p as ModelPricing[])[0].model_name);
+      // Cargar config de compresión por grupo (paralelo, fail-open)
+      const gc = await Promise.all(
+        (grps as Group[]).map((g) => api.getGroupCompression(g.id).catch(() => null).then((c) => [g.id, c] as const))
+      );
+      const map: Record<string, GroupCompressionConfig> = {};
+      gc.forEach(([id, c]) => { if (c) map[id] = c; });
+      setGroupConfigs(map);
     } catch (e: any) {
       setError(e.message || "Error al cargar costes");
     } finally {
       setLoading(false);
     }
   }, [range, model]);
+
+  const toggleGlobal = async (enabled: boolean) => {
+    setConfigSaving("global");
+    try {
+      await api.updateCostConfig(enabled);
+      setCostConfig((c) => (c ? { ...c, enabled } : c));
+    } catch (e: any) {
+      setError(e.message || "Error al guardar config global");
+    } finally {
+      setConfigSaving(null);
+    }
+  };
+
+  const updateGroup = async (groupId: string, patch: Partial<GroupCompressionConfig>) => {
+    const cur = groupConfigs[groupId];
+    if (!cur) return;
+    const next = { ...cur, ...patch };
+    setGroupConfigs((m) => ({ ...m, [groupId]: next }));
+    setConfigSaving(groupId);
+    try {
+      const saved = await api.updateGroupCompression(groupId, {
+        mode: next.mode, strategy: next.strategy, threshold_tokens: next.threshold_tokens,
+        aggressiveness: next.aggressiveness, cache_enabled: next.cache_enabled,
+      });
+      setGroupConfigs((m) => ({ ...m, [groupId]: saved }));
+    } catch (e: any) {
+      setError(e.message || "Error al guardar config del grupo");
+    } finally {
+      setConfigSaving(null);
+    }
+  };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [range]);
 
@@ -173,11 +224,102 @@ export const CostsPage: React.FC = () => {
           color="text-success"
         />
         <KpiCard
-          label="Ahorro estimado"
-          value={fmtUsd(summary?.cost_saved_estimate_usd)}
-          sub="USD (estimado)"
+          label="Ahorro real"
+          value={fmtUsd(summary?.cost_saved_usd)}
+          sub="USD (por compresión)"
           color="text-success"
         />
+      </div>
+
+      {/* Config de compresión — US4 (global + por grupo) */}
+      <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-white">Configuración de compresión</h2>
+            <p className="text-[10px] text-text-secondary">
+              Activa la compresión globalmente y configura la estrategia por grupo. El motor headroom
+              comprime contenido estructurado (JSON/RAG/arrays) sin gastar tokens.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <span className="text-xs text-text-secondary">Global</span>
+            <button
+              onClick={() => toggleGlobal(!costConfig?.enabled)}
+              disabled={configSaving === "global"}
+              className={`relative w-11 h-6 rounded-full transition-all ${costConfig?.enabled ? "bg-primary" : "bg-slate-700"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-all ${costConfig?.enabled ? "translate-x-5" : ""}`} />
+            </button>
+            <span className="text-xs font-semibold text-white">{costConfig?.enabled ? "ON" : "OFF"}</span>
+          </label>
+        </div>
+
+        {groups.length > 0 ? (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-text-secondary text-left border-b border-slate-700/40">
+                <th className="pb-2 font-medium">Grupo</th>
+                <th className="pb-2 font-medium">Modo</th>
+                <th className="pb-2 font-medium">Estrategia</th>
+                <th className="pb-2 font-medium">Umbral (tokens)</th>
+                <th className="pb-2 font-medium">Agresividad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => {
+                const c = groupConfigs[g.id];
+                return (
+                  <tr key={g.id} className="border-b border-slate-700/20">
+                    <td className="py-2 font-mono text-text-secondary truncate max-w-[140px]">{g.name}</td>
+                    <td className="py-2">
+                      <select
+                        value={c?.mode ?? "off"}
+                        onChange={(e) => updateGroup(g.id, { mode: e.target.value as any })}
+                        className="bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                      >
+                        <option value="off">Off</option>
+                        <option value="deterministic">Determinista</option>
+                        <option value="headroom">Headroom</option>
+                      </select>
+                    </td>
+                    <td className="py-2">
+                      <select
+                        value={c?.strategy ?? "deterministic"}
+                        onChange={(e) => updateGroup(g.id, { strategy: e.target.value as any })}
+                        className="bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                      >
+                        <option value="deterministic">Determinista</option>
+                        <option value="headroom">Headroom</option>
+                      </select>
+                    </td>
+                    <td className="py-2">
+                      <input
+                        type="number"
+                        value={c?.threshold_tokens ?? ""}
+                        placeholder="default"
+                        onChange={(e) => updateGroup(g.id, { threshold_tokens: e.target.value ? Number(e.target.value) : null })}
+                        className="w-20 bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                      />
+                    </td>
+                    <td className="py-2">
+                      <select
+                        value={c?.aggressiveness ?? "medium"}
+                        onChange={(e) => updateGroup(g.id, { aggressiveness: e.target.value as any })}
+                        className="bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                      >
+                        <option value="low">Baja</option>
+                        <option value="medium">Media</option>
+                        <option value="high">Alta</option>
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <p className="text-xs text-text-secondary">No hay grupos. Crea grupos desde Usuarios &amp; Equipos.</p>
+        )}
       </div>
 
       {/* Breakdown tables: modelos / usuarios / grupos */}

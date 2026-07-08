@@ -334,7 +334,7 @@ export const PlaygroundPage: React.FC = () => {
             <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">Canal Seguro Activo</h3>
               <p className="text-xs text-text-secondary max-w-sm">
-                Escriba un mensaje para ver cómo la pasarela procesa, enmascara y optimiza los datos clínicos en tiempo real.
+                Escriba un mensaje para ver cómo la pasarela procesa, enmascara y optimiza los datos sensibles (PII/PHI) en tiempo real.
               </p>
             </div>
           ) : (

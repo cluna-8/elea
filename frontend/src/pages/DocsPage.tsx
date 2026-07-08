@@ -118,7 +118,7 @@ export const DocsPage: React.FC = () => {
         {active === "overview" && (
           <Section title="Políticas de Cumplimiento" subtitle="GDPR · EU AI Act · ENS — Guía para administradores y DPO">
             <P>
-              El módulo de compliance implementa los controles mínimos exigibles para operar un gateway de IA con datos sanitarios en España.
+              El módulo de compliance implementa los controles mínimos exigibles para operar un gateway de IA con datos sensibles (PII comercial / PHI) en la UE.
               Cada sección cubre un requisito legal distinto — configúralas en orden antes de pasar a producción.
             </P>
 
@@ -160,17 +160,20 @@ export const DocsPage: React.FC = () => {
           <Section title="Proyectos de Compliance" subtitle="La unidad central de configuración — define qué reglas aplican a cada llamada al chat">
             <P>
               Un <strong className="text-white">Proyecto de Compliance</strong> agrupa las reglas que se aplican a todas las llamadas al chat mientras esté activo.
-              Puedes tener múltiples proyectos para distintos contextos de uso (clínico, administrativo, investigación).
+              Puedes tener múltiples proyectos para distintos contextos de uso (marketing, gastos, farmacovigilancia, investigación).
             </P>
 
             <H3>Bases legales disponibles</H3>
             <Table
               headers={["Opción", "Cuándo usarla"]}
               rows={[
-                [<span className="text-white font-semibold">Art. 9(2)(h) — Prestación sanitaria</span>, "La más común. Asistentes clínicos, diagnóstico, historia clínica. Requiere supervisión de profesional sanitario."],
+                [<span className="text-white font-semibold">Art. 9(2)(h) — Prestación sanitaria / farmacovigilancia</span>, "Para datos de salud y farmacovigilancia/ensayos. Requiere supervisión humana cualificada."],
+                [<span className="text-white font-semibold">Art. 9(2)(b) — Empleo / RRHH</span>, "Datos de empleados y representantes. Base habitual para gastos y RRHH."],
                 ["Art. 9(2)(j) — Investigación / interés público", "Proyectos de investigación anonimizados. Requiere DPIA y medidas adicionales."],
-                ["Art. 9(2)(a) — Consentimiento explícito", "Solo si tienes consentimiento firmado del paciente. No recomendado para uso clínico rutinario."],
-                ["Art. 6(1)(c) — Obligación legal", "Para procesos obligatorios por ley (ej: enfermedades de declaración obligatoria)."],
+                ["Art. 9(2)(a) — Consentimiento explícito", "Solo si tienes consentimiento firmado del interesado. No recomendado para uso rutinario."],
+                ["Art. 6(1)(b) — Ejecución de contrato", "Procesos contractuales con clientes/proveedores (ej: gastos, campañas)."],
+                ["Art. 6(1)(f) — Interés legítimo", "Marketing y analítica con balance de intereses documentado."],
+                ["Art. 6(1)(c) — Obligación legal", "Para procesos obligatorios por ley."],
                 ["Art. 6(1)(e) — Misión de interés público", "Para entidades públicas. No cubre datos de categoría especial por sí solo."],
               ]}
             />
@@ -181,13 +184,13 @@ export const DocsPage: React.FC = () => {
               rows={[
                 [<Badge color="slate">Riesgo Mínimo</Badge>, "Chatbots informativos generales sin decisiones sobre personas", "Sin obligaciones adicionales"],
                 [<Badge color="primary">Riesgo Limitado</Badge>, "Sistemas que interactúan con humanos", <><Badge color="primary">Art. 50</Badge> Notificación IA obligatoria desde ago. 2026</>],
-                [<Badge color="warning">Alto Riesgo — Annex III</Badge>, "Diagnóstico, triaje, decisiones clínicas", "DPIA + EUDB + supervisión humana + logs 10 años"],
+                [<Badge color="warning">Alto Riesgo — Annex III</Badge>, "Farmacovigilancia automatizada, evaluación automatizada de personas, decisión regulatoria autónoma", "DPIA + EUDB + supervisión humana + logs 10 años"],
                 [<Badge color="danger">Alto Riesgo — Annex I (MDR)</Badge>, "Producto sanitario con marcado CE", "Requisitos MDR + EU AI Act acumulados"],
               ]}
             />
 
             <Callout type="warning">
-              Para un asistente clínico en hospital, el nivel correcto es <strong>Alto Riesgo — Annex III</strong> (categoría 5(a): diagnóstico o tratamiento de enfermedades). Esto activa la obligación de DPIA, notificación IA y revisión humana.
+              Para farmacovigilancia o evaluación automatizada de personas (representantes/empleados), el nivel correcto es <strong>Alto Riesgo — Annex III</strong>. Esto activa la obligación de DPIA, notificación IA y revisión humana. Para marketing y gastos sin decisiones sobre personas, suele bastar Riesgo Limitado + Art. 50.
             </Callout>
 
             <H3>Qué hace cada opción del proyecto</H3>
@@ -196,19 +199,19 @@ export const DocsPage: React.FC = () => {
               rows={[
                 [<span className="text-white font-semibold">Forzar región EU</span>, "Bloquea la llamada con HTTP 503 si el modelo no pertenece a un proveedor con región EU (azure-*, bedrock-eu-*, vertex-eu-*, ollama-*)"],
                 [<span className="text-white font-semibold">Notificación IA</span>, "Prepend del aviso legal antes de la primera respuesta de cada sesión (1 vez por hora por API key)"],
-                [<span className="text-white font-semibold">Revisión humana</span>, "Genera un UUID de revisión por cada respuesta, visible en /compliance/review/pending para supervisión médica"],
+                [<span className="text-white font-semibold">Revisión humana</span>, "Genera un UUID de revisión por cada respuesta, visible en /compliance/review/pending para supervisión humana"],
                 [<span className="text-white font-semibold">Referencia DPIA</span>, "Campo documental — aparece en el Panel DPO y activa alerta si está vacío en proyectos alto riesgo"],
               ]}
             />
 
-            <H3>Configuración paso a paso — asistente clínico</H3>
+            <H3>Configuración paso a paso — proyecto de farmacovigilancia</H3>
             <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-2 text-xs font-mono text-text-secondary">
-              <p><span className="text-primary">1.</span> <span className="text-white">Nombre:</span> Asistente Clínico [Nombre del centro]</p>
+              <p><span className="text-primary">1.</span> <span className="text-white">Nombre:</span> Farmacovigilancia [Producto]</p>
               <p><span className="text-primary">2.</span> <span className="text-white">Base legal:</span> Art. 9(2)(h)</p>
               <p><span className="text-primary">3.</span> <span className="text-white">Nivel de riesgo:</span> Alto Riesgo — Annex III</p>
               <p><span className="text-primary">4.</span> <span className="text-white">Notificación IA:</span> ✅ activada</p>
               <p><span className="text-primary">5.</span> <span className="text-white">Revisión humana:</span> ✅ activada</p>
-              <p><span className="text-primary">6.</span> <span className="text-white">Forzar región EU:</span> ✅ si se procesan datos reales de pacientes</p>
+              <p><span className="text-primary">6.</span> <span className="text-white">Forzar región EU:</span> ✅ si se procesan datos sensibles reales</p>
               <p><span className="text-primary">7.</span> <span className="text-white">Referencia DPIA:</span> completar cuando el DPO entregue el documento</p>
               <p><span className="text-primary">8.</span> <span className="text-white">Guardar → Activar el proyecto</span></p>
             </div>
@@ -219,10 +222,10 @@ export const DocsPage: React.FC = () => {
         {active === "dpas" && (
           <Section title="Registro de DPAs" subtitle="Art. 28 GDPR — Contratos obligatorios con proveedores de LLM">
             <Callout type="danger">
-              <strong>Sin DPA firmado con el proveedor del LLM, no se pueden enviar datos de pacientes.</strong> El incumplimiento del Art. 28 GDPR puede conllevar multas de hasta 10 M€ o el 2% de la facturación global.
+              <strong>Sin DPA firmado con el proveedor del LLM, no se pueden enviar datos sensibles.</strong> El incumplimiento del Art. 28 GDPR puede conllevar multas de hasta 10 M€ o el 2% de la facturación global.
             </Callout>
 
-            <H3>Proveedores y su cobertura para datos de salud</H3>
+            <H3>Proveedores y su cobertura para datos sensibles</H3>
             <Table
               headers={["Proveedor", "Cubre Art. 9", "Región EU", "Recomendación"]}
               rows={[
@@ -385,8 +388,8 @@ export const DocsPage: React.FC = () => {
             <H3>Ejemplo de respuesta con notificación IA activa</H3>
             <div className="bg-panel border border-slate-700/40 rounded-lg p-4 text-xs font-mono space-y-2">
               <p className="text-primary">ℹ️ Este servicio utiliza inteligencia artificial para generar respuestas.</p>
-              <p className="text-primary">Las respuestas pueden contener errores. Consulte siempre a un profesional sanitario</p>
-              <p className="text-primary">antes de tomar decisiones clínicas. (Art. 50 EU AI Act)</p>
+              <p className="text-primary">Las respuestas pueden contener errores. Consulte siempre a un especialista</p>
+              <p className="text-primary">antes de tomar decisiones de alto riesgo. (Art. 50 EU AI Act)</p>
               <p className="text-slate-600">─────────────────────────────────────</p>
               <p className="text-text-secondary">[Respuesta del LLM aquí]</p>
             </div>

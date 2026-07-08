@@ -4,7 +4,7 @@ import { api, SecurityPolicy } from "../services/api";
 const GUARDIAN_DESCRIPTIONS: Record<string, string> = {
   pii_masking: "Enmascaramiento local por expresiones regulares. Detecta DNI, CUIL, emails, teléfonos y personas sin depender de servicios externos.",
   secret_detection: "Detecta claves de API o tokens de seguridad y los redacta antes de enviarlos al modelo.",
-  sensitive_routing: "Enruta prompts con términos clínicos sensibles a un modelo local on-premise de forma transparente.",
+  sensitive_routing: "Enruta prompts con términos sensibles a un modelo local on-premise de forma transparente.",
   presidio: "Detección NLP real de PII/PHI mediante Microsoft Presidio. Requiere los servicios Presidio Analyzer y Anonymizer.",
   openai_moderation: "Filtro de contenido: detecta odio, acoso, autolesiones, violencia y contenido sexual.",
   lakera_prompt_injection: "Defensa en tiempo real contra ataques de jailbreak e inyecciones de prompts adversarias.",
@@ -429,7 +429,7 @@ export const SecurityPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-text-secondary font-medium">Términos clínicos sensibles</label>
+                    <label className="text-text-secondary font-medium">Términos sensibles</label>
                     <textarea
                       rows={2}
                       value={(selected.config.keywords || []).join(", ")}

@@ -201,6 +201,12 @@ export const DashboardPage: React.FC = () => {
                     {summary?.tokens_saved_by_optimization ?? 0}
                   </span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-text-secondary">Ahorro de Costes IA</span>
+                  <span className="font-semibold text-success font-mono">
+                    ${Number(summary?.cost_saved_usd ?? 0).toFixed(4)}
+                  </span>
+                </div>
                 <div className="pt-2 border-t border-slate-700/30">
                   <div className="flex justify-between text-[10px] text-text-secondary">
                     <span>AI Act: {summary?.compliance_passed ?? 0} correctas</span>

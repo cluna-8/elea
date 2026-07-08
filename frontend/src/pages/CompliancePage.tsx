@@ -279,7 +279,7 @@ export const CompliancePage: React.FC = () => {
       <div className="pb-4 border-b border-slate-700/30">
         <h1 className="text-2xl font-bold tracking-tight text-white">Políticas de Cumplimiento</h1>
         <p className="text-xs text-text-secondary mt-1">
-          Gestión de compliance GDPR y EU AI Act para despliegues sanitarios.
+          Gestión de compliance GDPR y EU AI Act para pharma, marketing y gastos.
         </p>
       </div>
 
@@ -348,17 +348,21 @@ export const CompliancePage: React.FC = () => {
           {/* ── Processing Purpose Distribution ─────────────────────── */}
           {dashboard.processing_purpose_distribution && Object.keys(dashboard.processing_purpose_distribution).length > 0 && (() => {
             const PURPOSE_LABELS: Record<string, string> = {
-              clinical_decision: "Decisión clínica",
-              administrative: "Administrativo",
+              marketing: "Marketing",
+              expense_processing: "Proceso de gastos",
+              pharmacovigilance: "Farmacovigilancia",
               research: "Investigación",
-              training: "Formación",
+              administrative: "Administrativo",
+              clinical_decision: "Decisión clínica (legacy)",
               sin_especificar: "Sin especificar",
             };
             const PURPOSE_COLORS: Record<string, string> = {
-              clinical_decision: "bg-primary",
-              administrative: "bg-success",
-              research: "bg-warning",
-              training: "bg-purple-400",
+              marketing: "bg-primary",
+              expense_processing: "bg-success",
+              pharmacovigilance: "bg-warning",
+              research: "bg-purple-400",
+              administrative: "bg-sky-400",
+              clinical_decision: "bg-slate-600",
               sin_especificar: "bg-slate-600",
             };
             const dist = dashboard.processing_purpose_distribution as Record<string, number>;
@@ -454,7 +458,7 @@ export const CompliancePage: React.FC = () => {
           <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-4">
           <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>La revisión en esta cola es un <strong className="text-white">proceso interno de supervisión</strong>. No constituye validación clínica certificada ni reemplaza la responsabilidad profesional del facultativo sobre el uso de la respuesta de IA.</span>
+            <span>La revisión en esta cola es un <strong className="text-white">proceso interno de supervisión</strong>. No constituye validación certificada ni reemplaza la responsabilidad profesional sobre el uso de la respuesta de IA.</span>
           </div>
             <div className="flex items-center justify-between">
               <div>
@@ -483,10 +487,12 @@ export const CompliancePage: React.FC = () => {
                 {pendingReviews.map((r: any) => {
                   const ctx = r.context;
                   const PURPOSE_LABELS: Record<string, string> = {
-                    clinical_decision: "Decisión clínica",
-                    administrative: "Administrativo",
+                    marketing: "Marketing",
+                    expense_processing: "Proceso de gastos",
+                    pharmacovigilance: "Farmacovigilancia",
                     research: "Investigación",
-                    training: "Formación",
+                    administrative: "Administrativo",
+                    clinical_decision: "Decisión clínica (legacy)",
                   };
                   return (
                     <div key={r.review_token} className="border border-warning/20 bg-warning/5 rounded-lg overflow-hidden">
@@ -825,7 +831,7 @@ export const CompliancePage: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>Este módulo registra consentimientos para <strong className="text-white">auditoría interna</strong>. No incluye firma digital ni verificación criptográfica. El consentimiento legalmente válido debe obtenerse a través del sistema clínico origen (HIS/EMR) o proceso físico documentado.</span>
+            <span>Este módulo registra consentimientos para <strong className="text-white">auditoría interna</strong>. No incluye firma digital ni verificación criptográfica. El consentimiento legalmente válido debe obtenerse a través del sistema de origen o proceso físico documentado.</span>
           </div>
           <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
             <strong>GDPR Art. 7 y 9:</strong> El consentimiento para el uso de IA en datos de salud debe ser explícito, revocable en cualquier momento y documentado con marca temporal e IP de origen.
@@ -945,7 +951,7 @@ export const CompliancePage: React.FC = () => {
                 { key: "is_active", label: "Proyecto activo" },
                 { key: "eu_region_required", label: "Forzar procesamiento en región EU" },
                 { key: "ai_disclosure_enabled", label: "Notificación IA (Art. 50 — ya obligatoria)" },
-                { key: "human_review_required", label: "Revisión humana obligatoria en respuestas clínicas" },
+                { key: "human_review_required", label: "Revisión humana obligatoria en respuestas de alto riesgo" },
               ].map(({ key, label }) => (
                 <label key={key} className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={!!(projectForm as any)[key]} onChange={e => setProjectForm((p: any) => ({ ...p, [key]: e.target.checked }))}
@@ -1058,7 +1064,7 @@ export const CompliancePage: React.FC = () => {
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Notas del revisor {reviewModal.action === "rejected" && "*"}</label>
               <textarea rows={3} value={reviewNotes} onChange={e => setReviewNotes(e.target.value)}
-                placeholder={reviewModal.action === "approved" ? "Opcional — observaciones clínicas" : "Motivo del rechazo"}
+                placeholder={reviewModal.action === "approved" ? "Opcional — observaciones" : "Motivo del rechazo"}
                 className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none" />
             </div>
             <div className="flex gap-2 justify-end pt-1">

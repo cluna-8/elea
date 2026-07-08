@@ -1,6 +1,9 @@
 import { authStorage } from "./auth";
 
-const API_BASE = "http://localhost:8081/api/v1";
+// Derive the backend host from the browser's location so the SPA works whether
+// the user reaches it via http://localhost:8080 or http://<lan-ip>:8080 (the
+// backend is published on the same host, port 8081).
+const API_BASE = `http://${window.location.hostname}:8081/api/v1`;
 
 function authHeaders(): Record<string, string> {
   const token = authStorage.getToken();
@@ -78,6 +81,7 @@ export interface CostEntityBreakdown {
   cost_usd: number;
   requests: number;
   tokens_saved: number;
+  cost_saved_usd?: number;
 }
 
 export interface CostSummary {
@@ -86,11 +90,29 @@ export interface CostSummary {
   total_prompt_tokens: number;
   total_completion_tokens: number;
   tokens_saved: number;
+  cost_saved_usd: number;
   total_requests: number;
   cost_saved_estimate_usd: number | null;
   top_models: CostModelBreakdown[];
   by_user: CostEntityBreakdown[];
   by_group: CostEntityBreakdown[];
+}
+
+export interface CostConfig {
+  enabled: boolean;
+  default_strategy: string;
+  default_threshold: number;
+  default_aggressiveness: string;
+}
+
+export interface GroupCompressionConfig {
+  group_id: string;
+  group_name: string;
+  mode: "off" | "deterministic" | "headroom";
+  strategy: "deterministic" | "headroom";
+  threshold_tokens: number | null;
+  aggressiveness: "low" | "medium" | "high";
+  cache_enabled: boolean;
 }
 
 export type CompressionVeredicto = "conviene" | "no_conviene" | "usd_no_disponible";
@@ -280,8 +302,24 @@ export const api = {
   },
 
   // --- Audit Logs ---
-  getAuditLogs: async (): Promise<{ total: number; logs: AuditLog[] }> => {
-    const res = await fetch(`${API_BASE}/audit-logs`, { headers: authHeaders() });
+  getAuditLogs: async (params?: {
+    limit?: number;
+    offset?: number;
+    pii_detected?: string;
+    compliance_status?: string;
+    from_date?: string;
+    to_date?: string;
+  }): Promise<{ total: number; logs: AuditLog[] }> => {
+    const qs = new URLSearchParams();
+    if (params?.limit != null) qs.append("limit", String(params.limit));
+    if (params?.offset != null) qs.append("offset", String(params.offset));
+    if (params?.pii_detected) qs.append("pii_detected", params.pii_detected);
+    if (params?.compliance_status) qs.append("compliance_status", params.compliance_status);
+    if (params?.from_date) qs.append("from_date", params.from_date);
+    if (params?.to_date) qs.append("to_date", params.to_date);
+    const query = qs.toString();
+    const res = await fetch(`${API_BASE}/audit-logs${query ? `?${query}` : ""}`, { headers: authHeaders() });
+    handleExpiredSession(res);
     if (!res.ok) throw new Error("Failed to fetch audit logs");
     return res.json();
   },
@@ -427,6 +465,7 @@ export const api = {
   // --- Security Guardians ---
   getGuardians: async (): Promise<any[]> => {
     const res = await fetch(`${API_BASE}/guardians`, { headers: authHeaders() });
+    handleExpiredSession(res);
     if (!res.ok) throw new Error("Failed to fetch guardians");
     return res.json();
   },
@@ -457,12 +496,14 @@ export const api = {
   // --- Analytics ---
   getAnalyticsSummary: async (range: "day" | "week" | "month"): Promise<any> => {
     const res = await fetch(`${API_BASE}/analytics/summary?range=${range}`, { headers: authHeaders() });
+    handleExpiredSession(res);
     if (!res.ok) throw new Error("Failed to fetch analytics summary");
     return res.json();
   },
 
   getEngineStatus: async (): Promise<{ status: "online" | "offline"; checked_at: string }> => {
     const res = await fetch(`${API_BASE}/analytics/engine-status`, { headers: authHeaders() });
+    handleExpiredSession(res);
     if (!res.ok) return { status: "offline", checked_at: new Date().toISOString() };
     return res.json();
   },
@@ -727,6 +768,35 @@ export const api = {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(req),
     });
     if (!res.ok) throw new Error("Failed to run compression calculator");
+    return res.json();
+  },
+
+  // --- Costs config (US4) ---
+  getCostConfig: async (): Promise<CostConfig> => {
+    const res = await fetch(`${API_BASE}/costs/config`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch cost config");
+    return res.json();
+  },
+
+  updateCostConfig: async (enabled: boolean): Promise<{ enabled: boolean }> => {
+    const res = await fetch(`${API_BASE}/costs/config`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) throw new Error("Failed to update cost config");
+    return res.json();
+  },
+
+  getGroupCompression: async (groupId: string): Promise<GroupCompressionConfig> => {
+    const res = await fetch(`${API_BASE}/costs/groups/${groupId}/compression`, { headers: authHeaders() });
+    if (!res.ok) throw new Error("Failed to fetch group compression config");
+    return res.json();
+  },
+
+  updateGroupCompression: async (groupId: string, cfg: Omit<GroupCompressionConfig, "group_id" | "group_name">): Promise<GroupCompressionConfig> => {
+    const res = await fetch(`${API_BASE}/costs/groups/${groupId}/compression`, {
+      method: "PUT", headers: jsonHeaders(), body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error("Failed to update group compression config");
     return res.json();
   },
 };

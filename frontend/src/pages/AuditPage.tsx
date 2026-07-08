@@ -34,20 +34,16 @@ export const AuditPage: React.FC = () => {
   const fetchLogs = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      params.append("limit", String(limit));
-      params.append("offset", String(offset));
-      if (piiFilter !== "all") params.append("pii_detected", piiFilter);
-      if (complianceFilter !== "all") params.append("compliance_status", complianceFilter);
-      if (fromDate) params.append("from_date", new Date(fromDate).toISOString());
-      if (toDate) params.append("to_date", new Date(toDate + "T23:59:59").toISOString());
-
-      const res = await fetch(`http://localhost:8081/api/v1/audit-logs?${params.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.logs);
-        setTotal(data.total);
-      }
+      const data = await api.getAuditLogs({
+        limit,
+        offset,
+        pii_detected: piiFilter !== "all" ? piiFilter : undefined,
+        compliance_status: complianceFilter !== "all" ? complianceFilter : undefined,
+        from_date: fromDate ? new Date(fromDate).toISOString() : undefined,
+        to_date: toDate ? new Date(toDate + "T23:59:59").toISOString() : undefined,
+      });
+      setLogs(data.logs);
+      setTotal(data.total);
     } catch (err) {
       console.error("Error fetching audit logs:", err);
     } finally {

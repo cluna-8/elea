@@ -949,7 +949,7 @@ export const UsersPage: React.FC = () => {
                 <option value="">Sin configurar</option>
                 <option value="minimal">Riesgo Mínimo</option>
                 <option value="limited">Riesgo Limitado</option>
-                <option value="high_risk_annex3">Alto Riesgo — Annex III (diagnóstico clínico)</option>
+                <option value="high_risk_annex3">Alto Riesgo — Annex III (farmacovigilancia / evaluación de personas)</option>
                 <option value="high_risk_annex1">Alto Riesgo — Annex I (MDR, producto sanitario)</option>
               </select>
             </div>
@@ -1203,7 +1203,7 @@ export const UsersPage: React.FC = () => {
                   onChange={(e) => setRole(e.target.value)}
                   className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none"
                 >
-                  <option value="clinician">Clínico / Médico</option>
+                  <option value="clinician">Especialista</option>
                   <option value="researcher">Investigador</option>
                   <option value="developer">Desarrollador</option>
                   <option value="admin">Administrador</option>
