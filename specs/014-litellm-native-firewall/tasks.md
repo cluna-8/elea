@@ -34,7 +34,7 @@ tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR pri
 
 **Purpose**: Estructura del paquete de extensiones y montaje en el contenedor.
 
-- [ ] T001 [SETUP] Crear el paquete `litellm/extensions/` (con `__init__.py`) y su montaje como volumen
+- [X] T001 [SETUP] Crear el paquete `litellm/extensions/` (con `__init__.py`) y su montaje como volumen
       en `docker-compose.yml` (mismo patrón que `./litellm/config.yaml:/app/config.yaml`).
 - [ ] T002 [P] [SETUP] Configurar linting/formato para `litellm/extensions/` y `tests/` (reusar la
       config del repo).
@@ -49,17 +49,17 @@ tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR pri
 
 **⚠️ CRITICAL**: Ningún user story puede empezar hasta cerrar esta fase.
 
-- [ ] T004 [FOUND] Pinear la imagen LiteLLM en `docker-compose.yml`: `main-latest` → `vX.Y.Z-stable@sha256:…`
+- [X] T004 [FOUND] Pinear la imagen LiteLLM en `docker-compose.yml`: `main-latest` → `vX.Y.Z-stable@sha256:…`
       (tag+digest). Documentar el proceso de bump (Principio VI). *(FR-026)*
-- [ ] T005 [FOUND] Phase 0 research (`research.md`): inspeccionar el **código** de la versión pinneada
+- [X] T005 [FOUND] Phase 0 research (`research.md`): inspeccionar el **código** de la versión pinneada
       para confirmar (a) firmas reales de `async_pre_call_hook`/`async_post_call_success_hook`/
       `async_post_call_streaming_iterator_hook`/`user_api_key_auth`, (b) que los guardrails se ejecutan
       sobre `/v1/messages`, (c) forma de `ModelResponseStream` en la Messages API. Decidir la estrategia
       de unmask streaming (A objetos parseados, preferida; B rewrite SSE, fallback).
-- [ ] T006 ⚠️ [P] [FOUND] Unit tests de `basa_guardian_policy` en `tests/unit/test_policy.py`: mask
+- [X] T006 ⚠️ [P] [FOUND] Unit tests de `basa_guardian_policy` en `tests/unit/test_policy.py`: mask
       reversible con nonce, colisión de placeholder con literal del usuario, carry-split (placeholder
       partido vs `[` suelto de código), round-trip text/thinking/tool_use. DEBEN FALLAR primero.
-- [ ] T007 [FOUND] Implementar `litellm/extensions/basa_guardian_policy.py` (librería PURA): portar
+- [X] T007 [FOUND] Implementar `litellm/extensions/basa_guardian_policy.py` (librería PURA): portar
       `_redact_body` (mask_reversible con nonce por request), `_unmask`/`_unmask_deep` (unmask texto y
       objetos), `_safe_split`/`_PH_TYPE_RE`/`_PH_TAIL_RE` (carry-split), detect AI-Act / detect secrets
       (delegando en los servicios). Importable desde el motor Y el backend. *(FR-022)*
@@ -78,21 +78,21 @@ correctos; request sin key válida → rechazo (no admin).
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T008 ⚠️ [P] [US2] Contract test en `tests/contract/test_custom_auth_signature.py`: firma de
+- [X] T008 ⚠️ [P] [US2] Contract test en `tests/contract/test_custom_auth_signature.py`: firma de
       `user_api_key_auth(request, api_key) -> UserAPIKeyAuth` vs versión pinneada. *(FR-027)*
-- [ ] T009 ⚠️ [P] [US2] Integration test en `tests/integration/test_identity.py`: UA→tool_type
+- [X] T009 ⚠️ [P] [US2] Integration test en `tests/integration/test_identity.py`: UA→tool_type
       (claude→claude-code), virtual key→tenant/client/team, sin key→rechazo fail-closed, UA desconocido→
       `tool_type` desconocido sin crash.
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] Implementar `litellm/extensions/custom_auth.py::user_api_key_auth`: portar
+- [X] T010 [US2] Implementar `litellm/extensions/custom_auth.py::user_api_key_auth`: portar
       `_detect_tool`/`_TOOL_UA` (UA→tool_type) y `_resolve_identity` (virtual key→tenant/client/team por
       `key_hash` directo contra `APIKey`/013); inyectar metadata `{tenant_id, client_id, tool_type}` en
       el `UserAPIKeyAuth`. *(FR-009, FR-010, FR-011, FR-013)*
-- [ ] T011 [US2] Hacer `user_api_key_auth` **fail-closed** en BYOK: sin virtual key válida → rechazo, NO
+- [X] T011 [US2] Hacer `user_api_key_auth` **fail-closed** en BYOK: sin virtual key válida → rechazo, NO
       `get_or_create_default_user` ni admin. *(FR-012, Constraint C3)*
-- [ ] T012 [US2] Registrar `custom_auth.user_api_key_auth` en `general_settings.custom_auth` de
+- [X] T012 [US2] Registrar `custom_auth.user_api_key_auth` en `general_settings.custom_auth` de
       `litellm/config.yaml`. *(FR-023)*
 
 **Checkpoint**: Identidad resuelta y fail-closed, verificada independiente.
@@ -114,9 +114,9 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T013 ⚠️ [P] [US1] Contract test en `tests/contract/test_guardrail_signatures.py`: firmas de los
+- [X] T013 ⚠️ [P] [US1] Contract test en `tests/contract/test_guardrail_signatures.py`: firmas de los
       tres hooks vs versión pinneada. *(FR-027)*
-- [ ] T014 ⚠️ [P] [US1] Contract test en `tests/contract/test_guardrail_on_v1_messages.py`: los
+- [X] T014 ⚠️ [P] [US1] Contract test en `tests/contract/test_guardrail_on_v1_messages.py`: los
       guardrails se ejecutan sobre `/v1/messages` (no sólo `/chat/completions`). *(FR-028, SC-002)*
 - [ ] T015 ⚠️ [P] [US1] Integration test en `tests/integration/test_pre_call_block.py`: AI-Act Art.5→400;
       secreto/API key→block; ambos antes de llegar al LLM.
@@ -129,18 +129,18 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ### Implementation for User Story 1
 
-- [ ] T018 [US1] Implementar `litellm/extensions/basa_guardrail.py::BasaGuardrail.async_pre_call_hook`:
+- [X] T018 [US1] Implementar `litellm/extensions/basa_guardrail.py::BasaGuardrail.async_pre_call_hook`:
       AI-Act Art.5→400 (`ComplianceService.evaluate_prompt`), secretos→block
       (`GuardianService.process_prompt`), mask PII reversible (`basa_guardian_policy` +
       `PresidioService`), mapa en `data["metadata"]["pii_tokens"]`. *(FR-001, FR-002, FR-003, FR-004, FR-005)*
-- [ ] T019 [US1] Implementar `async_post_call_success_hook`: unmask no-streaming leyendo
+- [X] T019 [US1] Implementar `async_post_call_success_hook`: unmask no-streaming leyendo
       `metadata.pii_tokens`. *(FR-006)*
-- [ ] T020 [US1] Implementar `async_post_call_streaming_iterator_hook` con la estrategia que fijó T005:
+- [X] T020 [US1] Implementar `async_post_call_streaming_iterator_hook` con la estrategia que fijó T005:
       **Estrategia A** (sobre `ModelResponseStream`, preferida) → unmask + carry-split de
       `basa_guardian_policy`, NO reimplementar framing SSE/decoder/usage; **o Estrategia B** (rewrite SSE)
       SÓLO si T005 demostró que el hook parseado no cubre `/v1/messages` (excepción acotada documentada).
       *(FR-007, FR-008)*
-- [ ] T021 [US1] Registrar `BasaGuardrail` en el bloque `guardrails:` de `litellm/config.yaml` con modes
+- [X] T021 [US1] Registrar `BasaGuardrail` en el bloque `guardrails:` de `litellm/config.yaml` con modes
       `pre_call`, `post_call`, `post_call_streaming`; conservar `model_list` + `router_settings.fallbacks`.
       *(FR-001, FR-023)*
 
@@ -157,7 +157,7 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T022 ⚠️ [P] [US3] Contract test en `tests/contract/test_logger_signature.py`: firma de
+- [X] T022 ⚠️ [P] [US3] Contract test en `tests/contract/test_logger_signature.py`: firma de
       `async_log_success_event(kwargs, response_obj, start_time, end_time)` vs versión pinneada.
 - [ ] T023 ⚠️ [P] [US3] Integration test (negativo) en `tests/integration/test_audit_scrub.py`: con
       `metadata.pii_tokens` poblado, el AuditLog persiste metadata pero NUNCA texto de prompt ni
@@ -165,14 +165,14 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Implementar `litellm/extensions/basa_audit_logger.py::BasaAuditLogger.async_log_success_event`:
+- [X] T024 [US3] Implementar `litellm/extensions/basa_audit_logger.py::BasaAuditLogger.async_log_success_event`:
       metadata-only vía `AuditService.log_transaction`; **scrub** de `metadata.pii_tokens` + cualquier
       texto antes de persistir. *(FR-014, FR-015)*
-- [ ] T025 [US3] Alimentar un ring en memoria (acotado) desde el logger con el before/after real por capa
+- [X] T025 [US3] Alimentar un ring en memoria (acotado) desde el logger con el before/after real por capa
       (mask→compliance→routing→unmask). *(FR-016)*
-- [ ] T026 [US3] Implementar la vista de monitor en `backend/src/api/monitor.py` (portar `_MONITOR_HTML` +
+- [X] T026 [US3] Implementar la vista de monitor en `backend/src/api/monitor.py` (portar `_MONITOR_HTML` +
       feed `/events`), consumiendo el ring; animación cosmética, datos reales, sin persistir PII. *(FR-017)*
-- [ ] T027 [US3] Registrar `BasaAuditLogger` en `litellm_settings.callbacks` de `litellm/config.yaml`.
+- [X] T027 [US3] Registrar `BasaAuditLogger` en `litellm_settings.callbacks` de `litellm/config.yaml`.
       *(FR-023)*
 
 **Checkpoint**: Auditoría verde (scrub verificado) + monitor demostrable.
@@ -217,7 +217,7 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
 
 ### Tests / Implementation for User Story 5
 
-- [ ] T032 [US5] Consolidar la suite de contract tests (T008, T013, T014, T022) como **puerta de
+- [X] T032 [US5] Consolidar la suite de contract tests (T008, T013, T014, T022) como **puerta de
       build/CI** contra la imagen pinneada; documentar el proceso "bump = correr contract tests, no
       reescribir". *(FR-027, FR-028, SC-006)*
 - [ ] T033 [US5] Contract test de **paridad de rutas** en `tests/contract/test_route_parity.py`: mismo

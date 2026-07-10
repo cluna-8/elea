@@ -40,6 +40,98 @@ FIELD_DELTA = {v: k for k, v in DELTA_FIELDS.items()}
 # Firma del detector inyectado: async (text) -> [{"start", "end", "entity_type"}, …]
 AnalyzeFn = Callable[[str], Awaitable[list]]
 
+# ── Detección (portada de los servicios heredados; PURA, sin DB) ──────────────────
+
+# PII por regex (espejo de PresidioService.PATTERNS). Tier demo/dev: el NLP real
+# (Presidio) es precondición de prod con PHI (Constraint C2) y llega en la spec 016.
+PII_PATTERNS = {
+    "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+    "PHONE_NUMBER": r"\b(?:\+?54)?[-. ]?\(?\d{2,4}\)?[-. ]?\d{3,4}[-. ]?\d{4}\b",
+    "DNI": r"\b\d{2}\.?\d{3}\.?\d{3}\b",
+    "CUIL": r"\b\d{2}-\d{8}-\d\b",
+    "PERSON": r"\b(?:paciente|doctor|dr|dra|sr|sra|don|doña|afiliado)\s+([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b",
+}
+
+# Prácticas prohibidas EU AI Act Art.5 (espejo de ComplianceService.PROHIBITED_KEYWORDS)
+PROHIBITED_PATTERNS = [
+    r"social\s*scoring", r"score\s*social", r"clasificación\s*social",
+    r"subliminal\s*manipulation", r"manipulación\s*subliminal",
+    r"biometric\s*categorization", r"categorización\s*biométrica",
+]
+# Alto riesgo Anexo III (heurístico; solo flag, no bloquea — [D3])
+HIGH_RISK_PATTERNS = [
+    r"farmacovigilancia\s*automatizada", r"farmacovigilancia\s*autónoma",
+    r"decisión\s*regulatoria\s*autónoma", r"decision\s*regulatoria\s*autonoma",
+    r"ensayo\s*clínico\s*autónomo", r"ensayo\s*clinico\s*autonomo",
+    r"evaluación\s*de\s*crédito", r"credit\s*scoring",
+    r"automated\s*hiring", r"evaluación\s*de\s*cv", r"selección\s*de\s*personal\s*automática",
+    r"scoring\s*de\s*empleados", r"evaluación\s*automatizada\s*de\s*representantes",
+    r"evaluacion\s*automatizada\s*de\s*representantes",
+    r"personalización\s*manipuladora", r"personalizacion\s*manipuladora",
+]
+
+# Secretos/keys (espejo de GuardianService)
+SECRET_PATTERNS = {
+    "OpenAI API Key": r"sk-[a-zA-Z0-9]{10,}",
+    "Google API Key": r"AIzaSy[a-zA-Z0-9_-]{33}",
+    "Generic Secret": r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}",
+}
+
+INSPECT_CAP = 16000  # chars entregados a los detectores
+
+
+async def default_analyze(text: str) -> list:
+    """Analyzer PII por regex (mismo comportamiento que el PresidioService heredado).
+    Inyectable: en prod con PHI se reemplaza por Presidio NLP (spec 016, SC-2)."""
+    entities = []
+    for entity_type, pattern in PII_PATTERNS.items():
+        flags = re.IGNORECASE if entity_type != "PERSON" else 0
+        for m in re.finditer(pattern, text, flags):
+            start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
+            entities.append({"start": start, "end": end,
+                             "entity_type": entity_type, "score": 0.95})
+    return entities
+
+
+def evaluate_ai_act(text: str) -> dict:
+    """Gate AI-Act: prohibido (Art.5) bloquea; alto riesgo (Anexo III) solo flaggea."""
+    if not text:
+        return {"status": "passed", "risk_level": "low", "reason": None}
+    for pattern in PROHIBITED_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return {"status": "blocked_prohibited", "risk_level": "prohibited",
+                    "reason": ("Petición bloqueada por la Ley de IA (AI Act): "
+                               f"práctica prohibida detectada ({pattern}).")}
+    for pattern in HIGH_RISK_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return {"status": "flagged_high_risk", "risk_level": "high",
+                    "reason": ("Advertencia de la Ley de IA: aplicación de alto riesgo "
+                               f"detectada ({pattern}). Se requiere supervisión humana.")}
+    return {"status": "passed", "risk_level": "low", "reason": None}
+
+
+def detect_secrets(text: str) -> list:
+    """Material secreto (API keys / tokens) que JAMÁS debe salir hacia un LLM."""
+    return [name for name, pattern in SECRET_PATTERNS.items()
+            if re.search(pattern, text)]
+
+
+def extract_inspect_text(body: dict, cap: int = INSPECT_CAP) -> str:
+    """Texto de los turnos user (str o bloques text/tool_result) para los detectores.
+    Mismo alcance que el masking: el system prompt no se inspecciona acá."""
+    parts = []
+    for msg in body.get("messages") or []:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for blk in content:
+                if isinstance(blk, dict) and isinstance(blk.get("text"), str):
+                    parts.append(blk["text"])
+    return "\n".join(parts)[:cap]
+
 
 class PlaceholderMap:
     """Asignación consistente valor→placeholder para todo el request.

@@ -12,6 +12,7 @@ from .groups import router as groups_router
 from .consent import router as consent_router
 from .reports import router as reports_router
 from .costs import router as costs_router
+from .monitor import router as monitor_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(users_router)
@@ -27,3 +28,4 @@ api_router.include_router(groups_router)
 api_router.include_router(consent_router)
 api_router.include_router(reports_router)
 api_router.include_router(costs_router)
+api_router.include_router(monitor_router)

@@ -19,7 +19,7 @@ SSO, D5 env vars).
 | Spec | Título | Prioridad | Estado | Constitución | Absorbe de A–F |
 |------|--------|-----------|--------|--------------|----------------|
 | **013** | **Multi-Tenant Foundation & Client Model** | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
-| **014** | **LiteLLM-Native Firewall (base_url clients)** | P1 | **Specced** (desbloqueada por 013) | I, II(exc.), VI, VIII | — |
+| **014** | **LiteLLM-Native Firewall (base_url clients)** | P1 | **US1+US2+US3+contract implementadas** (2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); falta US4 passthrough OAuth | I, II(exc.), VI, VIII | — |
 | 015 | Scoped SecurityPolicy (per-group/per-client) | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
 | 016 | Real NLP Masking (Presidio) + streaming unmask hardening | P2 | Roadmap | I, SC-2 | **C2** |
 | 017 | Auth hardening & Multi-Tenant RBAC + SSO | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
