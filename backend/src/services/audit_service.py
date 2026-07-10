@@ -31,6 +31,7 @@ class AuditService:
         ai_disclosure_delivered: bool = False,
         processing_purpose: Optional[str] = None,
         user_group_id=None,
+        tenant_id: Optional[UUID] = None,
     ) -> AuditLog:
         """
         Creates a secure audit log entry for a transaction.
@@ -70,7 +71,11 @@ class AuditService:
                 user_group_id=user_group_id,
                 timestamp=datetime.utcnow()
             )
-            
+            # tenant_id explícito sólo si el caller lo resolvió (spec 014 US4); si es
+            # None se respeta el default del modelo (DEFAULT_TENANT_ID) — nunca None.
+            if tenant_id is not None:
+                log_entry.tenant_id = tenant_id
+
             db.add(log_entry)
             db.commit()
             db.refresh(log_entry)

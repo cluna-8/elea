@@ -79,6 +79,35 @@ SECRET_PATTERNS = {
 
 INSPECT_CAP = 16000  # chars entregados a los detectores
 
+# Mapa User-Agent → herramienta (primer match gana; portado 1:1 del demo _TOOL_UA).
+# El ORDEN es semántica observable (claude antes que curl, curl antes que httpx).
+# Vive acá (lib PURA) para que el passthrough del backend y custom_auth lo compartan.
+TOOL_UA = [
+    ("claude", "Claude Code"),
+    ("cursor", "Cursor"),
+    ("continue", "Continue.dev"),
+    ("aider", "aider"),
+    ("cline", "Cline"),
+    ("roo", "Roo Code"),
+    ("codex", "Codex CLI"),
+    ("gemini", "Gemini CLI"),
+    ("windsurf", "Windsurf"),
+    ("postman", "Postman"),
+    ("curl", "curl"),
+    ("httpx", "API directa"),
+    ("python-requests", "API directa"),
+    ("node-fetch", "API directa"),
+]
+
+
+def detect_tool(user_agent: Optional[str]) -> str:
+    """Herramienta de codeo desde el User-Agent (primer match gana; degrada honesto)."""
+    low = (user_agent or "").lower()
+    for needle, name in TOOL_UA:
+        if needle in low:
+            return name
+    return "Desconocido"
+
 
 async def default_analyze(text: str) -> list:
     """Analyzer PII por regex (mismo comportamiento que el PresidioService heredado).
@@ -116,11 +145,20 @@ def detect_secrets(text: str) -> list:
             if re.search(pattern, text)]
 
 
+def redact_secrets(text: str) -> str:
+    """Reemplaza material secreto por un marcador — para previews/vitrina (Constraint
+    C1): una credencial NUNCA debe llegar al monitor ni a Redis, ni siquiera efímera."""
+    for pattern in SECRET_PATTERNS.values():
+        text = re.sub(pattern, "[SECRET_REDACTED]", text)
+    return text
+
+
 def extract_inspect_text(body: dict, cap: int = INSPECT_CAP) -> str:
     """Texto de los turnos user (str o bloques text/tool_result) para los detectores.
     Mismo alcance que el masking: el system prompt no se inspecciona acá."""
     parts = []
-    for msg in body.get("messages") or []:
+    messages = body.get("messages")
+    for msg in messages if isinstance(messages, list) else []:
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         content = msg.get("content")
@@ -198,7 +236,8 @@ async def mask_body(body: dict, analyze: AnalyzeFn,
     """Enmascara la PII de los turnos USER del request (no el system prompt/tools —
     mismo alcance que el demo). Devuelve (body mutado, mapa placeholder→original)."""
     pmap = pmap or PlaceholderMap()
-    for msg in body.get("messages") or []:
+    messages = body.get("messages")
+    for msg in messages if isinstance(messages, list) else []:
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         msg["content"] = await _mask_content(msg.get("content"), analyze, pmap)

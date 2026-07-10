@@ -48,7 +48,7 @@ _MONITOR_HTML = """<!doctype html>
   .muted { color:#7d8590; font-size:12px; }
   main { padding:16px 20px; display:flex; flex-direction:column; gap:10px; max-width:1100px; }
   .row { border:1px solid #1c2531; border-radius:10px; padding:12px 14px; background:#0f1620; }
-  .row.blocked_prohibited { border-color:#f8514933; background:#f851490d; }
+  .row.blocked_prohibited, .row.blocked_secret, .row.blocked_guardian { border-color:#f8514933; background:#f851490d; }
   .row.flagged_high_risk { border-color:#d2992233; background:#d299220d; }
   .top { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .tag { font-size:11px; padding:2px 8px; border-radius:999px; background:#1c2531; color:#adbac7; }
@@ -68,7 +68,9 @@ _MONITOR_HTML = """<!doctype html>
 <script>
 const feed = document.getElementById('feed');
 const statusEl = document.getElementById('status');
-const STATUS = { passed:['pass','OK'], blocked_prohibited:['blocked','BLOQUEADO'], flagged_high_risk:['flag','ALTO RIESGO'] };
+const STATUS = { passed:['pass','OK'], blocked_prohibited:['blocked','BLOQUEADO'],
+  blocked_secret:['blocked','SECRETO BLOQUEADO'], blocked_guardian:['blocked','BLOQUEADO'],
+  flagged_high_risk:['flag','ALTO RIESGO'] };
 function render(events){
   if(!events.length){ feed.innerHTML = '<div class="empty">Esperando tráfico…</div>'; return; }
   feed.innerHTML = events.map(e => {

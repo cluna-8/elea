@@ -195,15 +195,19 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
 
 ### Implementation for User Story 4
 
-- [ ] T029 [US4] Reescribir `backend/src/api/gateway.py` para conservar SÓLO el passthrough OAuth de
-      suscripción (`upstream_mode`=`subscription-passthrough`; "anthropic" en el demo), reenviando
-      `Authorization`/OAuth verbatim, e invocando `basa_guardian_policy` (block + mask/unmask, incl.
-      carry-split streaming); identidad según **[D-014]**. *(FR-018, FR-019)*
-- [ ] T030 [US4] Retirar de `gateway.py`: `/gw/v1/messages`, `count_tokens`, `models`,
-      `_rewrite_sse_event`, `_redact_body`, `_detect_tool`, `_resolve_identity`, `_passthrough_headers`,
-      `_IN_RE`/`_OUT_RE`. El modo `byok` migra a LiteLLM nativo. *(FR-021, FR-030, SC-008)*
-- [ ] T031 [US4] Asegurar que la referencia al secreto OAuth vive fuera de `config.yaml` en claro (env /
-      gestor de secretos). *(FR-025, Constraint C5, SC-007)*
+- [X] T029 [US4] Escribir (NUEVO en este repo) `backend/src/api/gateway.py` con SÓLO el passthrough OAuth
+      de suscripción (`upstream_mode`=`subscription-passthrough`), reenviando `Authorization`/OAuth
+      verbatim a `api.anthropic.com`, e invocando `basa_guardian_policy` (block AI-Act/secretos +
+      mask/unmask reversible, incl. carry-split streaming vía `rewrite_sse_block`); identidad **[D-014]**
+      (NO fail-closed acá; `X-Basa-Key` = atribución opcional). *(FR-018, FR-019)* — 2026-07-10.
+- [X] T030 [US4] El port NO recrea lo hand-rolled del demo: el `byok` migró a LiteLLM nativo (US1-3), y
+      `_rewrite_sse_event`/`_redact_body`/`_detect_tool`/`_IN_RE`/`_OUT_RE` viven ahora en la librería
+      compartida (`rewrite_sse_block`/`mask_body`/`detect_tool`; tokens de usage salen de
+      `rewrite_sse_block`). Sólo el reenvío de headers (OAuth verbatim) es intrínseco al passthrough.
+      *(FR-021, FR-030, SC-008)* — 2026-07-10.
+- [X] T031 [US4] El OAuth de suscripción NUNCA vive en `config.yaml`: caso normal = lo pone el cliente
+      (header, verbatim); caso gestionado = `oauth_credential_ref` Fernet descifrado en memoria
+      (`encryption_service`). *(FR-025, Constraint C5, SC-007)* — 2026-07-10.
 
 **Checkpoint**: `gateway.py` adelgazado; suscripción y BYOK con paridad de política.
 
@@ -220,9 +224,11 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
 - [X] T032 [US5] Consolidar la suite de contract tests (T008, T013, T014, T022) como **puerta de
       build/CI** contra la imagen pinneada; documentar el proceso "bump = correr contract tests, no
       reescribir". *(FR-027, FR-028, SC-006)*
-- [ ] T033 [US5] Contract test de **paridad de rutas** en `tests/contract/test_route_parity.py`: mismo
-      input a la ruta motor BYOK y al passthrough OAuth → mismo verdicto de bloqueo + mismo masking/unmask
-      (protege contra deriva). *(FR-029, SC-005)*
+- [X] T033 [US5] Contract test de **paridad de rutas** en `tests/contract/test_route_parity.py` (13 tests):
+      nivel 1 (puro) — verdicto de bloqueo + tipos enmascarados del passthrough == librería compartida (lo
+      que hace `BasaGuardrail`); nivel 2 (E2E con upstream mockeado) — block→400, mask sale al upstream y
+      unmask vuelve al caller (no-streaming + streaming, incl. frame partido), OAuth reenviado verbatim,
+      preview de la vitrina sin PII ni secretos. *(FR-029, SC-005)* — 2026-07-10.
 
 **Checkpoint**: Todos los user stories independientes y blindados por contract tests.
 
