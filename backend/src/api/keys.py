@@ -1,4 +1,3 @@
-import hashlib
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -11,6 +10,7 @@ from ..models.budget import APIKey
 from ..models.user import User, Group
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
+from ..services.key_material import hash_key, key_preview
 from ..auth.rbac import require_role
 
 router = APIRouter(
@@ -28,9 +28,13 @@ class KeyCreateSchema(BaseModel):
     budget_duration: Optional[str] = "30d"
     models: Optional[List[str]] = None
     expires_at: Optional[datetime] = None
+    # Nota FR-016 (spec 013): la gobernanza legal vive en el User; este campo por-key
+    # es legacy y NO participa de la cascada de contexto (se resuelve desde el User).
     compliance_project_id: Optional[UUID] = None
     rpm_limit: Optional[int] = 60
     tpm_limit: Optional[int] = 100000
+    # Connection (spec 013 US5): herramienta a la que se liga la key
+    tool_type: str = "claude-code"
 
 
 class KeyResponseSchema(BaseModel):
@@ -67,6 +71,24 @@ def list_keys(db: Session = Depends(get_db)):
 
 @router.post("", response_model=KeyGeneratedResponse, status_code=status.HTTP_201_CREATED)
 async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
+    # FR-018: ≤1 Connection ACTIVA por herramienta por client. Pre-check para devolver
+    # un 409 legible ANTES de crear la key en el motor (el índice parcial
+    # uq_api_keys_tenant_user_tool es el cinturón a nivel DB).
+    if key_in.user_id:
+        existing = (
+            db.query(APIKey)
+            .filter(APIKey.user_id == key_in.user_id,
+                    APIKey.tool_type == (key_in.tool_type or "claude-code"),
+                    APIKey.is_active.is_(True))
+            .first()
+        )
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"El usuario ya tiene una Connection activa para '{key_in.tool_type}'. "
+                       "Revocala primero o usá otra herramienta.",
+            )
+
     engine_team_id: Optional[str] = None
     engine_user_id: Optional[str] = None
 
@@ -111,13 +133,11 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
 
     plain_key: str = result["plain_key"]
     engine_key_token: str = result["engine_key_token"]
-    key_hash = hashlib.sha256(plain_key.encode()).hexdigest()
-    key_preview = f"sk-...{plain_key[-6:]}"
-
     db_key = APIKey(
         name=key_in.name,
-        key_hash=key_hash,
-        key_preview=key_preview,
+        key_hash=hash_key(plain_key),
+        key_preview=key_preview(plain_key),
+        tool_type=key_in.tool_type or "claude-code",
         engine_key_token=engine_key_token,
         user_id=key_in.user_id,
         group_id=key_in.group_id,

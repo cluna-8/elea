@@ -3,13 +3,14 @@ version: '3.8'
 services:
   db:
     image: postgres:16-alpine
-    container_name: eu-db
+    container_name: basa-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-basa_gateway}
       POSTGRES_USER: ${POSTGRES_USER:-basa_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-basasecurepass123}
     ports:
-      - "5432:5432"
+      # 5433 en el host: 5432 lo ocupa el repo demo (gatelite) que debe seguir corriendo en paralelo
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -22,7 +23,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: eu-redis
+    container_name: basa-redis
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     networks:
       - basa-network
@@ -33,10 +34,14 @@ services:
       retries: 5
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: eu-litellm
+    # PIN por digest (spec 014 T004/FR-026, Principio VI): litellm 1.92.0.
+    # Proceso de bump: cambiar el digest -> correr la suite de contract tests
+    # (tests/contract/) -> si pasa, commitear; NUNCA reescribir los hooks a ciegas.
+    image: ghcr.io/berriai/litellm:main-latest@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
+    container_name: basa-litellm
     ports:
-      - "4000:4000"
+      # 4010 en el host: 4000 lo ocupa el litellm del repo demo (gatelite)
+      - "4010:4000"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-basa_admin}:${POSTGRES_PASSWORD:-basasecurepass123}@db:5432/${POSTGRES_DB:-basa_gateway}
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}
@@ -46,7 +51,8 @@ services:
       - AZURE_API_BASE=${AZURE_OPENAI_ENDPOINT}
       - AZURE_API_VERSION=${AZURE_API_VERSION}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - REDIS_HOST=eu-redis
+      # nombre de servicio compose (DNS interno de la red), no container_name
+      - REDIS_HOST=redis
       - REDIS_PORT=6379
       - LITELLM_LOG=INFO
     volumes:
@@ -71,9 +77,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: eu-backend
+    container_name: basa-backend
     ports:
-      - "8081:8000"
+      # 8091 en el host: 8081 lo ocupa el backend del repo demo (gatelite)
+      - "8091:8000"
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-basa_gateway}
       - POSTGRES_USER=${POSTGRES_USER:-basa_admin}
@@ -105,9 +112,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: eu-frontend
+    container_name: basa-frontend
     ports:
-      - "8080:5173"
+      # 8090 en el host: 8080 lo ocupa el frontend del repo demo (gatelite)
+      - "8090:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules

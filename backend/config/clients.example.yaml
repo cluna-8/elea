@@ -1,0 +1,52 @@
+# Schema de client_spec para seed_client (spec 013 US6 — onboarding-as-data).
+# Sumar un cliente o un demo = editar este YAML y correr el seed. NUNCA tocar código
+# (Constitución IV y VII: config + seed, never fork).
+#
+# Uso:
+#   from src.services.onboarding import seed_clients_from_config
+#   seed_clients_from_config(db, tenant_slug="default", path="config/clients.yaml")
+#
+# Idempotente: re-ejecutar con el mismo spec no duplica (claves naturales
+# (tenant_id, username) y (tenant_id, user_id, tool_type)).
+
+clients:
+  - username: demo-dev                 # único por tenant
+    email: demo-dev@example.com        # único por tenant
+    display_label: developer           # etiqueta de display (ex-rol sectorial), opcional
+    client_type: base_url              # base_url | desktop | chat_ui
+    group: engineering                 # grupo del tenant; se crea si no existe
+    # Overrides de contexto legal (opcionales). null/ausente = heredar de group/tenant
+    # (cascada User > Group > Tenant, spec 013 US4).
+    legal_basis: null
+    risk_level: null
+    budget:                            # Budget(user) — gate 402 heredado
+      max_spend_usd: 50.0
+      max_tokens: 1000000
+      reset_period: monthly            # daily | weekly | monthly | never
+    tools:                             # una Connection (virtual key) por herramienta
+      - tool_type: claude-code         # claude-code | copilot | cursor | claude-desktop | chatgpt | chat-ui
+        name: "Claude Code — demo-dev"
+        upstream_mode: byok            # byok | subscription-passthrough
+        # oauth_credential_ref: obligatoria solo con subscription-passthrough.
+        # REFERENCIA a un secreto Fernet/gestor de secretos, NUNCA el token en claro (SC-5).
+        # Toggles por-key: null/ausente = heredar del group/tenant (FR-014); valor = override.
+        redact_enabled: true
+        compression_mode: null         # off | deterministic | headroom
+        allowed_models: null           # lista de model-ids permitidos, p.ej. ["basa-fast"]
+        allowed_tools: null
+        rpm_limit: 60
+        tpm_limit: 100000
+
+  - username: demo-desktop
+    email: demo-desktop@example.com
+    client_type: desktop
+    group: operaciones
+    budget:
+      max_spend_usd: 20.0
+      max_tokens: 500000
+      reset_period: monthly
+    tools:
+      - tool_type: claude-desktop
+        name: "Claude Desktop — demo"
+        upstream_mode: byok
+        redact_enabled: null           # hereda

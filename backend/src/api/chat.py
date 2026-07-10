@@ -83,7 +83,7 @@ def get_or_create_default_user(db: Session) -> User:
             username="admin",
             email="admin@basa.com.ar",
             password_hash=hashlib.sha256("admin".encode()).hexdigest(),
-            role="admin",
+            role="tenant_admin",  # canónico post-013; el fallback en sí se cierra en 017 (SC-3)
             is_active=True
         )
         db.add(user)

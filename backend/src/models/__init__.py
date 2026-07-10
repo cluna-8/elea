@@ -1,4 +1,5 @@
 from ..database import Base
+from .tenant import Tenant, DEFAULT_TENANT_ID
 from .user import User, Group
 from .budget import Budget, APIKey
 from .policy import SecurityPolicy
@@ -8,7 +9,7 @@ from .compliance import ComplianceProject, DPARegistry, DataSubjectRequest, Huma
 from .consent import ConsentRecord
 
 __all__ = [
-    "Base", "User", "Group", "Budget", "APIKey", "SecurityPolicy", "AuditLog", "Guardian",
-    "ComplianceProject", "DPARegistry", "DataSubjectRequest", "HumanReview", "RetentionPolicy",
-    "ConsentRecord",
+    "Base", "Tenant", "DEFAULT_TENANT_ID", "User", "Group", "Budget", "APIKey", "SecurityPolicy",
+    "AuditLog", "Guardian", "ComplianceProject", "DPARegistry", "DataSubjectRequest", "HumanReview",
+    "RetentionPolicy", "ConsentRecord",
 ]

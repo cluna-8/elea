@@ -13,6 +13,14 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
+# Librería compartida basa_guardian_policy (spec 014): vive en <repo>/litellm/extensions
+# (montada como /app/litellm_config/extensions dentro del container backend). Se importa
+# como `from extensions import basa_guardian_policy` desde ambos hogares.
+for _shared in (BACKEND_ROOT / "litellm_config", BACKEND_ROOT.parent / "litellm"):
+    if (_shared / "extensions").is_dir():
+        sys.path.insert(0, str(_shared))
+        break
+
 # Unit tests need a JWT secret; fail-closed behaviour is tested explicitly by
 # clearing this env in the relevant test.
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-with-at-least-32-chars-xxx")

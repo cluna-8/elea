@@ -1,15 +1,48 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, CheckConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from .tenant import DEFAULT_TENANT_ID
+
+VALID_ROLES = {"super_admin", "tenant_admin", "compliance_officer", "client"}
+
+# Mapeo de roles legacy → (rol canónico, display_label), espejo del backfill de la
+# migración 010 (spec 013 US2, [D9]). Lo usan los bordes de la API para aceptar
+# payloads legacy sin violar el CHECK ck_users_role.
+LEGACY_ROLE_MAP = {
+    "admin": ("tenant_admin", None),
+    "clinician": ("client", "clinician"),
+    "developer": ("client", "developer"),
+}
+
+
+def normalize_legacy_role(role: str, display_label=None):
+    """Devuelve (role_canónico, display_label) aceptando nombres legacy.
+
+    Roles fuera del enum y del mapeo legacy levantan ValueError (el CHECK de DB los
+    rechazaría igual; acá damos un error de validación legible).
+    """
+    if role in VALID_ROLES:
+        return role, display_label
+    if role in LEGACY_ROLE_MAP:
+        canonical, label = LEGACY_ROLE_MAP[role]
+        return canonical, display_label or label
+    raise ValueError(
+        f"Rol '{role}' inválido. Válidos: {sorted(VALID_ROLES)} (o legacy: {sorted(LEGACY_ROLE_MAP)})"
+    )
+
 
 class Group(Base):
     __tablename__ = "groups"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String, unique=True, nullable=False, index=True)
+    # default Python-side al tenant …0001: los code paths heredados (on-prem) no setean
+    # tenant_id; en cloud la identidad lo setea explícito y RLS WITH CHECK rechaza cruces.
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
+    name = Column(String, nullable=False, index=True)  # UNIQUE compuesto (tenant_id, name)
     description = Column(String, nullable=True)
     engine_team_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -32,14 +65,29 @@ class Group(Base):
     budgets = relationship("Budget", back_populates="group")
     compliance_project = relationship("ComplianceProject", foreign_keys=[compliance_project_id])
 
+    __table_args__ = (
+        # Index(unique=True): mismo objeto que crea la migración 010 (CREATE UNIQUE
+        # INDEX), para que ORM y esquema real no diverjan.
+        Index("uq_groups_tenant_name", "tenant_id", "name", unique=True),
+    )
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username = Column(String, unique=True, nullable=False, index=True)
-    email = Column(String, unique=True, nullable=False)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
+    username = Column(String, nullable=False, index=True)  # UNIQUE compuesto (tenant_id, username)
+    email = Column(String, nullable=False)                 # UNIQUE compuesto (tenant_id, email)
     password_hash = Column(String, nullable=False)
-    role = Column(String, nullable=False) # admin, compliance_officer, clinician, developer
+    # Enum reconciliado (spec 013 US2, Constitución [D9]); CHECK en DB.
+    # super_admin NO se autogenera por migración: se siembra aparte, solo cloud.
+    role = Column(String, nullable=False)  # super_admin | tenant_admin | compliance_officer | client
+    # Labels sectoriales legacy (clinician/developer) degradados a etiqueta de display
+    display_label = Column(String, nullable=True)
+    # El "client" (Constitución IV) es User role='client' + client_type: describe CÓMO
+    # consume la persona; la herramienta concreta (tool_type) vive en la Connection.
+    client_type = Column(String, nullable=True)  # base_url | desktop | chat_ui — solo role='client'
     group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
     engine_user_id = Column(String, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
@@ -58,3 +106,20 @@ class User(Base):
     audit_logs = relationship("AuditLog", back_populates="user")
     consent_records = relationship("ConsentRecord", back_populates="user")
     compliance_project = relationship("ComplianceProject", foreign_keys=[compliance_project_id])
+
+    __table_args__ = (
+        Index("uq_users_tenant_username", "tenant_id", "username", unique=True),
+        Index("uq_users_tenant_email", "tenant_id", "email", unique=True),
+        CheckConstraint(
+            "role IN ('super_admin', 'tenant_admin', 'compliance_officer', 'client')",
+            name="ck_users_role",
+        ),
+        CheckConstraint(
+            "client_type IS NULL OR client_type IN ('base_url', 'desktop', 'chat_ui')",
+            name="ck_users_client_type",
+        ),
+        CheckConstraint(
+            "client_type IS NULL OR role = 'client'",
+            name="ck_users_client_type_role",
+        ),
+    )

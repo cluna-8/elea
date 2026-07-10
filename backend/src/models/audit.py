@@ -1,14 +1,19 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Numeric, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Numeric, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from .tenant import DEFAULT_TENANT_ID
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Denormalizado (backfill relacional desde user_id → users.tenant_id en la 010);
+    # índice compuesto (tenant_id, timestamp) para el dashboard bajo RLS.
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
@@ -33,3 +38,7 @@ class AuditLog(Base):
     # Relationships
     user = relationship("User", back_populates="audit_logs")
     api_key = relationship("APIKey", back_populates="audit_logs")
+
+    __table_args__ = (
+        Index("ix_audit_logs_tenant_timestamp", "tenant_id", "timestamp"),
+    )

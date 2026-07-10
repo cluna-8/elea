@@ -49,9 +49,14 @@ docker-compose up --build -d
 ```
 
 ### 3. Acceso a las Aplicaciones
-* **Panel de Control y Playground (Frontend)**: [http://localhost:5173](http://localhost:5173)
-* **Documentación de la API (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
-* **LiteLLM Engine (Interno)**: [http://localhost:4000/health/readiness](http://localhost:4000/health/readiness)
+
+> **Puertos de basa-guardian**: desplazados para coexistir con el repo demo
+> (gatelite, que ocupa 5432/4000/8080/8081 y debe seguir corriendo en paralelo).
+
+* **Panel de Control y Playground (Frontend)**: [http://localhost:8090](http://localhost:8090)
+* **Documentación de la API (Swagger)**: [http://localhost:8091/docs](http://localhost:8091/docs)
+* **Motor (interno)**: [http://localhost:4010/health/readiness](http://localhost:4010/health/readiness)
+* **PostgreSQL (host)**: `localhost:5433`
 
 ---
 

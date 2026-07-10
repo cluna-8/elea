@@ -3,12 +3,19 @@ from datetime import date, datetime
 from sqlalchemy import Column, String, Boolean, Integer, Date, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from ..database import Base
+from .tenant import DEFAULT_TENANT_ID
+
+# Las 5 tablas de compliance reciben tenant_id + RLS en la 010 (spec 013, FR-007,
+# decisión de alcance recomendada): son datos por-tenant (consentimientos ligados a
+# user, DPA/DSR/retención por empresa); sin tenant_id serían fugas cross-tenant (SC-4).
 
 
 class ComplianceProject(Base):
     __tablename__ = "compliance_projects"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     legal_basis = Column(String, nullable=False)
@@ -31,6 +38,8 @@ class DPARegistry(Base):
     __tablename__ = "dpa_registry"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
     provider_name = Column(String, nullable=False)
     dpa_type = Column(String, default="standard")
     signed_date = Column(Date, nullable=True)
@@ -47,6 +56,8 @@ class DataSubjectRequest(Base):
     __tablename__ = "data_subject_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
     request_type = Column(String, nullable=False)
     subject_identifier = Column(String, nullable=False)
     date_received = Column(Date, nullable=False)
@@ -61,6 +72,8 @@ class HumanReview(Base):
     __tablename__ = "human_reviews"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
     audit_log_id = Column(UUID(as_uuid=True), nullable=True)
     review_token = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     reviewer_id = Column(String, nullable=True)
@@ -75,6 +88,10 @@ class RetentionPolicy(Base):
     __tablename__ = "retention_policies"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
+    # log_type sigue UNIQUE global en 013 (semántica single-tenant preservada);
+    # pasarlo a (tenant_id, log_type) es de la spec 018 (retention enforcement).
     log_type = Column(String, unique=True, nullable=False)
     retention_days = Column(Integer, nullable=False)
     justification = Column(Text, nullable=True)

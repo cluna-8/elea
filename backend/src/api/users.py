@@ -6,7 +6,7 @@ import hashlib
 from pydantic import BaseModel
 
 from ..database import get_db
-from ..models.user import User, Group
+from ..models.user import User, Group, normalize_legacy_role
 from ..schemas.user import UserCreate, UserResponse, GroupCreate, GroupResponse, UserBase
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
@@ -33,9 +33,9 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     if not user and body.username == "admin":
         user = User(
             username="admin",
-            email="admin@basa.local",
+            email="admin@basa.com.ar",  # .local es TLD reservado: EmailStr del response lo rechaza (bug heredado)
             password_hash=hash_password(body.password),
-            role="admin",
+            role="tenant_admin",  # canónico post-013 (equivale al legacy 'admin' vía shim RBAC)
             is_active=True,
         )
         db.add(user)
@@ -53,6 +53,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
             "id": str(user.id),
             "username": user.username,
             "role": user.role,
+            "display_label": user.display_label,
             "email": user.email,
         },
     }
@@ -105,11 +106,18 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Group not found")
 
     raw_password = user_in.password if user_in.password else "basa123"
+    # Acepta nombres legacy del frontend heredado (admin/clinician/developer) y los
+    # normaliza al enum canonico post-013 (ck_users_role) conservando la etiqueta.
+    try:
+        role, display_label = normalize_legacy_role(user_in.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     user = User(
         username=user_in.username,
         email=user_in.email,
         password_hash=hash_password(raw_password),
-        role=user_in.role,
+        role=role,
+        display_label=display_label,
         group_id=user_in.group_id,
         is_active=user_in.is_active,
     )
@@ -151,7 +159,16 @@ def update_user(user_id: UUID, user_in: UserBase, db: Session = Depends(get_db))
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    for field, value in user_in.dict(exclude_unset=True).items():
+    data = user_in.dict(exclude_unset=True)
+    # Mismo puente que create_user: acepta roles legacy sin violar ck_users_role
+    if "role" in data:
+        try:
+            data["role"], label = normalize_legacy_role(data["role"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if label:
+            data.setdefault("display_label", label)
+    for field, value in data.items():
         setattr(user, field, value)
     db.commit()
     db.refresh(user)

@@ -33,6 +33,27 @@ PERMISSIONS = {
     "chat": {"admin", "compliance_officer", "clinician", "developer"},
 }
 
+# ── Shim de compatibilidad post-013 (transicional hasta el refactor RBAC de 017) ──
+# La migración 010 reconcilió los roles ([D9]): admin→tenant_admin,
+# clinician/developer→client+display_label. Los gates de la API siguen escritos con
+# los nombres legacy; este mapeo expande el rol del usuario a sus equivalentes para
+# que un usuario migrado conserve EXACTAMENTE los permisos que tenía (SC-002, cero
+# regresión). La matriz definitiva por-tenant la define la spec 017.
+_LEGACY_EQUIVALENTS = {
+    "tenant_admin": {"admin"},
+    "super_admin": {"admin"},   # cross-tenant ≥ admin dentro del tenant
+}
+_CLIENT_LABEL_EQUIVALENTS = {"clinician", "developer"}
+
+
+def effective_roles(user: User) -> set:
+    roles = {user.role}
+    roles |= _LEGACY_EQUIVALENTS.get(user.role, set())
+    label = getattr(user, "display_label", None)
+    if user.role == "client" and label in _CLIENT_LABEL_EQUIVALENTS:
+        roles.add(label)
+    return roles
+
 
 def require_role(*roles: str) -> Callable:
     """
@@ -55,7 +76,7 @@ def require_role(*roles: str) -> Callable:
                 detail="Autenticación requerida: sesión JWT válida no proporcionada o expirada.",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if user.role not in allowed:
+        if allowed.isdisjoint(effective_roles(user)):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Acción no permitida para el rol '{user.role}'. Se requiere uno de: {', '.join(sorted(allowed))}.",

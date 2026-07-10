@@ -4,12 +4,16 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..database import Base
+from .tenant import DEFAULT_TENANT_ID
 
 
 class ConsentRecord(Base):
     __tablename__ = "consent_records"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Backfill relacional en la 010 (user_id → users.tenant_id), fallback al default.
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False,
+                       default=DEFAULT_TENANT_ID, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     consent_type = Column(String, nullable=False)   # ai_use | data_processing | special_category
     version = Column(String, nullable=False)        # version of the consent text shown
