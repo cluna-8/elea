@@ -126,8 +126,27 @@ corrida con el stack vivo (todos passed) — si el stack responde, los e2e corre
 - [ ] Review adversarial: confirmados aplicados.
 - [ ] PR #2 actualizado con el resumen de verificación + trayectoria de convergencia.
 
+## Wave 2 — hotfix minions (findings de Pass 1)
+
+Set combinado (Codex 2 P1 + adversarial 7 confirmados, dedup). Scope disjunto:
+
+| Minion | Findings | Files (ownership TOTAL) |
+|---|---|---|
+| **FIX-GW** (backend Python) | F1 key-format, F2 master-key, F3 inspect-truncation, F5 audit-count, F7 inspect-nonstr | `backend/src/api/gateway.py`, `backend/src/api/inspect.py`, `backend/src/services/ai_engine_client.py`, `backend/src/api/keys.py`, `backend/src/services/audit_service.py`, `backend/tests/integration/test_surface_routing.py`, `backend/tests/integration/test_gw_inspect.py`, `backend/tests/unit/test_key_format.py` (nuevo) |
+| **FIX-EXT** (extensión JS) | F4 non-string body fail-open, F6 catch fail-open, F-ext-1 postMessage forgeable | `extension/basa-guard.js`, `extension/bridge.js`, `extension/README.md` |
+
+Findings:
+- **F1 [HIGH]** `ai_engine_client.generate_key` emite keys LiteLLM `sk-<token>`, no `sk-basa-` → byok con key online **misrutea a passthrough** (doble-mask + engine key fugada a Anthropic). Fix: emitir `sk-basa-…` explícito.
+- **F2 [HIGH]** `_byok_headers` cae a master key sin sk-basa → **PROXY_ADMIN bypass**. Fix: fail-closed, sin fallback a master en ruta de cliente.
+- **F3 [MED]** `/gw/inspect` trunca a 8000 chars → PII más allá del cap sale **sin enmascarar**. Fix: enmascarar el texto completo (sin cap en el path de masking).
+- **F4 [MED]** el hook `window.fetch` falla OPEN con body no-string (Request/Blob/FormData) → salta fail-closed y masking. Fix: fail-closed por match del adapter, independiente de la forma del body.
+- **F5 [LOW]** `audit_service` re-cuenta entidades pre-agregadas como 1. Fix: `+ ent.get("count",1)`.
+- **F6 [LOW]** el `catch` del hook reenvía el body ORIGINAL sin enmascarar ante error. Fix: fail-closed en catch para requests ya identificados.
+- **F7 [LOW]** `/gw/inspect` 500 con `text` no-string. Fix: coerción/validación → 400 honesto.
+- **F-ext-1**: los `postMessage` son forjeables por la página (limitación arquitectónica de hooks MAIN-world en MV3). Fix: nonce handshake bridge→main (sube la barra) + **documentar el threat-model honesto** (defiende fuga accidental en sitios first-party de confianza; una página hostil controla el contexto JS y podría exfiltrar igual). Known-limitation en el PR.
+
 ## Convergence trajectory (regla F-22)
 
-| Pass | P1 | P2 | P3 | Notes |
+| Pass | P1/High | P2/Med | P3/Low | Notes |
 |------|----|----|----|-------|
-| —    |    |    |    | (se completa tras cada review) |
+| 1    | 2  | 2  | 3  | Codex(2 P1) + adversarial(7). FIX-GW + FIX-EXT dispatched. |
