@@ -170,3 +170,36 @@ def test_models_endpoint_honors_auto_byok(client):
     # FR-011: /v1/models con virtual key → motor (para que la tool liste modelos byok).
     client.get("/gw/v1/models", headers={"x-api-key": "sk-basa-copilot123"})
     assert _FakeClient.last["url"].startswith(ENGINE)
+
+
+# ── P2 [Codex pase 2]: helpers honran byok explícito + virtual key en X-Basa-Key ────
+# El scan de headers excluye x-basa-* (load-bearing), así que la virtual key que viaja
+# SOLO en X-Basa-Key debe threadearse a _detect_mode_and_key igual que en /v1/messages.
+# Antes del fix _plain_passthrough la descartaba → 401 espurio / motor no contactado.
+
+def test_helper_models_byok_with_xbasa_key_routes_to_engine(client):
+    # P2: GET /v1/models con X-Basa-Upstream: byok + la virtual key SOLO en X-Basa-Key
+    # → motor (paridad con /v1/messages). Antes del fix: 401, motor jamás contactado.
+    r = client.get("/gw/v1/models",
+                   headers={"X-Basa-Upstream": "byok", "X-Basa-Key": "sk-basa-helperX"})
+    assert r.status_code == 200
+    assert _FakeClient.last["url"].startswith(ENGINE)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-helperX"
+
+
+def test_helper_count_tokens_byok_with_xbasa_key_routes_to_engine(client):
+    # P2: idem para POST /v1/messages/count_tokens (el otro helper que Claude Code llama).
+    r = client.post("/gw/v1/messages/count_tokens", json=BENIGN,
+                    headers={"X-Basa-Upstream": "byok", "X-Basa-Key": "sk-basa-helperX"})
+    assert r.status_code == 200
+    assert _FakeClient.last["url"].startswith(ENGINE)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-helperX"
+
+
+def test_helper_models_byok_without_any_key_is_fail_closed(client):
+    # F2 regresión sobre los helpers: byok SIN ninguna virtual key sigue siendo 401 y el
+    # motor NUNCA se contacta (no cae al master key → sin bypass a PROXY_ADMIN). El fix P2
+    # NO debe aflojar esto: X-Basa-Key ausente ⇒ basa_key None ⇒ fail-closed.
+    r = client.get("/gw/v1/models", headers={"X-Basa-Upstream": "byok"})
+    assert r.status_code == 401
+    assert _FakeClient.last == {}  # el motor jamás recibió el master key

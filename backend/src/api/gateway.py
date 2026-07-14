@@ -586,11 +586,18 @@ async def gw_messages(
 # ── passthroughs finos que Claude Code también llama (verbatim, sin política) ─────
 
 async def _plain_passthrough(request: Request, path: str, method: str, ident: dict,
-                             x_basa_upstream: Optional[str] = None):
+                             x_basa_upstream: Optional[str] = None,
+                             x_basa_key: Optional[str] = None):
     """count_tokens / models: reenvío verbatim. Honra auto-byok (Copilot/Cursor no mandan
     header de control): con virtual key → motor; si no → suscripción del cliente. NO se
-    enmascara (count_tokens necesita el conteo real; el destino es la propia suscripción)."""
-    mode, basa_key = _detect_mode_and_key(request, x_basa_upstream, None)
+    enmascara (count_tokens necesita el conteo real; el destino es la propia suscripción).
+
+    ``x_basa_key`` se threadea a ``_detect_mode_and_key`` con la MISMA semántica que
+    ``/v1/messages`` (P2): un ruteo byok explícito (``X-Basa-Upstream: byok``) con la
+    virtual key SOLO en ``X-Basa-Key`` resuelve byok en vez de un 401 espurio — el scan
+    de headers excluye ``x-basa-*`` (load-bearing), así que sin threadear la key el motor
+    nunca se contactaría. F2 sigue intacto: byok sin NINGUNA key sigue siendo 401."""
+    mode, basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
     if mode == "byok":
         # F2: mismo fail-closed que /v1/messages — byok sin virtual key jamás usa el
         # master key del motor (evita el bypass a PROXY_ADMIN en count_tokens/models).
@@ -618,7 +625,7 @@ async def gw_count_tokens(request: Request,
                           x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
                           x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
     return await _plain_passthrough(request, "/v1/messages/count_tokens", "POST",
-                                    _resolve_attribution(x_basa_key), x_basa_upstream)
+                                    _resolve_attribution(x_basa_key), x_basa_upstream, x_basa_key)
 
 
 @router.get("/v1/models")
@@ -626,7 +633,7 @@ async def gw_models(request: Request,
                     x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
                     x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
     return await _plain_passthrough(request, "/v1/models", "GET",
-                                    _resolve_attribution(x_basa_key), x_basa_upstream)
+                                    _resolve_attribution(x_basa_key), x_basa_upstream, x_basa_key)
 
 
 @router.get("")
