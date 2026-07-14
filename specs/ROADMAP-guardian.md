@@ -27,6 +27,7 @@ SSO, D5 env vars).
 | 019 | Integration Surfaces & Client Compatibility | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); falta E2E vivo de la extensión (navegador del usuario) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
 | 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | Roadmap (greenfield) | VII, IV, III | D5 |
 | 021 | Licensing & Seat Enforcement (offline Ed25519) | P2 | Roadmap (greenfield) | VII, III, II | — |
+| 022 | Product Documentation Site (MkDocs Material, contenedor `docs` air-gap) | P2 | Roadmap (greenfield) | VII, VIII, II | — |
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
@@ -79,6 +80,14 @@ Enforcement de licencias **offline** para el modelo "install + N seats" (el clie
 Research build-vs-buy: **DIY Ed25519** — no hay producto que aplique por el air-gap; `seat = Connection activa`
 contada en Postgres. Licencia firmada `.lic` (tenant_id, max_seats, expiry, `kid`) verificada en 2 gates fail-closed
 (arranque + creación de Connection); anti-tamper vía **true-up sobre el audit inmutable**. Complementa la 020.
+
+### 022 — Product Documentation Site (P2)
+Sitio de documentación de producto como **contenedor `docs` propio** (estático, air-gapped, 0 egress en runtime),
+separado de la app. Research build-vs-buy: **MkDocs + Material** (air-gap de primera clase vía plugins `offline`+
+`privacy`, Python-nativo, white-label por YAML, versionado `mike`, i18n `static-i18n`); plan B **Starlight+Pagefind**.
+Audiencia **distribuidor+operador** (install/deploy, admin, API reference, compliance, troubleshooting); sembrada de
+`docs/*.md`. **API reference single-source del OpenAPI de FastAPI** (no derivar de las specs — audiencias distintas).
+White-label por config (imagen-por-marca), búsqueda offline (nunca Algolia). Runbook/decisión en `docs/whitelabel-deployment.md`.
 
 ## Fuera de scope del core (siguen como research/later)
 - **Browser-DLP web** (ChatGPT/Claude/Gemini) — **promovido a spec 019** (viable: el body no está firmado →
