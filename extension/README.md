@@ -27,13 +27,13 @@ en vivo"**, igual que Claude Code pero `surface="browser"`.
 **1. Backend (una vez):** gateway arriba + seed del usuario de Radiología:
 ```bash
 docker exec eu-backend python -m scripts.seed_browser_demo
-# crea: sofia.nunez / Radiología · key: sk-basa-radiologia-browser-2026
+# crea: sofia.nunez / Radiología · key: sk-basa-<generada-por-el-seed>
 ```
 
 **2. Cargar/recargar la extensión:** `brave://extensions` (o `chrome://`) → **↻** en Basa Guard
 (o "Cargar descomprimida" → carpeta `basa-browser-dlp/` si es la primera vez).
 
-**3. Conectar:** click en el ícono 🛡️ → pegá la key `sk-basa-radiologia-browser-2026`, gateway
+**3. Conectar:** click en el ícono 🛡️ → pegá la key `sk-basa-<tu-connection>`, gateway
 `http://localhost:8081/gw` → **Conectar** → "🟢 Conectado como sofia.nunez · Radiología".
 
 ## Guion de demo (el contraste es la gracia)
