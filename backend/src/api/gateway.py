@@ -1,14 +1,25 @@
-"""Passthrough OAuth de suscripción (spec 014 US4, FR-018/FR-019) — la ÚNICA
-excepción de proxy propio permitida por la constitución (Principio VI).
+"""Gateway de PUERTA ÚNICA para coding tools (spec 014 US4 + spec 019 US1/US2).
 
-Historia: un desarrollador con **suscripción** Claude Pro/Max (OAuth, sin API key)
-apunta el ``ANTHROPIC_BASE_URL`` de su coding tool a Basa. Como LiteLLM reclama el
-header ``Authorization`` como su propia virtual key, el token OAuth del cliente **no
-puede atravesar el motor**. Sólo para esta ruta el backend mantiene un thin
-reverse-proxy a ``api.anthropic.com`` que reenvía el OAuth **verbatim**:
+Un solo endpoint (``/gw/v1/messages``) al que las coding tools apuntan su
+``ANTHROPIC_BASE_URL``, con dos rutas según ``upstream_mode`` (013):
 
-    Claude Code ──► /gw/v1/messages ──► [política Basa] ──► api.anthropic.com
-                                          AI-Act + secretos + PII mask/unmask
+    subscription-passthrough │ Claude Code ──► [política Basa] ──► api.anthropic.com
+    (014 US4)                │   OAuth del cliente verbatim; la suscripción paga
+    ─────────────────────────┼──────────────────────────────────────────────────
+    byok (019 US2)           │ Copilot/Cursor ──► [router fino] ──► motor LiteLLM
+                             │   sk-basa-… verbatim; el MOTOR aplica la política
+
+**Passthrough (014, excepción de proxy propio del Principio VI):** como LiteLLM
+reclama ``Authorization`` como su propia virtual key, el OAuth de suscripción no
+puede atravesar el motor; sólo acá el backend reverse-proxya a ``api.anthropic.com``
+reenviando el OAuth **verbatim** y aplicando la política del gateway.
+
+**byok (019):** el gateway es un **router fino** al motor — NO aplica política acá
+(el motor ya corre ``custom_auth`` + ``BasaGuardrail``, 014 US1-3), evitando el
+doble-masking del port literal del demo. Auto-detecta la ruta: una virtual key
+``sk-basa-…`` en un header de auth (excl. ``x-basa-*``) o en la URL (``?k=…``,
+fallback de Copilot) → byok; si no, passthrough. Selección explícita por
+``X-Basa-Upstream``.
 
 **Paridad por librería (FR-022):** el bloqueo y el masking/unmask reversible NO se
 reimplementan acá — se invoca la **misma** ``basa_guardian_policy`` que usa
@@ -31,6 +42,7 @@ import codecs
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -66,6 +78,14 @@ router = APIRouter(prefix="/gw", tags=["Firewall Gateway (passthrough OAuth)"])
 logger = logging.getLogger("basa-secure-gateway.gateway")
 
 _ANTHROPIC_UPSTREAM = os.getenv("BASA_GW_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
+# Motor LiteLLM (ruta byok): el gateway es la PUERTA ÚNICA (spec 019). En byok NO aplica
+# política — sólo rutea al motor, que ya corre custom_auth + BasaGuardrail (014). Evita
+# el doble-masking que tendría el port literal del demo (cuyo motor no tenía guardrail).
+_LITELLM_UPSTREAM = os.getenv("LITELLM_API_BASE", "http://litellm:4000").rstrip("/")
+_LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
+_DEFAULT_MODE = os.getenv("BASA_GW_UPSTREAM_DEFAULT", "subscription-passthrough").lower()
+# Virtual key de Basa en cualquier header de auth (auto-byok, spec 019 US2).
+_BASA_KEY_RE = re.compile(r"sk-basa-[A-Za-z0-9._\-]+")
 _MONITOR_KEY = "basa:gw:events"       # mismo feed que alimenta /gw/monitor (US3)
 _MONITOR_CAP = 100
 _MONITOR_TTL_S = 300
@@ -202,6 +222,7 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
     ident = {
         "tenant_id": str(DEFAULT_TENANT_ID), "user_id": None, "group_id": None,
         "api_key_id": None, "client_username": None, "tenant_slug": None,
+        "group_name": None, "key_label": None,
         "tool_type": None, "redact_enabled": None, "oauth_credential_ref": None,
     }
     if not basa_key or not basa_key.startswith("sk-"):
@@ -220,6 +241,8 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
             group_id=str(key.group_id) if key.group_id else None,
             client_username=(key.user.username if key.user else None),
             tenant_slug=(tenant.slug if tenant else None),
+            group_name=(key.group.name if key.group else None),
+            key_label=key.name,
             tool_type=key.tool_type, redact_enabled=key.redact_enabled,
             oauth_credential_ref=key.oauth_credential_ref,
         )
@@ -270,10 +293,10 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
 
 
 def _publish_monitor(ident: dict, tool: str, model: str, status: str,
-                     masked_entities: list, masked_preview: str):
+                     masked_entities: list, masked_preview: str, surface: Optional[str] = None):
     """Evento efímero para /gw/monitor — MISMO esquema que basa_audit_logger, así la
     vitrina renderiza el tráfico del passthrough igual que el del motor. Preview ya
-    enmascarado (C1). Best-effort: la vitrina jamás voltea la request."""
+    enmascarado (C1). ``surface`` distingue la extensión browser (spec 019 US3). Best-effort."""
     client = get_redis()
     if client is None:
         return
@@ -288,6 +311,8 @@ def _publish_monitor(ident: dict, tool: str, model: str, status: str,
             "masked_entities": masked_entities,
             "masked_preview": masked_preview,
         }
+        if surface:
+            event["surface"] = surface
         pipe = client.pipeline()
         pipe.lpush(_MONITOR_KEY, json.dumps(event, ensure_ascii=False))
         pipe.ltrim(_MONITOR_KEY, 0, _MONITOR_CAP - 1)
@@ -313,6 +338,94 @@ def _upstream_headers(request: Request, ident: dict) -> dict:
     return headers
 
 
+# ── selección de modo: passthrough (suscripción) vs byok (motor) — spec 019 US1/US2 ──
+
+def _normalize_mode(val: Optional[str]) -> str:
+    """`byok` o `subscription-passthrough` (glosa histórica del demo: "anthropic")."""
+    return "byok" if (val or _DEFAULT_MODE).lower() == "byok" else "subscription-passthrough"
+
+
+def _detect_mode_and_key(request: Request, x_basa_upstream: Optional[str],
+                         x_basa_key: Optional[str]):
+    """Auto-byok (US2): si aparece una virtual key ``sk-basa-…`` en un header de auth
+    (excluyendo ``x-basa-*``) o en la URL (``?k=…``, fallback de Copilot), enruta a
+    **byok** y la usa como identidad. La exclusión de ``x-basa-*`` es **load-bearing**:
+    el ``sk-basa`` de atribución de Claude Code viaja SOLO en ``X-Basa-Key`` y NO debe
+    sacarlo del passthrough de suscripción. Devuelve ``(mode, basa_key)``."""
+    cred = None
+    for hn, hv in request.headers.items():
+        if hn.lower().startswith("x-basa-"):
+            continue
+        m = _BASA_KEY_RE.search(hv or "")
+        if m:
+            cred = m.group(0)
+            break
+    if not cred:
+        m = _BASA_KEY_RE.search(str(request.url))  # key-in-URL (atajo de demo, Copilot)
+        if m:
+            cred = m.group(0)
+    if cred:
+        if not x_basa_key:
+            x_basa_key = cred
+        if not x_basa_upstream:
+            x_basa_upstream = "byok"
+    return _normalize_mode(x_basa_upstream), x_basa_key
+
+
+def _byok_headers(request: Request, basa_key: Optional[str]) -> dict:
+    """Headers hacia el motor LiteLLM: la ``sk-basa-…`` del cliente viaja como auth para
+    que el ``custom_auth`` del motor resuelva tenant/client (fail-closed suyo). Sin key
+    → master key (admin del proxy) como fallback acotado."""
+    return {
+        "Content-Type": "application/json",
+        "Accept-Encoding": "identity",
+        "anthropic-version": request.headers.get("anthropic-version", "2023-06-01"),
+        "Authorization": f"Bearer {basa_key or _LITELLM_MASTER_KEY}",
+    }
+
+
+async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool):
+    """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
+    enmascara/bloquea/audita vía BasaGuardrail); el gateway NO aplica política acá para
+    no duplicarla. La respuesta del motor ya viene des-enmascarada."""
+    url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
+    headers = _byok_headers(request, basa_key)
+
+    if not is_stream:
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                up = await client.post(url, headers=headers, content=raw)
+        except Exception as exc:  # noqa: BLE001
+            return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
+        return Response(content=up.content, status_code=up.status_code,
+                        media_type=up.headers.get("content-type", "application/json"))
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0, read=60.0))
+    try:
+        req = client.build_request("POST", url, headers=headers, content=raw)
+        up = await client.send(req, stream=True)
+    except Exception as exc:  # noqa: BLE001
+        await client.aclose()
+        return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
+    if up.status_code != 200:
+        err = await up.aread()
+        await up.aclose()
+        await client.aclose()
+        return Response(content=err, status_code=up.status_code,
+                        media_type=up.headers.get("content-type", "application/json"))
+
+    async def gen():
+        try:
+            async for chunk in up.aiter_raw():
+                yield chunk
+        finally:
+            await up.aclose()
+            await client.aclose()
+
+    return StreamingResponse(gen(), status_code=200,
+                             media_type=up.headers.get("content-type", "text/event-stream"))
+
+
 # ── endpoint principal ────────────────────────────────────────────────────────────
 
 @router.post("/v1/messages")
@@ -320,6 +433,7 @@ async def gw_messages(
     request: Request,
     x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
     x_basa_redact: Optional[str] = Header(None, alias="X-Basa-Redact"),
+    x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream"),
 ):
     start = time.time()
     raw = await request.body()
@@ -337,6 +451,13 @@ async def gw_messages(
 
     model = body.get("model", "unknown")
     is_stream = bool(body.get("stream"))
+
+    # ── ruteo de puerta única (spec 019): byok → motor (política del motor), else
+    # passthrough de suscripción → Anthropic (política del gateway) ──
+    mode, x_basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
+    if mode == "byok":
+        return await _byok_proxy(request, raw, x_basa_key, is_stream)
+
     ident = _resolve_attribution(x_basa_key)
     tool = policy.detect_tool(request.headers.get("user-agent"))
     redact_enabled = _resolve_redact(x_basa_redact, ident)
@@ -459,12 +580,18 @@ async def gw_messages(
 
 # ── passthroughs finos que Claude Code también llama (verbatim, sin política) ─────
 
-async def _plain_passthrough(request: Request, path: str, method: str, ident: dict):
-    """count_tokens / models: reenvío verbatim a la suscripción del cliente. NO se
-    enmascara (count_tokens necesita el conteo real; el destino es la propia
-    suscripción del cliente)."""
-    up_headers = _upstream_headers(request, ident)
-    url = _with_query(f"{_ANTHROPIC_UPSTREAM}{path}", request)
+async def _plain_passthrough(request: Request, path: str, method: str, ident: dict,
+                             x_basa_upstream: Optional[str] = None):
+    """count_tokens / models: reenvío verbatim. Honra auto-byok (Copilot/Cursor no mandan
+    header de control): con virtual key → motor; si no → suscripción del cliente. NO se
+    enmascara (count_tokens necesita el conteo real; el destino es la propia suscripción)."""
+    mode, basa_key = _detect_mode_and_key(request, x_basa_upstream, None)
+    if mode == "byok":
+        url = _with_query(f"{_LITELLM_UPSTREAM}{path}", request)
+        up_headers = _byok_headers(request, basa_key)
+    else:
+        url = _with_query(f"{_ANTHROPIC_UPSTREAM}{path}", request)
+        up_headers = _upstream_headers(request, ident)
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             if method == "GET":
@@ -479,26 +606,33 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
 
 @router.post("/v1/messages/count_tokens")
 async def gw_count_tokens(request: Request,
-                          x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
+                          x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
+                          x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
     return await _plain_passthrough(request, "/v1/messages/count_tokens", "POST",
-                                    _resolve_attribution(x_basa_key))
+                                    _resolve_attribution(x_basa_key), x_basa_upstream)
 
 
 @router.get("/v1/models")
 async def gw_models(request: Request,
-                    x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
+                    x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
+                    x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
     return await _plain_passthrough(request, "/v1/models", "GET",
-                                    _resolve_attribution(x_basa_key))
+                                    _resolve_attribution(x_basa_key), x_basa_upstream)
 
 
 @router.get("")
 async def gw_info():
     """Descubrimiento: apuntar el ANTHROPIC_BASE_URL de una coding tool acá."""
     return {
-        "service": "Basa Firewall Gateway (passthrough OAuth de suscripción)",
+        "service": "Basa Firewall Gateway (puerta única: passthrough + byok)",
         "usage": "Apuntá ANTHROPIC_BASE_URL de tu coding tool a …/api/v1/gw",
         "endpoints": ["/gw/v1/messages", "/gw/v1/messages/count_tokens", "/gw/v1/models"],
-        "mode": "subscription-passthrough (OAuth del cliente, verbatim). BYOK = motor LiteLLM nativo.",
+        "modes": {
+            "subscription-passthrough": "OAuth del cliente verbatim → api.anthropic.com (la suscripción paga); política del gateway.",
+            "byok": "virtual key sk-basa-… → motor LiteLLM (cost tracking + budgets); la política la aplica el motor.",
+        },
+        "routing": "auto: sk-basa-… en header de auth (excl. x-basa-*) o en ?k=… → byok; si no, passthrough. Override: X-Basa-Upstream.",
         "headers": {"X-Basa-Key": "atribución opcional (tenant/client) para auditoría",
-                    "X-Basa-Redact": "override del masking PII por request (1/0)"},
+                    "X-Basa-Redact": "override del masking PII por request (1/0)",
+                    "X-Basa-Upstream": "forzar modo: byok | subscription-passthrough"},
     }

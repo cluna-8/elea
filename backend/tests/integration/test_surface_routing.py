@@ -1,0 +1,144 @@
+"""Ruteo de superficies base_url (spec 019 US1+US2): passthrough vs auto-byok.
+
+Verifica la PUERTA ÚNICA: a qué upstream rutea cada cliente y la **exclusión
+load-bearing de `x-basa-*`** que hace coexistir Claude Code (passthrough) y Copilot
+(byok) sobre el mismo gateway (SC-001/SC-002/SC-003).
+
+El fake de httpx registra la URL + headers con que se llamó al upstream, así podemos
+afirmar byok→motor (`http://litellm:4000`) vs passthrough→`api.anthropic.com`.
+"""
+import json
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from src.api import gateway
+
+ENGINE = "http://litellm:4000"
+ANTHROPIC = "https://api.anthropic.com"
+BENIGN = {"model": "claude-3-5-sonnet", "messages": [{"role": "user", "content": "hola mundo"}]}
+
+
+class _Resp:
+    def __init__(self):
+        self._raw = json.dumps({"content": [{"type": "text", "text": "ok"}],
+                                "usage": {"input_tokens": 3, "output_tokens": 2}}).encode()
+        self.status_code = 200
+        self.headers = {"content-type": "application/json"}
+
+    @property
+    def content(self):
+        return self._raw
+
+    def json(self):
+        return json.loads(self._raw)
+
+
+class _FakeClient:
+    """Registra la última llamada al upstream (URL + headers) para afirmar el ruteo."""
+    last: dict = {}
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, headers=None, content=None):
+        _FakeClient.last = {"url": url, "headers": headers or {}, "content": content}
+        return _Resp()
+
+    async def get(self, url, headers=None):
+        _FakeClient.last = {"url": url, "headers": headers or {}}
+        return _Resp()
+
+
+@pytest.fixture
+def client(monkeypatch):
+    _FakeClient.last = {}
+    monkeypatch.setattr(gateway.httpx, "AsyncClient", _FakeClient)
+    monkeypatch.setattr(gateway, "_audit", lambda *a, **k: None)
+    monkeypatch.setattr(gateway, "_publish_monitor", lambda *a, **k: None)
+    monkeypatch.setattr(gateway, "_resolve_attribution", lambda k: {
+        "tenant_id": "00000000-0000-0000-0000-000000000001", "user_id": None, "group_id": None,
+        "api_key_id": None, "client_username": None, "tenant_slug": None,
+        "tool_type": None, "redact_enabled": None, "oauth_credential_ref": None})
+    app = FastAPI()
+    app.include_router(gateway.router)
+    return TestClient(app)
+
+
+def _auth(headers: dict) -> str:
+    return {k.lower(): v for k, v in headers.items()}.get("authorization", "")
+
+
+# ── US1: Claude Code passthrough de suscripción ─────────────────────────────────
+
+def test_passthrough_routes_to_anthropic_verbatim_oauth(client):
+    # T006/SC-001: OAuth del cliente → verbatim a api.anthropic.com (no lo consume).
+    r = client.post("/gw/v1/messages", json=BENIGN,
+                    headers={"Authorization": "Bearer oauth-sub-tok"})
+    assert r.status_code == 200
+    assert _FakeClient.last["url"].startswith(ANTHROPIC)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer oauth-sub-tok"
+
+
+def test_passthrough_forwards_anthropic_headers(client):
+    # T007/FR-003: anthropic-version/beta + user-agent llegan sin alterar.
+    client.post("/gw/v1/messages", json=BENIGN, headers={
+        "Authorization": "Bearer oauth", "anthropic-version": "2023-06-01",
+        "anthropic-beta": "oauth-2025", "user-agent": "claude-cli/1.2"})
+    h = {k.lower(): v for k, v in _FakeClient.last["headers"].items()}
+    assert h.get("anthropic-version") == "2023-06-01"
+    assert h.get("anthropic-beta") == "oauth-2025"
+    assert h.get("user-agent") == "claude-cli/1.2"
+
+
+# ── US2: Copilot auto-byok + key-in-URL + exclusión x-basa-* ────────────────────
+
+def test_auto_byok_routes_to_engine(client):
+    # T012/SC-003: sk-basa-… en x-api-key (sin X-Basa-Upstream) → motor + la key va como auth.
+    r = client.post("/gw/v1/messages", json=BENIGN,
+                    headers={"x-api-key": "sk-basa-copilot123"})
+    assert r.status_code == 200
+    assert _FakeClient.last["url"].startswith(ENGINE)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-copilot123"
+
+
+def test_xbasa_key_excluded_stays_passthrough(client):
+    # T013/SC-002 (load-bearing): Claude Code trae sk-basa SOLO en X-Basa-Key (atribución)
+    # + su OAuth real → DEBE quedar en passthrough, NO desviarse a byok.
+    client.post("/gw/v1/messages", json=BENIGN, headers={
+        "X-Basa-Key": "sk-basa-attrib999", "Authorization": "Bearer oauth-real"})
+    assert _FakeClient.last["url"].startswith(ANTHROPIC)          # NO fue al motor
+    assert _auth(_FakeClient.last["headers"]) == "Bearer oauth-real"
+
+
+def test_same_key_in_xapikey_would_go_byok(client):
+    # Prueba negativa de la exclusión: el MISMO valor en x-api-key SÍ va a byok
+    # (demuestra que el scan lo detectaría si no se excluyera x-basa-*).
+    client.post("/gw/v1/messages", json=BENIGN, headers={"x-api-key": "sk-basa-attrib999"})
+    assert _FakeClient.last["url"].startswith(ENGINE)
+
+
+def test_key_in_url_routes_to_engine(client):
+    # T014/FR-010: Copilot con x-api-key vacío + ?k=sk-basa-… → byok por fallback.
+    client.post("/gw/v1/messages?k=sk-basa-inurl456", json=BENIGN, headers={"x-api-key": ""})
+    assert _FakeClient.last["url"].startswith(ENGINE)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-inurl456"
+
+
+def test_explicit_upstream_header_forces_byok(client):
+    # FR-002: X-Basa-Upstream: byok fuerza el motor aun sin virtual key detectada.
+    client.post("/gw/v1/messages", json=BENIGN, headers={"X-Basa-Upstream": "byok"})
+    assert _FakeClient.last["url"].startswith(ENGINE)
+
+
+def test_models_endpoint_honors_auto_byok(client):
+    # FR-011: /v1/models con virtual key → motor (para que la tool liste modelos byok).
+    client.get("/gw/v1/models", headers={"x-api-key": "sk-basa-copilot123"})
+    assert _FakeClient.last["url"].startswith(ENGINE)
