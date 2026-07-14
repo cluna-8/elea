@@ -55,7 +55,13 @@ de la extensión** en ChatGPT/Claude.ai (requiere el navegador del usuario — v
 
 ## Qué queda
 
-- **E2E vivo de la extensión** (manual, navegador del usuario) — quickstart §3.
+- ~~**E2E vivo de la extensión**~~ **VERIFICADO en vivo** (2026-07-14, Brave real vía MCP): con la
+  extensión `basa-guardian/extension/` cargada unpacked (host_permissions `:8091`) + Connection de
+  prueba, un prompt con PII en ChatGPT → ChatGPT recibió `[EMAIL_ADDRESS_0_b045]`/`[DNI_0_b045]` (nunca
+  la PII), el DOM se des-enmascaró (mensaje + respuesta con valores reales), y el monitor registró el
+  evento `surface="browser"` con entidades y **0 PII cruda** (C1). Fail-closed confirmado (overlay sin
+  key). **Hallazgo en vivo**: la extensión del demo (`basa-browser-dlp`) tiene `host_permissions`
+  clavado a `:8081` → confirma el finding **P2-2** (deferido a 020); el port a `:8091` lo resuelve.
 - **Gemini web** (US5) = roadmap documentado (adapter + host + spike DOM-hook). No entregable de 019.
 - **Secret-blocking en `/gw/inspect`**: hoy sólo enmascara PII (como el demo); bloquear secretos en la
   superficie browser es una mejora posible (el preview del monitor ya scrubbea secretos por C1).
