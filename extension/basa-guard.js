@@ -45,11 +45,27 @@
   ];
 
   // ---- puente con el service worker (vía bridge, mundo ISOLATED) ----
+  // F-ext-1: nonce handshake. El bridge (ISOLATED) genera un nonce al arrancar y
+  // lo incluye en CADA mensaje (init/state/resp). Fijamos el PRIMER nonce visto de
+  // un mensaje del bridge (init/state) y rechazamos todo state/resp cuyo nonce no
+  // coincida → frena la forja ingenua de la página. NO es inforjable (la página
+  // comparte el mundo MAIN y observa el handshake): ver "Modelo de amenaza" en README.
   let _seq = 0; const _pending = new Map();
+  let _bridgeNonce = null;
   window.addEventListener("message", (ev) => {
     const d = ev.data; if (!d) return;
-    if (d.__basa === "resp" && _pending.has(d.id)) { _pending.get(d.id)(d.resp); _pending.delete(d.id); }
-    else if (d.__basa === "state") { state = d.state || state; renderPanel(); updateOverlay(); }
+    const n = d.__basa_nonce;
+    // fijar el nonce del bridge la primera vez que lo vemos (init o state)
+    if (_bridgeNonce === null && (d.__basa === "init" || d.__basa === "state") && typeof n === "string" && n) {
+      _bridgeNonce = n;
+    }
+    if (d.__basa === "resp") {
+      if (n !== _bridgeNonce) return;                 // forjado / sin handshake → ignorar
+      if (_pending.has(d.id)) { _pending.get(d.id)(d.resp); _pending.delete(d.id); }
+    } else if (d.__basa === "state") {
+      if (n !== _bridgeNonce) return;                 // forjado → ignorar (no cambia el gate)
+      state = d.state || state; renderPanel(); updateOverlay();
+    }
   });
   function callBridge(kind, payload) {
     return new Promise((resolve) => {
@@ -61,42 +77,72 @@
   window.postMessage({ __basa: "getState" }, "*"); // pedir estado al arrancar
 
   // ---- hook de fetch: gating + masking vía gateway ----
+  // ¿el request lleva un body que debemos inspeccionar? El fail-closed NO depende
+  // de la forma del body (F4): si el adapter matchea y no podemos garantizar la
+  // inspección de un body existente, bloqueamos en vez de mandar crudo.
+  function requestCarriesBody(input, init) {
+    if (init && init.body != null) return true;         // body vía init (string/Blob/FormData/…)
+    if (input && typeof input !== "string") {            // input es un Request
+      try {
+        const m = (input.method || "GET").toUpperCase();
+        if (m !== "GET" && m !== "HEAD") return true;     // método de escritura → asumir body
+        if (input.body != null) return true;              // stream de body embebido
+      } catch (_) { return true; }                        // ante la duda, tratar como con-body (bloquear)
+    }
+    return false;
+  }
+
   const orig = window.fetch;
   window.fetch = async function (input, init) {
+    let matched = false;                                  // ¿este request matcheó un adapter?
     try {
       const url = (typeof input === "string") ? input : (input && input.url) || "";
       const ad = ADAPTERS.find((a) => a.match(url));
-      if (ad && init && typeof init.body === "string") {
-        if (!state.connected) {           // FAIL-CLOSED
+      if (ad) {
+        matched = true;
+        // FAIL-CLOSED: la decisión depende SÓLO del match del adapter, no del body (F4).
+        if (!state.connected) {
           updateOverlay();
           throw new Error("[Basa Guard] Conectate con tu API key para usar la IA.");
         }
         if (state.enabled) {
-          const obj = JSON.parse(init.body);
-          const slots = ad.slots(obj);
-          const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
-          if (combined.trim()) {
-            const res = await callBridge("inspect", { text: combined, tool: ad.web });
-            if (!res || !res.ok) {        // gateway caído estando conectado → bloquear (fail-closed)
-              updateOverlay(res && res.error);
-              throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
+          if (init && typeof init.body === "string") {
+            // path inspeccionable: parsear, enmascarar los slots y reescribir el body
+            const obj = JSON.parse(init.body);
+            const slots = ad.slots(obj);
+            const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
+            if (combined.trim()) {
+              const res = await callBridge("inspect", { text: combined, tool: ad.web });
+              if (!res || !res.ok) {        // gateway caído estando conectado → bloquear (fail-closed)
+                updateOverlay(res && res.error);
+                throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
+              }
+              const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
+              if (reps.length) {
+                for (const s of slots) { let t = s.get(); for (const r of reps) t = t.split(r.original).join(r.token); s.set(t); }
+                for (const r of reps) S.tok2val.set(r.token, r.original);
+                rebuildUnmaskRe();
+              }
+              S.lastEvent = { vendor: ad.vendor, sentMasked: slots.map((s) => s.get()).filter(Boolean).join(" | "),
+                              entities: res.entities || [], user: res.user, team: res.team };
+              renderPanel();
+              init = Object.assign({}, init, { body: JSON.stringify(obj) });
             }
-            const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
-            if (reps.length) {
-              for (const s of slots) { let t = s.get(); for (const r of reps) t = t.split(r.original).join(r.token); s.set(t); }
-              for (const r of reps) S.tok2val.set(r.token, r.original);
-              rebuildUnmaskRe();
-            }
-            S.lastEvent = { vendor: ad.vendor, sentMasked: slots.map((s) => s.get()).filter(Boolean).join(" | "),
-                            entities: res.entities || [], user: res.user, team: res.team };
-            renderPanel();
-            init = Object.assign({}, init, { body: JSON.stringify(obj) });
+          } else if (requestCarriesBody(input, init)) {
+            // matcheó + conectado + enabled, pero el body NO es texto inspeccionable
+            // (Request/Blob/FormData): no podemos garantizar el masking → bloquear (F4).
+            throw new Error("[Basa Guard] no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
           }
+          // sin body → nada que enmascarar ni filtrar → dejar pasar
         }
       }
     } catch (e) {
-      if (String(e).includes("[Basa Guard]")) throw e; // propagar el bloqueo
-      console.warn("[BasaGuard]", e);
+      if (String(e).includes("[Basa Guard]")) throw e;    // propagar el bloqueo explícito
+      if (matched) {                                        // F6: error inesperado en un request YA identificado → fail-closed
+        console.warn("[BasaGuard] fail-closed ante error inesperado", e);
+        throw new Error("[Basa Guard] error al inspeccionar el request — bloqueado por seguridad");
+      }
+      console.warn("[BasaGuard]", e);                       // request no-matcheado → no interferir
     }
     return orig.call(this, input, init);
   };
