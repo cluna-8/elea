@@ -91,7 +91,7 @@ El archivo vive en `~/Library/Application Support/Code/User/chatLanguageModels.j
 [
   {
     "apiType": "messages",
-    "url": "http://localhost:8081/gw/v1/messages?k=sk-basa-radiologia-browser-2026",
+    "url": "http://localhost:8081/gw/v1/messages?k=sk-basa-<tu-connection>",
     "id": "gpt-4o-mini"
   }
 ]
@@ -109,7 +109,7 @@ El archivo vive en `~/Library/Application Support/Code/User/chatLanguageModels.j
 1. **Instalar la extensión (descomprimida):** `brave://extensions` o `chrome://extensions` → activar
    **Modo desarrollador** → **Cargar descomprimida** → carpeta `basa-browser-dlp/`. Para actualizar el
    código, botón **↻** sobre la tarjeta de la extensión.
-2. **Conectar (login):** click en el ícono 🛡️ → pegar la key (p. ej. `sk-basa-radiologia-browser-2026`)
+2. **Conectar (login):** click en el ícono 🛡️ → pegar la key (p. ej. `sk-basa-<tu-connection>`)
    y el gateway (`http://localhost:8081/gw`) → **Conectar**. El popup valida contra `GET /gw/whoami` y
    muestra "🟢 Conectado como sofia.nunez · Radiología".
 3. **Toggle** de protección en el popup (por defecto ON).

@@ -45,8 +45,11 @@ class AuditService:
                 entity_counts = {}
                 for ent in masked_entities:
                     ent_type = ent.get("type", "UNKNOWN")
-                    entity_counts[ent_type] = entity_counts.get(ent_type, 0) + 1
-                
+                    # F5: respetar el `count` real cuando el caller pasa entidades ya
+                    # agregadas (p.ej. [{"type":"EMAIL_ADDRESS","count":3}]); default 1
+                    # cuando la lista es una entrada por entidad sin `count`.
+                    entity_counts[ent_type] = entity_counts.get(ent_type, 0) + ent.get("count", 1)
+
                 summary_entities = [{"type": k, "count": v} for k, v in entity_counts.items()]
 
             log_entry = AuditLog(

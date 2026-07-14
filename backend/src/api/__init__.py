@@ -14,6 +14,7 @@ from .reports import router as reports_router
 from .costs import router as costs_router
 from .monitor import router as monitor_router
 from .gateway import router as gateway_router
+from .inspect import router as inspect_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(users_router)
@@ -31,3 +32,4 @@ api_router.include_router(reports_router)
 api_router.include_router(costs_router)
 api_router.include_router(monitor_router)
 api_router.include_router(gateway_router)
+api_router.include_router(inspect_router)

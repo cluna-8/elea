@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  body { width: 320px; margin: 0; background: #0b0f19; color: #e5e7eb;
+         font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+  header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #1f2937; }
+  header b { color: #fff; font-size: 14px; }
+  header .ver { margin-left: auto; color: #6b7280; font-size: 11px; }
+  .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  label { color: #9ca3af; font-size: 11px; display: block; margin-bottom: 4px; }
+  input[type=text], input[type=password] { width: 100%; box-sizing: border-box; background: #111827;
+         border: 1px solid #374151; border-radius: 8px; color: #e5e7eb; padding: 7px 9px; font: inherit; }
+  button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px;
+           font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: #1f2937; color: #cbd5e1; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .status { border-radius: 8px; padding: 9px 10px; font-size: 12px; }
+  .status.on  { background: #052e1a; border: 1px solid #14532d; color: #86efac; }
+  .status.off { background: #2a0f12; border: 1px solid #7f1d1d; color: #fca5a5; }
+  .muted { color: #6b7280; font-size: 11px; }
+  .toggle { margin-left: auto; }
+  .switch { position: relative; width: 40px; height: 22px; }
+  .switch input { display: none; }
+  .slider { position: absolute; inset: 0; background: #374151; border-radius: 999px; transition: .15s; }
+  .slider::before { content:""; position:absolute; width:16px; height:16px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.15s; }
+  .switch input:checked + .slider { background: #16a34a; }
+  .switch input:checked + .slider::before { transform: translateX(18px); }
+</style>
+</head>
+<body>
+  <header>
+    <span style="font-size:16px">🛡️</span><b>Basa Guard</b><span class="ver">v0.2</span>
+  </header>
+  <div class="body">
+    <div id="status" class="status off">Desconectado — pegá tu API key para usar la IA.</div>
+
+    <div>
+      <label>API key del gateway</label>
+      <input id="key" type="password" placeholder="sk-basa-...">
+    </div>
+    <div>
+      <label>Gateway</label>
+      <input id="gw" type="text" placeholder="http://localhost:8081/gw">
+    </div>
+    <div class="row">
+      <button id="connect">Conectar</button>
+      <button id="disconnect" class="secondary">Desconectar</button>
+    </div>
+
+    <div class="row" style="border-top:1px solid #1f2937; padding-top:10px;">
+      <span>Protección PII</span>
+      <label class="switch toggle">
+        <input id="enabled" type="checkbox" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="muted">Sin key válida, la extensión bloquea el envío a ChatGPT/Claude (fail-closed).</div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

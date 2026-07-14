@@ -1,5 +1,6 @@
 import logging
 import os
+import secrets
 from typing import Optional
 
 import httpx
@@ -147,6 +148,12 @@ async def generate_key(
         payload["rpm_limit"] = rpm_limit
     if tpm_limit is not None:
         payload["tpm_limit"] = tpm_limit
+
+    # F1: forzamos el prefijo sk-basa- en la virtual key. LiteLLM honra un `key`
+    # provisto y lo devuelve verbatim; sin esto emite sk-<token>, que el router del
+    # gateway (_BASA_KEY_RE = sk-basa-…) NO matchea → byok con key online caería a
+    # passthrough (doble-masking + engine key fugada a Anthropic).
+    payload["key"] = f"sk-basa-{secrets.token_urlsafe(24)}"
 
     data = await _post("/key/generate", payload)
     plain_key: str = data["key"]

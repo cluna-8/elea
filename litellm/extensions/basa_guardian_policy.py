@@ -84,6 +84,9 @@ INSPECT_CAP = 16000  # chars entregados a los detectores
 # Vive acá (lib PURA) para que el passthrough del backend y custom_auth lo compartan.
 TOOL_UA = [
     ("claude", "Claude Code"),
+    ("copilot", "GitHub Copilot"),
+    ("vscode", "VS Code"),
+    ("vs code", "VS Code"),
     ("cursor", "Cursor"),
     ("continue", "Continue.dev"),
     ("aider", "aider"),

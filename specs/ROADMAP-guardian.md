@@ -24,7 +24,7 @@ SSO, D5 env vars).
 | 016 | Real NLP Masking (Presidio) + streaming unmask hardening | P2 | Roadmap | I, SC-2 | **C2** |
 | 017 | Auth hardening & Multi-Tenant RBAC + SSO | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
 | 018 | Compliance Enforcement Tiers + retention purge | P3 | Roadmap | II [D3] | A4 |
-| 019 | Integration Surfaces & Client Compatibility | P2 | Roadmap (spec+plan+tasks+research; impl. probada en gatelite-demo, a portar) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
+| 019 | Integration Surfaces & Client Compatibility | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); falta E2E vivo de la extensión (navegador del usuario) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
 | 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | Roadmap (greenfield) | VII, IV, III | D5 |
 | 021 | Licensing & Seat Enforcement (offline Ed25519) | P2 | Roadmap (greenfield) | VII, III, II | — |
 
