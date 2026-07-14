@@ -82,7 +82,6 @@ _ANTHROPIC_UPSTREAM = os.getenv("BASA_GW_ANTHROPIC_BASE", "https://api.anthropic
 # política — sólo rutea al motor, que ya corre custom_auth + BasaGuardrail (014). Evita
 # el doble-masking que tendría el port literal del demo (cuyo motor no tenía guardrail).
 _LITELLM_UPSTREAM = os.getenv("LITELLM_API_BASE", "http://litellm:4000").rstrip("/")
-_LITELLM_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 _DEFAULT_MODE = os.getenv("BASA_GW_UPSTREAM_DEFAULT", "subscription-passthrough").lower()
 # Virtual key de Basa en cualquier header de auth (auto-byok, spec 019 US2).
 _BASA_KEY_RE = re.compile(r"sk-basa-[A-Za-z0-9._\-]+")
@@ -372,15 +371,17 @@ def _detect_mode_and_key(request: Request, x_basa_upstream: Optional[str],
     return _normalize_mode(x_basa_upstream), x_basa_key
 
 
-def _byok_headers(request: Request, basa_key: Optional[str]) -> dict:
+def _byok_headers(request: Request, basa_key: str) -> dict:
     """Headers hacia el motor LiteLLM: la ``sk-basa-…`` del cliente viaja como auth para
-    que el ``custom_auth`` del motor resuelva tenant/client (fail-closed suyo). Sin key
-    → master key (admin del proxy) como fallback acotado."""
+    que el ``custom_auth`` del motor resuelva tenant/client (fail-closed suyo). El caller
+    garantiza ``basa_key`` presente — byok sin virtual key se rechaza con 401 ANTES de
+    llegar acá (F2): el master key del proxy NUNCA es alcanzable desde una ruta de
+    cliente (evita el bypass a PROXY_ADMIN que saltaría auth/budgets/atribución)."""
     return {
         "Content-Type": "application/json",
         "Accept-Encoding": "identity",
         "anthropic-version": request.headers.get("anthropic-version", "2023-06-01"),
-        "Authorization": f"Bearer {basa_key or _LITELLM_MASTER_KEY}",
+        "Authorization": f"Bearer {basa_key}",
     }
 
 
@@ -388,6 +389,10 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
     enmascara/bloquea/audita vía BasaGuardrail); el gateway NO aplica política acá para
     no duplicarla. La respuesta del motor ya viene des-enmascarada."""
+    # F2 fail-closed: byok EXIGE una virtual key. Sin ella no se cae al master key del
+    # motor (sería un bypass a PROXY_ADMIN saltando custom_auth/budgets/atribución).
+    if not basa_key:
+        return _anthropic_error("[Basa Gateway] byok requiere una virtual key (sk-basa-…).", 401)
     url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
     headers = _byok_headers(request, basa_key)
 
@@ -587,6 +592,10 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
     enmascara (count_tokens necesita el conteo real; el destino es la propia suscripción)."""
     mode, basa_key = _detect_mode_and_key(request, x_basa_upstream, None)
     if mode == "byok":
+        # F2: mismo fail-closed que /v1/messages — byok sin virtual key jamás usa el
+        # master key del motor (evita el bypass a PROXY_ADMIN en count_tokens/models).
+        if not basa_key:
+            return _anthropic_error("[Basa Gateway] byok requiere una virtual key (sk-basa-…).", 401)
         url = _with_query(f"{_LITELLM_UPSTREAM}{path}", request)
         up_headers = _byok_headers(request, basa_key)
     else:

@@ -132,10 +132,38 @@ def test_key_in_url_routes_to_engine(client):
     assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-inurl456"
 
 
-def test_explicit_upstream_header_forces_byok(client):
-    # FR-002: X-Basa-Upstream: byok fuerza el motor aun sin virtual key detectada.
-    client.post("/gw/v1/messages", json=BENIGN, headers={"X-Basa-Upstream": "byok"})
+# ── F2 [HIGH]: byok sin virtual key es fail-closed (NO master-key → motor) ──────────
+
+def test_explicit_upstream_byok_without_key_is_fail_closed(client):
+    # F2/FR-002 (post-hotfix): X-Basa-Upstream: byok SIN sk-basa ya NO rutea al motor con
+    # el master key (sería un bypass a PROXY_ADMIN saltando auth/budgets). Ahora es 401 y
+    # el motor NUNCA es contactado (el fake de httpx no registra llamada).
+    r = client.post("/gw/v1/messages", json=BENIGN, headers={"X-Basa-Upstream": "byok"})
+    assert r.status_code == 401
+    assert _FakeClient.last == {}  # el motor jamás recibió el master key
+
+
+def test_byok_with_virtual_key_still_routes_with_client_key(client):
+    # F2 regresión: con una sk-basa real, byok SÍ rutea al motor y usa la key del cliente
+    # como auth (jamás el master key). Preserva SC-003.
+    r = client.post("/gw/v1/messages", json=BENIGN, headers={"x-api-key": "sk-basa-x"})
+    assert r.status_code == 200
     assert _FakeClient.last["url"].startswith(ENGINE)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-x"
+
+
+# ── F1 [HIGH]: keys online sk-basa-… rutean a byok (no caen a passthrough) ──────────
+
+def test_online_sk_basa_key_in_authorization_routes_to_engine(client):
+    # F1 (routing lock): una virtual key emitida online (sk-basa-…) que llega en
+    # Authorization: Bearer DEBE resolver byok → motor y NO caer a passthrough. Cierra el
+    # misruteo que fugaba la engine key a Anthropic con doble-masking.
+    r = client.post("/gw/v1/messages", json=BENIGN,
+                    headers={"Authorization": "Bearer sk-basa-onlineXYZ"})
+    assert r.status_code == 200
+    assert _FakeClient.last["url"].startswith(ENGINE)          # byok → motor, NO passthrough
+    assert not _FakeClient.last["url"].startswith(ANTHROPIC)
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-onlineXYZ"
 
 
 def test_models_endpoint_honors_auto_byok(client):
