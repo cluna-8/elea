@@ -73,3 +73,86 @@ def test_inspect_masks_and_returns_replacements(client):
 def test_inspect_empty_text_ok(client):
     r = client.post("/gw/inspect", json={"text": ""}, headers={"X-Basa-Key": "sk-basa-valid"})
     assert r.status_code == 200 and r.json()["replacements"] == []
+
+
+# ── F3 [MED]: el masking NO se trunca — la PII del tail (>8000) también se enmascara ──
+
+def test_inspect_masks_pii_beyond_old_8000_cap(client):
+    # Antes: el texto se truncaba a 8000 chars ANTES de enmascarar → PII más allá del cap
+    # salía CRUDA hacia el modelo. Ahora se enmascara el texto COMPLETO.
+    text = "x" * 9000 + f" contactar a {EMAIL}"  # el email vive en el char ~9012 (>8000)
+    r = client.post("/gw/inspect", json={"text": text}, headers={"X-Basa-Key": "sk-basa-valid"})
+    assert r.status_code == 200
+    j = r.json()
+    assert EMAIL not in j["masked"]                    # el email del tail fue enmascarado
+    assert "[EMAIL_ADDRESS_" in j["masked"]
+    originals = {rp["original"] for rp in j["replacements"]}
+    assert EMAIL in originals                           # y es reconstruible por la extensión
+
+
+def test_inspect_short_text_still_masks(client):
+    # Regresión F3: el texto corto sigue enmascarando igual (no rompimos el caso base).
+    r = client.post("/gw/inspect", json={"text": f"mi email {EMAIL}"},
+                    headers={"X-Basa-Key": "sk-basa-valid"})
+    j = r.json()
+    assert EMAIL not in j["masked"] and "[EMAIL_ADDRESS_" in j["masked"]
+
+
+# ── F7 [LOW]: `text` no-string no debe crashear (500) — coerción a "" ────────────────
+
+def test_inspect_non_string_int_text_does_not_500(client):
+    r = client.post("/gw/inspect", json={"text": 123}, headers={"X-Basa-Key": "sk-basa-valid"})
+    assert r.status_code == 200                         # NO 500
+    assert r.json()["replacements"] == []               # coerción a "": nada que enmascarar
+
+
+def test_inspect_non_string_list_text_does_not_500(client):
+    r = client.post("/gw/inspect", json={"text": ["a", "b"]}, headers={"X-Basa-Key": "sk-basa-valid"})
+    assert r.status_code == 200                         # NO 500
+    assert r.json()["replacements"] == []
+
+
+# ── F5 [LOW]: audit_service preserva el `count` de entidades ya agregadas ─────────────
+
+def test_audit_preserves_preaggregated_entity_count():
+    # El caller (gateway/inspect) pasa masked_entities YA agregadas: [{"type":…, "count":3}].
+    # El bug re-contaba cada entrada como 1 (perdía el count real). Fix: + ent.get("count",1).
+    from src.services.audit_service import AuditService
+
+    class _FakeDB:
+        def add(self, _obj): pass
+        def commit(self): pass
+        def refresh(self, _obj): pass
+        def rollback(self): pass
+
+    entry = AuditService.log_transaction(
+        db=_FakeDB(), model="claude-3-5-sonnet",
+        prompt_tokens=0, completion_tokens=0, cost_usd=0.0,
+        pii_detected=True,
+        masked_entities=[{"type": "EMAIL_ADDRESS", "count": 3}],
+        compliance_status="passed", latency_ms=1,
+    )
+    assert entry is not None
+    counts = {e["type"]: e["count"] for e in entry.masked_entities}
+    assert counts["EMAIL_ADDRESS"] == 3                 # antes del fix: 1
+
+
+def test_audit_defaults_count_to_one_without_count_key():
+    # Regresión F5: entradas sin `count` (una por entidad) siguen contando 1 c/u.
+    from src.services.audit_service import AuditService
+
+    class _FakeDB:
+        def add(self, _obj): pass
+        def commit(self): pass
+        def refresh(self, _obj): pass
+        def rollback(self): pass
+
+    entry = AuditService.log_transaction(
+        db=_FakeDB(), model="m",
+        prompt_tokens=0, completion_tokens=0, cost_usd=0.0,
+        pii_detected=True,
+        masked_entities=[{"type": "DNI"}, {"type": "DNI"}],
+        compliance_status="passed", latency_ms=1,
+    )
+    counts = {e["type"]: e["count"] for e in entry.masked_entities}
+    assert counts["DNI"] == 2

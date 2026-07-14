@@ -23,8 +23,6 @@ from . import gateway  # reuse: _resolve_attribution (fail-closed check), _audit
 
 router = APIRouter(prefix="/gw", tags=["Browser-DLP (extensión MV3)"])
 
-_INSPECT_CAP = 8000
-
 
 def _fail_closed():
     return JSONResponse(status_code=401,
@@ -55,7 +53,12 @@ async def gw_inspect(request: Request, body: dict,
     if ident["api_key_id"] is None:
         return _fail_closed()
 
-    text = (body.get("text") or "")[:_INSPECT_CAP]
+    # F7: coerción segura — un `text` no-string (int/list/None) NO debe crashear el
+    # endpoint; se trata como vacío (200 con replacements=[]), nunca un 500.
+    # F3: se enmascara el texto COMPLETO (sin cap). Truncar acá dejaba salir la PII del
+    # tail SIN placeholder; el cap sólo aplica al preview del monitor (display), abajo.
+    raw = body.get("text")
+    text = raw if isinstance(raw, str) else ""
     tool = body.get("tool") or gateway.policy.detect_tool(request.headers.get("user-agent"))
 
     masked = text
