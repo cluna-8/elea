@@ -26,8 +26,10 @@ engancha en **plomería sólida**:
 
 El enfoque técnico central: **licencia como config firmada** (Principio VII — no fork, no binario custom;
 el mismo producto opera para cualquier cliente cambiando sólo el token inyectado por la 020), **tope por
-tenant** (Principio III), y **evidencia auditable de tamper** (Principio II — el audit inmutable como
-prueba innegable, ya que el enforcement offline es *detectable* no *inviolable*).
+tenant** (Principio III), y **evidencia auditable de tamper** (Principio II — audit hash-chained +
+true-up firmado como prueba **detectable y oponible por contrato**, ya que el enforcement offline es
+*detectable* no *inviolable*; el ancla de innegabilidad es el true-up del EULA, no la criptografía —
+research addendum).
 
 ## Technical Context
 
@@ -42,8 +44,11 @@ verificación** con clave pública embebida, el firmante es offline; SQLAlchemy 
 periódica.
 
 **Storage**: PostgreSQL (modelos `APIKey`/`User`/`Tenant`/`AuditLog` de la 013, **sin schema nuevo
-propio** salvo, si hace falta, una tabla/registro para el **estado de licencia** y la **marca monotónica**
-anti-rollback). El entitlement verificado vive **en memoria**; el token crudo NUNCA en DB.
+propio** salvo, si hace falta, una tabla/registro para el **estado de licencia**, la **marca monotónica**
+anti-rollback y los campos de la cadena FR-028 (**prev-hash** por evento + **hash-head/contador**
+vigentes). La **clave privada del deployment** (FR-029) NO va a Postgres (quedaría en dumps/backups):
+vive en un **volumen/secret del install**, nunca en config en claro ni en el repo. El entitlement
+verificado vive **en memoria**; el token crudo NUNCA en DB.
 
 **Testing**: pytest — unit tests de verificación de firma (válida/alterada/mismatch/rotación de clave) y
 de conteo de seats (activas vs revocadas); integration tests del gate en `POST keys.py`/`users.py`
@@ -62,13 +67,15 @@ token); el gate añade **un COUNT indexado por tenant** por creación (barato, n
 inferencia); la reconciliación es un job periódico fuera del camino de request.
 
 **Constraints**: **offline / no phone-home** (constraint dura del modelo distribuidor); **fail-closed**
-(sin token válido → no se crean seats; extiende Constraint C3); clave **privada NUNCA** en la caja
-(sólo pública embebida, Constraint C5); audit **metadata-only + inmutable** (Constraint C1); anti-rollback
-best-effort con marca monotónica.
+(sin token válido → no se crean seats; extiende Constraint C3); la clave privada **de firma de licencias
+(Basa) NUNCA** en la caja (sólo pública embebida, Constraint C5) — la **deployment key** (FR-029) SÍ vive
+en la caja, en volumen/secret, y firma sólo **evidencia**, no licencias; audit **metadata-only +
+inmutable** (Constraint C1); anti-rollback best-effort con marca monotónica + hash-head/contador (FR-028).
 
 **Scale/Scope**: módulos nuevos = verificador de licencia + entitlement en memoria + gate en 2 call-sites
 + job de reconciliación + eventos de audit de licencia + endpoint de health. Sin schema nuevo del dominio
-(todo viene de 013); a lo sumo una tabla/registro pequeño para estado+marca monotónica.
+(todo viene de 013); a lo sumo una tabla/registro pequeño para estado + marca monotónica +
+hash-head/contador de la cadena (FR-028), y los módulos `deployment_key.py`/`trueup_export.py` (FR-029).
 
 ## Constitution Check
 
@@ -78,7 +85,7 @@ best-effort con marca monotónica.
 |---|---|---|
 | **VII. Containerized & White-Label (config+seed, never fork)** | La licencia es **config firmada** inyectada por la 020; el mismo binario/imagen opera para cualquier cliente cambiando sólo el token (y `key_id`). 0 forks / builds custom por cliente. Rotación de clave por `key_id`. | PASS by-design |
 | **III. Multi-Tenant** | El entitlement se escopea **por Tenant**; el conteo de seats y el estado de licencia se evalúan **aislados** por tenant; el over-seat/expired de uno no afecta a otro. | PASS by-design |
-| **II. Compliance FIRST (audit inmutable como evidencia)** | Cada transición de licencia (incl. tamper y rollback de reloj) se registra en el **audit inmutable existente**, append-only y metadata-only → evidencia innegable para el contrato. | PASS by-design |
+| **II. Compliance FIRST (audit inmutable como evidencia)** | Cada transición de licencia (incl. tamper y rollback de reloj) se registra en el **audit existente**, append-only, metadata-only y **hash-chained** (FR-028) → evidencia **detectable y oponible contractualmente** vía true-up firmado (FR-029; la innegabilidad la aporta el contrato — addendum). | PASS by-design |
 | **Constraint C1 No Raw PII/Secret Storage** | El audit de licencia es metadata-only; NUNCA persiste el token crudo ni claves. | PASS by-design |
 | **Constraint C3 Fail-closed** | Sin token válido / entitlement inválido → NO se crean seats (no "sin token = ilimitado"); extiende el fail-closed de `custom_auth`. | PASS by-design |
 | **Constraint C5 Credenciales fuera de config en claro** | Sólo la clave **pública** se embebe (no es secreto); la privada vive offline del lado de Basa; el token se inyecta como secret/env (020), no hardcodeado. | PASS by-design |
@@ -100,7 +107,10 @@ REUSA-plomería vs PROPIO (nuevo).
 | "Un asiento" | 1 Connection activa (`APIKey`), `≤1 por herramienta por cliente` | REUSA plomería (013) |
 | Unicidad de asiento por herramienta | índice parcial `uq_api_keys_tenant_user_tool` + pre-check 409 | REUSA plomería (013) |
 | "El cliente corre la caja, sin egress" | verificación Ed25519 **local** al arranque, 0 red | PROPIO (verificador offline) |
-| Emisión de licencia (venta) | firma Ed25519 **offline** del lado Basa/distribuidor (fuera de scope aquí) | Externo (sólo se define formato + clave pública) |
+| Emisión de licencia (venta) | firma **CENTRAL de Basa** (privada en KMS); el distribuidor mintea vía portal/API dentro de su **cupo** (addendum research; portal fuera de scope aquí) | Externo (sólo se define formato + clave pública) |
+| "El distribuidor revende, Basa no ve al cliente final" | `distributor_id` + `pool_id` en el token (atribución de canal para audit/true-up); techo del pool validado EN LA EMISIÓN, no en la caja (FR-030) | PROPIO (campos) + Externo (portal) |
+| "Fee por usuarios" cobrado sin metering vivo | captura **en la emisión** (`max_seats` comprometido) + **true-up en renovación** vía TrueUpExport firmado (modelo GitLab) | PROPIO (export FR-029) |
+| "Prueba de que el historial no fue manipulado" | eventos de licencia **encadenados por hash** (génesis = `license_id`); eslabón roto = tamper detectable (FR-028) | PROPIO (cadena) sobre audit REUSADO |
 | "No dejar crear más asientos de los pagados" | gate en `POST keys.py`/`users.py`: `COUNT(activas) ≥ max_seats` → 402/403 antes de `generate_key` | PROPIO (gate) sobre call-site REUSADO |
 | Detección de trampa/backup/DB directa | reconciliación periódica local `COUNT(activas)` vs `max_seats` | PROPIO (job) sobre scheduler REUSADO |
 | Vencimiento de la licencia | `expiry` + `grace_days` en el token; estado `active/grace/expired` con reloj local | PROPIO (ciclo de vida) |
@@ -136,7 +146,9 @@ backend/src/
 │   ├── entitlement.py                     # PROPIO: entitlement en memoria + cómputo de estado (active/grace/expired/invalid/over_seat)
 │   ├── seat_counter.py                    # PROPIO: COUNT(APIKey activas) | COUNT(User role=client) por tenant (una definición, [D-021])
 │   ├── reconcile.py                       # PROPIO: job periódico de reconciliación (drift → over_seat)
-│   └── audit_events.py                    # PROPIO: emisión de transiciones de licencia al AuditLog inmutable (metadata-only)
+│   ├── audit_events.py                    # PROPIO: transiciones de licencia al AuditLog inmutable (metadata-only) + CADENA DE HASHES (FR-028, génesis=license_id)
+│   ├── deployment_key.py                  # PROPIO: par Ed25519 del deployment (generado en install; privada nunca sale de la caja)
+│   └── trueup_export.py                   # PROPIO: export de true-up firmado con la deployment key (FR-029, offline)
 ├── api/
 │   ├── keys.py                            # MODIFICADO: + gate de seats en POST (402/403 antes de generate_key)
 │   ├── users.py                           # MODIFICADO: + gate de seats en POST de Client (role=client)
@@ -159,7 +171,8 @@ tests/
 **no** participa (evita confundir gobernanza de uso con conteo de asientos). El núcleo de licenciamiento
 vive aislado en `backend/src/licensing/` para no contaminar los call-sites; los call-sites de creación
 (`keys.py`/`users.py`) sólo **invocan** el gate. No se crea schema del dominio (todo viene de 013); a lo
-sumo una tabla/registro pequeño para el **estado de licencia** y la **marca monotónica** anti-rollback. La
+sumo una tabla/registro pequeño para el **estado de licencia**, la **marca monotónica** anti-rollback y
+el **hash-head/contador** de la cadena (FR-028); la privada del deployment va a volumen/secret, no a DB. La
 licencia se **inyecta como config** por la 020 (complementariedad explícita).
 
 ## Orden de implementación
@@ -178,8 +191,10 @@ licencia se **inyecta como config** por la 020 (complementariedad explícita).
    degradado + audit; misma definición de seat que US2.
 5. **US4 expiry + grace + degradado (P2).** Cómputo de estado con reloj local; grace bloquea creación;
    expired → read-only-para-creación (toggle a bloqueo total); marca monotónica anti-rollback.
-6. **US5 evidencia de tamper (P3).** `audit_events.py`: cada transición → AuditLog inmutable metadata-only;
-   `license_clock_rollback_suspected`. Consolidar el endpoint de health/status.
+6. **US5 evidencia de tamper (P3).** `audit_events.py`: cada transición → AuditLog inmutable metadata-only
+   **encadenada por hash** (FR-028); `license_clock_rollback_suspected`. `deployment_key.py` +
+   `trueup_export.py`: export de true-up firmado (FR-029, la pieza que hace verificable la reconciliación
+   de la renovación). Consolidar el endpoint de health/status.
 7. **Cierre.** Verificación end-to-end con Docker Compose **sin egress**; validar `quickstart.md`;
    confirmar que el mismo binario opera con distintos tokens (Principio VII).
 
@@ -187,7 +202,8 @@ licencia se **inyecta como config** por la 020 (complementariedad explícita).
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| **El cliente corre la caja → enforcement no es inviolable** (podrían parchear el binario o embeber otra clave pública). | Alto — evasión posible. | Objetivo realista: **fail-closed + evidencia auditable** (US5). No se promete inviolabilidad; se promete **detectabilidad innegable** para el contrato. Documentado en Assumptions. |
+| **El cliente corre la caja → enforcement no es inviolable** (podrían parchear el binario, embeber otra clave pública, o falsear el Postgres donde vive el seat-count). | Alto — evasión posible. | Objetivo realista: **fail-closed + tamper detectable** — cadena de hashes (FR-028) + TrueUpExport firmado con deployment key (FR-029); el ancla real es **contractual** (true-up en renovación + audit-rights en el EULA). El gate es fricción best-effort honor-system (= GitLab self-managed). Documentado en Assumptions + research addendum. |
+| **El distribuidor emite más allá de su cupo** (canal con incentivo a sobre-vender). | Medio — fuga de revenue del pool. | El techo del pool se valida **en la emisión** (portal de Basa, FR-030): `sum(hojas) ≤ max_total_seats`. La caja NUNCA es responsable del techo global. True-up del pool con los TrueUpExports agregados. La firma delegada (que haría el techo inexigible) NO se construye — trigger documentado en el addendum. |
 | **Caja sin egress** (on-prem/VPN): cualquier phone-home rompe el modelo. | Alto — producto inoperable en on-prem. | Verificación y reconciliación **100% locales** (Ed25519 con clave embebida); test con egress bloqueado (SC-001). |
 | **Rollback de reloj** para evadir `expiry`. | Medio — extiende licencia vencida. | Marca **monotónica** (último ts visto); `now < marca` → sospecha + degradado + audit. Best-effort, explícito. |
 | **Drift por restauración de backup / DB directa** crea seats fuera del gate. | Medio — más asientos que los pagados. | Reconciliación periódica (US3) detecta `over_seat` y degrada + audita. |

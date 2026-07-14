@@ -391,7 +391,11 @@ de negocio principal es cloud-con-OpenTofu. P3: importante y fundamentado, pero 
   de producción son **aditivos**, no un fork (config+seed, never fork — un codebase, dos perfiles de build).
 - **FR-032**: El **enforcement de licencias** MUST quedar **fuera de scope**: esta spec sólo MUST exponer el
   **hueco de entrada** (p. ej. env/placeholder de license key) que la **spec 021 (license enforcement)**
-  consumirá; MUST NOT contar/validar/expirar licencias aquí.
+  consumirá; MUST NOT contar/validar/expirar licencias aquí. **Addendum 2026-07-14 (segundo punto de
+  contacto)**: el artefacto de deploy MUST provisionar además un **volumen/secret persistente para la
+  clave privada del deployment** (par Ed25519 que el install genera y que firma los exports de true-up de
+  la 021/FR-029; encaja con "secretos por instalación", US5/FR-019) — también SIN lógica de licencias
+  acá, sólo el hueco (ver T042 y el addendum de `research.md`).
 
 ### Key Entities *(include if feature involves data)*
 
