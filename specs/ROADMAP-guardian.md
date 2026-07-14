@@ -1,6 +1,6 @@
 # Roadmap — Basa Guardian (producto-core)
 
-**Última actualización**: 2026-07-10
+**Última actualización**: 2026-07-13 (+ specs 019/020/021: integraciones, deploy white-label, licencias — con `research.md`)
 **Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.0.0.
 
@@ -24,6 +24,9 @@ SSO, D5 env vars).
 | 016 | Real NLP Masking (Presidio) + streaming unmask hardening | P2 | Roadmap | I, SC-2 | **C2** |
 | 017 | Auth hardening & Multi-Tenant RBAC + SSO | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
 | 018 | Compliance Enforcement Tiers + retention purge | P3 | Roadmap | II [D3] | A4 |
+| 019 | Integration Surfaces & Client Compatibility | P2 | Roadmap (spec+plan+tasks+research; impl. probada en gatelite-demo, a portar) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
+| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | Roadmap (greenfield) | VII, IV, III | D5 |
+| 021 | Licensing & Seat Enforcement (offline Ed25519) | P2 | Roadmap (greenfield) | VII, III, II | — |
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
@@ -56,7 +59,29 @@ Workspace, Keycloak — C3/C4/C5). Revocación de sesión server-side. Credencia
 Decidir/implementar qué "evidencia" pasa a "gate duro" (consent/retención). Job de purga de retención real
 (hoy nunca ejecuta). Cerrar tests de integración compliance (A4).
 
+### 019 — Integration Surfaces & Client Compatibility (P2)
+Portar y formalizar el **lado cliente** del firewall (probado en gatelite-demo): Claude Code (passthrough de
+suscripción + identidad `X-Basa-Key`), VS Code/Copilot (auto-byok, key-in-URL, modo Ask), extensión browser MV3
+(mask/unmask en ChatGPT/Claude web). Matriz de compatibilidad: Cursor=parcial (solo chat/plan, como Copilot Ask),
+Gemini web=vía DOM-hook (spike), Claude Desktop=MCP tool-plane only. Research: no hay "LiteLLM del browser-DLP";
+el approach de Basa es el patrón dominante — **moat: des-enmascarar en vez de bloquear** (mantiene UX). Docs de
+training/soporte en `docs/integration-surfaces.md`.
+
+### 020 — White-Label Packaging & Deploy (P2)
+Empaquetado para el modelo distribuidor marca-blanca: Dockerfiles de producción + imágenes / tarball air-gapped,
+branding **config-as-data** (never fork), perfil por cliente, módulo IaC portable. Research build-vs-buy: **OpenTofu**
+(no Terraform, por BSL + HashiCorp=IBM al entregar a terceros); v1 = VM + docker compose + Caddy + SOPS/age;
+v2 = **k3s + Helm + Zarf** (ECS Anywhere **no** corre air-gapped). Secretos por instalación (D5). Runbook en
+`docs/whitelabel-deployment.md`.
+
+### 021 — Licensing & Seat Enforcement (P2)
+Enforcement de licencias **offline** para el modelo "install + N seats" (el cliente corre la caja, sin phone-home).
+Research build-vs-buy: **DIY Ed25519** — no hay producto que aplique por el air-gap; `seat = Connection activa`
+contada en Postgres. Licencia firmada `.lic` (tenant_id, max_seats, expiry, `kid`) verificada en 2 gates fail-closed
+(arranque + creación de Connection); anti-tamper vía **true-up sobre el audit inmutable**. Complementa la 020.
+
 ## Fuera de scope del core (siguen como research/later)
-- Browser-DLP / interceptación de desktop apps (ChatGPT/Claude Desktop inline) — bloqueado por cert-pinning;
-  es el "later" documentado en la memoria de dirección de prod.
+- **Browser-DLP web** (ChatGPT/Claude/Gemini) — **promovido a spec 019** (viable: el body no está firmado →
+  extensión MV3 mask/unmask). La interceptación de **apps desktop nativas** (Claude Desktop) sigue como gap:
+  bloqueada por cert-pinning, gobernable solo vía **MCP tool-plane** (ver 019).
 - Guardianes cloud reales Lakera/Azure (D1), export PDF firmado (D2), alertas email (D3).
