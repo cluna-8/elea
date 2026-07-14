@@ -149,4 +149,8 @@ Findings:
 
 | Pass | P1/High | P2/Med | P3/Low | Notes |
 |------|----|----|----|-------|
-| 1    | 2  | 2  | 3  | Codex(2 P1) + adversarial(7). FIX-GW + FIX-EXT dispatched. |
+| 1    | 2  | 2  | 3  | Codex(2 P1) + adversarial(7). FIX-GW + FIX-EXT + E2E dispatched. |
+| 2    | 0  | 2  | 0  | **P1 resueltos**. Integración verde (153 passed/3 skip). P2-1 (X-Basa-Key en helpers) → fix; P2-2 (host_permissions prod) → **deferido a 020** (deploy white-label). |
+
+**Known-gaps (deferidos, en el PR):**
+- **P2-2** [020] — `extension/manifest.json` `host_permissions` es solo `localhost:8091`; un gateway de staging/prod HTTPS queda bloqueado por permisos MV3. El packaging/distribución de la extensión con hosts de prod (optional_host_permissions o hosts configurados) es scope de la **spec 020 (white-label deploy)**. En dev (localhost) funciona.
