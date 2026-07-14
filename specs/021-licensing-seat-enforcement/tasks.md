@@ -55,10 +55,15 @@ negativos. Los tests marcados ⚠️ se escriben ANTES de la implementación y d
 
 - [X] T004 [FOUND] Phase 0 research (`research.md` — GENERADO): veredicto **DIY Ed25519** (build-vs-buy;
       no hay SaaS/servidor reusable que respete air-gap + "cliente corre la caja"), lib de verificación
-      (**PyNaCl/PyCA** o **PyJWT-EdDSA**), **formato `.lic`** (`{schema, license_id, tenant_id, max_seats,
-      issued_at, not_before, expiry, grace_days, feature_flags, key_id}` + firma detached; wire
-      `lic_id`/`kid`), **definición de seat [D-021]** (default `COUNT(APIKey activas)` vs
-      `COUNT(User role=client)`) y la estrategia **anti-rollback** (marca monotónica). *(FR-001, FR-013, FR-023)*
+      (**PyNaCl/PyCA** o **PyJWT-EdDSA**), **formato `.lic`** (`{schema, license_id, tenant_id,
+      distributor_id, pool_id, max_seats, not_before, expiry, grace_days, feature_flags, key_id}`
+      + `issued_at` opcional ≈ `not_before` + firma detached; wire `lic_id`/`kid`), **definición de seat
+      [D-021]** (default
+      `COUNT(APIKey activas)` vs `COUNT(User role=client)`) y la estrategia **anti-rollback** (marca
+      monotónica). **+ Addendum 2026-07-14**: prior-art validado (GitLab/Grafana/Directus/Replicated);
+      tier DISTRIBUIDOR = firma central + cupo de emisión (NUNCA clave delegada); per-seat capturado en
+      emisión + true-up; 3 ajustes de honestidad (cadena de hashes, expiry degrada, seat-gate
+      best-effort). *(FR-001, FR-013, FR-023, FR-028–FR-030)*
 - [ ] T005 [FOUND] Generar el par de claves Ed25519 de prueba (offline), colocar SÓLO la pública en
       `backend/src/keys/basa_public_keys.pem` indexada por `key_id`; documentar que la privada NUNCA se
       despliega en la caja. *(FR-002, Constraint C5)*
@@ -86,7 +91,11 @@ tenant cruzado → modo degradado fail-closed + audit; todo **sin egress**.
 
 - [ ] T008 ⚠️ [P] [US1] Integration test en `tests/integration/test_startup_verify.py`: arranque con token
       válido → entitlement `{tenant_id, max_seats, expiry}` consultable; token alterado/ausente/mismatch →
-      estado degradado fail-closed + evento de audit. *(SC-002)*
+      estado degradado fail-closed + evento de audit; token **válido pero vencido dentro de grace** →
+      arranca con estado `grace` (NO `invalid`): proceso vivo, tráfico existente OK, sólo creación
+      bloqueada; token válido pero vencido **MÁS ALLÁ de grace** → arranca en `expired` + degradado
+      read-only-para-creación (proceso vivo, 0 exits) — expiry degrada, nunca mata, también en el boot
+      path. *(SC-002, SC-013)*
 - [ ] T009 ⚠️ [P] [US1] Integration test **offline** en `tests/integration/test_offline_verify.py`: con
       egress de red bloqueado, la verificación de un token válido se completa con **0 llamadas salientes**
       y el sistema opera normal. *(SC-001, FR-004)*
@@ -201,32 +210,56 @@ más allá del grace → `expired`, modo degradado.
 
 ---
 
-## Phase 7: User Story 5 - Evidencia de tamper vía audit inmutable (Priority: P3)
+## Phase 7: User Story 5 - Evidencia de tamper: audit hash-chained + true-up firmado (Priority: P3)
 
-**Goal**: Cada transición de licencia (incl. rollback de reloj) → AuditLog inmutable metadata-only;
-consolidar el endpoint de health.
+**Goal**: Cada transición de licencia (incl. rollback de reloj) → AuditLog inmutable metadata-only
+**encadenado por hash**; export de **true-up firmado** con la deployment key; consolidar el endpoint de
+health.
 
 **Independent Test**: Provocar cada transición (inválido, seat-limit, over-seat, grace, expired, reloj
-atrasado) → cada una deja un `AuditLog` append-only metadata-only, no borrable por la ruta normal.
+atrasado) → cada una deja un `AuditLog` append-only metadata-only, no borrable por la ruta normal;
+borrar/editar un evento por DB directa → la verificación de la cadena lo detecta; el export de true-up
+valida contra la deployment key y un byte alterado invalida la firma.
 
 ### Tests for User Story 5 ⚠️
 
 - [ ] T030 ⚠️ [P] [US5] Integration test (negativo) en `tests/integration/test_audit_tamper.py`: cada
-      transición deja `{event_type, license_id, tenant_id, seats_used, max_seats, ts}`; **cero** token
-      crudo/claves; los eventos NO se pueden borrar/editar por la ruta normal (inmutabilidad). *(SC-007, FR-024, FR-025)*
+      transición deja `{event_type, license_id, tenant_id, seats_used, max_seats, ts, prev_hash}`; **cero**
+      token crudo/claves; los eventos NO se pueden borrar/editar por la ruta normal (inmutabilidad).
+      *(SC-007, FR-024, FR-025, FR-028)*
 - [ ] T031 ⚠️ [P] [US5] Integration test en `tests/integration/test_clock_rollback.py`: un `now` anterior a
       la marca monotónica → evento `license_clock_rollback_suspected` + degradado. *(FR-023)*
+- [ ] T039 ⚠️ [P] [US5] Integration test en `tests/integration/test_hash_chain.py`: cadena íntegra →
+      verificación OK; borrar un evento **intermedio** por DB directa → eslabón roto detectado y
+      reportado; editar un campo de un evento → ídem; génesis anclada al `license_id`; el **hash-head y
+      el contador monotónico** se persisten y avanzan con cada evento. Documentar en el test (como
+      comentario-contrato) que el truncado de cola/total NO es detectable localmente — su detección es
+      la continuidad entre exports (T040). *(SC-011, FR-028)*
+- [ ] T040 ⚠️ [P] [US5] Integration test en `tests/integration/test_trueup_export.py`: el export firmado
+      valida contra la pública del deployment; refleja lo que la caja registró (`seats_used`/historial) +
+      **hash-head + contador**; alterar un byte → firma inválida; dos exports sucesivos → el verificador
+      (lado Basa, mismo módulo) acepta continuidad head-ancestro/contador-no-decreciente y **rechaza** un
+      export post-truncado (contador retrocede o head no-ancestro); el **PRIMER export** se verifica
+      contra la **génesis registrada en el onboarding** (FR-028); la generación corre **sin egress**;
+      metadata-only (0 PII, 0 token crudo). *(SC-012, FR-028, FR-029)*
 
 ### Implementation for User Story 5
 
 - [ ] T032 [US5] Implementar `backend/src/licensing/audit_events.py`: emitir cada transición de licencia al
-      **AuditLog inmutable existente**, metadata-only; NO inventar canal nuevo. *(FR-022, FR-024, FR-025)*
+      **AuditLog inmutable existente**, metadata-only, **encadenada por hash** (cada evento incluye el hash
+      del anterior; génesis = `license_id`) + verificador de cadena; NO inventar canal nuevo. *(FR-022,
+      FR-024, FR-025, FR-028)*
 - [ ] T033 [US5] Implementar la **marca monotónica** (último ts de licencia/audit visto); si `now` < marca
       → `license_clock_rollback_suspected` + tratar como degradado (anti-rollback best-effort). *(FR-023)*
 - [ ] T034 [US5] Implementar/extender `backend/src/api/health.py`: exponer `{status, seats_used, max_seats,
       expiry}` metadata-only (sin token ni claves) para operación/soporte. *(FR-027)*
+- [ ] T041 [US5] Implementar `backend/src/licensing/deployment_key.py` (par Ed25519 generado en el install;
+      privada en volumen/secret, nunca en config en claro ni en el repo) y
+      `backend/src/licensing/trueup_export.py` (export firmado `{tenant_id, distributor_id, pool_id,
+      seats_used, max_seats, historial, hash-head, rango}`, generación local/offline). *(FR-029)*
 
-**Checkpoint**: Todas las transiciones dejan evidencia inmutable; health de licencia expuesto.
+**Checkpoint**: Todas las transiciones dejan evidencia hash-chained; true-up firmado generable offline;
+health de licencia expuesto.
 
 ---
 
@@ -238,8 +271,10 @@ atrasado) → cada una deja un `AuditLog` append-only metadata-only, no borrable
 - [ ] T036 [POLISH] Verificación end-to-end con Docker Compose **sin egress** (Principio VII); validar que
       el **mismo binario/imagen** opera con distintos tokens cambiando sólo la config inyectada (020).
       *(SC-010)*
-- [ ] T037 [P] [POLISH] Contract test del **formato del token** y del **esquema del evento de audit de
-      licencia** en `tests/contract/`; documentar el proceso de **rotación de claves** por `key_id`.
+- [ ] T037 [P] [POLISH] Contract test del **formato del token**, del **esquema del evento de audit de
+      licencia** (incl. `prev_hash`, FR-028) y del **formato wire del TrueUpExport** (artefacto
+      cross-party que Basa verifica — FR-029) en `tests/contract/`; documentar el proceso de **rotación
+      de claves** por `key_id`.
 - [ ] T038 [POLISH] Documentar la integración con la **020** (dónde/cómo se inyecta el token) y actualizar
       `spec/plan/tasks/changelog` (Dev Workflow — Documentación viva).
 
@@ -337,3 +372,10 @@ definición de seat; Dev C → US4 (ciclo de vida). US5 lo cierra quien consolid
   de uso, ortogonal (FR-012).
 - **Offline por diseño**: 0 phone-home; verificación y reconciliación 100% locales (modelo distribuidor,
   cajas sin egress).
+- **Numeración**: T039–T041 se añadieron con el addendum 2026-07-14 (cadena de hashes + true-up firmado,
+  FR-028/FR-029) y viven en la Phase 7 (US5) aunque su ID sea posterior a los T035–T038 de Polish.
+- **El gate es fricción, el contrato es el ancla**: el seat-gate y la cadena de hashes hacen el tamper
+  **detectable**, no imposible (el cliente controla el runtime). El enforcement real = true-up en la
+  renovación sobre el TrueUpExport firmado + audit-rights del EULA (research addendum).
+- **Emisión central**: la caja sólo valida su hoja `.lic`; el techo del pool del distribuidor
+  (`sum(hojas) ≤ max_total_seats`) se valida en el portal de emisión de Basa (FR-030), fuera de scope acá.

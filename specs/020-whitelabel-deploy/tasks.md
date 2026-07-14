@@ -273,7 +273,10 @@ con egress sólo a proveedores LLM (o cero con modelo local).
 - [ ] T041 [P] [POLISH] Confirmar "un codebase, dos perfiles": el `docker-compose.yml` de dev sigue funcionando
       para local sin cambios; los artefactos prod son aditivos (never fork). *(SC-008, FR-031)*
 - [ ] T042 [POLISH] Dejar el **hueco de entrada de license key** (env/placeholder) SIN enforcement y
-      documentarlo como interfaz para la **spec 021 (license enforcement)**. *(FR-032)*
+      documentarlo como interfaz para la **spec 021 (license enforcement)**. Segundo punto de contacto
+      (addendum 2026-07-14): provisionar además el **volumen/secret persistente para la clave privada
+      del deployment** (par Ed25519 generado en el install, firma los exports de true-up de 021/FR-029;
+      encaja con "secretos por instalación" D5) — también SIN lógica acá, sólo el hueco. *(FR-032)*
 
 ---
 

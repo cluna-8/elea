@@ -1,6 +1,6 @@
 # Roadmap — Basa Guardian (producto-core)
 
-**Última actualización**: 2026-07-13 (+ specs 019/020/021: integraciones, deploy white-label, licencias — con `research.md`)
+**Última actualización**: 2026-07-14 (addendum research 020/021: prior-art del mercado validado + tier distribuidor de licencias — firma central por cupo)
 **Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.0.0.
 
@@ -73,13 +73,21 @@ Empaquetado para el modelo distribuidor marca-blanca: Dockerfiles de producción
 branding **config-as-data** (never fork), perfil por cliente, módulo IaC portable. Research build-vs-buy: **OpenTofu**
 (no Terraform, por BSL + HashiCorp=IBM al entregar a terceros); v1 = VM + docker compose + Caddy + SOPS/age;
 v2 = **k3s + Helm + Zarf** (ECS Anywhere **no** corre air-gapped). Secretos por instalación (D5). Runbook en
-`docs/whitelabel-deployment.md`.
+`docs/whitelabel-deployment.md`. **Addendum 2026-07-14**: tarball air-gap **validado por el mercado**
+(Harbor/GitLab/Replicated hacen lo mismo); registry privado autenticado = watch-item v2 como canal de entrega
+para clientes conectados, **nunca** como enforcement (post-pull un `docker save` lo anula — el gate de pago es
+la licencia 021 en runtime). Segundo punto de contacto con la 021: el deploy provisiona el **volumen/secret de
+la deployment key** (par del install que firma los true-up; FR-032/T042), sin lógica de licencias acá.
 
 ### 021 — Licensing & Seat Enforcement (P2)
 Enforcement de licencias **offline** para el modelo "install + N seats" (el cliente corre la caja, sin phone-home).
 Research build-vs-buy: **DIY Ed25519** — no hay producto que aplique por el air-gap; `seat = Connection activa`
-contada en Postgres. Licencia firmada `.lic` (tenant_id, max_seats, expiry, `kid`) verificada en 2 gates fail-closed
-(arranque + creación de Connection); anti-tamper vía **true-up sobre el audit inmutable**. Complementa la 020.
+contada en Postgres. Licencia firmada `.lic` (tenant_id, distributor_id, pool_id, max_seats, expiry, `kid`)
+verificada en 2 gates fail-closed (arranque + creación de Connection); anti-tamper vía **cadena de hashes +
+export de true-up firmado** (deployment key). **Addendum 2026-07-14** (prior-art validado: GitLab/Grafana/
+Directus/Replicated): tier distribuidor = **firma CENTRAL de Basa + cupo de emisión** (nunca clave delegada);
+per-seat capturado en emisión + true-up en renovación; expiry **degrada** (grace → read-only-creación), nunca
+mata el box; seat-gate etiquetado best-effort honor-system (ancla real = contrato). Complementa la 020.
 
 ### 022 — Product Documentation Site (P2)
 Sitio de documentación de producto como **contenedor `docs` propio** (estático, air-gapped, 0 egress en runtime),

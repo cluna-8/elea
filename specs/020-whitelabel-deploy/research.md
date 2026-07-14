@@ -202,3 +202,39 @@ NO como base.
 | **Vault (BSL) como "el estándar".** | Repite el problema legal de Terraform. | OpenBao (fork MPL) como única vía de store central. |
 | **Branding build-time.** | Rebuild por distribuidor + deriva de imagen. | Config-as-data runtime (env + assets), bundle marca-neutro, 1 marca/instancia. |
 | **Tarball incompleto en air-gap.** | Un `@sha256` ausente fuerza pull y rompe el install. | El bundle incluye **todas** las imágenes pinneadas; check `docker load` sin registry (US6). |
+
+---
+
+# Addendum 2026-07-14 — Validación prior-art del eje distribución (sweep de mercado)
+
+Sweep web (28 vendors verificados) disparado por la pregunta del fundador: *"¿distribuir por imágenes
+Docker + clave paga es un modelo probado? ¿ya hay gente haciéndolo?"*. Resultado para esta spec:
+
+- **El modelo comercial es mainstream**: **Replicated** (la categoría entera productizada: apps de ISVs
+  como imágenes + air-gap bundles), **GitLab EE** (`gitlab/gitlab-ee` + license file offline), **Grafana
+  Enterprise** (`grafana-enterprise` + `license.jwt`), **Directus**, **Harbor**, **Mattermost**, etc.
+- **Tarball `docker save`/`load` VALIDADO como el estándar air-gap** (eje 4 sin cambios): **Harbor**
+  (offline installer `.tgz` con todas las imágenes adentro, cero pulls), **GitLab** (flujo oficial
+  offline: bajar imágenes en una máquina con red, empaquetar, transferir), **Replicated** (air-gap
+  bundle = `.tar` con `images/` + `airgap.yaml`).
+- **Registry privado con auth (GHCR / Docker Hub privado / Red Hat) es el default del mercado para
+  clientes CONECTADOS — pero como gate de pago es DÉBIL**: tras el primer pull, un `docker save` lo
+  convierte en un tarball que corre sin re-verificar nada. Controla la **distribución inicial**, no
+  protege IP ni desbloquea features. El gate útil es el de **runtime** (la licencia firmada de la 021,
+  que esta spec inyecta como config), no el de registry. Nuestro descarte del registry como enforcement
+  queda **confirmado**, no contradicho.
+- **Watch-item v2 (aditivo, NUNCA enforcement)**: para distribuidores conectados, un registry privado
+  autenticado como **canal de entrega/actualización** cómodo (cf. Replicated Download Portal, Harbor
+  online installer). El tarball sigue siendo el default air-gap; la licencia 021 sigue siendo el único
+  mecanismo de pago. No se necesita para v1.
+- Contra-ejemplo instructivo: **Metabase** valida su token ONLINE por default y trata el air-gap como un
+  producto aparte negociado con ventas — esta spec arranca donde ellos hacen una excepción comercial
+  (air-gap first-class, no add-on).
+
+**Relación con la 021 (tier distribuidor)**: el addendum de la 021 fija la emisión **central por cupo**
+(portal de Basa; `distributor_id`/`pool_id` en el `.lic`). Para esta spec hay **dos puntos de contacto**:
+(1) el `.lic` sigue entrando como config del artefacto (secret/fichero montado), venga del canal que
+venga — sin cambios; (2) **NUEVO** — el artefacto de deploy provisiona un **volumen/secret persistente**
+para la **clave privada del deployment** (par Ed25519 generado en el **install**, que firma los exports
+de true-up de la 021/FR-029; encaja con "secretos por instalación" D5). El registro de la clave pública
+del deployment ocurre en el onboarding, fuera de la caja.
