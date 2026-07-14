@@ -60,3 +60,4 @@ bun.lockb
 .agents/skills/ui-ux-pro-max-skill/
 .specify/memory/credentials.json
 .specify/memory/tokens.json
+.claude/
