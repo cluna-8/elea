@@ -27,6 +27,22 @@ NO/MCP-ONLY llevan razón técnica concreta, nunca "pendiente" (SC-006).
 | **Gemini (web)** | browser | **NO (roadmap, viable)** | — (falta adapter + host) | Ver "Gemini — roadmap" abajo. |
 | **Claude Desktop** | desktop | **MCP-ONLY** | Servidor MCP (**tool-plane**) | Sin `ANTHROPIC_BASE_URL` ni hook interceptable. El MCP server sólo ve args/results de tools, nunca el chat: gobierna el tool-plane (DLP sobre results, audit de tool calls), **no** el prompt del usuario. Masking del chat = gap conocido no cubrible por esta vía. |
 
+## Candidatos — POR VALIDAR (sin evidencia; no son estados de la matriz)
+
+Herramientas **no evaluadas** aún. No se les asigna estado (SC-006 exige evidencia); se listan con la
+**razón mecánica** por la que son candidatas y qué falta para promoverlas a la matriz (un spike c/u):
+
+| Herramienta | Candidata a | Razón mecánica | Falta |
+|---|---|---|---|
+| Windsurf / JetBrains AI / Zed | base_url (byok) | Exponen (o anuncian) base URL OpenAI/Anthropic-compatible en settings | Spike: conectar → clasificar FUNCIONA/PARCIAL (¿aguanta Agent?) |
+| Aider / Cline / Continue | base_url (byok) | Base URL configurable de fábrica (`OPENAI_API_BASE`/settings) | Spike: conectar → verificar que mask/unmask no rompe el diff-apply |
+| Codex CLI | base_url (byok) | Respeta `OPENAI_BASE_URL` por env | Spike: conectar → verificar tool-calling |
+| Gemini CLI | base_url | Habla con el endpoint de Google (¿override posible?) | Spike: confirmar si siquiera expone base URL |
+| ChatGPT Desktop (app nativa) | — | **Mismo gap que Claude Desktop**: app desktop nativa sin base_url ni hook interceptable (el ROADMAP marca la interceptación de apps desktop como bloqueada por cert-pinning) | Sin camino identificado hoy |
+
+> Promover un candidato = correr su spike y moverlo a la matriz de arriba con evidencia (FUNCIONA /
+> PARCIAL / NO con razón técnica). Mientras tanto NO se promete compatibilidad.
+
 ## Ruteo (puerta única) — cómo el gateway decide
 
 Un solo endpoint `…/api/v1/gw/v1/messages`; el modo se auto-detecta (o se fuerza con `X-Basa-Upstream`):
