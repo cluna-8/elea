@@ -166,7 +166,9 @@ Usar el **tooling de Spec-Kit** (skills `speckit-*` y `.specify/scripts/`) para 
 ediciones manuales; `speckit-analyze` valida consistencia spec↔plan↔tasks.
 
 - **Estado y secuencia**: [`specs/ROADMAP-guardian.md`](specs/ROADMAP-guardian.md) — 013 (multi-tenant),
-  014 (firewall LiteLLM-native) y 019 (superficies de integración) implementadas; 015–018 y 020–022 en roadmap.
+  014 (firewall LiteLLM-native) y 019 (superficies de integración) implementadas; 015–018 y 020–023 en roadmap.
+- **Módulos y owners** (reunión 2026-07-15): clientes/integraciones (JF), seguridad/guardianes (Cristian),
+  datos/costes/ruteo (Falime) — detalle y reglas de review en el roadmap + [CODEOWNERS](.github/CODEOWNERS).
 - **Gobernanza**: [`.specify/memory/constitution.md`](.specify/memory/constitution.md) (principios I–VIII;
   fail-closed, audit metadata-only, white-label config-as-data, never fork).
 - **Flujo de PRs**: cada spec/fase → branch → PR (merge humano). Hardening con review multi-agente +
