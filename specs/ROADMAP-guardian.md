@@ -1,6 +1,6 @@
 # Roadmap — Basa Guardian (producto-core)
 
-**Última actualización**: 2026-07-14 (addendum research 020/021: prior-art del mercado validado + tier distribuidor de licencias — firma central por cupo)
+**Última actualización**: 2026-07-15 (división de módulos por owner — reunión de equipo — + spec 023 Ahorro de Costes en el plano firewall)
 **Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.0.0.
 
@@ -14,20 +14,34 @@ SSO, D5 env vars).
 `013` es el **bedrock** (sin multi-tenant + client model nada del resto encaja). `014` es el **titular**
 (el firewall que da las demos). El resto son endurecimientos que dependen de esos dos.
 
+## Módulos y owners (reunión 2026-07-15)
+
+El equipo core trabaja en paralelo por módulos, una spec por vez, con el flujo SDD del repo
+(branch por spec → PR → merge humano de otro; ver [CODEOWNERS](../.github/CODEOWNERS)):
+
+- **JF (@DrZuzzjen)** — clientes, integraciones y producto/distribución: 019 (spikes), 020, 021, 022.
+- **Cristian (@cluna-8)** — seguridad y guardianes: 015, 016, 017, 018 (+ anti-jailbreak del "later").
+- **Falime (@FalimeJ)** — datos, costes y ruteo: 023 (generaliza la 012 al plano firewall).
+
+Punto de contacto entre módulos: el **motor LiteLLM** (`litellm/`) — ahí conviven la política de
+seguridad (Cristian) y la optimización de costes (Falime); los cambios piden review cruzado. La 015
+define el patrón de resolución por scope que la 023 reutiliza: coordinar orden de merge.
+
 ## Features del core
 
-| Spec | Título | Prioridad | Estado | Constitución | Absorbe de A–F |
-|------|--------|-----------|--------|--------------|----------------|
-| **013** | **Multi-Tenant Foundation & Client Model** | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
-| **014** | **LiteLLM-Native Firewall (base_url clients)** | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
-| 015 | Scoped SecurityPolicy (per-group/per-client) | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
-| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | P2 | Roadmap | I, SC-2 | **C2** |
-| 017 | Auth hardening & Multi-Tenant RBAC + SSO | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
-| 018 | Compliance Enforcement Tiers + retention purge | P3 | Roadmap | II [D3] | A4 |
-| 019 | Integration Surfaces & Client Compatibility | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); falta E2E vivo de la extensión (navegador del usuario) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
-| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | Roadmap (greenfield) | VII, IV, III | D5 |
-| 021 | Licensing & Seat Enforcement (offline Ed25519) | P2 | Roadmap (greenfield) | VII, III, II | — |
-| 022 | Product Documentation Site (MkDocs Material, contenedor `docs` air-gap) | P2 | Roadmap (greenfield) | VII, VIII, II | — |
+| Spec | Título | Owner | Prioridad | Estado | Constitución | Absorbe de A–F |
+|------|--------|-------|-----------|--------|--------------|----------------|
+| **013** | **Multi-Tenant Foundation & Client Model** | — (core) | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
+| **014** | **LiteLLM-Native Firewall (base_url clients)** | — (core) | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
+| 015 | Scoped SecurityPolicy (per-group/per-client) | Cristian | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
+| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | Cristian | P2 | Roadmap | I, SC-2 | **C2** |
+| 017 | Auth hardening & Multi-Tenant RBAC + SSO | Cristian | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
+| 018 | Compliance Enforcement Tiers + retention purge | Cristian | P3 | Roadmap | II [D3] | A4 |
+| 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); falta E2E vivo de la extensión (navegador del usuario) + spikes de candidatos | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
+| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | JF | P2 | Roadmap (greenfield) | VII, IV, III | D5 |
+| 021 | Licensing & Seat Enforcement (offline Ed25519) | JF | P2 | Roadmap (greenfield) | VII, III, II | — |
+| 022 | Product Documentation Site (MkDocs Material, contenedor `docs` air-gap) | JF | P2 | Roadmap (greenfield) | VII, VIII, II | — |
+| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | Falime | P2 | **Spec en review** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)) | II, IV, VI | generaliza **012** al plano firewall |
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
@@ -96,6 +110,14 @@ separado de la app. Research build-vs-buy: **MkDocs + Material** (air-gap de pri
 Audiencia **distribuidor+operador** (install/deploy, admin, API reference, compliance, troubleshooting); sembrada de
 `docs/*.md`. **API reference single-source del OpenAPI de FastAPI** (no derivar de las specs — audiencias distintas).
 White-label por config (imagen-por-marca), búsqueda offline (nunca Algolia). Runbook/decisión en `docs/whitelabel-deployment.md`.
+
+### 023 — Ahorro de Costes IA en el plano firewall (P2)
+Generalizar la **012** (compresión determinista, ahorro neto, KPI — hoy solo en el path legacy del panel)
+al **plano byok del firewall**, donde pasa el tráfico real: la cascada `compression_mode` (key > group >
+tenant) ya se resuelve en la identidad del motor pero **nada la consume**. Perfiles de optimización por
+scope (default developer: coding tools intocables), ahorro medible en presupuesto + audit metadata-only,
+y **ruteo coste-consciente** opt-in por reglas de equivalencia con guardia de calidad (nunca sustitución
+silenciosa). Plano passthrough fuera de alcance (coste de suscripción fijo). Spec: [PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6).
 
 ## Fuera de scope del core (siguen como research/later)
 - **Browser-DLP web** (ChatGPT/Claude/Gemini) — **promovido a spec 019** (viable: el body no está firmado →
