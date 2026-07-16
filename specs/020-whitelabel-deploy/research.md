@@ -238,3 +238,57 @@ venga — sin cambios; (2) **NUEVO** — el artefacto de deploy provisiona un **
 para la **clave privada del deployment** (par Ed25519 generado en el **install**, que firma los exports
 de true-up de la 021/FR-029; encaja con "secretos por instalación" D5). El registro de la clave pública
 del deployment ocurre en el onboarding, fuera de la caja.
+
+---
+
+# Addendum 2026-07-16 — Postura de IP del artefacto ("¿qué protección tiene la imagen instalada?")
+
+Disparador: pregunta real de cliente en conversaciones on-premise (vía daily, reportada por Cristian):
+*"cuando instalemos esto en un hospital, el equipo de IT del cliente va a tratar de ver el código y todo
+lo demás — ¿qué protección tenemos para esa imagen / ese sistema compilado?"*. Es de las primeras
+preguntas del ciclo de venta on-prem → merece decisión documentada y respuesta canónica (runbook §5).
+
+## Verdad técnica (base de la decisión)
+
+Código que corre en hardware del cliente **no es protegible criptográficamente**: una imagen Docker se
+abre con `docker save` + untar; Python (aun compilado a bytecode `.pyc`) se descompila con tooling
+público; la ofuscación (PyArmor) y la compilación (Nuitka/Cython) son **fricción de días, no seguridad**.
+Cualquier promesa de "código protegido" on-prem es falsa y un pentest del propio hospital la desmonta —
+mismo criterio de honestidad que la 021 aplicó al anti-tamper (el ancla es el contrato, no la cripto).
+
+## Prior-art (cómo lo resuelve el mercado que ya validamos en el sweep 2026-07-14)
+
+- **GitLab EE**: el código enterprise es **source-available público** — cualquiera lo lee; usarlo sin
+  licencia es ilegal. Factura miles de millones así. La protección es licencia + contrato, no secreto.
+- **Grafana Enterprise / Metabase EE / Directus**: binarios y JARs perfectamente inspeccionables y
+  descompilables en el host del cliente; el gate es `license.jwt`/token + EULA.
+- **Replicated** (distribuye apps de ISVs en air-gap, nuestro caso exacto): cero ofuscación como
+  producto; su modelo es empaquetado + licencia + contrato.
+
+**Estándar del mercado on-prem: el código se ve; el negocio se protege por licencia + contrato + stream
+de valor.** Nadie serio vende ofuscación como protección.
+
+## Decisión
+
+1. **NO adoptamos ofuscación como estrategia de protección** (ni se promete al canal). La protección
+   real del artefacto instalado tiene tres capas:
+   - **Licencia (021)**: la imagen copiada **no trabaja** sin `.lic` firmada — gates fail-closed en
+     arranque y creación de Connections; la licencia está atada a `tenant_id` (llevarla a otro sitio
+     deja rastro en el true-up firmado + audit hash-chained en renovación).
+   - **Contrato/EULA** (vía distribuidor): no-reverse-engineering, no-redistribución, derechos de
+     auditoría, true-up anual. **El ancla — igual que en la 021.**
+   - **Stream de valor**: librería de compliance viva (AI Act, recognizers por región), parches,
+     certificación y soporte del vendor. Una copia del código es un producto de compliance **congelado y
+     sin respaldo** — inasumible para un DPO en entorno regulado. Ahí vive el moat, no en el secreto.
+2. **La inspeccionabilidad del comportamiento es argumento de venta, no debilidad**: el hospital va a
+   auditar la imagen también para verificar que NO exfiltra (0 egress, air-gap, metadata-only audit).
+   Transparencia de comportamiento = confianza (patrón GitLab).
+3. **Pack de fricción (opcional, candidato a task cuando la 020 entre en plan/tasks — NUNCA vendido
+   como seguridad)**: las imágenes de producción multi-stage (ya estado-objetivo de US1) además
+   **excluyen fuentes no necesarias, `specs/`, docs internos y tests**; opcional: distribuir sólo
+   bytecode (`.pyc`) y evaluar Nuitka/PyArmor **sólo** para el módulo de verificación de licencia.
+   Etiquetado interno honesto: sube el costo de curiosear de 2 comandos a unos días.
+
+**Relación con la 021**: esta postura es la extensión natural de su addendum ("el contrato es el ancla,
+no la criptografía") aplicada al artefacto completo. **Runbook**: respuesta canónica para el canal en
+`docs/whitelabel-deployment.md` §5 (qué decir — y qué NO prometer — cuando el cliente pregunta).

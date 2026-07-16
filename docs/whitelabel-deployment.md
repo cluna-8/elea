@@ -1,6 +1,6 @@
 # Basa Guardian — Guía de despliegue White-Label (runbook del distribuidor)
 
-**Última actualización**: 2026-07-13
+**Última actualización**: 2026-07-16 (§5.b postura de IP del artefacto — respuesta canónica)
 **Audiencia**: el **modelo distribuidor** (partner que revende, instala, da training y soporte). NO es
 una spec: es el runbook de **negocio + deploy** que usa el distribuidor para empaquetar, desplegar con
 OpenTofu y licenciar Basa Guardian en la infraestructura del cliente final.
@@ -235,9 +235,36 @@ Modelo:
 - **Enforcement blando/duro (a definir en 021).** El comportamiento al exceder seats o expirar la licencia
   (avisar vs bloquear altas de Connection) se especifica en 021.
 
----
+### 5.b Postura de IP del artefacto — respuesta canónica a "¿qué protección tiene la imagen instalada?"
 
-## 6. Gotchas de deploy reales
+Pregunta recurrente del ciclo de venta on-prem (hospitales incluidos): *"el equipo de IT del cliente va a
+abrir la imagen y mirar el código — ¿qué protección tienen?"*. Respuesta oficial de producto (decisión
+documentada en [research 020, addendum 2026-07-16](../specs/020-whitelabel-deploy/research.md); usarla
+tal cual en training y preventa — es postura, aplica hoy):
+
+**Lo que se responde (tres capas):**
+
+1. **La imagen copiada no trabaja.** El producto exige una licencia firmada (Ed25519, offline) atada al
+   tenant: sin ella no arranca ni crea Connections (fail-closed, spec 021 🔵); moverla a otro sitio deja
+   rastro verificable en la renovación (true-up firmado + auditoría hash-chained).
+2. **El contrato es el ancla.** EULA vía distribuidor con no-reverse-engineering, no-redistribución y
+   derechos de auditoría — el mismo modelo con el que operan GitLab EE (cuyo código enterprise es
+   literalmente público), Grafana Enterprise o Metabase EE. El estándar on-prem del mercado es ese: el
+   código se puede ver; usarlo sin licencia es incumplimiento contractual.
+3. **El valor está en el stream, no en el código congelado.** Librería de compliance viva (AI Act,
+   recognizers por región), parches, certificación y soporte del vendor. Una copia es un producto de
+   compliance congelado, sin licencia ni respaldo — exactamente lo que un DPO de entorno regulado no
+   puede firmar.
+
+**El giro a favor**: que el hospital inspeccione la imagen es *bueno para la venta* — va a verificar que
+el sistema **no exfiltra nada** (0 egress en air-gap, auditoría metadata-only, sin phone-home). La
+transparencia de comportamiento es argumento de confianza; ofrecerla proactivamente (SBOM en v2 vía Zarf).
+
+**Lo que NO se promete jamás**: código "protegido", "encriptado" u ofuscado como mecanismo de seguridad.
+Técnicamente no existe en hardware del cliente (una imagen se abre con dos comandos; Python se
+descompila) y prometerlo nos deja mal parados ante el primer pentest del propio cliente. Si el canal
+pide "algo más", existe un pack de **fricción** opcional (imágenes sin fuentes/specs/tests, bytecode)
+documentado en el research — se ofrece como prolijidad del artefacto, nunca como protección.
 
 Todos verificados en despliegues reales (bitácora en
 [`llm-guardian/docs/DEPLOY_VPN.md`](../../llm-guardian/docs/DEPLOY_VPN.md)) o en el código actual.
