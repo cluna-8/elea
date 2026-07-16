@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "lic_id": "lic_dev_demo_0001",
+  "kid": "basa-dev-2026",
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "distributor_id": "d_basa",
+  "pool_id": "pool_basa_dev",
+  "max_seats": 50,
+  "feature_flags": [
+    "monitor"
+  ],
+  "not_before": "2026-01-01T00:00:00Z",
+  "expiry": "2099-01-01T00:00:00Z",
+  "grace_days": 14,
+  "issued_at": "2026-07-16T14:01:25Z",
+  "sig": "xpROJiG1soaWBdqs8xrBVpsRiTUGjgr9J_EGVqnSMJdWGitZ_W5YlTirEHK9GGMg-KXQqOjtPFE463hTE_GYDA=="
+}
