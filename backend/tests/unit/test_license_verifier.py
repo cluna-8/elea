@@ -107,6 +107,17 @@ def test_missing_required_field_rejected(tmp_path):
         verify_license_blob(blob, keyset)
 
 
+@pytest.mark.parametrize("schema", [2, 0, "1", None])
+def test_unsupported_schema_rejected(schema):
+    """Un .lic legítimamente firmado con schema ≠ 1 se RECHAZA (fail-closed):
+    una caja vieja jamás interpreta un formato futuro con semántica v1."""
+    priv, pub = generate_keypair()
+    blob = sign_license(priv, make_payload(schema=schema))
+    keyset = BasaPublicKeySet({SUITE_KID: pub})
+    with pytest.raises(LicenseMalformedError):
+        verify_license_blob(blob, keyset)
+
+
 def test_key_rotation_by_key_id(tmp_path):
     """Token firmado con la clave A se verifica contra el set {A, B} vía key_id
     (FR-007: rotación sin romper cajas desplegadas)."""

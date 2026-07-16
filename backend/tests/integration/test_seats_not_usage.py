@@ -35,13 +35,17 @@ def _restore():
 
 
 def test_zero_rpm_seat_still_counts_for_license(harness, monkeypatch, tmp_path):
+    from seat_gate_harness import current_seats
     client, factory, headers = harness
     recorder = mock_engine(monkeypatch)
-    set_license(monkeypatch, tmp_path, max_seats=2)
     # 2 seats castigados a 0 rpm por gobernanza (007): siguen siendo asientos
+    before = current_seats(factory)
     seed_active_seats(factory, 2, rpm_limit=0, prefix="zero-rpm")
+    after = current_seats(factory)
+    assert after == before + 2  # el contador los cuenta aunque tengan 0 rpm
+    set_license(monkeypatch, tmp_path, max_seats=after)
 
-    resp = client.post("/api/v1/keys", headers=headers, json={"name": "tercera"})
+    resp = client.post("/api/v1/keys", headers=headers, json={"name": "una-mas"})
 
     assert resp.status_code == 402, resp.text
     assert "license_seat_limit_exceeded" in resp.json()["detail"]

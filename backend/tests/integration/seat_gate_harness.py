@@ -137,6 +137,19 @@ def mock_engine(monkeypatch):
     return recorder
 
 
+def current_seats(factory):
+    """Conteo REAL de seats del tenant default con la misma definición del
+    producto. Los tests fijan max_seats RELATIVO a esto (nunca constantes
+    mágicas): cada test es autosuficiente e independiente del orden."""
+    from migration_harness import DEFAULT_TENANT
+    from src.licensing.seat_counter import count_active_seats
+    db = factory()
+    try:
+        return count_active_seats(db, DEFAULT_TENANT)
+    finally:
+        db.close()
+
+
 def license_audit_events(factory):
     from src.models.audit import AuditLog
     db = factory()

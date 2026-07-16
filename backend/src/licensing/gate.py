@@ -12,6 +12,7 @@ import logging
 
 from fastapi import HTTPException
 
+from ..models.tenant import DEFAULT_TENANT_ID
 from .audit_events import EVENT_SEAT_LIMIT, emit_license_event
 from .entitlement import CREATION_ALLOWED_STATUSES, get_state
 from .seat_counter import count_active_seats
@@ -35,8 +36,17 @@ def enforce_seat_gate(db, tenant_id) -> None:
         if state.reason:
             detail = f"{detail} {state.reason}"
         raise HTTPException(status_code=403, detail=detail)
-    if token.tenant_id != str(tenant_id):
-        # Principio III: un entitlement de OTRO tenant no habilita crear acá.
+    # Principio III: un entitlement de OTRO tenant no habilita crear acá.
+    # El entitlement quedó anclado al tenant del DEPLOYMENT en el arranque
+    # (FR-005: token.tenant == BASA_DEPLOYMENT_TENANT_ID); el parámetro es el
+    # tenant de la FILA a crear. Deuda 013: los handlers aún no resuelven
+    # tenant y toda fila cae en DEFAULT_TENANT_ID, así que el default es un
+    # alias válido del tenant licenciado — sin él, un deployment con tenant
+    # real y licencia válida bloquearía TODA creación con 403. Cuando los
+    # call-sites pasen el tenant real de la fila, este check activa el
+    # aislamiento por tenant de verdad.
+    row_tenant = str(tenant_id)
+    if row_tenant not in (token.tenant_id, str(DEFAULT_TENANT_ID)):
         raise HTTPException(
             status_code=403,
             detail="license_creation_blocked: sin entitlement para este tenant (fail-closed).",

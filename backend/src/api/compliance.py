@@ -356,7 +356,9 @@ def get_compliance_dashboard(db: Session = Depends(get_db)):
     dsrs = db.query(DataSubjectRequest).all()
     dsr_open = sum(1 for d in dsrs if d.status == "open")
 
-    total_logs = db.query(AuditLog).count()
+    # Los eventos de licencia (spec 021, model='license') son evidencia, no
+    # transacciones de inferencia: fuera de los denominadores de las tasas DPO.
+    total_logs = db.query(AuditLog).filter(AuditLog.model != "license").count()
     pii_logs = db.query(AuditLog).filter(AuditLog.pii_detected == True).count()
     disclosure_logs = db.query(AuditLog).filter(AuditLog.ai_disclosure_delivered == True).count()
 
@@ -366,6 +368,7 @@ def get_compliance_dashboard(db: Session = Depends(get_db)):
 
     purpose_rows = (
         db.query(AuditLog.processing_purpose, func.count(AuditLog.id))
+        .filter(AuditLog.model != "license")  # spec 021: evidencia, no tráfico
         .group_by(AuditLog.processing_purpose)
         .all()
     )

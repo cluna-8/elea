@@ -105,6 +105,10 @@ services:
       # licencia dev del repo; en un deploy real la 020 inyecta el .lic del
       # cliente (y BASA_DEPLOYMENT_TENANT_ID) como secret — nunca este default.
       - BASA_LICENSE_TOKEN_FILE=${BASA_LICENSE_TOKEN_FILE:-/app/config/licenses/dev-demo.lic}
+      # Opt-in EXPLÍCITO a claves dev (kid basa-dev-*): sin esta variable, el
+      # producto rechaza la licencia dev pública del repo (guard anti-neutralización
+      # del fail-closed). Una imagen prod jamás la setea.
+      - BASA_ALLOW_DEV_LICENSE=${BASA_ALLOW_DEV_LICENSE:-true}
     volumes:
       - ./backend:/app
       - ./litellm:/app/litellm_config

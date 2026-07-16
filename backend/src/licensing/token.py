@@ -15,6 +15,11 @@ from typing import Optional, Tuple
 
 WIRE_SIG_FIELD = "sig"
 
+# Versión del formato wire soportada por ESTA caja. Un schema desconocido se
+# rechaza (fail-closed): un .lic v2 legítimamente firmado con semántica nueva
+# jamás debe interpretarse en silencio con semántica v1.
+SUPPORTED_SCHEMA = 1
+
 # FR-001: campos mínimos del artefacto (issued_at es opcional ≈ not_before).
 REQUIRED_FIELDS = (
     "schema", "lic_id", "kid", "tenant_id", "distributor_id", "pool_id",
@@ -71,6 +76,11 @@ class LicenseToken:
         missing = [f for f in REQUIRED_FIELDS if f not in payload]
         if missing:
             raise LicenseMalformedError(f"licencia: faltan campos obligatorios: {missing}")
+        if payload["schema"] != SUPPORTED_SCHEMA:
+            raise LicenseMalformedError(
+                f"licencia: schema {payload['schema']!r} no soportado "
+                f"(esta versión entiende schema={SUPPORTED_SCHEMA})"
+            )
         if not isinstance(payload["max_seats"], int) or isinstance(payload["max_seats"], bool) \
                 or payload["max_seats"] < 0:
             raise LicenseMalformedError("licencia: 'max_seats' debe ser un entero >= 0")

@@ -38,6 +38,12 @@ CREATION_ALLOWED_STATUSES = frozenset({STATUS_ACTIVE})
 
 DEFAULT_KEYSET_PATH = Path(__file__).resolve().parent.parent / "keys" / "basa_public_keys.pem"
 
+# Prefijo de los key_id DEV/DEMO (emitidos por scripts/issue_dev_license.py).
+# La licencia dev y su pública son PÚBLICAS en el repo: sin este guard, el
+# fail-closed quedaría neutralizado por configuración default en cualquier
+# imagen que no excluya el kid dev. Sólo dev/demo (compose) setea el opt-in.
+DEV_KID_PREFIX = "basa-dev-"
+
 
 @dataclass(frozen=True)
 class LicenseState:
@@ -111,6 +117,14 @@ def evaluate(now: Optional[datetime] = None) -> LicenseState:
         return LicenseState(STATUS_MISMATCH, reason, None, now)
     except LicenseError as exc:
         return LicenseState(STATUS_INVALID, str(exc), None, now)
+    if (token.key_id.startswith(DEV_KID_PREFIX)
+            and os.getenv("BASA_ALLOW_DEV_LICENSE", "").lower() != "true"):
+        return LicenseState(
+            STATUS_INVALID,
+            f"licencia dev '{token.key_id}' no permitida en este deployment "
+            "(falta el opt-in BASA_ALLOW_DEV_LICENSE=true, sólo para dev/demo)",
+            None, now,
+        )
     status, reason = _lifecycle(token, now)
     if status == STATUS_INVALID:
         return LicenseState(status, reason, None, now)
