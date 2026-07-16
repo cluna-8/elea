@@ -6,6 +6,8 @@ import hashlib
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..licensing.gate import enforce_seat_gate
+from ..models.tenant import DEFAULT_TENANT_ID
 from ..models.user import User, Group, normalize_legacy_role
 from ..schemas.user import UserCreate, UserResponse, GroupCreate, GroupResponse, UserBase
 from ..services import ai_engine_client
@@ -112,6 +114,11 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         role, display_label = normalize_legacy_role(user_in.role)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if role == "client":
+        # Gate de licencia (spec 021 US2, FR-009): sólo los Clients son seats;
+        # los roles administrativos no consumen licencia. ANTES de crear el
+        # User local y de provisionar en el motor.
+        enforce_seat_gate(db, tenant_id=DEFAULT_TENANT_ID)
     user = User(
         username=user_in.username,
         email=user_in.email,

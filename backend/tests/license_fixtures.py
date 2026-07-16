@@ -101,6 +101,11 @@ def install_default_test_license():
     a ``entitlement.initialize(force=True)`` (restaurando al salir)."""
     tmp = Path(tempfile.mkdtemp(prefix="basa-license-suite-"))
     keyset_path, lic_path, _priv = issue_files(tmp)
-    os.environ.setdefault("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    os.environ.setdefault("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    # Asignación FORZADA (no setdefault): el container trae BASA_LICENSE_TOKEN_FILE
+    # apuntando al dev-demo.lic (compose) y mezclarlo con el keyset efímero de la
+    # suite daría un par incoherente. La suite es hermética: keyset y token van
+    # SIEMPRE juntos; los tests negativos overridean vía monkeypatch.
+    os.environ["BASA_LICENSE_PUBLIC_KEYS_FILE"] = str(keyset_path)
+    os.environ["BASA_LICENSE_TOKEN_FILE"] = str(lic_path)
+    os.environ.pop("BASA_LICENSE_TOKEN", None)
     return tmp
