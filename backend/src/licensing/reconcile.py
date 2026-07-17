@@ -30,7 +30,7 @@ from .audit_events import (
     EVENT_OVER_SEAT_RESOLVED,
     emit_license_event,
 )
-from .entitlement import STATUS_EXPIRED, get_state
+from .entitlement import STATUS_EXPIRED, get_state, refresh
 from .seat_counter import count_active_seats
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,9 @@ def run_once(session_factory=None, now: Optional[datetime] = None) -> Dict[str, 
     """
     global _registry
     now = now or datetime.now(timezone.utc)
-    state = get_state()
+    # Tick del ciclo de vida (US4/T027-T029): el reloj local avanza ACÁ — un
+    # proceso vivo cruza expiry/grace sin reinicio y la transición se audita.
+    state = refresh(now=now, session_factory=session_factory)
     token = state.token
     licensed = {token.tenant_id, str(DEFAULT_TENANT_ID)} if token is not None else set()
 

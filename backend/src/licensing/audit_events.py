@@ -73,10 +73,12 @@ def emit_license_event(db, event_type: str, *, tenant_id=None, license_id=None,
     db.commit()
 
 
-def emit_startup_event(state, session_factory=None) -> None:
-    """Evento del gate de arranque (US1/T012). El tenant de la fila es SIEMPRE
-    el del deployment (existe por seed 013); si el token era de otro tenant,
-    ese dato viaja en ``reason`` (no como FK, que no existiría acá)."""
+def emit_state_event(state, session_factory=None) -> None:
+    """Evento por ESTADO de licencia: gate de arranque (US1/T012) y
+    transiciones en runtime del ciclo de vida (US4/T029, via
+    ``entitlement.refresh``). El tenant de la fila es SIEMPRE el del deployment
+    (existe por seed 013); si el token era de otro tenant, ese dato viaja en
+    ``reason`` (no como FK, que no existiría acá)."""
     from .entitlement import expected_tenant_id
 
     event_type = _EVENT_BY_STATUS.get(state.status, EVENT_INVALID)

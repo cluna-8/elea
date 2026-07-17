@@ -156,10 +156,37 @@ def initialize(force: bool = False, emit_audit: bool = True,
                        state.status, state.reason)
     if emit_audit:
         try:
-            from .audit_events import emit_startup_event
-            emit_startup_event(state, session_factory=session_factory)
+            from .audit_events import emit_state_event
+            emit_state_event(state, session_factory=session_factory)
         except Exception:  # noqa: BLE001 — audit best-effort, mismo criterio que AuditService
             logger.exception("licencia: no se pudo emitir el evento de audit de arranque")
+    return state
+
+
+def refresh(now: Optional[datetime] = None, session_factory=None) -> LicenseState:
+    """Re-evaluación en RUNTIME (US4/T027, FR-018/FR-021): un proceso vivo debe
+    transicionar ``active→grace→expired`` con el reloj LOCAL, sin reinicio. La
+    llama el tick de la reconciliación (US3/T029). Audita SOLO transiciones de
+    estado (FR-022) — idempotente si el estado no cambió. Fail-closed y jamás
+    levanta, mismo criterio que initialize()."""
+    global _state
+    previous = _state
+    try:
+        state = evaluate(now=now)
+    except Exception as exc:  # noqa: BLE001 — el tick nunca muere por licencia
+        logger.exception("licencia: error inesperado re-evaluando el token")
+        state = LicenseState(STATUS_INVALID, f"error interno: {exc}",
+                             None, now or datetime.now(timezone.utc))
+    _state = state
+    if previous is None or previous.status == state.status:
+        return state
+    log = logger.info if state.status == STATUS_ACTIVE else logger.warning
+    log("licencia: transición %s → %s (%s)", previous.status, state.status, state.reason)
+    try:
+        from .audit_events import emit_state_event
+        emit_state_event(state, session_factory=session_factory)
+    except Exception:  # noqa: BLE001 — audit best-effort
+        logger.exception("licencia: no se pudo auditar la transición de estado")
     return state
 
 

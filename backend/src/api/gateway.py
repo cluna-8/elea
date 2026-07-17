@@ -54,6 +54,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..database import SessionLocal, tenant_context
+from ..licensing.degraded import hard_block_reason
 from ..models.budget import APIKey
 from ..models.tenant import DEFAULT_TENANT_ID, Tenant
 from ..services import encryption_service
@@ -440,6 +441,13 @@ async def gw_messages(
     x_basa_redact: Optional[str] = Header(None, alias="X-Basa-Redact"),
     x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream"),
 ):
+    # Modo degradado DURO (spec 021 US4, FR-020): con el toggle activo y la
+    # licencia expired/over_seat, el tráfico se corta ACÁ — antes de ruteo
+    # byok/suscripción, política y upstream. Default (toggle off): solo la
+    # creación de seats se bloquea; este passthrough sigue sirviendo.
+    degraded = hard_block_reason()
+    if degraded is not None:
+        return _anthropic_error(f"[Basa Gateway] license_degraded: {degraded}", 403)
     start = time.time()
     raw = await request.body()
     try:
