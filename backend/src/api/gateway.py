@@ -50,11 +50,11 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..database import SessionLocal, tenant_context
-from ..licensing.degraded import hard_block_reason
+from ..licensing.degraded import require_not_hard_blocked
 from ..models.budget import APIKey
 from ..models.tenant import DEFAULT_TENANT_ID, Tenant
 from ..services import encryption_service
@@ -434,20 +434,21 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
 
 # ── endpoint principal ────────────────────────────────────────────────────────────
 
-@router.post("/v1/messages")
+# Modo degradado DURO (spec 021 US4, FR-020): con el toggle activo y la licencia
+# expired/over_seat, la dependency corta el tráfico de las rutas de SERVICIO
+# antes de ruteo byok/suscripción, política y upstream (count_tokens reenvía el
+# body VERBATIM upstream — también debe cortarse). GET /gw (discovery) queda
+# abierto. Default (toggle off): solo la creación de seats se bloquea.
+_HARD_BLOCK = [Depends(require_not_hard_blocked)]
+
+
+@router.post("/v1/messages", dependencies=_HARD_BLOCK)
 async def gw_messages(
     request: Request,
     x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
     x_basa_redact: Optional[str] = Header(None, alias="X-Basa-Redact"),
     x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream"),
 ):
-    # Modo degradado DURO (spec 021 US4, FR-020): con el toggle activo y la
-    # licencia expired/over_seat, el tráfico se corta ACÁ — antes de ruteo
-    # byok/suscripción, política y upstream. Default (toggle off): solo la
-    # creación de seats se bloquea; este passthrough sigue sirviendo.
-    degraded = hard_block_reason()
-    if degraded is not None:
-        return _anthropic_error(f"[Basa Gateway] license_degraded: {degraded}", 403)
     start = time.time()
     raw = await request.body()
     try:
@@ -628,7 +629,7 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
         return _anthropic_error(f"[Basa Gateway] upstream: {exc}", 502)
 
 
-@router.post("/v1/messages/count_tokens")
+@router.post("/v1/messages/count_tokens", dependencies=_HARD_BLOCK)
 async def gw_count_tokens(request: Request,
                           x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
                           x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
@@ -636,7 +637,7 @@ async def gw_count_tokens(request: Request,
                                     _resolve_attribution(x_basa_key), x_basa_upstream, x_basa_key)
 
 
-@router.get("/v1/models")
+@router.get("/v1/models", dependencies=_HARD_BLOCK)
 async def gw_models(request: Request,
                     x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
                     x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):

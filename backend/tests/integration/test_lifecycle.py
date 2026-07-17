@@ -131,15 +131,28 @@ def test_hard_block_toggle_cuts_gw_traffic(harness, monkeypatch, tmp_path):
     entitlement.refresh(now=T_GRACE, session_factory=factory)
     assert degraded.hard_block_reason() is None
 
-    # Expired + toggle: /gw responde 403 license_degraded antes de rutear.
+    # Expired + toggle: TODAS las rutas de servicio /gw cortan 403 antes de
+    # rutear o tocar upstream — incl. count_tokens (reenvía el body VERBATIM
+    # sin enmascarar) y la superficie DLP de la extensión. El discovery
+    # (GET /gw) queda abierto para diagnóstico.
     entitlement.refresh(now=T_EXPIRED, session_factory=factory)
-    resp = client.post("/api/v1/gw/v1/messages", json={"model": "claude-x", "messages": []})
-    assert resp.status_code == 403, resp.text
-    assert "license_degraded" in resp.text
+    for method, path in [
+        ("post", "/api/v1/gw/v1/messages"),
+        ("post", "/api/v1/gw/v1/messages/count_tokens"),
+        ("get", "/api/v1/gw/v1/models"),
+        ("get", "/api/v1/gw/whoami"),
+        ("post", "/api/v1/gw/inspect"),
+    ]:
+        resp = getattr(client, method)(path, **({"json": {"model": "claude-x", "messages": []}}
+                                                if method == "post" else {}))
+        assert resp.status_code == 403, f"{path}: {resp.status_code} {resp.text}"
+        assert "license_degraded" in resp.text
+    assert client.get("/api/v1/gw").status_code == 200  # discovery abierto
 
 
-def test_hard_block_on_over_seat(harness, monkeypatch, tmp_path):
-    """FR-020 cubre over_seat: drift reconciliado + toggle → bloqueo total."""
+def test_hard_block_on_over_seat_with_generic_message(harness, monkeypatch, tmp_path):
+    """FR-020 cubre over_seat; el 403 corre ANTES de autenticar, así que el
+    cliente recibe un mensaje FIJO — sin seats ni estado interno."""
     from src.licensing import degraded, reconcile
     client, factory, _headers = harness
     base = current_seats(factory)
@@ -150,6 +163,62 @@ def test_hard_block_on_over_seat(harness, monkeypatch, tmp_path):
     assert degraded.hard_block_reason() is None  # sin reconciliar aún, no corta
     reconcile.run_once(session_factory=factory)
     reason = degraded.hard_block_reason()
-    assert reason is not None and "over_seat" in reason
+    assert reason is not None and "over_seat" in reason  # detalle: SOLO server-side
     resp = client.post("/api/v1/gw/v1/messages", json={"model": "claude-x", "messages": []})
     assert resp.status_code == 403, resp.text
+    assert "license_degraded" in resp.text
+    assert "seats" not in resp.text          # ni conteos…
+    assert "over_seat" not in resp.text      # …ni el estado interno al cliente
+
+
+def test_transient_read_blip_keeps_valid_state(harness, monkeypatch, tmp_path):
+    """Hardening post-review: un blip de I/O leyendo el token en UN tick (p.ej.
+    rotación de secret no atómica) NO degrada un estado con firma validada, no
+    publica over_seat espurio ni contamina el AuditLog append-only."""
+    import os as _os
+
+    from src.licensing import entitlement, reconcile
+    _client, factory, _headers = harness
+    set_license(monkeypatch, tmp_path, expiry=EXPIRY, grace_days=GRACE_DAYS)
+    assert entitlement.get_state().status == entitlement.STATUS_ACTIVE
+    events_before = len(license_audit_events(factory))
+
+    lic_path = _os.environ["BASA_LICENSE_TOKEN_FILE"]
+    _os.rename(lic_path, lic_path + ".mv")  # el fichero desaparece durante el tick
+    try:
+        statuses = reconcile.run_once(session_factory=factory, now=T_ACTIVE)
+        assert entitlement.get_state().status == entitlement.STATUS_ACTIVE  # conservado
+        assert statuses[str(DEFAULT_TENANT)].status == reconcile.RECON_OK   # sin over_seat espurio
+        assert len(license_audit_events(factory)) == events_before          # sin filas espurias
+    finally:
+        _os.rename(lic_path + ".mv", lic_path)
+
+    statuses = reconcile.run_once(session_factory=factory, now=T_ACTIVE)    # tick sano
+    assert entitlement.get_state().status == entitlement.STATUS_ACTIVE
+    assert statuses[str(DEFAULT_TENANT)].status == reconcile.RECON_OK
+    assert len(license_audit_events(factory)) == events_before
+
+
+def test_persistent_read_failure_degrades_fail_closed(harness, monkeypatch, tmp_path):
+    """La histéresis NO neutraliza el fail-closed: tras READ_FAILURE_TOLERANCE
+    ticks seguidos con el material ilegible, el estado degrada a missing (y la
+    vuelta del fichero lo restaura, con ambas transiciones auditadas)."""
+    import os as _os
+
+    from src.licensing import entitlement, reconcile
+    _client, factory, _headers = harness
+    set_license(monkeypatch, tmp_path, expiry=EXPIRY, grace_days=GRACE_DAYS)
+
+    lic_path = _os.environ["BASA_LICENSE_TOKEN_FILE"]
+    _os.rename(lic_path, lic_path + ".mv")
+    try:
+        for _ in range(entitlement.READ_FAILURE_TOLERANCE):
+            reconcile.run_once(session_factory=factory, now=T_ACTIVE)
+            assert entitlement.get_state().status == entitlement.STATUS_ACTIVE
+        reconcile.run_once(session_factory=factory, now=T_ACTIVE)  # tolerancia agotada
+        assert entitlement.get_state().status == entitlement.STATUS_MISSING
+    finally:
+        _os.rename(lic_path + ".mv", lic_path)
+
+    reconcile.run_once(session_factory=factory, now=T_ACTIVE)
+    assert entitlement.get_state().status == entitlement.STATUS_ACTIVE
