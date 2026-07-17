@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from ..models.tenant import DEFAULT_TENANT_ID
 from .audit_events import EVENT_SEAT_LIMIT, emit_license_event
 from .entitlement import CREATION_ALLOWED_STATUSES, get_state
+from .reconcile import RECON_OVER_SEAT, get_tenant_status
 from .seat_counter import count_active_seats
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,19 @@ def enforce_seat_gate(db, tenant_id) -> None:
         raise HTTPException(
             status_code=403,
             detail="license_creation_blocked: sin entitlement para este tenant (fail-closed).",
+        )
+    # Modo degradado por drift (US3, FR-016/FR-020): si la reconciliación
+    # PUBLICÓ over_seat para este tenant, la creación queda bloqueada hasta que
+    # una corrida lo devuelva a ok — el estado manda aunque el conteo vivo haya
+    # bajado del tope (la transición ya quedó auditada por la reconciliación).
+    # US4 (T029) extiende este mismo punto a grace/expired del ciclo de vida.
+    recon = get_tenant_status(row_tenant)
+    if recon is not None and recon.status == RECON_OVER_SEAT:
+        raise HTTPException(
+            status_code=403,
+            detail=(f"license_creation_blocked: tenant en over_seat por reconciliación "
+                    f"({recon.seats_used}/{recon.max_seats} seats) — modo degradado, "
+                    "la creación se rehabilita cuando la reconciliación vuelva a ok."),
         )
     seats_used = count_active_seats(db, tenant_id)
     if seats_used >= token.max_seats:

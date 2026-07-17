@@ -164,18 +164,18 @@ confunde seats con uso.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T022 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile.py`: drift inyectado por DB
+- [X] T022 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile.py`: drift inyectado por DB
       directa (`COUNT(activas) > max_seats`) → reconciliación marca `over_seat`, dispara degradado, emite
       audit con `seats_used` vs `max_seats`; al corregir → `ok`. *(SC-005)*
-- [ ] T023 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile_isolation.py`: con múltiples
+- [X] T023 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile_isolation.py`: con múltiples
       tenants, el `over_seat` de uno NO afecta el estado de otro. *(SC-009, FR-017)*
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Implementar `backend/src/licensing/reconcile.py`: job periódico **local** que compara
+- [X] T024 [US3] Implementar `backend/src/licensing/reconcile.py`: job periódico **local** que compara
       `COUNT(activas)` vs `max_seats` por tenant (misma definición que US2) y publica
       `{ok|over_seat|expired}` por tenant, aislado. *(FR-015, FR-016, FR-017)*
-- [ ] T025 [US3] Enganchar la reconciliación al scheduler existente del backend (sin phone-home) y conectar
+- [X] T025 [US3] Enganchar la reconciliación al scheduler existente del backend (sin phone-home) y conectar
       su salida al cómputo de estado (US4) + audit (US5). *(FR-015, FR-016)*
 
 **Checkpoint**: Reconciliación verde (drift detectado, aislado por tenant).

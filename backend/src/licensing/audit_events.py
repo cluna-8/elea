@@ -20,6 +20,9 @@ EVENT_INVALID = "license_invalid"
 EVENT_MISMATCH = "license_tenant_mismatch"
 EVENT_MISSING = "license_missing"
 EVENT_SEAT_LIMIT = "license_seat_limit_exceeded"
+# Transiciones de la reconciliación (US3, FR-016): entrada/salida de over_seat.
+EVENT_OVER_SEAT = "license_over_seat"
+EVENT_OVER_SEAT_RESOLVED = "license_over_seat_resolved"
 
 _EVENT_BY_STATUS = {
     "active": EVENT_LOADED,
@@ -34,6 +37,7 @@ _EVENT_BY_STATUS = {
 _COMPLIANCE_BY_EVENT = {
     EVENT_LOADED: "passed",
     EVENT_GRACE: "flagged_high_risk",  # advierte: opera pero la renovación urge
+    EVENT_OVER_SEAT_RESOLVED: "passed",
 }
 
 
