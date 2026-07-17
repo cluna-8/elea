@@ -12,6 +12,7 @@ from migration_harness import DEFAULT_TENANT, require_postgres
 from seat_gate_harness import (
     admin_headers,
     build_app_client,
+    create_tenant,
     current_seats,
     mock_engine,
     restore_suite_license,
@@ -40,18 +41,6 @@ def _restore():
     restore_suite_license()
 
 
-def _create_tenant(factory, slug):
-    from src.models.tenant import Tenant
-    db = factory()
-    try:
-        row = Tenant(name=slug, slug=slug)
-        db.add(row)
-        db.commit()
-        return row.id
-    finally:
-        db.close()
-
-
 def _license_audit_rows(factory):
     """(tenant_id, entry) de cada evento de licencia — para afirmar QUIÉN."""
     from src.models.audit import AuditLog
@@ -70,7 +59,7 @@ def test_unlicensed_tenant_over_seat_does_not_touch_licensed_one(harness, monkey
     el tenant licenciado sigue ok, con SU conteo, y su creación habilitada."""
     from src.licensing import reconcile
     client, factory, headers = harness
-    tenant_b = _create_tenant(factory, "iso-tenant-b")
+    tenant_b = create_tenant(factory, "iso-tenant-b")
     seed_active_seats(factory, 2, prefix="iso-b", tenant_id=tenant_b)
 
     base = current_seats(factory)  # cuenta SOLO el tenant default (aislado)
@@ -96,7 +85,7 @@ def test_licensed_tenant_drift_does_not_mark_other_tenant(harness, monkeypatch, 
     publica ok y el audit del drift nombra al tenant correcto."""
     from src.licensing import reconcile
     _client, factory, _headers = harness
-    tenant_c = _create_tenant(factory, "iso-tenant-c")
+    tenant_c = create_tenant(factory, "iso-tenant-c")
 
     base = current_seats(factory)
     set_license(monkeypatch, tmp_path, max_seats=base)  # tope EXACTO al conteo real

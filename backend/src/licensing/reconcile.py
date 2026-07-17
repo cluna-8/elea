@@ -119,7 +119,10 @@ def run_once(session_factory=None, now: Optional[datetime] = None) -> Dict[str, 
 
     db = session_factory()
     try:
-        tenants = db.query(Tenant).filter(Tenant.is_active.is_(True)).all()
+        # Orden determinista: si la corrida muere a mitad, el reintento repite
+        # la misma secuencia (y los tests pueden razonar sobre ella).
+        tenants = (db.query(Tenant).filter(Tenant.is_active.is_(True))
+                   .order_by(Tenant.id).all())
         fresh: Dict[str, TenantSeatStatus] = {}
         for tenant in tenants:
             key = str(tenant.id)
@@ -141,6 +144,12 @@ def run_once(session_factory=None, now: Optional[datetime] = None) -> Dict[str, 
                 logger.warning("reconciliación: tenant %s en %s (seats %s / max %s)",
                                key, entry.status, entry.seats_used, entry.max_seats)
             _emit_transition(db, tenant.id, _registry.get(key), entry)
+            # Publicación INCREMENTAL (hardening post-review): el evento ya
+            # quedó commiteado, así que el estado se publica ya — si la corrida
+            # muere en el tenant siguiente, el reintento no re-emite esta
+            # transición. Merge atómico (swap de referencia, sin locks).
+            _registry = {**_registry, key: entry}
+        # Swap final: descarta tenants que desaparecieron entre corridas.
         _registry = fresh
         return fresh
     finally:

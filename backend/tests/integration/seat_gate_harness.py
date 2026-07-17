@@ -139,6 +139,19 @@ def mock_engine(monkeypatch):
     return recorder
 
 
+def create_tenant(factory, slug):
+    """Tenant extra por DB directa (tests de aislamiento/reconciliación, US3)."""
+    from src.models.tenant import Tenant
+    db = factory()
+    try:
+        row = Tenant(name=slug, slug=slug)
+        db.add(row)
+        db.commit()
+        return row.id
+    finally:
+        db.close()
+
+
 def current_seats(factory):
     """Conteo REAL de seats del tenant default con la misma definición del
     producto. Los tests fijan max_seats RELATIVO a esto (nunca constantes

@@ -29,6 +29,13 @@ os.environ.setdefault("FERNET_SECRET_KEY", "")  # encryption off in unit tests
 # Headroom module is optional/fail-open; tests that need it set the env themselves.
 os.environ.setdefault("COMPRESSION_HEADROOM_ENABLED", "true")
 
+# Reconciliación de seats (spec 021 US3): scheduler APAGADO en la suite. Los
+# tests que usan `with TestClient(app)` disparan el lifespan, y el scheduler
+# real correría contra SessionLocal (la DB VIVA del compose, no la DB de test
+# del override de get_db), commiteando audit ahí y contaminando el registry
+# global. Los tests de US3 arrancan el scheduler con interval explícito.
+os.environ.setdefault("BASA_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
+
 # Licencia dev de la suite (spec 021): el enforcement es fail-closed, así que
 # sin un entitlement válido TODA creación de Connection/Client devolvería
 # 402/403 y rompería los tests preexistentes. Se emite un token efímero para

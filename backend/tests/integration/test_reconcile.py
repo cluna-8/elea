@@ -15,6 +15,7 @@ from migration_harness import DEFAULT_TENANT, require_postgres
 from seat_gate_harness import (
     admin_headers,
     build_app_client,
+    create_tenant,
     current_seats,
     license_audit_events,
     mock_engine,
@@ -107,6 +108,39 @@ def test_drift_marks_over_seat_degrades_and_recovers(harness, monkeypatch, tmp_p
     assert resolved, "falta el evento de audit de la vuelta a ok"
     resp = client.post("/api/v1/keys", headers=headers, json={"name": "post-recovery"})
     assert resp.status_code == 201, resp.text
+
+
+def test_midrun_failure_does_not_duplicate_transition_audit(harness, monkeypatch, tmp_path):
+    """Hardening post-review: si la corrida muere DESPUÉS de auditar la
+    transición de un tenant (p.ej. conexión caída contando el siguiente), el
+    estado ya publicado evita re-emitir el mismo evento en el reintento —
+    audit POR transición incluso bajo errores transitorios."""
+    from src.licensing import reconcile
+    _client, factory, _headers = harness
+    # run_once itera por Tenant.id ASC: el default (…0001) va primero y el
+    # tenant extra (uuid4) después — la caída ocurre tras auditar el default.
+    extra = create_tenant(factory, "midrun-extra")
+    base = current_seats(factory)
+    set_license(monkeypatch, tmp_path, max_seats=base)
+    seed_active_seats(factory, 1, prefix="midrun")  # drift: base+1 > base
+    before = len(_over_seat_events(factory))
+
+    real_count = reconcile.count_active_seats
+
+    def flaky_count(db, tenant_id):
+        if str(tenant_id) == str(extra):
+            raise RuntimeError("conexión caída simulada")
+        return real_count(db, tenant_id)
+
+    monkeypatch.setattr(reconcile, "count_active_seats", flaky_count)
+    with pytest.raises(RuntimeError):
+        reconcile.run_once(session_factory=factory)
+    events_after_crash = len(_over_seat_events(factory)) - before
+    assert events_after_crash == 1, "la transición del default debió auditarse antes de la caída"
+
+    monkeypatch.setattr(reconcile, "count_active_seats", real_count)
+    reconcile.run_once(session_factory=factory)  # reintento sano
+    assert len(_over_seat_events(factory)) - before == 1  # UNA transición = UN evento
 
 
 def test_scheduler_runs_periodically(harness, monkeypatch, tmp_path):
