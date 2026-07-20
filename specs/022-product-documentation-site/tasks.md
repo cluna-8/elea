@@ -177,22 +177,22 @@ difieren; cada build produce `basa-docs:<brand>-<version>`; 0 menciones de motor
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T021 ⚠️ [P] [US3] Test de white-label en `docs/tests/test_whitelabel_no_fork.*`: construir marca A y
+- [X] T021 ⚠️ [P] [US3] Test de white-label en `docs/tests/test_whitelabel_no_fork.*`: construir marca A y
       marca B; afirmar que difieren **sólo** en tokens (site_name/logo/favicon/palette/extra.css) y **0** líneas
       de contenido/tema cambian. *(FR-010, FR-011, SC-004)*
-- [ ] T022 ⚠️ [P] [US3] Check de **naming neutro** en `deploy/release/checks/test_docs_neutral_naming.sh`:
+- [X] T022 ⚠️ [P] [US3] Check de **naming neutro** en `deploy/release/checks/test_docs_neutral_naming.sh`:
       grep de nombres prohibidos sobre el HTML publicado → **falla** si aparece. La lista se comparte con
       `test_no_engine_name.sh` (020) e incluye Meta (constitución VII). *(FR-013, SC-004 — delta F2)*
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Definir el **brand-pack**: tokens `site_name`, `logo`, `favicon`, `palette`, `extra.css` en
+- [X] T023 [US3] Definir el **brand-pack**: tokens `site_name`, `logo`, `favicon`, `palette`, `extra.css` en
       `docs/mkdocs.<brand>.yml` (overlay **`INHERIT`** sobre `docs/mkdocs.yml`), **derivado del brand-pack de
       la 020** (`deploy/branding/brand*.json` + `clients/<slug>/branding.env`) — una sola fuente de marca por
       cliente; assets por defecto marca-neutros en `docs/brand/`. *(FR-010, FR-011 — delta F3)*
-- [ ] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `basa-docs:<brand>-<version>` (una
+- [X] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `basa-docs:<brand>-<version>` (una
       marca por instancia, config-as-data). *(FR-012)*
-- [ ] T025 [US3] Verificar que el contenido markdown se mantiene **marca-neutro** por defecto (sin nombres de
+- [X] T025 [US3] Verificar que el contenido markdown se mantiene **marca-neutro** por defecto (sin nombres de
       producto hardcodeados en el corpus migrado). *(FR-011, FR-013)*
 
 **Checkpoint**: 2 marcas desde config, imagen por marca, naming neutro verificado (never fork).

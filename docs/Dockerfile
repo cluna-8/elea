@@ -8,12 +8,18 @@ WORKDIR /src
 COPY requirements-docs.txt ./
 RUN pip install --no-cache-dir -r requirements-docs.txt
 
-# Config base + overlays de marca (mkdocs.<brand>.yml, US3). DOCS_CONFIG elige el
-# overlay en build — una imagen POR MARCA (never fork, FR-012).
+# Config base + overlays de marca (mkdocs.<brand>.yml, US3) + brand-packs generados
+# (docs/brand/<slug>/, derivados del brand-pack de la 020 por render_docs_brand.sh).
+# ARG BRAND elige la marca en build — una imagen POR MARCA (never fork, FR-012):
+# copia el css/logo de la marca SOBRE los assets neutros y compila con su overlay.
 COPY mkdocs*.yml ./
+COPY brand ./brand
 COPY docs ./docs
-ARG DOCS_CONFIG=mkdocs.yml
-RUN mkdocs build --strict -f "${DOCS_CONFIG}" -d /out/site
+ARG BRAND=""
+RUN if [ -n "$BRAND" ]; then \
+        cp brand/"$BRAND"/* docs/assets/brand/ && CONFIG="mkdocs.$BRAND.yml"; \
+    else CONFIG=mkdocs.yml; fi \
+    && mkdocs build --strict -f "$CONFIG" -d /out/site
 
 # ── runtime: nginx estático, non-root, sin ACME (el TLS lo termina el ingress, FR-023) ──
 FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de

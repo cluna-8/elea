@@ -1,0 +1,5 @@
+# Overlay de marca 'aegis' — GENERADO por render_docs_brand.sh desde brand.example.json
+# (una sola fuente de marca: el brand-pack de la 020). No editar a mano.
+INHERIT: mkdocs.yml
+site_name: "Aegis AI Firewall"
+site_description: "Su pasarela de IA corporativa"
