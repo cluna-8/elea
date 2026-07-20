@@ -45,7 +45,7 @@ Un compliance officer configura en el panel qué hacer con cada tipo de entidad 
 
 ### User Story 3 - Detección NLP real en vez de solo-regex (Priority: P2)
 
-Hoy toda la detección de entidades (en ambos caminos del código, panel legacy y firewall) es regex puro. La constitución (Principio I, Constraint SC-2) exige NLP real (tipo Presidio) como precondición para producción con PHI — el regex es aceptable solo en demo/dev. Esta historia activa un motor de detección NLP real, con el regex actual quedando como fallback/complemento donde tenga sentido (por ejemplo, formatos estructurados como DNI/CUIL que NLP genérico no reconoce bien).
+Hoy toda la detección de entidades (en ambos caminos del código, panel legacy y firewall) es regex puro. La constitución (Principio I, Constraint SC-2) exige NLP real (tipo Presidio) como precondición para producción con PHI — el regex es aceptable solo en demo/dev. Esta historia activa un motor de detección NLP real, con formatos estructurados propios de cada región (p.ej. NIF/NIE en España) resueltos por reconocedores dedicados — built-in del motor NLP cuando existen, o un patrón propio inyectado por request cuando no (p.ej. DNI/CUIL en LATAM) — nunca por el regex genérico de dev/demo.
 
 **Why this priority**: Es el requisito de "producción real" del producto, pero puede entregar valor después de que la 1 y la 2 ya resuelvan los gaps más urgentes de cobertura y enforcement con lo que haya disponible ese día (aunque sea regex mejorado).
 
@@ -55,13 +55,13 @@ Hoy toda la detección de entidades (en ambos caminos del código, panel legacy 
 
 1. **Given** el motor NLP real configurado y disponible, **When** llega una request con PII/PHI, **Then** la detección usa el motor NLP (no el regex) como fuente primaria.
 2. **Given** el motor NLP real configurado pero **no disponible** (caído/timeout), **When** llega una request, **Then** el sistema rechaza la request (fail-closed) en vez de degradar silenciosamente a un regex sin garantías — la ausencia de detección confiable nunca se traduce en "dejar pasar sin protección".
-3. **Given** entidades de formato estructurado propias de la región (DNI, CUIL), **When** se procesa el texto, **Then** se siguen detectando con la misma o mejor precisión que hoy (el regex actual para estos formatos puede convivir con el NLP, no se pierde cobertura).
+3. **Given** entidades de formato estructurado propias de la región activa (p.ej. NIF/NIE en España, DNI/CUIL en un despliegue LATAM), **When** se procesa el texto, **Then** se siguen detectando con la misma o mejor precisión que el regex que reemplazan — vía reconocedor NLP nativo si existe, o patrón dedicado inyectado al motor si no.
 
 ---
 
 ### User Story 4 - Integridad del texto enmascarado ante coincidencias solapadas (Priority: P2)
 
-Hoy, si dos patrones de detección matchean fragmentos de texto que se superponen (por ejemplo, un número que califica simultáneamente como teléfono y como DNI), el reemplazo puede corromper el texto resultante porque no hay deduplicación de rangos antes de sustituir. Esta historia asegura que el texto enmascarado sea siempre válido y legible, sin importar cuántas entidades detectadas se superpongan.
+Hoy, si dos patrones de detección matchean fragmentos de texto que se superponen (por ejemplo, un número que califica simultáneamente como teléfono y como parte de un IBAN, o cualquier par de reconocedores compitiendo por el mismo tramo de dígitos), el reemplazo puede corromper el texto resultante porque no hay deduplicación de rangos antes de sustituir. Esta historia asegura que el texto enmascarado sea siempre válido y legible, sin importar cuántas entidades detectadas se superpongan — independientemente de qué tipos de entidad estén involucrados.
 
 **Why this priority**: Es un bug de integridad de datos con probabilidad baja-media pero impacto alto (rompe la conversación del usuario o corrompe silenciosamente lo que ve el LLM) — no bloquea el uso normal del sistema hoy, así que puede ir después de las historias de cobertura/enforcement.
 
@@ -88,7 +88,7 @@ Hoy, si dos patrones de detección matchean fragmentos de texto que se superpone
 
 - **FR-001**: El sistema DEBE detectar entidades de tipo `PERSON` en texto conversacional sin requerir un prefijo/título fijo (paciente, doctor, sr., etc.) como condición de detección.
 - **FR-002**: El sistema DEBE usar un motor de detección NLP real (no solo expresiones regulares) como fuente primaria de detección de entidades PII/PHI en el camino del firewall que procesa tráfico real de las herramientas conectadas.
-- **FR-003**: El sistema DEBE seguir detectando correctamente los formatos estructurados regionales (DNI, CUIL) con precisión igual o mejor a la actual, pudiendo combinar el motor NLP con reglas de formato estructurado.
+- **FR-003**: El sistema DEBE seguir detectando correctamente los formatos estructurados propios de la región activa del despliegue (p.ej. NIF/NIE en España; DNI/CUIL en un despliegue LATAM) con precisión igual o mejor a la actual, combinando el motor NLP (reconocedores nativos cuando el motor los provee) con reglas de formato estructurado inyectadas cuando no.
 - **FR-004**: Cuando el motor de detección NLP real no está disponible (error, timeout), el sistema DEBE rechazar la request (fail-closed) en vez de procesarla con una detección degradada sin garantías equivalentes.
 - **FR-005**: El firewall (camino de tráfico real, spec 014) DEBE resolver la acción (`MASK` / `BLOCK`) configurada en la política de seguridad activa para cada tipo de entidad detectado, en vez de aplicar un enmascaramiento uniforme fijo.
 - **FR-006**: Cuando una entidad detectada tiene acción `BLOCK` en la política activa, el sistema DEBE rechazar la request antes de que llegue al LLM upstream, con un motivo auditable que identifique el/los tipo(s) de entidad que causaron el bloqueo.

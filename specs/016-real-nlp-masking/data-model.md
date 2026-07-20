@@ -29,7 +29,7 @@ No introduce tablas nuevas. Consume el schema existente (013/014) y precisa cóm
 {
   "start": int,          # offset en el texto analizado
   "end": int,             # offset exclusivo
-  "entity_type": str,     # p.ej. "PERSON", "DNI", "EMAIL_ADDRESS"
+  "entity_type": str,     # p.ej. "PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS", "IBAN_CODE"
   "score": float,         # 0.0–1.0; ya no siempre 0.95 fijo — el Analyzer real devuelve confianza real
 }
 ```
@@ -46,9 +46,12 @@ una entidad corta la request o se enmascara.
 
 ### `AdHocRecognizerSet` (nuevo)
 Estructura que viaja en el body de `/analyze` (formato definido por la API de Presidio, no propio):
-patrones regex con nombre (DNI, CUIL) + deny-list de `custom_names`. Se construye en una única función
-(`build_ad_hoc_recognizers(custom_names: list[str]) -> list[dict]`) para no duplicar la definición de
-DNI/CUIL en dos lugares (reemplaza los dos `PII_PATTERNS` actuales).
+patrones regex con nombre **solo para lo que Presidio no cubre ya con un reconocedor built-in propio del
+idioma activo** (región `"eu"`: únicamente `PASSPORT`, con palabras de contexto — `ES_NIF`/`ES_NIE` son
+built-in de Presidio, no se reimplementan) + deny-list de `custom_names`. Se construye en una única
+función (`build_ad_hoc_recognizers(custom_names: list[str], region: str) -> list[dict]`), parametrizada
+por región (`STRUCTURED_ID_PATTERNS_BY_REGION`: `"eu"` activa por default; `"latam_ar"` con DNI/CUIL
+preparada para despliegues futuros en esa región).
 
 ### Relación con `PlaceholderMap` (sin cambios de shape, cambia el input)
 `PlaceholderMap`/`mask_text`/`unmask_text` (ya existentes) siguen operando igual; lo único que cambia

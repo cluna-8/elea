@@ -52,22 +52,34 @@ rompería el pin-by-digest y el principio de no tocar la imagen del motor.
 
 ## 3. Una sola fuente de patrones/entidades (cierra SC-006)
 
-**Decision**: los patrones estructurados regionales (DNI, CUIL) y la deny-list de nombres personalizados
-(hoy `Guardian.config.custom_names`, editable desde el panel) se envían como `ad_hoc_recognizers` en cada
-llamada a `/analyze`, construidos desde **una sola función Python** (nueva, en `basa_guardian_policy.py`,
-la librería PURA que ya comparten ambos caminos — panel y firewall). Se eliminan los dos diccionarios
-`PII_PATTERNS` duplicados (`presidio_service.py` y `basa_guardian_policy.py`).
+**Decision**: los patrones estructurados **que Presidio no cubre ya con un reconocedor propio validado
+para el idioma activo**, más la deny-list de nombres personalizados (hoy `Guardian.config.custom_names`,
+editable desde el panel), se envían como `ad_hoc_recognizers` en cada llamada a `/analyze`, construidos
+desde **una sola función Python** (`build_ad_hoc_recognizers`, en `basa_guardian_policy.py`, la librería
+PURA que ya comparten ambos caminos — panel y firewall) parametrizada por **región** (`STRUCTURED_ID_PATTERNS_BY_REGION`).
+Se eliminan los dos diccionarios `PII_PATTERNS` duplicados (`presidio_service.py` y `basa_guardian_policy.py`).
+
+**Corrección post-review (despliegue objetivo confirmado: Europa, España primero — no Argentina)**: el
+set inicial de este documento asumía DNI/CUIL argentinos como ejemplo de "lo que hay que inyectar ad-hoc".
+Para España, **no hace falta inyectar nada propio para el DNI/NIE**: Presidio ya trae `ES_NIF`/`ES_NIE`
+como reconocedores **built-in con validación de checksum** para `supported_language="es"` — más precisos
+que cualquier regex propio, así que se usan tal cual (cero código nuestro). El único `ad_hoc_recognizer`
+real de la región `"eu"` es `PASSPORT` (sin formato único a nivel UE, patrón genérico + palabras de
+contexto). DNI/CUIL argentinos quedan documentados como región `"latam_ar"`, preparada pero **inactiva**
+hasta que haya un despliegue en esa región (`BASA_ENTITY_REGION`).
 
 **Rationale**: cierra literalmente el comentario "espejo de PresidioService.PATTERNS" que hoy documenta
-la duplicación como deuda conocida. `custom_names` pasa de ser una lista hardcodeada en Python (y
-exclusiva del camino legacy) a viajar como deny-list ad-hoc en cada request — ahora sí tiene efecto en
-el firewall real (US1 se beneficia también de esto: nombres conocidos se detectan aunque el NLP falle
-en casos borde).
+la duplicación como deuda conocida — Y evita reinventar con regex algo que el motor NLP ya resuelve mejor
+(precisión: FR-003, pedido explícito del usuario de "que sea preciso, no regex hardcodeado"). `custom_names`
+pasa de ser una lista hardcodeada en Python (y exclusiva del camino legacy) a viajar como deny-list ad-hoc
+en cada request — ahora sí tiene efecto en el firewall real (US1 se beneficia también de esto: nombres
+conocidos se detectan aunque el NLP falle en casos borde).
 
 **Alternatives considered**: reconstruir un `RecognizerRegistry` custom dentro de la imagen de Presidio
 (vía `conf/`) — rechazado para v1: requiere rebuild de imagen por cada cambio de patrón/nombre, mientras
 que `ad_hoc_recognizers` permite que un compliance officer edite `custom_names` desde el panel y tenga
-efecto inmediato sin redeploy.
+efecto inmediato sin redeploy. Reimplementar NIF/NIE con regex propio — rechazado: Presidio ya lo hace
+con checksum, reimplementarlo sería peor (menos preciso) y duplicaría lógica que el motor ya mantiene.
 
 ## 4. Fail-closed real ante indisponibilidad del NLP (FR-004)
 
@@ -95,8 +107,12 @@ empate total el orden de detección original (estable).
 
 **Rationale**: reemplaza el comportamiento actual (ordenar solo por `start` descendente, sin deduplicar)
 que puede corromper offsets ante rangos solapados. "Más larga gana" es la heurística estándar para
-tokenizadores/NER con múltiples reconocedores (evita que un match genérico de 3 dígitos gane sobre un
-DNI completo que lo contiene).
+tokenizadores/NER con múltiples reconocedores (evita que un match genérico y corto gane sobre una entidad
+más larga/específica que lo contiene, sin importar el tipo — el algoritmo es agnóstico de región).
+**Corrección**: la implementación real usa clustering de intervalos (componentes conexas del grafo de
+solapamiento), no comparación par-a-par contra el último aceptado — necesario para resolver correctamente
+3+ entidades solapadas en cadena (A solapa B, B solapa C, A y C no se tocan directamente), caso que la
+comparación par-a-par simple no garantiza resolver sin dejar un solapamiento residual.
 
 **Alternatives considered**: descartar solapamientos y bloquear la request — rechazado, sobre-reacciona
 a un caso que tiene una resolución determinística simple; "primero detectado gana" (comportamiento
@@ -109,8 +125,10 @@ reproducible.
 (`_IDENTITY_SQL`) para además traer la `SecurityPolicy` activa (`entity_configs` JSONB) — hoy esa
 consulta ya resuelve tenant/user/group/tool en una sola query contra la misma base. `entity_configs`
 viaja en la identidad (`metadata.basa`) que ya llega al guardrail. `BasaGuardrail.async_pre_call_hook`
-usa `entity_configs.get(entity_type, DEFAULT_ACTION)` por cada entidad detectada: `BLOCK` corta la
-request (mismo path que AI-Act/secretos); `MASK` sigue el flujo de enmascarado reversible actual.
+resuelve la acción de cada entidad detectada vía `resolve_entity_action(entity_type, entity_configs)`
+ANTES de tocar el body: si alguna resuelve a `BLOCK`, la request se rechaza entera (mismo path que
+AI-Act/secretos, un solo preview de detección — no se enmascara nada primero para bloquear después);
+si ninguna es `BLOCK`, sigue el flujo de enmascarado reversible (`MASK`) actual.
 
 **Rationale**: reusa el patrón ya establecido en spec 014 (acceso a DB vía el propio motor, sin agregar
 dependencias a la librería PURA) en vez de inventar un mecanismo nuevo de resolución de policy dentro

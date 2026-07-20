@@ -7,11 +7,13 @@ no esta librería).
 ## `resolve_overlaps(entities: list[DetectedEntity]) -> list[DetectedEntity]`
 
 - **Pre**: `entities` puede contener rangos `[start, end)` solapados entre sí, en cualquier orden.
-- **Post**: la lista resultante no contiene solapamientos; para cada cluster de rangos solapados en la
-  entrada, sobrevive exactamente una entidad — la de mayor `(end - start)`; empate → mayor `score`;
-  empate total → la que apareció primero en `entities` (estable).
+- **Post**: la lista resultante no contiene solapamientos; para cada **cluster transitivo** de rangos
+  solapados en la entrada (A solapa B, B solapa C ⇒ los tres van al mismo cluster aunque A y C no se
+  toquen directamente — clustering por barrido/merge de intervalos, no comparación par-a-par), sobrevive
+  exactamente una entidad — la de mayor `(end - start)`; empate → mayor `score`; empate total → la que
+  apareció primero en `entities` (estable).
 - **Invariante**: `len(resultado) <= len(entities)`; ninguna entidad en el resultado tiene un rango que
-  se solape con otra del resultado.
+  se solape con otra del resultado — **garantizado incluso con 3+ entidades solapadas en cadena**.
 - Pura, determinística, sin excepciones esperadas (entrada ya validada por el caller).
 
 ## `resolve_entity_action(entity_type: str, entity_configs: dict) -> Literal["MASK", "BLOCK"]`
@@ -22,17 +24,19 @@ no esta librería).
   (nunca propaga un valor no válido hacia el caller).
 - Pura, sin excepciones.
 
-## `build_ad_hoc_recognizers(custom_names: list[str]) -> list[dict]`
+## `build_ad_hoc_recognizers(custom_names: list[str], region: str = "eu") -> list[dict]`
 
-- **Pre**: `custom_names` viene de `Guardian.config.custom_names` (puede ser lista vacía).
+- **Pre**: `custom_names` viene de `Guardian.config.custom_names` (puede ser lista vacía); `region`
+  selecciona el set de `STRUCTURED_ID_PATTERNS_BY_REGION` (default `"eu"`).
 - **Post**: devuelve la lista de `ad_hoc_recognizers` en el formato que espera `/analyze` de Presidio
-  (`contracts/presidio-analyzer-http.md`), incluyendo SIEMPRE los recognizers de formato estructurado
-  (DNI, CUIL) — no dependen de `custom_names` — más un recognizer `deny_list` con `custom_names` solo si
-  la lista no está vacía.
-- Es la **única** función que conoce la forma de los patrones DNI/CUIL — reemplaza los dos diccionarios
-  `PII_PATTERNS` duplicados hoy (research §3).
+  (`contracts/presidio-analyzer-http.md`), incluyendo SIEMPRE los recognizers estructurados de la región
+  activa (región `"eu"`: solo `PASSPORT` — `ES_NIF`/`ES_NIE` son built-in de Presidio, no se
+  reimplementan; región `"latam_ar"`: `DNI`, `CUIL`, `PASSPORT`) — no dependen de `custom_names` — más
+  un recognizer `deny_list` con `custom_names` solo si la lista no está vacía.
+- Es la **única** función que conoce la forma de estos patrones por región — reemplaza los dos
+  diccionarios `PII_PATTERNS` duplicados hoy (research §3).
 
-## `presidio_analyze(text: str, analyzer_url: str, custom_names: list[str]) -> list[DetectedEntity]` (nuevo `AnalyzeFn`)
+## `presidio_analyze(text: str, analyzer_url: str, custom_names: list[str], region: str = "eu") -> list[DetectedEntity]` (nuevo `AnalyzeFn`)
 
 - Implementación concreta del tipo `AnalyzeFn` ya definido en la librería (`Callable[[str], Awaitable[list]]`),
   pensada para inyectarse en `mask_body`/`mask_text` en lugar de `default_analyze` (que queda como
@@ -52,6 +56,9 @@ LiteLLM). Lo que cambia es el cuerpo:
   dev explícito, documentado, nunca el default de producción).
 3. Ante `NlpUnavailableError` → retorna el motivo de bloqueo (mismo contrato `str` → 400/503 que ya usan
   AI-Act/secretos).
-4. Para las entidades detectadas (ya sin solapamientos): separa por acción vía `resolve_entity_action`.
-   Si alguna es `BLOCK` → retorna motivo de bloqueo (nombra los tipos, nunca el valor). Si no hay
-   `BLOCK`, enmascara las `MASK` con `PlaceholderMap` como hoy.
+4. Preview: corre `presidio_analyze`/`default_analyze` sobre el texto completo del request y resuelve
+   la acción de cada entidad vía `resolve_entity_action`. Si alguna es `BLOCK` → retorna motivo de
+   bloqueo (nombra los tipos, nunca el valor) — **antes** de tocar el body, para no enmascarar
+   parcialmente una request que se termina rechazando.
+5. Sin bloqueos: procede a `mask_body`/`mask_text` (que vuelve a invocar el mismo `AnalyzeFn` por
+   segmento) para enmascarar las entidades restantes (`MASK`) con `PlaceholderMap` como hoy.
