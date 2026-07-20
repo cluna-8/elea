@@ -1,9 +1,12 @@
 # Administración
 
 Guía para el **operador** de una instancia del producto: cómo se organiza un despliegue
-(tenants), quién puede hacer qué (roles), cómo se gobierna el contenido que atraviesa el
-gateway (políticas de seguridad), cómo se controla el gasto (budgets) y cómo funciona el
-licenciamiento offline por seats.
+(tenants, grupos, clientes y Connections), quién puede hacer qué (roles), cómo se gobierna el
+contenido que atraviesa el gateway (políticas de seguridad), cómo se controla el gasto
+(budgets) y cómo funciona el licenciamiento offline por seats.
+
+**Para quién**: el tenant admin que opera la instancia y el compliance officer; útil también
+para el distribuidor que prepara el training de administración del cliente final.
 
 !!! note "Leyenda de estado"
     🟢 **HOY** — funciona y está verificado · 🟡 **PARCIAL** — existe con límites
@@ -12,19 +15,29 @@ licenciamiento offline por seats.
 
 ---
 
-## Multi-tenant
+## El modelo de la instancia
 
-### Qué es un tenant
+### Jerarquía: de tenant a Connection
 
 Un **tenant** es la organización compradora: la raíz de toda la jerarquía de datos de la
-plataforma.
+plataforma. De él cuelgan los grupos, de los grupos los clientes (usuarios finales) y de cada
+cliente sus **Connections** — una credencial por herramienta (una virtual key `sk-basa-...`).
 
-```text
-Tenant (organización)
- └── Grupo (equipo / departamento)
-      └── Cliente (usuario final)
-           └── Connection (credencial de una herramienta: una virtual key sk-basa-…)
+```mermaid
+graph TB
+    T[Tenant · organización compradora] --> G1[Grupo · equipo o departamento]
+    T --> G2[Grupo · otro departamento]
+    G1 --> U1[Cliente · usuario final]
+    G1 --> U2[Cliente · otro usuario final]
+    U1 --> K1[Connection · virtual key de una herramienta]
+    U1 --> K2[Connection · otra herramienta]
+    K1 -. activa = consume 1 seat .-> L([Licencia · max_seats])
+    K2 -. activa = consume 1 seat .-> L
 ```
+
+La anotación de abajo es la que importa para el dimensionamiento: **el seat de licencia lo
+consume la Connection activa, no el usuario** — un cliente con tres herramientas conectadas
+consume tres seats. El detalle está en [Licencias y seats](#licencias-y-seats).
 
 Todo objeto administrable (grupos, usuarios, Connections, políticas, presupuestos,
 auditoría) pertenece a un tenant. El aislamiento efectivo entre tenants se aplica hoy
@@ -85,7 +98,8 @@ Matriz de permisos vigente en la instancia:
 !!! tip "Bootstrap del primer administrador"
     En el primer login de la instancia, entrar como `admin` con la contraseña elegida la
     fija y crea la cuenta como tenant admin. Hacé ese primer login apenas termine el
-    deploy, antes de exponer el panel.
+    deploy, antes de exponer el panel. El paso a paso está en la
+    [guía de instalación](../install-deploy/index.md).
 
 Una matriz de permisos **granular y scopeada por tenant** (permisos finos por recurso) es
 🔵 **OBJETIVO** de roadmap; la matriz de arriba es la vigente hoy.
@@ -97,16 +111,16 @@ Una matriz de permisos **granular y scopeada por tenant** (permisos finos por re
 Toda petición que atraviesa el gateway pasa por la **política de seguridad activa** antes
 de llegar a cualquier proveedor LLM. La política es provider-agnóstica: aplica igual sea
 cual sea el modelo de destino y la superficie de entrada (CLI, IDE, extensión de
-navegador). 🟢
+navegador — ver [Integraciones](../integrations/index.md)). 🟢
 
 ### Acciones por entidad
 
-El motor NLP del gateway detecta entidades sensibles (PII/PHI) y la política decide qué
-hacer con **cada tipo de entidad**:
+El pipeline de detección del gateway identifica entidades sensibles (PII/PHI) y la
+política decide qué hacer con **cada tipo de entidad**:
 
 | Acción | Efecto |
 |---|---|
-| `MASK` | La entidad se reemplaza por un placeholder (`[PERSON_0]`, `[DNI_0]`, …) antes de salir hacia el LLM y se **restaura el valor real** en la respuesta que ve el usuario. El dato nunca sale; la experiencia no se rompe. |
+| `MASK` | La entidad se reemplaza por un placeholder (`[PERSON_0]`, `[DNI_0]`, …) antes de salir hacia el LLM y se **restaura el valor real** en la respuesta que ve el usuario. El dato detectado no sale de la instancia; la experiencia no se rompe. |
 | `BLOCK` | La petición se rechaza por completo: el contenido no sale de la instancia. |
 | `ALLOW` | La entidad pasa sin transformación (para tipos que la organización considera no sensibles). |
 
@@ -124,6 +138,14 @@ Configuración por defecto de una instancia nueva:
 }
 ```
 
+!!! warning "Precisión sobre la cobertura de detección"
+    Lo que el pipeline **detecta** se enmascara o bloquea según la política; ninguna
+    detección automática garantiza cobertura total. La cobertura depende del modo del
+    despliegue: el modo de desarrollo detecta por **patrones**; el **motor NLP completo**
+    es la configuración prevista para producción con PHI y su endurecimiento es 🟡. Un
+    despliegue productivo con datos de pacientes debe operar con el motor NLP habilitado
+    y validar la política contra sus propios casos.
+
 ### Modos de la política
 
 Además del mapa entidad→acción, cada política tiene tres interruptores:
@@ -131,6 +153,9 @@ Además del mapa entidad→acción, cada política tiene tres interruptores:
 - **`gdpr_mode`** — activa el tratamiento GDPR (minimización y registro asociado).
 - **`ai_act_mode`** — activa el bloqueo por categorías del AI Act (usos prohibidos).
 - **`headroom_mode`** — habilita la optimización de contexto para reducir tokens.
+
+El marco legal que estos modos implementan (bases legales, niveles de riesgo del AI Act)
+está descrito en [Compliance](../compliance/index.md).
 
 ### Gestión
 
@@ -141,6 +166,8 @@ Además del mapa entidad→acción, cada política tiene tres interruptores:
 - Se administran desde el panel o por API (`GET/PUT /api/v1/security/policy` para la
   activa, `GET/POST/PUT/DELETE /api/v1/security/policies` para el catálogo), con rol
   tenant admin o compliance officer.
+- El efecto de la política se observa en vivo en el **monitor del gateway**
+  (`GET /api/v1/gw/monitor`): el before/after real de cada petición gobernada.
 
 La detección de **secretos** (API keys, tokens, credenciales en prompts) y el bloqueo por
 AI Act se aplican en el mismo punto de paso, junto con la auditoría *metadata-only*: el
@@ -218,6 +245,12 @@ para cualquier cliente cambiando solo estas variables:
 | `BASA_LICENSE_HARD_BLOCK` | `true` = endurecer el modo degradado a bloqueo total (ver abajo) |
 | `BASA_DEPLOYMENT_KEY_FILE` | Clave de despliegue para los reportes de true-up (volumen persistente) |
 
+!!! danger "Licencias de demo: jamás en producción"
+    Existe además `BASA_ALLOW_DEV_LICENSE=true`, que acepta licencias emitidas con el
+    keyset de **desarrollo** (demos y entornos locales). Sin esa variable, una licencia
+    de demo se evalúa como `invalid` — comportamiento correcto. No habilitarla nunca en
+    un despliegue productivo.
+
 ### Qué consume un seat
 
 Un seat es una **Connection activa** del tenant: una virtual key activa y no expirada.
@@ -228,7 +261,20 @@ indica: "Revocá una Connection o ampliá la licencia".
 ### Qué pasa al agotar los seats
 
 Con los seats agotados, las altas gateadas por licencia (crear un usuario client o una
-Connection) se **bloquean antes de provisionar nada**, con un error claro:
+Connection) se **bloquean antes de provisionar nada**:
+
+```mermaid
+flowchart TB
+    A[Alta gateada por licencia<br/>crear usuario client o Connection] --> B{Estado de la licencia}
+    B -- active --> C{Quedan seats libres}
+    B -- grace · expired · missing · invalid · mismatch --> R403[403 license_creation_blocked<br/>no se provisiona nada]
+    C -- sí --> OK[Alta provisionada<br/>la Connection activa consume 1 seat]
+    C -- no --> R402[402 license_seat_limit_exceeded<br/>no se provisiona nada]
+    R402 --> FIX[Revocar una Connection<br/>o ampliar la licencia]
+    R403 --> FIX
+```
+
+El error de seats agotados es explícito:
 
 ```text
 HTTP 402
@@ -291,13 +337,59 @@ Dos guardas adicionales operan en segundo plano:
     última reconciliación y la identidad de la cadena de auditoría (`chain`, con la
     génesis que el emisor registró en el onboarding).
 
-El endpoint nunca devuelve el token crudo ni material de claves — solo metadata.
+El endpoint nunca devuelve el token crudo ni material de claves — solo metadata. El probe
+anónimo se integra a los chequeos de salud del stack descritos en
+[Operaciones](../operations/index.md).
 
-### Renovación sin phone-home
+### Renovación sin phone-home (true-up)
 
 La renovación (true-up) también es offline: la instancia genera un reporte firmado con la
 clave de despliegue y el operador lo envía al emisor **fuera de banda**. En ningún punto
 del ciclo de vida la instancia inicia conexiones salientes por licenciamiento.
 
-Detalle completo del flujo (emisión, rotación de claves, true-up y postura de propiedad
-intelectual): [Licenciamiento offline](../install-deploy/licensing.md).
+El emisor valida cada reporte también offline: **firma** de la clave de despliegue +
+**continuidad de la cadena** de auditoría contra el reporte anterior (anti-truncado: un
+reporte al que le "faltan" eventos no valida). En el onboarding el emisor registró la
+**clave pública** de la clave de despliegue y la **génesis** de la cadena (el
+`license_id` inicial); cada true-up posterior debe encadenar con el anterior.
+
+**Génesis `unlicensed`** — si el primer arranque de la instancia fue **sin** archivo de
+licencia (estado soportado), la génesis de la cadena queda registrada como `unlicensed` y
+la auditoría la ancla automáticamente a la **primera licencia con firma válida** que se
+instale. El emisor acepta esa génesis solo con ese anclaje apuntando al `license_id` del
+onboarding y sin eventos licenciados previos — el operador no tiene que coordinar nada
+adicional. La génesis efectiva la reporta `GET /api/v1/health/license` (nivel
+autenticado, campo `chain`).
+
+### Rotación de claves
+
+Dos claves distintas, dos procedimientos — ninguno interrumpe el servicio:
+
+- **Claves de emisión de licencias** — el keyset público admite **varios `key_id` en
+  paralelo**: el emisor publica un keyset con la clave vieja y la nueva, emite las
+  licencias nuevas con la nueva y retira la vieja cuando no quedan licencias vivas
+  firmadas con ella. En la instancia solo hay que actualizar el archivo apuntado por
+  `BASA_LICENSE_PUBLIC_KEYS_FILE`.
+- **Clave de despliegue (true-up)** — se regenera en la propia instancia y se re-registra
+  su clave pública con el emisor fuera de banda. **La génesis no cambia** y la
+  continuidad de los reportes de true-up se preserva.
+
+Detalle completo del flujo (emisión, enforcement fail-closed y postura de propiedad
+intelectual del artefacto): [Licenciamiento offline](../install-deploy/licensing.md).
+
+---
+
+## Relacionado
+
+- [Licenciamiento offline](../install-deploy/licensing.md) — el modelo completo de
+  licencias por seats y la respuesta canónica de preventa sobre la protección del
+  artefacto instalado.
+- [Install / Deploy](../install-deploy/index.md) — el flujo de instalación de punta a
+  punta: bloque de configuración de licencia, bootstrap del primer admin y seed de
+  clients.
+- [Operaciones & troubleshooting](../operations/index.md) — chequeos de salud del stack
+  (incluido el probe de licencia) y gotchas operativos verificados en despliegues reales.
+- [Compliance](../compliance/index.md) — el marco legal (GDPR / EU AI Act) que los modos
+  de la política de seguridad implementan.
+- [Integraciones](../integrations/index.md) — las superficies (CLI, IDE, extensión de
+  navegador) que consumen las Connections gobernadas por estas políticas.

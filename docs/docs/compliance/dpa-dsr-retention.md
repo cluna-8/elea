@@ -1,13 +1,72 @@
 # DPA · DSR · Retención
 
-!!! note "Audiencia"
-    Administradores del sistema, DPO (Delegado de Protección de Datos) y responsables de
-    seguridad TI en centros sanitarios.
+Esta página cubre la operativa diaria de compliance: registro de DPAs, derechos del
+interesado (DSR) con sus plazos GDPR, políticas de retención, panel DPO, cómo se aplican
+los controles en el pipeline de chat y el checklist antes de producción. La visión general
+del marco legal y los Proyectos de Compliance están en **[Compliance](index.md)**.
 
-Esta página cubre la operativa diaria de compliance: registro de DPAs, derechos del interesado
-(DSR), políticas de retención, panel DPO, cómo se aplican los controles en el pipeline de chat y
-el checklist antes de producción. La visión general del marco legal y la configuración de
-Proyectos de Compliance están en **[Compliance](index.md)**.
+**Para quién**: administradores del sistema, DPO (Delegado de Protección de Datos) y
+responsables de seguridad TI en centros sanitarios.
+
+!!! note "Leyenda de estado"
+    🟢 **HOY** — funciona y está verificado · 🟡 **PARCIAL** — existe con límites
+    documentados · 🔵 **OBJETIVO** — roadmap explícito, no implementado. Nada marcado
+    🔵 se describe como si existiera.
+
+---
+
+## Cómo se aplican los controles en cada llamada
+
+Cuando un usuario envía un mensaje al chat, la plataforma ejecuta este flujo **por cada
+llamada**:
+
+```mermaid
+flowchart TD
+    IN[Peticion entrante] --> A1[1. Autenticacion API key]
+    A1 --> A2[2. Guardianes de contenido - enmascaramiento PII del motor NLP y moderacion del motor del gateway]
+    A2 --> A3[3. Middleware de compliance - lee el proyecto activo resuelto]
+    A3 --> C1{Region EU requerida y modelo fuera de la lista EU}
+    C1 -->|Si| B503[HTTP 503 - peticion bloqueada, el LLM nunca la recibe]
+    C1 -->|No| C2{Notificacion IA activa y sin aviso entregado en la ultima hora para esta API key}
+    C2 -->|Si| PREP[Preparar prefijo de notificacion]
+    C2 -->|No| C3{Revision humana requerida}
+    PREP --> C3
+    C3 -->|Si| TOK[Generar UUID de revision]
+    C3 -->|No| A4
+    TOK --> A4[4. Llamada al LLM - motor del gateway hacia el proveedor]
+    A4 --> A5[5. Post-procesamiento]
+    A5 --> P1[Si hay disclosure preparado - prepend al inicio de la respuesta]
+    A5 --> P2[Si hay review token - guardar en la tabla de revision humana]
+    A5 --> P3[Audit log con disclosure entregado y token de revision]
+    P1 --> OUT[Respuesta al usuario]
+    P2 --> OUT
+    P3 --> OUT
+```
+
+Detalles del enforcement, verificados en el comportamiento real: 🟢
+
+- **Región EU** — si el proyecto exige región EU y el modelo enrutado **no** empieza por
+  `azure-`, `bedrock-`, `vertex-` u `ollama-`, la petición se rechaza con **HTTP 503**
+  antes de salir de la instancia.
+- **Notificación IA** — el aviso se antepone **una vez por hora por API key** (se comprueba
+  contra el audit log), no en cada mensaje, para no interrumpir el flujo de conversación
+  continuamente.
+- **Revisión humana** — cada respuesta bajo un proyecto con revisión humana genera un token
+  UUID que queda en el audit log y en la cola de revisiones pendientes. Es un modelo
+  híbrido: marca para supervisión, **no bloquea** la respuesta.
+
+### Ejemplo de respuesta con disclosure activo
+
+```
+ℹ️ Este servicio utiliza inteligencia artificial para generar respuestas.
+Las respuestas generadas por IA deben ser revisadas por un profesional
+cualificado antes de ser aplicadas. (EU AI Act Art. 50)
+
+[Respuesta del LLM aquí]
+```
+
+Ese es el mensaje predeterminado en español; el campo **Mensaje de notificación** del
+proyecto lo reemplaza si está definido.
 
 ---
 
@@ -45,6 +104,9 @@ tratamiento (el hospital) y cada encargado del tratamiento (el proveedor del LLM
 
 ### Estados del DPA
 
+El estado **se calcula automáticamente** a partir de la fecha de vencimiento — no es un
+campo que se edite a mano:
+
 | Estado | Significado | Acción requerida |
 |--------|-------------|-----------------|
 | 🟢 **Activo** | DPA vigente | Ninguna |
@@ -58,7 +120,9 @@ tratamiento (el hospital) y cada encargado del tratamiento (el proveedor del LLM
 ### Qué es
 
 Los artículos 12–22 del GDPR otorgan a las personas físicas derechos sobre sus datos. El centro
-tiene obligación de responder en **30 días calendario** (Art. 12).
+tiene obligación de responder en el plazo de **un mes** — en la práctica, **30 días
+calendario** — desde la recepción (Art. 12(3)), prorrogable **dos meses más** en casos
+complejos, informando al interesado dentro del primer mes.
 
 Este módulo proporciona un registro de solicitudes y una herramienta de búsqueda para localizar
 qué datos del sujeto están en el sistema.
@@ -75,21 +139,63 @@ qué datos del sujeto están en el sistema.
 
 ### Flujo de trabajo recomendado
 
+```mermaid
+flowchart TD
+    S1[1. Recepcion de solicitud - correo, formulario o presencial] --> S2[2. Registrar en el DSR tracker con identificador del sujeto]
+    S2 --> S3[3. Usar el buscador - buscar por subject_id en los audit logs]
+    S3 --> S4[4. Evaluar si la solicitud es procedente - verificar identidad]
+    S4 --> S5[5. Ejecutar la accion tecnica - exportar, anonimizar o corregir]
+    S5 --> S6[6. Marcar la DSR como completada con notas del resultado]
+    S6 --> S7[7. Notificar al sujeto - plazo maximo 30 dias desde recepcion]
 ```
-1. Recepción de solicitud (correo, formulario, presencial)
-        ↓
-2. Registrar en DSR tracker con identificador del sujeto
-        ↓
-3. Usar buscador → buscar por subject_id en audit logs
-        ↓
-4. Evaluar si la solicitud es procedente (verificar identidad)
-        ↓
-5. Ejecutar acción técnica (exportar / anonimizar / corregir)
-        ↓
-6. Marcar DSR como "Completada" con notas del resultado
-        ↓
-7. Notificar al sujeto (plazo máximo: 30 días desde recepción)
+
+### El flujo DSR paso a paso, con plazos
+
+El mismo flujo visto como interacción entre el interesado, el operador y la evidencia del
+sistema — con los plazos GDPR marcados:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant I as Interesado
+    participant O as DPO u operador
+    participant G as Panel del gateway
+    participant A as Audit log
+
+    I->>O: Solicitud DSR - correo, formulario o presencial
+    Note over O: Arranca el plazo - un mes desde la recepcion, Art. 12.3
+    O->>O: Verificacion de identidad del solicitante
+    Note over O: Con dudas razonables puede pedirse informacion adicional, Art. 12.6
+    O->>G: Registrar la solicitud con el identificador del sujeto
+    O->>G: Buscar por identificador
+    G->>A: Consulta de registros por subject_id
+    A-->>G: DSRs previas del sujeto + registros de auditoria, solo metadatos
+    alt Acceso o portabilidad
+        O->>G: Exportar los registros del sujeto
+    else Rectificacion
+        O->>G: Corregir identificador o metadatos
+    else Supresion
+        O->>G: Anonimizar o eliminar los registros
+    else Limitacion
+        O->>G: Marcar los registros para excluirlos de analisis
+    end
+    O->>G: Marcar la DSR como completada - fecha, responsable y notas
+    G->>A: La resolucion queda auditada
+    O->>I: Respuesta al interesado dentro del plazo
+    Note over I,O: Prorroga posible de dos meses adicionales por complejidad, Art. 12.3 - avisando dentro del primer mes
 ```
+
+### Qué devuelve la búsqueda
+
+La búsqueda por identificador devuelve, **solo con metadatos**: 🟢
+
+- las **DSRs previas** registradas para ese mismo sujeto (tipo, estado, fecha de recepción), y
+- hasta **100 registros de auditoría** más recientes del sujeto, con fecha, modelo usado,
+  si se detectó PII y el estado de compliance de cada llamada.
+
+Cada solicitud nace en estado **abierta** y se cierra marcándola **completada**, con fecha
+de finalización, responsable (`handled_by`) y notas del resultado — esa es la evidencia de
+que la DSR se atendió en plazo.
 
 ### Sobre el identificador del sujeto
 
@@ -134,6 +240,9 @@ permite configurar por cuánto tiempo se guardan los distintos tipos de registro
 3. Completar el campo de justificación (este texto va a la DPIA)
 4. Guardar
 
+Cada cambio guarda además **quién** lo hizo y **cuándo** — la configuración de retención es
+en sí misma evidencia auditada.
+
 !!! warning "Purga automática: 🔵 OBJETIVO"
     El trabajo de purga automática (borrar registros vencidos) está en el roadmap del producto.
     Hoy la retención se configura pero **la purga es manual**: el operador debe ejecutar el
@@ -168,6 +277,17 @@ un vistazo sin necesidad de revisar cada sección.
 | **Notificación IA** | >90% | 50–90% | <50% (obligatorio desde ago. 2026) |
 | **Revisión Humana** | >95% completadas | 80–95% | <80% |
 
+Detalles verificados del cálculo: 🟢
+
+- Un proyecto **sin base legal** cuenta como *bloqueado*; un proyecto de alto riesgo **sin
+  referencia DPIA** cuenta como *alerta* y como *DPIA pendiente*.
+- El panel también avisa cuando la **última revisión de una DPIA** supera los 365 días
+  (revisión anual vencida).
+- Las tasas de enmascaramiento y notificación se calculan sobre las llamadas de inferencia;
+  los eventos de evidencia del licenciamiento **no inflan los denominadores**.
+- El panel incluye la **distribución por propósito de tratamiento** declarado en las
+  llamadas — útil para el Registro de Actividades de Tratamiento (RAT).
+
 ### Revisión DPO recomendada (mensual)
 
 1. Comprobar que no hay DPAs expirados
@@ -175,67 +295,6 @@ un vistazo sin necesidad de revisar cada sección.
 3. Revisar DSRs abiertas — si alguna supera 25 días, escalar
 4. Revisar tasa de notificación IA — debe ser ~100%
 5. Revisar revisiones humanas pendientes en `/api/v1/compliance/review/pending`
-
----
-
-## Cómo se aplican en el pipeline de chat
-
-Cuando un usuario envía un mensaje al chat, la plataforma ejecuta este flujo **por cada llamada**:
-
-```
-Petición entrante
-      │
-      ▼
-[1] Autenticación API key
-      │
-      ▼
-[2] Guardianes de contenido (enmascaramiento PII del motor NLP, moderación del motor del gateway)
-      │
-      ▼
-[3] ◀── COMPLIANCE MIDDLEWARE ──▶
-      │
-      ├─ Lee todos los proyectos activos
-      │
-      ├─ [EU Region check]
-      │   Si proj.eu_region_required = true
-      │   Y modelo no empieza por azure- / bedrock- / vertex- / ollama-
-      │   → HTTP 503 — petición bloqueada, LLM nunca la recibe
-      │
-      ├─ [AI Disclosure check]
-      │   Si proj.ai_disclosure_enabled = true
-      │   Y no se entregó disclosure en la última hora para esta API key
-      │   → Preparar prefijo de notificación
-      │
-      └─ [Human Review check]
-          Si proj.human_review_required = true
-          → Generar UUID de revisión
-      │
-      ▼
-[4] Llamada al LLM (motor del gateway → proveedor)
-      │
-      ▼
-[5] Post-procesamiento
-      │
-      ├─ Si hay disclosure preparado → prepend al inicio de la respuesta
-      ├─ Si hay review_token → guardar en tabla human_review
-      └─ Audit log con ai_disclosure_delivered y review_token
-      │
-      ▼
-Respuesta al usuario
-```
-
-### Ejemplo de respuesta con disclosure activo
-
-```
-ℹ️ Este servicio utiliza inteligencia artificial para generar respuestas.
-Las respuestas pueden contener errores. Consulte siempre a un profesional
-sanitario antes de tomar decisiones clínicas.
-
-[Respuesta del LLM aquí]
-```
-
-El aviso aparece **una vez por hora por API key** — no en cada mensaje, para no interrumpir el
-flujo de conversación continuamente.
 
 ---
 
@@ -280,6 +339,23 @@ flujo de conversación continuamente.
 
 ---
 
+## Referencia rápida de la API de compliance
+
+Todo lo descrito en esta página se opera también por API (sesión JWT con rol **tenant
+admin** o **compliance officer**; la revisión humana admite además el perfil `clinician`):
+
+| Ruta | Qué hace |
+|------|----------|
+| `GET/POST /api/v1/compliance/projects` · `PUT/DELETE .../projects/{id}` | CRUD de Proyectos de Compliance |
+| `GET/POST /api/v1/compliance/dpas` · `PUT/DELETE .../dpas/{id}` | CRUD del registro de DPAs |
+| `GET/POST /api/v1/compliance/dsr` · `PUT .../dsr/{id}` | Registrar y actualizar solicitudes DSR |
+| `GET /api/v1/compliance/dsr/search?subject_id=...` | Búsqueda de evidencia por identificador del sujeto |
+| `GET /api/v1/compliance/review/pending` · `POST .../review/{token}` | Cola de revisiones humanas y envío del veredicto |
+| `GET/PUT /api/v1/compliance/retention` | Consultar y ajustar las políticas de retención |
+| `GET /api/v1/compliance/dashboard` | Indicadores consolidados del panel DPO |
+
+---
+
 ## Checklist antes de producción
 
 ### Legal / Organizativo
@@ -293,7 +369,8 @@ flujo de conversación continuamente.
 
 ### Técnico
 
-- [ ] Al menos 1 proyecto de compliance activo con base legal correcta
+- [ ] Al menos 1 proyecto de compliance activo con base legal correcta, **asignado** a los
+      grupos / usuarios que deben regirse por él
 - [ ] DPA del proveedor LLM registrado con `cubre_art_9 = true`
 - [ ] Notificación IA activada (obligatoria EU AI Act Art. 50 desde agosto 2026)
 - [ ] Si se usan datos clínicos reales: `eu_region_required = true` y modelo `azure-*` o `bedrock-eu-*`
@@ -307,6 +384,17 @@ flujo de conversación continuamente.
 - [ ] Tasa de notificación IA > 0% tras primeras llamadas de prueba
 - [ ] Audit log registra `ai_disclosure_delivered = true` en primera llamada por sesión
 - [ ] DSR de prueba creada, buscada y completada correctamente
+
+---
+
+## Relacionado
+
+- [Compliance](index.md) — marco legal, niveles de riesgo del EU AI Act con lo que el
+  producto hace en cada uno, y configuración de Proyectos de Compliance.
+- [Administración](../administration/index.md) — roles que gestionan compliance, políticas
+  de seguridad con modos GDPR / AI Act y auditoría metadata-only.
+- [Operaciones](../operations/index.md) — runbook del operador: chequeos de salud del
+  stack y gotchas verificados en formato síntoma → causa → fix.
 
 ---
 

@@ -1,8 +1,36 @@
 # Gotchas verificados
 
-Límites y comportamientos conocidos de cada superficie de integración, en formato
-**causa → fix**. Todos fueron verificados en vivo sobre el producto. La configuración de cada
-superficie está en [Integraciones & matriz de compatibilidad](index.md).
+**Objetivo:** resolver tickets de las superficies de integración a partir de los límites y
+comportamientos conocidos de cada una, en formato **síntoma → causa → fix**. Todos fueron
+verificados en vivo sobre el producto — nada teórico. La configuración de cada superficie está en
+[Integraciones & matriz de compatibilidad](index.md).
+
+**Prerrequisitos:**
+
+- Acceso al monitor en vivo (`GET /api/v1/gw/monitor`) y al feed efímero de eventos
+  (`GET /api/v1/gw/events`) para reproducir y observar el síntoma.
+- Una virtual key válida para verificar identidad:
+  `curl …/api/v1/gw/whoami -H "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>"`.
+- Para la superficie `browser`: poder recargar la extensión (botón **↻**) y, si hace falta,
+  editar su `manifest.json`.
+- Base de los ejemplos: `http://localhost:8091/api/v1/gw` en desarrollo; en producción,
+  `https://<host>/api/v1/gw`.
+
+## Triage exprés
+
+```mermaid
+flowchart TD
+    S[Sintoma en una integracion] --> B[Herramienta por base_url]
+    S --> W[Chat web con la extension]
+    B --> B1[Copilot loopea o da 400 en Agent - G1]
+    B --> B2[Copilot no autentica - G2]
+    B --> B3[Un secreto pasa en un prompt gigante - G7]
+    B --> B4[La key de atribucion desvia a byok - G8]
+    W --> W1[El nombre real sale en el titulo - G3]
+    W --> W2[Los placeholders no se des-enmascaran - G4]
+    W --> W3[Placeholders crudos en un artefacto - G5]
+    W --> W4[Por que el body modificado se acepta - G6]
+```
 
 ## G1 · Ask vs Agent en Copilot (loop en Agent)
 
@@ -91,3 +119,12 @@ superficie está en [Integraciones & matriz de compatibilidad](index.md).
 !!! tip "¿Buscás el troubleshooting rápido?"
     La tabla síntoma → causa probable → fix y los endpoints de apoyo están en
     [Operaciones & troubleshooting](../operations/index.md).
+
+## Relacionado
+
+- [Integraciones & matriz de compatibilidad](index.md) — la topología de superficies y la
+  configuración de cada herramienta cuyo límite estás depurando.
+- [Operaciones & troubleshooting](../operations/index.md) — la tabla exprés síntoma → causa → fix
+  para tickets, los endpoints de apoyo y la salud del stack.
+- [Administración](../administration/index.md) — alta de personas, Connections y virtual keys que
+  estas superficies consumen (la identidad que valida `whoami`).

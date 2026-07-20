@@ -47,6 +47,32 @@ Cloud y equivalentes): meten egress y una dependencia externa que rompe el air-g
 Plan B documentado (si se migrara a Astro Starlight): **Pagefind**, el equivalente
 offline del ecosistema JS (índice estático en build). Ver `specs/022-.../research.md`.
 
+## Estructura OBLIGATORIA por tipo de página (Diátaxis adaptado)
+
+Esta doc **se vende**: la estructura no es una convención, es un contrato que
+`test_docs_structure.sh` hace cumplir en el gate del release. Tipos:
+
+**GUÍA** (overview, install-deploy/*, white-label, administration, integrations/index,
+compliance/*): H1 → resumen de 2-4 líneas → línea `**Para quién**:` → sección
+conceptual con **≥1 diagrama Mermaid** → secciones del tema → límites con leyenda
+🟢/🟡/🔵 donde aplique → `## Relacionado` final (≥2 links internos con 1 línea de
+contexto). Mínimo 3 links internos en la página.
+
+**RUNBOOK** (operations, integrations/gotchas): H1 → objetivo → prerrequisitos →
+pasos/gotchas en formato síntoma → causa → fix (todo VERIFICADO en vivo, jamás
+teórico) → `## Relacionado`. Diagrama opcional (árboles de triage bienvenidos).
+
+**REFERENCIA** (api-reference/*): generada por `make -C deploy docs-refs`. Exenta
+del template — jamás se edita a mano.
+
+Los diagramas son **Mermaid como código** (fence ```` ```mermaid ````): versionables,
+marca-neutros, y renderizan offline (el plugin `privacy` embebe mermaid.js en build —
+verificado por el check de 0 egress). Cero PNGs de diagramas.
+
+Ninguna página huérfana: toda página recibe al menos un link entrante (el linter lo
+cuenta). La variante EN existe como fallback (`*.en.md`); la paridad completa es
+roadmap — el linter aplica sobre las fuentes ES.
+
 ## Qué NO publica este sitio
 
 - Las specs internas de ingeniería (`specs/0XX-*`) — audiencia distinta, jamás se derivan.

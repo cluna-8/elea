@@ -1,9 +1,10 @@
 # Operaciones & troubleshooting
 
-Runbook del **operador**: cómo verificar que el stack está sano, los gotchas operativos verificados
-en despliegues reales (síntoma → causa → fix), el troubleshooting rápido de las superficies de
-integración y las tareas de mantenimiento (actualización del motor del gateway y backup/restore
-de los volúmenes durables en on-prem).
+**Objetivo**: runbook del **operador** — verificar que el stack está sano, diagnosticar por
+síntoma con un árbol de triage, resolver los gotchas operativos verificados en despliegues
+reales (síntoma → causa → fix), aislar la licencia como causa raíz, atender tickets de las
+superficies de integración y ejecutar el mantenimiento (actualización del motor del gateway
+y backup/restore de los volúmenes durables en on-prem).
 
 **Leyenda de estado** (honestidad de producto, se usa en todo el sitio):
 
@@ -13,6 +14,48 @@ de los volúmenes durables en on-prem).
 | 🟡 **PARCIAL** | Existe la base, falta endurecerlo para producción |
 | 🔵 **OBJETIVO** | Roadmap / estado-objetivo, no existe aún |
 
+## Prerrequisitos
+
+- **Acceso shell** al host donde corre el stack, con `docker` y el plugin `docker compose` (v2).
+- La **definición del despliegue** a mano (compose de producción / módulo IaC): es la fuente de
+  verdad de imágenes (tag + digest), volúmenes y variables.
+- **En on-prem / self-hosted, todo comando `docker compose` lleva `--profile selfhosted`**
+  (o se exporta `COMPOSE_PROFILES=selfhosted` una vez por sesión). Sin el profile, **db y redis
+  no existen para compose**: no levantan, y tampoco aparecen en `ps`/`logs`. En cloud
+  (base de datos y cache gestionados) el profile se omite.
+- `curl` para los endpoints de salud; para el **tier detallado** del health de licencia hace
+  falta además una **sesión con rol de operación** (admin / compliance).
+- Para la sección de backup: un **destino fuera del host** donde guardar los dumps.
+
+---
+
+## Triage: ¿el stack levanta?
+
+Árbol de decisión para llegar rápido a la sección correcta. Cada hoja apunta a un fix
+verificado de este runbook.
+
+```mermaid
+flowchart TD
+    Q0{El stack levanta?}
+    Q0 -->|no| PS[Revisar docker compose ps con el profile selfhosted]
+    Q0 -->|si pero rechaza operaciones| LIC[Consultar GET /api/v1/health/license]
+    Q0 -->|si y el sintoma es de una superficie| INT[Tabla de integraciones - seccion 4]
+    Q0 -->|si y todo Up| OK[Chequeos de salud - seccion 1]
+    PS --> Q1{Faltan db y redis?}
+    Q1 -->|si| F1[Levantar de nuevo con el profile selfhosted - seccion 1.1]
+    Q1 -->|no| Q2{Motor unhealthy en el primer boot?}
+    Q2 -->|si| F2[No es un fallo - gotcha b]
+    Q2 -->|no| LOGS[Revisar docker compose logs backend]
+    LOGS --> Q3{Errores de migracion al boot?}
+    Q3 -->|si| F3[Base inaccesible o credenciales mal inyectadas - seccion 1.3]
+    Q3 -->|no| F3b[Endpoints de salud - seccion 1.2]
+    LIC --> Q4{status distinto de active?}
+    Q4 -->|si| F4[La licencia como causa raiz - seccion 3]
+    Q4 -->|no| Q5{500 al listar usuarios?}
+    Q5 -->|si| F5[Email del admin - gotcha c]
+    Q5 -->|no| INT
+```
+
 ---
 
 ## 1. Chequeos de salud del stack
@@ -20,7 +63,7 @@ de los volúmenes durables en on-prem).
 ### 1.1 Contenedores
 
 ```bash
-docker compose ps   # o: docker ps
+docker compose --profile selfhosted ps   # en cloud (4 servicios): docker compose ps
 ```
 
 En producción son **4 servicios** (backend, frontend, motor del gateway, docs). En **on-prem /
@@ -38,27 +81,41 @@ self-hosted** el stack se levanta con `--profile selfhosted` (o exportando
 |---|---|---|
 | Backend (liveness) | `GET /health` del backend | `200` — el **proceso** del backend responde. Es una respuesta estática: **no** verifica la base de datos |
 | Motor del gateway | `GET /health/readiness` del motor | `200` — el motor terminó sus migraciones y acepta tráfico |
-| Licencia | `GET /api/v1/health/license` del backend | Estado de la licencia instalada: validez de la firma, expiración y seats (usados vs. contratados) |
+| Licencia | `GET /api/v1/health/license` del backend | Estado de la licencia instalada, en **dos niveles** (ver abajo) |
+
+El health de licencia responde en **dos niveles**, a propósito:
+
+- **Sin autenticación** (probe de monitoreo): sólo `{status, clock_rollback_suspected}` —
+  suficiente para saber si la licencia está sana, sin filtrar dimensionamiento a un caller
+  anónimo.
+- **Con sesión de rol de operación** (admin / compliance): agrega `reason`, `expiry`,
+  `grace_days`, `max_seats`, `seats_used`, el resumen de la última reconciliación de seats y la
+  identidad de la cadena de auditoría. Nunca devuelve el token crudo ni material de claves.
 
 Para señales de **base de datos**, `GET /health` no alcanza: mirar los logs de migraciones del
-backend al arranque (sección 1.3) y el estado de los servicios (`docker compose ps`).
+backend al arranque (sección 1.3) y el estado de los servicios
+(`docker compose --profile selfhosted ps`).
 
 !!! warning "La licencia es fail-closed"
     Sin una licencia válida instalada, el producto rechaza la operación licenciada en lugar de
     continuar en silencio. `GET /api/v1/health/license` es el primer endpoint a consultar cuando
     "todo está `Up` pero algo se rechaza": permite distinguir un problema de infraestructura de un
-    problema de licencia (expirada, firma inválida o seats agotados).
+    problema de licencia (expirada, firma inválida o seats agotados). El detalle síntoma → causa →
+    fix está en la [sección 3](#3-la-licencia-como-causa-raiz-sintoma-causa-fix).
 
 ### 1.3 Qué mirar en los logs
 
 ```bash
-docker compose logs -f backend    # o el servicio que corresponda
+docker compose --profile selfhosted logs -f backend   # o el servicio que corresponda
 ```
 
 - **Backend, al boot**: corre las migraciones de esquema automáticamente. Errores en esta fase casi
   siempre significan base de datos inaccesible o credenciales mal inyectadas.
 - **Motor del gateway, al boot**: la línea `Application startup complete` confirma que arrancó bien,
   aunque el healthcheck del compose lo haya marcado `unhealthy` por timeout (gotcha b).
+- **Licencia**: cuando el bloqueo total está activo (sección 3), el **motivo real** del corte va a
+  los logs del backend — el cliente sólo recibe un mensaje genérico, para no filtrar estado
+  interno a un caller sin autenticar.
 - **Auditoría durable**: es **metadata-only** — los logs y la auditoría persistida no contienen
   texto de prompt ni PII cruda. Si un log mostrara contenido de prompt, es un hallazgo a reportar,
   no un comportamiento esperado.
@@ -148,7 +205,68 @@ credencial del admin inmediatamente después de la instalación.
 
 ---
 
-## 3. Troubleshooting rápido de integraciones
+## 3. La licencia como causa raíz (síntoma → causa → fix) { #3-la-licencia-como-causa-raiz-sintoma-causa-fix }
+
+El licenciamiento es 🟢 **fail-closed y 100% offline** (verificación de firma local, sin
+phone-home). Por diseño, varios "errores raros" de un stack sano son en realidad estados de
+licencia. El modelo completo (estados `active → grace → expired`, seats, reconciliación,
+true-up) está en [Administración](../administration/index.md); acá va el diagnóstico.
+
+### L1 · Crear una Connection o un usuario devuelve **402**
+
+- **Síntoma:** el alta falla con `402 license_seat_limit_exceeded` y el mensaje indica
+  `N/N seats activos`.
+- **Causa:** tope de seats alcanzado. Un **seat = una Connection ACTIVA** (virtual key activa y
+  no expirada) del tenant — **no** un usuario: desactivar un usuario **no** libera seats.
+- **Fix:** **revocar Connections** que ya no se usan, o ampliar la licencia con el emisor
+  (renovación / true-up **fuera de banda**, sin egress). Verificar `seats_used` vs `max_seats`
+  con el tier autenticado de `GET /api/v1/health/license`.
+
+### L2 · Crear devuelve **403** `license_creation_blocked`
+
+- **Síntoma:** toda creación de seats se rechaza con 403, aunque el stack esté `Up` y el tráfico
+  existente funcione.
+- **Causa:** licencia **ausente**, de **firma inválida**, **de otro tenant** (no coincide con el
+  tenant del despliegue) o en estado degradado (`grace`/`expired`/`over_seat`). Fail-closed:
+  "sin token" jamás significa "ilimitado".
+- **Fix:** instalar el archivo de licencia correcto del tenant del despliegue y reiniciar el
+  backend. `reason` en el tier autenticado del health de licencia dice cuál de las causas es.
+  Flujo de emisión/instalación en [Licenciamiento offline](../install-deploy/licensing.md).
+
+### L3 · **Todo** el tráfico del gateway responde **403** con mensaje genérico
+
+- **Síntoma:** las rutas de servicio bajo `/api/v1/gw` (messages, count_tokens, models, whoami,
+  inspect) devuelven `403 license_degraded…` con un mensaje fijo, sin detalle.
+- **Causa:** el **bloqueo total** está habilitado por toggle en el despliegue y la licencia está
+  `expired` (más allá de la gracia) o el tenant en `over_seat`. El corte ocurre **antes** de
+  rutear o tocar upstream, y el mensaje al cliente es genérico a propósito — el motivo real va a
+  los **logs del backend**. `GET /api/v1/gw` (discovery) queda abierto para diagnóstico.
+- **Fix:** instalar la renovación de la licencia (o resolver el over-seat, L5). Importante para
+  no sobre-diagnosticar: `grace` **jamás** corta tráfico, con o sin bloqueo total; y **sin** el
+  toggle, el modo degradado por defecto sólo bloquea **altas** — el tráfico existente sigue.
+
+### L4 · `clock_rollback_suspected: true` en el health de licencia
+
+- **Síntoma:** el probe anónimo de `GET /api/v1/health/license` devuelve
+  `clock_rollback_suspected: true`; las altas se degradan.
+- **Causa:** el reloj del host aparece **detrás** de la última marca monotónica registrada — la
+  evidencia de expiración deja de ser confiable, así que la creación se degrada de forma
+  conservadora. El episodio queda en la **auditoría hash-encadenada**.
+- **Fix:** corregir el reloj/NTP del host. Cuando el reloj vuelva a superar la marca registrada,
+  la creación se rehabilita sola.
+
+### L5 · Seats liberados, pero el alta sigue bloqueada un rato
+
+- **Síntoma:** después de revocar Connections, crear sigue devolviendo error durante algunos
+  minutos.
+- **Causa:** el estado `over_seat` lo publica un **job periódico de reconciliación**; el bloqueo
+  persiste hasta que una corrida recuente y vuelva a `ok`. Toda transición queda auditada.
+- **Fix:** esperar la siguiente corrida (el intervalo es configurable en el despliegue) y
+  verificar con el tier autenticado del health de licencia (`reconcile.tenant_status`).
+
+---
+
+## 4. Troubleshooting rápido de integraciones
 
 Referencia express para tickets sobre las superficies de integración (`base_url` y `browser`).
 Los códigos **G#** refieren al detalle causa → fix en
@@ -166,6 +284,7 @@ Los códigos **G#** refieren al detalle causa → fix en
 | Un secreto pasa PERMITIDO en un prompt gigante | Cap de inspección desde la cabeza (G7) | Debe estar el fix de la **cola**; confirmar versión del gateway |
 | En `byok` Claude Code falla tool-calling (`tool_use_failed`) | Modelo no-Claude no soporta el tool-calling agéntico | Usar **suscripción** (default `anthropic`), no byok, para Claude Code |
 | Nada aparece en el monitor | Superficie no llama al gateway (masking local viejo) o buffer efímero vacío | La extensión debe llamar `POST /api/v1/gw/inspect`; revisar `GET /api/v1/gw/events` (el buffer vive en memoria y se vacía al reiniciar el gateway) |
+| Rutas `/gw` de servicio devuelven 403 genérico en **todas** las superficies | Bloqueo total por licencia (L3) | Ver la [sección 3](#3-la-licencia-como-causa-raiz-sintoma-causa-fix) — no es un problema de la superficie |
 
 **Endpoints de apoyo (superficie `base_url` + `browser`):**
 `GET /api/v1/gw` (discovery), `POST /api/v1/gw/v1/messages` (firewall),
@@ -183,9 +302,9 @@ en vivo). No existen otros endpoints `/gw` que estos.
 
 ---
 
-## 4. Mantenimiento
+## 5. Mantenimiento
 
-### 4.1 Actualización del motor del gateway
+### 5.1 Actualización del motor del gateway
 
 La imagen del motor del gateway se **fija por tag + digest** en la definición del despliegue
 (`docker-compose.yml` / módulo IaC): el despliegue es reproducible y el motor no cambia por debajo
@@ -200,7 +319,8 @@ Para actualizar el motor:
       y una ejecución real sobre `/v1/messages`:
 
         ```bash
-        docker compose run --rm --no-deps backend pytest tests/contract -q
+        docker compose --profile selfhosted run --rm --no-deps backend pytest tests/contract -q
+        # en cloud, sin el profile
         ```
 
     - `make -C deploy check` — valida los artefactos del release.
@@ -211,7 +331,7 @@ Para actualizar el motor:
     **Actualizar el motor = correr las verificaciones, no reescribir a mano.** Un check en rojo es
     información (el contrato del motor cambió), no una invitación a parchear hasta que pase.
 
-### 4.2 Backup / restore de volúmenes durables (on-prem)
+### 5.2 Backup / restore de volúmenes durables (on-prem)
 
 En cloud con base de datos y cache **gestionados**, los backups y la alta disponibilidad quedan del
 lado del proveedor gestionado. En **on-prem** (contenedores con volúmenes locales), el backup es
@@ -237,8 +357,19 @@ Reglas del patrón:
 
 !!! warning "Incluir la licencia en el backup"
     Como la licencia es fail-closed, un restore sin el archivo de licencia deja un stack que arranca
-    pero rechaza la operación licenciada. El archivo de licencia forma parte del backup, no un
-    extra opcional.
+    pero rechaza la operación licenciada (sección 3). El archivo de licencia forma parte del backup,
+    no un extra opcional.
 
-Detalle del empaquetado air-gapped (tarball de imágenes, espejos) en
-[Install / Deploy](../install-deploy/index.md).
+## Relacionado
+
+- [Install / Deploy](../install-deploy/index.md) — el flujo de instalación de punta a punta, los
+  deliverables (incluido el tarball air-gapped que piden los fixes de egress) y los mismos gotchas
+  vistos desde el momento de instalar.
+- [Licenciamiento offline](../install-deploy/licensing.md) — emisión, renovación (true-up) y postura
+  de IP del archivo de licencia cuyos síntomas diagnostica la sección 3.
+- [Gotchas de integración](../integrations/gotchas.md) — el detalle causa → fix de los códigos G#
+  de la tabla de troubleshooting rápido.
+- [Administración](../administration/index.md) — el modelo completo detrás de los síntomas: tenants,
+  roles, budgets y el ciclo de vida de licencias y seats.
+- [Infraestructura](../install-deploy/infrastructure.md) — topología de red, secretos por
+  instalación y las diferencias cloud vs on-prem que cambian qué comandos llevan el profile.
