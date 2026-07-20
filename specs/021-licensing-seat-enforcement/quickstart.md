@@ -62,6 +62,14 @@ la **pública** de la deployment key y la **génesis** (`license_id` inicial):
 `trueup_export.verify_export(doc, public_pem, expected_genesis_license_id=…,
 previous=export_anterior)` valida firma + cadena + continuidad (anti-truncado).
 
+**Génesis efectiva**: la reporta `/api/v1/health/license` (tier admin, campo
+`chain`). Si el PRIMER arranque fue sin `.lic` (estado soportado, SC-013), la
+génesis queda `"unlicensed"` y la cadena la ata al primer `license_id` con
+firma válida vía el evento `license_genesis_anchored` — `verify_export` acepta
+una génesis `"unlicensed"` **solo** con ese anclaje apuntando al `license_id`
+del onboarding (sin eventos licenciados previos). Basa registra el
+`license_id` emitido; no hace falta coordinar nada más.
+
 ## Rotación de claves (resumen; detalle en el contract test)
 
 - **Licencias**: keyset multi-`key_id` — publicar keyset con kid viejo+nuevo,

@@ -57,7 +57,12 @@ def build_payload(session_factory=None, now: Optional[datetime] = None) -> dict:
     try:
         from ..models.license_state import LicenseRuntimeState
         state = db.query(LicenseRuntimeState).filter(LicenseRuntimeState.id == 1).one_or_none()
-        events = _chained_entries(db)
+        # SNAPSHOT al contador leído (hardening post-review): un emit que
+        # comitea entre las dos lecturas metería eventos por encima del head
+        # firmado → export auto-inconsistente (falso tamper). Lo que entre
+        # después va al próximo export; la continuidad no se afecta.
+        counter_snapshot = state.event_counter if state else 0
+        events = [e for e in _chained_entries(db) if e["seq"] <= counter_snapshot]
         return {
             "schema": SCHEMA,
             "kind": KIND,
@@ -119,10 +124,23 @@ def verify_export(doc: dict, deployment_public_pem: str,
     if last_seq and payload.get("hash_head") != running:
         raise TrueUpError("hash_head no coincide con el historial recomputado")
 
-    # PRIMER export: la génesis debe ser la registrada en el onboarding.
-    if expected_genesis_license_id is not None \
-            and payload.get("genesis_license_id") != expected_genesis_license_id:
-        raise TrueUpError("génesis no coincide con la registrada en el onboarding")
+    # PRIMER export: la génesis debe ser la registrada en el onboarding. Una
+    # génesis 'unlicensed' (boot inicial sin .lic, estado soportado SC-013) se
+    # acepta SOLO si la cadena la ata al license_id del onboarding: el evento
+    # license_genesis_anchored con ese id, sin ningún evento licenciado antes.
+    if expected_genesis_license_id is not None:
+        genesis = payload.get("genesis_license_id")
+        if genesis == "unlicensed":
+            events_sorted = sorted(payload.get("events", []), key=lambda e: e["seq"])
+            anchored = next((e for e in events_sorted
+                             if e["event_type"] == "license_genesis_anchored"), None)
+            if anchored is None or anchored["license_id"] != expected_genesis_license_id \
+                    or any(e.get("license_id") for e in events_sorted
+                           if e["seq"] < anchored["seq"]):
+                raise TrueUpError("génesis 'unlicensed' sin anclaje válido al license_id "
+                                  "del onboarding")
+        elif genesis != expected_genesis_license_id:
+            raise TrueUpError("génesis no coincide con la registrada en el onboarding")
 
     # Continuidad entre exports sucesivos (la pieza anti-truncado, FR-028).
     if previous is not None:

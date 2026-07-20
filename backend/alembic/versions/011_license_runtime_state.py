@@ -28,6 +28,7 @@ def upgrade():
         CREATE TABLE IF NOT EXISTS license_runtime_state (
             id INTEGER PRIMARY KEY,
             genesis_license_id VARCHAR,
+            anchored_license_id VARCHAR,
             hash_head VARCHAR,
             event_counter BIGINT NOT NULL DEFAULT 0,
             monotonic_ts TIMESTAMP,

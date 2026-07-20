@@ -21,6 +21,11 @@ class LicenseRuntimeState(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=False)  # SIEMPRE 1
     genesis_license_id = Column(String, nullable=True)   # ancla de la génesis (onboarding)
+    # Si la génesis quedó 'unlicensed' (primer boot sin licencia), acá queda el
+    # PRIMER license_id con firma válida — atado a la cadena por el evento
+    # license_genesis_anchored (hardening post-review: sin esto, el primer
+    # true-up acusaría de tamper a un deployment honesto).
+    anchored_license_id = Column(String, nullable=True)
     hash_head = Column(String, nullable=True)            # hex del último evento encadenado
     event_counter = Column(BigInteger, nullable=False, default=0)  # seq del último evento
     monotonic_ts = Column(DateTime, nullable=True)       # marca anti-rollback (naive UTC, convención 013)

@@ -50,7 +50,7 @@ EVENT_REQUIRED = {"event_type", "license_id", "seats_used", "max_seats", "reason
 EVENT_TYPES = {"license_loaded", "license_grace", "license_expired", "license_invalid",
                "license_tenant_mismatch", "license_missing", "license_seat_limit_exceeded",
                "license_over_seat", "license_over_seat_resolved",
-               "license_clock_rollback_suspected"}
+               "license_clock_rollback_suspected", "license_genesis_anchored"}
 
 
 def test_license_audit_event_schema_constants():
@@ -62,13 +62,29 @@ def test_license_audit_event_schema_constants():
 
 def test_license_audit_entry_hashing_is_stable():
     """El hash de una entrada es función SOLO de su forma canónica: si esto
-    cambia, TODA cadena previa deja de verificar. Vector fijo de regresión."""
+    cambia, TODA cadena previa deja de verificar. Vectores fijos de regresión —
+    el segundo con reason NO-ASCII (string real de producción) pinna la
+    dimensión unicode (ensure_ascii): un vector solo-ASCII hashea idéntico con
+    ensure_ascii=True/False y no la detectaría."""
     from src.licensing.audit_events import entry_hash
+    from src.licensing.token import canonical_payload_bytes
     entry = {"event_type": "license_loaded", "license_id": "lic_fixed", "seats_used": 1,
              "max_seats": 2, "reason": None, "ts": "2026-07-20T00:00:00+00:00",
              "prev_hash": "0" * 64, "seq": 1}
     assert entry_hash(entry) == entry_hash(json.loads(json.dumps(entry)))
     assert entry_hash(entry) == "17b4d0ec822c2fee52cea5fd7e54d92a86a2ad99838fe84ebf0c8120ae6f54d7"
+
+    unicode_entry = {**entry, "seq": 2,
+                     "reason": "reconciliación: seats activos por encima del entitlement"}
+    # Bytes canónicos pinneados: UTF-8 crudo (ensure_ascii=False), sort_keys,
+    # separadores compactos — byte a byte, no solo el hash.
+    assert canonical_payload_bytes(unicode_entry) == (
+        b'{"event_type":"license_loaded","license_id":"lic_fixed","max_seats":2,'
+        b'"prev_hash":"' + b"0" * 64 + b'","reason":"reconciliaci\xc3\xb3n: seats '
+        b'activos por encima del entitlement","seats_used":1,"seq":2,'
+        b'"ts":"2026-07-20T00:00:00+00:00"}'
+    )
+    assert entry_hash(unicode_entry) == "a046337805372db2b22a63d5cf863affc664938e89ebcdf3d2bfebba6ccb4764"
 
 
 # ── 3. TrueUpExport ───────────────────────────────────────────────────────────

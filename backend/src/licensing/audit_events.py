@@ -36,6 +36,12 @@ EVENT_OVER_SEAT = "license_over_seat"
 EVENT_OVER_SEAT_RESOLVED = "license_over_seat_resolved"
 # Anti-rollback de reloj (US5, FR-023).
 EVENT_CLOCK_ROLLBACK = "license_clock_rollback_suspected"
+# Anclaje diferido de la génesis (hardening post-review US5): si el primer boot
+# fue SIN licencia (génesis 'unlicensed'), el primer license_id con firma
+# válida queda atado a la cadena por este evento — el verificador del true-up
+# lo exige para aceptar una génesis 'unlicensed' (si no, el primer export de un
+# deployment honesto que arrancó sin .lic acusaría tamper sin remediación).
+EVENT_GENESIS_ANCHORED = "license_genesis_anchored"
 
 _GENESIS_PREFIX = "basa-genesis:"
 
@@ -123,6 +129,7 @@ _COMPLIANCE_BY_EVENT = {
     EVENT_LOADED: "passed",
     EVENT_GRACE: "flagged_high_risk",  # advierte: opera pero la renovación urge
     EVENT_OVER_SEAT_RESOLVED: "passed",
+    EVENT_GENESIS_ANCHORED: "passed",
 }
 
 
@@ -138,6 +145,35 @@ def emit_license_event(db, event_type: str, *, tenant_id=None, license_id=None,
 
     now = now or datetime.now(timezone.utc)
     state = _locked_state(db, license_id)
+    row_tenant = tenant_id or DEFAULT_TENANT_ID
+    if isinstance(row_tenant, str):
+        row_tenant = uuid.UUID(row_tenant)
+    # Anclaje diferido de génesis (one-shot): génesis 'unlicensed' + primer
+    # license_id con firma válida → evento de binding ANTES del evento real.
+    if (license_id and state.genesis_license_id == "unlicensed"
+            and state.anchored_license_id is None):
+        _append_chained(db, state, row_tenant, EVENT_GENESIS_ANCHORED,
+                        license_id=license_id, seats_used=None, max_seats=None,
+                        reason=("primer license_id con firma válida — ata la génesis "
+                                "'unlicensed' al license_id del onboarding"),
+                        now=now)
+        state.anchored_license_id = license_id
+    _append_chained(db, state, row_tenant, event_type,
+                    license_id=license_id, seats_used=seats_used,
+                    max_seats=max_seats, reason=reason, now=now)
+    # Marca monotónica (FR-023): el ÚLTIMO ts de licencia visto; nunca retrocede.
+    now_naive = now.replace(tzinfo=None)
+    if state.monotonic_ts is None or now_naive > state.monotonic_ts:
+        state.monotonic_ts = now_naive
+    db.commit()
+
+
+def _append_chained(db, state, row_tenant, event_type, *, license_id,
+                    seats_used, max_seats, reason, now) -> dict:
+    """Un eslabón: entrada + fila AuditLog + avance de head/contador (misma tx,
+    el caller ya tiene la fila singleton bajo FOR UPDATE)."""
+    from ..models.audit import AuditLog
+
     seq = state.event_counter + 1
     entry = {
         "event_type": event_type,
@@ -149,9 +185,6 @@ def emit_license_event(db, event_type: str, *, tenant_id=None, license_id=None,
         "prev_hash": state.hash_head,
         "seq": seq,
     }
-    row_tenant = tenant_id or DEFAULT_TENANT_ID
-    if isinstance(row_tenant, str):
-        row_tenant = uuid.UUID(row_tenant)
     db.add(AuditLog(
         tenant_id=row_tenant,
         model="license",
@@ -165,11 +198,7 @@ def emit_license_event(db, event_type: str, *, tenant_id=None, license_id=None,
     ))
     state.hash_head = entry_hash(entry)
     state.event_counter = seq
-    # Marca monotónica (FR-023): el ÚLTIMO ts de licencia visto; nunca retrocede.
-    now_naive = now.replace(tzinfo=None)
-    if state.monotonic_ts is None or now_naive > state.monotonic_ts:
-        state.monotonic_ts = now_naive
-    db.commit()
+    return entry
 
 
 def emit_state_event(state, session_factory=None) -> None:

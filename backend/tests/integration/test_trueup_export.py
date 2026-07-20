@@ -16,6 +16,7 @@ import pytest
 from migration_harness import require_postgres
 from seat_gate_harness import (
     build_app_client,
+    clear_license,
     restore_suite_license,
     set_license,
 )
@@ -117,6 +118,36 @@ def test_first_export_checks_onboarding_genesis(harness, monkeypatch, tmp_path, 
     with pytest.raises(trueup_export.TrueUpError, match="génesis"):
         trueup_export.verify_export(doc, dep_key,
                                     expected_genesis_license_id="lic_de_otra_caja")
+
+
+def test_unlicensed_first_boot_genesis_gets_anchored(harness, monkeypatch, tmp_path, dep_key):
+    """Hardening post-review (no-circular): una caja cuyo PRIMER boot fue sin
+    .lic queda con génesis 'unlicensed' — al cargar la licencia real, la cadena
+    la ata (license_genesis_anchored) y el primer export valida contra el
+    license_id del ONBOARDING (no contra lo que la caja diga); un id ajeno
+    sigue rechazándose."""
+    from src.licensing import entitlement, trueup_export
+    _client, factory, _cleanup = harness
+    _wipe_chain(factory)  # caja "nueva": sin fila singleton ni eventos
+
+    # Boot sin licencia → license_missing con license_id=None → génesis 'unlicensed'.
+    clear_license(monkeypatch)
+    entitlement.initialize(force=True, emit_audit=True, session_factory=factory)
+
+    # Llega la licencia del onboarding → license_loaded dispara el anclaje.
+    set_license(monkeypatch, tmp_path)
+    entitlement.initialize(force=True, emit_audit=True, session_factory=factory)
+
+    doc = trueup_export.generate_signed_export(session_factory=factory)
+    assert doc["genesis_license_id"] == "unlicensed"
+    anchored = [e for e in doc["events"] if e["event_type"] == "license_genesis_anchored"]
+    assert len(anchored) == 1 and anchored[0]["license_id"] == "lic_test_0001"
+
+    # Valida contra el id que Basa registró en el onboarding (dato EXTERNO)…
+    trueup_export.verify_export(doc, dep_key, expected_genesis_license_id="lic_test_0001")
+    # …y un license_id ajeno se rechaza aunque la génesis sea 'unlicensed'.
+    with pytest.raises(trueup_export.TrueUpError, match="anclaje|génesis"):
+        trueup_export.verify_export(doc, dep_key, expected_genesis_license_id="lic_de_otra_caja")
 
 
 def test_successive_exports_continuity_and_truncation_rejected(harness, monkeypatch, tmp_path, dep_key):
