@@ -143,19 +143,19 @@ metadata reflejan la marca **sin editar código**; `grep` de artefactos de marca
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T016 ⚠️ [P] [US3] Check en `deploy/release/checks/test_profile_renders.sh`: el `config.yaml.tmpl` renderiza
+- [X] T016 ⚠️ [P] [US3] Check en `deploy/release/checks/test_profile_renders.sh`: el `config.yaml.tmpl` renderiza
       con el env del perfil (model_list/proveedores/keys/región inyectados) y NO queda nada horneado; el seed es
       idempotente. DEBE FALLAR primero. *(FR-011, FR-012, SC-003)*
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] Definir la estructura del perfil en `deploy/clients/<client-slug>/` (`client.env`,
+- [X] T017 [US3] Definir la estructura del perfil en `deploy/clients/<client-slug>/` (`client.env`,
       `branding.env`, `seed.yaml`, `config.yaml.tmpl`) y documentar su contrato (del research T005). *(FR-010)*
-- [ ] T018 [US3] Cablear el `seed.yaml` a **`seed_client`** (013) — onboarding-as-data idempotente, sin
+- [X] T018 [US3] Cablear el `seed.yaml` a **`seed_client`** (013) — onboarding-as-data idempotente, sin
       mecanismo paralelo. *(FR-012)*
-- [ ] T019 [US3] Templar `config.yaml.tmpl`: inyectar `model_list`/proveedores/keys/**región** por cliente en
+- [X] T019 [US3] Templar `config.yaml.tmpl`: inyectar `model_list`/proveedores/keys/**región** por cliente en
       deploy (montado como volumen, patrón 014; NO horneado). *(FR-011)*
-- [ ] T020 [US3] Derivar dominio/DNS y nombre de workspace del **`tenant.slug`** (013); levantar un cliente NO
+- [X] T020 [US3] Derivar dominio/DNS y nombre de workspace del **`tenant.slug`** (013); levantar un cliente NO
       requiere cambios de código, sólo un perfil + workspace. *(FR-013, FR-014)*
 
 **Checkpoint**: Un cliente = un artefacto; onboarding como dato, sin fork.

@@ -1,0 +1,20 @@
+# Onboarding-as-data (013 US6 → seed_clients_from_config, idempotente).
+# Schema: backend/config/clients.example.yaml. Sumar un client = editar y re-aplicar.
+clients:
+  - username: aegis-dev
+    email: dev@aegis.example
+    display_label: developer
+    client_type: base_url
+    group: engineering
+    budget:
+      max_spend_usd: 100.0
+      max_tokens: 2000000
+      reset_period: monthly
+  - username: aegis-browser
+    email: browser@aegis.example
+    client_type: chat_ui
+    group: operations
+    budget:
+      max_spend_usd: 25.0
+      max_tokens: 500000
+      reset_period: monthly
