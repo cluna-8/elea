@@ -13,6 +13,14 @@ research T005 — corren también sobre ``/v1/messages`` con ``call_type=
    librería compartida (carry-split). No se reimplementa transporte: el motor sigue
    siendo dueño del HTTP/SSE framing hacia el cliente, auth, usage y retries.
 
+LÍMITE CONOCIDO (spike 019 batch 1, 2026-07-20 — issue #27): los hooks 2 y 3 asumen
+el shape de la ruta passthrough Anthropic; en rutas *bridged* (modelos no-Claude:
+ollama_chat verificado) la respuesta llega como dict plano (hook 2 → getattr → no-op)
+o como objetos parseados (hook 3 → escape "se entrega tal cual") y el unmask NO corre.
+Fail-safe (el upstream nunca ve PII) pero placeholders visibles. Fix-spec pendiente.
+Además ``/v1/responses`` NO está en ``_TEXT_CALL_TYPES`` → esa ruta corre SIN política
+(solo identidad de custom_auth) — no ofrecer superficies sobre ella (issue #28).
+
 El mapa reversible viaja en ``litellm_metadata`` (ruta anthropic — el motor filtra
 ``metadata`` a los campos válidos de la API de Anthropic ANTES del upstream, así que
 el mapa no puede fugar; verificado en ``validate_anthropic_api_metadata``) o en

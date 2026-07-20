@@ -103,9 +103,10 @@ Claude Code sobre esta cadena.
 - Config del cliente: `ANTHROPIC_BASE_URL=<gateway>/api/v1/gw` +
   `ANTHROPIC_AUTH_TOKEN=sk-basa-…` + `ANTHROPIC_MODEL=<model_name del motor>`.
 
-**Veredicto**: **FUNCIONA (mecanismo)** — con dos notas: la calidad agéntica depende del
-modelo que el cliente aloje (un 4b resuelve tareas simples; la elección del modelo es del
-cliente, no del mecanismo), y arrastra la limitación de unmask del Spike 1 hasta el fix.
+**Veredicto**: **PARCIAL** (vocabulario T005) — el mecanismo completo funciona **incluido
+el modo Agent**, y la única limitación que impide FUNCIONA es el unmask del Spike 1
+(issue #27); mismo fix → promoción. Notas: la calidad agéntica depende del modelo que el
+cliente aloje (un 4b resuelve tareas simples; la elección del modelo es del cliente).
 
 ---
 
@@ -130,24 +131,33 @@ Promoción a FUNCIONA con el mismo fix-spec del Spike 1.
 
 **Hallazgo arquitectónico**: el gateway NO expone superficie OpenAI/Responses (solo
 `/v1/messages` Anthropic-shape). Codex ≥0.142 **eliminó** `wire_api=chat` — solo habla
-**Responses API**. Camino gobernado hoy: motor directo (`base_url=<motor>/v1`,
-`wire_api=responses`, key `sk-basa-…` via `env_key`) — la política (custom_auth +
-guardrail) vive en el motor, así que aplica igual; lo que se pierde es la puerta única
-del gateway. Exponer superficie OpenAI/Responses en el gateway = gap para el roadmap.
+**Responses API**. El único endpoint que le responde hoy es el motor directo
+(`base_url=<motor>/v1`, `wire_api=responses`, key `sk-basa-…` via `env_key`).
 
-**Evidencia** (codex-cli 0.142.5, `codex exec`):
+**Evidencia** (codex-cli 0.142.5, `codex exec`; pruebas 3-4 agregadas tras la review
+adversarial del batch, que refutó el veredicto inicial):
 
 | # | Prueba | Resultado |
 |---|---|---|
 | 1 | Chat (`¿7*6?`) via `/v1/responses` del motor | ✅ «42» (warning recuperable `OutputTextDelta without active item` del bridge) |
 | 2 | Agéntico (`--full-auto`, crear archivo / usar shell) | ❌ el modelo razona el tool-call pero lo emite como TEXTO («I should output this in the tool_call XML tags») — la llamada nativa nunca se dispara por el bridge Responses→ollama; 2 intentos, 0 archivos |
+| 3 | **Política en `/v1/responses`** (PII echo) | ❌ **el modelo vio el email real en claro** — el pre_call del guardrail no corre: el call_type de Responses no está en `_TEXT_CALL_TYPES` |
+| 4 | **Secretos en `/v1/responses`** (`sk-proj…`) | ❌ HTTP 200 — el secreto viajó al modelo sin bloqueo |
 
 Contraste clave: con el bridge Anthropic (Spike 2) el MISMO modelo emitió `tool_use`
-nativo — el gap es de la ruta Responses del motor (bridge/tool-wiring), no del modelo.
+nativo y la política SÍ corre — los gaps son de la ruta Responses, no del modelo.
 
-**Veredicto**: **PARCIAL** — chat/Q&A gobernado funciona contra el motor; modo agéntico
-NO por la ruta Responses bridged. Razones acotadas: (a) gateway sin superficie OpenAI,
-(b) tools no nativas en el bridge Responses→ollama.
+Además, en **prod** el motor no publica ningún puerto (`deploy/docker/compose.prod.yml`)
+y el ingress solo rutea `/api/*` y `/gw/*` al backend: el camino "motor directo" **solo
+existe en el stack dev**. Abrir el puerto del motor para ofrecerlo evadiría el hard-block
+de licencias de la 021 (solo gatea rutas `/gw`) y la atribución del gateway.
+
+**Veredicto**: **NO (roadmap, viable)** — hoy NO se ofrece: (a) el gateway no tiene
+superficie OpenAI/Responses, (b) la ruta Responses del motor corre **sin política** (solo
+identidad custom_auth — verificado en vivo), (c) el agéntico no dispara tools nativas,
+(d) el endpoint ni siquiera es alcanzable en prod. Camino identificado: **issue #28**
+(superficie OpenAI/Responses EN el gateway: puerta única con licencias+política+atribución
++ cobertura del call_type en el guardrail).
 
 ## Spike 5 — Cline / Continue (extensiones VS Code)
 
@@ -159,12 +169,21 @@ el protocolo de este batch). Mecanismo identificado: base URL configurable en se
 
 ## Síntesis del batch → trabajo derivado
 
-1. **Fix-spec (código, SDD)**: unmask en rutas bridged del motor (dict + chunks parseados)
-   + atribución `tool/client/tenant` nula en eventos byok bridged. Chica y bien acotada;
-   promueve Ollama/Claude Code-modelo-propio/Aider de PARCIAL a FUNCIONA.
-2. **Roadmap**: superficie OpenAI/Responses en el gateway (desbloquea Codex agéntico
-   gobernado por la puerta única y a futuro cualquier tool OpenAI-only).
+1. **Fix-spec (código, SDD) — issue #27**: unmask en rutas bridged del motor (dict +
+   chunks parseados) + atribución `tool/client/tenant` nula en eventos byok bridged.
+   Chica y bien acotada; promueve Ollama/Claude Code-modelo-propio/Aider de PARCIAL a
+   FUNCIONA. ⚠ Toca `litellm/extensions/` = superficie compartida (CODEOWNERS: los tres);
+   el guardrail es frontera con el módulo seguridad → **coordinar con Cristian antes de
+   implementar** (avisado en el issue).
+2. **Roadmap — issue #28**: superficie OpenAI/Responses gobernada EN el gateway
+   (desbloquea Codex y cualquier tool OpenAI-only con licencias+política+atribución;
+   incluye cubrir el call_type de Responses en `_TEXT_CALL_TYPES`).
 3. **Cobertura de secretos**: `SECRET_PATTERNS` no incluye AWS (`AKIA…`) ni otros formatos
    comunes — territorio Presidio/016 (módulo seguridad), avisar a Cristian.
 4. **Docs**: guía de onboarding «modelo propio via Ollama» con los gotchas de contexto
-   (`OLLAMA_CONTEXT_LENGTH`), login de suscripción y config por herramienta.
+   (`OLLAMA_CONTEXT_LENGTH`), login de suscripción y config por herramienta. ✅ En este PR.
+5. **Decisión de producto abierta (JF)**: el fallback cloud→local sustituye el modelo en
+   silencio (la respuesta conserva el nombre pedido) — ¿aceptable para un producto de
+   auditoría, o se quita/etiqueta? Documentado con ⚠ en `litellm/config.yaml`.
+6. **Tensión con la 023 (Falime)**: modelo local a costo 0 + fallback silencioso afecta
+   el tracking de ahorro (FR-012/FR-013 de la 023) — mencionado en el PR.

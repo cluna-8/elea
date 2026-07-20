@@ -32,10 +32,10 @@ NO/MCP-ONLY llevan razón técnica concreta, nunca "pendiente" (SC-006).
 | **Cursor** | base_url | **PARCIAL** | **Override OpenAI Base URL** (Settings→Models) → gateway; sólo panel **chat/plan** (Cmd+L) | Como Copilot Ask: gobernable sólo sin-tools. El agente (Composer), inline y autocomplete están clavados al backend de Cursor; el "Override Anthropic Base URL" se auto-activa y rompe con **422**. |
 | **Gemini (web)** | browser | **NO (roadmap, viable)** | — (falta adapter + host) | Ver "Gemini — roadmap" abajo. |
 | **Claude Desktop** | desktop | **MCP-ONLY** | Servidor MCP (**tool-plane**) | Sin `ANTHROPIC_BASE_URL` ni hook interceptable. El MCP server sólo ve args/results de tools, nunca el chat: gobierna el tool-plane (DLP sobre results, audit de tool calls), **no** el prompt del usuario. Masking del chat = gap conocido no cubrible por esta vía. |
-| **Ollama (upstream de modelos propios)** | upstream | **PARCIAL** | Config del motor: `ollama_chat/<modelo>` + `api_base` → 0 código (Principio IV) | Ruteo, identidad, mask pre_call, bloqueo de secretos y fallback cloud→local verificados en vivo. Limitación: **unmask de respuesta no corre en rutas bridged** (dict/chunks parseados — [spikes-batch1.md](spikes-batch1.md) Spike 1). Fix-spec pendiente → FUNCIONA. |
+| **Ollama (upstream de modelos propios)** | upstream | **PARCIAL** | Config del motor: `ollama_chat/<modelo>` + `api_base` → 0 código (Principio IV) | Ruteo, identidad, mask pre_call, bloqueo de secretos y fallback cloud→local verificados en vivo. Limitación: **unmask de respuesta no corre en rutas bridged** (dict/chunks parseados — [spikes-batch1.md](spikes-batch1.md) Spike 1; alcanza también byok cloud con modelos no-Claude). Fix-spec: **issue #27** → FUNCIONA. |
 | **Claude Code → modelo propio** | base_url (byok) | **PARCIAL** | `ANTHROPIC_BASE_URL` → gateway + `ANTHROPIC_AUTH_TOKEN=sk-basa-…` (auto-byok) + `ANTHROPIC_MODEL=<model_name>` | **Aguanta modo Agent con modelo no-Claude** (Read/Write/loop verificados vivo con qwen3:4b — el bridge traduce `tool_use` nativo). PARCIAL solo por el unmask del Spike 1; mismo fix → FUNCIONA. Gotchas: `OLLAMA_CONTEXT_LENGTH=32768`, login suscripción pisa env. |
 | **Aider** | base_url (byok) | **PARCIAL** | `ANTHROPIC_API_BASE` → gateway + `--model anthropic/<model_name>` (usa litellm como lib) | Flujo editor completo OK; el diff-apply NO se rompe con mask. Limitación: archivos heredan placeholders si el prompt lleva PII (unmask, Spike 1). |
-| **Codex CLI** | base_url (byok) | **PARCIAL** | Motor directo `/v1/responses` (`wire_api=responses`; codex ≥0.142 eliminó `chat`) — el gateway no expone superficie OpenAI | Chat gobernado OK (política en el motor). Agéntico NO: el bridge Responses→ollama no dispara tools nativas (el modelo las escupe como texto). Roadmap: superficie OpenAI/Responses en el gateway. |
+| **Codex CLI** | — (sin superficie hoy) | **NO (roadmap, viable)** | Único endpoint que le responde: motor directo `/v1/responses` (codex ≥0.142 solo habla Responses) — y esa ruta corre **SIN política** (verificado: PII en claro, secretos sin bloquear; el call_type no está en `_TEXT_CALL_TYPES`), sin puerto en prod, y evadiría licencias 021 + atribución | NO ofrecer. Camino identificado: **issue #28** — superficie OpenAI/Responses EN el gateway (licencias+política+atribución) + cobertura del call_type en el guardrail. Agéntico además no dispara tools nativas por ese bridge. Evidencia: [spikes-batch1.md](spikes-batch1.md) Spike 4. |
 
 ## Registro de superficies — ciclo de vida (fuente oficial)
 
@@ -55,14 +55,14 @@ Estados del registro (ortogonales al veredicto técnico de la matriz):
 | Cursor | EN MATRIZ | 2026-07-15 | PARCIAL — solo chat/plan |
 | Claude Desktop | EN MATRIZ | 2026-07-14 | MCP-ONLY — tool-plane |
 | **Ollama como upstream** (modelos propios/locales) | EN MATRIZ | 2026-07-20 | PARCIAL — spike batch 1 ([evidencia](spikes-batch1.md)); origen: reunión JF+Cristian 2026-07-20 (clientes infra = modelos propios en entorno controlado) |
-| **Claude Code → modelo propio** (byok→motor→Ollama) | EN MATRIZ | 2026-07-20 | PARCIAL — **aguanta Agent**; solo lo frena el unmask (fix-spec) |
-| Aider | EN MATRIZ | 2026-07-20 | PARCIAL — diff-apply OK con mask; placeholders hasta el fix de unmask |
-| Codex CLI | EN MATRIZ | 2026-07-20 | PARCIAL — chat gobernado OK; agéntico bloqueado por bridge Responses + gateway sin superficie OpenAI |
+| **Claude Code → modelo propio** (byok→motor→Ollama) | EN MATRIZ | 2026-07-20 | PARCIAL — **aguanta Agent**; solo lo frena el unmask (issue #27) |
+| Aider | EN MATRIZ | 2026-07-20 | PARCIAL — diff-apply OK con mask; placeholders hasta el fix de unmask (issue #27) |
+| Codex CLI | EN MATRIZ | 2026-07-20 | NO (roadmap, viable — issue #28): ruta Responses del motor sin política (verificado) + sin superficie en gateway ni endpoint en prod |
 | Cline / Continue | EN SPIKE · batch 1 | 2026-07-20 | Pendiente sesión GUI con JF (extensiones VS Code, no evidenciable headless) |
 | Zed | PLANIFICADA · batch 2 | 2026-07-20 | Anuncia base URL OpenAI-compat; barato de probar tras batch 1 |
 | Gemini CLI | PLANIFICADA · batch 2 | 2026-07-20 | Confirmar si siquiera expone base URL |
 | OpenCode | PLANIFICADA · batch 2 | 2026-07-20 | Integración oficial de Ollama (descubierta en research 2026-07-20) → candidata natural al mismo camino byok |
-| Gemini web | PLANIFICADA · roadmap US5 | 2026-07-14 | Viable con 2 gaps identificados (ver "Gemini — roadmap" abajo) |
+| Gemini web | EN MATRIZ | 2026-07-14 | NO (roadmap, viable) — con veredicto en la matriz; 2 gaps identificados (ver "Gemini — roadmap" abajo) |
 | Windsurf / JetBrains AI | POSPUESTA | 2026-07-20 | Decisión JF: fortalecer la base y testear la v1 con clientes reales antes de ampliar; además requieren cuenta/licencia. **Reapertura**: tras feedback de clientes de la v1 |
 | ChatGPT Desktop (app nativa) | POSPUESTA | 2026-07-14 | Sin camino técnico hoy: app nativa sin base_url ni hook interceptable (cert-pinning, mismo gap que el chat-plane de Claude Desktop). **Reapertura**: si aparece mecanismo de override |
 

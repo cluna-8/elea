@@ -54,7 +54,10 @@ model_list:
   model_name: claude-3-5-sonnet
 # Upstream Ollama (spike 019 batch 1, 2026-07-20): modelos propios/locales del cliente.
 # ollama_chat/ (no ollama/) porque usa /api/chat y soporta tool-calling; host.docker.internal
-# es el host desde el contenedor (Docker Desktop). Costo 0: el modelo es del cliente.
+# es el host desde el contenedor (Docker Desktop — SOLO dev; en prod el api_base es el host
+# ruteable del runtime del cliente). Costo 0: el modelo es del cliente.
+# Sin fallback propio a propósito: un fallback local→cloud violaría la residencia de datos
+# que motiva tener el modelo local.
 - litellm_params:
     api_base: http://host.docker.internal:11434
     model: ollama_chat/qwen3:4b
@@ -66,6 +69,9 @@ router_settings:
   disable_cooldowns: true
   num_retries: 2
   timeout: 30
+  # ⚠ Fallback cloud→local con sustitución SILENCIOSA (la respuesta conserva el nombre del
+  # modelo pedido). Para un producto de auditoría es una decisión de producto abierta
+  # (spike 019 batch 1) — pendiente de decisión de JF; en prod puede querer quitarse.
   fallbacks:
   - azure-gpt-4o-mini:
     - ollama-qwen3-4b

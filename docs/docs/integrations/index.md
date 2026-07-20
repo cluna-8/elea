@@ -73,11 +73,13 @@ Los dos caminos de ida — y el camino de vuelta del unmask, que es distinto por
   salga, manda el texto plano a `POST /api/v1/gw/inspect`, recibe el texto enmascarado y los
   `replacements` (token → original), y reescribe el body — el backend del asistente web solo
   recibe placeholders.
-- **Vuelta (unmask)**: en `base_url` el **gateway** restaura los valores reales sobre la
-  respuesta del proveedor (incluido el camino de streaming); en `browser` el mapa
-  token → original queda **en la extensión** y el unmask se aplica **en el DOM** con un
-  `MutationObserver` — porque en ChatGPT la respuesta no llega en el body del POST sino por
-  WebSocket (ver [G4](gotchas.md)).
+- **Vuelta (unmask)**: en `base_url` por **passthrough de suscripción** el gateway restaura
+  los valores reales sobre la respuesta del proveedor (incluido el camino de streaming); en
+  `byok` con modelos **no-Claude** del motor la restauración tiene hoy un límite conocido y
+  las respuestas pueden traer placeholders (ver [G9](gotchas.md) — la privacidad queda
+  intacta). En `browser` el mapa token → original queda **en la extensión** y el unmask se
+  aplica **en el DOM** con un `MutationObserver` — porque en ChatGPT la respuesta no llega
+  en el body del POST sino por WebSocket (ver [G4](gotchas.md)).
 
 Endpoints auxiliares de la superficie `base_url`: `GET /api/v1/gw` responde el **discovery**
 (uso y endpoints disponibles), y `POST /api/v1/gw/v1/messages/count_tokens` +
@@ -95,13 +97,13 @@ superficies principales.
 | Cliente | Estado | Superficie | Mecanismo | Gotcha clave |
 |---|---|---|---|---|
 | **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. Para trabajo agéntico: suscripción, o **modelo propio** (§3.5 — el modo Agent está verificado por esa vía; el límite de G1 es del loop agéntico de Copilot). |
-| **Claude Code → modelo propio** | 🟡 Parcial | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales). Límite actual: si el prompt lleva PII, las respuestas pueden mostrar el placeholder en vez del valor (unmask en camino bridged, fix en curso — [G9](gotchas.md)). |
+| **Claude Code → modelo propio** | 🟡 Parcial | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales). Límite actual: si el prompt lleva PII, las respuestas pueden mostrar el placeholder en vez del valor ([G9](gotchas.md) — ya diagnosticado, corrección planificada). |
 | **Aider** | 🟡 Parcial | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-basa-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona y **no** se corrompe con el masking. Mismo límite de placeholders que G9 si el prompt lleva PII. |
-| **Codex CLI** | 🟡 Parcial | `base_url` | Provider custom (`wire_api=responses`) apuntando al endpoint OpenAI-compatible del **motor** (Codex ≥0.142 solo habla Responses API; el gateway no expone esa superficie aún). | **Chat/Q&A gobernado funciona** (la política vive en el motor). El modo agéntico **no**: por esa ruta el modelo no dispara tools nativas. Superficie OpenAI/Responses en el gateway = roadmap. |
+| **Codex CLI** | 🔵 Objetivo (roadmap) | — | Codex ≥0.142 solo habla la Responses API (OpenAI) y el gateway **no expone esa superficie hoy** — no hay camino gobernado que ofrecer en una instalación estándar. | **No se ofrece hoy.** El camino identificado (roadmap) es exponer una superficie OpenAI/Responses gobernada en el propio gateway; hasta entonces, no conectar Codex por rutas internas del despliegue: quedan **fuera** de la política y la auditoría del firewall. |
 | **VS Code / GitHub Copilot** | 🟡 Parcial — **solo modo Ask** | `base_url` | `chatLanguageModels.json` con `apiType:"messages"` → `byok` al motor del gateway. Auto-byok por virtual key. | En **Agent/Edit** entra en loop (los modelos no-Claude llaman mal las tools). La key va **en la URL** (`?k=…`) porque manda `x-api-key` vacío. |
 | **ChatGPT (web)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `POST /backend-api/f/conversation`, enmascara `messages[].content.parts[]` vía `/api/v1/gw/inspect`. | La respuesta **no** viene en el POST: llega por **WebSocket** (`stream_handoff`) → el unmask se hace en el **DOM**, no sobre la respuesta. |
 | **Claude (web, claude.ai)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `.../completion` **y** `.../title`, enmascara `body.prompt` / `body.message_content`. | **Fuga de título**: el endpoint `/title` manda el prompt crudo → hay que enmascararlo también. **Artefactos** en `iframe` → el unmask del DOM no llega. |
-| **Gemini (web)** | 🟡 Parcial — **pendiente de validación** | `browser` | **DOM-hook** sobre el editor **Quill** (`.ql-editor`) en `gemini.google.com`: enmascara el texto del prompt en el editor antes del envío (no vía `fetch`). | Aún **sin verificar**. A diferencia de ChatGPT/Claude no se mapea endpoint/stream: el approach es hookear el editor Quill, no interceptar el POST. Los `content_scripts` del manifest deben matchear `gemini.google.com`. |
+| **Gemini (web)** | 🔵 Objetivo (roadmap) | `browser` | **DOM-hook** sobre el editor **Quill** (`.ql-editor`) en `gemini.google.com`: enmascarar el texto del prompt en el editor antes del envío (no vía `fetch`). | **Aún sin verificar — no se ofrece todavía.** A diferencia de ChatGPT/Claude no se mapea endpoint/stream: el approach definido es hookear el editor Quill, no interceptar el POST. Los `content_scripts` del manifest deben matchear `gemini.google.com`. |
 | **Cursor** | 🟡 Parcial — **solo chat/plan** | `base_url` | **Override OpenAI Base URL** (settings de Cursor) → apunta el endpoint OpenAI-compatible del modelo al gateway. Gobierna el **chat** y el **modo plan**. | El **agente Composer** y el **autocomplete** **no** pasan por el override (enrutan por el backend propio de Cursor) → quedan fuera del firewall. **Misma casilla que Copilot en modo Ask** (ver §3.4 y [G1](gotchas.md)). |
 | **Claude Desktop** | ⚪ MCP tool-plane only | `mcp` | No expone override de `base_url`; la gobernanza entra por **MCP**: la DLP se aplica sobre los **results de las tools** MCP, **no** sobre el prompt del chat. | El prompt del usuario al modelo **no** es interceptable (fuera del reverse-proxy); sólo se gobierna el **plano de tools**. Fuera del scope de las dos superficies principales. |
 
@@ -179,9 +181,9 @@ curl -s http://localhost:8091/api/v1/gw/whoami \
 - **Usar modo Ask**, no Agent/Edit (ver [G1](gotchas.md)).
 - El gateway lee la key de la URL como fallback → auto-byok + atribución. La key en la URL es un
   **atajo para entornos de prueba**; en producción va por input seguro/SSO.
-- Modelos del motor verificados que responden: `gpt-4o-mini`, `gpt-4o`, `groq-llama3-8b`,
-  `groq-llama-3.3-70b`, `gemini-2.5-flash(-lite)`, `bedrock-claude-3-5-sonnet` (según las
-  credenciales BYOK configuradas por el operador en el motor).
+- Los modelos disponibles son los `model_name` que el operador tenga configurados en el
+  motor (con sus credenciales BYOK); la lista viva se consulta en
+  `GET /api/v1/gw/v1/models` con la virtual key.
 
 ### 3.3 Browser — ChatGPT / Claude web (superficie 2, extensión de navegador)
 
@@ -255,8 +257,10 @@ Ask (§3.2).
 
 Para **clientes de infraestructura** (alto riesgo): el tráfico de IA no sale a ningún proveedor
 cloud — el cliente aloja su propio modelo (p. ej. con **Ollama**) y el gateway lo gobierna con la
-misma política (masking, secretos, AI-Act, auditoría) que un modelo cloud. Para perfiles de
-oficina, el camino recomendado sigue siendo el passthrough de suscripción (§3.1).
+misma política (masking, secretos, AI-Act) que un modelo cloud, con el tráfico visible en el
+monitor (la atribución fina por Connection en este camino se completa junto con la corrección
+de [G9](gotchas.md)). Para perfiles de oficina, el camino recomendado sigue siendo el
+passthrough de suscripción (§3.1).
 
 ```mermaid
 graph LR
@@ -268,8 +272,10 @@ graph LR
 ```
 
 **Alta del modelo (operador)** — es **configuración del motor, no código**: se registra el
-modelo local con su `api_base` (el runtime del cliente) y un `model_name` que las herramientas
-usarán como identificador. Costo por token 0 (el modelo es del cliente).
+modelo local con su `api_base` (el runtime del cliente: una dirección **alcanzable desde el
+motor** en el despliegue real; en el stack de desarrollo local es el host de la máquina) y un
+`model_name` que las herramientas usarán como identificador. Costo por token 0 (el modelo es
+del cliente).
 
 **Configuración de la herramienta (ejemplo Claude Code)**:
 
@@ -292,10 +298,12 @@ Gotchas de onboarding:
 - Si la máquina ya tiene una sesión de `claude` logueada con suscripción, esa sesión **pisa
   las variables de entorno** — ver [G10](gotchas.md).
 - Si un modelo cloud del motor se queda sin credenciales, el **fallback** configurado puede
-  servir la petición con el modelo local (resiliencia); el campo `model` de la respuesta
-  conserva el nombre pedido.
+  servir la petición con el modelo local. ⚠ La sustitución es **silenciosa** (el campo
+  `model` de la respuesta conserva el nombre pedido): si la instalación exige trazabilidad
+  estricta del modelo que respondió, el operador debe deshabilitar ese fallback en el motor.
 - Límite actual [G9](gotchas.md): con PII en el prompt, la respuesta puede mostrar
-  placeholders (la privacidad queda intacta — es un límite de restauración, con fix en curso).
+  placeholders (la privacidad queda intacta — es un límite de restauración ya diagnosticado,
+  con corrección planificada).
 
 ---
 
@@ -308,11 +316,12 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
   (tool-calling) porque el upstream son los modelos Claude reales.
 - 🟡 **Claude Code con modelo propio (byok)** — el modo Agent **funciona** (verificado en vivo:
   el motor traduce las tools en ambas direcciones, §3.5); el límite es la restauración de PII
-  en las respuestas ([G9](gotchas.md)), con fix en curso. El "byok rompe el agéntico" aplica al
-  loop de **Copilot** ([G1](gotchas.md)), no a Claude Code.
+  en las respuestas ([G9](gotchas.md)), ya diagnosticado y con corrección planificada. El
+  "byok rompe el agéntico" aplica al loop de **Copilot** ([G1](gotchas.md)), no a Claude Code.
 - 🟡 **Aider** — flujo editor completo gobernado; mismo límite G9 con PII en el prompt.
-- 🟡 **Codex CLI** — chat gobernado contra el motor; agéntico no (tools no nativas por esa
-  ruta) y el gateway aún no expone superficie OpenAI/Responses (🔵 roadmap).
+- 🔵 **Codex CLI** — sin camino gobernado hoy: el gateway no expone la superficie
+  OpenAI/Responses que Codex necesita. Roadmap; no conectar por rutas internas del
+  despliegue (quedan fuera de la política del firewall).
 - 🟡 **Copilot: solo modo Ask** — Agent/Edit loopea con modelos no-Claude
   ([G1](gotchas.md)); la key viaja en la URL como atajo de prueba ([G2](gotchas.md)).
 - 🟡 **Cursor: solo chat/plan** — Composer y autocomplete no honran el override y quedan fuera
@@ -321,7 +330,8 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
   el endpoint de título de Claude.ai ([G3](gotchas.md)). Límite conocido: los artefactos de
   Claude renderizan en un `iframe` y el unmask del DOM no entra ([G5](gotchas.md)); el unmask
   dentro de iframes/artefactos es 🔵 roadmap.
-- 🟡 **Gemini web** — approach definido (DOM-hook sobre el editor), **pendiente de validación**.
+- 🔵 **Gemini web** — roadmap con approach definido (DOM-hook sobre el editor), **aún sin
+  verificar** — no se ofrece todavía.
 - 🟡 **Plano MCP** — la DLP cubre los resultados de las tools; el prompt de chat de un cliente
   desktop sin override de `base_url` no es interceptable.
 - 🟡 **Cobertura de detección** — lo **detectado** se enmascara siempre; la cobertura depende del
@@ -333,7 +343,7 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
 
 ## Relacionado
 
-- [Gotchas verificados](gotchas.md) — los límites G1–G8 de estas superficies con su síntoma,
+- [Gotchas verificados](gotchas.md) — los límites G1–G10 de estas superficies con su síntoma,
   causa y fix verificados en vivo.
 - [Operaciones & troubleshooting](../operations/index.md) — la tabla exprés síntoma → causa → fix
   para tickets y los endpoints de apoyo del gateway.

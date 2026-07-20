@@ -64,7 +64,7 @@ def test_chat_completions_no_simulated_fallback():
     """
     r = httpx.post(
         f"{BASE}/chat/completions",
-        json={"message": "Di 'ok' en una palabra.", "model": "ollama-qwen3-2b"},
+        json={"message": "Di 'ok' en una palabra.", "model": "ollama-qwen3-4b"},
         timeout=35.0,
     )
     if r.status_code == 200:

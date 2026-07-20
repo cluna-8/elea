@@ -486,6 +486,12 @@ en `manifest.matches`, adapter en `basa-guard.js`). NO se exige código de Gemin
 - **Ask como modo soportado para byok no-Claude**: se asume que el modo Ask (Copilot) / chat-plan (Cursor)
   es el modo de trabajo soportado para clientes no-Claude en byok; el modo Agent con modelos no-Claude
   queda fuera de soporte por la ruptura del tool-calling (limitación del modelo/cliente, no del gateway).
+  > **ERRATA (2026-07-20, spike batch 1 — evidencia en `spikes-batch1.md`)**: esta suposición era
+  > demasiado general. La ruptura del tool-calling agéntico con modelos no-Claude es del **loop de
+  > Copilot/Cursor**, no de la ruta byok: **Claude Code en modo Agent SÍ funciona** con un modelo
+  > no-Claude a través del puente de tools del motor (verificado en vivo con un modelo local,
+  > Read/Write/loop completo). El registro vivo de superficies (`compatibility.md`) es la fuente
+  > actualizada; esta nota preserva la trazabilidad del cambio sin reescribir la historia de la spec.
   **Strip-tools no es la vía**: quitar `tools`/`tool_choice:none` es un mecanismo que fuerza texto pero
   degrada el agente a chat, rompe la UI que espera `tool_calls` y no frena tool-calls inyectadas por
   system prompt; se prefiere el modo Ask/chat-plan nativo (ya resuelto) — strip-tools **no** habilita
