@@ -30,10 +30,37 @@ implementación y deben FALLAR primero.
 - Sitio: `docs/` (raíz del repo) — `docs/mkdocs.yml`, `docs/Dockerfile`, `docs/nginx.conf`,
   `docs/requirements-docs.txt`, `docs/brand/`, `docs/docs/**` (contenido)
 - Overlays de marca: `docs/mkdocs.<brand>.yml`
-- Compose: `docker-compose.yml` (servicio `docs`)
+- Compose: `deploy/docker/compose.prod.yml` (servicio `docs` — el entregable) + `docker-compose.yml` (dev)
 - Legacy a deprecar: `frontend/src/pages/DocsPage.tsx`
 - Semilla: `basa-guardian/docs/*.md`
-- Tests/checks: `docs/tests/` (o el runner CI del repo)
+- Tests/checks: `deploy/release/checks/` (runner real del repo: `make -C deploy check`)
+
+## Delta post-020/021 (speckit-analyze 2026-07-20 — los artefactos eran del 14-jul, pre-implementación de 020/021)
+
+- **F1**: el compose entregable es `deploy/docker/compose.prod.yml` (020); el servicio `docs` vive AHÍ
+  (perfil normal + selfhosted). El dev compose es opcional para preview local. T010 ajustada.
+- **F2** (*Reuse over Reinvent*): el check de naming neutro del sitio comparte la **lista de nombres
+  prohibidos** con `deploy/release/checks/test_no_engine_name.sh` (020) y se orquesta desde `make -C deploy
+  check` — jamás dos listas que derivan. T022 ajustada; incluir "Meta" (constitución VII).
+- **F3**: el brand-pack de docs NO es una segunda fuente de marca: el overlay `mkdocs.<brand>.yml` se
+  **deriva del brand-pack de la 020** (`deploy/branding/brand*.json` + `deploy/clients/<slug>/branding.env`)
+  en build. Una sola definición de marca por cliente. T023 ajustada.
+- **F4**: `docs/` contiene internos NO publicables (`COORDINATION-019-e2e-hardening.md`, `retros/`):
+  `docs_dir: docs` (relativo a `docs/`, o sea `docs/docs/`) los excluye por construcción, y el check
+  anti-fuga (T031) los cubre además de `specs/0XX-*`.
+- **F5**: el OpenAPI NO se obtiene importando `src.main` a la ligera (el import corre alembic + licensing →
+  necesita DB): paso de export explícito (vía compose con la DB dev, o in-build si se verifica que el import
+  sobrevive sin DB). El plugin de render debe pasar el test de 0 egress (assets bundled).
+- **F6**: `mike` es git-branch-based: en el build multi-stage se usa un **repo git efímero** dentro del stage
+  (mike deploy N versiones → copiar el árbol a nginx). Determinista y 0 egress.
+- **F7 (naming, resolución de una contradicción interna del spec)**: FR-013 a la letra ("no mencionar
+  Anthropic/OpenAI…") choca con US2/FR-005, que EXIGE la matriz de integraciones (Claude Code, ChatGPT,
+  Copilot, Cursor son la superficie documentada) y con el BYOK del operador (que configura claves de SU
+  proveedor). Resolución alineada a la constitución VII (el principio es no exponer el MOTOR): prohibido
+  absoluto en el HTML publicado = internals del pipeline (`litellm`/`berriai`/`presidio` + crédito del
+  tema); nombres de herramientas/proveedores permitidos SOLO como superficies de integración o BYOK del
+  usuario. En prosa la marca es neutra ("el producto"/"el gateway"); los identificadores wire (`x-basa-*`,
+  `BASA_*`, `/gw/*`) se conservan literales.
 
 ---
 
@@ -41,14 +68,14 @@ implementación y deben FALLAR primero.
 
 **Purpose**: Esqueleto del sitio MkDocs + Material y del árbol de contenido.
 
-- [ ] T001 [SETUP] Crear `docs/mkdocs.yml` (config base marca-neutra): tema Material, nav/IA de las 9 secciones,
+- [X] T001 [SETUP] Crear `docs/mkdocs.yml` (config base marca-neutra): tema Material, nav/IA de las 9 secciones,
       plugins declarados (`search`/`offline`, `privacy`, `mike`, i18n, render OpenAPI). Crear el árbol vacío
       `docs/docs/**` (overview, install-deploy, white-label, administration, integrations, api-reference,
       compliance, operations, release-notes).
-- [ ] T002 [P] [SETUP] Crear `docs/requirements-docs.txt` con MkDocs + Material + plugins **pinneados**
+- [X] T002 [P] [SETUP] Crear `docs/requirements-docs.txt` con MkDocs + Material + plugins **pinneados**
       (`mkdocs-material`, `mike`, `mkdocs-static-i18n`, plugin OpenAPI, plugin `privacy`); documentar el build
       local (`mkdocs serve` / `mkdocs build --strict`).
-- [ ] T003 [SETUP] Preparar el esqueleto de checks en `docs/tests/` (0 egress, naming neutro, white-label,
+- [X] T003 [SETUP] Preparar el esqueleto de checks en `docs/tests/` (0 egress, naming neutro, white-label,
       deriva API) y engancharlos al runner CI del repo.
 
 ---
@@ -60,10 +87,10 @@ lo demás depende de tener el esqueleto que construye 0-egress y la IA acordada.
 
 **⚠️ CRITICAL**: Ningún user story cierra hasta que el build `--strict` pase y la IA esté fijada.
 
-- [ ] T004 [FOUND] Generar `content-map.md`: IA detallada (las 9 secciones + roadmap clínico), **mapeo
+- [X] T004 [FOUND] Generar `content-map.md`: IA detallada (las 9 secciones + roadmap clínico), **mapeo
       semilla→página** (`whitelabel-deployment.md`→Install/Deploy+Branding, `integration-surfaces.md`→
       Integraciones, `compliance-policies.md`→Compliance) y el **estado por página** (🟢/🟡/🔵). Bloquea US2.
-- [ ] T005 [FOUND] Configurar el build **air-gap-first** en `docs/mkdocs.yml`: plugin **`privacy`** (embebe
+- [X] T005 [FOUND] Configurar el build **air-gap-first** en `docs/mkdocs.yml`: plugin **`privacy`** (embebe
       assets remotos), plugin **`offline`** y `strict: true`. Verificar que `mkdocs build --strict` pasa con el
       árbol de contenido inicial. *(alimenta US1/US4)*
 
@@ -81,21 +108,22 @@ verificar 0 requests externos y que el servicio levanta en el compose detrás de
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T006 ⚠️ [P] [US1] Test de **0 egress** en `docs/tests/test_airgap_zero_egress.*`: arrancar la imagen con
+- [X] T006 ⚠️ [P] [US1] Test de **0 egress** en `docs/tests/test_airgap_zero_egress.*`: arrancar la imagen con
       la red saliente bloqueada, navegar todas las secciones + ejecutar búsqueda, y afirmar **0** requests a
       hosts externos. *(FR-002, SC-001)*
-- [ ] T007 ⚠️ [P] [US1] Test de build `--strict` en CI: `mkdocs build --strict` **falla** ante un link interno
+- [X] T007 ⚠️ [P] [US1] Test de build `--strict` en CI: `mkdocs build --strict` **falla** ante un link interno
       roto o un asset externo no embebido (fixture negativo que debe romper el build). *(FR-003, SC-001)*
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Crear `docs/Dockerfile` **multi-stage**: stage build (Python + MkDocs Material →
+- [X] T008 [US1] Crear `docs/Dockerfile` **multi-stage**: stage build (Python + MkDocs Material →
       `mkdocs build --strict`) → stage runtime (**nginx** sirviendo `site/` estático, sin toolchain). *(FR-001)*
-- [ ] T009 [US1] Crear `docs/nginx.conf`: sirve estáticos; **sin ACME/auto-HTTPS** (TLS lo termina el proxy del
+- [X] T009 [US1] Crear `docs/nginx.conf`: sirve estáticos; **sin ACME/auto-HTTPS** (TLS lo termina el proxy del
       deploy; air-gap sin egress a Let's Encrypt). *(FR-023)*
-- [ ] T010 [US1] Añadir el servicio **`docs`** a `docker-compose.yml` (imagen `basa-docs:<brand>-<version>`)
-      detrás del proxy/TLS existente, sin exponer egress nuevo (Principio VII). *(FR-004, SC-002)*
-- [ ] T011 [US1] Documentar el enganche **k3s+Helm+Zarf v2** (020): la imagen del sitio entra en el bundle Zarf
+- [X] T010 [US1] Añadir el servicio **`docs`** a `deploy/docker/compose.prod.yml` (imagen
+      `basa-docs:<brand>-<version>`, perfiles normal+selfhosted) detrás del proxy/TLS del deploy, sin exponer
+      egress nuevo (Principio VII); opcional: servicio de preview en el compose dev. *(FR-004, SC-002 — delta F1)*
+- [X] T011 [US1] Documentar el enganche **k3s+Helm+Zarf v2** (020): la imagen del sitio entra en el bundle Zarf
       (SBOM + firma) igual que el resto de imágenes pinneadas. *(FR-004)*
 
 **Checkpoint**: Imagen air-gapped 0-egress, servicio `docs` en el compose, enganche Zarf documentado.
@@ -112,27 +140,27 @@ secciones sin perder 🟢/🟡/🔵; la doc de producto ya no vive en el fronten
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 ⚠️ [P] [US2] Check de cobertura de secciones en `docs/tests/test_sections_present.*`: el sitio
+- [X] T012 ⚠️ [P] [US2] Check de cobertura de secciones en `docs/tests/test_sections_present.*`: el sitio
       construido publica las 9 secciones (overview, install-deploy, white-label, administration, integrations,
       api-reference, compliance, operations, release-notes) con contenido no-placeholder. *(FR-005, SC-003)*
-- [ ] T013 ⚠️ [P] [US2] Check de conservación de la **leyenda de estado**: las páginas migradas del corpus
+- [X] T013 ⚠️ [P] [US2] Check de conservación de la **leyenda de estado**: las páginas migradas del corpus
       preservan las marcas 🟢 HOY / 🟡 PARCIAL / 🔵 OBJETIVO. *(FR-006, SC-003)*
 
 ### Implementation for User Story 2
 
-- [ ] T014 [P] [US2] Migrar `basa-guardian/docs/whitelabel-deployment.md` → `docs/docs/install-deploy/**` +
+- [X] T014 [P] [US2] Migrar `basa-guardian/docs/whitelabel-deployment.md` → `docs/docs/install-deploy/**` +
       `docs/docs/white-label/**` (deploy: OpenTofu/secretos/estado; branding pack). *(FR-006, relación 020)*
-- [ ] T015 [P] [US2] Migrar `basa-guardian/docs/integration-surfaces.md` → `docs/docs/integrations/**`
+- [X] T015 [P] [US2] Migrar `basa-guardian/docs/integration-surfaces.md` → `docs/docs/integrations/**`
       (superficies base_url/browser/mcp + matriz + gotchas). *(FR-006, relación 019)*
-- [ ] T016 [P] [US2] Migrar `basa-guardian/docs/compliance-policies.md` → `docs/docs/compliance/**`
+- [X] T016 [P] [US2] Migrar `basa-guardian/docs/compliance-policies.md` → `docs/docs/compliance/**`
       (GDPR/AI-Act, DPA, DSR, retención, panel DPO). *(FR-006, relación 005/008, Principio II)*
-- [ ] T017 [US2] Redactar **Overview & arquitectura** (`docs/docs/overview/**`): qué es el producto, stack en
+- [X] T017 [US2] Redactar **Overview & arquitectura** (`docs/docs/overview/**`): qué es el producto, stack en
       containers, pipeline (masking→…→unmask) — marca-neutro. *(FR-005)*
-- [ ] T018 [US2] Redactar **Administración** (`docs/docs/administration/**`): multi-tenant, RBAC (super/tenant-
+- [X] T018 [US2] Redactar **Administración** (`docs/docs/administration/**`): multi-tenant, RBAC (super/tenant-
       admin, compliance_officer, client), guardrails, budgets, SSO, licencias/seats. *(FR-007, relación 013/021)*
-- [ ] T019 [US2] Redactar **Operaciones & troubleshooting** (`docs/docs/operations/**`): runbook operativo +
+- [X] T019 [US2] Redactar **Operaciones & troubleshooting** (`docs/docs/operations/**`): runbook operativo +
       gotchas verificados (de `integration-surfaces.md`). *(FR-005)*
-- [ ] T020 [US2] Deprecar `frontend/src/pages/DocsPage.tsx`: redirección/enlace al sitio o retiro; la doc de
+- [X] T020 [US2] Deprecar `frontend/src/pages/DocsPage.tsx`: redirección/enlace al sitio o retiro; la doc de
       producto deja de vivir en el bundle del frontend. *(FR-009, SC-003)*
 
 **Checkpoint**: Sitio con contenido real de distribuidor+operador; corpus migrado; doc fuera del frontend.
@@ -149,21 +177,22 @@ difieren; cada build produce `basa-docs:<brand>-<version>`; 0 menciones de motor
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T021 ⚠️ [P] [US3] Test de white-label en `docs/tests/test_whitelabel_no_fork.*`: construir marca A y
+- [X] T021 ⚠️ [P] [US3] Test de white-label en `docs/tests/test_whitelabel_no_fork.*`: construir marca A y
       marca B; afirmar que difieren **sólo** en tokens (site_name/logo/favicon/palette/extra.css) y **0** líneas
       de contenido/tema cambian. *(FR-010, FR-011, SC-004)*
-- [ ] T022 ⚠️ [P] [US3] Check de **naming neutro** en `docs/tests/test_neutral_naming.*`: grep de nombres
-      prohibidos (LiteLLM, Anthropic, OpenAI, Azure, Presidio…) sobre el HTML publicado → **falla** si aparece.
-      *(FR-013, SC-004)*
+- [X] T022 ⚠️ [P] [US3] Check de **naming neutro** en `deploy/release/checks/test_docs_neutral_naming.sh`:
+      grep de nombres prohibidos sobre el HTML publicado → **falla** si aparece. La lista se comparte con
+      `test_no_engine_name.sh` (020) e incluye Meta (constitución VII). *(FR-013, SC-004 — delta F2)*
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Definir el **brand-pack**: tokens `site_name`, `logo`, `favicon`, `palette`, `extra.css` en
-      `docs/mkdocs.<brand>.yml` (overlay **`INHERIT`** sobre `docs/mkdocs.yml`) o vía `envsubst` build-time;
-      assets por defecto marca-neutros en `docs/brand/`. *(FR-010, FR-011)*
-- [ ] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `basa-docs:<brand>-<version>` (una
+- [X] T023 [US3] Definir el **brand-pack**: tokens `site_name`, `logo`, `favicon`, `palette`, `extra.css` en
+      `docs/mkdocs.<brand>.yml` (overlay **`INHERIT`** sobre `docs/mkdocs.yml`), **derivado del brand-pack de
+      la 020** (`deploy/branding/brand*.json` + `clients/<slug>/branding.env`) — una sola fuente de marca por
+      cliente; assets por defecto marca-neutros en `docs/brand/`. *(FR-010, FR-011 — delta F3)*
+- [X] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `basa-docs:<brand>-<version>` (una
       marca por instancia, config-as-data). *(FR-012)*
-- [ ] T025 [US3] Verificar que el contenido markdown se mantiene **marca-neutro** por defecto (sin nombres de
+- [X] T025 [US3] Verificar que el contenido markdown se mantiene **marca-neutro** por defecto (sin nombres de
       producto hardcodeados en el corpus migrado). *(FR-011, FR-013)*
 
 **Checkpoint**: 2 marcas desde config, imagen por marca, naming neutro verificado (never fork).
@@ -179,16 +208,16 @@ config/HTML.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T026 ⚠️ [P] [US4] Test de búsqueda offline en `docs/tests/test_search_offline.*`: con la red saliente
+- [X] T026 ⚠️ [P] [US4] Test de búsqueda offline en `docs/tests/test_search_offline.*`: con la red saliente
       bloqueada, la búsqueda resuelve contra el índice **local** (0 requests externos). *(FR-014, SC-005)*
-- [ ] T027 ⚠️ [P] [US4] Check anti-SaaS: **0** claves/endpoints de Algolia u otro buscador SaaS en config ni en
+- [X] T027 ⚠️ [P] [US4] Check anti-SaaS: **0** claves/endpoints de Algolia u otro buscador SaaS en config ni en
       el HTML publicado. *(FR-015, SC-005)*
 
 ### Implementation for User Story 4
 
-- [ ] T028 [US4] Activar la búsqueda **lunr built-in** de Material con el plugin `offline` (índice precomputado,
+- [X] T028 [US4] Activar la búsqueda **lunr built-in** de Material con el plugin `offline` (índice precomputado,
       embebido en la imagen; funciona sin backend de búsqueda). *(FR-014)*
-- [ ] T029 [US4] Documentar la opción **Pagefind** para el plan B (Starlight) como equivalente offline; dejar
+- [X] T029 [US4] Documentar la opción **Pagefind** para el plan B (Starlight) como equivalente offline; dejar
       Algolia DocSearch **prohibido** por escrito. *(FR-014, FR-015)*
 
 **Checkpoint**: Búsqueda offline verificada, sin SaaS, sin egress.
@@ -205,18 +234,18 @@ el cambio sin edición manual; 0 páginas auto-derivadas de `specs/0XX-*`.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T030 ⚠️ [P] [US5] Test de **deriva** en `docs/tests/test_apiref_single_source.*`: alterar el OpenAPI
+- [X] T030 ⚠️ [P] [US5] Test de **deriva** en `docs/tests/test_apiref_single_source.*`: alterar el OpenAPI
       (fixture) → reconstruir → el API reference publicado refleja el cambio (0 edición manual). *(FR-016, SC-006)*
-- [ ] T031 ⚠️ [P] [US5] Check anti-fuga: **0** páginas del sitio auto-derivadas de `specs/0XX-*/` (Spec Kit).
+- [X] T031 ⚠️ [P] [US5] Check anti-fuga: **0** páginas del sitio auto-derivadas de `specs/0XX-*/` (Spec Kit).
       *(FR-018, SC-006)*
 
 ### Implementation for User Story 5
 
-- [ ] T032 [US5] Generar el **API reference** en el build desde el **OpenAPI** del backend FastAPI (plugin de
+- [X] T032 [US5] Generar el **API reference** en el build desde el **OpenAPI** del backend FastAPI (plugin de
       render OpenAPI, p.ej. `mkdocs-swagger-ui-tag`) → `docs/docs/api-reference/**`. *(FR-016)*
-- [ ] T033 [US5] Generar el **config/env reference** desde `.env.example` (una fuente de verdad para las
+- [X] T033 [US5] Generar el **config/env reference** desde `.env.example` (una fuente de verdad para las
       variables). *(FR-017)*
-- [ ] T034 [US5] Documentar la regla: el contenido de producto es corpus **curado separado**; **NO** se
+- [X] T034 [US5] Documentar la regla: el contenido de producto es corpus **curado separado**; **NO** se
       auto-derivan las specs de Spec Kit (audiencias distintas + fuga de contexto interno). *(FR-018)*
 
 **Checkpoint**: API/config reference single-source, sin deriva, sin fuga de las specs.
@@ -232,17 +261,17 @@ traducción EN degrada con fallback, no 404.
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T035 ⚠️ [P] [US6] Test de versionado en `docs/tests/test_versioning_i18n.*`: con ≥2 versiones publicadas
+- [X] T035 ⚠️ [P] [US6] Test de versionado en `docs/tests/test_versioning_i18n.*`: con ≥2 versiones publicadas
       por `mike`, el selector sirve cada versión; con i18n activo, el selector ES/EN sirve la variante correcta y
       una página sin EN degrada con **fallback explícito** (no 404). *(FR-019, FR-020, SC-007)*
 
 ### Implementation for User Story 6
 
-- [ ] T036 [US6] Configurar **`mike`** (versión fijada) para publicar `1.x`/`latest`/`dev` con selector de
+- [X] T036 [US6] Configurar **`mike`** (versión fijada) para publicar `1.x`/`latest`/`dev` con selector de
       versión. *(FR-019)*
-- [ ] T037 [US6] Configurar **`mkdocs-static-i18n`** (ES primario, EN segundo) con selector de idioma y
+- [X] T037 [US6] Configurar **`mkdocs-static-i18n`** (ES primario, EN segundo) con selector de idioma y
       **fallback explícito** al idioma primario para páginas sin traducción. *(FR-020)*
-- [ ] T038 [US6] Cablear **Release notes** (`docs/docs/release-notes/**`) al flujo de `mike` (una entrada por
+- [X] T038 [US6] Cablear **Release notes** (`docs/docs/release-notes/**`) al flujo de `mike` (una entrada por
       versión). *(FR-005, FR-019)*
 
 **Checkpoint**: Selector de versión + selector de idioma funcionando, con fallback.
@@ -258,7 +287,7 @@ traducción EN degrada con fallback, no 404.
 
 ### Tests / Implementation for User Story 7
 
-- [ ] T039 [US7] Documentar en `content-map.md` el docset **end-user (clínico)** como **roadmap P3**: reusa
+- [X] T039 [US7] Documentar en `content-map.md` el docset **end-user (clínico)** como **roadmap P3**: reusa
       contenedor + white-label + i18n con audiencia/tono propios (segundo nav-tree); marcarlo **NO
       implementado** y **no** publicar contenido clínico en v1. *(FR-021, SC-008)*
 
@@ -268,14 +297,14 @@ traducción EN degrada con fallback, no 404.
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T040 [P] [POLISH] Generar `quickstart.md`: build local (`mkdocs serve`), `mkdocs build --strict`, test de
+- [X] T040 [P] [POLISH] Generar `quickstart.md`: build local (`mkdocs serve`), `mkdocs build --strict`, test de
       0 egress, construir + publicar una marca, cambiar versión/idioma.
-- [ ] T041 [POLISH] Verificación end-to-end (Principio VII): build `--strict` → imagen `basa-docs:<brand>-…` →
+- [X] T041 [POLISH] Verificación end-to-end (Principio VII): build `--strict` → imagen `basa-docs:<brand>-…` →
       **0 egress** con red bloqueada → **2 marcas** desde config → selectores de versión/idioma → naming neutro.
       *(SC-001..SC-007)*
-- [ ] T042 [P] [POLISH] Confirmar **decisión de framework** documentada (`research.md`): MkDocs primario /
+- [X] T042 [P] [POLISH] Confirmar **decisión de framework** documentada (`research.md`): MkDocs primario /
       Starlight+Pagefind plan B con disparador de migración; contra de Material en modo mantenimiento. *(FR-022, SC-008)*
-- [ ] T043 [POLISH] Documentar las limitaciones conocidas (Material en modo mantenimiento; `mike` no
+- [X] T043 [POLISH] Documentar las limitaciones conocidas (Material en modo mantenimiento; `mike` no
       first-party; API reference hereda huecos de un OpenAPI incompleto) y actualizar `spec/plan/tasks/content-map`
       (Dev Workflow — Documentación viva).
 

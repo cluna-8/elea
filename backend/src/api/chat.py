@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Header
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 
 from ..database import get_db
@@ -736,12 +736,15 @@ async def delete_model(model_name: str):
 
 
 class ModelCredentialSchema(BaseModel):
-    litellm_params: Optional[dict] = None  # provider-specific fields merged into litellm_params
+    # Identificador del CONTRATO WIRE con el motor (allowlisted en los checks de marca
+    # blanca); el title explícito evita que el titulado automático exponga el vendor
+    # en el OpenAPI publicado (constitución VII).
+    litellm_params: Optional[dict] = Field(default=None, title="Parámetros del motor")
 
 
 @router.patch("/models/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def update_model_credential(model_name: str, body: ModelCredentialSchema):
-    """Merge litellm_params fields for an existing model in config.yaml."""
+    """Merge de credenciales del motor (campos del contrato litellm_params) en config.yaml."""
     config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:

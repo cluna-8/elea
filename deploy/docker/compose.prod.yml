@@ -41,6 +41,13 @@ services:
     volumes:
       - branding:/srv/branding:ro              # marca como CONFIG en runtime (US2)
 
+  # Sitio de documentación de producto (spec 022): estático, non-root, 0 egress.
+  # Una imagen POR MARCA (basa-docs:<brand>-<version>); el ingress la sirve bajo
+  # /docs o docs.<dominio> — jamás escucha en 80/443 ni habla ACME (FR-023).
+  docs:
+    image: "${DOCS_IMAGE:?imagen del sitio de docs pinneada por marca (022)}"
+    restart: unless-stopped
+
   litellm:
     image: "${LITELLM_IMAGE:?imagen LiteLLM pinneada (014)}"
     restart: unless-stopped

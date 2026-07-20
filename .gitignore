@@ -64,3 +64,7 @@ bun.lockb
 
 # spec 021: claves privadas del emisor dev de licencias — NUNCA commitear
 backend/scripts/license_out/
+
+# 022: build output del sitio de docs
+docs/site/
+docs/.cache/

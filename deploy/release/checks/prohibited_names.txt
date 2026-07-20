@@ -1,0 +1,11 @@
+# Lista COMPARTIDA de nombres de motor/internals prohibidos en artefactos publicados
+# (constitución VII + 022 delta F7). La consumen test_no_engine_name.sh (UI) y
+# test_docs_neutral_naming.sh (sitio de docs) — UNA lista, jamás dos que derivan.
+#
+# Qué entra acá: internals del pipeline (motor de ruteo, motor NLP, vendor del motor).
+# Qué NO entra: nombres de herramientas cliente (Claude Code, ChatGPT, Copilot, Cursor)
+# ni proveedores LLM en contexto de BYOK/integración — son la superficie documentada
+# de cara al usuario (ver tasks.md 022, delta F7).
+litellm
+berriai
+presidio

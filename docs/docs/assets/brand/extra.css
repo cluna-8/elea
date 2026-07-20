@@ -1,0 +1,9 @@
+/* Paleta marca-neutra por defecto (Basa). Un brand-pack de distribuidor REEMPLAZA este
+ * archivo (o lo apunta el overlay mkdocs.<brand>.yml) — nunca se edita el tema (Principio VII).
+ * Los tokens vienen del brand-pack de la 020 (deploy/branding/brand*.json): primary/accent. */
+:root {
+  --md-primary-fg-color: #0b7285;
+  --md-primary-fg-color--light: #15aabf;
+  --md-primary-fg-color--dark: #095c6b;
+  --md-accent-fg-color: #15aabf;
+}

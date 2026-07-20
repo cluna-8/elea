@@ -151,7 +151,10 @@ Examples of foundational tasks (adjust based on your project):
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] TXXX [P] Documentation updates in docs/
+- [ ] TXXX [P] **Sitio de docs de producto (OBLIGATORIO, DoD)**: actualizar las páginas de
+      `docs/docs/**` que esta feature toque (curado marca-neutro, template de docs/README.md,
+      leyenda 🟢/🟡/🔵 honesta) y correr `make -C deploy check-docs` — la doc que se vende no
+      puede quedar stale respecto del código (lección de la review de la 022)
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
