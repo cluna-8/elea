@@ -192,18 +192,18 @@ más allá del grace → `expired`, modo degradado.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T026 ⚠️ [P] [US4] Integration test en `tests/integration/test_lifecycle.py` con reloj inyectado:
+- [X] T026 ⚠️ [P] [US4] Integration test en `tests/integration/test_lifecycle.py` con reloj inyectado:
       `active` (creación OK) → `grace` (creación bloqueada, tráfico existente OK, audit) → `expired`
       (degradado read-only-para-creación); verificar el toggle a bloqueo total. *(SC-006)*
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] Extender `entitlement.py` para computar `{active|grace|expired}` desde `expiry`/
+- [X] T027 [US4] Extender `entitlement.py` para computar `{active|grace|expired}` desde `expiry`/
       `grace_days` con el **reloj local** (offline). *(FR-018, FR-021)*
-- [ ] T028 [US4] Implementar el **modo degradado**: en `grace`/`expired`/`over_seat`, bloquear la creación
+- [X] T028 [US4] Implementar el **modo degradado**: en `grace`/`expired`/`over_seat`, bloquear la creación
       de seats (default **read-only para creación**; toggle configurable a bloqueo total); el tráfico
       existente sigue. *(FR-019, FR-020)*
-- [ ] T029 [US4] Conectar el estado de licencia al gate (US2) para que `grace`/`expired`/`over_seat`
+- [X] T029 [US4] Conectar el estado de licencia al gate (US2) para que `grace`/`expired`/`over_seat`
       bloqueen la creación fail-closed, y emitir audit por transición. *(FR-019, FR-020, FR-022)*
 
 **Checkpoint**: Ciclo de vida y aterrizaje suave demostrables con reloj local.

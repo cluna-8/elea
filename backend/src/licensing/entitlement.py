@@ -44,6 +44,17 @@ DEFAULT_KEYSET_PATH = Path(__file__).resolve().parent.parent / "keys" / "basa_pu
 # imagen que no excluya el kid dev. Sólo dev/demo (compose) setea el opt-in.
 DEV_KID_PREFIX = "basa-dev-"
 
+# Histéresis ante fallos de I/O leyendo material de licencia en RUNTIME
+# (hardening post-review US4): una rotación de secret no atómica o un blip del
+# volumen NO debe degradar un estado con firma validada ni contaminar el audit;
+# tras N ticks consecutivos fallidos, fail-closed igual.
+READ_FAILURE_TOLERANCE = 3
+
+
+class LicenseReadError(Exception):
+    """Fallo de I/O leyendo material de licencia (token o keyset) — transitorio
+    hasta que la histéresis de refresh() diga lo contrario."""
+
 
 @dataclass(frozen=True)
 class LicenseState:
@@ -54,6 +65,7 @@ class LicenseState:
 
 
 _state: Optional[LicenseState] = None
+_read_failures = 0  # ticks consecutivos de I/O fallido (histéresis de refresh)
 
 
 def expected_tenant_id() -> str:
@@ -63,6 +75,8 @@ def expected_tenant_id() -> str:
 
 
 def _read_blob() -> Optional[str]:
+    """None = token NO configurado; LicenseReadError = configurado pero
+    ilegible (I/O) — la distinción alimenta la histéresis de refresh()."""
     inline = os.getenv("BASA_LICENSE_TOKEN")
     if inline and inline.strip():
         return inline
@@ -70,15 +84,19 @@ def _read_blob() -> Optional[str]:
     if path:
         try:
             return Path(path).read_text(encoding="utf-8")
-        except OSError:
-            logger.warning("licencia: BASA_LICENSE_TOKEN_FILE ilegible: %s", path)
-            return None
+        except OSError as exc:
+            raise LicenseReadError(f"BASA_LICENSE_TOKEN_FILE ilegible: {exc}") from exc
     return None
 
 
 def _load_keyset() -> BasaPublicKeySet:
     path = os.getenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(DEFAULT_KEYSET_PATH))
-    return BasaPublicKeySet.from_pem_file(path)
+    try:
+        return BasaPublicKeySet.from_pem_file(path)
+    except OSError as exc:
+        # I/O (mismo criterio de histéresis); un keyset MALFORMADO sigue
+        # siendo LicenseError → invalid (problema real de config, no blip).
+        raise LicenseReadError(f"keyset ilegible: {exc}") from exc
 
 
 def _lifecycle(token: LicenseToken, now: datetime):
@@ -94,15 +112,16 @@ def _lifecycle(token: LicenseToken, now: datetime):
 
 
 def evaluate(now: Optional[datetime] = None) -> LicenseState:
-    """Evaluación pura (sin side-effects): lee config, verifica, computa estado."""
+    """Evaluación pura (sin side-effects): lee config, verifica, computa estado.
+    Levanta LicenseReadError ante I/O fallido (el caller decide la histéresis)."""
     now = now or datetime.now(timezone.utc)
     blob = _read_blob()
     if blob is None:
         return LicenseState(STATUS_MISSING, "token ausente (BASA_LICENSE_TOKEN[_FILE])", None, now)
     try:
         keyset = _load_keyset()
-    except (LicenseError, OSError) as exc:
-        # Sin keyset no hay verificación posible → fail-closed, nunca fail-open.
+    except LicenseError as exc:
+        # Keyset malformado: no hay verificación posible → fail-closed, nunca fail-open.
         return LicenseState(STATUS_INVALID, f"keyset no disponible: {exc}", None, now)
     try:
         token = verify_license_blob(blob, keyset, expected_tenant_id=expected_tenant_id())
@@ -143,6 +162,10 @@ def initialize(force: bool = False, emit_audit: bool = True,
         return _state
     try:
         state = evaluate(now=now)
+    except LicenseReadError as exc:
+        # Al ARRANQUE no hay estado previo que conservar: fail-closed directo.
+        state = LicenseState(STATUS_MISSING, f"material de licencia ilegible (I/O): {exc}",
+                             None, now or datetime.now(timezone.utc))
     except Exception as exc:  # noqa: BLE001 — el arranque nunca muere por licencia
         logger.exception("licencia: error inesperado evaluando el token")
         state = LicenseState(STATUS_INVALID, f"error interno: {exc}",
@@ -156,10 +179,52 @@ def initialize(force: bool = False, emit_audit: bool = True,
                        state.status, state.reason)
     if emit_audit:
         try:
-            from .audit_events import emit_startup_event
-            emit_startup_event(state, session_factory=session_factory)
+            from .audit_events import emit_state_event
+            emit_state_event(state, session_factory=session_factory)
         except Exception:  # noqa: BLE001 — audit best-effort, mismo criterio que AuditService
             logger.exception("licencia: no se pudo emitir el evento de audit de arranque")
+    return state
+
+
+def refresh(now: Optional[datetime] = None, session_factory=None) -> LicenseState:
+    """Re-evaluación en RUNTIME (US4/T027, FR-018/FR-021): un proceso vivo debe
+    transicionar ``active→grace→expired`` con el reloj LOCAL, sin reinicio. La
+    llama el tick de la reconciliación (US3/T029). Audita SOLO transiciones de
+    estado (FR-022) — idempotente si el estado no cambió. Fail-closed y jamás
+    levanta, mismo criterio que initialize()."""
+    global _state, _read_failures
+    previous = _state
+    try:
+        state = evaluate(now=now)
+        _read_failures = 0
+    except LicenseReadError as exc:
+        # Blip de I/O (rotación no atómica, volumen): con estado previo de
+        # firma VALIDADA se conserva (histéresis) — un tick fallido no publica
+        # over_seat espurio, no contamina el AuditLog ni corta /gw. Tras
+        # READ_FAILURE_TOLERANCE ticks seguidos, fail-closed igual.
+        _read_failures += 1
+        if previous is not None and previous.token is not None \
+                and _read_failures <= READ_FAILURE_TOLERANCE:
+            logger.warning("licencia: material ilegible (I/O, tick %s/%s) — conservo estado '%s': %s",
+                           _read_failures, READ_FAILURE_TOLERANCE, previous.status, exc)
+            return previous
+        state = LicenseState(STATUS_MISSING,
+                             f"material de licencia ilegible (I/O persistente): {exc}",
+                             None, now or datetime.now(timezone.utc))
+    except Exception as exc:  # noqa: BLE001 — el tick nunca muere por licencia
+        logger.exception("licencia: error inesperado re-evaluando el token")
+        state = LicenseState(STATUS_INVALID, f"error interno: {exc}",
+                             None, now or datetime.now(timezone.utc))
+    _state = state
+    if previous is None or previous.status == state.status:
+        return state
+    log = logger.info if state.status == STATUS_ACTIVE else logger.warning
+    log("licencia: transición %s → %s (%s)", previous.status, state.status, state.reason)
+    try:
+        from .audit_events import emit_state_event
+        emit_state_event(state, session_factory=session_factory)
+    except Exception:  # noqa: BLE001 — audit best-effort
+        logger.exception("licencia: no se pudo auditar la transición de estado")
     return state
 
 
@@ -172,5 +237,6 @@ def get_state() -> LicenseState:
 
 
 def reset_for_tests() -> None:
-    global _state
+    global _state, _read_failures
     _state = None
+    _read_failures = 0

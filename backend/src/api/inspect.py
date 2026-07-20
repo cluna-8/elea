@@ -16,12 +16,16 @@ real llega en 016). Así la extensión y las rutas base_url comparten una sola p
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
 from . import gateway  # reuse: _resolve_attribution (fail-closed check), _audit, _publish_monitor, policy
+from ..licensing.degraded import require_not_hard_blocked
 
-router = APIRouter(prefix="/gw", tags=["Browser-DLP (extensión MV3)"])
+# Bloqueo total de licencia (spec 021 US4, FR-020): whoami/inspect SON el
+# servicio DLP de la extensión — bajo hard block se cortan como el resto de /gw.
+router = APIRouter(prefix="/gw", tags=["Browser-DLP (extensión MV3)"],
+                   dependencies=[Depends(require_not_hard_blocked)])
 
 
 def _fail_closed():
