@@ -61,3 +61,6 @@ bun.lockb
 .specify/memory/credentials.json
 .specify/memory/tokens.json
 .claude/
+
+# 021: claves dev de firma de licencias — JAMAS al repo
+backend/scripts/license_out/
