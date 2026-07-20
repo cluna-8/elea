@@ -30,6 +30,7 @@ check-images:
 check-docs:
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_image.sh
 	$(REPO_ROOT)/deploy/release/checks/test_docs_strict_build.sh
+	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_content.sh
 
 check-whitelabel:
 	$(REPO_ROOT)/deploy/release/checks/test_no_engine_name.sh

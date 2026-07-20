@@ -10,6 +10,9 @@ export interface Brand {
   tagline: string;
   logoUrl: string;
   supportContact: string;
+  // URL del sitio de documentación de producto (spec 022): por instancia, via
+  // brand.json del deploy. Default: /docs/ detrás del mismo ingress.
+  docsUrl: string;
   colors?: { primary?: string; background?: string; panel?: string };
 }
 
@@ -18,6 +21,7 @@ const DEFAULT_BRAND: Brand = {
   tagline: "Pasarela segura de IA sanitaria",
   logoUrl: defaultLogo,
   supportContact: "",
+  docsUrl: "/docs/",
 };
 
 let brand: Brand = DEFAULT_BRAND;

@@ -67,11 +67,18 @@ markdown_extensions:
 nav:
   - Overview: index.md
   - Overview & arquitectura: overview/index.md
-  - Install / Deploy: install-deploy/index.md
+  - Install / Deploy:
+      - Install / Deploy: install-deploy/index.md
+      - Infraestructura: install-deploy/infrastructure.md
+      - Licenciamiento: install-deploy/licensing.md
   - White-label & branding: white-label/index.md
   - Administración: administration/index.md
-  - Integraciones & matriz: integrations/index.md
+  - Integraciones & matriz:
+      - Integraciones & matriz: integrations/index.md
+      - Gotchas verificados: integrations/gotchas.md
   - API reference: api-reference/index.md
-  - Compliance: compliance/index.md
+  - Compliance:
+      - Compliance: compliance/index.md
+      - DPA · DSR · Retención: compliance/dpa-dsr-retention.md
   - Operaciones & troubleshooting: operations/index.md
   - Release notes: release-notes/index.md

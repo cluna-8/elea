@@ -53,6 +53,14 @@ implementación y deben FALLAR primero.
   sobrevive sin DB). El plugin de render debe pasar el test de 0 egress (assets bundled).
 - **F6**: `mike` es git-branch-based: en el build multi-stage se usa un **repo git efímero** dentro del stage
   (mike deploy N versiones → copiar el árbol a nginx). Determinista y 0 egress.
+- **F7 (naming, resolución de una contradicción interna del spec)**: FR-013 a la letra ("no mencionar
+  Anthropic/OpenAI…") choca con US2/FR-005, que EXIGE la matriz de integraciones (Claude Code, ChatGPT,
+  Copilot, Cursor son la superficie documentada) y con el BYOK del operador (que configura claves de SU
+  proveedor). Resolución alineada a la constitución VII (el principio es no exponer el MOTOR): prohibido
+  absoluto en el HTML publicado = internals del pipeline (`litellm`/`berriai`/`presidio` + crédito del
+  tema); nombres de herramientas/proveedores permitidos SOLO como superficies de integración o BYOK del
+  usuario. En prosa la marca es neutra ("el producto"/"el gateway"); los identificadores wire (`x-basa-*`,
+  `BASA_*`, `/gw/*`) se conservan literales.
 
 ---
 
@@ -132,27 +140,27 @@ secciones sin perder 🟢/🟡/🔵; la doc de producto ya no vive en el fronten
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 ⚠️ [P] [US2] Check de cobertura de secciones en `docs/tests/test_sections_present.*`: el sitio
+- [X] T012 ⚠️ [P] [US2] Check de cobertura de secciones en `docs/tests/test_sections_present.*`: el sitio
       construido publica las 9 secciones (overview, install-deploy, white-label, administration, integrations,
       api-reference, compliance, operations, release-notes) con contenido no-placeholder. *(FR-005, SC-003)*
-- [ ] T013 ⚠️ [P] [US2] Check de conservación de la **leyenda de estado**: las páginas migradas del corpus
+- [X] T013 ⚠️ [P] [US2] Check de conservación de la **leyenda de estado**: las páginas migradas del corpus
       preservan las marcas 🟢 HOY / 🟡 PARCIAL / 🔵 OBJETIVO. *(FR-006, SC-003)*
 
 ### Implementation for User Story 2
 
-- [ ] T014 [P] [US2] Migrar `basa-guardian/docs/whitelabel-deployment.md` → `docs/docs/install-deploy/**` +
+- [X] T014 [P] [US2] Migrar `basa-guardian/docs/whitelabel-deployment.md` → `docs/docs/install-deploy/**` +
       `docs/docs/white-label/**` (deploy: OpenTofu/secretos/estado; branding pack). *(FR-006, relación 020)*
-- [ ] T015 [P] [US2] Migrar `basa-guardian/docs/integration-surfaces.md` → `docs/docs/integrations/**`
+- [X] T015 [P] [US2] Migrar `basa-guardian/docs/integration-surfaces.md` → `docs/docs/integrations/**`
       (superficies base_url/browser/mcp + matriz + gotchas). *(FR-006, relación 019)*
-- [ ] T016 [P] [US2] Migrar `basa-guardian/docs/compliance-policies.md` → `docs/docs/compliance/**`
+- [X] T016 [P] [US2] Migrar `basa-guardian/docs/compliance-policies.md` → `docs/docs/compliance/**`
       (GDPR/AI-Act, DPA, DSR, retención, panel DPO). *(FR-006, relación 005/008, Principio II)*
-- [ ] T017 [US2] Redactar **Overview & arquitectura** (`docs/docs/overview/**`): qué es el producto, stack en
+- [X] T017 [US2] Redactar **Overview & arquitectura** (`docs/docs/overview/**`): qué es el producto, stack en
       containers, pipeline (masking→…→unmask) — marca-neutro. *(FR-005)*
-- [ ] T018 [US2] Redactar **Administración** (`docs/docs/administration/**`): multi-tenant, RBAC (super/tenant-
+- [X] T018 [US2] Redactar **Administración** (`docs/docs/administration/**`): multi-tenant, RBAC (super/tenant-
       admin, compliance_officer, client), guardrails, budgets, SSO, licencias/seats. *(FR-007, relación 013/021)*
-- [ ] T019 [US2] Redactar **Operaciones & troubleshooting** (`docs/docs/operations/**`): runbook operativo +
+- [X] T019 [US2] Redactar **Operaciones & troubleshooting** (`docs/docs/operations/**`): runbook operativo +
       gotchas verificados (de `integration-surfaces.md`). *(FR-005)*
-- [ ] T020 [US2] Deprecar `frontend/src/pages/DocsPage.tsx`: redirección/enlace al sitio o retiro; la doc de
+- [X] T020 [US2] Deprecar `frontend/src/pages/DocsPage.tsx`: redirección/enlace al sitio o retiro; la doc de
       producto deja de vivir en el bundle del frontend. *(FR-009, SC-003)*
 
 **Checkpoint**: Sitio con contenido real de distribuidor+operador; corpus migrado; doc fuera del frontend.

@@ -5,7 +5,7 @@ const GUARDIAN_DESCRIPTIONS: Record<string, string> = {
   pii_masking: "Enmascaramiento local por expresiones regulares. Detecta DNI, CUIL, emails, teléfonos y personas sin depender de servicios externos.",
   secret_detection: "Detecta claves de API o tokens de seguridad y los redacta antes de enviarlos al modelo.",
   sensitive_routing: "Enruta prompts con términos sensibles a un modelo local on-premise de forma transparente.",
-  presidio: "Detección NLP real de PII/PHI mediante Microsoft Presidio. Requiere los servicios Presidio Analyzer y Anonymizer.",
+  presidio: "Detección NLP real de PII/PHI mediante el motor NLP del gateway (modelos de lenguaje, no regex). Requiere los dos microservicios del motor NLP (analyzer y anonymizer).",
   openai_moderation: "Filtro de contenido: detecta odio, acoso, autolesiones, violencia y contenido sexual.",
   lakera_prompt_injection: "Defensa en tiempo real contra ataques de jailbreak e inyecciones de prompts adversarias.",
   azure_content_safety: "Clasificación y mitigación de contenido inapropiado mediante filtros de seguridad en la nube.",
@@ -292,32 +292,29 @@ export const SecurityPage: React.FC = () => {
                   <div className="bg-background/30 border border-primary/20 rounded p-3 text-[11px] text-text-secondary space-y-1">
                     <p className="font-semibold text-white">Servicios requeridos</p>
                     <p>
-                      Presidio corre como dos microservicios HTTP independientes. Podés agregarlos a{" "}
-                      <span className="font-mono text-white">docker-compose.yml</span> usando las imágenes oficiales de Microsoft:
+                      El motor NLP corre como dos microservicios HTTP independientes, incluidos en el
+                      stack de despliegue (perfil del cliente). Las URLs de abajo apuntan a esos
+                      servicios; los detalles de imagen y puerto viven en la guía de despliegue.
                     </p>
-                    <div className="mt-2 font-mono text-[10px] text-warning/80 bg-black/30 rounded p-2 space-y-0.5">
-                      <p>mcr.microsoft.com/presidio-analyzer → puerto 3000</p>
-                      <p>mcr.microsoft.com/presidio-anonymizer → puerto 3001</p>
-                    </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-text-secondary font-medium">Presidio Analyzer URL</label>
+                      <label className="text-text-secondary font-medium">URL del analyzer NLP</label>
                       <input
                         type="url"
                         value={selected.config.analyzer_url || ""}
                         onChange={(e) => handleGuardianConfigChange(selected.id, "analyzer_url", e.target.value)}
-                        placeholder="http://presidio-analyzer:3000"
+                        placeholder="http://<host-analyzer>:3000"
                         className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-text-secondary font-medium">Presidio Anonymizer URL</label>
+                      <label className="text-text-secondary font-medium">URL del anonymizer NLP</label>
                       <input
                         type="url"
                         value={selected.config.anonymizer_url || ""}
                         onChange={(e) => handleGuardianConfigChange(selected.id, "anonymizer_url", e.target.value)}
-                        placeholder="http://presidio-anonymizer:3001"
+                        placeholder="http://<host-anonymizer>:3001"
                         className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary"
                       />
                     </div>
@@ -341,14 +338,14 @@ export const SecurityPage: React.FC = () => {
                         onChange={(e) => handleGuardianConfigChange(selected.id, "action", e.target.value)}
                         className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-white focus:outline-none focus:border-primary"
                       >
-                        <option value="MASK">Anonimizar (Presidio Anonymizer)</option>
+                        <option value="MASK">Anonimizar (anonymizer del motor NLP)</option>
                         <option value="BLOCK">Bloquear petición entera</option>
                       </select>
                     </div>
                   </div>
                   <div className="text-[11px] text-text-secondary bg-background/20 rounded p-3">
                     <span className="font-semibold text-white">Sin URL configurada:</span>{" "}
-                    el guardián <span className="text-warning">PII/PHI (regex)</span> sigue activo como fallback. Presidio solo toma precedencia cuando ambas URLs están configuradas.
+                    el guardián <span className="text-warning">PII/PHI (regex)</span> sigue activo como fallback. El motor NLP solo toma precedencia cuando ambas URLs están configuradas.
                   </div>
                 </div>
               )}
