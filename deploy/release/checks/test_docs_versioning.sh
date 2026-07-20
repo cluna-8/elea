@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# 022 T035 (US6, FR-019/FR-020, SC-007): el sitio publica ≥2 versiones con mike
+# (selector via versions.json), y la i18n ES/EN sirve la variante correcta con
+# fallback explícito al primario (jamás 404) — todo con la red bloqueada.
+set -euo pipefail
+IMG="${DOCS_IMG:-basa-docs:prod}"
+
+fail() { echo "❌ $1"; exit 1; }
+docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-docs)"
+
+cname="basa-docs-ver-check-$$"
+trap 'docker rm -f "$cname" >/dev/null 2>&1 || true' EXIT
+docker run -d --name "$cname" --network none "$IMG" >/dev/null
+sleep 1
+w() { docker exec "$cname" wget -qO- "http://127.0.0.1:8080/$1"; }
+
+# FR-019: ≥2 versiones publicadas + alias latest en versions.json (la fuente del selector).
+vj=$(w versions.json) || fail "versions.json ausente"
+echo "$vj" | grep -q '"1.0"' || fail "la versión 1.0 no está publicada"
+echo "$vj" | grep -q '"dev"' || fail "la versión dev no está publicada"
+echo "$vj" | grep -q '"latest"' || fail "el alias latest no existe"
+
+# Cada versión sirve su propia doc; la raíz redirige a latest.
+w 1.0/index.html >/dev/null || fail "/1.0/ no sirve"
+w dev/index.html >/dev/null || fail "/dev/ no sirve"
+w index.html | grep -qi 'latest' || fail "la raíz no redirige a latest"
+
+# FR-020: EN sirve su variante; una página SIN traducción degrada al ES (no 404).
+w latest/en/index.html | grep -q 'TODAY' || fail "la landing EN no sirve contenido en inglés"
+w latest/en/administration/index.html | grep -qi 'multi-tenant' \
+    || fail "página sin traducción EN no degrada al contenido ES (¿404?)"
+
+echo "✅ versionado + i18n OK: 2 versiones + latest, selector con versions.json, EN con fallback ES"

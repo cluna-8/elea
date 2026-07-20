@@ -4,6 +4,10 @@
 # Mismo builder pinneado que el backend prod (020).
 FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS build
 
+# git: lo necesita mike (versionado US6) para su branch efímero DENTRO del build.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 COPY requirements-docs.txt ./
 RUN pip install --no-cache-dir -r requirements-docs.txt
@@ -15,11 +19,22 @@ RUN pip install --no-cache-dir -r requirements-docs.txt
 COPY mkdocs*.yml ./
 COPY brand ./brand
 COPY docs ./docs
+# Versionado por release (US6, FR-019 — delta F6): mike es git-branch-based, así que
+# el build usa un repo git EFÍMERO (git init acá adentro, jamás toca el repo real) y
+# publica <version>+latest (alias COPIA: nginx sirve contenido real) y dev. El árbol
+# final sale de git archive del branch efímero. strict:true vive en el config: un
+# link roto rompe el mike deploy y por lo tanto el build.
 ARG BRAND=""
+ARG DOCS_VERSION=1.0
 RUN if [ -n "$BRAND" ]; then \
         cp brand/"$BRAND"/* docs/assets/brand/ && CONFIG="mkdocs.$BRAND.yml"; \
     else CONFIG=mkdocs.yml; fi \
-    && mkdocs build --strict -f "$CONFIG" -d /out/site
+    && git init -q && git config user.email build@local && git config user.name build \
+    && git add -A && git commit -qm build \
+    && mike deploy -F "$CONFIG" -b docs-site --alias-type copy "$DOCS_VERSION" latest --update-aliases \
+    && mike deploy -F "$CONFIG" -b docs-site dev \
+    && mike set-default -F "$CONFIG" -b docs-site latest \
+    && mkdir -p /out/site && git archive docs-site | tar -x -C /out/site
 
 # ── runtime: nginx estático, non-root, sin ACME (el TLS lo termina el ingress, FR-023) ──
 FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de

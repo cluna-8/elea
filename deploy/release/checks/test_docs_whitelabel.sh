@@ -27,15 +27,15 @@ docker cp -q docs-wl-b:/usr/share/nginx/html "$work/b"
 
 # La marca se aplica donde el site_name manda: el <title> de las páginas.
 # (El contenido PUEDE mencionar "Aegis" como ejemplo en prosa — eso no es marca aplicada.)
-grep -q "<title>.*$BRAND_B_NAME" "$work/b/index.html" || fail "el site_name de aegis no se aplicó (<title>)"
-grep -q "<title>.*$BRAND_B_NAME" "$work/a/index.html" && fail "el sitio base lleva el título de aegis" || true
-grep -q "<title>.*$BRAND_A_NAME" "$work/a/index.html" || fail "el sitio base perdió su site_name"
+grep -q "<title>.*$BRAND_B_NAME" "$work/b/latest/index.html" || fail "el site_name de aegis no se aplicó (<title>)"
+grep -q "<title>.*$BRAND_B_NAME" "$work/a/latest/index.html" && fail "el sitio base lleva el título de aegis" || true
+grep -q "<title>.*$BRAND_A_NAME" "$work/a/latest/index.html" || fail "el sitio base perdió su site_name"
 
 # Normalizar AMBOS tokens de marca en AMBOS árboles (consistente) y excluir los
 # assets de marca (css/logo: SON la config del brand-pack).
 export BRAND_A_NAME BRAND_B_NAME
 for d in a b; do
-    rm -rf "$work/$d/assets/brand"
+    find "$work/$d" -type d -name brand -path "*/assets/brand" -exec rm -rf {} + 2>/dev/null || true
     find "$work/$d" -type f \( -name '*.html' -o -name '*.json' -o -name '*.xml' \) -exec perl -pi -e '
         s/\Q$ENV{BRAND_A_NAME}\E/__BRAND__/g;
         s/\Q$ENV{BRAND_B_NAME}\E/__BRAND__/g;

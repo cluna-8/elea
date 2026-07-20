@@ -17,7 +17,7 @@ sleep 1
 sections=(overview install-deploy white-label administration integrations api-reference \
           compliance operations release-notes)
 for s in "${sections[@]}"; do
-    html=$(docker exec "$cname" cat "/usr/share/nginx/html/$s/index.html" 2>/dev/null) \
+    html=$(docker exec "$cname" cat "/usr/share/nginx/html/latest/$s/index.html" 2>/dev/null) \
         || fail "sección $s ausente del sitio publicado"
     echo "$html" | grep -q "en construcción" && fail "sección $s sigue siendo un stub ('en construcción')"
     [ "$(printf '%s' "$html" | wc -c)" -ge 8000 ] \

@@ -42,6 +42,8 @@ extra_css:
 
 extra:
   generator: false # sin footer "Made with Material for MkDocs" (naming neutro del artefacto publicado)
+  version:
+    provider: mike # selector de versión por release (US6, FR-019)
 
 plugins:
   - search:
@@ -50,8 +52,18 @@ plugins:
         - en
   - privacy # embebe cualquier asset externo en build (air-gap, FR-003)
   - offline # el sitio (búsqueda incluida) funciona desde file:// y sin backend (FR-002/FR-014)
+  - i18n: # ES primario, EN con fallback explícito al primario — jamás 404 (US6, FR-020)
+      docs_structure: suffix
+      fallback_to_default: true
+      languages:
+        - locale: es
+          name: Español
+          default: true
+          build: true
+        - locale: en
+          name: English
+          build: true
   - swagger-ui-tag # API reference embebido, assets locales (US5 — 0 egress)
-  # mike (versionado, US6) e i18n (US6) y swagger-ui-tag (US5) se activan en sus fases — ver tasks.md
 
 markdown_extensions:
   - admonition

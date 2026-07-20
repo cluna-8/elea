@@ -15,14 +15,14 @@ docker run -d --name "$cname" --network none "$IMG" >/dev/null
 sleep 1
 
 # T026: el índice se sirve LOCAL con la red bloqueada y contiene contenido real indexado.
-idx=$(docker exec "$cname" wget -qO- http://127.0.0.1:8080/search/search_index.json) \
+idx=$(docker exec "$cname" wget -qO- http://127.0.0.1:8080/latest/search/search_index.json) \
     || fail "search_index.json no se sirve con la red bloqueada"
 for term in retenci air-gap licencia; do
     echo "$idx" | grep -qi "$term" || fail "el índice de búsqueda no contiene '$term' (¿índice vacío?)"
 done
 
 # El worker/JS de búsqueda vive DENTRO de la imagen (lunr precomputado, sin backend).
-docker exec "$cname" sh -c 'ls /usr/share/nginx/html/assets/javascripts/workers/search.*.min.js' >/dev/null \
+docker exec "$cname" sh -c 'ls /usr/share/nginx/html/latest/assets/javascripts/workers/search.*.min.js' >/dev/null \
     || fail "el worker de búsqueda no está embebido en la imagen"
 
 # T027: cero integración SaaS de búsqueda (config del sitio + sitio publicado).

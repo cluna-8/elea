@@ -261,17 +261,17 @@ traducción EN degrada con fallback, no 404.
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T035 ⚠️ [P] [US6] Test de versionado en `docs/tests/test_versioning_i18n.*`: con ≥2 versiones publicadas
+- [X] T035 ⚠️ [P] [US6] Test de versionado en `docs/tests/test_versioning_i18n.*`: con ≥2 versiones publicadas
       por `mike`, el selector sirve cada versión; con i18n activo, el selector ES/EN sirve la variante correcta y
       una página sin EN degrada con **fallback explícito** (no 404). *(FR-019, FR-020, SC-007)*
 
 ### Implementation for User Story 6
 
-- [ ] T036 [US6] Configurar **`mike`** (versión fijada) para publicar `1.x`/`latest`/`dev` con selector de
+- [X] T036 [US6] Configurar **`mike`** (versión fijada) para publicar `1.x`/`latest`/`dev` con selector de
       versión. *(FR-019)*
-- [ ] T037 [US6] Configurar **`mkdocs-static-i18n`** (ES primario, EN segundo) con selector de idioma y
+- [X] T037 [US6] Configurar **`mkdocs-static-i18n`** (ES primario, EN segundo) con selector de idioma y
       **fallback explícito** al idioma primario para páginas sin traducción. *(FR-020)*
-- [ ] T038 [US6] Cablear **Release notes** (`docs/docs/release-notes/**`) al flujo de `mike` (una entrada por
+- [X] T038 [US6] Cablear **Release notes** (`docs/docs/release-notes/**`) al flujo de `mike` (una entrada por
       versión). *(FR-005, FR-019)*
 
 **Checkpoint**: Selector de versión + selector de idioma funcionando, con fallback.
@@ -287,7 +287,7 @@ traducción EN degrada con fallback, no 404.
 
 ### Tests / Implementation for User Story 7
 
-- [ ] T039 [US7] Documentar en `content-map.md` el docset **end-user (clínico)** como **roadmap P3**: reusa
+- [X] T039 [US7] Documentar en `content-map.md` el docset **end-user (clínico)** como **roadmap P3**: reusa
       contenedor + white-label + i18n con audiencia/tono propios (segundo nav-tree); marcarlo **NO
       implementado** y **no** publicar contenido clínico en v1. *(FR-021, SC-008)*
 

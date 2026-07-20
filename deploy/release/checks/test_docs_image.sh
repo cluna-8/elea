@@ -21,10 +21,12 @@ docker run -d --name "$cname" --network none "$IMG" >/dev/null
 sleep 2
 
 # Todas las secciones + el índice de búsqueda cargan sin red.
-sections=(index.html overview/index.html install-deploy/index.html white-label/index.html \
-          administration/index.html integrations/index.html api-reference/index.html \
-          compliance/index.html operations/index.html release-notes/index.html \
-          search/search_index.json)
+sections=(index.html versions.json latest/index.html latest/overview/index.html \
+          latest/install-deploy/index.html latest/white-label/index.html \
+          latest/administration/index.html latest/integrations/index.html \
+          latest/api-reference/index.html latest/compliance/index.html \
+          latest/operations/index.html latest/release-notes/index.html \
+          latest/en/index.html latest/search/search_index.json)
 for p in "${sections[@]}"; do
     docker exec "$cname" wget -qO /dev/null "http://127.0.0.1:8080/$p" \
         || fail "con la red bloqueada, /$p no carga (¿sección ausente o nginx roto?)"
