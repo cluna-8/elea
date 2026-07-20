@@ -208,16 +208,16 @@ config/HTML.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T026 ⚠️ [P] [US4] Test de búsqueda offline en `docs/tests/test_search_offline.*`: con la red saliente
+- [X] T026 ⚠️ [P] [US4] Test de búsqueda offline en `docs/tests/test_search_offline.*`: con la red saliente
       bloqueada, la búsqueda resuelve contra el índice **local** (0 requests externos). *(FR-014, SC-005)*
-- [ ] T027 ⚠️ [P] [US4] Check anti-SaaS: **0** claves/endpoints de Algolia u otro buscador SaaS en config ni en
+- [X] T027 ⚠️ [P] [US4] Check anti-SaaS: **0** claves/endpoints de Algolia u otro buscador SaaS en config ni en
       el HTML publicado. *(FR-015, SC-005)*
 
 ### Implementation for User Story 4
 
-- [ ] T028 [US4] Activar la búsqueda **lunr built-in** de Material con el plugin `offline` (índice precomputado,
+- [X] T028 [US4] Activar la búsqueda **lunr built-in** de Material con el plugin `offline` (índice precomputado,
       embebido en la imagen; funciona sin backend de búsqueda). *(FR-014)*
-- [ ] T029 [US4] Documentar la opción **Pagefind** para el plan B (Starlight) como equivalente offline; dejar
+- [X] T029 [US4] Documentar la opción **Pagefind** para el plan B (Starlight) como equivalente offline; dejar
       Algolia DocSearch **prohibido** por escrito. *(FR-014, FR-015)*
 
 **Checkpoint**: Búsqueda offline verificada, sin SaaS, sin egress.

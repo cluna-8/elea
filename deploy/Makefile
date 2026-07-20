@@ -41,6 +41,7 @@ check-docs:
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_content.sh
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_neutral_naming.sh
 	$(REPO_ROOT)/deploy/release/checks/test_docs_whitelabel.sh
+	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_search_offline.sh
 
 check-whitelabel:
 	$(REPO_ROOT)/deploy/release/checks/test_no_engine_name.sh
