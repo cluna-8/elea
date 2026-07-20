@@ -38,11 +38,11 @@ negativos. Los tests marcados ⚠️ se escriben ANTES de la implementación y d
 
 **Purpose**: Estructura del paquete de licenciamiento y su lugar en el backend.
 
-- [ ] T001 [SETUP] Crear el paquete `backend/src/licensing/` (con `__init__.py`) y el directorio
+- [X] T001 [SETUP] Crear el paquete `backend/src/licensing/` (con `__init__.py`) y el directorio
       `backend/src/keys/` para la clave pública embebida.
-- [ ] T002 [P] [SETUP] Añadir la dependencia de criptografía Ed25519 (p.ej. `cryptography`/`PyNaCl`) y
+- [X] T002 [P] [SETUP] Añadir la dependencia de criptografía Ed25519 (p.ej. `cryptography`/`PyNaCl`) y
       configurar linting/formato para `backend/src/licensing/` y `tests/` (reusar la config del repo).
-- [ ] T003 [SETUP] Preparar el esqueleto de `tests/unit/`, `tests/integration/`, `tests/contract/` para
+- [X] T003 [SETUP] Preparar el esqueleto de `tests/unit/`, `tests/integration/`, `tests/contract/` para
       esta feature.
 
 ---
@@ -64,14 +64,14 @@ negativos. Los tests marcados ⚠️ se escriben ANTES de la implementación y d
       tier DISTRIBUIDOR = firma central + cupo de emisión (NUNCA clave delegada); per-seat capturado en
       emisión + true-up; 3 ajustes de honestidad (cadena de hashes, expiry degrada, seat-gate
       best-effort). *(FR-001, FR-013, FR-023, FR-028–FR-030)*
-- [ ] T005 [FOUND] Generar el par de claves Ed25519 de prueba (offline), colocar SÓLO la pública en
+- [X] T005 [FOUND] Generar el par de claves Ed25519 de prueba (offline), colocar SÓLO la pública en
       `backend/src/keys/basa_public_keys.pem` indexada por `key_id`; documentar que la privada NUNCA se
       despliega en la caja. *(FR-002, Constraint C5)*
-- [ ] T006 ⚠️ [P] [FOUND] Unit tests en `tests/unit/test_license_verifier.py`: firma **válida** → parse OK;
+- [X] T006 ⚠️ [P] [FOUND] Unit tests en `tests/unit/test_license_verifier.py`: firma **válida** → parse OK;
       firma **alterada** (un byte) → rechazo; **mismatch** de `tenant_id` → rechazo; token **ausente/
       corrupto** → rechazo; **rotación** (token firmado con clave A, verificado contra el set {A,B} por
       `key_id`) → OK. DEBEN FALLAR primero. *(FR-003, FR-005, FR-006, FR-007)*
-- [ ] T007 [FOUND] Implementar `backend/src/licensing/token.py` (parse + esquema del `LicenseToken`) y
+- [X] T007 [FOUND] Implementar `backend/src/licensing/token.py` (parse + esquema del `LicenseToken`) y
       `backend/src/licensing/verifier.py` (verificación Ed25519 **offline** contra `BasaPublicKeySet` por
       `key_id`, sin ninguna llamada de red). *(FR-001, FR-003, FR-004, FR-007)*
 
@@ -89,26 +89,26 @@ tenant cruzado → modo degradado fail-closed + audit; todo **sin egress**.
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T008 ⚠️ [P] [US1] Integration test en `tests/integration/test_startup_verify.py`: arranque con token
+- [X] T008 ⚠️ [P] [US1] Integration test en `tests/integration/test_startup_verify.py`: arranque con token
       válido → entitlement `{tenant_id, max_seats, expiry}` consultable; token alterado/ausente/mismatch →
       estado degradado fail-closed + evento de audit; token **válido pero vencido dentro de grace** →
       arranca con estado `grace` (NO `invalid`): proceso vivo, tráfico existente OK, sólo creación
       bloqueada; token válido pero vencido **MÁS ALLÁ de grace** → arranca en `expired` + degradado
       read-only-para-creación (proceso vivo, 0 exits) — expiry degrada, nunca mata, también en el boot
       path. *(SC-002, SC-013)*
-- [ ] T009 ⚠️ [P] [US1] Integration test **offline** en `tests/integration/test_offline_verify.py`: con
+- [X] T009 ⚠️ [P] [US1] Integration test **offline** en `tests/integration/test_offline_verify.py`: con
       egress de red bloqueado, la verificación de un token válido se completa con **0 llamadas salientes**
       y el sistema opera normal. *(SC-001, FR-004)*
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Implementar `backend/src/licensing/entitlement.py`: cargar el token desde env/secret/
+- [X] T010 [US1] Implementar `backend/src/licensing/entitlement.py`: cargar el token desde env/secret/
       fichero montado (020), verificar (Phase 2), y mantener el **entitlement en memoria** + cómputo
       inicial de estado. *(FR-003, FR-026)*
-- [ ] T011 [US1] Hookear la verificación en el **arranque** del backend; si el token es
+- [X] T011 [US1] Hookear la verificación en el **arranque** del backend; si el token es
       ausente/corrupto/firma inválida/`tenant_id` mismatch → **modo degradado fail-closed** (no crea seats)
       + exponer estado `invalid`/`mismatch`. *(FR-005, FR-006)*
-- [ ] T012 [US1] Emitir el evento de audit de carga de licencia (OK / inválido / mismatch / ausente) vía la
+- [X] T012 [US1] Emitir el evento de audit de carga de licencia (OK / inválido / mismatch / ausente) vía la
       infraestructura de audit inmutable existente (metadata-only, sin token crudo). *(FR-022, FR-024)*
 
 **Checkpoint**: Entitlement cargado y verificado offline; fail-closed al arranque verificado independiente.
@@ -125,29 +125,29 @@ fail-closed, coexistiendo con el 409 de duplicados.
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T013 ⚠️ [P] [US2] Unit test en `tests/unit/test_seat_counter.py`: `COUNT(activas)` cuenta sólo
+- [X] T013 ⚠️ [P] [US2] Unit test en `tests/unit/test_seat_counter.py`: `COUNT(activas)` cuenta sólo
       Connections activas (excluye revocadas/soft-deleted/expiradas), por tenant, aislado. *(FR-013, FR-014)*
-- [ ] T014 ⚠️ [P] [US2] Integration test en `tests/integration/test_seat_gate_keys.py`: con `max_seats=N` y
+- [X] T014 ⚠️ [P] [US2] Integration test en `tests/integration/test_seat_gate_keys.py`: con `max_seats=N` y
       N activas, `POST` de Connection N+1 → 402/403 `license_seat_limit_exceeded`, **sin** llamar a
       `ai_engine_client.generate_key`, con audit; revocar una → `POST` OK. *(SC-003)*
-- [ ] T015 ⚠️ [P] [US2] Integration test en `tests/integration/test_seat_gate_users.py`: mismo gate en
+- [X] T015 ⚠️ [P] [US2] Integration test en `tests/integration/test_seat_gate_users.py`: mismo gate en
       `POST` de Client (`role=client`) contra `max_seats`. *(FR-009)*
-- [ ] T016 ⚠️ [P] [US2] Integration test en `tests/integration/test_gate_coexist.py`: el 402/403 (licencia)
+- [X] T016 ⚠️ [P] [US2] Integration test en `tests/integration/test_gate_coexist.py`: el 402/403 (licencia)
       y el 409 (`uq_api_keys_tenant_user_tool`, duplicado) son guardas independientes — un caso dispara sólo
       409, otro sólo 402/403, un tercero podría disparar ambos. *(SC-004, FR-011)*
-- [ ] T017 ⚠️ [P] [US2] Integration test en `tests/integration/test_seats_not_usage.py`: un seat
+- [X] T017 ⚠️ [P] [US2] Integration test en `tests/integration/test_seats_not_usage.py`: un seat
       rate-limited a 0 rpm (007) **igual** cuenta para `max_seats` (seats ≠ uso). *(SC-008, FR-012)*
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Implementar `backend/src/licensing/seat_counter.py`: definición única de seat ([D-021],
+- [X] T018 [US2] Implementar `backend/src/licensing/seat_counter.py`: definición única de seat ([D-021],
       default `COUNT(APIKey activas)` por tenant), consistente con el índice parcial existente. *(FR-013, FR-014)*
-- [ ] T019 [US2] Añadir el gate en `backend/src/api/keys.py` (`POST`): contar seats y rechazar con 402/403
+- [X] T019 [US2] Añadir el gate en `backend/src/api/keys.py` (`POST`): contar seats y rechazar con 402/403
       `license_seat_limit_exceeded` **antes** de `ai_engine_client.generate_key` si excede `max_seats`;
       **fail-closed** si el entitlement no está cargado/es inválido. *(FR-008, FR-010)*
-- [ ] T020 [US2] Añadir el mismo gate en `backend/src/api/users.py` (`POST` de Client `role=client`).
+- [X] T020 [US2] Añadir el mismo gate en `backend/src/api/users.py` (`POST` de Client `role=client`).
       *(FR-009, FR-010)*
-- [ ] T021 [US2] Emitir el evento de audit `license_seat_limit_exceeded` en cada rechazo del gate
+- [X] T021 [US2] Emitir el evento de audit `license_seat_limit_exceeded` en cada rechazo del gate
       (metadata-only, con `seats_used`/`max_seats`). *(FR-022, FR-024)*
 
 **Checkpoint**: MVP demostrable — no se puede crear el asiento N+1; el gate coexiste con el 409 y no
@@ -164,18 +164,18 @@ confunde seats con uso.
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T022 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile.py`: drift inyectado por DB
+- [X] T022 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile.py`: drift inyectado por DB
       directa (`COUNT(activas) > max_seats`) → reconciliación marca `over_seat`, dispara degradado, emite
       audit con `seats_used` vs `max_seats`; al corregir → `ok`. *(SC-005)*
-- [ ] T023 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile_isolation.py`: con múltiples
+- [X] T023 ⚠️ [P] [US3] Integration test en `tests/integration/test_reconcile_isolation.py`: con múltiples
       tenants, el `over_seat` de uno NO afecta el estado de otro. *(SC-009, FR-017)*
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Implementar `backend/src/licensing/reconcile.py`: job periódico **local** que compara
+- [X] T024 [US3] Implementar `backend/src/licensing/reconcile.py`: job periódico **local** que compara
       `COUNT(activas)` vs `max_seats` por tenant (misma definición que US2) y publica
       `{ok|over_seat|expired}` por tenant, aislado. *(FR-015, FR-016, FR-017)*
-- [ ] T025 [US3] Enganchar la reconciliación al scheduler existente del backend (sin phone-home) y conectar
+- [X] T025 [US3] Enganchar la reconciliación al scheduler existente del backend (sin phone-home) y conectar
       su salida al cómputo de estado (US4) + audit (US5). *(FR-015, FR-016)*
 
 **Checkpoint**: Reconciliación verde (drift detectado, aislado por tenant).
@@ -192,18 +192,18 @@ más allá del grace → `expired`, modo degradado.
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T026 ⚠️ [P] [US4] Integration test en `tests/integration/test_lifecycle.py` con reloj inyectado:
+- [X] T026 ⚠️ [P] [US4] Integration test en `tests/integration/test_lifecycle.py` con reloj inyectado:
       `active` (creación OK) → `grace` (creación bloqueada, tráfico existente OK, audit) → `expired`
       (degradado read-only-para-creación); verificar el toggle a bloqueo total. *(SC-006)*
 
 ### Implementation for User Story 4
 
-- [ ] T027 [US4] Extender `entitlement.py` para computar `{active|grace|expired}` desde `expiry`/
+- [X] T027 [US4] Extender `entitlement.py` para computar `{active|grace|expired}` desde `expiry`/
       `grace_days` con el **reloj local** (offline). *(FR-018, FR-021)*
-- [ ] T028 [US4] Implementar el **modo degradado**: en `grace`/`expired`/`over_seat`, bloquear la creación
+- [X] T028 [US4] Implementar el **modo degradado**: en `grace`/`expired`/`over_seat`, bloquear la creación
       de seats (default **read-only para creación**; toggle configurable a bloqueo total); el tráfico
       existente sigue. *(FR-019, FR-020)*
-- [ ] T029 [US4] Conectar el estado de licencia al gate (US2) para que `grace`/`expired`/`over_seat`
+- [X] T029 [US4] Conectar el estado de licencia al gate (US2) para que `grace`/`expired`/`over_seat`
       bloqueen la creación fail-closed, y emitir audit por transición. *(FR-019, FR-020, FR-022)*
 
 **Checkpoint**: Ciclo de vida y aterrizaje suave demostrables con reloj local.
@@ -223,19 +223,19 @@ valida contra la deployment key y un byte alterado invalida la firma.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T030 ⚠️ [P] [US5] Integration test (negativo) en `tests/integration/test_audit_tamper.py`: cada
+- [X] T030 ⚠️ [P] [US5] Integration test (negativo) en `tests/integration/test_audit_tamper.py`: cada
       transición deja `{event_type, license_id, tenant_id, seats_used, max_seats, ts, prev_hash}`; **cero**
       token crudo/claves; los eventos NO se pueden borrar/editar por la ruta normal (inmutabilidad).
       *(SC-007, FR-024, FR-025, FR-028)*
-- [ ] T031 ⚠️ [P] [US5] Integration test en `tests/integration/test_clock_rollback.py`: un `now` anterior a
+- [X] T031 ⚠️ [P] [US5] Integration test en `tests/integration/test_clock_rollback.py`: un `now` anterior a
       la marca monotónica → evento `license_clock_rollback_suspected` + degradado. *(FR-023)*
-- [ ] T039 ⚠️ [P] [US5] Integration test en `tests/integration/test_hash_chain.py`: cadena íntegra →
+- [X] T039 ⚠️ [P] [US5] Integration test en `tests/integration/test_hash_chain.py`: cadena íntegra →
       verificación OK; borrar un evento **intermedio** por DB directa → eslabón roto detectado y
       reportado; editar un campo de un evento → ídem; génesis anclada al `license_id`; el **hash-head y
       el contador monotónico** se persisten y avanzan con cada evento. Documentar en el test (como
       comentario-contrato) que el truncado de cola/total NO es detectable localmente — su detección es
       la continuidad entre exports (T040). *(SC-011, FR-028)*
-- [ ] T040 ⚠️ [P] [US5] Integration test en `tests/integration/test_trueup_export.py`: el export firmado
+- [X] T040 ⚠️ [P] [US5] Integration test en `tests/integration/test_trueup_export.py`: el export firmado
       valida contra la pública del deployment; refleja lo que la caja registró (`seats_used`/historial) +
       **hash-head + contador**; alterar un byte → firma inválida; dos exports sucesivos → el verificador
       (lado Basa, mismo módulo) acepta continuidad head-ancestro/contador-no-decreciente y **rechaza** un
@@ -245,15 +245,15 @@ valida contra la deployment key y un byte alterado invalida la firma.
 
 ### Implementation for User Story 5
 
-- [ ] T032 [US5] Implementar `backend/src/licensing/audit_events.py`: emitir cada transición de licencia al
+- [X] T032 [US5] Implementar `backend/src/licensing/audit_events.py`: emitir cada transición de licencia al
       **AuditLog inmutable existente**, metadata-only, **encadenada por hash** (cada evento incluye el hash
       del anterior; génesis = `license_id`) + verificador de cadena; NO inventar canal nuevo. *(FR-022,
       FR-024, FR-025, FR-028)*
-- [ ] T033 [US5] Implementar la **marca monotónica** (último ts de licencia/audit visto); si `now` < marca
+- [X] T033 [US5] Implementar la **marca monotónica** (último ts de licencia/audit visto); si `now` < marca
       → `license_clock_rollback_suspected` + tratar como degradado (anti-rollback best-effort). *(FR-023)*
-- [ ] T034 [US5] Implementar/extender `backend/src/api/health.py`: exponer `{status, seats_used, max_seats,
+- [X] T034 [US5] Implementar/extender `backend/src/api/health.py`: exponer `{status, seats_used, max_seats,
       expiry}` metadata-only (sin token ni claves) para operación/soporte. *(FR-027)*
-- [ ] T041 [US5] Implementar `backend/src/licensing/deployment_key.py` (par Ed25519 generado en el install;
+- [X] T041 [US5] Implementar `backend/src/licensing/deployment_key.py` (par Ed25519 generado en el install;
       privada en volumen/secret, nunca en config en claro ni en el repo) y
       `backend/src/licensing/trueup_export.py` (export firmado `{tenant_id, distributor_id, pool_id,
       seats_used, max_seats, historial, hash-head, rango}`, generación local/offline). *(FR-029)*
@@ -265,17 +265,17 @@ health de licencia expuesto.
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T035 [P] [POLISH] Generar `data-model.md` (consume 013: APIKey/User/Tenant/AuditLog; define el
+- [X] T035 [P] [POLISH] Generar `data-model.md` (consume 013: APIKey/User/Tenant/AuditLog; define el
       pequeño estado de licencia + marca monotónica) y `quickstart.md` (emitir token de prueba offline →
       inyectar en 020 → arrancar sin egress → ver `/health`).
-- [ ] T036 [POLISH] Verificación end-to-end con Docker Compose **sin egress** (Principio VII); validar que
+- [X] T036 [POLISH] Verificación end-to-end con Docker Compose **sin egress** (Principio VII); validar que
       el **mismo binario/imagen** opera con distintos tokens cambiando sólo la config inyectada (020).
       *(SC-010)*
-- [ ] T037 [P] [POLISH] Contract test del **formato del token**, del **esquema del evento de audit de
+- [X] T037 [P] [POLISH] Contract test del **formato del token**, del **esquema del evento de audit de
       licencia** (incl. `prev_hash`, FR-028) y del **formato wire del TrueUpExport** (artefacto
       cross-party que Basa verifica — FR-029) en `tests/contract/`; documentar el proceso de **rotación
       de claves** por `key_id`.
-- [ ] T038 [POLISH] Documentar la integración con la **020** (dónde/cómo se inyecta el token) y actualizar
+- [X] T038 [POLISH] Documentar la integración con la **020** (dónde/cómo se inyecta el token) y actualizar
       `spec/plan/tasks/changelog` (Dev Workflow — Documentación viva).
 
 ---

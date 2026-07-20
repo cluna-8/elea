@@ -135,7 +135,8 @@ def export_human_review_log(db: Session = Depends(get_db)):
 @router.get("/executive", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def executive_summary(db: Session = Depends(get_db)):
     """JSON executive summary for the DPO — totals, rates, alerts."""
-    total_logs = db.query(AuditLog).count()
+    # spec 021: los eventos de licencia (model='license') no son transacciones.
+    total_logs = db.query(AuditLog).filter(AuditLog.model != "license").count()
     pii_logs = db.query(AuditLog).filter(AuditLog.pii_detected == True).count()
     disclosure_logs = db.query(AuditLog).filter(AuditLog.ai_disclosure_delivered == True).count()
     pending_reviews = db.query(HumanReview).filter(HumanReview.reviewed_at == None).count()

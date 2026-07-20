@@ -62,5 +62,5 @@ bun.lockb
 .specify/memory/tokens.json
 .claude/
 
-# 021: claves dev de firma de licencias — JAMAS al repo
+# spec 021: claves privadas del emisor dev de licencias — NUNCA commitear
 backend/scripts/license_out/
