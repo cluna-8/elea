@@ -27,3 +27,15 @@ Mapa del dir:
   US6) y `checks/` (validación de artefactos: la "suite de tests" de esta spec).
 
 Validación: `make -C deploy check` corre todos los checks; cada uno también corre solo.
+
+## Modo on-prem / air-gapped (US6, T038)
+
+1. `publish.sh` en una máquina CON red → `bundle.sh <slug>` → `bundle-<slug>.tar.gz`.
+2. Mover el tarball al host (USB/SFTP). `tar xzf` + `docker load -i images.tar`.
+3. `docker compose -f compose.prod.yml --profile selfhosted --env-file profile/instance.env \
+   --env-file secrets.env up -d` (Postgres/Redis en contenedor con volumen durable).
+
+**Red**: el único egress necesario es hacia los proveedores LLM (via NAT/proxy);
+con un modelo local (Ollama/vLLM en el `config.yaml` del perfil, 013) el egress
+es **cero**. La verificación de licencia (021) es 100% offline — jamás llama a
+casa. Camino k8s v2: **Zarf** (bundle con SBOM + firma cosign).

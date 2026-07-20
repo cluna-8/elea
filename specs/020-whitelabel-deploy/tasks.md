@@ -215,21 +215,21 @@ bootstrap rotado emitido una vez, nada en claro en state/logs.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T030 ⚠️ [P] [US5] Check negativo en `deploy/release/checks/test_no_default_secrets.sh`: 0 coincidencias de
+- [X] T030 ⚠️ [P] [US5] Check negativo en `deploy/release/checks/test_no_default_secrets.sh`: 0 coincidencias de
       `basasecurepass123`/`basa_master_key_9999`/`${VAR:-<secreto>}` en artefactos del **camino prod**. DEBE
       FALLAR si sobrevive un default. *(FR-025, SC-005)*
-- [ ] T031 ⚠️ [P] [US5] Check en `deploy/release/checks/test_secrets_not_in_state.sh`: ningún secreto ni el admin
+- [X] T031 ⚠️ [P] [US5] Check en `deploy/release/checks/test_secrets_not_in_state.sh`: ningún secreto ni el admin
       bootstrap aparece en claro en `tfstate`/outputs no-sensitive/logs. DEBE FALLAR primero. *(SC-005)*
 
 ### Implementation for User Story 5
 
-- [ ] T032 [US5] En el submódulo `secrets/`: generar por instalación `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`,
+- [X] T032 [US5] En el submódulo `secrets/`: generar por instalación `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`,
       `FERNET_SECRET_KEY`, `JWT_SECRET_KEY`, keys de proveedores y `oauth_credential_ref` vía `random_password`
       cifrados con **SOPS + age** (v1) / **OpenBao** (v2), no secrets managers cloud; marcar `sensitive`.
       *(FR-019, FR-026, Constraint C5)*
-- [ ] T033 [US5] Retirar del camino prod todo secreto default heredado del compose de dev (los artefactos prod
+- [X] T033 [US5] Retirar del camino prod todo secreto default heredado del compose de dev (los artefactos prod
       NO cargan `${VAR:-basasecurepass123}` ni `${VAR:-basa_master_key_9999}`). *(FR-025)*
-- [ ] T034 [US5] Generar y **rotar** el **admin bootstrap** por instalación; emitirlo una sola vez vía output
+- [X] T034 [US5] Generar y **rotar** el **admin bootstrap** por instalación; emitirlo una sola vez vía output
       protegido; NO persistirlo en claro. *(FR-027)*
 
 **Checkpoint**: Sin defaults en prod; cada instalación con secretos únicos y admin bootstrap rotado.
@@ -245,19 +245,19 @@ con egress sólo a proveedores LLM (o cero con modelo local).
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T035 ⚠️ [P] [US6] Check en `deploy/release/checks/test_airgapped_bundle.sh`: el tarball contiene **todas**
+- [X] T035 ⚠️ [P] [US6] Check en `deploy/release/checks/test_airgapped_bundle.sh`: el tarball contiene **todas**
       las imágenes pinneadas del release; `docker load` + arranque **sin** acceso a registry. DEBE FALLAR si
       falta una imagen. *(FR-028, FR-030, SC-006)*
 
 ### Implementation for User Story 6
 
-- [ ] T036 [US6] Escribir `deploy/release/bundle.sh`: `docker save` de las imágenes pinneadas (backend, frontend,
+- [X] T036 [US6] Escribir `deploy/release/bundle.sh`: `docker save` de las imágenes pinneadas (backend, frontend,
       LiteLLM 014) + `config.yaml` + seed → tarball autocontenido (v1). Para el camino **k8s v2**, el bundle
       air-gap-native es **Zarf** (SBOM + firma cosign); evaluar Replicated si crece el volumen de distribuidores.
       *(FR-028)*
-- [ ] T037 [US6] Cablear la variable de fuente de imágenes (US4 T029) al camino **tarball**: install sin pulls en
+- [X] T037 [US6] Cablear la variable de fuente de imágenes (US4 T029) al camino **tarball**: install sin pulls en
       runtime. *(FR-024, FR-030)*
-- [ ] T038 [US6] Documentar el modo **on-prem sin egress**: egress sólo a proveedores LLM vía NAT, o cero con
+- [X] T038 [US6] Documentar el modo **on-prem sin egress**: egress sólo a proveedores LLM vía NAT, o cero con
       modelo local (Ollama/vLLM, 013); cubre el caso Elea/DEPLOY_VPN. *(FR-029)*
 
 **Checkpoint**: Install air-gapped sin registry en runtime; on-prem sin egress documentado.
@@ -266,13 +266,13 @@ con egress sólo a proveedores LLM (o cero con modelo local).
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T039 [P] [POLISH] Generar `quickstart.md`: rellenar un perfil → `tofu apply` en EU → HTTPS →
+- [X] T039 [P] [POLISH] Generar `quickstart.md`: rellenar un perfil → `tofu apply` en EU → HTTPS →
       validar (checks negativos). Y `data`/diagramas si aplica.
 - [ ] T040 [POLISH] Verificación end-to-end en cloud sandbox (región EU): un cliente completo por HTTPS +
       corrida de TODOS los checks negativos (secretos, motor, region, state). Principio VII.
-- [ ] T041 [P] [POLISH] Confirmar "un codebase, dos perfiles": el `docker-compose.yml` de dev sigue funcionando
+- [X] T041 [P] [POLISH] Confirmar "un codebase, dos perfiles": el `docker-compose.yml` de dev sigue funcionando
       para local sin cambios; los artefactos prod son aditivos (never fork). *(SC-008, FR-031)*
-- [ ] T042 [POLISH] Dejar el **hueco de entrada de license key** (env/placeholder) SIN enforcement y
+- [X] T042 [POLISH] Dejar el **hueco de entrada de license key** (env/placeholder) SIN enforcement y
       documentarlo como interfaz para la **spec 021 (license enforcement)**. Segundo punto de contacto
       (addendum 2026-07-14): provisionar además el **volumen/secret persistente para la clave privada
       del deployment** (par Ed25519 generado en el install, firma los exports de true-up de 021/FR-029;
