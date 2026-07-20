@@ -178,28 +178,28 @@ descartado** (ECS Anywhere no corre air-gapped).
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T021 ⚠️ [P] [US4] `tofu validate` + `plan` en `deploy/terraform/` contra un perfil de ejemplo; el
+- [X] T021 ⚠️ [P] [US4] `tofu validate` + `plan` en `deploy/terraform/` contra un perfil de ejemplo; el
       plan MUST mostrar SG **443-only**, DB/Redis gestionados, secretos cifrados (SOPS+age/OpenBao), TLS (Caddy),
       región EU. DEBE FALLAR si falta alguno. *(FR-015..FR-021)*
-- [ ] T022 ⚠️ [P] [US4] Check de aislamiento en `deploy/release/checks/test_workspace_isolation.sh`: dos
+- [X] T022 ⚠️ [P] [US4] Check de aislamiento en `deploy/release/checks/test_workspace_isolation.sh`: dos
       workspaces (dos clientes) → state y secretos **aislados**, sin colisión. DEBE FALLAR primero. *(SC-007)*
 
 ### Implementation for User Story 4
 
-- [ ] T023 [P] [US4] Submódulo `deploy/terraform/modules/network/`: VPC, subredes pública/privada, security
+- [X] T023 [P] [US4] Submódulo `deploy/terraform/modules/network/`: VPC, subredes pública/privada, security
       group **sólo 443 in**, NAT para egress a proveedores LLM. *(FR-015)*
-- [ ] T024 [P] [US4] Submódulo `deploy/terraform/modules/database/`: Postgres gestionado (RDS/CloudSQL) +
+- [X] T024 [P] [US4] Submódulo `deploy/terraform/modules/database/`: Postgres gestionado (RDS/CloudSQL) +
       output de `POSTGRES_*` (swap del efímero de dev). *(FR-016)*
-- [ ] T025 [P] [US4] Submódulo `deploy/terraform/modules/cache/`: Redis gestionado (ElastiCache/MemoryStore) +
+- [X] T025 [P] [US4] Submódulo `deploy/terraform/modules/cache/`: Redis gestionado (ElastiCache/MemoryStore) +
       output de `REDIS_*`. *(FR-017)*
-- [ ] T026 [US4] Submódulo `deploy/terraform/modules/compute/`: v1 = VM + docker compose por **cloud-init** desde
+- [X] T026 [US4] Submódulo `deploy/terraform/modules/compute/`: v1 = VM + docker compose por **cloud-init** desde
       las imágenes de US1; dejar el hook (comentado/roadmap) para **k3s + Helm + Zarf** (v2). **NO** ECS/Fargate
       (ECS Anywhere no corre air-gapped). *(FR-018)*
-- [ ] T027 [US4] Submódulo `deploy/terraform/modules/ingress/`: TLS (**Caddy** auto-HTTPS v1 / **Traefik** v2) +
+- [X] T027 [US4] Submódulo `deploy/terraform/modules/ingress/`: TLS (**Caddy** auto-HTTPS v1 / **Traefik** v2) +
       **DNS por cliente** derivado del `tenant.slug`. *(FR-020)*
-- [ ] T028 [US4] Módulo raíz + `deploy/terraform/envs/<client>/`: región **EU** fijable (default EU), **remote
+- [X] T028 [US4] Módulo raíz + `deploy/terraform/envs/<client>/`: región **EU** fijable (default EU), **remote
       state + workspaces por cliente**, y **outputs** (URL + admin bootstrap rotado). *(FR-021, FR-022, FR-023)*
-- [ ] T029 [US4] Variable de **fuente de imágenes**: `registry` (pull-secret) vs `tarball` air-gapped (engancha
+- [X] T029 [US4] Variable de **fuente de imágenes**: `registry` (pull-secret) vs `tarball` air-gapped (engancha
       con US6). *(FR-024)*
 
 **Checkpoint**: `tofu apply` en EU deja una instalación funcional por HTTPS, aislada por cliente.
