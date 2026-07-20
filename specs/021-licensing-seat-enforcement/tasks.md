@@ -265,17 +265,17 @@ health de licencia expuesto.
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T035 [P] [POLISH] Generar `data-model.md` (consume 013: APIKey/User/Tenant/AuditLog; define el
+- [X] T035 [P] [POLISH] Generar `data-model.md` (consume 013: APIKey/User/Tenant/AuditLog; define el
       pequeño estado de licencia + marca monotónica) y `quickstart.md` (emitir token de prueba offline →
       inyectar en 020 → arrancar sin egress → ver `/health`).
-- [ ] T036 [POLISH] Verificación end-to-end con Docker Compose **sin egress** (Principio VII); validar que
+- [X] T036 [POLISH] Verificación end-to-end con Docker Compose **sin egress** (Principio VII); validar que
       el **mismo binario/imagen** opera con distintos tokens cambiando sólo la config inyectada (020).
       *(SC-010)*
-- [ ] T037 [P] [POLISH] Contract test del **formato del token**, del **esquema del evento de audit de
+- [X] T037 [P] [POLISH] Contract test del **formato del token**, del **esquema del evento de audit de
       licencia** (incl. `prev_hash`, FR-028) y del **formato wire del TrueUpExport** (artefacto
       cross-party que Basa verifica — FR-029) en `tests/contract/`; documentar el proceso de **rotación
       de claves** por `key_id`.
-- [ ] T038 [POLISH] Documentar la integración con la **020** (dónde/cómo se inyecta el token) y actualizar
+- [X] T038 [POLISH] Documentar la integración con la **020** (dónde/cómo se inyecta el token) y actualizar
       `spec/plan/tasks/changelog` (Dev Workflow — Documentación viva).
 
 ---
