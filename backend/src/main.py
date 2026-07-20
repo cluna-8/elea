@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -66,13 +67,28 @@ else:
 # token inyectado por la 020. Fail-closed para la CREACIÓN de seats (gate en
 # keys/users), pero jamás mata el proceso (SC-013) — initialize() no levanta.
 from .licensing import entitlement as license_entitlement  # noqa: E402
+from .licensing import reconcile as license_reconcile  # noqa: E402
 
 license_entitlement.initialize()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Reconciliación periódica de seats (spec 021 US3, T025): vive y muere con
+    # la app; 100% local, sin phone-home. Interval/off por
+    # BASA_LICENSE_RECONCILE_INTERVAL_SECONDS.
+    license_reconcile.start_scheduler()
+    try:
+        yield
+    finally:
+        license_reconcile.stop_scheduler()
+
 
 app = FastAPI(
     title="Basa Secure AI Gateway API (by basa dev)",
     description="Secure, white-labeled AI gateway with PII/PHI masking, budgets, and compliance policies.",
     version="1.0.0",
+    lifespan=_lifespan,
 )
 
 # Include API Router

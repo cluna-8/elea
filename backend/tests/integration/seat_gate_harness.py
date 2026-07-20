@@ -77,8 +77,9 @@ def restore_suite_license():
     entitlement.initialize(force=True, emit_audit=False)
 
 
-def seed_active_seats(factory, n, *, rpm_limit=60, prefix="seed"):
-    """N Connections ACTIVAS por DB directa, tenant default.
+def seed_active_seats(factory, n, *, rpm_limit=60, prefix="seed", tenant_id=None):
+    """N Connections ACTIVAS por DB directa; tenant default salvo ``tenant_id``
+    explícito (tests de aislamiento de la reconciliación, T023).
 
     user_id queda NULL a propósito: el índice parcial
     uq_api_keys_tenant_user_tool no colisiona entre NULLs, así que N seats
@@ -95,6 +96,7 @@ def seed_active_seats(factory, n, *, rpm_limit=60, prefix="seed"):
                 key_preview=f"sk-...{prefix}{i}",
                 tool_type="claude-code",
                 rpm_limit=rpm_limit,
+                **({"tenant_id": tenant_id} if tenant_id is not None else {}),
             )
             db.add(row)
             rows.append(row)
@@ -135,6 +137,19 @@ def mock_engine(monkeypatch):
     monkeypatch.setattr(ai_engine_client, "create_user", fake_create_user)
     monkeypatch.setattr(ai_engine_client, "delete_key", fake_delete_key)
     return recorder
+
+
+def create_tenant(factory, slug):
+    """Tenant extra por DB directa (tests de aislamiento/reconciliación, US3)."""
+    from src.models.tenant import Tenant
+    db = factory()
+    try:
+        row = Tenant(name=slug, slug=slug)
+        db.add(row)
+        db.commit()
+        return row.id
+    finally:
+        db.close()
 
 
 def current_seats(factory):
