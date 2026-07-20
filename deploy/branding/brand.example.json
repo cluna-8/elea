@@ -1,0 +1,11 @@
+{
+  "name": "Aegis AI Firewall",
+  "tagline": "Su pasarela de IA corporativa",
+  "logo": "logo.png",
+  "supportContact": "soporte@aegis.example",
+  "colors": {
+    "primary": "#e63946",
+    "background": "#10141f",
+    "panel": "#1d2433"
+  }
+}

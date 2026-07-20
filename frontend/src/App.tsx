@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import logoImg from "./logo.png";
+import { getBrand } from "./services/branding";
 import { UsersPage } from "./pages/UsersPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { CompliancePage } from "./pages/CompliancePage";
@@ -55,7 +55,7 @@ export const App: React.FC = () => {
         <div className="flex flex-col flex-1">
           {/* Logo / Branding */}
           <div className="p-5 border-b border-slate-700/50">
-            <img src={logoImg} alt="Basa Secure AI Gateway" className="h-10 w-auto object-contain" />
+            <img src={getBrand().logoUrl} alt={getBrand().name} className="h-10 w-auto object-contain" />
           </div>
 
           {/* Navigation Links */}

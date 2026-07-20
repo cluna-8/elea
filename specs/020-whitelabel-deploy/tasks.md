@@ -113,20 +113,20 @@ metadata reflejan la marca **sin editar código**; `grep` de artefactos de marca
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 ⚠️ [P] [US2] Check negativo en `deploy/release/checks/test_no_engine_name.sh`: 0 coincidencias de
+- [X] T012 ⚠️ [P] [US2] Check negativo en `deploy/release/checks/test_no_engine_name.sh`: 0 coincidencias de
       "litellm"/"LiteLLM" expuestas al usuario en los artefactos de marca blanca (UI build + metadata). DEBE
       FALLAR si el motor se filtra. *(FR-007, SC-002)*
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Definir el **branding pack** (`deploy/branding/branding.default.env` Basa-neutro +
+- [X] T013 [US2] Definir el **branding pack** (`deploy/branding/branding.default.env` Basa-neutro +
       `branding.example.env` distribuidor + `assets/` placeholder) con nombre/logo/colores/dominio/soporte.
       *(FR-006, FR-009)*
-- [ ] T014 [US2] Cablear el frontend (bundle marca-neutro) y el metadata del backend para consumir el branding
+- [X] T014 [US2] Cablear el frontend (bundle marca-neutro) y el metadata del backend para consumir el branding
       pack como **config-as-data en runtime** (**env + assets montados**, una marca por instancia; NO build-time,
       NO rebuild), sin ediciones de código fuente; fallback al default si no hay pack del distribuidor.
       *(FR-006, FR-008, FR-009)*
-- [ ] T015 [US2] Asegurar que ningún artefacto de marca blanca nombra el motor (títulos, headers, errores,
+- [X] T015 [US2] Asegurar que ningún artefacto de marca blanca nombra el motor (títulos, headers, errores,
       about); cerrar el gotcha de fuga de nombre del PoC browser-DLP. *(FR-007)*
 
 **Checkpoint**: Marca blanca conmutable por config, sin fork y sin filtrar el motor.

@@ -62,8 +62,12 @@ if os.getenv("CREATE_TABLES_ON_STARTUP", "false").lower() == "true":
 else:
     _run_alembic_upgrade_head()
 
+# Marca como CONFIG (spec 020 US2, FR-006): el nombre del producto en el
+# metadata (OpenAPI/health) viene del branding pack via env; default Basa-neutro.
+BRAND_NAME = os.getenv("BRAND_NAME", "Basa Secure AI Gateway")
+
 app = FastAPI(
-    title="Basa Secure AI Gateway API (by basa dev)",
+    title=f"{BRAND_NAME} API",
     description="Secure, white-labeled AI gateway with PII/PHI masking, budgets, and compliance policies.",
     version="1.0.0",
 )
@@ -104,6 +108,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def health_check():
     return {
         "status": "healthy",
-        "service": "basa-secure-ai-gateway-backend",
+        "service": os.getenv("BRAND_SERVICE_ID", "basa-secure-ai-gateway-backend"),
         "version": "1.0.0"
     }

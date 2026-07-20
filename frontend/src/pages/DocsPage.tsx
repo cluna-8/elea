@@ -369,11 +369,11 @@ export const DocsPage: React.FC = () => {
               {[
                 { step: "1", color: "text-slate-400", label: "Petición entrante", detail: "El cliente envía su mensaje con la API key" },
                 { step: "2", color: "text-primary", label: "Autenticación API key", detail: "Verifica que la key existe y no ha superado su presupuesto" },
-                { step: "3", color: "text-primary", label: "Guardianes de contenido", detail: "Presidio enmascara PII · LiteLLM moderation filtra contenido dañino" },
+                { step: "3", color: "text-primary", label: "Guardianes de contenido", detail: "Presidio enmascara PII · el firewall filtra contenido dañino" },
                 { step: "4", color: "text-warning", label: "Compliance: región EU", detail: "Si eu_region_required=true y modelo no es azure-*/bedrock-eu-* → HTTP 503, la petición no llega al LLM" },
                 { step: "5", color: "text-warning", label: "Compliance: disclosure", detail: "Si disclosure no entregado en última hora → prepara prefijo de notificación IA" },
                 { step: "6", color: "text-warning", label: "Compliance: revisión humana", detail: "Si human_review_required=true → genera UUID de revisión" },
-                { step: "7", color: "text-success", label: "Llamada al LLM", detail: "LiteLLM hace el routing al proveedor configurado" },
+                { step: "7", color: "text-success", label: "Llamada al LLM", detail: "el motor de ruteo entrega al proveedor configurado" },
                 { step: "8", color: "text-success", label: "Post-proceso", detail: "Prepend del disclosure si aplica · guarda review entry · escribe audit log" },
                 { step: "9", color: "text-slate-400", label: "Respuesta al usuario", detail: "Con o sin prefijo de notificación según configuración" },
               ].map(item => (

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Lock, User, AlertCircle, Sparkles } from "lucide-react";
-import logoImg from "../logo.png";
+import { getBrand } from "../services/branding";
 import { api } from "../services/api";
 import { authStorage, SessionUser } from "../services/auth";
 
@@ -37,8 +37,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
       <div className="w-full max-w-md bg-panel border border-slate-700/50 rounded-2xl p-8 shadow-2xl backdrop-blur-md relative">
         <div className="flex flex-col items-center text-center mb-8">
-          <img src={logoImg} alt="Basa Secure AI Gateway" className="h-14 w-auto object-contain mb-4" />
-          <p className="text-sm text-text-secondary mt-1">Pasarela segura de IA sanitaria</p>
+          <img src={getBrand().logoUrl} alt={getBrand().name} className="h-14 w-auto object-contain mb-4" />
+          <p className="text-sm text-text-secondary mt-1">{getBrand().tagline}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
