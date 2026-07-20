@@ -6,7 +6,9 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..licensing.gate import enforce_seat_gate
 from ..models.budget import APIKey
+from ..models.tenant import DEFAULT_TENANT_ID
 from ..models.user import User, Group
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
@@ -71,6 +73,12 @@ def list_keys(db: Session = Depends(get_db)):
 
 @router.post("", response_model=KeyGeneratedResponse, status_code=status.HTTP_201_CREATED)
 async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
+    # Gate de licencia (spec 021 US2, FR-008): seats activos vs max_seats, ANTES
+    # de cualquier provisioning. Guarda independiente del 409 de duplicados
+    # (FR-011). El handler aún no resuelve tenant (013): la fila nueva usa el
+    # default del modelo, así que el gate cuenta contra ese mismo tenant.
+    enforce_seat_gate(db, tenant_id=DEFAULT_TENANT_ID)
+
     # FR-018: ≤1 Connection ACTIVA por herramienta por client. Pre-check para devolver
     # un 409 legible ANTES de crear la key en el motor (el índice parcial
     # uq_api_keys_tenant_user_tool es el cinturón a nivel DB).

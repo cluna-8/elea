@@ -62,6 +62,13 @@ if os.getenv("CREATE_TABLES_ON_STARTUP", "false").lower() == "true":
 else:
     _run_alembic_upgrade_head()
 
+# Gate de ARRANQUE de licencia (spec 021 US1): verificación Ed25519 OFFLINE del
+# token inyectado por la 020. Fail-closed para la CREACIÓN de seats (gate en
+# keys/users), pero jamás mata el proceso (SC-013) — initialize() no levanta.
+from .licensing import entitlement as license_entitlement  # noqa: E402
+
+license_entitlement.initialize()
+
 app = FastAPI(
     title="Basa Secure AI Gateway API (by basa dev)",
     description="Secure, white-labeled AI gateway with PII/PHI masking, budgets, and compliance policies.",

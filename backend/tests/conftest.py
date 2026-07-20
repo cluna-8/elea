@@ -28,3 +28,12 @@ os.environ.setdefault("FERNET_SECRET_KEY", "")  # encryption off in unit tests
 
 # Headroom module is optional/fail-open; tests that need it set the env themselves.
 os.environ.setdefault("COMPRESSION_HEADROOM_ENABLED", "true")
+
+# Licencia dev de la suite (spec 021): el enforcement es fail-closed, así que
+# sin un entitlement válido TODA creación de Connection/Client devolvería
+# 402/403 y rompería los tests preexistentes. Se emite un token efímero para
+# el tenant default ANTES de cualquier import de src.main; los tests negativos
+# de licencia overridean el env y llaman entitlement.initialize(force=True).
+from license_fixtures import install_default_test_license  # noqa: E402
+
+install_default_test_license()
