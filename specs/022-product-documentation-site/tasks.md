@@ -297,14 +297,14 @@ traducción EN degrada con fallback, no 404.
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T040 [P] [POLISH] Generar `quickstart.md`: build local (`mkdocs serve`), `mkdocs build --strict`, test de
+- [X] T040 [P] [POLISH] Generar `quickstart.md`: build local (`mkdocs serve`), `mkdocs build --strict`, test de
       0 egress, construir + publicar una marca, cambiar versión/idioma.
-- [ ] T041 [POLISH] Verificación end-to-end (Principio VII): build `--strict` → imagen `basa-docs:<brand>-…` →
+- [X] T041 [POLISH] Verificación end-to-end (Principio VII): build `--strict` → imagen `basa-docs:<brand>-…` →
       **0 egress** con red bloqueada → **2 marcas** desde config → selectores de versión/idioma → naming neutro.
       *(SC-001..SC-007)*
-- [ ] T042 [P] [POLISH] Confirmar **decisión de framework** documentada (`research.md`): MkDocs primario /
+- [X] T042 [P] [POLISH] Confirmar **decisión de framework** documentada (`research.md`): MkDocs primario /
       Starlight+Pagefind plan B con disparador de migración; contra de Material en modo mantenimiento. *(FR-022, SC-008)*
-- [ ] T043 [POLISH] Documentar las limitaciones conocidas (Material en modo mantenimiento; `mike` no
+- [X] T043 [POLISH] Documentar las limitaciones conocidas (Material en modo mantenimiento; `mike` no
       first-party; API reference hereda huecos de un OpenAPI incompleto) y actualizar `spec/plan/tasks/content-map`
       (Dev Workflow — Documentación viva).
 
