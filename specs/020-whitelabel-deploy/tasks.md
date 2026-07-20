@@ -40,12 +40,12 @@ marcados ⚠️ se escriben ANTES del artefacto que validan y deben FALLAR prime
 
 **Purpose**: Estructura del árbol `deploy/` y esqueleto de validación.
 
-- [ ] T001 [SETUP] Crear el árbol `deploy/` (`docker/`, `branding/`, `clients/`, `terraform/`, `release/`) con
+- [X] T001 [SETUP] Crear el árbol `deploy/` (`docker/`, `branding/`, `clients/`, `terraform/`, `release/`) con
       un `README.md` que explique el modelo de negocio (INSTALL + X licencias, distribuidor, Basa no opera
       servidores) y el mapa "un codebase, dos perfiles" (dev-compose vs prod-images).
-- [ ] T002 [P] [SETUP] Añadir `.gitignore` para secretos/artefactos por instalación (tfvars con valores,
+- [X] T002 [P] [SETUP] Añadir `.gitignore` para secretos/artefactos por instalación (tfvars con valores,
       `*.tfstate`, tarballs, `clients/*/secrets*`) — nada de secretos en el repo.
-- [ ] T003 [SETUP] Preparar el esqueleto de validación: scripts/checks negativos vacíos (0 secretos default,
+- [X] T003 [SETUP] Preparar el esqueleto de validación: scripts/checks negativos vacíos (0 secretos default,
       0 mención del motor, 0 secretos en claro en state) y un `Makefile`/task-runner que orqueste build/plan.
 
 ---
@@ -56,14 +56,14 @@ marcados ⚠️ se escriben ANTES del artefacto que validan y deben FALLAR prime
 
 **⚠️ CRITICAL**: Ninguna user story arranca hasta cerrar esta fase.
 
-- [ ] T004 [FOUND] Phase 0 research (`research.md`): fijar (a) **OpenTofu vs Terraform** (BSL) + **cloud de
+- [X] T004 [FOUND] Phase 0 research (`research.md`): fijar (a) **OpenTofu vs Terraform** (BSL) + **cloud de
       referencia** v1 (AWS: VPC/RDS/ElastiCache/Route53, con módulos por provider); (b) estrategia de **cómputo**
       (v1 VM+docker-compose por cloud-init desde imágenes de US1; **k3s + Helm + Zarf** = roadmap v2 — **ECS/
       Fargate descartado**: ECS Anywhere no corre air-gapped); (c) **store de secretos** (**SOPS+age** v1 /
       **OpenBao** v2, no secrets managers cloud) y modo **TLS** (**Caddy** v1 / **Traefik** v2); (d) layout de
       **remote state + workspaces por cliente**; (e) **residencia EU** por defecto. GCP/Azure = paridad roadmap
       v2, documentada. *(Bloquea US4.)*
-- [ ] T005 [FOUND] Definir el **contrato del perfil de cliente** (`contracts/`): variables de entrada del
+- [X] T005 [FOUND] Definir el **contrato del perfil de cliente** (`contracts/`): variables de entrada del
       módulo (region, tenant_slug, dominio, fuente de imágenes registry|tarball) y **outputs** (URL, admin
       bootstrap rotado). Congela la interfaz que US3/US4 implementan. *(FR-014, FR-022, FR-024)*
 
@@ -82,22 +82,22 @@ publicación pinneada / tarball. Base de todo el deploy.
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T006 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_backend_image.sh`: la capa final NO
+- [X] T006 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_backend_image.sh`: la capa final NO
       contiene `build-essential`/toolchain, el proceso NO usa `--reload`, corre **non-root**, hay healthcheck.
       DEBE FALLAR primero. *(SC-001)*
-- [ ] T007 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_frontend_image.sh`: sirve **estáticos**
+- [X] T007 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_frontend_image.sh`: sirve **estáticos**
       (no hay proceso `npm run dev`/vite dev), corre non-root. DEBE FALLAR primero. *(SC-001)*
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Escribir `deploy/docker/backend.prod.Dockerfile`: **multistage** (build con toolchain → final
+- [X] T008 [US1] Escribir `deploy/docker/backend.prod.Dockerfile`: **multistage** (build con toolchain → final
       slim sin `build-essential`), arranque `gunicorn`/`uvicorn workers` **sin `--reload`**, usuario **non-root**,
       healthcheck, base pinneada por digest; migraciones en un entrypoint prod. *(FR-001, FR-003)*
-- [ ] T009 [US1] Escribir `deploy/docker/frontend.prod.Dockerfile`: `vite build` → estáticos servidos por
+- [X] T009 [US1] Escribir `deploy/docker/frontend.prod.Dockerfile`: `vite build` → estáticos servidos por
       **nginx/caddy** (NO vite dev server), non-root, base pinneada. *(FR-002, FR-003)*
-- [ ] T010 [US1] Escribir `deploy/release/publish.sh`: build + push de las imágenes prod **pinneadas por
+- [X] T010 [US1] Escribir `deploy/release/publish.sh`: build + push de las imágenes prod **pinneadas por
       tag+digest** a un registry (reusa la disciplina de pin de la 014). *(FR-004)*
-- [ ] T011 [US1] Garantizar TLS + storage durable + sin secretos default en el artefacto de orquestación de
+- [X] T011 [US1] Garantizar TLS + storage durable + sin secretos default en el artefacto de orquestación de
       producción (delega los secretos a US5; delega TLS/storage al OpenTofu de US4). *(FR-005)*
 
 **Checkpoint**: Imágenes prod verdes (checks negativos pasan) y publicables → US4 puede montar sobre ellas.
@@ -113,20 +113,20 @@ metadata reflejan la marca **sin editar código**; `grep` de artefactos de marca
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 ⚠️ [P] [US2] Check negativo en `deploy/release/checks/test_no_engine_name.sh`: 0 coincidencias de
+- [X] T012 ⚠️ [P] [US2] Check negativo en `deploy/release/checks/test_no_engine_name.sh`: 0 coincidencias de
       "litellm"/"LiteLLM" expuestas al usuario en los artefactos de marca blanca (UI build + metadata). DEBE
       FALLAR si el motor se filtra. *(FR-007, SC-002)*
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] Definir el **branding pack** (`deploy/branding/branding.default.env` Basa-neutro +
+- [X] T013 [US2] Definir el **branding pack** (`deploy/branding/branding.default.env` Basa-neutro +
       `branding.example.env` distribuidor + `assets/` placeholder) con nombre/logo/colores/dominio/soporte.
       *(FR-006, FR-009)*
-- [ ] T014 [US2] Cablear el frontend (bundle marca-neutro) y el metadata del backend para consumir el branding
+- [X] T014 [US2] Cablear el frontend (bundle marca-neutro) y el metadata del backend para consumir el branding
       pack como **config-as-data en runtime** (**env + assets montados**, una marca por instancia; NO build-time,
       NO rebuild), sin ediciones de código fuente; fallback al default si no hay pack del distribuidor.
       *(FR-006, FR-008, FR-009)*
-- [ ] T015 [US2] Asegurar que ningún artefacto de marca blanca nombra el motor (títulos, headers, errores,
+- [X] T015 [US2] Asegurar que ningún artefacto de marca blanca nombra el motor (títulos, headers, errores,
       about); cerrar el gotcha de fuga de nombre del PoC browser-DLP. *(FR-007)*
 
 **Checkpoint**: Marca blanca conmutable por config, sin fork y sin filtrar el motor.
@@ -143,19 +143,19 @@ metadata reflejan la marca **sin editar código**; `grep` de artefactos de marca
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T016 ⚠️ [P] [US3] Check en `deploy/release/checks/test_profile_renders.sh`: el `config.yaml.tmpl` renderiza
+- [X] T016 ⚠️ [P] [US3] Check en `deploy/release/checks/test_profile_renders.sh`: el `config.yaml.tmpl` renderiza
       con el env del perfil (model_list/proveedores/keys/región inyectados) y NO queda nada horneado; el seed es
       idempotente. DEBE FALLAR primero. *(FR-011, FR-012, SC-003)*
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] Definir la estructura del perfil en `deploy/clients/<client-slug>/` (`client.env`,
+- [X] T017 [US3] Definir la estructura del perfil en `deploy/clients/<client-slug>/` (`client.env`,
       `branding.env`, `seed.yaml`, `config.yaml.tmpl`) y documentar su contrato (del research T005). *(FR-010)*
-- [ ] T018 [US3] Cablear el `seed.yaml` a **`seed_client`** (013) — onboarding-as-data idempotente, sin
+- [X] T018 [US3] Cablear el `seed.yaml` a **`seed_client`** (013) — onboarding-as-data idempotente, sin
       mecanismo paralelo. *(FR-012)*
-- [ ] T019 [US3] Templar `config.yaml.tmpl`: inyectar `model_list`/proveedores/keys/**región** por cliente en
+- [X] T019 [US3] Templar `config.yaml.tmpl`: inyectar `model_list`/proveedores/keys/**región** por cliente en
       deploy (montado como volumen, patrón 014; NO horneado). *(FR-011)*
-- [ ] T020 [US3] Derivar dominio/DNS y nombre de workspace del **`tenant.slug`** (013); levantar un cliente NO
+- [X] T020 [US3] Derivar dominio/DNS y nombre de workspace del **`tenant.slug`** (013); levantar un cliente NO
       requiere cambios de código, sólo un perfil + workspace. *(FR-013, FR-014)*
 
 **Checkpoint**: Un cliente = un artefacto; onboarding como dato, sin fork.
@@ -178,28 +178,28 @@ descartado** (ECS Anywhere no corre air-gapped).
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T021 ⚠️ [P] [US4] `tofu validate` + `plan` en `deploy/terraform/` contra un perfil de ejemplo; el
+- [X] T021 ⚠️ [P] [US4] `tofu validate` + `plan` en `deploy/terraform/` contra un perfil de ejemplo; el
       plan MUST mostrar SG **443-only**, DB/Redis gestionados, secretos cifrados (SOPS+age/OpenBao), TLS (Caddy),
       región EU. DEBE FALLAR si falta alguno. *(FR-015..FR-021)*
-- [ ] T022 ⚠️ [P] [US4] Check de aislamiento en `deploy/release/checks/test_workspace_isolation.sh`: dos
+- [X] T022 ⚠️ [P] [US4] Check de aislamiento en `deploy/release/checks/test_workspace_isolation.sh`: dos
       workspaces (dos clientes) → state y secretos **aislados**, sin colisión. DEBE FALLAR primero. *(SC-007)*
 
 ### Implementation for User Story 4
 
-- [ ] T023 [P] [US4] Submódulo `deploy/terraform/modules/network/`: VPC, subredes pública/privada, security
+- [X] T023 [P] [US4] Submódulo `deploy/terraform/modules/network/`: VPC, subredes pública/privada, security
       group **sólo 443 in**, NAT para egress a proveedores LLM. *(FR-015)*
-- [ ] T024 [P] [US4] Submódulo `deploy/terraform/modules/database/`: Postgres gestionado (RDS/CloudSQL) +
+- [X] T024 [P] [US4] Submódulo `deploy/terraform/modules/database/`: Postgres gestionado (RDS/CloudSQL) +
       output de `POSTGRES_*` (swap del efímero de dev). *(FR-016)*
-- [ ] T025 [P] [US4] Submódulo `deploy/terraform/modules/cache/`: Redis gestionado (ElastiCache/MemoryStore) +
+- [X] T025 [P] [US4] Submódulo `deploy/terraform/modules/cache/`: Redis gestionado (ElastiCache/MemoryStore) +
       output de `REDIS_*`. *(FR-017)*
-- [ ] T026 [US4] Submódulo `deploy/terraform/modules/compute/`: v1 = VM + docker compose por **cloud-init** desde
+- [X] T026 [US4] Submódulo `deploy/terraform/modules/compute/`: v1 = VM + docker compose por **cloud-init** desde
       las imágenes de US1; dejar el hook (comentado/roadmap) para **k3s + Helm + Zarf** (v2). **NO** ECS/Fargate
       (ECS Anywhere no corre air-gapped). *(FR-018)*
-- [ ] T027 [US4] Submódulo `deploy/terraform/modules/ingress/`: TLS (**Caddy** auto-HTTPS v1 / **Traefik** v2) +
+- [X] T027 [US4] Submódulo `deploy/terraform/modules/ingress/`: TLS (**Caddy** auto-HTTPS v1 / **Traefik** v2) +
       **DNS por cliente** derivado del `tenant.slug`. *(FR-020)*
-- [ ] T028 [US4] Módulo raíz + `deploy/terraform/envs/<client>/`: región **EU** fijable (default EU), **remote
+- [X] T028 [US4] Módulo raíz + `deploy/terraform/envs/<client>/`: región **EU** fijable (default EU), **remote
       state + workspaces por cliente**, y **outputs** (URL + admin bootstrap rotado). *(FR-021, FR-022, FR-023)*
-- [ ] T029 [US4] Variable de **fuente de imágenes**: `registry` (pull-secret) vs `tarball` air-gapped (engancha
+- [X] T029 [US4] Variable de **fuente de imágenes**: `registry` (pull-secret) vs `tarball` air-gapped (engancha
       con US6). *(FR-024)*
 
 **Checkpoint**: `tofu apply` en EU deja una instalación funcional por HTTPS, aislada por cliente.
@@ -215,21 +215,21 @@ bootstrap rotado emitido una vez, nada en claro en state/logs.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T030 ⚠️ [P] [US5] Check negativo en `deploy/release/checks/test_no_default_secrets.sh`: 0 coincidencias de
+- [X] T030 ⚠️ [P] [US5] Check negativo en `deploy/release/checks/test_no_default_secrets.sh`: 0 coincidencias de
       `basasecurepass123`/`basa_master_key_9999`/`${VAR:-<secreto>}` en artefactos del **camino prod**. DEBE
       FALLAR si sobrevive un default. *(FR-025, SC-005)*
-- [ ] T031 ⚠️ [P] [US5] Check en `deploy/release/checks/test_secrets_not_in_state.sh`: ningún secreto ni el admin
+- [X] T031 ⚠️ [P] [US5] Check en `deploy/release/checks/test_secrets_not_in_state.sh`: ningún secreto ni el admin
       bootstrap aparece en claro en `tfstate`/outputs no-sensitive/logs. DEBE FALLAR primero. *(SC-005)*
 
 ### Implementation for User Story 5
 
-- [ ] T032 [US5] En el submódulo `secrets/`: generar por instalación `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`,
+- [X] T032 [US5] En el submódulo `secrets/`: generar por instalación `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`,
       `FERNET_SECRET_KEY`, `JWT_SECRET_KEY`, keys de proveedores y `oauth_credential_ref` vía `random_password`
       cifrados con **SOPS + age** (v1) / **OpenBao** (v2), no secrets managers cloud; marcar `sensitive`.
       *(FR-019, FR-026, Constraint C5)*
-- [ ] T033 [US5] Retirar del camino prod todo secreto default heredado del compose de dev (los artefactos prod
+- [X] T033 [US5] Retirar del camino prod todo secreto default heredado del compose de dev (los artefactos prod
       NO cargan `${VAR:-basasecurepass123}` ni `${VAR:-basa_master_key_9999}`). *(FR-025)*
-- [ ] T034 [US5] Generar y **rotar** el **admin bootstrap** por instalación; emitirlo una sola vez vía output
+- [X] T034 [US5] Generar y **rotar** el **admin bootstrap** por instalación; emitirlo una sola vez vía output
       protegido; NO persistirlo en claro. *(FR-027)*
 
 **Checkpoint**: Sin defaults en prod; cada instalación con secretos únicos y admin bootstrap rotado.
@@ -245,19 +245,19 @@ con egress sólo a proveedores LLM (o cero con modelo local).
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T035 ⚠️ [P] [US6] Check en `deploy/release/checks/test_airgapped_bundle.sh`: el tarball contiene **todas**
+- [X] T035 ⚠️ [P] [US6] Check en `deploy/release/checks/test_airgapped_bundle.sh`: el tarball contiene **todas**
       las imágenes pinneadas del release; `docker load` + arranque **sin** acceso a registry. DEBE FALLAR si
       falta una imagen. *(FR-028, FR-030, SC-006)*
 
 ### Implementation for User Story 6
 
-- [ ] T036 [US6] Escribir `deploy/release/bundle.sh`: `docker save` de las imágenes pinneadas (backend, frontend,
+- [X] T036 [US6] Escribir `deploy/release/bundle.sh`: `docker save` de las imágenes pinneadas (backend, frontend,
       LiteLLM 014) + `config.yaml` + seed → tarball autocontenido (v1). Para el camino **k8s v2**, el bundle
       air-gap-native es **Zarf** (SBOM + firma cosign); evaluar Replicated si crece el volumen de distribuidores.
       *(FR-028)*
-- [ ] T037 [US6] Cablear la variable de fuente de imágenes (US4 T029) al camino **tarball**: install sin pulls en
+- [X] T037 [US6] Cablear la variable de fuente de imágenes (US4 T029) al camino **tarball**: install sin pulls en
       runtime. *(FR-024, FR-030)*
-- [ ] T038 [US6] Documentar el modo **on-prem sin egress**: egress sólo a proveedores LLM vía NAT, o cero con
+- [X] T038 [US6] Documentar el modo **on-prem sin egress**: egress sólo a proveedores LLM vía NAT, o cero con
       modelo local (Ollama/vLLM, 013); cubre el caso Elea/DEPLOY_VPN. *(FR-029)*
 
 **Checkpoint**: Install air-gapped sin registry en runtime; on-prem sin egress documentado.
@@ -266,13 +266,13 @@ con egress sólo a proveedores LLM (o cero con modelo local).
 
 ## Phase N: Polish & Cross-Cutting Concerns
 
-- [ ] T039 [P] [POLISH] Generar `quickstart.md`: rellenar un perfil → `tofu apply` en EU → HTTPS →
+- [X] T039 [P] [POLISH] Generar `quickstart.md`: rellenar un perfil → `tofu apply` en EU → HTTPS →
       validar (checks negativos). Y `data`/diagramas si aplica.
 - [ ] T040 [POLISH] Verificación end-to-end en cloud sandbox (región EU): un cliente completo por HTTPS +
       corrida de TODOS los checks negativos (secretos, motor, region, state). Principio VII.
-- [ ] T041 [P] [POLISH] Confirmar "un codebase, dos perfiles": el `docker-compose.yml` de dev sigue funcionando
+- [X] T041 [P] [POLISH] Confirmar "un codebase, dos perfiles": el `docker-compose.yml` de dev sigue funcionando
       para local sin cambios; los artefactos prod son aditivos (never fork). *(SC-008, FR-031)*
-- [ ] T042 [POLISH] Dejar el **hueco de entrada de license key** (env/placeholder) SIN enforcement y
+- [X] T042 [POLISH] Dejar el **hueco de entrada de license key** (env/placeholder) SIN enforcement y
       documentarlo como interfaz para la **spec 021 (license enforcement)**. Segundo punto de contacto
       (addendum 2026-07-14): provisionar además el **volumen/secret persistente para la clave privada
       del deployment** (par Ed25519 generado en el install, firma los exports de true-up de 021/FR-029;

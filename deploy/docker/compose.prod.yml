@@ -1,0 +1,77 @@
+# Orquestación de PRODUCCIÓN (spec 020 T011, FR-005) — la que cloud-init levanta
+# en la VM (US4) o el operador on-prem tras `docker load` (US6).
+#
+# Diferencias deliberadas vs el compose de DEV (raíz del repo):
+#   - imágenes PINNEADAS por digest (variables ${*_IMAGE}), código horneado, sin bind-mounts de fuente
+#   - CERO secretos default: toda variable sensible es ${VAR:?} — falla explícita si falta
+#     (los secretos los genera la instalación: US5, SOPS+age)
+#   - storage DURABLE: volúmenes nombrados para Postgres/Redis on-prem; en nube, el módulo
+#     OpenTofu swapea POSTGRES_*/REDIS_* a gestionados y estos servicios no se levantan
+#     (profile "selfhosted")
+#   - TLS lo termina el ingress (Caddy, US4) por delante; acá nada escucha en 80/443
+#   - bloque de LICENCIA (spec 021, YA implementada): el perfil monta el .lic + claves
+
+services:
+  backend:
+    image: "${BACKEND_IMAGE:?imagen pinneada por digest (publish.sh)}"
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: "${POSTGRES_HOST:?}"
+      POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
+      POSTGRES_DB: "${POSTGRES_DB:?}"
+      POSTGRES_USER: "${POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?generado por instalación (US5), jamás default}"
+      REDIS_HOST: "${REDIS_HOST:?}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
+      FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
+      LITELLM_API_BASE: "http://litellm:4000"
+      # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
+      BASA_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
+      BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
+      BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
+      WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
+    volumes:
+      - licenses:/app/config/licenses          # .lic (perfil) + deployment key (021, persistente)
+      - litellm_config:/app/litellm_config/mounted:ro  # config.yaml TEMPLADO por cliente (US3)
+    depends_on: [litellm]
+
+  frontend:
+    image: "${FRONTEND_IMAGE:?imagen pinneada por digest (publish.sh)}"
+    restart: unless-stopped
+    volumes:
+      - branding:/srv/branding:ro              # marca como CONFIG en runtime (US2)
+
+  litellm:
+    image: "${LITELLM_IMAGE:?imagen LiteLLM pinneada (014)}"
+    restart: unless-stopped
+    environment:
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
+    volumes:
+      - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
+
+  # ── SOLO on-prem/air-gap (profile selfhosted): en nube, RDS/ElastiCache via OpenTofu ──
+  db:
+    profiles: ["selfhosted"]
+    image: "${POSTGRES_IMAGE:-postgres:16}"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:?}"
+      POSTGRES_USER: "${POSTGRES_USER:?}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data        # DURABLE (adiós pgdata efímero de dev)
+
+  redis:
+    profiles: ["selfhosted"]
+    image: "${REDIS_IMAGE:-redis:7-alpine}"
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  licenses:
+  litellm_config:
+  branding:

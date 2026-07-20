@@ -1,0 +1,15 @@
+# File server de los estáticos del frontend (spec 020 US1). El TLS público lo
+# termina el ingress (US4); este Caddy sólo sirve la SPA en :8080 como non-root.
+# /branding se monta en runtime (US2): marca como config, jamás horneada.
+{
+	auto_https off
+	admin off
+}
+
+:8080 {
+	root * /srv
+	encode gzip
+	# SPA: rutas del router caen a index.html; /branding y assets se sirven tal cual.
+	try_files {path} /index.html
+	file_server
+}

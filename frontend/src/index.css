@@ -4,6 +4,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Colores de MARCA (spec 020 US2): defaults Basa-neutro — idénticos a la
+   paleta histórica, como tripletas RGB (tailwind necesita <alpha-value> para
+   bg-primary/30 etc.). El branding pack los overridea en runtime via
+   /branding/brand.json (services/branding.ts convierte el hex), sin rebuild. */
+:root {
+  --brand-background: 11 19 41;   /* #0b1329 */
+  --brand-panel: 28 37 65;        /* #1c2541 */
+  --brand-primary: 0 180 216;     /* #00b4d8 */
+}
+
 @layer base {
   body {
     @apply bg-background text-text-primary font-sans antialiased selection:bg-primary/30;

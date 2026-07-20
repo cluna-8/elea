@@ -7,9 +7,13 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "#0b1329", // Deep slate/navy
-        panel: "#1c2541",      // Lighter panel slate
-        primary: "#00b4d8",    // Calm Cyan
+        // Colores de MARCA como CSS vars (spec 020 US2): el branding pack los
+        // overridea en runtime; los defaults (idénticos a los de siempre) viven
+        // en index.css. Tripletas RGB + <alpha-value> para que los
+        // modificadores de opacidad (bg-primary/30) sigan funcionando.
+        background: "rgb(var(--brand-background) / <alpha-value>)", // Deep slate/navy
+        panel: "rgb(var(--brand-panel) / <alpha-value>)",           // Lighter panel slate
+        primary: "rgb(var(--brand-primary) / <alpha-value>)",       // Calm Cyan
         success: "#06d6a0",    // Health Green
         warning: "#ffd166",    // Warm Yellow
         danger: "#ef476f",     // Warning Red
