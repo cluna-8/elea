@@ -39,3 +39,9 @@ Validación: `make -C deploy check` corre todos los checks; cada uno también co
 con un modelo local (Ollama/vLLM en el `config.yaml` del perfil, 013) el egress
 es **cero**. La verificación de licencia (021) es 100% offline — jamás llama a
 casa. Camino k8s v2: **Zarf** (bundle con SBOM + firma cosign).
+
+**Sitio de documentación (spec 022)**: viaja como una imagen más del release —
+`basa-docs:<brand>-<version>` (build en `docs/`, una por marca) — dentro de
+`images.tar` del bundle y, en el camino v2, del paquete Zarf igual que el resto
+de imágenes pinneadas. Es 100% estático y 0-egress: funciona en air-gap sin
+ninguna pieza extra (checks: `make -C deploy check-docs`).

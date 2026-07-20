@@ -67,7 +67,7 @@ implementación y deben FALLAR primero.
 - [X] T002 [P] [SETUP] Crear `docs/requirements-docs.txt` con MkDocs + Material + plugins **pinneados**
       (`mkdocs-material`, `mike`, `mkdocs-static-i18n`, plugin OpenAPI, plugin `privacy`); documentar el build
       local (`mkdocs serve` / `mkdocs build --strict`).
-- [ ] T003 [SETUP] Preparar el esqueleto de checks en `docs/tests/` (0 egress, naming neutro, white-label,
+- [X] T003 [SETUP] Preparar el esqueleto de checks en `docs/tests/` (0 egress, naming neutro, white-label,
       deriva API) y engancharlos al runner CI del repo.
 
 ---
@@ -100,22 +100,22 @@ verificar 0 requests externos y que el servicio levanta en el compose detrás de
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T006 ⚠️ [P] [US1] Test de **0 egress** en `docs/tests/test_airgap_zero_egress.*`: arrancar la imagen con
+- [X] T006 ⚠️ [P] [US1] Test de **0 egress** en `docs/tests/test_airgap_zero_egress.*`: arrancar la imagen con
       la red saliente bloqueada, navegar todas las secciones + ejecutar búsqueda, y afirmar **0** requests a
       hosts externos. *(FR-002, SC-001)*
-- [ ] T007 ⚠️ [P] [US1] Test de build `--strict` en CI: `mkdocs build --strict` **falla** ante un link interno
+- [X] T007 ⚠️ [P] [US1] Test de build `--strict` en CI: `mkdocs build --strict` **falla** ante un link interno
       roto o un asset externo no embebido (fixture negativo que debe romper el build). *(FR-003, SC-001)*
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Crear `docs/Dockerfile` **multi-stage**: stage build (Python + MkDocs Material →
+- [X] T008 [US1] Crear `docs/Dockerfile` **multi-stage**: stage build (Python + MkDocs Material →
       `mkdocs build --strict`) → stage runtime (**nginx** sirviendo `site/` estático, sin toolchain). *(FR-001)*
-- [ ] T009 [US1] Crear `docs/nginx.conf`: sirve estáticos; **sin ACME/auto-HTTPS** (TLS lo termina el proxy del
+- [X] T009 [US1] Crear `docs/nginx.conf`: sirve estáticos; **sin ACME/auto-HTTPS** (TLS lo termina el proxy del
       deploy; air-gap sin egress a Let's Encrypt). *(FR-023)*
-- [ ] T010 [US1] Añadir el servicio **`docs`** a `deploy/docker/compose.prod.yml` (imagen
+- [X] T010 [US1] Añadir el servicio **`docs`** a `deploy/docker/compose.prod.yml` (imagen
       `basa-docs:<brand>-<version>`, perfiles normal+selfhosted) detrás del proxy/TLS del deploy, sin exponer
       egress nuevo (Principio VII); opcional: servicio de preview en el compose dev. *(FR-004, SC-002 — delta F1)*
-- [ ] T011 [US1] Documentar el enganche **k3s+Helm+Zarf v2** (020): la imagen del sitio entra en el bundle Zarf
+- [X] T011 [US1] Documentar el enganche **k3s+Helm+Zarf v2** (020): la imagen del sitio entra en el bundle Zarf
       (SBOM + firma) igual que el resto de imágenes pinneadas. *(FR-004)*
 
 **Checkpoint**: Imagen air-gapped 0-egress, servicio `docs` en el compose, enganche Zarf documentado.

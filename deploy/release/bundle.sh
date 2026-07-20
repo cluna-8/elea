@@ -3,7 +3,7 @@
 # las imágenes pinneadas + compose prod + perfil renderizado + checks. Se
 # instala con docker load en un host SIN registry (caso Elea / on-prem).
 #
-# Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... LITELLM_IMAGE=... \
+# Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... LITELLM_IMAGE=... DOCS_IMAGE=... \
 #      CADDY_IMAGE=caddy:2-alpine POSTGRES_IMAGE=postgres:16 REDIS_IMAGE=redis:7-alpine \
 #      deploy/release/bundle.sh <client-slug> [outdir]
 set -euo pipefail
@@ -15,7 +15,7 @@ mkdir -p "$OUT"
 # TODAS las imágenes del release (edge case: una imagen fuera del tarball =
 # pull en runtime = install roto sin egress). Incluye las selfhosted on-prem.
 IMAGES=(
-  "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${LITELLM_IMAGE:?}"
+  "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${LITELLM_IMAGE:?}" "${DOCS_IMAGE:?sitio de docs por marca (022)}"
   "${CADDY_IMAGE:-caddy:2-alpine}" "${POSTGRES_IMAGE:-postgres:16}" "${REDIS_IMAGE:-redis:7-alpine}"
 )
 
