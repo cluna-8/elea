@@ -31,6 +31,11 @@ build-docs-brand:
 
 check: check-images check-whitelabel check-secrets check-tofu check-docs
 
+# Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
+docs-refs:
+	cd $(REPO_ROOT) && docker compose run --rm --no-deps backend python scripts/export_openapi.py 2>/dev/null > docs/docs/api-reference/openapi.json
+	cd $(REPO_ROOT) && python3 docs/gen_config_reference.py
+
 check-images:
 	BACKEND_IMG=$(BACKEND_IMG) $(REPO_ROOT)/deploy/release/checks/test_backend_image.sh
 	FRONTEND_IMG=$(FRONTEND_IMG) $(REPO_ROOT)/deploy/release/checks/test_frontend_image.sh
@@ -42,6 +47,7 @@ check-docs:
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_neutral_naming.sh
 	$(REPO_ROOT)/deploy/release/checks/test_docs_whitelabel.sh
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_search_offline.sh
+	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_apiref.sh
 
 check-whitelabel:
 	$(REPO_ROOT)/deploy/release/checks/test_no_engine_name.sh

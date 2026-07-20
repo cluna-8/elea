@@ -40,6 +40,7 @@ for d in a b; do
         s/\Q$ENV{BRAND_A_NAME}\E/__BRAND__/g;
         s/\Q$ENV{BRAND_B_NAME}\E/__BRAND__/g;
         s/<meta name="description" content="[^"]*">/<meta name="description" content="__TAGLINE__">/g;
+        s{<meta content="[^"]*" name="description"/>}{<meta content="__TAGLINE__" name="description"/>}g;
     ' {} +
 done
 

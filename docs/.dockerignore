@@ -3,3 +3,4 @@ site/
 tests/
 Dockerfile
 .dockerignore
+gen_config_reference.py

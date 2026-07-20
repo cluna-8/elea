@@ -50,6 +50,7 @@ plugins:
         - en
   - privacy # embebe cualquier asset externo en build (air-gap, FR-003)
   - offline # el sitio (búsqueda incluida) funciona desde file:// y sin backend (FR-002/FR-014)
+  - swagger-ui-tag # API reference embebido, assets locales (US5 — 0 egress)
   # mike (versionado, US6) e i18n (US6) y swagger-ui-tag (US5) se activan en sus fases — ver tasks.md
 
 markdown_extensions:
@@ -76,7 +77,9 @@ nav:
   - Integraciones & matriz:
       - Integraciones & matriz: integrations/index.md
       - Gotchas verificados: integrations/gotchas.md
-  - API reference: api-reference/index.md
+  - API reference:
+      - API reference: api-reference/index.md
+      - Configuración: api-reference/configuration.md
   - Compliance:
       - Compliance: compliance/index.md
       - DPA · DSR · Retención: compliance/dpa-dsr-retention.md

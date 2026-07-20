@@ -234,18 +234,18 @@ el cambio sin edición manual; 0 páginas auto-derivadas de `specs/0XX-*`.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T030 ⚠️ [P] [US5] Test de **deriva** en `docs/tests/test_apiref_single_source.*`: alterar el OpenAPI
+- [X] T030 ⚠️ [P] [US5] Test de **deriva** en `docs/tests/test_apiref_single_source.*`: alterar el OpenAPI
       (fixture) → reconstruir → el API reference publicado refleja el cambio (0 edición manual). *(FR-016, SC-006)*
-- [ ] T031 ⚠️ [P] [US5] Check anti-fuga: **0** páginas del sitio auto-derivadas de `specs/0XX-*/` (Spec Kit).
+- [X] T031 ⚠️ [P] [US5] Check anti-fuga: **0** páginas del sitio auto-derivadas de `specs/0XX-*/` (Spec Kit).
       *(FR-018, SC-006)*
 
 ### Implementation for User Story 5
 
-- [ ] T032 [US5] Generar el **API reference** en el build desde el **OpenAPI** del backend FastAPI (plugin de
+- [X] T032 [US5] Generar el **API reference** en el build desde el **OpenAPI** del backend FastAPI (plugin de
       render OpenAPI, p.ej. `mkdocs-swagger-ui-tag`) → `docs/docs/api-reference/**`. *(FR-016)*
-- [ ] T033 [US5] Generar el **config/env reference** desde `.env.example` (una fuente de verdad para las
+- [X] T033 [US5] Generar el **config/env reference** desde `.env.example` (una fuente de verdad para las
       variables). *(FR-017)*
-- [ ] T034 [US5] Documentar la regla: el contenido de producto es corpus **curado separado**; **NO** se
+- [X] T034 [US5] Documentar la regla: el contenido de producto es corpus **curado separado**; **NO** se
       auto-derivan las specs de Spec Kit (audiencias distintas + fuga de contexto interno). *(FR-018)*
 
 **Checkpoint**: API/config reference single-source, sin deriva, sin fuga de las specs.

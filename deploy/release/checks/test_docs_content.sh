@@ -26,7 +26,7 @@ done
 
 # T013: la leyenda de estado sobrevivió la migración (en el HTML publicado).
 for marker in 🟢 🟡 🔵; do
-    docker exec "$cname" grep -rq "$marker" /usr/share/nginx/html --include='*.html' \
+    docker exec "$cname" grep -rq "$marker" /usr/share/nginx/html \
         || fail "la leyenda de estado se perdió en la migración (falta $marker en el sitio)"
 done
 
