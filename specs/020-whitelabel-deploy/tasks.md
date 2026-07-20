@@ -40,12 +40,12 @@ marcados ⚠️ se escriben ANTES del artefacto que validan y deben FALLAR prime
 
 **Purpose**: Estructura del árbol `deploy/` y esqueleto de validación.
 
-- [ ] T001 [SETUP] Crear el árbol `deploy/` (`docker/`, `branding/`, `clients/`, `terraform/`, `release/`) con
+- [X] T001 [SETUP] Crear el árbol `deploy/` (`docker/`, `branding/`, `clients/`, `terraform/`, `release/`) con
       un `README.md` que explique el modelo de negocio (INSTALL + X licencias, distribuidor, Basa no opera
       servidores) y el mapa "un codebase, dos perfiles" (dev-compose vs prod-images).
-- [ ] T002 [P] [SETUP] Añadir `.gitignore` para secretos/artefactos por instalación (tfvars con valores,
+- [X] T002 [P] [SETUP] Añadir `.gitignore` para secretos/artefactos por instalación (tfvars con valores,
       `*.tfstate`, tarballs, `clients/*/secrets*`) — nada de secretos en el repo.
-- [ ] T003 [SETUP] Preparar el esqueleto de validación: scripts/checks negativos vacíos (0 secretos default,
+- [X] T003 [SETUP] Preparar el esqueleto de validación: scripts/checks negativos vacíos (0 secretos default,
       0 mención del motor, 0 secretos en claro en state) y un `Makefile`/task-runner que orqueste build/plan.
 
 ---
@@ -56,14 +56,14 @@ marcados ⚠️ se escriben ANTES del artefacto que validan y deben FALLAR prime
 
 **⚠️ CRITICAL**: Ninguna user story arranca hasta cerrar esta fase.
 
-- [ ] T004 [FOUND] Phase 0 research (`research.md`): fijar (a) **OpenTofu vs Terraform** (BSL) + **cloud de
+- [X] T004 [FOUND] Phase 0 research (`research.md`): fijar (a) **OpenTofu vs Terraform** (BSL) + **cloud de
       referencia** v1 (AWS: VPC/RDS/ElastiCache/Route53, con módulos por provider); (b) estrategia de **cómputo**
       (v1 VM+docker-compose por cloud-init desde imágenes de US1; **k3s + Helm + Zarf** = roadmap v2 — **ECS/
       Fargate descartado**: ECS Anywhere no corre air-gapped); (c) **store de secretos** (**SOPS+age** v1 /
       **OpenBao** v2, no secrets managers cloud) y modo **TLS** (**Caddy** v1 / **Traefik** v2); (d) layout de
       **remote state + workspaces por cliente**; (e) **residencia EU** por defecto. GCP/Azure = paridad roadmap
       v2, documentada. *(Bloquea US4.)*
-- [ ] T005 [FOUND] Definir el **contrato del perfil de cliente** (`contracts/`): variables de entrada del
+- [X] T005 [FOUND] Definir el **contrato del perfil de cliente** (`contracts/`): variables de entrada del
       módulo (region, tenant_slug, dominio, fuente de imágenes registry|tarball) y **outputs** (URL, admin
       bootstrap rotado). Congela la interfaz que US3/US4 implementan. *(FR-014, FR-022, FR-024)*
 
@@ -82,22 +82,22 @@ publicación pinneada / tarball. Base de todo el deploy.
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T006 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_backend_image.sh`: la capa final NO
+- [X] T006 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_backend_image.sh`: la capa final NO
       contiene `build-essential`/toolchain, el proceso NO usa `--reload`, corre **non-root**, hay healthcheck.
       DEBE FALLAR primero. *(SC-001)*
-- [ ] T007 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_frontend_image.sh`: sirve **estáticos**
+- [X] T007 ⚠️ [P] [US1] Check de imagen en `deploy/release/checks/test_frontend_image.sh`: sirve **estáticos**
       (no hay proceso `npm run dev`/vite dev), corre non-root. DEBE FALLAR primero. *(SC-001)*
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] Escribir `deploy/docker/backend.prod.Dockerfile`: **multistage** (build con toolchain → final
+- [X] T008 [US1] Escribir `deploy/docker/backend.prod.Dockerfile`: **multistage** (build con toolchain → final
       slim sin `build-essential`), arranque `gunicorn`/`uvicorn workers` **sin `--reload`**, usuario **non-root**,
       healthcheck, base pinneada por digest; migraciones en un entrypoint prod. *(FR-001, FR-003)*
-- [ ] T009 [US1] Escribir `deploy/docker/frontend.prod.Dockerfile`: `vite build` → estáticos servidos por
+- [X] T009 [US1] Escribir `deploy/docker/frontend.prod.Dockerfile`: `vite build` → estáticos servidos por
       **nginx/caddy** (NO vite dev server), non-root, base pinneada. *(FR-002, FR-003)*
-- [ ] T010 [US1] Escribir `deploy/release/publish.sh`: build + push de las imágenes prod **pinneadas por
+- [X] T010 [US1] Escribir `deploy/release/publish.sh`: build + push de las imágenes prod **pinneadas por
       tag+digest** a un registry (reusa la disciplina de pin de la 014). *(FR-004)*
-- [ ] T011 [US1] Garantizar TLS + storage durable + sin secretos default en el artefacto de orquestación de
+- [X] T011 [US1] Garantizar TLS + storage durable + sin secretos default en el artefacto de orquestación de
       producción (delega los secretos a US5; delega TLS/storage al OpenTofu de US4). *(FR-005)*
 
 **Checkpoint**: Imágenes prod verdes (checks negativos pasan) y publicables → US4 puede montar sobre ellas.

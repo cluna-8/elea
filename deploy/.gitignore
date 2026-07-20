@@ -1,0 +1,16 @@
+# Secretos y artefactos POR INSTALACIÓN — jamás al repo (spec 020 T002, Constraint C5).
+# Lo versionado son PLANTILLAS y ejemplos; lo rellenado con valores reales vive fuera.
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform/envs/*/*.tfvars
+!terraform/envs/*/*.example.tfvars
+clients/*/secrets*
+clients/*/*.lic
+clients/*/rendered/
+release/*.tar
+release/*.tar.gz
+release/bundle-*/
+*.agekey
+age.key
