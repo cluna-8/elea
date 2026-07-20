@@ -23,7 +23,10 @@ de los volúmenes durables en on-prem).
 docker compose ps   # o: docker ps
 ```
 
-Los 5 servicios (db, redis, motor del gateway, backend, frontend) deben estar `Up` / `healthy`.
+En producción son **4 servicios** (backend, frontend, motor del gateway, docs). En **on-prem /
+self-hosted** el stack se levanta con `--profile selfhosted` (o exportando
+`COMPOSE_PROFILES=selfhosted`), que suma **db** y **redis** → **6 contenedores**. Todos deben estar
+`Up` / `healthy`. (El compose de desarrollo, con 5 servicios, es sólo para desarrollo.)
 
 !!! note "El motor puede reportarse `unhealthy` en el primer boot sin estar caído"
     En el primer arranque las migraciones internas del motor tardan varios minutos y el healthcheck
@@ -33,9 +36,12 @@ Los 5 servicios (db, redis, motor del gateway, backend, frontend) deben estar `U
 
 | Chequeo | Endpoint | Qué esperar |
 |---|---|---|
-| Backend (liveness) | `GET /health` del backend | `200` — el backend responde y llega a la base de datos |
+| Backend (liveness) | `GET /health` del backend | `200` — el **proceso** del backend responde. Es una respuesta estática: **no** verifica la base de datos |
 | Motor del gateway | `GET /health/readiness` del motor | `200` — el motor terminó sus migraciones y acepta tráfico |
 | Licencia | `GET /api/v1/health/license` del backend | Estado de la licencia instalada: validez de la firma, expiración y seats (usados vs. contratados) |
+
+Para señales de **base de datos**, `GET /health` no alcanza: mirar los logs de migraciones del
+backend al arranque (sección 1.3) y el estado de los servicios (`docker compose ps`).
 
 !!! warning "La licencia es fail-closed"
     Sin una licencia válida instalada, el producto rechaza la operación licenciada en lugar de
@@ -78,8 +84,10 @@ Todos verificados en despliegues reales o en el código actual del producto.
 - **Causa:** el primer boot tarda varios minutos (migraciones internas de base de datos) y el timeout
   de espera del healthcheck puede agotarse **aunque el contenedor haya arrancado bien**.
 - **Fix:** verificar con `docker logs <contenedor-del-motor>` — si dice `Application startup complete`
-  y `/health/readiness` responde 200, está sano. Correr `docker compose up -d` **de nuevo**: como
-  db/redis/motor ya quedan corriendo, la segunda pasada sólo levanta backend/frontend y es rápida.
+  y `/health/readiness` responde 200, está sano. Correr `docker compose --profile selfhosted up -d`
+  **de nuevo** (o exportar `COMPOSE_PROFILES=selfhosted`; **sin el profile, db y redis no
+  arrancan**): como db/redis/motor ya quedan corriendo, la segunda pasada sólo levanta el resto de
+  los servicios y es rápida.
 
 ### c) Bootstrap de admin con email `.local` rompe la pestaña de Usuarios
 
@@ -148,21 +156,23 @@ Los códigos **G#** refieren al detalle causa → fix en
 
 | Síntoma | Causa probable | Fix |
 |---|---|---|
-| Claude Code ignora la identidad (aparece admin/default) | No reinició `claude` tras editar `settings.json`; o falta `X-Basa-Key` | Reiniciar `claude`; verificar con `curl …/gw/whoami -H "X-Basa-Key: …"` |
-| Copilot 401 / no autentica | `x-api-key` vacío, `apiKey` ignorado (G2) | Poner la key en la URL: `…/v1/messages?k=sk-basa-…` |
+| Claude Code ignora la identidad (aparece admin/default) | No reinició `claude` tras editar `settings.json`; o falta `X-Basa-Key` | Reiniciar `claude`; verificar con `curl …/api/v1/gw/whoami -H "X-Basa-Key: …"` |
+| Copilot 401 / no autentica | `x-api-key` vacío, `apiKey` ignorado (G2) | Poner la key en la URL: `…/api/v1/gw/v1/messages?k=sk-basa-…` |
 | Copilot loopea, tarjetas `in=0 out=NN` repetidas (G1) | Modo Agent/Edit con modelo no-Claude | Cambiar a **modo Ask** |
 | El nombre real sale en el título de Claude.ai (G3) | Endpoint `/title` con prompt crudo | Confirmar que el adapter matchea `/title`; recargar la extensión (↻) |
 | Placeholders `[PERSON_0]` visibles en un artefacto de Claude (G5) | Artefacto en `iframe`, `all_frames:false` | Limitación conocida; mostrar en el chat |
-| La página web queda bloqueada por un overlay 🛡️ | Fail-closed: sin key válida o gateway caído | Conectar con key válida en el popup; verificar que el gateway responde `/gw/whoami` |
+| La página web queda bloqueada por un overlay 🛡️ | Fail-closed: sin key válida o gateway caído | Conectar con key válida en el popup; verificar que el gateway responde `/api/v1/gw/whoami` |
 | La extensión no llega al gateway (sin CORS pero sin respuesta) | `host_permissions` del manifest no cubre el host | Editar `manifest.json` (`host_permissions`) y recargar |
 | Un secreto pasa PERMITIDO en un prompt gigante | Cap de inspección desde la cabeza (G7) | Debe estar el fix de la **cola**; confirmar versión del gateway |
 | En `byok` Claude Code falla tool-calling (`tool_use_failed`) | Modelo no-Claude no soporta el tool-calling agéntico | Usar **suscripción** (default `anthropic`), no byok, para Claude Code |
-| Nada aparece en el monitor | Superficie no llama al gateway (masking local viejo) o buffer limpio | La extensión debe llamar `/gw/inspect`; ver `GET /gw/events`; `DELETE /gw/events` resetea |
+| Nada aparece en el monitor | Superficie no llama al gateway (masking local viejo) o buffer efímero vacío | La extensión debe llamar `POST /api/v1/gw/inspect`; revisar `GET /api/v1/gw/events` (el buffer vive en memoria y se vacía al reiniciar el gateway) |
 
 **Endpoints de apoyo (superficie `base_url` + `browser`):**
-`POST /gw/v1/messages` (firewall), `POST /gw/v1/messages/count_tokens`, `GET /gw/v1/models`,
-`GET /gw/whoami` (valida key → identidad), `POST /gw/inspect` (masking de texto plano, fail-closed),
-`GET /gw/monitor` (consola en vivo), `GET/DELETE /gw/events`, `GET/POST /gw/config` (`{redact}`).
+`GET /api/v1/gw` (discovery), `POST /api/v1/gw/v1/messages` (firewall),
+`POST /api/v1/gw/v1/messages/count_tokens`, `GET /api/v1/gw/v1/models`,
+`GET /api/v1/gw/whoami` (valida key → identidad), `POST /api/v1/gw/inspect` (masking de texto
+plano, fail-closed), `GET /api/v1/gw/events` (feed efímero) y `GET /api/v1/gw/monitor` (consola
+en vivo). No existen otros endpoints `/gw` que estos.
 
 !!! warning "Recordatorio de honestidad (para no sobrevender)"
     La detección de PII hoy es **regex in-process** (el motor NLP avanzado es 🔵 roadmap); el monitor
@@ -184,14 +194,21 @@ sin una decisión explícita del operador.
 Para actualizar el motor:
 
 1. Cambiar el **digest** en la definición del despliegue.
-2. Correr la **suite de checks del release**: verifica los contratos que el producto tiene con el
-   motor — las firmas de los puntos de extensión del guardrail, la autenticación de virtual keys y
-   una ejecución real sobre `/v1/messages`.
-3. Si pasa → aplicar el cambio. Si falla → **no parchear la integración a ciegas**: investigar qué
-   contrato cambió en la nueva versión del motor.
+2. Correr las **dos verificaciones**:
+    - La **suite de contrato del backend** — verifica los contratos que el producto tiene con el
+      motor: las firmas de los puntos de extensión del guardrail, la autenticación de virtual keys
+      y una ejecución real sobre `/v1/messages`:
+
+        ```bash
+        docker compose run --rm --no-deps backend pytest tests/contract -q
+        ```
+
+    - `make -C deploy check` — valida los artefactos del release.
+3. Si ambas pasan → aplicar el cambio. Si algo falla → **no parchear la integración a ciegas**:
+   investigar qué contrato cambió en la nueva versión del motor.
 
 !!! tip "Regla de oro"
-    **Actualizar el motor = correr la suite de checks, no reescribir a mano.** Un check en rojo es
+    **Actualizar el motor = correr las verificaciones, no reescribir a mano.** Un check en rojo es
     información (el contrato del motor cambió), no una invitación a parchear hasta que pase.
 
 ### 4.2 Backup / restore de volúmenes durables (on-prem)
@@ -209,11 +226,13 @@ responsabilidad del operador. Los volúmenes durables del stack son tres:
 Reglas del patrón:
 
 - **Backup consistente**: correr el dump de Postgres con el stack en marcha es válido (dump lógico);
-  para snapshot de volúmenes a nivel filesystem, detener el stack primero (`docker compose stop`).
+  para snapshot de volúmenes a nivel filesystem, detener el stack primero
+  (`docker compose --profile selfhosted stop`).
 - **Guardar fuera del host**, con checksum, siguiendo la política de retención del cliente.
 - **Restore** = restaurar el volumen/dump en un stack limpio (`psql < backup.sql` para Postgres,
-  reponer el archivo de licencia) y levantar con `docker compose up -d`. El backend re-aplica sus
-  migraciones al boot si hace falta.
+  reponer el archivo de licencia) y levantar con `docker compose --profile selfhosted up -d`
+  (o exportar `COMPOSE_PROFILES=selfhosted`; sin el profile, db y redis no arrancan). El backend
+  re-aplica sus migraciones al boot si hace falta.
 - **Probar el restore** periódicamente: un backup que nunca se restauró no es un backup.
 
 !!! warning "Incluir la licencia en el backup"

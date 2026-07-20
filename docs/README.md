@@ -24,6 +24,10 @@ make -C deploy check-docs   # 0-egress, strict, contenido, naming, white-label, 
 La marca del sitio se DERIVA del brand-pack de la 020 (una sola fuente de marca):
 
 ```bash
+# perfil de cliente real: render_profile.sh primero (produce rendered/brand.json)
+deploy/release/render_profile.sh <slug>
+deploy/release/render_docs_brand.sh <slug> deploy/clients/<slug>/rendered/brand.json
+# ejemplo sin perfil:
 deploy/release/render_docs_brand.sh aegis deploy/branding/brand.example.json
 make -C deploy build-docs-brand BRAND=aegis VERSION=1.0
 ```

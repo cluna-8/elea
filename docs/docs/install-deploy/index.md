@@ -15,9 +15,10 @@ Páginas de esta sección:
     Esta guía distingue explícitamente lo **implementado hoy** de lo **forward-looking**:
     describe el **estado-objetivo** (cómo debe desplegarse en producción) y, en cada bloque,
     marca qué es real hoy y qué falta construir. Nada aspiracional se declara como hecho.
-    **OpenTofu, imágenes de producción, secrets manager gestionado y el licenciamiento
-    offline son estado-objetivo.** Lo que sí existe hoy es el stack Docker Compose dev/demo,
-    el onboarding-as-data (seed por slug) y el bootstrap de admin. Ver la tabla de estado.
+    **OpenTofu y el secrets manager gestionado son estado-objetivo.** Lo que sí existe hoy
+    es el compose de producción con imágenes multi-stage (backend/frontend/docs), el
+    **licenciamiento offline con enforcement fail-closed**, el onboarding-as-data (seed por
+    slug) y el bootstrap de admin. Ver la tabla de estado.
 
 **Leyenda de estado** (se usa en toda la documentación):
 
@@ -33,17 +34,17 @@ Páginas de esta sección:
 
 | Pieza del deploy | Estado-actual | Estado-objetivo (producción cliente) | Estado |
 |---|---|---|---|
-| Orquestación | `docker-compose.yml` con 5 servicios (db, redis, motor, backend, frontend) | Módulo OpenTofu + compose de producción (v1) / k3s+Helm+Zarf (v2) | 🟡 |
-| Imágenes backend/frontend | Dev: `uvicorn --reload`, `npm run dev`, bind-mount del código fuente | Imágenes de producción multi-stage, sin reload, deps pinneadas, front servido estático | 🔵 |
+| Orquestación | Compose de **producción**: backend, frontend, motor y docs; on-prem/air-gap se levanta con `--profile selfhosted` (suma db y redis). El compose dev de 5 servicios es **sólo desarrollo** | Módulo OpenTofu + compose de producción (v1) / k3s+Helm+Zarf (v2) | 🟡 |
+| Imágenes backend/frontend/docs | Imágenes de **producción** multi-stage: sin reload, deps pinneadas, frontend compilado servido estático, con checks. Build: `make -C deploy build`; validación: `make -C deploy check` | Igual, publicadas/empaquetadas por release | 🟢 |
 | Imagen del motor | Pinneada por **tag+digest** en el stack de referencia | Pin por digest en todos los despliegues | 🟡 |
-| Base de datos / cache | Contenedores `postgres:16-alpine` / `redis:7-alpine` con volumen local | Postgres y Redis **gestionados** (RDS/Cloud SQL/Azure DB · ElastiCache/MemoryStore) | 🔵 |
+| Base de datos / cache | Contenedores `postgres:16-alpine` / `redis:7-alpine` con volumen local (perfil `selfhosted` del compose de producción) | Postgres y Redis **gestionados** (RDS/Cloud SQL/Azure DB · ElastiCache/MemoryStore) | 🔵 |
 | Secretos | `.env` en claro (con defaults inseguros en compose) | Secrets manager gestionado (AWS SM / GCP SM / Vault) **o SOPS/age** (cifrado sin servidor) para v1/air-gapped, inyectando env al arrancar | 🔵 |
 | TLS + DNS | HTTP plano en puertos altos | TLS terminado — **Caddy (auto-TLS)** en v1, ALB/nginx en cloud — + DNS por cliente, región EU | 🔵 |
 | Onboarding de cliente | `seed_clients_from_config(db, tenant_slug, path)` idempotente desde YAML | Igual, invocado por el flujo de instalación | 🟢 |
-| Tenant por slug | Modelo `Tenant.slug` único; on-prem = 1 tenant (default `…0001`) | Igual; cloud = N tenants aislados por RLS | 🟢 / 🟡 (RLS es forward-looking) |
+| Tenant por slug | Modelo `Tenant.slug` único; on-prem = 1 tenant (default `…0001`) | Igual; cloud = N tenants aislados por RLS | 🟢 / 🟡 (RLS cableada en las tablas, pero el enforcement por request está pendiente: el aislamiento efectivo hoy es a nivel de aplicación) |
 | Bootstrap de admin | Primer login `admin` crea `tenant_admin`; email `admin@basa.com.ar` | Igual + rotación de credencial obligatoria post-instalación | 🟡 (rotación sólo por SQL hoy) |
 | Branding white-label | Naming neutro en el código (`AIEngineClient`/`engine_*`, errores del motor reescritos a naming neutro) | Branding pack (nombre/logo/paleta) por cliente como **config-as-data en runtime** (sin recompilar) | 🟡 |
-| Licenciamiento offline | Sin wirear (la primitiva criptográfica con Ed25519 está disponible en el backend, sin uso) | Licencia Ed25519 firmada, seat = Connection activa, sin phone-home | 🔵 |
+| Licenciamiento offline | **Implementado fail-closed**: verificación Ed25519 offline al arranque; gate de seats en las altas (`402` seats agotados / `403` licencia no activa); estados `active`/`grace`/`expired`; `BASA_LICENSE_HARD_BLOCK` corta las rutas de servicio; `GET /api/v1/health/license`; auditoría hash-chained + true-up firmado; sin phone-home | Igual | 🟢 |
 
 ---
 
@@ -69,8 +70,9 @@ por el fabricante. Como distribuidor, usted es el dueño de la relación con el 
   locales Ollama/vLLM) y **multi-tenant cloud**. El despliegue por cliente es
   **configuración + seed, nunca un fork**.
 - **Licencias = seats.** El contrato fija N seats. Un **seat = una Connection activa** (una
-  `APIKey` con `is_active=True` por herramienta/persona). El enforcement de seats es offline
-  y firmado — ver [Licenciamiento](licensing.md).
+  `APIKey` activa y no expirada por herramienta/persona) — **no el usuario**: desactivar un
+  usuario no libera seats; revocar sus Connections sí. El enforcement de seats es offline,
+  firmado y **fail-closed** (🟢 implementado hoy) — ver [Licenciamiento](licensing.md).
 
 **Frontera de responsabilidad (quién hace qué):**
 
@@ -88,13 +90,12 @@ Por cada cliente/despliegue, el distribuidor arma un paquete con:
 
 1. **Imágenes de producción o tarball air-gapped.**
     - **Cloud con egress** → imágenes de producción publicadas en un registry desde el que el
-      cliente pueda hacer `pull` (backend, frontend y el motor pinneado por digest). 🔵
-      Estado-objetivo: **hoy las imágenes de `backend`/`frontend` son de desarrollo**
-      (`uvicorn --reload` / `npm run dev` y bind-mount del código). Producción exige imágenes
-      multi-stage, sin reload, dependencias pinneadas y el frontend compilado servido como
-      estático.
+      cliente pueda hacer `pull` (backend, frontend, docs y el motor pinneado por digest). 🟢
+      Las imágenes de producción de `backend`/`frontend`/`docs` **existen hoy**: multi-stage,
+      sin reload, dependencias pinneadas y el frontend compilado servido como estático. Se
+      construyen con `make -C deploy build` y se validan con `make -C deploy check`.
     - **On-prem / air-gapped (sin egress)** → **tarball** con todas las imágenes
-      (`docker save` de db, redis, motor@digest, backend, frontend) + checksums, para
+      (`docker save` de db, redis, motor@digest, backend, frontend, docs) + checksums, para
       `docker load` en la máquina destino. El motor **debe ir pinneado por digest** para que
       el tarball sea reproducible. 🔵 El sitio de documentación de producto viaja como una
       imagen más del release (`basa-docs:<brand>-<version>`, una por marca, 100% estática y
@@ -124,18 +125,20 @@ Por cada cliente/despliegue, el distribuidor arma un paquete con:
    [Infraestructura](infrastructure.md). Se usa **OpenTofu, no Terraform**: como el
    distribuidor **entrega el IaC a terceros** y la licencia de Terraform es **BSL**, OpenTofu
    (fork MPL, drop-in, mismos `.tf` y `tofu apply`) evita el riesgo de licenciamiento en la
-   redistribución. Hasta que exista, el despliegue se hace con el Docker Compose actual sobre
-   una VM provisionada a mano.
+   redistribución. Hasta que exista, el despliegue se hace con el compose de producción sobre
+   una VM provisionada a mano — en on-prem/air-gap,
+   `docker compose --profile selfhosted up -d` (el perfil suma db y redis).
 
-5. **Licencia firmada (Ed25519).** 🔵 Estado-objetivo. Archivo de licencia offline que
-   habilita N seats — ver [Licenciamiento](licensing.md).
+5. **Licencia firmada (Ed25519).** 🟢 Implementado con enforcement **fail-closed**: archivo
+   de licencia offline que habilita N seats, verificado al arranque con la clave pública —
+   ver [Licenciamiento](licensing.md).
 
 ---
 
 ## Flujo de instalación de punta a punta
 
-Flujo **objetivo** (🔵 en su forma OpenTofu; los pasos de seed y bootstrap son 🟢 y se pueden
-correr hoy a mano sobre el compose):
+Flujo **objetivo** (🔵 en su forma OpenTofu; los pasos de seed, bootstrap y licencia son 🟢 y
+se pueden correr hoy a mano sobre el compose):
 
 1. **`tofu apply`** con el `tfvars` del cliente (región EU, tamaños de DB/cómputo, dominio,
    `tenant` name+slug, `deployment_mode`). Provisiona VPC + Postgres/Redis gestionados +
@@ -166,15 +169,23 @@ correr hoy a mano sobre el compose):
    de cambio de password**, así que la rotación es por SQL
    ([gotcha](#gotcha-password)); el endpoint es parte del roadmap de endurecimiento de
    auth. 🟡
-7. **Instalación de la licencia.** Se coloca el archivo de licencia Ed25519 que habilita los
-   N seats contratados. 🔵 Ver [Licenciamiento](licensing.md).
+7. **Instalación de la licencia.** 🟢 Se coloca el archivo de licencia Ed25519 que habilita
+   los N seats contratados; el backend la verifica offline al arranque. El enforcement es
+   **fail-closed**: sin licencia activa las altas de Connections/usuarios se rechazan
+   (**403**; **402** al agotar seats) y, con `BASA_LICENSE_HARD_BLOCK`, se cortan además las
+   rutas de servicio del gateway (`/api/v1/gw/...`). Verificar con
+   `GET /api/v1/health/license`. Ver [Licenciamiento](licensing.md).
 8. **Smoke test post-deploy**:
-    - `docker ps` → 5 contenedores `Up`/`healthy` (o los tasks equivalentes en v2).
-    - `curl` a `/health/readiness` del motor → 200; a un endpoint del backend → 200.
+    - `docker ps` → **4** contenedores `Up`/`healthy` (backend, frontend, motor, docs) — **6**
+      si se levantó con `--profile selfhosted`, que suma db y redis — (o los tasks
+      equivalentes en v2).
+    - `curl` a `/health/readiness` del motor → 200; `GET /health` del backend → 200 (es una
+      respuesta **estática de liveness**, no verifica la DB); `GET /api/v1/health/license` →
+      estado de la licencia.
     - Login como `admin` desde el navegador en la **URL/dominio real** (no `localhost`).
-    - Apuntar `ANTHROPIC_BASE_URL` de un Claude Code a la ruta `/v1/messages` del motor con
-      una virtual key sembrada → verificar bloqueo/masking; abrir `/monitor` y ver el
-      before/after real.
+    - Apuntar `ANTHROPIC_BASE_URL` de un Claude Code al gateway — `https://<host>/api/v1/gw`
+      (la request atraviesa `POST /api/v1/gw/v1/messages`) — con una virtual key sembrada →
+      verificar bloqueo/masking; abrir `/monitor` y ver el before/after real.
 
 ---
 
@@ -197,8 +208,8 @@ En el primer arranque el motor tarda varios minutos (migraciones de base de dato
 timeout del healthcheck de `docker compose` puede agotarse **aunque el contenedor haya
 arrancado bien**. Verificar con `docker logs <contenedor-del-motor>` (si dice "Application
 startup complete" y `/health/readiness` responde 200, está sano). **Solución**: correr
-`docker compose up -d` **de nuevo** — como db/redis/motor ya quedan corriendo, la segunda
-pasada sólo levanta backend/frontend y es rápida.
+`docker compose --profile selfhosted up -d` **de nuevo** — como db/redis/motor ya quedan
+corriendo, la segunda pasada sólo levanta el resto del stack y es rápida.
 
 ### Bootstrap de admin con email `.local` rompe la pestaña de Usuarios { #gotcha-email }
 
@@ -257,8 +268,13 @@ cerrarlo bien es precisamente el objetivo del roadmap de endurecimiento de auth.
 La imagen del motor se **fija por tag+digest**. Para actualizar el motor:
 
 1. Cambiar el **digest** en el `docker-compose.yml` / módulo OpenTofu.
-2. Correr la **suite de contract tests** del producto: firmas de los hooks del guardrail y
-   del hook de autenticación del motor + ejecución sobre `/v1/messages`.
-3. Si pasa → adoptar el nuevo digest. Si falla → **no reescribir los hooks a ciegas**:
+2. Correr **ambas** validaciones:
+    - la **suite de contract tests** del producto — vive en la suite del backend:
+      `docker compose run --rm --no-deps backend pytest tests/contract -q` — firmas de los
+      hooks del guardrail y del hook de autenticación del motor + ejecución sobre
+      `/v1/messages`;
+    - `make -C deploy check`, que valida los **artefactos del release** (no corre los
+      contract tests).
+3. Si pasan → adoptar el nuevo digest. Si fallan → **no reescribir los hooks a ciegas**:
    investigar el cambio de firma del motor. **Actualizar el motor = correr tests, no
    parchear.**

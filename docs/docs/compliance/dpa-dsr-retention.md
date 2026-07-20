@@ -116,10 +116,16 @@ permite configurar por cuánto tiempo se guardan los distintos tipos de registro
 
 | Tipo | Por defecto | Justificación | Mínimo recomendado |
 |------|------------|--------------|-------------------|
-| **Contenido de prompts y respuestas** | 90 días | Soporte técnico e investigación de incidencias | 30 días |
+| **Metadatos de requests** (tipos de entidad detectados, scores, veredictos, timing) | 90 días | Soporte técnico e investigación de incidencias | 30 días |
 | **Metadatos de uso** (tokens, coste, modelo) | 365 días | Auditoría de costes y rendimiento | 90 días |
 | **Eventos de seguridad** (guardianes, bloqueos) | 365 días | Detección de patrones de ataque, ENS | **365 días (no reducir)** |
 | **Auditoría de configuración** | 730 días | Trazabilidad de decisiones administrativas | **365 días (mínimo bloqueado)** |
+
+!!! note "El contenido de prompts y respuestas JAMÁS se persiste"
+    La auditoría del sistema es **solo de metadatos**: no existe columna ni registro que guarde
+    el texto de los prompts o de las respuestas, por lo que no hay retención que configurar para
+    ese contenido. Si en algún log apareciera contenido de prompts o respuestas, no es un
+    comportamiento configurable — es un hallazgo de seguridad que debe reportarse de inmediato.
 
 ### Cómo ajustar la retención
 
@@ -292,7 +298,8 @@ flujo de conversación continuamente.
 - [ ] Notificación IA activada (obligatoria EU AI Act Art. 50 desde agosto 2026)
 - [ ] Si se usan datos clínicos reales: `eu_region_required = true` y modelo `azure-*` o `bedrock-eu-*`
 - [ ] Motor NLP de enmascaramiento de PII activado (ver **Seguridad → Guardianes** en la consola de administración)
-- [ ] Retención de prompt_content configurada según DPIA (recomendado ≤90 días para PHI)
+- [ ] Retención de metadatos de requests configurada según DPIA (recomendado ≤90 días)
+- [ ] Verificado que ningún log contiene contenido de prompts o respuestas (si aparece, reportarlo como hallazgo de seguridad)
 
 ### Verificación post-despliegue
 

@@ -27,9 +27,11 @@ Tenant (organización)
 ```
 
 Todo objeto administrable (grupos, usuarios, Connections, políticas, presupuestos,
-auditoría) pertenece a un tenant. El aislamiento entre tenants se aplica **en la base de
-datos** mediante row-level security (RLS): una sesión de un tenant no puede leer ni
-escribir filas de otro. 🟢
+auditoría) pertenece a un tenant. El aislamiento efectivo entre tenants se aplica hoy
+**a nivel de aplicación**: todas las consultas están acotadas al tenant. Las tablas
+tienen además row-level security (RLS) habilitado y forzado en la base de datos, pero el
+contexto de tenant por request todavía no se establece, así que RLS como defensa activa
+está pendiente de activarse. 🟡
 
 ### Modelo de entrega: una instancia por cliente
 
@@ -38,8 +40,8 @@ air-gapped): cada despliegue opera con exactamente **un tenant activo**, anclado
 configuración con la variable `BASA_DEPLOYMENT_TENANT_ID`. La licencia del despliegue
 está emitida para ese tenant y no habilita ningún otro (fail-closed). 🟢
 
-El modelo de datos soporta además un modo *cloud* con varios tenants conviviendo bajo RLS
-en una misma instancia; la **operación SaaS multi-tenant** como servicio gestionado es
+El modelo de datos soporta además un modo *cloud* con varios tenants conviviendo en una
+misma instancia; la **operación SaaS multi-tenant** como servicio gestionado es
 🔵 **OBJETIVO** de roadmap, no una modalidad ofrecida hoy.
 
 ---
@@ -53,19 +55,19 @@ La plataforma define cuatro roles canónicos:
 | **Super admin** | Cross-tenant | Operación por encima de los tenants (solo tiene sentido en modo cloud multi-tenant). No se crea automáticamente: se siembra de forma explícita. Dentro de un tenant equivale a un tenant admin. |
 | **Tenant admin** | Su tenant (= la instancia) | Administración completa: usuarios y grupos, Connections, presupuestos, políticas de seguridad, compliance, auditoría y salud de la licencia. Es el rol del operador. |
 | **Compliance officer** | Su tenant | Ver y editar políticas de seguridad y configuración de compliance, ver auditoría, exportar reportes, aprobar revisiones humanas y consultar el detalle de salud de la licencia. **No** gestiona usuarios ni presupuestos. |
-| **Client** | Su propio uso | Usuario final que consume IA a través de sus Connections. Es el **único rol que consume seat de licencia** (ver [Licencias y seats](#licencias-y-seats)). |
+| **Client** | Su propio uso | Usuario final que consume IA a través de sus Connections. El rol en sí no consume seat: los seats los consumen sus **Connections activas** (ver [Licencias y seats](#licencias-y-seats)). |
 
 Los usuarios *client* pueden llevar una **etiqueta de perfil** (`display_label`, p. ej.
 `clinician`, `developer`) que refina permisos puntuales heredados: un client con perfil
-`developer` puede gestionar Connections propias; uno con perfil `clinician` participa en
-la aprobación de revisiones humanas. 🟢
+`developer` puede gestionar las Connections **del tenant** (hoy sin acotación por dueño);
+uno con perfil `clinician` participa en la aprobación de revisiones humanas. 🟢
 
 Matriz de permisos vigente en la instancia:
 
 | Acción | Tenant admin | Compliance officer | Client |
 |---|:---:|:---:|:---:|
 | Crear / desactivar usuarios y grupos | ✅ | ❌ | ❌ |
-| Crear / revocar Connections (virtual keys) | ✅ | ❌ | solo perfil `developer` |
+| Crear / revocar Connections (virtual keys) | ✅ | ❌ | solo perfil `developer` (las del tenant) |
 | Crear / editar presupuestos | ✅ | ❌ | ❌ |
 | Editar políticas de seguridad | ✅ | ✅ | ❌ |
 | Ver / editar compliance | ✅ | ✅ | ❌ |
@@ -218,14 +220,15 @@ para cualquier cliente cambiando solo estas variables:
 
 ### Qué consume un seat
 
-Solo los usuarios con rol **client** consumen seat; los roles administrativos (tenant
-admin, compliance officer) **no** descuentan licencia. El conteo es de seats *activos*:
-desactivar un client libera su seat.
+Un seat es una **Connection activa** del tenant: una virtual key activa y no expirada.
+El conteo no es por usuario — desactivar un usuario client **no** libera seats; lo que
+libera un seat es **revocar sus Connections**. El propio error al agotar la licencia lo
+indica: "Revocá una Connection o ampliá la licencia".
 
 ### Qué pasa al agotar los seats
 
-La creación de un nuevo seat (alta de un client o de una Connection) se **bloquea antes
-de provisionar nada**, con un error claro:
+Con los seats agotados, las altas gateadas por licencia (crear un usuario client o una
+Connection) se **bloquean antes de provisionar nada**, con un error claro:
 
 ```text
 HTTP 402
@@ -251,7 +254,7 @@ El ciclo de vida se evalúa con el reloj local: `active → grace → expired`.
 El **modo degradado** por defecto es *read-only para creación*: en `grace`, `expired` u
 `over_seat` (ver reconciliación) las altas se bloquean y el servicio sigue. Con
 `BASA_LICENSE_HARD_BLOCK=true`, los estados `expired` y `over_seat` cortan **todo** el
-tráfico del gateway (`/gw`) con un `403` de mensaje genérico — el detalle del motivo va a
+tráfico del gateway (`/api/v1/gw`) con un `403` de mensaje genérico — el detalle del motivo va a
 los logs del servidor, nunca al cliente sin autenticar. `grace` **jamás** corta tráfico,
 con o sin hard block.
 

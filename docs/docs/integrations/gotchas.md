@@ -21,7 +21,7 @@ superficie está en [Integraciones & matriz de compatibilidad](index.md).
 - **Síntoma:** Copilot no autentica; el gateway no ve virtual key.
 - **Causa:** Copilot manda `x-api-key` **vacío** e **ignora** el `apiKey` del
   `chatLanguageModels.json`; tampoco deja mandar headers custom.
-- **Fix:** meter la key **en la URL** (`…/gw/v1/messages?k=sk-basa-…`). El gateway la levanta con
+- **Fix:** meter la key **en la URL** (`…/api/v1/gw/v1/messages?k=sk-basa-…`). El gateway la levanta con
   el fallback de key-en-URL. Es un atajo para entornos de prueba; en producción la key va por
   input seguro/SSO.
 

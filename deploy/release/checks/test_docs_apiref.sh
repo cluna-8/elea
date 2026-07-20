@@ -13,7 +13,7 @@ fail() { echo "❌ $1"; exit 1; }
 
 # (a) deriva del API reference
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; docker rm -f basa-docs-apiref-check >/dev/null 2>&1 || true' EXIT
-(cd "$REPO_ROOT" && docker compose run --rm --no-deps backend python scripts/export_openapi.py 2>/dev/null) > "$tmp/openapi.json" \
+(cd "$REPO_ROOT" && docker compose run --rm --no-deps -e BRAND_NAME="AI Gateway" backend python scripts/export_openapi.py 2>/dev/null) > "$tmp/openapi.json" \
     || fail "no pude exportar el OpenAPI del backend"
 diff -q "$tmp/openapi.json" "$REPO_ROOT/docs/docs/api-reference/openapi.json" >/dev/null \
     || fail "openapi.json DESACTUALIZADO vs el backend — regenerar: make -C deploy docs-refs"

@@ -14,11 +14,12 @@ cada integración. Los gotchas con su causa y su fix viven en [Gotchas verificad
    limitada, ver la fila de Claude Desktop en la matriz).
 
 Las dos superficies principales (`base_url` y `browser`) empujan al **mismo** monitor en vivo
-(`GET /gw/monitor`) con un tag `surface`. *"Un empleado, N herramientas, un firewall."*
+(`GET /api/v1/gw/monitor`) con un tag `surface`. *"Un empleado, N herramientas, un firewall."*
 
 !!! note "Base de los ejemplos"
-    Los ejemplos usan la base `http://localhost:8081/gw` (entorno local de prueba); en producción
-    es el host del gateway desplegado por el operador, con el **mismo path `/gw`**.
+    Los ejemplos usan la base `http://localhost:8091/api/v1/gw` (entorno local de desarrollo); en
+    producción es `https://<host>/api/v1/gw` (el host del gateway desplegado por el operador, con
+    el **mismo path `/api/v1/gw`**).
 
 ---
 
@@ -28,9 +29,9 @@ Estados: ✅ funciona hoy · 🟡 parcial · ⚪ fuera de las dos superficies pr
 
 | Cliente | Estado | Superficie | Mecanismo | Gotcha clave |
 |---|---|---|---|---|
-| **Claude Code** | ✅ Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. En `byok` los modelos no-Claude rompen el tool-calling agéntico → usar suscripción. |
+| **Claude Code** | ✅ Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. En `byok` los modelos no-Claude rompen el tool-calling agéntico → usar suscripción. |
 | **VS Code / GitHub Copilot** | 🟡 Parcial — **solo modo Ask** | `base_url` | `chatLanguageModels.json` con `apiType:"messages"` → `byok` al motor del gateway. Auto-byok por virtual key. | En **Agent/Edit** entra en loop (los modelos no-Claude llaman mal las tools). La key va **en la URL** (`?k=…`) porque manda `x-api-key` vacío. |
-| **ChatGPT (web)** | ✅ Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `POST /backend-api/f/conversation`, enmascara `messages[].content.parts[]` vía `/gw/inspect`. | La respuesta **no** viene en el POST: llega por **WebSocket** (`stream_handoff`) → el unmask se hace en el **DOM**, no sobre la respuesta. |
+| **ChatGPT (web)** | ✅ Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `POST /backend-api/f/conversation`, enmascara `messages[].content.parts[]` vía `/api/v1/gw/inspect`. | La respuesta **no** viene en el POST: llega por **WebSocket** (`stream_handoff`) → el unmask se hace en el **DOM**, no sobre la respuesta. |
 | **Claude (web, claude.ai)** | ✅ Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `.../completion` **y** `.../title`, enmascara `body.prompt` / `body.message_content`. | **Fuga de título**: el endpoint `/title` manda el prompt crudo → hay que enmascararlo también. **Artefactos** en `iframe` → el unmask del DOM no llega. |
 | **Gemini (web)** | 🟡 Parcial — **pendiente de validación** | `browser` | **DOM-hook** sobre el editor **Quill** (`.ql-editor`) en `gemini.google.com`: enmascara el texto del prompt en el editor antes del envío (no vía `fetch`). | Aún **sin verificar**. A diferencia de ChatGPT/Claude no se mapea endpoint/stream: el approach es hookear el editor Quill, no interceptar el POST. Los `content_scripts` del manifest deben matchear `gemini.google.com`. |
 | **Cursor** | 🟡 Parcial — **solo chat/plan** | `base_url` | **Override OpenAI Base URL** (settings de Cursor) → apunta el endpoint OpenAI-compatible del modelo al gateway. Gobierna el **chat** y el **modo plan**. | El **agente Composer** y el **autocomplete** **no** pasan por el override (enrutan por el backend propio de Cursor) → quedan fuera del firewall. **Misma casilla que Copilot en modo Ask** (ver §2.4 y [G1](gotchas.md)). |
@@ -55,13 +56,13 @@ el Claude global):
 // ~/mi-proyecto/.claude/settings.json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://localhost:8081/gw",
-    "ANTHROPIC_CUSTOM_HEADERS": "X-Basa-Key: sk-basa-laura-cc-2026"
+    "ANTHROPIC_BASE_URL": "http://localhost:8091/api/v1/gw",
+    "ANTHROPIC_CUSTOM_HEADERS": "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>"
   }
 }
 ```
 
-- `ANTHROPIC_BASE_URL` → apunta a `…/gw` (Claude Code le agrega `/v1/messages`).
+- `ANTHROPIC_BASE_URL` → apunta a `…/api/v1/gw` (Claude Code le agrega `/v1/messages`).
 - `ANTHROPIC_CUSTOM_HEADERS` → `X-Basa-Key: sk-basa-…` da **atribución de identidad**
   (usuario/equipo). Sin ella, el evento se atribuye al identity por defecto.
 - La suscripción OAuth del cliente viaja en `Authorization` y **atraviesa verbatim** — `X-Basa-Key`
@@ -72,9 +73,9 @@ Forzar modo `byok` (consumir modelos gobernados del motor del gateway) por reque
 
 ```bash
 # header por request; o BASA_GW_UPSTREAM_DEFAULT=byok en el entorno del gateway
-curl -s http://localhost:8081/gw/v1/messages \
+curl -s http://localhost:8091/api/v1/gw/v1/messages \
   -H "content-type: application/json" \
-  -H "X-Basa-Key: sk-basa-laura-cc-2026" \
+  -H "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>" \
   -H "X-Basa-Upstream: byok" \
   -d '{"model":"gpt-4o-mini","max_tokens":256,"messages":[{"role":"user","content":"hola"}]}'
 ```
@@ -82,8 +83,8 @@ curl -s http://localhost:8081/gw/v1/messages \
 Verificar identidad:
 
 ```bash
-curl -s http://localhost:8081/gw/whoami -H "X-Basa-Key: sk-basa-laura-cc-2026"
-# → {"ok":true,"user":"marc.ferrer","team":"Oncología","key_label":"…"}
+curl -s http://localhost:8091/api/v1/gw/whoami -H "X-Basa-Key: sk-basa-ana.demo-cc-2026"
+# → {"ok":true,"user":"ana.demo","team":"Equipo Demo","key_label":"…"}
 ```
 
 ### 2.2 VS Code / GitHub Copilot (`base_url`, **modo Ask**)
@@ -97,7 +98,7 @@ curl -s http://localhost:8081/gw/whoami -H "X-Basa-Key: sk-basa-laura-cc-2026"
 [
   {
     "apiType": "messages",
-    "url": "http://localhost:8081/gw/v1/messages?k=sk-basa-<tu-connection>",
+    "url": "http://localhost:8091/api/v1/gw/v1/messages?k=sk-basa-<usuario>-<herramienta>-<año>",
     "id": "gpt-4o-mini"
   }
 ]
@@ -115,9 +116,10 @@ curl -s http://localhost:8081/gw/whoami -H "X-Basa-Key: sk-basa-laura-cc-2026"
 1. **Instalar la extensión (descomprimida):** `brave://extensions` o `chrome://extensions` →
    activar **Modo desarrollador** → **Cargar descomprimida** → la carpeta de la extensión provista
    con el producto. Para actualizar el código, botón **↻** sobre la tarjeta de la extensión.
-2. **Conectar (login):** click en el ícono 🛡️ → pegar la key (p. ej. `sk-basa-<tu-connection>`)
-   y el gateway (`http://localhost:8081/gw`) → **Conectar**. El popup valida contra
-   `GET /gw/whoami` y muestra "🟢 Conectado como sofia.nunez · Radiología".
+2. **Conectar (login):** click en el ícono 🛡️ → pegar la key (p. ej.
+   `sk-basa-<usuario>-<herramienta>-<año>`) y el gateway (`http://localhost:8091/api/v1/gw`) →
+   **Conectar**. El popup valida contra `GET /api/v1/gw/whoami` y muestra
+   "🟢 Conectado como ana.demo · Equipo Demo".
 3. **Toggle** de protección en el popup (por defecto ON).
 
 Notas de arquitectura útiles para soporte:
@@ -126,7 +128,7 @@ Notas de arquitectura útiles para soporte:
   gateway (`host_permissions` → sin CORS). El content script **nunca** ve la key.
 - **Fail-closed:** sin key válida, un overlay **bloquea** la página (no hay key → no se usa la IA).
   Si el gateway se cae estando conectado, también bloquea.
-- `host_permissions` del manifest = `http://localhost:8081/*`. **Si cambia el host del gateway hay
+- `host_permissions` del manifest = `http://localhost:8091/*`. **Si cambia el host del gateway hay
   que editar el `manifest.json`** (`host_permissions` y, en producción, `chrome.storage.managed`
   vía MDM).
 

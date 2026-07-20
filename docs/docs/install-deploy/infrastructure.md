@@ -73,7 +73,7 @@ entre clientes ni se versionan en claro.
   los secretos viajan **cifrados en el artefacto** y se descifran al desplegar, **sin
   servidor**. 🔵
 - En cualquier caso, **nunca** el `.env` en claro con los defaults inseguros del compose de
-  desarrollo (`basasecurepass123`, `basa_master_key_9999`).
+  desarrollo: rotá **todos** los valores por defecto antes de exponer la instalación.
 - Cifrado en reposo 🟢: `FERNET_SECRET_KEY` cifra en reposo los secretos de servicio y la
   referencia de credencial OAuth (`oauth_credential_ref`) de la ruta
   `subscription-passthrough`.

@@ -8,7 +8,10 @@ presupuestos**, y deja **evidencia auditable** de cada paso.
 
 La idea central: **des-enmascarar en vez de bloquear**. El proveedor LLM recibe placeholders
 (`[PERSON_0]`, `[DNI_0]`); el usuario ve la respuesta con los valores reales restaurados. La
-experiencia de uso no se rompe — y el dato sensible nunca sale de la plataforma.
+experiencia de uso no se rompe — y todo dato sensible **detectado** se enmascara antes de salir de
+la plataforma y se restaura al volver: esa es la garantía arquitectural. La **cobertura** de la
+detección depende del modo activo (ver 🟡 más abajo) — ningún detector garantiza un recall del
+100 %.
 
 !!! note "Leyenda de estado"
     Esta página usa la leyenda de honestidad del sitio: 🟢 **HOY** (funciona y está verificado),
@@ -63,8 +66,11 @@ Cada request atraviesa cinco capas, siempre en el mismo orden:
 
 **1. Masking** 🟢 — se detecta la PII/PHI del prompt y se sustituye por placeholders atómicos
 (`[PERSON_0]`, `[DNI_0]`…), con un mapa reversible que queda dentro de la plataforma.
-*Garantiza*: el motor del gateway y el proveedor LLM solo ven placeholders, nunca el dato real.
-Es la capa más fuerte del producto y por eso corre **primero**.
+*Garantiza*: todo lo que la detección identifica viaja como placeholder — ni el motor del gateway
+ni el proveedor LLM ven esos valores. La cobertura de la detección depende del modo: patrones por
+default (pilotos, entornos sin PHI real) o motor NLP, precondición de producción con PHI 🟡;
+ningún detector garantiza un recall del 100 %. Es la capa más fuerte del producto y por eso corre
+**primero**.
 
 **2. Optimización** 🟢 — compresión determinista del contexto (consciente de tokens) con caché en
 Redis y guardia de reversión. Corre **después** del masking porque los placeholders son tokens
@@ -89,7 +95,8 @@ residencia EU es el default del flujo proxy; techo de gasto y rpm/tpm actúan co
 **5. Unmask** 🟢 — la respuesta del proveedor vuelve con los placeholders, y la plataforma restaura
 los valores reales usando el mapa reversible — incluido el camino de streaming (SSE) en la
 superficie de passthrough.
-*Garantiza*: el usuario ve datos reales que el proveedor nunca vio; la UX no se rompe.
+*Garantiza*: el usuario ve los valores reales restaurados — valores que el proveedor nunca
+recibió, porque en su lugar solo viajaron placeholders; la UX no se rompe.
 
 ### Observabilidad capa a capa
 

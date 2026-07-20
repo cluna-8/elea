@@ -23,9 +23,12 @@ Versión: `--build-arg DOCS_VERSION=1.1`.
 ## 3. Marca de un distribuidor (never fork)
 
 ```bash
-# 1) derivar el brand-pack del sitio desde el brand-pack de la 020 (UNA fuente de marca):
-deploy/release/render_docs_brand.sh acme deploy/clients/acme/brand.json
-# 2) imagen trazable por marca:
+# 1) derivar el brand-pack del sitio desde el brand-pack de la 020 (UNA fuente de marca).
+#    Con un perfil de cliente real, primero renderizarlo (produce rendered/brand.json):
+deploy/release/render_profile.sh acme
+deploy/release/render_docs_brand.sh acme deploy/clients/acme/rendered/brand.json
+#    (para probar sin perfil: deploy/release/render_docs_brand.sh aegis deploy/branding/brand.example.json)
+# 2) imagen trazable por marca (VERSION se cablea al versionado mike del sitio):
 make -C deploy build-docs-brand BRAND=acme VERSION=1.0   # → basa-docs:acme-1.0
 ```
 

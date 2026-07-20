@@ -6,7 +6,7 @@ BACKEND_IMG ?= basa-backend:prod
 FRONTEND_IMG ?= basa-frontend:prod
 DOCS_IMG ?= basa-docs:prod
 
-.PHONY: build build-backend build-frontend build-docs check check-images check-whitelabel check-secrets check-tofu check-docs
+.PHONY: build build-backend build-frontend build-docs build-docs-brand docs-refs check check-images check-whitelabel check-secrets check-tofu check-docs
 
 build: build-backend build-frontend build-docs
 
@@ -27,13 +27,15 @@ build-docs:
 build-docs-brand:
 	test -n "$(BRAND)" -a -n "$(VERSION)" || { echo "uso: make build-docs-brand BRAND=<slug> VERSION=<v>"; exit 1; }
 	docker build -f $(REPO_ROOT)/docs/Dockerfile --build-arg BRAND=$(BRAND) \
-		-t basa-docs:$(BRAND)-$(VERSION) $(REPO_ROOT)/docs
+		--build-arg DOCS_VERSION=$(VERSION) -t basa-docs:$(BRAND)-$(VERSION) $(REPO_ROOT)/docs
 
 check: check-images check-whitelabel check-secrets check-tofu check-docs
 
 # Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
 docs-refs:
-	cd $(REPO_ROOT) && docker compose run --rm --no-deps backend python scripts/export_openapi.py 2>/dev/null > docs/docs/api-reference/openapi.json
+	cd $(REPO_ROOT) && docker compose run --rm --no-deps -e BRAND_NAME="AI Gateway" backend \
+		python scripts/export_openapi.py 2>/dev/null > docs/docs/api-reference/openapi.json.tmp \
+		&& mv docs/docs/api-reference/openapi.json.tmp docs/docs/api-reference/openapi.json
 	cd $(REPO_ROOT) && python3 docs/gen_config_reference.py
 
 check-images:
