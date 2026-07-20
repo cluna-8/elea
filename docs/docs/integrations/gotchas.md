@@ -26,6 +26,8 @@ flowchart TD
     B --> B2[Copilot no autentica - G2]
     B --> B3[Un secreto pasa en un prompt gigante - G7]
     B --> B4[La key de atribucion desvia a byok - G8]
+    B --> B5[Placeholders en respuestas con modelo propio - G9]
+    B --> B6[La herramienta ignora el gateway configurado - G10]
     W --> W1[El nombre real sale en el titulo - G3]
     W --> W2[Los placeholders no se des-enmascaran - G4]
     W --> W3[Placeholders crudos en un artefacto - G5]
@@ -39,10 +41,14 @@ flowchart TD
   (`must match pattern ^[0-9a-fA-F]{8}-…`, un UUID), reintenta cada ~8 s → termina en 400. En el
   monitor se ve `mode=byok in=0 out=NN` repetido y la tarjeta muestra el **texto del error** en
   vez del prompt.
-- **Causa:** el tool-calling agéntico de Claude Code lo aguantan solo los modelos Claude; los
-  modelos del motor del gateway (gpt-4o-mini, groq…) no cumplen el contrato de tools.
-- **Fix:** **usar modo Ask** (sin tool-calling → el modelo responde texto y el enmascaramiento
-  anda). Claude Code sí aguanta Agent porque va por **passthrough de suscripción** a Claude real.
+- **Causa:** el **loop agéntico de Copilot** exige el contrato de tools de los modelos Claude;
+  con modelos no-Claude del motor, Copilot llama mal las tools y VS Code rechaza el input. Es
+  un límite del cliente Copilot, **no** una regla general de byok: Claude Code en Agent SÍ
+  funciona con un modelo no-Claude vía el puente de tools del motor (§3.5 de Integraciones,
+  verificado en vivo).
+- **Fix:** en Copilot, **usar modo Ask** (sin tool-calling → el modelo responde texto y el
+  enmascaramiento anda). Para trabajo agéntico: Claude Code por passthrough de suscripción, o
+  Claude Code con modelo propio (§3.5).
 
 ## G2 · Key en la URL porque `x-api-key` llega vacío (Copilot)
 
@@ -113,6 +119,35 @@ flowchart TD
 - **Regla de soporte:** **no** metas la virtual key en un header `x-basa-*` esperando que enrute
   a byok; para byok va en `x-api-key`/`Authorization`/URL. Para atribución sin desviar, va en
   `X-Basa-Key`.
+
+## G9 · Placeholders en respuestas byok con modelos del motor (no-Claude)
+
+- **Síntoma:** en `byok` con un modelo **no-Claude** del motor — modelo propio/local (§3.5 de
+  Integraciones) y también modelos cloud del motor (p. ej. Copilot Ask / Cursor chat) — si el
+  prompt lleva PII la respuesta puede mostrar el **placeholder** (`[EMAIL_ADDRESS_…]`) en vez
+  del valor original; con aider, el placeholder puede quedar escrito en el archivo editado.
+- **Causa:** el masking de ida funciona (el modelo **nunca** ve el dato real — verificado en
+  vivo con modelo local), pero la **restauración** sobre la respuesta no corre en el camino de
+  modelos puenteados por el motor: esa ruta entrega la respuesta en un formato que el paso de
+  restauración actual no procesa (ni en streaming ni en no-streaming). Verificado con modelo
+  local; el mismo camino sirve a los modelos cloud del motor.
+- **Implicación de privacidad:** **ninguna fuga** — es un límite de usabilidad, fail-safe: ni el
+  modelo ve la PII, ni vuelve PII de terceros al cliente.
+- **Fix:** diagnosticado (causa raíz identificada) y **planificado** — aún no entregado.
+  Mientras tanto: evitar pedirle al modelo que repita datos personales textuales, o desactivar
+  el masking por Connection solo en entornos sin datos reales.
+
+## G10 · La herramienta ignora el gateway configurado (sesión con suscripción)
+
+- **Síntoma:** `claude` con `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_MODEL`
+  correctos rechaza el modelo («There's an issue with the selected model…») y **ninguna**
+  petición llega al gateway.
+- **Causa:** la máquina tiene una sesión de `claude` **logueada con suscripción**; ese login
+  tiene precedencia sobre las variables de entorno y valida el modelo contra la lista del
+  proveedor, no contra el motor del gateway.
+- **Fix:** en máquinas de cliente (sin login previo) no ocurre. En setups mixtos: apuntar la
+  herramienta a un **directorio de configuración aislado** (`CLAUDE_CONFIG_DIR=<dir-limpio>`,
+  verificado) o cerrar la sesión de suscripción antes de usar el gateway.
 
 ---
 

@@ -40,7 +40,7 @@ _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 # tras compresión es anómala (vacía/muy corta). Fail-open; raro (solo si se comprimió).
 _REVERSAL_GUARD = os.getenv("COMPRESSION_REVERSAL_GUARD", "true").lower() == "true"
 
-_EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama"}
+_EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama", "ollama_chat"}
 
 
 def _get_config_path() -> str:

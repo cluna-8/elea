@@ -389,7 +389,9 @@ def _byok_headers(request: Request, basa_key: str) -> dict:
 async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool):
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
     enmascara/bloquea/audita vía BasaGuardrail); el gateway NO aplica política acá para
-    no duplicarla. La respuesta del motor ya viene des-enmascarada."""
+    no duplicarla. Límite conocido (spike 019 batch 1, issue #27): en rutas bridged
+    (modelos no-Claude) el unmask de respuesta del motor NO corre hoy — la respuesta
+    puede traer placeholders; fail-safe, fix-spec pendiente."""
     # F2 fail-closed: byok EXIGE una virtual key. Sin ella no se cae al master key del
     # motor (sería un bypass a PROXY_ADMIN saltando custom_auth/budgets/atribución).
     if not basa_key:

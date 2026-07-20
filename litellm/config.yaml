@@ -52,39 +52,39 @@ model_list:
     api_key: os.environ/ANTHROPIC_API_KEY
     model: anthropic/claude-3-5-sonnet-20240620
   model_name: claude-3-5-sonnet
+# Upstream Ollama (spike 019 batch 1, 2026-07-20): modelos propios/locales del cliente.
+# ollama_chat/ (no ollama/) porque usa /api/chat y soporta tool-calling; host.docker.internal
+# es el host desde el contenedor (Docker Desktop — SOLO dev; en prod el api_base es el host
+# ruteable del runtime del cliente). Costo 0: el modelo es del cliente.
+# Sin fallback propio a propósito: un fallback local→cloud violaría la residencia de datos
+# que motiva tener el modelo local.
 - litellm_params:
-    api_base: http://172.26.0.1:11434
-    model: ollama/gemma4:31b-cloud
+    api_base: http://host.docker.internal:11434
+    model: ollama_chat/qwen3:4b
   model_info:
     input_cost_per_token: 0
     output_cost_per_token: 0
-  model_name: ollama-gemma4-31b
-- litellm_params:
-    api_base: http://172.26.0.1:11434
-    model: ollama/qwen3.5:2b
-  model_info:
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-  model_name: ollama-qwen3-2b
+  model_name: ollama-qwen3-4b
 router_settings:
   disable_cooldowns: true
   num_retries: 2
   timeout: 30
+  # ⚠ Fallback cloud→local con sustitución SILENCIOSA (la respuesta conserva el nombre del
+  # modelo pedido). Para un producto de auditoría es una decisión de producto abierta
+  # (spike 019 batch 1) — pendiente de decisión de JF; en prod puede querer quitarse.
   fallbacks:
   - azure-gpt-4o-mini:
-    - ollama-qwen3-2b
+    - ollama-qwen3-4b
   - gemini-2.5-flash-lite:
-    - ollama-qwen3-2b
+    - ollama-qwen3-4b
   - gpt-4o:
     - azure-gpt-4o-mini
-    - ollama-qwen3-2b
+    - ollama-qwen3-4b
   - gpt-4o-mini:
-    - ollama-qwen3-2b
+    - ollama-qwen3-4b
   - claude-3-5-sonnet:
     - gemini-2.5-flash
-    - ollama-qwen3-2b
+    - ollama-qwen3-4b
   - gemini-2.5-flash:
     - gemini-2.5-flash-lite
-    - ollama-qwen3-2b
-  - ollama-gemma4-31b:
-    - ollama-qwen3-2b
+    - ollama-qwen3-4b
