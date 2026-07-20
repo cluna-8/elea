@@ -15,6 +15,7 @@ from migration_harness import DEFAULT_TENANT, require_postgres
 from seat_gate_harness import (
     admin_headers,
     build_app_client,
+    clear_monotonic_mark,
     current_seats,
     license_audit_events,
     mock_engine,
@@ -44,9 +45,11 @@ def harness():
 
 
 @pytest.fixture(autouse=True)
-def _restore():
+def _restore(harness):
     from src.licensing import reconcile
     yield
+    _client, factory, _headers = harness
+    clear_monotonic_mark(factory)  # los relojes 2027 inyectados no arman rollback en el test siguiente
     reconcile.reset_for_tests()
     restore_suite_license()
 

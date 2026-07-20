@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from ..models.tenant import DEFAULT_TENANT_ID
 from .audit_events import EVENT_SEAT_LIMIT, emit_license_event
 from .entitlement import CREATION_ALLOWED_STATUSES, get_state
-from .reconcile import RECON_OVER_SEAT, get_tenant_status
+from .reconcile import RECON_OVER_SEAT, clock_rollback_suspected, get_tenant_status
 from .seat_counter import count_active_seats
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,15 @@ def enforce_seat_gate(db, tenant_id) -> None:
     # una corrida lo devuelva a ok — el estado manda aunque el conteo vivo haya
     # bajado del tope (la transición ya quedó auditada por la reconciliación).
     # US4 (T029) extiende este mismo punto a grace/expired del ciclo de vida.
+    # Anti-rollback (US5, FR-023): con el reloj DETRÁS de la marca monotónica
+    # la evidencia no es confiable → la creación se degrada hasta que el reloj
+    # supere la marca (el episodio ya quedó auditado por la reconciliación).
+    if clock_rollback_suspected():
+        raise HTTPException(
+            status_code=403,
+            detail=("license_creation_blocked: rollback de reloj sospechado — la creación "
+                    "queda degradada hasta que el reloj local supere la marca monotónica."),
+        )
     recon = get_tenant_status(row_tenant)
     if recon is not None and recon.status == RECON_OVER_SEAT:
         raise HTTPException(
