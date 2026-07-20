@@ -26,6 +26,8 @@ flowchart TD
     B --> B2[Copilot no autentica - G2]
     B --> B3[Un secreto pasa en un prompt gigante - G7]
     B --> B4[La key de atribucion desvia a byok - G8]
+    B --> B5[Placeholders en respuestas con modelo propio - G9]
+    B --> B6[La herramienta ignora el gateway configurado - G10]
     W --> W1[El nombre real sale en el titulo - G3]
     W --> W2[Los placeholders no se des-enmascaran - G4]
     W --> W3[Placeholders crudos en un artefacto - G5]
@@ -113,6 +115,33 @@ flowchart TD
 - **Regla de soporte:** **no** metas la virtual key en un header `x-basa-*` esperando que enrute
   a byok; para byok va en `x-api-key`/`Authorization`/URL. Para atribución sin desviar, va en
   `X-Basa-Key`.
+
+## G9 · Placeholders en respuestas con modelo propio (byok)
+
+- **Síntoma:** con un modelo propio/local en `byok` (§3.5 de Integraciones), si el prompt lleva
+  PII la respuesta muestra el **placeholder** (`[EMAIL_ADDRESS_…]`) en vez del valor original;
+  con aider, el placeholder puede quedar escrito en el archivo editado.
+- **Causa:** el masking de ida funciona (el modelo **nunca** ve el dato real — verificado), pero
+  la **restauración** sobre la respuesta no corre en el camino de modelos puenteados por el
+  motor: esa ruta entrega la respuesta en un formato que el paso de restauración actual no
+  procesa (ni en streaming ni en no-streaming).
+- **Implicación de privacidad:** **ninguna fuga** — es un límite de usabilidad, fail-safe: ni el
+  modelo ve la PII, ni vuelve PII de terceros al cliente.
+- **Fix:** en curso (fix acotado del paso de restauración para ese camino). Mientras tanto:
+  evitar pedirle al modelo que repita datos personales textuales, o desactivar el masking por
+  Connection solo en entornos sin datos reales.
+
+## G10 · La herramienta ignora el gateway configurado (sesión con suscripción)
+
+- **Síntoma:** `claude` con `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_MODEL`
+  correctos rechaza el modelo («There's an issue with the selected model…») y **ninguna**
+  petición llega al gateway.
+- **Causa:** la máquina tiene una sesión de `claude` **logueada con suscripción**; ese login
+  tiene precedencia sobre las variables de entorno y valida el modelo contra la lista del
+  proveedor, no contra el motor del gateway.
+- **Fix:** en máquinas de cliente (sin login previo) no ocurre. En setups mixtos: apuntar la
+  herramienta a un **directorio de configuración aislado** (`CLAUDE_CONFIG_DIR=<dir-limpio>`,
+  verificado) o cerrar la sesión de suscripción antes de usar el gateway.
 
 ---
 

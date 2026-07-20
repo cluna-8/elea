@@ -94,7 +94,10 @@ superficies principales.
 
 | Cliente | Estado | Superficie | Mecanismo | Gotcha clave |
 |---|---|---|---|---|
-| **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. En `byok` los modelos no-Claude rompen el tool-calling agéntico → usar suscripción. |
+| **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. Para trabajo agéntico: suscripción, o **modelo propio** (§3.5 — el modo Agent está verificado por esa vía; el límite de G1 es del loop agéntico de Copilot). |
+| **Claude Code → modelo propio** | 🟡 Parcial | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales). Límite actual: si el prompt lleva PII, las respuestas pueden mostrar el placeholder en vez del valor (unmask en camino bridged, fix en curso — [G9](gotchas.md)). |
+| **Aider** | 🟡 Parcial | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-basa-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona y **no** se corrompe con el masking. Mismo límite de placeholders que G9 si el prompt lleva PII. |
+| **Codex CLI** | 🟡 Parcial | `base_url` | Provider custom (`wire_api=responses`) apuntando al endpoint OpenAI-compatible del **motor** (Codex ≥0.142 solo habla Responses API; el gateway no expone esa superficie aún). | **Chat/Q&A gobernado funciona** (la política vive en el motor). El modo agéntico **no**: por esa ruta el modelo no dispara tools nativas. Superficie OpenAI/Responses en el gateway = roadmap. |
 | **VS Code / GitHub Copilot** | 🟡 Parcial — **solo modo Ask** | `base_url` | `chatLanguageModels.json` con `apiType:"messages"` → `byok` al motor del gateway. Auto-byok por virtual key. | En **Agent/Edit** entra en loop (los modelos no-Claude llaman mal las tools). La key va **en la URL** (`?k=…`) porque manda `x-api-key` vacío. |
 | **ChatGPT (web)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `POST /backend-api/f/conversation`, enmascara `messages[].content.parts[]` vía `/api/v1/gw/inspect`. | La respuesta **no** viene en el POST: llega por **WebSocket** (`stream_handoff`) → el unmask se hace en el **DOM**, no sobre la respuesta. |
 | **Claude (web, claude.ai)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `.../completion` **y** `.../title`, enmascara `body.prompt` / `body.message_content`. | **Fuga de título**: el endpoint `/title` manda el prompt crudo → hay que enmascararlo también. **Artefactos** en `iframe` → el unmask del DOM no llega. |
@@ -248,6 +251,52 @@ Ask (§3.2).
     siempre como "Cursor chat/plan gobernado, Composer/autocomplete no", **nunca** como cobertura
     total.
 
+### 3.5 Modelo propio / local — entorno controlado (runtime Ollama)
+
+Para **clientes de infraestructura** (alto riesgo): el tráfico de IA no sale a ningún proveedor
+cloud — el cliente aloja su propio modelo (p. ej. con **Ollama**) y el gateway lo gobierna con la
+misma política (masking, secretos, AI-Act, auditoría) que un modelo cloud. Para perfiles de
+oficina, el camino recomendado sigue siendo el passthrough de suscripción (§3.1).
+
+```mermaid
+graph LR
+    CC[Claude Code del cliente] -->|sk-basa auto-byok| GW[Gateway /api/v1/gw]
+    GW -->|politica: mask, secretos, AI-Act| MOT[Motor del gateway]
+    MOT -->|bridge de tools nativo| OLL[Runtime local Ollama]
+    OLL --> MOD[(Modelo propio)]
+    MOT --> MON[Monitor y auditoria]
+```
+
+**Alta del modelo (operador)** — es **configuración del motor, no código**: se registra el
+modelo local con su `api_base` (el runtime del cliente) y un `model_name` que las herramientas
+usarán como identificador. Costo por token 0 (el modelo es del cliente).
+
+**Configuración de la herramienta (ejemplo Claude Code)**:
+
+```bash
+export ANTHROPIC_BASE_URL="https://<host>/api/v1/gw"
+export ANTHROPIC_AUTH_TOKEN="sk-basa-<usuario>-<herramienta>-<año>"   # auto-byok
+export ANTHROPIC_MODEL="<model_name-del-motor>"
+```
+
+**Verificado en vivo** (2026-07-20): chat, tool-calling y el **loop agéntico completo**
+(leer/escribir archivos y verificar) funcionan con un modelo local — el motor traduce las
+llamadas de tools en ambas direcciones, así que el modo Agent de Claude Code **sí** aguanta
+modelos no-Claude por esta vía. La calidad del resultado depende del modelo que aloje el
+cliente (un modelo chico resuelve tareas simples; la elección es del cliente).
+
+Gotchas de onboarding:
+
+- El runtime necesita **contexto amplio** para los prompts de sistema de las coding tools:
+  con Ollama, `OLLAMA_CONTEXT_LENGTH=32768` (el default los truncaría en silencio).
+- Si la máquina ya tiene una sesión de `claude` logueada con suscripción, esa sesión **pisa
+  las variables de entorno** — ver [G10](gotchas.md).
+- Si un modelo cloud del motor se queda sin credenciales, el **fallback** configurado puede
+  servir la petición con el modelo local (resiliencia); el campo `model` de la respuesta
+  conserva el nombre pedido.
+- Límite actual [G9](gotchas.md): con PII en el prompt, la respuesta puede mostrar
+  placeholders (la privacidad queda intacta — es un límite de restauración, con fix en curso).
+
 ---
 
 ## 4. Límites verificados por superficie
@@ -256,8 +305,14 @@ Leyenda del sitio: 🟢 **HOY** (funciona y está verificado) · 🟡 **PARCIAL*
 documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
 
 - 🟢 **Claude Code por passthrough de suscripción** — cubre también el flujo agéntico
-  (tool-calling) porque el upstream son los modelos Claude reales. En `byok`, los modelos
-  no-Claude del motor rompen el tool-calling → para trabajo agéntico, suscripción.
+  (tool-calling) porque el upstream son los modelos Claude reales.
+- 🟡 **Claude Code con modelo propio (byok)** — el modo Agent **funciona** (verificado en vivo:
+  el motor traduce las tools en ambas direcciones, §3.5); el límite es la restauración de PII
+  en las respuestas ([G9](gotchas.md)), con fix en curso. El "byok rompe el agéntico" aplica al
+  loop de **Copilot** ([G1](gotchas.md)), no a Claude Code.
+- 🟡 **Aider** — flujo editor completo gobernado; mismo límite G9 con PII en el prompt.
+- 🟡 **Codex CLI** — chat gobernado contra el motor; agéntico no (tools no nativas por esa
+  ruta) y el gateway aún no expone superficie OpenAI/Responses (🔵 roadmap).
 - 🟡 **Copilot: solo modo Ask** — Agent/Edit loopea con modelos no-Claude
   ([G1](gotchas.md)); la key viaja en la URL como atajo de prueba ([G2](gotchas.md)).
 - 🟡 **Cursor: solo chat/plan** — Composer y autocomplete no honran el override y quedan fuera

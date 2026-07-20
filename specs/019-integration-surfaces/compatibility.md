@@ -1,6 +1,12 @@
 # Matriz de compatibilidad — Basa Guardian (superficies de cliente)
 
-**Spec**: 019 · **Estado**: viva (se actualiza al sumar/validar superficies) · **Última**: 2026-07-14
+**Spec**: 019 · **Estado**: viva (se actualiza al sumar/validar superficies) · **Última**: 2026-07-20
+
+Este documento es **el registro oficial de superficies cliente** (decisión JF 2026-07-20): toda
+herramienta candidata a hablar con el gateway vive acá con su estado de ciclo de vida — se añade,
+se pospone o se cancela ACÁ, nunca en un canal lateral. La matriz de abajo guarda la evidencia
+técnica de las evaluadas; el sitio de docs (`docs/docs/integrations/`) publica el subconjunto
+soportado (DoD de AGENTS.md).
 
 Contrato de onboarding: para cada herramienta, **qué funciona, cómo se engancha y por qué**
 (incluido lo que NO). Los estados FUNCIONA/PARCIAL reflejan comportamiento observable (US1–US3);
@@ -26,21 +32,41 @@ NO/MCP-ONLY llevan razón técnica concreta, nunca "pendiente" (SC-006).
 | **Cursor** | base_url | **PARCIAL** | **Override OpenAI Base URL** (Settings→Models) → gateway; sólo panel **chat/plan** (Cmd+L) | Como Copilot Ask: gobernable sólo sin-tools. El agente (Composer), inline y autocomplete están clavados al backend de Cursor; el "Override Anthropic Base URL" se auto-activa y rompe con **422**. |
 | **Gemini (web)** | browser | **NO (roadmap, viable)** | — (falta adapter + host) | Ver "Gemini — roadmap" abajo. |
 | **Claude Desktop** | desktop | **MCP-ONLY** | Servidor MCP (**tool-plane**) | Sin `ANTHROPIC_BASE_URL` ni hook interceptable. El MCP server sólo ve args/results de tools, nunca el chat: gobierna el tool-plane (DLP sobre results, audit de tool calls), **no** el prompt del usuario. Masking del chat = gap conocido no cubrible por esta vía. |
+| **Ollama (upstream de modelos propios)** | upstream | **PARCIAL** | Config del motor: `ollama_chat/<modelo>` + `api_base` → 0 código (Principio IV) | Ruteo, identidad, mask pre_call, bloqueo de secretos y fallback cloud→local verificados en vivo. Limitación: **unmask de respuesta no corre en rutas bridged** (dict/chunks parseados — [spikes-batch1.md](spikes-batch1.md) Spike 1). Fix-spec pendiente → FUNCIONA. |
+| **Claude Code → modelo propio** | base_url (byok) | **PARCIAL** | `ANTHROPIC_BASE_URL` → gateway + `ANTHROPIC_AUTH_TOKEN=sk-basa-…` (auto-byok) + `ANTHROPIC_MODEL=<model_name>` | **Aguanta modo Agent con modelo no-Claude** (Read/Write/loop verificados vivo con qwen3:4b — el bridge traduce `tool_use` nativo). PARCIAL solo por el unmask del Spike 1; mismo fix → FUNCIONA. Gotchas: `OLLAMA_CONTEXT_LENGTH=32768`, login suscripción pisa env. |
+| **Aider** | base_url (byok) | **PARCIAL** | `ANTHROPIC_API_BASE` → gateway + `--model anthropic/<model_name>` (usa litellm como lib) | Flujo editor completo OK; el diff-apply NO se rompe con mask. Limitación: archivos heredan placeholders si el prompt lleva PII (unmask, Spike 1). |
+| **Codex CLI** | base_url (byok) | **PARCIAL** | Motor directo `/v1/responses` (`wire_api=responses`; codex ≥0.142 eliminó `chat`) — el gateway no expone superficie OpenAI | Chat gobernado OK (política en el motor). Agéntico NO: el bridge Responses→ollama no dispara tools nativas (el modelo las escupe como texto). Roadmap: superficie OpenAI/Responses en el gateway. |
 
-## Candidatos — POR VALIDAR (sin evidencia; no son estados de la matriz)
+## Registro de superficies — ciclo de vida (fuente oficial)
 
-Herramientas **no evaluadas** aún. No se les asigna estado (SC-006 exige evidencia); se listan con la
-**razón mecánica** por la que son candidatas y qué falta para promoverlas a la matriz (un spike c/u):
+Estados del registro (ortogonales al veredicto técnico de la matriz):
 
-| Herramienta | Candidata a | Razón mecánica | Falta |
+- **EN MATRIZ** — evaluada con evidencia; el veredicto (FUNCIONA/PARCIAL/NO/MCP-ONLY) vive arriba.
+- **EN SPIKE** — research en curso (issue #15); sin promesa de compatibilidad hasta tener evidencia.
+- **PLANIFICADA** — aprobada para un batch futuro; aún sin trabajo activo.
+- **POSPUESTA** — decisión consciente de NO evaluarla ahora; lleva razón y condición de reapertura.
+- **CANCELADA** — descartada; lleva razón técnica o de producto.
+
+| Herramienta | Estado | Desde | Decisión / razón |
 |---|---|---|---|
-| Windsurf / JetBrains AI / Zed | base_url (byok) | Exponen (o anuncian) base URL OpenAI/Anthropic-compatible en settings | Spike: conectar → clasificar FUNCIONA/PARCIAL (¿aguanta Agent?) |
-| Aider / Cline / Continue | base_url (byok) | Base URL configurable de fábrica (`OPENAI_API_BASE`/settings) | Spike: conectar → verificar que mask/unmask no rompe el diff-apply |
-| Codex CLI | base_url (byok) | Respeta `OPENAI_BASE_URL` por env | Spike: conectar → verificar tool-calling |
-| Gemini CLI | base_url | Habla con el endpoint de Google (¿override posible?) | Spike: confirmar si siquiera expone base URL |
-| ChatGPT Desktop (app nativa) | — | **Mismo gap que Claude Desktop**: app desktop nativa sin base_url ni hook interceptable (el ROADMAP marca la interceptación de apps desktop como bloqueada por cert-pinning) | Sin camino identificado hoy |
+| Claude Code (suscripción) | EN MATRIZ | 2026-07-14 | FUNCIONA — superficie titular (passthrough) |
+| ChatGPT web / Claude web | EN MATRIZ | 2026-07-14 | FUNCIONA — extensión MV3 |
+| VS Code / GitHub Copilot | EN MATRIZ | 2026-07-14 | PARCIAL — solo Ask |
+| Cursor | EN MATRIZ | 2026-07-15 | PARCIAL — solo chat/plan |
+| Claude Desktop | EN MATRIZ | 2026-07-14 | MCP-ONLY — tool-plane |
+| **Ollama como upstream** (modelos propios/locales) | EN MATRIZ | 2026-07-20 | PARCIAL — spike batch 1 ([evidencia](spikes-batch1.md)); origen: reunión JF+Cristian 2026-07-20 (clientes infra = modelos propios en entorno controlado) |
+| **Claude Code → modelo propio** (byok→motor→Ollama) | EN MATRIZ | 2026-07-20 | PARCIAL — **aguanta Agent**; solo lo frena el unmask (fix-spec) |
+| Aider | EN MATRIZ | 2026-07-20 | PARCIAL — diff-apply OK con mask; placeholders hasta el fix de unmask |
+| Codex CLI | EN MATRIZ | 2026-07-20 | PARCIAL — chat gobernado OK; agéntico bloqueado por bridge Responses + gateway sin superficie OpenAI |
+| Cline / Continue | EN SPIKE · batch 1 | 2026-07-20 | Pendiente sesión GUI con JF (extensiones VS Code, no evidenciable headless) |
+| Zed | PLANIFICADA · batch 2 | 2026-07-20 | Anuncia base URL OpenAI-compat; barato de probar tras batch 1 |
+| Gemini CLI | PLANIFICADA · batch 2 | 2026-07-20 | Confirmar si siquiera expone base URL |
+| OpenCode | PLANIFICADA · batch 2 | 2026-07-20 | Integración oficial de Ollama (descubierta en research 2026-07-20) → candidata natural al mismo camino byok |
+| Gemini web | PLANIFICADA · roadmap US5 | 2026-07-14 | Viable con 2 gaps identificados (ver "Gemini — roadmap" abajo) |
+| Windsurf / JetBrains AI | POSPUESTA | 2026-07-20 | Decisión JF: fortalecer la base y testear la v1 con clientes reales antes de ampliar; además requieren cuenta/licencia. **Reapertura**: tras feedback de clientes de la v1 |
+| ChatGPT Desktop (app nativa) | POSPUESTA | 2026-07-14 | Sin camino técnico hoy: app nativa sin base_url ni hook interceptable (cert-pinning, mismo gap que el chat-plane de Claude Desktop). **Reapertura**: si aparece mecanismo de override |
 
-> Promover un candidato = correr su spike y moverlo a la matriz de arriba con evidencia (FUNCIONA /
+> Promover una superficie = correr su spike y moverla a **EN MATRIZ** con evidencia (FUNCIONA /
 > PARCIAL / NO con razón técnica). Mientras tanto NO se promete compatibilidad.
 
 ## Ruteo (puerta única) — cómo el gateway decide
