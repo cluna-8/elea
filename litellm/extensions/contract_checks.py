@@ -93,6 +93,49 @@ def main():
         "", None, ph)
     check("policy round-trip dentro del container", "Juan Pérez" in blocks[0])
 
+    # ── spec 016: detección NLP real, región eu, enforcement MASK/BLOCK ────────
+    check("resolve_entity_action default MASK",
+          bp.resolve_entity_action("PASSPORT", {}) == "MASK")
+    check("resolve_entity_action respeta BLOCK",
+          bp.resolve_entity_action("CREDIT_CARD", {"CREDIT_CARD": "BLOCK"}) == "BLOCK")
+    _overlap_result = bp.resolve_overlaps([
+        {"start": 0, "end": 6, "entity_type": "PHONE_NUMBER", "score": 0.9},
+        {"start": 4, "end": 12, "entity_type": "DNI", "score": 0.85},
+    ])
+    check("resolve_overlaps deja rangos disjuntos",
+          len(_overlap_result) == 1 or all(
+              a["end"] <= b["start"] for a, b in zip(_overlap_result, _overlap_result[1:])))
+    check("build_ad_hoc_recognizers región eu no incluye DNI/CUIL (Argentina)",
+          {rec["supported_entity"] for rec in bp.build_ad_hoc_recognizers([])} == {"PASSPORT"})
+
+    import os as _os
+    presidio_url = _os.environ.get("PRESIDIO_ANALYZER_URL")
+    if presidio_url:
+        import asyncio
+
+        async def _check_presidio():
+            try:
+                entities = await bp.presidio_analyze(
+                    "Mi NIF es 12345678Z y mi pasaporte PAB123456", presidio_url, [])
+                return True, entities
+            except bp.NlpUnavailableError as e:
+                return False, str(e)
+
+        ok, detail = asyncio.run(_check_presidio())
+        check(f"Presidio Analyzer responde ({presidio_url})", ok, str(detail))
+
+        async def _check_failclosed():
+            try:
+                await bp.presidio_analyze("hola", "http://presidio-analyzer:9999", [])
+                return False
+            except bp.NlpUnavailableError:
+                return True
+
+        check("presidio_analyze fail-closed ante URL inválida", asyncio.run(_check_failclosed()))
+    else:
+        check("PRESIDIO_ANALYZER_URL configurada", False,
+              "sin esta env var el guardrail degrada a regex de dev — no válido para este check")
+
     print(f"\n{'CONTRATO ROTO: ' + str(FAILURES) if FAILURES else 'Contrato OK contra la imagen pinneada.'}")
     sys.exit(1 if FAILURES else 0)
 

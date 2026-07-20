@@ -20,9 +20,14 @@ ni se delega a un tercero (Constitución I, Constraint C1).
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from typing import Awaitable, Callable, Optional, Tuple
+
+import httpx
+
+logger = logging.getLogger("basa-guardian-policy")
 
 # Un placeholder es [TYPE_idx_nonce]; TYPE puede contener '_' (EMAIL_ADDRESS).
 PH_TYPE_RE = re.compile(r"\[(.+)_\d+_[0-9a-f]+\]$")
@@ -44,15 +49,42 @@ AnalyzeFn = Callable[[str], Awaitable[list]]
 
 # ── Detección (portada de los servicios heredados; PURA, sin DB) ──────────────────
 
-# PII por regex (espejo de PresidioService.PATTERNS). Tier demo/dev: el NLP real
-# (Presidio) es precondición de prod con PHI (Constraint C2) y llega en la spec 016.
+# PII por regex — SOLO fallback de dev/demo (ver `default_analyze` más abajo). El
+# camino de producción usa `presidio_analyze` (NLP real, spec 016, Constraint SC-2).
+# Genérico e internacional a propósito (sin +54 ni formatos AR): el dev-fallback no
+# intenta simular reconocedores estructurados por país — esos SOLO existen vía NLP
+# real (ver STRUCTURED_ID_PATTERNS_BY_REGION más abajo).
 PII_PATTERNS = {
     "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    "PHONE_NUMBER": r"\b(?:\+?54)?[-. ]?\(?\d{2,4}\)?[-. ]?\d{3,4}[-. ]?\d{4}\b",
-    "DNI": r"\b\d{2}\.?\d{3}\.?\d{3}\b",
-    "CUIL": r"\b\d{2}-\d{8}-\d\b",
-    "PERSON": r"\b(?:paciente|doctor|dr|dra|sr|sra|don|doña|afiliado)\s+([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b",
+    "PHONE_NUMBER": r"\b\+?[0-9][0-9\-. ]{7,14}[0-9]\b",
+    "PERSON": r"\b(?:sr|sra|dr|dra|mr|mrs|ms)\.?\s+([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b",
 }
+
+# Patrones estructurados por REGIÓN (spec 016 §3, corrección post-review: el
+# despliegue objetivo es Europa primero, LATAM/otros después — nunca hardcodear un
+# solo país). Se inyectan como `ad_hoc_recognizers` SOLO para lo que Presidio no
+# cubre ya con un reconocedor propio validado (checksum) para ese idioma/región:
+#   - España: ES_NIF/ES_NIE ya son built-in de Presidio (con checksum) para
+#     supported_language="es" — NO se reimplementan acá.
+#   - IBAN, tarjetas de crédito, email, teléfono, PERSON (NER): built-in,
+#     multi-región — tampoco se reimplementan.
+#   - Pasaporte: sin formato único a nivel UE (varía por país emisor). Se usa un
+#     patrón genérico + palabras de contexto ("pasaporte"/"passport") que suben el
+#     score en vez de fijar un formato de un solo país — precisión limitada y
+#     documentada, mejor que no detectarlo. Ampliar por país es agregar una entrada
+#     acá, no reescribir el pipeline.
+STRUCTURED_ID_PATTERNS_BY_REGION = {
+    "eu": {
+        "PASSPORT": (r"\b[A-Z0-9]{6,9}\b", 0.4, ["pasaporte", "passport", "reisepass", "passeport"]),
+    },
+    # LATAM (a habilitar cuando haya despliegues en la región — no activo por default).
+    "latam_ar": {
+        "DNI": (r"\b\d{2}\.?\d{3}\.?\d{3}\b", 0.85, ["dni", "documento"]),
+        "CUIL": (r"\b\d{2}-\d{8}-\d\b", 0.9, ["cuil", "cuit"]),
+        "PASSPORT": (r"\b[A-Z]{3}\d{6}\b", 0.75, ["pasaporte"]),
+    },
+}
+DEFAULT_REGION = "eu"
 
 # Prácticas prohibidas EU AI Act Art.5 (espejo de ComplianceService.PROHIBITED_KEYWORDS)
 PROHIBITED_PATTERNS = [
@@ -115,8 +147,10 @@ def detect_tool(user_agent: Optional[str]) -> str:
 
 
 async def default_analyze(text: str) -> list:
-    """Analyzer PII por regex (mismo comportamiento que el PresidioService heredado).
-    Inyectable: en prod con PHI se reemplaza por Presidio NLP (spec 016, SC-2)."""
+    """Analyzer PII por regex — SOLO fallback explícito de dev/demo cuando no hay
+    `PRESIDIO_ANALYZER_URL` configurada. NUNCA es el detector del camino de
+    producción (spec 016, Constraint SC-2): no distingue nombres sin prefijo, y
+    ante coincidencias solapadas debe pasar igual por `resolve_overlaps`."""
     entities = []
     for entity_type, pattern in PII_PATTERNS.items():
         flags = re.IGNORECASE if entity_type != "PERSON" else 0
@@ -124,7 +158,127 @@ async def default_analyze(text: str) -> list:
             start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
             entities.append({"start": start, "end": end,
                              "entity_type": entity_type, "score": 0.95})
-    return entities
+    return resolve_overlaps(entities)
+
+
+class NlpUnavailableError(Exception):
+    """El motor de detección NLP real no respondió (timeout/error/formato inesperado).
+
+    Contrato fail-closed (spec 016 FR-004, decisión del usuario): el caller (el
+    guardrail) DEBE traducir esto en un bloqueo de la request — jamás en `[]`
+    silencioso. Reemplaza el `except: return []` fail-open heredado de
+    `PresidioService.analyze_text_http`.
+    """
+
+
+def resolve_overlaps(entities: list) -> list:
+    """Resuelve entidades detectadas cuyos rangos [start, end) se solapan (FR-009).
+
+    Algoritmo (merge de intervalos, invariante garantizada incluso con 3+ entidades
+    solapadas en cadena, no solo pares): se agrupan en clusters transitivos por
+    barrido ordenado (si A solapa B y B solapa C, los tres van al mismo cluster
+    aunque A y C no se toquen directamente) y de cada cluster sobrevive UNA sola
+    entidad: la de mayor `(end - start)` — gana la más larga/específica, evita que
+    un match genérico gane sobre uno más preciso que lo contiene —, a igual largo
+    gana mayor `score`, a empate total gana la que apareció primero (estable).
+    Como los clusters son componentes conexas maximales del grafo de solapamiento,
+    los sobrevivientes de clusters distintos NUNCA se solapan entre sí.
+
+    Sin esto, dos o más coincidencias solapadas (p.ej. un teléfono y un DNI sobre el
+    mismo tramo de dígitos) pueden corromper el texto enmascarado, porque el
+    reemplazo por offsets asume rangos disjuntos.
+    """
+    if not entities:
+        return []
+    indexed = list(enumerate(entities))
+    ordered = sorted(indexed, key=lambda pair: pair[1]["start"])
+
+    clusters: list = []
+    cluster_end = None
+    for orig_idx, ent in ordered:
+        if clusters and ent["start"] < cluster_end:
+            clusters[-1].append((orig_idx, ent))
+            cluster_end = max(cluster_end, ent["end"])
+        else:
+            clusters.append([(orig_idx, ent)])
+            cluster_end = ent["end"]
+
+    survivors = [
+        max(cluster, key=lambda pair: (pair[1]["end"] - pair[1]["start"], pair[1].get("score", 0.0), -pair[0]))
+        for cluster in clusters
+    ]
+    survivors.sort(key=lambda pair: pair[0])
+    return [ent for _, ent in survivors]
+
+
+def resolve_entity_action(entity_type: str, entity_configs: Optional[dict]) -> str:
+    """Acción configurada para un tipo de entidad en la SecurityPolicy activa
+    (FR-005/FR-008). Default `MASK` para tipos ausentes o con valor no reconocido —
+    nunca deja pasar una entidad detectada en crudo por omisión de configuración."""
+    action = (entity_configs or {}).get(entity_type)
+    return action if action in ("MASK", "BLOCK") else "MASK"
+
+
+def build_ad_hoc_recognizers(custom_names: Optional[list] = None, region: str = DEFAULT_REGION) -> list:
+    """Única fuente de los reconocedores que viajan en cada `/analyze` (spec 016 §3):
+    SOLO lo que Presidio no cubre ya con un reconocedor propio validado para el
+    idioma/región (ver comentario de `STRUCTURED_ID_PATTERNS_BY_REGION`) + deny-list
+    de nombres personalizados (`Guardian.config.custom_names`) si hay alguno.
+    `region` selecciona el set de patrones estructurados (default: Europa)."""
+    patterns_for_region = STRUCTURED_ID_PATTERNS_BY_REGION.get(region, {})
+    recognizers = [
+        {
+            "name": f"BASA_{entity_type}",
+            "supported_language": "es",
+            "supported_entity": entity_type,
+            "patterns": [{"name": f"{entity_type.lower()}_pattern", "regex": pattern, "score": score}],
+            "context": context,
+        }
+        for entity_type, (pattern, score, context) in patterns_for_region.items()
+    ]
+    names = [n.strip() for n in (custom_names or []) if n and n.strip()]
+    if names:
+        recognizers.append({
+            "name": "BASA_CUSTOM_NAMES",
+            "supported_language": "es",
+            "supported_entity": "PERSON",
+            "deny_list": names,
+        })
+    return recognizers
+
+
+async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[list] = None,
+                           region: str = DEFAULT_REGION, timeout: float = 2.0) -> list:
+    """`AnalyzeFn` real (spec 016): llama al sidecar de detección NLP. Fail-closed
+    estricto — cualquier falla de red/formato levanta `NlpUnavailableError`, NUNCA
+    devuelve `[]` (contracts/presidio-analyzer-http.md). `entities=None` en el
+    payload: se piden TODOS los tipos que el Analyzer soporte para el idioma (built-in
+    + ad-hoc) — cobertura amplia de "todo lo que no cumpla GDPR", no una lista fija."""
+    if not text:
+        return []
+    payload = {
+        "text": text,
+        "language": "es",
+        "entities": None,
+        "ad_hoc_recognizers": build_ad_hoc_recognizers(custom_names, region),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(f"{analyzer_url.rstrip('/')}/analyze", json=payload)
+            r.raise_for_status()
+            raw = r.json()
+    except Exception as e:
+        logger.warning("Presidio Analyzer no disponible (%s): %s", analyzer_url, e)
+        raise NlpUnavailableError(str(e)) from e
+
+    if not isinstance(raw, list):
+        raise NlpUnavailableError(f"respuesta inesperada del Analyzer: {type(raw)!r}")
+
+    entities = [
+        {"start": e["start"], "end": e["end"], "entity_type": e["entity_type"], "score": e.get("score", 0.0)}
+        for e in raw
+    ]
+    return resolve_overlaps(entities)
 
 
 def evaluate_ai_act(text: str) -> dict:

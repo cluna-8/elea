@@ -53,7 +53,15 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        k.rpm_limit, k.tpm_limit, k.is_active, k.expires_at::text AS expires_at,
        u.username, u.role, u.client_type, u.display_label,
        g.compression_mode AS group_compression_mode,
-       t.slug AS tenant_slug, t.compression_mode AS tenant_compression_mode
+       t.slug AS tenant_slug, t.compression_mode AS tenant_compression_mode,
+       -- spec 016: entity_configs (MASK/BLOCK por tipo) + deny-list de nombres
+       -- personalizados, para que el guardrail deje de ignorarlos (política global
+       -- por tenant; la cascada fina por client/group es spec 015).
+       (SELECT sp.entity_configs FROM security_policies sp
+         WHERE sp.tenant_id = k.tenant_id AND sp.is_active = true LIMIT 1) AS entity_configs,
+       (SELECT gd.config->'custom_names' FROM guardians gd
+         WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
+           AND gd.is_active = true LIMIT 1) AS custom_names
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.user_id
 LEFT JOIN groups g ON g.id = k.group_id
@@ -154,6 +162,9 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             "off",
         ),
         "allowed_tools": _maybe_json(row.get("allowed_tools")),
+        # spec 016: detección/enforcement real por tipo de entidad (ver basa_guardrail.py)
+        "entity_configs": _maybe_json(row.get("entity_configs")) or {},
+        "custom_names": _maybe_json(row.get("custom_names")) or [],
     }
 
     return UserAPIKeyAuth(

@@ -1,0 +1,20 @@
+# NlpEngineConfig — motor NLP en español (spec 016, research.md §1).
+# Despliegue objetivo: Europa (España como idioma base — habilita gratis los
+# reconocedores built-in de Presidio ES_NIF/ES_NIE, con checksum). Cubre además
+# clientes hispanohablantes de LATAM cuando se sumen esos despliegues (roadmap:
+# STRUCTURED_ID_PATTERNS_BY_REGION en basa_guardian_policy.py). Otros idiomas de
+# la UE (IT_FISCAL_CODE, PL_PESEL, UK_NHS, etc. son built-in de Presidio pero
+# requieren su propio modelo spaCy/idioma) quedan fuera de v1 — se suman agregando
+# un `lang_code` acá + su modelo, sin tocar el pipeline.
+# Leído por app.py al arrancar (NlpEngineProvider). Cambiar de modelo/idioma es
+# config-as-data: editar este archivo, no el código (Principio VII).
+nlp_engine_name: spacy
+models:
+  - lang_code: es
+    model_name: es_core_news_md
+ner_model_configuration:
+  # PERSON es la entidad que más nos importa detectar sin prefijo (spec 016 US1).
+  # Umbral bajo intencional: preferimos falsos positivos revisables en auditoría
+  # (metadata-only) a falsos negativos de PII/PHI (Principio I).
+  low_confidence_score_multiplier: 0.4
+  low_score_entity_names: ["PERSON"]

@@ -161,6 +161,180 @@ def test_stream_truncated_flushes_carry_without_losing_text():
     assert flushed and flushed[0]["delta"]["text"] == "[PERSON_0"
 
 
+class _FakeResponse:
+    def __init__(self, status_code=200, json_body=None):
+        self.status_code = status_code
+        self._json = json_body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise Exception(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._json
+
+
+class _FakeAsyncClient:
+    """Doble de httpx.AsyncClient — evita red real en unit tests (spec 016)."""
+
+    def __init__(self, response=None, raise_exc=None, **kwargs):
+        self._response = response
+        self._raise_exc = raise_exc
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None):
+        if self._raise_exc:
+            raise self._raise_exc
+        return self._response
+
+
+# ── resolve_overlaps (spec 016 FR-009) ─────────────────────────────────────────
+
+def test_resolve_overlaps_no_overlap_is_noop():
+    entities = [
+        {"start": 0, "end": 3, "entity_type": "DNI", "score": 0.9},
+        {"start": 10, "end": 15, "entity_type": "EMAIL_ADDRESS", "score": 0.9},
+    ]
+    assert policy.resolve_overlaps(entities) == entities
+
+
+def test_resolve_overlaps_longer_match_wins():
+    # Un "DNI" completo contiene un match parcial de "PHONE_NUMBER" — gana el más largo.
+    phone = {"start": 0, "end": 7, "entity_type": "PHONE_NUMBER", "score": 0.95}
+    dni = {"start": 0, "end": 9, "entity_type": "DNI", "score": 0.85}
+    result = policy.resolve_overlaps([phone, dni])
+    assert result == [dni]
+
+
+def test_resolve_overlaps_tie_break_by_score():
+    a = {"start": 0, "end": 5, "entity_type": "PERSON", "score": 0.6}
+    b = {"start": 0, "end": 5, "entity_type": "LOCATION", "score": 0.9}
+    assert policy.resolve_overlaps([a, b]) == [b]
+
+
+def test_resolve_overlaps_preserves_input_order_for_survivors():
+    e1 = {"start": 20, "end": 25, "entity_type": "EMAIL_ADDRESS", "score": 0.9}
+    e2 = {"start": 0, "end": 5, "entity_type": "PERSON", "score": 0.9}
+    assert policy.resolve_overlaps([e1, e2]) == [e1, e2]
+
+
+def test_resolve_overlaps_empty_input():
+    assert policy.resolve_overlaps([]) == []
+
+
+def test_resolve_overlaps_chained_three_way_never_leaves_overlap():
+    # A solapa B, B solapa C, pero A y C no se tocan directamente — deben ir al
+    # mismo cluster y sobrevivir solo UNA (regresión del algoritmo par-a-par).
+    a = {"start": 0, "end": 6, "entity_type": "PHONE_NUMBER", "score": 0.9}
+    b = {"start": 4, "end": 12, "entity_type": "DNI", "score": 0.85}
+    c = {"start": 10, "end": 16, "entity_type": "CUIL", "score": 0.9}
+    result = policy.resolve_overlaps([a, b, c])
+    assert len(result) == 1
+    for i in range(len(result) - 1):
+        assert result[i]["end"] <= result[i + 1]["start"]
+
+
+# ── resolve_entity_action (spec 016 FR-005/FR-008) ─────────────────────────────
+
+def test_resolve_entity_action_respects_config():
+    cfg = {"CREDIT_CARD": "BLOCK", "PERSON": "MASK"}
+    assert policy.resolve_entity_action("CREDIT_CARD", cfg) == "BLOCK"
+    assert policy.resolve_entity_action("PERSON", cfg) == "MASK"
+
+
+def test_resolve_entity_action_defaults_to_mask():
+    assert policy.resolve_entity_action("PASSPORT", {}) == "MASK"
+    assert policy.resolve_entity_action("PASSPORT", None) == "MASK"
+    assert policy.resolve_entity_action("PASSPORT", {"PASSPORT": "invalid-value"}) == "MASK"
+
+
+# ── build_ad_hoc_recognizers (spec 016 §3, SC-006) ──────────────────────────────
+
+def test_build_ad_hoc_recognizers_default_region_is_eu_passport_only():
+    # España (ES_NIF/ES_NIE) ya viene built-in en Presidio — NO se reimplementa acá.
+    recognizers = policy.build_ad_hoc_recognizers([])
+    entities = {r["supported_entity"] for r in recognizers}
+    assert entities == {"PASSPORT"}
+    assert not any(r.get("deny_list") for r in recognizers)
+    passport = recognizers[0]
+    assert "passport" in passport["context"] and "pasaporte" in passport["context"]
+
+
+def test_build_ad_hoc_recognizers_adds_deny_list_when_names_present():
+    recognizers = policy.build_ad_hoc_recognizers(["Pedro", " Cristian ", "", "  "])
+    deny = next(r for r in recognizers if r["name"] == "BASA_CUSTOM_NAMES")
+    assert deny["deny_list"] == ["Pedro", "Cristian"]
+    assert deny["supported_entity"] == "PERSON"
+
+
+def test_build_ad_hoc_recognizers_latam_region_adds_dni_cuil():
+    recognizers = policy.build_ad_hoc_recognizers([], region="latam_ar")
+    entities = {r["supported_entity"] for r in recognizers}
+    assert entities == {"DNI", "CUIL", "PASSPORT"}
+
+
+def test_build_ad_hoc_recognizers_unknown_region_is_empty():
+    assert policy.build_ad_hoc_recognizers([], region="mars") == []
+
+
+# ── presidio_analyze (spec 016 FR-004, contracts/presidio-analyzer-http.md) ────
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_success(monkeypatch):
+    body = [{"start": 0, "end": 10, "entity_type": "PERSON", "score": 0.85}]
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(response=_FakeResponse(200, body)),
+    )
+    result = await policy.presidio_analyze("Juan Pérez fue", "http://presidio:3000", [])
+    assert result == body
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_fails_closed_on_timeout(monkeypatch):
+    import httpx as httpx_mod
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(raise_exc=httpx_mod.TimeoutException("boom")),
+    )
+    with pytest.raises(policy.NlpUnavailableError):
+        await policy.presidio_analyze("hola", "http://presidio:3000", [])
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_fails_closed_on_bad_status(monkeypatch):
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(response=_FakeResponse(503, None)),
+    )
+    with pytest.raises(policy.NlpUnavailableError):
+        await policy.presidio_analyze("hola", "http://presidio:3000", [])
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_fails_closed_on_malformed_body(monkeypatch):
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(response=_FakeResponse(200, {"not": "a list"})),
+    )
+    with pytest.raises(policy.NlpUnavailableError):
+        await policy.presidio_analyze("hola", "http://presidio:3000", [])
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_empty_text_short_circuits(monkeypatch):
+    # No debe llamar a la red para texto vacío.
+    def _boom(**kw):
+        raise AssertionError("no debería llamar a httpx con texto vacío")
+    monkeypatch.setattr("httpx.AsyncClient", _boom)
+    assert await policy.presidio_analyze("", "http://presidio:3000", []) == []
+
+
 def test_rewrite_sse_block_full_stream():
     """Nivel SSE (Estrategia B / passthrough OAuth): reescritura de bloques crudos,
     con extracción de usage al pasar."""
