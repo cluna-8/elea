@@ -316,6 +316,17 @@ def unmask_delta_event(data: dict, carry: str, carry_field: Optional[str],
     return [data], carry, carry_field
 
 
+def flush_carry_sse_block(carry: str, carry_field: Optional[str],
+                          ph_to_orig: dict, index: int = 0) -> str:
+    """Delta sintético SSE **framed** para flushear el carry de un stream truncado
+    (review 024: el flush crudo sin ``data:``/terminador lo descartaba el parser SSE
+    del cliente → texto perdido justo en el camino que promete «0 texto perdido»)."""
+    field = carry_field or "text"
+    ev = {"type": "content_block_delta", "index": index,
+          "delta": {"type": FIELD_DELTA[field], field: unmask_text(carry, ph_to_orig)}}
+    return "event: content_block_delta\ndata: " + json.dumps(ev, ensure_ascii=False) + "\n\n"
+
+
 def proxy_identity_from(data: dict) -> dict:
     """Identidad Basa propagada por el proxy (``custom_auth`` →
     ``user_api_key_metadata.basa``), buscada en AMBOS metadata-homes:
@@ -360,6 +371,11 @@ def unmask_response_payload(response, ph_to_orig: dict) -> None:
         for choice in choices:
             cget = choice.get if isinstance(choice, dict) else (
                 lambda k, d=None, _c=choice: getattr(_c, k, d))
+            cset = choice.__setitem__ if isinstance(choice, dict) else (
+                lambda k, v, _c=choice: setattr(_c, k, v))
+            # /v1/completions: el texto vive directo en el choice.
+            if isinstance(cget("text"), str):
+                cset("text", unmask_text(cget("text"), ph_to_orig))
             message = cget("message")
             if message is None:
                 continue
@@ -369,6 +385,22 @@ def unmask_response_payload(response, ph_to_orig: dict) -> None:
                 lambda k, v, _m=message: setattr(_m, k, v))
             if isinstance(mget("content"), str):
                 mset("content", unmask_text(mget("content"), ph_to_orig))
+            # tool_calls (review 024): los argumentos JSON de las tools también vuelven
+            # al cliente — sin esto, un agente ejecutaría su tool con el placeholder.
+            tool_calls = mget("tool_calls")
+            if isinstance(tool_calls, list):
+                for tc in tool_calls:
+                    tget = tc.get if isinstance(tc, dict) else (
+                        lambda k, d=None, _t=tc: getattr(_t, k, d))
+                    fn = tget("function")
+                    if fn is None:
+                        continue
+                    fget = fn.get if isinstance(fn, dict) else (
+                        lambda k, d=None, _f=fn: getattr(_f, k, d))
+                    fset = fn.__setitem__ if isinstance(fn, dict) else (
+                        lambda k, v, _f=fn: setattr(_f, k, v))
+                    if isinstance(fget("arguments"), str):
+                        fset("arguments", unmask_text(fget("arguments"), ph_to_orig))
 
 
 def rewrite_sse_block(block: str, carry: str, carry_field: Optional[str],

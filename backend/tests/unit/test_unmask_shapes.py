@@ -66,11 +66,73 @@ def test_stream_placeholder_en_thinking_partido():
     assert got == f"visto: {ORIG}"
 
 
-def test_stream_truncado_flushea_carry_restaurado():
-    # Stream cortado a mitad de placeholder: el cierre emite lo retenido (crudo si
-    # incompleto, restaurado si completo) — 0 texto perdido.
-    got = _feed(["fin ", "[", "EMAIL_ADDRESS_0_ab12]"])
-    assert got == f"fin {ORIG}"
+def test_stream_truncado_carry_pendiente_se_flushea_en_stop():
+    # Truncación REAL (review 024): el placeholder queda incompleto (sin ']') → el
+    # carry llega VIVO al content_block_stop y el flush emite lo retenido tal cual
+    # (irrestaurable sin cierre) — 0 texto perdido.
+    got = _feed(["fin ", "[", "EMAIL_ADDRESS_0_ab"])
+    assert got == "fin [EMAIL_ADDRESS_0_ab"
+
+
+def test_stream_multiples_placeholders_en_un_item():
+    m = dict(MAP)
+    m["[PERSON_1_cd34]"] = "Laura Pérez"
+    ev = {"type": "content_block_delta", "index": 0,
+          "delta": {"type": "text_delta",
+                    "text": "de [PERSON_1_cd34] con [EMAIL_ADDRESS_0_ab12] hoy"}}
+    events, carry, cf = policy.unmask_delta_event(ev, "", None, m)
+    assert events[0]["delta"]["text"] == f"de Laura Pérez con {ORIG} hoy"
+    assert carry == ""
+
+
+def test_sse_bytes_loop_multibyte_y_placeholder_partidos():
+    # Réplica del algoritmo del hook (decoder incremental + buffer \n\n +
+    # rewrite_sse_block + flush framed): un multibyte UTF-8 partido entre chunks de
+    # BYTES y el placeholder partido tras el '[' — el texto reconstruido es exacto.
+    import codecs as _codecs
+    import json as _json
+
+    def _sse(text):
+        ev = {"type": "content_block_delta", "index": 0,
+              "delta": {"type": "text_delta", "text": text}}
+        return ("event: content_block_delta\ndata: "
+                + _json.dumps(ev, ensure_ascii=False) + "\n\n").encode("utf-8")
+
+    frames = _sse("operó ") + _sse("[") + _sse("EMAIL_ADDRESS_0_ab12") + _sse("] fin")
+    # partir los bytes en pedazos que rompen un multibyte ('ó' = 2 bytes)
+    chunks = [frames[:9], frames[9:31], frames[31:]]
+
+    decoder = _codecs.getincrementaldecoder("utf-8")(errors="replace")
+    buffer, carry, cf, txt = "", "", None, ""
+    out_blocks_all = []
+    for ch in chunks:
+        buffer += decoder.decode(ch)
+        while "\n\n" in buffer:
+            block, buffer = buffer.split("\n\n", 1)
+            if not block.strip():
+                continue
+            obs, carry, cf, _, _ = policy.rewrite_sse_block(block, carry, cf, MAP)
+            out_blocks_all += obs
+    if carry:
+        out_blocks_all.append(policy.flush_carry_sse_block(carry, cf, MAP).strip())
+    import json as _j
+    for ob in out_blocks_all:
+        for line in ob.split("\n"):
+            if line.startswith("data: "):
+                d = _j.loads(line[6:])
+                txt += (d.get("delta") or {}).get("text", "")
+    assert txt == f"operó {ORIG} fin"
+
+
+def test_flush_carry_sse_block_va_framed():
+    # Review 024: el flush del carry en un stream truncado DEBE salir como evento SSE
+    # completo (data: + terminador) — crudo, el parser del cliente lo descarta.
+    out = policy.flush_carry_sse_block("[EMAIL_ADDRESS_0_ab12]", "text", MAP)
+    assert out.startswith("event: content_block_delta\ndata: ")
+    assert out.endswith("\n\n")
+    import json as _j
+    d = _j.loads(out.split("data: ", 1)[1])
+    assert d["delta"]["text"] == ORIG
 
 
 # ── Root cause 2: no-streaming, respuesta dict plano (shape bridged) ──
@@ -104,6 +166,24 @@ def test_unmask_dict_openai_choices():
     assert resp["choices"][0]["message"]["content"] == f"mail: {ORIG}"
 
 
+def test_unmask_openai_tool_calls_y_text():
+    # Review 024: los argumentos de tools y el shape /v1/completions también vuelven
+    # restaurados — sin esto un agente ejecuta su tool con el placeholder.
+    resp = {"choices": [{
+        "text": f"visto {PH}",
+        "message": {
+            "role": "assistant", "content": None,
+            "tool_calls": [{"id": "c1", "type": "function",
+                            "function": {"name": "buscar",
+                                         "arguments": f'{{"q": "{PH}"}}'}}],
+        },
+    }]}
+    policy.unmask_response_payload(resp, MAP)
+    assert resp["choices"][0]["text"] == f"visto {ORIG}"
+    assert resp["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == \
+        f'{{"q": "{ORIG}"}}'
+
+
 def test_unmask_objeto_con_atributos_no_regresiona():
     # El shape de la ruta passthrough (objeto con .content) sigue funcionando.
     block = {"type": "text", "text": f"ver {PH}"}
@@ -113,8 +193,18 @@ def test_unmask_objeto_con_atributos_no_regresiona():
 
 
 def test_unmask_sin_placeholders_queda_intacto():
+    # Con mapping REAL sobre texto sin placeholders (invariante #1 del contrato):
+    # recorre el payload y no cambia nada. El caso mapping vacío (early-return,
+    # FR-005) se cubre aparte.
     resp = _dict_anthropic()
-    resp["content"] = [{"type": "text", "text": "sin datos"}]
+    resp["content"] = [{"type": "text", "text": "sin datos sensibles [nota]"}]
+    before = repr(resp)
+    policy.unmask_response_payload(resp, MAP)
+    assert repr(resp) == before
+
+
+def test_unmask_mapping_vacio_early_return():
+    resp = _dict_anthropic()
     before = repr(resp)
     policy.unmask_response_payload(resp, {})
     assert repr(resp) == before

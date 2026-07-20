@@ -98,7 +98,7 @@ superficies principales.
 |---|---|---|---|---|
 | **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. Para trabajo agéntico: suscripción, o **modelo propio** (§3.5 — el modo Agent está verificado por esa vía; el límite de G1 es del loop agéntico de Copilot). |
 | **Claude Code → modelo propio** | 🟢 Funciona | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales) y el ciclo mask→restauración completa ([G9](gotchas.md): corregido). Con el cache del motor activo, repetir un prompt idéntico puede devolver placeholders de una respuesta cacheada (limitación conocida en evaluación). |
-| **Aider** | 🟢 Funciona | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-basa-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona, **no** se corrompe con el masking y los archivos quedan con los valores reales ([G9](gotchas.md): corregido). |
+| **Aider** | 🟢 Funciona | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-basa-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona, **no** se corrompe con el masking y los archivos quedan con los valores reales ([G9](gotchas.md): corregido). Misma nota de cache del motor que Claude Code → modelo propio. |
 | **Codex CLI** | 🔵 Objetivo (roadmap) | — | Codex ≥0.142 solo habla la Responses API (OpenAI) y el gateway **no expone esa superficie hoy** — no hay camino gobernado que ofrecer en una instalación estándar. | **No se ofrece hoy.** El camino identificado (roadmap) es exponer una superficie OpenAI/Responses gobernada en el propio gateway; hasta entonces, no conectar Codex por rutas internas del despliegue: quedan **fuera** de la política y la auditoría del firewall. |
 | **VS Code / GitHub Copilot** | 🟡 Parcial — **solo modo Ask** | `base_url` | `chatLanguageModels.json` con `apiType:"messages"` → `byok` al motor del gateway. Auto-byok por virtual key. | En **Agent/Edit** entra en loop (los modelos no-Claude llaman mal las tools). La key va **en la URL** (`?k=…`) porque manda `x-api-key` vacío. |
 | **ChatGPT (web)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `POST /backend-api/f/conversation`, enmascara `messages[].content.parts[]` vía `/api/v1/gw/inspect`. | La respuesta **no** viene en el POST: llega por **WebSocket** (`stream_handoff`) → el unmask se hace en el **DOM**, no sobre la respuesta. |
@@ -320,7 +320,8 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
   las respuestas está verificada ([G9](gotchas.md): corregido). El "byok rompe el agéntico"
   aplica al loop de **Copilot** ([G1](gotchas.md)), no a Claude Code. La calidad agéntica
   depende del modelo que aloje el cliente.
-- 🟢 **Aider** — flujo editor completo gobernado, con los valores reales en los archivos.
+- 🟢 **Aider** — flujo editor completo gobernado, con los valores reales en los archivos
+  (aplica la misma nota del cache del motor que el resto del camino byok).
 - 🔵 **Codex CLI** — sin camino gobernado hoy: el gateway no expone la superficie
   OpenAI/Responses que Codex necesita. Roadmap; no conectar por rutas internas del
   despliegue (quedan fuera de la política del firewall).

@@ -8,13 +8,15 @@
 
 Cerrar el round-trip mask→unmask en el camino byok del motor para **rutas bridged**
 (modelos no-Claude: local via Ollama y cloud puenteados) y devolver la **identidad** a los
-eventos del monitor de ese camino. Tres defectos con root cause verificado (spike 019
-batch 1 + lectura de código): (1) no-streaming: la respuesta llega como `dict` y el unmask
-la ignora por leerla con `getattr`; (2) streaming: los chunks llegan como objetos parseados
-y caen en el escape "se entrega tal cual"; (3) atribución: el audit logger busca la
-identidad en un solo metadata-home y la ruta anthropic usa el otro. Todo se resuelve en
-`litellm/extensions/` (Principio VI: cero parches al motor), con evidencia e2e contra el
-motor vivo que hoy no existe (FR-007). Detalle de decisiones: [research.md](research.md).
+eventos del monitor de ese camino. Tres defectos con root cause verificado: (1)
+no-streaming: la respuesta llega como `dict` y el unmask la ignoraba por leerla con
+`getattr`; (2) streaming — **root cause corregido por la evidencia T002** (la hipótesis
+inicial "objetos parseados" quedó refutada): los items SÍ son bytes SSE, pero `safe_split`
+soltaba un `[` pelado y los bridges con deltas de 1-3 chars parten el placeholder justo
+ahí; (3) atribución: el audit logger buscaba la identidad en un solo metadata-home y la
+ruta anthropic usa el otro. Todo se resuelve en `litellm/extensions/` (Principio VI: cero
+parches al motor), con evidencia e2e contra el motor vivo que antes no existía (FR-007).
+Detalle y refutación: [research.md](research.md), apéndice T002.
 
 ## Technical Context
 
@@ -40,8 +42,8 @@ bind/copy — nada específico de plataforma)
 proyectos nuevos
 
 **Performance Goals**: sin regresión perceptible de latencia de streaming (el rewrite por
-chunk ya corre en passthrough; el adaptador bridged añade solo extracción de campos por
-item)
+chunk ya corría también en la ruta bridged — el fix es de la lógica de carry, no añade
+pasos; único costo nuevo: un `[` al final de un delta se difiere UN delta)
 
 **Constraints**: FR-003 (payload intacto fuera de los reemplazos), FR-005 (fail-safe:
 shape desconocido → passthrough, jamás romper una respuesta), cero persistencia del
@@ -88,10 +90,11 @@ specs/024-unmask-bridged-routes/
 
 ```text
 litellm/extensions/
-├── basa_guardrail.py         # D1: _unmask_response_inplace acepta dict raíz
-│                             # D2: iterator hook con adaptador de items parseados
-├── basa_guardian_policy.py   # (solo si hace falta) helper carry-split a nivel campo
-└── basa_audit_logger.py      # D3: identidad con doble metadata-home
+├── basa_guardian_policy.py   # Fix real de streaming (T002): PH_TAIL_RE retiene '[' pelado;
+│                             # + unmask_response_payload (dict/objeto, Anthropic+OpenAI),
+│                             # proxy_identity_from (doble home), flush_carry_sse_block (framed)
+├── basa_guardrail.py         # delega el unmask no-streaming en la lib; flush framed
+└── basa_audit_logger.py      # D3: identidad via proxy_identity_from
 
 backend/tests/
 ├── unit/test_unmask_shapes.py        # D1/D2 con shapes fabricados (dict + objeto + SSE)

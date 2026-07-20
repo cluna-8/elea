@@ -54,7 +54,7 @@ Estados del registro (ortogonales al veredicto técnico de la matriz):
 | VS Code / GitHub Copilot | EN MATRIZ | 2026-07-14 | PARCIAL — solo Ask |
 | Cursor | EN MATRIZ | 2026-07-15 | PARCIAL — solo chat/plan |
 | Claude Desktop | EN MATRIZ | 2026-07-14 | MCP-ONLY — tool-plane |
-| **Ollama como upstream** (modelos propios/locales) | EN MATRIZ | 2026-07-20 | FUNCIONA — spike batch 1 + spec 024 (#27 cerrado); origen: reunión JF+Cristian 2026-07-20 (clientes infra = modelos propios en entorno controlado); nota cache #30 |
+| **Ollama como upstream** (modelos propios/locales) | EN MATRIZ | 2026-07-20 | FUNCIONA — spike batch 1 + spec 024 (#27 cierra con su PR); origen: reunión JF+Cristian 2026-07-20 (clientes infra = modelos propios en entorno controlado); nota cache #30 |
 | **Claude Code → modelo propio** (byok→motor→Ollama) | EN MATRIZ | 2026-07-20 | FUNCIONA — **aguanta Agent** + round-trip completo (spec 024) |
 | Aider | EN MATRIZ | 2026-07-20 | FUNCIONA — diff-apply con valores reales (spec 024) |
 | Codex CLI | EN MATRIZ | 2026-07-20 | NO (roadmap, viable — issue #28): ruta Responses del motor sin política (verificado) + sin superficie en gateway ni endpoint en prod |

@@ -33,20 +33,25 @@ El MVP es la US1 sola (streaming = el camino de todas las coding tools).
 
 ## Phase 3: User Story 1 — Restauración en streaming (P1) 🎯 MVP
 
-- [x] T004 [US1] Si el rewrite por campo lo requiere, helper en
-      `litellm/extensions/basa_guardian_policy.py` que aplique el carry-split compartido a
-      un valor de campo suelto (mismo estado carry/carry_field que `rewrite_sse_block`);
-      unit del helper junto a los existentes de la lib.
-- [x] T005 [US1] Adaptador de items parseados en
-      `litellm/extensions/basa_guardrail.py::async_post_call_streaming_iterator_hook`:
-      para items no-bytes con shape conocido (T002), restaurar los campos de deltas de
-      texto/razonamiento/fragmentos de tools con el carry compartido y re-emitir el item
-      mutado; shape desconocido → passthrough intacto (contrato #7, FR-005). La ruta
-      bytes/SSE existente (passthrough) no se toca.
-- [x] T006 [US1] Tests unit de streaming en VERDE: placeholder entero en un item,
-      partido entre dos items, multibyte partido, stream truncado con carry pendiente,
-      múltiples placeholders en un item, item de shape desconocido intacto
-      (contrato #4-#7).
+> **Nota post-T002 (SDD, trazabilidad)**: T004/T005 se redactaron sobre la hipótesis D2
+> («items parseados») que la evidencia T002 REFUTÓ — los items del stream bridged son
+> bytes SSE y el defecto real era `safe_split` soltando un `[` pelado. Las tasks quedan
+> reescritas abajo con el fix real; la redacción original vive en el historial git.
+
+- [x] T004 [US1] Fix del carry en la lib compartida
+      (`litellm/extensions/basa_guardian_policy.py`): `PH_TAIL_RE` retiene un `[` pelado
+      al final del delta (un solo delta de espera); `flush_carry_sse_block` emite el
+      flush de stream truncado como delta sintético **framed** (review: el flush crudo
+      lo descartaba el parser SSE del cliente) — usado por el hook del motor Y el
+      passthrough del gateway.
+- [x] T005 [US1] El iterator hook del guardrail queda SIN adaptador nuevo (los items ya
+      eran bytes SSE y el camino existente funciona con el fix de la lib); items no-bytes
+      conservan el passthrough intacto (contrato #7, FR-005).
+- [x] T006 [US1] Tests unit de streaming en VERDE: placeholder partido tras el `[`
+      (caso real del bridge), `[` de prosa que se difiere sin perderse, thinking deltas,
+      truncación real con carry pendiente en el stop, múltiples placeholders en un item,
+      **bytes-loop con multibyte UTF-8 partido** (réplica del algoritmo del hook) y
+      framing del flush (contrato #4-#7).
 - [x] T007 [US1] Verificación viva (quickstart #2 y #3): el email vuelve en claro en los
       deltas Y el modelo sigue viendo solo el placeholder (SC-003, no-regresión de ida).
       Evidencia anotada en quickstart o en el PR.

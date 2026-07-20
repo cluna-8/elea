@@ -547,8 +547,10 @@ async def gw_messages(
     async def gen():
         """Estrategia A′ (misma que el streaming hook del guardrail): decoder UTF-8
         incremental + buffer de frames + ``rewrite_sse_block`` (carry-split). Con
-        ``ph_to_orig`` vacío pasa los frames intactos y sólo extrae tokens de usage —
-        así no hace falta el regex ``_IN_RE/_OUT_RE`` del demo (FR-030)."""
+        ``ph_to_orig`` vacío no hay reemplazos (sólo se extraen tokens de usage), pero
+        los frames delta SÍ se re-serializan y un ``[`` al final de un delta se difiere
+        un frame (carry de ``[`` pelado, 024) — así no hace falta el regex
+        ``_IN_RE/_OUT_RE`` del demo (FR-030)."""
         in_tok = out_tok = 0
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         buffer = ""
@@ -580,7 +582,8 @@ async def gw_messages(
                 for ob in out_blocks:
                     yield (ob + "\n\n").encode("utf-8")
             if carry:  # stream truncado: flush del carry (0 texto perdido, 0 placeholder crudo)
-                yield policy.unmask_text(carry, ph_to_orig).encode("utf-8")
+                # Framed (review 024): crudo, el parser SSE del cliente lo descartaba.
+                yield policy.flush_carry_sse_block(carry, carry_field, ph_to_orig).encode("utf-8")
         finally:
             await up.aclose()
             await client.aclose()

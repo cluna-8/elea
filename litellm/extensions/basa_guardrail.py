@@ -153,7 +153,8 @@ class BasaGuardrail(CustomGuardrail):
             for ob in out_blocks:
                 yield (ob + "\n\n").encode("utf-8")
         if carry:
-            yield policy.unmask_text(carry, ph_to_orig).encode("utf-8")
+            # Framed (review 024): un flush crudo lo descarta el parser SSE del cliente.
+            yield policy.flush_carry_sse_block(carry, carry_field, ph_to_orig).encode("utf-8")
 
 
 def _entity_counts(ph_to_orig: dict) -> list:
