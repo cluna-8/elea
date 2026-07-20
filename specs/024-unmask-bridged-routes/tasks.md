@@ -87,7 +87,7 @@ El MVP es la US1 sola (streaming = el camino de todas las coding tools).
       streaming y no-streaming con PII → valor original al cliente + evento con identidad
       y entidades; documentado como el assert que faltaba cuando el defecto llegó a la
       matriz (SC-006).
-- [ ] T014 Gate completo: `make -C deploy check` + suite backend entera
+- [x] T014 Gate completo: `make -C deploy check` + suite backend entera
       (`docker compose run --rm --no-deps backend pytest tests/ -q`) verdes.
 - [x] T015 [P] **Sitio de docs de producto (OBLIGATORIO, DoD)**: actualizar las páginas de
       `docs/docs/**` que esta feature toca — G9 pasa a gotcha resuelto (histórico con la
@@ -99,7 +99,7 @@ El MVP es la US1 sola (streaming = el camino de todas las coding tools).
       unmask (Ollama upstream, Claude Code → modelo propio, Aider) de PARCIAL a FUNCIONA
       con la evidencia nueva; actualizar `spikes-batch1.md` (Spike 1 veredicto) y cerrar
       el issue #27 desde el PR.
-- [ ] T017 Review adversarial del branch (ultracode) + PR con review pedida a @cluna-8
+- [x] T017 Review adversarial del branch (ultracode) + PR con review pedida a @cluna-8
       (superficie compartida `litellm/`, frontera con seguridad) y merge solo con OK de JF.
 
 ## Dependencies & Execution Order
