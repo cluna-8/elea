@@ -30,10 +30,29 @@ implementación y deben FALLAR primero.
 - Sitio: `docs/` (raíz del repo) — `docs/mkdocs.yml`, `docs/Dockerfile`, `docs/nginx.conf`,
   `docs/requirements-docs.txt`, `docs/brand/`, `docs/docs/**` (contenido)
 - Overlays de marca: `docs/mkdocs.<brand>.yml`
-- Compose: `docker-compose.yml` (servicio `docs`)
+- Compose: `deploy/docker/compose.prod.yml` (servicio `docs` — el entregable) + `docker-compose.yml` (dev)
 - Legacy a deprecar: `frontend/src/pages/DocsPage.tsx`
 - Semilla: `basa-guardian/docs/*.md`
-- Tests/checks: `docs/tests/` (o el runner CI del repo)
+- Tests/checks: `deploy/release/checks/` (runner real del repo: `make -C deploy check`)
+
+## Delta post-020/021 (speckit-analyze 2026-07-20 — los artefactos eran del 14-jul, pre-implementación de 020/021)
+
+- **F1**: el compose entregable es `deploy/docker/compose.prod.yml` (020); el servicio `docs` vive AHÍ
+  (perfil normal + selfhosted). El dev compose es opcional para preview local. T010 ajustada.
+- **F2** (*Reuse over Reinvent*): el check de naming neutro del sitio comparte la **lista de nombres
+  prohibidos** con `deploy/release/checks/test_no_engine_name.sh` (020) y se orquesta desde `make -C deploy
+  check` — jamás dos listas que derivan. T022 ajustada; incluir "Meta" (constitución VII).
+- **F3**: el brand-pack de docs NO es una segunda fuente de marca: el overlay `mkdocs.<brand>.yml` se
+  **deriva del brand-pack de la 020** (`deploy/branding/brand*.json` + `deploy/clients/<slug>/branding.env`)
+  en build. Una sola definición de marca por cliente. T023 ajustada.
+- **F4**: `docs/` contiene internos NO publicables (`COORDINATION-019-e2e-hardening.md`, `retros/`):
+  `docs_dir: docs` (relativo a `docs/`, o sea `docs/docs/`) los excluye por construcción, y el check
+  anti-fuga (T031) los cubre además de `specs/0XX-*`.
+- **F5**: el OpenAPI NO se obtiene importando `src.main` a la ligera (el import corre alembic + licensing →
+  necesita DB): paso de export explícito (vía compose con la DB dev, o in-build si se verifica que el import
+  sobrevive sin DB). El plugin de render debe pasar el test de 0 egress (assets bundled).
+- **F6**: `mike` es git-branch-based: en el build multi-stage se usa un **repo git efímero** dentro del stage
+  (mike deploy N versiones → copiar el árbol a nginx). Determinista y 0 egress.
 
 ---
 
@@ -41,11 +60,11 @@ implementación y deben FALLAR primero.
 
 **Purpose**: Esqueleto del sitio MkDocs + Material y del árbol de contenido.
 
-- [ ] T001 [SETUP] Crear `docs/mkdocs.yml` (config base marca-neutra): tema Material, nav/IA de las 9 secciones,
+- [X] T001 [SETUP] Crear `docs/mkdocs.yml` (config base marca-neutra): tema Material, nav/IA de las 9 secciones,
       plugins declarados (`search`/`offline`, `privacy`, `mike`, i18n, render OpenAPI). Crear el árbol vacío
       `docs/docs/**` (overview, install-deploy, white-label, administration, integrations, api-reference,
       compliance, operations, release-notes).
-- [ ] T002 [P] [SETUP] Crear `docs/requirements-docs.txt` con MkDocs + Material + plugins **pinneados**
+- [X] T002 [P] [SETUP] Crear `docs/requirements-docs.txt` con MkDocs + Material + plugins **pinneados**
       (`mkdocs-material`, `mike`, `mkdocs-static-i18n`, plugin OpenAPI, plugin `privacy`); documentar el build
       local (`mkdocs serve` / `mkdocs build --strict`).
 - [ ] T003 [SETUP] Preparar el esqueleto de checks en `docs/tests/` (0 egress, naming neutro, white-label,
@@ -60,10 +79,10 @@ lo demás depende de tener el esqueleto que construye 0-egress y la IA acordada.
 
 **⚠️ CRITICAL**: Ningún user story cierra hasta que el build `--strict` pase y la IA esté fijada.
 
-- [ ] T004 [FOUND] Generar `content-map.md`: IA detallada (las 9 secciones + roadmap clínico), **mapeo
+- [X] T004 [FOUND] Generar `content-map.md`: IA detallada (las 9 secciones + roadmap clínico), **mapeo
       semilla→página** (`whitelabel-deployment.md`→Install/Deploy+Branding, `integration-surfaces.md`→
       Integraciones, `compliance-policies.md`→Compliance) y el **estado por página** (🟢/🟡/🔵). Bloquea US2.
-- [ ] T005 [FOUND] Configurar el build **air-gap-first** en `docs/mkdocs.yml`: plugin **`privacy`** (embebe
+- [X] T005 [FOUND] Configurar el build **air-gap-first** en `docs/mkdocs.yml`: plugin **`privacy`** (embebe
       assets remotos), plugin **`offline`** y `strict: true`. Verificar que `mkdocs build --strict` pasa con el
       árbol de contenido inicial. *(alimenta US1/US4)*
 
@@ -93,8 +112,9 @@ verificar 0 requests externos y que el servicio levanta en el compose detrás de
       `mkdocs build --strict`) → stage runtime (**nginx** sirviendo `site/` estático, sin toolchain). *(FR-001)*
 - [ ] T009 [US1] Crear `docs/nginx.conf`: sirve estáticos; **sin ACME/auto-HTTPS** (TLS lo termina el proxy del
       deploy; air-gap sin egress a Let's Encrypt). *(FR-023)*
-- [ ] T010 [US1] Añadir el servicio **`docs`** a `docker-compose.yml` (imagen `basa-docs:<brand>-<version>`)
-      detrás del proxy/TLS existente, sin exponer egress nuevo (Principio VII). *(FR-004, SC-002)*
+- [ ] T010 [US1] Añadir el servicio **`docs`** a `deploy/docker/compose.prod.yml` (imagen
+      `basa-docs:<brand>-<version>`, perfiles normal+selfhosted) detrás del proxy/TLS del deploy, sin exponer
+      egress nuevo (Principio VII); opcional: servicio de preview en el compose dev. *(FR-004, SC-002 — delta F1)*
 - [ ] T011 [US1] Documentar el enganche **k3s+Helm+Zarf v2** (020): la imagen del sitio entra en el bundle Zarf
       (SBOM + firma) igual que el resto de imágenes pinneadas. *(FR-004)*
 
@@ -152,15 +172,16 @@ difieren; cada build produce `basa-docs:<brand>-<version>`; 0 menciones de motor
 - [ ] T021 ⚠️ [P] [US3] Test de white-label en `docs/tests/test_whitelabel_no_fork.*`: construir marca A y
       marca B; afirmar que difieren **sólo** en tokens (site_name/logo/favicon/palette/extra.css) y **0** líneas
       de contenido/tema cambian. *(FR-010, FR-011, SC-004)*
-- [ ] T022 ⚠️ [P] [US3] Check de **naming neutro** en `docs/tests/test_neutral_naming.*`: grep de nombres
-      prohibidos (LiteLLM, Anthropic, OpenAI, Azure, Presidio…) sobre el HTML publicado → **falla** si aparece.
-      *(FR-013, SC-004)*
+- [ ] T022 ⚠️ [P] [US3] Check de **naming neutro** en `deploy/release/checks/test_docs_neutral_naming.sh`:
+      grep de nombres prohibidos sobre el HTML publicado → **falla** si aparece. La lista se comparte con
+      `test_no_engine_name.sh` (020) e incluye Meta (constitución VII). *(FR-013, SC-004 — delta F2)*
 
 ### Implementation for User Story 3
 
 - [ ] T023 [US3] Definir el **brand-pack**: tokens `site_name`, `logo`, `favicon`, `palette`, `extra.css` en
-      `docs/mkdocs.<brand>.yml` (overlay **`INHERIT`** sobre `docs/mkdocs.yml`) o vía `envsubst` build-time;
-      assets por defecto marca-neutros en `docs/brand/`. *(FR-010, FR-011)*
+      `docs/mkdocs.<brand>.yml` (overlay **`INHERIT`** sobre `docs/mkdocs.yml`), **derivado del brand-pack de
+      la 020** (`deploy/branding/brand*.json` + `clients/<slug>/branding.env`) — una sola fuente de marca por
+      cliente; assets por defecto marca-neutros en `docs/brand/`. *(FR-010, FR-011 — delta F3)*
 - [ ] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `basa-docs:<brand>-<version>` (una
       marca por instancia, config-as-data). *(FR-012)*
 - [ ] T025 [US3] Verificar que el contenido markdown se mantiene **marca-neutro** por defecto (sin nombres de

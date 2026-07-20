@@ -1,0 +1,77 @@
+# Config BASE marca-neutra del sitio de documentación de producto (spec 022).
+# La marca de un distribuidor entra por overlay `INHERIT` (mkdocs.<brand>.yml derivado del
+# brand-pack de la 020) — este archivo y el contenido JAMÁS se editan por marca (Principio VII).
+# docs_dir = ./docs: los internos del repo (docs/COORDINATION-*.md, docs/retros/) quedan FUERA
+# del sitio por construcción (anti-fuga de contexto interno, FR-018 + delta F4).
+
+site_name: Basa Secure AI Gateway
+site_description: Documentación de producto para distribuidores y operadores
+site_url: !ENV [DOCS_SITE_URL, "http://localhost:8092/"]
+
+docs_dir: docs
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  language: es
+  icon:
+    logo: material/shield-check
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Modo oscuro
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Modo claro
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+extra_css:
+  - assets/brand/extra.css
+
+extra:
+  generator: false # sin footer "Made with Material for MkDocs" (naming neutro del artefacto publicado)
+
+plugins:
+  - search:
+      lang:
+        - es
+        - en
+  - privacy # embebe cualquier asset externo en build (air-gap, FR-003)
+  - offline # el sitio (búsqueda incluida) funciona desde file:// y sin backend (FR-002/FR-014)
+  # mike (versionado, US6) e i18n (US6) y swagger-ui-tag (US5) se activan en sus fases — ver tasks.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+  - Overview & arquitectura: overview/index.md
+  - Install / Deploy: install-deploy/index.md
+  - White-label & branding: white-label/index.md
+  - Administración: administration/index.md
+  - Integraciones & matriz: integrations/index.md
+  - API reference: api-reference/index.md
+  - Compliance: compliance/index.md
+  - Operaciones & troubleshooting: operations/index.md
+  - Release notes: release-notes/index.md
