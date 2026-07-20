@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/001-basa-ai-gateway/plan.md
+at specs/024-unmask-bridged-routes/plan.md
 <!-- SPECKIT END -->
 
 # Acuerdo de trabajo del equipo (humanos + agentes)
