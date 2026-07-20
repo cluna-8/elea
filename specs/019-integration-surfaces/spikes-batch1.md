@@ -1,5 +1,13 @@
 # Spikes batch 1 — evidencia (2026-07-20)
 
+> **Actualización (2026-07-20, spec 024)**: el gap de unmask (issue #27) quedó CERRADO —
+> los Spikes 1-3 fueron promovidos a **FUNCIONA** en la matriz. El root cause real del
+> streaming resultó ser otro que el hipotetizado acá (ver
+> `specs/024-unmask-bridged-routes/research.md`, apéndice T002: `safe_split` soltaba un
+> `[` pelado; los items del stream SÍ son bytes SSE). Hallazgo colateral: cache del
+> motor incompatible con masking reversible → issue #30. Este documento conserva la
+> evidencia y las hipótesis ORIGINALES del spike sin reescribirlas.
+
 **Spec**: 019 · **Issue**: #15 · **Origen**: reunión JF+Cristian 2026-07-20 (Ollama como
 entorno controlado para clientes de infraestructura) + candidatos ya registrados.
 

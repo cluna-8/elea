@@ -26,7 +26,7 @@ flowchart TD
     B --> B2[Copilot no autentica - G2]
     B --> B3[Un secreto pasa en un prompt gigante - G7]
     B --> B4[La key de atribucion desvia a byok - G8]
-    B --> B5[Placeholders en respuestas con modelo propio - G9]
+    B --> B5[Placeholders en respuestas byok - G9 corregido]
     B --> B6[La herramienta ignora el gateway configurado - G10]
     W --> W1[El nombre real sale en el titulo - G3]
     W --> W2[Los placeholders no se des-enmascaran - G4]
@@ -120,22 +120,26 @@ flowchart TD
   a byok; para byok va en `x-api-key`/`Authorization`/URL. Para atribución sin desviar, va en
   `X-Basa-Key`.
 
-## G9 · Placeholders en respuestas byok con modelos del motor (no-Claude)
+## G9 · Placeholders en respuestas byok con modelos del motor — **CORREGIDO**
 
-- **Síntoma:** en `byok` con un modelo **no-Claude** del motor — modelo propio/local (§3.5 de
-  Integraciones) y también modelos cloud del motor (p. ej. Copilot Ask / Cursor chat) — si el
-  prompt lleva PII la respuesta puede mostrar el **placeholder** (`[EMAIL_ADDRESS_…]`) en vez
-  del valor original; con aider, el placeholder puede quedar escrito en el archivo editado.
-- **Causa:** el masking de ida funciona (el modelo **nunca** ve el dato real — verificado en
-  vivo con modelo local), pero la **restauración** sobre la respuesta no corre en el camino de
-  modelos puenteados por el motor: esa ruta entrega la respuesta en un formato que el paso de
-  restauración actual no procesa (ni en streaming ni en no-streaming). Verificado con modelo
-  local; el mismo camino sirve a los modelos cloud del motor.
-- **Implicación de privacidad:** **ninguna fuga** — es un límite de usabilidad, fail-safe: ni el
-  modelo ve la PII, ni vuelve PII de terceros al cliente.
-- **Fix:** diagnosticado (causa raíz identificada) y **planificado** — aún no entregado.
-  Mientras tanto: evitar pedirle al modelo que repita datos personales textuales, o desactivar
-  el masking por Connection solo en entornos sin datos reales.
+- **Síntoma (histórico):** en `byok` con un modelo **no-Claude** del motor — modelo
+  propio/local (§3.5) o cloud puenteado — si el prompt llevaba PII la respuesta podía mostrar
+  el **placeholder** (`[EMAIL_ADDRESS_…]`) en vez del valor; con aider, el placeholder podía
+  quedar escrito en el archivo editado.
+- **Causa (doble, verificada):** la respuesta no-streaming de los modelos puenteados llega en
+  un formato que el paso de restauración anterior no leía; y en streaming, cuando el modelo
+  emite fragmentos muy chicos, el placeholder se partía justo tras el `[` inicial y el
+  reensamblado lo dejaba pasar. La privacidad nunca estuvo comprometida (fail-safe): ni el
+  modelo veía la PII ni volvía PII de terceros.
+- **Estado: corregido y verificado** — streaming y no-streaming, con verificación automática
+  permanente contra el stack vivo. Si ves este síntoma en una instalación, es anterior a la
+  corrección: actualizar.
+- **Variante residual (en evaluación):** con el **cache del motor** activado, repetir un
+  prompt crudo IDÉNTICO dentro de la ventana de cache puede devolver la respuesta cacheada
+  de otra petición, con sus placeholders (opacos, sin PII). Desactivar el cache del motor la
+  elimina; hay decisión de producto pendiente sobre el default.
+- **Bonus del mismo arreglo:** los eventos del monitor de este camino ahora llevan la
+  identidad completa (herramienta, cliente, tenant) — antes salían anónimos.
 
 ## G10 · La herramienta ignora el gateway configurado (sesión con suscripción)
 

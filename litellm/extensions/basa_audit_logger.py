@@ -14,9 +14,13 @@ ENMASCARADOS) publicados a una lista Redis con TTL corto — el backend los sirv
 """
 import json
 import os
+import sys
 from datetime import datetime, timezone
 
 from litellm.integrations.custom_logger import CustomLogger
+
+sys.path.insert(0, os.path.dirname(__file__))
+import basa_guardian_policy as policy  # noqa: E402
 
 _INSERT_AUDIT_SQL = """
 INSERT INTO audit_logs (
@@ -56,10 +60,11 @@ class BasaAuditLogger(CustomLogger):
             return
 
         data = kwargs.get("litellm_params", {}) or {}
-        proxy_md = (data.get("metadata") or {})
         # La identidad Basa viaja en el UserAPIKeyAuth.metadata (custom_auth) que el
-        # proxy propaga como user_api_key_metadata dentro del metadata del request.
-        basa = (proxy_md.get("user_api_key_metadata") or {}).get("basa") or {}
+        # proxy propaga como user_api_key_metadata dentro del metadata-home del request
+        # — `litellm_metadata` en la ruta anthropic, `metadata` en el resto (024 D3;
+        # antes se leía un solo home y los eventos byok bridged salían anónimos).
+        basa = policy.proxy_identity_from(data) or policy.proxy_identity_from(kwargs)
 
         request_md = {}
         for key in ("litellm_metadata", "metadata"):

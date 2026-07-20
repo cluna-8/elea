@@ -71,7 +71,32 @@ streaming y no-streaming con PII contra el modelo local del stack dev y asserte:
 de entidades. Corre en la suite completa del DoD (stack vivo); si el stack no está, falla
 explícito o se salta con marca visible — NUNCA verde por simulación (patrón del vecino).
 
-## D5 — Qué NO se toca (alcance)
+## APÉNDICE T002 — Shapes observados (2026-07-20): D2 REFUTADA y root cause real
+
+La instrumentación de T002 (temporal, revertida) refutó la hipótesis de D2 y afinó D1:
+
+1. **Streaming: los items SON bytes SSE** (`builtins.bytes`, eventos completos terminados
+   en `\n\n`, framing normal). El hook SÍ está en el camino del cliente (verificado con un
+   marcador SSE inyectado: 157 apariciones en el wire) y el mapping correcto SÍ llega
+   (mismo `data_id` y mismos placeholders en pre_call y en el iterator hook).
+2. **Root cause real del streaming**: `safe_split()` de la lib compartida solo retiene un
+   sufijo que matchee `PH_TAIL_RE = \[[A-Z][A-Za-z0-9_]*$` — un **`[` pelado no matchea y
+   se emite ya**. El bridge de Ollama emite deltas de 1-3 caracteres → el placeholder se
+   parte SIEMPRE justo tras el `[` → el `[` se suelta, el resto nunca re-forma un inicio
+   de placeholder, y el placeholder entero llega crudo al cliente. **El bug es latente
+   también en passthrough** (misma lib): cualquier upstream que corte un delta exactamente
+   en `[` lo dispara. Fix: permitir carry de `[` solo (`\[$`) — costo: retener UN delta
+   cuando termina en `[`.
+3. **D1 confirmada tal cual**: la respuesta no-streaming bridged es un `dict` plano
+   shape-Anthropic (`content` con bloques thinking/text) → `getattr` → no-op.
+4. **Hallazgo colateral — cache del motor incompatible con masking reversible**: el cache
+   Redis (`litellm_settings.cache`) sirvió la MISMA respuesta (mismo id) para requests con
+   mappings distintos: la key del cache se computa sobre el prompt SIN enmascarar, y el
+   valor guarda la respuesta con los placeholders del request que la pobló → el unmask del
+   request siguiente jamás matchea. Aun con el fix de safe_split, un cache hit devuelve
+   placeholders ajenos (sin PII — los placeholders son opacos — pero rompe el round-trip).
+   Se registra como issue aparte (tensión con cache/costes → módulo 023 de Falime); NO se
+   resuelve en esta spec. Mitigación de la evidencia e2e: prompts únicos por corrida.
 
 - Gateway passthrough: round-trip ya cubierto por contract tests — sin cambios.
 - Detección de ida (patrones, Presidio): spec 016, módulo seguridad.

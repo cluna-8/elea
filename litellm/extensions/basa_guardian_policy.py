@@ -28,8 +28,10 @@ from typing import Awaitable, Callable, Optional, Tuple
 PH_TYPE_RE = re.compile(r"\[(.+)_\d+_[0-9a-f]+\]$")
 # Fragmento colgante que todavía podría crecer hasta ser un placeholder. Los
 # placeholders empiezan SIEMPRE con tipo en MAYÚSCULAS ([PERSON_…), así que un '['
-# suelto seguido de minúscula/dígito (arr[i, nums[0) NO se retiene.
-PH_TAIL_RE = re.compile(r"\[[A-Z][A-Za-z0-9_]*$")
+# seguido de minúscula/dígito (arr[i, nums[0) NO se retiene. Un '[' PELADO al final
+# del delta SÍ se retiene (un solo delta de espera): los bridges con deltas de 1-3
+# chars parten el placeholder justo tras el '[' — root cause del spike 024 (T002).
+PH_TAIL_RE = re.compile(r"\[$|\[[A-Z][A-Za-z0-9_]*$")
 # Máximo largo de un fragmento retenible (un placeholder real nunca supera esto).
 MAX_CARRY = 48
 
@@ -312,6 +314,61 @@ def unmask_delta_event(data: dict, carry: str, carry_field: Optional[str],
         out.append(data)
         return out, "", None
     return [data], carry, carry_field
+
+
+def proxy_identity_from(data: dict) -> dict:
+    """Identidad Basa propagada por el proxy (``custom_auth`` →
+    ``user_api_key_metadata.basa``), buscada en AMBOS metadata-homes:
+    ``litellm_metadata`` (ruta anthropic) y ``metadata`` (el resto) — 024 D3."""
+    for key in ("litellm_metadata", "metadata"):
+        home = (data or {}).get(key)
+        if isinstance(home, dict):
+            basa = (home.get("user_api_key_metadata") or {}).get("basa")
+            if basa:
+                return basa
+    return {}
+
+
+def unmask_response_payload(response, ph_to_orig: dict) -> None:
+    """Des-enmascara una respuesta NO-streaming mutándola, sea cual sea su shape:
+    ``dict`` plano (rutas bridged del motor — 024 D1) u objeto con atributos
+    (passthrough). Cubre ``content`` Anthropic (text/thinking/input) y ``choices``
+    OpenAI. Fail-safe: shape no reconocido o sin mapping → no-op, jamás rompe."""
+    if not ph_to_orig:
+        return
+    get = response.get if isinstance(response, dict) else (
+        lambda k, d=None: getattr(response, k, d))
+
+    content = get("content")
+    if isinstance(content, list):
+        for block in content:
+            bget = block.get if isinstance(block, dict) else (
+                lambda k, d=None, _b=block: getattr(_b, k, d))
+            bset = block.__setitem__ if isinstance(block, dict) else (
+                lambda k, v, _b=block: setattr(_b, k, v))
+            for field in ("text", "thinking"):
+                value = bget(field)
+                if isinstance(value, str):
+                    bset(field, unmask_text(value, ph_to_orig))
+            tool_input = bget("input")
+            if isinstance(tool_input, (dict, list)):
+                bset("input", unmask_deep(tool_input, ph_to_orig))
+        return
+
+    choices = get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            cget = choice.get if isinstance(choice, dict) else (
+                lambda k, d=None, _c=choice: getattr(_c, k, d))
+            message = cget("message")
+            if message is None:
+                continue
+            mget = message.get if isinstance(message, dict) else (
+                lambda k, d=None, _m=message: getattr(_m, k, d))
+            mset = message.__setitem__ if isinstance(message, dict) else (
+                lambda k, v, _m=message: setattr(_m, k, v))
+            if isinstance(mget("content"), str):
+                mset("content", unmask_text(mget("content"), ph_to_orig))
 
 
 def rewrite_sse_block(block: str, carry: str, carry_field: Optional[str],

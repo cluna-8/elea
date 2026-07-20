@@ -13,13 +13,12 @@ research T005 — corren también sobre ``/v1/messages`` con ``call_type=
    librería compartida (carry-split). No se reimplementa transporte: el motor sigue
    siendo dueño del HTTP/SSE framing hacia el cliente, auth, usage y retries.
 
-LÍMITE CONOCIDO (spike 019 batch 1, 2026-07-20 — issue #27): los hooks 2 y 3 asumen
-el shape de la ruta passthrough Anthropic; en rutas *bridged* (modelos no-Claude:
-ollama_chat verificado) la respuesta llega como dict plano (hook 2 → getattr → no-op)
-o como objetos parseados (hook 3 → escape "se entrega tal cual") y el unmask NO corre.
-Fail-safe (el upstream nunca ve PII) pero placeholders visibles. Fix-spec pendiente.
-Además ``/v1/responses`` NO está en ``_TEXT_CALL_TYPES`` → esa ruta corre SIN política
-(solo identidad de custom_auth) — no ofrecer superficies sobre ella (issue #28).
+Rutas bridged (modelos no-Claude): el round-trip completo lo cierra la spec 024 —
+respuesta dict en el hook 2 (``unmask_response_payload``) y carry de ``[`` pelado en
+la lib compartida (deltas de 1-3 chars del bridge partían el placeholder tras el
+``[``; research 024 T002).
+LÍMITE VIGENTE: ``/v1/responses`` NO está en ``_TEXT_CALL_TYPES`` → esa ruta corre SIN
+política (solo identidad de custom_auth) — no ofrecer superficies sobre ella (issue #28).
 
 El mapa reversible viaja en ``litellm_metadata`` (ruta anthropic — el motor filtra
 ``metadata`` a los campos válidos de la API de Anthropic ANTES del upstream, así que
@@ -167,24 +166,6 @@ def _entity_counts(ph_to_orig: dict) -> list:
 
 
 def _unmask_response_inplace(response, ph_to_orig: dict) -> None:
-    """Des-enmascara una respuesta no-streaming (Anthropic o OpenAI-like), mutándola."""
-    content = getattr(response, "content", None)
-    if isinstance(content, list):  # AnthropicMessagesResponse
-        for block in content:
-            get = block.get if isinstance(block, dict) else lambda k, d=None: getattr(block, k, d)
-            setter = block.__setitem__ if isinstance(block, dict) else lambda k, v: setattr(block, k, v)
-            for field in ("text", "thinking"):
-                value = get(field)
-                if isinstance(value, str):
-                    setter(field, policy.unmask_text(value, ph_to_orig))
-            tool_input = get("input")
-            if isinstance(tool_input, (dict, list)):
-                setter("input", policy.unmask_deep(tool_input, ph_to_orig))
-        return
-
-    choices = getattr(response, "choices", None)
-    if isinstance(choices, list):  # ModelResponse (openai-like)
-        for choice in choices:
-            message = getattr(choice, "message", None)
-            if message is not None and isinstance(getattr(message, "content", None), str):
-                message.content = policy.unmask_text(message.content, ph_to_orig)
+    """Des-enmascara una respuesta no-streaming (dict bridged u objeto), mutándola.
+    La lógica vive en la lib compartida (testeable desde la suite del backend) — 024."""
+    policy.unmask_response_payload(response, ph_to_orig)
