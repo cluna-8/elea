@@ -26,6 +26,7 @@ from typing import Dict, Optional
 
 from ..models.tenant import DEFAULT_TENANT_ID
 from .audit_events import (
+    EVENT_CLOCK_ROLLBACK,
     EVENT_OVER_SEAT,
     EVENT_OVER_SEAT_RESOLVED,
     emit_license_event,
@@ -58,6 +59,57 @@ _registry: Dict[str, TenantSeatStatus] = {}
 
 _thread: Optional[threading.Thread] = None
 _stop = threading.Event()
+
+# Episodio de rollback de reloj sospechado (US5, FR-023): flag en memoria; la
+# MARCA que lo sostiene persiste en license_runtime_state (sobrevive reinicios).
+_clock_rollback = False
+
+
+def clock_rollback_suspected() -> bool:
+    """True mientras el reloj local esté DETRÁS de la marca monotónica
+    persistida — el gate degrada la creación durante el episodio."""
+    return _clock_rollback
+
+
+def _check_clock(db, now) -> None:
+    """FR-023: si ``now`` < marca persistida → evento (una vez por episodio) +
+    degradado; si el reloj la supera, cierra el episodio y avanza la marca
+    (también en ticks sin eventos — el primer tick la SIEMBRA).
+
+    IMPORTANTE: sale SIEMPRE con la transacción cerrada (commit/rollback) — el
+    FOR UPDATE de la fila singleton no puede quedar tomado cuando refresh()
+    emita con su propia sesión, o se bloquearían entre sí."""
+    global _clock_rollback
+    from .audit_events import _locked_state
+
+    lic_state = get_state()
+    state = _locked_state(db, lic_state.token.license_id if lic_state.token else None)
+    mark = state.monotonic_ts
+    now_naive = now.replace(tzinfo=None) if now.tzinfo else now
+    if mark is not None and now_naive < mark:
+        if not _clock_rollback:
+            _clock_rollback = True
+            logger.warning("licencia: ROLLBACK de reloj sospechado — now=%s < marca=%s; "
+                           "creación degradada (FR-023)", now_naive, mark)
+            try:
+                emit_license_event(
+                    db, EVENT_CLOCK_ROLLBACK,
+                    license_id=lic_state.token.license_id if lic_state.token else None,
+                    reason=f"now {now_naive.isoformat()} < marca monotónica {mark.isoformat()}",
+                    now=now,
+                )  # commit adentro → libera el lock
+            except Exception:  # noqa: BLE001 — audit best-effort, el degradado va igual
+                db.rollback()
+                logger.exception("licencia: no se pudo auditar el rollback de reloj")
+        else:
+            db.rollback()  # mismo episodio: nada que persistir, liberar el lock
+        return
+    if _clock_rollback:
+        logger.info("licencia: reloj recuperado (now=%s ≥ marca) — episodio cerrado", now_naive)
+    _clock_rollback = False
+    if mark is None or now_naive > mark:
+        state.monotonic_ts = now_naive
+    db.commit()  # persiste marca/creación de la fila y libera el lock
 
 
 def get_tenant_status(tenant_id) -> Optional[TenantSeatStatus]:
@@ -93,6 +145,7 @@ def _emit_transition(db, tenant_id, previous, entry) -> None:
             reason=("reconciliación: seats activos por encima del entitlement"
                     if event == EVENT_OVER_SEAT
                     else "reconciliación: conteo de seats de vuelta dentro del entitlement"),
+            now=entry.checked_at,  # ts de la evidencia = el del tick (reloj inyectable)
         )
     except Exception:  # noqa: BLE001 — audit best-effort, criterio de AuditService
         db.rollback()
@@ -108,12 +161,6 @@ def run_once(session_factory=None, now: Optional[datetime] = None) -> Dict[str, 
     """
     global _registry
     now = now or datetime.now(timezone.utc)
-    # Tick del ciclo de vida (US4/T027-T029): el reloj local avanza ACÁ — un
-    # proceso vivo cruza expiry/grace sin reinicio y la transición se audita.
-    state = refresh(now=now, session_factory=session_factory)
-    token = state.token
-    licensed = {token.tenant_id, str(DEFAULT_TENANT_ID)} if token is not None else set()
-
     if session_factory is None:
         from ..database import SessionLocal
         session_factory = SessionLocal
@@ -121,6 +168,14 @@ def run_once(session_factory=None, now: Optional[datetime] = None) -> Dict[str, 
 
     db = session_factory()
     try:
+        # Anti-rollback (US5/T033, FR-023): compara now vs la marca monotónica
+        # persistida ANTES de todo — el episodio degrada la creación (gate).
+        _check_clock(db, now)
+        # Tick del ciclo de vida (US4/T027-T029): el reloj local avanza ACÁ — un
+        # proceso vivo cruza expiry/grace sin reinicio y la transición se audita.
+        state = refresh(now=now, session_factory=session_factory)
+        token = state.token
+        licensed = {token.tenant_id, str(DEFAULT_TENANT_ID)} if token is not None else set()
         # Orden determinista: si la corrida muere a mitad, el reintento repite
         # la misma secuencia (y los tests pueden razonar sobre ella).
         tenants = (db.query(Tenant).filter(Tenant.is_active.is_(True))
@@ -215,6 +270,7 @@ def scheduler_running() -> bool:
 
 
 def reset_for_tests() -> None:
-    global _registry
+    global _registry, _clock_rollback
     stop_scheduler()
     _registry = {}
+    _clock_rollback = False

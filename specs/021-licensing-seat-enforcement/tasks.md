@@ -223,19 +223,19 @@ valida contra la deployment key y un byte alterado invalida la firma.
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T030 ⚠️ [P] [US5] Integration test (negativo) en `tests/integration/test_audit_tamper.py`: cada
+- [X] T030 ⚠️ [P] [US5] Integration test (negativo) en `tests/integration/test_audit_tamper.py`: cada
       transición deja `{event_type, license_id, tenant_id, seats_used, max_seats, ts, prev_hash}`; **cero**
       token crudo/claves; los eventos NO se pueden borrar/editar por la ruta normal (inmutabilidad).
       *(SC-007, FR-024, FR-025, FR-028)*
-- [ ] T031 ⚠️ [P] [US5] Integration test en `tests/integration/test_clock_rollback.py`: un `now` anterior a
+- [X] T031 ⚠️ [P] [US5] Integration test en `tests/integration/test_clock_rollback.py`: un `now` anterior a
       la marca monotónica → evento `license_clock_rollback_suspected` + degradado. *(FR-023)*
-- [ ] T039 ⚠️ [P] [US5] Integration test en `tests/integration/test_hash_chain.py`: cadena íntegra →
+- [X] T039 ⚠️ [P] [US5] Integration test en `tests/integration/test_hash_chain.py`: cadena íntegra →
       verificación OK; borrar un evento **intermedio** por DB directa → eslabón roto detectado y
       reportado; editar un campo de un evento → ídem; génesis anclada al `license_id`; el **hash-head y
       el contador monotónico** se persisten y avanzan con cada evento. Documentar en el test (como
       comentario-contrato) que el truncado de cola/total NO es detectable localmente — su detección es
       la continuidad entre exports (T040). *(SC-011, FR-028)*
-- [ ] T040 ⚠️ [P] [US5] Integration test en `tests/integration/test_trueup_export.py`: el export firmado
+- [X] T040 ⚠️ [P] [US5] Integration test en `tests/integration/test_trueup_export.py`: el export firmado
       valida contra la pública del deployment; refleja lo que la caja registró (`seats_used`/historial) +
       **hash-head + contador**; alterar un byte → firma inválida; dos exports sucesivos → el verificador
       (lado Basa, mismo módulo) acepta continuidad head-ancestro/contador-no-decreciente y **rechaza** un
@@ -245,15 +245,15 @@ valida contra la deployment key y un byte alterado invalida la firma.
 
 ### Implementation for User Story 5
 
-- [ ] T032 [US5] Implementar `backend/src/licensing/audit_events.py`: emitir cada transición de licencia al
+- [X] T032 [US5] Implementar `backend/src/licensing/audit_events.py`: emitir cada transición de licencia al
       **AuditLog inmutable existente**, metadata-only, **encadenada por hash** (cada evento incluye el hash
       del anterior; génesis = `license_id`) + verificador de cadena; NO inventar canal nuevo. *(FR-022,
       FR-024, FR-025, FR-028)*
-- [ ] T033 [US5] Implementar la **marca monotónica** (último ts de licencia/audit visto); si `now` < marca
+- [X] T033 [US5] Implementar la **marca monotónica** (último ts de licencia/audit visto); si `now` < marca
       → `license_clock_rollback_suspected` + tratar como degradado (anti-rollback best-effort). *(FR-023)*
-- [ ] T034 [US5] Implementar/extender `backend/src/api/health.py`: exponer `{status, seats_used, max_seats,
+- [X] T034 [US5] Implementar/extender `backend/src/api/health.py`: exponer `{status, seats_used, max_seats,
       expiry}` metadata-only (sin token ni claves) para operación/soporte. *(FR-027)*
-- [ ] T041 [US5] Implementar `backend/src/licensing/deployment_key.py` (par Ed25519 generado en el install;
+- [X] T041 [US5] Implementar `backend/src/licensing/deployment_key.py` (par Ed25519 generado en el install;
       privada en volumen/secret, nunca en config en claro ni en el repo) y
       `backend/src/licensing/trueup_export.py` (export firmado `{tenant_id, distributor_id, pool_id,
       seats_used, max_seats, historial, hash-head, rango}`, generación local/offline). *(FR-029)*

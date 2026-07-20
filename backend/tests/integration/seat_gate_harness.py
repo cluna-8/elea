@@ -139,6 +139,19 @@ def mock_engine(monkeypatch):
     return recorder
 
 
+def clear_monotonic_mark(factory):
+    """Resetea la marca anti-rollback (US5): los tests que inyectan relojes
+    futuros la dejarían por delante del reloj real y el test siguiente del
+    módulo abriría un episodio de rollback espurio."""
+    from src.models.license_state import LicenseRuntimeState
+    db = factory()
+    try:
+        db.query(LicenseRuntimeState).update({"monotonic_ts": None})
+        db.commit()
+    finally:
+        db.close()
+
+
 def create_tenant(factory, slug):
     """Tenant extra por DB directa (tests de aislamiento/reconciliación, US3)."""
     from src.models.tenant import Tenant
