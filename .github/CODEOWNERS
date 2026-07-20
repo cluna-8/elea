@@ -42,6 +42,10 @@ specs/019-* @DrZuzzjen
 specs/020-* @DrZuzzjen
 specs/021-* @DrZuzzjen
 specs/022-* @DrZuzzjen
+# Sitio de documentación de producto (022): el contenido lo escribe el dueño de cada
+# módulo (DoD en AGENTS.md), pero el sitio/estructura/checks los revisa JF.
+docs/ @DrZuzzjen
+deploy/release/checks/test_docs_* @DrZuzzjen
 
 # ── Superficie compartida: motor LiteLLM ──
 # Acá conviven la política de seguridad (guardrail/auth) y la futura optimización
