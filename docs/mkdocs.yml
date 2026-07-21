@@ -92,6 +92,7 @@ nav:
   - Administración: administration/index.md
   - Integraciones & matriz:
       - Integraciones & matriz: integrations/index.md
+      - Modelo propio / local: integrations/modelo-propio.md
       - Gotchas verificados: integrations/gotchas.md
   - API reference:
       - API reference: api-reference/index.md
