@@ -13,6 +13,7 @@ Páginas de esta sección:
 
 - [Infraestructura](infrastructure.md) — arquitectura de despliegue objetivo: cloud, on-prem/air-gapped, secretos y storage.
 - [Licenciamiento](licensing.md) — licenciamiento offline por seats y postura de IP del artefacto.
+- [Partner enablement](partner-enablement.md) — el programa de capacitación y certificación para que un partner nuevo instale de forma autónoma.
 - [White-label & branding](../white-label/index.md) — el branding pack y la marca como configuración en runtime.
 
 !!! warning "Nota de honestidad (léala antes que nada)"

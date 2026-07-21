@@ -9,7 +9,8 @@ D="$REPO_ROOT/docs/docs"
 fail() { echo "❌ estructura: $1"; exit 1; }
 
 GUIAS=(overview/index.md install-deploy/index.md install-deploy/infrastructure.md \
-       install-deploy/licensing.md white-label/index.md administration/index.md \
+       install-deploy/licensing.md install-deploy/partner-enablement.md \
+       white-label/index.md administration/index.md \
        integrations/index.md compliance/index.md compliance/dpa-dsr-retention.md)
 RUNBOOKS=(operations/index.md integrations/gotchas.md)
 
