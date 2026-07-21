@@ -19,7 +19,7 @@ distribuidor / operador que atiende tickets de estas superficies.
 **Tres superficies, un producto:**
 
 1. **`base_url`** — herramientas de coding que permiten apuntar su endpoint de API al gateway
-   (Claude Code, GitHub Copilot, Cursor).
+   (Claude Code — por suscripción o con modelo propio —, Aider, GitHub Copilot, Cursor).
 2. **`browser`** — aplicaciones de chat web (ChatGPT, Claude.ai) gobernadas por la extensión de
    navegador del producto.
 3. **`mcp`** — plano de tools: la DLP se aplica sobre los resultados de las tools MCP (cobertura
@@ -31,7 +31,9 @@ Las dos superficies principales (`base_url` y `browser`) empujan al **mismo** mo
 ```mermaid
 graph LR
     subgraph S1 [Superficie 1 - base_url]
-        CC[Claude Code]
+        CC[Claude Code suscripcion]
+        CM[Claude Code modelo propio]
+        AI[Aider]
         CP[Copilot modo Ask]
         CU[Cursor chat y plan]
     end
@@ -45,10 +47,14 @@ graph LR
         INS[POST /inspect]
         MON[GET /monitor]
     end
-    LLM[Proveedor LLM]
+    LLM[Proveedor LLM cloud]
+    MOT[Motor del gateway]
+    OLL[Modelo propio - runtime Ollama]
     VEN[Backend del asistente web]
 
     CC -->|prompt| MSG
+    CM -->|prompt byok| MSG
+    AI -->|prompt byok| MSG
     CP -->|prompt con key en la URL| MSG
     CU -->|override de base URL| MSG
     CH -->|hook de fetch| EXT
@@ -56,8 +62,11 @@ graph LR
     EXT -->|texto plano| INS
     INS -->|masked y replacements| EXT
     EXT -->|body enmascarado| VEN
-    MSG -->|prompt enmascarado| LLM
+    MSG -->|passthrough enmascarado| LLM
+    MSG -->|byok enmascarado| MOT
+    MOT --> OLL
     LLM -->|respuesta con placeholders| MSG
+    MOT -->|respuesta con placeholders| MSG
     MSG -->|unmask sobre la respuesta| S1
     EXT -->|unmask en el DOM| S2
     MSG --> MON
