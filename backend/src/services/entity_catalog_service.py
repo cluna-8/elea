@@ -17,8 +17,8 @@ cuantificador) ANTES de poder guardarse — un patrón que cuelga el proceso de
 detección en producción es un DoS real sobre el firewall completo.
 """
 import logging
+import multiprocessing as mp
 import re
-import signal
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -26,62 +26,92 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..models.guardian import Guardian
+from ..services.guardian_service import GuardianService
 from . import ai_engine_client
+from . import _redos_worker
 
 logger = logging.getLogger("basa-secure-gateway.entity-catalog")
 
 MAX_PATTERN_LEN = 200
-REGEX_TIMEOUT_S = 1.0
+REGEX_TIMEOUT_S = 2.0
 # Strings adversariales cortos: si el regex tarda más de REGEX_TIMEOUT_S contra
 # alguno de estos, se rechaza. No es un analizador estático de ReDoS (eso es un
 # proyecto en sí mismo) — es un backstop de tiempo real, suficiente para
 # atrapar los casos catastróficos típicos (cuantificadores anidados).
-_ADVERSARIAL_INPUTS = ["a" * 30 + "!", "0" * 30 + "!", ("ab" * 20) + "!"]
+_ADVERSARIAL_INPUTS = ["a" * 40 + "!", "0" * 40 + "!", ("ab" * 25) + "!"]
+
+# Heurística estática (best-effort, no exhaustiva): cuantificador anidado dentro
+# de un grupo que a su vez está cuantificado — la forma más común de ReDoS
+# catastrófico ((a+)+, (a*)*, (a+)*, (a*)+...). Se corre ANTES de ejecutar nada.
+_NESTED_QUANTIFIER_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*]")
 
 
 class UnsafePatternError(ValueError):
-    """El patrón no compila, es demasiado largo, o no responde a tiempo (riesgo ReDoS)."""
+    """El patrón no compila, tiene forma catastrófica conocida, es demasiado
+    largo, o no responde a tiempo (riesgo ReDoS)."""
 
 
-class _RegexTimeout(Exception):
-    pass
+def _matches_within_timeout(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> bool:
+    """Corre en un PROCESO aparte (contexto `spawn`) — no un hilo. Se probó
+    primero con un hilo + `future.result(timeout=...)`: NO alcanza, porque el
+    motor `re` de stdlib no libera el GIL durante el backtracking — un hilo
+    catastrófico bloquea a TODOS los hilos del proceso, incluido el que
+    controla el timeout, así que ni el propio watchdog llega a correr a tiempo
+    (bug real, encontrado probando `(a|aa)+$` con curl — colgó el proceso
+    entero en vez de rechazar en ~1s). Un proceso aparte tiene su propio GIL:
+    si no termina a tiempo, se mata de verdad con `terminate()`/`kill()`.
 
-
-def _alarm_handler(signum, frame):
-    raise _RegexTimeout()
-
-
-def _run_with_timeout(fn, *args, timeout_s: float = REGEX_TIMEOUT_S):
-    """Corta la ejecución con SIGALRM — backstop real de proceso, no cooperativo
-    (un regex catastrófico no "coopera" liberando el hilo)."""
-    old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+    `spawn` (no `fork`): forkear desde un proceso con threads vivos (FastAPI/
+    uvicorn) puede heredar locks tomados por otros hilos que nunca se liberan
+    en el hijo (otro bug real encontrado antes que este). El worker vive en
+    `_redos_worker.py`, sin imports pesados, para que el arranque de `spawn`
+    (que sí tiene que reimportar el módulo) sea rápido y no infle el timeout."""
+    ctx = mp.get_context("spawn")
+    q: "mp.Queue" = ctx.Queue()
+    p = ctx.Process(target=_redos_worker.match_worker, args=(pattern, text, q))
+    p.start()
+    p.join(timeout_s)
+    if p.is_alive():
+        p.terminate()
+        p.join(timeout=2.0)
+        if p.is_alive():
+            p.kill()
+            p.join()
+        return False
     try:
-        signal.setitimer(signal.ITIMER_REAL, timeout_s)
-        return fn(*args)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, old_handler)
+        return q.get_nowait()
+    except Exception:
+        return False  # el proceso murió sin reportar -> tratamos como inseguro
 
 
 def validate_pattern_safety(pattern: str) -> None:
     """Levanta UnsafePatternError si el patrón no es seguro para correr en
     producción sobre texto de terceros. Se llama SIEMPRE antes de persistir,
-    sin excepción para patrones "solo de prueba" — no hay modo simulado."""
+    sin excepción para patrones "solo de prueba" — no hay modo simulado.
+
+    Dos capas: (1) heurística estática de cuantificadores anidados — instantánea,
+    sin ejecutar nada; (2) ejecución real contra strings adversariales cortos con
+    timeout por hilo — atrapa casos que la heurística no reconoce. Ninguna de las
+    dos es una prueba formal de ausencia de ReDoS (eso requeriría un analizador
+    de autómatas propio, fuera de alcance) — es un backstop pragmático."""
     if not pattern or len(pattern) > MAX_PATTERN_LEN:
         raise UnsafePatternError(f"Patrón vacío o mayor a {MAX_PATTERN_LEN} caracteres.")
+    if _NESTED_QUANTIFIER_RE.search(pattern):
+        raise UnsafePatternError(
+            "El patrón tiene un cuantificador anidado dentro de un grupo cuantificado "
+            "(forma típica de ReDoS catastrófico, p.ej. (a+)+). Reescribilo sin anidar "
+            "cuantificadores."
+        )
     try:
         compiled = re.compile(pattern)
     except re.error as e:
         raise UnsafePatternError(f"Regex inválido: {e}") from e
 
     for adversarial in _ADVERSARIAL_INPUTS:
-        try:
-            _run_with_timeout(compiled.search, adversarial)
-        except _RegexTimeout:
+        if not _matches_within_timeout(compiled, adversarial):
             raise UnsafePatternError(
                 "El patrón no respondió a tiempo contra un input adversarial "
-                "(riesgo de denegación de servicio — posible cuantificador anidado). "
-                "Simplificalo antes de guardarlo."
+                "(riesgo de denegación de servicio). Simplificalo antes de guardarlo."
             )
 
 
@@ -172,6 +202,14 @@ def _pii_guardian(db: Session, tenant_id) -> Guardian:
     guardian = db.query(Guardian).filter(
         Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking"
     ).first()
+    if not guardian:
+        # Auto-provisiona el catálogo por default (mismo que dispara GET /guardians) —
+        # sin esto, pedir el catálogo de entidades custom ANTES de haber abierto el
+        # panel de guardianes una vez rompía con un 500 (bug encontrado con curl).
+        GuardianService.get_or_create_default_guardians(db)
+        guardian = db.query(Guardian).filter(
+            Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking"
+        ).first()
     if not guardian:
         raise ValueError("No existe el guardián de enmascaramiento PII para este tenant.")
     return guardian

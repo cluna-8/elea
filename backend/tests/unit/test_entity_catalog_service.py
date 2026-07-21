@@ -27,10 +27,19 @@ def test_validate_pattern_safety_rejects_too_long():
         svc.validate_pattern_safety("a" * (svc.MAX_PATTERN_LEN + 1))
 
 
-def test_validate_pattern_safety_rejects_catastrophic_backtracking():
-    # Clásico ReDoS: grupo anidado con cuantificador, ancla que nunca matchea.
-    with pytest.raises(svc.UnsafePatternError, match="denegación de servicio"):
+def test_validate_pattern_safety_rejects_nested_quantifier_via_heuristic():
+    # Clásico ReDoS: grupo anidado con cuantificador — lo atrapa la heurística
+    # estática, instantáneo, sin ejecutar nada.
+    with pytest.raises(svc.UnsafePatternError, match="cuantificador anidado"):
         svc.validate_pattern_safety(r"(a+)+$")
+
+
+def test_validate_pattern_safety_rejects_ambiguous_alternation_via_execution():
+    # ReDoS por alternancia ambigua — la heurística NO lo reconoce (no hay
+    # '+'/'*' dentro del grupo); lo atrapa la ejecución real con timeout.
+    assert not svc._NESTED_QUANTIFIER_RE.search(r"(a|aa)+$")
+    with pytest.raises(svc.UnsafePatternError, match="denegación de servicio"):
+        svc.validate_pattern_safety(r"(a|aa)+$")
 
 
 # ── test_pattern ────────────────────────────────────────────────────────────────

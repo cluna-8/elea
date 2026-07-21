@@ -118,7 +118,10 @@ async def draft_custom_entity(payload: CustomEntityDraftRequest):
 
 @router.get("/custom-entities", response_model=List[Dict[str, Any]])
 def list_custom_entities(db: Session = Depends(get_db)):
-    return entity_catalog_service.list_custom_entities(db, DEFAULT_TENANT_ID)
+    try:
+        return entity_catalog_service.list_custom_entities(db, DEFAULT_TENANT_ID)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/custom-entities", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)

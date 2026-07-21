@@ -67,7 +67,13 @@ async def test_parity_mask_entities_match_shared_lib():
     _, ph_ref = await policy.mask_body(_body(PII_TEXT), policy.default_analyze)
     ref_types = sorted({policy.PH_TYPE_RE.match(p).group(1) for p in ph_ref})
     assert gw_types == ref_types
-    assert "EMAIL_ADDRESS" in gw_types and "DNI" in gw_types
+    # Nota (spec 016, corrección post-review Europa/no-Argentina): el fallback
+    # `default_analyze` es SOLO dev/demo y ya no simula un tipo "DNI" propio —
+    # los formatos estructurados reales (NIF/NIE español, etc.) solo se
+    # detectan vía el motor NLP real (Presidio). El valor DNI de PII_TEXT sigue
+    # cayendo en el patrón genérico PHONE_NUMBER del fallback — lo que importa
+    # acá es la paridad (gw_types == ref_types), ya verificada arriba.
+    assert "EMAIL_ADDRESS" in gw_types
 
 
 @pytest.mark.asyncio
@@ -209,7 +215,9 @@ def test_endpoint_masks_upstream_and_unmasks_reply(client):
     assert r.status_code == 200
     sent = _FakeAsyncClient.captured["content"].decode()
     assert EMAIL not in sent and DNI not in sent              # upstream sólo ve placeholders
-    assert "[EMAIL_ADDRESS_" in sent and "[DNI_" in sent
+    # DNI cae en el patrón genérico PHONE_NUMBER del fallback dev (ver nota en
+    # test_parity_mask_entities_match_shared_lib) — igual queda enmascarado.
+    assert "[EMAIL_ADDRESS_" in sent
     reply = "".join(b.get("text", "") for b in r.json()["content"])
     assert EMAIL in reply and DNI in reply                    # el caller recupera lo real
 
