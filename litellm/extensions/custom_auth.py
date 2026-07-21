@@ -61,7 +61,12 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
          WHERE sp.tenant_id = k.tenant_id AND sp.is_active = true LIMIT 1) AS entity_configs,
        (SELECT gd.config->'custom_names' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
-           AND gd.is_active = true LIMIT 1) AS custom_names
+           AND gd.is_active = true LIMIT 1) AS custom_names,
+       -- Catálogo de entidades custom (regex + contexto agregados vía panel/IA,
+       -- ver backend/src/services/entity_catalog_service.py) — mismo Guardian.
+       (SELECT gd.config->'custom_entities' FROM guardians gd
+         WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
+           AND gd.is_active = true LIMIT 1) AS custom_entities
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.user_id
 LEFT JOIN groups g ON g.id = k.group_id
@@ -165,6 +170,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         # spec 016: detección/enforcement real por tipo de entidad (ver basa_guardrail.py)
         "entity_configs": _maybe_json(row.get("entity_configs")) or {},
         "custom_names": _maybe_json(row.get("custom_names")) or [],
+        "custom_entities": _maybe_json(row.get("custom_entities")) or [],
     }
 
     return UserAPIKeyAuth(

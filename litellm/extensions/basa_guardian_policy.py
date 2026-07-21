@@ -219,12 +219,16 @@ def resolve_entity_action(entity_type: str, entity_configs: Optional[dict]) -> s
     return action if action in ("MASK", "BLOCK") else "MASK"
 
 
-def build_ad_hoc_recognizers(custom_names: Optional[list] = None, region: str = DEFAULT_REGION) -> list:
+def build_ad_hoc_recognizers(custom_names: Optional[list] = None, region: str = DEFAULT_REGION,
+                             custom_entities: Optional[list] = None) -> list:
     """Única fuente de los reconocedores que viajan en cada `/analyze` (spec 016 §3):
     SOLO lo que Presidio no cubre ya con un reconocedor propio validado para el
     idioma/región (ver comentario de `STRUCTURED_ID_PATTERNS_BY_REGION`) + deny-list
-    de nombres personalizados (`Guardian.config.custom_names`) si hay alguno.
-    `region` selecciona el set de patrones estructurados (default: Europa)."""
+    de nombres personalizados (`Guardian.config.custom_names`) si hay alguno +
+    entidades custom del catálogo (`Guardian.config.custom_entities`, agregadas vía
+    panel/asistente de IA — `backend/src/services/entity_catalog_service.py`; solo
+    `status == "active"`, nunca borradores sin revisar). `region` selecciona el set
+    de patrones estructurados (default: Europa)."""
     patterns_for_region = STRUCTURED_ID_PATTERNS_BY_REGION.get(region, {})
     recognizers = [
         {
@@ -244,11 +248,23 @@ def build_ad_hoc_recognizers(custom_names: Optional[list] = None, region: str = 
             "supported_entity": "PERSON",
             "deny_list": names,
         })
+    for entity in (custom_entities or []):
+        if entity.get("status") != "active" or not entity.get("regex"):
+            continue
+        recognizers.append({
+            "name": f"BASA_CUSTOM_{entity.get('entity_type', 'CUSTOM')}",
+            "supported_language": "es",
+            "supported_entity": entity.get("entity_type", "CUSTOM"),
+            "patterns": [{"name": "custom_pattern", "regex": entity["regex"],
+                         "score": entity.get("score", 0.5)}],
+            "context": entity.get("context") or [],
+        })
     return recognizers
 
 
 async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[list] = None,
-                           region: str = DEFAULT_REGION, timeout: float = 2.0) -> list:
+                           region: str = DEFAULT_REGION, timeout: float = 2.0,
+                           custom_entities: Optional[list] = None) -> list:
     """`AnalyzeFn` real (spec 016): llama al sidecar de detección NLP. Fail-closed
     estricto — cualquier falla de red/formato levanta `NlpUnavailableError`, NUNCA
     devuelve `[]` (contracts/presidio-analyzer-http.md). `entities=None` en el
@@ -260,7 +276,7 @@ async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[
         "text": text,
         "language": "es",
         "entities": None,
-        "ad_hoc_recognizers": build_ad_hoc_recognizers(custom_names, region),
+        "ad_hoc_recognizers": build_ad_hoc_recognizers(custom_names, region, custom_entities),
     }
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

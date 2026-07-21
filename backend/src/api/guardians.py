@@ -6,8 +6,10 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..models.guardian import Guardian
+from ..models.tenant import DEFAULT_TENANT_ID
 from ..services.guardian_service import GuardianService
 from ..services import ai_engine_client
+from ..services import entity_catalog_service
 from ..services.encryption_service import encrypt, decrypt
 from ..auth.rbac import require_role
 
@@ -82,6 +84,68 @@ def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(guardian)
     return _to_response(guardian)
+
+
+# ── Catálogo de entidades custom (extensión post-016) ──────────────────────────
+# IMPORTANTE: estas rutas van ANTES de `/{guardian_id}` — si no, FastAPI intenta
+# parsear "custom-entities" como UUID de guardian_id y devuelve 422.
+
+class CustomEntityDraftRequest(BaseModel):
+    description: str
+
+
+class CustomEntityCreateRequest(BaseModel):
+    name: str
+    entity_type: str
+    regex: str
+    score: float = 0.5
+    context: Optional[List[str]] = None
+    region: str = "eu"
+    ai_generated: bool = False
+
+
+@router.post("/custom-entities/draft", response_model=Dict[str, Any])
+async def draft_custom_entity(payload: CustomEntityDraftRequest):
+    """Le pide al motor de IA un borrador de patrón a partir de una descripción en
+    lenguaje natural. NO persiste nada — el resultado incluye el resultado de
+    correrlo contra sus propios casos de prueba, para que un humano decida si
+    guardarlo (POST /custom-entities) tal cual o editado."""
+    try:
+        return await entity_catalog_service.draft_entity(payload.description)
+    except entity_catalog_service.UnsafePatternError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/custom-entities", response_model=List[Dict[str, Any]])
+def list_custom_entities(db: Session = Depends(get_db)):
+    return entity_catalog_service.list_custom_entities(db, DEFAULT_TENANT_ID)
+
+
+@router.post("/custom-entities", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
+def create_custom_entity(payload: CustomEntityCreateRequest, db: Session = Depends(get_db)):
+    """Persiste un patrón ya revisado (aceptado o editado a mano tras el draft) —
+    único punto donde algo se activa en el firewall real. Revalida seguridad
+    siempre, sin importar si vino de un draft de IA o se tipeó a mano."""
+    try:
+        return entity_catalog_service.create_custom_entity(
+            db, DEFAULT_TENANT_ID,
+            name=payload.name, entity_type=payload.entity_type, regex=payload.regex,
+            score=payload.score, context=payload.context, region=payload.region,
+            ai_generated=payload.ai_generated,
+        )
+    except entity_catalog_service.UnsafePatternError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/custom-entities/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
+    try:
+        entity_catalog_service.delete_custom_entity(db, DEFAULT_TENANT_ID, entity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return None
 
 
 @router.put("/{guardian_id}", response_model=GuardianResponseSchema)

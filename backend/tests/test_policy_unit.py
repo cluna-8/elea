@@ -282,6 +282,25 @@ def test_build_ad_hoc_recognizers_unknown_region_is_empty():
     assert policy.build_ad_hoc_recognizers([], region="mars") == []
 
 
+def test_build_ad_hoc_recognizers_includes_active_custom_entities():
+    custom_entities = [
+        {"entity_type": "HISTORIA_CLINICA_ES", "regex": r"\bHC-\d{6}\b",
+         "score": 0.7, "context": ["historia clínica"], "status": "active"},
+        {"entity_type": "DRAFT_ONLY", "regex": r"\bXX\d{4}\b", "status": "draft"},
+    ]
+    recognizers = policy.build_ad_hoc_recognizers([], custom_entities=custom_entities)
+    entities = {r["supported_entity"] for r in recognizers}
+    # PASSPORT (default eu) + la entidad custom activa; la de status="draft" NUNCA
+    # llega al Analyzer real (revisión humana obligatoria, ver entity_catalog_service).
+    assert entities == {"PASSPORT", "HISTORIA_CLINICA_ES"}
+
+
+def test_build_ad_hoc_recognizers_ignores_custom_entity_without_regex():
+    custom_entities = [{"entity_type": "SIN_REGEX", "status": "active"}]
+    recognizers = policy.build_ad_hoc_recognizers([], custom_entities=custom_entities)
+    assert "SIN_REGEX" not in {r["supported_entity"] for r in recognizers}
+
+
 # ── presidio_analyze (spec 016 FR-004, contracts/presidio-analyzer-http.md) ────
 
 @pytest.mark.asyncio

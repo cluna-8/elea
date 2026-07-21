@@ -114,6 +114,7 @@ class BasaGuardrail(CustomGuardrail):
         # 3) Mask PII reversible — toggle por Connection (NULL=heredar → True hoy)
         if identity.get("redact_enabled", True):
             custom_names = identity.get("custom_names") or []
+            custom_entities = identity.get("custom_entities") or []
 
             # Región de patrones estructurados (spec 016, corrección post-review: el
             # despliegue objetivo es Europa, con LATAM como roadmap posterior — ver
@@ -124,7 +125,8 @@ class BasaGuardrail(CustomGuardrail):
 
             if _PRESIDIO_URL:
                 async def _analyze(text: str) -> list:
-                    return await policy.presidio_analyze(text, _PRESIDIO_URL, custom_names, region)
+                    return await policy.presidio_analyze(
+                        text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
             else:
                 logger.warning(
                     "PRESIDIO_ANALYZER_URL no configurada — usando detección regex de "

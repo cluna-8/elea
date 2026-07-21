@@ -16,6 +16,7 @@ producto).
 """
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -78,6 +79,12 @@ def _build_ad_hoc(spec: AdHocRecognizerSpec) -> PatternRecognizer:
         patterns=patterns,
         deny_list=spec.deny_list,
         context=spec.context,
+        # Presidio compila los patrones con re.IGNORECASE por default (global_regex_flags) —
+        # rompe patrones como PASSPORT ([A-Z0-9]{6,9}) pensados para distinguir mayúsculas de
+        # prosa normal: sin esto, la propia palabra "pasaporte" (9 letras minúsculas) matchea
+        # su propio patrón. Case-sensitive para reconocedores con patrones; irrelevante para
+        # deny_list (Presidio la matchea aparte).
+        global_regex_flags=re.DOTALL | re.MULTILINE if patterns else None,
     )
 
 
