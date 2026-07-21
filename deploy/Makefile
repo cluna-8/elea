@@ -42,7 +42,11 @@ check-images:
 	BACKEND_IMG=$(BACKEND_IMG) $(REPO_ROOT)/deploy/release/checks/test_backend_image.sh
 	FRONTEND_IMG=$(FRONTEND_IMG) $(REPO_ROOT)/deploy/release/checks/test_frontend_image.sh
 
-check-docs:
+# build-docs primero: sin la dependencia, los checks de imagen validaban la ÚLTIMA
+# imagen buildeada (potencialmente stale) y el gate quedaba verde con docs viejas
+# (descubierto 2026-07-21: el preview servía contenido sin las superficies nuevas
+# mientras el gate reportaba ✅).
+check-docs: build-docs
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_image.sh
 	$(REPO_ROOT)/deploy/release/checks/test_docs_strict_build.sh
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_content.sh

@@ -282,7 +282,7 @@ Los códigos **G#** refieren al detalle causa → fix en
 | La página web queda bloqueada por un overlay 🛡️ | Fail-closed: sin key válida o gateway caído | Conectar con key válida en el popup; verificar que el gateway responde `/api/v1/gw/whoami` |
 | La extensión no llega al gateway (sin CORS pero sin respuesta) | `host_permissions` del manifest no cubre el host | Editar `manifest.json` (`host_permissions`) y recargar |
 | Un secreto pasa PERMITIDO en un prompt gigante | Cap de inspección desde la cabeza (G7) | Debe estar el fix de la **cola**; confirmar versión del gateway |
-| En `byok` Claude Code falla tool-calling (`tool_use_failed`) | Modelo no-Claude no soporta el tool-calling agéntico | Usar **suscripción** (default `anthropic`), no byok, para Claude Code |
+| Tool-calling agéntico falla con modelo no-Claude (`tool_use_failed`) | Es el **loop de Copilot/Cursor** (G1), no una regla de byok: Claude Code en Agent SÍ funciona con modelos no-Claude vía el puente de tools del motor | Copilot → **modo Ask**; para agéntico: Claude Code por suscripción **o** con modelo propio (§3.5 de Integraciones) |
 | Nada aparece en el monitor | Superficie no llama al gateway (masking local viejo) o buffer efímero vacío | La extensión debe llamar `POST /api/v1/gw/inspect`; revisar `GET /api/v1/gw/events` (el buffer vive en memoria y se vacía al reiniciar el gateway) |
 | Rutas `/gw` de servicio devuelven 403 genérico en **todas** las superficies | Bloqueo total por licencia (L3) | Ver la [sección 3](#3-la-licencia-como-causa-raiz-sintoma-causa-fix) — no es un problema de la superficie |
 
