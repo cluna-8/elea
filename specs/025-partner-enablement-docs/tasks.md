@@ -49,7 +49,7 @@ el mismo gate.
 - [x] T008 [P] Verificación del filtro FR-007/SC-003: grep de términos de economía
       interna (`FTE`, horas internas, costo, capacidad del equipo, staffing) sobre
       `docs/docs/install-deploy/partner-enablement.md` → 0 hits
-- [ ] T009 Abrir PR a `main` con la spec 025 completa (spec/plan/tasks + página + nav)
+- [x] T009 Abrir PR a `main` con la spec 025 completa (spec/plan/tasks + página + nav)
       — review de un integrante que no escribió la página valida SC-002
 
 ## Dependencies & Execution Order
