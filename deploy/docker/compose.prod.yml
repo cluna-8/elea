@@ -25,14 +25,32 @@ services:
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
       LITELLM_API_BASE: "http://litellm:4000"
+      # El alta de usuarios crea la identidad en el motor con la master key.
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
       BASA_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
+      # Solo pilotos/demos con licencia dev (kid basa-dev-*): opt-in explícito.
+      # Un cliente con licencia PROD jamás lo setea (default false).
+      BASA_ALLOW_DEV_LICENSE: "${BASA_ALLOW_DEV_LICENSE:-false}"
+      # Provider keys del cliente (opcionales): la UI de modelos marca
+      # is_configured mirando el env del BACKEND — sin el passthrough todo
+      # saldría "no configurado" aunque el motor funcione (gotcha del VPS).
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      AZURE_API_KEY: "${AZURE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
       BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
     volumes:
       - licenses:/app/config/licenses          # .lic (perfil) + deployment key (021, persistente)
-      - litellm_config:/app/litellm_config/mounted:ro  # config.yaml TEMPLADO por cliente (US3)
+      # El MISMO config que consume el motor, en la ruta que el backend lee
+      # (/app/litellm_config/config.yaml) y con escritura: el alta de modelos
+      # de la UI escribe acá y el motor lo toma en su próximo restart. El
+      # sub-path 'mounted' anterior dejaba al backend ciego al catálogo
+      # (hallazgo del ensayo — la UI mostraba 'no hay modelos').
+      - litellm_config:/app/litellm_config
     depends_on: [litellm]
 
   frontend:
@@ -53,9 +71,53 @@ services:
     restart: unless-stopped
     environment:
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
+      # Base PROPIA del motor (jamás la del backend): su migrador Prisma aplica
+      # un diff DB↔schema en el primer arranque que DROPea tablas ajenas como
+      # "drift" — compartir base destruía el esquema del producto (ensayo
+      # 2026-07-22). En selfhosted la crea initdb/01-engine-db.sql; en nube,
+      # el módulo OpenTofu provisiona ambas bases.
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${ENGINE_DB:-basa_engine}"
+      # Provider keys DEL CLIENTE (opcionales; viven en secrets.env de la
+      # instalación). El alta de modelos referencia os.environ/<VAR> — sin el
+      # passthrough el modelo queda dado de alta pero el motor no lo puede usar.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      AZURE_API_KEY: "${AZURE_API_KEY:-}"
+      AZURE_API_BASE: "${AZURE_API_BASE:-}"
+      AZURE_API_VERSION: "${AZURE_API_VERSION:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     volumes:
       - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
+    # SIN esto el motor arranca con config default: cero modelos y CERO
+    # guardrails/extensiones (hallazgo del ensayo — el volumen montado no
+    # basta, hay que decirle al motor que lo use). Las extensiones resuelven
+    # relativo al config: /app/config/extensions (populate_volumes las copia).
+    entrypoint: ["litellm", "--config", "/app/config/config.yaml"]
+    # host-gateway: modelos locales del cliente (runtime en el host de la VM).
+    # En Docker Desktop es implícito; en la VM Linux del cliente NO — sin esta
+    # línea el modelo local sería inalcanzable en el install real.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── Ingress del camino selfhosted: puerta única SPA + API (issue #35, patrón
+  #    del VPS). En nube el ingress lo provisiona la 020 US4 (cloud-init) — por
+  #    eso vive detrás del profile. La SPA usa /api/v1 relativo y este Caddy lo
+  #    enruta al backend en el mismo origen (sin mixed-content, sin puerto fijo).
+  ingress:
+    profiles: ["selfhosted"]
+    image: "${CADDY_IMAGE:-caddy:2-alpine}"
+    restart: unless-stopped
+    ports:
+      - "${INGRESS_HTTP_PORT:-80}:80"
+      - "${INGRESS_HTTPS_PORT:-443}:443"
+    environment:
+      # ":80" = HTTP plano (piloto/LAN); un dominio = TLS automático (ACME).
+      INGRESS_HOST: "${INGRESS_HOST:-:80}"
+    volumes:
+      - ./Caddyfile.ingress:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [backend, frontend]
 
   # ── SOLO on-prem/air-gap (profile selfhosted): en nube, RDS/ElastiCache via OpenTofu ──
   db:
@@ -68,6 +130,7 @@ services:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
     volumes:
       - pgdata:/var/lib/postgresql/data        # DURABLE (adiós pgdata efímero de dev)
+      - ./initdb:/docker-entrypoint-initdb.d:ro  # crea la base del motor (solo 1er init)
 
   redis:
     profiles: ["selfhosted"]
@@ -82,3 +145,4 @@ volumes:
   licenses:
   litellm_config:
   branding:
+  caddy_data:

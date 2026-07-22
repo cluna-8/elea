@@ -1,0 +1,7 @@
+# Seed del PILOTO Cámara de Comercio — deliberadamente VACÍO (decisión JF,
+# 2026-07-22): la aplicación se entrega 0km, "vacía pelada". Departamentos,
+# usuarios, Connections y presupuestos se dan de alta EN VIVO con el cliente
+# durante el onboarding (los crea el alta por UI/API, no este seed).
+# Schema disponible: backend/config/clients.example.yaml — sumar un client
+# después = editar y re-aplicar (idempotente).
+clients: []

@@ -33,6 +33,9 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels -r requiremen
 COPY backend/src ./src
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini .
+# Herramientas de operador (seed del perfil, true-up) — necesarias en el
+# install/día-2. license_out/ (claves emitidas) JAMÁS entra: solo los .py.
+COPY backend/scripts/*.py ./scripts/
 # Librería de política compartida (014): en dev se monta; en prod se hornea en el
 # MISMO path que el compose usa, así gateway.py la encuentra sin tocar código.
 COPY litellm/extensions ./litellm_config/extensions
