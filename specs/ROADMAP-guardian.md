@@ -1,6 +1,6 @@
 # Roadmap — Basa Guardian (producto-core)
 
-**Última actualización**: 2026-07-15 (división de módulos por owner — reunión de equipo — + spec 023 Ahorro de Costes en el plano firewall)
+**Última actualización**: 2026-07-22 (módulo JF cerrado hasta 025: 020/021/022 implementadas + mergeadas, 024 fix de unmask bridged, 025 partner-enablement; 016 de Cris en review)
 **Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.0.0.
 
@@ -19,7 +19,7 @@ SSO, D5 env vars).
 El equipo core trabaja en paralelo por módulos, una spec por vez, con el flujo SDD del repo
 (branch por spec → PR → merge humano de otro; ver [CODEOWNERS](../.github/CODEOWNERS)):
 
-- **JF (@DrZuzzjen)** — clientes, integraciones y producto/distribución: 019 (spikes), 020, 021, 022.
+- **JF (@DrZuzzjen)** — clientes, integraciones y producto/distribución: 019 (spikes), 020, 021, 022, 024 (fix bridged), 025 (partner-enablement).
 - **Cristian (@cluna-8)** — seguridad y guardianes: 015, 016, 017, 018 (+ anti-jailbreak del "later").
 - **Falime (@FalimeJ)** — datos, costes y ruteo: 023 (generaliza la 012 al plano firewall).
 
@@ -34,14 +34,16 @@ define el patrón de resolución por scope que la 023 reutiliza: coordinar orden
 | **013** | **Multi-Tenant Foundation & Client Model** | — (core) | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
 | **014** | **LiteLLM-Native Firewall (base_url clients)** | — (core) | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
 | 015 | Scoped SecurityPolicy (per-group/per-client) | Cristian | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
-| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | Cristian | P2 | Roadmap | I, SC-2 | **C2** |
+| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | Cristian | P2 | **En review** ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21), en rebase sobre main — 3 contract tests del DNI pendientes) | I, SC-2 | **C2** |
 | 017 | Auth hardening & Multi-Tenant RBAC + SSO | Cristian | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
 | 018 | Compliance Enforcement Tiers + retention purge | Cristian | P3 | Roadmap | II [D3] | A4 |
-| 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); falta E2E vivo de la extensión (navegador del usuario) + spikes de candidatos | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
-| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | JF | P2 | Roadmap (greenfield) | VII, IV, III | D5 |
-| 021 | Licensing & Seat Enforcement (offline Ed25519) | JF | P2 | Roadmap (greenfield) | VII, III, II | — |
-| 022 | Product Documentation Site (MkDocs Material, contenedor `docs` air-gap) | JF | P2 | Roadmap (greenfield) | VII, VIII, II | — |
-| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | Falime | P2 | **Spec en review** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)) | II, IV, VI | generaliza **012** al plano firewall |
+| 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados ([PR #29](https://github.com/DrZuzzjen/basa-guardian/pull/29)) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
+| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | JF | P2 | **Implementada** (US1-US6, 2026-07-20, [PR #23](https://github.com/DrZuzzjen/basa-guardian/pull/23)); resta T040 (tofu apply e2e sandbox) | VII, IV, III | D5 |
+| 021 | Licensing & Seat Enforcement (offline Ed25519) | JF | P2 | **Implementada** (US1-US5, 2026-07-20, stack [PR #18](https://github.com/DrZuzzjen/basa-guardian/pull/18)→#19→#20→[#22](https://github.com/DrZuzzjen/basa-guardian/pull/22)) | VII, III, II | — |
+| 022 | Product Documentation Site (MkDocs Material, contenedor `docs` air-gap) | JF | P2 | **Implementada** (US1-US7, 2026-07-20, [PR #25](https://github.com/DrZuzzjen/basa-guardian/pull/25) + [#26](https://github.com/DrZuzzjen/basa-guardian/pull/26) docs-en-DoD) | VII, VIII, II | — |
+| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | Falime | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
+| 024 | Unmask + atribución en respuestas byok (rutas bridged) | JF | P2 | **Implementada** (2026-07-21, [PR #31](https://github.com/DrZuzzjen/basa-guardian/pull/31), cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
+| 025 | Partner Enablement (capacitación + certificación del partner) | JF | P2 | **Implementada** (2026-07-22, [PR #36](https://github.com/DrZuzzjen/basa-guardian/pull/36)); doc oficial del ciclo de onboarding | VII, IV | — |
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
@@ -118,6 +120,28 @@ tenant) ya se resuelve en la identidad del motor pero **nada la consume**. Perfi
 scope (default developer: coding tools intocables), ahorro medible en presupuesto + audit metadata-only,
 y **ruteo coste-consciente** opt-in por reglas de equivalencia con guardia de calidad (nunca sustitución
 silenciosa). Plano passthrough fuera de alcance (coste de suscripción fijo). Spec: [PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6).
+
+### 024 — Unmask + atribución en respuestas byok, rutas bridged (P2, fix-spec de #27)
+Cerrar el round-trip mask→unmask en el camino byok del **motor** para modelos no-Claude (local vía Ollama
+y cloud puenteados) y devolver la **identidad** a los eventos del monitor de ese camino. Tres root causes
+verificados en vivo (la evidencia refutó la hipótesis inicial): (1) streaming — `safe_split` soltaba un `[`
+pelado y los bridges con deltas de 1-3 chars partían el placeholder ahí (bug latente también en passthrough);
+(2) no-streaming — la respuesta bridged es un `dict` plano que el `getattr` ignoraba; (3) atribución — el
+logger leía la identidad de un solo metadata-home. Todo en `litellm/extensions/` (Principio VI), con e2e
+contra el motor vivo que antes no existía. **Promueve a FUNCIONA** las 3 superficies que la 019 había dejado
+en PARCIAL (Ollama upstream, Claude Code → modelo propio, Aider).
+
+### 025 — Partner Enablement (P2, doc oficial)
+Página GUÍA del programa de capacitación y certificación del partner en la documentación de producto:
+etapas (formación → práctica → 2-3 installs acompañados → certificación), prerequisitos del ingeniero,
+checklist de autonomía y tabla quién-hace-qué post-certificación. **Filtro editorial FR-007**: la doc se
+vende → cero economía interna del fabricante (FTE/horas/costos); esa parte vive solo en el doc ejecutivo.
+
+## Mantenimiento de este roadmap
+
+Esta tabla es la **fuente de verdad del estado** y debe actualizarse en el **mismo PR que mergea cada spec**
+(pasar el Estado a *Implementada* con el link al PR, o *En review* con el link, y cerrar el issue de tracking
+con `Closes #NN`). Un roadmap que dice "Roadmap (greenfield)" sobre algo ya mergeado es un bug de proceso.
 
 ## Fuera de scope del core (siguen como research/later)
 - **Browser-DLP web** (ChatGPT/Claude/Gemini) — **promovido a spec 019** (viable: el body no está firmado →
