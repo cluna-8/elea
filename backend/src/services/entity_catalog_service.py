@@ -51,21 +51,24 @@ class UnsafePatternError(ValueError):
     largo, o no responde a tiempo (riesgo ReDoS)."""
 
 
-def _matches_within_timeout(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> bool:
-    """Corre en un PROCESO aparte (contexto `spawn`) — no un hilo. Se probó
-    primero con un hilo + `future.result(timeout=...)`: NO alcanza, porque el
-    motor `re` de stdlib no libera el GIL durante el backtracking — un hilo
-    catastrófico bloquea a TODOS los hilos del proceso, incluido el que
-    controla el timeout, así que ni el propio watchdog llega a correr a tiempo
-    (bug real, encontrado probando `(a|aa)+$` con curl — colgó el proceso
-    entero en vez de rechazar en ~1s). Un proceso aparte tiene su propio GIL:
-    si no termina a tiempo, se mata de verdad con `terminate()`/`kill()`.
+def _run_in_process(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> Optional[bool]:
+    """Corre `re.search(pattern, text)` en un PROCESO aparte (contexto `spawn`) —
+    no un hilo. Se probó primero con un hilo + `future.result(timeout=...)`: NO
+    alcanza, porque el motor `re` de stdlib no libera el GIL durante el
+    backtracking — un hilo catastrófico bloquea a TODOS los hilos del proceso,
+    incluido el que controla el timeout, así que ni el propio watchdog llega a
+    correr a tiempo (bug real, encontrado probando `(a|aa)+$` con curl — colgó
+    el proceso entero en vez de rechazar en ~1s). Un proceso aparte tiene su
+    propio GIL: si no termina a tiempo, se mata de verdad con `terminate()`/`kill()`.
 
     `spawn` (no `fork`): forkear desde un proceso con threads vivos (FastAPI/
     uvicorn) puede heredar locks tomados por otros hilos que nunca se liberan
     en el hijo (otro bug real encontrado antes que este). El worker vive en
     `_redos_worker.py`, sin imports pesados, para que el arranque de `spawn`
-    (que sí tiene que reimportar el módulo) sea rápido y no infle el timeout."""
+    (que sí tiene que reimportar el módulo) sea rápido y no infle el timeout.
+
+    Devuelve: `None` si no respondió a tiempo (o crasheó) — el caller decide qué
+    hacer con la ambigüedad; `True`/`False` = resultado REAL de `re.search`."""
     ctx = mp.get_context("spawn")
     q: "mp.Queue" = ctx.Queue()
     p = ctx.Process(target=_redos_worker.match_worker, args=(pattern, text, q))
@@ -77,11 +80,17 @@ def _matches_within_timeout(pattern: str, text: str, timeout_s: float = REGEX_TI
         if p.is_alive():
             p.kill()
             p.join()
-        return False
+        return None
     try:
         return q.get_nowait()
     except Exception:
-        return False  # el proceso murió sin reportar -> tratamos como inseguro
+        return None  # el proceso murió sin reportar -> resultado desconocido
+
+
+def _matches_within_timeout(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> bool:
+    """Usado por `validate_pattern_safety`: solo importa si TERMINÓ a tiempo, no
+    el resultado del match (los strings adversariales son fijos, no reales)."""
+    return _run_in_process(pattern, text, timeout_s) is not None
 
 
 def validate_pattern_safety(pattern: str) -> None:
@@ -115,13 +124,24 @@ def validate_pattern_safety(pattern: str) -> None:
             )
 
 
+MAX_TEST_STRING_LEN = 300
+
+
 def test_pattern(pattern: str, positives: List[str], negatives: List[str]) -> Dict[str, Any]:
-    """Corre el patrón (ya validado como seguro) contra los casos de prueba.
-    Devuelve el detalle de qué pasó y qué no — la UI/reviewer humano decide si
-    el patrón está listo con esta evidencia, no se auto-aprueba nada."""
-    compiled = re.compile(pattern)
-    pos_results = [{"text": t, "matched": bool(compiled.search(t))} for t in positives]
-    neg_results = [{"text": t, "matched": bool(compiled.search(t))} for t in negatives]
+    """Corre el patrón (ya validado como seguro contra los 3 strings adversariales
+    fijos) contra los casos de prueba — que pueden venir de la IA, no de un humano.
+    `validate_pattern_safety` no es una prueba universal de ausencia de ReDoS (solo
+    prueba largos fijos ~40-45 chars); un test_positive/test_negative más largo
+    podría igual colgarse contra un patrón "safe" a esa longitud (blowup polinómico,
+    no solo exponencial) — mismo backstop de proceso+timeout que `validate_pattern_safety`,
+    aplicado acá también, más un cap de largo para no legitimar strings absurdos."""
+    def _run(t: str) -> bool:
+        t = t[:MAX_TEST_STRING_LEN]
+        result = _run_in_process(pattern, t)
+        return bool(result)  # None (timeout/ambiguo) -> "no matcheó", nunca "sí matcheó"
+
+    pos_results = [{"text": t, "matched": _run(t)} for t in positives]
+    neg_results = [{"text": t, "matched": _run(t)} for t in negatives]
     all_positives_matched = all(r["matched"] for r in pos_results)
     all_negatives_clean = all(not r["matched"] for r in neg_results)
     return {
@@ -174,22 +194,28 @@ async def draft_entity(description: str) -> Dict[str, Any]:
     except ai_engine_client.AIEngineClientError as e:
         raise UnsafePatternError(f"El motor de IA no está disponible para redactar el borrador: {e}") from e
 
-    raw_content = data["choices"][0]["message"]["content"]
+    # Todo lo que depende de la FORMA de la respuesta del motor de IA (no solo el
+    # JSON parsing) va en un único bloque protegido — una respuesta 200 pero con
+    # forma inesperada (choices vacío, score no-numérico, etc.) es tan posible
+    # como un JSON malformado, y debe terminar igual en un 422 prolijo, no en un
+    # 500 (bug encontrado en review: el float()/indexado vivían FUERA del try).
     try:
+        raw_content = data["choices"][0]["message"]["content"]
         # Tolerante a que el modelo envuelva el JSON en ```json ... ``` pese a la instrucción.
         cleaned = raw_content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         draft = json.loads(cleaned)
-    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        pattern = draft.get("regex", "")
+        score = float(draft.get("score", 0.5))
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as e:
         raise UnsafePatternError(f"El motor de IA devolvió un borrador no parseable: {e}") from e
 
-    pattern = draft.get("regex", "")
     validate_pattern_safety(pattern)  # levanta UnsafePatternError si no es seguro — el draft NO se devuelve
     test_result = test_pattern(pattern, draft.get("test_positive", []), draft.get("test_negative", []))
 
     return {
         "entity_type": draft.get("entity_type", "CUSTOM"),
         "regex": pattern,
-        "score": float(draft.get("score", 0.5)),
+        "score": max(0.0, min(1.0, score)),
         "context": draft.get("context", []),
         "test_positive": draft.get("test_positive", []),
         "test_negative": draft.get("test_negative", []),

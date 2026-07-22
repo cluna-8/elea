@@ -13,8 +13,10 @@ import re
 
 
 def match_worker(pattern: str, text: str, result_queue) -> None:
+    """Reporta el resultado REAL del match (True/False) — no solo "terminó sin
+    colgarse". `None` = error de regex inesperado (no debería pasar: el caller ya
+    valida que compila antes de llegar acá; es un fail-safe)."""
     try:
-        re.search(pattern, text)
-        result_queue.put(True)
+        result_queue.put(bool(re.search(pattern, text)))
     except Exception:
-        result_queue.put(False)
+        result_queue.put(None)

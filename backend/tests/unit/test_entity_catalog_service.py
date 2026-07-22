@@ -117,6 +117,39 @@ async def test_draft_entity_handles_unavailable_ai_engine(monkeypatch):
         await svc.draft_entity("algo")
 
 
+@pytest.mark.asyncio
+async def test_draft_entity_handles_non_numeric_score_without_500(monkeypatch):
+    """Regresión: antes, un score no-numérico ('score': 'alto') crasheaba con
+    ValueError sin capturar (el float() vivía fuera del try/except) — la ruta
+    HTTP devolvía un 500 en vez de un 422 prolijo."""
+    fake_response = {
+        "choices": [{"message": {"content": (
+            '{"entity_type": "X", "regex": "\\\\bHC-\\\\d{6}\\\\b", "score": "alto", '
+            '"context": [], "test_positive": [], "test_negative": []}'
+        )}}]
+    }
+
+    async def fake_post(path, payload):
+        return fake_response
+
+    monkeypatch.setattr(svc.ai_engine_client, "_post", fake_post)
+
+    with pytest.raises(svc.UnsafePatternError):
+        await svc.draft_entity("algo")
+
+
+@pytest.mark.asyncio
+async def test_draft_entity_handles_empty_choices_without_500(monkeypatch):
+    """Regresión: choices=[] crasheaba con IndexError sin capturar."""
+    async def fake_post(path, payload):
+        return {"choices": []}
+
+    monkeypatch.setattr(svc.ai_engine_client, "_post", fake_post)
+
+    with pytest.raises(svc.UnsafePatternError):
+        await svc.draft_entity("algo")
+
+
 # ── create/list/delete sobre un Guardian fake (sin Postgres real) ──────────────
 
 class _FakeGuardian:
