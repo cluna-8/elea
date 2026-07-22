@@ -60,7 +60,10 @@ class GuardianService:
                 is_active=False,
                 config={
                     "keywords": ["cáncer", "oncología", "quirófano", "vih", "sida", "autopsia"],
-                    "on_premise_model": "ollama-llama3",
+                    # Destino por-cliente (su catálogo define el modelo local);
+                    # el seed NO inventa un nombre: sin destino configurado el
+                    # guardián no rutea (fail-safe en process_prompt).
+                    "on_premise_model": "",
                     "sticky_session": True
                 }
             )
@@ -216,16 +219,25 @@ class GuardianService:
 
         if is_routing_active and routing_guardian:
             keywords = routing_guardian.config.get("keywords", [])
-            on_premise_model = routing_guardian.config.get("on_premise_model", "ollama-llama3")
+            # Sin destino configurado NO se rutea: jamás mandar el request a un
+            # modelo que el catálogo del cliente no define (pre-piloto 2026-07-22;
+            # el default hardcodeado 'ollama-llama3' era residuo del demo).
+            on_premise_model = routing_guardian.config.get("on_premise_model") or ""
             prompt_lower = processed_prompt.lower()
             matched_keywords = [kw for kw in keywords if kw.lower() in prompt_lower]
-            
-            if matched_keywords:
+
+            if matched_keywords and on_premise_model:
                 routed_model = on_premise_model
                 triggers.append({
                     "guardian": routing_guardian.name,
                     "action": "REROUTE",
                     "detail": f"Enrutado a modelo local '{on_premise_model}' por términos: {', '.join(matched_keywords)}"
+                })
+            elif matched_keywords:
+                triggers.append({
+                    "guardian": routing_guardian.name,
+                    "action": "FLAG",
+                    "detail": "Términos sensibles detectados pero el guardián no tiene modelo destino configurado — sin reruteo."
                 })
 
         # 3. PII/PHI Masking Guardian (Presidio + Custom Names)

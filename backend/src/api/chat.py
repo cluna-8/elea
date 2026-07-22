@@ -23,7 +23,6 @@ from ..services.budget_service import BudgetService
 from ..services.presidio_service import PresidioService
 from ..services.optimization_service import OptimizationService
 from ..services.compliance_service import ComplianceService
-from ..services.routing_service import RoutingService
 from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
 from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
@@ -48,18 +47,6 @@ def _get_config_path() -> str:
     if not os.path.exists(path):
         path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
     return path
-
-
-def _catalog_model_names() -> set:
-    """Nombres del catálogo vigente del motor. Set vacío si el config no es
-    legible: el routing GDPR lo trata como "no renombrar" (fail-safe — jamás
-    pedirle al motor un alias que no podemos confirmar que existe)."""
-    try:
-        with open(_get_config_path(), "r") as f:
-            cfg = yaml.safe_load(f) or {}
-        return {m.get("model_name") for m in cfg.get("model_list", []) if m.get("model_name")}
-    except Exception:
-        return set()
 
 
 def _check_configured(params: dict, model_full: str) -> bool:
@@ -266,12 +253,12 @@ async def chat_completions(
         )
         strategy_applied = eff_strategy if tokens_saved > 0 else "none"
 
-    # 5. Layer 2: GDPR & Routing (Apply GDPR routing only if sensitive routing did not change the model)
+    # 5. Layer 2: GDPR (flag de política, visible en pipeline_metadata). El
+    # renombrado legacy a aliases "-eu" hardcodeados se ELIMINÓ (pre-piloto
+    # 2026-07-22): un cliente 0km no hereda residuos del demo — la residencia
+    # EU real la aplica el enforcement data-driven de ComplianceProject
+    # (eu_region_required, más abajo), nunca una tabla en código.
     is_gdpr_active = request.override_gdpr_mode if request.override_gdpr_mode is not None else policy.gdpr_mode
-    if routed_model == request.model:
-        routed_model = RoutingService.get_route_model(
-            request.model, is_gdpr_active, available_models=_catalog_model_names()
-        )
 
     # 5b. Compliance — resolve project via hierarchy: key → user → group → global
     from datetime import timedelta
