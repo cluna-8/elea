@@ -89,21 +89,30 @@ class BasaAuditLogger(CustomLogger):
         masked = request_md.get("basa_masked_entities") or []
         compliance = (request_md.get("basa_compliance") or {}).get("status") or "passed"
 
-        await prisma_client.db.query_raw(
-            _INSERT_AUDIT_SQL,
-            basa.get("tenant_id") or "00000000-0000-0000-0000-000000000001",
-            basa.get("client_id"),
-            basa.get("key_id"),
-            kwargs.get("model") or data.get("model") or "desconocido",
-            int(prompt_tokens or 0),
-            int(completion_tokens or 0),
-            float(cost),
-            bool(masked),
-            json.dumps(masked),
-            compliance,
-            latency_ms,
-            basa.get("group_id"),
-        )
+        # El INSERT de auditoría del motor es best-effort: el audit_logs canónico lo
+        # escribe el backend en SU base (basa_guardian). Si la base del motor no tiene
+        # la tabla (p.ej. base propia basa_engine tras separar el motor), el INSERT
+        # falla — pero NO debe impedir la vitrina en vivo del firewall (el publish a
+        # Redis va después). Antes, la excepción del INSERT se llevaba puesto el publish
+        # y la vitrina quedaba vacía (regresión de la separación de DB).
+        try:
+            await prisma_client.db.query_raw(
+                _INSERT_AUDIT_SQL,
+                basa.get("tenant_id") or "00000000-0000-0000-0000-000000000001",
+                basa.get("client_id"),
+                basa.get("key_id"),
+                kwargs.get("model") or data.get("model") or "desconocido",
+                int(prompt_tokens or 0),
+                int(completion_tokens or 0),
+                float(cost),
+                bool(masked),
+                json.dumps(masked),
+                compliance,
+                latency_ms,
+                basa.get("group_id"),
+            )
+        except Exception as exc:
+            print(f"[basa-audit] INSERT no fatal (sigue el feed en vivo): {exc}")
 
         await self._publish_monitor_event(basa, masked, compliance, kwargs)
 
