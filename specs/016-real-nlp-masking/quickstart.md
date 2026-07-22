@@ -1,10 +1,10 @@
 # Quickstart — validar 016 end-to-end
 
-Prerequisito: stack levantado con el servicio `presidio-analyzer` nuevo agregado a `docker-compose.yml`
-(ver `plan.md` Project Structure) y `PRESIDIO_ANALYZER_URL` seteada en `.env`.
+Prerequisito: stack levantado con el servicio `nlp-analyzer` nuevo agregado a `docker-compose.yml`
+(ver `plan.md` Project Structure) y `NLP_ANALYZER_URL` seteada en `.env`.
 
 ```bash
-cp .env.example .env      # + PRESIDIO_ANALYZER_URL si no viene con default en compose
+cp .env.example .env      # + NLP_ANALYZER_URL si no viene con default en compose
 docker compose up -d --build
 ```
 
@@ -30,13 +30,14 @@ motivo `blocked_entity_type` (tipo, no el número real).
 ## 3. Fail-closed si el NLP no responde (US3)
 
 ```bash
-docker compose stop presidio-analyzer
+docker compose stop nlp-analyzer
 claude -p "Hola, ¿cómo estás?"
 ```
 **Esperado**: la request se rechaza con motivo `nlp_unavailable` — NO responde como si no hubiera PII
-(no hay fallback silencioso a regex en el camino de producción).
+(no hay fallback silencioso a regex en el camino de producción; ver Nota de Contrato en `spec.md`
+FR-003 sobre por qué el regex de dev/demo no es equivalente por región y nunca es el camino real).
 ```bash
-docker compose start presidio-analyzer   # restaurar
+docker compose start nlp-analyzer   # restaurar
 ```
 
 ## 4. Integridad ante coincidencias solapadas (US4)

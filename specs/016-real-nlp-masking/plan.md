@@ -33,7 +33,7 @@ pasa de informativo a consultado en caliente por request.
 `build_ad_hoc_recognizers` (puros, sin red); contract tests extendidos (`contract_checks.py`) contra el
 Analyzer real; integration tests por user story (fail-closed simulando el servicio caído).
 
-**Target Platform**: Linux server en containers (Docker Compose), un servicio nuevo (`presidio-analyzer`)
+**Target Platform**: Linux server en containers (Docker Compose), un servicio nuevo (`nlp-analyzer`, imagen construida desde `presidio-analyzer/`)
 sumado al stack existente.
 
 **Project Type**: web-service (backend FastAPI + motor LiteLLM + nuevo sidecar NLP, todos en containers
@@ -65,7 +65,7 @@ misma fuente de patrones (FR-012). Sin schema nuevo.
 | **II. Compliance FIRST** | No modifica el enforcement AI-Act/secretos existente; agrega dos motivos de bloqueo nuevos (`blocked_entity_type`, `nlp_unavailable`) al mismo canal metadata-only. | PASS by-design / a verificar |
 | **V. Cost Governance (texto honesto)** | Sin impacto en budget; se documenta el costo de latencia agregado como parte del Technical Context, no se promete algo que no se mide. | N/A — sin cambios |
 | **VI. LiteLLM-Native, No Patching** | El motor LiteLLM sigue pinneado por digest, sin dependencias ML agregadas a su imagen; el NLP vive en un sidecar propio, consumido vía HTTP desde el guardrail existente (mismo hook, misma firma). | PASS by-design / a verificar |
-| **VII. Containerized & White-Label** | Nuevo servicio containerizado, config-as-data (`PRESIDIO_ANALYZER_URL` por env); no introduce nombres de terceros en API pública/UI (mismo naming neutro ya vigente). | PASS by-design / a verificar |
+| **VII. Containerized & White-Label** | Nuevo servicio containerizado, config-as-data (`NLP_ANALYZER_URL` por env); no introduce nombres de terceros en API pública/UI (mismo naming neutro ya vigente). | PASS by-design / a verificar |
 | **VIII. Pipeline Transparency** | El monitor sigue mostrando `pipeline_metadata` real; se agregan las nuevas causas de bloqueo al mismo feed, sin datos cosméticos. | PASS by-design / a verificar |
 | **Constraint C1 No Raw PII/PHI Storage** | Auditoría de los nuevos motivos de bloqueo es metadata-only (tipo, no valor) — mismo patrón que hoy. | PASS by-design / a verificar |
 | **Constraint C2 NLP real en prod (SC-2)** | Es el objeto central de esta feature — activa el NLP real que hoy es scaffolding inactivo. | Resuelto por esta feature |
@@ -112,8 +112,8 @@ presidio-analyzer/                  # NUEVO — imagen propia
 ├── Dockerfile                      # build --build-arg NLP_CONF_FILE=conf/es.yaml
 └── conf/es.yaml                    # NlpEngineConfig: spaCy es_core_news_md
 
-docker-compose.yml                  # + servicio presidio-analyzer (basa-network, sin puerto al host)
-.env.example                        # + PRESIDIO_ANALYZER_URL
+docker-compose.yml                  # + servicio nlp-analyzer (basa-network, sin puerto al host)
+.env.example                        # + NLP_ANALYZER_URL
 ```
 
 **Structure Decision**: se extiende la estructura existente de spec 014 (librería PURA compartida +

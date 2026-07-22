@@ -33,13 +33,17 @@ services:
       timeout: 3s
       retries: 5
 
-  presidio-analyzer:
+  nlp-analyzer:
     # Motor de detección NLP real (spec 016) — sidecar propio, español. Sin puerto
     # publicado al host: solo lo consumen litellm/backend dentro de basa-network.
+    # Naming neutro (Principio VII): nombre de servicio/hostname sin marca de terceros
+    # (el directorio de build sigue llamándose presidio-analyzer/ — detalle interno de
+    # repo, no publicado; hallazgo del gate check-docs: el hostname SÍ se filtraba a
+    # la doc pública vía el valor default de NLP_ANALYZER_URL en configuration.md).
     build:
       context: ./presidio-analyzer
       dockerfile: Dockerfile
-    container_name: basa-presidio-analyzer
+    container_name: basa-nlp-analyzer
     networks:
       - basa-network
     healthcheck:
@@ -72,7 +76,7 @@ services:
       - REDIS_PORT=6379
       - LITELLM_LOG=INFO
       # Motor NLP real (spec 016) — nombre de servicio compose, puerto interno del app.py
-      - PRESIDIO_ANALYZER_URL=http://presidio-analyzer:3000
+      - NLP_ANALYZER_URL=http://nlp-analyzer:3000
       - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
@@ -86,7 +90,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      presidio-analyzer:
+      nlp-analyzer:
         condition: service_healthy
     networks:
       - basa-network
@@ -130,7 +134,7 @@ services:
       # producto rechaza la licencia dev pública del repo (guard anti-neutralización
       # del fail-closed). Una imagen prod jamás la setea.
       - BASA_ALLOW_DEV_LICENSE=${BASA_ALLOW_DEV_LICENSE:-true}
-      - PRESIDIO_ANALYZER_URL=http://presidio-analyzer:3000
+      - NLP_ANALYZER_URL=http://nlp-analyzer:3000
     volumes:
       - ./backend:/app
       - ./litellm:/app/litellm_config

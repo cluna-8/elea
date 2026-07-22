@@ -1,9 +1,10 @@
+import os
 import re
 import logging
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from ..models.guardian import Guardian
-from .presidio_service import PresidioService
+from .presidio_service import PresidioService, NlpUnavailableError
 
 logger = logging.getLogger("basa-secure-gateway.guardian")
 
@@ -15,12 +16,25 @@ class GuardianService:
         # Ensure "Pedro" and "Cristian" are in the database's PII guardian config
         pii_g = db.query(Guardian).filter(Guardian.guardian_type == "pii_masking").first()
         if pii_g:
-            c_names = pii_g.config.get("custom_names", [])
             updated = False
+            c_names = pii_g.config.get("custom_names", [])
             for name in ["Pedro", "Cristian"]:
                 if name not in c_names:
                     c_names.append(name)
                     updated = True
+
+            # spec 016 T028/T029: instalaciones existentes seedeadas ANTES de la
+            # corrección de región (Europa, no Argentina) se quedaron con DNI/CUIL
+            # en `entities` — un tipo que el detector real ya no produce, así que
+            # nunca se enmascaraba nada de esa categoría en silencio. Mismo patrón
+            # de migración-on-read que ya existía para `custom_names`.
+            eu_entities = ["PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS",
+                           "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD"]
+            current_entities = pii_g.config.get("entities", [])
+            if set(current_entities) != set(eu_entities):
+                pii_g.config = {**pii_g.config, "entities": eu_entities}
+                updated = True
+
             if updated:
                 pii_g.config = {**pii_g.config, "custom_names": c_names}
                 from sqlalchemy.orm.attributes import flag_modified
@@ -41,7 +55,11 @@ class GuardianService:
                 guardian_type="pii_masking",
                 is_active=True,
                 config={
-                    "entities": ["PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER"],
+                    # Alineado con el default de SecurityPolicy.entity_configs (spec 016,
+                    # región eu/España): DNI/CUIL eran argentinos, ya no aplican por default
+                    # (T028/T029 — antes este catálogo divergía en silencio del real).
+                    "entities": ["PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS",
+                                "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD"],
                     "action": "MASK",
                     "custom_names": ["Pedro", "Cristian", "Juan Pérez", "María López", "Carlos Rodríguez"]
                 }
@@ -294,8 +312,26 @@ class GuardianService:
                     "triggers": triggers
                 }
             
-            # General Presidio scan
-            raw_entities = await PresidioService.analyze_text(processed_prompt)
+            # General Presidio scan — spec 016 T028/T029 (FR-012): prefiere el motor NLP
+            # real (mismo sidecar que usa el firewall) si está configurado; degrada al
+            # regex de dev SOLO de forma VISIBLE (trigger registrado), nunca en silencio
+            # (spec.md Assumptions: este camino es interno/playground, no tráfico de
+            # producción — puede degradar visible, pero jamás ocultarlo).
+            presidio_url = os.environ.get("NLP_ANALYZER_URL")
+            if presidio_url:
+                try:
+                    raw_entities = await PresidioService.analyze_text_http(
+                        processed_prompt, presidio_url, custom_names=custom_names)
+                except NlpUnavailableError:
+                    triggers.append({
+                        "guardian": pii_guardian.name if pii_guardian else "PII Guard",
+                        "action": "DEGRADED",
+                        "detail": "Motor de detección NLP no disponible — degradado a regex "
+                                  "de dev (SOLO panel/playground, nunca en el firewall real).",
+                    })
+                    raw_entities = await PresidioService.analyze_text(processed_prompt)
+            else:
+                raw_entities = await PresidioService.analyze_text(processed_prompt)
             filtered_entities = [e for e in raw_entities if e["entity_type"] in entities_to_scan]
             
             if filtered_entities:

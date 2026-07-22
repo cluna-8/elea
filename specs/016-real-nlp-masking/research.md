@@ -38,9 +38,9 @@ de Presidio hace sustitución irreversible, no sirve al moat de des-enmascarar).
 
 ## 2. Topología de despliegue
 
-**Decision**: nuevo servicio `presidio-analyzer` en `docker-compose.yml`, en `basa-network`, sin puerto
+**Decision**: nuevo servicio `nlp-analyzer` en `docker-compose.yml` (imagen propia construida desde `presidio-analyzer/`), en `basa-network`, sin puerto
 expuesto al host (solo alcanzable desde `backend` y `litellm`). URL inyectada por env var
-(`PRESIDIO_ANALYZER_URL`), consistente con el patrón de Constraint C5 (credenciales/endpoints fuera de
+(`NLP_ANALYZER_URL`), consistente con el patrón de Constraint C5 (credenciales/endpoints fuera de
 `config.yaml` en claro).
 
 **Rationale**: mismo patrón de containerización que el resto del stack (Principio VII); no acopla el

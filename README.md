@@ -54,6 +54,7 @@ docker compose up -d --build
 | **Gateway (puerta única)** | `http://localhost:8091/api/v1/gw` |
 | Monitor en vivo (todas las superficies) | http://localhost:8091/api/v1/gw/monitor |
 | Motor LiteLLM (interno) | http://localhost:4010/health/readiness |
+| Motor de detección NLP (interno, sin puerto al host) | `NLP_ANALYZER_URL` (default `http://nlp-analyzer:3000`) |
 | PostgreSQL (host) | `localhost:5433` |
 
 **Primer login**: entrar al frontend como `admin` con la contraseña que elijas — el primer login
@@ -150,7 +151,7 @@ Redis · React/Vite · Docker Compose.
 
 ```bash
 # Suite completa del backend (unit + integration + contract), contra Postgres real:
-docker compose run --rm --no-deps backend pytest tests/ -q          # ~156 passed
+docker compose run --rm --no-deps backend pytest tests/ -q          # ~297 passed
 # Contract checks del motor (DENTRO de la imagen pinneada):
 docker compose exec -T litellm python /app/extensions/contract_checks.py
 docker compose exec -T litellm python /app/extensions/integration_checks.py

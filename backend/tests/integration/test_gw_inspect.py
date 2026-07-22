@@ -55,9 +55,12 @@ def test_inspect_masks_and_returns_replacements(client):
                     headers={"X-Basa-Key": "sk-basa-valid"})
     assert r.status_code == 200
     j = r.json()
-    # el modelo (ChatGPT) verá placeholders, no la PII
+    # el modelo (ChatGPT) verá placeholders, no la PII. Nota (spec 016, corrección
+    # post-review Europa/no-Argentina): el fallback dev `default_analyze` ya no
+    # tiene un tipo "DNI" propio — el valor sigue enmascarándose, pero cae en el
+    # patrón genérico PHONE_NUMBER (ver test_route_parity.py / test_browser_dlp_e2e.py).
     assert EMAIL not in j["masked"] and DNI not in j["masked"]
-    assert "[EMAIL_ADDRESS_" in j["masked"] and "[DNI_" in j["masked"]
+    assert "[EMAIL_ADDRESS_" in j["masked"]
     # replacements = token→original para que la extensión des-enmascare el DOM
     tokens = {r_["token"]: r_["original"] for r_ in j["replacements"]}
     assert EMAIL in tokens.values() and DNI in tokens.values()
@@ -67,7 +70,7 @@ def test_inspect_masks_and_returns_replacements(client):
         restored = restored.replace(tok, orig)
     assert EMAIL in restored and DNI in restored
     types = {e["type"] for e in j["entities"]}
-    assert "EMAIL_ADDRESS" in types and "DNI" in types
+    assert "EMAIL_ADDRESS" in types
 
 
 def test_inspect_empty_text_ok(client):

@@ -3,7 +3,7 @@
 Interfaz que este feature **consume** (no expone). Se pinnea con un contract test análogo a
 `litellm/extensions/contract_checks.py` — corre contra el servicio real levantado, no contra la doc.
 
-## Request — `POST {PRESIDIO_ANALYZER_URL}/analyze`
+## Request — `POST {NLP_ANALYZER_URL}/analyze`
 
 ```json
 {

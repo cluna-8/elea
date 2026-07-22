@@ -766,6 +766,71 @@
         "title": "CostConfigUpdate",
         "type": "object"
       },
+      "CustomEntityCreateRequest": {
+        "properties": {
+          "ai_generated": {
+            "default": false,
+            "title": "Ai Generated",
+            "type": "boolean"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "regex": {
+            "title": "Regex",
+            "type": "string"
+          },
+          "region": {
+            "default": "eu",
+            "title": "Region",
+            "type": "string"
+          },
+          "score": {
+            "default": 0.5,
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "entity_type",
+          "regex"
+        ],
+        "title": "CustomEntityCreateRequest",
+        "type": "object"
+      },
+      "CustomEntityDraftRequest": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "title": "CustomEntityDraftRequest",
+        "type": "object"
+      },
       "DPAResponse": {
         "properties": {
           "covers_special_categories": {
@@ -5643,6 +5708,233 @@
           }
         },
         "summary": "Create Guardian",
+        "tags": [
+          "Security Guardians"
+        ]
+      }
+    },
+    "/api/v1/guardians/custom-entities": {
+      "get": {
+        "operationId": "list_custom_entities_api_v1_guardians_custom_entities_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Custom Entities Api V1 Guardians Custom Entities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Custom Entities",
+        "tags": [
+          "Security Guardians"
+        ]
+      },
+      "post": {
+        "description": "Persiste un patrón ya revisado (aceptado o editado a mano tras el draft) —\núnico punto donde algo se activa en el firewall real. Revalida seguridad\nsiempre, sin importar si vino de un draft de IA o se tipeó a mano.",
+        "operationId": "create_custom_entity_api_v1_guardians_custom_entities_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomEntityCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Custom Entity Api V1 Guardians Custom Entities Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Custom Entity",
+        "tags": [
+          "Security Guardians"
+        ]
+      }
+    },
+    "/api/v1/guardians/custom-entities/draft": {
+      "post": {
+        "description": "Le pide al motor de IA un borrador de patrón a partir de una descripción en\nlenguaje natural. NO persiste nada — el resultado incluye el resultado de\ncorrerlo contra sus propios casos de prueba, para que un humano decida si\nguardarlo (POST /custom-entities) tal cual o editado.",
+        "operationId": "draft_custom_entity_api_v1_guardians_custom_entities_draft_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomEntityDraftRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Draft Custom Entity Api V1 Guardians Custom Entities Draft Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Draft Custom Entity",
+        "tags": [
+          "Security Guardians"
+        ]
+      }
+    },
+    "/api/v1/guardians/custom-entities/{entity_id}": {
+      "delete": {
+        "operationId": "delete_custom_entity_api_v1_guardians_custom_entities__entity_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Custom Entity",
         "tags": [
           "Security Guardians"
         ]

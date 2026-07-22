@@ -1,0 +1,112 @@
+# Spec 016 — Notas de implementación
+
+**Fecha**: 2026-07-22 · **Estado**: **US1 + US2 + US3 + US4 + US5 implementadas y
+verificadas** (unit/contract/integration/e2e, suite completa dentro del container real
+del backend: 293 passed, 10 skipped). `make -C deploy check-docs` verde (incl. naming
+neutro). Pendiente de decisión de usuario: rebase vs merge sobre `main` antes de push,
+y commit/push del rename `NLP_ANALYZER_URL`/`nlp-analyzer` descrito abajo.
+
+## Qué se entregó
+
+- **Motor NLP real** (US1/US2): sidecar propio `presidio-analyzer/` (Presidio Analyzer +
+  spaCy `es_core_news_md`, imagen propia — la oficial no trae español), servicio compose
+  `nlp-analyzer` (ver "Naming neutro" abajo), expone `/analyze` con soporte de
+  `ad_hoc_recognizers` (patterns + deny_list + context).
+- **`STRUCTURED_ID_PATTERNS_BY_REGION`** (`basa_guardian_policy.py`): reemplaza los dos
+  diccionarios `PII_PATTERNS` duplicados (research §3). Región `"eu"` (default,
+  `BASA_ENTITY_REGION`): solo `PASSPORT` ad-hoc — `ES_NIF`/`ES_NIE` son built-in de
+  Presidio con checksum, no se reimplementan. Región `"latam_ar"` (inactiva, preparada):
+  `DNI`/`CUIL`/`PASSPORT`. **Corrección post-review**: el despliegue objetivo es Europa
+  (España primero), no Argentina — el research/spec originales asumían DNI/CUIL como
+  ejemplo y se corrigieron.
+- **`build_ad_hoc_recognizers`/`presidio_analyze`/`resolve_overlaps`/`resolve_entity_action`**
+  (`basa_guardian_policy.py`, librería PURA compartida motor+backend): única fuente de
+  patrones y de resolución de solapamientos/acción por tipo. `resolve_overlaps` usa
+  clustering de intervalos (no comparación par-a-par) — resuelve correctamente 3+
+  entidades solapadas en cadena. `mask_text` ahora llama `resolve_overlaps` internamente
+  (defensa en profundidad — antes confiaba en que el `analyze` inyectado ya lo hubiera
+  hecho, contrato implícito y frágil; expuesto por un stress test nuevo, T031).
+- **Fail-closed real** (US3): `NlpUnavailableError` — timeout/5xx/conexión rechazada del
+  Analyzer ya NO produce `[]` silencioso (fail-open heredado); el guardrail retorna motivo
+  de bloqueo `nlp_unavailable` por el mismo canal que AI-Act/secretos.
+- **`entity_configs` conectado al firewall real** (US2): `custom_auth._IDENTITY_SQL`
+  extendida para traer la `SecurityPolicy` activa; `BasaGuardrail.async_pre_call_hook`
+  resuelve MASK/BLOCK por tipo vía `resolve_entity_action` ANTES de tocar el body (un solo
+  preview de detección, no se enmascara para bloquear después).
+- **Consistencia panel/playground vs firewall** (US4, T028/T029): `presidio_service.py`
+  reescrito para consumir la misma librería PURA (elimina su propio `PATTERNS` duplicado),
+  deja de fail-open en `analyze_text_http`. `guardian_service.py` migra el catálogo de
+  entidades del Guardian por defecto de Argentina (`DNI`/`CUIL`) a EU (`PERSON`, `ES_NIF`,
+  `ES_NIE`, `PASSPORT`, `EMAIL_ADDRESS`, `PHONE_NUMBER`, `IBAN_CODE`, `CREDIT_CARD`) con
+  migración-on-read (mismo patrón que la migración existente de `custom_names`); degradación
+  a regex de dev **visible** (trigger `DEGRADED` auditado), nunca silenciosa, si
+  `NLP_ANALYZER_URL` no está configurada.
+- **Catálogo de entidades custom con asistente de IA** (US5): `entity_catalog_service.py`
+  — `draft_entity()` pide a un modelo barato (`gemini-2.5-flash-lite`) un patrón regex a
+  partir de una descripción en lenguaje natural; **nunca se auto-activa**. `create_custom_entity()`
+  es el único punto de activación: valida seguridad del patrón (ReDoS), normaliza/valida
+  `entity_type` (`^[A-Z][A-Z0-9_]*$`), rechaza duplicados activos, usa `SELECT ... FOR UPDATE`
+  para lectura-modificación-escritura segura sin optimistic locking. 4 endpoints en
+  `backend/src/api/guardians.py` bajo `/guardians/custom-entities/*`.
+- **ReDoS real, no heurístico-only**: `_NESTED_QUANTIFIER_RE` (heurística estática, caso
+  común) + verificación real en un **proceso** separado (`multiprocessing`, contexto
+  `spawn`, `backend/src/services/_redos_worker.py`) con timeout real y `terminate()`/`kill()`.
+  Se descartaron 3 approaches previos: `signal.alarm` (falla fuera del hilo principal —
+  las rutas sync de FastAPI corren en threadpool), el módulo `regex` con su `timeout=`
+  nativo (motor de matching distinto a `re`, falsos negativos en backtracking catastrófico),
+  y `re` + `ThreadPoolExecutor.result(timeout=)` (`re` no libera el GIL durante backtracking
+  catastrófico, el hilo watchdog también queda bloqueado). `test_pattern()` (usado por el
+  draft de IA) ahora tiene la misma protección de timeout que `validate_pattern_safety`
+  (antes sin protección — hallazgo de review).
+
+## Naming neutro (Principio VII) — hallazgo post-review
+
+`make -C deploy check-docs` (`test_docs_neutral_naming.sh`) falló al regenerar la doc
+publicada: el env var `PRESIDIO_ANALYZER_URL` (nombre de variable) y su valor default
+`http://presidio-analyzer:3000` (hostname del servicio compose) filtraban el nombre del
+motor/internals al sitio publicado (`configuration.md`, autogenerado desde `.env.example`).
+Fix en dos pasos:
+1. Rename del env var: `PRESIDIO_ANALYZER_URL` → `NLP_ANALYZER_URL` (7+ archivos:
+   `.env.example`, `docker-compose.yml`, `contract_checks.py`, `basa_guardrail.py`,
+   `basa_guardian_policy.py` (comentario), `guardian_service.py`, tests e2e, specs internas).
+2. Rename del servicio/hostname compose: `presidio-analyzer` → `nlp-analyzer` (service key,
+   `container_name: basa-nlp-analyzer`, `depends_on`, todas las URLs `http://…:3000`) — el
+   directorio interno de build `presidio-analyzer/` se dejó **sin cambiar** (no es
+   customer-facing, solo estructura de repo).
+
+Verificado: `make -C deploy docs-refs` + `make -C deploy check-docs` full (9 checks) verdes
+tras el rename.
+
+## Nota de Contrato — regional fallback (hallazgo de review, ver `spec.md` FR-003)
+
+El regex de dev/demo (`default_analyze`, sin NLP real levantado) es un piso de cobertura
+genérico, **no** una réplica por región del motor NLP. Con `BASA_ENTITY_REGION=eu`
+(default) ese fallback ya no produce un tipo `DNI` distinguible — un DNI español cae
+dentro del patrón genérico `PHONE_NUMBER` del fallback. Esto **no** es un bug: la
+detección precisa por región depende del motor NLP real (built-in con checksum), y el
+fallback nunca es el camino que valida FR-003 en producción (FR-004 bloquea si no está
+disponible). 3 archivos de test asumían el tipo `DNI` distinguible en el fallback y se
+corrigieron: `tests/contract/test_route_parity.py`, `tests/integration/test_gw_inspect.py`,
+`tests/e2e/test_browser_dlp_e2e.py`.
+
+## Verificación
+
+| Caso | Resultado |
+|---|---|
+| Suite completa (`pytest tests/`, dentro del container real del backend) | **293 passed, 10 skipped** |
+| `contract_checks.py` (dentro de la imagen litellm pinneada) | OK, incl. checks nuevos de 016 |
+| `docker exec` — `PERSON` sin prefijo + `ES_NIF` tras migración EU | detectados correctamente (verificado live) |
+| Fail-closed real (Presidio caído) | bloqueo `nlp_unavailable`, no `[]` silencioso |
+| `entity_configs` BLOCK vs MASK (e2e real, `custom_auth` + política real) | BLOCK rechaza, MASK enmascara y continúa |
+| Overlap resolution (T031, stress test con `analyze` "ingenuo") | expuso y corrigió el gap de `mask_text` |
+| `make -C deploy check-docs` | 9/9 checks verdes (incl. naming neutro) |
+
+## Qué queda
+
+- **Rebase vs merge**: la rama ya fue pusheada dos veces con merges desde `main`; un
+  rebase reescribiría historia ya publicada — se deja como decisión explícita del usuario,
+  no se ejecuta sin confirmación.
+- Commitear y pushear el rename `NLP_ANALYZER_URL`/`nlp-analyzer` + los fixes de tests +
+  `ROADMAP-guardian.md`/`README.md`/notas de esta spec (este documento).
+- Gap PHI clínico español (CIE-10, nº historia clínica) queda fuera de alcance — no pedido
+  en las user stories de esta spec.

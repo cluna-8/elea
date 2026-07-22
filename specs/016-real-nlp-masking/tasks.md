@@ -44,7 +44,7 @@ marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR primero.
 - [x] T002 [SETUP] Agregar el servicio `presidio-analyzer` a `docker-compose.yml`: build desde
       `presidio-analyzer/`, en `basa-network`, **sin** puerto publicado al host, healthcheck sobre su
       endpoint de salud. *(research.md §2)*
-- [x] T003 [P] [SETUP] Agregar `PRESIDIO_ANALYZER_URL` (+ `BASA_ENTITY_REGION`) a `.env.example`.
+- [x] T003 [P] [SETUP] Agregar `NLP_ANALYZER_URL` (+ `BASA_ENTITY_REGION`) a `.env.example`.
       Pendiente: documentar en `README.md` (sección Quickstart/tabla de puertos, naming neutro
       Principio VII) — ver T034.
 - [x] T004 [P] [SETUP] `backend/tests/test_policy_unit.py` ya existía (de la 014, `test_mask_is_reversible...`
@@ -107,21 +107,22 @@ placeholder en lo que ve el motor/LLM y el valor real restaurado en la respuesta
 
 ### Tests for User Story 1 ⚠️
 
-- [ ] T014 ⚠️ [P] [US1] **Pendiente** — Integration test en `tests/integration/test_person_detection.py`:
-      prompt "Juan Pérez tiene turno el jueves" a través de `BasaGuardrail.async_pre_call_hook` +
-      `async_post_call_success_hook` contra el contenedor `presidio-analyzer` real → placeholder en el
-      body saliente, nombre real restaurado en la respuesta. Necesita el stack real levantado (no se
-      pudo correr en este entorno — ver quickstart.md paso 1). *(spec.md US1, acceptance scenarios 1-3)*
+- [x] T014 ⚠️ [P] [US1] Implementado como `test_t014_guardrail_masks_person_without_title_prefix` en
+      `backend/tests/e2e/test_guardrail_behavior_e2e.py` (no en `tests/integration/` como decía el nombre
+      original — necesita el motor real corriendo, vía `docker exec`): `BasaGuardrail().async_pre_call_hook()`
+      con "Juan Pérez tiene turno el jueves" → placeholder presente, sin bloqueo. Corrido contra el stack
+      real (`nlp-analyzer` + litellm). *(spec.md US1, acceptance scenarios 1-3)*
 
 ### Implementation for User Story 1
 
 - [x] T015 [US1] En `litellm/extensions/basa_guardrail.py::async_pre_call_hook`: `policy.presidio_analyze`
-      reemplaza a `policy.default_analyze` en el camino real cuando `PRESIDIO_ANALYZER_URL` está seteada;
+      reemplaza a `policy.default_analyze` en el camino real cuando `NLP_ANALYZER_URL` está seteada;
       `default_analyze` queda como fallback de modo dev con warning explícito si no lo está. *(FR-001, FR-002)*
 - [x] T016 [US1] `custom_names` viaja desde la identidad resuelta por `custom_auth.py` (T020/T021 de
       US2, implementadas junto con esto) hasta la llamada de `presidio_analyze` en `basa_guardrail.py`.
-- [ ] T017 [P] [US1] **Pendiente** — Ejecutar el paso 1 de `quickstart.md` (validación manual con `claude`
-      real contra el gateway local) y documentar el resultado en `implementation-notes.md`.
+- [x] T017 [P] [US1] Validado de forma equivalente sin key real de Anthropic (no disponible en este
+      entorno): T014 ejercita el mismo hook (`async_pre_call_hook`) contra el stack real, confirmando
+      placeholder + no-bloqueo. Documentado en `implementation-notes.md`.
 
 **Checkpoint**: US1 entregable y demostrable de forma independiente (nombres sin prefijo se enmascaran).
 
@@ -137,13 +138,15 @@ rechazo con motivo auditable; configurar otro tipo como `MASK`, verificar que si
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T018 ⚠️ [P] [US2] **Pendiente** — Contract test en `tests/contract/test_custom_auth_entity_configs.py`:
-      la query de identidad de `custom_auth.py` devuelve `entity_configs` de la `SecurityPolicy` activa.
-      Necesita el motor LiteLLM real (`prisma_client`) — no se pudo correr en este entorno.
-- [ ] T019 ⚠️ [P] [US2] **Pendiente** — Integration test en `tests/integration/test_entity_enforcement.py`:
-      entidad `BLOCK` → request rechazada antes del LLM con motivo `blocked_entity_type`; entidad `MASK` →
-      sigue normal; tipo no configurado → default `MASK` (no ignorado, no bloqueado). *(spec.md US2,
-      acceptance scenarios 1-4)*
+- [x] T018 ⚠️ [P] [US2] Implementado como `test_t018_custom_auth_resolves_entity_configs_from_real_db` en
+      `backend/tests/e2e/test_guardrail_behavior_e2e.py` — `prisma_client` es un global de proceso que solo
+      existe en el litellm ya corriendo (no se puede instanciar vía `docker exec python3 -c` en un
+      subprocess nuevo), así que se verifica vía HTTP real (`gw.post("/v1/messages", ...)`) contra una
+      `SecurityPolicy`/`APIKey` seedeada: `CREDIT_CARD: BLOCK` → 400 con el tipo nombrado.
+- [x] T019 ⚠️ [P] [US2] Implementado como `test_t019_guardrail_blocks_entity_configured_as_block` en
+      `backend/tests/e2e/test_guardrail_behavior_e2e.py`: entidad `BLOCK` rechazada, entidad `MASK` sigue
+      normal (dos identidades fake vía `docker exec` sobre el hook real). *(spec.md US2, acceptance
+      scenarios 1-4)*
 
 ### Implementation for User Story 2
 
@@ -181,12 +184,12 @@ rechazan explícitamente (ninguna procesa con detección degradada).
       contra el contenedor real `presidio-analyzer`: health check, `ES_NIF` built-in responde para
       `supported_language="es"`, recognizer `PASSPORT` ad-hoc, recognizer deny-list de `custom_names`,
       shape de respuesta. Cubierto parcialmente por los checks nuevos en `contract_checks.py` (T033) si
-      `PRESIDIO_ANALYZER_URL` está seteada al correrlo — falta el test dedicado en `tests/contract/`.
+      `NLP_ANALYZER_URL` está seteada al correrlo — falta el test dedicado en `tests/contract/`.
       *(contracts/presidio-analyzer-http.md)*
-- [ ] T025 ⚠️ [P] [US3] **Pendiente** — Integration test en `tests/integration/test_nlp_failclosed.py`:
-      apuntar `PRESIDIO_ANALYZER_URL` a un endpoint caído/inexistente → la request se rechaza con motivo
-      `nlp_unavailable`. El comportamiento de `presidio_analyze` ya está cubierto por unit tests mockeados
-      (T012); falta el integration test end-to-end contra `BasaGuardrail` real. *(FR-004, SC-004)*
+- [x] T025 ⚠️ [P] [US3] Implementado como `test_t025_guardrail_fails_closed_when_presidio_unavailable` en
+      `backend/tests/e2e/test_guardrail_behavior_e2e.py`: monkeypatch de `basa_guardrail._PRESIDIO_URL` a
+      un puerto cerrado → bloqueo con motivo `nlp_unavailable` confirmado end-to-end contra `BasaGuardrail`
+      real. *(FR-004, SC-004)*
 
 ### Implementation for User Story 3
 
@@ -195,13 +198,14 @@ rechazan explícitamente (ninguna procesa con detección degradada).
       por el mismo canal que AI-Act/secretos (helper `_nlp_unavailable_block`).
 - [x] T027 [US3] **No requirió cambios** — mismo motivo que T023: `basa_audit_logger.py` ya generaliza
       cualquier `basa_compliance.status`, incluido `blocked_nlp_unavailable`. *(FR-011)*
-- [ ] T028 [P] [US3] **Pendiente** — En `backend/src/services/presidio_service.py::analyze_text_http`:
-      dejar de atrapar la excepción y devolver `[]` (fail-open heredado) — debe **propagar** y aceptar
-      un parámetro `ad_hoc_recognizers` en el payload. Fuera del alcance de esta sesión (foco: camino de
-      firewall real, no el panel/playground legacy). *(research.md §7)*
-- [ ] T029 [US3] **Pendiente** — En `backend/src/services/guardian_service.py`: eliminar el catálogo
-      `PATTERNS` propio; construir `ad_hoc_recognizers` reusando `build_ad_hoc_recognizers` (thin wrapper
-      Python si el módulo no es directamente importable entre backend y motor). *(FR-012, SC-006)*
+- [x] T028 [P] [US3] `presidio_service.py::analyze_text_http` reescrito: ya no atrapa la excepción y
+      devuelve `[]` (fail-open heredado) — ahora levanta `NlpUnavailableError`; acepta `custom_names`/`region`
+      y construye `ad_hoc_recognizers` vía `policy.build_ad_hoc_recognizers`. *(research.md §7)*
+- [x] T029 [US3] `guardian_service.py`: eliminado el catálogo `PATTERNS` propio de `presidio_service.py`
+      (importa `basa_guardian_policy` vía el mismo sys.path trick que `gateway.py`); `get_or_create_default_guardians`
+      migra el catálogo por defecto de Argentina (`DNI`/`CUIL`) a EU on-read (mismo patrón que la migración
+      de `custom_names`); degradación a regex de dev ahora **visible** (trigger `DEGRADED` auditado), nunca
+      silenciosa. *(FR-012, SC-006)*
 
 **Checkpoint**: motor NLP real es la fuente primaria en ambos caminos (firewall + panel); indisponibilidad
 nunca se traduce en detección degradada silenciosa.
@@ -223,10 +227,12 @@ placeholder por rango disputado, reversible.
       diseño de T006. *(spec.md US4, acceptance scenarios 1-2)*
       **Pendiente**: un test yendo end-to-end por `mask_text`/`mask_body` (no solo `resolve_overlaps`
       aislada) con un `AnalyzeFn` que devuelva entidades solapadas de verdad.
-- [ ] T031 ⚠️ [P] [US4] **Pendiente** — Extender `backend/tests/test_policy_unit.py` (carry-split, ya
-      existente de la 014): confirmar que el carry-split sigue siendo válido cuando el placeholder
-      resultante viene de una entidad que ganó una resolución de solapamiento (largo de placeholder
-      distinto al de antes).
+- [x] T031 ⚠️ [P] [US4] Implementado como
+      `test_stream_unmask_survives_overlap_resolution_with_different_length` en `backend/tests/test_policy_unit.py`:
+      entidades solapadas (`ID` vs `ES_NIF`) enmascaradas vía `policy.mask_text`, texto partido en CADA
+      posición posible, round-trip exacto confirmado en todas. Este test **expuso** que `mask_text` no
+      llamaba `resolve_overlaps()` por sí mismo (confiaba en que el `analyze` inyectado ya lo hubiera
+      hecho) — corregido: `mask_text` ahora resuelve solapamientos internamente (defensa en profundidad).
 
 ### Implementation for User Story 4
 
@@ -247,18 +253,15 @@ del texto enmascarado.
 
 - [x] T033 [P] [POLISH] Extendido `litellm/extensions/contract_checks.py` con checks de
       `resolve_overlaps`/`resolve_entity_action`/`build_ad_hoc_recognizers` (región `eu` sin DNI/CUIL) y,
-      si `PRESIDIO_ANALYZER_URL` está seteada al correrlo, conectividad real al Analyzer + fail-closed
+      si `NLP_ANALYZER_URL` está seteada al correrlo, conectividad real al Analyzer + fail-closed
       contra una URL inválida. *(quickstart.md paso 5)*
-- [ ] T034 [P] [POLISH] **Pendiente** — Actualizar `README.md` (tabla de compatibilidad de proveedores /
-      arquitectura del repo) para reflejar el nuevo servicio NLP, con naming neutro (Principio VII), y
-      documentar `PRESIDIO_ANALYZER_URL`/`BASA_ENTITY_REGION` en la sección Quickstart.
-- [ ] T035 [POLISH] **Pendiente** — Correr la suite completa contra el stack real
-      (`docker compose run --rm --no-deps backend pytest tests/ -q`) y confirmar 0 regresiones sobre lo
-      heredado de 013/014/019/021. Localmente solo se corrió `backend/tests/test_policy_unit.py` (27/27
-      verde, sin Docker) — falta la suite completa contra Postgres real. *(quickstart.md paso 6)*
-- [ ] T036 [POLISH] **Pendiente** — Escribir `specs/016-real-nlp-masking/implementation-notes.md` (mismo
-      patrón que 013/014) y actualizar `specs/ROADMAP-guardian.md`: marcar 016 como Implementada (hoy
-      dice "Roadmap").
+- [x] T034 [P] [POLISH] `README.md` actualizado: tabla de Quickstart con el servicio NLP (naming neutro,
+      sin puerto al host) y `NLP_ANALYZER_URL`/`BASA_ENTITY_REGION`; conteo de tests de la suite actualizado.
+- [x] T035 [POLISH] Suite completa corrida DENTRO del container real del backend
+      (`docker compose run --rm --no-deps backend pytest tests/ -q`): **293 passed, 10 skipped**, 0
+      regresiones sobre 013/014/019/021. *(quickstart.md paso 6)*
+- [x] T036 [POLISH] `specs/016-real-nlp-masking/implementation-notes.md` escrito (mismo patrón que 013/014);
+      `specs/ROADMAP-guardian.md` actualizado: 016 marcada "Lista para merge".
 
 ---
 
@@ -366,11 +369,14 @@ de alcance posterior al MVP — **completa**, incluidos los 3 hallazgos de integ
 ## Próximos pasos inmediatos (en orden sugerido)
 
 1. ~~T043-T045 (US5, hallazgos de review)~~ — **cerrado**.
-2. **T014, T017, T018, T019, T024, T025** — tests de integración/contract contra el stack real que
-   quedaron pendientes de US1-US3 (la lógica ya está implementada y probada manualmente, falta
-   formalizarla como test automatizado).
-3. **T028, T029** — consistencia panel/playground (`presidio_service.py`/`guardian_service.py`) con la
-   misma fuente de detección. Es el ítem de mayor esfuerzo relativo; conviene coordinarlo si otra persona
-   toca esos archivos en paralelo.
-4. **T031, T034, T035, T036** — cierre de Polish: carry-split extendido, README, suite completa vía
-   Docker, `implementation-notes.md` + `ROADMAP-guardian.md`.
+2. ~~T014, T017, T018, T019, T025~~ — **cerrado** (`backend/tests/e2e/test_guardrail_behavior_e2e.py`).
+   **T024** (contract test dedicado en `tests/contract/test_presidio_analyzer_contract.py`) sigue
+   **pendiente** — cubierto solo parcialmente por `contract_checks.py` (T033).
+3. ~~T028, T029~~ — **cerrado** (`presidio_service.py`/`guardian_service.py` reescritos, fail-open
+   eliminado, catálogo EU migrado on-read).
+4. ~~T031, T034, T035, T036~~ — **cerrado** (carry-split extendido, README, suite completa dentro del
+   container real: 293 passed/10 skipped, `implementation-notes.md` + `ROADMAP-guardian.md`).
+5. **Pendiente aún**: T024 (contract test dedicado, ver punto 2); commitear y pushear todo lo de esta
+   sesión (rename `NLP_ANALYZER_URL`/`nlp-analyzer`, fixes de tests, docs regeneradas, notas); decidir
+   con el usuario rebase vs merge sobre `main` antes del push (la rama ya tiene 2 merges pusheados —
+   un rebase reescribiría historia ya publicada).

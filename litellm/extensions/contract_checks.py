@@ -109,7 +109,7 @@ def main():
           {rec["supported_entity"] for rec in bp.build_ad_hoc_recognizers([])} == {"PASSPORT"})
 
     import os as _os
-    presidio_url = _os.environ.get("PRESIDIO_ANALYZER_URL")
+    presidio_url = _os.environ.get("NLP_ANALYZER_URL")
     if presidio_url:
         import asyncio
 
@@ -126,14 +126,14 @@ def main():
 
         async def _check_failclosed():
             try:
-                await bp.presidio_analyze("hola", "http://presidio-analyzer:9999", [])
+                await bp.presidio_analyze("hola", "http://nlp-analyzer:9999", [])
                 return False
             except bp.NlpUnavailableError:
                 return True
 
         check("presidio_analyze fail-closed ante URL inválida", asyncio.run(_check_failclosed()))
     else:
-        check("PRESIDIO_ANALYZER_URL configurada", False,
+        check("NLP_ANALYZER_URL configurada", False,
               "sin esta env var el guardrail degrada a regex de dev — no válido para este check")
 
     print(f"\n{'CONTRATO ROTO: ' + str(FAILURES) if FAILURES else 'Contrato OK contra la imagen pinneada.'}")

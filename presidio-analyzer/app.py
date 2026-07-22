@@ -72,20 +72,30 @@ def _build_ad_hoc(spec: AdHocRecognizerSpec) -> PatternRecognizer:
     patterns = None
     if spec.patterns:
         patterns = [Pattern(name=p.name, regex=p.regex, score=p.score) for p in spec.patterns]
-    return PatternRecognizer(
+    kwargs = dict(
         supported_entity=spec.supported_entity,
         name=spec.name,
         supported_language=spec.supported_language,
         patterns=patterns,
         deny_list=spec.deny_list,
         context=spec.context,
+    )
+    if patterns:
         # Presidio compila los patrones con re.IGNORECASE por default (global_regex_flags) —
         # rompe patrones como PASSPORT ([A-Z0-9]{6,9}) pensados para distinguir mayúsculas de
         # prosa normal: sin esto, la propia palabra "pasaporte" (9 letras minúsculas) matchea
-        # su propio patrón. Case-sensitive para reconocedores con patrones; irrelevante para
-        # deny_list (Presidio la matchea aparte).
-        global_regex_flags=re.DOTALL | re.MULTILINE if patterns else None,
-    )
+        # su propio patrón. Case-sensitive SOLO para recognizers con patrones propios.
+        #
+        # CORRECCIÓN (bug real encontrado en review): pasar `global_regex_flags=None`
+        # explícito para los recognizers SIN patrones (deny_list-only, como
+        # BASA_CUSTOM_NAMES) rompía el compile de OTROS recognizers en el mismo request
+        # — incluidos los built-in de Presidio (CREDIT_CARD) — con
+        # `TypeError: unsupported operand type(s) for &: 'NoneType' and 'RegexFlag'`.
+        # El parámetro no es puramente por-instancia como se asumió originalmente; la
+        # forma segura es NUNCA pasar `None` — omitir el kwarg entero cuando no aplica,
+        # dejando que Presidio use su propio default.
+        kwargs["global_regex_flags"] = re.DOTALL | re.MULTILINE
+    return PatternRecognizer(**kwargs)
 
 
 @app.get("/health")

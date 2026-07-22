@@ -137,6 +137,40 @@ def test_stream_unmask_placeholder_split_across_chunks():
     assert text == f"Hola {_NAME}, todo bien"
 
 
+@pytest.mark.asyncio
+async def test_stream_unmask_survives_overlap_resolution_with_different_length(monkeypatch):
+    """T031: el placeholder que termina en el texto enmascarado depende de CUÁL
+    entidad ganó `resolve_overlaps` — un tipo más largo (p.ej. ES_NIF, 6 chars) puede
+    ganarle a uno más corto (p.ej. ID, 2 chars) que se solapaba, cambiando el largo
+    total del placeholder respecto de lo que se vería sin resolver el solapamiento.
+    El carry-split (basado en el nonce y el patrón `[A-Z][A-Za-z0-9_]*`, no en un
+    largo fijo) tiene que seguir funcionando igual, partido en cualquier punto."""
+    text = "El documento 12345678Z es válido"
+
+    async def analyze_with_overlap(t: str) -> list:
+        # Dos candidatos que se solapan sobre el mismo rango de dígitos+letra —
+        # ES_NIF (más largo/específico) debe ganarle a un ID genérico más corto.
+        start = t.index("12345678Z")
+        end = start + len("12345678Z")
+        return [
+            {"start": start, "end": start + 8, "entity_type": "ID", "score": 0.5},
+            {"start": start, "end": end, "entity_type": "ES_NIF", "score": 1.0},
+        ]
+
+    pmap = policy.PlaceholderMap()
+    masked = await policy.mask_text(text, analyze_with_overlap, pmap)
+    # Confirma que efectivamente ganó el más largo (ES_NIF), no "ID":
+    assert "[ES_NIF_0_" in masked and "[ID_0_" not in masked
+
+    # Parte el texto YA ENMASCARADO en todos los puntos posibles y confirma
+    # reconstrucción exacta en cada uno — no solo en el punto "cómodo" de un test
+    # armado a mano con un placeholder de largo fijo.
+    for split_at in range(1, len(masked)):
+        chunks = [masked[:split_at], masked[split_at:]]
+        rebuilt = _stream_roundtrip(chunks, pmap.ph_to_orig)
+        assert rebuilt == text, f"falló partiendo en {split_at}: {chunks!r} -> {rebuilt!r}"
+
+
 def test_stream_unmask_roundtrip_thinking_and_tool_use():
     ph_to_orig = {"[EMAIL_ADDRESS_0_ff00]": "juan@acme.com"}
     thinking = _stream_roundtrip(

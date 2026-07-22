@@ -49,7 +49,7 @@ _TEXT_CALL_TYPES = {"completion", "acompletion", "atext_completion", "anthropic_
 # `default_analyze` (regex) — modo dev/demo EXPLÍCITO, nunca el default de prod
 # (Constraint SC-2). Se lee una vez al importar el módulo (mismo proceso que la
 # imagen pinneada del motor).
-_PRESIDIO_URL = os.environ.get("PRESIDIO_ANALYZER_URL")
+_PRESIDIO_URL = os.environ.get("NLP_ANALYZER_URL")
 
 
 def _metadata_home(data: dict, call_type: Optional[str] = None) -> dict:
@@ -129,7 +129,7 @@ class BasaGuardrail(CustomGuardrail):
                         text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
             else:
                 logger.warning(
-                    "PRESIDIO_ANALYZER_URL no configurada — usando detección regex de "
+                    "NLP_ANALYZER_URL no configurada — usando detección regex de "
                     "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
                 )
                 _analyze = policy.default_analyze

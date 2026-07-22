@@ -120,6 +120,18 @@ activarse, ni siquiera si el borrador "parece" pasar una revisión superficial.
 - **FR-001**: El sistema DEBE detectar entidades de tipo `PERSON` en texto conversacional sin requerir un prefijo/título fijo (paciente, doctor, sr., etc.) como condición de detección.
 - **FR-002**: El sistema DEBE usar un motor de detección NLP real (no solo expresiones regulares) como fuente primaria de detección de entidades PII/PHI en el camino del firewall que procesa tráfico real de las herramientas conectadas.
 - **FR-003**: El sistema DEBE seguir detectando correctamente los formatos estructurados propios de la región activa del despliegue (p.ej. NIF/NIE en España; DNI/CUIL en un despliegue LATAM) con precisión igual o mejor a la actual, combinando el motor NLP (reconocedores nativos cuando el motor los provee) con reglas de formato estructurado inyectadas cuando no.
+
+> **Nota de Contrato (regional fallback)**: el regex de dev/demo (`default_analyze`, sin NLP real
+> levantado) es un piso de cobertura genérico, no una réplica por región del motor NLP. Con
+> `BASA_ENTITY_REGION=eu` (default) ese fallback ya no produce un tipo `DNI` propio — un DNI español
+> sin puntuación reconocible cae dentro del patrón genérico `PHONE_NUMBER` del fallback, igual que
+> cualquier otra secuencia numérica de longitud similar. La detección precisa de NIF/NIE por región
+> depende del motor NLP real (built-in con checksum, ver `research.md` §1/§3) — el fallback de
+> dev/demo nunca es el camino que valida FR-003 en producción (FR-004 lo bloquea si no está
+> disponible). Los contract/integration tests que antes asumían un tipo `DNI` distinguible en el
+> fallback (`tests/contract/test_route_parity.py`, `tests/integration/test_gw_inspect.py`,
+> `tests/e2e/test_browser_dlp_e2e.py`) se corrigieron para no depender de esa distinción regional
+> inexistente en el fallback genérico.
 - **FR-004**: Cuando el motor de detección NLP real no está disponible (error, timeout), el sistema DEBE rechazar la request (fail-closed) en vez de procesarla con una detección degradada sin garantías equivalentes.
 - **FR-005**: El firewall (camino de tráfico real, spec 014) DEBE resolver la acción (`MASK` / `BLOCK`) configurada en la política de seguridad activa para cada tipo de entidad detectado, en vez de aplicar un enmascaramiento uniforme fijo.
 - **FR-006**: Cuando una entidad detectada tiene acción `BLOCK` en la política activa, el sistema DEBE rechazar la request antes de que llegue al LLM upstream, con un motivo auditable que identifique el/los tipo(s) de entidad que causaron el bloqueo.

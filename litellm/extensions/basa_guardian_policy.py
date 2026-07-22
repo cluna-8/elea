@@ -148,7 +148,7 @@ def detect_tool(user_agent: Optional[str]) -> str:
 
 async def default_analyze(text: str) -> list:
     """Analyzer PII por regex — SOLO fallback explícito de dev/demo cuando no hay
-    `PRESIDIO_ANALYZER_URL` configurada. NUNCA es el detector del camino de
+    `NLP_ANALYZER_URL` configurada. NUNCA es el detector del camino de
     producción (spec 016, Constraint SC-2): no distingue nombres sin prefijo, y
     ante coincidencias solapadas debe pasar igual por `resolve_overlaps`."""
     entities = []
@@ -373,10 +373,18 @@ class PlaceholderMap:
 
 async def mask_text(text: str, analyze: AnalyzeFn, pmap: PlaceholderMap) -> str:
     """Enmascara un segmento de texto reemplazando cada entidad detectada por su
-    placeholder (reemplazo de atrás hacia adelante para no invalidar offsets)."""
+    placeholder (reemplazo de atrás hacia adelante para no invalidar offsets).
+
+    `resolve_overlaps` se llama ACÁ TAMBIÉN (T031, defensa en profundidad) — antes
+    se confiaba en que el `analyze` inyectado (`default_analyze`/`presidio_analyze`)
+    ya lo hubiera resuelto, pero `mask_text` no lo garantizaba por sí mismo: un
+    `AnalyzeFn` que no llame a `resolve_overlaps` (encontrado escribiendo un test de
+    stress con un analyzer de prueba deliberadamente "ingenuo") corrompía igual el
+    texto. Llamarlo de nuevo sobre una lista ya disjunta es no-op barato — más
+    seguro que confiar en un contrato implícito entre funciones."""
     if not text:
         return text
-    entities = await analyze(text)
+    entities = resolve_overlaps(await analyze(text))
     out = text
     for e in sorted(entities, key=lambda x: x["start"], reverse=True):
         value = text[e["start"]:e["end"]]

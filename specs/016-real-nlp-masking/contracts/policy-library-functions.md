@@ -52,7 +52,7 @@ no esta librería).
 Contrato del hook (firma) **no cambia** (sigue pinneado por `contract_checks.py` contra la versión de
 LiteLLM). Lo que cambia es el cuerpo:
 1. Resuelve `entity_configs` desde la identidad (ya presente en `metadata.basa`, research §6).
-2. Llama a `presidio_analyze` (o `default_analyze` si no hay `PRESIDIO_ANALYZER_URL` configurada — modo
+2. Llama a `presidio_analyze` (o `default_analyze` si no hay `NLP_ANALYZER_URL` configurada — modo
   dev explícito, documentado, nunca el default de producción).
 3. Ante `NlpUnavailableError` → retorna el motivo de bloqueo (mismo contrato `str` → 400/503 que ya usan
   AI-Act/secretos).
