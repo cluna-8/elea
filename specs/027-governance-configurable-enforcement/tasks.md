@@ -24,7 +24,7 @@
 
 *(No hay proyecto nuevo que inicializar: la feature vive en backend/frontend/litellm existentes.)*
 
-- [ ] T001 Crear rama de trabajo desde `027-governance-configurable-enforcement` actualizada; verificar suite verde de partida (`docker compose run --rm --no-deps backend pytest tests/ -q`)
+- [x] T001 Baseline verificado (2026-07-22): **246 passed, 3 skipped**, + 1 error PREEXISTENTE de *teardown* en `tests/e2e/test_engine_roundtrip_e2e.py` (el test pasa; el cleanup viola la FK `audit_logs → api_keys`). No es regresión: la rama todavía no tenía código. Cualquier fallo distinto a ése en adelante SÍ es nuestro.
 
 ---
 
@@ -33,13 +33,13 @@
 **⚠️ Ninguna user story arranca sin esto.**
 
 - [ ] T002 🔀 **Neutralizar el seed destructivo de guardianes** (prerrequisito P2 del research, PRIMERA tarea por orden explícito de data-model §5): en `backend/src/services/guardian_service.py:33-36`, reemplazar el `db.query(Guardian).delete()` cuando `len < 9` por reconciliación aditiva (crear solo las filas faltantes por `guardian_type`, jamás borrar). Test de regresión: editar un guardián + recargar → la edición sobrevive.
-- [ ] T003 [P] Registry `GOVERNANCE_LAYERS` en `backend/src/services/governance_catalog.py` — dataclass frozen + catálogo inicial completo de data-model §2.1-§2.3 (10 capas: 4 piso + 6 gobernables, `planes` frozenset, `requires_service=None` inicial, `default_decision`). Unit tests: inmutabilidad, piso completo, claves estables.
-- [ ] T004 [P] Espejo del registry consumible por el resolutor en `litellm/extensions/basa_guardian_policy.py` (import o copia verificada) + **contract test de sincronía** registry↔espejo en `backend/tests/contract/`.
-- [ ] T005 [P] Modelo `GovernanceProfile` en `backend/src/models/governance.py` (esquema exacto data-model §1.1: UNIQUE, 3 CHECKs nombrados, centinela `'*'`, `updated_by NOT NULL`).
-- [ ] T006 Migración Alembic `backend/alembic/versions/012_governance_profiles_audit_attribution.py` (`down_revision='011'`): tabla + `audit_logs.applied_layers` JSONB + `blocked_by_layer` VARCHAR + índice parcial. **Cero seed** (data-model §5). Test: upgrade+downgrade limpios.
-- [ ] T007 **Resolutor puro** `resolve_profile` + `apply_layers` en `litellm/extensions/basa_guardian_policy.py` (contrato resolutor-perfil completo: firma tri-estado con `surface_trusted` y `connection_overrides`, precedencia Connection > superficie confiable > modo > tenant > producto, piso irrepresentable como apagado, relajar-exige-confiable, `PolicyResult` con `applied_layers`/`blocked_by_layer`). Unit tests exhaustivos: propiedad `∀config: piso ⊆ Profile`, tri-estado del override, surface off confiable vs UA, tokens canónicos.
-- [ ] T008 [P] Función de mapeo de modo (ruteo efectivo → `subscription|gateway-models`) en la librería compartida, con tests (ruta no mapeada ⇒ `gateway-models`, jamás `upstream_mode` crudo).
-- [ ] T009 Resolución por tenant en `backend/src/services/governance_resolution.py`: lee filas de `governance_profiles` + arma `config` para el resolutor (patrón `_first_not_none` de context_resolution). Tests con tenant sin filas (SC-007: postura default de producto).
+- [x] T003 [P] Registry `GOVERNANCE_LAYERS` en `litellm/extensions/basa_governance.py` (ubicación ajustada — ver contracts/resolutor-perfil.md) — dataclass frozen + catálogo inicial completo de data-model §2.1-§2.3 (10 capas: 4 piso + 6 gobernables, `planes` frozenset, `requires_service=None` inicial, `default_decision`). Unit tests: inmutabilidad, piso completo, claves estables.
+- [x] T004 [P] ~~Espejo del registry~~ → **cambió de naturaleza**: con implementación única + re-export delgado (`backend/src/services/governance_catalog.py`) no hay espejo que sincronizar. El contract test que lo reemplaza asserta **un solo objeto-módulo** (`governance_catalog.GOVERNANCE_LAYERS is basa_governance.GOVERNANCE_LAYERS`), que es lo que preserva D3.
+- [x] T005 [P] Modelo `GovernanceProfile` en `backend/src/models/governance.py` (esquema exacto data-model §1.1: UNIQUE, 3 CHECKs nombrados, centinela `'*'`, `updated_by NOT NULL`).
+- [x] T006 Migración Alembic `backend/alembic/versions/012_governance_profiles_audit_attribution.py` (`down_revision='011'`): tabla + `audit_logs.applied_layers` JSONB + `blocked_by_layer` VARCHAR + índice parcial + **RLS ENABLE/FORCE + las 2 policies de la 010** (hallazgo de la verificación: era la única tabla tenant-scoped sin RLS). **Cero seed** (data-model §5). Test de migración con el harness + `governance_profiles` agregada a `TENANT_TABLES`.
+- [x] T007 **Resolutor puro** `resolve_profile` + `build_attribution` en `litellm/extensions/basa_governance.py` (contrato resolutor-perfil completo: firma tri-estado con `surface_trusted` y `connection_overrides`, precedencia Connection > superficie confiable > modo > tenant > producto, piso irrepresentable como apagado, relajar-exige-confiable, atribución con `applied_layers`/`blocked_by_layer`). `apply_layers` —la variante que EJECUTA capas, contrato #8— llega en US2/T025-T028. Unit tests exhaustivos + hostiles (perfil inyectado, veredictos basura).
+- [x] T008 [P] Función de mapeo de modo (ruteo efectivo → `subscription|gateway-models`) en la librería compartida, con tests (ruta no mapeada ⇒ `gateway-models`, jamás `upstream_mode` crudo).
+- [x] T009 Resolución por tenant en `backend/src/services/governance_resolution.py`: lee filas de `governance_profiles` filtrando SIEMPRE por tenant (incluido el camino de filas precargadas) + arma `config` para el resolutor. Tests con tenant sin filas (SC-007) y con filas de otro tenant.
 
 **Checkpoint**: registry + tabla + resolutor puro testeados en aislamiento.
 

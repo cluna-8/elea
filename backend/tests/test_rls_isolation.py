@@ -13,7 +13,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
 from migration_harness import (
-    TENANT_TABLES, fresh_db, owner_engine, require_postgres, run_alembic,
+    RLS_TENANT_TABLES, TENANT_TABLES, fresh_db, owner_engine, require_postgres, run_alembic,
     superuser_engine,
 )
 
@@ -149,9 +149,16 @@ def test_superuser_trap_is_documented(engine):
 
 
 def test_rls_enabled_and_forced_on_all_tenant_tables(engine):
-    """FR-019/FR-020: ENABLE + FORCE + las 2 policies en las 13 tablas tenant-scoped."""
+    """FR-019/FR-020: ENABLE + FORCE + las 2 policies en TODA tabla tenant-scoped.
+
+    Barre ``RLS_TENANT_TABLES`` —las 13 de la 010 **más** las que agregan migraciones
+    posteriores— y no ``TENANT_TABLES``, que quedó acotada a las backfilleadas por la 010
+    (``test_migration_010`` les exige ``COUNT(*) > 0``, imposible para una tabla nueva sin
+    seed). La 027 encontró el agujero: ``governance_profiles`` nació sin RLS y ningún test
+    lo detectaba porque la lista era fija.
+    """
     with engine.connect() as cx:
-        for table in TENANT_TABLES:
+        for table in RLS_TENANT_TABLES:
             flags = cx.execute(text("""
                 SELECT relrowsecurity, relforcerowsecurity
                 FROM pg_class WHERE relname = :table

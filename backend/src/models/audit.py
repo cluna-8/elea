@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Numeric, Integer, Index
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Numeric, Integer, Index, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -30,6 +30,19 @@ class AuditLog(Base):
     compression_strategy = Column(String, default="none")   # spec 012 US6: deterministic | headroom | none (llm descartado)
     compression_reversed = Column(Boolean, default=False)  # spec 012 US6: guardia de reversión activada
     guardian_events = Column(JSONB, default=list)           # guardrail events returned by the AI engine
+    # Atribución por pedido (spec 027, D6). guardian_events queda CONGELADO como legado: sus
+    # tres productores son incompatibles entre sí y la hash-chain de licencias lo relee
+    # POSICIONALMENTE (licensing/audit_events.py:92-93), así que no se migra ni se le agregan
+    # lectores; la atribución nueva vive acá. Separa los tres ejes que hoy conflan en un solo
+    # campo: identidad de la capa, estado de la capa y decisión sobre el pedido.
+    # C1 — metadata-only: SOLO códigos del registry y contadores. Prohibido texto libre, valor
+    # detectado o fragmento de prompt (el patrón de los `detail` con el nombre propio bloqueado
+    # es una fuga y no se copia). NULL en filas históricas = "anterior a la atribución 027".
+    applied_layers = Column(JSONB, nullable=True)   # [{"layer_code","status","decision","count"?}]
+    # layer_key del registry que produjo el bloqueo, JAMÁS el nombre de display del guardián
+    # (editable y white-label: un rename rompería la atribución histórica). Escalar aparte del
+    # JSONB para que la query de bloqueos sea trivial con índice parcial.
+    blocked_by_layer = Column(String, nullable=True)
     review_token = Column(UUID(as_uuid=True), nullable=True)
     ai_disclosure_delivered = Column(Boolean, default=False)
     processing_purpose = Column(String, nullable=True)   # marketing | expense_processing | pharmacovigilance | research | administrative (alias legacy: clinical_decision)
@@ -41,4 +54,10 @@ class AuditLog(Base):
 
     __table_args__ = (
         Index("ix_audit_logs_tenant_timestamp", "tenant_id", "timestamp"),
+        # PARCIAL (spec 027): los bloqueos son la excepción, no la norma — indexar la tabla
+        # entera sería pagar por las filas que no interesan. Declarado en el modelo, no solo
+        # en la migración, para que create_all y autogenerate vean el mismo esquema que
+        # produce la 012 (misma convención que tenant.py:33).
+        Index("ix_audit_logs_tenant_blocked_layer", "tenant_id", "blocked_by_layer",
+              postgresql_where=text("blocked_by_layer IS NOT NULL")),
     )

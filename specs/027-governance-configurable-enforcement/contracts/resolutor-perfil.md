@@ -1,10 +1,26 @@
-# Contrato — Resolutor puro de perfil (`basa_guardian_policy`)
+# Contrato — Resolutor puro de perfil (`basa_governance`)
 
-Contrato de `resolve_profile` + `apply_layers` en
-`litellm/extensions/basa_guardian_policy.py` — el único archivo que los planos ya
-comparten (`gateway.py:76`, `basa_guardrail.py:40`). Un resolutor, tres call-sites
+Contrato del registry + `resolve_profile` + `apply_layers` en
+**`litellm/extensions/basa_governance.py`** — módulo **nuevo**, hermano de
+`basa_guardian_policy.py` en el mismo paquete compartido. Un resolutor, tres call-sites
 (gateway passthrough, guardrail del motor, chat UI); si esto no es único, 027 se
 implementa tres veces y SC-003 se vuelve infalsificable (research D3).
+
+> **Ajuste de ubicación (implementación, 2026-07-22)**: los artefactos de Fase 1 situaban el
+> registry en `backend/src/services/governance_catalog.py` y el resolutor dentro de
+> `basa_guardian_policy.py`, con un espejo verificado por contract test. Se movieron ambos a
+> `basa_governance.py` por dos razones duras: (a) el PR #21 (spec 016) **reescribe**
+> `basa_guardian_policy.py` entero — conflicto garantizado; (b) el contenedor del motor **no
+> puede importar** `backend/`, así que un registry que viviera en el backend obligaba a un
+> espejo duplicado. El paquete `litellm/extensions` está montado en los dos planos
+> (`docker-compose.yml:114`; `gateway.py:68-76` ya importa de ahí), de modo que la decisión
+> **fortalece** D3: una sola fuente, sin espejo que desincronizar. `governance_catalog.py`
+> queda como **re-export delgado** — la única puerta del backend al catálogo.
+>
+> Consecuencia sobre las tareas: **T004 cambia de naturaleza.** Ya no hay "espejo sincronizado"
+> que verificar; el contract test que lo reemplaza asserta que el backend importa **el mismo
+> objeto-módulo** (`governance_catalog.GOVERNANCE_LAYERS is basa_governance.GOVERNANCE_LAYERS`
+> y un único `basa_governance` en `sys.modules`), que es lo que de verdad preserva el invariante.
 
 ## Pureza y firma
 

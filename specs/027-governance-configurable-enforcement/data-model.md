@@ -133,9 +133,13 @@ de la tabla.
 ## 2. Registry `GOVERNANCE_LAYERS` (código, no DB)
 
 El **catálogo de capas es una constante de código** (D1): si el piso no está en DB, no hay
-`UPDATE` que lo apague. Vive en `backend/src/services/governance_catalog.py` y se importa
-(o espeja verificado por contract test) desde el resolutor puro en
-`litellm/extensions/basa_guardian_policy.py`.
+`UPDATE` que lo apague. Vive —junto al resolutor puro— en
+**`litellm/extensions/basa_governance.py`**, el paquete compartido que ambos planos montan;
+`backend/src/services/governance_catalog.py` es el **re-export delgado** que le da al backend
+su única puerta de entrada. Ver el ajuste de ubicación documentado en
+[contracts/resolutor-perfil.md](./contracts/resolutor-perfil.md): el registry no puede vivir en
+`backend/` porque el contenedor del motor no importa `backend/`, y no puede vivir dentro de
+`basa_guardian_policy.py` porque el PR #21 lo reescribe. Una sola fuente, sin espejo.
 
 ### 2.1 Estructura
 

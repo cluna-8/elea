@@ -214,11 +214,30 @@ def seed_legacy_single_tenant(engine):
         """))
 
 
+# Las 13 tablas que la 010 BACKFILLEÓ. Este es el contrato que consume
+# test_migration_010: cada una tiene filas del seed legacy, tenant_id NOT NULL y
+# fk_<tabla>_tenant. NO agregar acá tablas nacidas después de la 010: no tienen backfill
+# que verificar y el seed legacy (revisión 009) no puede poblarlas.
 TENANT_TABLES = [
     "groups", "users", "api_keys", "budgets", "audit_logs", "consent_records",
     "security_policies", "guardians", "compliance_projects", "dpa_registry",
     "data_subject_requests", "human_reviews", "retention_policies",
 ]
+
+# Tablas tenant-scoped nacidas DESPUÉS de la 010: sin backfill (nacen con tenant_id), pero
+# la exigencia de aislamiento es IDÉNTICA. Existen como lista aparte porque la omisión de
+# governance_profiles en la 012 (hallazgo A1) fue invisible justamente por apoyarse en una
+# lista hardcodeada con dos significados mezclados. **Toda tabla nueva con tenant_id se
+# agrega acá el mismo día que su migración.**
+POST_010_TENANT_TABLES = [
+    "governance_profiles",   # 027 — decide qué capas de seguridad corren por tenant
+]
+
+# Universo COMPLETO bajo aislamiento por tenant: lo que debe tener ENABLE + FORCE RLS y las
+# dos policies. Es la lista que corresponde barrer en los tests de RLS
+# (test_migration_012.py ya la usa; test_rls_isolation.py sigue barriendo TENANT_TABLES y
+# debería migrar a esta en un cambio aparte — está fuera del alcance de la 027).
+RLS_TENANT_TABLES = TENANT_TABLES + POST_010_TENANT_TABLES
 
 
 def migrated_legacy_db(dbname: str):
