@@ -26,8 +26,10 @@ requisitos están en la spec y no cambian salvo donde se indica explícitamente 
 ## D1 — El catálogo de capas vive en código, no en la base
 
 **Decisión**: un registry inmutable (`GOVERNANCE_LAYERS`) declara cada capa con
-`layer_key` estable, `tier` (`floor` \| `optional`), `plane` (`gateway` \| `engine` \| `backend`),
-`requires_credential` y `delegable_to_upstream`. La tabla `guardians` sigue siendo la
+`layer_key` estable, `tier` (`floor` \| `optional`), `planes` (subconjunto de
+`{gateway, engine, backend}` — refinado a conjunto en Fase 1, data-model §2.1: las capas de piso
+corren en los tres call-sites a la vez), `requires_credential`, `requires_service` (dependencia de
+servicio propio, agregada al absorber la 016) y `delegable_to_upstream`. La tabla `guardians` sigue siendo la
 **instancia configurable** de las capas opcionales (credencial, `fail_mode`, `apply_on`),
 enlazada por `layer_key` — **nunca por FK**.
 
@@ -233,7 +235,7 @@ global escalar volvería a mentir, solo que más fino.
 
 ---
 
-## D5 — Los ejes de alcance: mapeo explícito, y superficie que solo suma
+## D5 — Los ejes de alcance: mapeo explícito, y relajar solo con superficie confiable
 
 **Modo de conexión ≠ `upstream_mode` crudo.** La columna existe con CHECK
 (`subscription-passthrough|byok`, [budget.py:92-95](../../backend/src/models/budget.py#L92)) pero:
@@ -262,6 +264,15 @@ cliente no puede alterar sin otra key. Cuando la superficie es **derivada del Us
 ignoran (heredar) y solo aplican las que **agregan** capas. Así el caso de coding tools es
 expresable sin abrir ningún vector de evasión: spoofear el UA no consigue nada, y cambiar el
 `tool_type` requiere al admin. Las capas de piso no se relajan en ningún alcance (422).
+
+La misma regla cierra un bypass preexistente que la ronda 2 de verificación destapó: el header
+`X-Basa-Redact` ([gateway.py:256-262](../../backend/src/api/gateway.py#L256)) es un override
+**por request, controlado por el cliente**, que hoy apaga el masking por encima del toggle de la
+Connection — exactamente el vector que esta regla prohíbe. Decisión: el header queda **solo en
+sentido restrictivo** (puede forzar masking ON por request; jamás OFF). La relajación vive
+exclusivamente en datos provisionados por el admin: `redact_enabled` de la Connection y filas de
+`governance_profiles`. Es un cambio de comportamiento observable del gateway, declarado en el
+contrato del resolutor y en la doc del discovery.
 
 **Absorción de `redact_enabled` (013 FR-014) — punto de entrada**: el toggle per-Connection
 existente entra a la cascada como el nivel **más específico** (una Connection es más fina que una

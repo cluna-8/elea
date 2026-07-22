@@ -14,9 +14,12 @@ sin migración** (D6).
    ```json
    { "layer_code": "<layer_key del registry>",
      "status":  "applied | skipped | not_configured | requires_credential | delegated | degraded",
-     "decision": "allow | mask | flag | block",
+     "decision": "allow | mask | flag | block | null",
      "count": 3 }
    ```
+
+   `decision` es `null` cuando `status != applied` (la capa no corrió: no decidió nada) —
+   idéntico a la tabla canónica de data-model §3.1.
 
    `count` es **opcional**: entero, presente solo con `status=applied` — nº de ocurrencias
    (entidades detectadas/enmascaradas, secretos). Es el único contador permitido y lo que hace
@@ -58,40 +61,47 @@ sin migración** (D6).
 
 ## Evento de monitor extendido
 
-8. **Ambos productores a la vez, mismo esquema**: los campos existentes del evento (`ts`,
+8. **Mismo esquema en todos los emisores**: los campos existentes del evento (`ts`,
    `tool`, `client`, `tenant`, `model`, `compliance_status`, `masked_entities`,
    `masked_preview` [, `surface`]) quedan intactos; se agregan `applied_layers` (lista del
-   elemento §1) y `blocked_by_layer`. El comentario de `gateway.py:297-299` ("MISMO
-   esquema que basa_audit_logger") pasa de convención a contrato: extender uno sin el otro
-   rompe el render uniforme de la vitrina y **falla el gate**.
+   elemento §1) y `blocked_by_layer`. Emisores: los **2 productores de tráfico normal**
+   existentes (logger del motor + passthrough del gateway) extendidos, más los emisores en
+   **punto de bloqueo** de los tres planos (§11-§13 — el del chat es nuevo). El comentario
+   de `gateway.py:297-299` ("MISMO esquema que basa_audit_logger") pasa de convención a
+   contrato: extender uno sin los demás rompe el render uniforme de la vitrina y **falla
+   el gate**.
 9. **Best-effort, jamás en el camino del cliente**: el publish a Redis nunca afecta la
    request ni la respuesta (patrón existente, `basa_audit_logger.py:159-160` /
    `gateway.py:321-322`). Sigue siendo efímero (TTL 300 s, cap 100) y metadata-only.
-10. **`masked_preview` SIEMPRE display-masked (C1, cierre de fuga D8)**: con `pii_masking=off`
-    el tráfico sale sin enmascarar, pero la detección del piso corre igual — el preview del
-    evento se enmascara **para display** con lo que `pii_detection` detectó, siempre,
-    independientemente de si el texto saliente fue enmascarado. Test negativo: ningún evento
-    con `pii_masking` ≠ `applied` lleva en `masked_preview` una entidad que `pii_detection`
-    haya detectado, en claro. Sin esta regla, la postura legítima de D8 convertiría la vitrina
-    en un canal de fuga de PII cruda al feed Redis.
+10. **`masked_preview` SIEMPRE display-masked (C1, cierre de fuga D8)**: el preview de **todo**
+    evento — incluidos los de punto de bloqueo (§12/§13), donde el bloqueo puede ocurrir ANTES
+    de que `pii_detection` corra — se construye con un pase propio de display-masking sobre
+    mapa desechable **más** scrub de secretos (el patrón `_safe_preview`,
+    `gateway.py:135-146`), independientemente de qué capas alcanzaron a correr y de si el
+    texto saliente fue enmascarado. Test negativo: ningún evento, de ningún emisor, lleva en
+    `masked_preview` una entidad detectable ni un secreto en claro — tampoco los eventos con
+    `pii_masking` ≠ `applied` (D8) ni los emitidos al bloquear por secreto. Sin esta regla, la
+    postura legítima de D8 o un bloqueo temprano convertirían la vitrina en canal de fuga al
+    feed Redis.
 
 ## Atribución en el punto de bloqueo — y el corte con la 018
 
-10. **Plano gateway**: el camino de bloqueo ya emite `_audit` + `_publish_monitor`
+11. **Plano gateway**: el camino de bloqueo ya emite `_audit` + `_publish_monitor`
     (`gateway.py:485-490`); con 027 esos dos llevan los campos nuevos con
     `blocked_by_layer` poblado.
-11. **Plano motor**: hoy un bloqueo hace `return reason` (`basa_guardrail.py:86, :91-92`)
+12. **Plano motor**: hoy un bloqueo hace `return reason` (`basa_guardrail.py:86, :91-92`)
     → LiteLLM levanta 400 → `async_log_success_event` **nunca dispara** → ni fila ni
     evento (research D6). 027 obliga al guardrail a **publicar el evento de monitor en el
     punto de bloqueo** (best-effort, §9), con `applied_layers` + `blocked_by_layer` — el
     bloqueo deja de ser invisible en la vitrina.
-11b. **Plano chat (backend), mismo requisito**: los `raise` de bloqueo del pipeline del chat
+13. **Plano chat (backend), mismo requisito**: los `raise` de bloqueo del pipeline del chat
     preceden hoy a todo registro (`chat.py:187/:207/:306`, research D6). 027 obliga a
     publicar el evento de monitor **en el punto de bloqueo, antes del raise** (best-effort,
     §9), con el mismo shape. Los **tres** planos emiten al bloquear; la fila durable sigue
-    el corte del §12.
-12. **Corte explícito (D6)**: la **fila durable** de un bloqueo en el plano motor NO es de
-    esta spec — depende de la completitud/confiabilidad de auditoría de la **018** (owner:
-    Cristian). 027 define los campos, emite la atribución en el punto de bloqueo y la
-    publica al monitor; declarar SC-005 "cumplido" en el plano motor sin la 018 sería
-    marcar verde una promesa que el sistema no sostiene.
+    el corte del §14.
+14. **Corte explícito (D6)**: la **fila durable** de un bloqueo en los planos donde el
+    bloqueo precede al registro (**motor y chat backend**) NO es de esta spec — depende de
+    la completitud/confiabilidad de auditoría de la **018** (owner: Cristian). 027 define
+    los campos, emite la atribución en el punto de bloqueo y la publica al monitor en los
+    tres planos; declarar SC-005 "cumplido" en esos caminos sin la 018 sería marcar verde
+    una promesa que el sistema no sostiene.

@@ -71,9 +71,13 @@ tres call-sites a la vez (data-model §2.1) y un escalar no puede representarlas
   del mensaje de una excepción del motor o de la sonda (que naturalmente contiene nombres de
   proveedor, hosts internos o stack traces). Test negativo obligatorio: ninguna respuesta del
   router contiene nombres de proveedor (Principio VII) ni fragmentos de traceback.
-- (g) **`tenant_id` opcional, solo tier super-admin** (constitución III): permite consultar el
-  estado de otro tenant (SC-007 lo usa). Rol sin ese tier → 403; tenant inexistente → 404. En
-  instalaciones single-tenant el admin de la instalación tiene ese tier.
+- (g) **`tenant_id` opcional, con gate honesto sobre el RBAC vigente**: el tier super-admin de
+  la constitución III es forward-looking ([D9] = roadmap), y hoy `require_role("admin")` no
+  distingue el admin de un tenant del de la instalación. Regla para 027: `tenant_id` se acepta
+  **solo en instalaciones single-tenant** (donde admin == admin de la instalación; SC-007 lo
+  usa ahí); en un despliegue con más de un tenant → **403 siempre**, hasta que exista el RBAC
+  de [D9] — jamás una lectura cross-tenant apoyada en un tier que aún no existe. Tenant
+  inexistente → 404.
 
 ## `GET /api/v1/governance/profile`
 
@@ -129,10 +133,14 @@ AI-Act ni bloqueo de secretos ([inspect.py:50-91](../../backend/src/api/inspect.
 el contraejemplo del piso. Al pasar por `apply_layers`, la extensión **empezará a recibir
 bloqueos** y necesita un contrato estable:
 
-- La respuesta de inspección se **extiende** (los campos actuales quedan intactos) con:
-  `{"blocked": true, "blocked_by_layer": "<layer_key>", "motivo": "<copy del catálogo cerrado>"}`.
-  Con `blocked: true` no se devuelve texto enmascarado utilizable: la extensión debe impedir
-  el envío y mostrar `motivo`.
+- **La respuesta de bloqueo DEBE disparar la rama fail-closed de las extensiones ya
+  desplegadas**: la MV3 actual solo bloquea con `!res.ok`
+  (`extension/basa-guard.js:115-118`) — un bloqueo con `ok: true` + `replacements: []` haría
+  que una extensión vieja **envíe el texto original en claro** al proveedor (skew de
+  versiones = fail-open). Por eso el bloqueo responde `ok: false` **más** los campos nuevos:
+  `{"ok": false, "blocked": true, "blocked_by_layer": "<layer_key>", "motivo": "<copy del
+  catálogo cerrado>"}`. Extensiones viejas bloquean por su propio fail-closed (mostrando el
+  error genérico); las nuevas distinguen `blocked` y muestran `motivo`.
 - `motivo` cumple la garantía (f) del status: catálogo cerrado, sin nombres de proveedor, sin
   contenido del texto inspeccionado (C1).
 - El shape de wire exacto es refinable en implementación; **`blocked` + `blocked_by_layer` +

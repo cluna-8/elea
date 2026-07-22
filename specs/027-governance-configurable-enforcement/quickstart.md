@@ -110,9 +110,12 @@ docker compose exec db psql -U basa_admin -d basa_gateway -c \
      FROM audit_logs ORDER BY timestamp DESC LIMIT 2;"
 ```
 
-Esperado: el pedido de pasarela lista la capa opcional (o su estado honesto
-`not_configured`/`requires_credential` si el motor no la tiene cargada — nunca
-`applied` fabricado); el de suscripción **no** la lista. El piso aparece en ambos.
+Esperado — la diferencia se verifica por **status**, no por presencia (la lista es
+exhaustiva sobre el perfil, contrato del resolutor #10): en el pedido de **pasarela**
+la capa aparece `applied` o con su estado honesto (`not_configured`/
+`requires_credential` si el motor no la tiene cargada — nunca `applied` fabricado);
+en el de **suscripción** aparece también, pero jamás `applied` (su status es
+`delegated`/`skipped` según el registry). El piso aparece `applied` en ambos.
 `applied_layers` lleva solo códigos y estados (C1) — jamás texto ni PII.
 
 ---
@@ -223,8 +226,8 @@ docker compose exec db psql -U basa_admin -d basa_gateway -c \
 #   → 0
 
 # 3) …y aun así su estado muestra piso activo + postura default EXPLÍCITA
-#    (tenant_id: solo tier super-admin — garantía (g) del contrato; el admin de
-#     una instalación single-tenant lo tiene)
+#    (tenant_id: garantía (g) del contrato — aceptado SOLO en instalaciones
+#     single-tenant como el stack dev; en multi-tenant → 403 hasta el RBAC [D9])
 curl -s "$API/governance/status?tenant_id=<ID_DEL_PASO_1>" -H "Authorization: Bearer $TOK" | python3 -m json.tool
 #   → capas del piso aplicándose; opcionales con su default de producto declarado
 #     (ausencia de fila = heredar, D2 — nunca un estado vacío ni ambiguo)

@@ -21,7 +21,13 @@ implementa tres veces y SC-003 se vuelve infalsificable (research D3).
    del CHECK de la Connection o `None`; `surface_trusted` dice si proviene de la Connection
    (confiable) o del User-Agent (spoofeable) — ver #5. `config` son las filas de decisión del
    tenant (ausencia = heredar). `connection_overrides` es el override por-key para las capas
-   que lo declaran (hoy solo `pii_masking` vía `redact_enabled`, D8; `None`/ausente = heredar).
+   que lo declaran (hoy solo `pii_masking` vía `redact_enabled`, D8), propagado **TRI-ESTADO
+   desde el valor crudo de la columna**: `None` = sin override (la cascada sigue), `on`/`off` =
+   decisión explícita de esa Connection. El caller NO puede colapsar el `None` a un default —
+   el colapso actual de `custom_auth.py:149` (`... if ... is not None else True`) debe
+   eliminarse, o toda Connection sin toggle presentaría un override de nivel Connection que
+   tapa superficie/modo/tenant; el default se resuelve **dentro** del resolutor (último nivel,
+   default de producto).
 3. **El piso no es representable como apagado**: el `Profile` construye las capas
    `tier=floor` **adentro**, desde el registry `GOVERNANCE_LAYERS` (D1). No existe input
    — ni `config` vacío, ni filas maliciosas, ni `None` — que produzca un `Profile` sin el
@@ -49,6 +55,15 @@ implementa tres veces y SC-003 se vuelve infalsificable (research D3).
    User-Agent, spoofeable), las filas que relajan se tratan como *heredar*: spoofear el UA
    no consigue relajación alguna. Las capas de piso no se relajan en ningún caso — no son
    representables como apagadas (#3).
+
+   **Cierre del bypass `X-Basa-Redact`** (hallazgo ronda 2): el header por-request del
+   gateway (`_resolve_redact`, `gateway.py:256-262`) hoy apaga el masking por encima del
+   toggle de la Connection — un override controlado por el cliente, exactamente lo que esta
+   regla prohíbe. Con 027 el header queda **solo en sentido restrictivo**: puede forzar
+   `pii_masking=on` para ese request (agregar protección es siempre legal para señal no
+   confiable); el valor "off" se **ignora** con telemetría. Ningún input por-request entra a
+   la cascada como relajación. Cambio de comportamiento observable: se actualiza la entrada
+   `X-Basa-Redact` del discovery (`gateway.py:666`) y se declara en el changelog del gateway.
 
 ## Los ejes: cómo entran, no cómo se adivinan
 

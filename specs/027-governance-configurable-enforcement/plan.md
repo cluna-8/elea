@@ -57,9 +57,11 @@ Sonda al motor cacheada (TTL ~30 s) — nunca una llamada autenticada por pagevi
 - Cache de identidad del motor (60 s): al escribir gobernanza se invalida la entrada por key, o
   SC-006 es falso durante ese minuto.
 
-**Scale/Scope**: 1 tabla nueva + 2 columnas; 1 registry en código (~6 capas); 1 resolutor puro +
-3 call-sites; 1 endpoint de estado + CRUD de perfil; 1 página Admin nueva; 2 productores de evento
-de monitor extendidos. Sin proveedores nuevos, sin implementar capas (módulo de seguridad).
+**Scale/Scope**: 1 tabla nueva + 2 columnas; 1 registry en código (10 capas: 4 piso + 6
+gobernables); 1 resolutor puro + 3 call-sites; 1 endpoint de estado + CRUD de perfil; 1 página
+Admin nueva; 2 productores de evento de monitor extendidos + emisores en punto de bloqueo en los
+3 planos (el del chat es nuevo). Sin proveedores nuevos, sin implementar capas (módulo de
+seguridad).
 
 ## Constitution Check
 

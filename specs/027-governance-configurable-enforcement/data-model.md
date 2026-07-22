@@ -146,9 +146,12 @@ class GovernanceLayer:
     tier: Literal["floor", "optional"]   # floor = inapagable, fuera de la cascada
     planes: frozenset[str]               # subconjunto de {"gateway", "engine", "backend"}
     requires_credential: bool            # sin credencial → requiere_credencial, jamás activa
-    requires_service: str | None         # dependencia de servicio propio (p.ej. el sidecar NLP
+    requires_service: str | None = None  # dependencia de servicio propio (p.ej. el sidecar NLP
                                          # de la 016: env var + healthcheck) — distinta de la
-                                         # credencial; sin el servicio → no_disponible/degradada
+                                         # credencial; sin el servicio confirmado la capa JAMÁS
+                                         # reporta aplicandose (§4.1 regla 2b). None en todo el
+                                         # catálogo inicial; la instancia NLP de
+                                         # pii_detection/pii_masking lo declara al mergear la 016
     delegable_to_upstream: bool          # solo puede darse con modo efectivo 'subscription'
     delegation_reason: str | None        # motivo FR-013 — copy que distingue
                                          # "no la aplicamos nosotros" de "desprotegido"
@@ -200,7 +203,14 @@ de entrada en la cascada**: el toggle per-Connection es el nivel **más específ
 Connection es más fina que una superficie) — `Connection > superficie confiable > modo >
 tenant_default > producto` — y llega al resolutor como `connection_overrides` leído por el
 caller (el gateway ya resuelve `redact_enabled` en `ident`; el motor ya lo lleva en
-`metadata['basa']`). Las Connections existentes siguen funcionando sin migración.
+`metadata['basa']`). **Requisito tri-estado**: `connection_overrides` se propaga desde el valor
+CRUDO de la columna (`None`/`on`/`off`) — `None` = sin override, la cascada sigue. Hoy
+`custom_auth` **colapsa** el NULL al armar el dict
+(`redact_enabled if redact_enabled is not None else True`,
+[custom_auth.py:149](../../litellm/extensions/custom_auth.py#L149)): con eso, toda Connection sin
+toggle presentaría un override explícito de nivel Connection que taparía superficie/modo/tenant.
+Cambio requerido: custom_auth deja de colapsar; el default se resuelve **dentro** del resolutor
+(último nivel, default de producto). Las Connections existentes siguen funcionando sin migración.
 Con `pii_masking=off`, `pii_detection` **sigue corriendo** y el pedido queda registrado como
 *"PII detectada, no enmascarada por configuración"* — `applied_layers` lleva
 `pii_detection: applied` + `pii_masking: skipped` (§3.2). Nunca invisible.
@@ -297,11 +307,12 @@ analytics migra a `applied_layers` (hoy consulta una clave que nadie escribe,
 
 ### 3.4 Corte con la 018
 
-En el plano motor, un bloqueo hace `return reason` → 400 → el logger de éxito nunca dispara
-→ **no hay fila** ([basa_guardrail.py:86](../../litellm/extensions/basa_guardrail.py#L86),
-research D6). Esta spec **define los campos**, emite la atribución en el punto de bloqueo y
-la publica en el evento de monitor; **la fila durable del bloqueo es de la 018**. SC-005 no
-se marca verde sobre esa promesa.
+En los planos donde el bloqueo precede al registro — **motor** (`return reason` → 400 → el
+logger de éxito nunca dispara, [basa_guardrail.py:86](../../litellm/extensions/basa_guardrail.py#L86))
+y **chat backend** (los `raise` preceden al `log_transaction`, research D6) — **no hay fila**.
+Esta spec **define los campos**, emite la atribución en el punto de bloqueo y la publica en el
+evento de monitor en los tres planos; **la fila durable del bloqueo en esos caminos es de la
+018**. SC-005 no se marca verde sobre esa promesa.
 
 ---
 
@@ -321,7 +332,8 @@ se marca verde sobre esa promesa.
 |---|---|---|
 | 1 | deseada (`on` resuelto) ∧ `requires_credential` ∧ sin credencial configurada (`service_api_key_encrypted` vacío) | `requiere_credencial` — una capa apagada por decisión cae al default (#5), no a un falso "te falta credencial" |
 | 2 | el registry declara `delegable_to_upstream` **y** el modo efectivo del alcance consultado es `subscription` (con `delegation_reason` como copy, FR-013) | `delegada` |
-| 3 | deseada (`on` resuelto) ∧ sonda confirma cargada (o plano sin motor) ∧ (evidencia reciente ∨ capa de piso) | `aplicandose` |
+| 2b | deseada ∧ `requires_service` ∧ el servicio no se confirma (env ausente o healthcheck fallando) | `no_disponible` — o `degradada` si venía `aplicandose` (regla 4). El "estructural" de la fuente B **no aplica** a capas con `requires_service`: el código puede estar en el proceso y el servicio caído igual |
+| 3 | deseada (`on` resuelto) ∧ sonda confirma cargada (o plano sin motor **y sin `requires_service` pendiente**) ∧ (evidencia reciente ∨ capa de piso) | `aplicandose` |
 | 4 | estuvo `aplicandose` (sonda/evidencia previa dentro de la ventana) ∧ dejó de confirmarse | `degradada` |
 | 5 | **cualquier otro caso** — incluidos: motor inalcanzable, nombre desconocido para la sonda, capa no deseada, sin información | `no_disponible` (**default, fail-closed**) |
 
@@ -342,9 +354,9 @@ stateDiagram-v2
     no_disponible --> delegada : modo efectivo subscription ∧ registry delegable (A)
     delegada --> no_disponible : modo efectivo gateway-models
 
-    no_disponible --> aplicandose : deseada ∧ sonda confirma ∧ (evidencia ∨ piso) (A+B+C)
-    aplicandose --> degradada : sonda deja de confirmar / evidencia se corta (B/C)
-    degradada --> aplicandose : sonda vuelve a confirmar (B)
+    no_disponible --> aplicandose : deseada ∧ sonda confirma ∧ servicio requerido OK ∧ (evidencia ∨ piso) (A+B+C)
+    aplicandose --> degradada : sonda deja de confirmar / servicio requerido cae / evidencia se corta (B/C)
+    degradada --> aplicandose : sonda/servicio vuelven a confirmar (B)
     degradada --> no_disponible : ventana de evidencia expirada
     aplicandose --> no_disponible : des-deseada (fila off / DELETE)
 ```
