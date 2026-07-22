@@ -35,10 +35,12 @@ docker run --rm -v "${PROJECT}_licenses:/vol" -v "$(cd "$(dirname "$LIC")" && pw
     alpine:3 sh -c "cp /src/$(basename "$LIC") /vol/client.lic && chmod 644 /vol/client.lic"
 echo "✅ licenses ← $(basename "$LIC") (→ client.lic)"
 
-# 2) Config del motor → litellm_config:/ (el motor monta /app/config; el backend /app/litellm_config/mounted)
+# 2) Config del motor → litellm_config:/ (el motor lee /app/config; el backend
+#    /app/litellm_config — y ESCRIBE ahí en el alta de modelos de la UI, como
+#    usuario basa 10001:999: sin el chown el alta muere con permission denied).
 docker volume create "${PROJECT}_litellm_config" >/dev/null
 docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$RENDERED:/src:ro" \
-    alpine:3 sh -c "cp /src/config.yaml /vol/config.yaml"
+    alpine:3 sh -c "cp /src/config.yaml /vol/config.yaml && chown 10001:999 /vol /vol/config.yaml && chmod 664 /vol/config.yaml"
 # Las extensiones del motor (guardrail/auth/logger) viajan junto al config:
 docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$REPO_ROOT/litellm/extensions:/ext:ro" \
     alpine:3 sh -c "mkdir -p /vol/extensions && cp /ext/*.py /vol/extensions/"

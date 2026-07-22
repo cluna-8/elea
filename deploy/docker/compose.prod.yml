@@ -45,7 +45,12 @@ services:
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
     volumes:
       - licenses:/app/config/licenses          # .lic (perfil) + deployment key (021, persistente)
-      - litellm_config:/app/litellm_config/mounted:ro  # config.yaml TEMPLADO por cliente (US3)
+      # El MISMO config que consume el motor, en la ruta que el backend lee
+      # (/app/litellm_config/config.yaml) y con escritura: el alta de modelos
+      # de la UI escribe acá y el motor lo toma en su próximo restart. El
+      # sub-path 'mounted' anterior dejaba al backend ciego al catálogo
+      # (hallazgo del ensayo — la UI mostraba 'no hay modelos').
+      - litellm_config:/app/litellm_config
     depends_on: [litellm]
 
   frontend:
