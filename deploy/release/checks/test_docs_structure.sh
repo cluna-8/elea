@@ -9,8 +9,10 @@ D="$REPO_ROOT/docs/docs"
 fail() { echo "❌ estructura: $1"; exit 1; }
 
 GUIAS=(overview/index.md install-deploy/index.md install-deploy/infrastructure.md \
-       install-deploy/licensing.md white-label/index.md administration/index.md \
-       integrations/index.md integrations/modelo-propio.md compliance/index.md compliance/dpa-dsr-retention.md)
+       install-deploy/licensing.md install-deploy/partner-enablement.md \
+       white-label/index.md administration/index.md \
+       integrations/index.md integrations/modelo-propio.md \
+       compliance/index.md compliance/dpa-dsr-retention.md)
 RUNBOOKS=(operations/index.md integrations/gotchas.md)
 
 links_internos() { grep -oE '\]\((\.\./|\./)?[a-z0-9_/-]+\.md' "$1" | wc -l | tr -d ' '; }
