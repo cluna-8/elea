@@ -16,7 +16,7 @@ requisitos están en la spec y no cambian salvo donde se indica explícitamente 
 | D2 | Dónde vive la configuración | **Entidad nueva** `GovernanceProfile`, fila por decisión |
 | D3 | Cómo se resuelve el perfil | **Resolutor puro compartido** en `basa_guardian_policy`, un solo lugar para los 3 planos |
 | D4 | Cómo se computa el estado real | **Declarativo + sonda al motor + evidencia por pedido**, fail-closed, nunca persistido |
-| D5 | Ejes de alcance | Modo con **función de mapeo explícita**; superficie anclada en `tool_type`, jamás en User-Agent |
+| D5 | Ejes de alcance | Modo con **función de mapeo explícita**; superficie anclada en `tool_type`, jamás en User-Agent; relajar solo con **superficie confiable** |
 | D6 | Atribución por pedido | Campos **nuevos** `applied_layers` + `blocked_by_layer`; `guardian_events` congelado |
 | D7 | Superficie Admin | **Página propia** "Gobernanza" + autosave con rollback (no botón global) |
 | D8 | Piso vs. toggle existente | El piso es **detectar/evaluar/registrar**; el enmascarado se gobierna. **Confirmada por el owner (2026-07-22)** |
@@ -114,7 +114,8 @@ dentro del `Profile`** y no es representable como apagado.
 
 ```
 piso (siempre, no participa de la cascada)
-  └── superficie  >  modo de conexión  >  default de tenant  >  default de producto
+  └── Connection (override por-key existente, solo capas que lo declaran: pii_masking vía redact_enabled)
+        >  superficie confiable  >  modo de conexión  >  default de tenant  >  default de producto
 ```
 
 Con `_first_not_none` y `NULL=heredar`, exactamente el contrato ya vigente
@@ -172,7 +173,9 @@ responden preguntas distintas:
 
 ```
 NO_DISPONIBLE            (default)
-→ REQUIERE_CREDENCIAL    si requires_credential y no hay credencial
+→ REQUIERE_CREDENCIAL    si deseada ∧ requires_credential y no hay credencial
+                         (una capa apagada por decisión reporta NO_DISPONIBLE, no un
+                          falso "te falta credencial")
 → DELEGADA               solo si el registry declara delegación para ese modo (con motivo)
 → APLICANDOSE            solo si  deseado ∧ sonda confirma ∧ (evidencia reciente ∨ capa de piso)
 → DEGRADADA              si estuvo presente y dejó de estarlo
@@ -250,8 +253,21 @@ ella, la gobernanza se aplica al alcance equivocado.
 `detect_tool` por UA (14 entradas, [custom_auth.py:32-47](../../litellm/extensions/custom_auth.py#L32))
 y `User.client_type` (3 valores). El UA es **spoofeable por el cliente**.
 
-**Regla de seguridad derivada**: la superficie **solo puede AGREGAR capas sobre el piso, nunca
-quitarlas**. Con esa regla, aunque el UA se use como señal de telemetría, no existe vector de evasión.
+**Regla de seguridad derivada (refinada en Fase 1)**: lo que importa no es *qué* hace la decisión
+sino **de dónde viene la superficie**. Una decisión que RELAJA (p.ej. `pii_masking=off` para
+`claude-code` — el caso insignia de D8) solo se aplica cuando la superficie del pedido proviene de
+un origen **confiable**: el `tool_type` de la Connection, dato provisionado por el admin que el
+cliente no puede alterar sin otra key. Cuando la superficie es **derivada del User-Agent**
+(spoofeable — p.ej. tráfico del plano gateway sin `X-Basa-Key`), las decisiones que relajan se
+ignoran (heredar) y solo aplican las que **agregan** capas. Así el caso de coding tools es
+expresable sin abrir ningún vector de evasión: spoofear el UA no consigue nada, y cambiar el
+`tool_type` requiere al admin. Las capas de piso no se relajan en ningún alcance (422).
+
+**Absorción de `redact_enabled` (013 FR-014) — punto de entrada**: el toggle per-Connection
+existente entra a la cascada como el nivel **más específico** (una Connection es más fina que una
+superficie), solo para la capa que lo absorbe (`pii_masking`), con su semántica `NULL=heredar`
+intacta: `Connection > superficie confiable > modo > tenant_default > default de producto`. Las
+Connections que hoy lo usan siguen funcionando sin migración — absorber sin derogar, literal.
 
 **Riesgo asumido**: el enum de superficie nace **incompleto** — la API de Responses (#28) y la
 extensión de navegador no están en el CHECK actual. Necesita fallback explícito a `tenant_default`.
@@ -429,6 +445,17 @@ No existe rama para él en `process_prompt`; `PresidioService.analyze_text_http`
 llamador**. Lo que corre como "Presidio" es regex local. La respuesta honesta es *no disponible* —
 lo que colisiona con cómo se presenta en la UI y con la spec **016** (PR #21). Coordinar con Cristian
 antes de publicar el estado honesto.
+
+> **Actualización (review del PR #21, head `a063c63`, 2026-07-22)**: la 016 cierra P5
+> **parcialmente y por plano** — motor/byok: NLP real fail-closed ✔; chat UI: NLP con degradación
+> visible ✔; gateway passthrough: sigue regex ✘; perfil prod: sin sidecar ni env → regex ✘ (bloqueante
+> reportado en el review). Consecuencias para 027: (1) **orden de merge: 016 primero** — 027 aún no
+> tiene código y comparte `guardian_service.py`/`basa_guardrail.py`/`custom_auth.py`/`guardians.py`;
+> (2) el registry absorbe de la 016 una dependencia nueva **`requires_service`** (sidecar +
+> `NLP_ANALYZER_URL` + healthcheck — distinta de `requires_credential`) y el trigger `DEGRADED`
+> como evidencia per-request (fuente C de D4); (3) el estado honesto de la capa NLP es **por
+> plano**, exactamente lo que FR-010 ya exige; (4) P1 sube de urgencia: también bloquea la US2 de
+> la 016 en prod.
 
 ---
 

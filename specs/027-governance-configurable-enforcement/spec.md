@@ -20,6 +20,8 @@ Además, **qué capas tienen sentido depende del modo de conexión**: cuando el 
 
 El valor central del producto es **interceptar y registrar todo el tráfico y evitar que salgan datos sensibles**. Esta feature no cambia ese piso: lo vuelve explícito, lo protege de ser apagado, y hace **honesto y configurable** todo lo que está por encima.
 
+> **Ajuste de alcance sobre el pedido original**: el Input de arriba menciona que "los guardrails del proveedor se cablean de verdad cuando el Admin los activa". Ese cableado **salió del alcance** de esta spec (ver Out of Scope): pertenece al módulo de seguridad y guardianes. 027 entrega el **marco** que declara, configura, aplica y reporta cada capa con honestidad (FR-008); cuando el módulo de seguridad entrega una capa cableada, el marco la toma sin cambios de diseño.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - El Admin ve el estado REAL de cada capa (Priority: P1)
@@ -102,7 +104,7 @@ Un administrador decide qué capas opcionales aplican para el tráfico de **susc
 - **SC-002**: Un administrador puede responder "qué protege al tráfico de suscripción y qué al tráfico hacia modelos de la pasarela" desde una sola vista, en menos de 1 minuto, sin leer código ni archivos de configuración.
 - **SC-003**: El 100% de las capas **disponibles y habilitadas** para un alcance se aplican al tráfico de ese alcance, y el 100% de las **no disponibles** se reportan como tales — sin ningún caso ambiguo entre "no la aplicamos" y "no está protegido".
 - **SC-004**: Ningún camino de configuración permite dejar el piso no-negociable desactivado: el 100% de los intentos se rechazan y quedan registrados.
-- **SC-005**: El 100% de los pedidos gobernados tienen registro de qué capas se les aplicaron; todo bloqueo es atribuible a una capa concreta.
+- **SC-005**: El 100% de los pedidos gobernados tienen registro de qué capas se les aplicaron. Todo bloqueo es **atribuible a una capa concreta en el punto donde ocurre**: la atribución se emite al bloquear y se publica en el monitoreo en vivo, y queda en registro durable **en todos los flujos que alcanzan el registro**. *(Ajuste de Fase 0/1: en los caminos donde hoy el bloqueo interrumpe antes de todo registro, la durabilidad de esa fila es alcance de la spec 018 — este criterio no se marca cumplido sobre esa promesa.)*
 - **SC-006**: Un administrador puede cambiar la postura de gobernanza de su organización sin intervención del proveedor y sin editar archivos a mano.
 - **SC-007**: Un tenant recién creado queda con el piso activo y una postura por defecto explícita, sin configuración manual previa.
 

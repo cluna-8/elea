@@ -121,7 +121,7 @@ backend/
 │   │   ├── chat.py                  # call-site del resolutor; persistencia applied_layers
 │   │   ├── inspect.py               # gw_inspect pasa por el Profile (P4)
 │   │   └── analytics.py             # agregado sobre applied_layers (deja de mentir)
-│   └── alembic/versions/            # migración: governance_profiles + columnas audit
+├── alembic/versions/                # migración 012 (head real: 011) — governance_profiles + columnas audit
 ├── tests/
 │   ├── contract/                    # paridad sobre el resolutor; SC-001 vs /guardrails/list
 │   ├── integration/                 # perfil por modo/superficie e2e; piso inviolable
