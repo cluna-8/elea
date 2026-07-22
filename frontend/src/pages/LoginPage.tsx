@@ -21,7 +21,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     try {
       const res = await api.login(username, password);
       authStorage.save(res.access_token, res.user as SessionUser);
-      onLoginSuccess(res.user as SessionUser);
+      // El user del wire trae roles del backend (p.ej. tenant_admin); el nav
+      // gatea con roles normalizados — pasar SIEMPRE la sesión normalizada
+      // (fix del VPS: el user crudo escondía 5 páginas hasta un refresh).
+      onLoginSuccess(authStorage.getUser() as SessionUser);
     } catch (err: any) {
       setError(err.message || "Credenciales incorrectas.");
     } finally {
@@ -102,9 +105,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         <div className="mt-8 pt-6 border-t border-slate-700/30 text-center">
           <p className="text-xs text-text-secondary">
             Acceso seguro encriptado y auditado por la pasarela de cumplimiento.
-          </p>
-          <p className="text-[10px] text-primary/60 mt-1.5">
-            Demo credentials: admin / admin
           </p>
         </div>
       </div>

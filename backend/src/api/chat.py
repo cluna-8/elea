@@ -50,6 +50,18 @@ def _get_config_path() -> str:
     return path
 
 
+def _catalog_model_names() -> set:
+    """Nombres del catálogo vigente del motor. Set vacío si el config no es
+    legible: el routing GDPR lo trata como "no renombrar" (fail-safe — jamás
+    pedirle al motor un alias que no podemos confirmar que existe)."""
+    try:
+        with open(_get_config_path(), "r") as f:
+            cfg = yaml.safe_load(f) or {}
+        return {m.get("model_name") for m in cfg.get("model_list", []) if m.get("model_name")}
+    except Exception:
+        return set()
+
+
 def _check_configured(params: dict, model_full: str) -> bool:
     api_key = params.get("api_key", "")
     if isinstance(api_key, str) and api_key.startswith("os.environ/"):
@@ -257,7 +269,9 @@ async def chat_completions(
     # 5. Layer 2: GDPR & Routing (Apply GDPR routing only if sensitive routing did not change the model)
     is_gdpr_active = request.override_gdpr_mode if request.override_gdpr_mode is not None else policy.gdpr_mode
     if routed_model == request.model:
-        routed_model = RoutingService.get_route_model(request.model, is_gdpr_active)
+        routed_model = RoutingService.get_route_model(
+            request.model, is_gdpr_active, available_models=_catalog_model_names()
+        )
 
     # 5b. Compliance — resolve project via hierarchy: key → user → group → global
     from datetime import timedelta

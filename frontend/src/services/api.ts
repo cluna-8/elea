@@ -1,9 +1,9 @@
 import { authStorage } from "./auth";
 
-// Derive the backend host from the browser's location so the SPA works whether
-// the user reaches it via http://localhost:8080 or http://<lan-ip>:8080 (the
-// backend is published on the same host, port 8081).
-const API_BASE = `http://${window.location.hostname}:8081/api/v1`;
+// Ruta RELATIVA al mismo origen: el ingress (Caddy) proxya /api/* al backend.
+// Un host:puerto absoluto rompe HTTPS (mixed content) y ata el deploy a un
+// puerto publicado — fix portado del install real del VPS (issue #35).
+const API_BASE = "/api/v1";
 
 function authHeaders(): Record<string, string> {
   const token = authStorage.getToken();

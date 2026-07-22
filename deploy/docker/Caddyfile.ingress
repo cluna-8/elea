@@ -1,0 +1,25 @@
+# Ingress del camino SELFHOSTED (compose) — la puerta única de la instalación.
+# Patrón portado del install real del VPS (issue #35): la SPA usa API_BASE
+# relativo (/api/v1) y este Caddy enruta al backend en el mismo origen.
+#
+# Sin INGRESS_HOST (default ":80"): HTTP plano — piloto/LAN.
+# Con INGRESS_HOST=guardian.cliente.es: Caddy termina TLS solo (ACME automático;
+# requiere 80+443 publicados y egress — para air-gap usar ":80" detrás del
+# ingress corporativo del cliente).
+#
+# El sitio de docs NO se sirve acá (assets con rutas absolutas — se publica en
+# su propio puerto, ver compose.prod.yml servicio docs).
+
+{$INGRESS_HOST} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /health {
+		reverse_proxy backend:8000
+	}
+	handle {
+		reverse_proxy frontend:8080
+	}
+}

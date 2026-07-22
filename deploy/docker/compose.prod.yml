@@ -57,6 +57,25 @@ services:
     volumes:
       - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
 
+  # ── Ingress del camino selfhosted: puerta única SPA + API (issue #35, patrón
+  #    del VPS). En nube el ingress lo provisiona la 020 US4 (cloud-init) — por
+  #    eso vive detrás del profile. La SPA usa /api/v1 relativo y este Caddy lo
+  #    enruta al backend en el mismo origen (sin mixed-content, sin puerto fijo).
+  ingress:
+    profiles: ["selfhosted"]
+    image: "${CADDY_IMAGE:-caddy:2-alpine}"
+    restart: unless-stopped
+    ports:
+      - "${INGRESS_HTTP_PORT:-80}:80"
+      - "${INGRESS_HTTPS_PORT:-443}:443"
+    environment:
+      # ":80" = HTTP plano (piloto/LAN); un dominio = TLS automático (ACME).
+      INGRESS_HOST: "${INGRESS_HOST:-:80}"
+    volumes:
+      - ./Caddyfile.ingress:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [backend, frontend]
+
   # ── SOLO on-prem/air-gap (profile selfhosted): en nube, RDS/ElastiCache via OpenTofu ──
   db:
     profiles: ["selfhosted"]
@@ -82,3 +101,4 @@ volumes:
   licenses:
   litellm_config:
   branding:
+  caddy_data:

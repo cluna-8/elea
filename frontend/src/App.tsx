@@ -10,9 +10,10 @@ import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CostsPage } from "./pages/CostsPage";
+import { FirewallMonitorPage } from "./pages/FirewallMonitorPage";
 import { authStorage, SessionUser, ROLE_LABELS, ROLE_PERMISSIONS } from "./services/auth";
 
-type Page = "dashboard" | "playground" | "users" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
+type Page = "dashboard" | "playground" | "firewall" | "users" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -21,6 +22,7 @@ export const App: React.FC = () => {
   const navigation = [
     { id: "dashboard", name: "Panel Principal", roles: null },
     { id: "playground", name: "Playground", roles: null },
+    { id: "firewall", name: "Firewall en vivo", roles: ["admin", "compliance_officer"] },
     { id: "models", name: "Modelos & Ollama", roles: null },
     { id: "costs", name: "Costos", roles: ["admin", "compliance_officer"] },
     { id: "users", name: "Usuarios & Presupuestos", roles: ["admin"] },
@@ -105,6 +107,7 @@ export const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto bg-background p-6">
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "playground" && <PlaygroundPage />}
+        {currentPage === "firewall" && <FirewallMonitorPage />}
         {currentPage === "models" && <ModelsPage />}
         {currentPage === "costs" && <CostsPage />}
         {currentPage === "users" && <UsersPage />}
