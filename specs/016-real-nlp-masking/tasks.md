@@ -262,6 +262,64 @@ del texto enmascarado.
 
 ---
 
+## Phase 8: User Story 5 - Catálogo de entidades custom con asistente de IA (Priority: P2)
+
+**Goal**: Un compliance officer suma tipos de entidad nuevos (regex + contexto) sin deploy, con un
+asistente de IA que redacta el borrador — pero activar algo siempre requiere revisión humana explícita.
+
+**Independent Test**: crear una entidad custom con un patrón conocido y confirmar que el firewall real
+la detecta; confirmar que un patrón catastrófico (IA o manual) nunca llega a persistirse.
+
+**Nota de alcance**: esta historia se construyó fuera de la secuencia original (pedida por el usuario
+después de cerrar US1-US4) — los tasks de abajo documentan lo ya hecho y lo pendiente encontrado en
+review, para que quede trazable igual que el resto de la spec.
+
+### Implementación (ya hecha)
+
+- [x] T037 [US5] `backend/src/services/entity_catalog_service.py`: `validate_pattern_safety` (heurística
+      estática de cuantificadores anidados + ejecución real en proceso `spawn` con timeout — no un hilo,
+      el motor `re` no libera el GIL durante backtracking catastrófico; no el módulo `regex`, que tiene
+      un motor de matching distinto al que corre en producción). *(FR-015, SC-007)*
+- [x] T038 [US5] `draft_entity`: arma el borrador vía el mismo `AIEngineClient` que ya usa el backend;
+      valida seguridad y corre `test_pattern` ANTES de devolver el borrador; nunca persiste nada. *(FR-014)*
+- [x] T039 [US5] `create_custom_entity`/`list_custom_entities`/`delete_custom_entity` + endpoints
+      `backend/src/api/guardians.py::/custom-entities/*` (draft sin persistir, create con revalidación
+      SIEMPRE, list, delete). Auto-provisiona el Guardian `pii_masking` si no existe. *(FR-013)*
+- [x] T040 [US5] Cableado hasta la detección real: `custom_auth.py` trae `custom_entities` (activas) del
+      Guardian; `build_ad_hoc_recognizers`/`presidio_analyze` las suma a los `ad_hoc_recognizers`;
+      `basa_guardrail.py` las pasa a través. Probado end-to-end contra el Presidio real (no mocks).
+- [x] T041 [US5] Fix de precisión encontrado probando en vivo: Presidio compila patrones con
+      `re.IGNORECASE` por default — el propio patrón de `PASSPORT` matcheaba la palabra "pasaporte".
+      `global_regex_flags` case-sensitive en `presidio-analyzer/app.py` para recognizers con patrones.
+
+### Tests (ya hechos)
+
+- [x] T042 [P] [US5] Unit tests de `validate_pattern_safety`/`test_pattern`/`build_ad_hoc_recognizers`
+      con `custom_entities` en `backend/tests/unit/test_entity_catalog_service.py` +
+      `backend/tests/test_policy_unit.py` (45 tests). Incluye regresión de los 2 findings de review
+      (draft_entity 500 por score/content sin validar; `test_pattern` sin timeout).
+
+### Pendiente (findings de review, no bloqueantes pero abiertos)
+
+- [ ] T043 ⚠️ [P] [US5] **Pendiente** — Sanitizar `entity_type` en `create_custom_entity`: hoy acepta
+      cualquier string; un valor con `]`/espacios puede romper el formato de placeholder
+      `[TIPO_idx_nonce]` que usan `PH_TYPE_RE`/`PH_TAIL_RE` para el carry-split de streaming. Validar
+      contra algo como `^[A-Z][A-Z0-9_]*$` antes de persistir. *(FR-017)*
+- [ ] T044 ⚠️ [P] [US5] **Pendiente** — Unicidad de `entity_type` entre entidades custom **activas**:
+      hoy nada impide crear dos con el mismo tipo; si Presidio deduplica `ad_hoc_recognizers` por nombre,
+      una queda "activa" en el catálogo sin efecto real, sin ningún aviso. Rechazar en `create_custom_entity`
+      o verificar explícitamente el comportamiento real de Presidio ante nombres duplicados. *(FR-016, SC-008)*
+- [ ] T045 [US5] **Pendiente** — Locking optimista en `create_custom_entity`/`delete_custom_entity`: hoy
+      es read-modify-write sin lock sobre `guardian.config` — dos requests concurrentes pueden pisarse
+      (lost update). Evaluar `SELECT ... FOR UPDATE` o un chequeo de versión antes de comitear.
+- [ ] T046 [P] [US5] **Pendiente** — Contract test end-to-end de `T043`/`T044` contra el backend real
+      (`tests/contract/`), análogo a como se probaron T037-T041 con curl durante el desarrollo.
+
+**Checkpoint**: US5 funcional y probada en vivo (T037-T042); 3 hallazgos de la review documentados como
+tasks explícitas (T043-T045), no como deuda invisible.
+
+---
+
 ## Dependencies & Execution Order
 
 - **Setup (T001-T004)** → bloquea todo lo demás (el Analyzer tiene que existir para poder testear contra
@@ -276,6 +334,10 @@ del texto enmascarado.
 - **US4 (T030-T032)** depende solo de Foundational (T006 `resolve_overlaps`) — es independiente de
   US1/US2/US3, puede hacerse en cualquier momento después del checkpoint de Foundational.
 - **Polish (T033-T036)** al final, depende de todas las historias.
+- **US5 (T037-T046)** depende de Foundational (reusa `presidio_analyze`/`build_ad_hoc_recognizers`) pero
+  es independiente de US1-US4 en su implementación — se hizo después, a pedido explícito del usuario.
+  T043-T046 (pendientes) no bloquean nada del resto de la spec, pero sí deberían cerrarse antes de dar
+  la 016 por completamente terminada (afectan la integridad del catálogo custom, no la detección base).
 
 ## Parallel Execution Examples
 
@@ -296,4 +358,19 @@ paralelo por ser archivos/funciones independientes, todos ANTES de sus implement
 **MVP = US1 + US2** (ambas P1): con eso el firewall real ya detecta nombres sin prefijo Y respeta
 `MASK`/`BLOCK` configurado — es la primera versión que un compliance officer puede confiar como "hace lo
 que dice que hace". US3 (fail-closed real) y US4 (integridad ante solapamientos) son endurecimientos que
-pueden entregarse incrementalmente después sin romper el MVP.
+pueden entregarse incrementalmente después sin romper el MVP. US5 (catálogo custom + IA) es una extensión
+de alcance posterior al MVP — funcional y probada en vivo, con 3 hallazgos de integridad (T043-T045)
+identificados en review y documentados como próximo paso, no como bloqueo del resto de la entrega.
+
+## Próximos pasos inmediatos (en orden sugerido)
+
+1. **T043-T045** (US5, hallazgos de review) — son los de menor esfuerzo relativo y cierran riesgos de
+   integridad concretos en una feature que ya está en producción real dentro de esta rama.
+2. **T014, T017, T018, T019, T024, T025** — tests de integración/contract contra el stack real que
+   quedaron pendientes de US1-US3 (la lógica ya está implementada y probada manualmente, falta
+   formalizarla como test automatizado).
+3. **T028, T029** — consistencia panel/playground (`presidio_service.py`/`guardian_service.py`) con la
+   misma fuente de detección. Es el ítem de mayor esfuerzo relativo; conviene coordinarlo si otra persona
+   toca esos archivos en paralelo.
+4. **T031, T034, T035, T036** — cierre de Polish: carry-split extendido, README, suite completa vía
+   Docker, `implementation-notes.md` + `ROADMAP-guardian.md`.

@@ -74,6 +74,37 @@ Hoy, si dos patrones de detección matchean fragmentos de texto que se superpone
 
 ---
 
+### User Story 5 - Catálogo de entidades custom con asistente de IA (Priority: P2)
+
+Un compliance officer quiere sumar un tipo de dato estructurado que la detección de fábrica no cubre
+(p.ej. "número de historia clínica de un hospital específico") sin esperar un deploy. Describe en
+lenguaje natural qué quiere detectar; un asistente de IA redacta un borrador (patrón + palabras de
+contexto + casos de prueba); el compliance officer revisa el borrador y decide activarlo — recién ahí
+empieza a aplicarse en el firewall real, igual que cualquier patrón estructurado de fábrica.
+
+**Why this priority**: Extiende la cobertura de "todo lo que no cumpla GDPR" (pedido original de esta
+spec) más allá de lo que el equipo pudo anticipar de antemano, sin convertir cada caso nuevo en una
+tarea de desarrollo — pero llega después de que la detección/enforcement de base (US1/US2) ya funcionan,
+porque el catálogo custom se apoya en esa misma tubería.
+
+**Independent Test**: Crear una entidad custom con un patrón conocido, confirmar que el firewall real la
+detecta y enmascara; confirmar que un borrador de IA con un patrón inseguro (ReDoS) nunca llega a
+activarse, ni siquiera si el borrador "parece" pasar una revisión superficial.
+
+**Acceptance Scenarios**:
+
+1. **Given** una descripción en lenguaje natural de un dato a detectar, **When** se pide un borrador al
+   asistente de IA, **Then** se devuelve un patrón + contexto + casos de prueba, **sin que nada se active
+   todavía** — ninguna request de tráfico real lo ve hasta la confirmación explícita siguiente.
+2. **Given** un borrador (de IA o tipeado a mano) con un patrón catastróficamente lento (ReDoS), **When**
+   se intenta activarlo, **Then** el sistema lo rechaza con un motivo claro, sin excepción por venir de la
+   IA ni por "ya haber pasado" una revisión anterior — se re-valida siempre antes de persistir.
+3. **Given** una entidad custom activada, **When** llega tráfico real que la contiene, **Then** se detecta
+   y enmascara igual que cualquier entidad de fábrica de la región activa (mismo mecanismo, no uno paralelo).
+4. **Given** dos entidades custom activas con el mismo tipo declarado, **When** ambas están vigentes,
+   **Then** el sistema debe evitar que una haga sombra silenciosa a la otra (o impedir la duplicación al
+   crearlas, o garantizar que ambas se apliquen) — nunca una activación fantasma sin aviso.
+
 ### Edge Cases
 
 - ¿Qué pasa cuando el mismo nombre de persona coincide con una palabra común del lenguaje (falso positivo NLP)? → Debe poder revisarse en auditoría (metadata: tipo + score) sin exponer el valor real.
@@ -98,6 +129,11 @@ Hoy, si dos patrones de detección matchean fragmentos de texto que se superpone
 - **FR-010**: El mapa de reversión (placeholder → valor original) DEBE seguir permitiendo reconstruir exactamente el valor original tras la resolución de solapamientos, incluyendo sobre respuestas en streaming (reutilizando el mecanismo de carry-split existente).
 - **FR-011**: El sistema DEBE mantener el registro de auditoría metadata-only (tipo de entidad, acción aplicada, score/confianza) sin persistir jamás el valor real de la entidad detectada, para las nuevas rutas de bloqueo introducidas por esta feature (Constraint C1).
 - **FR-012**: El comportamiento de detección y enforcement DEBE ser consistente entre el camino de tráfico real del firewall (spec 014) y cualquier vista de previsualización/playground que exponga el mismo pipeline, evitando que ambos caminos diverjan silenciosamente en qué detectan (cerrando el patrón de duplicación regex actual).
+- **FR-013**: El sistema DEBE permitir crear entidades de detección custom (patrón + palabras de contexto) sin requerir un deploy de código, persistidas junto a la configuración de detección existente.
+- **FR-014**: El sistema PUEDE ofrecer un asistente que redacte un borrador de entidad custom a partir de una descripción en lenguaje natural, pero ese borrador NUNCA DEBE activarse automáticamente — activar una entidad (que empiece a aplicarse sobre tráfico real) requiere una acción explícita separada, posterior a la generación del borrador.
+- **FR-015**: El sistema DEBE validar la seguridad de todo patrón antes de activarlo (compila, no es catastróficamente lento contra entradas adversariales) sin excepción según su origen (generado por IA o tipeado a mano) ni según intentos previos de validación.
+- **FR-016**: El sistema DEBE evitar que dos entidades custom activas con el mismo tipo declarado se sombreen silenciosamente entre sí sin que quede evidencia de cuál aplica realmente.
+- **FR-017**: El sistema DEBE sanitizar o rechazar identificadores de tipo de entidad custom que puedan interferir con el formato interno de los marcadores reversibles usados por el mecanismo de enmascaramiento.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -105,6 +141,7 @@ Hoy, si dos patrones de detección matchean fragmentos de texto que se superpone
 - **Detected Entity**: una ocurrencia de PII/PHI encontrada en un texto — tipo, rango de posición, score de confianza, y el motor que la detectó (NLP vs regla estructurada). Es efímera (vive solo en memoria del request), nunca se persiste con su valor real.
 - **Placeholder Map (mapa reversible)**: asignación valor-original ↔ placeholder por request, ya existente; esta feature la extiende para sobrevivir a la resolución de solapamientos sin perder reversibilidad.
 - **Audit Record**: entrada de auditoría metadata-only existente; esta feature agrega las nuevas causas de bloqueo por-entidad como motivo registrable.
+- **Custom Entity**: definición de un patrón de detección agregado por un usuario (nombre, tipo, patrón, contexto, región, estado activo/borrador, si fue generado por IA). Vive junto a la configuración de detección del tenant; solo las activas llegan al motor de detección real.
 
 ## Success Criteria *(mandatory)*
 
@@ -116,6 +153,8 @@ Hoy, si dos patrones de detección matchean fragmentos de texto que se superpone
 - **SC-004**: Cuando el motor de detección NLP real no responde, el 100% de las requests afectadas se rechazan de forma explícita (ninguna se procesa con detección degradada silenciosa).
 - **SC-005**: La latencia adicional introducida por la detección NLP real sobre el camino del firewall no degrada la experiencia interactiva de las herramientas soportadas (percibida como respuesta "instantánea" por el usuario, sin timeouts visibles en uso normal).
 - **SC-006**: Cero duplicación de listas de patrones/entidades mantenidas a mano en más de un lugar del código tras esta feature (el camino panel/playground y el camino firewall comparten la misma fuente de detección).
+- **SC-007**: El 100% de los patrones que fallan la validación de seguridad (no compilan, o exceden el timeout contra entradas adversariales) quedan rechazados y jamás llegan a activarse — verificado por un set de prueba de contrato que incluye patrones catastróficos conocidos.
+- **SC-008**: Cero entidades custom activas simultáneamente con el mismo tipo declarado sin que el sistema lo impida o lo señale explícitamente.
 
 ## Assumptions
 
