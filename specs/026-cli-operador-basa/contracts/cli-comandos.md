@@ -29,7 +29,8 @@ numerados no**. Árbol completo con fase en [inventario-scripts.md](../inventari
 - **Entrada**: `--tenant`, `--seats`, `--expiry` (obligatorios); `--distributor`, `--pool`,
   `--flags`, `--grace`, `--not-before`, `--out` (defaults sanos y documentados).
 - **Garantías**: (a) produce un `.lic` cuya firma valida contra `verifier.py` del producto
-  — byte-compatible con `canonical_payload_bytes` (golden vectors en el gate);
+  — el emisor importa `canonical_payload_bytes` como fuente única (contract test del
+  artefacto en el gate);
   (b) **JAMÁS toca el keyset público** (invariante anti-foot-gun; la rotación es otro
   comando); (c) registra la emisión en el ledger local (supersede visible si ya había una
   para ese tenant); (d) pide la passphrase de la privada por prompt.
