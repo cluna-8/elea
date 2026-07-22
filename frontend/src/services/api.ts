@@ -142,6 +142,100 @@ export interface SecurityPolicy {
   headroom_mode: boolean;
 }
 
+// ── Gobernanza (spec 027) ────────────────────────────────────────────────────────
+// Los dos ejes que el producto confundía y que la 027 separa: `decision_resuelta` es
+// el DESEO del admin y `estado_efectivo` es la ejecución REAL (contrato
+// api-gobernanza.md, garantía (c): son independientes — una capa `on` puede estar
+// `no_disponible`). Ningún componente puede volver a derivar "activo" de un deseo:
+// esa derivación es exactamente la mentira que esta feature elimina (FR-001).
+
+export type GovernanceTier = "floor" | "optional";
+export type GovernanceDecision = "on" | "off";
+export type GovernanceOrigin =
+  | "floor" | "connection" | "surface" | "connection_mode" | "tenant_default" | "product_default";
+export type GovernanceEffectiveState =
+  | "aplicandose" | "requiere_credencial" | "delegada" | "no_disponible" | "degradada";
+
+export interface GovernanceLayerStatus {
+  layer_key: string;
+  tier: GovernanceTier;
+  planes: string[];
+  decision_resuelta: GovernanceDecision;
+  origen: GovernanceOrigin;
+  estado_efectivo: GovernanceEffectiveState;
+  /** Obligatorio cuando `estado_efectivo != aplicandose` (FR-013): el copy que distingue
+   *  "no la aplicamos nosotros" de "estás desprotegido". Sale de un catálogo cerrado del
+   *  backend, nunca de una excepción del motor. */
+  motivo: string;
+}
+
+/** Estado normalizado para la UI. `porModo` responde SC-002 ("qué protege el tráfico de
+ *  suscripción y qué el de modelos de la pasarela") de un vistazo. */
+export interface GovernanceStatus {
+  layers: GovernanceLayerStatus[];
+  porModo: Record<string, GovernanceLayerStatus[]>;
+}
+
+export const CONNECTION_MODES = ["subscription", "gateway-models"] as const;
+export type ConnectionMode = (typeof CONNECTION_MODES)[number];
+
+/** Error de API que conserva el status HTTP. Sin esto la UI no puede distinguir
+ *  "no tenés permiso" (403) de "no se pudo contactar al servidor" (fallo de red), y las
+ *  dos terminan pintando una pantalla vacía que el usuario lee como un bug del producto
+ *  — el patrón del `catch { // silent }` de SecurityPage que la 027 viene a corregir.
+ *  `status = 0` significa que nunca hubo respuesta. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    // Necesario porque el target de compilación puede degradar `extends Error` y romper
+    // el instanceof; sin esto el llamador no puede ramificar por tipo.
+    Object.setPrototypeOf(this, ApiError.prototype);
+  }
+
+  get isForbidden(): boolean { return this.status === 403; }
+  get isNetwork(): boolean { return this.status === 0; }
+}
+
+function asLayers(value: any): GovernanceLayerStatus[] {
+  // Solo entra lo que tiene identidad de capa: un envoltorio inesperado produce lista
+  // vacía (y la UI lo dice), nunca objetos a medio formar renderizados como capas.
+  return Array.isArray(value) ? value.filter((l) => l && typeof l.layer_key === "string") : [];
+}
+
+/** Normaliza la respuesta de `/governance/status`. El contrato fija el shape POR CAPA y
+ *  sus invariantes; el envoltorio de agrupación queda "refinable en implementación"
+ *  (api-gobernanza.md, encabezado), así que se aceptan las formas razonables del bloque
+ *  por modo en vez de acoplar la UI a una sola. Si no viene agrupado, la página pide modo
+ *  por modo: SC-002 no puede depender de un detalle de serialización. */
+function normalizeGovernanceStatus(raw: any): GovernanceStatus {
+  const porModo: Record<string, GovernanceLayerStatus[]> = {};
+  const grouped = raw?.by_mode ?? raw?.por_modo ?? raw?.modes ?? raw?.modos;
+
+  if (Array.isArray(grouped)) {
+    for (const entry of grouped) {
+      const mode = entry?.mode ?? entry?.modo ?? entry?.connection_mode;
+      if (typeof mode === "string") porModo[mode] = asLayers(entry?.layers ?? entry?.capas);
+    }
+  } else if (grouped && typeof grouped === "object") {
+    for (const [mode, entry] of Object.entries<any>(grouped)) {
+      porModo[mode] = asLayers(Array.isArray(entry) ? entry : entry?.layers ?? entry?.capas);
+    }
+  }
+
+  let layers = asLayers(Array.isArray(raw) ? raw : raw?.layers ?? raw?.capas);
+  if (layers.length === 0) {
+    // Un payload que solo trae la agrupación sigue siendo respondible: el detalle por capa
+    // se lee del primer modo disponible en vez de mostrar la página vacía.
+    const first = Object.values(porModo).find((l) => l.length > 0);
+    if (first) layers = first;
+  }
+  return { layers, porModo };
+}
+
 export interface AuditLog {
   id: string;
   timestamp: string;
@@ -491,6 +585,37 @@ export const api = {
       throw new Error(err.detail || "Error al ejecutar el test del guardián.");
     }
     return res.json();
+  },
+
+  // --- Governance ---
+  // Router admin-only (`require_role("admin")` en el APIRouter): un rol insuficiente
+  // recibe 403 y la UI lo dice con todas las letras. `handleExpiredSession(res)` va en
+  // TODAS las funciones del bloque — el olvido del bloque Security Policy (arriba) deja
+  // al usuario con sesión vencida mirando un error genérico en vez de re-loguearse.
+  getGovernanceStatus: async (params?: { mode?: string; surface?: string }): Promise<GovernanceStatus> => {
+    const qs = new URLSearchParams();
+    if (params?.mode) qs.append("mode", params.mode);
+    if (params?.surface) qs.append("surface", params.surface);
+    const query = qs.toString();
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/governance/status${query ? `?${query}` : ""}`, {
+        headers: authHeaders(),
+      });
+    } catch {
+      // Sin respuesta no hay status: se marca como fallo de red (0) para que la página
+      // no lo confunda con "no tenés permiso".
+      throw new ApiError("No se pudo contactar al servidor de gobernanza.", 0);
+    }
+    handleExpiredSession(res);
+    if (!res.ok) {
+      // El `detail` del backend es el mensaje que la UI muestra (patrón de testGuardian):
+      // el catálogo cerrado de motivos vive allá, no acá.
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(err.detail || "No se pudo obtener el estado de gobernanza.", res.status);
+    }
+    return normalizeGovernanceStatus(await res.json());
   },
 
   // --- Analytics ---

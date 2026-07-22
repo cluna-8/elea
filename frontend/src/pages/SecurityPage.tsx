@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { api, SecurityPolicy } from "../services/api";
+import { api, ApiError, GovernanceLayerStatus, SecurityPolicy } from "../services/api";
+import { EstadoBadge } from "./GovernancePage";
 
 const GUARDIAN_DESCRIPTIONS: Record<string, string> = {
   pii_masking: "Enmascaramiento local por expresiones regulares. Detecta DNI, CUIL, emails, teléfonos y personas sin depender de servicios externos.",
@@ -27,6 +28,37 @@ const GUARDIAN_ICONS: Record<string, string> = {
 
 const LOCAL_TYPES = new Set(["pii_masking", "secret_detection", "sensitive_routing"]);
 
+// Enlace LÓGICO guardián → capa de gobernanza (data-model §2.4: nunca FK, resuelto en
+// query del lado del servidor y por esta tabla del lado del cliente). Las claves son los
+// `guardian_type` que ya devuelve la API —los mismos que indexan los textos e íconos de
+// arriba—: son identificadores internos de join, no copy, y no se renderizan nunca.
+// Un tipo sin correspondencia NO se asume activo: cae a "estado desconocido" explícito.
+const GUARDIAN_TYPE_TO_LAYER: Record<string, string> = {
+  pii_masking: "pii_masking",
+  presidio: "pii_masking",
+  secret_detection: "secret_detection",
+  sensitive_routing: "sensitive_routing",
+  openai_moderation: "content_moderation",
+  lakera_prompt_injection: "prompt_injection",
+  llamaguard_moderations: "prompt_injection",
+  azure_content_safety: "content_safety",
+  bedrock_guardrails: "provider_guardrails",
+};
+
+/** Badge de estado desconocido. Existe para que la ausencia de dato tenga forma propia:
+ *  la alternativa —caer a "Activo"— es exactamente la mentira que la 027 elimina. */
+function EstadoDesconocido({ motivo }: { motivo: string }) {
+  return (
+    <span
+      title={motivo}
+      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-text-secondary text-[10px] font-bold whitespace-nowrap"
+    >
+      <span aria-hidden="true" className="text-[11px] leading-none">?</span>
+      Estado desconocido
+    </span>
+  );
+}
+
 export const SecurityPage: React.FC = () => {
   const [policy, setPolicy] = useState<SecurityPolicy | null>(null);
   const [guardians, setGuardians] = useState<any[]>([]);
@@ -38,6 +70,11 @@ export const SecurityPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ blocked: boolean; reason: string | null } | null>(null);
   const [testing, setTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
+  // Estado REAL por capa (spec 027): la única fuente de "esto se está aplicando". El
+  // `is_active` del guardián es el DESEO y se rotula como tal.
+  const [estadoPorCapa, setEstadoPorCapa] = useState<Record<string, GovernanceLayerStatus>>({});
+  const [estadoNoDisponible, setEstadoNoDisponible] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -48,13 +85,52 @@ export const SecurityPage: React.FC = () => {
         ]);
         setPolicy(policyData);
         setGuardians(guardiansData);
-      } catch {
-        // silent
+      } catch (e: any) {
+        // Antes esto era `catch { // silent }`: con /guardians admin-only, un
+        // compliance_officer entraba por el nav y veía un grid vacío sin explicación —
+        // un problema de permisos que parecía un producto roto.
+        setLoadError(
+          e?.message || "No se pudo cargar la configuración de seguridad. Verificá la conexión y tus permisos."
+        );
       } finally {
         setLoading(false);
       }
     })();
   }, []);
+
+  useEffect(() => {
+    // Consulta aparte y tolerante a fallo: el estado real es admin-only, así que un rol sin
+    // permiso debe seguir viendo la configuración — pero con los estados como DESCONOCIDOS,
+    // jamás como activos.
+    (async () => {
+      try {
+        // Un modo concreto (`gateway-models`), no el resumen sin params: éste devuelve la unión de
+        // los dos modos (cada `layer_key` repetido), y el `porCapa[...] = layer` de abajo se quedaba
+        // con el ÚLTIMO por orden de iteración — un estado elegido por casualidad. `gateway-models`
+        // es el modo donde NUESTRAS capas corren (sin upstream que delegue), así el badge del
+        // guardián refleja si de verdad se está aplicando.
+        const status = await api.getGovernanceStatus({ mode: "gateway-models" });
+        const porCapa: Record<string, GovernanceLayerStatus> = {};
+        for (const layer of status.layers) porCapa[layer.layer_key] = layer;
+        setEstadoPorCapa(porCapa);
+        setEstadoNoDisponible(null);
+      } catch (e: any) {
+        setEstadoPorCapa({});
+        setEstadoNoDisponible(
+          e instanceof ApiError && e.isForbidden
+            ? "Tu rol no puede consultar el estado real de las capas: se muestra como desconocido, nunca como activo."
+            : "No se pudo consultar el estado real de las capas. Lo que ves abajo es la configuración deseada, no lo que se está aplicando."
+        );
+      }
+    })();
+  }, []);
+
+  /** Estado real del guardián, vía su capa. `null` = no se puede afirmar nada. */
+  const estadoDe = (guardianType: string): GovernanceLayerStatus | null => {
+    const layerKey = GUARDIAN_TYPE_TO_LAYER[guardianType];
+    if (!layerKey) return null;
+    return estadoPorCapa[layerKey] || null;
+  };
 
   const handleToggleGuardian = (id: string) => {
     setGuardians((prev) => prev.map((g) => (g.id === id ? { ...g, is_active: !g.is_active } : g)));
@@ -162,16 +238,38 @@ export const SecurityPage: React.FC = () => {
         </div>
       )}
 
+      {loadError && (
+        <div className="bg-danger/10 border border-danger/20 text-danger px-4 py-2.5 rounded-lg text-xs">
+          {loadError}
+        </div>
+      )}
+
+      {estadoNoDisponible && (
+        <div className="bg-warning/10 border border-warning/20 text-warning px-4 py-2.5 rounded-lg text-xs">
+          {estadoNoDisponible}
+        </div>
+      )}
+
       {/* ── Guardians card grid ── */}
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
-          Guardianes de Seguridad
-        </h2>
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
+            Guardianes de Seguridad
+          </h2>
+          <p className="text-[11px] text-text-secondary">
+            El estado de cada tarjeta es el estado REAL de su capa (lo que se está aplicando). El
+            interruptor es el estado <span className="text-white font-semibold">deseado</span>: activarlo no
+            hace que la capa corra. El detalle completo, en la sección Gobernanza.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {guardians.map((g) => {
             const local = LOCAL_TYPES.has(g.guardian_type);
             const isSelected = selectedId === g.id;
+            // El borde ya no celebra el DESEO: solo se pinta de verde lo que realmente corre.
+            const estado = estadoDe(g.guardian_type);
+            const aplicandose = estado?.estado_efectivo === "aplicandose";
 
             return (
               <div
@@ -180,12 +278,12 @@ export const SecurityPage: React.FC = () => {
                 className={`border rounded-lg p-4 space-y-3 cursor-pointer transition-all ${
                   isSelected
                     ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20"
-                    : g.is_active
+                    : aplicandose
                     ? "border-success/20 bg-success/5 hover:border-slate-600"
                     : "border-slate-700/40 bg-background/10 hover:border-slate-600"
                 }`}
               >
-                {/* Row 1: icon + name + status */}
+                {/* Row 1: icon + name + estado REAL */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-text-secondary text-base leading-none flex-shrink-0">
@@ -193,17 +291,41 @@ export const SecurityPage: React.FC = () => {
                     </span>
                     <span className="font-semibold text-white text-xs truncate">{g.name}</span>
                   </div>
+                  <div className="flex-shrink-0">
+                    {estado ? (
+                      <EstadoBadge estado={estado.estado_efectivo} />
+                    ) : (
+                      <EstadoDesconocido
+                        motivo={
+                          estadoNoDisponible ||
+                          "Este guardián no tiene una capa de gobernanza con correspondencia clara: no se puede afirmar que se esté aplicando."
+                        }
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Row 1b: DESEO (lo que el admin pidió), explícitamente separado del estado */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-text-secondary">Deseado</span>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleToggleGuardian(g.id); }}
                     className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
                       g.is_active
-                        ? "bg-success/10 border-success/30 text-success"
+                        ? "bg-primary/10 border-primary/30 text-primary"
                         : "bg-slate-800 border-slate-700 text-text-secondary hover:border-slate-600"
                     }`}
                   >
-                    {g.is_active ? "Activo" : "Inactivo"}
+                    {g.is_active ? "Activar: sí" : "Activar: no"}
                   </button>
                 </div>
+
+                {/* Motivo del backend cuando la capa no se está aplicando (FR-013) */}
+                {estado && !aplicandose && estado.motivo && (
+                  <p className="text-[10px] text-text-secondary leading-relaxed border-l-2 border-slate-700/40 pl-2">
+                    {estado.motivo}
+                  </p>
+                )}
 
                 {/* Row 2: type chips */}
                 <div className="flex gap-1.5 flex-wrap">

@@ -98,6 +98,14 @@ app = FastAPI(
 # Include API Router
 app.include_router(api_router)
 
+# Gobernanza (spec 027, US1): se monta acá y no en `api/__init__.py` a propósito. El router
+# es nuevo y ese archivo lo están tocando en paralelo las otras ramas de la feature (016/027
+# US2); montarlo desde main.py entrega el MISMO path público (`/api/v1/governance/...`) sin
+# competir por el mismo archivo. Cuando la feature esté completa puede mudarse al agregador.
+from .api.governance import router as governance_router  # noqa: E402
+
+app.include_router(governance_router, prefix="/api/v1")
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
