@@ -136,8 +136,11 @@ def create_custom_entity(payload: CustomEntityCreateRequest, db: Session = Depen
             score=payload.score, context=payload.context, region=payload.region,
             ai_generated=payload.ai_generated,
         )
-    except entity_catalog_service.UnsafePatternError as e:
+    except (entity_catalog_service.UnsafePatternError,
+            entity_catalog_service.InvalidEntityTypeError) as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except entity_catalog_service.DuplicateEntityTypeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

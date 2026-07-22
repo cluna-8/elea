@@ -299,24 +299,27 @@ review, para que quede trazable igual que el resto de la spec.
       `backend/tests/test_policy_unit.py` (45 tests). Incluye regresión de los 2 findings de review
       (draft_entity 500 por score/content sin validar; `test_pattern` sin timeout).
 
-### Pendiente (findings de review, no bloqueantes pero abiertos)
+### Hallazgos de review — cerrados
 
-- [ ] T043 ⚠️ [P] [US5] **Pendiente** — Sanitizar `entity_type` en `create_custom_entity`: hoy acepta
-      cualquier string; un valor con `]`/espacios puede romper el formato de placeholder
-      `[TIPO_idx_nonce]` que usan `PH_TYPE_RE`/`PH_TAIL_RE` para el carry-split de streaming. Validar
-      contra algo como `^[A-Z][A-Z0-9_]*$` antes de persistir. *(FR-017)*
-- [ ] T044 ⚠️ [P] [US5] **Pendiente** — Unicidad de `entity_type` entre entidades custom **activas**:
-      hoy nada impide crear dos con el mismo tipo; si Presidio deduplica `ad_hoc_recognizers` por nombre,
-      una queda "activa" en el catálogo sin efecto real, sin ningún aviso. Rechazar en `create_custom_entity`
-      o verificar explícitamente el comportamiento real de Presidio ante nombres duplicados. *(FR-016, SC-008)*
-- [ ] T045 [US5] **Pendiente** — Locking optimista en `create_custom_entity`/`delete_custom_entity`: hoy
-      es read-modify-write sin lock sobre `guardian.config` — dos requests concurrentes pueden pisarse
-      (lost update). Evaluar `SELECT ... FOR UPDATE` o un chequeo de versión antes de comitear.
-- [ ] T046 [P] [US5] **Pendiente** — Contract test end-to-end de `T043`/`T044` contra el backend real
-      (`tests/contract/`), análogo a como se probaron T037-T041 con curl durante el desarrollo.
+- [x] T043 [P] [US5] Sanitización de `entity_type` en `create_custom_entity`:
+      `_validate_entity_type` (`^[A-Z][A-Z0-9_]*$`, largo acotado) — `InvalidEntityTypeError` → 422.
+      Verificado contra Postgres real (`tests/contract/test_entity_catalog_contract.py`) y con curl
+      contra el backend vivo. *(FR-017)*
+- [x] T044 [P] [US5] Unicidad de `entity_type` entre entidades custom **activas**: se rechaza la
+      creación de una duplicada (no se confía en que Presidio dedupe `ad_hoc_recognizers` por nombre —
+      no verificado, más simple y determinístico rechazar explícito). `DuplicateEntityTypeError` → 409.
+      Entidades `inactive`/`status` distinto de `active` no cuentan para la unicidad. *(FR-016, SC-008)*
+- [x] T045 [US5] Locking real en `create_custom_entity`/`delete_custom_entity`: `_pii_guardian(...,
+      for_update=True)` usa `SELECT ... FOR UPDATE` de Postgres — serializa escrituras concurrentes en
+      vez de dejarlas pisarse (lost update). Verificado con 8 hilos reales creando entidades distintas
+      en paralelo contra Postgres real: 8/8 persistidas, cero perdidas.
+- [x] T046 [P] [US5] Contract test end-to-end (`tests/contract/test_entity_catalog_contract.py`) contra
+      Postgres real (no un Guardian fake): sanitización, unicidad, y concurrencia con hilos reales.
+      Complementa los tests unitarios con fake session (rápidos, sin DB) de
+      `test_entity_catalog_service.py`, que no pueden probar `with_for_update()` de verdad.
 
-**Checkpoint**: US5 funcional y probada en vivo (T037-T042); 3 hallazgos de la review documentados como
-tasks explícitas (T043-T045), no como deuda invisible.
+**Checkpoint**: US5 completa — funcional, probada en vivo, y los 3 hallazgos de la review cerrados con
+test de contrato contra Postgres real (no solo curl manual).
 
 ---
 
@@ -336,8 +339,7 @@ tasks explícitas (T043-T045), no como deuda invisible.
 - **Polish (T033-T036)** al final, depende de todas las historias.
 - **US5 (T037-T046)** depende de Foundational (reusa `presidio_analyze`/`build_ad_hoc_recognizers`) pero
   es independiente de US1-US4 en su implementación — se hizo después, a pedido explícito del usuario.
-  T043-T046 (pendientes) no bloquean nada del resto de la spec, pero sí deberían cerrarse antes de dar
-  la 016 por completamente terminada (afectan la integridad del catálogo custom, no la detección base).
+  **Completa** (T037-T046, incluidos los 3 hallazgos de review).
 
 ## Parallel Execution Examples
 
@@ -359,13 +361,11 @@ paralelo por ser archivos/funciones independientes, todos ANTES de sus implement
 `MASK`/`BLOCK` configurado — es la primera versión que un compliance officer puede confiar como "hace lo
 que dice que hace". US3 (fail-closed real) y US4 (integridad ante solapamientos) son endurecimientos que
 pueden entregarse incrementalmente después sin romper el MVP. US5 (catálogo custom + IA) es una extensión
-de alcance posterior al MVP — funcional y probada en vivo, con 3 hallazgos de integridad (T043-T045)
-identificados en review y documentados como próximo paso, no como bloqueo del resto de la entrega.
+de alcance posterior al MVP — **completa**, incluidos los 3 hallazgos de integridad de la review.
 
 ## Próximos pasos inmediatos (en orden sugerido)
 
-1. **T043-T045** (US5, hallazgos de review) — son los de menor esfuerzo relativo y cierran riesgos de
-   integridad concretos en una feature que ya está en producción real dentro de esta rama.
+1. ~~T043-T045 (US5, hallazgos de review)~~ — **cerrado**.
 2. **T014, T017, T018, T019, T024, T025** — tests de integración/contract contra el stack real que
    quedaron pendientes de US1-US3 (la lógica ya está implementada y probada manualmente, falta
    formalizarla como test automatizado).

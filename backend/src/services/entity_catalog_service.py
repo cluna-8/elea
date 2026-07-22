@@ -51,6 +51,40 @@ class UnsafePatternError(ValueError):
     largo, o no responde a tiempo (riesgo ReDoS)."""
 
 
+class InvalidEntityTypeError(ValueError):
+    """`entity_type` no cumple el formato requerido para viajar seguro dentro
+    del placeholder `[TIPO_idx_nonce]` (FR-017)."""
+
+
+class DuplicateEntityTypeError(ValueError):
+    """Ya existe una entidad custom ACTIVA con el mismo `entity_type` (FR-016,
+    SC-008) — se rechaza la creación en vez de dejar una activación fantasma."""
+
+
+MAX_ENTITY_TYPE_LEN = 64
+# El placeholder es [TIPO_idx_nonce] (PH_TYPE_RE en basa_guardian_policy.py) —
+# TIPO debe ser MAYÚSCULAS/dígitos/guion_bajo, empezando con letra, sin '[' ']'
+# ni '_' pegado a un patrón de nonce que confunda el parser de carry-split.
+_ENTITY_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _validate_entity_type(entity_type: str) -> str:
+    """Normaliza a mayúsculas y valida el formato — levanta InvalidEntityTypeError
+    si no es seguro para el formato de placeholder. Se llama SIEMPRE antes de
+    persistir, igual que `validate_pattern_safety` con el regex (FR-017)."""
+    normalized = (entity_type or "").strip().upper()
+    if not normalized or len(normalized) > MAX_ENTITY_TYPE_LEN:
+        raise InvalidEntityTypeError(
+            f"entity_type vacío o mayor a {MAX_ENTITY_TYPE_LEN} caracteres.")
+    if not _ENTITY_TYPE_RE.match(normalized):
+        raise InvalidEntityTypeError(
+            f"entity_type '{entity_type}' inválido — debe ser MAYÚSCULAS/dígitos/guion_bajo, "
+            "empezando con una letra (p.ej. HISTORIA_CLINICA_ES). Esto evita romper el formato "
+            "del placeholder reversible [TIPO_idx_nonce] usado por el enmascaramiento."
+        )
+    return normalized
+
+
 def _run_in_process(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> Optional[bool]:
     """Corre `re.search(pattern, text)` en un PROCESO aparte (contexto `spawn`) —
     no un hilo. Se probó primero con un hilo + `future.result(timeout=...)`: NO
@@ -224,18 +258,30 @@ async def draft_entity(description: str) -> Dict[str, Any]:
     }
 
 
-def _pii_guardian(db: Session, tenant_id) -> Guardian:
-    guardian = db.query(Guardian).filter(
+def _pii_guardian(db: Session, tenant_id, *, for_update: bool = False) -> Guardian:
+    """`for_update=True` (T045): toma un lock de fila Postgres (`SELECT ... FOR
+    UPDATE`) para las operaciones de escritura (create/delete) — sin esto, dos
+    requests concurrentes leen el mismo `custom_entities`, cada una modifica su
+    copia en memoria y comitea, y la que comitea después pisa a la primera
+    (lost update). El lock serializa: la segunda transacción espera a que la
+    primera comitee antes de leer, así que ve la lista ya actualizada."""
+    query = db.query(Guardian).filter(
         Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking"
-    ).first()
+    )
+    if for_update:
+        query = query.with_for_update()
+    guardian = query.first()
     if not guardian:
         # Auto-provisiona el catálogo por default (mismo que dispara GET /guardians) —
         # sin esto, pedir el catálogo de entidades custom ANTES de haber abierto el
         # panel de guardianes una vez rompía con un 500 (bug encontrado con curl).
         GuardianService.get_or_create_default_guardians(db)
-        guardian = db.query(Guardian).filter(
+        query = db.query(Guardian).filter(
             Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking"
-        ).first()
+        )
+        if for_update:
+            query = query.with_for_update()
+        guardian = query.first()
     if not guardian:
         raise ValueError("No existe el guardián de enmascaramiento PII para este tenant.")
     return guardian
@@ -255,12 +301,28 @@ def create_custom_entity(
     editado/aceptado, o tipeado a mano) — este es el único punto donde algo se
     vuelve activo en el firewall real."""
     validate_pattern_safety(regex)  # re-valida siempre, no confía en que el caller ya lo hizo
+    normalized_type = _validate_entity_type(entity_type)  # T043 (FR-017)
 
-    guardian = _pii_guardian(db, tenant_id)
+    # T045: lock de fila — desde acá hasta el commit, ninguna otra transacción
+    # puede leer/escribir esta misma fila de Guardian (Postgres FOR UPDATE).
+    guardian = _pii_guardian(db, tenant_id, for_update=True)
+    custom_entities = guardian.config.get("custom_entities", [])
+
+    # T044 (FR-016/SC-008): rechazar duplicados de entity_type entre ACTIVAS —
+    # más simple y determinístico que confiar en que Presidio dedupe recognizers
+    # ad-hoc por nombre (no verificado) y más honesto que dejar una activación
+    # fantasma sin ningún aviso al compliance officer.
+    if any(e.get("entity_type") == normalized_type and e.get("status") == "active"
+           for e in custom_entities):
+        raise DuplicateEntityTypeError(
+            f"Ya existe una entidad custom activa con entity_type '{normalized_type}'. "
+            "Editá o desactivá la existente antes de crear otra con el mismo tipo."
+        )
+
     entity = {
         "id": str(uuid.uuid4()),
         "name": name,
-        "entity_type": entity_type.upper(),
+        "entity_type": normalized_type,
         "regex": regex,
         "score": max(0.0, min(1.0, score)),
         "context": context or [],
@@ -268,18 +330,17 @@ def create_custom_entity(
         "ai_generated": ai_generated,
         "status": "active",
     }
-    custom_entities = guardian.config.get("custom_entities", [])
     custom_entities.append(entity)
     guardian.config = {**guardian.config, "custom_entities": custom_entities}
     flag_modified(guardian, "config")
     db.commit()
     logger.info("Nueva entidad custom '%s' (%s) agregada al catálogo del tenant %s",
-                name, entity_type, tenant_id)
+                name, normalized_type, tenant_id)
     return entity
 
 
 def delete_custom_entity(db: Session, tenant_id, entity_id: str) -> None:
-    guardian = _pii_guardian(db, tenant_id)
+    guardian = _pii_guardian(db, tenant_id, for_update=True)  # T045
     custom_entities = guardian.config.get("custom_entities", [])
     remaining = [e for e in custom_entities if e.get("id") != entity_id]
     if len(remaining) == len(custom_entities):

@@ -164,6 +164,9 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def with_for_update(self):
+        return self  # el fake no simula locking real, solo que el método existe
+
     def first(self):
         return self._guardian
 
@@ -218,3 +221,63 @@ def test_delete_custom_entity_raises_when_not_found(monkeypatch):
     db = _FakeSession(guardian)
     with pytest.raises(ValueError):
         svc.delete_custom_entity(db, "tenant-x", "no-existe")
+
+
+# ── T043: sanitización de entity_type (FR-017) ─────────────────────────────────
+
+def test_validate_entity_type_accepts_normalizes_case():
+    assert svc._validate_entity_type("historia_clinica_es") == "HISTORIA_CLINICA_ES"
+
+
+@pytest.mark.parametrize("bad", ["", "  ", "MI TIPO", "TIPO]RARO", "1EMPIEZA_CON_DIGITO",
+                                 "tipo-con-guion", "a" * (svc.MAX_ENTITY_TYPE_LEN + 1)])
+def test_validate_entity_type_rejects_invalid_formats(bad):
+    with pytest.raises(svc.InvalidEntityTypeError):
+        svc._validate_entity_type(bad)
+
+
+def test_create_custom_entity_rejects_invalid_entity_type(monkeypatch):
+    guardian = _FakeGuardian(config={"custom_entities": []})
+    db = _FakeSession(guardian)
+    monkeypatch.setattr(svc, "flag_modified", lambda *a, **k: None)
+
+    with pytest.raises(svc.InvalidEntityTypeError):
+        svc.create_custom_entity(
+            db, "tenant-x", name="Malo", entity_type="TIPO]RARO", regex=r"\bHC-\d{6}\b",
+        )
+    assert db.committed is False  # rechazado ANTES de tocar la DB
+
+
+# ── T044: unicidad de entity_type entre activas (FR-016, SC-008) ──────────────
+
+def test_create_custom_entity_rejects_duplicate_active_entity_type(monkeypatch):
+    guardian = _FakeGuardian(config={"custom_entities": [{
+        "id": "existing-id", "name": "Historia Clínica v1", "entity_type": "HISTORIA_CLINICA_ES",
+        "regex": r"\bHC-\d{6}\b", "score": 0.7, "context": [], "region": "eu",
+        "ai_generated": False, "status": "active",
+    }]})
+    db = _FakeSession(guardian)
+    monkeypatch.setattr(svc, "flag_modified", lambda *a, **k: None)
+
+    with pytest.raises(svc.DuplicateEntityTypeError):
+        svc.create_custom_entity(
+            db, "tenant-x", name="Historia Clínica v2", entity_type="historia_clinica_es",
+            regex=r"\bHC-\d{7}\b",
+        )
+    assert len(svc.list_custom_entities(db, "tenant-x")) == 1  # no se agregó la duplicada
+
+
+def test_create_custom_entity_allows_same_type_if_existing_is_not_active(monkeypatch):
+    guardian = _FakeGuardian(config={"custom_entities": [{
+        "id": "existing-id", "name": "Vieja", "entity_type": "HISTORIA_CLINICA_ES",
+        "regex": r"\bHC-\d{6}\b", "score": 0.7, "context": [], "region": "eu",
+        "ai_generated": False, "status": "inactive",
+    }]})
+    db = _FakeSession(guardian)
+    monkeypatch.setattr(svc, "flag_modified", lambda *a, **k: None)
+
+    created = svc.create_custom_entity(
+        db, "tenant-x", name="Nueva", entity_type="historia_clinica_es", regex=r"\bHC-\d{7}\b",
+    )
+    assert created["status"] == "active"
+    assert len(svc.list_custom_entities(db, "tenant-x")) == 2
