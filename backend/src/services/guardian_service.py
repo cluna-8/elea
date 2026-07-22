@@ -59,10 +59,10 @@ class GuardianService:
                 guardian_type="sensitive_routing",
                 is_active=False,
                 config={
-                    "keywords": ["cáncer", "oncología", "quirófano", "vih", "sida", "autopsia"],
-                    # Destino por-cliente (su catálogo define el modelo local);
-                    # el seed NO inventa un nombre: sin destino configurado el
-                    # guardián no rutea (fail-safe en process_prompt).
+                    # 0km: el vocabulario sensible es DEL CLIENTE (config), el
+                    # producto no precarga términos de ningún vertical. Sin
+                    # keywords ni destino el guardián no hace nada (nace off).
+                    "keywords": [],
                     "on_premise_model": "",
                     "sticky_session": True
                 }

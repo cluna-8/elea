@@ -1,0 +1,26 @@
+# LiteLLM config del PILOTO ${TENANT_SLUG} — residencia ${REGION}.
+# Bloque general/guardrails = EL MISMO de la 014 (paridad de política).
+#
+# Catálogo 0km del piloto: SOLO el modelo local (cero API keys, autocontenido —
+# residencia total: nada sale de la VM). Los proveedores cloud de Cámara se
+# agregan EN EL ALTA (runbook §modelos): una entrada acá + su key en secrets.env.
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  custom_auth: extensions.custom_auth.user_api_key_auth
+  custom_auth_run_common_checks: true
+guardrails:
+- guardrail_name: basa-guardian
+  litellm_params:
+    guardrail: extensions.basa_guardrail.BasaGuardrail
+    mode: [pre_call, post_call]
+    default_on: true
+litellm_settings:
+  callbacks: extensions.basa_audit_logger.basa_audit_logger_instance
+  cache: false          # piloto: cache OFF — incompatible con masking reversible (issue #30)
+  drop_params: true
+  set_verbose: false
+model_list:
+- litellm_params:
+    api_base: http://${CLIENT_OLLAMA_HOST}:11434
+    model: ollama_chat/qwen3:4b
+  model_name: ${TENANT_SLUG}-local

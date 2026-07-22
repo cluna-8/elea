@@ -19,7 +19,11 @@ mkdir -p "$OUT"
 
 # config.yaml del motor: SOLO se sustituyen las vars del PERFIL — los
 # os.environ/* del runtime del motor quedan intactos (los resuelve LiteLLM).
-PROFILE_VARS='${TENANT_SLUG} ${REGION} ${CLIENT_AZURE_DEPLOYMENT}'
+# La lista se deriva del client.env del propio perfil: cada cliente declara
+# sus CLIENT_* sin tocar este script (fix pre-piloto — antes era hardcodeada
+# y una var nueva del template quedaba sin resolver).
+PROFILE_VARS="$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$PROFILE/client.env" \
+    | sed 's/=$//' | sed 's/^/${/;s/$/}/' | tr '\n' ' ')"
 envsubst "$PROFILE_VARS" < "$PROFILE/config.yaml.tmpl" > "$OUT/config.yaml"
 grep -q '\${' "$OUT/config.yaml" && { echo "❌ variables sin resolver en config.yaml"; exit 1; } || true
 

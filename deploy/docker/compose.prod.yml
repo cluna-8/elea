@@ -25,8 +25,13 @@ services:
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
       LITELLM_API_BASE: "http://litellm:4000"
+      # El alta de usuarios crea la identidad en el motor con la master key.
+      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
       BASA_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
+      # Solo pilotos/demos con licencia dev (kid basa-dev-*): opt-in explícito.
+      # Un cliente con licencia PROD jamás lo setea (default false).
+      BASA_ALLOW_DEV_LICENSE: "${BASA_ALLOW_DEV_LICENSE:-false}"
       BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
       BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
