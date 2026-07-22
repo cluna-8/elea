@@ -67,7 +67,7 @@ de monitor extendidos. Sin proveedores nuevos, sin implementar capas (módulo de
 
 | Principio | Veredicto | Nota |
 |---|---|---|
-| I. Masking-First | ✅ con decisión D8 | El piso se define como **detectar/evaluar/registrar** siempre; el **transformar** (enmascarar) queda gobernado absorbiendo `redact_enabled` (FR-014 de la 013) como decisión de la capa `pii_masking`. Sin D8, FR-002 literal derogaría un requisito entregado de otra spec. **Marcado para OK del owner.** El principio no se viola: el orden masking-antes-de-compresión y el mapa reversible no se tocan. |
+| I. Masking-First | ✅ con decisión D8 | El piso se define como **detectar/evaluar/registrar** siempre; el **transformar** (enmascarar) queda gobernado absorbiendo `redact_enabled` (FR-014 de la 013) como decisión de la capa `pii_masking`. Sin D8, FR-002 literal derogaría un requisito entregado de otra spec. **Confirmada por el owner (2026-07-22); spec enmendada.** El principio no se viola: el orden masking-antes-de-compresión y el mapa reversible no se tocan. |
 | II. Compliance FIRST | ✅ | La feature ES este principio: honestidad de enforcement (dos niveles, real vs declarado) llevada a runtime. La atribución de bloqueo en el plano motor queda declarada como dependiente de la 018 (corte explícito en research D6) — no se promete lo que el sistema no sostiene, exactamente la disciplina que la constitución exige. |
 | III. Multi-Tenant by Design | ✅ | `governance_profiles` nace con `tenant_id` + UNIQUE por tenant + default `DEFAULT_TENANT_ID`, siguiendo el patrón `ComplianceProject`. No se reimplementa la cascada 015 (enum de scope cerrado; punto de enganche documentado). |
 | IV. Client Onboarding as Data | ✅ | Los ejes de alcance se anclan a datos existentes de la Connection (`upstream_mode`, `tool_type` con CHECK); configurar gobernanza jamás requiere tocar código ni archivos (FR-012/SC-006). |
@@ -78,8 +78,8 @@ de monitor extendidos. Sin proveedores nuevos, sin implementar capas (módulo de
 | SC-3 (fail-closed auth) | ✅ | Sin cambios al modelo de identidad; el estado de capa adopta el mismo default inseguro. |
 | SC-1/SC-6 (no raw PII) | ✅ | C1 arriba; además se documenta NO copiar el patrón del `detail` con nombre propio (fuga existente, research D6). |
 
-**Nota 1 (única decisión que toca la letra de la spec)**: D8. Si el owner elige el piso literal,
-se enmienda la 013 y se acepta romper el caso de herramientas de código — decisión suya, no del plan.
+**Nota 1 (única decisión que tocó la letra de la spec)**: D8, **confirmada por el owner el
+2026-07-22**. FR-002 y la Assumption del piso quedaron enmendados en la spec en consecuencia.
 
 **Nota 2**: el prerrequisito P1 (identidad del motor rota en perfil prod) es un bug de producto
 independiente de esta feature; se trackea aparte y **no** entra en tasks.md.

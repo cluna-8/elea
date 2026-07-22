@@ -19,7 +19,7 @@ requisitos están en la spec y no cambian salvo donde se indica explícitamente 
 | D5 | Ejes de alcance | Modo con **función de mapeo explícita**; superficie anclada en `tool_type`, jamás en User-Agent |
 | D6 | Atribución por pedido | Campos **nuevos** `applied_layers` + `blocked_by_layer`; `guardian_events` congelado |
 | D7 | Superficie Admin | **Página propia** "Gobernanza" + autosave con rollback (no botón global) |
-| D8 | Piso vs. toggle existente | El piso es **detectar/evaluar/registrar**; el enmascarado se gobierna. **Requiere OK del owner** |
+| D8 | Piso vs. toggle existente | El piso es **detectar/evaluar/registrar**; el enmascarado se gobierna. **Confirmada por el owner (2026-07-22)** |
 
 ---
 
@@ -351,7 +351,7 @@ separada, no scope creep.
 
 ---
 
-## D8 — El piso y el toggle que ya lo apaga ⚠️ **requiere OK del owner**
+## D8 — El piso y el toggle que ya lo apaga ✅ **confirmada por el owner (2026-07-22)**
 
 **El conflicto**: FR-002 pone *"enmascarar datos personales"* en el piso no-negociable. Pero
 `redact_enabled=False` **hoy apaga el enmascarado** en los dos planos
@@ -378,10 +378,9 @@ configuración"* — visible en la vista de gobernanza, atribuible, auditable.
 **Efecto secundario deseable**: `redact_enabled` deja de ser un toggle paralelo y pasa a ser la
 decisión de una capa dentro del mismo modelo — un mecanismo menos, no uno más.
 
-> **Esto es lo único de la Fase 0 que cambia la letra de la spec.** Si el owner prefiere el piso
-> literal (enmascarado siempre), la consecuencia es derogar FR-014 de la 013 y romper el caso de
-> herramientas de código; habría que enmendar la 013 explícitamente. Se procede con la decisión
-> propuesta y se marca para confirmación.
+> **Confirmada por el owner el 2026-07-22** ("de acuerdo con vos, tal cual"). La letra de la spec
+> quedó enmendada en consecuencia: FR-002 y la Assumption del piso ahora dicen *detectar* + registro
+> honesto del enmascarado desactivado, absorbiendo el toggle de la 013 como decisión de capa.
 
 ---
 

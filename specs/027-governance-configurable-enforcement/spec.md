@@ -71,7 +71,7 @@ Un administrador decide qué capas opcionales aplican para el tráfico de **susc
 ### Functional Requirements
 
 - **FR-001**: El sistema MUST exponer, para cada capa de gobernanza, su estado real de ejecución (aplicándose / requiere credencial / delegada al proveedor / no disponible / degradada), y MUST NOT reportar como activa una capa que no se ejecuta.
-- **FR-002**: El sistema MUST definir un **piso no-negociable** —interceptar y registrar todo pedido, enmascarar datos personales y bloquear secretos— que ninguna configuración pueda desactivar.
+- **FR-002**: El sistema MUST definir un **piso no-negociable** —interceptar todo pedido, registrarlo con su atribución, **detectar** datos personales y bloquear secretos— que ninguna configuración pueda desactivar. El **enmascarado** de los datos detectados es una capa gobernable por alcance; cuando está desactivado, el pedido MUST quedar registrado como *"datos personales detectados, no enmascarados por configuración"* — nunca invisible. *(Decisión del owner 2026-07-22: absorbe el toggle de enmascarado de la spec 013 como decisión de la capa, en vez de derogarlo.)*
 - **FR-003**: El sistema MUST rechazar cualquier intento de configuración que deje el piso no-negociable desactivado, y MUST registrar el intento.
 - **FR-004**: Los administradores MUST poder configurar qué capas opcionales aplican según el **modo de conexión** (tráfico contra la suscripción del cliente vs tráfico hacia modelos administrados por la pasarela).
 - **FR-005**: Los administradores MUST poder configurar qué capas opcionales aplican según la **superficie/herramienta** del cliente.
@@ -108,7 +108,7 @@ Un administrador decide qué capas opcionales aplican para el tráfico de **susc
 
 ## Assumptions
 
-- **Piso no-negociable**: se asume que lo innegociable es **interceptar y registrar todo el tráfico + enmascarar datos personales + bloquear secretos**, por ser el valor central declarado del producto. La **tiering del cumplimiento** (qué evidencia pasa a ser gate duro) NO se redefine acá: es alcance de la spec de niveles de cumplimiento (018).
+- **Piso no-negociable**: lo innegociable es **interceptar y registrar todo el tráfico + detectar datos personales + bloquear secretos** (decisión del owner, 2026-07-22, sobre la Fase 0 — ver research D8). El **enmascarado** es la capa gobernable por excelencia: existe tráfico legítimo que lo necesita apagado (herramientas de código, donde enmascarar rompe el código), y su desactivación queda siempre **detectada y registrada**, nunca invisible. Esto absorbe el toggle de enmascarado existente (spec 013, FR-014) como decisión de capa en vez de derogarlo. La **tiering del cumplimiento** (qué evidencia pasa a ser gate duro) NO se redefine acá: es alcance de la spec de niveles de cumplimiento (018).
 - **Granularidad**: esta feature configura por **modo de conexión** y por **superficie/herramienta**. La granularidad **por grupo y por cliente** se apoyará en el mecanismo de resolución en cascada que define la spec 015; esta spec no lo reimplementa y se integrará con él cuando exista.
 - Se asume que las capas de proveedor disponibles son las que el motor de la pasarela ya sabe operar; esta feature las habilita y las hace visibles, no incorpora proveedores nuevos.
 - Se asume que la configuración es **dato por tenant** (config + seed), coherente con la regla de nunca bifurcar el producto por cliente.
