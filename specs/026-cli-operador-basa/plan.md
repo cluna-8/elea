@@ -6,60 +6,60 @@
 
 ## Summary
 
-Construir `basa-admin`: una **CLI en Go, local, offline y airgap-safe** que reemplaza los
-scripts sueltos con foot-guns por comandos guiados. MVP en dos mitades: **firma de
-licencias** (emisión `.lic` por flags con keyset intacto por defecto, privada cifrada con
-age, ledger local de emisiones) e **instalación guiada** de un cliente hasta stack
+Construir `basa-admin`: una **CLI en Python, local, offline y airgap-safe** que reemplaza
+los scripts sueltos con foot-guns por comandos guiados. MVP en dos mitades: **firma de
+licencias** (emisión `.lic` por flags con keyset intacto por defecto, privada como PKCS8
+cifrado, ledger local de emisiones) e **instalación guiada** de un cliente hasta stack
 corriendo y verificado (perfil → secretos → bundle → up → seed → licencia+génesis → admin
-→ verify). El riesgo técnico central — que la firma Go valide en el `verifier.py` Python
-desplegado — quedó **resuelto empíricamente en research** (bytes canónicos idénticos con
-Go ≥ 1.22 + `SetEscapeHTML(false)` + validador fail-closed; firma Ed25519 byte-idéntica
-verificada contra la imagen real del backend) y se blinda con **golden vectors
-cross-lenguaje** en el gate. Patrón de integración: **"Go orquesta, Python ejecuta
-dominio"** — Go nativo para archivos/docker, entrypoints Python endurecidos (con flags,
-dry-run y confirmación) para todo lo que toca SQLAlchemy. Absorbe #33 (pre-portal) y #34.
-Detalle y evidencia: [research.md](research.md).
+→ verify). Decisión de lenguaje (JF): **Python** — el emisor **importa la lib de
+licensing existente** (`canonical_payload_bytes`, `verifier.py`), así que el riesgo de
+divergencia emisor↔verificador desaparece **por construcción** (la alternativa Go quedó
+evaluada, verificada y archivada en research). Distribución: **zipapp `.pyz` single-file**
+dentro del bundle air-gapped. Patrón de integración: **"la CLI orquesta, los entrypoints
+ejecutan dominio"** — la CLI del host hace archivos/docker; los entrypoints `python -m`
+endurecidos (flags, dry-run, confirmación) corren dentro del contenedor backend para todo
+lo que toca SQLAlchemy. Absorbe #33 (pre-portal) y #34. Detalle: [research.md](research.md).
 
 ## Technical Context
 
-**Language/Version**: Go ≥ 1.22 (fijado en `go.mod`; por debajo, `\b`/`\f` divergen de
-Python y las firmas no verifican — research D1). Entrypoints de dominio: Python 3.11 del
-contenedor backend existente.
+**Language/Version**: Python 3.11+ (el mismo del backend; prerrequisito documentado del
+host de instalación — se añade al perfil del partner en la doc 025).
 
-**Primary Dependencies**: spf13/cobra + pflag (árbol de comandos), filippo.io/age
-(custodia de la privada, scrypt), golang.org/x/term (prompts sin eco), crypto/ed25519 +
-encoding/json + crypto/x509 de la stdlib (firma y canonicalización). Todo **vendored**
-(`vendor/` commiteado, `GOFLAGS=-mod=vendor`, `GOTOOLCHAIN=local`) — el build jamás
-resuelve nada por red.
+**Primary Dependencies**: **click** (árbol de comandos, prompts/confirm, CliRunner para
+tests) + **cryptography** (firma/custodia — ya es dependencia del producto) +
+`backend/src/licensing/` **como fuente única** (la CLI la importa, no la reimplementa).
+Cero dependencias de red en el núcleo.
 
 **Storage**: archivos locales únicamente — `.lic`, keyset PEM (formato `# key_id:` del
-verifier), privada `.age` (0600, O_EXCL), ledger de emisiones y audit-log de la CLI como
-JSONL append-only hash-encadenado. **Cero esquema nuevo** en la DB del producto.
+verifier), privada como **PEM PKCS8 cifrado** (`BestAvailableEncryption`, 0600, O_EXCL),
+ledger de emisiones y audit-log de la CLI como JSONL append-only hash-encadenado.
+**Cero esquema nuevo** en la DB del producto.
 
-**Testing**: `go test` table-driven + **testscript (txtar)** para flujos de comandos;
-**golden vectors cross-lenguaje** generados por Python (referencia normativa) y
-asertados desde pytest Y go test; e2e del gate: la CLI emite un `.lic` real →
-`verify_license_blob` Python lo valida. Suite del núcleo corre **con la red cortada**.
-Todo en contenedor (imagen golang para build/test — no exige Go en el host).
+**Testing**: pytest end-to-end — unit del emisor/custodia/render, `CliRunner` para flujos
+de comandos, **contract test del artefacto** (`basa-admin.pyz` firma → el backend del
+stack valida: cubre el empaquetado, no solo el código), suite del núcleo corrida **con la
+red cortada** (garantía offline verificable) + check de imports prohibidos en el gate.
+Todo corre en contenedor (imagen backend — sin exigir nada nuevo al equipo).
 
-**Target Platform**: binario estático (CGO_ENABLED=0) cross-compilado linux/amd64,
-linux/arm64 y darwin/arm64. Los binarios linux viajan **dentro del bundle air-gapped**
-con sha256 en el MANIFEST (mismo contrato que las imágenes).
+**Target Platform**: `basa-admin.pyz` (zipapp via shiv) por plataforma linux
+x86_64/arm64 (wheels de cryptography embebidas); los `.pyz` viajan **dentro del bundle
+air-gapped** con sha256 en el MANIFEST (mismo contrato que las imágenes). Host: Python
+3.11+ + Docker (ya prerrequisito del producto).
 
-**Project Type**: CLI (módulo Go nuevo en `cli/`) + endurecimiento de entrypoints Python
-existentes en `backend/scripts/` → `backend/src/cli_entrypoints/` (módulos `python -m`).
+**Project Type**: CLI (paquete Python nuevo en `cli/`) + endurecimiento de entrypoints
+de dominio en `backend/src/cli_entrypoints/` (módulos `python -m` que reemplazan los
+scripts sueltos).
 
-**Performance Goals**: N/A relevante (herramienta humana); único límite: descifrado
-scrypt de la privada ≤ ~15s con work factor 22 (default explícito).
+**Performance Goals**: N/A relevante (herramienta humana); arranque del `.pyz` < 2s.
 
-**Constraints**: núcleo 100% offline (cero imports de red — verificado por el gate);
-sin secretos en stdout/logs/args; toda mutación con dry-run + confirmación; los strings
-del binario pasan los checks white-label (`prohibited_names.txt`); `.dockerignore`
-excluye `cli/` del build context de las imágenes.
+**Constraints**: núcleo 100% offline (cero imports de red — verificado por el gate); sin
+secretos en stdout/logs/args (prompt sin eco + `--password-stdin` para automatización);
+toda mutación con dry-run + confirmación; strings del `.pyz` pasan los checks white-label
+(`prohibited_names.txt`); el `.pyz` y su build no engordan las imágenes del producto.
 
 **Scale/Scope**: MVP = subárboles `license` (issue/issue-dev/keyset export/rotate/verify)
 + `install` (profile/secrets/bundle/load/up/seed/license/admin/verify) ≈ 14 comandos;
-`ops` día-2 y [CLOUD] quedan en fase 2 con contrato preliminar escrito.
+`ops` día-2 y [CLOUD] en fase 2 con contrato preliminar escrito.
 
 ## Constitution Check
 
@@ -73,13 +73,14 @@ excluye `cli/` del build context de las imágenes.
 | IV. Onboarding as Data | ✅ refuerza | `profile new`/`seed apply` materializan "cliente = config + seed, nunca código" con validación |
 | V. Cost Governance | ✅ n/a | Sin cambios |
 | VI. LiteLLM-Native, No Patching | ✅ | El motor no se toca; la CLI orquesta compose y entrypoints del backend |
-| VII. White-Label | ✅ **gate clave** | Binario en el bundle → strings marca-neutros bajo los checks existentes; perfil por cliente = config, nunca fork |
+| VII. White-Label | ✅ **gate clave** | `.pyz` en el bundle → strings marca-neutros bajo los checks existentes; perfil por cliente = config, nunca fork |
 | VIII. Transparencia | ✅ refuerza | Cada operación de la CLI deja traza auditable local exportable |
 
 **Violaciones**: ninguna. **Re-check post-diseño (Phase 1)**: sin cambios — el diseño no
-introduce esquema, superficies de red ni parches al motor. Punto de atención mantenido:
-los entrypoints Python nuevos viven en `backend/` (superficie compartida) y la custodia de
-claves/quién-firma es frontera con la 017 → review de @cluna-8 en el PR de implementación.
+introduce esquema, superficies de red, lenguajes nuevos ni parches al motor. Punto de
+atención mantenido: los entrypoints de dominio viven en `backend/` (superficie
+compartida) y la custodia de claves/quién-firma es frontera con la 017 → review de
+@cluna-8 en el PR de implementación.
 
 ## Project Structure
 
@@ -90,7 +91,7 @@ specs/026-cli-operador-basa/
 ├── plan.md                   # Este archivo
 ├── spec.md                   # Especificación (PR #38)
 ├── inventario-scripts.md     # Grounding: 54 operaciones relevadas, árbol de comandos
-├── research.md               # D1-D5 con evidencia empírica (firma Go↔Python verificada)
+├── research.md               # D1-D5 (+ alternativa Go evaluada y archivada)
 ├── data-model.md             # Artefactos existentes + ledger/audit-log nuevos
 ├── quickstart.md             # Validación viva del MVP
 ├── contracts/
@@ -101,43 +102,41 @@ specs/026-cli-operador-basa/
 ### Source Code (repository root)
 
 ```text
-cli/                                  # Módulo Go nuevo (raíz, hermano de backend/)
-├── go.mod                            # go 1.22; deps vendored
-├── vendor/                           # commiteado (build sin red)
-├── cmd/basa-admin/main.go
-├── internal/
-│   ├── cmdtree/                      # cobra: license/, install/ (ops/ fase 2)
-│   ├── license/                      # canonical.go (D1), sign.go, keyset.go, ledger.go
-│   ├── keycustody/                   # age scrypt (D2): create/import/unlock
-│   ├── install/                      # profile.go, secrets.go, bundle.go, up.go, verify.go
-│   └── version/
-├── testdata/script/*.txtar           # testscript de flujos
-└── Makefile                          # build en contenedor golang; cross-compile; test-offline
+cli/                                  # Paquete Python nuevo (raíz, hermano de backend/)
+├── pyproject.toml                    # deps: click + cryptography; entry point basa-admin
+├── basa_admin/
+│   ├── __main__.py                   # python -m basa_admin
+│   ├── cmd_license.py                # issue / issue-dev / keyset export|rotate / verify
+│   ├── cmd_install.py                # profile / secrets / bundle / load / up / seed / license / admin / verify
+│   ├── signing.py                    # emisor (importa licensing.token; validador fail-closed D1)
+│   ├── keycustody.py                 # PKCS8 cifrado (D2): create / import / unlock
+│   ├── ledger.py                     # emisiones + audit-log JSONL hash-encadenado (D5)
+│   ├── profile.py / bundle.py / stack.py   # render, MANIFEST, compose up + readiness (D4)
+│   └── ui.py                         # confirm/--yes, prompts sin eco, errores legibles
+├── tests/                            # pytest: unit + CliRunner + offline-gate
+└── Makefile                          # build .pyz (shiv) por arch; test en contenedor
 
 backend/
 ├── src/cli_entrypoints/              # NUEVOS módulos python -m endurecidos (dominio SQLAlchemy)
 │   ├── seed_apply.py                 # reemplaza apply_profile_seed.py (flags, dry-run, confirm)
 │   ├── admin_bootstrap.py            # reemplaza el TOFU raceable + SQL crudo (#34)
 │   └── license_genesis.py            # registro de génesis post-install
-├── scripts/                          # los scripts viejos quedan deprecados con puntero
-└── tests/licensing/golden/           # vectors.json + clave SOLO-test (generados por Python)
+├── src/licensing/                    # SIN cambios de wire — la CLI lo importa (fuente única)
+└── scripts/                          # los scripts viejos quedan deprecados con puntero
 
 deploy/
 ├── release/                          # bundle.sh/render_profile.sh: la CLI absorbe su contrato
 └── Makefile                          # targets cli-build/cli-check integrados al gate
-
-.dockerignore                         # + cli/ (no engordar el build context de las imágenes)
 ```
 
-**Structure Decision**: un módulo Go nuevo autocontenido en `cli/` + entrypoints Python
-endurecidos en el backend existente (patrón D4: "Go orquesta, Python ejecuta dominio").
-Sin proyectos web nuevos, sin cambios de esquema, sin tocar `litellm/`. Los golden
-vectors viven del lado Python (referencia normativa del wire de la 021).
+**Structure Decision**: un paquete Python autocontenido en `cli/` que importa la lib de
+licensing del backend como fuente única + entrypoints de dominio endurecidos en el
+backend existente (patrón D4). Sin proyectos web nuevos, sin cambios de esquema, sin
+tocar `litellm/`, sin segundo lenguaje.
 
 ## Complexity Tracking
 
-Sin violaciones constitucionales que justificar. La única "complejidad" añadida — un
-segundo lenguaje en el repo — está justificada por el requisito de binario único sin
-runtime en la caja del cliente (decisión de JF, 22-jul) y acotada por: dominio SQLAlchemy
-sigue en Python (cero duplicación de modelos), contrato de firma blindado por golden
-vectors, y build/test 100% en contenedor (no exige Go a nadie del equipo).
+Sin violaciones constitucionales que justificar. La complejidad neta **baja** respecto a
+las alternativas: un solo lenguaje, la firma reusa la lib desplegada (cero contrato
+cross-lenguaje que mantener), y el único costo real — Python 3.11+ como prerrequisito del
+host — se documenta en el perfil del partner (025) y es estándar en los Linux objetivo.

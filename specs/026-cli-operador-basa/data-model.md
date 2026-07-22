@@ -17,8 +17,9 @@ JSON con firma Ed25519 detached:
 - Firma: campo `sig` = base64url de la firma Ed25519 sobre los **bytes canónicos** del
   payload SIN `sig`: `json.dumps(payload, sort_keys=True, separators=(",",":"),
   ensure_ascii=False).encode("utf-8")`.
-- **Invariante de la CLI**: el emisor Go DEBE producir bytes canónicos **idénticos** a
-  los de Python (contrato cross-lenguaje con golden vectors — ver research.md D1).
+- **Invariante de la CLI**: el emisor **importa** `canonical_payload_bytes` de la lib de
+  licensing (fuente única — cero serialización paralela); el contract test del artefacto
+  `.pyz` cubre que el empaquetado no rompa ese reuso (research.md D1).
 
 ### Keyset público (`basa_public_keys.pem` — `backend/src/licensing/verifier.py`)
 
@@ -50,8 +51,9 @@ integración) que ya encapsulan modelos y validaciones.
 
 ### Clave privada de firma cifrada (lado Basa)
 
-- **Qué**: la privada Ed25519 del emisor, **cifrada en reposo** (passphrase; formato según
-  research.md D2), permisos `600`.
+- **Qué**: la privada Ed25519 del emisor, **cifrada en reposo** como PEM PKCS8 con
+  passphrase (`BestAvailableEncryption` de `cryptography` — estándar OpenSSL, break-glass
+  con `openssl pkey`; research.md D2), permisos `600`, escrita con `O_EXCL`.
 - **Ciclo**: se crea con la primera emisión o con `keyset rotate`; nunca existe en claro en
   disco; la passphrase se pide por prompt (jamás flag/env).
 - **Relación**: 1 privada activa ↔ 1 `kid` en el keyset público; las viejas se conservan
