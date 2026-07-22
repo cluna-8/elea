@@ -32,7 +32,7 @@ copy_into() { # volumen destino_relativo archivo...
 # 1) Licencia → licenses:/  (el backend la lee en /app/config/licenses/client.lic)
 docker volume create "${PROJECT}_licenses" >/dev/null
 docker run --rm -v "${PROJECT}_licenses:/vol" -v "$(cd "$(dirname "$LIC")" && pwd):/src:ro" \
-    alpine:3 sh -c "cp /src/$(basename "$LIC") /vol/client.lic && chmod 640 /vol/client.lic"
+    alpine:3 sh -c "cp /src/$(basename "$LIC") /vol/client.lic && chmod 644 /vol/client.lic"
 echo "✅ licenses ← $(basename "$LIC") (→ client.lic)"
 
 # 2) Config del motor → litellm_config:/ (el motor monta /app/config; el backend /app/litellm_config/mounted)
