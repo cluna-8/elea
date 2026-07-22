@@ -12,7 +12,8 @@ set -euo pipefail
 SLUG="${1:?uso: populate_volumes.sh <client-slug> <archivo.lic>}"
 LIC="${2:?uso: populate_volumes.sh <client-slug> <archivo.lic>}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-RENDERED="$REPO_ROOT/deploy/clients/$SLUG/rendered"
+PROFILES_ROOT="${PROFILES_ROOT:-$REPO_ROOT/deploy/clients}"
+RENDERED="$PROFILES_ROOT/$SLUG/rendered"
 # El nombre de proyecto compose fija el prefijo de los volúmenes nombrados.
 PROJECT="${COMPOSE_PROJECT:-basa-guardian}"
 
@@ -47,8 +48,8 @@ echo "✅ litellm_config ← config.yaml + extensiones"
 docker volume create "${PROJECT}_branding" >/dev/null
 docker run --rm -v "${PROJECT}_branding:/vol" -v "$RENDERED:/src:ro" \
     alpine:3 sh -c "cp /src/brand.json /vol/brand.json"
-if ls "$REPO_ROOT/deploy/clients/$SLUG/"*.png "$REPO_ROOT/deploy/clients/$SLUG/"*.svg >/dev/null 2>&1; then
-    docker run --rm -v "${PROJECT}_branding:/vol" -v "$REPO_ROOT/deploy/clients/$SLUG:/src:ro" \
+if ls "$PROFILES_ROOT/$SLUG/"*.png "$PROFILES_ROOT/$SLUG/"*.svg >/dev/null 2>&1; then
+    docker run --rm -v "${PROJECT}_branding:/vol" -v "$PROFILES_ROOT/$SLUG:/src:ro" \
         alpine:3 sh -c "cp /src/*.png /src/*.svg /vol/ 2>/dev/null || true"
 fi
 echo "✅ branding ← brand.json (+ assets si hay)"

@@ -6,7 +6,9 @@
 set -euo pipefail
 SLUG="${1:?uso: render_profile.sh <client-slug>}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PROFILE="$REPO_ROOT/deploy/clients/$SLUG"
+# El perfil puede vivir FUERA del repo del producto (repo del partner):
+PROFILES_ROOT="${PROFILES_ROOT:-$REPO_ROOT/deploy/clients}"
+PROFILE="$PROFILES_ROOT/$SLUG"
 OUT="$PROFILE/rendered"
 [ -d "$PROFILE" ] || { echo "❌ no existe el perfil $PROFILE"; exit 1; }
 

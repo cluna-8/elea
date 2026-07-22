@@ -32,6 +32,14 @@ services:
       # Solo pilotos/demos con licencia dev (kid basa-dev-*): opt-in explícito.
       # Un cliente con licencia PROD jamás lo setea (default false).
       BASA_ALLOW_DEV_LICENSE: "${BASA_ALLOW_DEV_LICENSE:-false}"
+      # Provider keys del cliente (opcionales): la UI de modelos marca
+      # is_configured mirando el env del BACKEND — sin el passthrough todo
+      # saldría "no configurado" aunque el motor funcione (gotcha del VPS).
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      AZURE_API_KEY: "${AZURE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
       BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
@@ -59,6 +67,16 @@ services:
     environment:
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
+      # Provider keys DEL CLIENTE (opcionales; viven en secrets.env de la
+      # instalación). El alta de modelos referencia os.environ/<VAR> — sin el
+      # passthrough el modelo queda dado de alta pero el motor no lo puede usar.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      AZURE_API_KEY: "${AZURE_API_KEY:-}"
+      AZURE_API_BASE: "${AZURE_API_BASE:-}"
+      AZURE_API_VERSION: "${AZURE_API_VERSION:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     volumes:
       - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
 
