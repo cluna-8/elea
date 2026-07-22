@@ -40,28 +40,48 @@ def _last_user(body: dict) -> str:
     return gateway._last_user_text(body)
 
 
+def _entry(attribution, layer_code: str) -> dict:
+    """El elemento de `applied_layers` de una capa (spec 027). Se afirma sobre el dict
+    COMPLETO donde importa: el contrato prohíbe claves fuera de las 4 canónicas, y ahí es
+    por donde volvería a fugarse texto del prompt (C1)."""
+    return next(e for e in attribution.applied_layers if e["layer_code"] == layer_code)
+
+
 # ════════════════════ Nivel 1 — paridad de decisión (puro) ════════════════════
 
 @pytest.mark.asyncio
 async def test_parity_aiact_block():
-    reason, status, ph, ents = await gateway.evaluate_request_policy(_body(PROHIBITED_TEXT), True)
+    reason, status, ph, ents, attr = await gateway.evaluate_request_policy(
+        _body(PROHIBITED_TEXT), True)
     # Idéntico a lo que decide el guardrail: policy.evaluate_ai_act primero.
     assert policy.evaluate_ai_act(PROHIBITED_TEXT)["status"] == "blocked_prohibited"
     assert status == "blocked_prohibited" and reason and not ph and not ents
+    # 027: el bloqueo es ATRIBUIBLE a la capa que lo produjo, no un "hubo bloqueo" pelado.
+    assert attr.blocked_by_layer == "ai_act_evaluation"
+    assert _entry(attr, "ai_act_evaluation") == {"layer_code": "ai_act_evaluation",
+                                                 "status": "applied", "decision": "block"}
+    # Y la capa que NO llegó a correr no se reporta como aplicada (SC-003): "no la
+    # aplicamos" y "no corrió" dejan de ser indistinguibles.
+    assert _entry(attr, "secret_detection")["status"] == "not_configured"
 
 
 @pytest.mark.asyncio
 async def test_parity_secret_block():
-    reason, status, ph, ents = await gateway.evaluate_request_policy(_body(SECRET_TEXT), True)
+    reason, status, ph, ents, attr = await gateway.evaluate_request_policy(
+        _body(SECRET_TEXT), True)
     assert policy.detect_secrets(SECRET_TEXT)  # el guardrail bloquea con esto mismo
     assert status == "blocked_secret" and reason and not ph and not ents
+    assert attr.blocked_by_layer == "secret_detection"
+    assert _entry(attr, "secret_detection")["decision"] == "block"
 
 
 @pytest.mark.asyncio
 async def test_parity_mask_entities_match_shared_lib():
     # El gateway enmascara EXACTAMENTE lo que policy.mask_body (lo que usa el guardrail).
-    _, status, ph, ents = await gateway.evaluate_request_policy(_body(PII_TEXT), True)
+    _, status, ph, ents, attr = await gateway.evaluate_request_policy(_body(PII_TEXT), True)
     assert status == "passed" and ph
+    assert attr.blocked_by_layer is None
+    assert _entry(attr, "pii_masking")["decision"] == "mask"
     gw_types = sorted(e["type"] for e in ents)
 
     _, ph_ref = await policy.mask_body(_body(PII_TEXT), policy.default_analyze)
@@ -72,8 +92,15 @@ async def test_parity_mask_entities_match_shared_lib():
 
 @pytest.mark.asyncio
 async def test_parity_redact_off_no_mask():
-    _, status, ph, ents = await gateway.evaluate_request_policy(_body(PII_TEXT), False)
+    _, status, ph, ents, attr = await gateway.evaluate_request_policy(_body(PII_TEXT), False)
     assert status == "passed" and not ph and not ents  # toggle off = detección sin mutar
+    # D8: con el enmascarado apagado la DETECCIÓN igual corre (es piso) y queda contada.
+    # Esa combinación ES el registro "datos personales detectados, no enmascarados por
+    # configuración" (FR-002) — codificado, sin una sola línea de texto libre (C1).
+    detec = _entry(attr, "pii_detection")
+    assert detec["status"] == "applied" and detec["decision"] == "flag" and detec["count"] >= 2
+    assert _entry(attr, "pii_masking") == {"layer_code": "pii_masking",
+                                           "status": "skipped", "decision": None}
 
 
 @pytest.mark.asyncio
@@ -87,7 +114,7 @@ async def test_preview_scrubs_secrets_and_pii():
 @pytest.mark.asyncio
 async def test_parity_unmask_roundtrip():
     body = _body(PII_TEXT)
-    _, _, ph, _ = await gateway.evaluate_request_policy(body, True)
+    _, _, ph, _, _ = await gateway.evaluate_request_policy(body, True)
     masked = _last_user(body)
     assert EMAIL not in masked and DNI not in masked          # el upstream ve placeholders
     assert policy.unmask_text(masked, ph) == PII_TEXT          # el caller recupera el original
@@ -214,11 +241,24 @@ def test_endpoint_masks_upstream_and_unmasks_reply(client):
     assert EMAIL in reply and DNI in reply                    # el caller recupera lo real
 
 
-def test_endpoint_redact_off_forwards_verbatim(client):
+def test_endpoint_redact_off_header_is_ignored(client):
+    # CAMBIO DE COMPORTAMIENTO (spec 027, cierre del bypass D5): `X-Basa-Redact: 0` era un
+    # override por-request, controlado por el CLIENTE, que apagaba el control más fuerte del
+    # producto por encima de la postura del admin. Ahora el header es solo restrictivo: el
+    # "off" se ignora y el enmascarado del perfil se aplica igual.
     r = client.post("/gw/v1/messages", json=_body(PII_TEXT), headers={"X-Basa-Redact": "0"})
     assert r.status_code == 200
     sent = _FakeAsyncClient.captured["content"].decode()
-    assert EMAIL in sent and "[EMAIL_ADDRESS_" not in sent    # verbatim: no enmascara
+    assert EMAIL not in sent and "[EMAIL_ADDRESS_" in sent    # el header NO relajó nada
+
+
+def test_endpoint_redact_on_header_forces_masking(client):
+    # El sentido restrictivo SÍ aplica: agregar protección desde una señal no confiable es
+    # legal, y es lo único que el header puede hacer.
+    r = client.post("/gw/v1/messages", json=_body(PII_TEXT), headers={"X-Basa-Redact": "1"})
+    assert r.status_code == 200
+    sent = _FakeAsyncClient.captured["content"].decode()
+    assert EMAIL not in sent and "[EMAIL_ADDRESS_" in sent
 
 
 @pytest.mark.parametrize("split", [False, True])

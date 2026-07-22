@@ -1,0 +1,31 @@
+{
+  // El repo no traía tsconfig: `npm run build` ("tsc && vite build", package.json:8) salía
+  // con error de uso porque `tsc` no encontraba proyecto, así que el build oficial estaba
+  // roto y los tipos NUNCA se chequeaban — en dev Vite transpila con esbuild, que borra los
+  // tipos sin validarlos. Se agrega acá (hallazgo de la verificación de la spec 027) para
+  // que el gate exista: un `GovernanceLayerStatus` mal construido tiene que romper el build,
+  // no llegar a producción y pintar mal un estado de gobernanza.
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    // `strict` queda APAGADO a propósito: encenderlo hoy sobre el código heredado produce
+    // cientos de errores y convertiría el gate nuevo en ruido que nadie mira. Lo que sí se
+    // exige es lo que atrapa los errores reales de esta base (variables e imports muertos),
+    // y subir a strict es un trabajo propio, medible, para cuando se decida.
+    "strict": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

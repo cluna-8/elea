@@ -148,8 +148,9 @@ curl -s -o /dev/null -w "%{http_code}\n" $API/chat/completions \
   -d '{"message":"mi clave es sk-abcdef1234567890abcdef1234567890abcdef123456","model":"ollama-qwen3-4b"}'
 #   → 4xx con motivo de bloqueo
 
-# Atribución en el evento del monitor (feed Redis, monitor.py:23)
-curl -s "$API/gw/events?limit=3" | python3 -m json.tool
+# Atribución en el evento del monitor (feed Redis, monitor.py:23). El feed EXIGE sesión
+# de admin/compliance desde el fix del hallazgo A1: sin el header devuelve 401.
+curl -s "$API/gw/events?limit=3" -H "Authorization: Bearer $TOK" | python3 -m json.tool
 #   → el evento del bloqueo lleva blocked_by_layer = "secret_detection" (código del
 #     registry, no el nombre de display) y el desglose applied_layers
 

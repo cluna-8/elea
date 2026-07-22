@@ -18,7 +18,10 @@ export const PoliciesPage: React.FC = () => {
   const [gdprMode, setGdprMode] = useState(false);
   const [aiActMode, setAiActMode] = useState(false);
   const [headroomMode, setHeadroomMode] = useState(false);
-  const [entities, setEntities] = useState<Record<string, string>>({
+  // El tipo se estrecha al vocabulario real de acciones (el `select` de abajo solo produce
+  // esos tres valores): con `Record<string, string>` el objeto no encajaba en `SecurityPolicy`
+  // y el guardado no compilaba — invisible mientras el build no chequeó tipos.
+  const [entities, setEntities] = useState<Record<string, "MASK" | "BLOCK" | "ALLOW">>({
     PERSON: "MASK",
     DNI: "MASK",
     CUIL: "MASK",
@@ -68,13 +71,18 @@ export const PoliciesPage: React.FC = () => {
     setGdprMode(policy.gdpr_mode);
     setAiActMode(policy.ai_act_mode);
     setHeadroomMode(policy.headroom_mode);
+    // El default de una entidad sin configurar era `"OFF"`, un valor que NO existe: ni está
+    // en el `select` (ALLOW/MASK/BLOCK) ni en el vocabulario que acepta el backend. Al editar
+    // una política con alguna entidad ausente, el desplegable quedaba sin opción coincidente
+    // y al guardar se enviaba "OFF". `ALLOW` es el equivalente honesto —entidad no
+    // configurada = no se enmascara— y sí es un valor válido en ambos lados.
     setEntities({
-      PERSON: policy.entity_configs.PERSON || "OFF",
-      DNI: policy.entity_configs.DNI || "OFF",
-      CUIL: policy.entity_configs.CUIL || "OFF",
-      PHONE_NUMBER: policy.entity_configs.PHONE_NUMBER || "OFF",
-      EMAIL_ADDRESS: policy.entity_configs.EMAIL_ADDRESS || "OFF",
-      MEDICAL_LICENSE: policy.entity_configs.MEDICAL_LICENSE || "OFF"
+      PERSON: policy.entity_configs.PERSON || "ALLOW",
+      DNI: policy.entity_configs.DNI || "ALLOW",
+      CUIL: policy.entity_configs.CUIL || "ALLOW",
+      PHONE_NUMBER: policy.entity_configs.PHONE_NUMBER || "ALLOW",
+      EMAIL_ADDRESS: policy.entity_configs.EMAIL_ADDRESS || "ALLOW",
+      MEDICAL_LICENSE: policy.entity_configs.MEDICAL_LICENSE || "ALLOW"
     });
     setIsModalOpen(true);
   };
@@ -98,7 +106,11 @@ export const PoliciesPage: React.FC = () => {
 
     try {
       if (editingPolicy) {
-        await api.updatePolicy(editingPolicy.id, policyData);
+        // `api.updatePolicy` no existe: el método es `updatePolicyById`. Era un TypeError en
+        // cada edición, que el `catch` de abajo convertía en "Error al guardar la política" —
+        // o sea editar una política de cumplimiento fallaba SIEMPRE y parecía un error del
+        // servidor. Sin chequeo de tipos en el build, nadie lo vio.
+        await api.updatePolicyById(editingPolicy.id, policyData);
         setSuccess("Política actualizada con éxito.");
       } else {
         await api.createPolicy(policyData);
@@ -284,7 +296,9 @@ export const PoliciesPage: React.FC = () => {
                       <span className="text-[10px] font-mono text-text-secondary">{entity}</span>
                       <select
                         value={entities[entity]}
-                        onChange={(e) => setEntities({ ...entities, [entity]: e.target.value })}
+                        onChange={(e) =>
+                          setEntities({ ...entities, [entity]: e.target.value as "MASK" | "BLOCK" | "ALLOW" })
+                        }
                         className="bg-background border border-slate-700 rounded p-1 text-[10px]"
                       >
                         <option value="ALLOW">Permitir</option>

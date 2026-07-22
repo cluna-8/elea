@@ -45,6 +45,23 @@ const GUARDIAN_TYPE_TO_LAYER: Record<string, string> = {
   bedrock_guardrails: "provider_guardrails",
 };
 
+/** Resultado de "¿este interruptor se puede tocar?". Cuando NO se puede, viaja el copy
+ *  junto a la decisión: un control bloqueado sin explicación es otra forma de mentir —el
+ *  admin cree que la pantalla está rota, no que la capa es innegociable. */
+/** Tipo PLANO a propósito, no un union discriminado por `habilitado`. Con
+ *  `strictNullChecks` apagado (tsconfig.json, decisión documentada allá) TypeScript ensancha
+ *  los literales `true`/`false` a `boolean` y el discriminante deja de narrowear, así que
+ *  `control.motivo` no compilaba en las ramas donde sí existe. Aplanarlo cuesta dos campos
+ *  vacíos en el caso habilitado y elimina la clase de error entera. */
+type ControlDeseo = {
+  habilitado: boolean;
+  esPiso: boolean;
+  /** Texto del botón cuando está bloqueado; vacío cuando se puede tocar. */
+  etiqueta: string;
+  /** Por qué no se puede tocar; vacío cuando se puede. */
+  motivo: string;
+};
+
 /** Badge de estado desconocido. Existe para que la ausencia de dato tenga forma propia:
  *  la alternativa —caer a "Activo"— es exactamente la mentira que la 027 elimina. */
 function EstadoDesconocido({ motivo }: { motivo: string }) {
@@ -75,6 +92,10 @@ export const SecurityPage: React.FC = () => {
   const [estadoPorCapa, setEstadoPorCapa] = useState<Record<string, GovernanceLayerStatus>>({});
   const [estadoNoDisponible, setEstadoNoDisponible] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Tercer estado explícito: "todavía no sé". El mapa vacío inicial es indistinguible de
+  // "gobernanza respondió y no trajo capas", y de esa ambigüedad salía una ventana en la
+  // que los interruptores de piso se podían tocar antes de que llegara el `tier`.
+  const [estadoCargando, setEstadoCargando] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -121,6 +142,8 @@ export const SecurityPage: React.FC = () => {
             ? "Tu rol no puede consultar el estado real de las capas: se muestra como desconocido, nunca como activo."
             : "No se pudo consultar el estado real de las capas. Lo que ves abajo es la configuración deseada, no lo que se está aplicando."
         );
+      } finally {
+        setEstadoCargando(false);
       }
     })();
   }, []);
@@ -132,7 +155,67 @@ export const SecurityPage: React.FC = () => {
     return estadoPorCapa[layerKey] || null;
   };
 
-  const handleToggleGuardian = (id: string) => {
+  /** ¿Se puede apagar esta capa DESDE ESTA PANTALLA?
+   *
+   *  El `tier` sale del catálogo real que expone gobernanza (`GET /governance/status`
+   *  devuelve `tier: 'floor'|'optional'` por capa, contrato api-gobernanza.md), NUNCA de una
+   *  lista de claves escrita acá: el catálogo es una constante del backend (D1) y una copia
+   *  en el frontend se desincroniza en el primer alta de capa, justo del lado peligroso —
+   *  una capa de piso nueva quedaría con interruptor vivo.
+   *
+   *  Por qué existe esta función: `PUT /guardians/<id>` con `is_active:false` sobre una capa
+   *  de piso devuelve 200 y persiste, pero el pedido la sigue ejecutando porque el call-site
+   *  fuerza el piso (`override_secret_detection=True`, SC-004). Es decir: la pantalla
+   *  mostraba "apagado" sobre algo que corre. La 027 no admite ninguna de las dos mentiras
+   *  —ni "activo" sobre lo que no corre, ni "apagado" sobre lo que sí—, y el backend de
+   *  guardianes no se puede tocar en este PR, así que el control se saca de la UI.
+   *
+   *  Fail-closed en las tres formas de no saber (cargando, error de gobernanza, capa sin
+   *  correspondencia en la respuesta): se bloquea y se dice que no se pudo verificar. Dejar
+   *  apagar "por las dudas" es exactamente el caso que se está arreglando.
+   */
+  const controlDeseo = (guardianType: string, isActive: boolean): ControlDeseo => {
+    if (estadoCargando) {
+      return {
+        habilitado: false,
+        esPiso: false,
+        etiqueta: "Verificando…",
+        motivo:
+          "Todavía no se sabe si esta capa pertenece al piso no negociable. El interruptor se " +
+          "habilita recién cuando gobernanza confirma que es una capa opcional.",
+      };
+    }
+    const estado = estadoDe(guardianType);
+    if (!estado) {
+      return {
+        habilitado: false,
+        esPiso: false,
+        etiqueta: "Sin verificar",
+        motivo:
+          (estadoNoDisponible ? `${estadoNoDisponible} ` : "") +
+          "Sin el estado de gobernanza no se puede verificar si esta capa es del piso, así que " +
+          `no se permite apagarla desde acá. Configuración guardada: ${isActive ? "activada" : "desactivada"}.`,
+      };
+    }
+    if (estado.tier === "floor") {
+      return {
+        habilitado: false,
+        esPiso: true,
+        etiqueta: "Siempre activo",
+        motivo:
+          "Piso no negociable: interceptar y registrar el tráfico, detectar datos personales y " +
+          "bloquear secretos se aplican siempre, en todos los modos y superficies. Ninguna " +
+          "configuración los desactiva —cualquier intento se rechaza y queda registrado—, por " +
+          "eso acá no hay interruptor. El detalle, en la sección Gobernanza.",
+      };
+    }
+    return { habilitado: true, esPiso: false, etiqueta: "", motivo: "" };
+  };
+
+  const handleToggleGuardian = (id: string, control: ControlDeseo) => {
+    // El `disabled` del botón es cosmético —igual que el gating del nav—: la regla vive acá,
+    // para que ningún camino de re-render deje pasar un cambio sobre una capa de piso.
+    if (!control.habilitado) return;
     setGuardians((prev) => prev.map((g) => (g.id === id ? { ...g, is_active: !g.is_active } : g)));
   };
 
@@ -259,7 +342,10 @@ export const SecurityPage: React.FC = () => {
           <p className="text-[11px] text-text-secondary">
             El estado de cada tarjeta es el estado REAL de su capa (lo que se está aplicando). El
             interruptor es el estado <span className="text-white font-semibold">deseado</span>: activarlo no
-            hace que la capa corra. El detalle completo, en la sección Gobernanza.
+            hace que la capa corra. Las capas del{" "}
+            <span className="text-white font-semibold">piso</span> no tienen interruptor —se aplican siempre
+            y apagarlas no es configurable—, y si no se puede verificar a qué tier pertenece una capa, el
+            control queda bloqueado. El detalle completo, en la sección Gobernanza.
           </p>
         </div>
 
@@ -270,6 +356,7 @@ export const SecurityPage: React.FC = () => {
             // El borde ya no celebra el DESEO: solo se pinta de verde lo que realmente corre.
             const estado = estadoDe(g.guardian_type);
             const aplicandose = estado?.estado_efectivo === "aplicandose";
+            const control = controlDeseo(g.guardian_type, !!g.is_active);
 
             return (
               <div
@@ -305,20 +392,50 @@ export const SecurityPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Row 1b: DESEO (lo que el admin pidió), explícitamente separado del estado */}
+                {/* Row 1b: DESEO (lo que el admin pidió), explícitamente separado del estado.
+                    En las capas de piso NO hay deseo que expresar: el control se muestra
+                    bloqueado y rotulado por lo que de verdad pasa ("Siempre activo"), nunca
+                    con el "Activar: no" guardado —que es la mentira nueva que este fix mata. */}
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-text-secondary">Deseado</span>
+                  <span className="text-[10px] text-text-secondary">
+                    {control.esPiso ? "No configurable" : "Deseado"}
+                  </span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleToggleGuardian(g.id); }}
+                    onClick={(e) => { e.stopPropagation(); handleToggleGuardian(g.id, control); }}
+                    disabled={!control.habilitado}
+                    aria-disabled={!control.habilitado}
+                    title={control.habilitado ? undefined : control.motivo}
                     className={`flex-shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
-                      g.is_active
+                      !control.habilitado
+                        ? control.esPiso
+                          ? "bg-primary/5 border-primary/20 text-primary/70 cursor-not-allowed"
+                          : "bg-slate-800/60 border-slate-700/60 text-text-secondary cursor-not-allowed"
+                        : g.is_active
                         ? "bg-primary/10 border-primary/30 text-primary"
                         : "bg-slate-800 border-slate-700 text-text-secondary hover:border-slate-600"
                     }`}
                   >
-                    {g.is_active ? "Activar: sí" : "Activar: no"}
+                    {control.habilitado
+                      ? g.is_active
+                        ? "Activar: sí"
+                        : "Activar: no"
+                      : control.etiqueta}
                   </button>
                 </div>
+
+                {/* Por qué el control está bloqueado. En texto, no solo en el `title`: un
+                    interruptor gris sin explicación se lee como producto roto. */}
+                {!control.habilitado && (
+                  <p className="text-[10px] text-text-secondary leading-relaxed border-l-2 border-primary/20 pl-2">
+                    {control.motivo}
+                    {control.esPiso && !g.is_active && (
+                      <span className="block mt-1 text-warning">
+                        La configuración guardada figura como desactivada, pero la capa se ejecuta
+                        igual: ese interruptor nunca tuvo efecto sobre el tráfico.
+                      </span>
+                    )}
+                  </p>
+                )}
 
                 {/* Motivo del backend cuando la capa no se está aplicando (FR-013) */}
                 {estado && !aplicandose && estado.motivo && (

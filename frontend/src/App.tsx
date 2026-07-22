@@ -12,7 +12,10 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { CostsPage } from "./pages/CostsPage";
 import { FirewallMonitorPage } from "./pages/FirewallMonitorPage";
 import { GovernancePage } from "./pages/GovernancePage";
-import { authStorage, SessionUser, ROLE_LABELS, ROLE_PERMISSIONS } from "./services/auth";
+// `ROLE_PERMISSIONS` se importaba y no se usaba desde antes de esta rama: el gating del nav
+// se resuelve con el campo `roles` de cada item (más abajo). Se saca el import muerto en vez
+// de silenciarlo — dejarlo sugería un mecanismo de permisos que este archivo no aplica.
+import { authStorage, SessionUser, ROLE_LABELS } from "./services/auth";
 
 // Agregar una sección son TRES ediciones sincronizadas en este archivo: este union, el item
 // de `navigation` y el render condicional de abajo. Si falta una, el usuario hace click y
