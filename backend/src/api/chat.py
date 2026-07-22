@@ -430,11 +430,20 @@ async def chat_completions(
                     except Exception:
                         pass
             elif response.status_code == 400:
-                # Engine blocked the request via a guardrail — do NOT expose provider names
-                logger.warning("AI engine blocked request (guardrail): %s", response.text)
+                # Un 400 del motor NO siempre es un guardrail: puede ser un
+                # modelo inexistente/config inválida. Conflarlos mandaba el
+                # diagnóstico al lado equivocado (ensayo pre-piloto 2026-07-22).
+                body_lower = (response.text or "").lower()
+                if "bloqueada" in body_lower or "guardrail" in body_lower or "basa" in body_lower:
+                    logger.warning("AI engine blocked request (guardrail): %s", response.text)
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="La petición fue bloqueada por las políticas de seguridad configuradas."
+                    )
+                logger.error("AI engine rejected request (config/modelo): %s", response.text)
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="La petición fue bloqueada por las políticas de seguridad configuradas."
+                    detail="El modelo solicitado no está disponible en el gateway. Verificá el catálogo de modelos."
                 )
             else:
                 logger.error("AI engine returned status %s: %s", response.status_code, response.text)

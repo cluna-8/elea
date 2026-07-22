@@ -84,6 +84,16 @@ services:
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     volumes:
       - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
+    # SIN esto el motor arranca con config default: cero modelos y CERO
+    # guardrails/extensiones (hallazgo del ensayo — el volumen montado no
+    # basta, hay que decirle al motor que lo use). Las extensiones resuelven
+    # relativo al config: /app/config/extensions (populate_volumes las copia).
+    entrypoint: ["litellm", "--config", "/app/config/config.yaml"]
+    # host-gateway: modelos locales del cliente (runtime en el host de la VM).
+    # En Docker Desktop es implícito; en la VM Linux del cliente NO — sin esta
+    # línea el modelo local sería inalcanzable en el install real.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ── Ingress del camino selfhosted: puerta única SPA + API (issue #35, patrón
   #    del VPS). En nube el ingress lo provisiona la 020 US4 (cloud-init) — por
