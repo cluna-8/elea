@@ -262,58 +262,13 @@ Ask (§3.2).
     siempre como "Cursor chat/plan gobernado, Composer/autocomplete no", **nunca** como cobertura
     total.
 
-### 3.5 Modelo propio / local — entorno controlado (runtime Ollama)
+### 3.5 Modelo propio / local — entorno controlado
 
-Para **clientes de infraestructura** (alto riesgo): el tráfico de IA no sale a ningún proveedor
-cloud — el cliente aloja su propio modelo (p. ej. con **Ollama**) y el gateway lo gobierna con la
-misma política (masking, secretos, AI-Act) que un modelo cloud, con el tráfico **atribuido** en
-el monitor (herramienta, cliente y tenant por Connection). Para perfiles de oficina, el camino
-recomendado sigue siendo el passthrough de suscripción (§3.1).
-
-```mermaid
-graph LR
-    CC[Claude Code del cliente] -->|sk-basa auto-byok| GW[Gateway /api/v1/gw]
-    GW -->|politica: mask, secretos, AI-Act| MOT[Motor del gateway]
-    MOT -->|bridge de tools nativo| OLL[Runtime local Ollama]
-    OLL --> MOD[(Modelo propio)]
-    MOT --> MON[Monitor y auditoria]
-```
-
-**Alta del modelo (operador)** — es **configuración del motor, no código**: se registra el
-modelo local con su `api_base` (el runtime del cliente: una dirección **alcanzable desde el
-motor** en el despliegue real; en el stack de desarrollo local es el host de la máquina) y un
-`model_name` que las herramientas usarán como identificador. Costo por token 0 (el modelo es
-del cliente).
-
-**Configuración de la herramienta (ejemplo Claude Code)**:
-
-```bash
-export ANTHROPIC_BASE_URL="https://<host>/api/v1/gw"
-export ANTHROPIC_AUTH_TOKEN="sk-basa-<usuario>-<herramienta>-<año>"   # auto-byok
-export ANTHROPIC_MODEL="<model_name-del-motor>"
-```
-
-**Verificado en vivo** (2026-07-20): chat, tool-calling y el **loop agéntico completo**
-(leer/escribir archivos y verificar) funcionan con un modelo local — el motor traduce las
-llamadas de tools en ambas direcciones, así que el modo Agent de Claude Code **sí** aguanta
-modelos no-Claude por esta vía. La calidad del resultado depende del modelo que aloje el
-cliente (un modelo chico resuelve tareas simples; la elección es del cliente).
-
-Gotchas de onboarding:
-
-- El runtime necesita **contexto amplio** para los prompts de sistema de las coding tools:
-  con Ollama, `OLLAMA_CONTEXT_LENGTH=32768` (el default los truncaría en silencio).
-- Si la máquina ya tiene una sesión de `claude` logueada con suscripción, esa sesión **pisa
-  las variables de entorno** — ver [G10](gotchas.md).
-- Si un modelo cloud del motor se queda sin credenciales, el **fallback** configurado puede
-  servir la petición con el modelo local. ⚠ La sustitución es **silenciosa** (el campo
-  `model` de la respuesta conserva el nombre pedido): si la instalación exige trazabilidad
-  estricta del modelo que respondió, el operador debe deshabilitar ese fallback en el motor.
-- La restauración de PII sobre las respuestas está **verificada** en este camino, en
-  streaming y no-streaming ([G9](gotchas.md): corregido). Limitación conocida en evaluación:
-  con el **cache del motor** activado, repetir un prompt crudo idéntico dentro de la ventana
-  de cache puede devolver una respuesta cacheada con placeholders — desactivar el cache del
-  motor la elimina.
+Para **clientes de infraestructura**: el cliente aloja su propio modelo (p. ej. con un
+runtime local como Ollama) y el gateway lo gobierna con la misma política que un modelo
+cloud — incluido el **modo Agent de Claude Code**, verificado en vivo. La guía completa
+(alta del modelo, configuración por herramienta, gotchas y límites) vive en su propia
+página: **[Modelo propio / local](modelo-propio.md)**.
 
 ---
 
