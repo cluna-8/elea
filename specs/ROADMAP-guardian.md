@@ -19,7 +19,7 @@ SSO, D5 env vars).
 El equipo core trabaja en paralelo por módulos, una spec por vez, con el flujo SDD del repo
 (branch por spec → PR → merge humano de otro; ver [CODEOWNERS](../.github/CODEOWNERS)):
 
-- **JF (@DrZuzzjen)** — clientes, integraciones y producto/distribución: 019 (spikes), 020, 021, 022, 024 (fix bridged), 025 (partner-enablement).
+- **JF (@DrZuzzjen)** — clientes, integraciones y producto/distribución: 019 (spikes), 020, 021, 022, 024 (fix bridged), 025 (partner-enablement), 026 (CLI de operador).
 - **Cristian (@cluna-8)** — seguridad y guardianes: 015, 016, 017, 018 (+ anti-jailbreak del "later").
 - **Falime (@FalimeJ)** — datos, costes y ruteo: 023 (generaliza la 012 al plano firewall).
 
@@ -44,6 +44,7 @@ define el patrón de resolución por scope que la 023 reutiliza: coordinar orden
 | 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | Falime | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
 | 024 | Unmask + atribución en respuestas byok (rutas bridged) | JF | P2 | **Implementada** (2026-07-21, [PR #31](https://github.com/DrZuzzjen/basa-guardian/pull/31), cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
 | 025 | Partner Enablement (capacitación + certificación del partner) | JF | P2 | **Implementada** (2026-07-22, [PR #36](https://github.com/DrZuzzjen/basa-guardian/pull/36)); doc oficial del ciclo de onboarding | VII, IV | — |
+| 026 | CLI de operador (`basa-admin`) — firma de licencias e instalación guiada offline | JF | **P1** | **Spec** (2026-07-22, branch `026-cli-operador-basa`); MVP firma+install, absorbe #33/#34, habilitador del piloto Cámara | VII, VI, II | #33, #34 |
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
@@ -136,6 +137,19 @@ Página GUÍA del programa de capacitación y certificación del partner en la d
 etapas (formación → práctica → 2-3 installs acompañados → certificación), prerequisitos del ingeniero,
 checklist de autonomía y tabla quién-hace-qué post-certificación. **Filtro editorial FR-007**: la doc se
 vende → cero economía interna del fabricante (FTE/horas/costos); esa parte vive solo en el doc ejecutivo.
+
+### 026 — CLI de operador `basa-admin` (P1, habilitador del piloto)
+Una **CLI local, offline y airgap-safe** que le da cara humana a las operaciones que hoy son
+**scripts sueltos con foot-guns** (inventario 2026-07-22: 54 operaciones; ver
+`specs/026-cli-operador-basa/inventario-scripts.md`). MVP acotado a **firma de licencias**
+(el primer ladrillo — hoy `issue_dev_license.py` regenera el keyset y **invalida cajas ya
+instaladas** en cada corrida) e **instalación guiada** de un cliente hasta stack corriendo y
+verificado (perfil → secretos → bundle → up → seed → licencia → admin → verify), con
+validación, dry-run y confirmaciones. **Absorbe #33** (firma prod, pre-portal) y **#34**
+(password admin sin SQL crudo). No rompe airgap: produce/consume archivos, cero phone-home;
+los comandos que necesitan red (build/publish/cloud) quedan separados y marcados, nunca en la
+caja del cliente. Fase 2: `ops` día-2 (rotación, true-up, backup), `cloud`, docs brand.
+Frontera con seguridad (custodia de claves, RBAC de firma) → coordinación con la 017 (Cristian).
 
 ## Mantenimiento de este roadmap
 
