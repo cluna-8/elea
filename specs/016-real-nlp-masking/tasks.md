@@ -180,11 +180,13 @@ rechazan explícitamente (ninguna procesa con detección degradada).
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T024 ⚠️ [P] [US3] **Pendiente** — Contract test en `tests/contract/test_presidio_analyzer_contract.py`
-      contra el contenedor real `presidio-analyzer`: health check, `ES_NIF` built-in responde para
-      `supported_language="es"`, recognizer `PASSPORT` ad-hoc, recognizer deny-list de `custom_names`,
-      shape de respuesta. Cubierto parcialmente por los checks nuevos en `contract_checks.py` (T033) si
-      `NLP_ANALYZER_URL` está seteada al correrlo — falta el test dedicado en `tests/contract/`.
+- [ ] T024 ⚠️ [P] [US3] **Diferido (decisión de producto, no técnica)** — Contract test dedicado en
+      `tests/contract/test_presidio_analyzer_contract.py` contra el contenedor real `nlp-analyzer`:
+      health check, `ES_NIF` built-in responde para `supported_language="es"`, recognizer `PASSPORT`
+      ad-hoc, recognizer deny-list de `custom_names`, shape de respuesta. Ya cubierto **parcialmente**
+      por los checks de `contract_checks.py` (T033, corre contra el Analyzer real si `NLP_ANALYZER_URL`
+      está seteada) — el test dedicado en `tests/contract/` con más casos borde no se prioriza por ahora.
+      No bloquea el merge del PR #21.
       *(contracts/presidio-analyzer-http.md)*
 - [x] T025 ⚠️ [P] [US3] Implementado como `test_t025_guardrail_fails_closed_when_presidio_unavailable` en
       `backend/tests/e2e/test_guardrail_behavior_e2e.py`: monkeypatch de `basa_guardrail._PRESIDIO_URL` a
@@ -370,13 +372,11 @@ de alcance posterior al MVP — **completa**, incluidos los 3 hallazgos de integ
 
 1. ~~T043-T045 (US5, hallazgos de review)~~ — **cerrado**.
 2. ~~T014, T017, T018, T019, T025~~ — **cerrado** (`backend/tests/e2e/test_guardrail_behavior_e2e.py`).
-   **T024** (contract test dedicado en `tests/contract/test_presidio_analyzer_contract.py`) sigue
-   **pendiente** — cubierto solo parcialmente por `contract_checks.py` (T033).
 3. ~~T028, T029~~ — **cerrado** (`presidio_service.py`/`guardian_service.py` reescritos, fail-open
    eliminado, catálogo EU migrado on-read).
 4. ~~T031, T034, T035, T036~~ — **cerrado** (carry-split extendido, README, suite completa dentro del
    container real: 293 passed/10 skipped, `implementation-notes.md` + `ROADMAP-guardian.md`).
-5. **Pendiente aún**: T024 (contract test dedicado, ver punto 2); commitear y pushear todo lo de esta
-   sesión (rename `NLP_ANALYZER_URL`/`nlp-analyzer`, fixes de tests, docs regeneradas, notas); decidir
-   con el usuario rebase vs merge sobre `main` antes del push (la rama ya tiene 2 merges pusheados —
-   un rebase reescribiría historia ya publicada).
+5. ~~Rebase sobre main + push~~ — **cerrado** (2 rebases, `--force-with-lease`, PR #21 en `MERGEABLE`/`CLEAN`).
+6. **T024 diferido** (decisión de producto, 2026-07-22): no se prioriza el contract test dedicado del
+   Presidio real por ahora — `contract_checks.py` (T033) ya cubre lo esencial contra el servicio real.
+   No bloquea el merge de este PR.

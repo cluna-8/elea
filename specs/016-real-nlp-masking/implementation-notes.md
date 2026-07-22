@@ -1,10 +1,10 @@
 # Spec 016 — Notas de implementación
 
-**Fecha**: 2026-07-22 · **Estado**: **US1 + US2 + US3 + US4 + US5 implementadas y
-verificadas** (unit/contract/integration/e2e, suite completa dentro del container real
-del backend: 293 passed, 10 skipped). `make -C deploy check-docs` verde (incl. naming
-neutro). Pendiente de decisión de usuario: rebase vs merge sobre `main` antes de push,
-y commit/push del rename `NLP_ANALYZER_URL`/`nlp-analyzer` descrito abajo.
+**Fecha**: 2026-07-22 · **Estado**: **Lista para merge** — US1 + US2 + US3 + US4 + US5
+implementadas y verificadas (unit/contract/integration/e2e, suite completa dentro del
+container real del backend: 293 passed, 10 skipped). `make -C deploy check-docs` verde
+(incl. naming neutro). Rama rebaseada sobre `main` y pusheada (`--force-with-lease`); PR
+#21 en `MERGEABLE`/`CLEAN`. Único punto diferido: T024 (ver "Qué queda" al final).
 
 ## Qué se entregó
 
@@ -103,10 +103,16 @@ corrigieron: `tests/contract/test_route_parity.py`, `tests/integration/test_gw_i
 
 ## Qué queda
 
-- **Rebase vs merge**: la rama ya fue pusheada dos veces con merges desde `main`; un
-  rebase reescribiría historia ya publicada — se deja como decisión explícita del usuario,
-  no se ejecuta sin confirmación.
-- Commitear y pushear el rename `NLP_ANALYZER_URL`/`nlp-analyzer` + los fixes de tests +
-  `ROADMAP-guardian.md`/`README.md`/notas de esta spec (este documento).
+- **T024** (contract test dedicado en `tests/contract/test_presidio_analyzer_contract.py` contra el
+  `nlp-analyzer` real) **diferido por decisión de producto** (2026-07-22, no técnica) — lo esencial
+  ya está cubierto por `contract_checks.py` (T033), que corre contra el Analyzer real cuando
+  `NLP_ANALYZER_URL` está seteada. No bloquea el merge de este PR.
 - Gap PHI clínico español (CIE-10, nº historia clínica) queda fuera de alcance — no pedido
   en las user stories de esta spec.
+
+## Cierre
+
+Rama rebaseada sobre `main` dos veces (main avanzó con el PR #38 en paralelo) con
+`--force-with-lease`; suite completa reverificada en ambas (293 passed, 10 skipped) y
+`check-docs`/`contract_checks.py` verdes. PR #21 en estado `MERGEABLE`/`CLEAN`, sin bloqueos
+pendientes del lado técnico.
