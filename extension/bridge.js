@@ -57,11 +57,10 @@
 
   // Empujar el estado (toggle + identidad) a MAIN
   async function pushState() {
-    const s = await chrome.storage.local.get(["basa_enabled", "basa_connected", "basa_user", "basa_team", "basa_key"]);
+    const s = await chrome.storage.local.get(["basa_connected", "basa_user", "basa_team", "basa_key"]);
     post({
       __basa: "state",
       state: {
-        enabled: s.basa_enabled !== false,               // default ON
         connected: !!s.basa_connected && !!s.basa_key,   // hay key validada
         user: s.basa_user || null,
         team: s.basa_team || null,

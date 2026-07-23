@@ -23,7 +23,9 @@
   // Sin handle global: `window.__BASA = S` dejaba el mapa token→PII al alcance de
   // cualquier script de la página con una línea (issue #44).
   const S = { tok2val: new Map(), lastEvent: null };
-  let state = { enabled: true, connected: false, user: null, team: null };
+  // No hay `enabled`: el enmascarado NO es desactivable por el usuario. El toggle
+  // del popup dejaba que el empleado apagara el firewall y mandara el body crudo.
+  let state = { connected: false, user: null, team: null };
 
   // ---- adapters: dónde vive el texto del usuario, cómo leerlo/escribirlo ----
   const ADAPTERS = [
@@ -112,36 +114,35 @@
           updateOverlay();
           throw new Error("[Basa Guard] Conectate con tu API key para usar la IA.");
         }
-        if (state.enabled) {
-          if (init && typeof init.body === "string") {
-            // path inspeccionable: parsear, enmascarar los slots y reescribir el body
-            const obj = JSON.parse(init.body);
-            const slots = ad.slots(obj);
-            const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
-            if (combined.trim()) {
-              const res = await callBridge("inspect", { text: combined, tool: ad.web });
-              if (!res || !res.ok) {        // gateway caído estando conectado → bloquear (fail-closed)
-                updateOverlay(res && res.error);
-                throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
-              }
-              const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
-              if (reps.length) {
-                for (const s of slots) { let t = s.get(); for (const r of reps) t = t.split(r.original).join(r.token); s.set(t); }
-                for (const r of reps) S.tok2val.set(r.token, r.original);
-                rebuildUnmaskRe();
-              }
-              S.lastEvent = { vendor: ad.vendor, sentMasked: slots.map((s) => s.get()).filter(Boolean).join(" | "),
-                              entities: res.entities || [], user: res.user, team: res.team };
-              renderPanel();
-              init = Object.assign({}, init, { body: JSON.stringify(obj) });
+        // El enmascarado NO es opcional: no hay condición de usuario acá.
+        if (init && typeof init.body === "string") {
+          // path inspeccionable: parsear, enmascarar los slots y reescribir el body
+          const obj = JSON.parse(init.body);
+          const slots = ad.slots(obj);
+          const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
+          if (combined.trim()) {
+            const res = await callBridge("inspect", { text: combined, tool: ad.web });
+            if (!res || !res.ok) {          // gateway caído estando conectado → bloquear (fail-closed)
+              updateOverlay(res && res.error);
+              throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
             }
-          } else if (requestCarriesBody(input, init)) {
-            // matcheó + conectado + enabled, pero el body NO es texto inspeccionable
-            // (Request/Blob/FormData): no podemos garantizar el masking → bloquear (F4).
-            throw new Error("[Basa Guard] no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
+            const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
+            if (reps.length) {
+              for (const s of slots) { let t = s.get(); for (const r of reps) t = t.split(r.original).join(r.token); s.set(t); }
+              for (const r of reps) S.tok2val.set(r.token, r.original);
+              rebuildUnmaskRe();
+            }
+            S.lastEvent = { vendor: ad.vendor, sentMasked: slots.map((s) => s.get()).filter(Boolean).join(" | "),
+                            entities: res.entities || [], user: res.user, team: res.team };
+            renderPanel();
+            init = Object.assign({}, init, { body: JSON.stringify(obj) });
           }
-          // sin body → nada que enmascarar ni filtrar → dejar pasar
+        } else if (requestCarriesBody(input, init)) {
+          // matcheó + conectado, pero el body NO es texto inspeccionable
+          // (Request/Blob/FormData): no podemos garantizar el masking → bloquear (F4).
+          throw new Error("[Basa Guard] no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
         }
+        // sin body → nada que enmascarar ni filtrar → dejar pasar
       }
     } catch (e) {
       if (String(e).includes("[Basa Guard]")) throw e;    // propagar el bloqueo explícito

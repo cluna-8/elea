@@ -12,7 +12,7 @@ cada envío a un usuario/equipo en el monitor "Firewall en vivo".
 | `basa-guard.js` | MAIN | Hookea `window.fetch`, aplica el gate, manda el texto al gateway y des-enmascara el DOM. Nunca ve la key. |
 | `bridge.js` | ISOLATED | Puente `postMessage` ↔ `chrome.runtime` (MAIN no puede usar `chrome.*`). |
 | `background.js` | service worker | **Único** que llama al gateway (`host_permissions` → sin CORS) y **único** que tiene la key. |
-| `popup.html` / `popup.js` | — | Login (key + gateway) y toggle de protección. |
+| `popup.html` / `popup.js` | — | Conectar / desconectar, y una vista de configuración aparte. |
 | `config.js` | — | **Única** fuente de la URL del gateway; la leen el service worker y el popup. |
 
 Endpoints que consume: `GET /whoami` (identidad) y `POST /inspect` (enmascarado + auditoría + push
@@ -38,9 +38,15 @@ viaja en claro.
 descomprimida** → seleccionar esta carpeta. Para recargar tras un cambio, el botón **↻** de la
 tarjeta.
 
-Después: click en el ícono → pegar la key `sk-basa-…` → **Conectar**. La key se guarda una sola vez
-y **no se vuelve a mostrar**: esto es un login, no un gestor de API keys. Para cambiarla,
-**Desconectar** y pegar la nueva.
+Después: click en el ícono → **⚙** → pegar la key `sk-basa-…` → **Guardar y conectar**.
+
+La vista principal muestra sólo el estado (`Conectado como usuario · equipo`) y tres botones:
+**Conectar** (revalida contra el gateway), **Desconectar** (borra la key) y **⚙** (configuración).
+La key y el gateway viven detrás del ⚙ porque son un setup de **una vez**: se guardan y **no se
+vuelven a mostrar**. Esto es un login, no un gestor de API keys.
+
+**No hay toggle de protección.** El enmascarado no es desactivable por el usuario: el toggle que
+existía dejaba que el empleado apagara el firewall y mandara el body crudo al proveedor.
 
 ## Modelo de amenaza (leer antes de prometer nada a un cliente)
 
