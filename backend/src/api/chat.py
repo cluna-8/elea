@@ -1147,6 +1147,11 @@ async def chat_completions(
         ai_disclosure_delivered=_deliver_disclosure,
         processing_purpose=x_processing_purpose,
         user_group_id=_user_group_id,
+        # La atribución 027 se scopea al tenant que HIZO el pedido (el mismo `_tenant_id` con
+        # que se resolvió el perfil), no al DEFAULT: sin esto la evidencia de gobernanza de un
+        # tenant no-default queda contabilizada contra otro. `log_transaction` solo lo aplica
+        # si no es None, así que en el deploy de tenant único no cambia nada.
+        tenant_id=_tenant_id,
     )
 
     # Link review record to audit log

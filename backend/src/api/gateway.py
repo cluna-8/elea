@@ -561,11 +561,22 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     db = SessionLocal()
     try:
         tid = uuid.UUID(ident["tenant_id"]) if ident.get("tenant_id") else DEFAULT_TENANT_ID
+        # `pii_detected` refleja DETECCIÓN, no enmascarado (D8/FR-002). Con `pii_masking` off
+        # el gateway detecta igual (piso) y `masked_entities` queda vacío; derivarlo solo de
+        # ahí haría que la fila dijera "no había PII" mientras la atribución dice que
+        # `pii_detection` la marcó — la contradicción durable que 027 elimina.
+        pii_detected = bool(masked_entities) or (
+            attribution is not None and any(
+                isinstance(l, dict) and l.get("layer_code") == "pii_detection"
+                and (l.get("count") or 0) > 0
+                for l in (attribution.applied_layers or ())
+            )
+        )
         with tenant_context(tid):
             AuditService.log_transaction(
                 db=db, model=model, prompt_tokens=in_tok, completion_tokens=out_tok,
                 cost_usd=0.0,  # suscripción = tarifa plana; el costo byok lo mide el motor
-                pii_detected=bool(masked_entities), masked_entities=masked_entities,
+                pii_detected=pii_detected, masked_entities=masked_entities,
                 compliance_status=status, latency_ms=latency_ms,
                 user_id=uuid.UUID(ident["user_id"]) if ident.get("user_id") else None,
                 api_key_id=uuid.UUID(ident["api_key_id"]) if ident.get("api_key_id") else None,

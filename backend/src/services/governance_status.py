@@ -231,7 +231,14 @@ def _credentials_and_wiring(guardians) -> Tuple[frozenset, dict]:
     own = _own_guardrail_name()
     for layer_key in LAYER_KEYS:
         layer = GOVERNANCE_LAYERS[layer_key]
-        instancias = [g for t in layer.guardian_types for g in by_type.get(t, ())]
+        # SOLO guardianes activos: el enforcement (`_engine_guardrails_for_profile`) salta los
+        # inactivos, así que contar su credencial o su cableado acá reportaría una capa como
+        # disponible/aplicándose que el pedido siguiente NO va a ejecutar — sobre-reporte, la
+        # mentira que 027 borra. No contradice D4 (is_active no DECLARA estado): acá is_active
+        # solo decide qué instancias aportan al INPUT, en la misma dirección fail-closed que el
+        # enforcement. La confirmación de "corre" la sigue dando la sonda + la evidencia.
+        instancias = [g for t in layer.guardian_types for g in by_type.get(t, ())
+                      if getattr(g, "is_active", False)]
         if any(getattr(g, "service_api_key_encrypted", None) for g in instancias):
             credentials.add(layer_key)
         if _carried_by_own_guardrail(layer):
