@@ -66,11 +66,35 @@ services:
     image: "${DOCS_IMAGE:?imagen del sitio de docs pinneada por marca (022)}"
     restart: unless-stopped
 
+  # Motor de detección NLP real (spec 016). Sidecar propio, sin puerto publicado:
+  # solo lo consume el motor por DNS interno de la red compose. NO es opcional en
+  # prod — sin él, `NLP_ANALYZER_URL` queda vacío y el guardrail degrada a regex
+  # en SILENCIO (Constraint SC-2 de la 016: el fallback regex es dev/demo, jamás
+  # el default de producción). Con la URL puesta y el sidecar caído el guardrail
+  # es fail-closed (rechaza la request), que es lo que queremos: ruidoso, no ciego.
+  nlp-analyzer:
+    image: "${NLP_ANALYZER_IMAGE:?imagen del analizador NLP pinneada por digest (publish.sh, 016)}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health\")' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   litellm:
     image: "${LITELLM_IMAGE:?imagen LiteLLM pinneada (014)}"
     restart: unless-stopped
+    depends_on:
+      nlp-analyzer:
+        condition: service_healthy
     environment:
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
+      # Detección NLP real (016): nombre de servicio compose + puerto interno del
+      # sidecar. Sin esta línea el motor enmascara con regex y el cliente no se entera.
+      NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
+      # Región del catálogo de entidades por defecto (eu = España).
+      BASA_ENTITY_REGION: "${BASA_ENTITY_REGION:-eu}"
       # Base PROPIA del motor (jamás la del backend): su migrador Prisma aplica
       # un diff DB↔schema en el primer arranque que DROPea tablas ajenas como
       # "drift" — compartir base destruía el esquema del producto (ensayo
