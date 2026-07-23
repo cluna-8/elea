@@ -51,7 +51,7 @@ enlazada por `layer_key` — **nunca por FK**.
 - *Catálogo en DB con `tier`*: reintroduce el piso apagable y hereda el seed destructivo.
 - *Usar `Guardian.is_active` como decisión por alcance*: es un booleano **global** sin alcance
   ([guardian.py:15](../../backend/src/models/guardian.py#L15)); no puede expresar "activo para
-  modelos de la pasarela, inactivo para suscripción".
+  Modelo propio, inactivo para Suscripción".
 
 **Riesgo**: cambiar la cardinalidad del catálogo dispara el re-seed destructivo. **Neutralizar esa
 rama es prerrequisito de la primera tarea**, antes de tocar nada del catálogo.
@@ -137,7 +137,7 @@ Es el mismo mecanismo con el que la 014 garantizó paridad, con su contract test
 **Modo y superficie NO hay que propagarlos desde afuera** — ya están en cada punto:
 - El modo es **constante del plano**: `_detect_mode_and_key` retorna byok antes de la política
   ([gateway.py:473-475](../../backend/src/api/gateway.py#L473)), así que al gateway solo llega
-  suscripción; y todo lo que llega al motor es modelo-de-pasarela.
+  Suscripción; y todo lo que llega al motor es Modelo propio.
 - La superficie ya está resuelta en el call-site: `tool` en
   [gateway.py:478](../../backend/src/api/gateway.py#L478) y `ident['tool_type']` en :246; y en el
   motor viene en `metadata['basa']` ([custom_auth.py:146-147](../../litellm/extensions/custom_auth.py#L146)).
@@ -244,7 +244,7 @@ global escalar volvería a mentir, solo que más fino.
   Una Connection marcada `subscription-passthrough` puede rutearse byok.
 - `_normalize_mode` colapsa cualquier valor no-byok a subscription
   ([gateway.py:343-345](../../backend/src/api/gateway.py#L343)).
-- Conceptualmente **byok ≠ modelo de la pasarela**: byok es la key del cliente contra el proveedor,
+- Conceptualmente **byok ≠ Modelo propio**: byok es la key del cliente contra el proveedor,
   distinto de un modelo del `model_list` o un modelo local.
 
 **Decisión**: función de mapeo explícita y testeada, del ruteo **efectivo** al eje de la spec. Sin

@@ -34,7 +34,7 @@ Vista de estado honesto (FR-001) + resumen por modo (FR-010/SC-002).
 
 - **Sin params**: resumen por modo de conexión — para cada modo, todas las capas con su
   decisión resuelta y su estado efectivo. Responde "qué protege hoy al tráfico de
-  suscripción y qué al de modelos de la pasarela" en **una** respuesta (SC-002).
+  Suscripción y qué al de Modelo propio" en **una** respuesta (SC-002).
 - **Con `mode`** (y opcional `surface`): la resolución concreta para ese alcance.
 
 Por capa:

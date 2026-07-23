@@ -130,9 +130,9 @@ Se cierra con T025, después del merge de la 016.
 
 - [x] T033 [P] **Sitio de docs de producto (OBLIGATORIO, DoD)**: página nueva `docs/docs/administration/gobernanza.md` (GUÍA): dos ejes deseo/realidad, dos modos (Suscripción / Modelo propio), protección base no-negociable, capas gobernables + cascada, 5 estados honestos, regla de superficie confiable, límites 🟢/🟡/🔵. Cableada en nav + linkeada desde administration/index.md + sumada a la lista de GUÍAS del linter. `openapi.json` regenerado (3 endpoints /governance/*). **`make -C deploy check-docs` verde (9/9).** Naming neutro OK (sin motor/internals). White-label OK.
 - [ ] T034 [P] Correr `quickstart.md` completo contra el stack dev y anotar desvíos (es el gate de la feature).
-- [ ] T035 [P] Test negativo white-label sobre `/governance/*`: ninguna respuesta contiene nombres de proveedor ni fragmentos de traceback (garantía (f)).
+- [x] T035 [P] Test negativo white-label sobre `/governance/*`: **VERIFICADO en vivo** — 401 sin token, 422 (scope_type/decision/layer_key inválidos), rechazo del piso y `mode` con path-traversal: todas las respuestas son copy de producto. Cero nombres de proveedor/motor, cero traceback, cero rutas o SQL internos.
 - [ ] T036 Decidir y documentar P3 (auditoría histórica con `DELEGATED` fabricados: marcar como no confiable vs purgar) — coordinar con Cristian, es frontera con su módulo.
-- [ ] T037 Sync final spec/plan/checklist + `speckit-analyze` de consistencia spec↔plan↔tasks antes del PR.
+- [~] T037 `speckit-analyze` CORRIDO (cobertura 100% sobre 22 requisitos / 37 tareas, 0 duplicados, 1 CRITICAL + 2 HIGH). **Sync hecho**: terminología "pasarela"→"Modelo propio" en spec/quickstart/contracts/research (token de wire `gateway-models` intacto), SC-002/FR-010 realineados a la frase que rinde la UI, taxonomía de superficies acotada al enum declarado (navegador/API resuelven por modo — issue #28), `data-model.md` sincronizado con el RLS real de la migración 012, `plan.md` apuntando a `basa_governance.py`. **FALTA (gatea JF)**: el CRITICAL F1 — D8 contradice la letra del Principio I de la constitución; requiere enmienda formal (bump MINOR 2.0.0→2.1.0 + Sync Impact Report). Redactada, esperando OK.
 
 ---
 

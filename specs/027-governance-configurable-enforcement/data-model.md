@@ -53,7 +53,32 @@ CREATE TABLE governance_profiles (
         )
 );
 CREATE INDEX ix_governance_profiles_tenant_id ON governance_profiles (tenant_id);
+
+-- RLS: governance_profiles es tabla TENANT-SCOPED (Principio III, SC-4). Mismo tratamiento
+-- que las 13 tablas tenant-scoped de la 010 — predicado LITERALMENTE idéntico al que usa
+-- audit_logs, no una segunda semántica de aislamiento.
+ALTER TABLE governance_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE governance_profiles FORCE ROW LEVEL SECURITY;  -- sin FORCE el dueño bypasea
+
+CREATE POLICY tenant_isolation ON governance_profiles
+    USING       (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+                 OR current_setting('app.bypass_rls', true) = 'on')
+    WITH CHECK  (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid
+                 OR current_setting('app.bypass_rls', true) = 'on');
+
+-- Ventana de deploy heredada de la 010: sin GUC seteado la sesión opera como hasta hoy
+-- (on-prem). Se elimina en la 017 al cablear identidad fail-closed, y debe eliminarse para
+-- TODAS las tablas a la vez, incluida ésta.
+CREATE POLICY tenant_isolation_bootstrap ON governance_profiles
+    USING       (NULLIF(current_setting('app.current_tenant', true), '') IS NULL)
+    WITH CHECK  (NULLIF(current_setting('app.current_tenant', true), '') IS NULL);
 ```
+
+`governance_profiles` queda **registrada como tabla tenant-scoped**: es la única tabla nueva
+con `tenant_id` y, encima, la que decide **qué capas de seguridad corren**. El RLS es
+*backstop de base*, no la validación primaria (el router admin filtra por tenant): sin él, el
+CRUD de US2 —UPSERT/DELETE por PK, patrón habitual del repo— dejaría que el admin del tenant A
+apague `pii_masking` del tenant B pasando un id ajeno.
 
 Estilo SQLAlchemy: como `Budget`/`APIKey`
 ([budget.py:9-24](../../backend/src/models/budget.py#L9)) — `UUID(as_uuid=True)`,
@@ -66,13 +91,19 @@ compliance.py), `CheckConstraint` e `Index` nombrados en `__table_args__`, `tena
 | `scope_type` | `scope_value` | Ancla en datos existentes |
 |---|---|---|
 | `tenant_default` | `'*'` (centinela — el UNIQUE de Postgres no deduplica NULLs, así que el default de tenant necesita un valor concreto) | — |
-| `connection_mode` | `'subscription'` \| `'gateway-models'` | **Codominio de la función de mapeo de D5** desde el ruteo EFECTIVO — nunca `upstream_mode` crudo ([budget.py:92-95](../../backend/src/models/budget.py#L92) es la intención declarada, no el ruteo real) |
+| `connection_mode` | `'subscription'` \| `'gateway-models'` | **Codominio de la función de mapeo de D5** desde el ruteo EFECTIVO — nunca `upstream_mode` crudo ([budget.py:92-95](../../backend/src/models/budget.py#L92) es la intención declarada, no el ruteo real). Los tokens NO cambian; el display de `gateway-models` es **"Modelo propio"** y el de `subscription`, **"Suscripción"** |
 | `surface` | los 6 valores de `tool_type` | Espejo exacto de `ck_api_keys_tool_type` ([budget.py:88-91](../../backend/src/models/budget.py#L88)) — jamás User-Agent (D5) |
 
+**El enum de `scope_value` para `scope_type='surface'` cubre SOLO herramientas declaradas**
+(los valores de `tool_type` provisionados por el admin en la Connection). **Navegador y API
+no son superficies de este enum**: su tráfico **resuelve por modo** — es decir, cae en la
+cascada a `connection_mode` → `tenant_default` → default de producto (coherente con spec.md).
+No existe fila `surface` que los alcance, y no se inventa una: sería configuración muerta.
+
 Los dos CHECKs de superficie (`ck_api_keys_tool_type` y `ck_governance_profiles_scope_pair`)
-deben evolucionar **en la misma migración** cuando se agregue una superficie (p.ej. la API de
-Responses, issue #28). Mientras una superficie no esté en el enum, su tráfico resuelve por
-fallback a `connection_mode` → `tenant_default` (riesgo asumido en D5).
+deben evolucionar **en la misma migración** cuando se agregue una superficie declarada (p.ej.
+la API de Responses, issue #28). Mientras una superficie no esté en el enum, su tráfico
+resuelve por fallback a `connection_mode` → `tenant_default` (riesgo asumido en D5).
 
 ### 1.3 Semántica de herencia (fila-por-decisión)
 
@@ -383,7 +414,15 @@ Estilo del repo: `op.execute` con `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF 
 
 **Qué agrega**:
 1. Tabla `governance_profiles` completa (§1.1: UNIQUE + 3 CHECKs nombrados + índice tenant).
-2. `audit_logs.applied_layers JSONB` y `audit_logs.blocked_by_layer VARCHAR` + índice parcial
+2. **RLS sobre `governance_profiles`** (§1.1): `ENABLE` + `FORCE ROW LEVEL SECURITY` y las
+   **2 policies** —`tenant_isolation` y `tenant_isolation_bootstrap`— con el **mismo
+   predicado** que la 010 aplica a `audit_logs` y al resto de las tablas tenant-scoped
+   ([010_multitenant_foundation.py](../../backend/alembic/versions/010_multitenant_foundation.py)).
+   Idempotente: `DROP POLICY IF EXISTS` antes de cada `CREATE`, porque la migración se
+   re-corre sobre esquemas ya migrados. El predicado se **duplica literal** (el módulo de la
+   010 no es importable: empieza con dígito) y queda anclado por el test de RLS, que compara
+   el predicado real de `pg_policies` contra el de las otras tablas.
+3. `audit_logs.applied_layers JSONB` y `audit_logs.blocked_by_layer VARCHAR` + índice parcial
    `ix_audit_logs_tenant_blocked_layer` (§3).
 
 **Qué NO hace — tan importante como lo que hace**:
@@ -401,5 +440,12 @@ Estilo del repo: `op.execute` con `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF 
 - **No toca la base del motor**: `basa_engine` no recibe esquema; el motor consume el perfil
   resuelto vía `custom_auth` (D3), no leyendo estas tablas.
 
-**Downgrade**: `DROP INDEX` + `ALTER TABLE audit_logs DROP COLUMN` (ambas) +
-`DROP TABLE governance_profiles`. Sin pérdida fuera de la feature.
+**Downgrade** (simétrico del upgrade): `DROP INDEX` + `ALTER TABLE audit_logs DROP COLUMN`
+(ambas) + **reverso del RLS** —`DROP POLICY` de las 2 policies, `NO FORCE` y `DISABLE ROW
+LEVEL SECURITY`— y recién después `DROP TABLE governance_profiles`. El `DROP TABLE` se
+llevaría las policies igual, pero se sueltan explícitamente para que un downgrade parcial (o
+una tabla que sobreviva por datos) no deje RLS forzada **sin policies**: eso sería un
+deny-all silencioso. El bloque va dentro de un `DO $$ … $$` guardado por
+`to_regclass('governance_profiles') IS NOT NULL`, porque `DROP POLICY IF EXISTS` igual falla
+si la **tabla** no existe (el `IF EXISTS` es de la policy, no de la relación). Sin pérdida
+fuera de la feature.

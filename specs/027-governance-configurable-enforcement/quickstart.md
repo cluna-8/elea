@@ -20,7 +20,7 @@ MK="basa_master_key_9999"
 TOK=$(curl -s $API/users/login -H 'content-type: application/json' \
   -d '{"username":"admin","password":"admin123"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
-# Virtual key (sk-basa-…) para tráfico hacia modelos de la pasarela:
+# Virtual key (sk-basa-…) para el tráfico de Modelo propio:
 # seed_client (specs/019-integration-surfaces/spikes-batch1.md) u onboarding existente.
 # Para SC-006 la Connection debe tener tool_type=claude-code (superficie CONFIABLE, D5).
 KEY="sk-basa-…"
@@ -75,18 +75,18 @@ jamás llega a la UI.
 ## SC-002 — Resumen por modo en una sola vista
 
 En la página **Gobernanza**, el bloque de resumen por modo responde en una vista:
-*qué protege hoy al tráfico de suscripción* y *qué protege al tráfico hacia
-modelos de la pasarela* (piso + opcionales resueltas por la cascada), sin leer
+*qué protege hoy al tráfico de suscripción* y *qué protege al tráfico de
+Modelo propio* (piso + opcionales resueltas por la cascada), sin leer
 código ni archivos, en menos de 1 minuto. La misma agrupación viene en el payload
 de `GET /governance/status` (bloque por `connection_mode`), así el criterio es
 verificable por API además de a ojo.
 
 ---
 
-## SC-003 / FR-004 — Capa opcional solo para modelos de la pasarela
+## SC-003 / FR-004 — Capa opcional solo para Modelo propio
 
 ```bash
-# 1) Decisión por alcance: una capa opcional ON solo para modelos de la pasarela
+# 1) Decisión por alcance: una capa opcional ON solo para Modelo propio
 #    (layer_key opcional del registry — ver data-model.md; contrato exacto en contracts/)
 curl -s -X PUT $API/governance/profile -H "Authorization: Bearer $TOK" \
   -H 'content-type: application/json' \
@@ -99,10 +99,10 @@ curl -s $API/gw/v1/messages -H "Authorization: Bearer $SUB_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"model":"claude-sonnet-4-20250514","max_tokens":50,"messages":[{"role":"user","content":"ping suscripcion"}]}'
 
-# 3) Tráfico hacia MODELO DE LA PASARELA: chat del producto contra el motor
+# 3) Tráfico de MODELO PROPIO: chat del producto contra el motor
 curl -s $API/chat/completions -H "Authorization: Bearer $TOK" \
   -H 'content-type: application/json' \
-  -d '{"message":"ping pasarela","model":"ollama-qwen3-4b"}'
+  -d '{"message":"ping modelo propio","model":"ollama-qwen3-4b"}'
 
 # 4) Las capas aplicadas DIFIEREN y quedan en applied_layers del audit
 docker compose exec db psql -U basa_admin -d basa_gateway -c \
@@ -111,7 +111,7 @@ docker compose exec db psql -U basa_admin -d basa_gateway -c \
 ```
 
 Esperado — la diferencia se verifica por **status**, no por presencia (la lista es
-exhaustiva sobre el perfil, contrato del resolutor #10): en el pedido de **pasarela**
+exhaustiva sobre el perfil, contrato del resolutor #10): en el pedido de **Modelo propio**
 la capa aparece `applied` o con su estado honesto (`not_configured`/
 `requires_credential` si el motor no la tiene cargada — nunca `applied` fabricado);
 en el de **suscripción** aparece también, pero jamás `applied` (su status es
@@ -260,7 +260,7 @@ curl -s $API/governance/status -H "Authorization: Bearer $TOK"
 |---|---|
 | SC-001 | Ninguna capa `aplicandose` sin confirmación de la sonda/evidencia; proveedor = `no_disponible`/`requiere_credencial` |
 | SC-002 | Un solo lugar responde qué protege cada modo, <1 min, sin archivos |
-| SC-003 | Las `applied_layers` de suscripción vs pasarela difieren según lo configurado; piso en ambas |
+| SC-003 | Las `applied_layers` de Suscripción vs Modelo propio difieren según lo configurado; piso en ambas |
 | SC-004 | `off` sobre tier=floor → 422 + intento auditado |
 | SC-005 | `blocked_by_layer` con código de capa en el evento del monitor (fila durable: 018) |
 | SC-006 | Cambio desde la UI visible al instante en status y en el tráfico (cache invalidado) |
