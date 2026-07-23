@@ -16,6 +16,7 @@ corto contra strings adversariales típicos de ReDoS (grupos anidados con
 cuantificador) ANTES de poder guardarse — un patrón que cuelga el proceso de
 detección en producción es un DoS real sobre el firewall completo.
 """
+import asyncio
 import logging
 import multiprocessing as mp
 import re
@@ -243,8 +244,14 @@ async def draft_entity(description: str) -> Dict[str, Any]:
     except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as e:
         raise UnsafePatternError(f"El motor de IA devolvió un borrador no parseable: {e}") from e
 
-    validate_pattern_safety(pattern)  # levanta UnsafePatternError si no es seguro — el draft NO se devuelve
-    test_result = test_pattern(pattern, draft.get("test_positive", []), draft.get("test_negative", []))
+    # `validate_pattern_safety` y `test_pattern` corren regex en subprocesos y los
+    # esperan con `join(timeout)` — sincrónico y de hasta ~15-20s con un patrón malicioso.
+    # Este es el ÚNICO endpoint `async def` que los llama: hacerlo en línea congelaba el
+    # event loop del backend entero (nadie más era atendido mientras tanto). En hilo
+    # aparte, el bloqueo queda contenido en la request que lo provocó.
+    await asyncio.to_thread(validate_pattern_safety, pattern)  # UnsafePatternError -> el draft NO se devuelve
+    test_result = await asyncio.to_thread(
+        test_pattern, pattern, draft.get("test_positive", []), draft.get("test_negative", []))
 
     return {
         "entity_type": draft.get("entity_type", "CUSTOM"),

@@ -13,30 +13,37 @@ class GuardianService:
     def get_or_create_default_guardians(db: Session) -> List[Guardian]:
         guardians = db.query(Guardian).all()
         
-        # Ensure "Pedro" and "Cristian" are in the database's PII guardian config
+        # Migración-on-read del guardián PII. REGLA: solo corrige el valor que dejó
+        # una versión anterior del seed; jamás pisa una edición del administrador.
+        # (Sin esta disciplina, cada `GET /guardians` — que llama a este método —
+        # revertía la configuración del cliente y su UI "se desconfiguraba sola".)
         pii_g = db.query(Guardian).filter(Guardian.guardian_type == "pii_masking").first()
         if pii_g:
+            new_config = dict(pii_g.config or {})
             updated = False
-            c_names = pii_g.config.get("custom_names", [])
-            for name in ["Pedro", "Cristian"]:
-                if name not in c_names:
-                    c_names.append(name)
-                    updated = True
 
-            # spec 016 T028/T029: instalaciones existentes seedeadas ANTES de la
-            # corrección de región (Europa, no Argentina) se quedaron con DNI/CUIL
-            # en `entities` — un tipo que el detector real ya no produce, así que
-            # nunca se enmascaraba nada de esa categoría en silencio. Mismo patrón
-            # de migración-on-read que ya existía para `custom_names`.
+            # Nombres propios del piloto: se siembran UNA sola vez, cuando la clave
+            # nunca existió. Si el admin los borró, `custom_names` está presente (aunque
+            # sea vacía) y no se vuelve a tocar.
+            if "custom_names" not in new_config:
+                new_config["custom_names"] = ["Pedro", "Cristian"]
+                updated = True
+
+            # spec 016 T028/T029: instalaciones seedeadas ANTES de la corrección de
+            # región (Europa, no Argentina) se quedaron con DNI/CUIL en `entities` —
+            # un tipo que el detector real ya no produce, así que nunca se enmascaraba
+            # nada de esa categoría en silencio. Se migra SOLO desde el default viejo
+            # exacto: cualquier otra lista es una elección del cliente y se respeta.
+            legacy_ar_entities = {"PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER"}
             eu_entities = ["PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS",
                            "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD"]
-            current_entities = pii_g.config.get("entities", [])
-            if set(current_entities) != set(eu_entities):
-                pii_g.config = {**pii_g.config, "entities": eu_entities}
+            current_entities = new_config.get("entities")
+            if current_entities is None or set(current_entities) == legacy_ar_entities:
+                new_config["entities"] = eu_entities
                 updated = True
 
             if updated:
-                pii_g.config = {**pii_g.config, "custom_names": c_names}
+                pii_g.config = new_config
                 from sqlalchemy.orm.attributes import flag_modified
                 flag_modified(pii_g, "config")
                 db.commit()

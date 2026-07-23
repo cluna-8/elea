@@ -110,6 +110,42 @@ corrigieron: `tests/contract/test_route_parity.py`, `tests/integration/test_gw_i
 - Gap PHI clínico español (CIE-10, nº historia clínica) queda fuera de alcance — no pedido
   en las user stories de esta spec.
 
+## Cierre de bloqueantes de la review (2026-07-23, lado JF)
+
+Los dos bloqueantes del review del PR #21 se cerraron desde este lado para no frenar
+el merge — el primero era íntegramente de `deploy/`, módulo nuestro.
+
+1. **El analizador NLP no existía en el camino de producción.** El sidecar estaba solo
+   en el compose de DEV: `deploy/` no lo definía en ningún lado, así que una instalación
+   real levantaba el motor sin `NLP_ANALYZER_URL` y detectaba PII con las regex de
+   dev/demo — en silencio, con la UI reportando enmascaramiento normal. Se agregó el
+   servicio `nlp-analyzer` a `compose.prod.yml` (imagen `${NLP_ANALYZER_IMAGE:?}` +
+   healthcheck + `depends_on` del motor), el build/push en `publish.sh`, la imagen en el
+   `images.tar` del bundle air-gapped, y la variable en el módulo OpenTofu → cloud-init.
+   La variable es `:?` a propósito: sin la imagen, la instalación **falla explícito** en
+   vez de enmascarar de mentira. Verificado con `docker compose config` (con y sin la var).
+
+2. **La migración-on-read pisaba la configuración del cliente.**
+   `get_or_create_default_guardians` corre en CADA `GET /api/v1/guardians`, y reescribía
+   `entities` incondicionalmente: el administrador guardaba su lista y al siguiente refresco
+   de la UI le volvía el default. Ahora se migra **solo** desde el default argentino viejo
+   exacto (`PERSON/DNI/CUIL/EMAIL_ADDRESS/PHONE_NUMBER`) o cuando la clave nunca existió;
+   cualquier otra lista es una elección del cliente y se respeta. Mismo criterio para
+   `custom_names` (los nombres del piloto se siembran una vez; si el admin los borra, no
+   resucitan). Cubierto por `backend/tests/unit/test_guardian_seed_migration.py` — 9 tests
+   que fallan 6 contra el código anterior.
+
+También se aplicó el punto 4 de la review (medio): `draft_entity` corría
+`validate_pattern_safety`/`test_pattern` en línea dentro de un endpoint `async def`, y esas
+funciones esperan subprocesos con `join(timeout)` — hasta ~15-20s con un patrón malicioso,
+congelando el event loop del backend entero. Ahora van por `asyncio.to_thread`, así el
+bloqueo queda contenido en la request que lo provocó. (`create_custom_entity` no necesita
+el cambio: su endpoint es `def` sincrónico, que FastAPI ya corre en su threadpool.)
+
+Suite completa tras los cambios: **303 passed, 7 skipped, 2 failed** — los dos fallos son
+`test_browser_dlp_e2e`/`test_engine_roundtrip_e2e`, ambientales (401 contra el stack de dev
+local, que corre otra rama) y **reproducidos idénticos sobre el código sin estos cambios**.
+
 ## Cierre
 
 Rama rebaseada sobre `main` dos veces (main avanzó con el PR #38 en paralelo) con
