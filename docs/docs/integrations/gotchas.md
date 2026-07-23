@@ -12,7 +12,7 @@ verificados en vivo sobre el producto — nada teórico. La configuración de ca
 - Una virtual key válida para verificar identidad:
   `curl …/api/v1/gw/whoami -H "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>"`.
 - Para la superficie `browser`: poder recargar la extensión (botón **↻**) y, si hace falta,
-  editar su `manifest.json`.
+  editar su `config.js` (URL del gateway) y el `host_permissions` de su `manifest.json`.
 - Base de los ejemplos: `http://localhost:8091/api/v1/gw` en desarrollo; en producción,
   `https://<host>/api/v1/gw`.
 

@@ -199,11 +199,19 @@ curl -s http://localhost:8091/api/v1/gw/whoami \
 1. **Instalar la extensión (descomprimida):** `brave://extensions` o `chrome://extensions` →
    activar **Modo desarrollador** → **Cargar descomprimida** → la carpeta de la extensión provista
    con el producto. Para actualizar el código, botón **↻** sobre la tarjeta de la extensión.
-2. **Conectar (login):** click en el ícono 🛡️ → pegar la key (p. ej.
+2. **Conectar (login):** click en el ícono → **⚙** → pegar la key (p. ej.
    `sk-basa-<usuario>-<herramienta>-<año>`) y el gateway (`http://localhost:8091/api/v1/gw`) →
-   **Conectar**. El popup valida contra `GET /api/v1/gw/whoami` y muestra
+   **Guardar y conectar**. El popup valida contra `GET /api/v1/gw/whoami` y muestra
    "🟢 Conectado como `<usuario>` · `<equipo>`".
-3. **Toggle** de protección en el popup (por defecto ON).
+
+La key y el gateway son un **setup de una vez**: se guardan y no se vuelven a mostrar. La vista
+principal del popup queda con el estado y tres acciones — **Conectar** (revalida contra el
+gateway), **Desconectar** (borra la key) y **⚙** (configuración). Una key que no valida **no** se
+guarda.
+
+!!! warning "La protección no se puede desactivar"
+    El enmascarado no es una preferencia del usuario: no hay toggle en el popup. Apagarlo
+    equivaldría a mandar el contenido en crudo al proveedor.
 
 El ciclo completo de un prompt (mask a la ida, unmask a la vuelta):
 
@@ -244,9 +252,11 @@ Notas de arquitectura útiles para soporte:
   gateway (`host_permissions` → sin CORS); el content script no maneja la key en ningún flujo.
 - **Fail-closed:** sin key válida, un overlay **bloquea** la página (no hay key → no se usa la IA).
   Si el gateway se cae estando conectado, también bloquea.
-- `host_permissions` del manifest = `http://localhost:8091/*`. **Si cambia el host del gateway hay
-  que editar el `manifest.json`** (`host_permissions` y, en producción, `chrome.storage.managed`
-  vía MDM).
+- **Si cambia el host del gateway hay que tocar dos archivos del paquete, y sólo dos:**
+  `GATEWAY_URL` en `config.js` (única fuente de la URL, la leen el service worker y el popup) y el
+  host en `host_permissions` de `manifest.json` — MV3 bloquea el `fetch` del service worker hacia
+  cualquier host no declarado en el manifest. Con key **por usuario**, un despliegue remoto debe
+  ser `https://`: sobre `http` la credencial viaja en claro.
 
 ### 3.4 Cursor (`base_url`, **solo chat/plan**)
 
