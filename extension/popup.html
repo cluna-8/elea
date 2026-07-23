@@ -32,7 +32,7 @@
 </head>
 <body>
   <header>
-    <span style="font-size:16px">🛡️</span><b>Basa Guard</b><span class="ver">v0.2</span>
+    <span style="font-size:16px">🛡️</span><b>Basa Guard</b><span id="ver" class="ver"></span>
   </header>
   <div class="body">
     <div id="status" class="status off">Desconectado — pegá tu API key para usar la IA.</div>
@@ -43,7 +43,7 @@
     </div>
     <div>
       <label>Gateway</label>
-      <input id="gw" type="text" placeholder="http://localhost:8081/gw">
+      <input id="gw" type="text" placeholder="https://gateway.ejemplo.org/api/v1/gw">
     </div>
     <div class="row">
       <button id="connect">Conectar</button>
@@ -57,8 +57,10 @@
         <span class="slider"></span>
       </label>
     </div>
-    <div class="muted">Sin key válida, la extensión bloquea el envío a ChatGPT/Claude (fail-closed).</div>
+    <div class="muted">Sin una key válida, la extensión bloquea el envío a ChatGPT y Claude.
+      Vos seguís viendo tus datos completos en el chat; el proveedor recibe la versión enmascarada.</div>
   </div>
+  <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

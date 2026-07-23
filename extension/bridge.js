@@ -30,11 +30,24 @@
   post({ __basa: "init" });
 
   // MAIN pide algo -> reenviar al SW -> devolver a MAIN
+  //
+  // F-ext-2: el listener oye el `window` que COMPARTIMOS con la página, así que
+  // todo lo que llega es no-confiable. Tres guardas, en este orden:
+  //   1. ev.source !== window  → descarta lo que venga de un iframe u otra ventana.
+  //   2. allowlist de `kind`   → la página no puede disparar "whoami" y, con él,
+  //      reescribir basa_connected/basa_user/basa_team en storage (background.js).
+  //   3. NO se reenvía `key`   → el service worker la lee de storage; aceptarla por
+  //      postMessage dejaba que la página autenticara con una key ajena.
+  // Sigue sin ser inforjable (la página comparte el mundo MAIN y ve el handshake):
+  // ver "Modelo de amenaza" en README.md. Cierra el deputy confundido, no el mundo MAIN.
+  const KINDS_PERMITIDOS = new Set(["inspect"]);
   window.addEventListener("message", (ev) => {
+    if (ev.source !== window) return;
     const d = ev.data;
     if (!d || d.__basa !== "req") return;
+    if (!KINDS_PERMITIDOS.has(d.kind)) return;
     chrome.runtime.sendMessage(
-      { kind: d.kind, text: d.text, tool: d.tool, key: d.key },
+      { kind: d.kind, text: d.text, tool: d.tool },
       (resp) => {
         const err = chrome.runtime.lastError;
         post({ __basa: "resp", id: d.id, resp: resp || { ok: false, error: err ? err.message : "sin respuesta" } });

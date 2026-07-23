@@ -2,8 +2,9 @@
  * Único que habla con el gateway de Basa (tiene host_permissions → sin CORS).
  * Guarda la virtual key en chrome.storage.local; el content script nunca la ve. */
 
-// Basa Guardian: el gateway vive bajo /api/v1/gw en el backend (puerto 8091).
-const DEFAULT_GW = "http://localhost:8091/api/v1/gw";
+// La URL del gateway vive en config.js — un solo lugar para todo el paquete.
+importScripts("config.js");
+const DEFAULT_GW = self.BASA_CONFIG.GATEWAY_URL;
 
 async function cfg() {
   const s = await chrome.storage.local.get(["basa_key", "basa_gateway"]);

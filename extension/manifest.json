@@ -1,12 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Basa Guard — PII firewall (PoC)",
-  "version": "0.2.0",
-  "description": "Firewall de PII para ChatGPT/Claude web, conectado al gateway de Basa. Requiere API key (fail-closed) y atribuye el uso a un usuario/equipo en el monitor en vivo.",
+  "name": "Basa Guard",
+  "version": "0.3.0",
+  "description": "Protege los datos personales antes de que salgan hacia ChatGPT o Claude. Tu organización define qué se enmascara y registra el uso.",
   "permissions": ["storage"],
   "host_permissions": ["http://localhost:8091/*"],
+  "icons": { "16": "icons/icon-16.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
   "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_title": "Basa Guard" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Basa Guard",
+    "default_icon": { "16": "icons/icon-16.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" }
+  },
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*", "https://claude.ai/*"],
