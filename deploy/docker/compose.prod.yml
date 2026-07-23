@@ -40,6 +40,10 @@ services:
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # El backend tiene su PROPIO camino de detección (panel/playground, spec 016
+      # T028/T029): sin esta variable escanea con las regex de dev y ni siquiera
+      # registra el degradado — la rama `else` de guardian_service no deja trigger.
+      NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
       BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
       BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
@@ -51,7 +55,11 @@ services:
       # sub-path 'mounted' anterior dejaba al backend ciego al catálogo
       # (hallazgo del ensayo — la UI mostraba 'no hay modelos').
       - litellm_config:/app/litellm_config
-    depends_on: [litellm]
+    depends_on:
+      litellm:
+        condition: service_started
+      nlp-analyzer:
+        condition: service_healthy
 
   frontend:
     image: "${FRONTEND_IMAGE:?imagen pinneada por digest (publish.sh)}"

@@ -125,6 +125,13 @@ el merge — el primero era íntegramente de `deploy/`, módulo nuestro.
    La variable es `:?` a propósito: sin la imagen, la instalación **falla explícito** en
    vez de enmascarar de mentira. Verificado con `docker compose config` (con y sin la var).
 
+   Ojo: son **dos** planos, no uno. Además del motor, el backend tiene su propio camino
+   de detección (panel/playground, `guardian_service.analyze_prompt`) que también lee
+   `NLP_ANALYZER_URL`, y ahí el degradado es peor: la rama `else` (variable ausente)
+   escanea con regex y ni siquiera registra el trigger `DEGRADED` — solo lo hace el caso
+   "URL puesta pero servicio caído". El compose de dev le pasaba la variable a los dos
+   servicios; el de prod ahora también.
+
 2. **La migración-on-read pisaba la configuración del cliente.**
    `get_or_create_default_guardians` corre en CADA `GET /api/v1/guardians`, y reescribía
    `entities` incondicionalmente: el administrador guardaba su lista y al siguiente refresco
