@@ -1128,6 +1128,30 @@
         "title": "DSRUpdateSchema",
         "type": "object"
       },
+      "EstadoPorModoSchema": {
+        "description": "El estado recomputado de la capa escrita, para UN modo de conexión.",
+        "properties": {
+          "estado_efectivo": {
+            "title": "Estado Efectivo",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "motivo": {
+            "title": "Motivo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "estado_efectivo",
+          "motivo"
+        ],
+        "title": "EstadoPorModoSchema",
+        "type": "object"
+      },
       "FallbackBody": {
         "properties": {
           "fallback_model": {
@@ -1143,6 +1167,35 @@
           }
         },
         "title": "FallbackBody",
+        "type": "object"
+      },
+      "GovernanceStatusSchema": {
+        "description": "Respuesta de ``GET /status``.\n\n``modes`` solo viene en el resumen (sin ``mode``): es el bloque por modo de conexión\nque responde \"qué protege a cada tipo de tráfico\" en una vista.\n\n``layers`` viene **siempre**: con ``mode`` es la resolución concreta de ese alcance; sin\n``mode`` es la unión de los bloques por modo. Que la clave exista en los dos casos es lo\nque permite escribir un chequeo automatizado de SC-001 —\"ninguna capa aplicándose sin\nconfirmación\"— con una sola forma de recorrer la respuesta.",
+        "properties": {
+          "layers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LayerStatusSchema"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "modes": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ModeStatusSchema"
+            },
+            "title": "Modes",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeSchema"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "GovernanceStatusSchema",
         "type": "object"
       },
       "GroupComplianceResponse": {
@@ -1887,6 +1940,67 @@
         "title": "KeyResponseSchema",
         "type": "object"
       },
+      "LayerStatusSchema": {
+        "description": "Una capa, con el shape EXACTO del contrato: 7 claves, ni una más.\n\n``decision_resuelta`` y ``estado_efectivo`` son ejes **independientes** (garantía (c)):\nuna capa ``on`` puede estar perfectamente ``no_disponible``. El deseo del admin no\nfabrica ejecución, y ésa es toda la tesis de la feature.",
+        "properties": {
+          "decision_resuelta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Resuelta"
+          },
+          "estado_efectivo": {
+            "title": "Estado Efectivo",
+            "type": "string"
+          },
+          "layer_key": {
+            "title": "Layer Key",
+            "type": "string"
+          },
+          "motivo": {
+            "title": "Motivo",
+            "type": "string"
+          },
+          "origen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origen"
+          },
+          "planes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Planes",
+            "type": "array"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "layer_key",
+          "tier",
+          "planes",
+          "decision_resuelta",
+          "origen",
+          "estado_efectivo",
+          "motivo"
+        ],
+        "title": "LayerStatusSchema",
+        "type": "object"
+      },
       "LoginRequest": {
         "properties": {
           "password": {
@@ -1903,6 +2017,28 @@
           "password"
         ],
         "title": "LoginRequest",
+        "type": "object"
+      },
+      "ModeStatusSchema": {
+        "description": "Bloque por modo de conexión: el que responde SC-002 de un vistazo.",
+        "properties": {
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/LayerStatusSchema"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "layers"
+        ],
+        "title": "ModeStatusSchema",
         "type": "object"
       },
       "ModelCreateSchema": {
@@ -2050,6 +2186,158 @@
         "title": "PolicyUpdateSchema",
         "type": "object"
       },
+      "ProfileListSchema": {
+        "description": "Respuesta de ``GET /profile``.\n\n``filas`` lleva **solo lo configurado**: la ausencia de fila ES \"heredar\" (D2), así que\nel endpoint no fabrica filas implícitas ni \"completa\" el catálogo. Quien quiera la\npostura completa —lo configurado más lo heredado— tiene ``GET /status``, que es el que\nresuelve la cascada. Mezclar las dos cosas acá volvería indistinguible \"el admin decidió\nesto\" de \"esto es el default de producto\", que es justo la distinción que ``origen``\nhace consultable en el status (FR-006).",
+        "properties": {
+          "filas": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProfileRowSchema"
+            },
+            "title": "Filas",
+            "type": "array"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id"
+        ],
+        "title": "ProfileListSchema",
+        "type": "object"
+      },
+      "ProfilePutBody": {
+        "description": "Body del ``PUT``: UNA decisión por la clave natural del UNIQUE.\n\nLos cuatro campos son ``str`` a propósito, sin ``Enum`` de pydantic: los valores se\nvalidan abajo con un 422 que **nombra el campo y ecoa el valor recibido** (garantía (c)),\nporque ese ``detail`` es el mensaje que la UI muestra en el rollback. El 422 genérico de\npydantic devuelve una lista de objetos que la UI no sabe renderizar.",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "layer_key": {
+            "title": "Layer Key",
+            "type": "string"
+          },
+          "scope_type": {
+            "title": "Scope Type",
+            "type": "string"
+          },
+          "scope_value": {
+            "title": "Scope Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_type",
+          "scope_value",
+          "layer_key",
+          "decision"
+        ],
+        "title": "ProfilePutBody",
+        "type": "object"
+      },
+      "ProfileRowSchema": {
+        "description": "Una fila de decisión, con las 6 claves del contrato.\n\nNo lleva ``id`` ni ``tenant_id``: la clave natural del recurso es\n``(scope_type, scope_value, layer_key)`` —el UNIQUE de la tabla— y el tenant es el del\nalcance de la sesión, no un parámetro que el cliente pueda mover. Exponer el UUID de la\nfila invitaría a un ``PUT /profile/{id}`` que la clave natural hace innecesario y que\nabriría el camino de escritura por-id que la RLS existe para atajar.",
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "layer_key": {
+            "title": "Layer Key",
+            "type": "string"
+          },
+          "scope_type": {
+            "title": "Scope Type",
+            "type": "string"
+          },
+          "scope_value": {
+            "title": "Scope Value",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "title": "Updated By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_type",
+          "scope_value",
+          "layer_key",
+          "decision",
+          "updated_by",
+          "updated_at"
+        ],
+        "title": "ProfileRowSchema",
+        "type": "object"
+      },
+      "ProfileWriteSchema": {
+        "description": "Respuesta del ``PUT``: la verdad recalculada (garantía (d)), no un eco del body.\n\n``estado_efectivo``/``motivo`` son el **colapso fail-closed** de ``por_modo``: si la\ncapa no se está aplicando en alguno de los modos del alcance, el escalar reporta ese\ncaso, nunca el optimista. La UI setea su estado desde esta respuesta y jamás desde el\nvalor que mandó (D7).",
+        "properties": {
+          "estado_efectivo": {
+            "title": "Estado Efectivo",
+            "type": "string"
+          },
+          "fila": {
+            "$ref": "#/components/schemas/ProfileRowSchema"
+          },
+          "motivo": {
+            "title": "Motivo",
+            "type": "string"
+          },
+          "por_modo": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/EstadoPorModoSchema"
+            },
+            "title": "Por Modo",
+            "type": "array"
+          },
+          "propagacion": {
+            "$ref": "#/components/schemas/PropagacionSchema"
+          }
+        },
+        "required": [
+          "fila",
+          "estado_efectivo",
+          "motivo",
+          "propagacion"
+        ],
+        "title": "ProfileWriteSchema",
+        "type": "object"
+      },
+      "PropagacionSchema": {
+        "description": "Honestidad sobre la propagación del cambio al motor (garantía (e)).\n\n``confirmada`` es lo que el producto puede **afirmar**, no lo que le gustaría: hoy es\nsiempre ``False`` y el motivo dice por qué. Ver ``_signal_engine_identity_invalidation``:\nla señal se emite, pero todavía no hay consumidor que la confirme, y un ``True`` sin\nconfirmación sería exactamente la clase de mentira que esta feature vino a borrar.",
+        "properties": {
+          "confirmada": {
+            "title": "Confirmada",
+            "type": "boolean"
+          },
+          "motivo": {
+            "title": "Motivo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmada",
+          "motivo"
+        ],
+        "title": "PropagacionSchema",
+        "type": "object"
+      },
       "RetentionPolicyResponse": {
         "properties": {
           "id": {
@@ -2146,6 +2434,43 @@
           "retention_days"
         ],
         "title": "RetentionPolicySchema",
+        "type": "object"
+      },
+      "ScopeSchema": {
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "surface": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surface"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "surface",
+          "tenant_id"
+        ],
+        "title": "ScopeSchema",
         "type": "object"
       },
       "UserBase": {
@@ -5178,6 +5503,312 @@
         ]
       }
     },
+    "/api/v1/governance/profile": {
+      "get": {
+        "description": "Las filas de decisión configuradas del tenant. **Lo no configurado no está.**\n\nLa ausencia de fila **es** \"heredar\" (D2, mismo idioma que ``redact_enabled=NULL`` de la\n013): este endpoint no fabrica filas implícitas ni completa el catálogo con los defaults\nde producto. Si las fabricara, el default de producto pasaría a parecer un dato editable\n—y borrable— cuando en realidad vive en el registry en código; y \"el admin decidió esto\"\ndejaría de distinguirse de \"esto es lo que trae el producto\".\n\nOrden determinista (eje, valor, capa) para que dos lecturas seguidas no barajen la tabla\nque la UI está mostrando.",
+        "operationId": "list_governance_profile_api_v1_governance_profile_get",
+        "parameters": [
+          {
+            "description": "Solo en instalaciones de una sola organización",
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Solo en instalaciones de una sola organización",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileListSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Governance Profile",
+        "tags": [
+          "Governance"
+        ]
+      },
+      "put": {
+        "description": "Configura **una** decisión por la clave natural ``(scope_type, scope_value, layer_key)``.\n\nOrden de validación, deliberado: primero el par de alcance, después la capa, después la\ndecisión, y **al final** el piso. Así el evento ``governance_floor_violation`` que\nregistra el intento sale siempre con campos ya validados —un evento de auditoría con\n``scope_value='<basura del cliente>'`` sería un canal de inyección de texto libre a un\nregistro que se exporta (C1)—. Un intento contra el piso con alcance inválido se rechaza\nigual, por el 422 de alcance.\n\n**No acepta ``tenant_id``**, a diferencia del ``GET``: leer la gobernanza de otra\norganización en una instalación single-tenant es la concesión que hace SC-007; escribirla\nno lo es. Mientras el tier super-admin de la constitución III siga siendo forward-looking\n([D9]), un camino de escritura cross-tenant sería exactamente el agujero que la RLS de la\ntabla existe para atajar. Se escribe siempre sobre el tenant de la sesión.",
+        "operationId": "upsert_governance_profile_api_v1_governance_profile_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilePutBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileWriteSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert Governance Profile",
+        "tags": [
+          "Governance"
+        ]
+      }
+    },
+    "/api/v1/governance/profile/{scope_type}/{scope_value}/{layer_key}": {
+      "delete": {
+        "description": "Volver a **heredar**: borra la decisión explícita de ese alcance.\n\nNo existe ``decision='inherit'``: el idioma de la herencia es la **ausencia de fila**, el\nmismo que ``redact_enabled=NULL``. Por eso \"heredar\" es un DELETE y no un tercer valor\ndel enum.\n\n**Idempotente** (garantía (a)): si la fila no existe, igual 204 — el estado que el\ncliente pidió (\"que este alcance herede\") ya es el estado resultante, así que un 404\ndescribiría el mundo, no el pedido, y obligaría a la UI a tratar como error un caso en el\nque no hay nada que arreglar.\n\nLos enums se validan igual que en el PUT (422 nombrando el campo): un typo que devolviera\n204 le diría al admin que reseteó un alcance que nunca tocó. La única excepción es una\ncapa de **piso**, que se acepta y resuelve en 204 sin más: no puede haber fila suya\nescrita por esta API, y si una llegó por SQL directo, borrarla solo puede mejorar las\ncosas (el resolutor ya la ignoraba).",
+        "operationId": "delete_governance_profile_api_v1_governance_profile__scope_type___scope_value___layer_key__delete",
+        "parameters": [
+          {
+            "description": "Eje del alcance",
+            "in": "path",
+            "name": "scope_type",
+            "required": true,
+            "schema": {
+              "description": "Eje del alcance",
+              "title": "Scope Type",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Valor del eje",
+            "in": "path",
+            "name": "scope_value",
+            "required": true,
+            "schema": {
+              "description": "Valor del eje",
+              "title": "Scope Value",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Clave de la capa",
+            "in": "path",
+            "name": "layer_key",
+            "required": true,
+            "schema": {
+              "description": "Clave de la capa",
+              "title": "Layer Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Governance Profile",
+        "tags": [
+          "Governance"
+        ]
+      }
+    },
+    "/api/v1/governance/status": {
+      "get": {
+        "description": "Estado REAL de cada capa de gobernanza.\n\n- **Sin parámetros**: resumen por modo de conexión — para cada modo, todas las capas con\n  su decisión resuelta y su estado efectivo (FR-010 / SC-002).\n- **Con ``mode``** (y opcionalmente ``surface``): la resolución concreta de ese alcance.\n\nLas capas de piso aparecen SIEMPRE, con ``tier=floor``, ``decision_resuelta=on`` y\n``origen=floor`` (garantía (b)): no existe representación de piso apagado, porque el\npiso no sale de la configuración sino del registry en código.\n\nLa sonda al motor se consulta **una sola vez** por request y viene cacheada ~30 s, así\nabrir la vista no dispara una llamada autenticada al motor por pageview (invariante #2).",
+        "operationId": "get_governance_status_api_v1_governance_status_get",
+        "parameters": [
+          {
+            "description": "Modo de conexión del alcance consultado",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Modo de conexión del alcance consultado",
+              "title": "Mode"
+            }
+          },
+          {
+            "description": "Herramienta/superficie del alcance",
+            "in": "query",
+            "name": "surface",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Herramienta/superficie del alcance",
+              "title": "Surface"
+            }
+          },
+          {
+            "description": "Solo en instalaciones de una sola organización",
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Solo en instalaciones de una sola organización",
+              "title": "Tenant Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GovernanceStatusSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Governance Status",
+        "tags": [
+          "Governance"
+        ]
+      }
+    },
     "/api/v1/groups": {
       "get": {
         "operationId": "list_groups_api_v1_groups_get",
@@ -5860,7 +6491,7 @@
     },
     "/api/v1/gw/events": {
       "get": {
-        "description": "Últimos eventos del firewall (metadata-only, preview enmascarado).",
+        "description": "Últimos eventos del firewall (metadata-only, preview enmascarado). **Exige sesión.**\n\nSin ``Authorization`` válido responde 401; con un rol sin permiso, 403. Hasta la 027\nrespondía 200 a cualquiera — ver el punto 0 del docstring del módulo.",
         "operationId": "monitor_events_api_v1_gw_events_get",
         "parameters": [
           {
@@ -5871,6 +6502,22 @@
               "default": 50,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -5902,7 +6549,7 @@
     },
     "/api/v1/gw/inspect": {
       "post": {
-        "description": "Enmascara el texto plano de un prompt para la extensión browser-DLP.\nFail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.",
+        "description": "Aplica la política Basa a un prompt de la superficie browser (piso COMPLETO desde\nla 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.\nFail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.",
         "operationId": "gw_inspect_api_v1_gw_inspect_post",
         "parameters": [
           {

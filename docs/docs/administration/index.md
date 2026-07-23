@@ -174,6 +174,13 @@ AI Act se aplican en el mismo punto de paso, junto con la auditoría *metadata-o
 registro de auditoría guarda qué se detectó y qué acción se tomó, **nunca** el contenido.
 🟢
 
+### Qué capas aplican a cada tráfico
+
+Qué protecciones corren, y sobre qué tipo de tráfico, se decide en la
+[Gobernanza del firewall](gobernanza.md): una **protección base** que ninguna configuración
+apaga, y capas opcionales que el admin gobierna por modo de conexión — con un estado honesto
+que nunca muestra como activa una capa que no se está ejecutando. 🟢
+
 ---
 
 ## Budgets y control de costes

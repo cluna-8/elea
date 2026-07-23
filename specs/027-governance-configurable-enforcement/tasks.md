@@ -128,7 +128,7 @@ Se cierra con T025, después del merge de la 016.
 
 ## Phase 5: Polish & Cross-Cutting
 
-- [ ] T033 [P] **Sitio de docs de producto (OBLIGATORIO, DoD)**: páginas de `docs/docs/**` que la feature toca (la sección de gobernanza es NUEVA: qué es el piso, qué se configura, el estado honesto y sus 5 estados, la regla de superficie confiable) — curado marca-neutro, template de docs/README.md, leyenda 🟢/🟡/🔵 honesta — y `make -C deploy check-docs` verde.
+- [x] T033 [P] **Sitio de docs de producto (OBLIGATORIO, DoD)**: página nueva `docs/docs/administration/gobernanza.md` (GUÍA): dos ejes deseo/realidad, dos modos (Suscripción / Modelo propio), protección base no-negociable, capas gobernables + cascada, 5 estados honestos, regla de superficie confiable, límites 🟢/🟡/🔵. Cableada en nav + linkeada desde administration/index.md + sumada a la lista de GUÍAS del linter. `openapi.json` regenerado (3 endpoints /governance/*). **`make -C deploy check-docs` verde (9/9).** Naming neutro OK (sin motor/internals). White-label OK.
 - [ ] T034 [P] Correr `quickstart.md` completo contra el stack dev y anotar desvíos (es el gate de la feature).
 - [ ] T035 [P] Test negativo white-label sobre `/governance/*`: ninguna respuesta contiene nombres de proveedor ni fragmentos de traceback (garantía (f)).
 - [ ] T036 Decidir y documentar P3 (auditoría histórica con `DELEGATED` fabricados: marcar como no confiable vs purgar) — coordinar con Cristian, es frontera con su módulo.
