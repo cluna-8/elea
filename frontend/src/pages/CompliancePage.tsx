@@ -276,8 +276,8 @@ export const CompliancePage: React.FC = () => {
   return (
     <div className="space-y-6 p-6 max-w-6xl mx-auto pb-16">
       {/* Header */}
-      <div className="pb-4 border-b border-slate-700/30">
-        <h1 className="text-2xl font-bold tracking-tight text-white">Políticas de Cumplimiento</h1>
+      <div className="pb-4 border-b border-border">
+        <h1 className="text-2xl font-bold tracking-tight text-text-primary">Políticas de Cumplimiento</h1>
         <p className="text-xs text-text-secondary mt-1">
           Gestión de compliance GDPR y EU AI Act para pharma, marketing y gastos.
         </p>
@@ -287,10 +287,10 @@ export const CompliancePage: React.FC = () => {
       {error && <div className="bg-danger/10 border border-danger/20 text-danger px-4 py-2.5 rounded-lg text-xs">{error}</div>}
 
       {/* Tabs */}
-      <div className="flex gap-1 border-b border-slate-700/40 overflow-x-auto">
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-xs font-semibold whitespace-nowrap border-b-2 transition-all ${tab === t.id ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-white"}`}>
+            className={`px-4 py-2 text-xs font-semibold whitespace-nowrap border-b-2 transition-all ${tab === t.id ? "border-primary text-primary" : "border-transparent text-text-secondary hover:text-text-primary"}`}>
             {t.label}
           </button>
         ))}
@@ -308,37 +308,37 @@ export const CompliancePage: React.FC = () => {
               { label: "DPIAs Pendientes", value: dashboard.dpias.missing + dashboard.dpias.review_due, sub: `${dashboard.dpias.missing} faltantes · ${dashboard.dpias.review_due} para revisar`, warn: (dashboard.dpias.missing + dashboard.dpias.review_due) > 0 },
               { label: "Solicitudes DSR Abiertas", value: dashboard.data_subject_requests.open, sub: `de ${dashboard.data_subject_requests.total} totales`, warn: dashboard.data_subject_requests.open > 0 },
             ].map((card, i) => (
-              <div key={i} className={`bg-panel border rounded-lg p-4 space-y-1 ${card.warn ? "border-warning/40" : "border-slate-700/40"}`}>
+              <div key={i} className={`bg-surface border rounded-lg p-4 space-y-1 ${card.warn ? "border-warning/40" : "border-border"}`}>
                 <p className="text-xs text-text-secondary uppercase tracking-wider">{card.label}</p>
-                <p className={`text-3xl font-bold ${card.warn ? "text-warning" : "text-white"}`}>{card.value}</p>
+                <p className={`text-3xl font-bold ${card.warn ? "text-warning" : "text-text-primary"}`}>{card.value}</p>
                 <p className="text-[10px] text-text-secondary">{card.sub}</p>
               </div>
             ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-2">
+            <div className="bg-surface border border-border rounded-lg p-4 space-y-2">
               <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Enmascaramiento PHI</p>
-              <p className="text-2xl font-bold text-white">{dashboard.audit_stats.pii_masking_rate}%</p>
-              <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <p className="text-2xl font-bold text-text-primary">{dashboard.audit_stats.pii_masking_rate}%</p>
+              <div className="w-full bg-surface-2 rounded-full h-1.5">
                 <div className="bg-primary h-1.5 rounded-full" style={{ width: `${dashboard.audit_stats.pii_masking_rate}%` }} />
               </div>
               <p className="text-[10px] text-text-secondary">de {dashboard.audit_stats.total_logs} llamadas totales</p>
             </div>
 
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-2">
+            <div className="bg-surface border border-border rounded-lg p-4 space-y-2">
               <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Notificación IA (Art. 50)</p>
-              <p className="text-2xl font-bold text-white">{dashboard.audit_stats.ai_disclosure_rate}%</p>
-              <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <p className="text-2xl font-bold text-text-primary">{dashboard.audit_stats.ai_disclosure_rate}%</p>
+              <div className="w-full bg-surface-2 rounded-full h-1.5">
                 <div className="bg-success h-1.5 rounded-full" style={{ width: `${dashboard.audit_stats.ai_disclosure_rate}%` }} />
               </div>
               <p className="text-[10px] text-text-secondary">de sesiones con disclosure entregado</p>
             </div>
 
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-2">
+            <div className="bg-surface border border-border rounded-lg p-4 space-y-2">
               <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Revisión Humana</p>
-              <p className="text-2xl font-bold text-white">{dashboard.human_review.completion_rate}%</p>
-              <div className="w-full bg-slate-700 rounded-full h-1.5">
+              <p className="text-2xl font-bold text-text-primary">{dashboard.human_review.completion_rate}%</p>
+              <div className="w-full bg-surface-2 rounded-full h-1.5">
                 <div className="bg-warning h-1.5 rounded-full" style={{ width: `${dashboard.human_review.completion_rate}%` }} />
               </div>
               <p className="text-[10px] text-text-secondary">{dashboard.human_review.pending} pendientes · {dashboard.human_review.completed} completadas</p>
@@ -360,15 +360,15 @@ export const CompliancePage: React.FC = () => {
               marketing: "bg-primary",
               expense_processing: "bg-success",
               pharmacovigilance: "bg-warning",
-              research: "bg-purple-400",
-              administrative: "bg-sky-400",
-              clinical_decision: "bg-slate-600",
-              sin_especificar: "bg-slate-600",
+              research: "bg-info",
+              administrative: "bg-primary/60",
+              clinical_decision: "bg-text-tertiary",
+              sin_especificar: "bg-text-tertiary",
             };
             const dist = dashboard.processing_purpose_distribution as Record<string, number>;
             const total = Object.values(dist).reduce((a, b) => a + b, 0);
             return (
-              <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-3">
+              <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
                 <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
                   Distribución por Propósito de Tratamiento
                 </p>
@@ -379,10 +379,10 @@ export const CompliancePage: React.FC = () => {
                       <div key={purpose} className="space-y-1">
                         <div className="flex justify-between items-center">
                           <span className="text-xs text-text-secondary">{PURPOSE_LABELS[purpose] || purpose}</span>
-                          <span className="text-xs font-mono text-white">{count} ({pct}%)</span>
+                          <span className="text-xs font-mono text-text-primary">{count} ({pct}%)</span>
                         </div>
-                        <div className="w-full bg-slate-700 rounded-full h-1.5">
-                          <div className={`${PURPOSE_COLORS[purpose] || "bg-slate-400"} h-1.5 rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                        <div className="w-full bg-surface-2 rounded-full h-1.5">
+                          <div className={`${PURPOSE_COLORS[purpose] || "bg-text-tertiary"} h-1.5 rounded-full transition-all`} style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                     );
@@ -394,9 +394,9 @@ export const CompliancePage: React.FC = () => {
           })()}
 
           {/* ── Human Review Toggle ──────────────────────────────────── */}
-          <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-3">
+          <div className="bg-surface border border-border rounded-xl p-5 space-y-3">
             <div>
-              <p className="text-sm font-bold text-white">Control de Revisión Humana</p>
+              <p className="text-sm font-bold text-text-primary">Control de Revisión Humana</p>
               <p className="text-[10px] text-text-secondary mt-0.5">Activar o desactivar la cola de revisión por proyecto. Cuando está activo, cada respuesta de IA requiere validación antes de considerarse definitiva.</p>
             </div>
             {projects.filter((p: any) => p.is_active).length === 0 ? (
@@ -404,9 +404,9 @@ export const CompliancePage: React.FC = () => {
             ) : (
               <div className="space-y-2">
                 {projects.filter((p: any) => p.is_active).map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between bg-background/40 border border-slate-700/30 rounded-lg px-4 py-2.5">
+                  <div key={p.id} className="flex items-center justify-between bg-surface-2 border border-border rounded-lg px-4 py-2.5">
                     <div>
-                      <p className="text-xs font-semibold text-white">{p.name}</p>
+                      <p className="text-xs font-semibold text-text-primary">{p.name}</p>
                       <p className="text-[10px] text-text-secondary">{RISK_LABELS[p.ai_act_risk_level]?.label || p.ai_act_risk_level}</p>
                     </div>
                     <button
@@ -417,7 +417,7 @@ export const CompliancePage: React.FC = () => {
                           loadAll();
                         } catch (e: any) { showMsg(e.message, true); }
                       }}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${p.human_review_required ? "bg-warning" : "bg-slate-700"}`}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${p.human_review_required ? "bg-warning" : "bg-border-strong"}`}
                       title={p.human_review_required ? "Desactivar revisión humana" : "Activar revisión humana"}
                     >
                       <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${p.human_review_required ? "translate-x-4" : "translate-x-0"}`} />
@@ -429,7 +429,7 @@ export const CompliancePage: React.FC = () => {
           </div>
 
           {/* ── Export buttons ───────────────────────────────────────── */}
-          <div className="bg-panel border border-slate-700/40 rounded-xl p-4">
+          <div className="bg-surface border border-border rounded-xl p-4">
             <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">Exportar documentos GDPR</p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -448,21 +448,21 @@ export const CompliancePage: React.FC = () => {
                   if (!id) return;
                   try { await api.exportDSAR(id); } catch (e: any) { showMsg(e.message, true); }
                 }}
-                className="px-3 py-1.5 text-xs border border-slate-600 text-text-secondary rounded hover:text-white hover:border-slate-500 transition-colors">
+                className="px-3 py-1.5 text-xs border border-border text-text-secondary rounded hover:text-text-primary hover:border-border-strong transition-colors">
                 ↓ DSAR por sujeto (CSV)
               </button>
             </div>
           </div>
 
           {/* ── Review Queue ──────────────────────────────────────────── */}
-          <div className="bg-panel border border-slate-700/40 rounded-xl p-5 space-y-4">
-          <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
+          <div className="bg-surface border border-border rounded-xl p-5 space-y-4">
+          <div className="flex items-start gap-2 bg-surface-2 border border-border rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>La revisión en esta cola es un <strong className="text-white">proceso interno de supervisión</strong>. No constituye validación certificada ni reemplaza la responsabilidad profesional sobre el uso de la respuesta de IA.</span>
+            <span>La revisión en esta cola es un <strong className="text-text-primary">proceso interno de supervisión</strong>. No constituye validación certificada ni reemplaza la responsabilidad profesional sobre el uso de la respuesta de IA.</span>
           </div>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-bold text-white">Cola de Revisión Humana</p>
+                <p className="text-sm font-bold text-text-primary">Cola de Revisión Humana</p>
                 <p className="text-[10px] text-text-secondary mt-0.5">Respuestas de IA pendientes de validación sanitaria</p>
               </div>
               <div className="flex items-center gap-3">
@@ -472,7 +472,7 @@ export const CompliancePage: React.FC = () => {
                   </span>
                 )}
                 <button onClick={async () => { const pr = await api.getPendingReviews(); setPendingReviews(pr); }}
-                  className="text-xs text-text-secondary hover:text-white border border-slate-700 rounded px-3 py-1.5">
+                  className="text-xs text-text-secondary hover:text-text-primary border border-border rounded px-3 py-1.5">
                   Actualizar
                 </button>
               </div>
@@ -534,11 +534,11 @@ export const CompliancePage: React.FC = () => {
                       <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px]">
                         <div>
                           <p className="text-text-secondary uppercase tracking-wider mb-0.5">Modelo</p>
-                          <p className="text-white font-mono">{ctx?.model || "—"}</p>
+                          <p className="text-text-primary font-mono">{ctx?.model || "—"}</p>
                         </div>
                         <div>
                           <p className="text-text-secondary uppercase tracking-wider mb-0.5">Tokens (prompt / resp.)</p>
-                          <p className="text-white font-mono">
+                          <p className="text-text-primary font-mono">
                             {ctx?.prompt_tokens ?? "—"} / {ctx?.completion_tokens ?? "—"}
                           </p>
                         </div>
@@ -550,7 +550,7 @@ export const CompliancePage: React.FC = () => {
                         </div>
                         <div>
                           <p className="text-text-secondary uppercase tracking-wider mb-0.5">Disclosure IA</p>
-                          <p className={ctx?.ai_disclosure_delivered ? "text-success" : "text-slate-500"}>
+                          <p className={ctx?.ai_disclosure_delivered ? "text-success" : "text-text-tertiary"}>
                             {ctx?.ai_disclosure_delivered ? "Entregado" : "No entregado"}
                           </p>
                         </div>
@@ -568,15 +568,15 @@ export const CompliancePage: React.FC = () => {
                       <div className="px-4 pb-4">
                         <p className="text-[10px] text-text-secondary uppercase tracking-wider mb-2">Respuesta de IA a validar</p>
                         {r.response_text ? (
-                          <div className="bg-background/60 border border-slate-700/50 rounded-lg p-3 text-xs text-white leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
+                          <div className="bg-surface-2 border border-border rounded-lg p-3 text-xs text-text-primary leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
                             {r.response_text}
                           </div>
                         ) : (
-                          <p className="text-xs text-slate-500 italic">
+                          <p className="text-xs text-text-tertiary italic">
                             Texto no disponible — esta revisión fue generada antes de la actualización del sistema.
                           </p>
                         )}
-                        <p className="text-[9px] text-slate-600 mt-1.5">
+                        <p className="text-[9px] text-text-tertiary mt-1.5">
                           El prompt del paciente no se almacena (GDPR Art. 5 — minimización de datos).
                         </p>
                       </div>
@@ -594,13 +594,13 @@ export const CompliancePage: React.FC = () => {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-xs text-text-secondary">{projects.length} proyectos registrados</p>
-            <button onClick={openCreateProject} className="bg-primary hover:bg-primary/90 text-background font-semibold px-4 py-2 rounded-lg text-xs">
+            <button onClick={openCreateProject} className="bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2 rounded-lg text-xs">
               + Nuevo Proyecto
             </button>
           </div>
 
           {projects.length === 0 ? (
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-8 text-center text-xs text-text-secondary">
+            <div className="bg-surface border border-border rounded-lg p-8 text-center text-xs text-text-secondary">
               No hay proyectos de compliance configurados. Crea uno para empezar.
             </div>
           ) : (
@@ -608,15 +608,15 @@ export const CompliancePage: React.FC = () => {
               {projects.map(p => {
                 const risk = RISK_LABELS[p.ai_act_risk_level] || RISK_LABELS.limited;
                 return (
-                  <div key={p.id} className="bg-panel border border-slate-700/40 rounded-lg p-4">
+                  <div key={p.id} className="bg-surface border border-border rounded-lg p-4">
                     <div className="flex justify-between items-start">
                       <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-bold text-white">{p.name}</h3>
-                          <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${p.is_active ? "text-success border-success/30 bg-success/10" : "text-slate-500 border-slate-700 bg-slate-800"}`}>
+                          <h3 className="text-sm font-bold text-text-primary">{p.name}</h3>
+                          <span className={`text-[9px] font-mono px-2 py-0.5 rounded border ${p.is_active ? "text-success border-success/30 bg-success/10" : "text-text-tertiary border-border bg-surface-2"}`}>
                             {p.is_active ? "Activo" : "Inactivo"}
                           </span>
-                          <span className={`text-[9px] font-mono px-2 py-0.5 rounded border border-slate-700 ${risk.color}`}>{risk.label}</span>
+                          <span className={`text-[9px] font-mono px-2 py-0.5 rounded border border-border ${risk.color}`}>{risk.label}</span>
                         </div>
                         <p className="text-xs text-text-secondary">{LEGAL_BASIS_LABELS[p.legal_basis] || p.legal_basis}</p>
                         <div className="flex gap-4 text-[10px] text-text-secondary flex-wrap">
@@ -647,19 +647,19 @@ export const CompliancePage: React.FC = () => {
         <div className="space-y-4">
           <div className="flex justify-between items-center">
             <p className="text-xs text-text-secondary">{dpas.length} DPAs registrados</p>
-            <button onClick={openCreateDPA} className="bg-primary hover:bg-primary/90 text-background font-semibold px-4 py-2 rounded-lg text-xs">
+            <button onClick={openCreateDPA} className="bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2 rounded-lg text-xs">
               + Registrar DPA
             </button>
           </div>
 
           {dpas.length === 0 ? (
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-8 text-center text-xs text-text-secondary">
+            <div className="bg-surface border border-border rounded-lg p-8 text-center text-xs text-text-secondary">
               Sin DPAs registrados. Es obligatorio firmar un DPA con cada proveedor de LLM antes de enviarles datos de pacientes (GDPR Art. 28).
             </div>
           ) : (
-            <div className="bg-panel border border-slate-700/40 rounded-lg overflow-hidden">
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
               <table className="w-full text-xs text-left">
-                <thead className="bg-background/40 border-b border-slate-700/50 text-text-secondary">
+                <thead className="bg-surface-2 border-b border-border text-text-secondary">
                   <tr>
                     <th className="p-3">Proveedor</th>
                     <th className="p-3">Tipo</th>
@@ -670,11 +670,11 @@ export const CompliancePage: React.FC = () => {
                     <th className="p-3"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/30 text-white font-mono">
+                <tbody className="divide-y divide-border text-text-primary font-mono">
                   {dpas.map(d => {
                     const st = DPA_STATUS[d.dpa_status] || DPA_STATUS.active;
                     return (
-                      <tr key={d.id} className="hover:bg-background/20">
+                      <tr key={d.id} className="hover:bg-surface-2">
                         <td className="p-3 font-bold font-sans">{d.provider_name}</td>
                         <td className="p-3 text-text-secondary">{d.dpa_type}</td>
                         <td className="p-3">{d.processing_region.toUpperCase()}</td>
@@ -702,25 +702,25 @@ export const CompliancePage: React.FC = () => {
       {/* ── DSR ───────────────────────────────────────────────────────────── */}
       {tab === "dsr" && (
         <div className="space-y-6">
-          <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
+          <div className="flex items-start gap-2 bg-surface-2 border border-border rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>Este módulo es una herramienta de <strong className="text-white">registro y seguimiento interno</strong>. No sustituye el proceso legal de respuesta al interesado ni garantiza cumplimiento automatizado del plazo de 30 días. Validar con el DPO y asesoría jurídica antes de usar en producción.</span>
+            <span>Este módulo es una herramienta de <strong className="text-text-primary">registro y seguimiento interno</strong>. No sustituye el proceso legal de respuesta al interesado ni garantiza cumplimiento automatizado del plazo de 30 días. Validar con el DPO y asesoría jurídica antes de usar en producción.</span>
           </div>
           {/* Search */}
-          <div className="bg-panel border border-slate-700/40 rounded-lg p-4 space-y-3">
+          <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">Búsqueda por Identificador de Sujeto</h2>
             <div className="flex gap-2">
               <input type="text" value={dsrSearch} onChange={e => setDSRSearch(e.target.value)}
                 placeholder="ID de paciente o usuario (pseudonimizado)"
-                className="flex-1 bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
-              <button onClick={handleDSRSearch} className="bg-primary text-background font-semibold px-4 py-2 rounded text-xs">Buscar</button>
+                className="flex-1 bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
+              <button onClick={handleDSRSearch} className="bg-primary text-white font-semibold px-4 py-2 rounded text-xs">Buscar</button>
             </div>
             {dsrSearchResult && (
               <div className="space-y-2">
-                <p className="text-xs text-white">Sujeto: <span className="font-mono text-primary">{dsrSearchResult.subject_identifier}</span></p>
+                <p className="text-xs text-text-primary">Sujeto: <span className="font-mono text-primary">{dsrSearchResult.subject_identifier}</span></p>
                 <p className="text-xs text-text-secondary">{dsrSearchResult.audit_log_count} registros en audit log · {dsrSearchResult.dsr_requests.length} solicitudes previas</p>
                 {dsrSearchResult.audit_logs.slice(0, 5).map((l: any) => (
-                  <div key={l.id} className="text-[10px] font-mono text-text-secondary bg-background/40 px-3 py-1 rounded">
+                  <div key={l.id} className="text-[10px] font-mono text-text-secondary bg-surface-2 px-3 py-1 rounded">
                     {l.timestamp?.slice(0, 19)} — {l.model} — {l.compliance_status} — PII: {l.pii_detected ? "sí" : "no"}
                   </div>
                 ))}
@@ -731,17 +731,17 @@ export const CompliancePage: React.FC = () => {
           {/* DSR list */}
           <div className="flex justify-between items-center">
             <p className="text-xs text-text-secondary">{dsrs.length} solicitudes registradas</p>
-            <button onClick={() => setShowDSRModal(true)} className="bg-primary hover:bg-primary/90 text-background font-semibold px-4 py-2 rounded-lg text-xs">
+            <button onClick={() => setShowDSRModal(true)} className="bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2 rounded-lg text-xs">
               + Nueva Solicitud
             </button>
           </div>
 
           {dsrs.length === 0 ? (
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-8 text-center text-xs text-text-secondary">Sin solicitudes de derechos del interesado registradas.</div>
+            <div className="bg-surface border border-border rounded-lg p-8 text-center text-xs text-text-secondary">Sin solicitudes de derechos del interesado registradas.</div>
           ) : (
-            <div className="bg-panel border border-slate-700/40 rounded-lg overflow-hidden">
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
               <table className="w-full text-xs text-left">
-                <thead className="bg-background/40 border-b border-slate-700/50 text-text-secondary">
+                <thead className="bg-surface-2 border-b border-border text-text-secondary">
                   <tr>
                     <th className="p-3">Tipo</th>
                     <th className="p-3">Sujeto</th>
@@ -751,9 +751,9 @@ export const CompliancePage: React.FC = () => {
                     <th className="p-3">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/30 text-white font-mono">
+                <tbody className="divide-y divide-border text-text-primary font-mono">
                   {dsrs.map(d => (
-                    <tr key={d.id} className="hover:bg-background/20">
+                    <tr key={d.id} className="hover:bg-surface-2">
                       <td className="p-3 font-sans">{DSR_TYPE_LABELS[d.request_type] || d.request_type}</td>
                       <td className="p-3 text-primary">{d.subject_identifier}</td>
                       <td className="p-3 text-text-secondary">{d.date_received}</td>
@@ -790,12 +790,12 @@ export const CompliancePage: React.FC = () => {
             <strong>GDPR Art. 5(1)(e):</strong> Los datos personales no se conservarán más tiempo del necesario para los fines del tratamiento. Configure los períodos de retención con la justificación documentada para su DPIA.
           </div>
 
-          <div className="bg-panel border border-slate-700/40 rounded-lg divide-y divide-slate-700/30">
+          <div className="bg-surface border border-border rounded-lg divide-y divide-border">
             {retention.map((r, i) => (
               <div key={r.id} className="p-4 space-y-2">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-sm font-semibold text-white">{LOG_TYPE_LABELS[r.log_type] || r.log_type}</p>
+                    <p className="text-sm font-semibold text-text-primary">{LOG_TYPE_LABELS[r.log_type] || r.log_type}</p>
                     <p className="text-[10px] font-mono text-text-secondary">Última actualización: {r.last_updated?.slice(0, 19) || "—"} {r.updated_by ? `por ${r.updated_by}` : ""}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -803,7 +803,7 @@ export const CompliancePage: React.FC = () => {
                       type="number" min={r.log_type === "config_audit" ? 365 : 30} max={2190}
                       value={r.retention_days}
                       onChange={e => setRetention(prev => prev.map((x, j) => j === i ? { ...x, retention_days: parseInt(e.target.value) } : x))}
-                      className="w-20 bg-background border border-slate-700 rounded px-2 py-1 text-xs text-white text-center focus:outline-none focus:border-primary"
+                      className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs text-text-primary text-center focus:outline-none focus:border-primary"
                     />
                     <span className="text-xs text-text-secondary">días</span>
                   </div>
@@ -811,7 +811,7 @@ export const CompliancePage: React.FC = () => {
                 <textarea rows={2} value={r.justification || ""}
                   onChange={e => setRetention(prev => prev.map((x, j) => j === i ? { ...x, justification: e.target.value } : x))}
                   placeholder="Justificación documentada para la DPIA..."
-                  className="w-full bg-background/40 border border-slate-700/40 rounded px-3 py-2 text-xs text-text-secondary focus:outline-none focus:border-primary"
+                  className="w-full bg-surface-2 border border-border rounded px-3 py-2 text-xs text-text-secondary focus:outline-none focus:border-primary"
                 />
                 {r.log_type === "config_audit" && (
                   <p className="text-[10px] text-warning">Mínimo no reducible: 365 días (trazabilidad de decisiones administrativas).</p>
@@ -820,7 +820,7 @@ export const CompliancePage: React.FC = () => {
             ))}
           </div>
 
-          <button onClick={saveRetention} className="bg-primary hover:bg-primary/90 text-background font-semibold px-5 py-2 rounded-lg text-xs">
+          <button onClick={saveRetention} className="bg-primary hover:bg-primary/90 text-white font-semibold px-5 py-2 rounded-lg text-xs">
             Guardar Políticas de Retención
           </button>
         </div>
@@ -829,9 +829,9 @@ export const CompliancePage: React.FC = () => {
       {/* ── Consents ──────────────────────────────────────────────────────── */}
       {tab === "consents" && (
         <div className="space-y-4">
-          <div className="flex items-start gap-2 bg-slate-800/40 border border-slate-700/40 rounded-lg px-4 py-3 text-[11px] text-text-secondary">
+          <div className="flex items-start gap-2 bg-surface-2 border border-border rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>Este módulo registra consentimientos para <strong className="text-white">auditoría interna</strong>. No incluye firma digital ni verificación criptográfica. El consentimiento legalmente válido debe obtenerse a través del sistema de origen o proceso físico documentado.</span>
+            <span>Este módulo registra consentimientos para <strong className="text-text-primary">auditoría interna</strong>. No incluye firma digital ni verificación criptográfica. El consentimiento legalmente válido debe obtenerse a través del sistema de origen o proceso físico documentado.</span>
           </div>
           <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
             <strong>GDPR Art. 7 y 9:</strong> El consentimiento para el uso de IA en datos de salud debe ser explícito, revocable en cualquier momento y documentado con marca temporal e IP de origen.
@@ -840,19 +840,19 @@ export const CompliancePage: React.FC = () => {
           <div className="flex justify-between items-center">
             <p className="text-xs text-text-secondary">{consents.length} registros de consentimiento</p>
             <button onClick={() => { setConsentForm({ user_id: "", consent_type: "ai_use", notes: "" }); setShowConsentModal(true); }}
-              className="bg-primary hover:bg-primary/90 text-background font-semibold px-4 py-2 rounded-lg text-xs">
+              className="bg-primary hover:bg-primary/90 text-white font-semibold px-4 py-2 rounded-lg text-xs">
               + Registrar Consentimiento
             </button>
           </div>
 
           {consents.length === 0 ? (
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-8 text-center text-xs text-text-secondary">
+            <div className="bg-surface border border-border rounded-lg p-8 text-center text-xs text-text-secondary">
               No hay registros de consentimiento. Registra el primero para comenzar el seguimiento.
             </div>
           ) : (
-            <div className="bg-panel border border-slate-700/40 rounded-lg overflow-hidden">
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
               <table className="w-full text-xs text-left">
-                <thead className="bg-background/40 border-b border-slate-700/50 text-text-secondary">
+                <thead className="bg-surface-2 border-b border-border text-text-secondary">
                   <tr>
                     <th className="p-3">Usuario</th>
                     <th className="p-3">Tipo</th>
@@ -863,7 +863,7 @@ export const CompliancePage: React.FC = () => {
                     <th className="p-3"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/30 text-white">
+                <tbody className="divide-y divide-border text-text-primary">
                   {consents.map((c: any) => {
                     const user = users.find((u: any) => u.id === c.user_id);
                     const CONSENT_LABELS: Record<string, string> = {
@@ -872,7 +872,7 @@ export const CompliancePage: React.FC = () => {
                       special_category: "Categoría especial (Art. 9)",
                     };
                     return (
-                      <tr key={c.id} className="hover:bg-background/20">
+                      <tr key={c.id} className="hover:bg-surface-2">
                         <td className="p-3 font-semibold">{user?.username || <span className="font-mono text-text-secondary text-[10px]">{String(c.user_id).slice(0, 8)}…</span>}</td>
                         <td className="p-3 text-text-secondary">{CONSENT_LABELS[c.consent_type] || c.consent_type}</td>
                         <td className="p-3 font-mono text-text-secondary">{c.version}</td>
@@ -880,7 +880,7 @@ export const CompliancePage: React.FC = () => {
                         <td className="p-3">
                           {c.is_active
                             ? <span className="text-success font-semibold">Activo</span>
-                            : <span className="text-slate-500">Revocado</span>}
+                            : <span className="text-text-tertiary">Revocado</span>}
                         </td>
                         <td className="p-3 font-mono text-text-secondary text-[10px]">{c.revoked_at ? new Date(c.revoked_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
                         <td className="p-3">
@@ -901,25 +901,25 @@ export const CompliancePage: React.FC = () => {
       {/* ── Modal: Project ─────────────────────────────────────────────────── */}
       {showProjectModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
-            <h2 className="text-sm font-bold text-white">{editingProject ? "Editar Proyecto" : "Nuevo Proyecto de Compliance"}</h2>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4">
+            <h2 className="text-sm font-bold text-text-primary">{editingProject ? "Editar Proyecto" : "Nuevo Proyecto de Compliance"}</h2>
 
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Nombre del proyecto *</label>
               <input value={projectForm.name} onChange={e => setProjectForm((p: any) => ({ ...p, name: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Descripción</label>
               <textarea rows={2} value={projectForm.description || ""} onChange={e => setProjectForm((p: any) => ({ ...p, description: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Base legal (GDPR) *</label>
               <select value={projectForm.legal_basis} onChange={e => setProjectForm((p: any) => ({ ...p, legal_basis: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                 {Object.entries(LEGAL_BASIS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
@@ -927,7 +927,7 @@ export const CompliancePage: React.FC = () => {
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Nivel de riesgo AI Act</label>
               <select value={projectForm.ai_act_risk_level} onChange={e => setProjectForm((p: any) => ({ ...p, ai_act_risk_level: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                 {Object.entries(RISK_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </div>
@@ -937,12 +937,12 @@ export const CompliancePage: React.FC = () => {
                 <label className="text-xs text-text-secondary">Referencia DPIA</label>
                 <input value={projectForm.dpia_reference || ""} onChange={e => setProjectForm((p: any) => ({ ...p, dpia_reference: e.target.value }))}
                   placeholder="ej: DPIA-2026-001"
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Última revisión DPIA</label>
                 <input type="date" value={projectForm.dpia_last_reviewed || ""} onChange={e => setProjectForm((p: any) => ({ ...p, dpia_last_reviewed: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
             </div>
 
@@ -956,7 +956,7 @@ export const CompliancePage: React.FC = () => {
                 <label key={key} className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={!!(projectForm as any)[key]} onChange={e => setProjectForm((p: any) => ({ ...p, [key]: e.target.checked }))}
                     className="w-3 h-3 accent-primary" />
-                  <span className="text-xs text-white">{label}</span>
+                  <span className="text-xs text-text-primary">{label}</span>
                 </label>
               ))}
             </div>
@@ -966,13 +966,13 @@ export const CompliancePage: React.FC = () => {
                 <label className="text-xs text-text-secondary">Mensaje de notificación IA (dejar en blanco para usar el predeterminado)</label>
                 <textarea rows={2} value={projectForm.ai_disclosure_message || ""}
                   onChange={e => setProjectForm((p: any) => ({ ...p, ai_disclosure_message: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
             )}
 
             <div className="flex gap-2 justify-end pt-2">
-              <button onClick={() => setShowProjectModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg">Cancelar</button>
-              <button onClick={saveProject} className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs">Guardar</button>
+              <button onClick={() => setShowProjectModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-text-primary border border-border rounded-lg">Cancelar</button>
+              <button onClick={saveProject} className="bg-primary text-white font-semibold px-4 py-2 rounded-lg text-xs">Guardar</button>
             </div>
           </div>
         </div>
@@ -981,21 +981,21 @@ export const CompliancePage: React.FC = () => {
       {/* ── Modal: DPA ────────────────────────────────────────────────────── */}
       {showDPAModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-lg p-6 space-y-4">
-            <h2 className="text-sm font-bold text-white">{editingDPA ? "Editar DPA" : "Registrar nuevo DPA"}</h2>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-lg p-6 space-y-4">
+            <h2 className="text-sm font-bold text-text-primary">{editingDPA ? "Editar DPA" : "Registrar nuevo DPA"}</h2>
 
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Proveedor *</label>
               <input value={dpaForm.provider_name} onChange={e => setDPAForm((d: any) => ({ ...d, provider_name: e.target.value }))}
                 placeholder="ej: Azure OpenAI (Microsoft)"
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Tipo de DPA</label>
                 <select value={dpaForm.dpa_type} onChange={e => setDPAForm((d: any) => ({ ...d, dpa_type: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                   <option value="standard">Estándar</option>
                   <option value="custom_addendum">Adenda personalizada</option>
                   <option value="enterprise">Enterprise</option>
@@ -1004,7 +1004,7 @@ export const CompliancePage: React.FC = () => {
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Región de procesamiento</label>
                 <select value={dpaForm.processing_region} onChange={e => setDPAForm((d: any) => ({ ...d, processing_region: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                   <option value="eu">EU</option>
                   <option value="us">US</option>
                   <option value="global">Global</option>
@@ -1016,12 +1016,12 @@ export const CompliancePage: React.FC = () => {
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Fecha de firma</label>
                 <input type="date" value={dpaForm.signed_date || ""} onChange={e => setDPAForm((d: any) => ({ ...d, signed_date: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Fecha de vencimiento</label>
                 <input type="date" value={dpaForm.expiration_date || ""} onChange={e => setDPAForm((d: any) => ({ ...d, expiration_date: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
             </div>
 
@@ -1029,18 +1029,18 @@ export const CompliancePage: React.FC = () => {
               <label className="text-xs text-text-secondary">Referencia del documento</label>
               <input value={dpaForm.document_reference || ""} onChange={e => setDPAForm((d: any) => ({ ...d, document_reference: e.target.value }))}
                 placeholder="URL o número de referencia"
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
             </div>
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={dpaForm.covers_special_categories} onChange={e => setDPAForm((d: any) => ({ ...d, covers_special_categories: e.target.checked }))}
                 className="w-3 h-3 accent-primary" />
-              <span className="text-xs text-white">Cubre datos de categoría especial (Art. 9 GDPR — datos de salud)</span>
+              <span className="text-xs text-text-primary">Cubre datos de categoría especial (Art. 9 GDPR — datos de salud)</span>
             </label>
 
             <div className="flex gap-2 justify-end pt-2">
-              <button onClick={() => setShowDPAModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg">Cancelar</button>
-              <button onClick={saveDPA} className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs">Guardar</button>
+              <button onClick={() => setShowDPAModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-text-primary border border-border rounded-lg">Cancelar</button>
+              <button onClick={saveDPA} className="bg-primary text-white font-semibold px-4 py-2 rounded-lg text-xs">Guardar</button>
             </div>
           </div>
         </div>
@@ -1049,12 +1049,12 @@ export const CompliancePage: React.FC = () => {
       {/* ── Modal: Human Review ───────────────────────────────────────────── */}
       {reviewModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-sm font-bold text-white">
+          <div className="bg-surface border border-border rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-text-primary">
               {reviewModal.action === "approved" ? "Aprobar respuesta de IA" : "Rechazar respuesta de IA"}
             </h2>
             <p className="text-xs text-text-secondary">
-              Token: <span className="font-mono text-white">{reviewModal.token.slice(0, 8)}…</span>
+              Token: <span className="font-mono text-text-primary">{reviewModal.token.slice(0, 8)}…</span>
             </p>
             {reviewModal.action === "rejected" && (
               <p className="text-[10px] text-warning bg-warning/10 border border-warning/20 rounded px-3 py-2">
@@ -1065,15 +1065,15 @@ export const CompliancePage: React.FC = () => {
               <label className="text-xs text-text-secondary">Notas del revisor {reviewModal.action === "rejected" && "*"}</label>
               <textarea rows={3} value={reviewNotes} onChange={e => setReviewNotes(e.target.value)}
                 placeholder={reviewModal.action === "approved" ? "Opcional — observaciones" : "Motivo del rechazo"}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary resize-none" />
             </div>
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={() => setReviewModal(null)} disabled={reviewSubmitting}
-                className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg disabled:opacity-50">
+                className="px-4 py-2 text-xs text-text-secondary hover:text-text-primary border border-border rounded-lg disabled:opacity-50">
                 Cancelar
               </button>
               <button onClick={submitReview} disabled={reviewSubmitting || (reviewModal.action === "rejected" && !reviewNotes.trim())}
-                className={`font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50 ${reviewModal.action === "approved" ? "bg-success text-background" : "bg-danger text-white"}`}>
+                className={`font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50 ${reviewModal.action === "approved" ? "bg-success text-white" : "bg-danger text-white"}`}>
                 {reviewSubmitting ? "Procesando…" : reviewModal.action === "approved" ? "Confirmar aprobación" : "Confirmar rechazo"}
               </button>
             </div>
@@ -1084,14 +1084,14 @@ export const CompliancePage: React.FC = () => {
       {/* ── Modal: Consent ────────────────────────────────────────────────── */}
       {showConsentModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-sm font-bold text-white">Registrar Consentimiento</h2>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-text-primary">Registrar Consentimiento</h2>
             <p className="text-[10px] text-text-secondary">El consentimiento quedará registrado con la IP de origen y marca temporal. Si ya existe uno activo del mismo tipo, será revocado automáticamente.</p>
 
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Usuario *</label>
               <select value={consentForm.user_id} onChange={e => setConsentForm(f => ({ ...f, user_id: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                 <option value="">— Seleccionar usuario —</option>
                 {users.map((u: any) => <option key={u.id} value={u.id}>{u.username} ({u.email})</option>)}
               </select>
@@ -1100,7 +1100,7 @@ export const CompliancePage: React.FC = () => {
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Tipo de consentimiento *</label>
               <select value={consentForm.consent_type} onChange={e => setConsentForm(f => ({ ...f, consent_type: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                 <option value="ai_use">Uso de IA</option>
                 <option value="data_processing">Tratamiento de datos</option>
                 <option value="special_category">Categoría especial (Art. 9 — datos de salud)</option>
@@ -1111,16 +1111,16 @@ export const CompliancePage: React.FC = () => {
               <label className="text-xs text-text-secondary">Notas (opcional)</label>
               <textarea rows={2} value={consentForm.notes} onChange={e => setConsentForm(f => ({ ...f, notes: e.target.value }))}
                 placeholder="ej: Consentimiento verbal recogido durante consulta del 30/06/2026"
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary resize-none" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary resize-none" />
             </div>
 
             <div className="flex gap-2 justify-end pt-2">
               <button onClick={() => setShowConsentModal(false)} disabled={consentSubmitting}
-                className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg disabled:opacity-50">
+                className="px-4 py-2 text-xs text-text-secondary hover:text-text-primary border border-border rounded-lg disabled:opacity-50">
                 Cancelar
               </button>
               <button onClick={saveConsent} disabled={consentSubmitting || !consentForm.user_id}
-                className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50">
+                className="bg-primary text-white font-semibold px-4 py-2 rounded-lg text-xs disabled:opacity-50">
                 {consentSubmitting ? "Registrando…" : "Registrar"}
               </button>
             </div>
@@ -1131,13 +1131,13 @@ export const CompliancePage: React.FC = () => {
       {/* ── Modal: DSR ────────────────────────────────────────────────────── */}
       {showDSRModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-panel border border-slate-700/50 rounded-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-sm font-bold text-white">Nueva Solicitud de Derecho del Interesado</h2>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-md p-6 space-y-4">
+            <h2 className="text-sm font-bold text-text-primary">Nueva Solicitud de Derecho del Interesado</h2>
 
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Tipo de solicitud *</label>
               <select value={dsrForm.request_type} onChange={e => setDSRForm(d => ({ ...d, request_type: e.target.value }))}
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary">
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                 {DSR_TYPES.map(t => <option key={t} value={t}>{DSR_TYPE_LABELS[t]}</option>)}
               </select>
             </div>
@@ -1146,28 +1146,28 @@ export const CompliancePage: React.FC = () => {
               <label className="text-xs text-text-secondary">Identificador del sujeto (pseudonimizado) *</label>
               <input value={dsrForm.subject_identifier} onChange={e => setDSRForm(d => ({ ...d, subject_identifier: e.target.value }))}
                 placeholder="ID de paciente o usuario"
-                className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Fecha de recepción</label>
                 <input type="date" value={dsrForm.date_received} onChange={e => setDSRForm(d => ({ ...d, date_received: e.target.value }))}
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-text-secondary">Responsable</label>
                 <input value={dsrForm.handled_by} onChange={e => setDSRForm(d => ({ ...d, handled_by: e.target.value }))}
                   placeholder="Nombre / email"
-                  className="w-full bg-background border border-slate-700 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-primary" />
+                  className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               </div>
             </div>
 
             <p className="text-[10px] text-warning">El GDPR Art. 12 exige respuesta en 30 días. Esta solicitud quedará en estado "Abierta" hasta que se complete.</p>
 
             <div className="flex gap-2 justify-end pt-2">
-              <button onClick={() => setShowDSRModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-white border border-slate-700 rounded-lg">Cancelar</button>
-              <button onClick={saveDSR} className="bg-primary text-background font-semibold px-4 py-2 rounded-lg text-xs">Registrar</button>
+              <button onClick={() => setShowDSRModal(false)} className="px-4 py-2 text-xs text-text-secondary hover:text-text-primary border border-border rounded-lg">Cancelar</button>
+              <button onClick={saveDSR} className="bg-primary text-white font-semibold px-4 py-2 rounded-lg text-xs">Registrar</button>
             </div>
           </div>
         </div>
