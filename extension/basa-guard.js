@@ -1,5 +1,5 @@
 /* ============================================================================
- * Basa Guard — content script MAIN (hookea window.fetch).
+ * content script MAIN (hookea window.fetch).
  * ----------------------------------------------------------------------------
  * - FAIL-CLOSED: sin API key válida (validada contra /gw/whoami) bloquea el
  *   envío a ChatGPT/Claude y muestra un overlay (Constitución SC-3).
@@ -25,7 +25,25 @@
   const S = { tok2val: new Map(), lastEvent: null };
   // No hay `enabled`: el enmascarado NO es desactivable por el usuario. El toggle
   // del popup dejaba que el empleado apagara el firewall y mandara el body crudo.
-  let state = { connected: false, user: null, team: null };
+  // `proteccion` (chip de honestidad, US4) y `name` (marca white-label, US3) llegan
+  // en el `state` que empuja el bridge; el MAIN no puede leer chrome.runtime.
+  let state = { connected: false, user: null, team: null, proteccion: null, name: "" };
+
+  // Tag interno neutro para logs y para el sentinela de bloqueo explícito (sin marca).
+  const TAG = "[guardia]";
+  const esc = (s) => String(s).replace(/</g, "&lt;");
+  // Marca a mostrar: la del paquete del partner (white-label) o un neutro genérico.
+  function appLabel() { return (state && state.name) || "Protección de datos"; }
+  // Alcance de protección (US4/FR-015/FR-016): usa el texto del server; si falta
+  // (backend viejo) cae a la promesa MÁS CHICA ("patrones"), nunca "protegido"/verde.
+  function proteccionView() {
+    const p = state && state.proteccion;
+    return {
+      titulo: (p && p.titulo) || "Detección por patrones",
+      detalle: (p && p.detalle) ||
+        "La detección funciona por patrones conocidos (correo, teléfono, documentos, credenciales); puede no reconocer nombres o direcciones escritos en texto libre.",
+    };
+  }
 
   // ---- adapters: dónde vive el texto del usuario, cómo leerlo/escribirlo ----
   const ADAPTERS = [
@@ -112,7 +130,7 @@
         // FAIL-CLOSED: la decisión depende SÓLO del match del adapter, no del body (F4).
         if (!state.connected) {
           updateOverlay();
-          throw new Error("[Basa Guard] Conectate con tu API key para usar la IA.");
+          throw new Error(TAG + " Conectate con tu API key para usar la IA.");
         }
         // El enmascarado NO es opcional: no hay condición de usuario acá.
         if (init && typeof init.body === "string") {
@@ -122,9 +140,20 @@
           const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
           if (combined.trim()) {
             const res = await callBridge("inspect", { text: combined, tool: ad.web });
-            if (!res || !res.ok) {          // gateway caído estando conectado → bloquear (fail-closed)
-              updateOverlay(res && res.error);
-              throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
+            if (!res || !res.ok) {
+              // US5: distinguir un BLOQUEO de política (mostrar el `motivo` del server)
+              // de un servicio caído. Ambos frenan el envío (fail-closed conservado).
+              if (res && res.blocked === true) {
+                // `motivo` es catálogo cerrado del server. NUNCA se renderiza
+                // `blocked_by_layer` crudo (FR-020): sólo se usa el motivo en lenguaje llano.
+                showBlock(res.motivo || "Tu organización bloqueó este envío por política.");
+                throw new Error(TAG + " bloqueado por política");
+              }
+              // ok:false sin `blocked` (o respuesta de una versión vieja) → servicio no disponible.
+              // Si además se perdió la sesión (sin key), el overlay de "acceso restringido"
+              // cubre el caso; si seguimos conectados, mostramos el aviso de servicio caído.
+              if (!state.connected) updateOverlay(res && res.error); else showServicio();
+              throw new Error(TAG + " servicio no disponible" + (res && res.error ? ": " + res.error : ""));
             }
             const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
             if (reps.length) {
@@ -140,17 +169,17 @@
         } else if (requestCarriesBody(input, init)) {
           // matcheó + conectado, pero el body NO es texto inspeccionable
           // (Request/Blob/FormData): no podemos garantizar el masking → bloquear (F4).
-          throw new Error("[Basa Guard] no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
+          throw new Error(TAG + " no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
         }
         // sin body → nada que enmascarar ni filtrar → dejar pasar
       }
     } catch (e) {
-      if (String(e).includes("[Basa Guard]")) throw e;    // propagar el bloqueo explícito
+      if (String(e).includes(TAG)) throw e;                 // propagar el bloqueo explícito
       if (matched) {                                        // F6: error inesperado en un request YA identificado → fail-closed
-        console.warn("[BasaGuard] fail-closed ante error inesperado", e);
-        throw new Error("[Basa Guard] error al inspeccionar el request — bloqueado por seguridad");
+        console.warn(TAG + " fail-closed ante error inesperado", e);
+        throw new Error(TAG + " error al inspeccionar el request — bloqueado por seguridad");
       }
-      console.warn("[BasaGuard]", e);                       // request no-matcheado → no interferir
+      console.warn(TAG, e);                                 // request no-matcheado → no interferir
     }
     return orig.call(this, input, init);
   };
@@ -163,7 +192,7 @@
       .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
     _unmaskRe = new RegExp(toks.join("|"), "g");
   }
-  function inPanel(node) { const el = node.parentElement; return !!(el && el.closest && el.closest("#basa-guard-panel")); }
+  function inPanel(node) { const el = node.parentElement; return !!(el && el.closest && el.closest("#guardia-panel")); }
   function unmask(root) {
     if (!_unmaskRe || !root) return;
     const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT); const ns = [];
@@ -185,36 +214,73 @@
     if (!document.body) return;
     if (!state.connected) {
       if (!overlay) {
-        overlay = document.createElement("div"); overlay.id = "basa-guard-overlay";
+        overlay = document.createElement("div"); overlay.id = "guardia-overlay";
         overlay.style.cssText = "position:fixed;inset:0;z-index:2147483646;background:rgba(6,9,17,.86);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:#e5e7eb";
         document.body.appendChild(overlay);
       }
       overlay.innerHTML = '<div style="max-width:420px;text-align:center;padding:28px;border:1px solid #1f2937;border-radius:16px;background:#0b0f19;box-shadow:0 20px 60px rgba(0,0,0,.6)">' +
         '<div style="font-size:34px">🛡️</div>' +
-        '<div style="font-size:17px;font-weight:700;color:#fff;margin:8px 0">Basa Guard — acceso restringido</div>' +
+        '<div style="font-size:17px;font-weight:700;color:#fff;margin:8px 0">' + esc(appLabel()) + ' — acceso restringido</div>' +
         '<div style="color:#9ca3af">Necesitás conectarte con tu <b>API key</b> para usar la IA en esta organización.</div>' +
         '<div style="color:#6b7280;margin-top:10px;font-size:12px">Abrí la extensión (ícono 🛡️ en la barra del navegador) y pegá tu key.</div>' +
-        (errMsg ? '<div style="color:#fca5a5;margin-top:10px;font-size:12px">' + String(errMsg).replace(/</g, "&lt;") + '</div>' : '') + '</div>';
+        (errMsg ? '<div style="color:#fca5a5;margin-top:10px;font-size:12px">' + esc(errMsg) + '</div>' : '') + '</div>';
     } else if (overlay) { overlay.remove(); overlay = null; }
   }
 
-  // ---- panel (identidad + telemetría) ----
-  let panel; const esc = (s) => String(s).replace(/</g, "&lt;");
+  // ---- aviso modal estando CONECTADO (US5) — el overlay de arriba sólo cubre "sin
+  // conexión". Dos usos: BLOQUEO de política (muestra el `motivo` en lenguaje llano del
+  // server, jamás la capa cruda — FR-020) y servicio caído (FR-019). Ambos frenaron el
+  // envío por fail-closed; el modal explica por qué.
+  let modalEl;
+  function showModal(o) {
+    if (!document.body) return;
+    if (!modalEl) {
+      modalEl = document.createElement("div"); modalEl.id = "guardia-modal";
+      modalEl.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(6,9,17,.86);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:#e5e7eb";
+      document.body.appendChild(modalEl);
+    }
+    modalEl.innerHTML = '<div style="max-width:460px;text-align:center;padding:28px;border:1px solid ' + o.borde + ';border-radius:16px;background:#0b0f19;box-shadow:0 20px 60px rgba(0,0,0,.6)">' +
+      '<div style="font-size:34px">' + o.icon + '</div>' +
+      '<div style="font-size:17px;font-weight:700;color:#fff;margin:8px 0">' + esc(o.titulo) + '</div>' +
+      '<div style="color:' + o.color + '">' + esc(o.cuerpo) + '</div>' +
+      '<div style="margin-top:16px"><button id="guardia-modal-ok" style="background:' + o.btn + ';color:#fff;border:0;border-radius:8px;padding:8px 16px;font:inherit;font-weight:600;cursor:pointer">Entendido</button></div>' +
+      '</div>';
+    const ok = modalEl.querySelector("#guardia-modal-ok");
+    if (ok) ok.addEventListener("click", () => { if (modalEl) { modalEl.remove(); modalEl = null; } });
+  }
+  // Bloqueo de política: el `motivo` es catálogo cerrado del server (nunca blocked_by_layer).
+  function showBlock(motivo) {
+    showModal({ icon: "⛔", titulo: "Envío bloqueado por política", cuerpo: motivo, borde: "#7c2d12", color: "#fcd34d", btn: "#b45309" });
+  }
+  // Servicio caído: NO es un bloqueo de política — se comunica como tal (FR-019).
+  function showServicio() {
+    showModal({ icon: "⚠️", titulo: "Servicio no disponible", cuerpo: "No se pudo verificar tu envío con el gateway. Se frenó por seguridad; reintentá en un momento.", borde: "#374151", color: "#9ca3af", btn: "#374151" });
+  }
+
+  // ---- panel (identidad + honestidad + telemetría) ----
+  let panel;
   function renderPanel() {
     if (!document.body || !state.connected) { if (panel) { panel.remove(); panel = null; } return; }
     if (!panel) {
-      panel = document.createElement("div"); panel.id = "basa-guard-panel";
+      panel = document.createElement("div"); panel.id = "guardia-panel";
       panel.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:2147483645;width:360px;max-height:64vh;overflow:auto;background:#0b0f19;color:#e5e7eb;border:1px solid #1f2937;border-radius:12px;font:12px/1.45 ui-monospace,Menlo,monospace;box-shadow:0 8px 30px rgba(0,0,0,.5)";
       document.body.appendChild(panel);
     }
     const ev = S.lastEvent;
     const ents = ev && ev.entities ? ev.entities.map((e) => e.type + "×" + e.count).join("  ") : "";
+    const pv = proteccionView();
     panel.innerHTML =
       '<div style="padding:10px 12px;border-bottom:1px solid #1f2937;display:flex;align-items:center;gap:8px">' +
-        '<span style="font-size:14px">🛡️</span><b style="color:#fff">Basa Guard</b>' +
-        '<span style="margin-left:auto;color:#22c55e">● gateway</span></div>' +
+        '<span style="font-size:14px">🛡️</span><b style="color:#fff">' + esc(appLabel()) + '</b>' +
+        '<span style="margin-left:auto;color:#9ca3af;font-size:11px">● conectado</span></div>' +
+      // US4: chip ÁMBAR de honestidad. Nunca verde, nunca "protegido". `detalle` del
+      // server cuando existe (fuente única de copy); si no, fallback conservador "patrones".
+      '<div style="margin:10px 12px;padding:8px 10px;border:1px solid #92400e;background:#2b1a06;border-radius:8px">' +
+        '<div style="color:#fbbf24;font-weight:700">▲ ' + esc(pv.titulo) + ' · cobertura parcial</div>' +
+        '<div style="color:#fcd34d;margin-top:4px;font-size:11px;white-space:pre-wrap;word-break:break-word">' + esc(pv.detalle) + '</div>' +
+      '</div>' +
       '<div style="padding:8px 12px;border-bottom:1px solid #1f2937;color:#93c5fd">' +
-        (state.team || "—") + " · " + (state.user || "—") + '</div>' +
+        esc(state.team || "—") + " · " + esc(state.user || "—") + '</div>' +
       '<div style="padding:10px 12px">' +
         '<div style="color:#9ca3af;margin-bottom:4px">Entidades detectadas: <span style="color:#fca5a5">' + (ents || "—") + '</span></div>' +
         '<div style="color:#9ca3af;margin:6px 0 4px">Lo que salió a ' + (ev ? esc(ev.vendor) : "la IA") + ' (enmascarado):</div>' +
@@ -235,5 +301,5 @@
 
   // Sin número de versión: la única fuente es manifest.json (el mundo MAIN no
   // puede leer chrome.runtime, así que acá no se duplica).
-  console.log("%c[Basa Guard] activo — fail-closed + masking vía gateway", "color:#22c55e");
+  console.log("%c" + TAG + " activo — fail-closed + masking vía gateway", "color:#22c55e");
 })();
