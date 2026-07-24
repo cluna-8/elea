@@ -34,7 +34,7 @@ define el patrón de resolución por scope que la 023 reutiliza: coordinar orden
 | **013** | **Multi-Tenant Foundation & Client Model** | — (core) | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
 | **014** | **LiteLLM-Native Firewall (base_url clients)** | — (core) | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
 | 015 | Scoped SecurityPolicy (per-group/per-client) | Cristian | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
-| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | Cristian | P2 | **En review** ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21), en rebase sobre main — 3 contract tests del DNI pendientes) | I, SC-2 | **C2** |
+| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | Cristian | P2 | **Lista para merge** ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21), rebaseada sobre main — suite completa (incl. `tests/integration/`) y `make check-docs` verdes tras rename `NLP_ANALYZER_URL`/servicio `nlp-analyzer`) | I, SC-2 | **C2** |
 | 017 | Auth hardening & Multi-Tenant RBAC + SSO | Cristian | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
 | 018 | Compliance Enforcement Tiers + retention purge | Cristian | P3 | Roadmap | II [D3] | A4 |
 | 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados ([PR #29](https://github.com/DrZuzzjen/basa-guardian/pull/29)) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
@@ -65,9 +65,12 @@ Reemplazar `get_or_create_default_policy` (singleton global) por resolución en 
 activa por scope.
 
 ### 016 — Real NLP Masking + streaming hardening (P2)
-Activar Presidio NLP real (analyzer+anonymizer, fallback regex) — hoy es scaffolding inactivo (SC-2). Endurecer
+Activar Presidio NLP real (analyzer, fallback regex de dev/demo) — antes scaffolding inactivo (SC-2). Endurecer
 la reversibilidad del masking sobre streaming (los 12 bugs del demo ya resueltos se formalizan como tests de
-contrato). Gap PHI clínico español (CIE-10, nº historia clínica).
+contrato). Región activa Europa/España (`ES_NIF`/`ES_NIE` built-in de Presidio, región `latam_ar` preparada
+pero inactiva). `entity_configs` (MASK/BLOCK) ahora conectado al firewall real, no solo al panel. Fail-closed
+real si el NLP no responde. Catálogo de entidades custom con asistente de IA (draft-then-review humano).
+Gap PHI clínico español (CIE-10, nº historia clínica) queda fuera de alcance de esta spec.
 
 ### 017 — Auth hardening & Multi-Tenant RBAC + SSO (P2)
 Cerrar el fallback a admin sin token (SC-3). RBAC scopeado por tenant. SSO real OIDC/SAML (Azure AD, Google

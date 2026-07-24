@@ -4,6 +4,7 @@
 # instala con docker load en un host SIN registry (caso Elea / on-prem).
 #
 # Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... LITELLM_IMAGE=... DOCS_IMAGE=... \
+#      NLP_ANALYZER_IMAGE=... \
 #      CADDY_IMAGE=caddy:2-alpine POSTGRES_IMAGE=postgres:16 REDIS_IMAGE=redis:7-alpine \
 #      deploy/release/bundle.sh <client-slug> [outdir]
 set -euo pipefail
@@ -16,6 +17,7 @@ mkdir -p "$OUT"
 # pull en runtime = install roto sin egress). Incluye las selfhosted on-prem.
 IMAGES=(
   "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${LITELLM_IMAGE:?}" "${DOCS_IMAGE:?sitio de docs por marca (022)}"
+  "${NLP_ANALYZER_IMAGE:?analizador NLP (016) — sin él el motor enmascara con regex}"
   "${CADDY_IMAGE:-caddy:2-alpine}" "${POSTGRES_IMAGE:-postgres:16}" "${REDIS_IMAGE:-redis:7-alpine}"
 )
 

@@ -45,3 +45,12 @@ casa. Camino k8s v2: **Zarf** (bundle con SBOM + firma cosign).
 `images.tar` del bundle y, en el camino v2, del paquete Zarf igual que el resto
 de imágenes pinneadas. Es 100% estático y 0-egress: funciona en air-gap sin
 ninguna pieza extra (checks: `make -C deploy check-docs`).
+
+**Analizador NLP (spec 016)**: viaja como imagen propia del release —
+`basa-nlp-analyzer:<version>` (build en `presidio-analyzer/`, la publica
+`publish.sh`) — y el compose prod la exige por `NLP_ANALYZER_IMAGE`. NO es
+opcional: sin el servicio levantado y sin `NLP_ANALYZER_URL`, el motor detecta
+PII con las regex de dev/demo en vez del modelo real, y el cliente no se entera
+(Constraint SC-2 de la 016). Por eso la variable es `${…:?}`: preferimos que la
+instalación falle a que enmascare de mentira. Con la URL puesta y el servicio
+caído, el guardrail es fail-closed y rechaza la petición.

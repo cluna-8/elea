@@ -42,6 +42,11 @@ variable "litellm_image" {
   description = "Imagen LiteLLM pinneada (014)."
 }
 
+variable "nlp_analyzer_image" {
+  type        = string
+  description = "Imagen del analizador NLP pinneada por digest (016, publish.sh). Sin ella el motor degrada a detección por regex."
+}
+
 variable "image_source" {
   type        = string
   default     = "registry"

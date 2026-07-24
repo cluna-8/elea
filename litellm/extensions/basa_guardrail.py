@@ -30,6 +30,7 @@ GOTCHAS aplicados (research T005): NO definir ``apply_guardrail`` (redirigiría 
 al unified_guardrail); el override del streaming hook debe estar en ESTA clase hoja.
 """
 import codecs
+import logging
 import os
 import sys
 from typing import Any, AsyncGenerator, Optional
@@ -39,8 +40,16 @@ from litellm.integrations.custom_guardrail import CustomGuardrail
 sys.path.insert(0, os.path.dirname(__file__))
 import basa_guardian_policy as policy  # noqa: E402
 
+logger = logging.getLogger("basa-guardrail")
+
 # call_types con body de mensajes que esta política inspecciona/enmascara
 _TEXT_CALL_TYPES = {"completion", "acompletion", "atext_completion", "anthropic_messages"}
+
+# spec 016: motor de detección NLP real. Sin esta env var, el guardrail degrada a
+# `default_analyze` (regex) — modo dev/demo EXPLÍCITO, nunca el default de prod
+# (Constraint SC-2). Se lee una vez al importar el módulo (mismo proceso que la
+# imagen pinneada del motor).
+_PRESIDIO_URL = os.environ.get("NLP_ANALYZER_URL")
 
 
 def _metadata_home(data: dict, call_type: Optional[str] = None) -> dict:
@@ -68,6 +77,17 @@ def _basa_identity(user_api_key_dict) -> dict:
     return md.get("basa") or {}
 
 
+def _nlp_unavailable_block(home: dict) -> str:
+    """Motivo de bloqueo fail-closed (FR-004) cuando el motor NLP no responde —
+    reusado tanto en el preview de BLOCK como en el masking real."""
+    home["basa_compliance"] = {
+        "status": "blocked_nlp_unavailable", "risk_level": "unknown",
+        "reason": "nlp_unavailable",
+    }
+    return ("Petición bloqueada: el motor de detección de datos personales "
+            "no está disponible. No se procesa sin garantía de protección de PII/PHI.")
+
+
 class BasaGuardrail(CustomGuardrail):
     """La política de compliance de Basa Guardian, montada en el motor."""
 
@@ -93,7 +113,58 @@ class BasaGuardrail(CustomGuardrail):
 
         # 3) Mask PII reversible — toggle por Connection (NULL=heredar → True hoy)
         if identity.get("redact_enabled", True):
-            data, ph_to_orig = await policy.mask_body(data, policy.default_analyze)
+            custom_names = identity.get("custom_names") or []
+            custom_entities = identity.get("custom_entities") or []
+
+            # Región de patrones estructurados (spec 016, corrección post-review: el
+            # despliegue objetivo es Europa, con LATAM como roadmap posterior — ver
+            # STRUCTURED_ID_PATTERNS_BY_REGION). Hardcodeado por ahora; llevarlo a un
+            # campo por tenant es extensión natural cuando haya despliegues multi-región
+            # reales (no antes — YAGNI mientras solo exista Europa).
+            region = os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)
+
+            if _PRESIDIO_URL:
+                async def _analyze(text: str) -> list:
+                    return await policy.presidio_analyze(
+                        text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
+            else:
+                logger.warning(
+                    "NLP_ANALYZER_URL no configurada — usando detección regex de "
+                    "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
+                )
+                _analyze = policy.default_analyze
+
+            # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
+            # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
+            # body — evita enmascarar parcialmente una request que después se
+            # bloquea, y evita una segunda ronda de red si hay que bloquear (spec
+            # 016 US2, FR-005/FR-006).
+            entity_configs = identity.get("entity_configs") or {}
+            try:
+                preview_entities = await _analyze(inspect_text)
+            except policy.NlpUnavailableError:
+                return _nlp_unavailable_block(home)
+
+            blocked_types = sorted({
+                e["entity_type"] for e in preview_entities
+                if policy.resolve_entity_action(e["entity_type"], entity_configs) == "BLOCK"
+            })
+            if blocked_types:
+                home["basa_compliance"] = {
+                    "status": "blocked_entity_type", "risk_level": "high",
+                    "reason": f"tipos bloqueados por política: {', '.join(blocked_types)}",
+                }
+                return (f"Petición bloqueada: se detectaron datos personales cuya política "
+                        f"exige bloquear, no enmascarar ({', '.join(blocked_types)}).")
+
+            # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
+            try:
+                data, ph_to_orig = await policy.mask_body(data, _analyze)
+            except policy.NlpUnavailableError:
+                # Fail-closed (FR-004): sin detección NLP confiable, no hay garantía
+                # de protección — se rechaza la request en vez de degradar en silencio.
+                return _nlp_unavailable_block(home)
+
             if ph_to_orig:
                 home["pii_tokens"] = ph_to_orig
                 home["basa_masked_entities"] = _entity_counts(ph_to_orig)

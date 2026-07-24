@@ -44,6 +44,7 @@ module "compute" {
   backend_image      = var.backend_image
   frontend_image     = var.frontend_image
   litellm_image      = var.litellm_image
+  nlp_analyzer_image = var.nlp_analyzer_image
   image_source       = var.image_source
   profile_path       = var.profile_path
   postgres_host      = module.database.endpoint

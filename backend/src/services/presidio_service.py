@@ -1,47 +1,41 @@
-import re
 import logging
-import httpx
+import os
+import sys
 from typing import Dict, List, Tuple, Any
+
+import httpx
 
 logger = logging.getLogger("basa-secure-gateway.privacy")
 
-# Regex patterns for local, zero-dependency PII/PHI masking
-PATTERNS = {
-    "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    "PHONE_NUMBER": r"\b(?:\+?54)?[-. ]?\(?\d{2,4}\)?[-. ]?\d{3,4}[-. ]?\d{4}\b",
-    "DNI": r"\b\d{2}\.?\d{3}\.?\d{3}\b",
-    "CUIL": r"\b\d{2}-\d{8}-\d\b",
-    # Captures capitalized name sequences preceded by common indicators
-    "PERSON": r"\b(?:paciente|doctor|dr|dra|sr|sra|don|doña|afiliado)\s+([A-Z][a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1]+(?:\s+[A-Z][a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00f1]+)+)\b"
-}
+# ── Librería PURA compartida (spec 016 T028/T029, FR-012/SC-006) ──────────────────
+# Antes este archivo mantenía su PROPIO diccionario PATTERNS, literalmente duplicado
+# con `basa_guardian_policy.PII_PATTERNS` del firewall real (spec 014/016) — el
+# comentario de ese archivo decía explícitamente "espejo de PresidioService.PATTERNS".
+# Importa la MISMA librería que usa el motor (mismo patrón que ya usa gateway.py para
+# el passthrough) en vez de mantener una segunda copia que puede divergir en silencio.
+for _shared in ("/app/litellm_config/extensions",
+                os.path.join(os.path.dirname(__file__), "..", "..", "..", "litellm", "extensions")):
+    if os.path.isdir(_shared):
+        _abs = os.path.abspath(_shared)
+        if _abs not in sys.path:
+            sys.path.insert(0, _abs)
+        break
+import basa_guardian_policy as policy  # noqa: E402
+
+
+class NlpUnavailableError(Exception):
+    """El motor de detección NLP real no respondió — el panel/playground puede
+    degradar de forma VISIBLE (spec 016 Assumptions: no es tráfico de producción
+    hacia herramientas), pero nunca en silencio como el `except: return []` heredado."""
+
 
 class PresidioService:
     @staticmethod
     async def analyze_text(text: str, language: str = "es") -> List[Dict[str, Any]]:
-        """
-        Scans text for PII/PHI using high-performance local regular expressions.
-        Requires zero external containers or machine learning models.
-        """
-        entities = []
-        
-        for entity_type, pattern in PATTERNS.items():
-            for match in re.finditer(pattern, text, re.IGNORECASE if entity_type != "PERSON" else 0):
-                # For PERSON, we only want to mask the captured name, not the prefix (e.g. "paciente")
-                if entity_type == "PERSON":
-                    start = match.start(1)
-                    end = match.end(1)
-                else:
-                    start = match.start()
-                    end = match.end()
-                
-                entities.append({
-                    "start": start,
-                    "end": end,
-                    "entity_type": entity_type,
-                    "score": 0.95
-                })
-                
-        return entities
+        """Fallback de dev/demo (regex) — delega en `basa_guardian_policy.default_analyze`,
+        la MISMA fuente que usa el camino de producción (spec 016 SC-006). Nunca es el
+        detector primario con PHI real (Constraint SC-2) — ver `analyze_text_http`."""
+        return await policy.default_analyze(text)
 
     @staticmethod
     def mask_text(text: str, entities: List[Dict[str, Any]]) -> Tuple[str, Dict[str, str], List[Dict[str, Any]]]:
@@ -53,34 +47,34 @@ class PresidioService:
         """
         # Sort entities by start position in descending order to avoid offset shifts
         sorted_entities = sorted(entities, key=lambda x: x["start"], reverse=True)
-        
+
         masked_text = text
         placeholder_map = {}
         masked_summary = []
-        
+
         entity_counts = {}
-        
+
         for ent in sorted_entities:
             start = ent["start"]
             end = ent["end"]
             entity_type = ent["entity_type"]
             original_val = text[start:end]
-            
+
             # Count occurrences to create unique placeholders (e.g., [PERSON_0], [PERSON_1])
             entity_counts[entity_type] = entity_counts.get(entity_type, 0) + 1
             idx = entity_counts[entity_type] - 1
             placeholder = f"[{entity_type}_{idx}]"
-            
+
             # Replace in text
             masked_text = masked_text[:start] + placeholder + masked_text[end:]
             placeholder_map[placeholder] = original_val
-            
+
             masked_summary.append({
                 "type": entity_type,
                 "placeholder": placeholder,
                 "score": ent["score"]
             })
-            
+
         return masked_text, placeholder_map, masked_summary
 
     @staticmethod
@@ -101,19 +95,34 @@ class PresidioService:
         analyzer_url: str,
         language: str = "es",
         entities: List[str] | None = None,
+        custom_names: List[str] | None = None,
+        region: str = "eu",
     ) -> List[Dict[str, Any]]:
-        """Call a Presidio Analyzer HTTP service. Returns entities in the same format as analyze_text."""
-        payload: dict = {"text": text, "language": language}
-        if entities:
-            payload["entities"] = entities
+        """Llama al mismo sidecar Presidio Analyzer que usa el firewall real, con los
+        mismos `ad_hoc_recognizers` (spec 016 SC-006 — antes este método no aceptaba
+        `ad_hoc_recognizers` y el panel no tenía forma de sumar entidades custom).
+
+        FAIL-CLOSED por default (Corrección T028/T029): antes esto atrapaba CUALQUIER
+        excepción y devolvía `[]` — fail-open silencioso, contrario a spec 016 FR-004.
+        Ahora levanta `NlpUnavailableError`; el caller (`guardian_service.py`) decide
+        cómo degradar de forma VISIBLE para el camino de panel/playground (Assumptions
+        de la spec: uso interno, no tráfico de producción hacia herramientas — puede
+        degradar visible, nunca en silencio)."""
+        payload: dict = {
+            "text": text, "language": language, "entities": entities,
+            "ad_hoc_recognizers": policy.build_ad_hoc_recognizers(custom_names, region),
+        }
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 r = await client.post(f"{analyzer_url.rstrip('/')}/analyze", json=payload)
                 r.raise_for_status()
-                return r.json()
+                raw = r.json()
         except Exception as e:
-            logger.warning("Presidio Analyzer unreachable (%s), falling back to regex: %s", analyzer_url, e)
-            return []
+            logger.warning("Presidio Analyzer no disponible (%s): %s", analyzer_url, e)
+            raise NlpUnavailableError(str(e)) from e
+        if not isinstance(raw, list):
+            raise NlpUnavailableError(f"respuesta inesperada del Analyzer: {type(raw)!r}")
+        return policy.resolve_overlaps(raw)
 
     @staticmethod
     async def anonymize_text_http(

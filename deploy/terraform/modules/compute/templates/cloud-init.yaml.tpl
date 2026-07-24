@@ -28,6 +28,7 @@ write_files:
       BACKEND_IMAGE=${backend_image}
       FRONTEND_IMAGE=${frontend_image}
       LITELLM_IMAGE=${litellm_image}
+      NLP_ANALYZER_IMAGE=${nlp_analyzer_image}
   - path: /opt/basa/branding/brand.json
     permissions: "0644"
     content: |

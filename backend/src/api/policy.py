@@ -36,14 +36,26 @@ def get_or_create_default_policy(db: Session) -> SecurityPolicy:
         policy = SecurityPolicy(
             name="Política de Seguridad BASA",
             is_active=True,
+            # Tipos que el motor NLP real (spec 016, región "eu"/España) efectivamente
+            # detecta hoy: ES_NIF/ES_NIE (built-in Presidio, con checksum), PASSPORT
+            # (ad-hoc, ver basa_guardian_policy.STRUCTURED_ID_PATTERNS_BY_REGION),
+            # IBAN_CODE/CREDIT_CARD (built-in), PERSON/EMAIL_ADDRESS/PHONE_NUMBER
+            # (built-in). Cualquier tipo detectado que NO esté acá cae al default
+            # MASK (resolve_entity_action) — no queda sin cubrir.
+            # NOTA: todos en MASK a propósito — el enforcement real de BLOCK por tipo
+            # en el firewall (US2, `entity_configs` consultado en `BasaGuardrail`)
+            # todavía no está cableado (spec 016, tasks T018-T023 pendientes). Poner
+            # BLOCK acá hoy sería configuración cosmética sin efecto — exactamente el
+            # problema que esta spec existe para cerrar. Revisar cuando se implemente.
             entity_configs={
                 "PERSON": "MASK",
                 "PHONE_NUMBER": "MASK",
                 "EMAIL_ADDRESS": "MASK",
-                "US_SSN": "BLOCK",
-                "MEDICAL_LICENSE": "BLOCK",
-                "DNI": "MASK",
-                "CUIL": "MASK"
+                "ES_NIF": "MASK",
+                "ES_NIE": "MASK",
+                "PASSPORT": "MASK",
+                "IBAN_CODE": "MASK",
+                "CREDIT_CARD": "MASK",
             },
             gdpr_mode=True,
             ai_act_mode=True,

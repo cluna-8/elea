@@ -1,9 +1,10 @@
+import os
 import re
 import logging
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from ..models.guardian import Guardian
-from .presidio_service import PresidioService
+from .presidio_service import PresidioService, NlpUnavailableError
 
 logger = logging.getLogger("basa-secure-gateway.guardian")
 
@@ -12,17 +13,37 @@ class GuardianService:
     def get_or_create_default_guardians(db: Session) -> List[Guardian]:
         guardians = db.query(Guardian).all()
         
-        # Ensure "Pedro" and "Cristian" are in the database's PII guardian config
+        # Migración-on-read del guardián PII. REGLA: solo corrige el valor que dejó
+        # una versión anterior del seed; jamás pisa una edición del administrador.
+        # (Sin esta disciplina, cada `GET /guardians` — que llama a este método —
+        # revertía la configuración del cliente y su UI "se desconfiguraba sola".)
         pii_g = db.query(Guardian).filter(Guardian.guardian_type == "pii_masking").first()
         if pii_g:
-            c_names = pii_g.config.get("custom_names", [])
+            new_config = dict(pii_g.config or {})
             updated = False
-            for name in ["Pedro", "Cristian"]:
-                if name not in c_names:
-                    c_names.append(name)
-                    updated = True
+
+            # Nombres propios del piloto: se siembran UNA sola vez, cuando la clave
+            # nunca existió. Si el admin los borró, `custom_names` está presente (aunque
+            # sea vacía) y no se vuelve a tocar.
+            if "custom_names" not in new_config:
+                new_config["custom_names"] = ["Pedro", "Cristian"]
+                updated = True
+
+            # spec 016 T028/T029: instalaciones seedeadas ANTES de la corrección de
+            # región (Europa, no Argentina) se quedaron con DNI/CUIL en `entities` —
+            # un tipo que el detector real ya no produce, así que nunca se enmascaraba
+            # nada de esa categoría en silencio. Se migra SOLO desde el default viejo
+            # exacto: cualquier otra lista es una elección del cliente y se respeta.
+            legacy_ar_entities = {"PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER"}
+            eu_entities = ["PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS",
+                           "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD"]
+            current_entities = new_config.get("entities")
+            if current_entities is None or set(current_entities) == legacy_ar_entities:
+                new_config["entities"] = eu_entities
+                updated = True
+
             if updated:
-                pii_g.config = {**pii_g.config, "custom_names": c_names}
+                pii_g.config = new_config
                 from sqlalchemy.orm.attributes import flag_modified
                 flag_modified(pii_g, "config")
                 db.commit()
@@ -41,7 +62,11 @@ class GuardianService:
                 guardian_type="pii_masking",
                 is_active=True,
                 config={
-                    "entities": ["PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER"],
+                    # Alineado con el default de SecurityPolicy.entity_configs (spec 016,
+                    # región eu/España): DNI/CUIL eran argentinos, ya no aplican por default
+                    # (T028/T029 — antes este catálogo divergía en silencio del real).
+                    "entities": ["PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS",
+                                "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD"],
                     "action": "MASK",
                     "custom_names": ["Pedro", "Cristian", "Juan Pérez", "María López", "Carlos Rodríguez"]
                 }
@@ -294,8 +319,26 @@ class GuardianService:
                     "triggers": triggers
                 }
             
-            # General Presidio scan
-            raw_entities = await PresidioService.analyze_text(processed_prompt)
+            # General Presidio scan — spec 016 T028/T029 (FR-012): prefiere el motor NLP
+            # real (mismo sidecar que usa el firewall) si está configurado; degrada al
+            # regex de dev SOLO de forma VISIBLE (trigger registrado), nunca en silencio
+            # (spec.md Assumptions: este camino es interno/playground, no tráfico de
+            # producción — puede degradar visible, pero jamás ocultarlo).
+            presidio_url = os.environ.get("NLP_ANALYZER_URL")
+            if presidio_url:
+                try:
+                    raw_entities = await PresidioService.analyze_text_http(
+                        processed_prompt, presidio_url, custom_names=custom_names)
+                except NlpUnavailableError:
+                    triggers.append({
+                        "guardian": pii_guardian.name if pii_guardian else "PII Guard",
+                        "action": "DEGRADED",
+                        "detail": "Motor de detección NLP no disponible — degradado a regex "
+                                  "de dev (SOLO panel/playground, nunca en el firewall real).",
+                    })
+                    raw_entities = await PresidioService.analyze_text(processed_prompt)
+            else:
+                raw_entities = await PresidioService.analyze_text(processed_prompt)
             filtered_entities = [e for e in raw_entities if e["entity_type"] in entities_to_scan]
             
             if filtered_entities:

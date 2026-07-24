@@ -11,19 +11,24 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REGISTRY="${REGISTRY:?falta REGISTRY (p.ej. ghcr.io/distribuidor)}"
 VERSION="${VERSION:?falta VERSION (semver del release)}"
 
+# $1 nombre de imagen, $2 Dockerfile (relativo al repo), $3 contexto de build
+# (relativo al repo; por defecto la raíz, que es lo que necesitan backend/frontend).
 build_and_push() {
-    local name="$1" dockerfile="$2"
+    local name="$1" dockerfile="$2" context="${3:-.}"
     local ref="${REGISTRY}/${name}:${VERSION}"
     echo "── build ${ref}"
-    docker build -f "${REPO_ROOT}/deploy/docker/${dockerfile}" -t "${ref}" "${REPO_ROOT}"
+    docker build -f "${REPO_ROOT}/${dockerfile}" -t "${ref}" "${REPO_ROOT}/${context}"
     docker push "${ref}"
     local digest
     digest=$(docker inspect --format='{{index .RepoDigests 0}}' "${ref}")
     echo "PINNED ${name}=${digest}"
 }
 
-build_and_push basa-backend backend.prod.Dockerfile
-build_and_push basa-frontend frontend.prod.Dockerfile
+build_and_push basa-backend  deploy/docker/backend.prod.Dockerfile
+build_and_push basa-frontend deploy/docker/frontend.prod.Dockerfile
+# Analizador NLP (spec 016): Dockerfile y contexto propios fuera de deploy/docker.
+# El nombre publicado es neutro (Principio VII) aunque el directorio del repo no lo sea.
+build_and_push basa-nlp-analyzer presidio-analyzer/Dockerfile presidio-analyzer
 
 echo
 echo "Pegá los digests PINNED en el tfvars del cliente (deploy/terraform/envs/<slug>/)"

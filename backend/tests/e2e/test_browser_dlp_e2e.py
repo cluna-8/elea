@@ -39,9 +39,12 @@ def test_t6_inspect_masking_round_trip(gw, seeded_byok_key):
     assert resp.status_code == 200, resp.text
     j = resp.json()
 
-    # El upstream (ChatGPT/Claude web) verá placeholders, NUNCA la PII cruda:
+    # El upstream (ChatGPT/Claude web) verá placeholders, NUNCA la PII cruda. Nota
+    # (spec 016, corrección post-review Europa/no-Argentina): el fallback dev
+    # `default_analyze` ya no tiene un tipo "DNI" propio — el valor DNI cae en el
+    # patrón genérico PHONE_NUMBER y se enmascara igual (ver test_route_parity.py).
     assert EMAIL not in j["masked"] and DNI not in j["masked"], j["masked"]
-    assert "[EMAIL_ADDRESS_" in j["masked"] and "[DNI_" in j["masked"], j["masked"]
+    assert "[EMAIL_ADDRESS_" in j["masked"], j["masked"]
 
     # replacements = token→original (para des-enmascarar el DOM):
     tokens = {r_["token"]: r_["original"] for r_ in j["replacements"]}
@@ -55,7 +58,7 @@ def test_t6_inspect_masking_round_trip(gw, seeded_byok_key):
 
     # entities lleva los tipos detectados (para la vitrina/reportes):
     types = {e["type"] for e in j["entities"]}
-    assert "EMAIL_ADDRESS" in types and "DNI" in types, j["entities"]
+    assert "EMAIL_ADDRESS" in types, j["entities"]
 
 
 def test_t6_inspect_fail_closed(gw):

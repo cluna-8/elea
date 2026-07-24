@@ -10,6 +10,7 @@ variable "product_domain" { type = string }
 variable "backend_image" { type = string }
 variable "frontend_image" { type = string }
 variable "litellm_image" { type = string }
+variable "nlp_analyzer_image" { type = string }
 variable "image_source" { type = string }
 variable "profile_path" { type = string }
 variable "postgres_host" { type = string }
@@ -53,6 +54,7 @@ resource "aws_instance" "this" {
     backend_image      = var.backend_image
     frontend_image     = var.frontend_image
     litellm_image      = var.litellm_image
+    nlp_analyzer_image = var.nlp_analyzer_image
     image_source       = var.image_source
     instance_env       = file("${var.profile_path}/instance.env")
     brand_json         = file("${var.profile_path}/brand.json")

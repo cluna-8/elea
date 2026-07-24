@@ -33,6 +33,26 @@ services:
       timeout: 3s
       retries: 5
 
+  nlp-analyzer:
+    # Motor de detección NLP real (spec 016) — sidecar propio, español. Sin puerto
+    # publicado al host: solo lo consumen litellm/backend dentro de basa-network.
+    # Naming neutro (Principio VII): nombre de servicio/hostname sin marca de terceros
+    # (el directorio de build sigue llamándose presidio-analyzer/ — detalle interno de
+    # repo, no publicado; hallazgo del gate check-docs: el hostname SÍ se filtraba a
+    # la doc pública vía el valor default de NLP_ANALYZER_URL en configuration.md).
+    build:
+      context: ./presidio-analyzer
+      dockerfile: Dockerfile
+    container_name: basa-nlp-analyzer
+    networks:
+      - basa-network
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health\")' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   litellm:
     # PIN por digest (spec 014 T004/FR-026, Principio VI): litellm 1.92.0.
     # Proceso de bump: cambiar el digest -> correr la suite de contract tests
@@ -55,6 +75,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - LITELLM_LOG=INFO
+      # Motor NLP real (spec 016) — nombre de servicio compose, puerto interno del app.py
+      - NLP_ANALYZER_URL=http://nlp-analyzer:3000
+      - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
       # Extensiones Basa (spec 014): custom_auth se resuelve relativo al config.yaml
@@ -66,6 +89,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      nlp-analyzer:
         condition: service_healthy
     networks:
       - basa-network
@@ -109,6 +134,7 @@ services:
       # producto rechaza la licencia dev pública del repo (guard anti-neutralización
       # del fail-closed). Una imagen prod jamás la setea.
       - BASA_ALLOW_DEV_LICENSE=${BASA_ALLOW_DEV_LICENSE:-true}
+      - NLP_ANALYZER_URL=http://nlp-analyzer:3000
     volumes:
       - ./backend:/app
       - ./litellm:/app/litellm_config
