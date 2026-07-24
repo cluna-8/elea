@@ -280,7 +280,11 @@ Los códigos **G#** refieren al detalle causa → fix en
 | El nombre real sale en el título de Claude.ai (G3) | Endpoint `/title` con prompt crudo | Confirmar que el adapter matchea `/title`; recargar la extensión (↻) |
 | Placeholders `[PERSON_0]` visibles en un artefacto de Claude (G5) | Artefacto en `iframe`, `all_frames:false` | Limitación conocida; mostrar en el chat |
 | La página web queda bloqueada por un overlay 🛡️ | Fail-closed: sin key válida o gateway caído | Conectar con key válida en el popup; verificar que el gateway responde `/api/v1/gw/whoami` |
-| La extensión no llega al gateway (sin CORS pero sin respuesta) | El host del gateway no está declarado en `host_permissions`, o `config.js` apunta a otro lado | Alinear `GATEWAY_URL` en `config.js` con el host de `host_permissions` en `manifest.json` — los dos, siempre — y recargar (↻) |
+| La extensión no llega al gateway (sin CORS pero sin respuesta) | Falta el **permiso de host** del gateway, o la dirección ingresada no apunta al gateway real | En el popup (**⚙**) verificar la **dirección del gateway** y **conceder el permiso de host** cuando el navegador lo pida; una dirección remota debe ser `https://` |
+| Al conectar, el navegador pide un permiso y sin él no conecta | Permiso de host en runtime (la dirección la ingresa el usuario, no viene horneada) | Conceder el permiso al host del gateway; cambiar de host vuelve a pedirlo. Denegar deja la sesión sin conectar |
+| Chip **ámbar** "Detección por patrones · cobertura parcial" en el panel | Indicador de honestidad de la superficie: la detección es por patrones, no lingüística | **No es un fallo** — es el indicador correcto (texto del servidor). Nunca presentarlo como "protegido" / cobertura total |
+| El envío se frena con un **motivo**, no con "servicio no disponible" | Bloqueo de política del gateway (el motivo lo da el servidor) | Es correcto: la extensión muestra el motivo real. "Servicio no disponible" es sólo cuando el gateway está **caído** |
+| El usuario aparece **desconectado** sin haber tocado nada | Rechazo del gateway en la revalidación (~30 min o al reabrir): key inválida/vencida o plaza revocada | Reemitir/renovar la Connection del usuario y que reingrese la key en el popup. Un **corte de red no desconecta** (conserva la key y se recupera solo) |
 | Un secreto pasa PERMITIDO en un prompt gigante | Cap de inspección desde la cabeza (G7) | Debe estar el fix de la **cola**; confirmar versión del gateway |
 | Tool-calling agéntico falla con modelo no-Claude (`tool_use_failed`) | Es el **loop de Copilot/Cursor** (G1), no una regla de byok: Claude Code en Agent SÍ funciona con modelos no-Claude vía el puente de tools del motor | Copilot → **modo Ask**; para agéntico: Claude Code por suscripción **o** con modelo propio (§3.5 de Integraciones) |
 | Nada aparece en el monitor | Superficie no llama al gateway (masking local viejo) o buffer efímero vacío | La extensión debe llamar `POST /api/v1/gw/inspect`; revisar `GET /api/v1/gw/events` (el buffer vive en memoria y se vacía al reiniciar el gateway) |
@@ -294,7 +298,7 @@ plano, fail-closed), `GET /api/v1/gw/events` (feed efímero) y `GET /api/v1/gw/m
 en vivo). No existen otros endpoints `/gw` que estos.
 
 !!! warning "Recordatorio de honestidad (para no sobrevender)"
-    La detección de PII hoy es **regex in-process** (el motor NLP avanzado es 🔵 roadmap); el monitor
+    La detección de PII hoy es **por patrones, in-process** (el motor NLP avanzado es 🔵 roadmap); el monitor
     es una **vitrina de demo** con feed efímero en memoria — la auditoría durable (Postgres) sigue
     siendo **metadata-only** (cero texto de prompt, cero PII cruda). El masking reversible reenvía el
     original salvo con redacción activa (`X-Basa-Redact`), donde el modelo solo ve placeholders y el
@@ -302,9 +306,58 @@ en vivo). No existen otros endpoints `/gw` que estos.
 
 ---
 
-## 5. Mantenimiento
+## 5. Reparto y operación de la extensión de navegador
 
-### 5.1 Actualización del motor del gateway
+La superficie `browser` (ChatGPT / Claude web) se gobierna con la **extensión de navegador**. El
+operador la **reparte** y acompaña la conexión de cada usuario; la configuración de la extensión la
+hace el **propio usuario** (dirección del gateway + key). El detalle de la superficie, su contrato y
+su diagrama están en [Integraciones §3.3](../integrations/index.md).
+
+### 5.1 Reparto del paquete
+
+- **Paquete por partner:** la extensión se entrega como un **zip con la marca del partner** y un
+  **identificador estable**, **sin dirección de gateway horneada**. Viaja dentro del **bundle de
+  instalación** (ver [Install / Deploy](../install-deploy/index.md)); no se descarga de una tienda
+  pública.
+- **Instalación:** el IT del cliente la carga descomprimida (`chrome://extensions` →
+  **Modo de desarrollador** → **Cargar descomprimida**), o la distribuye por su gestión de flota.
+- **Marca neutra:** el mismo contenido de runtime se rebrandea por cliente. El operador **no** edita
+  código para cambiar de marca ni para apuntar a su propio gateway.
+
+### 5.2 Conexión y permiso de host
+
+El usuario, **una sola vez**, ingresa en el popup (**⚙**) la **dirección del gateway**
+(`https://<host>/api/v1/gw`) y su **API key**, y **Guardar y conectar**:
+
+- **Permiso de host en runtime:** al conectar, el navegador pide permiso para acceder al host del
+  gateway. **Hay que concederlo**; sin él la extensión no llega al gateway. Cambiar de host lo
+  vuelve a pedir.
+- **Remota = `https://`:** una dirección remota debe ser `https://` (sobre `http` la key viajaría en
+  claro); `http://` sólo para un gateway local.
+- **Chip de honestidad:** conectado, el panel muestra un chip **ámbar** "cobertura parcial" — la
+  detección en esta superficie es **por patrones**. El texto lo provee el servidor. En soporte,
+  presentarlo siempre como **cobertura parcial**, nunca como "protegido".
+- **Bloqueo con motivo real:** un envío bloqueado por política muestra el **motivo del servidor**;
+  sólo un gateway caído muestra "servicio no disponible".
+
+### 5.3 Offboarding (revocación / vencimiento)
+
+Dar de baja a un usuario o vencer su acceso lo **desconecta** de la superficie `browser` sin tocar
+su navegador:
+
+- **Revocar la Connection** del usuario (o **vencer** su key) hace que la próxima revalidación
+  (**~30 min** o al **reabrir el navegador**) reciba un rechazo del gateway: la extensión **borra**
+  la key guardada y pide reconfigurar. El ciclo de vida de Connections y el vencimiento están en
+  [Administración](../administration/index.md).
+- **Mensajes al usuario:** key inválida/vencida → "Tu API key no es válida"; plaza revocada →
+  "Tu plaza ya no está activa. Consultá con tu administrador".
+- **Corte de red ≠ baja:** un corte de conexión **no** desconecta al usuario ni borra su key — la
+  sesión se conserva y se recupera sola. No confundir "sin conexión, se reintenta solo" con un
+  offboarding.
+
+## 6. Mantenimiento
+
+### 6.1 Actualización del motor del gateway
 
 La imagen del motor del gateway se **fija por tag + digest** en la definición del despliegue
 (`docker-compose.yml` / módulo IaC): el despliegue es reproducible y el motor no cambia por debajo
@@ -331,7 +384,7 @@ Para actualizar el motor:
     **Actualizar el motor = correr las verificaciones, no reescribir a mano.** Un check en rojo es
     información (el contrato del motor cambió), no una invitación a parchear hasta que pase.
 
-### 5.2 Backup / restore de volúmenes durables (on-prem)
+### 6.2 Backup / restore de volúmenes durables (on-prem)
 
 En cloud con base de datos y cache **gestionados**, los backups y la alta disponibilidad quedan del
 lado del proveedor gestionado. En **on-prem** (contenedores con volúmenes locales), el backup es
