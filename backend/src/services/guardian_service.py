@@ -199,7 +199,10 @@ class GuardianService:
 
         if is_secret_active:
             patterns = {
-                "OpenAI API Key": r"sk-[a-zA-Z0-9]{10,}",
+                # Captura las keys clásicas `sk-<alfanum>` Y las nuevas `sk-proj-...`
+                # (llevan guiones y guiones bajos). Largo mínimo 20 para no dar falsos
+                # positivos con strings cortos tipo `sk-abc`.
+                "OpenAI API Key": r"sk-(?:proj-)?[A-Za-z0-9_-]{20,}",
                 "Google API Key": r"AIzaSy[a-zA-Z0-9_-]{33}",
                 "Generic Secret": r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}"
             }
