@@ -5,8 +5,10 @@ REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 BACKEND_IMG ?= basa-backend:prod
 FRONTEND_IMG ?= basa-frontend:prod
 DOCS_IMG ?= basa-docs:prod
+# Marca por defecto para el entregable de la extensión (028): el piloto Cámara.
+EXT_BRAND ?= camara-comercio
 
-.PHONY: build build-backend build-frontend build-docs build-docs-brand docs-refs check check-images check-whitelabel check-secrets check-tofu check-docs
+.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs
 
 build: build-backend build-frontend build-docs
 
@@ -29,7 +31,15 @@ build-docs-brand:
 	docker build -f $(REPO_ROOT)/docs/Dockerfile --build-arg BRAND=$(BRAND) \
 		--build-arg DOCS_VERSION=$(VERSION) -t basa-docs:$(BRAND)-$(VERSION) $(REPO_ROOT)/docs
 
-check: check-images check-whitelabel check-secrets check-tofu check-docs
+# Entregable white-label de la EXTENSIÓN de navegador (028 US1): renderiza el zip
+# con la marca del partner desde deploy/clients/$(BRAND)/brand.extension.json.
+# Uso: make build-extension-brand BRAND=camara-comercio
+build-extension-brand:
+	test -n "$(BRAND)" || { echo "uso: make build-extension-brand BRAND=<slug>"; exit 1; }
+	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(BRAND) \
+		$(REPO_ROOT)/deploy/clients/$(BRAND)/brand.extension.json
+
+check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs
 
 # Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
 docs-refs:
@@ -59,6 +69,14 @@ check-docs: build-docs
 
 check-whitelabel:
 	$(REPO_ROOT)/deploy/release/checks/test_no_engine_name.sh
+
+# Gate white-label de la EXTENSIÓN (028 US7): renderiza el zip del partner y verifica
+# que no re-filtre la marca del fabricante ni el motor (allowlist interna respetada).
+# Fuente única de la marca: deploy/clients/$(EXT_BRAND)/brand.extension.json.
+check-extension-whitelabel:
+	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(EXT_BRAND) \
+		$(REPO_ROOT)/deploy/clients/$(EXT_BRAND)/brand.extension.json
+	$(REPO_ROOT)/deploy/release/checks/test_extension_whitelabel.sh $(EXT_BRAND)
 
 check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh

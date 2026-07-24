@@ -1,0 +1,20 @@
+# Marca del FABRICANTE prohibida en el entregable white-label de la EXTENSIÓN (028 US7).
+# La consume SOLO test_extension_whitelabel.sh (el zip del partner). SEPARADA de
+# prohibited_names.txt (motor: litellm/berriai/presidio) — esa es compartida por los
+# gates de UI y docs y NO debe contener "basa" (rompería test_no_engine_name.sh).
+#
+# Semántica por término (ver test_extension_whitelabel.sh):
+#   basa        -> raíz de marca: se buscan identificadores que la CONTIENEN y se
+#                  restan los internos allowlisteados del cross-contract 028.
+#   basa guard  -> frase visible (con espacio): cualquier aparición es fuga (no hay
+#                  identificador interno con espacio).
+#   poc         -> "proof of concept": aparición como token = fuga.
+#   localhost   -> host de infra en forma de DIRECCIÓN (//localhost, localhost:<puerto>,
+#                  localhost/<path>) = URL horneada = fuga. La palabra SUELTA no dispara:
+#                  el validador FR-010 de la extensión la usa legítimamente en una
+#                  comparación (host === "localhost"), y la notación de contexto seguro
+#                  "https/localhost" (una sola barra, jamás una URL) tampoco es fuga.
+basa
+basa guard
+poc
+localhost
