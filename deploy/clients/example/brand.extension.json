@@ -1,0 +1,9 @@
+{
+  "name": "demo-guardian",
+  "description": "Protege los datos personales antes de enviarlos a asistentes de IA. Tu organización define qué se enmascara y registra el uso.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
