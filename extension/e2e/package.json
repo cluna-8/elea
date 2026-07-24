@@ -1,0 +1,7 @@
+{
+  "name": "basa-extension-e2e",
+  "private": true,
+  "type": "module",
+  "description": "e2e vivo en Chrome (Playwright) para la extensión — 028",
+  "devDependencies": { "playwright": "^1.61.1" }
+}

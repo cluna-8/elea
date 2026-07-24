@@ -237,6 +237,24 @@ command -v shellcheck >/dev/null && shellcheck deploy/release/render_extension_b
 6. Docs DoD (T025): actualizar `docs/docs/integrations/index.md` §3.3 + `docs/docs/operations/index.md`, `make -C deploy check-docs` 9/9.
 7. **NO merge a dev-fran** — 028 queda en su rama, verificada y PR-ready. La integración a dev-fran + bundle + ensayo es el paso 3, JOINT con JF.
 
+## Verificación de integración (orquestador, 2026-07-24)
+
+- **Merge**: A→B→C limpio en la rama feature; + fix de integración `460ac91` (renombre `basa-guard.js`→`guardia-main.js`, última fuga white-label del zip).
+- **Gate white-label**: VERDE sobre el zip integrado (`name='cc-guardian'`, `manifest.key` presente, sin fuga fabricante/motor, allowlist interna respetada).
+- **Backend pytest (integrado, contenedor one-off)**: 17 passed, 2 skipped (skips = sondas de motor vivo). Cubre whoami `proteccion`, `expires_at` indistinguible, `gw_inspect` (shape de bloqueo 027), contrato governance_status.
+- **Playwright vivo en Chrome (headed, extensión renderizada)** — `extension/e2e/`:
+  - `load-smoke` **7/7**: carga + SW registra + `ext_id` = el declarado por el render (ID estable ✓) + header `cc-guardian` + FR-010 (http remoto rechazado) + chip oculto desconectado + 0 errores de consola.
+  - `connected` **7/7**: US2 conecta contra el contrato whoami + US4 chip ámbar "▲ Detección por patrones · cobertura parcial" con copy del server (termina en el piso) + nunca "protegido" + US6 desconectar limpia.
+  - `block` **5/5**: US5 fetch shape-ChatGPT con credencial → guard → SW → gateway bloquea → modal con el `motivo` REAL del server, nunca `blocked_by_layer` crudo, fail-closed.
+
+### Codex — trayectoria de convergencia (§11.9)
+
+| Pase | P1 | P2 | P3 | Notas |
+|------|----|----|----|-------|
+| 1 | 1→0 | 0 | 0 | Único hallazgo: "[P1] Declare the permissions API permission" (manifest.json). **FALSO POSITIVO**, refutado empíricamente. |
+
+**Dismissal del P1 (evidencia, no opinión)**: Codex afirma que `chrome.permissions.request/contains` no funciona sin declarar la API en `permissions`. `extension/e2e/perm-probe.mjs` cargó el manifest de **producción** (`optional_host_permissions`, `permissions:["storage","alarms"]`) y en el SW real dio: `typeof chrome.permissions === "object"`, `request`/`contains` = `function`, y `chrome.permissions.contains({origins:["http://localhost:8787/*"]})` devolvió `false` **sin lanzar**. La API `chrome.permissions` está disponible para toda extensión por defecto; `optional_host_permissions` es lo que habilita pedir esos orígenes. No se corrige (§11 → documentar dismissal). **Convergido: 0 P1/P2/P3 reales → SHIP.**
+
 ## Definition of Done (028)
 
 - [ ] US1: `make -C deploy build-extension-brand BRAND=camara-comercio` produce `extension-camara-comercio.zip` con identidad cc-guardian + `manifest.key` (ID estable), sin URL horneada.
