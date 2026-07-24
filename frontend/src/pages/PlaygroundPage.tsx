@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
+import { Card, Button, Field, StatusBadge, cn } from "../components/ui";
 
 interface Message {
   id: string;
@@ -9,13 +10,19 @@ interface Message {
   metadata?: any;
 }
 
+// Clase de select/inputs compactos consumiendo tokens (sin hex hardcodeado).
+const compactControl =
+  "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-primary " +
+  "placeholder:text-text-tertiary transition-colors focus:outline-none focus:ring-2 " +
+  "focus:ring-primary focus:ring-offset-2 focus:ring-offset-canvas";
+
 export const PlaygroundPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [models, setModels] = useState<any[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [loading, setLoading] = useState(false);
-  
+
   // Pipeline Animation & Details
   const [activeMetadata, setActiveMetadata] = useState<any>(null);
   const [animatingLayer, setAnimatingLayer] = useState<number>(-1);
@@ -79,7 +86,7 @@ export const PlaygroundPage: React.FC = () => {
     try {
       const steps = [0, 1, 2, 3, 4];
       const responsePromise = api.sendChatMessage(userMessage.content, selectedModel, keyToUse || undefined, overrides);
-      
+
       for (const step of steps) {
         setAnimatingLayer(step);
         await new Promise((resolve) => setTimeout(resolve, 600));
@@ -127,7 +134,7 @@ export const PlaygroundPage: React.FC = () => {
       getDetails: (meta: any) => {
         if (!meta?.layer_optimization) return "Inactivo";
         const o = meta.layer_optimization;
-        return o.active 
+        return o.active
           ? `Compresión activa: Reducción de ${o.original_length} a ${o.optimized_length} caracteres. Ahorro: ${o.tokens_saved} tokens.`
           : "Saltado (Optimizador inactivo o desactivado en la petición)";
       }
@@ -169,28 +176,25 @@ export const PlaygroundPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col lg:flex-row gap-8">
       {/* Left Panel: Chat Interface */}
-      <div className="flex-1 bg-panel border border-slate-700/50 rounded-xl flex flex-col overflow-hidden h-full">
+      <div className="flex-1 bg-surface border border-border rounded-card shadow-card flex flex-col overflow-hidden h-full">
         {/* Chat Header */}
-        <div className="p-4 border-b border-slate-700/50 flex justify-between items-center bg-background/20">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+        <div className="p-4 border-b border-border flex justify-between items-center gap-3">
+          <h2 className="text-[13px] font-semibold text-text-secondary uppercase tracking-wide">
             Playground Seguro
           </h2>
-          
+
           <div className="flex items-center gap-3">
-            <button
+            <Button
+              variant={showConfig ? "primary" : "secondary"}
+              size="sm"
               onClick={() => setShowConfig(!showConfig)}
-              className={`px-3 py-1.5 rounded text-xs font-semibold border transition-all ${
-                showConfig 
-                  ? "bg-primary/10 border-primary/30 text-primary" 
-                  : "bg-background border-slate-700 text-text-secondary hover:text-white"
-              }`}
             >
               {showConfig ? "Ocultar Configuración" : "Configuración de Petición"}
-            </button>
+            </Button>
             <select
               value={selectedModel}
               onChange={(e) => setSelectedModel(e.target.value)}
-              className="bg-background border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-primary"
+              className={cn(compactControl, "w-auto")}
             >
               {models.map((m) => (
                 <option key={m.model_name} value={m.model_name}>
@@ -208,40 +212,42 @@ export const PlaygroundPage: React.FC = () => {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="border-b border-slate-700/50 bg-slate-800/20 overflow-hidden"
+              className="border-b border-border bg-surface-2 overflow-hidden"
             >
               <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Auth Mode Selector */}
                 <div className="space-y-3">
-                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider block">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary block">
                     Autenticación
                   </span>
-                  <div className="flex rounded border border-slate-700 overflow-hidden text-xs">
+                  <div className="flex rounded-md border border-border overflow-hidden text-xs">
                     <button
                       type="button"
                       onClick={() => setAuthMode("session")}
-                      className={`flex-1 py-2 px-3 transition-colors font-semibold ${
+                      className={cn(
+                        "flex-1 py-2 px-3 transition-colors font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                         authMode === "session"
-                          ? "bg-primary text-background"
-                          : "bg-background text-text-secondary hover:text-white"
-                      }`}
+                          ? "bg-primary text-white"
+                          : "bg-surface text-text-secondary hover:bg-surface-2"
+                      )}
                     >
                       Sesión actual
                     </button>
                     <button
                       type="button"
                       onClick={() => setAuthMode("key")}
-                      className={`flex-1 py-2 px-3 transition-colors font-semibold border-l border-slate-700 ${
+                      className={cn(
+                        "flex-1 py-2 px-3 transition-colors font-medium border-l border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                         authMode === "key"
-                          ? "bg-primary text-background"
-                          : "bg-background text-text-secondary hover:text-white"
-                      }`}
+                          ? "bg-primary text-white"
+                          : "bg-surface text-text-secondary hover:bg-surface-2"
+                      )}
                     >
                       Llave virtual
                     </button>
                   </div>
                   {authMode === "session" ? (
-                    <p className="text-[10px] text-text-secondary">
+                    <p className="text-[11px] text-text-tertiary">
                       Usando el usuario logueado. El gasto se atribuye a tu cuenta.
                     </p>
                   ) : (
@@ -251,9 +257,9 @@ export const PlaygroundPage: React.FC = () => {
                         placeholder="sk-..."
                         value={customKey}
                         onChange={(e) => setCustomKey(e.target.value)}
-                        className="w-full bg-background border border-slate-700 rounded p-2 text-xs text-white focus:outline-none focus:border-primary font-mono"
+                        className={cn(compactControl, "font-mono")}
                       />
-                      <p className="text-[10px] text-text-secondary">
+                      <p className="text-[11px] text-text-tertiary">
                         Probá como un usuario/integración específica. El gasto se atribuye a esa llave.
                       </p>
                     </>
@@ -262,65 +268,65 @@ export const PlaygroundPage: React.FC = () => {
 
                 {/* Policy Overrides */}
                 <div className="space-y-3">
-                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider block">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary block">
                     Sobrescribir Políticas
                   </span>
                   <div className="grid grid-cols-2 gap-3">
                     {/* PII Override */}
-                    <div className="flex flex-col space-y-1">
-                      <span className="text-[10px] text-text-secondary">Enmascarar PII</span>
+                    <label className="flex flex-col space-y-1">
+                      <span className="text-[11px] text-text-secondary">Enmascarar PII</span>
                       <select
                         value={overridePii}
                         onChange={(e: any) => setOverridePii(e.target.value)}
-                        className="bg-background border border-slate-700 rounded p-1.5 text-[11px] text-white focus:outline-none focus:border-primary"
+                        className={compactControl}
                       >
                         <option value="default">Usar Config. de Base</option>
                         <option value="active">Forzar Activo</option>
                         <option value="inactive">Forzar Inactivo</option>
                       </select>
-                    </div>
+                    </label>
 
                     {/* GDPR Override */}
-                    <div className="flex flex-col space-y-1">
-                      <span className="text-[10px] text-text-secondary">Residencia GDPR</span>
+                    <label className="flex flex-col space-y-1">
+                      <span className="text-[11px] text-text-secondary">Residencia GDPR</span>
                       <select
                         value={overrideGdpr}
                         onChange={(e: any) => setOverrideGdpr(e.target.value)}
-                        className="bg-background border border-slate-700 rounded p-1.5 text-[11px] text-white focus:outline-none focus:border-primary"
+                        className={compactControl}
                       >
                         <option value="default">Usar Config. de Base</option>
                         <option value="active">Forzar Activo (EU)</option>
                         <option value="inactive">Forzar Inactivo (Global)</option>
                       </select>
-                    </div>
+                    </label>
 
                     {/* AI Act Override */}
-                    <div className="flex flex-col space-y-1">
-                      <span className="text-[10px] text-text-secondary">Filtros AI Act</span>
+                    <label className="flex flex-col space-y-1">
+                      <span className="text-[11px] text-text-secondary">Filtros AI Act</span>
                       <select
                         value={overrideAiAct}
                         onChange={(e: any) => setOverrideAiAct(e.target.value)}
-                        className="bg-background border border-slate-700 rounded p-1.5 text-[11px] text-white focus:outline-none focus:border-primary"
+                        className={compactControl}
                       >
                         <option value="default">Usar Config. de Base</option>
                         <option value="active">Forzar Activo</option>
                         <option value="inactive">Forzar Inactivo</option>
                       </select>
-                    </div>
+                    </label>
 
                     {/* Headroom Override */}
-                    <div className="flex flex-col space-y-1">
-                      <span className="text-[10px] text-text-secondary">Optimización (Headroom)</span>
+                    <label className="flex flex-col space-y-1">
+                      <span className="text-[11px] text-text-secondary">Optimización (Headroom)</span>
                       <select
                         value={overrideHeadroom}
                         onChange={(e: any) => setOverrideHeadroom(e.target.value)}
-                        className="bg-background border border-slate-700 rounded p-1.5 text-[11px] text-white focus:outline-none focus:border-primary"
+                        className={compactControl}
                       >
                         <option value="default">Usar Config. de Base</option>
                         <option value="active">Forzar Activo</option>
                         <option value="inactive">Forzar Inactivo</option>
                       </select>
-                    </div>
+                    </label>
                   </div>
                 </div>
               </div>
@@ -331,8 +337,8 @@ export const PlaygroundPage: React.FC = () => {
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-[200px]">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-2">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Canal Seguro Activo</h3>
+            <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
+              <StatusBadge tone="ok" dot>Canal Seguro Activo</StatusBadge>
               <p className="text-xs text-text-secondary max-w-sm">
                 Escriba un mensaje para ver cómo la pasarela procesa, enmascara y optimiza los datos sensibles (PII/PHI) en tiempo real.
               </p>
@@ -342,37 +348,39 @@ export const PlaygroundPage: React.FC = () => {
               <div
                 key={msg.id}
                 onClick={() => msg.metadata && setActiveMetadata(msg.metadata)}
-                className={`flex flex-col space-y-1 max-w-[85%] cursor-pointer group ${
+                className={cn(
+                  "flex flex-col space-y-1 max-w-[85%] cursor-pointer group",
                   msg.role === "user" ? "ml-auto items-end" : "mr-auto items-start"
-                }`}
+                )}
               >
                 <div
-                  className={`p-3 rounded-lg text-xs ${
+                  className={cn(
+                    "p-3 rounded-card text-xs",
                     msg.role === "user"
-                      ? "bg-primary text-background font-semibold rounded-tr-none"
-                      : "bg-background border border-slate-700 text-white rounded-tl-none hover:border-primary/50 transition-colors"
-                  }`}
+                      ? "bg-primary text-white font-medium rounded-tr-none"
+                      : "bg-surface-2 border border-border text-text-primary rounded-tl-none hover:border-primary/50 transition-colors"
+                  )}
                 >
                   {msg.content}
                 </div>
                 {msg.metadata && (
                   <div className="flex flex-wrap items-center gap-2 mt-1 px-1">
-                    <span className="text-[9px] text-text-secondary group-hover:text-primary transition-colors">
+                    <span className="text-[10px] text-text-tertiary group-hover:text-primary transition-colors">
                       Ver viaje de datos →
                     </span>
                     {msg.role === "assistant" && msg.metadata.layer_llm && (
                       <>
-                        <span className="text-[9px] text-slate-600">•</span>
-                        <span className="text-[9px] text-text-secondary">
-                          Costo: <span className="text-success font-semibold font-mono">${Number(msg.metadata.layer_llm.cost_usd).toFixed(6)}</span>
+                        <span className="text-[10px] text-text-tertiary">•</span>
+                        <span className="text-[10px] text-text-secondary">
+                          Costo: <span className="text-ok font-semibold font-mono">${Number(msg.metadata.layer_llm.cost_usd).toFixed(6)}</span>
                         </span>
-                        <span className="text-[9px] text-slate-600">•</span>
-                        <span className="text-[9px] text-text-secondary">
-                          Tokens: <span className="text-slate-300 font-semibold font-mono">{msg.metadata.layer_llm.prompt_tokens + msg.metadata.layer_llm.completion_tokens}</span>
+                        <span className="text-[10px] text-text-tertiary">•</span>
+                        <span className="text-[10px] text-text-secondary">
+                          Tokens: <span className="text-text-primary font-semibold font-mono">{msg.metadata.layer_llm.prompt_tokens + msg.metadata.layer_llm.completion_tokens}</span>
                         </span>
-                        <span className="text-[9px] text-slate-600">•</span>
-                        <span className="text-[9px] text-text-secondary">
-                          Latencia: <span className="text-warning font-semibold font-mono">{msg.metadata.layer_llm.latency_ms}ms</span>
+                        <span className="text-[10px] text-text-tertiary">•</span>
+                        <span className="text-[10px] text-text-secondary">
+                          Latencia: <span className="text-warn font-semibold font-mono">{msg.metadata.layer_llm.latency_ms}ms</span>
                         </span>
                       </>
                     )}
@@ -382,7 +390,7 @@ export const PlaygroundPage: React.FC = () => {
             ))
           )}
           {loading && (
-            <div className="bg-background border border-slate-700 p-3 rounded-lg rounded-tl-none mr-auto max-w-[80%] flex items-center gap-2">
+            <div className="bg-surface-2 border border-border p-3 rounded-card rounded-tl-none mr-auto max-w-[80%] flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping"></span>
               <span className="text-xs text-text-secondary font-mono">Procesando capas de seguridad...</span>
             </div>
@@ -390,47 +398,49 @@ export const PlaygroundPage: React.FC = () => {
         </div>
 
         {/* Input Area */}
-        <form onSubmit={handleSubmit} className="p-4 border-t border-slate-700/50 bg-background/20">
+        <form onSubmit={handleSubmit} className="p-4 border-t border-border">
           <div className="flex gap-2">
-            <input
+            <Field
+              className="flex-1"
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Escriba un mensaje (ej: Paciente Pedro DNI 123...)"
-              className="flex-1 bg-background border border-slate-700 rounded-lg px-4 py-2 text-xs text-white placeholder-text-secondary focus:outline-none focus:border-primary"
             />
-            <button
+            <Button
               type="submit"
+              variant="primary"
               disabled={loading || !input.trim() || models.length === 0}
-              className="bg-primary hover:bg-primary/90 text-background px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50 transition-colors"
             >
               Enviar
-            </button>
+            </Button>
           </div>
         </form>
       </div>
 
       {/* Right Panel: Layer Animation & Debugger */}
-      <div className="w-full lg:w-80 bg-panel border border-slate-700/50 rounded-xl p-4 flex flex-col h-full overflow-hidden">
+      <div className="w-full lg:w-80 bg-surface border border-border rounded-card shadow-card p-4 flex flex-col h-full overflow-hidden">
         {/* Tabs */}
-        <div className="flex border-b border-slate-700/50 mb-4 text-xs font-bold">
+        <div className="flex border-b border-border mb-4 text-xs font-semibold">
           <button
             onClick={() => setRightPanelTab("layers")}
-            className={`flex-1 pb-2 border-b-2 transition-all ${
+            className={cn(
+              "flex-1 pb-2 border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
               rightPanelTab === "layers"
                 ? "border-primary text-primary"
-                : "border-transparent text-text-secondary hover:text-white"
-            }`}
+                : "border-transparent text-text-secondary hover:text-text-primary"
+            )}
           >
             Capas de Seguridad
           </button>
           <button
             onClick={() => setRightPanelTab("debugger")}
-            className={`flex-1 pb-2 border-b-2 transition-all ${
+            className={cn(
+              "flex-1 pb-2 border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
               rightPanelTab === "debugger"
                 ? "border-primary text-primary"
-                : "border-transparent text-text-secondary hover:text-white"
-            }`}
+                : "border-transparent text-text-secondary hover:text-text-primary"
+            )}
           >
             Debugger Técnico
           </button>
@@ -447,17 +457,19 @@ export const PlaygroundPage: React.FC = () => {
               return (
                 <motion.div
                   key={layer.id}
-                  animate={{
-                    scale: isActive ? 1.01 : 1,
-                    borderColor: isActive ? "#00b4d8" : "rgba(51, 65, 85, 0.4)",
-                  }}
-                  className={`border rounded p-3 space-y-1.5 transition-all ${
-                    isActive ? "bg-primary/5" : "bg-background/10"
-                  } ${hasData ? "border-slate-700" : "border-slate-800/30"}`}
+                  animate={{ scale: isActive ? 1.01 : 1 }}
+                  className={cn(
+                    "border rounded-card p-3 space-y-1.5 transition-colors",
+                    isActive
+                      ? "border-primary bg-primary-tint"
+                      : hasData
+                      ? "border-border bg-surface"
+                      : "border-border bg-surface-2"
+                  )}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-mono text-primary font-bold">{layer.step}</span>
-                    <h4 className="text-xs font-bold text-white">{layer.name}</h4>
+                    <h4 className="text-xs font-semibold text-text-primary">{layer.name}</h4>
                   </div>
                   <p className="text-[10px] text-text-secondary leading-normal">{layer.desc}</p>
 
@@ -467,7 +479,7 @@ export const PlaygroundPage: React.FC = () => {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="bg-background/50 rounded p-2 text-[10px] font-mono border border-slate-800 text-text-secondary break-words leading-relaxed"
+                        className="bg-surface-2 rounded-md p-2 text-[10px] font-mono border border-border text-text-secondary break-words leading-relaxed"
                       >
                         {detailText}
                       </motion.div>
@@ -479,7 +491,7 @@ export const PlaygroundPage: React.FC = () => {
           </div>
         ) : (
           /* Technical Debugger view */
-          <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs text-white">
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs text-text-primary">
             {!activeMetadata ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-4 text-text-secondary">
                 <p className="text-[11px]">Seleccione una respuesta o envíe un mensaje para inspeccionar los payloads JSON en tiempo real.</p>
@@ -487,35 +499,34 @@ export const PlaygroundPage: React.FC = () => {
             ) : (
               <div className="space-y-4">
                 {/* Metrics Grid */}
-                <div className="space-y-2 bg-background/40 border border-slate-700/50 rounded p-3 text-xs">
-                  <div className="border-b border-slate-700/40 pb-1.5 mb-1.5">
-                    <span className="text-[9px] text-text-secondary uppercase font-bold tracking-wider">Métricas de Transacción</span>
+                <Card title="Métricas de Transacción">
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-text-secondary">Modelo:</span>
+                      <span className="font-mono text-text-primary font-semibold">{activeMetadata.layer_llm?.model_used || "Simulado"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-secondary">Latencia:</span>
+                      <span className="font-mono text-warn font-semibold">{activeMetadata.layer_llm?.latency_ms || 0}ms</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-secondary">Costo Est:</span>
+                      <span className="font-mono text-ok font-semibold">${activeMetadata.layer_llm?.cost_usd?.toFixed(6) || "0.000000"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-secondary">Tokens (Prompt/Comp):</span>
+                      <span className="font-mono text-info font-semibold">
+                        {activeMetadata.layer_llm?.prompt_tokens || 0} / {activeMetadata.layer_llm?.completion_tokens || 0}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Modelo:</span>
-                    <span className="font-mono text-white font-bold">{activeMetadata.layer_llm?.model_used || "Simulado"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Latencia:</span>
-                    <span className="font-mono text-warning font-bold">{activeMetadata.layer_llm?.latency_ms || 0}ms</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Costo Est:</span>
-                    <span className="font-mono text-success font-bold">${activeMetadata.layer_llm?.cost_usd?.toFixed(6) || "0.000000"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Tokens (Prompt/Comp):</span>
-                    <span className="font-mono text-sky-400 font-bold">
-                      {activeMetadata.layer_llm?.prompt_tokens || 0} / {activeMetadata.layer_llm?.completion_tokens || 0}
-                    </span>
-                  </div>
-                </div>
+                </Card>
 
                 {/* Raw Request Payload JSON */}
-                <div className="border border-slate-700/50 rounded overflow-hidden bg-background/10">
+                <div className="border border-border rounded-md overflow-hidden bg-surface">
                   <button
                     onClick={() => setShowRequestJson(!showRequestJson)}
-                    className="w-full flex justify-between items-center p-2.5 text-[10px] font-bold bg-background/20 hover:bg-background/40 transition-all border-b border-slate-700/20"
+                    className="w-full flex justify-between items-center p-2.5 text-[10px] font-semibold bg-surface-2 hover:bg-surface transition-colors border-b border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
                     <span>JSON de la Petición (Request)</span>
                     <span>{showRequestJson ? "[-] " : "[+]"}</span>
@@ -526,7 +537,7 @@ export const PlaygroundPage: React.FC = () => {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="p-2 bg-background/70 overflow-x-auto text-[9px] font-mono text-slate-300 whitespace-pre-wrap max-h-48"
+                        className="p-2 bg-surface-2 overflow-x-auto text-[9px] font-mono text-text-secondary whitespace-pre-wrap max-h-48"
                       >
                         {JSON.stringify(activeMetadata.layer_llm?.raw_request_json, null, 2)}
                       </motion.div>
@@ -535,10 +546,10 @@ export const PlaygroundPage: React.FC = () => {
                 </div>
 
                 {/* Raw Response JSON */}
-                <div className="border border-slate-700/50 rounded overflow-hidden bg-background/10">
+                <div className="border border-border rounded-md overflow-hidden bg-surface">
                   <button
                     onClick={() => setShowResponseJson(!showResponseJson)}
-                    className="w-full flex justify-between items-center p-2.5 text-[10px] font-bold bg-background/20 hover:bg-background/40 transition-all border-b border-slate-700/20"
+                    className="w-full flex justify-between items-center p-2.5 text-[10px] font-semibold bg-surface-2 hover:bg-surface transition-colors border-b border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
                     <span>JSON de la Respuesta (Response)</span>
                     <span>{showResponseJson ? "[-] " : "[+]"}</span>
@@ -549,7 +560,7 @@ export const PlaygroundPage: React.FC = () => {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="p-2 bg-background/70 overflow-x-auto text-[9px] font-mono text-slate-300 whitespace-pre-wrap max-h-48"
+                        className="p-2 bg-surface-2 overflow-x-auto text-[9px] font-mono text-text-secondary whitespace-pre-wrap max-h-48"
                       >
                         {JSON.stringify(activeMetadata.layer_llm?.raw_response_json, null, 2)}
                       </motion.div>
