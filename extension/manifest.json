@@ -22,7 +22,7 @@
     },
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*", "https://claude.ai/*"],
-      "js": ["basa-guard.js"],
+      "js": ["guardia-main.js"],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false

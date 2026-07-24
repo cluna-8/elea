@@ -12,7 +12,7 @@ cada envío a un usuario/equipo en el monitor "Firewall en vivo".
 
 | Pieza | Mundo | Responsabilidad |
 |---|---|---|
-| `basa-guard.js` | MAIN | Hookea `window.fetch`, aplica el gate, manda el texto al gateway y des-enmascara el DOM. Nunca ve la key. |
+| `guardia-main.js` | MAIN | Hookea `window.fetch`, aplica el gate, manda el texto al gateway y des-enmascara el DOM. Nunca ve la key. |
 | `bridge.js` | ISOLATED | Puente `postMessage` ↔ `chrome.runtime` (MAIN no puede usar `chrome.*`). |
 | `background.js` | service worker | **Único** que llama al gateway (permiso de host concedido en runtime → sin CORS), **único** que ve la key y **dueño único** del estado de sesión. |
 | `popup.html` / `popup.js` | — | Conectar / desconectar (login), y una vista de configuración aparte. Observa el estado; no lo escribe. |
@@ -124,7 +124,7 @@ sí. No romper esa asimetría.
 ## Verificación manual
 
 Sintaxis: `node --check` sobre `config.js`, `background.js`, `bridge.js`, `popup.js` y
-`basa-guard.js`; `manifest.json` es JSON válido.
+`guardia-main.js`; `manifest.json` es JSON válido.
 
 Con la extensión cargada y conectada, en la consola **de la página**:
 
