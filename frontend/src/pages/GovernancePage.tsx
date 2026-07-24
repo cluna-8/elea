@@ -95,25 +95,25 @@ const ESTADO_UI: Record<
   aplicandose: {
     label: "Aplicándose",
     glyph: "●",
-    text: "text-success",
-    border: "border-success/30",
-    bg: "bg-success/10",
+    text: "text-ok",
+    border: "border-ok/30",
+    bg: "bg-ok-bg",
     resumen: "Corre sobre el tráfico de este modo, confirmado — no es una intención declarada.",
   },
   delegada: {
     label: "Delegada",
     glyph: "◐",
-    text: "text-primary",
-    border: "border-primary/30",
-    bg: "bg-primary/10",
+    text: "text-info",
+    border: "border-info/30",
+    bg: "bg-info-bg",
     resumen: "No la aplicamos nosotros: la aporta el proveedor del modelo en su propio extremo. El tráfico no queda desprotegido — la protección base se sigue aplicando.",
   },
   requiere_credencial: {
     label: "Requiere credencial",
     glyph: "▲",
-    text: "text-warning",
-    border: "border-warning/30",
-    bg: "bg-warning/10",
+    text: "text-warn",
+    border: "border-warn/30",
+    bg: "bg-warn-bg",
     resumen: "Está deseada pero le falta la credencial: no se está aplicando y no se cuenta como protección.",
   },
   degradada: {
@@ -121,15 +121,15 @@ const ESTADO_UI: Record<
     glyph: "◆",
     text: "text-danger",
     border: "border-danger/30",
-    bg: "bg-danger/10",
+    bg: "bg-danger-bg",
     resumen: "Venía aplicándose y dejó de confirmarse. Se reporta degradada, jamás activa.",
   },
   no_disponible: {
     label: "No disponible",
     glyph: "○",
-    text: "text-text-secondary",
-    border: "border-slate-700/40",
-    bg: "bg-slate-800/40",
+    text: "text-text-tertiary",
+    border: "border-border",
+    bg: "bg-surface-2",
     resumen: "No se está aplicando en este modo. Es el estado por defecto: sin confirmación, no se afirma nada.",
   },
 };
@@ -296,22 +296,22 @@ function SegmentedControl({
     <div className="inline-flex items-center gap-1.5">
       <span
         title={explicita ? "Definido en este modo" : "Heredado"}
-        className={`w-1.5 h-1.5 rounded-full shrink-0 ${explicita ? "bg-primary" : "bg-transparent border border-slate-600"}`}
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${explicita ? "bg-primary" : "bg-transparent border border-border"}`}
         aria-hidden="true"
       />
-      <div className="inline-flex rounded-md border border-slate-700/60 overflow-hidden">
+      <div className="inline-flex rounded-md border border-border overflow-hidden">
         {DECISION_OPTIONS.map((opt) => {
           const activo = decision === opt.value;
-          const base = "px-2 py-1 text-[11px] font-semibold border-r border-slate-700/60 last:border-r-0 transition-colors disabled:opacity-40 disabled:cursor-wait";
+          const base = "px-2 py-1 text-[11px] font-semibold border-r border-border last:border-r-0 transition-colors disabled:opacity-40 disabled:cursor-wait";
           const estilo = activo
             ? opt.value === "on"
               ? "bg-success/20 text-success"
               : opt.value === "off"
               ? "bg-warning/20 text-warning"
-              : "bg-slate-700/50 text-white border-dashed"
+              : "bg-surface-2 text-text-primary border-dashed"
             : opt.value === null
-            ? "bg-background/40 text-text-secondary border-dashed hover:text-white"
-            : "bg-background/40 text-text-secondary hover:text-white";
+            ? "bg-background/40 text-text-secondary border-dashed hover:text-text-primary"
+            : "bg-background/40 text-text-secondary hover:text-text-primary";
           return (
             <button
               key={opt.label}
@@ -349,7 +349,7 @@ function HelpPopover() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="w-6 h-6 rounded-full border border-slate-700/60 text-text-secondary hover:text-white hover:border-slate-500 text-xs font-bold transition-colors"
+        className="w-6 h-6 rounded-full border border-border text-text-secondary hover:text-text-primary hover:border-border text-xs font-bold transition-colors"
         title="Cómo leer los estados"
       >
         ?
@@ -357,7 +357,7 @@ function HelpPopover() {
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} aria-hidden="true" />
-          <div className="absolute right-0 mt-2 w-[22rem] max-w-[90vw] z-30 bg-panel border border-slate-700/60 rounded-lg shadow-xl p-4 space-y-4">
+          <div className="absolute right-0 mt-2 w-[22rem] max-w-[90vw] z-30 bg-surface border border-border rounded-lg shadow-xl p-4 space-y-4">
             <div className="space-y-2">
               <p className="text-[11px] font-bold uppercase tracking-wider text-text-secondary">Los estados</p>
               {ESTADO_ORDER.map((estado) => {
@@ -373,10 +373,10 @@ function HelpPopover() {
                 );
               })}
             </div>
-            <div className="space-y-1 border-t border-slate-700/40 pt-3">
+            <div className="space-y-1 border-t border-border pt-3">
               <p className="text-[11px] font-bold uppercase tracking-wider text-text-secondary">Heredar</p>
               <p className="text-[11px] text-text-secondary leading-relaxed">
-                Un control en <span className="text-white">Heredar</span> no decide por ese modo: cede al valor
+                Un control en <span className="text-text-primary">Heredar</span> no decide por ese modo: cede al valor
                 por defecto (o a lo que fije la organización). La protección base va siempre, fuera de este orden.
               </p>
             </div>
@@ -406,7 +406,7 @@ function LayerDetailRow({
   const stripDe = (mode: string) => perMode.find((p) => p.mode === mode)?.strip;
 
   return (
-    <div className="bg-background/40 border-t border-slate-700/20 px-3 sm:px-4 py-3 space-y-3">
+    <div className="bg-background/40 border-t border-border px-3 sm:px-4 py-3 space-y-3">
       <p className="text-[11px] text-text-secondary leading-relaxed">{copy.que_protege}</p>
 
       <div className="space-y-2">
@@ -416,10 +416,10 @@ function LayerDetailRow({
           return (
             <div key={m.mode} className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[11px] font-semibold text-white min-w-[6.5rem]">{MODE_SHORT[m.mode] || m.mode}</span>
+                <span className="text-[11px] font-semibold text-text-primary min-w-[6.5rem]">{MODE_SHORT[m.mode] || m.mode}</span>
                 <EstadoBadge estado={m.estado} />
                 <span className="text-[10px] text-text-secondary">
-                  Se resuelve en: <span className="text-white">{ORIGEN_LABELS[m.origen] || m.origen}</span>
+                  Se resuelve en: <span className="text-text-primary">{ORIGEN_LABELS[m.origen] || m.origen}</span>
                 </span>
               </div>
               {m.estado !== "aplicandose" && (m.motivo || ui.resumen) && (
@@ -449,7 +449,7 @@ function LayerDetailRow({
                 </div>
               )}
               {strip?.propagacion && !strip.propagacion.confirmada && strip.propagacion.motivo && (
-                <p className="text-[11px] leading-relaxed text-text-secondary border-l-2 border-slate-700/60 pl-2.5">
+                <p className="text-[11px] leading-relaxed text-text-secondary border-l-2 border-border pl-2.5">
                   {strip.propagacion.motivo}
                 </p>
               )}
@@ -519,9 +519,9 @@ function LayerMatrixRow({
   const nameCell = (
     <div className="flex items-center gap-2 min-w-0">
       <button type="button" onClick={onToggle} aria-expanded={abierto} className="flex items-center gap-2 min-w-0 text-left group">
-        <span aria-hidden="true" className="text-text-secondary text-[10px] w-3 shrink-0 group-hover:text-white transition-colors">{abierto ? "▾" : "▸"}</span>
+        <span aria-hidden="true" className="text-text-secondary text-[10px] w-3 shrink-0 group-hover:text-text-primary transition-colors">{abierto ? "▾" : "▸"}</span>
         {esPiso && <span aria-hidden="true" title="Siempre activa; no se puede desactivar" className="text-text-secondary text-[11px] shrink-0">🔒</span>}
-        <span className="text-white text-xs font-semibold truncate group-hover:text-primary transition-colors">{copy.name}</span>
+        <span className="text-text-primary text-xs font-semibold truncate group-hover:text-primary transition-colors">{copy.name}</span>
       </button>
       {alerta && (
         <span aria-hidden="true" title="Requiere atención — expandí para el detalle" className={`text-[11px] shrink-0 ${alerta.c}`}>{alerta.g}</span>
@@ -547,7 +547,7 @@ function LayerMatrixRow({
   };
 
   return (
-    <div className="border-b border-slate-700/20 hover:bg-slate-800/15 transition-colors">
+    <div className="border-b border-border hover:bg-border transition-colors">
       {/* Desktop */}
       <div className="hidden md:grid md:grid-cols-[minmax(0,1.4fr)_1fr_1fr] md:gap-4 px-3 py-3 items-start">
         <div className="pt-1">{nameCell}</div>
@@ -593,12 +593,12 @@ function AdvancedSection({
   const [surface, setSurface] = useState<string>(GOVERNANCE_SURFACES[0]);
 
   return (
-    <div className="border border-dashed border-slate-700/50 rounded-lg overflow-hidden">
+    <div className="border border-dashed border-border rounded-lg overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left text-text-secondary hover:text-white transition-colors"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left text-text-secondary hover:text-text-primary transition-colors"
       >
         <span aria-hidden="true" className="text-[10px]">{open ? "▾" : "▸"}</span>
         <span className="text-xs font-semibold">Avanzado — apagar una capa solo en una herramienta</span>
@@ -606,7 +606,7 @@ function AdvancedSection({
       </button>
 
       {open && (
-        <div className="px-4 pb-4 space-y-3 border-t border-slate-700/30 pt-3">
+        <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
           <p className="text-[11px] text-text-secondary leading-relaxed">
             Ajuste fino por herramienta declarada en la Conexión (por ejemplo, apagar el enmascarado solo en
             herramientas de código, donde rompe el código). Refina el modo; el efecto real se ve arriba, en la
@@ -618,7 +618,7 @@ function AdvancedSection({
             <select
               value={surface}
               onChange={(e) => setSurface(e.target.value)}
-              className="bg-background border border-slate-700/60 rounded-md px-2.5 py-1.5 text-white text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+              className="bg-surface border border-border rounded-md px-2.5 py-1.5 text-text-primary text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
             >
               {GOVERNANCE_SURFACES.map((s) => (
                 <option key={s} value={s}>{SURFACE_COPY[s] || s}</option>
@@ -631,8 +631,8 @@ function AdvancedSection({
               const key = scopeKey(surfaceScope(surface), entry.base.layer_key);
               const strip = strips[key];
               return (
-                <div key={entry.base.layer_key} className="flex items-center justify-between gap-3 py-1.5 border-b border-slate-700/20 last:border-b-0">
-                  <span className="text-[11px] text-white truncate">{layerCopy(entry.base.layer_key).name}</span>
+                <div key={entry.base.layer_key} className="flex items-center justify-between gap-3 py-1.5 border-b border-border last:border-b-0">
+                  <span className="text-[11px] text-text-primary truncate">{layerCopy(entry.base.layer_key).name}</span>
                   <div className="flex items-center gap-2 shrink-0">
                     <SegmentedControl
                       decision={decisions[key] ?? null}
@@ -825,10 +825,10 @@ export const GovernancePage: React.FC = () => {
   return (
     <div className="pb-16">
       {/* Barra de operación */}
-      <div className="sticky top-0 z-10 -mx-6 px-6 py-4 bg-background/95 backdrop-blur border-b border-slate-700/30">
+      <div className="sticky top-0 z-10 -mx-6 px-6 py-4 bg-background/95 backdrop-blur border-b border-border">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Gobernanza</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-text-primary">Gobernanza</h1>
             <p className="text-xs text-text-secondary mt-0.5">
               Lo que protege de verdad a cada tipo de tráfico. Una capa que no corre nunca figura activa.
             </p>
@@ -871,8 +871,8 @@ export const GovernancePage: React.FC = () => {
         {status && (
           <>
             {/* La matriz: una capa por fila, dos modos. */}
-            <div className="bg-panel border border-slate-700/40 rounded-lg overflow-hidden">
-              <div className="hidden md:grid md:grid-cols-[minmax(0,1.4fr)_1fr_1fr] md:gap-4 px-3 py-2 border-b border-slate-700/40 bg-background/30">
+            <div className="bg-surface border border-border rounded-lg overflow-hidden">
+              <div className="hidden md:grid md:grid-cols-[minmax(0,1.4fr)_1fr_1fr] md:gap-4 px-3 py-2 border-b border-border bg-background/30">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Capa</span>
                 <span title={MODE_LONG.subscription} className="text-[10px] font-bold uppercase tracking-wider text-text-secondary cursor-help">Suscripción</span>
                 <span title={MODE_LONG["gateway-models"]} className="text-[10px] font-bold uppercase tracking-wider text-text-secondary cursor-help">Modelo propio</span>

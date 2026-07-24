@@ -8,10 +8,10 @@ export const DocsPage: React.FC = () => {
   const brand = getBrand();
   return (
     <div className="max-w-2xl mx-auto mt-16 text-center">
-      <div className="rounded-xl border border-slate-700/40 bg-slate-900/40 p-10">
+      <div className="rounded-card border border-border bg-surface shadow-card p-10">
         <div className="text-5xl mb-4">📚</div>
         <h1 className="text-2xl font-semibold mb-2">Documentación de producto</h1>
-        <p className="text-slate-400 mb-6">
+        <p className="text-text-secondary mb-6">
           La documentación de {brand.name} — instalación, white-label, administración,
           integraciones, API y compliance — vive en su propio sitio, con búsqueda,
           versiones e idiomas. Funciona también sin salida a internet.
@@ -24,7 +24,7 @@ export const DocsPage: React.FC = () => {
         >
           Abrir la documentación →
         </a>
-        <p className="text-xs text-slate-500 mt-6">
+        <p className="text-xs text-text-tertiary mt-6">
           Si este enlace no resuelve, tu instalación aún no publica el servicio de
           documentación: pedile al operador que lo habilite (servicio <code>docs</code> del stack).
         </p>
