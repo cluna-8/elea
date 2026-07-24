@@ -63,27 +63,28 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden font-sans">
+    <div className="flex h-screen bg-canvas overflow-hidden font-sans">
       {/* Sidebar Navigation */}
-      <aside className="w-64 bg-panel border-r border-slate-700/50 flex flex-col justify-between shrink-0">
-        <div className="flex flex-col flex-1">
+      <aside className="w-64 bg-surface border-r border-border flex flex-col justify-between shrink-0">
+        <div className="flex flex-col flex-1 min-h-0">
           {/* Logo / Branding */}
-          <div className="p-5 border-b border-slate-700/50">
+          <div className="p-5 border-b border-border">
             <img src={getBrand().logoUrl} alt={getBrand().name} className="h-10 w-auto object-contain" />
           </div>
 
           {/* Navigation Links */}
-          <nav className="flex-1 px-4 py-6 space-y-1">
+          <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
             {visibleNav.map((item) => {
               const isActive = currentPage === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => setCurrentPage(item.id as Page)}
-                  className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-all focus:outline-none focus:ring-2 focus:ring-primary ${
+                  aria-current={isActive ? "page" : undefined}
+                  className={`w-full text-left px-4 py-2.5 rounded-r-md border-l-2 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset ${
                     isActive
-                      ? "bg-primary text-background font-semibold"
-                      : "text-text-secondary hover:text-white hover:bg-slate-800/40"
+                      ? "border-primary bg-primary-tint text-primary font-semibold"
+                      : "border-transparent text-text-secondary hover:text-text-primary hover:bg-surface-2 font-medium"
                   }`}
                 >
                   {item.name}
@@ -94,21 +95,21 @@ export const App: React.FC = () => {
         </div>
 
         {/* Current User & Logout */}
-        <div className="p-4 border-t border-slate-700/50 space-y-3">
-          <div className="flex items-center justify-between bg-background/40 p-2.5 rounded-xl border border-slate-700/30">
+        <div className="p-4 border-t border-border space-y-3">
+          <div className="flex items-center justify-between bg-surface-2 p-2.5 rounded-md border border-border">
             <div className="text-left overflow-hidden">
-              <p className="text-xs font-bold text-white leading-none truncate">{currentUser.username}</p>
+              <p className="text-xs font-bold text-text-primary leading-none truncate">{currentUser.username}</p>
               <span className="text-[9px] text-primary font-mono">{ROLE_LABELS[currentUser.role] || currentUser.role}</span>
             </div>
             <button
               onClick={handleLogout}
-              className="text-xs text-text-secondary hover:text-danger font-semibold transition-all shrink-0 ml-2"
+              className="text-xs text-text-secondary hover:text-danger font-semibold transition-colors shrink-0 ml-2"
             >
               Salir
             </button>
           </div>
           <div className="text-center">
-            <span className="text-[10px] text-text-secondary font-mono">
+            <span className="text-[10px] text-text-tertiary font-mono">
               V1.0.0 | Entorno Seguro
             </span>
           </div>
@@ -116,7 +117,7 @@ export const App: React.FC = () => {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto bg-background p-6">
+      <main className="flex-1 overflow-y-auto bg-canvas p-6">
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "playground" && <PlaygroundPage />}
         {currentPage === "firewall" && <FirewallMonitorPage />}
