@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { api } from "../services/api";
+import { api, GovernanceLayerStatus } from "../services/api";
 
 type Range = "day" | "week" | "month";
 
@@ -41,7 +41,10 @@ export const DashboardPage: React.FC = () => {
   const [range, setRange] = useState<Range>("week");
   const [summary, setSummary] = useState<any>(null);
   const [engineStatus, setEngineStatus] = useState<"online" | "offline" | null>(null);
-  const [guardians, setGuardians] = useState<any[]>([]);
+  // Capas de gobernanza con su estado REAL (spec 027). Reemplaza el conteo de guardianes
+  // por `is_active`, que contaba DESEOS: mostrar "N activos" a partir de una intención es
+  // la misma mentira que la 027 elimina, y en el panel principal es la más visible.
+  const [layers, setLayers] = useState<GovernanceLayerStatus[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,14 +52,12 @@ export const DashboardPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [summaryData, statusData, guardiansData] = await Promise.all([
+      const [summaryData, statusData] = await Promise.all([
         api.getAnalyticsSummary(r),
         api.getEngineStatus(),
-        api.getGuardians(),
       ]);
       setSummary(summaryData);
       setEngineStatus(statusData.status);
-      setGuardians(guardiansData);
     } catch (e: any) {
       setError("No se pudieron cargar las métricas. Verifique la conexión con el servidor.");
     } finally {
@@ -68,7 +69,23 @@ export const DashboardPage: React.FC = () => {
     fetchData(range);
   }, [range, fetchData]);
 
-  const activeGuardians = guardians.filter((g) => g.is_active).length;
+  useEffect(() => {
+    // Consulta aparte: el estado de gobernanza es admin-only, y este panel lo ven todos los
+    // roles. Si no se puede leer, la fila muestra "sin dato" — nunca un número inventado.
+    (async () => {
+      try {
+        // Se consulta UN modo (`gateway-models`), no el resumen sin params: éste devuelve la unión
+        // de los dos modos (cada capa repetida → contador N/20). `gateway-models` es el modo
+        // conservador —somos la única protección, sin upstream que delegue—, así el número del panel
+        // es el más honesto: cuántas de NUESTRAS capas corren de verdad.
+        setLayers((await api.getGovernanceStatus({ mode: "gateway-models" })).layers);
+      } catch {
+        setLayers(null);
+      }
+    })();
+  }, []);
+
+  const capasAplicandose = layers ? layers.filter((l) => l.estado_efectivo === "aplicandose").length : null;
   const guardianEvents = summary?.guardian_activations?.by_guardian || {};
   const guardianEntries = Object.entries(guardianEvents) as [string, number][];
   const maxActivations = guardianEntries.length > 0 ? Math.max(...guardianEntries.map(([, v]) => v)) : 1;
@@ -184,10 +201,21 @@ export const DashboardPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-text-secondary">Guardianes activos</span>
-                  <span className="font-semibold text-white font-mono">
-                    {activeGuardians} / {guardians.length}
+                  <span className="text-text-secondary" title="Capas de protección que se están aplicando de verdad, no las que están declaradas.">
+                    Capas aplicándose
                   </span>
+                  {capasAplicandose !== null && layers ? (
+                    <span className="font-semibold text-white font-mono">
+                      {capasAplicandose} / {layers.length}
+                    </span>
+                  ) : (
+                    <span
+                      className="font-semibold text-text-secondary font-mono"
+                      title="El estado real de las capas no está disponible para esta sesión."
+                    >
+                      sin dato
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-secondary">Latencia media</span>

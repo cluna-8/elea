@@ -90,7 +90,9 @@ nav:
       - Licenciamiento: install-deploy/licensing.md
       - Partner enablement: install-deploy/partner-enablement.md
   - White-label & branding: white-label/index.md
-  - Administración: administration/index.md
+  - Administración:
+      - Administración: administration/index.md
+      - Gobernanza del firewall: administration/gobernanza.md
   - Integraciones & matriz:
       - Integraciones & matriz: integrations/index.md
       - Modelo propio / local: integrations/modelo-propio.md

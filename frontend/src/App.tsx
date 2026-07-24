@@ -11,9 +11,16 @@ import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CostsPage } from "./pages/CostsPage";
 import { FirewallMonitorPage } from "./pages/FirewallMonitorPage";
-import { authStorage, SessionUser, ROLE_LABELS, ROLE_PERMISSIONS } from "./services/auth";
+import { GovernancePage } from "./pages/GovernancePage";
+// `ROLE_PERMISSIONS` se importaba y no se usaba desde antes de esta rama: el gating del nav
+// se resuelve con el campo `roles` de cada item (más abajo). Se saca el import muerto en vez
+// de silenciarlo — dejarlo sugería un mecanismo de permisos que este archivo no aplica.
+import { authStorage, SessionUser, ROLE_LABELS } from "./services/auth";
 
-type Page = "dashboard" | "playground" | "firewall" | "users" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
+// Agregar una sección son TRES ediciones sincronizadas en este archivo: este union, el item
+// de `navigation` y el render condicional de abajo. Si falta una, el usuario hace click y
+// ve una pantalla en blanco sin ningún error.
+type Page = "dashboard" | "playground" | "firewall" | "users" | "governance" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -26,6 +33,11 @@ export const App: React.FC = () => {
     { id: "models", name: "Modelos & Ollama", roles: null },
     { id: "costs", name: "Costos", roles: ["admin", "compliance_officer"] },
     { id: "users", name: "Usuarios & Presupuestos", roles: ["admin"] },
+    // OJO: este array usa el vocabulario LEGACY de roles — `visibleNav` compara contra el
+    // rol ya normalizado por `toLegacyRole` (services/auth.ts), que colapsa tenant_admin y
+    // super_admin en "admin". Escribir "tenant_admin" acá hace que el item no se muestre
+    // NUNCA, y falla en silencio. El gate real es admin-only en el router del backend.
+    { id: "governance", name: "Gobernanza", roles: ["admin"] },
     { id: "security", name: "Seguridad y Guardianes", roles: ["admin", "compliance_officer"] },
     { id: "compliance", name: "Políticas de Cumplimiento", roles: ["admin", "compliance_officer"] },
     { id: "audit", name: "Logs de Auditoría", roles: ["admin", "compliance_officer"] },
@@ -111,6 +123,7 @@ export const App: React.FC = () => {
         {currentPage === "models" && <ModelsPage />}
         {currentPage === "costs" && <CostsPage />}
         {currentPage === "users" && <UsersPage />}
+        {currentPage === "governance" && <GovernancePage />}
         {currentPage === "security" && <SecurityPage />}
         {currentPage === "compliance" && <CompliancePage />}
         {currentPage === "audit" && <AuditPage />}

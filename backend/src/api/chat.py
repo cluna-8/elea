@@ -1,5 +1,6 @@
 import time
 import os
+import re
 import uuid
 import httpx
 import logging
@@ -26,8 +27,23 @@ from ..services.compliance_service import ComplianceService
 from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
 from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
-from ..services import ai_engine_client
+from ..services.governance_catalog import (
+    GOVERNANCE_LAYERS,
+    ROUTE_CHAT_UI,
+    build_attribution,
+    map_effective_mode,
+)
+from ..services.governance_resolution import (
+    build_connection_overrides,
+    resolve_tenant_profile,
+)
 from ..auth.rbac import require_role, require_authenticated
+# El display-masking del preview se REUSA del plano gateway (`_safe_preview`), no se
+# reimplementa: el contrato del evento (§10) exige que TODO evento —incluidos los de punto
+# de bloqueo, donde el enmascarado puede no haber corrido— lleve el preview enmascarado con
+# un pase propio sobre mapa desechable + scrub de secretos. Dos implementaciones del mismo
+# preview es dos formas distintas de fugarlo. Mismo precedente que `inspect.py`.
+from . import gateway as _gw_plane
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
 logger = logging.getLogger("basa-secure-gateway.chat")
@@ -40,6 +56,330 @@ _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 _REVERSAL_GUARD = os.getenv("COMPRESSION_REVERSAL_GUARD", "true").lower() == "true"
 
 _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama", "ollama_chat"}
+
+
+# ── Gobernanza del plano chat (spec 027 US2, T027) ────────────────────────────────
+#
+# El chat del backend es el TERCER call-site del resolutor único (D3: un resolutor, tres
+# call-sites). Dos constantes del plano, ambas derivadas y no escritas a mano:
+#
+# * el **modo** sale de `map_effective_mode(ROUTE_CHAT_UI)` — jamás del `upstream_mode`
+#   crudo de una Connection (esa columna es la intención declarada, no por dónde se ruteó
+#   de verdad, D5). El chat siempre habla con los modelos administrados por la pasarela.
+# * la **superficie** es `chat-ui` y es CONFIABLE: no se deduce de un User-Agent
+#   spoofeable, se sabe porque el pedido entró por este endpoint. Por eso una decisión de
+#   superficie que RELAJA (p.ej. masking off para el playground) sí puede aplicar acá,
+#   mientras que la misma decisión derivada de un UA sería inerte (contrato resolutor #5).
+_CHAT_SURFACE = "chat-ui"
+
+# Fuerza relativa de un veredicto: cuando una capa produce varios en el mismo pedido
+# (dos nombres enmascarados, un secreto redactado y otro bloqueado) se reporta el MÁS
+# fuerte. Un bloqueo jamás puede quedar tapado por un `allow` posterior.
+_VERDICT_RANK = {"allow": 0, "flag": 1, "mask": 2, "block": 3}
+
+
+def _record_verdict(verdicts: dict, layer_key: str, decision: str, count: Optional[int] = None) -> None:
+    """Acumula el veredicto de una capa quedándose con el más fuerte y con el contador
+    conocido. C1: acá solo entran códigos del vocabulario cerrado y enteros."""
+    prev = verdicts.get(layer_key)
+    if prev is None:
+        verdicts[layer_key] = {"decision": decision}
+        if count is not None:
+            verdicts[layer_key]["count"] = int(count)
+        return
+    if _VERDICT_RANK[decision] > _VERDICT_RANK[prev["decision"]]:
+        prev["decision"] = decision
+    if count is not None:
+        prev["count"] = int(prev.get("count") or 0) + int(count)
+
+
+def _guardian_type_by_name(guardians) -> Dict[str, str]:
+    """Nombre de display → ``guardian_type``.
+
+    Los triggers del pipeline identifican al guardián por su **nombre de display**, que es
+    editable y white-label — por eso no puede viajar a `applied_layers` (un rename del
+    cliente rompería la atribución histórica, D6). Este mapa es el traductor interno de ese
+    nombre al tipo, y del tipo se llega al `layer_key` estable del registry.
+
+    Los dos literales del final son los respaldos que `GuardianService` usa cuando la fila
+    del guardián no existe: sin ellos, un pedido bloqueado en esa rama quedaría sin capa
+    atribuible.
+    """
+    names = {g.name: g.guardian_type for g in guardians if g.name and g.guardian_type}
+    names.setdefault("Secret Detector", "secret_detection")
+    names.setdefault("PII Guard", "pii_masking")
+    return names
+
+
+def _verdicts_from_triggers(triggers, name_to_type: Dict[str, str], verdicts: dict) -> None:
+    """Traduce los triggers del pipeline a veredictos por capa (los TRES ejes de D6).
+
+    El `action` del trigger conflaba identidad, estado y decisión en un solo campo (ahí
+    `DELEGATED` convivía con `MASK` y `BLOCK`); acá se separa: la capa sale del tipo del
+    guardián, el estado lo decide `build_attribution` y la decisión es lo que la capa hizo
+    con ESTE pedido. El `detail` del trigger —que lleva el nombre propio bloqueado y es la
+    fuga que C1 prohíbe— **no se lee**: solo se miran `guardian` y `action`.
+    """
+    for trigger in triggers or []:
+        if not isinstance(trigger, dict):
+            continue
+        gtype = name_to_type.get(trigger.get("guardian"))
+        action = trigger.get("action")
+        if gtype in ("pii_masking", "presidio"):
+            # Un bloqueo por PII lo produce la DETECCIÓN (piso): el enmascarado es la
+            # transformación, y si el pedido se bloqueó no hubo transformación alguna.
+            if action == "BLOCK":
+                _record_verdict(verdicts, "pii_detection", "block")
+            elif action == "MASK":
+                _record_verdict(verdicts, "pii_masking", "mask")
+        elif gtype == "secret_detection":
+            if action == "BLOCK":
+                _record_verdict(verdicts, "secret_detection", "block", count=1)
+            elif action == "REDACT":
+                _record_verdict(verdicts, "secret_detection", "mask", count=1)
+        elif gtype == "sensitive_routing":
+            if action in ("REROUTE", "FLAG"):
+                _record_verdict(verdicts, "sensitive_routing", "flag")
+        # Cualquier otro trigger (el pseudo-guardián "Motor de IA" que marca DELEGATED, un
+        # guardián de tipo no catalogado) se ignora: sin capa del registry no hay identidad
+        # estable que reportar, y inventarla sería exactamente la mentira que 027 elimina.
+
+
+# Vocabulario de entidades por defecto de la detección local. Espeja el literal que usa
+# `GuardianService.process_prompt` cuando el guardián no tiene `entities` configuradas: no
+# se importa porque ahí es una lista inline dentro de la función (guardian_service.py, hoy
+# bloqueado por el PR #21). Vive acá para que la detección de PISO tenga el MISMO
+# vocabulario que la rama que enmascara — si contaran distinto, "apagar el enmascarado no
+# cambia la detección" (D8) dejaría de ser verificable.
+_DEFAULT_PII_ENTITIES = ("PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER")
+
+
+def _guardians_of_tenant(db: Session, tenant_id) -> list:
+    """Instancias de guardián **del tenant del pedido** (Constitución III).
+
+    Acá había un ``db.query(Guardian).all()`` sin filtro, justificado como "describe lo
+    mismo que ejecutó el pipeline". El problema es que sus consumidores no describen: uno
+    marca capas como "con credencial cargada" (`_credentials_from_guardians`) y el otro
+    arma la lista de guardrails que ESTE pedido le manda al motor
+    (`_engine_guardrails_for_profile`). Sin filtro, una credencial que cargó el tenant B
+    hacía que un pedido del tenant A reportara esa capa como disponible, y le pedía al
+    motor guardrails de otro cliente.
+
+    Que el lado que EJECUTA siga sin filtrar (``get_or_create_default_guardians``, hoy
+    bloqueado por el PR #21 / des-singletonización de la 015) no es motivo para propagar el
+    cruce: filtrar acá solo puede **quitar** afirmaciones, nunca agregarlas, y degradar
+    hacia menos afirmación es siempre la dirección segura. Residuo conocido mientras el
+    otro lado no filtre: un trigger producido por un guardián de otro tenant puede quedar
+    sin traducir a capa (`_guardian_type_by_name`) y por lo tanto sin veredicto. Se
+    prefiere no afirmar antes que atribuirle al tenant una capa que no es suya.
+
+    Gemela de ``governance_status._guardians_of_tenant``, y por el mismo motivo: es una
+    lectura, así que **jamás** llama a ``get_or_create_default_guardians`` —ese camino BORRA
+    la tabla entera y re-siembra cuando hay menos de 9 filas (P2 del research)—. Sin tenant
+    legible devuelve vacío (fail-closed): sin filas no hay credencial que reportar ni
+    guardrail que pedir.
+    """
+    if db is None or tenant_id is None:
+        return []
+    try:
+        return db.query(Guardian).filter(Guardian.tenant_id == tenant_id).all()
+    except Exception:  # noqa: BLE001
+        # C1 / Constitución VII: se registra el hecho, nunca el motivo crudo del driver.
+        logger.warning("governance: no se pudieron leer las instancias de guardián del tenant")
+        return []
+
+
+def _credentials_from_guardians(guardians) -> set:
+    """Capas cuya credencial de servicio está efectivamente cargada (FR-007).
+
+    La señal es `service_api_key_encrypted` en una fila ACTIVA del tipo correspondiente:
+    es el único dato observable desde el backend que distingue "capa habilitada" de "capa
+    utilizable". Sin ella, una capa deseada se reporta `requires_credential` en vez de
+    declararse activa — que es justo lo que FR-007 prohíbe.
+    """
+    creds = set()
+    for guardian in guardians:
+        if not guardian.is_active or not getattr(guardian, "service_api_key_encrypted", None):
+            continue
+        for layer_key, layer in GOVERNANCE_LAYERS.items():
+            if layer.requires_credential and guardian.guardian_type in layer.guardian_types:
+                creds.add(layer_key)
+    return creds
+
+
+def _engine_guardrails_for_profile(guardians, profile) -> list:
+    """Guardrails del motor que este pedido debe llevar, **filtrados por el perfil**.
+
+    Antes la lista era "todos los guardianes activos con nombre de motor": la postura de
+    gobernanza no participaba, así que apagar una capa por modo o por superficie no tenía
+    ningún efecto sobre el tráfico del chat (FR-004/FR-005 sin enforcement real).
+
+    Un guardián cuyo `guardian_type` no está en el catálogo se deja pasar **sin cambios**:
+    027 no gobierna lo que no cataloga, y excluirlo sería apagar en silencio una capa que
+    el cliente configuró. Queda registrado en la atribución por omisión (ninguna entrada lo
+    nombra), que es la lectura honesta: no podemos afirmar nada sobre él.
+    """
+    selected = []
+    for guardian in guardians:
+        if not guardian.is_active or not getattr(guardian, "engine_guardrail_name", None):
+            continue
+        layer_key = next((k for k, l in GOVERNANCE_LAYERS.items()
+                          if guardian.guardian_type in l.guardian_types), None)
+        if layer_key is not None and not profile.is_on(layer_key):
+            continue
+        selected.append(guardian.engine_guardrail_name)
+    return selected
+
+
+async def _detect_floor_pii(prompt: str, guardians) -> Optional[list]:
+    """Detecta la PII del pedido **sin transformar nada** — la capa de PISO ``pii_detection``.
+
+    Hallazgo de la verificación adversarial de la US2: con el enmascarado apagado este
+    plano no corría NINGÚN detector —todo el bloque de PII de
+    ``GuardianService.process_prompt`` vive dentro de su ``if is_pii_active``— y sin embargo
+    la atribución reportaba ``pii_detection: applied/allow``: afirmaba haber mirado y no
+    encontrado nada, cuando ni siquiera había mirado. Eso rompía la promesa central de D8,
+    que el owner aprobó explícitamente: **apagar el enmascarado no apaga la detección**; el
+    pedido queda registrado como "PII detectada, no enmascarada por configuración".
+
+    Mismo enfoque que ``_count_detected_pii`` del plano gateway: se corre el detector y se
+    tira todo salvo el **agregado por tipo** —``[{"type","count"}]``, C1: nunca el valor
+    detectado— no se muta el prompt, no se arma ``placeholder_map``, no sale nada distinto
+    hacia el motor. Lo que cambia respecto del gateway es el DETECTOR:
+    acá es el mismo que usa el pipeline del chat, con el vocabulario de entidades y los
+    nombres propios del guardián del tenant. Si la rama que enmascara y la que no contaran
+    con detectores distintos, la promesa de D8 no sería verificable: cambiaría el hallazgo
+    al mover el toggle.
+
+    El ``is_active`` de la fila NO se consulta: la detección es piso y no pide permiso a un
+    toggle de la UI (SC-004). La fila aporta solo **vocabulario** (qué entidades y qué
+    nombres propios del cliente), y si no existe se usa el default de producto.
+
+    Devuelve el desglose POR TIPO y no un entero pelado porque el hallazgo del piso tiene
+    dos lectores con la misma exigencia de verdad: ``applied_layers`` (que solo necesita el
+    contador) y la columna legada ``masked_entities``, que es ``[{"type","count"}]`` y es lo
+    que leen el informe de cumplimiento y el panel. Un contador sin tipos obligaba a que el
+    call-site inventara un tipo o dejara la columna vacía — y "vacía" es justo la mentira
+    que se está arreglando. El contador se deriva del desglose (``sum(count)``), así que las
+    dos afirmaciones de la fila salen de la MISMA medición y no pueden divergir.
+
+    ``None`` si el detector falla: sin veredicto la capa cae a ``not_configured`` —"no
+    pudimos confirmar que corrió"— en vez de un cero tranquilizador, que sería una mentira
+    con la forma exacta que 027 existe para eliminar.
+    """
+    if not prompt:
+        return []
+    try:
+        pii_guardian = next((g for g in guardians if g.guardian_type == "pii_masking"), None)
+        config = getattr(pii_guardian, "config", None) or {}
+        entities_to_scan = config.get("entities") or list(_DEFAULT_PII_ENTITIES)
+        raw_entities = await PresidioService.analyze_text(prompt)
+        counts: Dict[str, int] = {}
+        for ent in raw_entities:
+            etype = ent.get("entity_type")
+            if etype in entities_to_scan:
+                counts[etype] = counts.get(etype, 0) + 1
+        # Los nombres propios del cliente se cuentan como los cuenta el pipeline: una
+        # ocurrencia por coincidencia distinta, no por repetición. Y con el MISMO tipo que
+        # les pone el enmascarado (`PERSON`), para que mover el toggle no cambie el
+        # vocabulario del hallazgo — solo si se enmascaró o no.
+        for name in config.get("custom_names", []) or []:
+            name = str(name).strip()
+            if not name:
+                continue
+            pattern = re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
+            hits = len(set(pattern.findall(prompt)))
+            if hits:
+                counts["PERSON"] = counts.get("PERSON", 0) + hits
+        return [{"type": k, "count": v} for k, v in counts.items()]
+    except Exception as exc:  # noqa: BLE001
+        # C1: se loguea el HECHO, jamás el texto ni el valor detectado.
+        logger.warning("governance: la detección de PII (piso) del plano chat falló; "
+                       "capa sin veredicto: %s", exc)
+        return None
+
+
+def _summarize_entities(entities) -> list:
+    """`[{"type","entity"}, …]` → `[{"type","count"}, …]`.
+
+    El pipeline del chat arrastra el VALOR detectado en `entity` (lo necesita para
+    desenmascarar); el evento de la vitrina jamás puede llevarlo (C1). Se agrega por tipo y
+    se tira el valor — la misma reducción que hace `AuditService` antes de persistir.
+    """
+    counts: Dict[str, int] = {}
+    for ent in entities or []:
+        if not isinstance(ent, dict):
+            continue
+        etype = ent.get("type", "UNKNOWN")
+        counts[etype] = counts.get(etype, 0) + int(ent.get("count", 1) or 1)
+    return [{"type": k, "count": v} for k, v in counts.items()]
+
+
+def _tenant_slug(db: Session, tenant_id) -> Optional[str]:
+    """Slug del tenant para el evento de vitrina. Best-effort: un slug ausente empobrece el
+    render, pero nada de la vitrina puede afectar la respuesta al cliente."""
+    if not tenant_id:
+        return None
+    try:
+        from ..models.tenant import Tenant
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        return getattr(tenant, "slug", None)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _publish_block_event(*, db: Session, user, tenant_id, model: str, status: str,
+                               prompt: str, entities, attribution) -> None:
+    """Evento de monitor **en el punto de bloqueo** del plano chat (contrato §13).
+
+    Hasta ahora los `raise HTTPException` de bloqueo de este endpoint precedían a TODO
+    registro: un pedido bloqueado no dejaba fila ni evento, o sea que el caso donde el
+    firewall hace su trabajo era justo el único invisible en la vitrina (research D6). Acá
+    se publica antes del `raise`, con el mismo esquema que los otros dos productores
+    (§8) más `applied_layers`/`blocked_by_layer`.
+
+    **La FILA DURABLE del bloqueo NO es alcance de esta spec** (corte explícito, D6 /
+    contrato §14): depende de la completitud de auditoría de la 018. Por eso acá NO se
+    reordena el `raise` ni se fuerza un `log_transaction` — se emite la atribución donde
+    ocurre el bloqueo, se publica al monitor, y el registro durable llega con la 018.
+
+    Best-effort de punta a punta (§9): cualquier fallo de esta función se traga: la
+    respuesta al cliente —incluido el bloqueo— jamás depende de la vitrina.
+
+    El evento lo serializa el emisor del gateway, no una copia local: el contrato §8 exige
+    esquema idéntico entre los tres productores, y la única forma de que eso no se
+    desincronice es que haya UN serializador. Acá se arma la identidad equivalente —el chat
+    no tiene Connection, así que la superficie es constante del plano y el cliente es el
+    usuario de sesión— y se delega. Mismo precedente que `inspect.py`.
+    """
+    try:
+        # §10: el preview SIEMPRE display-masked, con pase propio sobre mapa desechable +
+        # scrub de secretos, **independientemente** de qué capas alcanzaron a correr. En el
+        # punto de bloqueo esto no es un detalle: se bloquea ANTES de que el enmascarado
+        # corra, así que sin este pase el evento sería el canal por donde el texto crudo
+        # —el que motivó el bloqueo— llega al feed.
+        preview = await _gw_plane._safe_preview({"messages": [{"role": "user", "content": prompt}]})
+        ident = {
+            "tool_type": _CHAT_SURFACE,
+            "client_username": getattr(user, "username", None),
+            "tenant_slug": _tenant_slug(db, tenant_id),
+        }
+        _gw_plane._publish_monitor(
+            ident, _CHAT_SURFACE, model, status,
+            _summarize_entities(entities), preview,
+            surface=_CHAT_SURFACE, attribution=attribution,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # vitrina: jamás afecta la request
+
+
+def _layer_entry(attribution, layer_key: str) -> dict:
+    """Entrada de `applied_layers` de una capa. `applied_layers` es exhaustiva sobre el
+    perfil, así que la capa siempre está; el default vacío es defensa, no un caso normal."""
+    for entry in attribution.applied_layers:
+        if entry.get("layer_code") == layer_key:
+            return entry
+    return {}
 
 
 def _get_config_path() -> str:
@@ -170,6 +510,31 @@ async def chat_completions(
 
     policy = get_or_create_default_policy(db)
 
+    # 1b. Postura de gobernanza (spec 027 US2) — se resuelve UNA vez, al principio, y es
+    # lo que decide qué capas corren en este pedido. Antes cada capa leía su propio flag
+    # (policy.is_active, el override del body, la lista completa de guardianes activos):
+    # tres fuentes distintas, ninguna consultable, y una postura por alcance imposible de
+    # expresar. Ahora la fuente es única y la misma que usan los otros dos planos (D3).
+    _tenant_id = getattr(user, "tenant_id", None) or getattr(api_key_obj, "tenant_id", None)
+    profile = resolve_tenant_profile(
+        db, _tenant_id,
+        mode=map_effective_mode(ROUTE_CHAT_UI),
+        surface=_CHAT_SURFACE,
+        surface_trusted=True,   # la superficie la sabe el endpoint, no la afirma el cliente
+        # Tri-estado CRUDO de la columna: None = sin override (la cascada sigue). Colapsarlo
+        # a un default acá haría que TODA llave sin toggle presentara un override de nivel
+        # Connection, tapando superficie, modo y tenant (contrato resolutor #2).
+        connection_overrides=build_connection_overrides(
+            getattr(api_key_obj, "redact_enabled", None)),
+    )
+    # Veredictos que las capas van produciendo a lo largo del pipeline. Se llena a medida
+    # que cada capa corre y se convierte en atribución con `build_attribution`: lo que se
+    # reporta es lo que REALMENTE pasó, nunca lo que se pretendía que pasara.
+    verdicts: Dict[str, Any] = {}
+    # El pedido entró por el firewall y va a quedar registrado: eso es el piso, y es lo
+    # único que se puede afirmar sin ejecutar nada más.
+    _record_verdict(verdicts, "interception_audit", "allow")
+
     # 1. Budget Enforcement
     user_id_check = user.id if user else None
     group_id_check = group.id if group else None
@@ -181,34 +546,182 @@ async def chat_completions(
         )
 
     # 2. Compliance: AI Act Check (Prohibited practices block immediately)
-    ai_act_mode = request.override_ai_act_mode if request.override_ai_act_mode is not None else policy.ai_act_mode
-    compliance_result = ComplianceService.evaluate_prompt(request.message, ai_act_mode)
+    #
+    # La evaluación AI-Act es PISO: ningún alcance puede apagarla (FR-002/SC-004). Por eso
+    # el override por-pedido pasa a ser **solo restrictivo**, igual que el header
+    # `X-Basa-Redact` del gateway (contrato resolutor #5): puede forzar la evaluación, no
+    # saltearla. Sin esta regla, cualquiera que alcance este endpoint —incluido el camino
+    # anónimo que cae al usuario por defecto— apagaba una capa de piso mandando un booleano
+    # en el body. Ningún input por-request entra a la cascada como relajación.
+    ai_act_mode = bool(policy.ai_act_mode)
+    if request.override_ai_act_mode is True:
+        ai_act_mode = True
+    elif request.override_ai_act_mode is False and ai_act_mode:
+        logger.info("governance: override AI-Act por pedido ignorado (piso, solo-restrictivo)")
+
+    # La EVALUACIÓN corre SIEMPRE — es piso y no la apaga ningún alcance (FR-002/SC-004).
+    # Antes se saltaba entera cuando `policy.ai_act_mode` estaba en off (un toggle que la UI
+    # de Seguridad ya expone), y la capa de piso quedaba reportada `not_configured`: el
+    # producto no podía decir si el texto pasó la evaluación o si nadie la había hecho.
+    #
+    # Lo que el toggle sigue decidiendo es si además **GATEA**: el tiering de la evaluación
+    # AI-Act (qué evidencia pasa a bloqueo duro) es alcance de la 018, así que acá no se
+    # cambia a quién se le bloquea el pedido — solo se deja de mentir sobre si se miró. Por
+    # eso `compliance_result`, que alimenta la respuesta y la columna `compliance_status`
+    # de la auditoría, conserva EXACTAMENTE la semántica de hoy.
+    _ai_act_floor = ComplianceService.evaluate_prompt(request.message, True)
+    compliance_result = (_ai_act_floor if ai_act_mode
+                         else ComplianceService.evaluate_prompt(request.message, False))
+    # La decisión que se registra es la que de verdad se tomó: con el gate apagado, una
+    # práctica prohibida detectada se reporta `flag` (evaluada, marcada, no bloqueada) y
+    # jamás `block` — `blocked_by_layer` solo puede nombrar a la capa que efectivamente
+    # bloqueó (data-model §3.2).
+    _record_verdict(verdicts, "ai_act_evaluation", {
+        "blocked_prohibited": "block" if ai_act_mode else "flag",
+        "flagged_high_risk": "flag",
+    }.get(_ai_act_floor["status"], "allow"))
     if compliance_result["status"] == "blocked_prohibited":
+        # Punto de bloqueo 1/3 (contrato §13): la atribución se emite ACÁ, antes del raise.
+        await _publish_block_event(
+            db=db, user=user, tenant_id=_tenant_id, model=request.model,
+            status=compliance_result["status"], prompt=request.message, entities=[],
+            attribution=build_attribution(profile, verdicts),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=compliance_result["reason"]
         )
 
-    is_pii_active = request.override_pii_masking if request.override_pii_masking is not None else policy.is_active
-    
+    # El enmascarado lo decide la POSTURA, no un flag suelto: `pii_masking` es la capa
+    # gobernable que absorbió el toggle `redact_enabled` de la 013 (D8, absorber sin
+    # derogar), y su decisión ya resolvió la cascada Connection > superficie > modo >
+    # tenant > default de producto. El override por-pedido queda solo-restrictivo por el
+    # mismo motivo que el de AI-Act: relajar desde el body es el bypass que 027 cierra.
+    is_pii_active = profile.is_on("pii_masking")
+    if request.override_pii_masking is True:
+        is_pii_active = True
+    elif request.override_pii_masking is False and is_pii_active:
+        logger.info("governance: override de enmascarado por pedido ignorado (solo-restrictivo)")
+
     # 3. Run prompt through the Security Guardians (PII, Secret Detection, Sensitive Routing)
+    #
+    # `override_secret_detection=True` es SC-004 aplicado donde se puede aplicar hoy: el
+    # bloqueo de secretos es piso (D8) y hasta acá dependía de `guardian.is_active`, un
+    # toggle que la UI de Seguridad expone — o sea que el piso era apagable con un clic. El
+    # override lo fuerza sin tocar el archivo que ejecuta: `process_prompt` acepta la señal
+    # y su rama sabe funcionar sin fila (acción BLOCK por defecto). Cambio de comportamiento
+    # observable: desactivar ese guardián deja de desactivar el escaneo en este plano.
+    #
+    # `pii_masking` NO se fuerza: es la capa gobernable (D8), y su override ya viene de la
+    # postura resuelta. La DETECCIÓN —que sí es piso— se cubre aparte, más abajo, porque
+    # `process_prompt` conflaba detectar con enmascarar en el mismo `if`.
     guardian_overrides = {
-        "override_pii_masking": is_pii_active
+        "override_pii_masking": is_pii_active,
+        "override_secret_detection": True,
     }
-    
+
     guardian_res = await GuardianService.process_prompt(
         db=db,
         prompt=request.message,
         selected_model=request.model,
         overrides=guardian_overrides
     )
-    
+
+    # Catálogo de guardianes DEL TENANT: hace falta para traducir triggers → capas, para
+    # saber qué credenciales hay cargadas y para filtrar los guardrails del motor por
+    # perfil. Una sola lectura, filtrada por tenant (Constitución III — ver
+    # `_guardians_of_tenant`, que documenta por qué el filtro va acá aunque el lado que
+    # ejecuta todavía no lo tenga).
+    _guardians = _guardians_of_tenant(db, _tenant_id)
+    _name_to_type = _guardian_type_by_name(_guardians)
+    _credentials = _credentials_from_guardians(_guardians)
+    _verdicts_from_triggers(guardian_res["triggers"], _name_to_type, verdicts)
+
+    # ── Piso `pii_detection`: la detección corre SIEMPRE (D8 / FR-002) ────────────────
+    #
+    # Antes la atribución se leía de `entities_detected`, que solo existe cuando el
+    # ENMASCARADO corrió: con `pii_masking=off` no corría ningún detector y la capa de piso
+    # igual se reportaba `applied/allow` —"miré y no había"— sin haber mirado. Ahora hay
+    # tres situaciones y cada una produce lo que de verdad se puede afirmar:
+    #
+    #   * la etapa de PII bloqueó el pedido  ⇒ el veredicto `block` de los triggers YA es el
+    #     hallazgo de la capa; no hay contador honesto que agregarle;
+    #   * el enmascarado corrió              ⇒ el hallazgo son las entidades que enmascaró;
+    #   * el enmascarado NO corrió (apagado por la postura, o el pedido se bloqueó por
+    #     secreto antes de llegar a esa etapa) ⇒ se corre el detector aparte, sobre el
+    #     prompt, sin transformar nada.
+    #
+    # La tercera rama es la que hace verdadera la promesa de D8: `pii_detection: applied
+    # [count]` + `pii_masking: skipped` ES el registro "PII detectada, no enmascarada por
+    # configuración" (la frase la renderiza la UI desde los códigos; C1: el JSONB nunca
+    # lleva texto). Y también cubre el camino de BLOQUEO: una capa inapagable que corrió no
+    # puede quedar reportada como "sin información" justo en el pedido que el firewall
+    # rechazó.
+    _entities = guardian_res["entities_detected"]
+    _pii_blocked = verdicts.get("pii_detection", {}).get("decision") == "block"
+    # El escaneo de secretos precede a todo y corta la pasada: si bloqueó, la etapa de PII
+    # nunca llegó a ejecutarse, por más que la postura la tuviera encendida.
+    _masking_ran = is_pii_active and verdicts.get("secret_detection", {}).get("decision") != "block"
+
+    # El hallazgo del piso se guarda **desglosado por tipo** (`[{"type","count"}]`) y no como
+    # un entero: es la misma medición que después alimenta las columnas legadas de la fila
+    # de auditoría (ver `_pii_row_*` antes del `log_transaction`). Una sola medición, dos
+    # lectores — es la única forma de que la fila no pueda contradecirse a sí misma.
+    if _pii_blocked:
+        _floor_entities = None
+    elif _masking_ran:
+        _floor_entities = _summarize_entities(_entities)
+    else:
+        _floor_entities = await _detect_floor_pii(request.message, _guardians)
+    _detected = (None if _floor_entities is None
+                 else sum(int(e.get("count", 1) or 1) for e in _floor_entities))
+    if _detected is not None:
+        _record_verdict(verdicts, "pii_detection", "flag" if _detected else "allow",
+                        count=_detected or None)
+
+    if _masking_ran and not _pii_blocked:
+        # Una capa que está ON y CORRIÓ se reporta `applied` con su decisión —`allow`
+        # cuando no encontró nada—, haya o no entidades. Antes esto vivía dentro de un
+        # `if _entities:`, así que para un texto SIN datos personales el chat reportaba
+        # `not_configured/null` mientras el gateway reportaba `applied/allow` para la MISMA
+        # postura: dos call-sites describiendo distinto la misma configuración rompen el
+        # contrato del resolutor único (D3/SC-003). `not_configured` significa "no hay
+        # información", nunca "no encontró nada".
+        _record_verdict(verdicts, "pii_masking", "mask" if _entities else "allow",
+                        count=len(_entities) or None)
+    # El escaneo de secretos se fuerza ON más arriba (piso, SC-004), así que a esta altura
+    # SIEMPRE corrió: si los triggers no reportaron nada, el `allow` es afirmable.
+    if "secret_detection" not in verdicts:
+        _record_verdict(verdicts, "secret_detection", "allow")
+
+    # ── Qué queda del piso fuera del alcance de este archivo (SC-004) ────────────────
+    # Las tres capas de piso de este plano ya no dependen de un toggle de la UI: la
+    # evaluación AI-Act corre siempre (el toggle solo decide si además gatea, tiering =
+    # 018), el escaneo de secretos se fuerza por override, y la detección de PII corre en
+    # su propia pasada cuando el enmascarado está apagado. Pero el arreglo es **por
+    # call-site, no estructural**: quien de verdad conflaba detectar con enmascarar (un
+    # único `if is_pii_active` que envuelve el bloque entero) y quien lee `guardians` sin
+    # filtro de tenant es `GuardianService.process_prompt`, hoy bloqueado por el PR #21
+    # (spec 016). Mientras eso siga así, otro call-site que llame a `process_prompt` sin
+    # pasar estos overrides vuelve a tener el piso apagable, y un trigger emitido por un
+    # guardián de otro tenant puede quedar sin traducir a capa. El cierre estructural —el
+    # que hace que el piso no sea representable como apagado en ningún caller— es de la
+    # tarea que reescribe ese servicio, no de este archivo.
+
     if guardian_res["blocked"]:
+        # Punto de bloqueo 2/3 (contrato §13). `blocked_by_layer` sale del veredicto de la
+        # capa que bloqueó —`secret_detection` o `pii_detection`— y JAMÁS del nombre del
+        # guardián, que es editable y white-label (D6).
+        await _publish_block_event(
+            db=db, user=user, tenant_id=_tenant_id, model=request.model,
+            status="blocked_by_policy", prompt=request.message, entities=_entities,
+            attribution=build_attribution(profile, verdicts, credentials=_credentials),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=guardian_res["block_reason"]
         )
-        
+
     masked_prompt = guardian_res["prompt"]
     routed_model = guardian_res["model"]
     placeholder_map = guardian_res["placeholder_map"]
@@ -303,6 +816,18 @@ async def chat_completions(
     for proj in active_projects:
         if proj.eu_region_required and not any(routed_model.startswith(p) for p in eu_safe_prefixes):
             logger.warning("EU region enforcement blocked model %s for project %s", routed_model, proj.name)
+            # Punto de bloqueo 3/3 (contrato §13). Este bloqueo sale de la residencia de
+            # datos del proyecto de cumplimiento, que **no es una capa del registry**: se
+            # publica el evento con la atribución de lo que sí corrió y `blocked_by_layer`
+            # queda en NULL. Atribuírselo a `ai_act_evaluation` porque "suena a
+            # cumplimiento" sería falsear el registro — y falsear la atribución es
+            # exactamente lo que esta spec existe para terminar. Si la residencia debe ser
+            # gobernable y atribuible, entra al catálogo por su propia spec.
+            await _publish_block_event(
+                db=db, user=user, tenant_id=_tenant_id, model=routed_model,
+                status="blocked_residency", prompt=request.message, entities=_entities,
+                attribution=build_attribution(profile, verdicts, credentials=_credentials),
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="La política de residencia de datos exige procesamiento en la UE. El modelo seleccionado no está disponible para esta solicitud."
@@ -340,8 +865,12 @@ async def chat_completions(
     raw_request_json = None
     raw_response_json = None
 
-    # Collect active engine-backed guardrails from DB
-    active_engine_guardrails = await ai_engine_client.get_active_guardrail_names(db)
+    # Guardrails del motor para este pedido: la lista sale del PERFIL, no de "todo lo que
+    # esté activo" (FR-004/FR-005 — sin este filtro, apagar una capa por modo o superficie
+    # no tenía ningún efecto sobre el tráfico del chat). Se reemplaza
+    # `ai_engine_client.get_active_guardrail_names`, que devuelve nombres sin el tipo y por
+    # lo tanto no permite mapear cada guardrail a su capa.
+    active_engine_guardrails = _engine_guardrails_for_profile(_guardians, profile)
 
     try:
         async with httpx.AsyncClient() as client:
@@ -542,6 +1071,55 @@ async def chat_completions(
         _pricing = MODEL_PRICING.get(routed_model, MODEL_PRICING.get("default"))
         cost_saved_usd = (Decimal(tokens_saved) / Decimal("1000000")) * _pricing["input"]
 
+    # Atribución final del pedido (FR-009, SC-005): exhaustiva sobre el perfil — TODA capa
+    # aparece con su status, también las que no corrieron, porque sin eso "no la aplicamos"
+    # y "no está protegido" vuelven a ser indistinguibles.
+    #
+    # Lo que NO se puede afirmar, no se afirma: las capas del motor (moderación,
+    # anti-inyección, safety, guardrails de proveedor) se le PIDEN al motor en `guardrails`,
+    # pero el motor **ignora en silencio** los nombres que no conoce (D4) y todavía no
+    # devuelve atribución propia — eso es T025 (`basa_guardrail.py`), bloqueada por el
+    # PR #21. Así que acá no se les fabrica veredicto: quedan `requires_credential` cuando
+    # están deseadas sin credencial cargada, y `not_configured` cuando están deseadas y
+    # cableadas pero sin confirmación de ejecución. El día que el guardrail escriba su
+    # atribución, este call-site la incorpora sin cambiar de diseño.
+    attribution = build_attribution(profile, verdicts, credentials=_credentials)
+
+    # ── Columnas legadas de PII: la fila no puede contradecirse a sí misma ────────────
+    #
+    # Hallazgo de la ronda adversarial: `pii_detected` se derivaba de `entities_detected`,
+    # que solo tiene contenido cuando el ENMASCARADO corrió. Con `pii_masking=off` la MISMA
+    # fila decía `applied_layers: {pii_detection, applied, flag, count: 3}` y a la vez
+    # `pii_detected=false` / `masked_entities=null`. Es la peor combinación posible: un
+    # informe Art.30, el panel o cualquier query histórica —que leen las columnas legadas,
+    # no el JSONB nuevo— afirmaban "no hubo datos personales" justo en los pedidos donde SÍ
+    # los hubo y encima salieron sin enmascarar.
+    #
+    # SEMÁNTICA ELEGIDA (documentada acá porque el NOMBRE de la columna miente por historia
+    # y no se puede renombrar sin romper a sus lectores):
+    #
+    #   * `pii_detected`   = hubo datos personales en el pedido. Es la DETECCIÓN (el piso),
+    #                        no el enmascarado. Responde "¿este pedido llevaba PII?".
+    #   * `masked_entities`= el desglose `[{type, count}]` de lo DETECTADO — metadata pura,
+    #                        C1: jamás el valor. Mismo formato de siempre, así que el panel
+    #                        y el export siguen leyendo igual.
+    #
+    # El matiz que las columnas legadas NO pueden expresar —"detectado pero no
+    # enmascarado"— se resuelve del lado de la coherencia: las columnas afirman el piso (lo
+    # verdadero y lo más protector para un informe), y si algo se NEUTRALIZÓ o no lo dice
+    # `applied_layers` de la misma fila (`pii_masking: applied` vs `skipped`), que es el
+    # registro nuevo y el que la 027 hace autoritativo. Una fila puede ahora decir "hubo 3
+    # datos personales, el enmascarado estaba apagado por decisión" — antes decía "no hubo
+    # nada" y a la vez "detecté 3".
+    #
+    # `_floor_entities is None` = el detector no pudo confirmar nada (falla del piso; el
+    # camino de bloqueo no llega hasta acá, hace `raise` antes). Ahí se cae a lo que el
+    # enmascarado sí produjo: es menos que la verdad pero nunca es una afirmación falsa —
+    # nunca dice "no hubo PII" habiendo enmascarado alguna.
+    _pii_row_entities = (_summarize_entities(entities_detected) if _floor_entities is None
+                         else _floor_entities)
+    _pii_row_detected = bool(_pii_row_entities)
+
     # Save to Audit Log
     audit_log = AuditService.log_transaction(
         db=db,
@@ -549,8 +1127,8 @@ async def chat_completions(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_usd=float(cost),
-        pii_detected=len(entities_detected) > 0,
-        masked_entities=entities_detected,
+        pii_detected=_pii_row_detected,
+        masked_entities=_pii_row_entities,
         compliance_status=compliance_result["status"],
         latency_ms=latency_ms,
         tokens_saved_by_optimization=tokens_saved,
@@ -560,10 +1138,20 @@ async def chat_completions(
         user_id=user.id if user else None,
         api_key_id=api_key_obj.id if api_key_obj else None,
         guardian_events=(guardian_triggers or []) + (guardian_events or []),
+        # Atribución 027. `guardian_events` sigue igual, congelado como legado (D6: la
+        # hash-chain de licencias lo relee posicionalmente); las columnas nuevas viven al
+        # lado y son las que el dashboard y el monitor pasan a consultar.
+        applied_layers=attribution.applied_layers,
+        blocked_by_layer=attribution.blocked_by_layer,
         review_token=_review_token_val,
         ai_disclosure_delivered=_deliver_disclosure,
         processing_purpose=x_processing_purpose,
         user_group_id=_user_group_id,
+        # La atribución 027 se scopea al tenant que HIZO el pedido (el mismo `_tenant_id` con
+        # que se resolvió el perfil), no al DEFAULT: sin esto la evidencia de gobernanza de un
+        # tenant no-default queda contabilizada contra otro. `log_transaction` solo lo aplica
+        # si no es None, así que en el deploy de tenant único no cambia nada.
+        tenant_id=_tenant_id,
     )
 
     # Link review record to audit log
@@ -590,12 +1178,37 @@ async def chat_completions(
             http_resp.headers["X-RateLimit-Remaining-Tokens"] = str(_tpm_remaining)
 
     # Return complete metadata package for the UI layer animation
+    #
+    # `pipeline_metadata` pasa a **derivarse** de `applied_layers` en vez de armarse a mano
+    # con banderas hardcodeadas (Principio VIII / data-model §3.2): antes cada `active` era
+    # una variable local que decía lo que se *pretendía* hacer, así que la UI podía pintar
+    # una capa verde aunque no hubiera corrido. Ahora el estado que se muestra es el mismo
+    # que quedó en la fila de auditoría — una sola verdad, un solo productor.
+    #
+    # `governance` es la atribución completa y es lo que la UI debe leer de acá en más; los
+    # bloques `layer_*` se mantienen porque el playground los renderiza hoy. OJO C1:
+    # `original_prompt` es texto crudo que se le devuelve a quien lo escribió (es su propio
+    # prompt, en su propia respuesta) y por eso puede seguir acá — pero JAMÁS entra a
+    # `applied_layers` ni a ningún evento: la atribución es solo códigos y contadores.
+    _masking_entry = _layer_entry(attribution, "pii_masking")
+    _detection_entry = _layer_entry(attribution, "pii_detection")
     return {
         "response": final_response,
         "pipeline_metadata": {
             "guardian_triggers": guardian_triggers,
+            "governance": {
+                "mode": profile.mode,
+                "surface": profile.surface,
+                "applied_layers": attribution.applied_layers,
+                "blocked_by_layer": attribution.blocked_by_layer,
+            },
             "layer_masking": {
-                "active": is_pii_active,
+                # Derivado: la capa está "activa" si REALMENTE se aplicó en este pedido.
+                "active": _masking_entry.get("status") == "applied",
+                "layer_status": _masking_entry.get("status"),
+                # D8 hecho visible: detección aplicada + enmascarado apagado por
+                # configuración = "datos personales detectados, no enmascarados".
+                "detection_status": _detection_entry.get("status"),
                 "original_prompt": request.message,
                 "masked_prompt": masked_prompt,
                 "entities_detected": entities_detected
@@ -614,6 +1227,10 @@ async def chat_completions(
                 "routed_model": routed_model,
                 "ai_act_status": compliance_result["status"],
                 "ai_act_reason": compliance_result["reason"],
+                # Derivado: distingue "evaluado y pasó" de "no se evaluó" — con
+                # `ai_act_mode` apagado en la política, `ai_act_status` dice 'passed' sin
+                # que nadie haya mirado el texto, y esa ambigüedad es la que 027 elimina.
+                "ai_act_layer_status": _layer_entry(attribution, "ai_act_evaluation").get("status"),
                 "applied_project": _applied_project_name,
                 "applied_risk_level": _applied_risk_level,
                 "applied_legal_basis": _applied_legal_basis,

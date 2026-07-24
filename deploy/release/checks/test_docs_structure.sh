@@ -10,7 +10,7 @@ fail() { echo "❌ estructura: $1"; exit 1; }
 
 GUIAS=(overview/index.md install-deploy/index.md install-deploy/infrastructure.md \
        install-deploy/licensing.md install-deploy/partner-enablement.md \
-       white-label/index.md administration/index.md \
+       white-label/index.md administration/index.md administration/gobernanza.md \
        integrations/index.md integrations/modelo-propio.md \
        compliance/index.md compliance/dpa-dsr-retention.md)
 RUNBOOKS=(operations/index.md integrations/gotchas.md)

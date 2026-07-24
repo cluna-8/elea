@@ -31,12 +31,28 @@ test de paridad: ``tests/contract/test_route_parity.py``).
 que NO se aplica fail-closed (a diferencia de ``byok`` en el motor). ``X-Basa-Key`` es
 atribución OPCIONAL: si viene y resuelve, la auditoría lleva tenant/client reales; si
 falta, se audita contra el tenant por defecto (anónimo). El GDPR-routing es N/A acá
-(excepción acotada del Principio II — base_url clients).
+(excepción acotada del Principio II — base_url clients). Ese fail-open vale para la
+ATRIBUCIÓN y solo para ella: desde la 027 el mismo header decide qué postura de
+gobernanza se aplica, y ahí la ausencia de tenant atribuible resuelve **fail-closed**
+(ver ``_resolve_governance_profile``) — omitir un header opcional no puede ser la forma
+de elegirse una postura más laxa.
 
 **Secreto OAuth (FR-025, Constraint C5):** el token nunca vive en ``config.yaml``. En
 el caso normal lo pone el cliente (header, verbatim). En el caso gestionado por Basa,
 la Connection referencia un secreto Fernet (``oauth_credential_ref``) que se descifra
 en memoria; jamás en claro en disco.
+
+**Gobernanza configurable (spec 027 US2, T026):** este plano deja de leer un booleano
+suelto de masking y pasa a resolver el **Profile** del tenant
+(``resolve_tenant_profile``) para ``(modo efectivo, superficie)``. Tres consecuencias
+observables: (1) el piso —interceptar/registrar, evaluar AI-Act, detectar PII, bloquear
+secretos— corre SIEMPRE, también con el enmascarado apagado (la PII se detecta y se
+registra como "detectada, no enmascarada por configuración", D8); (2) cada pedido lleva
+su **atribución** (``applied_layers`` + ``blocked_by_layer``) a la fila de auditoría y al
+evento del monitor, en vez del ``guardian_events`` fijo que decía "PROXY" pasara lo que
+pasara; (3) ``X-Basa-Redact`` pasa a ser **solo restrictivo**: puede forzar el masking
+ON para ese pedido, pero su "off" se ignora con telemetría — ningún input por-request
+controlado por el cliente puede relajar la postura del admin (research D5).
 """
 import codecs
 import json
@@ -59,6 +75,26 @@ from ..models.budget import APIKey
 from ..models.tenant import DEFAULT_TENANT_ID, Tenant
 from ..services import encryption_service
 from ..services.audit_service import AuditService
+# Gobernanza (spec 027): SIEMPRE por la puerta del backend (governance_catalog), nunca
+# importando `extensions.basa_governance` a mano — un segundo camino de import carga el
+# módulo dos veces y deja dos catálogos en memoria (ver el docstring de esa puerta).
+from ..services.governance_catalog import (
+    ON,
+    Profile,
+    ROUTE_GATEWAY_PASSTHROUGH,
+    VERDICT_ALLOW,
+    VERDICT_BLOCK,
+    VERDICT_FLAG,
+    VERDICT_MASK,
+    build_attribution,
+    map_effective_mode,
+    resolve_profile,
+)
+from ..services.governance_resolution import (
+    build_connection_overrides,
+    load_tenant_decisions,
+    resolve_tenant_profile,
+)
 from ..services.key_material import hash_key
 from ..services.redis_client import get_redis
 
@@ -155,32 +191,110 @@ def _anthropic_error(message: str, status_code: int = 400):
 
 # ── política (paridad EXACTA con BasaGuardrail.async_pre_call_hook) ────────────────
 
-async def evaluate_request_policy(body: dict, redact_enabled: bool):
-    """Aplica la política Basa a un body Anthropic, en el MISMO orden que el guardrail
-    del motor: (1) AI-Act Art.5 → block, (2) secretos → block, (3) PII → mask reversible.
+def _as_profile(profile) -> Profile:
+    """Acepta un ``Profile`` o el booleano de masking legado (013) y devuelve SIEMPRE un
+    ``Profile``.
 
-    Devuelve ``(block_reason|None, compliance_status, ph_to_orig, masked_entities)``.
-    Muta ``body`` in-place cuando enmascara (igual que ``mask_body`` en el motor)."""
+    El booleano existía antes de la 027 y sigue siendo lo que muchos callers tienen en la
+    mano (``profile.is_on('pii_masking')``). Traducirlo acá —como override de nivel
+    Connection, que es el nivel donde vivía ese toggle— evita dos firmas conviviendo y
+    garantiza que **toda** entrada a la política produzca atribución: sin esto, un caller
+    con el booleano no tendría perfil y la 027 volvería a tener pedidos sin registro de
+    capas (SC-005). ``None`` ⇒ postura por defecto de producto (piso + masking on)."""
+    if isinstance(profile, Profile):
+        return profile
+    overrides = build_connection_overrides(profile) if profile is not None else {}
+    return resolve_profile(map_effective_mode(ROUTE_GATEWAY_PASSTHROUGH), None, (),
+                           surface_trusted=False, connection_overrides=overrides)
+
+
+async def _count_detected_pii(inspect_text: str) -> Optional[int]:
+    """Cuenta la PII del pedido **sin tocar el body** — el piso ``pii_detection`` (D8).
+
+    Con el enmascarado apagado, antes de la 027 no corría ningún detector: el pedido
+    salía verbatim y la auditoría no sabía que llevaba datos personales. FR-002 lo
+    prohíbe: detectar es piso, transformar es la capa gobernable. Se enmascara sobre un
+    ``PlaceholderMap`` **desechable** (mismo patrón que ``_safe_preview``) y se tira el
+    texto: solo sobrevive el contador.
+
+    ``None`` si el detector falla: sin veredicto la capa se reporta ``not_configured`` —
+    "no pudimos confirmar que corrió"— en vez de afirmar un cero que sería una mentira
+    tranquilizadora."""
+    if not inspect_text:
+        return 0
+    try:
+        pmap = policy.PlaceholderMap()
+        await policy.mask_text(inspect_text, policy.default_analyze, pmap)
+        return len(pmap.ph_to_orig)
+    except Exception as exc:  # noqa: BLE001
+        # C1: se loguea el hecho, jamás el texto ni el valor detectado.
+        logger.warning("gateway: detección de PII (piso) falló; capa sin veredicto: %s", exc)
+        return None
+
+
+def _verdict(decision: str, count: Optional[int] = None) -> dict:
+    """Elemento de veredicto para ``build_attribution``: código + contador, nada más (C1)."""
+    return {"decision": decision, "count": count} if count else {"decision": decision}
+
+
+async def evaluate_request_policy(body: dict, profile=None):
+    """Aplica la política Basa a un body Anthropic, en el MISMO orden que el guardrail
+    del motor: (1) AI-Act Art.5 → block, (2) secretos → block, (3) PII → detección
+    (piso) → enmascarado reversible **solo si** el perfil lo tiene encendido.
+
+    ``profile`` es el ``Profile`` resuelto por la 027 (o el booleano legado de masking,
+    ver ``_as_profile``). Devuelve ``(block_reason|None, compliance_status, ph_to_orig,
+    masked_entities, attribution)`` — la ``Attribution`` es el quinto elemento nuevo: las
+    dos columnas ``applied_layers``/``blocked_by_layer`` ya con su forma final.
+    Muta ``body`` in-place cuando enmascara (igual que ``mask_body`` en el motor).
+
+    **Los veredictos se reportan de lo que REALMENTE pasó, no de lo que se deseaba**: una
+    capa que no llegó a correr (porque una anterior bloqueó) NO se reporta, y
+    ``build_attribution`` la marca ``not_configured``. Ese es el punto entero de la 027:
+    "no la aplicamos" y "no corrió" dejan de ser indistinguibles."""
+    profile = _as_profile(profile)
+    # El piso `interception_audit` es la propiedad que hace del producto un firewall:
+    # llegado este punto el pedido está interceptado y va a auditarse, así que su
+    # veredicto es afirmable siempre.
+    verdicts: dict = {"interception_audit": _verdict(VERDICT_ALLOW)}
     inspect_text = policy.extract_inspect_text(body)
 
     verdict = policy.evaluate_ai_act(inspect_text)
     if verdict["status"] == "blocked_prohibited":
-        return verdict["reason"], "blocked_prohibited", {}, []
+        verdicts["ai_act_evaluation"] = _verdict(VERDICT_BLOCK)
+        return (verdict["reason"], "blocked_prohibited", {}, [],
+                build_attribution(profile, verdicts))
+    verdicts["ai_act_evaluation"] = _verdict(
+        VERDICT_FLAG if verdict["status"] == "flagged_high_risk" else VERDICT_ALLOW)
 
     secrets = policy.detect_secrets(inspect_text)
     if secrets:
+        verdicts["secret_detection"] = _verdict(VERDICT_BLOCK, len(secrets))
         reason = (f"Petición bloqueada: material secreto detectado ({', '.join(secrets)}). "
                   "Las credenciales nunca deben enviarse a un modelo.")
-        return reason, "blocked_secret", {}, []
+        return reason, "blocked_secret", {}, [], build_attribution(profile, verdicts)
+    verdicts["secret_detection"] = _verdict(VERDICT_ALLOW)
 
     status = verdict["status"]  # passed | flagged_high_risk
     ph_to_orig: dict = {}
     masked_entities: list = []
-    if redact_enabled:
+    if profile.is_on("pii_masking"):
         _, ph_to_orig = await policy.mask_body(body, policy.default_analyze)
         if ph_to_orig:
             masked_entities = _entity_counts(ph_to_orig)
-    return None, status, ph_to_orig, masked_entities
+        detected: Optional[int] = len(ph_to_orig)
+        verdicts["pii_masking"] = _verdict(VERDICT_MASK if ph_to_orig else VERDICT_ALLOW,
+                                           len(ph_to_orig))
+    else:
+        # D8: el enmascarado apagado es una postura legítima, pero la detección es piso.
+        # `pii_masking` queda SIN veredicto ⇒ `skipped` (apagada por decisión), y
+        # `pii_detection` lleva el hallazgo: esa combinación ES el registro "datos
+        # personales detectados, no enmascarados por configuración" (FR-002).
+        detected = await _count_detected_pii(inspect_text)
+    if detected is not None:
+        verdicts["pii_detection"] = _verdict(VERDICT_FLAG if detected else VERDICT_ALLOW,
+                                             detected)
+    return None, status, ph_to_orig, masked_entities, build_attribution(profile, verdicts)
 
 
 def _entity_counts(ph_to_orig: dict) -> list:
@@ -218,34 +332,47 @@ def _unmask_json(payload: dict, ph_to_orig: dict) -> dict:
 def _resolve_attribution(basa_key: Optional[str]) -> dict:
     """Resuelve ``X-Basa-Key`` → tenant/client/toggles para AUDITORÍA. Ausente o
     inválida ⇒ tenant por defecto anónimo (esta ruta se autentica con el OAuth, no
-    con la key Basa). Sesión efímera propia; nunca levanta."""
+    con la key Basa). Sesión efímera propia; nunca levanta.
+
+    Desde la 027 la misma sesión trae también las **decisiones de gobernanza** del tenant
+    resuelto: la postura se resuelve por pedido y meterlas acá es lo que evita abrir una
+    segunda sesión en el camino caliente. Consecuencia asumida: el tráfico anónimo (sin
+    ``X-Basa-Key``), que antes no tocaba la base, ahora hace una lectura indexada por
+    tenant — el precio de que la postura del admin también gobierne ese tráfico."""
     ident = {
         "tenant_id": str(DEFAULT_TENANT_ID), "user_id": None, "group_id": None,
         "api_key_id": None, "client_username": None, "tenant_slug": None,
         "group_name": None, "key_label": None,
         "tool_type": None, "redact_enabled": None, "oauth_credential_ref": None,
+        # Decisiones de gobernanza del tenant (spec 027): viajan con la identidad para
+        # NO abrir una segunda sesión por pedido — el perfil se resuelve después, en
+        # memoria, con la cascada pura.
+        "governance_decisions": (),
     }
-    if not basa_key or not basa_key.startswith("sk-"):
-        return ident
     db = SessionLocal()
     try:
-        key = db.query(APIKey).filter(
-            APIKey.key_hash == hash_key(basa_key), APIKey.is_active.is_(True)
-        ).first()
-        if not key:
-            return ident
-        tenant = db.query(Tenant).filter(Tenant.id == key.tenant_id).first()
-        ident.update(
-            tenant_id=str(key.tenant_id), api_key_id=str(key.id),
-            user_id=str(key.user_id) if key.user_id else None,
-            group_id=str(key.group_id) if key.group_id else None,
-            client_username=(key.user.username if key.user else None),
-            tenant_slug=(tenant.slug if tenant else None),
-            group_name=(key.group.name if key.group else None),
-            key_label=key.name,
-            tool_type=key.tool_type, redact_enabled=key.redact_enabled,
-            oauth_credential_ref=key.oauth_credential_ref,
-        )
+        if basa_key and basa_key.startswith("sk-"):
+            key = db.query(APIKey).filter(
+                APIKey.key_hash == hash_key(basa_key), APIKey.is_active.is_(True)
+            ).first()
+            if key:
+                tenant = db.query(Tenant).filter(Tenant.id == key.tenant_id).first()
+                ident.update(
+                    tenant_id=str(key.tenant_id), api_key_id=str(key.id),
+                    user_id=str(key.user_id) if key.user_id else None,
+                    group_id=str(key.group_id) if key.group_id else None,
+                    client_username=(key.user.username if key.user else None),
+                    tenant_slug=(tenant.slug if tenant else None),
+                    group_name=(key.group.name if key.group else None),
+                    key_label=key.name,
+                    tool_type=key.tool_type, redact_enabled=key.redact_enabled,
+                    oauth_credential_ref=key.oauth_credential_ref,
+                )
+        # También para el tráfico anónimo: sin ``X-Basa-Key`` el pedido se audita contra
+        # el tenant por defecto, y en una instalación de un solo tenant ESE es el tenant
+        # cuya postura configuró el admin. Saltear la lectura acá dejaría al tráfico sin
+        # atribución fuera de la gobernanza que el admin cree haber configurado.
+        ident["governance_decisions"] = _governance_rows(db, ident["tenant_id"])
     except Exception as exc:  # noqa: BLE001
         logger.warning("gateway: atribución best-effort falló (%s); sigo anónimo", exc)
     finally:
@@ -253,37 +380,210 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
     return ident
 
 
-def _resolve_redact(header_val: Optional[str], ident: dict) -> bool:
-    """Toggle de masking: override por header ``X-Basa-Redact``, si no el de la
-    Connection (NULL=heredar → True hoy, mismo default que el guardrail)."""
-    if header_val is not None:
-        return header_val.strip().lower() in ("1", "true", "yes", "on")
-    key_toggle = ident.get("redact_enabled")
-    return True if key_toggle is None else bool(key_toggle)
+# Campos que el resolutor lee de cada fila de decisión. Se copian a un dict PLANO a
+# propósito: las filas ORM quedan desprendidas al cerrar la sesión, y el resolutor acepta
+# Mappings tal cual — así el camino caliente nunca puede toparse con un lazy-load muerto.
+_GOVERNANCE_ROW_FIELDS = ("tenant_id", "scope_type", "scope_value", "layer_key", "decision")
+
+
+def _governance_rows(db, tenant_id) -> tuple:
+    """Decisiones de gobernanza del tenant, ya desprendidas del ORM. **Fail-closed**: si
+    la lectura falla, conjunto vacío ⇒ defaults de producto (piso + masking on). No poder
+    leer solo puede quitar relajaciones: degrada hacia más protección, jamás hacia menos."""
+    try:
+        return tuple({f: getattr(row, f, None) for f in _GOVERNANCE_ROW_FIELDS}
+                     for row in load_tenant_decisions(db, tenant_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("gateway: postura de gobernanza no legible (%s); defaults de producto", exc)
+        return ()
+
+
+# User-Agent → ``tool_type`` del CHECK de la Connection. Señal **spoofeable** (D5): se usa
+# SOLO con ``surface_trusted=False``, donde una fila de superficie que RELAJA queda inerte
+# y únicamente las que AGREGAN protección aplican. Lo que `detect_tool` no sepa mapear a un
+# token del enum cae a ``None`` y la cascada arranca en el modo (fallback explícito).
+_UA_TO_SURFACE = {
+    "Claude Code": "claude-code",
+    "GitHub Copilot": "copilot",
+    "Cursor": "cursor",
+}
+
+
+def _resolve_surface(ident: dict, ua_tool: Optional[str]):
+    """``(superficie, confiable)``. Confiable = el ``tool_type`` que el admin provisionó en
+    la Connection (resuelta por ``X-Basa-Key``); todo lo demás sale del User-Agent, que el
+    cliente elige, y por eso entra como no confiable."""
+    tool_type = ident.get("tool_type")
+    if ident.get("api_key_id") and tool_type:
+        return tool_type, True
+    return _UA_TO_SURFACE.get(ua_tool or ""), False
+
+
+def _redact_header_override(header_val: Optional[str]) -> Optional[str]:
+    """``X-Basa-Redact`` — **solo restrictivo** (cierre del bypass, research D5/T026).
+
+    El header es un override **por-request controlado por el cliente**: puede FORZAR el
+    enmascarado (agregar protección con una señal no confiable siempre es legal) pero su
+    "off" se **ignora**, porque relajar la postura del admin desde un header sería exactamente
+    el vector que la regla de superficie confiable prohíbe — cualquiera con acceso al
+    endpoint apagaba el control más fuerte del producto escribiendo ``X-Basa-Redact: 0``.
+
+    Devuelve ``ON`` (forzar) o ``None`` (no hay override). El "off" ignorado se cuenta y se
+    loguea **metadata-only** (C1: ni texto del pedido ni identidad en el mensaje) para que
+    la degradación no sea silenciosa: un cliente que insiste con off es una señal de
+    configuración vieja, no un error del pedido.
+
+    **Nivel warning, no info** (hallazgo de la verificación adversarial de la US2): el
+    logger del backend corre con nivel efectivo WARNING en el contenedor, así que el
+    ``logger.info`` anterior no se veía en ningún lado y la telemetría que el contrato pide
+    ("el off se ignora **con telemetría**", resolutor #5) era decorativa. Un intento de
+    relajar la postura por un canal no confiable merece verse: no es tráfico normal."""
+    if header_val is None:
+        return None
+    if header_val.strip().lower() in ("1", "true", "yes", "on"):
+        return ON
+    _REDACT_OFF_IGNORED["count"] += 1
+    logger.warning("gateway: X-Basa-Redact=off IGNORADO (override por-request no puede "
+                   "relajar la postura del administrador; spec 027). total=%d",
+                   _REDACT_OFF_IGNORED["count"])
+    return None
+
+
+# Telemetría del header ignorado: un contador por proceso, sin identidad ni contenido.
+_REDACT_OFF_IGNORED = {"count": 0}
+
+
+def redact_off_ignored_count() -> int:
+    """Cuántas veces se ignoró un ``X-Basa-Redact: off`` en este proceso.
+
+    Mismo patrón que ``malformed_verdict_counters`` del catálogo: contador metadata-only +
+    accesor público. Existe para que la degradación sea **consultable** y no solo
+    logueable — un log que nadie agrega no falsifica nada. Es el punto de lectura de los
+    tests y del día que la vista de estado quiera mostrar "hay integraciones pidiendo
+    apagar el enmascarado" (no se cablea acá: el discovery ``GET /gw`` es público y un
+    contador operativo no va en una respuesta anónima)."""
+    return _REDACT_OFF_IGNORED["count"]
+
+
+def reset_redact_off_ignored() -> None:
+    """Solo para los tests: el contador es global por proceso."""
+    _REDACT_OFF_IGNORED["count"] = 0
+
+
+def _tenant_atribuible(ident: dict) -> bool:
+    """¿Este pedido está atribuido a un tenant de verdad, o cayó al tenant por defecto?
+
+    Atribuible = ``X-Basa-Key`` resolvió una Connection activa (``api_key_id``). Sin eso,
+    ``_resolve_attribution`` deja el ``DEFAULT_TENANT_ID`` como fallback anónimo: sirve
+    para AUDITAR (dónde archivar la fila), no para decidir **de qué tenant se aplica la
+    postura** — el cliente elegiría el tenant simplemente omitiendo un header opcional."""
+    return bool(ident.get("api_key_id"))
+
+
+def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
+                                redact_header: Optional[str],
+                                route: str = ROUTE_GATEWAY_PASSTHROUGH) -> Profile:
+    """Postura efectiva de ESTE pedido (spec 027 T026).
+
+    - **Modo** desde el ruteo EFECTIVO, jamás desde ``upstream_mode`` crudo: acá solo llega
+      suscripción (byok se rutea al motor unas líneas antes de la política), así que la
+      ruta es ``gateway-passthrough`` por construcción del plano. ``route`` es explícito
+      para el otro call-site de este plano (la superficie browser, ``inspect.py``), que
+      declara su propia ruta en vez de heredar una constante escondida.
+    - **Superficie** del ``tool_type`` de la Connection (confiable) o del User-Agent (no
+      confiable) — ver ``_resolve_surface``.
+    - **Overrides de nivel Connection**: el toggle ``redact_enabled`` en TRI-ESTADO crudo
+      (``None`` = heredar, no "True"), más el header cuando fuerza ON. El header entra al
+      mismo nivel Connection porque es el más alto de la cascada y solo puede agregar.
+
+    **Sin tenant atribuible, la resolución es fail-closed** (hallazgo MEDIA de la
+    verificación adversarial de la US2). Esta ruta se autentica con el OAuth de
+    suscripción, no con ``X-Basa-Key``: ese header es OPCIONAL, y hasta la 027 solo decidía
+    a nombre de quién se auditaba ([D-014], fail-open deliberado **para atribución**). Al
+    pasar a decidir también las ``governance_decisions``, un cliente de una instalación
+    multi-tenant conseguía elegir la postura que le aplicaba con solo **omitir** el header:
+    caía al ``DEFAULT_TENANT_ID`` y se resolvía con la postura de ese tenant, que puede ser
+    más laxa que la de su admin. La atribución puede degradarse a anónima; el enforcement
+    no puede degradarse a "la postura de otro".
+
+    Criterio elegido: cuando el tenant no es atribuible, la postura resuelta se pasa por
+    ``Profile.from_dict(..., trusted=False)`` — la barrera que ya existe para las señales no
+    confiables (hallazgo A2 del Foundational). Efecto: **se conservan las decisiones que
+    AGREGAN protección y se descartan todas las que RELAJAN**, que caen al
+    ``default_decision`` del registry. O sea el máximo de {postura del tenant por defecto,
+    defaults de producto}: la resolución nunca puede ser más laxa que el producto recién
+    instalado, y la relajación pasa a exigir lo mismo que exige la regla de superficie de
+    D5 — un dato provisionado por el admin (una Connection) viajando con el pedido.
+
+    Dos cosas que este criterio NO hace, a propósito: (a) no mira la postura de otros
+    tenants para buscar "la más estricta de la instalación" —sería una lectura cross-tenant,
+    prohibida por Constitución III—; (b) no rechaza el pedido: esta ruta es fail-open en
+    IDENTIDAD por diseño ([D-014]), así que el tráfico anónimo sigue pasando, solo que
+    gobernado con el perfil más protector disponible. En instalaciones single-tenant el
+    precio es visible y aceptado: una relajación configurada en ``tenant_default`` (p.ej.
+    ``pii_masking=off``) no aplica al tráfico sin ``X-Basa-Key``; para obtenerla hay que
+    emitir la Connection, que es exactamente el dato del admin que la regla exige.
+
+    No abre sesión: las filas ya vinieron con la identidad. Sin decisiones legibles, la
+    cascada resuelve los defaults de producto (piso + masking on)."""
+    surface, trusted = _resolve_surface(ident, ua_tool)
+    overrides = dict(build_connection_overrides(ident.get("redact_enabled")))
+    if _redact_header_override(redact_header) == ON:
+        overrides["pii_masking"] = ON
+    profile = resolve_tenant_profile(
+        None, ident.get("tenant_id"),
+        mode=map_effective_mode(route),
+        surface=surface, surface_trusted=trusted,
+        connection_overrides=overrides,
+        decisions=ident.get("governance_decisions") or (),
+    )
+    if _tenant_atribuible(ident):
+        return profile
+    # `trusted=False` = "esto viene de un canal que no autentica al tenant": se ignoran las
+    # relajaciones y sobreviven solo las decisiones que agregan capas.
+    return Profile.from_dict(profile.to_dict(), trusted=False)
 
 
 # ── auditoría (metadata-only, C1) + feed del monitor (US3) ────────────────────────
 
 def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
-           masked_entities: list, latency_ms: int):
+           masked_entities: list, latency_ms: int, attribution=None):
     """AuditLog metadata-only en sesión fresca, scopeada al tenant resuelto (el GUC de
     RLS se inyecta por ``tenant_context`` → correcto también bajo la 017). Nunca texto
-    de prompt ni el mapa reversible (Constraint C1)."""
+    de prompt ni el mapa reversible (Constraint C1).
+
+    ``attribution`` (spec 027) trae ``applied_layers`` + ``blocked_by_layer``: qué capas
+    corrieron de verdad en ESTE pedido y cuál lo bloqueó. Reemplaza al ``guardian_events``
+    que se escribía fijo —``{"guardian": "Basa Passthrough", "action": "PROXY"}``— pasara
+    lo que pasara: un registro que decía lo mismo para un pedido enmascarado, uno bloqueado
+    por secreto y uno que salió verbatim. ``guardian_events`` queda congelado como legado,
+    sin migración (D6)."""
     db = SessionLocal()
     try:
         tid = uuid.UUID(ident["tenant_id"]) if ident.get("tenant_id") else DEFAULT_TENANT_ID
+        # `pii_detected` refleja DETECCIÓN, no enmascarado (D8/FR-002). Con `pii_masking` off
+        # el gateway detecta igual (piso) y `masked_entities` queda vacío; derivarlo solo de
+        # ahí haría que la fila dijera "no había PII" mientras la atribución dice que
+        # `pii_detection` la marcó — la contradicción durable que 027 elimina.
+        pii_detected = bool(masked_entities) or (
+            attribution is not None and any(
+                isinstance(l, dict) and l.get("layer_code") == "pii_detection"
+                and (l.get("count") or 0) > 0
+                for l in (attribution.applied_layers or ())
+            )
+        )
         with tenant_context(tid):
             AuditService.log_transaction(
                 db=db, model=model, prompt_tokens=in_tok, completion_tokens=out_tok,
                 cost_usd=0.0,  # suscripción = tarifa plana; el costo byok lo mide el motor
-                pii_detected=bool(masked_entities), masked_entities=masked_entities,
+                pii_detected=pii_detected, masked_entities=masked_entities,
                 compliance_status=status, latency_ms=latency_ms,
                 user_id=uuid.UUID(ident["user_id"]) if ident.get("user_id") else None,
                 api_key_id=uuid.UUID(ident["api_key_id"]) if ident.get("api_key_id") else None,
                 user_group_id=uuid.UUID(ident["group_id"]) if ident.get("group_id") else None,
                 processing_purpose="coding-assistant",
-                guardian_events=[{"guardian": "Basa Passthrough (suscripción)",
-                                  "action": "PROXY", "detail": f"status={status}"}],
+                applied_layers=(attribution.applied_layers if attribution else None),
+                blocked_by_layer=(attribution.blocked_by_layer if attribution else None),
                 tenant_id=tid,
             )
     except Exception as exc:  # noqa: BLE001
@@ -293,10 +593,16 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
 
 
 def _publish_monitor(ident: dict, tool: str, model: str, status: str,
-                     masked_entities: list, masked_preview: str, surface: Optional[str] = None):
+                     masked_entities: list, masked_preview: str, surface: Optional[str] = None,
+                     attribution=None):
     """Evento efímero para /gw/monitor — MISMO esquema que basa_audit_logger, así la
     vitrina renderiza el tráfico del passthrough igual que el del motor. Preview ya
-    enmascarado (C1). ``surface`` distingue la extensión browser (spec 019 US3). Best-effort."""
+    enmascarado (C1). ``surface`` distingue la extensión browser (spec 019 US3). Best-effort.
+
+    Con la 027 el "mismo esquema" deja de ser convención y pasa a ser **contrato** (evento
+    §8): ``applied_layers`` + ``blocked_by_layer`` viajan con exactamente el mismo elemento
+    de 4 claves que persiste ``audit_logs``, serializado **sin transformar** — extender un
+    emisor sin los demás rompe el render uniforme de la vitrina."""
     client = get_redis()
     if client is None:
         return
@@ -310,6 +616,13 @@ def _publish_monitor(ident: dict, tool: str, model: str, status: str,
             "compliance_status": status,
             "masked_entities": masked_entities,
             "masked_preview": masked_preview,
+            # Ausencia de atribución = **null**, jamás lista vacía (contrato evento §8, y
+            # el mismo criterio que ya documenta el logger del motor): `[]` afirmaría "no
+            # corrió ninguna capa", que es mentira —el piso corre siempre— y además haría
+            # que los tres productores emitieran tres shapes distintos para el mismo hecho.
+            # La vitrina distingue null → "sin registro de capas" (monitor.py, `atribucion`).
+            "applied_layers": attribution.applied_layers if attribution else None,
+            "blocked_by_layer": attribution.blocked_by_layer if attribution else None,
         }
         if surface:
             event["surface"] = surface
@@ -476,17 +789,25 @@ async def gw_messages(
 
     ident = _resolve_attribution(x_basa_key)
     tool = policy.detect_tool(request.headers.get("user-agent"))
-    redact_enabled = _resolve_redact(x_basa_redact, ident)
+    # Postura de gobernanza del tenant para (modo efectivo, superficie) — spec 027 T026.
+    profile = _resolve_governance_profile(ident, tool, x_basa_redact)
 
     # ── política: bloquear/enmascarar (misma librería que el motor) ──
-    block_reason, status, ph_to_orig, masked_entities = await evaluate_request_policy(body, redact_enabled)
-    preview = await _safe_preview(body)  # tras mask_body: refleja lo que verá el upstream
+    block_reason, status, ph_to_orig, masked_entities, attribution = \
+        await evaluate_request_policy(body, profile)
+    # Preview SIEMPRE display-masked (contrato evento §10): se construye sobre un mapa
+    # desechable + scrub de secretos pase lo que pase con las capas. Es load-bearing en el
+    # camino de bloqueo, donde el bloqueo ocurre ANTES de que corra el enmascarado y el
+    # body sigue crudo: sin este pase propio, la vitrina sería el canal de fuga.
+    preview = await _safe_preview(body)
 
     if block_reason:
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, 0, 0, status, masked_entities, latency)
-        _publish_monitor(ident, tool, model, status, masked_entities, preview)
-        logger.info("gateway BLOCK (%s) tool=%s model=%s", status, tool, model)
+        _audit(ident, model, 0, 0, status, masked_entities, latency, attribution)
+        _publish_monitor(ident, tool, model, status, masked_entities, preview,
+                         attribution=attribution)
+        logger.info("gateway BLOCK (%s) tool=%s model=%s layer=%s",
+                    status, tool, model, attribution.blocked_by_layer)
         return _anthropic_error(f"[Basa Gateway] {block_reason}")
 
     send_raw = json.dumps(body).encode("utf-8") if ph_to_orig else raw
@@ -500,7 +821,7 @@ async def gw_messages(
                 up = await client.post(url, headers=up_headers, content=send_raw)
         except Exception as exc:  # noqa: BLE001
             latency = int((time.time() - start) * 1000)
-            _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency)
+            _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
             return _anthropic_error(f"[Basa Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
 
         in_tok = out_tok = 0
@@ -516,8 +837,9 @@ async def gw_messages(
             pass
         final_status = status if up.status_code == 200 else "upstream_error"
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency)
-        _publish_monitor(ident, tool, model, final_status, masked_entities, preview)
+        _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency, attribution)
+        _publish_monitor(ident, tool, model, final_status, masked_entities, preview,
+                         attribution=attribution)
         return Response(content=content_out, status_code=up.status_code,
                         media_type=up.headers.get("content-type", "application/json"))
 
@@ -532,7 +854,7 @@ async def gw_messages(
     except Exception as exc:  # noqa: BLE001
         await client.aclose()
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency)
+        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
         return _anthropic_error(f"[Basa Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
 
     if up.status_code != 200:
@@ -540,7 +862,7 @@ async def gw_messages(
         await up.aclose()
         await client.aclose()
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency)
+        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
         return Response(content=err_body, status_code=up.status_code,
                         media_type=up.headers.get("content-type", "application/json"))
 
@@ -588,8 +910,9 @@ async def gw_messages(
             await up.aclose()
             await client.aclose()
             latency = int((time.time() - start) * 1000)
-            _audit(ident, model, in_tok, out_tok, status, masked_entities, latency)
-            _publish_monitor(ident, tool, model, status, masked_entities, preview)
+            _audit(ident, model, in_tok, out_tok, status, masked_entities, latency, attribution)
+            _publish_monitor(ident, tool, model, status, masked_entities, preview,
+                             attribution=attribution)
             logger.info("gateway PROXY ok tool=%s model=%s in=%d out=%d masked=%d",
                         tool, model, in_tok, out_tok, len(masked_entities))
 
@@ -662,7 +985,14 @@ async def gw_info():
             "byok": "virtual key sk-basa-… → motor LiteLLM (cost tracking + budgets); la política la aplica el motor.",
         },
         "routing": "auto: sk-basa-… en header de auth (excl. x-basa-*) o en ?k=… → byok; si no, passthrough. Override: X-Basa-Upstream.",
+        # La entrada de X-Basa-Redact cambió con la 027: prometía un override 1/0 y hoy
+        # solo puede AGREGAR protección. Documentarlo acá no es cosmética — el discovery
+        # es lo que lee quien integra, y una doc que sigue prometiendo "0 = no enmascarar"
+        # produce integraciones que creen haber apagado el masking y no lo apagaron.
         "headers": {"X-Basa-Key": "atribución opcional (tenant/client) para auditoría",
-                    "X-Basa-Redact": "override del masking PII por request (1/0)",
+                    "X-Basa-Redact": ("solo restrictivo: 1 fuerza el enmascarado PII de "
+                                      "este request; 0 se IGNORA (un override por request "
+                                      "no puede relajar la postura del administrador). "
+                                      "Para no enmascarar, configurá la capa en Gobernanza."),
                     "X-Basa-Upstream": "forzar modo: byok | subscription-passthrough"},
     }

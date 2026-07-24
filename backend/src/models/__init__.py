@@ -8,9 +8,10 @@ from .guardian import Guardian
 from .compliance import ComplianceProject, DPARegistry, DataSubjectRequest, HumanReview, RetentionPolicy
 from .consent import ConsentRecord
 from .license_state import LicenseRuntimeState
+from .governance import GovernanceProfile
 
 __all__ = [
     "Base", "Tenant", "DEFAULT_TENANT_ID", "User", "Group", "Budget", "APIKey", "SecurityPolicy",
     "AuditLog", "Guardian", "ComplianceProject", "DPARegistry", "DataSubjectRequest", "HumanReview",
-    "RetentionPolicy", "ConsentRecord", "LicenseRuntimeState",
+    "RetentionPolicy", "ConsentRecord", "LicenseRuntimeState", "GovernanceProfile",
 ]

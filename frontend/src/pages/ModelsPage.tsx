@@ -477,8 +477,13 @@ export const ModelsPage: React.FC = () => {
                           <button
                             onClick={() => {
                               setActivatingModel(m);
-                              setActivateKey("");
-                              setActivateBase(m.api_base || "");
+                              // `setActivateKey`/`setActivateBase` quedaron de un refactor
+                              // anterior: los estados ya no existen y el modal se llena con
+                              // `fieldValues` (ver el cierre, que hace `setFieldValues({})`).
+                              // Eran dos ReferenceError en el click de "Configurar", así que
+                              // el modal NUNCA abría; no se detectaba porque el build oficial
+                              // no chequeaba tipos (frontend sin tsconfig).
+                              setFieldValues({});
                               setShowCatalog(false);
                             }}
                             className="px-3 py-1.5 rounded text-xs font-semibold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all"

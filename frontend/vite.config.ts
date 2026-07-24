@@ -11,4 +11,16 @@ export default defineConfig({
     outDir: 'dist',
     chunkSizeWarningLimit: 1500,
   },
+  // El SPA llama a /api/v1 y /gw en el MISMO origen (así evita mixed-content en prod, donde
+  // el ingress Caddy los enruta al backend). En dev servido por Vite no había proxy, así que
+  // esas rutas devolvían el index.html del SPA — cualquier fetch fallaba con "<!doctype … is
+  // not valid JSON". El proxy dev las manda al backend del compose (host BACKEND_HOST, 8000
+  // dentro de la red). Solo aplica a `vite dev`; el build de prod lo ignora.
+  server: {
+    host: true,
+    proxy: {
+      '/api': { target: `http://${process.env.BACKEND_HOST || 'backend'}:8000`, changeOrigin: true },
+      '/gw': { target: `http://${process.env.BACKEND_HOST || 'backend'}:8000`, changeOrigin: true },
+    },
+  },
 })

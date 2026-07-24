@@ -22,14 +22,19 @@ from litellm.integrations.custom_logger import CustomLogger
 sys.path.insert(0, os.path.dirname(__file__))
 import basa_guardian_policy as policy  # noqa: E402
 
+# Atribución por pedido (spec 027 T029): las DOS columnas nuevas entran acá con el MISMO
+# esquema que el productor del gateway. El comentario "MISMO esquema que basa_audit_logger"
+# de gateway.py dejó de ser convención y es contrato (evento-monitor-atribucion §8):
+# extender un productor sin el otro rompe el render uniforme de la vitrina. Hoy este plano
+# las escribe SIEMPRE en NULL — ver `_attribution_del_motor`.
 _INSERT_AUDIT_SQL = """
 INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
-    compliance_status, latency_ms, user_group_id
+    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer
 ) VALUES (
     gen_random_uuid(), $1::uuid, NOW(), $2::uuid, $3::uuid, $4,
-    $5, $6, $7, $8, $9::jsonb, $10, $11, $12::uuid
+    $5, $6, $7, $8, $9::jsonb, $10, $11, $12::uuid, $13::jsonb, $14
 )
 """
 
@@ -45,6 +50,51 @@ def _scrub(metadata: dict) -> dict:
     clean = dict(metadata or {})
     clean.pop("pii_tokens", None)
     return clean
+
+
+def _attribution_del_motor():
+    """Atribución del pedido en el plano motor: hoy **no la hay** ⇒ ``(None, None)``.
+
+    ``None`` **no** es lista vacía: significa *"este pedido no trae atribución"*, mientras
+    que ``[]`` afirmaría "ninguna capa corrió", que sería mentira (el piso corre siempre).
+    Por eso las dos columnas quedan SQL NULL y el evento del monitor lleva ``null``: la
+    vitrina muestra "sin registro de capas", que es la verdad.
+
+    **Por qué no se lee del metadata-home** (hallazgo A3 de la verificación adversarial de
+    la US2, ALTA — atribución falsificable): hasta este fix, la atribución se leía de
+    ``metadata['basa_governance']``. Ese home es la fusión de ``litellm_metadata`` y
+    ``metadata`` (ver ``_log``), y ``metadata`` es un campo del **body**, o sea un canal que
+    escribe el CLIENTE —y que además ganaba el merge—. El saneo que había validaba
+    *vocabulario*, no *procedencia*: un cliente con virtual key mandando
+    ``{"metadata": {"basa_governance": {"applied_layers": [{"layer_code": "pii_masking",
+    "status": "applied", "decision": "mask", "count": 4}]}}}`` conseguía que su pedido
+    quedara auditado como si el enmascarado hubiera corrido. Falsificar el registro de
+    cumplimiento es exactamente la mentira que la 027 existe para borrar, así que el plano
+    motor prefiere **no registrar** antes que registrar algo que no produjo —el mismo
+    criterio con el que la spec corta la fila durable del bloqueo hacia la 018
+    (data-model §3.4)—.
+
+    **Estado del cableado (2026-07-22)**: el productor propio es **T025**
+    (``basa_guardrail.py``), bloqueada por el PR #21, que reescribe el guardrail entero.
+    Requisitos para cuando aterrice, para no reabrir A3:
+
+    - La atribución tiene que llegar por un canal que el cliente **no pueda escribir**.
+      Verificado en la imagen del motor (``litellm/proxy/litellm_pre_call_utils.py:1580``):
+      el proxy **sobrescribe** ``metadata['user_api_key_metadata']`` con la metadata del
+      objeto de auth, así que ESE subárbol no es escribible desde el body — pero tampoco
+      sirve acá: es la identidad, y ``custom_auth`` la cachea 60 s por ``key_hash``, con lo
+      que la atribución de un pedido se filtraría a los siguientes de la misma Connection.
+    - Si igual tiene que viajar por metadata, el productor debe **sobreescribir la clave en
+      cada pedido**, también cuando no haya nada que reportar. Ojo con los caminos donde el
+      guardrail no corre (la API de Responses, issue #28): ahí un valor sembrado por el
+      cliente sobreviviría igual. Un canal en proceso, correlacionado por pedido, no tiene
+      ese problema.
+    - El lector debe volver a sanear por vocabulario cerrado (4 claves de data-model §3.1,
+      ``status``/``decision`` de los enums del registry, ``count`` entero y no ``bool``):
+      la procedencia confiable evita la falsificación, el saneo evita la fuga de texto al
+      JSONB (C1). Son dos defensas distintas y hacen falta las dos.
+    """
+    return None, None
 
 
 class BasaAuditLogger(CustomLogger):
@@ -88,26 +138,44 @@ class BasaAuditLogger(CustomLogger):
 
         masked = request_md.get("basa_masked_entities") or []
         compliance = (request_md.get("basa_compliance") or {}).get("status") or "passed"
+        applied_layers, blocked_by_layer = _attribution_del_motor()
 
-        await prisma_client.db.query_raw(
-            _INSERT_AUDIT_SQL,
-            basa.get("tenant_id") or "00000000-0000-0000-0000-000000000001",
-            basa.get("client_id"),
-            basa.get("key_id"),
-            kwargs.get("model") or data.get("model") or "desconocido",
-            int(prompt_tokens or 0),
-            int(completion_tokens or 0),
-            float(cost),
-            bool(masked),
-            json.dumps(masked),
-            compliance,
-            latency_ms,
-            basa.get("group_id"),
-        )
+        # El INSERT de auditoría del motor es best-effort: el audit_logs canónico lo
+        # escribe el backend en SU base (basa_guardian). Si la base del motor no tiene
+        # la tabla (p.ej. base propia basa_engine tras separar el motor), el INSERT
+        # falla — pero NO debe impedir la vitrina en vivo del firewall (el publish a
+        # Redis va después). Antes, la excepción del INSERT se llevaba puesto el publish
+        # y la vitrina quedaba vacía (regresión de la separación de DB).
+        try:
+            await prisma_client.db.query_raw(
+                _INSERT_AUDIT_SQL,
+                basa.get("tenant_id") or "00000000-0000-0000-0000-000000000001",
+                basa.get("client_id"),
+                basa.get("key_id"),
+                kwargs.get("model") or data.get("model") or "desconocido",
+                int(prompt_tokens or 0),
+                int(completion_tokens or 0),
+                float(cost),
+                bool(masked),
+                json.dumps(masked),
+                compliance,
+                latency_ms,
+                basa.get("group_id"),
+                # None (no "null") para que el bind sea SQL NULL y no un JSON null: NULL en
+                # estas columnas significa "pedido sin atribución", que es exactamente lo
+                # que hoy produce el motor mientras T025 no cablee un productor propio
+                # (`_attribution_del_motor`: sin canal confiable, no se registra nada).
+                json.dumps(applied_layers) if applied_layers is not None else None,
+                blocked_by_layer,
+            )
+        except Exception as exc:
+            print(f"[basa-audit] INSERT no fatal (sigue el feed en vivo): {exc}")
 
-        await self._publish_monitor_event(basa, masked, compliance, kwargs)
+        await self._publish_monitor_event(basa, masked, compliance, kwargs,
+                                          applied_layers, blocked_by_layer)
 
-    async def _publish_monitor_event(self, basa, masked, compliance, kwargs):
+    async def _publish_monitor_event(self, basa, masked, compliance, kwargs,
+                                     applied_layers=None, blocked_by_layer=None):
         """Feed efímero del monitor (vitrina, Principio VIII): metadata + preview
         ENMASCARADO (el texto que vio el upstream — nunca los valores originales)."""
         try:
@@ -140,6 +208,13 @@ class BasaAuditLogger(CustomLogger):
                 "compliance_status": compliance,
                 "masked_entities": masked,
                 "masked_preview": preview,  # ya enmascarado: es lo que vio el upstream
+                # Contrato evento-monitor-atribucion §8: los campos nuevos viajan con el
+                # MISMO shape que en la columna y que en el evento del gateway, serializados
+                # sin transformar. `null` cuando el pedido no trae atribución — la vitrina
+                # muestra "sin atribución", que es la verdad, en vez de una lista vacía que
+                # afirmaría "ninguna capa corrió".
+                "applied_layers": applied_layers,
+                "blocked_by_layer": blocked_by_layer,
             }
             pipe = client.pipeline()
             pipe.lpush(_MONITOR_KEY, json.dumps(event, ensure_ascii=False))

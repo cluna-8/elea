@@ -16,6 +16,7 @@ import json
 import os
 import re
 import uuid
+import warnings
 
 import pytest
 
@@ -28,9 +29,12 @@ from src.services.key_material import hash_key, key_preview
 # Modelo puenteado por el motor (no-Claude). Override por env si el stack usa otro.
 BRIDGED_MODEL = os.getenv("BASA_E2E_BRIDGED_MODEL", "ollama-qwen3-4b")
 
-# Placeholder VÁLIDO sin restaurar (formato real de la lib). Un typo del modelo al
-# reproducir el token (p.ej. ``[EMAIL_ADDRESS_0_6.2bf]``) NO matchea — irrestaurable
-# por diseño y sin PII, no es fallo del round-trip.
+# Forma de placeholder tal como la ve el usuario: ``[TIPO_idx_nonce]``. El token que el
+# motor emite de verdad lleva ``nonce = uuid4().hex[:4]`` (``PlaceholderMap``, en
+# basa_guardian_policy) — SIEMPRE 4 hex y con el índice que le tocó al valor en ESTE
+# request. El regex es a propósito más laxo que esa forma: detecta también los tokens que
+# el modelo reproduce mal, porque distinguirlos por forma no alcanza (ver
+# ``_verifica_round_trip``).
 RAW_PH_RE = re.compile(r"\[EMAIL_ADDRESS_\d+_[0-9a-f]+\]")
 
 
@@ -66,15 +70,58 @@ def _skip_solo_si_runtime_caido(status_code: int, text: str):
                 f"indisponibilidad del modelo, puede ser regresión: {text[:300]}")
 
 
-def _texto_o_skip_por_typo(txt: str, mail: str) -> None:
-    """Asserts del round-trip tolerantes al ÚNICO caso aceptado: el modelo reprodujo
-    el placeholder con un typo (token corrupto, irrestaurable por diseño). Una
-    regresión real deja un placeholder VÁLIDO → falla antes de llegar al skip."""
-    assert not RAW_PH_RE.search(txt), f"placeholder válido sin restaurar: {txt[:300]}"
-    if mail not in txt and "EMAIL_ADDRESS" in txt:
-        pytest.skip("el modelo reprodujo el placeholder corrupto (typo del modelo, "
-                    "irrestaurable por diseño) — reintentar con otra corrida")
-    assert mail in txt, f"el valor original no volvió: {txt[:300]}"
+def _verifica_round_trip(txt: str, mail: str) -> None:
+    """Assert DURO de lo que este test verifica de verdad: **un placeholder que el modelo
+    devolvió BIEN se restaura**, o sea, el valor original vuelve al cliente.
+
+    Se mide por PRESENCIA del valor y no por ausencia de placeholders, y eso es un cambio
+    con evidencia. El assert viejo (``not RAW_PH_RE.search``) fallaba ~1 de cada 3 porque
+    tomaba "tiene forma de placeholder" por "es el placeholder del request", y no lo es: el
+    modelo local es chico y verboso, razona en voz alta SOBRE el token que vio y lo tipea
+    mal. Medido en 28 corridas contra el stack vivo: 4 dejaron un token a mano —nonces de
+    2, 3 y 4 hex, e incluso un índice inventado (``_2_`` con un solo email en el prompt, o
+    sea imposible)— y en las 28 el valor volvió, entre 7 y 15 veces por respuesta.
+
+    Que un token con forma perfecta (4 hex, índice 0) tampoco pruebe nada NO es una
+    concesión: 3 de esas 4 corridas fueron **sin streaming**, donde el unmask es un
+    ``str.replace`` global por bloque (``unmask_response_payload`` → ``unmask_text``). Si
+    el mapa del request estaba activo —y que el valor haya vuelto lo PRUEBA— ninguna
+    ocurrencia del token real pudo sobrevivir a ese replace. Un token que sobrevive ahí es,
+    necesariamente, uno que el motor nunca emitió.
+
+    Un token inventado por el modelo tampoco es fuga: no lleva PII y es irrestaurable por
+    definición (no está en el mapa). Lo que SÍ es fallo —y ahora falla siempre, cosa que
+    antes no pasaba— es que el valor no vuelva: el skip viejo ("el modelo lo reprodujo
+    mal") tapaba justo el caso grave, un unmask que no restaura NADA con el modelo encima
+    tipeando mal el token se saltaba en vez de fallar."""
+    crudos = RAW_PH_RE.findall(txt)
+    assert mail in txt, (f"el valor original NO volvió al cliente — round-trip roto "
+                         f"(placeholders crudos={crudos}): {txt[:300]}")
+    if crudos:
+        warnings.warn(f"el modelo reprodujo mal el token {crudos} (irrestaurable por "
+                      f"diseño); el valor sí volvió {txt.count(mail)} vez/veces")
+
+
+def _falla_si_placeholder_partido(fragmentos: list) -> None:
+    """Detector de la regresión 024 en streaming, que es donde el argumento del replace
+    global NO aplica: ahí el unmask corre POR DELTA con carry-split, así que un token real
+    podría escaparse justo en un borde de chunk.
+
+    El discriminador no depende del modelo. Si el carry retuvo bien el fragmento, el token
+    llega ENTERO dentro de un delta (``safe_split`` lo sostiene hasta completarlo) — y que
+    llegue entero y sin restaurar prueba que no estaba en el mapa, o sea que lo inventó el
+    modelo. Si en cambio el cliente solo lo ve al CONCATENAR deltas, es que el carry lo
+    soltó partido y lo emitió sin des-enmascarar: esa es la firma exacta del bug del spike
+    019 que la 024 arregló (root cause: ``safe_split`` soltaba el ``[`` pelado)."""
+    txt = "".join(fragmentos)
+    cortes, pos = [], 0
+    for frag in fragmentos:
+        pos += len(frag)
+        cortes.append(pos)
+    partidos = [m.group(0) for m in RAW_PH_RE.finditer(txt)
+                if any(m.start() < corte < m.end() for corte in cortes)]
+    assert not partidos, (f"placeholder PARTIDO entre deltas y emitido sin des-enmascarar "
+                          f"{partidos} — regresión del carry-split (024): {txt[:300]}")
 
 
 def _texto(content_blocks) -> str:
@@ -82,10 +129,13 @@ def _texto(content_blocks) -> str:
 
 
 @pytest.fixture
-def seeded_byok_key_con_user():
+def seeded_byok_key_con_user(borrado_sin_carrera):
     """Connection byok CON User (a diferencia del fixture compartido, que usa
     ``user_id=NULL``): el contrato #8 exige ``client`` no-nulo en el evento, y eso
-    requiere una Connection con persona detrás. Teardown siempre (finally)."""
+    requiere una Connection con persona detrás. Teardown siempre (finally), y por el
+    MISMO camino resistente a la carrera con el motor que el fixture compartido (#41):
+    acá la exposición es doble, porque la fila de auditoría del pedido referencia tanto
+    la Connection (``api_key_id``) como la persona (``user_id``)."""
     rand = uuid.uuid4().hex[:8]
     plain = f"sk-basa-e2e24-{rand}"
     db = SessionLocal()
@@ -116,11 +166,7 @@ def seeded_byok_key_con_user():
     try:
         yield plain, username
     finally:
-        for model, pk in ((APIKey, key_id), (User, user_id)):
-            obj = db.get(model, pk)
-            if obj is not None:
-                db.delete(obj)
-        db.commit()
+        borrado_sin_carrera(db, api_key_id=key_id, user_id=user_id)
         db.close()
 
 
@@ -131,19 +177,23 @@ def test_roundtrip_no_streaming_restaura_pii(gw, seeded_byok_key):
     _skip_solo_si_runtime_caido(resp.status_code, resp.text)
 
     data = resp.json()
-    _texto_o_skip_por_typo(_texto(data.get("content", [])), mail)
+    _verifica_round_trip(_texto(data.get("content", [])), mail)
 
 
 def test_roundtrip_streaming_restaura_pii(gw, seeded_byok_key):
     """US1/FR-001/FR-004: los deltas del stream vuelven restaurados, incluso con el
-    placeholder partido en fragmentos chicos (el caso del bridge)."""
+    placeholder partido en fragmentos chicos (el caso del bridge). Dos asserts, no uno:
+    que el valor vuelva (round-trip) y que ningún token haya salido PARTIDO entre deltas
+    (carry-split) — lo segundo es lo que el camino streaming agrega de riesgo propio."""
     mail, body = _pii_body(stream=True)
     with gw.stream("POST", "/v1/messages",
                    headers={"x-api-key": seeded_byok_key}, json=body) as resp:
         if resp.status_code != 200:
             resp.read()
             _skip_solo_si_runtime_caido(resp.status_code, resp.text)
-        txt = ""
+        # Fragmentos SIN concatenar: el borde entre deltas es la evidencia que necesita
+        # ``_falla_si_placeholder_partido`` y se pierde al pegar el texto.
+        fragmentos = []
         for line in resp.iter_lines():
             if not line.startswith("data: "):
                 continue
@@ -152,18 +202,22 @@ def test_roundtrip_streaming_restaura_pii(gw, seeded_byok_key):
             except ValueError:
                 continue
             delta = d.get("delta") or {}
-            txt += (delta.get("text") or "") + (delta.get("thinking") or "")
+            fragmentos.append((delta.get("text") or "") + (delta.get("thinking") or ""))
 
-    _texto_o_skip_por_typo(txt, mail)
+    _verifica_round_trip("".join(fragmentos), mail)
+    _falla_si_placeholder_partido(fragmentos)
 
 
-def test_evento_byok_lleva_identidad_y_es_metadata_only(gw, seeded_byok_key_con_user):
+def test_evento_byok_lleva_identidad_y_es_metadata_only(gw, seeded_byok_key_con_user,
+                                                       monitor_headers):
     """US3/FR-006 + contrato #8/#9: el evento NUEVO que produce ESTE request lleva
     tenant + tool + client (Connection con User) y conteo de entidades — y el feed
     jamás contiene el valor real (metadata-only). La correlación es por DELTA del
     feed (antes/después), no por 'primer evento que matchee' (review 024)."""
     key, username = seeded_byok_key_con_user
-    antes = gw.get("/events?limit=100", headers={"x-api-key": key})
+    # El feed exige sesión desde la 027 (hallazgo A1): la virtual key que va al gateway
+    # no resuelve a un usuario de sesión, así que la lectura del feed usa la suya.
+    antes = gw.get("/events?limit=100", headers=monitor_headers)
     assert antes.status_code == 200, antes.text
     vistos = {json.dumps(e, sort_keys=True) for e in antes.json().get("events", [])}
 
@@ -176,7 +230,7 @@ def test_evento_byok_lleva_identidad_y_es_metadata_only(gw, seeded_byok_key_con_
     import time as _time
     con_mask, events = [], []
     for _ in range(10):
-        feed = gw.get("/events?limit=100", headers={"x-api-key": key})
+        feed = gw.get("/events?limit=100", headers=monitor_headers)
         assert feed.status_code == 200, feed.text
         events = feed.json().get("events", [])
         nuevos = [e for e in events if json.dumps(e, sort_keys=True) not in vistos]

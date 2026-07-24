@@ -32,11 +32,34 @@ class AuditService:
         processing_purpose: Optional[str] = None,
         user_group_id=None,
         tenant_id: Optional[UUID] = None,
+        applied_layers: Optional[List[Dict[str, Any]]] = None,
+        blocked_by_layer: Optional[str] = None,
     ) -> AuditLog:
         """
         Creates a secure audit log entry for a transaction.
         Ensures absolutely no raw prompt text or PII is recorded.
+
+        Atribución por pedido (spec 027, contrato evento-monitor-atribucion §5-§7):
+        ``applied_layers`` es la lista EXHAUSTIVA de capas del perfil con su status y su
+        decisión sobre este pedido, y ``blocked_by_layer`` el ``layer_key`` del registry
+        que produjo el bloqueo (escalar aparte para que la query de bloqueos sea trivial).
+        Ambos son **opcionales**: los callers previos a la 027 (gateway passthrough,
+        cualquier script) siguen llamando igual y persisten ``NULL``, que en esas columnas
+        significa exactamente "fila anterior a la atribución 027" — no "ninguna capa".
+
+        C1: lo que entra por ``applied_layers`` son SOLO códigos del registry y contadores.
+        El productor es ``build_attribution`` (única puerta, valida contra vocabularios
+        cerrados); acá no se re-valida para no duplicar la barrera, pero tampoco se
+        transforma: se persiste tal cual llega, porque el contrato exige que la columna, el
+        evento del motor y el del gateway lleven **el mismo elemento sin transformar**
+        (prohibido que un productor "resuma distinto").
         """
+        # DEUDA CONOCIDA (spec 018, owner: Cristian): el try/except de abajo **dropea la
+        # auditoría** ante cualquier fallo de escritura — la transacción se sirve igual y la
+        # fila desaparece sin que nadie se entere. Con la 027 eso pasa a llevarse puesta
+        # también la atribución del pedido, así que el agujero es más caro que antes. NO se
+        # arregla acá a propósito: la completitud/confiabilidad del registro durable es
+        # alcance de la 018 y tocarla desde esta feature mezclaría dos cortes.
         try:
             # Masked entities parameter format: [{"type": "PERSON", "count": 2}]
             # We summarize the counts from the list of masked entities
@@ -68,6 +91,11 @@ class AuditService:
                 compression_strategy=compression_strategy,
                 compression_reversed=compression_reversed,
                 guardian_events=guardian_events or [],
+                # `guardian_events` queda CONGELADO como legado (D6: la hash-chain de
+                # licencias lo relee posicionalmente). La atribución nueva NO lo pisa ni lo
+                # migra: vive en su propia columna, al lado.
+                applied_layers=applied_layers,
+                blocked_by_layer=blocked_by_layer,
                 review_token=review_token,
                 ai_disclosure_delivered=ai_disclosure_delivered,
                 processing_purpose=processing_purpose,

@@ -68,7 +68,7 @@ def test_t6_inspect_fail_closed(gw):
     assert resp.status_code == 401, resp.text
 
 
-def test_t7_monitor_surface_browser_no_raw_pii(gw, seeded_byok_key):
+def test_t7_monitor_surface_browser_no_raw_pii(gw, seeded_byok_key, monitor_headers):
     """T7 (monitor C1, surface=browser sin PII cruda): un inspect real publica un evento
     ``surface="browser"`` en el feed; ``GET /events`` lo devuelve. Se afirma (a) hay ≥1
     evento browser y (b) NINGÚN evento expone el email/DNI crudo en su ``masked_preview``
@@ -84,7 +84,8 @@ def test_t7_monitor_surface_browser_no_raw_pii(gw, seeded_byok_key):
     )
     assert ins.status_code == 200, ins.text
 
-    resp = gw.get("/events", params={"limit": 20})
+    # El feed exige sesión desde la 027 (hallazgo A1): una virtual key no alcanza.
+    resp = gw.get("/events", params={"limit": 20}, headers=monitor_headers)
     assert resp.status_code == 200, resp.text
     events = resp.json().get("events", [])
     if not events:
