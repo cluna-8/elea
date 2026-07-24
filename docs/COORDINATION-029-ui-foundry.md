@@ -77,7 +77,10 @@ Cada uno: reemplazar clases oscuras hardcodeadas (`slate-700/800`, `text-white`,
 | Pase | P1 | P2 | P3 | Notas |
 |------|----|----|----|-------|
 | 1 | 0 | 2 | 1 | (a) páginas legacy no-piloto quedan ilegibles (white-on-white) por el remap `bg-panel`→claro; (b) harness no declaraba playwright; (c) harness no forzaba isLight. |
-| 2 | — | — | — | tras fixes (pendiente) |
+| 2 | 0 | 0 | 0 | tras el barrido legacy + fixes de harness → **CONVERGIDO, SHIP**. |
+
+**Verificación final (integrado b9b1c28 + harness)**: `frontend/e2e/029-screens.mjs` → **12/12 páginas tema claro** (`#faf9f8`), **0 Google-Fonts**, **0 errores JS reales**, exit 0. Screenshots revisados (incluido Compliance, que era el más roto → ahora claro-legible). `npm run build` verde.
+**Nota (fuera de alcance)**: `frontend/src/pages/PoliciesPage.tsx` sigue con clases oscuras PERO es **código muerto** (no se importa en ningún lado, no está en el nav → inalcanzable). No afecta el piloto; se flagueó como limpieza aparte (borrar o cablear).
 
 **Acciones pase 1**:
 - **P2 (a) legacy ilegibles** → barrido de legibilidad de las 5 páginas no-piloto (Costs/Governance/Compliance/Audit/Docs) a tokens claros (minions 029-legacy-a/b). Real: son alcanzables desde la sidebar y romperían el demo.
