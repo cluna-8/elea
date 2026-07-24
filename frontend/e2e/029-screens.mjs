@@ -23,6 +23,12 @@ const PAGES = [
   { file: '5-users',     nav: 'Usuarios & Presupuestos',  auth: true },
   { file: '6-playground',nav: 'Playground',               auth: true },
   { file: '7-security',  nav: 'Seguridad y Guardianes',   auth: true },
+  // legacy non-pilot pages (must be readable-light after the sweep)
+  { file: '8-costs',      nav: 'Costos',                     auth: true },
+  { file: '9-governance', nav: 'Gobernanza',                 auth: true },
+  { file: '10-compliance',nav: 'Políticas de Cumplimiento',  auth: true },
+  { file: '11-audit',     nav: 'Logs de Auditoría',          auth: true },
+  { file: '12-docs',      nav: 'Documentación',              auth: true },
 ];
 
 const fontReqs = [];
@@ -38,7 +44,10 @@ try {
     const errs = [];
     // Separate REAL js/styling errors from the expected backend-absent network 500s
     // (vite proxies /api,/gw → backend:8000 which isn't reachable without the stack).
-    const isBackendAbsent = t => /Failed to load resource|net::ERR|500 \(Internal Server Error\)|the server responded with a status of (500|502|503|404)/i.test(t);
+    // backend-absent in dev: the vite proxy points at backend:8000 which isn't reachable,
+    // so every data fetch rejects. These are the app's own caught-and-logged fetch failures,
+    // not styling/JS bugs (with a real backend they don't fire).
+    const isBackendAbsent = t => /Failed to load resource|Failed to fetch|net::ERR|the server responded with a status of (500|502|503|404)|Error al cargar/i.test(t);
     page.on('console', m => { if (m.type() === 'error' && !isBackendAbsent(m.text())) errs.push(m.text()); });
     page.on('pageerror', e => { if (!isBackendAbsent(e.message)) errs.push('pageerror: ' + e.message); });
 
