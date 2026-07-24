@@ -74,6 +74,8 @@ try {
 
 console.log(`\nGoogle-Fonts requests: ${fontReqs.length} (must be 0)`);
 const totalErrs = results.reduce((a, r) => a + r.errs, 0);
+const notLight = results.filter(r => !r.isLight);
 console.log(`Total console errors across pages: ${totalErrs}`);
+if (notLight.length) console.log(`Pages NOT light: ${notLight.map(r => r.page + '(' + r.bg + ')').join(', ')}`);
 console.log(`Screenshots in: ${outDir}`);
-process.exit(fontReqs.length === 0 && totalErrs === 0 ? 0 : 1);
+process.exit(fontReqs.length === 0 && totalErrs === 0 && notLight.length === 0 ? 0 : 1);
