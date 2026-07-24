@@ -67,6 +67,23 @@ Cada uno: reemplazar clases oscuras hardcodeadas (`slate-700/800`, `text-white`,
 3. Playwright: dev server, screenshots de las 6 páginas, 0 errores de consola, 0 requests a Google Fonts, auto-save del toggle headroom, override de marca (brand oscuro → sigue claro).
 4. Codex review. NO merge a dev-fran (paso 3 joint con JF). Screenshots para su OK final.
 
+## Verificación de integración (orquestador, 2026-07-24)
+
+- **Merge**: FND → PA(login+dash) → PD(users) → PB(firewall+models) → PC(playground+security+auto-save headroom). Todos limpios. `npm run build` integrado OK.
+- **Playwright vivo (headed, dev server vite)** — `frontend/e2e/029-screens.mjs`: 7 páginas tema claro (bg `#faf9f8`), **0 requests a Google Fonts** (air-gap ✓), 0 errores JS reales (los únicos son `Failed to fetch` por backend ausente en dev). Screenshots revisados por el orquestador: Login/Dashboard/Users/Firewall/Security/Playground se ven Foundry-claro coherentes.
+
+### Codex — trayectoria de convergencia (§11.9)
+
+| Pase | P1 | P2 | P3 | Notas |
+|------|----|----|----|-------|
+| 1 | 0 | 2 | 1 | (a) páginas legacy no-piloto quedan ilegibles (white-on-white) por el remap `bg-panel`→claro; (b) harness no declaraba playwright; (c) harness no forzaba isLight. |
+| 2 | — | — | — | tras fixes (pendiente) |
+
+**Acciones pase 1**:
+- **P2 (a) legacy ilegibles** → barrido de legibilidad de las 5 páginas no-piloto (Costs/Governance/Compliance/Audit/Docs) a tokens claros (minions 029-legacy-a/b). Real: son alcanzables desde la sidebar y romperían el demo.
+- **P2 (b) playwright** → `frontend/e2e/package.json` declara playwright (harness corre desde install limpio). Arreglado (`1d05b82`).
+- **P3 (c) isLight** → el harness ahora falla (exit 1) si alguna página no es clara. Arreglado (`1d05b82`).
+
 ## Definition of Done
 - [ ] 6 páginas + shell en tema claro coherente, sin restos oscuros, 0 errores de consola.
 - [ ] Fuentes auto-hospedadas, 0 requests a Google Fonts (air-gap).
