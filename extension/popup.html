@@ -16,49 +16,53 @@
   button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px;
            font: inherit; font-weight: 600; cursor: pointer; }
   button.secondary { background: #1f2937; color: #cbd5e1; }
+  button:disabled { opacity: .4; cursor: default; }
   .row { display: flex; align-items: center; gap: 8px; }
+  .row .spacer { margin-left: auto; }
   .status { border-radius: 8px; padding: 9px 10px; font-size: 12px; }
   .status.on  { background: #052e1a; border: 1px solid #14532d; color: #86efac; }
   .status.off { background: #2a0f12; border: 1px solid #7f1d1d; color: #fca5a5; }
   .muted { color: #6b7280; font-size: 11px; }
-  .toggle { margin-left: auto; }
-  .switch { position: relative; width: 40px; height: 22px; }
-  .switch input { display: none; }
-  .slider { position: absolute; inset: 0; background: #374151; border-radius: 999px; transition: .15s; }
-  .slider::before { content:""; position:absolute; width:16px; height:16px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.15s; }
-  .switch input:checked + .slider { background: #16a34a; }
-  .switch input:checked + .slider::before { transform: translateX(18px); }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
   <header>
-    <span style="font-size:16px">🛡️</span><b>Basa Guard</b><span class="ver">v0.2</span>
+    <span style="font-size:16px">🛡️</span><b>Basa Guard</b><span id="ver" class="ver"></span>
   </header>
   <div class="body">
-    <div id="status" class="status off">Desconectado — pegá tu API key para usar la IA.</div>
+    <div id="status" class="status off">Desconectado — configurá tu API key para usar la IA.</div>
 
-    <div>
-      <label>API key del gateway</label>
-      <input id="key" type="password" placeholder="sk-basa-...">
-    </div>
-    <div>
-      <label>Gateway</label>
-      <input id="gw" type="text" placeholder="http://localhost:8081/gw">
-    </div>
-    <div class="row">
-      <button id="connect">Conectar</button>
-      <button id="disconnect" class="secondary">Desconectar</button>
+    <!-- Vista principal: sólo conectar / desconectar / configurar. La key y el
+         gateway no viven acá: son un setup de una vez, no algo que se mire. -->
+    <div id="view-main">
+      <div class="row">
+        <button id="connect">Conectar</button>
+        <button id="disconnect" class="secondary">Desconectar</button>
+        <button id="open-config" class="secondary spacer" title="Configurar">⚙</button>
+      </div>
     </div>
 
-    <div class="row" style="border-top:1px solid #1f2937; padding-top:10px;">
-      <span>Protección PII</span>
-      <label class="switch toggle">
-        <input id="enabled" type="checkbox" checked>
-        <span class="slider"></span>
-      </label>
+    <!-- Vista de configuración -->
+    <div id="view-config" class="hidden">
+      <div>
+        <label>API key</label>
+        <input id="key" type="password" placeholder="sk-basa-...">
+      </div>
+      <div style="margin-top:8px">
+        <label>Gateway</label>
+        <input id="gw" type="text" placeholder="https://gateway.ejemplo.org/api/v1/gw">
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="save">Guardar y conectar</button>
+        <button id="cancel" class="secondary">Cancelar</button>
+      </div>
     </div>
-    <div class="muted">Sin key válida, la extensión bloquea el envío a ChatGPT/Claude (fail-closed).</div>
+
+    <div class="muted">La protección no se puede desactivar. Vos seguís viendo tus datos
+      completos en el chat; el proveedor recibe la versión enmascarada.</div>
   </div>
+  <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,22 +1,31 @@
 /* ============================================================================
- * Basa Guard v0.2 — content script MAIN. Conectado al gateway de Basa.
+ * Basa Guard — content script MAIN (hookea window.fetch).
  * ----------------------------------------------------------------------------
  * - FAIL-CLOSED: sin API key válida (validada contra /gw/whoami) bloquea el
  *   envío a ChatGPT/Claude y muestra un overlay (Constitución SC-3).
  * - MASKING VÍA GATEWAY: el texto del usuario se manda a /gw/inspect (por el
  *   service worker), que enmascara, atribuye identidad (user/team) y empuja la
- *   decisión al monitor "Firewall en vivo" (surface="browser"). La respuesta
- *   trae los replacements; des-enmascaramos en el DOM.
- * - No hay regex local: la detección la hace el gateway (Presidio/regex central).
+ *   decisión al monitor "Firewall en vivo". La respuesta trae los replacements;
+ *   des-enmascaramos en el DOM para que el usuario siga leyendo sus datos.
+ * - No hay detección local: la hace el gateway, de forma centralizada.
  * El service worker tiene la key; este script (MAIN) nunca la ve.
+ *
+ * REGLA DEL MAPA REVERSIBLE (S.tok2val): mapea token → valor original, o sea
+ * exactamente lo que EVITAMOS que saliera. Vive en el closure y no se expone en
+ * ningún lado observable por la página: ni en `window`, ni en el DOM, ni en
+ * document.title. Todo lo demás del panel ya salió hacia el proveedor, así que
+ * mostrarlo no agrega exposición; el mapa sí. No romper esa asimetría.
  * ==========================================================================*/
 (() => {
   if (window.__BASA_GUARD__) return;
   window.__BASA_GUARD__ = true;
 
+  // Sin handle global: `window.__BASA = S` dejaba el mapa token→PII al alcance de
+  // cualquier script de la página con una línea (issue #44).
   const S = { tok2val: new Map(), lastEvent: null };
-  window.__BASA = S;
-  let state = { enabled: true, connected: false, user: null, team: null };
+  // No hay `enabled`: el enmascarado NO es desactivable por el usuario. El toggle
+  // del popup dejaba que el empleado apagara el firewall y mandara el body crudo.
+  let state = { connected: false, user: null, team: null };
 
   // ---- adapters: dónde vive el texto del usuario, cómo leerlo/escribirlo ----
   const ADAPTERS = [
@@ -105,36 +114,35 @@
           updateOverlay();
           throw new Error("[Basa Guard] Conectate con tu API key para usar la IA.");
         }
-        if (state.enabled) {
-          if (init && typeof init.body === "string") {
-            // path inspeccionable: parsear, enmascarar los slots y reescribir el body
-            const obj = JSON.parse(init.body);
-            const slots = ad.slots(obj);
-            const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
-            if (combined.trim()) {
-              const res = await callBridge("inspect", { text: combined, tool: ad.web });
-              if (!res || !res.ok) {        // gateway caído estando conectado → bloquear (fail-closed)
-                updateOverlay(res && res.error);
-                throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
-              }
-              const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
-              if (reps.length) {
-                for (const s of slots) { let t = s.get(); for (const r of reps) t = t.split(r.original).join(r.token); s.set(t); }
-                for (const r of reps) S.tok2val.set(r.token, r.original);
-                rebuildUnmaskRe();
-              }
-              S.lastEvent = { vendor: ad.vendor, sentMasked: slots.map((s) => s.get()).filter(Boolean).join(" | "),
-                              entities: res.entities || [], user: res.user, team: res.team };
-              renderPanel();
-              init = Object.assign({}, init, { body: JSON.stringify(obj) });
+        // El enmascarado NO es opcional: no hay condición de usuario acá.
+        if (init && typeof init.body === "string") {
+          // path inspeccionable: parsear, enmascarar los slots y reescribir el body
+          const obj = JSON.parse(init.body);
+          const slots = ad.slots(obj);
+          const combined = slots.map((s) => s.get()).filter(Boolean).join("\n");
+          if (combined.trim()) {
+            const res = await callBridge("inspect", { text: combined, tool: ad.web });
+            if (!res || !res.ok) {          // gateway caído estando conectado → bloquear (fail-closed)
+              updateOverlay(res && res.error);
+              throw new Error("[Basa Guard] gateway no disponible" + (res && res.error ? ": " + res.error : ""));
             }
-          } else if (requestCarriesBody(input, init)) {
-            // matcheó + conectado + enabled, pero el body NO es texto inspeccionable
-            // (Request/Blob/FormData): no podemos garantizar el masking → bloquear (F4).
-            throw new Error("[Basa Guard] no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
+            const reps = (res.replacements || []).slice().sort((a, b) => b.original.length - a.original.length);
+            if (reps.length) {
+              for (const s of slots) { let t = s.get(); for (const r of reps) t = t.split(r.original).join(r.token); s.set(t); }
+              for (const r of reps) S.tok2val.set(r.token, r.original);
+              rebuildUnmaskRe();
+            }
+            S.lastEvent = { vendor: ad.vendor, sentMasked: slots.map((s) => s.get()).filter(Boolean).join(" | "),
+                            entities: res.entities || [], user: res.user, team: res.team };
+            renderPanel();
+            init = Object.assign({}, init, { body: JSON.stringify(obj) });
           }
-          // sin body → nada que enmascarar ni filtrar → dejar pasar
+        } else if (requestCarriesBody(input, init)) {
+          // matcheó + conectado, pero el body NO es texto inspeccionable
+          // (Request/Blob/FormData): no podemos garantizar el masking → bloquear (F4).
+          throw new Error("[Basa Guard] no puedo inspeccionar este request (body no-texto) — bloqueado por seguridad");
         }
+        // sin body → nada que enmascarar ni filtrar → dejar pasar
       }
     } catch (e) {
       if (String(e).includes("[Basa Guard]")) throw e;    // propagar el bloqueo explícito
@@ -166,10 +174,10 @@
       if (v && v.indexOf("[") >= 0) { _unmaskRe.lastIndex = 0; if (_unmaskRe.test(v)) { _unmaskRe.lastIndex = 0; node.nodeValue = v.replace(_unmaskRe, (m) => S.tok2val.get(m) || m); } }
     }
   }
-  function unmaskTitle() {
-    if (!_unmaskRe) return; const t = document.title;
-    if (t && t.indexOf("[") >= 0) { _unmaskRe.lastIndex = 0; const nt = t.replace(_unmaskRe, (m) => S.tok2val.get(m) || m); if (nt !== t) document.title = nt; }
-  }
+  // NO desenmascarar document.title: el título de página es campo estándar de
+  // telemetría de analytics y además va al historial y al sync del perfil del
+  // navegador — o sea, el valor real terminaba fuera de la pestaña por un canal
+  // que el usuario no ve. El usuario no gana nada con leer su dato ahí (issue #44).
 
   // ---- overlay de bloqueo (fail-closed) ----
   let overlay;
@@ -183,9 +191,9 @@
       }
       overlay.innerHTML = '<div style="max-width:420px;text-align:center;padding:28px;border:1px solid #1f2937;border-radius:16px;background:#0b0f19;box-shadow:0 20px 60px rgba(0,0,0,.6)">' +
         '<div style="font-size:34px">🛡️</div>' +
-        '<div style="font-size:17px;font-weight:700;color:#fff;margin:8px 0">Basa Guard — acceso protegido</div>' +
+        '<div style="font-size:17px;font-weight:700;color:#fff;margin:8px 0">Basa Guard — acceso restringido</div>' +
         '<div style="color:#9ca3af">Necesitás conectarte con tu <b>API key</b> para usar la IA en esta organización.</div>' +
-        '<div style="color:#6b7280;margin-top:10px;font-size:12px">Abrí la extensión (ícono 🛡️ arriba a la derecha) y pegá tu key.</div>' +
+        '<div style="color:#6b7280;margin-top:10px;font-size:12px">Abrí la extensión (ícono 🛡️ en la barra del navegador) y pegá tu key.</div>' +
         (errMsg ? '<div style="color:#fca5a5;margin-top:10px;font-size:12px">' + String(errMsg).replace(/</g, "&lt;") + '</div>' : '') + '</div>';
     } else if (overlay) { overlay.remove(); overlay = null; }
   }
@@ -211,18 +219,21 @@
         '<div style="color:#9ca3af;margin-bottom:4px">Entidades detectadas: <span style="color:#fca5a5">' + (ents || "—") + '</span></div>' +
         '<div style="color:#9ca3af;margin:6px 0 4px">Lo que salió a ' + (ev ? esc(ev.vendor) : "la IA") + ' (enmascarado):</div>' +
         '<div style="background:#111827;border:1px solid #374151;border-radius:8px;padding:8px;color:#fca5a5;white-space:pre-wrap;word-break:break-word">' + (ev ? esc(ev.sentMasked) : "—") + '</div>' +
-        '<div style="color:#9ca3af;margin:8px 0 4px">Mapa reversible (solo local):</div>' +
-        [...S.tok2val.entries()].map(([t, v]) => '<div><span style="color:#93c5fd">' + esc(t) + '</span> → <span style="color:#86efac">' + esc(v) + '</span></div>').join("") +
+        // El mapa reversible NO se renderiza: es lo único del panel que el proveedor
+        // todavía no tiene. Lo de arriba ya salió; esto es justamente lo que no salió.
+        '<div style="color:#6b7280;margin-top:8px;font-size:11px">Vos seguís viendo tus datos completos en el chat; el proveedor recibió lo de arriba.</div>' +
       '</div>';
   }
 
   // ---- arranque del DOM ----
   function startDom() {
-    new MutationObserver(() => { unmask(document.body); unmaskTitle(); }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    new MutationObserver(() => { unmask(document.body); }).observe(document.body, { childList: true, subtree: true, characterData: true });
     updateOverlay(); renderPanel();
   }
   if (document.body) startDom();
   else document.addEventListener("DOMContentLoaded", startDom, { once: true });
 
-  console.log("%c[Basa Guard v0.2] activo — fail-closed + masking vía gateway", "color:#22c55e");
+  // Sin número de versión: la única fuente es manifest.json (el mundo MAIN no
+  // puede leer chrome.runtime, así que acá no se duplica).
+  console.log("%c[Basa Guard] activo — fail-closed + masking vía gateway", "color:#22c55e");
 })();

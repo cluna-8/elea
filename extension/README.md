@@ -1,105 +1,137 @@
-# Basa Guard — browser-DLP (PoC, v0.2 · conectado al gateway)
+# Basa Guard — extensión de navegador
 
-Firewall de PII para **ChatGPT** y **Claude web**, **conectado al gateway de Basa**. Enmascara PII
-antes de que salga al vendor (el modelo ve `[PERSON_0]`), des-enmascara en pantalla, y — la novedad de
-la v0.2 — **requiere una API key** (fail-closed) y **atribuye el uso a un usuario/equipo en el "Firewall
-en vivo"**, igual que Claude Code pero `surface="browser"`.
-
-> Validado en vivo el 2026-07-10 sobre ChatGPT (`gpt-5-6-thinking`) y Claude.ai (`fable-5`).
-
-## Qué cambió vs v0.1
-- **Masking vía gateway** (`POST /gw/inspect`), no regex local → misma detección que el resto del
-  producto (Presidio/regex central) + audit + monitor.
-- **Fail-closed (SC-3):** sin API key válida (validada con `GET /gw/whoami`), un **overlay bloquea** la
-  página. No hay key → no se usa la IA.
-- **Identidad:** la key ES el `Client` (Constitución IV). El popup te loguea → "sofia.nunez · Radiología".
-- **Popup** con login (key + gateway) y **toggle** de protección.
+Firewall de datos personales para **ChatGPT** y **Claude web**. Enmascara la PII antes de que salga
+hacia el proveedor (el modelo recibe `[PERSON_0]`), la **des-enmascara en pantalla** para que el
+usuario siga leyendo sus datos reales, exige una **API key** por usuario (fail-closed) y atribuye
+cada envío a un usuario/equipo en el monitor "Firewall en vivo".
 
 ## Arquitectura (5 piezas)
-- `basa-guard.js` (MAIN): hookea `fetch`, gating, manda el texto al gateway, des-enmascara en el DOM.
-- `bridge.js` (ISOLATED): puente `postMessage` ↔ `chrome.runtime` (MAIN no puede usar `chrome.*`).
-- `background.js` (service worker): único que llama al gateway (host_permissions → sin CORS); guarda la key.
-- `popup.html`/`popup.js`: login + toggle.
-- Gateway: `/gw/whoami` (identidad) y `/gw/inspect` (mask + audit + push al monitor con `surface:"browser"`).
 
-## Puesta en marcha
+| Pieza | Mundo | Responsabilidad |
+|---|---|---|
+| `basa-guard.js` | MAIN | Hookea `window.fetch`, aplica el gate, manda el texto al gateway y des-enmascara el DOM. Nunca ve la key. |
+| `bridge.js` | ISOLATED | Puente `postMessage` ↔ `chrome.runtime` (MAIN no puede usar `chrome.*`). |
+| `background.js` | service worker | **Único** que llama al gateway (`host_permissions` → sin CORS) y **único** que tiene la key. |
+| `popup.html` / `popup.js` | — | Conectar / desconectar, y una vista de configuración aparte. |
+| `config.js` | — | **Única** fuente de la URL del gateway; la leen el service worker y el popup. |
 
-**1. Backend (una vez):** gateway arriba + seed del usuario de Radiología:
-```bash
-docker exec eu-backend python -m scripts.seed_browser_demo
-# crea: sofia.nunez / Radiología · key: sk-basa-<generada-por-el-seed>
-```
+Endpoints que consume: `GET /whoami` (identidad) y `POST /inspect` (enmascarado + auditoría + push
+al monitor), ambos bajo el prefijo del gateway.
 
-**2. Cargar/recargar la extensión:** `brave://extensions` (o `chrome://`) → **↻** en Basa Guard
-(o "Cargar descomprimida" → carpeta `basa-browser-dlp/` si es la primera vez).
+## Configurar la extensión para un despliegue
 
-**3. Conectar:** click en el ícono 🛡️ → pegá la key `sk-basa-<tu-connection>`, gateway
-`http://localhost:8081/gw` → **Conectar** → "🟢 Conectado como sofia.nunez · Radiología".
+Para apuntarla a otro gateway hay que tocar **dos** cosas, y sólo dos:
 
-## Guion de demo (el contraste es la gracia)
-1. **Sin conectar:** abrí ChatGPT → **overlay de bloqueo** ("necesitás tu API key"). *No se puede usar.*
-2. **Conectá** con la key de Radiología → el overlay desaparece.
-3. Prompt: *"email para el paciente Juan Perez (juan.perez@clinica.es)…"* → el panel muestra
-   **team/user + entidades + lo que salió enmascarado**; el modelo ve `[PERSON_0]`, vos ves el nombre real.
-4. Abrí el **monitor** `http://localhost:8081/gw/monitor` → aparece la tarjeta **`browser · sofia.nunez ·
-   Radiología`**, junto a Claude Code. *"Un empleado, N herramientas, un firewall."*
+1. `GATEWAY_URL` en `config.js`.
+2. El host correspondiente en `host_permissions` de `manifest.json` — MV3 bloquea el `fetch` del
+   service worker hacia cualquier host no declarado en el manifest.
 
-## Modelo de amenaza (leer antes de confiar en el fail-closed)
+> Si algún día aparece una tercera copia de la URL, es un bug: fue exactamente lo que hizo que
+> existieran tres carpetas divergentes de esta extensión.
 
-**Qué protege Basa Guard:** la **fuga accidental de PII del propio usuario** cuando usa sitios de IA
-de **confianza** (ChatGPT, Claude.ai). El usuario pega datos sensibles sin querer; la extensión los
-enmascara antes de que salgan al vendor, o **bloquea el envío** (fail-closed) si no puede garantizar el
-masking o no hay key válida. Ese es el caso de uso real y la garantía es fuerte para él.
+Con una key **por usuario**, un despliegue remoto debe ser `https://`: sobre `http` la credencial
+viaja en claro.
 
-**Qué NO protege: una página hostil.** Los content scripts del mundo **MAIN** (donde corre
+## Cargar la extensión
+
+`chrome://extensions` (o `brave://extensions`) → activar **Modo de desarrollador** → **Cargar
+descomprimida** → seleccionar esta carpeta. Para recargar tras un cambio, el botón **↻** de la
+tarjeta.
+
+Después: click en el ícono → **⚙** → pegar la key `sk-basa-…` → **Guardar y conectar**.
+
+La vista principal muestra sólo el estado (`Conectado como usuario · equipo`) y tres botones:
+**Conectar** (revalida contra el gateway), **Desconectar** (borra la key) y **⚙** (configuración).
+La key y el gateway viven detrás del ⚙ porque son un setup de **una vez**: se guardan y **no se
+vuelven a mostrar**. Esto es un login, no un gestor de API keys.
+
+**No hay toggle de protección.** El enmascarado no es desactivable por el usuario: el toggle que
+existía dejaba que el empleado apagara el firewall y mandara el body crudo al proveedor.
+
+## Modelo de amenaza (leer antes de prometer nada a un cliente)
+
+**La garantía fuerte, la que se puede firmar:** lo que sale por la red va enmascarado. El
+**servidor** del proveedor nunca recibe el dato personal. Si la extensión no puede garantizar el
+enmascarado —no hay key válida, el gateway no responde, el body no es texto inspeccionable— el
+envío se **bloquea** en vez de salir crudo (fail-closed, Constitución SC-3).
+
+**El límite, y hay que decirlo:** los content scripts del mundo **MAIN** (donde corre
 `basa-guard.js` para hookear `window.fetch`) **comparten el `window` con los scripts de la propia
-página** — es una limitación arquitectónica de los hooks MAIN-world en MV3, no un bug. Una página
-hostil controla ese contexto JS y podría, entre otras cosas:
-- exfiltrar los datos por otros medios (su propio `fetch`/`XHR`/`WebSocket`, `sendBeacon`, imágenes, …)
-  sin pasar por los adapters que hookeamos;
-- **observar el handshake** del nonce (los `postMessage` viajan por el mismo `window`) y, con esfuerzo,
-  reproducirlo.
+página**. Es una limitación arquitectónica de MV3, no un bug. En consecuencia, el JS del proveedor
+—corriendo en su propia página— **puede leer el DOM donde des-enmascaramos para el usuario**. No hay
+forma en MV3 de mostrarle un texto al humano y ocultárselo al JS de la página.
 
-**Mitigación de forja de `postMessage` (F-ext-1):** el bridge (mundo ISOLATED) genera un
-`crypto.randomUUID()` al arrancar y lo adjunta a **cada** mensaje hacia MAIN (`init`, `state`, `resp`).
-MAIN **fija el primer nonce** que ve de un mensaje del bridge y **descarta** cualquier `state`/`resp`
-con nonce distinto o ausente. Esto **frena la forja ingenua** (un script de la página que simplemente
-postea `{__basa:"state", state:{connected:true}}` para desactivar el fail-closed, o una `resp` falsa
-`{ok:true, replacements:[]}` para colar PII cruda). **No es criptográficamente inforjable** —la página
-observa el handshake y comparte el mundo—, pero **eleva el costo** y cubre el caso realista (script de
-terceros/anuncio ingenuo, no un atacante que instrumenta activamente el mundo MAIN).
+**La frase honesta:** la extensión protege contra la **recolección normal** del proveedor —todo lo
+que legítimamente recibe, almacena y usa para entrenar—, **no** contra un proveedor que ataque
+activamente a sus propios usuarios con un script dirigido. Ese es un umbral distinto y ninguna
+extensión de navegador lo cruza.
 
-**Conclusión honesta:** la garantía fuerte de fail-closed + masking aplica a **páginas no-hostiles de
-confianza**. Contra una **página activamente hostil** el nonce es defense-in-depth, no una barrera
-infranqueable. Es una **limitación conocida y documentada**, no un descuido.
+Además, una página hostil podría exfiltrar por caminos que no hookeamos (`XHR`, `WebSocket`,
+`sendBeacon`, imágenes) sin pasar por los adapters.
 
-## Verificación (hardening 019 — fail-closed)
+### Mitigaciones implementadas
 
-`node --check extension/basa-guard.js` y `node --check extension/bridge.js` deben pasar (sintaxis).
-Verificación manual (cargar la extensión descomprimida y observar):
+**F-ext-1 — forja de `postMessage` hacia MAIN.** El bridge genera un `crypto.randomUUID()` al
+arrancar y lo adjunta a cada mensaje hacia MAIN (`init`, `state`, `resp`). MAIN fija el primer nonce
+que ve y descarta todo `state`/`resp` con nonce distinto o ausente. Frena la forja ingenua (un
+script que postea `{__basa:"state", state:{connected:true}}` para desactivar el gate, o una `resp`
+falsa `{ok:true, replacements:[]}` para colar PII cruda). **No es criptográficamente inforjable**:
+la página observa el handshake y comparte el mundo.
 
-1. **Fail-closed por match, no por body (F4):** desconectá la extensión (sin key válida) y abrí
-   ChatGPT/Claude. Cualquier request a un endpoint de envío se **bloquea** (throw `[Basa Guard] …`),
-   incluso si el body no es un string JSON (Request/Blob/FormData). Conectado + masking ON, un request
-   a un endpoint matcheado con **body no-texto** también se **bloquea** (mensaje "body no-texto") en vez
-   de mandarse crudo. Un request a un endpoint **no** matcheado pasa normal.
-2. **Fail-closed en el catch (F6):** forzá un error dentro del path de masking (p.ej. un body JSON
-   inválido en un endpoint matcheado, estando conectado + ON): el envío se **bloquea** (throw), no se
-   reenvía el body original sin enmascarar. Un error en un request no-matcheado **no** interfiere.
-3. **Forja de estado (F-ext-1):** en la consola de la página (mundo de la página), ejecutá
-   `window.postMessage({__basa:"state", state:{enabled:true, connected:true}}, "*")`. El gate **no**
-   cambia a "conectado" (el mensaje se descarta por nonce faltante/incorrecto); el overlay de bloqueo
-   sigue si no hay key real. Lo mismo con una `resp` forjada para un id pendiente: se descarta.
+**F-ext-2 — el bridge como deputy confundido** (issue #44). El listener del bridge oye el mismo
+`window` que la página, así que todo lo que llega es no-confiable. Tres guardas: descarta lo que no
+venga de `ev.source === window`; sólo acepta `kind` de una allowlist (`inspect`), de modo que la
+página no puede disparar `whoami` y con él reescribir el estado de sesión en `storage`; y **nunca**
+reenvía una `key` recibida por `postMessage` — el service worker la lee de `storage`.
 
-## Honesto / límites
-- Detección de nombres = la del gateway (mejor que el regex v0.1, pero prod = Presidio NLP real, SC-2).
-- Artefactos de Claude en iframe: el unmask del DOM no llega (chat normal sí).
-- PoC: gateway local (`localhost:8081`). Prod: enrollment por SSO (spec 017) + deploy por MDM.
-- **Superficie de ataque (MAIN-world):** ver "Modelo de amenaza" arriba — el nonce mitiga forja ingenua
-  de `postMessage`, no una página activamente hostil (comparte el contexto JS del mundo MAIN).
+**Regla del mapa reversible.** `S.tok2val` mapea token → valor original, o sea exactamente lo que
+**evitamos** que saliera. Vive en el closure de `basa-guard.js` y no se expone en ningún lugar
+observable por la página: ni en `window`, ni en el DOM, ni en `document.title`. Todo lo demás que
+muestra el panel **ya salió** hacia el proveedor, así que renderizarlo no agrega exposición; el mapa
+sí. No romper esa asimetría.
 
-## Próximos pasos
-- [ ] Tag de `surface` visible en el HTML del monitor (browser vs base_url).
-- [ ] Enrollment por SSO en vez de pegar la key a mano (spec 017).
-- [ ] Unmask en iframes (artefactos de Claude).
-- [ ] Formalizar como spec del módulo browser-DLP en `basa-guardian/specs/`.
+## Límites conocidos
+
+- **La detección de esta superficie es por patrones**, centralizada en el gateway — no usa análisis
+  lingüístico. Puede no reconocer nombres de persona o direcciones escritos en texto libre. Es una
+  decisión de producto registrada, no un descuido: el plano de suscripción/navegador se mantiene con
+  detección por patrones. Comunicarlo en la UI está pendiente (spec 028).
+- **Artefactos de Claude en iframe:** el unmask del DOM no llega (el chat normal sí). Los content
+  scripts corren con `all_frames: false`.
+- **La sesión no se revalida sola.** Una key revocada por licencia responde `403` y hoy sólo se
+  reacciona ante `401`, así que el estado puede quedar obsoleto hasta el siguiente `Desconectar`.
+  Pendiente (spec 028).
+- **Los bloqueos de gobernanza se muestran como "gateway no disponible".** Hasta que la extensión
+  entienda el contrato de bloqueo, un bloqueo legítimo de política parece una caída de
+  infraestructura. Pendiente (spec 028).
+- **Distribución:** hoy es "Cargar descomprimida" con modo de desarrollador — sin auto-update y con
+  el aviso persistente de Chrome. Pendiente decidir listado *unlisted* en la tienda por partner.
+
+## Verificación manual
+
+Sintaxis: `node --check` sobre `config.js`, `background.js`, `bridge.js`, `popup.js` y
+`basa-guard.js`.
+
+Con la extensión cargada y conectada, en la consola **de la página**:
+
+1. **El mapa reversible no es alcanzable (issue #44):** `typeof window.__BASA` → `"undefined"`.
+2. **El bridge rechaza `kind` no permitidos (F-ext-2):**
+   `window.postMessage({__basa:"req", id:999, kind:"whoami", key:"sk-otra"}, "*")` → `basa_connected`,
+   `basa_user` y `basa_team` en `chrome.storage.local` **no** cambian.
+3. **El título no filtra:** tras un envío con PII, `document.title` no contiene ningún valor real.
+4. **Forja de estado (F-ext-1):** `window.postMessage({__basa:"state", state:{connected:true}}, "*")`
+   → el gate **no** se abre; el overlay de bloqueo sigue si no hay key real.
+5. **Fail-closed por match, no por body (F4):** sin key válida, cualquier request a un endpoint de
+   envío se bloquea, incluso con body no-texto (`Request`/`Blob`/`FormData`). Conectado y con
+   masking ON, un endpoint matcheado con body no-texto también se bloquea. Un endpoint **no**
+   matcheado pasa normal.
+6. **Fail-closed en el catch (F6):** un error dentro del path de masking (p. ej. body JSON inválido
+   en un endpoint matcheado, conectado y ON) **bloquea** el envío; no reenvía el body sin enmascarar.
+7. **Una key inválida no deja rastro:** intentar conectar con una key que no valida → nada en
+   `chrome.storage.local`.
+
+## Pendientes
+
+Todo lo de arriba marcado *(spec 028)*, más: render de marca por partner, ID estable del paquete
+(`key` del manifest), superficie canónica de navegador en el catálogo de superficies, y enrollment
+por SSO en lugar de pegar la key a mano (spec 017).
