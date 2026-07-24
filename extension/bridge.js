@@ -1,4 +1,4 @@
-/* Basa Guard — bridge (content script en mundo ISOLATED).
+/* bridge — content script en mundo ISOLATED.
  * Puente entre el content script MAIN (que hookea fetch pero no puede usar
  * chrome.*) y el service worker. Protocolo por window.postMessage:
  *   MAIN  -> {__basa:"req", id, kind, text, tool}      (pedido inspect/whoami)
@@ -14,8 +14,8 @@
  * (ver "Modelo de amenaza" en README.md).
  */
 (() => {
-  // Nonce por-sesión. crypto.randomUUID requiere secure context (https/localhost);
-  // los targets (ChatGPT/Claude.ai/gateway local) lo son. Fallback defensivo por si no.
+  // Nonce por-sesión. crypto.randomUUID requiere contexto seguro (https o dev local);
+  // los targets (ChatGPT/Claude.ai) lo son. Fallback defensivo por si no.
   const NONCE = (self.crypto && self.crypto.randomUUID)
     ? self.crypto.randomUUID()
     : ("n" + Math.random().toString(36).slice(2) + Date.now().toString(36));
@@ -55,15 +55,25 @@
     );
   });
 
-  // Empujar el estado (toggle + identidad) a MAIN
+  // Empujar el estado (identidad + honestidad + marca) a MAIN.
+  // NOTA 028: sólo se AMPLÍA el payload de `state` (proteccion + name). El handshake
+  // de nonce, la allowlist de `kind` y el relay de `resp` NO se tocan: `proteccion` es
+  // copy de alcance (no sensible) y no altera el gate (que sigue = connected).
   async function pushState() {
-    const s = await chrome.storage.local.get(["basa_connected", "basa_user", "basa_team", "basa_key"]);
+    const s = await chrome.storage.local.get(["basa_connected", "basa_user", "basa_team", "basa_key", "proteccion"]);
+    let name = "";
+    try { name = (chrome.runtime.getManifest().name) || ""; } catch (_) { name = ""; }
     post({
       __basa: "state",
       state: {
         connected: !!s.basa_connected && !!s.basa_key,   // hay key validada
         user: s.basa_user || null,
         team: s.basa_team || null,
+        // US4: bloque de honestidad del server para el chip ámbar del panel (o null → fallback).
+        proteccion: s.proteccion || null,
+        // US3/white-label: el nombre lo pisa el render del partner; el MAIN no puede leer
+        // chrome.runtime, así que el panel/overlay toman de acá la marca a mostrar.
+        name: name,
       },
     });
   }

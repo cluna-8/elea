@@ -20,18 +20,29 @@
   .row { display: flex; align-items: center; gap: 8px; }
   .row .spacer { margin-left: auto; }
   .status { border-radius: 8px; padding: 9px 10px; font-size: 12px; }
-  .status.on  { background: #052e1a; border: 1px solid #14532d; color: #86efac; }
-  .status.off { background: #2a0f12; border: 1px solid #7f1d1d; color: #fca5a5; }
+  .status.on   { background: #052e1a; border: 1px solid #14532d; color: #86efac; }
+  .status.off  { background: #2a0f12; border: 1px solid #7f1d1d; color: #fca5a5; }
+  .status.warn { background: #2b1a06; border: 1px solid #92400e; color: #fbbf24; }
+  /* Chip ÁMBAR de honestidad (US4): nunca verde, nunca "protegido". */
+  .chip { border-radius: 8px; padding: 8px 10px; background: #2b1a06; border: 1px solid #92400e; }
+  .chip .chip-title  { color: #fbbf24; font-weight: 700; font-size: 12px; }
+  .chip .chip-detail { color: #fcd34d; font-size: 11px; margin-top: 4px; }
   .muted { color: #6b7280; font-size: 11px; }
   .hidden { display: none; }
 </style>
 </head>
 <body>
   <header>
-    <span style="font-size:16px">🛡️</span><b>Basa Guard</b><span id="ver" class="ver"></span>
+    <span style="font-size:16px">🛡️</span><b id="app-name"></b><span id="ver" class="ver"></span>
   </header>
   <div class="body">
     <div id="status" class="status off">Desconectado — configurá tu API key para usar la IA.</div>
+
+    <!-- Chip de honestidad (US4): sólo visible al conectar; texto de alcance del server. -->
+    <div id="proteccion" class="chip hidden">
+      <div class="chip-title"></div>
+      <div class="chip-detail"></div>
+    </div>
 
     <!-- Vista principal: sólo conectar / desconectar / configurar. La key y el
          gateway no viven acá: son un setup de una vez, no algo que se mire. -->
@@ -47,7 +58,7 @@
     <div id="view-config" class="hidden">
       <div>
         <label>API key</label>
-        <input id="key" type="password" placeholder="sk-basa-...">
+        <input id="key" type="password" placeholder="Pegá tu API key">
       </div>
       <div style="margin-top:8px">
         <label>Gateway</label>
