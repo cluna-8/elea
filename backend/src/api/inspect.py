@@ -40,7 +40,13 @@ from fastapi.responses import JSONResponse
 
 from . import gateway  # reuse: _resolve_attribution (fail-closed check), _audit, _publish_monitor, policy
 from ..licensing.degraded import require_not_hard_blocked
-from ..services.governance_catalog import ROUTE_GATEWAY_PASSTHROUGH, SURFACES
+from ..services.governance_catalog import (
+    GOVERNANCE_LAYERS,
+    LAYER_KEYS,
+    ROUTE_GATEWAY_PASSTHROUGH,
+    SURFACES,
+)
+from ..services.governance_status import _PISO_SIGUE
 
 # Bloqueo total de licencia (spec 021 US4, FR-020): whoami/inspect SON el
 # servicio DLP de la extensión — bajo hard block se cortan como el resto de /gw.
@@ -131,9 +137,46 @@ def _superficie(ident: dict, tool_declarado) -> str:
     return _SUPERFICIE_DESCONOCIDA
 
 
+# ── Bloque `proteccion` de whoami (US4 — chip de honestidad) ──────────────────────
+#
+# La extensión lo consume para pintar un chip ámbar "cobertura parcial"; NO lo hardcodea
+# (fuente única de copy, contrato whoami-proteccion). Todo el vocabulario es CERRADO y sin
+# un solo nombre de motor/tecnología (C1 / Constitución VII): "patrones"/"linguistico",
+# jamás "regex"/"presidio"/nombre de proveedor.
+
+# `deteccion`: regla del contrato — plano gateway + `pii_detection` sin servicio propio
+# (`requires_service is None`) ⇒ "patrones". Hoy NINGUNA capa del catálogo declara
+# `requires_service` (governance_status.confirmed_services está vacío), así que esta
+# superficie siempre detecta por patrones. No se computa dinámico a propósito: el día que la
+# 016 declare el sidecar NLP y esta capa pase a "linguistico", HAY QUE sumar el `detalle`
+# correspondiente (hoy sólo existe el de patrones) — un flip silencioso dejaría `deteccion`
+# y `detalle` contándose historias distintas.
+_PROTECCION_DETECCION = "patrones"
+_PROTECCION_TITULO = "Detección por patrones"
+
+# `detalle`: prosa llana + el literal `_PISO_SIGUE` (importado de governance_status, no
+# copiado). El contract test verifica `detalle.endswith(_PISO_SIGUE)`.
+_PROTECCION_DETALLE = (
+    "En esta superficie la detección de datos personales funciona por patrones conocidos "
+    "—correo, teléfono, documentos de identidad, credenciales—. No usa análisis lingüístico: "
+    "puede no reconocer nombres de persona o direcciones escritos en texto libre. "
+    + _PISO_SIGUE)
+
+# `capas_delegadas`: las capas que en modo suscripción aporta el extremo upstream (FR-013).
+# Se DERIVA del registry (única fuente de verdad), no se lista a mano: una capa es delegable
+# en suscripción exactamente cuando `delegable_to_upstream` es True —la MISMA condición que
+# usa ``compute_layer_state`` para reportar ``ESTADO_DELEGADA``—. Hoy: content_moderation,
+# prompt_injection. Sumar una capa delegable nueva actualiza el chip sin tocar este router.
+_PROTECCION_CAPAS_DELEGADAS = tuple(
+    k for k in LAYER_KEYS if GOVERNANCE_LAYERS[k].delegable_to_upstream)
+
+
 @router.get("/whoami")
 def gw_whoami(x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
-    """Valida la key → identidad para el login del popup. Fail-closed (SC-005)."""
+    """Valida la key → identidad para el login del popup. Fail-closed (SC-005).
+
+    Devuelve además el bloque `proteccion` (US4): copy server-side para el chip de
+    honestidad de la extensión (vocabulario cerrado, sin nombres de motor)."""
     ident = gateway._resolve_attribution(x_basa_key)
     if ident["api_key_id"] is None:
         return _fail_closed()
@@ -142,6 +185,12 @@ def gw_whoami(x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
         "user": ident.get("client_username") or "—",
         "team": ident.get("group_name") or "—",
         "key_label": ident.get("key_label") or "—",
+        "proteccion": {
+            "deteccion": _PROTECCION_DETECCION,
+            "titulo": _PROTECCION_TITULO,
+            "detalle": _PROTECCION_DETALLE,
+            "capas_delegadas": list(_PROTECCION_CAPAS_DELEGADAS),
+        },
     }
 
 
