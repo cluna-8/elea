@@ -454,6 +454,49 @@ export interface AuditLog {
   tokens_saved_by_optimization: number;
 }
 
+/** Piso de longitud que exige el backend (auth/passwords.py MIN_PASSWORD_LEN). Está
+ *  duplicado a propósito: el cliente valida para poder decirlo en el campo, en español y
+ *  antes del viaje, pero el que MANDA sigue siendo el servidor. Si allá sube, subir acá. */
+export const MIN_PASSWORD_LEN = 12;
+
+/** Devuelve el mensaje a mostrar si la contraseña no sirve, o `null` si pasa. */
+export function validarPassword(raw: string | undefined | null): string | null {
+  if (!raw) return "Escriba una contraseña para esta persona.";
+  if (raw.length < MIN_PASSWORD_LEN) {
+    return `La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres.`;
+  }
+  return null;
+}
+
+/** POST de contraseña con el trato de error que estas pantallas necesitan: el `detail` del
+ *  backend ES el mensaje que se muestra (viene en español) y el status se conserva.
+ *  `sesionVencidaEn401` distingue los dos significados que tiene un 401 acá: en el reseteo
+ *  del administrador sólo puede ser la sesión vencida (hay que echar y recargar), pero en el
+ *  cambio propio es "la contraseña actual no coincide" — cerrarle la sesión a alguien por un
+ *  error de tipeo le haría perder el formulario y parecería un bug del producto. */
+async function passwordFetch(
+  path: string,
+  body: unknown,
+  fallback: string,
+  sesionVencidaEn401: boolean
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError("No se pudo contactar al servidor.", 0);
+  }
+  if (sesionVencidaEn401) handleExpiredSession(res);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(detailMessage(err, fallback), res.status);
+  }
+}
+
 export const api = {
   // --- Auth ---
   login: async (username: string, password: string): Promise<{ access_token: string; user: any }> => {
@@ -473,14 +516,49 @@ export const api = {
     return res.json();
   },
 
-  createUser: async (user: Omit<User, "id" | "created_at" | "updated_at"> & { password?: string }): Promise<User> => {
+  /** La contraseña es obligatoria y NO tiene valor por defecto. El relleno anterior
+   *  ("defaultpass123") le daba a cada persona registrada la misma credencial conocida, así
+   *  que un alta silenciosa era una cuenta abierta: si falta, esto revienta acá y no manda
+   *  nada. */
+  createUser: async (user: Omit<User, "id" | "created_at" | "updated_at"> & { password: string }): Promise<User> => {
+    const invalida = validarPassword(user.password);
+    if (invalida) throw new ApiError(invalida, 422);
     const res = await fetch(`${API_BASE}/users`, {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify({ ...user, password: user.password || "defaultpass123" }),
+      body: JSON.stringify(user),
     });
-    if (!res.ok) throw new Error("Failed to create user");
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(e, "No se pudo registrar al usuario."), res.status);
+    }
     return res.json();
+  },
+
+  /** Cambio de la propia contraseña. Su 401 es "la contraseña actual no coincide", así que
+   *  NO se trata como sesión vencida. */
+  changeOwnPassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    const invalida = validarPassword(newPassword);
+    if (invalida) throw new ApiError(invalida, 422);
+    await passwordFetch(
+      "/users/me/password",
+      { current_password: currentPassword, new_password: newPassword },
+      "La contraseña actual no es correcta.",
+      false
+    );
+  },
+
+  /** Reseteo del administrador sobre otra persona: no pide la contraseña actual, porque el
+   *  administrador no la conoce (ni debería). */
+  resetUserPassword: async (userId: string, newPassword: string): Promise<void> => {
+    const invalida = validarPassword(newPassword);
+    if (invalida) throw new ApiError(invalida, 422);
+    await passwordFetch(
+      `/users/${userId}/password`,
+      { new_password: newPassword },
+      "No se pudo cambiar la contraseña.",
+      true
+    );
   },
 
   updateUser: async (userId: string, current: User, patch: { group_id?: string | null; role?: string; compliance_project_id?: string | null }): Promise<User> => {

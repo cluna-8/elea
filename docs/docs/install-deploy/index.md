@@ -97,7 +97,7 @@ Los tres actores y su frontera de responsabilidad:
 | TLS + DNS | En el árbol de release: DNS por cliente derivado del slug + TLS terminado por **proxy auto-HTTPS en la VM**; pendiente la validación e2e aplicada. En dev: HTTP plano en puertos altos | TLS terminado + DNS por cliente, región EU | 🟡 |
 | Onboarding de cliente | Perfil por cliente + seed idempotente desde YAML (`seed_clients_from_config(db, tenant_slug, path)`) | Igual, invocado por el flujo de instalación | 🟢 |
 | Tenant por slug | Modelo `Tenant.slug` único; on-prem = 1 tenant (default `…0001`) | Igual; cloud = N tenants aislados por RLS | 🟢 / 🟡 (RLS cableada en las tablas, pero el enforcement por request está pendiente: el aislamiento efectivo hoy es a nivel de aplicación) |
-| Bootstrap de admin | Primer login `admin` crea `tenant_admin`; email `admin@basa.com.ar`. En el camino IaC la credencial inicial se emite **una sola vez** como output sensible | Igual + rotación de credencial obligatoria post-instalación | 🟡 (rotación sólo por SQL hoy) |
+| Bootstrap de admin | Primer login `admin` crea `tenant_admin` **sólo mientras la instalación no tenga dueño** (ningún usuario con rol administrativo) y con un mínimo de 12 caracteres; email `admin@basa.com.ar`. En el camino IaC la credencial inicial se emite **una sola vez** como output sensible | Igual + rotación de credencial obligatoria post-instalación | 🟢 (rotación por API/UI: `POST /users/me/password` y reseteo de admin `POST /users/{id}/password`) |
 | Branding white-label | Naming neutro en el código (`AIEngineClient`/`engine_*`, errores del motor reescritos a naming neutro); el render del perfil produce el `brand.json` del cliente | Branding pack (nombre/logo/paleta) por cliente como **config-as-data en runtime** (sin recompilar) | 🟡 |
 | Licenciamiento offline | **Implementado fail-closed**: verificación Ed25519 offline al arranque; gate de seats en las altas (`402` seats agotados / `403` licencia no activa); estados `active`/`grace`/`expired`; `BASA_LICENSE_HARD_BLOCK` corta las rutas de servicio; `GET /api/v1/health/license`; auditoría hash-chained + true-up firmado; sin phone-home | Igual | 🟢 |
 | Bundle air-gapped | Herramienta de bundle en el árbol de release: tarball autocontenido con **todas** las imágenes + compose de producción + perfil renderizado + checks + manifiesto con digests; validada en el gate del release | Igual, por release; v2 con bundle firmado para k8s | 🟢 |
@@ -276,7 +276,23 @@ sequenceDiagram
 6. **Seed del tenant por slug.** Se crea el `Tenant` (name + `slug` +
    `deployment_mode=on_premise` para instalaciones single-tenant; el default determinista
    termina en `…0001`). El slug es la clave del despliegue por cliente. 🟢
-7. **Seed de clients + branding.**
+7. **Bootstrap de admin — ANTES de crear cualquier otro usuario.** El primer login como
+   `admin` crea un `tenant_admin` con la password que se envía en ese primer login (mínimo
+   **12 caracteres**: si es más corta, la respuesta es `422` y no se crea nada). El email del
+   bootstrap es `admin@basa.com.ar` — un TLD reservado tipo `.local` rompía la validación, ver
+   [el gotcha](#gotcha-email). El bootstrap **sólo corre mientras la instalación no tenga
+   dueño**, es decir mientras no exista ningún usuario cuya existencia pruebe que hubo un
+   administrador (`tenant_admin`, `super_admin` o `compliance_officer`: ninguno se puede crear
+   sin sesión admin): es lo que evita que en un despliegue ya poblado cualquiera que llegue al
+   login se cree un `tenant_admin` y se apropie del tenant. Los clients sembrados por el
+   perfil (paso 8) **no** cuentan como dueño —los siembra la config, no una persona—, así que
+   el orden 7→8 no bloquea la instalación; el orden importa por otra razón: mientras no exista
+   el dueño, **el primer login gana**. Hacer este paso inmediatamente después del arranque y
+   **antes de exponer el host** a la red del cliente. En el camino IaC, la credencial inicial sale **una sola vez**
+   de `tofu output -raw admin_bootstrap` y se rota con `-replace`. **Rotar la credencial
+   inmediatamente** con `POST /api/v1/users/me/password` o el botón *Cambiar mi contraseña*
+   de la barra lateral ([gotcha](#gotcha-password)). 🟢
+8. **Seed de clients + branding.**
     - En un despliegue desde perfil, el seed corre **dentro del contenedor del backend** con
       el `seed.yaml` renderizado del perfil (`docker compose exec backend python
       scripts/apply_profile_seed.py <slug> /profile/seed.yaml`); por debajo invoca
@@ -285,16 +301,11 @@ sequenceDiagram
       `APIKey` por `tool_type`) + Budget, todo tenant-scoped. Devuelve las **keys en claro
       SÓLO de las Connections recién creadas** — se entregan una vez al cliente y no se
       pueden recuperar después (sólo queda el hash). 🟢
+    - Los clients sembrados **no tienen login**: llevan un `password_hash` centinela
+      (`!seeded-client-no-login`) que no verifica en ningún formato. Consumen por su
+      Connection (virtual key), no por contraseña.
     - Se aplica el **branding pack** (configuración del frontend) — ver
       [White-label & branding](../white-label/index.md). 🟡
-8. **Bootstrap de admin + rotación.** El primer login como `admin` crea un `tenant_admin`
-   con la password que se envía en ese primer login (el email del bootstrap es
-   `admin@basa.com.ar` — un TLD reservado tipo `.local` rompía la validación, ver
-   [el gotcha](#gotcha-email)). En el camino IaC, la credencial inicial sale **una sola
-   vez** de `tofu output -raw admin_bootstrap` y se rota con `-replace`. **Rotar la
-   credencial inmediatamente**: hoy **no hay endpoint de cambio de password**, así que la
-   rotación es por SQL ([gotcha](#gotcha-password)); el endpoint es parte del roadmap de
-   endurecimiento de auth. 🟡
 9. **Instalación de la licencia + registro de génesis.** 🟢 Se coloca el archivo de licencia
    Ed25519 que habilita los N seats contratados (montado por el perfil); el backend la
    verifica offline al arranque. El enforcement es **fail-closed**: sin licencia activa las
@@ -382,19 +393,56 @@ creada automáticamente recién al asignarle un perfil de presupuesto. Las consu
 usuario". No es retroactivo. Explicarlo en el training para no confundirlo con un fallo de
 atribución.
 
-### No hay endpoint para cambiar la password de un usuario ya creado { #gotcha-password }
+### Rotar la password de un usuario ya creado { #gotcha-password }
 
-Ni en UI ni en API se puede rotar la password de un usuario existente (sólo se define al
-crearlo). Hasta que llegue el endpoint (roadmap de endurecimiento de auth), la rotación del
-admin post-instalación es por SQL:
+Hay **dos** caminos, y la diferencia importa: uno exige la contraseña actual y el otro no.
 
 ```bash
-docker exec <db-container> psql -U <user> -d <db> \
-  -c "UPDATE users SET password_hash='<sha256-del-nuevo-valor>' WHERE username='admin';"
+# a) Cada persona, la suya (cualquier rol). Exige la ACTUAL: el token de sesión sigue siendo
+#    válido en un equipo ajeno y no alcanza como prueba de identidad.
+#    En la UI: "Cambiar mi contraseña", en el bloque de sesión de la barra lateral.
+curl -X POST http://<host>/api/v1/users/me/password \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"current_password": "...", "new_password": "..."}'
+
+# b) El administrador, la de otro (reseteo). NO pide la actual: no la conoce.
+#    En la UI: "Restablecer contraseña", en Usuarios & Presupuestos.
+curl -X POST http://<host>/api/v1/users/<user_id>/password \
+  -H "Authorization: Bearer $TOKEN_ADMIN" -H "Content-Type: application/json" \
+  -d '{"new_password": "..."}'
 ```
 
-Este hueco es más relevante cuanta más gente tenga acceso a la red donde corre el stack —
-cerrarlo bien es precisamente el objetivo del roadmap de endurecimiento de auth.
+El mínimo es **12 caracteres** (`422` con el detalle en español si no llega); el reseteo
+devuelve `404` si el usuario no existe. La contraseña anterior deja de funcionar de inmediato.
+
+**No rotar por SQL.** Esta sección documentaba antes un
+`UPDATE users SET password_hash='<sha256-del-nuevo-valor>'`: el almacenamiento pasó a bcrypt
+(sal por hash + coste de cómputo) y escribir un sha256 a mano **degrada** la credencial a un
+formato invertible con una tabla precomputada. El verificador todavía acepta el formato viejo
+—para no dejar afuera a los usuarios ya cargados, que se convierten solos en su siguiente
+login— así que ese `UPDATE` "funcionaría" sin avisar de nada.
+
+**Emergencia: se perdió la contraseña del único admin.** El bootstrap del primer login ya no
+corre (la instalación tiene dueño) y no hay otro admin que resetee. Con acceso al host, se
+rota **desde dentro del contenedor y con el hasher del producto** (nunca escribiendo el hash a
+mano). Es una acción de última instancia: deja constancia de quién tuvo acceso al servidor.
+
+```bash
+docker compose exec -T backend python - <<'PY'
+from src.auth.passwords import hash_password, validar_password
+from src.database import SessionLocal
+from src.models.user import User
+
+NUEVA = "reemplazar-por-la-nueva-de-12-o-mas"
+validar_password(NUEVA)          # revienta si no llega al mínimo
+db = SessionLocal()
+u = db.query(User).filter(User.username == "admin").first()
+assert u, "no existe el usuario admin"
+u.password_hash = hash_password(NUEVA)
+db.commit()
+print("contraseña de 'admin' rotada")
+PY
+```
 
 ---
 

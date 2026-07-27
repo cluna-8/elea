@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { api, User, Budget, Group, SpendInfo } from "../services/api";
+import {
+  api,
+  User,
+  Budget,
+  Group,
+  SpendInfo,
+  MIN_PASSWORD_LEN,
+  validarPassword,
+} from "../services/api";
 import {
   Card,
   PageHeader,
@@ -7,6 +15,7 @@ import {
   Button,
   Table,
   Field,
+  PasswordField,
   inputBaseClass,
   cn,
 } from "../components/ui";
@@ -79,6 +88,16 @@ export const UsersPage: React.FC = () => {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("clinician");
   const [groupId, setGroupId] = useState("");
+  // La contraseña del alta la define quien registra: el producto ya no tiene ninguna por
+  // defecto, así que sin este campo no hay usuario nuevo.
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  // Restablecer la contraseña de otra persona (acción de administrador)
+  const [resetUser, setResetUser] = useState<User | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetMsg, setResetMsg] = useState("");
 
   const [teamName, setTeamName] = useState("");
   const [teamDesc, setTeamDesc] = useState("");
@@ -185,26 +204,79 @@ export const UsersPage: React.FC = () => {
     fetchComplianceData();
   }, []);
 
+  // Cerrar el alta descarta la contraseña tipeada: una credencial no tiene por qué seguir
+  // en memoria —ni reaparecer al volver a abrir el formulario— después de cancelar.
+  const closeUserModal = () => {
+    setShowUserModal(false);
+    setPassword("");
+    setPasswordError(null);
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    const invalida = validarPassword(password);
+    if (invalida) {
+      setPasswordError(invalida);
+      return;
+    }
+    setPasswordError(null);
     setActionLoading(true);
     try {
       await api.createUser({
         username,
         email,
         role,
+        password,
         group_id: groupId || undefined,
         is_active: true,
         legal_basis: userLegalBasis || undefined,
         risk_level: userRiskLevel || undefined,
         compliance_project_id: userComplianceProjectId || undefined,
       });
-      setShowUserModal(false);
+      closeUserModal();
       setUsername(""); setEmail(""); setGroupId("");
       setUserLegalBasis(""); setUserRiskLevel(""); setUserComplianceProjectId("");
       await fetchData();
-    } catch {
-      alert("Error al crear el usuario.");
+    } catch (err: any) {
+      alert(err?.message || "Error al crear el usuario.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const openResetModal = (u: User) => {
+    setResetUser(u);
+    setResetPassword("");
+    setResetError(null);
+  };
+
+  const closeResetModal = () => {
+    setResetUser(null);
+    setResetPassword("");
+    setResetError(null);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetUser) return;
+    const invalida = validarPassword(resetPassword);
+    if (invalida) {
+      setResetError(invalida);
+      return;
+    }
+    if (!confirm(`Se va a cambiar la contraseña de ${resetUser.username}. La anterior deja de funcionar de inmediato. ¿Continuar?`)) return;
+    setResetError(null);
+    setActionLoading(true);
+    try {
+      await api.resetUserPassword(resetUser.id, resetPassword);
+      setResetMsg(`Contraseña actualizada para ${resetUser.username}. Entréguesela por un canal seguro.`);
+      setResetUser(null);
+      setResetPassword("");
+      setTimeout(() => setResetMsg(""), 8000);
+    } catch (err: any) {
+      // El error se muestra dentro del modal, no en un alert: el administrador conserva lo
+      // que escribió y puede corregir sin volver a tipear la contraseña.
+      setResetError(err?.message || "No se pudo cambiar la contraseña.");
     } finally {
       setActionLoading(false);
     }
@@ -594,6 +666,9 @@ export const UsersPage: React.FC = () => {
               </Button>
             }
           >
+            {resetMsg && (
+              <div className="bg-ok-bg border border-ok/20 text-ok px-4 py-2.5 rounded-md text-xs mb-4">{resetMsg}</div>
+            )}
             {users.length === 0 ? (
               <p className="text-xs text-text-secondary">No hay usuarios registrados.</p>
             ) : (
@@ -628,12 +703,20 @@ export const UsersPage: React.FC = () => {
                           ) : <span className="text-text-tertiary text-[10px]">—</span>}
                         </Table.Cell>
                         <Table.Cell>
-                          <button
-                            onClick={() => { setAssignGroupUser(u); setAssignGroupId(u.group_id || ""); }}
-                            className="text-xs text-primary hover:text-primary-hover hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
-                          >
-                            Asignar equipo
-                          </button>
+                          <div className="flex items-center gap-4">
+                            <button
+                              onClick={() => { setAssignGroupUser(u); setAssignGroupId(u.group_id || ""); }}
+                              className="text-xs text-primary hover:text-primary-hover hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+                            >
+                              Asignar equipo
+                            </button>
+                            <button
+                              onClick={() => openResetModal(u)}
+                              className="text-xs text-primary hover:text-primary-hover hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded whitespace-nowrap"
+                            >
+                              Restablecer contraseña
+                            </button>
+                          </div>
                         </Table.Cell>
                       </Table.Row>
                     );
@@ -1157,6 +1240,15 @@ export const UsersPage: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="ej: perez@basa.com.ar"
             />
+            <PasswordField
+              id="alta-password"
+              label="Contraseña de acceso"
+              value={password}
+              onChange={(v) => { setPassword(v); if (passwordError) setPasswordError(null); }}
+              error={passwordError}
+              placeholder={`Mínimo ${MIN_PASSWORD_LEN} caracteres`}
+              hint={`Mínimo ${MIN_PASSWORD_LEN} caracteres. Entréguesela a la persona por un canal seguro.`}
+            />
             <Field label="Rol">
               <select
                 value={role}
@@ -1226,7 +1318,7 @@ export const UsersPage: React.FC = () => {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-border">
-              <Button type="button" variant="secondary" size="sm" onClick={() => setShowUserModal(false)}>Cancelar</Button>
+              <Button type="button" variant="secondary" size="sm" onClick={closeUserModal}>Cancelar</Button>
               <Button type="submit" variant="primary" size="sm" disabled={actionLoading}>
                 {actionLoading ? "Registrando..." : "Registrar"}
               </Button>
@@ -1358,6 +1450,33 @@ export const UsersPage: React.FC = () => {
               <Button variant="primary" size="sm" onClick={handleAssignGroup}>Guardar</Button>
             </div>
           </div>
+        </ModalShell>
+      )}
+
+      {/* ── Reset Password Modal (acción de administrador) ───────────────── */}
+      {resetUser && (
+        <ModalShell title={`Restablecer contraseña — ${resetUser.username}`} maxW="max-w-sm">
+          <form onSubmit={handleResetPassword} className="space-y-4 text-xs">
+            <p className="text-text-secondary leading-relaxed">
+              Se define una contraseña nueva para esta persona. No hace falta conocer la anterior:
+              al guardar, la anterior deja de funcionar.
+            </p>
+            <PasswordField
+              id="reset-password"
+              label="Contraseña nueva"
+              value={resetPassword}
+              onChange={(v) => { setResetPassword(v); if (resetError) setResetError(null); }}
+              error={resetError}
+              placeholder={`Mínimo ${MIN_PASSWORD_LEN} caracteres`}
+              hint={`Mínimo ${MIN_PASSWORD_LEN} caracteres. Entréguesela por un canal seguro.`}
+            />
+            <div className="flex justify-end gap-3 pt-4 border-t border-border">
+              <Button type="button" variant="secondary" size="sm" onClick={closeResetModal}>Cancelar</Button>
+              <Button type="submit" variant="primary" size="sm" disabled={actionLoading}>
+                {actionLoading ? "Guardando..." : "Restablecer"}
+              </Button>
+            </div>
+          </form>
         </ModalShell>
       )}
     </div>

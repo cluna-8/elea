@@ -39,7 +39,7 @@ for _dir in (_TESTS, _TESTS / "integration"):
         sys.path.insert(0, str(_dir))
 
 from migration_harness import require_postgres  # noqa: E402
-from seat_gate_harness import build_app_client  # noqa: E402
+from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
@@ -93,6 +93,10 @@ class _FakeHttpx:
 @pytest.fixture(scope="module")
 def harness():
     client, factory, cleanup = build_app_client(DB)
+    # El chat es fail-closed: sin credencial es 401. La sesión va en el cliente y no en cada
+    # llamada porque lo que se mide acá es la fila de auditoría, no la autenticación. El
+    # usuario es el mismo 'admin' del tenant default al que antes se caía el fallback anónimo.
+    client.headers.update(admin_headers(client))
     yield client, factory
     cleanup()
 

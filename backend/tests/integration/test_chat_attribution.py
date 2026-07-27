@@ -25,11 +25,13 @@ El motor se mockea a nivel del namespace de `chat` (no del módulo `httpx` globa
 se verifica es la atribución, y atarla a que haya un modelo levantado convertiría un test de
 contrato en un test de entorno.
 """
+import re
 import sys
 import uuid
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 _TESTS = Path(__file__).resolve().parent.parent
 for _dir in (_TESTS, _TESTS / "integration"):
@@ -37,7 +39,7 @@ for _dir in (_TESTS, _TESTS / "integration"):
         sys.path.insert(0, str(_dir))
 
 from migration_harness import require_postgres  # noqa: E402
-from seat_gate_harness import build_app_client  # noqa: E402
+from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
@@ -96,6 +98,11 @@ class _FakeHttpx:
 @pytest.fixture(scope="module")
 def harness():
     client, factory, cleanup = build_app_client(DB)
+    # El chat es fail-closed: sin credencial es 401. La sesión va en el cliente y no en cada
+    # llamada porque lo que se mide acá es la atribución de las capas, no la autenticación.
+    # El usuario es el mismo 'admin' del tenant default al que antes se caía el fallback
+    # anónimo, así que la postura resuelta es la de antes.
+    client.headers.update(admin_headers(client))
     yield client, factory
     cleanup()
 
@@ -448,5 +455,34 @@ def test_la_fila_durable_lleva_todas_las_capas_y_solo_codigos(harness):
             assert isinstance(entrada.get("count", 0), int)
             if entrada["status"] != "applied":
                 assert entrada["decision"] is None
+    finally:
+        db.close()
+
+
+# ── Fail-closed: sin credencial no hay pedido ────────────────────────────────────
+
+
+def test_pedido_anonimo_es_401_y_no_fabrica_un_admin(harness):
+    """El pedido sin cabecera Authorization se rechaza y no crea ninguna cuenta.
+
+    Antes caía a `get_or_create_default_user`, que insertaba —sin autenticación de ninguna
+    clase— un 'admin' con rol tenant_admin y la contraseña 'admin' en sha256, un formato que
+    el verificador sigue aceptando: cualquiera en la red se apropiaba de la instalación con
+    un curl. Se afirma también que no queda ningún hash en el formato viejo, que es lo que
+    mantenía viva esa credencial (specs/014 FR-012, Constraint C3).
+    """
+    _, factory = harness
+    from src.main import app
+    from src.models.user import User
+
+    anonimo = TestClient(app)  # sin las cabeceras de sesión del harness
+    respuesta = anonimo.post(CHAT, json={"message": SIN_PII, "model": MODELO})
+
+    assert respuesta.status_code == 401, respuesta.text
+    db = factory()
+    try:
+        for fila in db.query(User).all():
+            assert not re.fullmatch(r"[0-9a-fA-F]{64}", fila.password_hash or ""), (
+                f"'{fila.username}' quedó con un password_hash sha256 legacy")
     finally:
         db.close()

@@ -97,8 +97,11 @@ Matriz de permisos vigente en la instancia:
 
 !!! tip "Bootstrap del primer administrador"
     En el primer login de la instancia, entrar como `admin` con la contraseña elegida la
-    fija y crea la cuenta como tenant admin. Hacé ese primer login apenas termine el
-    deploy, antes de exponer el panel. El paso a paso está en la
+    fija y crea la cuenta como tenant admin (mínimo **12 caracteres**; no hay ninguna
+    credencial de fábrica). Sólo funciona mientras la instalación **no tenga dueño**: en
+    cuanto existe un usuario administrativo, es un login normal. Hacé ese primer login
+    apenas termine el deploy, antes de exponer el panel — mientras no exista el dueño, el
+    primer login gana. El paso a paso está en la
     [guía de instalación](../install-deploy/index.md).
 
 Una matriz de permisos **granular y scopeada por tenant** (permisos finos por recurso) es

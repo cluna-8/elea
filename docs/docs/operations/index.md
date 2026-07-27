@@ -186,22 +186,32 @@ echo "${P1}${P2}" | wc -c   # verificar longitud antes de usarla
 - **Fix:** no hay nada que arreglar — explicarlo en training para no confundirlo con un fallo de
   atribución. Asignar el perfil de presupuesto lo antes posible en el onboarding.
 
-### f) No hay endpoint para cambiar la password de un usuario ya creado
+### f) Rotar la password de un usuario ya creado
 
-- **Síntoma:** ni en la UI ni en la API se puede rotar la password de un usuario existente (sólo se
-  define al crearlo).
-- **Causa:** el endpoint de cambio de password es 🔵 roadmap (tramo de endurecimiento de
-  autenticación); hoy no existe.
-- **Fix:** hasta que llegue el endpoint, la rotación (incluida la del admin post-instalación) es por
-  SQL:
+- **Síntoma:** hay que cambiar la contraseña de alguien (la olvidó, se filtró, o es la que le entregó
+  el administrador al darle de alta).
+- **Causa:** ninguna — hay dos caminos según **quién** la cambia, y son distintos a propósito.
+- **Fix:**
+    - **Cada persona, la suya**: botón *Cambiar mi contraseña* en el bloque de sesión de la barra
+      lateral (cualquier rol), o `POST /api/v1/users/me/password` con
+      `{"current_password": "...", "new_password": "..."}`. Exige la **actual**: el token de sesión
+      sigue siendo válido en un equipo ajeno y no alcanza como prueba de identidad. Un `401` acá
+      significa "la actual no coincide", no sesión vencida.
+    - **El administrador, la de otro (reseteo)**: botón *Restablecer contraseña* en
+      *Usuarios & Presupuestos*, o `POST /api/v1/users/{user_id}/password` con
+      `{"new_password": "..."}`. **No** pide la actual, porque el administrador no la conoce.
+      Requiere rol admin y devuelve `404` si el usuario no existe.
 
-```bash
-docker exec <db-container> psql -U <user> -d <db> \
-  -c "UPDATE users SET password_hash='<sha256-del-nuevo-valor>' WHERE username='admin';"
-```
+El mínimo es **12 caracteres** (`422` con el detalle en español si no llega). La contraseña anterior
+deja de funcionar de inmediato: entregar la nueva por un canal seguro, y pedirle a la persona que la
+cambie con *Cambiar mi contraseña* para que quede una que sólo ella conozca.
 
-Este hueco es más relevante cuanta más gente tenga acceso a la red donde corre el stack — rotar la
-credencial del admin inmediatamente después de la instalación.
+!!! warning "No rotar por SQL"
+    Este apartado documentaba antes un `UPDATE users SET password_hash='<sha256>'`. **No usarlo**: el
+    almacenamiento pasó a bcrypt (sal por hash + coste de cómputo) y escribir un sha256 a mano
+    degrada la credencial a un formato invertible con una tabla precomputada. El verificador todavía
+    ACEPTA ese formato viejo —para no dejar afuera a los usuarios ya cargados, que se convierten
+    solos en su siguiente login— y por eso el `UPDATE` "funcionaría" sin avisar de nada.
 
 ---
 

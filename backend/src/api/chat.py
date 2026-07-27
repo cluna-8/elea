@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 
 from ..database import get_db
-from ..models.user import User
 from ..models.policy import SecurityPolicy
 from ..models.guardian import Guardian
 from ..models.audit import AuditLog
@@ -431,22 +430,6 @@ class ChatRequest(BaseModel):
     override_ai_act_mode: Optional[bool] = None
     override_headroom_mode: Optional[bool] = None
 
-def get_or_create_default_user(db: Session) -> User:
-    user = db.query(User).filter(User.username == "admin").first()
-    if not user:
-        import hashlib
-        user = User(
-            username="admin",
-            email="admin@basa.com.ar",
-            password_hash=hashlib.sha256("admin".encode()).hexdigest(),
-            role="tenant_admin",  # canónico post-013; el fallback en sí se cierra en 017 (SC-3)
-            is_active=True
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
 HUMAN_REVIEW_FLAG_ES = (
     "⚠️ **Pendiente de validación sanitaria.** Esta respuesta ha sido generada por inteligencia artificial "
     "y está siendo revisada por un profesional sanitario. No aplique estas indicaciones hasta recibir confirmación."
@@ -508,9 +491,22 @@ async def chat_completions(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-    if not user and not group:
-        # Fallback: no Authorization header at all (direct API access, scripts, curl)
-        user = get_or_create_default_user(db)
+    if not user and not group and not api_key_obj:
+        # Fail-closed: sin credencial no hay pedido. Acá había un fallback anónimo que
+        # llamaba a `get_or_create_default_user`, y ese helper creaba —sin autenticación de
+        # ninguna clase— un usuario 'admin' con rol tenant_admin y la contraseña 'admin'
+        # (sha256, formato que el verificador sigue aceptando para no dejar afuera a los
+        # usuarios ya cargados). O sea: la tercera contraseña por defecto del producto, la
+        # única alcanzable por cualquiera en la red. Es lo que specs/014 FR-012 y la
+        # Constraint C3 piden cerrar: sin identidad no hay atribución ni gobernanza.
+        # Una virtual key válida SIN usuario ni grupo asignado sí sigue pasando (la
+        # atribución queda incompleta, pero la credencial existe y es la del cliente).
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autenticación requerida: envía tu sesión o una llave virtual (Virtual Key) "
+                   "en la cabecera Authorization.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # 1a. Rate Limiting (RPM check before any expensive processing)
     _rpm_remaining = None
