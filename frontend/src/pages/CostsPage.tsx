@@ -13,7 +13,7 @@ const RANGE_LABELS: Record<Range, string> = {
 const VEREDICTO_LABELS: Record<string, { label: string; cls: string }> = {
   conviene: { label: "Conviene activar", cls: "text-success bg-success/10 border-success/40" },
   no_conviene: { label: "No conviene", cls: "text-warning bg-warning/10 border-warning/40" },
-  usd_no_disponible: { label: "Conviene (USD no disponible)", cls: "text-text-secondary bg-slate-700/20 border-slate-600/40" },
+  usd_no_disponible: { label: "Conviene (USD no disponible)", cls: "text-text-secondary bg-surface-2 border-border" },
 };
 
 const fmtUsd = (v: number | null | undefined) =>
@@ -26,10 +26,10 @@ const STRATEGY_APPLIED_LABELS: Record<string, string> = {
 };
 
 function KpiCard({
-  label, value, sub, color = "text-white",
+  label, value, sub, color = "text-text-primary",
 }: { label: string; value: string | number; sub?: string; color?: string }) {
   return (
-    <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-1">
+    <div className="bg-surface border border-border rounded-lg p-5 space-y-1">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">{label}</p>
       <p className={`text-3xl font-bold leading-none ${color}`}>{value}</p>
       {sub && <p className="text-[10px] text-text-secondary">{sub}</p>}
@@ -47,8 +47,8 @@ function BreakdownTable({
   loading: boolean;
 }) {
   return (
-    <div className="bg-panel border border-slate-700/40 rounded-lg p-5">
-      <h2 className="text-sm font-bold text-white mb-4">{title}</h2>
+    <div className="bg-surface border border-border rounded-lg p-5">
+      <h2 className="text-sm font-bold text-text-primary mb-4">{title}</h2>
       {loading ? (
         <p className="text-xs text-text-secondary">Cargando…</p>
       ) : !rows?.length ? (
@@ -56,7 +56,7 @@ function BreakdownTable({
       ) : (
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-text-secondary text-left border-b border-slate-700/40">
+            <tr className="text-text-secondary text-left border-b border-border">
               <th className="pb-2 font-medium">{nameKey}</th>
               <th className="pb-2 font-medium text-right">Gasto</th>
               <th className="pb-2 font-medium text-right">Requests</th>
@@ -65,7 +65,7 @@ function BreakdownTable({
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={r.name + i} className="border-b border-slate-700/20">
+              <tr key={r.name + i} className="border-b border-border">
                 <td className="py-2 font-mono text-text-secondary truncate max-w-[140px]">{r.name}</td>
                 <td className="py-2 text-right text-danger">{fmtUsd(r.cost_usd)}</td>
                 <td className="py-2 text-right">{r.requests}</td>
@@ -187,18 +187,18 @@ export const CostsPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Costos</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Costos</h1>
           <p className="text-xs text-text-secondary">
             Visualiza el gasto y calcula si te conviene activar la compresión de tokens (Ahorro de Costes IA).
           </p>
         </div>
-        <div className="flex gap-1 bg-panel border border-slate-700/40 rounded-lg p-1">
+        <div className="flex gap-1 bg-surface border border-border rounded-lg p-1">
           {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                range === r ? "bg-primary text-background" : "text-text-secondary hover:text-white"
+                range === r ? "bg-primary text-background" : "text-text-secondary hover:text-text-primary"
               }`}
             >
               {RANGE_LABELS[r]}
@@ -232,10 +232,10 @@ export const CostsPage: React.FC = () => {
       </div>
 
       {/* Config de compresión — US4 (global + por grupo) */}
-      <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-4">
+      <div className="bg-surface border border-border rounded-lg p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-bold text-white">Configuración de compresión</h2>
+            <h2 className="text-sm font-bold text-text-primary">Configuración de compresión</h2>
             <p className="text-[10px] text-text-secondary">
               Activa la compresión globalmente y configura la estrategia por grupo. El motor headroom
               comprime contenido estructurado (JSON/RAG/arrays) sin gastar tokens.
@@ -246,18 +246,18 @@ export const CostsPage: React.FC = () => {
             <button
               onClick={() => toggleGlobal(!costConfig?.enabled)}
               disabled={configSaving === "global"}
-              className={`relative w-11 h-6 rounded-full transition-all ${costConfig?.enabled ? "bg-primary" : "bg-slate-700"}`}
+              className={`relative w-11 h-6 rounded-full transition-all ${costConfig?.enabled ? "bg-primary" : "bg-border-strong"}`}
             >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-all ${costConfig?.enabled ? "translate-x-5" : ""}`} />
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-surface rounded-full transition-all ${costConfig?.enabled ? "translate-x-5" : ""}`} />
             </button>
-            <span className="text-xs font-semibold text-white">{costConfig?.enabled ? "ON" : "OFF"}</span>
+            <span className="text-xs font-semibold text-text-primary">{costConfig?.enabled ? "ON" : "OFF"}</span>
           </label>
         </div>
 
         {groups.length > 0 ? (
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-text-secondary text-left border-b border-slate-700/40">
+              <tr className="text-text-secondary text-left border-b border-border">
                 <th className="pb-2 font-medium">Grupo</th>
                 <th className="pb-2 font-medium">Modo</th>
                 <th className="pb-2 font-medium">Estrategia</th>
@@ -269,13 +269,13 @@ export const CostsPage: React.FC = () => {
               {groups.map((g) => {
                 const c = groupConfigs[g.id];
                 return (
-                  <tr key={g.id} className="border-b border-slate-700/20">
+                  <tr key={g.id} className="border-b border-border">
                     <td className="py-2 font-mono text-text-secondary truncate max-w-[140px]">{g.name}</td>
                     <td className="py-2">
                       <select
                         value={c?.mode ?? "off"}
                         onChange={(e) => updateGroup(g.id, { mode: e.target.value as any })}
-                        className="bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                        className="bg-surface border border-border rounded px-2 py-1 text-text-primary"
                       >
                         <option value="off">Off</option>
                         <option value="deterministic">Determinista</option>
@@ -286,7 +286,7 @@ export const CostsPage: React.FC = () => {
                       <select
                         value={c?.strategy ?? "deterministic"}
                         onChange={(e) => updateGroup(g.id, { strategy: e.target.value as any })}
-                        className="bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                        className="bg-surface border border-border rounded px-2 py-1 text-text-primary"
                       >
                         <option value="deterministic">Determinista</option>
                         <option value="headroom">Headroom</option>
@@ -298,14 +298,14 @@ export const CostsPage: React.FC = () => {
                         value={c?.threshold_tokens ?? ""}
                         placeholder="default"
                         onChange={(e) => updateGroup(g.id, { threshold_tokens: e.target.value ? Number(e.target.value) : null })}
-                        className="w-20 bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                        className="w-20 bg-surface border border-border rounded px-2 py-1 text-text-primary"
                       />
                     </td>
                     <td className="py-2">
                       <select
                         value={c?.aggressiveness ?? "medium"}
                         onChange={(e) => updateGroup(g.id, { aggressiveness: e.target.value as any })}
-                        className="bg-background border border-slate-700/40 rounded px-2 py-1 text-white"
+                        className="bg-surface border border-border rounded px-2 py-1 text-text-primary"
                       >
                         <option value="low">Baja</option>
                         <option value="medium">Media</option>
@@ -348,9 +348,9 @@ export const CostsPage: React.FC = () => {
       </div>
 
       {/* Calculator */}
-      <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-4">
+      <div className="bg-surface border border-border rounded-lg p-5 space-y-4">
         <div>
-          <h2 className="text-sm font-bold text-white">Calculadora de compresión</h2>
+          <h2 className="text-sm font-bold text-text-primary">Calculadora de compresión</h2>
           <p className="text-[10px] text-text-secondary">
             Pega un prompt, elige modelo y mira cuántos tokens ahorrarías y si conviene activar.
           </p>
@@ -360,7 +360,7 @@ export const CostsPage: React.FC = () => {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Pega aquí un prompt de ejemplo…"
-            className="w-full h-28 bg-background border border-slate-700/40 rounded-lg p-3 text-sm text-white placeholder:text-text-secondary focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+            className="w-full h-28 bg-surface border border-border rounded-lg p-3 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-1 focus:ring-primary resize-none"
           />
 
           <div className="grid grid-cols-3 gap-3">
@@ -369,7 +369,7 @@ export const CostsPage: React.FC = () => {
               <select
                 value={strategy}
                 onChange={(e) => setStrategy(e.target.value as any)}
-                className="w-full mt-1 bg-background border border-slate-700/40 rounded-lg p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full mt-1 bg-surface border border-border rounded-lg p-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="deterministic">Determinista (prosa, local)</option>
                 <option value="headroom">Headroom (estructurado, local · sin tokens)</option>
@@ -380,7 +380,7 @@ export const CostsPage: React.FC = () => {
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="w-full mt-1 bg-background border border-slate-700/40 rounded-lg p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full mt-1 bg-surface border border-border rounded-lg p-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 {!pricing.length && <option value="">— sin modelos —</option>}
                 {pricing.map((p) => (
@@ -395,7 +395,7 @@ export const CostsPage: React.FC = () => {
               <select
                 value={aggressiveness}
                 onChange={(e) => setAggressiveness(e.target.value as any)}
-                className="w-full mt-1 bg-background border border-slate-700/40 rounded-lg p-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full mt-1 bg-surface border border-border rounded-lg p-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="low">Baja</option>
                 <option value="medium">Media</option>
@@ -421,15 +421,15 @@ export const CostsPage: React.FC = () => {
           </button>
 
           {analysis && (
-            <div className="border-t border-slate-700/40 pt-4 space-y-3">
+            <div className="border-t border-border pt-4 space-y-3">
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="bg-background/40 rounded-lg p-2">
                   <p className="text-[9px] uppercase text-text-secondary">Tokens originales</p>
-                  <p className="text-lg font-bold text-white">{analysis.tokens_original.toLocaleString()}</p>
+                  <p className="text-lg font-bold text-text-primary">{analysis.tokens_original.toLocaleString()}</p>
                 </div>
                 <div className="bg-background/40 rounded-lg p-2">
                   <p className="text-[9px] uppercase text-text-secondary">Tras compresión</p>
-                  <p className="text-lg font-bold text-white">{analysis.tokens_compressed.toLocaleString()}</p>
+                  <p className="text-lg font-bold text-text-primary">{analysis.tokens_compressed.toLocaleString()}</p>
                 </div>
                 <div className="bg-background/40 rounded-lg p-2">
                   <p className="text-[9px] uppercase text-text-secondary">Ahorro</p>
@@ -439,7 +439,7 @@ export const CostsPage: React.FC = () => {
 
               <div className="flex items-center justify-between text-sm">
                 <span className="text-text-secondary">% de ahorro</span>
-                <span className="text-white font-semibold">{pct(analysis.ratio)}</span>
+                <span className="text-text-primary font-semibold">{pct(analysis.ratio)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-text-secondary">Ahorro USD (estimado)</span>
@@ -452,8 +452,8 @@ export const CostsPage: React.FC = () => {
 
               {analysis.strategy === "headroom" && (
                 <div className="flex flex-wrap gap-2 justify-center text-[10px]">
-                  <span className="px-2 py-1 rounded-md bg-slate-700/30 border border-slate-600/40 text-text-secondary">
-                    Aplicado: <span className="text-white font-semibold">{STRATEGY_APPLIED_LABELS[analysis.strategy_applied ?? "none"]}</span>
+                  <span className="px-2 py-1 rounded-md bg-surface-2 border border-border text-text-secondary">
+                    Aplicado: <span className="text-text-primary font-semibold">{STRATEGY_APPLIED_LABELS[analysis.strategy_applied ?? "none"]}</span>
                   </span>
                   {analysis.strategy_applied === "headroom" && (
                     <span className="px-2 py-1 rounded-md bg-success/10 border border-success/40 text-success">

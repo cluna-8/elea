@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { authStorage } from "../services/auth";
 import { GovernanceEffectiveState } from "../services/api";
 import { estadoUi, layerCopy } from "./GovernancePage";
+import { Button, Card, PageHeader, StatusBadge, type BadgeTone } from "../components/ui";
 
 // Firewall en vivo — feed del gateway (coding tools / browser) migrado en spec 019.
 // Consume /api/v1/gw/events (metadata-only: sin texto de prompt crudo ni PII cruda).
@@ -63,14 +64,24 @@ interface GwEvent {
 type Familia = "pass" | "blocked" | "flag" | "error" | "otro";
 
 const FAMILIA_CLS: Record<Familia, string> = {
-  pass: "bg-success/15 text-success border-success/30",
-  blocked: "bg-danger/15 text-danger border-danger/30",
-  flag: "bg-warning/15 text-warning border-warning/30",
+  pass: "bg-ok-bg text-ok border-ok/30",
+  blocked: "bg-danger-bg text-danger border-danger/40",
+  flag: "bg-warn-bg text-warn border-warn/40",
   // `upstream_error` no es un verdicto del firewall: el pedido pasó las capas y falló el
   // servicio de destino. Neutro a propósito — ni verde (no se completó) ni rojo (nadie lo
   // bloqueó). Constitución VII: "servicio upstream", jamás la marca del proveedor.
-  error: "bg-slate-700/30 text-text-secondary border-slate-600/40",
-  otro: "bg-slate-700/30 text-text-secondary border-slate-600/40",
+  error: "bg-surface-2 text-text-secondary border-border",
+  otro: "bg-surface-2 text-text-secondary border-border",
+};
+
+// La pill de estado superior de cada evento usa el kit (StatusBadge): la familia visual
+// mapea al tono semántico del componente para no duplicar la escala de color.
+const FAMILIA_TONE: Record<Familia, BadgeTone> = {
+  pass: "ok",
+  blocked: "danger",
+  flag: "warn",
+  error: "neutral",
+  otro: "neutral",
 };
 
 // Sólo la ETIQUETA de cada estado; el color sale de la familia. Barrido completo de los
@@ -168,7 +179,7 @@ const Atribucion: React.FC<{ e: GwEvent; familia: Familia }> = ({ e, familia }) 
     // que asusta, igual que afirmar cobertura sería mentir hacia el lado que tranquiliza.
     return (
       <div className="flex items-center gap-2 mt-3 flex-wrap">
-        <span className={`${CHIP} border-slate-700/40 bg-slate-800/40 text-text-secondary italic font-normal`}>
+        <span className={`${CHIP} border-border bg-surface-2 text-text-tertiary italic font-normal`}>
           sin registro de capas
         </span>
       </div>
@@ -308,35 +319,29 @@ export const FirewallMonitorPage: React.FC = () => {
   const allowed = total - blocked;
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-2 flex-wrap">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-text-primary">Firewall en vivo</h1>
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-success">
-            <span className="w-2 h-2 rounded-full bg-success animate-pulse shadow-[0_0_8px_#06d6a0]" />
-            EN VIVO
+    <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            Firewall en vivo
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-ok">
+              <span className="h-2 w-2 rounded-full bg-ok animate-pulse" />
+              EN VIVO
+            </span>
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPaused((p) => !p)}
-            className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-700/50 text-text-secondary hover:text-white hover:bg-slate-800/40 transition"
-          >
-            {paused ? "Reanudar" : "Pausar"}
-          </button>
-          <button
-            onClick={() => setEvents([])}
-            className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-700/50 text-text-secondary hover:text-white hover:bg-slate-800/40 transition"
-          >
-            Limpiar
-          </button>
-        </div>
-      </div>
-      <p className="text-sm text-text-secondary mb-4">
-        Tráfico de coding tools (Claude Code, Cursor…) y browser atravesando el gateway.
-        Auditado sin texto de prompt ni PII cruda.
-      </p>
+        }
+        subtitle="Tráfico de coding tools (Claude Code, Cursor…) y browser atravesando el gateway. Auditado sin texto de prompt ni PII cruda."
+        actions={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setPaused((p) => !p)}>
+              {paused ? "Reanudar" : "Pausar"}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setEvents([])}>
+              Limpiar
+            </Button>
+          </>
+        }
+      />
 
       {/* Banda de contexto. Decía, en verde y sin condiciones: "Redacción activa… el modelo
           nunca ve el dato real". Es una afirmación que esta misma pantalla contradice dos
@@ -346,7 +351,7 @@ export const FirewallMonitorPage: React.FC = () => {
           código)— debajo de un cartel que promete lo contrario. Afirmar cobertura que no se
           verificó es el mismo pecado que pintar un bloqueo de gris, sólo que hacia el lado
           que tranquiliza. Ahora la banda explica dónde mirar y no promete nada. */}
-      <div className="flex items-start gap-2 mb-6 px-4 py-3 rounded-lg bg-primary/10 border border-primary/20 text-sm text-text-secondary">
+      <div className="flex items-start gap-2 rounded-card border border-border bg-primary-tint px-4 py-3 text-sm text-text-secondary">
         <span aria-hidden="true">🔒</span>
         <span>
           Qué protege cada pedido lo decide la postura de la organización, y cambia por
@@ -356,22 +361,22 @@ export const FirewallMonitorPage: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {[
           { n: total, label: "peticiones", color: "text-text-primary" },
-          { n: allowed, label: "permitidas", color: "text-success" },
+          { n: allowed, label: "permitidas", color: "text-ok" },
           { n: blocked, label: "bloqueadas", color: "text-danger" },
         ].map((s) => (
-          <div key={s.label} className="bg-panel border border-slate-700/50 rounded-xl px-6 py-5">
+          <Card key={s.label}>
             <div className={`text-4xl font-bold ${s.color}`}>{s.n}</div>
-            <div className="text-sm text-text-secondary mt-1">{s.label}</div>
-          </div>
+            <div className="mt-1 text-sm text-text-secondary">{s.label}</div>
+          </Card>
         ))}
       </div>
 
       {/* Feed */}
       {total === 0 ? (
-        <div className="text-center py-16 text-text-secondary border border-dashed border-slate-700/40 rounded-xl">
+        <div className="rounded-card border border-dashed border-border bg-surface py-16 text-center text-text-secondary">
           {denegado
             ? "Esta cuenta no tiene permiso para ver el firewall en vivo. Se necesita un rol de administración o de cumplimiento."
             : connected
@@ -388,30 +393,28 @@ export const FirewallMonitorPage: React.FC = () => {
               familia === "blocked"
                 ? "border-danger/40"
                 : familia === "flag"
-                ? "border-warning/40"
-                : "border-slate-700/50";
+                ? "border-warn/40"
+                : "border-border";
             return (
-              <div key={i} className={`bg-panel border ${borde} rounded-xl px-5 py-4`}>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${FAMILIA_CLS[familia]}`}>
-                    {label}
-                  </span>
-                  <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+              <div key={i} className={`rounded-card border ${borde} bg-surface px-5 py-4 shadow-card`}>
+                <div className="flex flex-wrap items-center gap-3">
+                  <StatusBadge tone={FAMILIA_TONE[familia]}>{label}</StatusBadge>
+                  <span className="rounded-md border border-border bg-primary-tint px-2.5 py-0.5 text-xs font-medium text-primary">
                     ▸ {e.tenant || "—"}
                   </span>
                   <strong className="text-text-primary">{e.tool || "—"}</strong>
                   <span className="text-sm text-text-secondary">· {e.client || "anónimo"}</span>
-                  {e.model && <span className="text-xs font-mono text-text-secondary">{e.model}</span>}
-                  <span className="text-xs text-text-secondary ml-auto font-mono">{fmtTime(e.ts)}</span>
+                  {e.model && <span className="font-mono text-xs text-text-secondary">{e.model}</span>}
+                  <span className="ml-auto font-mono text-xs text-text-tertiary">{fmtTime(e.ts)}</span>
                 </div>
 
                 <Atribucion e={e} familia={familia} />
 
                 {e.masked_entities && e.masked_entities.length > 0 && (
-                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <span className="text-xs text-text-secondary">PII enmascarada:</span>
                     {e.masked_entities.map((x, j) => (
-                      <span key={j} className="text-[11px] px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-mono">
+                      <span key={j} className="rounded border border-border bg-primary-tint px-2 py-0.5 font-mono text-[11px] text-primary">
                         {x.count}× {x.type}
                       </span>
                     ))}
@@ -419,7 +422,7 @@ export const FirewallMonitorPage: React.FC = () => {
                 )}
 
                 {e.masked_preview && (
-                  <div className="mt-3 px-3 py-2 rounded-lg bg-background/60 border border-slate-700/40 font-mono text-xs text-text-secondary whitespace-pre-wrap break-words">
+                  <div className="mt-3 whitespace-pre-wrap break-words rounded-md border border-border bg-surface-2 px-3 py-2 font-mono text-xs text-text-secondary">
                     {e.masked_preview}
                   </div>
                 )}

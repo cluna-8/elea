@@ -1,30 +1,49 @@
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Colores de MARCA (spec 020 US2): defaults Basa-neutro — idénticos a la
-   paleta histórica, como tripletas RGB (tailwind necesita <alpha-value> para
-   bg-primary/30 etc.). El branding pack los overridea en runtime via
-   /branding/brand.json (services/branding.ts convierte el hex), sin rebuild. */
+/* =============================================================================
+   Design tokens 029 — tema CLARO estilo Azure AI Foundry (FUENTE ÚNICA).
+   Las páginas SOLO consumen estos tokens via tailwind (surface, border,
+   text.*, primary, ok/warn/danger/info) — nada de hex hardcodeado.
+   Valores como tripletas RGB para que los modificadores de opacidad de
+   tailwind (bg-primary/30, bg-danger/10, ...) sigan funcionando.
+   --primary es el ÚNICO overrideable por la marca en runtime
+   (services/branding.ts aplica brand.json → colors.primary; ignora
+   background/panel para no oscurecer el chrome, FR-005).
+   ========================================================================== */
 :root {
-  --brand-background: 11 19 41;   /* #0b1329 */
-  --brand-panel: 28 37 65;        /* #1c2541 */
-  --brand-primary: 0 180 216;     /* #00b4d8 */
+  --canvas: 250 249 248;        /* #faf9f8 — fondo de página */
+  --surface: 255 255 255;       /* #ffffff — cards, sidebar, inputs */
+  --surface-2: 243 242 241;     /* #f3f2f1 — headers de tabla, hovers, chips */
+  --border: 225 223 221;        /* #e1dfdd — bordes de card/input */
+  --border-strong: 200 198 196; /* #c8c6c4 — divisores marcados */
+  --text: 36 36 36;             /* #242424 — texto primario */
+  --text-secondary: 97 97 97;   /* #616161 — secundario/labels */
+  --text-tertiary: 138 136 134; /* #8a8886 — terciario/placeholder */
+
+  --primary: 15 108 189;        /* #0f6cbd — ACENTO (brand-overridable) */
+  --primary-hover: 17 94 163;   /* #115ea3 */
+  --primary-tint: 243 249 253;  /* #f3f9fd — fondo item activo / selección */
+
+  /* Semánticos: pares fondo (bg) + texto (text) para pills legibles. */
+  --ok-bg: 223 246 221;    --ok-text: 14 112 14;    /* #dff6dd / #0e700e */
+  --warn-bg: 255 244 206;  --warn-text: 131 92 0;   /* #fff4ce / #835c00 */
+  --danger-bg: 253 231 233; --danger-text: 164 38 44; /* #fde7e9 / #a4262c */
+  --info-bg: 243 249 253;  --info-text: 15 108 189;  /* #f3f9fd / #0f6cbd */
 }
 
 @layer base {
   body {
-    @apply bg-background text-text-primary font-sans antialiased selection:bg-primary/30;
+    @apply bg-canvas text-text-primary font-sans antialiased selection:bg-primary/20;
   }
 
-  /* Custom focus ring according to Accessible & Ethical design system */
-  input:focus, select:focus, textarea:focus, button:focus-visible {
-    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  /* Focus ring visible con el acento (accesibilidad, contraste AA). */
+  input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-canvas;
   }
 
-  /* Accessibility improvements for screen readers */
+  /* Screen-reader only. */
   .sr-only {
     position: absolute;
     width: 1px;
@@ -38,21 +57,22 @@
   }
 }
 
-/* Custom scrollbar matching the theme */
+/* Scrollbar claro coherente con el tema. */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: theme('colors.background');
+  background: rgb(var(--canvas));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: theme('colors.panel');
-  border-radius: 4px;
+  background: rgb(var(--border-strong));
+  border-radius: 5px;
+  border: 2px solid rgb(var(--canvas));
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: theme('colors.primary');
+  background: rgb(var(--text-tertiary));
 }

@@ -46,20 +46,46 @@ export async function loadBranding(): Promise<Brand> {
     // Sin pack → default Basa-neutro (fallback documentado, FR-009).
   }
   document.title = brand.name;
-  const root = document.documentElement;
-  for (const [key, value] of Object.entries(brand.colors ?? {})) {
-    const rgb = hexToRgbTriplet(value);
-    if (rgb) root.style.setProperty(`--brand-${key}`, rgb);
-  }
+  applyBrandColors(brand.colors);
   return brand;
 }
 
-// Las vars de marca son tripletas RGB ("0 180 216") para que los modificadores
-// de opacidad de tailwind funcionen; el pack escribe hex normal (#00b4d8).
+// FR-005 (spec 029): el tema claro Foundry es FIJO. De la marca aplicamos SOLO
+// el acento (colors.primary) a --primary y derivamos --primary-hover/--primary-tint.
+// IGNORAMOS colors.background/panel A PROPÓSITO: el brand-pack de Cámara los trae
+// OSCUROS y volverían a oscurecer el chrome. Sin colors.primary (dev/fallback)
+// no tocamos nada → quedan los defaults claros de index.css.
+function applyBrandColors(colors?: Brand["colors"]): void {
+  const primary = hexToRgbTriplet(colors?.primary);
+  if (!primary) return;
+  const root = document.documentElement;
+  root.style.setProperty("--primary", primary);
+  root.style.setProperty("--primary-hover", scaleTriplet(primary, 0.82));      // ~18% más oscuro
+  root.style.setProperty("--primary-tint", tintTripletOnWhite(primary, 0.06)); // 6% sobre blanco
+}
+
+// Las vars de acento son tripletas RGB ("15 108 189") para que los modificadores
+// de opacidad de tailwind funcionen; el pack escribe hex normal (#0f6cbd).
 function hexToRgbTriplet(hex?: string): string | null {
   if (!hex) return null;
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return null;
   const n = parseInt(m[1], 16);
   return `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`;
+}
+
+// Multiplica cada canal por `f` (hover más oscuro).
+function scaleTriplet(triplet: string, f: number): string {
+  return triplet
+    .split(" ")
+    .map((c) => Math.max(0, Math.min(255, Math.round(Number(c) * f))))
+    .join(" ");
+}
+
+// Mezcla el color con blanco a `alpha` de opacidad (tint muy claro para selección).
+function tintTripletOnWhite(triplet: string, alpha: number): string {
+  return triplet
+    .split(" ")
+    .map((c) => Math.round(Number(c) * alpha + 255 * (1 - alpha)))
+    .join(" ");
 }

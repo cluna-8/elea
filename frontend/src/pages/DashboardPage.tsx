@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, GovernanceLayerStatus } from "../services/api";
+import {
+  Card,
+  PageHeader,
+  StatusBadge,
+  Table,
+  TableColumn,
+  cn,
+} from "../components/ui";
 
 type Range = "day" | "week" | "month";
 
@@ -13,7 +21,7 @@ function KpiCard({
   label,
   value,
   sub,
-  color = "text-white",
+  color = "text-text-primary",
 }: {
   label: string;
   value: string | number;
@@ -21,19 +29,15 @@ function KpiCard({
   color?: string;
 }) {
   return (
-    <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-1">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">{label}</p>
-      <p className={`text-3xl font-bold leading-none ${color}`}>{value}</p>
-      {sub && <p className="text-[10px] text-text-secondary">{sub}</p>}
-    </div>
-  );
-}
-
-function StatusDot({ online }: { online: boolean }) {
-  return (
-    <span
-      className={`inline-block w-2 h-2 rounded-full mr-2 ${online ? "bg-success" : "bg-danger"}`}
-    />
+    <Card>
+      <div className="space-y-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
+          {label}
+        </p>
+        <p className={cn("text-3xl font-bold leading-none", color)}>{value}</p>
+        {sub && <p className="text-[10px] text-text-secondary">{sub}</p>}
+      </div>
+    </Card>
   );
 }
 
@@ -90,35 +94,59 @@ export const DashboardPage: React.FC = () => {
   const guardianEntries = Object.entries(guardianEvents) as [string, number][];
   const maxActivations = guardianEntries.length > 0 ? Math.max(...guardianEntries.map(([, v]) => v)) : 1;
 
+  const modelColumns: TableColumn<any>[] = [
+    {
+      key: "model",
+      header: "Modelo",
+      render: (m) => (
+        <span className="font-mono font-medium truncate block max-w-[180px]">{m.model}</span>
+      ),
+    },
+    {
+      key: "requests",
+      header: "Peticiones",
+      align: "right",
+      render: (m) => <span className="text-text-secondary">{m.requests}</span>,
+    },
+    {
+      key: "cost",
+      header: "Costo",
+      align: "right",
+      render: (m) => (
+        <span className="font-mono text-ok">${Number(m.cost_usd).toFixed(4)}</span>
+      ),
+    },
+  ];
+
   return (
-    <div className="space-y-6 p-6 max-w-5xl mx-auto pb-16">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-700/30">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Panel Principal</h1>
-          <p className="text-xs text-text-secondary mt-1">
-            Métricas de uso, costos e incidentes de seguridad del gateway.
-          </p>
-        </div>
-        <div className="flex gap-1 bg-background/60 border border-slate-700/40 rounded-lg p-1">
-          {(["day", "week", "month"] as Range[]).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
-                range === r
-                  ? "bg-primary text-background"
-                  : "text-text-secondary hover:text-white"
-              }`}
-            >
-              {RANGE_LABELS[r]}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="space-y-6 max-w-5xl mx-auto">
+      <PageHeader
+        className="mb-0"
+        title="Panel Principal"
+        subtitle="Métricas de uso, costos e incidentes de seguridad del gateway."
+        actions={
+          <div className="inline-flex gap-1 bg-surface border border-border rounded-md p-1">
+            {(["day", "week", "month"] as Range[]).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRange(r)}
+                className={cn(
+                  "px-3 py-1.5 rounded text-xs font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  range === r
+                    ? "bg-primary text-white"
+                    : "text-text-secondary hover:text-text-primary hover:bg-surface-2"
+                )}
+              >
+                {RANGE_LABELS[r]}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {error && (
-        <div className="bg-danger/10 border border-danger/20 text-danger px-4 py-3 rounded-lg text-xs">
+        <div className="bg-danger-bg text-danger px-4 py-3 rounded-md text-sm">
           {error}
         </div>
       )}
@@ -140,77 +168,58 @@ export const DashboardPage: React.FC = () => {
               label="Costo Total"
               value={`$${Number(summary?.total_cost_usd ?? 0).toFixed(4)}`}
               sub={`${summary?.total_prompt_tokens ?? 0} prompt + ${summary?.total_completion_tokens ?? 0} compl. tokens`}
-              color="text-success"
+              color="text-ok"
             />
             <KpiCard
               label="Incidentes PII"
               value={summary?.pii_incidents ?? 0}
               sub="Datos enmascarados antes del modelo"
-              color={summary?.pii_incidents > 0 ? "text-warning" : "text-white"}
+              color={summary?.pii_incidents > 0 ? "text-warn" : "text-text-primary"}
             />
             <KpiCard
               label="Bloqueos de Guardianes"
               value={summary?.guardian_activations?.total ?? 0}
               sub={`${summary?.compliance_blocked ?? 0} bloqueos AI Act`}
-              color={summary?.guardian_activations?.total > 0 ? "text-danger" : "text-white"}
+              color={summary?.guardian_activations?.total > 0 ? "text-danger" : "text-text-primary"}
             />
           </div>
 
           {/* Middle row: Top Models + System Status */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Top Models */}
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                Top Modelos
-              </h3>
-              {summary?.models?.length > 0 ? (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-text-secondary border-b border-slate-700/30">
-                      <th className="text-left py-1">Modelo</th>
-                      <th className="text-right py-1">Peticiones</th>
-                      <th className="text-right py-1">Costo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-white font-mono divide-y divide-slate-700/20">
-                    {summary.models.slice(0, 5).map((m: any) => (
-                      <tr key={m.model}>
-                        <td className="py-1.5 font-medium truncate max-w-[140px]">{m.model}</td>
-                        <td className="py-1.5 text-right text-text-secondary">{m.requests}</td>
-                        <td className="py-1.5 text-right text-success">${Number(m.cost_usd).toFixed(4)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-xs text-text-secondary py-4">Sin peticiones en el período.</p>
-              )}
-            </div>
+            <Card title="Top Modelos" noPadding>
+              <Table
+                columns={modelColumns}
+                rows={(summary?.models?.slice(0, 5) ?? []) as any[]}
+                rowKey={(m) => m.model}
+                emptyLabel="Sin peticiones en el período."
+                wrapperClassName="border-0 rounded-none"
+              />
+            </Card>
 
             {/* System Status */}
-            <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                Estado del Sistema
-              </h3>
-              <div className="space-y-3 text-xs">
+            <Card title="Estado del Sistema">
+              <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-text-secondary">Motor de IA</span>
-                  <span className={`font-semibold flex items-center ${engineStatus === "online" ? "text-success" : "text-danger"}`}>
-                    <StatusDot online={engineStatus === "online"} />
+                  <StatusBadge tone={engineStatus === "online" ? "ok" : "danger"} dot>
                     {engineStatus === "online" ? "Online" : "Offline"}
-                  </span>
+                  </StatusBadge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-text-secondary" title="Capas de protección que se están aplicando de verdad, no las que están declaradas.">
+                  <span
+                    className="text-text-secondary"
+                    title="Capas de protección que se están aplicando de verdad, no las que están declaradas."
+                  >
                     Capas aplicándose
                   </span>
                   {capasAplicandose !== null && layers ? (
-                    <span className="font-semibold text-white font-mono">
+                    <span className="font-semibold text-text-primary font-mono">
                       {capasAplicandose} / {layers.length}
                     </span>
                   ) : (
                     <span
-                      className="font-semibold text-text-secondary font-mono"
+                      className="font-semibold text-text-tertiary font-mono"
                       title="El estado real de las capas no está disponible para esta sesión."
                     >
                       sin dato
@@ -219,24 +228,24 @@ export const DashboardPage: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-secondary">Latencia media</span>
-                  <span className="font-semibold text-warning font-mono">
+                  <span className="font-semibold text-warn font-mono">
                     {summary?.avg_latency_ms ?? 0}ms
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-secondary">Tokens optimizados</span>
-                  <span className="font-semibold text-sky-400 font-mono">
+                  <span className="font-semibold text-info font-mono">
                     {summary?.tokens_saved_by_optimization ?? 0}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-secondary">Ahorro de Costes IA</span>
-                  <span className="font-semibold text-success font-mono">
+                  <span className="font-semibold text-ok font-mono">
                     ${Number(summary?.cost_saved_usd ?? 0).toFixed(4)}
                   </span>
                 </div>
-                <div className="pt-2 border-t border-slate-700/30">
-                  <div className="flex justify-between text-[10px] text-text-secondary">
+                <div className="pt-2 border-t border-border">
+                  <div className="flex justify-between text-xs text-text-secondary">
                     <span>AI Act: {summary?.compliance_passed ?? 0} correctas</span>
                     <span className={summary?.compliance_blocked > 0 ? "text-danger" : ""}>
                       {summary?.compliance_blocked ?? 0} bloqueadas
@@ -244,23 +253,20 @@ export const DashboardPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </div>
+            </Card>
           </div>
 
           {/* Guardian Activations */}
-          <div className="bg-panel border border-slate-700/40 rounded-lg p-5 space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-              Activaciones de Guardianes
-            </h3>
+          <Card title="Activaciones de Guardianes">
             {guardianEntries.length > 0 ? (
               <div className="space-y-3">
                 {guardianEntries.map(([name, count]) => (
                   <div key={name} className="space-y-1">
-                    <div className="flex justify-between text-xs">
+                    <div className="flex justify-between text-sm">
                       <span className="text-text-secondary">{name}</span>
-                      <span className="text-white font-mono font-semibold">{count}</span>
+                      <span className="text-text-primary font-mono font-semibold">{count}</span>
                     </div>
-                    <div className="w-full bg-background rounded-full h-1.5">
+                    <div className="w-full bg-surface-2 rounded-full h-1.5">
                       <div
                         className="bg-primary h-1.5 rounded-full transition-all duration-500"
                         style={{ width: `${Math.round((count / maxActivations) * 100)}%` }}
@@ -270,11 +276,11 @@ export const DashboardPage: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-text-secondary py-2">
+              <p className="text-sm text-text-tertiary py-2">
                 Sin activaciones de guardianes en el período seleccionado.
               </p>
             )}
-          </div>
+          </Card>
         </>
       )}
     </div>
