@@ -10,6 +10,7 @@ import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { UserPortal } from "./pages/UserPortal";
 import { CostsPage } from "./pages/CostsPage";
 import { FirewallMonitorPage } from "./pages/FirewallMonitorPage";
 import { GovernancePage } from "./pages/GovernancePage";
@@ -63,6 +64,15 @@ export const App: React.FC = () => {
 
   if (!currentUser) {
     return <LoginPage onLoginSuccess={handleLogin} />;
+  }
+
+  // Usuario final → portal, JAMÁS la consola de administración. El login devuelve el rol
+  // canónico post-013 ("client", users.py) y authStorage lo guarda pasado por toLegacyRole
+  // (services/auth.ts), que deja "client" tal cual salvo cuando display_label es
+  // "clinician"/"developer". Por eso el gate cubre "client" y "clinician" (el usuario final
+  // histórico); "developer" conserva la consola, igual que en el predecesor.
+  if (currentUser.role === "client" || currentUser.role === "clinician") {
+    return <UserPortal user={currentUser} onLogout={handleLogout} />;
   }
 
   const visibleNav = navigation.filter(item =>
