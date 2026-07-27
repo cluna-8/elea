@@ -131,3 +131,51 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | 403 «rollback de reloj» al crear usuarios | Se cura solo en ≤5 min (corregido en este build) |
 
 Logs: `docker logs --tail 100 camara-backend-1` (ídem `camara-litellm-1`, `camara-nlp-analyzer-1`).
+
+---
+
+## Anexo · Sin pendrive
+
+Los mismos 4 ficheros viven en DOS sitios más: la carpeta `~/piloto-camara-sede/` del Mac
+de JF, y `/root/piloto-camara/` del VPS de basa-dev.
+
+### A · Desde el Mac, por la LAN de la sede (vía preferida)
+
+En el Mac (conectado a la misma red que el servidor):
+
+```bash
+cd ~/piloto-camara-sede && python3 -m http.server 8000
+```
+
+Anotá la IP del Mac (`ipconfig getifaddr en0`). En el servidor de la sede:
+
+```bash
+mkdir -p ~/basa-install && cd ~/basa-install && for f in bundle-camara-comercio.tar.gz camara-comercio-300.lic INSTALL-CAMARA.md; do wget "http://IP-DEL-MAC:8000/$f"; done
+```
+
+Cortá el `http.server` con Ctrl-C en cuanto termine y seguí en el paso 2.
+
+### B · Desde el VPS (si el Mac no está disponible)
+
+Desde cualquier máquina con la clave SSH de basa-dev:
+
+```bash
+scp vps:/root/piloto-camara/\{bundle-camara-comercio.tar.gz,camara-comercio-300.lic\} .
+```
+
+Si el **servidor de la sede** tiene que bajarlo directo (sin clave SSH): en el VPS hay una
+copia **cifrada** (`bundle-camara-comercio.tar.gz.enc` — el bundle lleva los secretos de la
+instalación, no viaja en claro por HTTP). Servirla temporal:
+
+```bash
+ssh vps 'cd /root/piloto-camara && timeout 1800 python3 -m http.server 3004'
+```
+
+En el servidor de la sede (la passphrase la tiene JF):
+
+```bash
+wget http://95.217.129.250:3004/bundle-camara-comercio.tar.gz.enc && openssl enc -d -aes-256-cbc -pbkdf2 -in bundle-camara-comercio.tar.gz.enc -out bundle-camara-comercio.tar.gz
+```
+
+El `http.server` muere solo a los 30 min (`timeout 1800`); la licencia (495 B) pasásela
+aparte (a mano, por el chat del móvil, como sea — es texto).
