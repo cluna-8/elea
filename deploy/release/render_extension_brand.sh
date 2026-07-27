@@ -78,10 +78,12 @@ icons = pack["icons"]
 
 # Copia SOLO runtime: todo extension/ MENOS *.md y ocultos/dev. copytree con ignore
 # es robusto a renombres de scripts (no hardcodea la lista de .js).
+# Dev-only (no forma parte del runtime MV3): harness e2e, deps de node, tsconfig.
+_NON_RUNTIME = {"e2e", "node_modules", "package.json", "package-lock.json", "tsconfig.json"}
 def _ignore(_dir, entries):
     drop = []
     for e in entries:
-        if e.startswith(".") or e.lower().endswith(".md"):
+        if e.startswith(".") or e.lower().endswith(".md") or e in _NON_RUNTIME:
             drop.append(e)
     return drop
 
