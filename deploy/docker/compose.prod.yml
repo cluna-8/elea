@@ -109,6 +109,13 @@ services:
       # 2026-07-22). En selfhosted la crea initdb/01-engine-db.sql; en nube,
       # el módulo OpenTofu provisiona ambas bases.
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${ENGINE_DB:-basa_engine}"
+      # Identidad de las Connections: vive en la base del BACKEND, no en la del motor.
+      # Sin esta línea `custom_auth` consulta basa_engine, no encuentra api_keys y TODO
+      # byok devuelve 401 (detectado 2026-07-27; el ensayo no lo veía porque nunca
+      # ejercitó byok). Se pregunta por HTTP y no por SQL porque la imagen upstream del
+      # motor no trae driver de Postgres ni instalador (ni pip ni uv) — httpx sí viene.
+      # Se autentica con LITELLM_MASTER_KEY, que ambos servicios ya comparten.
+      BASA_IDENTITY_URL: "http://backend:8000/api/v1/internal/identity"
       # Provider keys DEL CLIENTE (opcionales; viven en secrets.env de la
       # instalación). El alta de modelos referencia os.environ/<VAR> — sin el
       # passthrough el modelo queda dado de alta pero el motor no lo puede usar.

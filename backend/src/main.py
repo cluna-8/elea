@@ -106,6 +106,13 @@ from .api.governance import router as governance_router  # noqa: E402
 
 app.include_router(governance_router, prefix="/api/v1")
 
+# Plano interno para el motor (resolución de identidad de las Connections). Se monta acá
+# por el mismo motivo que gobernanza: router nuevo, sin competir por api/__init__.py.
+# No aparece en el OpenAPI (include_in_schema=False) y el ingress lo niega desde fuera.
+from .api.internal import router as internal_router  # noqa: E402
+
+app.include_router(internal_router, prefix="/api/v1")
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,

@@ -8,9 +8,20 @@ identidad en el ``UserAPIKeyAuth`` que después reciben los hooks del guardrail.
 usuario admin por defecto (ese agujero era del demo). La única excepción es la master
 key del motor (ops/admin del proxy).
 
-Reuse over reinvent (Principio VI): el acceso a DB reutiliza el **prisma client del
-propio motor** (misma base ``basa_gateway``) vía ``query_raw`` — la imagen no trae
-otro driver SQL y no vamos a agregar uno.
+**De dónde sale la identidad** (corregido 2026-07-27, víspera del install de la Cámara):
+originalmente esto reusaba el prisma client del propio motor, porque motor y backend
+compartían una sola base. Ya no: el motor tiene base PROPIA (``basa_engine``) desde que
+su migrador Prisma dropeaba las tablas del producto como "drift" (ensayo 2026-07-22), y
+las tablas de identidad —``api_keys``, ``users``, ``groups``, ``tenants``— viven en la
+del backend. Consecuencia observada en el perfil de producción: **todo byok daba 401**
+con ``relation "api_keys" does not exist``, porque el prisma del motor consulta
+``basa_engine``. Nadie lo detectó antes porque el ensayo nunca ejercitó byok (0 keys
+registradas).
+
+Ahora la identidad se lee con una conexión PROPIA de sólo lectura a la base del backend
+(``BASA_IDENTITY_DATABASE_URL``). Si esa variable no está, se cae al prisma del motor:
+es el caso de desarrollo, donde ambos planos comparten base y la consulta funciona.
+El SQL es el mismo en los dos caminos.
 
 Registro (gotcha de la research T005: el módulo se resuelve RELATIVO al directorio
 del config.yaml, no por sys.path):
@@ -103,19 +114,39 @@ def _first_not_none(*values):
     return None
 
 
+_IDENTITY_URL = os.environ.get("BASA_IDENTITY_URL", "").strip()
+_INTERNAL_SECRET = os.environ.get("LITELLM_MASTER_KEY", "")
+
+
 async def _lookup_identity(key_hash: str) -> Optional[dict]:
     now = time.monotonic()
     hit = _cache.get(key_hash)
     if hit and now - hit[0] < _CACHE_TTL_S:
         return hit[1]
 
-    # Import perezoso: el prisma client existe recién cuando el proxy terminó de bootear
-    from litellm.proxy.proxy_server import prisma_client
-    if prisma_client is None:
-        raise Exception("Basa Gateway: la base de identidad no está disponible (fail-closed).")
+    if _IDENTITY_URL:
+        import httpx
+        # timeout corto y sin retry: esto está en el camino de auth de cada request.
+        # Cualquier fallo levanta → 401 (fail-closed), nunca un usuario por defecto.
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(_IDENTITY_URL, params={"key_hash": key_hash},
+                                 headers={"X-Basa-Internal": _INTERNAL_SECRET})
+        if r.status_code != 200:
+            raise Exception(
+                "Basa Gateway: no se pudo resolver la identidad de la Connection "
+                f"(plano interno respondió {r.status_code}) — fail-closed.")
+        # `row: null` es una respuesta legítima ("no existe esa key"): se cachea como
+        # None y el caller lo traduce a 401. Distinto de no haber podido preguntar.
+        row = r.json().get("row")
+    else:
+        # Desarrollo: motor y backend comparten base, el prisma del motor alcanza.
+        # Import perezoso: el prisma client existe recién cuando el proxy terminó de bootear
+        from litellm.proxy.proxy_server import prisma_client
+        if prisma_client is None:
+            raise Exception("Basa Gateway: la base de identidad no está disponible (fail-closed).")
+        rows = await prisma_client.db.query_raw(_IDENTITY_SQL, key_hash)
+        row = rows[0] if rows else None
 
-    rows = await prisma_client.db.query_raw(_IDENTITY_SQL, key_hash)
-    row = rows[0] if rows else None
     _cache[key_hash] = (now, row)
     return row
 

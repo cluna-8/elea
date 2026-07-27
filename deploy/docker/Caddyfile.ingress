@@ -13,6 +13,14 @@
 {$INGRESS_HOST} {
 	encode gzip
 
+	# Plano interno (resolución de identidad del motor): sólo se habla por la red de
+	# compose, jamás desde fuera. Va ANTES del /api/* general porque el matcher más
+	# específico gana: sin esto, `handle /api/*` lo publicaría a internet. El backend
+	# además exige el secreto compartido — esto es la segunda capa, no la única.
+	handle /api/v1/internal/* {
+		respond 404
+	}
+
 	handle /api/* {
 		reverse_proxy backend:8000
 	}
