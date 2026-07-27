@@ -14,7 +14,7 @@
   // Devuelve { ok, origin, url } o { ok:false, error }. Pura → testeable con node.
   function validarGatewayUrl(raw) {
     const s = (raw || "").trim();
-    if (!s) return { ok: false, error: "Ingresá la dirección del gateway." };
+    if (!s) return { ok: false, error: "Ingresa la dirección del gateway." };
     let u;
     try { u = new URL(s); } catch (_) { return { ok: false, error: "La dirección no es una URL válida." }; }
     const proto = u.protocol;

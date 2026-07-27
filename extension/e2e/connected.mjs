@@ -83,20 +83,17 @@ try {
   const statusText = (await popup.textContent('#status'))?.trim() || '';
   check('US2/US6: connected after whoami (real gateway contract)', statusOn, statusText.slice(0, 60));
 
-  const chipHidden = await popup.$eval('#proteccion', el => el.classList.contains('hidden')).catch(() => true);
-  const chipTitle = (await popup.textContent('#proteccion .chip-title'))?.trim() || '';
-  const chipDetail = (await popup.textContent('#proteccion .chip-detail'))?.trim() || '';
-  check('US4: honesty chip visible + amber', !chipHidden);
-  check('US4: chip shows "Detección por patrones · cobertura parcial"', /detecci[oó]n por patrones · cobertura parcial/i.test(chipTitle), chipTitle);
-  check('US4: chip detail is the SERVER copy (ends with piso)', chipDetail.includes('piso no negociable'), chipDetail.slice(-40));
-  check('US4: chip never says "protegido"/green', !/protegido/i.test(chipTitle + chipDetail));
+  // El chip de honestidad se sacó del popup (feedback JF): el usuario final sólo ve "Conectado".
+  const noChip = (await popup.$('#proteccion')) === null;
+  check('honesty chip removed from popup (feedback JF)', noChip);
+  const connText = (await popup.textContent('#status'))?.trim() || '';
+  check('popup never overclaims "protegido"', !/protegido/i.test(connText), connText.slice(0, 40));
 
   // US6: disconnect clears session.
   await popup.click('#disconnect');
   await popup.waitForFunction(() => document.querySelector('#status')?.classList.contains('off'), { timeout: 5_000 }).catch(() => {});
   const off = await popup.$eval('#status', el => el.classList.contains('off')).catch(() => false);
-  const chipHiddenAfter = await popup.$eval('#proteccion', el => el.classList.contains('hidden')).catch(() => true);
-  check('US6: disconnect → off + chip hidden', off && chipHiddenAfter);
+  check('US6: disconnect → off state', off);
 } catch (e) {
   check('harness ran without throwing', false, String(e).slice(0, 200));
 } finally {

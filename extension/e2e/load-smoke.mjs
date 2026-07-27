@@ -74,9 +74,9 @@ try {
   const statusText2 = (await popup.textContent('#status'))?.trim() || '';
   check('empty URL → validation message (no silent fail)', /ingres|direcci/i.test(statusText2), statusText2.slice(0, 80));
 
-  // The honesty chip must NOT be shown while disconnected (it only appears connected).
-  const chipHidden = await popup.$eval('#proteccion', el => el.classList.contains('hidden')).catch(() => true);
-  check('chip hidden while disconnected (no false "protegido")', chipHidden);
+  // The honesty chip was removed from the popup (feedback JF); the element must not exist.
+  const noChip = (await popup.$('#proteccion')) === null;
+  check('no honesty chip element in popup (removed per JF)', noChip);
 
   check('no console errors during load + popup', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 } catch (e) {

@@ -25,34 +25,21 @@ function render(s) {
   if (conectado) {
     st.className = "status on";
     st.innerHTML = "Conectado como <b>" + esc(s.basa_user || "—") + "</b> · equipo <b>" + esc(s.basa_team || "—") + "</b>";
-    renderProteccion(s.proteccion);
   } else {
-    hideProteccion();
     if (estado === "no_verificado") {
       setStatus("warn", "Sin conexión con el gateway — se reintenta solo. Tu key se conserva.");
     } else { // desconectado
-      if (s.sesion_motivo === "plaza_revocada") setStatus("off", "Tu plaza ya no está activa. Consultá con tu administrador.");
-      else if (s.sesion_motivo === "key_invalida") setStatus("off", "Tu API key no es válida. Configurá una nueva.");
-      else setStatus("off", s.basa_key ? "Desconectado — verificá tu conexión con el gateway." : "Desconectado — configurá tu API key para usar la IA.");
+      if (s.sesion_motivo === "plaza_revocada") setStatus("off", "Tu plaza ya no está activa. Consulta con tu administrador.");
+      else if (s.sesion_motivo === "key_invalida") setStatus("off", "Tu API key no es válida. Configura una nueva.");
+      else setStatus("off", s.basa_key ? "Desconectado — verifica tu conexión con el gateway." : "Desconectado — configura tu API key para usar la IA.");
     }
   }
   $("disconnect").disabled = !s.basa_key;
   $("connect").disabled = conectado;
 }
 
-// Chip ámbar de honestidad (US4): usa el texto del server; si falta (backend viejo),
-// cae a la promesa más chica ("patrones"), NUNCA verde ni "protegido". No hardcodea el
-// copy del server: el fallback es un genérico mínimo sólo para el caso sin bloque.
-function renderProteccion(p) {
-  const el = $("proteccion");
-  const titulo = (p && p.titulo) || "Detección por patrones";
-  const detalle = (p && p.detalle) ||
-    "La detección funciona por patrones conocidos (correo, teléfono, documentos, credenciales); puede no reconocer nombres o direcciones escritos en texto libre.";
-  el.querySelector(".chip-title").textContent = "▲ " + titulo + " · cobertura parcial";
-  el.querySelector(".chip-detail").textContent = detalle;
-  el.classList.remove("hidden");
-}
-function hideProteccion() { $("proteccion").classList.add("hidden"); }
+// Chip de honestidad: removido del popup (feedback JF — al usuario final no le aporta).
+// La honestidad por-capa sigue viva en el panel admin (firewall/gobernanza).
 
 function mostrarConfig(mostrar, aviso) {
   $("view-config").classList.toggle("hidden", !mostrar);
@@ -61,7 +48,7 @@ function mostrarConfig(mostrar, aviso) {
     // La key NUNCA se re-inyecta en el input: si ya hay una guardada, el placeholder lo
     // dice y escribir una nueva es lo único que la reemplaza (hardening #45).
     $("key").value = "";
-    $("key").placeholder = cfg.basa_key ? "•••••••••• (guardada — escribí una nueva para cambiarla)" : "Pegá tu API key";
+    $("key").placeholder = cfg.basa_key ? "•••••••••• (guardada — escribe una nueva para cambiarla)" : "Pega tu API key";
     $("gw").value = cfg.basa_gateway || DEFAULT_GW;
     if (aviso) setStatus("off", aviso);
   }
@@ -77,9 +64,9 @@ async function load() {
 // Traduce los códigos de error del SW a texto para el usuario.
 function friendly(resp) {
   const e = resp && resp.error;
-  if (e === "plaza_revocada") return "Tu plaza ya no está activa. Consultá con tu administrador.";
+  if (e === "plaza_revocada") return "Tu plaza ya no está activa. Consulta con tu administrador.";
   if (e === "key_invalida") return "Tu API key no es válida.";
-  if (e === "permiso_denegado") return "Necesitás conceder el permiso al host del gateway para conectar.";
+  if (e === "permiso_denegado") return "Necesitas conceder el permiso al host del gateway para conectar.";
   if (e === "gateway_invalido") return (resp && resp.detalle) || "La dirección del gateway no es válida.";
   return e || "no autorizado";
 }
@@ -104,11 +91,11 @@ async function pedirPermiso(v) {
 
 // Conectar = revalidar con la key ya guardada. Sin key configurada, manda a config.
 $("connect").addEventListener("click", async () => {
-  if (!cfg.basa_key) return mostrarConfig(true, "Configurá tu API key para conectarte.");
+  if (!cfg.basa_key) return mostrarConfig(true, "Configura tu API key para conectarte.");
   const v = window.BASA_CONFIG.validarGatewayUrl(cfg.basa_gateway || DEFAULT_GW);
   if (!v.ok) return mostrarConfig(true, "✗ " + v.error);
   const granted = await pedirPermiso(v);
-  if (!granted) return setStatus("off", "Necesitás conceder el permiso al host del gateway para conectar.");
+  if (!granted) return setStatus("off", "Necesitas conceder el permiso al host del gateway para conectar.");
   validar(null, () => load());
 });
 
@@ -124,13 +111,13 @@ $("save").addEventListener("click", async () => {
   const escrita = $("key").value.trim();
   const key = escrita || cfg.basa_key;           // sin escribir nada, se reusa la guardada
   const gwRaw = $("gw").value.trim() || DEFAULT_GW;
-  if (!key) return setStatus("off", "Ingresá tu API key.");
+  if (!key) return setStatus("off", "Ingresa tu API key.");
   // Validación https/local (FR-010) ANTES de tocar permisos o red.
   const v = window.BASA_CONFIG.validarGatewayUrl(gwRaw);
   if (!v.ok) return setStatus("off", "✗ " + v.error);
   // Permiso de host en el gesto (primer await). Denegado → mensaje claro (FR-011).
   const granted = await pedirPermiso(v);
-  if (!granted) return setStatus("off", "Necesitás conceder el permiso al host del gateway para conectar.");
+  if (!granted) return setStatus("off", "Necesitas conceder el permiso al host del gateway para conectar.");
   // El gateway sí se persiste (config, no estado de sesión); el SW lo lee para el whoami.
   // La KEY NO se persiste acá: viaja en el mensaje y la persiste el SW SÓLO si valida.
   await chrome.storage.local.set({ basa_gateway: v.url });

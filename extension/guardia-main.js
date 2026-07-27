@@ -126,7 +126,7 @@
         // FAIL-CLOSED: la decisión depende SÓLO del match del adapter, no del body (F4).
         if (!state.connected) {
           updateOverlay();
-          throw new Error(TAG + " Conectate con tu API key para usar la IA.");
+          throw new Error(TAG + " Conéctate con tu API key para usar la IA.");
         }
         // El enmascarado NO es opcional: no hay condición de usuario acá.
         if (init && typeof init.body === "string") {
@@ -217,8 +217,8 @@
       overlay.innerHTML = '<div style="max-width:420px;text-align:center;padding:28px;border:1px solid #e1dfdd;border-radius:8px;background:#ffffff;box-shadow:0 8px 30px rgba(0,0,0,.12)">' +
         '<div style="font-size:34px">🛡️</div>' +
         '<div style="font-size:17px;font-weight:700;color:#242424;margin:8px 0">' + esc(appLabel()) + ' — acceso restringido</div>' +
-        '<div style="color:#616161">Necesitás conectarte con tu <b>API key</b> para usar la IA en esta organización.</div>' +
-        '<div style="color:#8a8886;margin-top:10px;font-size:12px">Abrí la extensión (ícono 🛡️ en la barra del navegador) y pegá tu key.</div>' +
+        '<div style="color:#616161">Necesitas conectarte con tu <b>API key</b> para usar la IA en esta organización.</div>' +
+        '<div style="color:#8a8886;margin-top:10px;font-size:12px">Abre la extensión (ícono 🛡️ en la barra del navegador) y pega tu key.</div>' +
         (errMsg ? '<div style="color:#a4262c;margin-top:10px;font-size:12px">' + esc(errMsg) + '</div>' : '') + '</div>';
     } else if (overlay) { overlay.remove(); overlay = null; }
   }
