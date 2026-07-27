@@ -3,31 +3,50 @@
 <head>
 <meta charset="utf-8">
 <style>
-  :root { color-scheme: dark; }
-  body { width: 320px; margin: 0; background: #0b0f19; color: #e5e7eb;
-         font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, sans-serif; }
-  header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #1f2937; }
-  header b { color: #fff; font-size: 14px; }
-  header .ver { margin-left: auto; color: #6b7280; font-size: 11px; }
+  /* Tema claro Foundry (matchea el panel admin). Tokens:
+     canvas #faf9f8 · surface #ffffff · surface-2 #f3f2f1 · border #e1dfdd
+     texto #242424 · secundario #616161 · terciario #8a8886
+     acento #0f6cbd (hover #115ea3, tint #f3f9fd)
+     ok #dff6dd/#0e700e · warn #fff4ce/#835c00 · danger #fde7e9/#a4262c
+
+     FUENTE: se declara 'Inter' pero NO se bundlea. El producto es 0-egress/air-gap,
+     así que no se referencia ninguna CDN; y no hay woff2 en el paquete que auto-hospedar
+     (el auto-hospedaje de fuentes del admin vive en la rama 029, aún no acá). Se cae a la
+     fuente del sistema (system-ui / -apple-system / Segoe UI), que visualmente acompaña
+     al look Fluent/Foundry. Si el SO tiene Inter instalada, se usa. Cero pedidos de red. */
+  :root { color-scheme: light; }
+  body { width: 320px; margin: 0; background: #faf9f8; color: #242424;
+         font: 13px/1.45 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  header { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+           background: #ffffff; border-bottom: 1px solid #e1dfdd; }
+  header b { color: #242424; font-size: 14px; }
+  header .ver { margin-left: auto; color: #8a8886; font-size: 11px; }
   .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
-  label { color: #9ca3af; font-size: 11px; display: block; margin-bottom: 4px; }
-  input[type=text], input[type=password] { width: 100%; box-sizing: border-box; background: #111827;
-         border: 1px solid #374151; border-radius: 8px; color: #e5e7eb; padding: 7px 9px; font: inherit; }
-  button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px;
+  label { color: #616161; font-size: 11px; display: block; margin-bottom: 4px; }
+  input[type=text], input[type=password] { width: 100%; box-sizing: border-box; background: #ffffff;
+         border: 1px solid #e1dfdd; border-radius: 6px; color: #242424; padding: 7px 9px; font: inherit; }
+  input[type=text]:focus, input[type=password]:focus { outline: none; border-color: #0f6cbd;
+         box-shadow: 0 0 0 2px #f3f9fd; }
+  input::placeholder { color: #8a8886; }
+  button { background: #0f6cbd; color: #fff; border: 0; border-radius: 6px; padding: 8px 12px;
            font: inherit; font-weight: 600; cursor: pointer; }
-  button.secondary { background: #1f2937; color: #cbd5e1; }
+  button:hover { background: #115ea3; }
+  button.secondary { background: #f3f2f1; color: #242424; border: 1px solid #e1dfdd; }
+  button.secondary:hover { background: #e1dfdd; }
   button:disabled { opacity: .4; cursor: default; }
+  button:disabled:hover { background: #0f6cbd; }
+  button.secondary:disabled:hover { background: #f3f2f1; }
   .row { display: flex; align-items: center; gap: 8px; }
   .row .spacer { margin-left: auto; }
-  .status { border-radius: 8px; padding: 9px 10px; font-size: 12px; }
-  .status.on   { background: #052e1a; border: 1px solid #14532d; color: #86efac; }
-  .status.off  { background: #2a0f12; border: 1px solid #7f1d1d; color: #fca5a5; }
-  .status.warn { background: #2b1a06; border: 1px solid #92400e; color: #fbbf24; }
-  /* Chip ÁMBAR de honestidad (US4): nunca verde, nunca "protegido". */
-  .chip { border-radius: 8px; padding: 8px 10px; background: #2b1a06; border: 1px solid #92400e; }
-  .chip .chip-title  { color: #fbbf24; font-weight: 700; font-size: 12px; }
-  .chip .chip-detail { color: #fcd34d; font-size: 11px; margin-top: 4px; }
-  .muted { color: #6b7280; font-size: 11px; }
+  .status { border-radius: 6px; padding: 9px 10px; font-size: 12px; }
+  .status.on   { background: #dff6dd; border: 1px solid #b4dbaf; color: #0e700e; }
+  .status.off  { background: #fde7e9; border: 1px solid #f3c9ce; color: #a4262c; }
+  .status.warn { background: #fff4ce; border: 1px solid #f2e2a0; color: #835c00; }
+  /* Chip ÁMBAR de honestidad (US4): warn, nunca verde, nunca "protegido". */
+  .chip { border-radius: 8px; padding: 8px 10px; background: #fff4ce; border: 1px solid #f2e2a0; }
+  .chip .chip-title  { color: #835c00; font-weight: 700; font-size: 12px; }
+  .chip .chip-detail { color: #835c00; font-size: 11px; margin-top: 4px; }
+  .muted { color: #8a8886; font-size: 11px; }
   .hidden { display: none; }
 </style>
 </head>
