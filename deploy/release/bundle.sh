@@ -29,12 +29,40 @@ cp "$REPO_ROOT/deploy/docker/compose.prod.yml" "$OUT/"
 cp -R "$REPO_ROOT/deploy/clients/$SLUG/rendered" "$OUT/profile"
 cp -R "$REPO_ROOT/deploy/release/checks" "$OUT/checks"
 
-# Manifiesto con digests: la verificación del install y el true-up de release.
+# Entregable white-label de la EXTENSIÓN (028 US1/US7): si el cliente tiene brand-pack,
+# lo renderizamos y viaja en el bundle (edge case simétrico al de las imágenes: un
+# artefacto fuera del tarball = fetch en runtime = install roto sin egress).
+EXT_BRAND_JSON="$REPO_ROOT/deploy/clients/$SLUG/brand.extension.json"
+EXT_ZIP_NAME="extension-$SLUG.zip"
+EXT_INCLUDED=0
+if [ -f "$EXT_BRAND_JSON" ]; then
+  "$REPO_ROOT/deploy/release/render_extension_brand.sh" "$SLUG" "$EXT_BRAND_JSON" >/dev/null
+  cp "$REPO_ROOT/deploy/clients/$SLUG/rendered/$EXT_ZIP_NAME" "$OUT/$EXT_ZIP_NAME"
+  EXT_INCLUDED=1
+  echo "── extensión white-label incluida: $EXT_ZIP_NAME"
+else
+  echo "── $SLUG sin brand.extension.json → bundle sin extensión de navegador"
+fi
+
+# sha256 portable (Linux: sha256sum; macOS: shasum -a 256).
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}';
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+# Manifiesto: imágenes con digest (docker load) + artefactos con sha256 (verificación
+# del install air-gapped). Las líneas de imagen llevan $2 = "sha256:<id>" (formato de
+# docker); las de artefacto un sha256 pelado → el check las distingue por ese prefijo.
 {
   echo "# bundle $SLUG — $(date -u +%FT%TZ)"
+  echo "# images (docker load):"
   for img in "${IMAGES[@]}"; do
     echo "$img $(docker image inspect -f '{{.Id}}' "$img")"
   done
+  if [ "$EXT_INCLUDED" -eq 1 ]; then
+    echo "# artifacts (sha256):"
+    echo "$EXT_ZIP_NAME $(sha256 "$OUT/$EXT_ZIP_NAME")"
+  fi
 } > "$OUT/MANIFEST"
 
 tar -C "$(dirname "$OUT")" -czf "$OUT.tar.gz" "$(basename "$OUT")"

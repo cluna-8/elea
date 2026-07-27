@@ -3,8 +3,8 @@
   "name": "Basa Guard",
   "version": "0.3.0",
   "description": "Protege los datos personales antes de que salgan hacia ChatGPT o Claude. Tu organización define qué se enmascara y registra el uso.",
-  "permissions": ["storage"],
-  "host_permissions": ["http://localhost:8091/*"],
+  "permissions": ["storage", "alarms"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "icons": { "16": "icons/icon-16.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
   "background": { "service_worker": "background.js" },
   "action": {
@@ -22,7 +22,7 @@
     },
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*", "https://claude.ai/*"],
-      "js": ["basa-guard.js"],
+      "js": ["guardia-main.js"],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false
