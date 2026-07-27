@@ -43,6 +43,18 @@ RECON_EXPIRED = "expired"
 DEFAULT_INTERVAL_SECONDS = 300.0
 INTERVAL_ENV = "BASA_LICENSE_RECONCILE_INTERVAL_SECONDS"
 
+# Tolerancia del anti-rollback (FR-023). El ataque que la marca persigue es retrasar
+# el reloj HORAS o DÍAS para estirar una licencia; una inversión de micro/milisegundos
+# es ruido de concurrencia, no un ataque: con N workers, cada uno con su thread de
+# reconciliación, el tick de un worker puede capturar `now` un instante ANTES de que
+# otro worker commitee un evento que avanza la marca — y ese falso positivo degradaba
+# la creación con 403 hasta el próximo tick (300s). Reproducido en el ensayo del
+# 2026-07-27 sobre una instalación recién arrancada: bootstrap de admin → alta del
+# primer usuario → 403 "rollback de reloj sospechado", con todos los relojes sanos.
+# 60s no le regala nada a un atacante (para ganar tiempo de licencia necesitaría
+# retroceder muchísimo más) y elimina la clase entera de carreras entre workers.
+CLOCK_ROLLBACK_TOLERANCE_SECONDS = 60.0
+
 
 @dataclass(frozen=True)
 class TenantSeatStatus:
@@ -86,7 +98,7 @@ def _check_clock(db, now) -> None:
     state = _locked_state(db, lic_state.token.license_id if lic_state.token else None)
     mark = state.monotonic_ts
     now_naive = now.replace(tzinfo=None) if now.tzinfo else now
-    if mark is not None and now_naive < mark:
+    if mark is not None and (mark - now_naive).total_seconds() > CLOCK_ROLLBACK_TOLERANCE_SECONDS:
         if not _clock_rollback:
             _clock_rollback = True
             logger.warning("licencia: ROLLBACK de reloj sospechado — now=%s < marca=%s; "

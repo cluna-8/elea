@@ -82,6 +82,42 @@ def test_rollback_detected_degrades_and_recovers(harness, monkeypatch, tmp_path)
     assert resp.status_code == 201, resp.text
 
 
+def test_micro_inversion_between_workers_no_es_rollback(harness, monkeypatch, tmp_path):
+    """Tolerancia FR-023 (fix del ensayo 2026-07-27): con N workers, el tick de uno
+    puede capturar `now` un instante ANTES de que otro commitee un evento que avanza
+    la marca. Esa inversión de segundos NO es el ataque que la marca persigue (retrasar
+    el reloj horas/días para estirar la licencia) y degradaba la creación con 403
+    hasta el próximo tick — reproducido en una instalación recién arrancada: bootstrap
+    de admin → alta del primer usuario → 403 con todos los relojes sanos."""
+    from src.licensing import reconcile
+    client, factory, headers = harness
+    mock_engine(monkeypatch)
+    set_license(monkeypatch, tmp_path, max_seats=current_seats(factory) + 10)
+
+    # Tiempos RELATIVOS, no fechas fijas: el arranque del módulo (bootstrap de admin,
+    # lifespan) ya pudo avanzar la marca con el reloj REAL, así que un "pasado" absoluto
+    # dispararía el episodio por el estado previo y no por lo que este test prueba.
+    base = datetime.now(timezone.utc) + timedelta(minutes=10)
+    reconcile.run_once(session_factory=factory, now=base)  # marca := base (por delante de todo)
+    assert not reconcile.clock_rollback_suspected()
+    eventos_antes = len(_rollback_events(factory))
+
+    # Inversión de 5s (carrera entre workers): dentro de la tolerancia → sin episodio.
+    reconcile.run_once(session_factory=factory, now=base - timedelta(seconds=5))
+    assert not reconcile.clock_rollback_suspected()
+    assert len(_rollback_events(factory)) == eventos_antes
+    resp = client.post("/api/v1/keys", headers=headers, json={"name": "micro-inversion-ok"})
+    assert resp.status_code == 201, resp.text
+
+    # Y la marca NO retrocedió: un atraso REAL (más allá de la tolerancia) sigue
+    # detectándose contra la marca original.
+    reconcile.run_once(
+        session_factory=factory,
+        now=base - timedelta(seconds=reconcile.CLOCK_ROLLBACK_TOLERANCE_SECONDS + 30))
+    assert reconcile.clock_rollback_suspected()
+    assert len(_rollback_events(factory)) == eventos_antes + 1
+
+
 def test_mark_survives_process_restart(harness, monkeypatch, tmp_path):
     """La marca vive en DB: un 'reinicio' (estado en memoria limpio) con el
     reloj atrasado sigue detectándose — ese es el punto del anti-rollback."""
