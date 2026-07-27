@@ -4,4 +4,12 @@
 -- compartir base con el backend destruía el esquema del producto. Bases
 -- separadas = aislamiento permanente (también ante upgrades del motor).
 -- docker-entrypoint-initdb.d: corre SOLO en la inicialización del volumen.
-CREATE DATABASE basa_engine OWNER CURRENT_USER;
+--
+-- Sin OWNER explícito a propósito (fix del ensayo 2026-07-27): `CREATE DATABASE ...
+-- OWNER CURRENT_USER` NO es SQL válido — CREATE DATABASE exige un nombre de rol
+-- concreto y no acepta esa palabra clave. Fallaba con "syntax error at or near
+-- CURRENT_USER", postgres registraba el error y SEGUÍA, así que la base del motor no
+-- se creaba nunca: el motor no arrancaba (connection refused) mientras su contenedor
+-- se reportaba "Up". Omitir OWNER da exactamente lo que se buscaba — el dueño pasa a
+-- ser el rol que ejecuta este script, que es POSTGRES_USER — y es válido.
+CREATE DATABASE basa_engine;

@@ -47,4 +47,21 @@ else
     ext_msg=" (sin extensión para este cliente)"
 fi
 
+# Bind mounts relativos del compose: tienen que viajar en el tarball, y como FICHERO o
+# DIRECTORIO según corresponda. Si falta, Docker crea un directorio vacío en su lugar y
+# el fallo es o ruidoso (el ingress no arranca: sin puerta de entrada) o SILENCIOSO
+# (initdb/ vacío = la base del motor no se crea, con el stack aparentemente sano).
+# Ensayo 2026-07-27: faltaban los dos.
+for rel in $(grep -oE '\./[A-Za-z0-9_./-]+' "$WORK/bundle/compose.prod.yml" | sort -u); do
+    path="$WORK/bundle/${rel#./}"
+    ref="$REPO_ROOT/deploy/docker/${rel#./}"
+    [ -e "$path" ] || fail "el compose monta '$rel' y NO viaja en el bundle (Docker crearía un directorio vacío)"
+    if [ -d "$ref" ]; then
+        [ -d "$path" ] || fail "'$rel' debería ser un directorio en el bundle"
+        [ -n "$(ls -A "$path")" ] || fail "'$rel' viaja VACÍO en el bundle"
+    else
+        [ -f "$path" ] || fail "'$rel' debería ser un fichero en el bundle, no un directorio"
+    fi
+done
+
 echo "✅ bundle air-gapped OK: $loaded/$expected imágenes únicas restauradas por docker load, perfil incluido$ext_msg"
