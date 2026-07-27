@@ -18,9 +18,12 @@ sólo se alcanza por la red de compose. Encima se exige el secreto compartido qu
 servicios YA tienen (`LITELLM_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
 """
 import hmac
+import json
 import os
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -73,3 +76,87 @@ def resolve_identity(key_hash: str = Query(min_length=64, max_length=64),
     fail-closed y sí es un error de transporte)."""
     row = db.execute(_IDENTITY_SQL, {"key_hash": key_hash}).mappings().first()
     return {"row": dict(row) if row is not None else None}
+
+
+# ── Auditoría durable del plano MOTOR ────────────────────────────────────────────────
+# Mismo motivo que /identity: `audit_logs` (el registro canónico) vive en ESTA base, y
+# desde la separación de bases el INSERT del motor fallaba en cada pedido byok con
+# "relation audit_logs does not exist" — tragado como no-fatal. Resultado: el tráfico de
+# HERRAMIENTAS (la superficie principal del producto) no dejaba rastro durable, sólo la
+# vitrina efímera de Redis. Para un producto cuya promesa es "interceptar y REGISTRAR
+# todo", ese era el gap más caro del core.
+
+_INSERT_AUDIT_SQL = text("""
+INSERT INTO audit_logs (
+    id, tenant_id, timestamp, user_id, api_key_id, model,
+    prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
+    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer
+) VALUES (
+    gen_random_uuid(), CAST(:tenant_id AS uuid), NOW(), CAST(:user_id AS uuid),
+    CAST(:api_key_id AS uuid), :model,
+    :prompt_tokens, :completion_tokens, :cost_usd, :pii_detected,
+    CAST(:masked_entities AS jsonb),
+    :compliance_status, :latency_ms, CAST(:user_group_id AS uuid),
+    CAST(:applied_layers AS jsonb), :blocked_by_layer
+)
+""")
+
+
+class AuditEntry(BaseModel):
+    """Fila de auditoría que emite el motor. El emisor está autenticado con el secreto
+    compartido (misma confianza que cuando insertaba directo en la base), pero el saneo
+    por vocabulario se mantiene igual (hallazgo A3 de la 027): la procedencia confiable
+    evita la falsificación; el saneo evita que texto libre termine en el JSONB (C1).
+    Son dos defensas distintas y hacen falta las dos."""
+    tenant_id: str
+    user_id: Optional[str] = None
+    api_key_id: Optional[str] = None
+    model: str = "desconocido"
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost_usd: float = 0.0
+    pii_detected: bool = False
+    masked_entities: list = []
+    compliance_status: str = "passed"
+    latency_ms: int = 0
+    user_group_id: Optional[str] = None
+    applied_layers: Optional[list] = None
+    blocked_by_layer: Optional[str] = None
+
+
+def _entidades_saneadas(items: list) -> list:
+    """Vocabulario cerrado: sólo {type, count}, con type acotado y count entero. Todo lo
+    demás se descarta — jamás texto del pedido en el registro durable."""
+    limpias = []
+    for it in items[:50]:
+        if not isinstance(it, dict):
+            continue
+        tipo, cuenta = it.get("type"), it.get("count")
+        if isinstance(tipo, str) and 0 < len(tipo) <= 64 and isinstance(cuenta, int):
+            limpias.append({"type": tipo, "count": cuenta})
+    return limpias
+
+
+@router.post("/audit", dependencies=[Depends(_require_internal_secret)])
+def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
+    entidades = _entidades_saneadas(entry.masked_entities)
+    db.execute(_INSERT_AUDIT_SQL, {
+        "tenant_id": entry.tenant_id,
+        "user_id": entry.user_id,
+        "api_key_id": entry.api_key_id,
+        "model": entry.model[:128],
+        "prompt_tokens": entry.prompt_tokens,
+        "completion_tokens": entry.completion_tokens,
+        "cost_usd": entry.cost_usd,
+        "pii_detected": entry.pii_detected,
+        "masked_entities": json.dumps(entidades),
+        "compliance_status": entry.compliance_status[:64],
+        "latency_ms": entry.latency_ms,
+        "user_group_id": entry.user_group_id,
+        # None ⇒ SQL NULL, no JSON null: NULL significa "pedido sin atribución" (el motor
+        # hoy no la produce — T025); [] afirmaría "ninguna capa corrió", que sería mentira.
+        "applied_layers": json.dumps(entry.applied_layers) if entry.applied_layers is not None else None,
+        "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
+    })
+    db.commit()
+    return {"ok": True}

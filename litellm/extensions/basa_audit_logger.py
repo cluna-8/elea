@@ -140,36 +140,57 @@ class BasaAuditLogger(CustomLogger):
         compliance = (request_md.get("basa_compliance") or {}).get("status") or "passed"
         applied_layers, blocked_by_layer = _attribution_del_motor()
 
-        # El INSERT de auditoría del motor es best-effort: el audit_logs canónico lo
-        # escribe el backend en SU base (basa_guardian). Si la base del motor no tiene
-        # la tabla (p.ej. base propia basa_engine tras separar el motor), el INSERT
-        # falla — pero NO debe impedir la vitrina en vivo del firewall (el publish a
-        # Redis va después). Antes, la excepción del INSERT se llevaba puesto el publish
-        # y la vitrina quedaba vacía (regresión de la separación de DB).
-        try:
-            await prisma_client.db.query_raw(
-                _INSERT_AUDIT_SQL,
-                basa.get("tenant_id") or "00000000-0000-0000-0000-000000000001",
-                basa.get("client_id"),
-                basa.get("key_id"),
-                kwargs.get("model") or data.get("model") or "desconocido",
-                int(prompt_tokens or 0),
-                int(completion_tokens or 0),
-                float(cost),
-                bool(masked),
-                json.dumps(masked),
-                compliance,
-                latency_ms,
-                basa.get("group_id"),
-                # None (no "null") para que el bind sea SQL NULL y no un JSON null: NULL en
-                # estas columnas significa "pedido sin atribución", que es exactamente lo
-                # que hoy produce el motor mientras T025 no cablee un productor propio
-                # (`_attribution_del_motor`: sin canal confiable, no se registra nada).
-                json.dumps(applied_layers) if applied_layers is not None else None,
-                blocked_by_layer,
-            )
-        except Exception as exc:
-            print(f"[basa-audit] INSERT no fatal (sigue el feed en vivo): {exc}")
+        # Registro DURABLE, best-effort (nunca voltea la respuesta; el publish a Redis va
+        # después pase lo que pase). El audit_logs canónico vive en la base del BACKEND:
+        # desde la separación de bases (motor → basa_engine) el INSERT por prisma fallaba
+        # en cada pedido byok con "relation audit_logs does not exist", tragado como
+        # no-fatal — o sea, el tráfico de HERRAMIENTAS no dejaba rastro durable. Fix
+        # 2026-07-27: el motor emite la fila al plano interno del backend (dueño del
+        # esquema), mismo patrón y mismo secreto que la resolución de identidad. Sin la
+        # env (desarrollo, base compartida) se conserva el INSERT directo por prisma.
+        entry = {
+            "tenant_id": basa.get("tenant_id") or "00000000-0000-0000-0000-000000000001",
+            "user_id": basa.get("client_id"),
+            "api_key_id": basa.get("key_id"),
+            "model": kwargs.get("model") or data.get("model") or "desconocido",
+            "prompt_tokens": int(prompt_tokens or 0),
+            "completion_tokens": int(completion_tokens or 0),
+            "cost_usd": float(cost),
+            "pii_detected": bool(masked),
+            "masked_entities": masked,
+            "compliance_status": compliance,
+            "latency_ms": latency_ms,
+            "user_group_id": basa.get("group_id"),
+            # None (no "null"): SQL NULL = "pedido sin atribución", que es exactamente lo
+            # que hoy produce el motor mientras T025 no cablee un productor propio.
+            "applied_layers": applied_layers,
+            "blocked_by_layer": blocked_by_layer,
+        }
+        audit_url = os.environ.get("BASA_AUDIT_URL", "").strip()
+        if audit_url:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    r = await client.post(audit_url, json=entry,
+                                          headers={"X-Basa-Internal":
+                                                   os.environ.get("LITELLM_MASTER_KEY", "")})
+                if r.status_code != 200:
+                    print(f"[basa-audit] plano interno respondió {r.status_code} (no fatal)")
+            except Exception as exc:
+                print(f"[basa-audit] POST no fatal (sigue el feed en vivo): {exc}")
+        else:
+            try:
+                await prisma_client.db.query_raw(
+                    _INSERT_AUDIT_SQL,
+                    entry["tenant_id"], entry["user_id"], entry["api_key_id"],
+                    entry["model"], entry["prompt_tokens"], entry["completion_tokens"],
+                    entry["cost_usd"], entry["pii_detected"], json.dumps(masked),
+                    entry["compliance_status"], entry["latency_ms"], entry["user_group_id"],
+                    json.dumps(applied_layers) if applied_layers is not None else None,
+                    blocked_by_layer,
+                )
+            except Exception as exc:
+                print(f"[basa-audit] INSERT no fatal (sigue el feed en vivo): {exc}")
 
         await self._publish_monitor_event(basa, masked, compliance, kwargs,
                                           applied_layers, blocked_by_layer)

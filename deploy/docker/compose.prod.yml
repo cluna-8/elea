@@ -116,6 +116,11 @@ services:
       # motor no trae driver de Postgres ni instalador (ni pip ni uv) — httpx sí viene.
       # Se autentica con LITELLM_MASTER_KEY, que ambos servicios ya comparten.
       BASA_IDENTITY_URL: "http://backend:8000/api/v1/internal/identity"
+      # Auditoría DURABLE del tráfico que atiende el motor (byok): audit_logs vive en la
+      # base del backend, así que la fila se emite al plano interno. Sin esta línea el
+      # tráfico de herramientas sólo deja la vitrina efímera de Redis — cero registro
+      # durable, el gap más caro del core (detectado en el ensayo 2026-07-27).
+      BASA_AUDIT_URL: "http://backend:8000/api/v1/internal/audit"
       # Provider keys DEL CLIENTE (opcionales; viven en secrets.env de la
       # instalación). El alta de modelos referencia os.environ/<VAR> — sin el
       # passthrough el modelo queda dado de alta pero el motor no lo puede usar.
