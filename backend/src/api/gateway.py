@@ -68,6 +68,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from sqlalchemy import or_
 
 from ..database import SessionLocal, tenant_context
 from ..licensing.degraded import require_not_hard_blocked
@@ -352,8 +353,21 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
     db = SessionLocal()
     try:
         if basa_key and basa_key.startswith("sk-"):
+            # `expires_at` es DateTime naive-UTC (convención del modelo 013): se compara
+            # contra un "ahora" naive-UTC, la MISMA forma que la fuente única de verdad de
+            # "key activa no expirada" (``seat_counter.count_active_seats``). Comparar la
+            # columna naive contra un datetime aware dejaría la resolución colgada de la
+            # zona horaria de la sesión Postgres.
+            ahora = datetime.now(timezone.utc).replace(tzinfo=None)
             key = db.query(APIKey).filter(
-                APIKey.key_hash == hash_key(basa_key), APIKey.is_active.is_(True)
+                APIKey.key_hash == hash_key(basa_key),
+                APIKey.is_active.is_(True),
+                # US8a: una key VENCIDA cae al fallback anónimo igual que una inexistente.
+                # Sin este filtro, una key con `is_active=True` y `expires_at` en el pasado
+                # se resolvía (atribución + login válidos); con él, `whoami`/`inspect`
+                # responden el MISMO 401 indistinguible que con una key que no existe — sin
+                # oráculo que revele "vencida". `expires_at` NULL = sin vencimiento.
+                or_(APIKey.expires_at.is_(None), APIKey.expires_at > ahora),
             ).first()
             if key:
                 tenant = db.query(Tenant).filter(Tenant.id == key.tenant_id).first()

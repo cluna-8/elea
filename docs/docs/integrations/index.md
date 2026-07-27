@@ -196,22 +196,50 @@ curl -s http://localhost:8091/api/v1/gw/whoami \
 
 ### 3.3 Browser — ChatGPT / Claude web (superficie 2, extensión de navegador)
 
-1. **Instalar la extensión (descomprimida):** `brave://extensions` o `chrome://extensions` →
-   activar **Modo desarrollador** → **Cargar descomprimida** → la carpeta de la extensión provista
-   con el producto. Para actualizar el código, botón **↻** sobre la tarjeta de la extensión.
-2. **Conectar (login):** click en el ícono → **⚙** → pegar la key (p. ej.
-   `sk-basa-<usuario>-<herramienta>-<año>`) y el gateway (`http://localhost:8091/api/v1/gw`) →
-   **Guardar y conectar**. El popup valida contra `GET /api/v1/gw/whoami` y muestra
-   "🟢 Conectado como `<usuario>` · `<equipo>`".
+Un empleado gobierna sus chats web con la **extensión de navegador** del producto. La conexión la
+configura el **propio usuario**: **dirección del gateway** + **API key**. La dirección es
+**editable y agnóstica** al despliegue — el paquete **no** trae ninguna URL horneada.
 
-La key y el gateway son un **setup de una vez**: se guardan y no se vuelven a mostrar. La vista
-principal del popup queda con el estado y tres acciones — **Conectar** (revalida contra el
-gateway), **Desconectar** (borra la key) y **⚙** (configuración). Una key que no valida **no** se
-guarda.
+1. **Instalar la extensión (descomprimida):** `chrome://extensions` o `brave://extensions` →
+   activar **Modo de desarrollador** → **Cargar descomprimida** → la carpeta de la extensión
+   provista con el producto. Para actualizar el código, botón **↻** sobre la tarjeta.
+2. **Conectar (login):** click en el ícono → **⚙** → ingresar la **dirección del gateway**
+   (`https://<host>/api/v1/gw`) y pegar la **API key** (p. ej.
+   `sk-basa-<usuario>-<herramienta>-<año>`) → **Guardar y conectar**. El popup valida contra
+   `GET /api/v1/gw/whoami` y, si la key es válida, muestra "Conectado como `<usuario>` ·
+   `<equipo>`".
+3. **Conceder el permiso de host:** al conectar, el navegador pide **permiso para acceder al host**
+   del gateway ingresado (permiso en runtime). Hay que **concederlo** — sin ese permiso la
+   extensión no puede hablar con el gateway. Cambiar de host vuelve a pedir permiso del host nuevo.
+
+!!! warning "Dirección remota = `https://`"
+    Una dirección **remota** debe ser `https://`: sobre `http` la key por usuario viajaría en
+    claro. `http://` se admite **sólo** para un gateway local. La extensión rechaza una dirección
+    remota en `http` **antes** de tocar la red.
+
+La dirección y la key son un **setup de una vez**: se guardan detrás del **⚙** y no se vuelven a
+mostrar (la key nunca se re-inyecta en el campo — para cambiarla se escribe una nueva). La vista
+principal queda con el estado y tres acciones — **Conectar** (revalida contra el gateway),
+**Desconectar** (borra la key) y **⚙** (configuración). Una key que no valida **no** se guarda.
 
 !!! warning "La protección no se puede desactivar"
     El enmascarado no es una preferencia del usuario: no hay toggle en el popup. Apagarlo
     equivaldría a mandar el contenido en crudo al proveedor.
+
+**Chip de honestidad (cobertura parcial).** Al conectar, el panel muestra un indicador **ámbar**
+"**Detección por patrones · cobertura parcial**" — nunca verde, nunca "protegido". En esta
+superficie la detección de datos personales es **por patrones** (correo, teléfono, documentos,
+credenciales), no por análisis lingüístico: puede no reconocer nombres o direcciones escritos en
+texto libre. El texto del chip **lo provee el servidor** (`whoami.proteccion`, fuente única de
+copy): el día que la superficie cambie, el mensaje cambia sin re-empaquetar. Si el servidor no
+informa el nivel, la extensión asume la promesa más chica ("patrones"). Presentarlo **siempre**
+como cobertura parcial, nunca como protección total.
+
+**Motivo real de bloqueo.** Si el gateway **bloquea** un envío por política (p. ej. un secreto o
+credencial, una práctica prohibida por la normativa de IA), la extensión frena el envío y muestra
+el **motivo del servidor** — no un genérico "servicio no disponible". Un gateway **caído** (sin
+indicación de bloqueo) sí muestra "servicio no disponible". Distinguir bloqueo de caída es
+deliberado: el usuario ve *por qué* no salió su prompt.
 
 El ciclo completo de un prompt (mask a la ida, unmask a la vuelta):
 
@@ -246,17 +274,35 @@ El contrato de `POST /api/v1/gw/inspect` (verificado en el producto):
 - Cada llamada empuja al monitor con `surface="browser"` y audita **metadata-only**; el preview
   del monitor viaja siempre enmascarado y con secretos scrubbeados.
 
+**Sesión y offboarding.** La extensión gobierna el estado de sesión, distingue tres situaciones y
+**revalida sola** (una comprobación periódica ~30 min y al reabrir el navegador):
+
+- **Conectado** — la validación contra `whoami` dio ok.
+- **Sin conexión (se reintenta solo)** — un **corte de red** no borra la key: la sesión se
+  conserva y se recupera sola cuando vuelve la conexión.
+- **Desconectado** — la key fue **rechazada**: key **inválida o vencida** → mensaje "Tu API key no
+  es válida"; **plaza revocada** → mensaje propio "Tu plaza ya no está activa. Consultá con tu
+  administrador". En ambos casos la extensión **borra** la key guardada.
+
+Dar de baja a un usuario (revocar su Connection) o **vencer** su key lo **desconecta**: en la
+próxima revalidación la extensión recibe el rechazo, borra la key y pide reconfigurar. El ciclo de
+vida de Connections y el vencimiento de keys viven en [Administración](../administration/index.md).
+
 Notas de arquitectura útiles para soporte:
 
-- La key vive en `chrome.storage.local` y **solo el service worker** de la extensión habla con el
-  gateway (`host_permissions` → sin CORS); el content script no maneja la key en ningún flujo.
+- La key vive en el **almacenamiento local** de la extensión y **sólo el service worker** habla con
+  el gateway (permiso de host concedido en runtime → sin CORS); el content script no maneja la key
+  en ningún flujo.
 - **Fail-closed:** sin key válida, un overlay **bloquea** la página (no hay key → no se usa la IA).
   Si el gateway se cae estando conectado, también bloquea.
-- **Si cambia el host del gateway hay que tocar dos archivos del paquete, y sólo dos:**
-  `GATEWAY_URL` en `config.js` (única fuente de la URL, la leen el service worker y el popup) y el
-  host en `host_permissions` de `manifest.json` — MV3 bloquea el `fetch` del service worker hacia
-  cualquier host no declarado en el manifest. Con key **por usuario**, un despliegue remoto debe
-  ser `https://`: sobre `http` la credencial viaja en claro.
+- **Cambiar el host del gateway** es un cambio de configuración del **usuario**: se ingresa la nueva
+  dirección en el **⚙** y se concede el permiso del host nuevo cuando el navegador lo pida. Ya **no**
+  hay ninguna URL horneada en el paquete ni un host fijo declarado por adelantado.
+
+**Paquete white-label.** La extensión se entrega como un **zip por partner**, con la marca del
+partner y un identificador estable, **sin** dirección de gateway horneada, y viaja dentro del
+bundle de instalación. El mismo contenido de runtime se rebrandea por cliente; la dirección del
+gateway siempre la pone el usuario al conectar.
 
 ### 3.4 Cursor (`base_url`, **solo chat/plan**)
 
@@ -304,9 +350,12 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
 - 🟡 **Cursor: solo chat/plan** — Composer y autocomplete no honran el override y quedan fuera
   del firewall (§3.4).
 - 🟢 **ChatGPT / Claude web con la extensión** — mask antes de salir, unmask en el DOM; incluye
-  el endpoint de título de Claude.ai ([G3](gotchas.md)). Límite conocido: los artefactos de
-  Claude renderizan en un `iframe` y el unmask del DOM no entra ([G5](gotchas.md)); el unmask
-  dentro de iframes/artefactos es 🔵 roadmap.
+  el endpoint de título de Claude.ai ([G3](gotchas.md)). La detección en esta superficie es **por
+  patrones** y la extensión lo comunica con un chip **ámbar** de **cobertura parcial** (§3.3):
+  nunca se presenta como protección total. La conexión la configura el usuario (dirección del
+  gateway + key, con permiso de host en runtime; remota siempre `https://`). Límite conocido: los
+  artefactos de Claude renderizan en un `iframe` y el unmask del DOM no entra ([G5](gotchas.md));
+  el unmask dentro de iframes/artefactos es 🔵 roadmap.
 - 🔵 **Gemini web** — roadmap con approach definido (DOM-hook sobre el editor), **aún sin
   verificar** — no se ofrece todavía.
 - 🟡 **Plano MCP** — la DLP cubre los resultados de las tools; el prompt de chat de un cliente

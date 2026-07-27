@@ -7127,7 +7127,7 @@
     },
     "/api/v1/gw/whoami": {
       "get": {
-        "description": "Valida la key → identidad para el login del popup. Fail-closed (SC-005).",
+        "description": "Valida la key → identidad para el login del popup. Fail-closed (SC-005).\n\nDevuelve además el bloque `proteccion` (US4): copy server-side para el chip de\nhonestidad de la extensión (vocabulario cerrado, sin nombres de motor).",
         "operationId": "gw_whoami_api_v1_gw_whoami_get",
         "parameters": [
           {
