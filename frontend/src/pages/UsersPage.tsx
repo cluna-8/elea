@@ -317,8 +317,11 @@ export const UsersPage: React.FC = () => {
       setKeyBudgetDuration("30d"); setKeyComplianceProjectId("");
       setKeyRpmLimit("60"); setKeyTpmLimit("100000");
       await fetchData();
-    } catch {
-      alert("Error al generar la llave virtual.");
+    } catch (e) {
+      // El motivo REAL importa: el caso más probable es que se hayan agotado los
+      // asientos de la licencia (402), y con un "Error al generar la llave" genérico
+      // el administrador del cliente concluye que el producto está roto.
+      alert(e instanceof Error ? e.message : "No se pudo generar la llave virtual.");
     } finally {
       setActionLoading(false);
     }

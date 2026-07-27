@@ -807,7 +807,9 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Failed to generate key");
+      // ApiError (no Error pelado) para que quien llame pueda ramificar por status:
+      // el 402 de seats agotados necesita otro texto que un 503 del motor.
+      throw new ApiError(detailMessage(err, "No se pudo generar la llave virtual."), res.status);
     }
     return res.json();
   },

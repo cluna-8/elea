@@ -22,6 +22,13 @@ MODEL_PRICING = {
 # `ollama/` / `ollama_chat/` como litellm_provider. El `default` conservador de
 # $5/$15 se mantiene INTACTO para modelos remotos desconocidos.
 _LOCAL_MODEL_PREFIXES = ("ollama-", "ollama/", "ollama_chat/", "ollama:")
+# El prefijo NO alcanza en una instalación white-label: el perfil de cliente nombra su
+# modelo local `${TENANT_SLUG}-local` (deploy/clients/*/config.yaml.tmpl), o sea
+# `camara-comercio-local` en el piloto — nada de "ollama" a la vista, justamente porque
+# el nombre del motor no puede filtrarse al cliente. Sin este sufijo el panel de costos
+# le cobraba $5/$15 por millón de tokens a un modelo que corre en SU hardware y no
+# cuesta nada, y es la primera pantalla que mira el cliente.
+_LOCAL_MODEL_SUFFIXES = ("-local",)
 _LOCAL_MODEL_PRICING = {"input": Decimal("0"), "output": Decimal("0")}
 
 
@@ -29,7 +36,8 @@ def _is_local_model(model: str) -> bool:
     """True si el modelo es local/self-hosted (sin costo por token)."""
     if not model:
         return False
-    return model.strip().lower().startswith(_LOCAL_MODEL_PREFIXES)
+    nombre = model.strip().lower()
+    return nombre.startswith(_LOCAL_MODEL_PREFIXES) or nombre.endswith(_LOCAL_MODEL_SUFFIXES)
 
 class BudgetService:
     @staticmethod
