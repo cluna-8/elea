@@ -18,6 +18,7 @@ Uso (dentro del container backend, cwd=/app):
 """
 import base64
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +56,32 @@ DEV_PAYLOAD = {
 
 
 def main() -> None:
+    # Guarda añadida 2026-07-27, víspera del install de la Cámara. Este script REGENERA el
+    # par Ed25519 y sobrescribe el keyset público ENTERO con una sola clave. Correrlo sobre
+    # una instalación viva borra el kid con el que se firmó su licencia → estado `invalid` →
+    # 403 en TODAS las altas de usuarios y Connections, hasta que alguien restaure el
+    # keyset. Y el script viaja horneado en la imagen de producción
+    # (deploy/docker/backend.prod.Dockerfile:38), así que un
+    # `docker compose exec backend python scripts/issue_dev_license.py` bien intencionado
+    # basta para provocarlo.
+    #
+    # Para emitir una licencia de verdad (parametrizada, firmando con una clave que ya
+    # existe y sin tocar el keyset) está `issue_license.py`.
+    if KEYSET_PATH.exists() and not os.environ.get("BASA_DEV_LICENSE_OVERWRITE_KEYSET"):
+        existing = [line.split(":", 1)[1].strip()
+                    for line in KEYSET_PATH.read_text(encoding="utf-8").splitlines()
+                    if line.strip().lstrip("#").strip().lower().startswith("key_id:")]
+        raise SystemExit(
+            f"❌ {KEYSET_PATH} ya existe y contiene {len(existing)} clave(s): "
+            f"{', '.join(existing) or '¿ninguna legible?'}\n"
+            "   Este script las SOBRESCRIBIRÍA con una clave nueva, invalidando toda\n"
+            "   licencia ya emitida contra ellas (403 en todas las altas).\n"
+            "   Para emitir una licencia sin tocar el keyset:\n"
+            "     python backend/scripts/issue_license.py --help\n"
+            "   Si de verdad querés regenerar el keyset de desarrollo desde cero:\n"
+            "     BASA_DEV_LICENSE_OVERWRITE_KEYSET=1 python backend/scripts/issue_dev_license.py"
+        )
+
     priv = Ed25519PrivateKey.generate()
     pub = priv.public_key()
 
