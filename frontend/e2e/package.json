@@ -1,0 +1,7 @@
+{
+  "name": "basa-frontend-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Verificación visual 029 (Playwright) — separado del app para no bloatear su install",
+  "devDependencies": { "playwright": "^1.61.1" }
+}
