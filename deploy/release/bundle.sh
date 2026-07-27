@@ -11,6 +11,11 @@ set -euo pipefail
 SLUG="${1:?uso: bundle.sh <client-slug> [outdir]}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${2:-$REPO_ROOT/deploy/release/bundle-$SLUG}"
+# Staging SIEMPRE desde cero: `cp -R x $OUT/x` sobre un staging de una corrida
+# anterior copia ADENTRO (x/x anidado) en vez de reemplazar, y el bundle se lleva
+# los archivos viejos — un secrets.env stale con overrides de ensayo llegó a
+# empaquetarse así el 2026-07-27 (el instalador habría escuchado en :8085).
+rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # TODAS las imágenes del release (edge case: una imagen fuera del tarball =
