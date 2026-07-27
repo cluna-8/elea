@@ -120,8 +120,14 @@ BUNDLE_ARCH="$(awk -F': ' '/^# arch:/{print $2; exit}' "$HERE/MANIFEST" 2>/dev/n
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH" in x86_64) HOST_ARCH=amd64 ;; aarch64|arm64) HOST_ARCH=arm64 ;; esac
 if [ -n "$BUNDLE_ARCH" ] && [ "$BUNDLE_ARCH" != "$HOST_ARCH" ]; then
-  echo "❌ este bundle trae imágenes $BUNDLE_ARCH y el host es $HOST_ARCH — hace falta el bundle $HOST_ARCH"
-  exit 1
+  if [ "${BASA_ALLOW_ARCH_MISMATCH:-}" = "1" ]; then
+    echo "⚠️  bundle $BUNDLE_ARCH sobre host $HOST_ARCH — siguiendo por BASA_ALLOW_ARCH_MISMATCH=1"
+    echo "    (sólo funciona con emulación binfmt/Rosetta activa; rendimiento degradado)"
+  else
+    echo "❌ este bundle trae imágenes $BUNDLE_ARCH y el host es $HOST_ARCH — hace falta el bundle $HOST_ARCH"
+    echo "   (si el host tiene emulación binfmt/Rosetta y es a propósito: BASA_ALLOW_ARCH_MISMATCH=1 ./install.sh …)"
+    exit 1
+  fi
 fi
 
 # El docker.io de Ubuntu viene SIN el plugin compose; si el bundle trae el binario
