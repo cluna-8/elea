@@ -21,5 +21,7 @@ export {
 export type { TableProps, TableColumn } from "./Table";
 export { Field, inputBaseClass } from "./Field";
 export type { FieldProps } from "./Field";
+export { PasswordField } from "./PasswordField";
+export type { PasswordFieldProps } from "./PasswordField";
 export { Toggle } from "./Toggle";
 export type { ToggleProps } from "./Toggle";

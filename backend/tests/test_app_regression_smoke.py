@@ -17,11 +17,18 @@ require_postgres()
 DB = "basa_test_app_smoke"
 
 
-@pytest.fixture(scope="module")
-def client():
-    engine = migrated_legacy_db(DB)
-    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+ADMIN_PASSWORD = "smoke-pass-12345"
 
+
+@pytest.fixture(scope="module")
+def factory():
+    engine = migrated_legacy_db(DB)
+    yield sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    engine.dispose()
+
+
+@pytest.fixture(scope="module")
+def client(factory):
     from src.main import app
     from src.database import get_db
 
@@ -36,14 +43,31 @@ def client():
     with TestClient(app) as tc:
         yield tc
     app.dependency_overrides.clear()
-    engine.dispose()
 
 
 @pytest.fixture(scope="module")
-def admin_token(client):
-    # Bootstrap heredado: primer login de 'admin' lo crea — post-013 con rol canónico
+def admin_token(client, factory):
+    """El admin se siembra por DB, NO por el bootstrap del login.
+
+    El bootstrap sólo corre sobre una instalación virgen y esta base arranca con el seed
+    legacy: que el login de un 'admin' inexistente ya no se cree un tenant_admin sobre una
+    tabla poblada es exactamente el agujero que se cerró. El seed trae 'legacy-admin', pero
+    con ``password_hash='x'``, que no verifica en ningún formato.
+    """
+    from src.api.users import hash_password
+    from src.models.user import User
+
+    db = factory()
+    try:
+        db.add(User(username="admin", email="admin@basa.com.ar",
+                    password_hash=hash_password(ADMIN_PASSWORD),
+                    role="tenant_admin", is_active=True))
+        db.commit()
+    finally:
+        db.close()
+
     resp = client.post("/api/v1/users/login",
-                       json={"username": "admin", "password": "smoke-pass"})
+                       json={"username": "admin", "password": ADMIN_PASSWORD})
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["user"]["role"] == "tenant_admin"
@@ -54,7 +78,7 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_bootstrap_login_and_role_canonical(admin_token):
+def test_admin_login_and_role_canonical(admin_token):
     assert admin_token
 
 
@@ -79,7 +103,7 @@ def test_create_user_accepts_legacy_role_payload(client, admin_token):
         "username": "smoke-clinician",
         "email": "smoke-clinician@basa.com.ar",
         "role": "clinician",
-        "password": "x",
+        "password": "clave-de-alta-valida",
     })
     # 503 si el motor no está accesible desde el test runner: el INSERT local ya
     # se validó antes de llamar al motor; lo que NO puede pasar es un 500 por CHECK.
@@ -91,7 +115,7 @@ def test_create_user_accepts_legacy_role_payload(client, admin_token):
 def test_create_user_rejects_unknown_role_with_422(client, admin_token):
     resp = client.post("/api/v1/users", headers=_auth(admin_token), json={
         "username": "smoke-bad", "email": "smoke-bad@basa.com.ar",
-        "role": "hacker", "password": "x",
+        "role": "hacker", "password": "clave-de-alta-valida",
     })
     assert resp.status_code == 422
 

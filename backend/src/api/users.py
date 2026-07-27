@@ -1,25 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from uuid import UUID
-import hashlib
 from pydantic import BaseModel
 
 from ..database import get_db
 from ..licensing.gate import enforce_seat_gate
 from ..models.tenant import DEFAULT_TENANT_ID
 from ..models.user import User, Group, normalize_legacy_role
-from ..schemas.user import UserCreate, UserResponse, GroupCreate, GroupResponse, UserBase
+from ..schemas.user import (UserCreate, UserResponse, GroupCreate, GroupResponse, UserBase,
+                            PasswordChangeRequest, PasswordResetRequest)
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
-from ..auth.session import create_session_token
+from ..auth.session import create_session_token, get_current_user
+# hash_password vivía acá como sha256 sin sal; ahora es bcrypt y vive en auth.passwords.
+# Se sigue importando con el mismo nombre porque hay tests que lo toman de este módulo.
+from ..auth.passwords import hash_password, necesita_rehash, validar_password, verify_password
 from ..auth.rbac import require_role
 
 router = APIRouter(prefix="/users", tags=["Users"])
-
-
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
 
 
 class LoginRequest(BaseModel):
@@ -27,12 +26,44 @@ class LoginRequest(BaseModel):
     password: str
 
 
+#: Roles cuya sola existencia PRUEBA que la instalación ya tuvo un administrador: ninguno de
+#: los tres se puede crear sin una sesión admin (``POST /users`` es admin-only). ``client``
+#: queda afuera a propósito: el seed del perfil los siembra por config, sin nadie logueado.
+ROLES_QUE_PRUEBAN_DUENO = ("tenant_admin", "super_admin", "compliance_officer")
+
+
+def _sin_dueno(db: Session) -> bool:
+    """¿La instalación todavía no tiene dueño?
+
+    El gate NO es "la tabla users está vacía", aunque sea la señal más obvia: el runbook de
+    instalación siembra los clients del perfil (``seed_clients_from_config``, filas
+    ``role='client'`` con un ``password_hash`` centinela que no verifica nunca) ANTES del
+    primer login del dueño. Con el gate por tabla vacía, cualquier perfil con clients dejaba
+    la instalación sin ningún admin y sin forma de crear uno —``POST /users`` exige
+    ``require_role("admin")``—: bloqueada, y sin salida documentada que no sea SQL a mano.
+
+    Lo que se mira entonces es lo que la condición quería decir: que nadie sea dueño todavía.
+    Una instalación con 124 usuarios cargados por alguien ya tiene el suyo, así que el agujero
+    de apropiación sigue cerrado. Queda una ventana inherente al "primer login crea el dueño":
+    entre el arranque y ese primer login, el primero que llegue gana. Por eso el runbook pone
+    el bootstrap inmediatamente después del arranque y antes de exponer el host.
+    """
+    return db.query(User).filter(User.role.in_(ROLES_QUE_PRUEBAN_DUENO)).count() == 0
+
+
 @router.post("/login")
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == body.username).first()
 
-    # Bootstrap: create admin on first login if it doesn't exist yet
-    if not user and body.username == "admin":
+    # Bootstrap del primer admin, SÓLO mientras la instalación no tenga dueño. Antes bastaba
+    # con que no existiera el usuario 'admin': en un despliegue con 124 clientes ya cargados,
+    # cualquiera que llegara al login se apropiaba del tenant creándose un tenant_admin con
+    # la contraseña que quisiera.
+    if not user and body.username == "admin" and _sin_dueno(db):
+        try:
+            validar_password(body.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
         user = User(
             username="admin",
             email="admin@basa.com.ar",  # .local es TLD reservado: EmailStr del response lo rechaza (bug heredado)
@@ -44,8 +75,14 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(user)
 
-    if not user or not user.is_active or user.password_hash != hash_password(body.password):
+    if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales incorrectas.")
+
+    # Migración perezosa del formato viejo (ver auth/passwords): este es el único momento en
+    # que existe la contraseña en claro, así que el re-hash se hace acá o no se hace nunca.
+    if necesita_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
+        db.commit()
 
     token = create_session_token(str(user.id), user.role, user.username)
     return {
@@ -100,6 +137,14 @@ def list_groups(db: Session = Depends(get_db)):
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(require_role("admin"))])
 async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
+    # Primero la contraseña: es lo único que no se puede corregir después sin que el usuario
+    # quede con una credencial conocida. El alta sin contraseña ya no existe (había un
+    # `or "basa123"` acá, y una cadena vacía pasaba el `if` del schema).
+    try:
+        validar_password(user_in.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
     if db.query(User).filter(User.username == user_in.username).first():
         raise HTTPException(status_code=400, detail="Username already registered")
 
@@ -107,7 +152,6 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         if not db.query(Group).filter(Group.id == user_in.group_id).first():
             raise HTTPException(status_code=404, detail="Group not found")
 
-    raw_password = user_in.password if user_in.password else "basa123"
     # Acepta nombres legacy del frontend heredado (admin/clinician/developer) y los
     # normaliza al enum canonico post-013 (ck_users_role) conservando la etiqueta.
     try:
@@ -122,7 +166,7 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     user = User(
         username=user_in.username,
         email=user_in.email,
-        password_hash=hash_password(raw_password),
+        password_hash=hash_password(user_in.password),
         role=role,
         display_label=display_label,
         group_id=user_in.group_id,
@@ -180,6 +224,54 @@ def update_user(user_id: UUID, user_in: UserBase, db: Session = Depends(get_db))
     db.commit()
     db.refresh(user)
     return user
+
+
+# --- Password Endpoints ---
+# El literal /me/password va ANTES de /{user_id}/password: FastAPI resuelve por orden de
+# registro, y al revés "me" entraría como user_id y moriría en el parseo del UUID.
+
+@router.post("/me/password")
+def change_own_password(
+    body: PasswordChangeRequest,
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Cambio de la contraseña propia, para cualquier rol autenticado."""
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autenticación requerida: sesión JWT válida no proporcionada o expirada.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # La identidad se comprueba antes de la política: mientras no se pruebe quién es, no
+    # tiene por qué enterarse de qué contraseñas acepta el sistema.
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="La contraseña actual no es correcta.")
+    try:
+        validar_password(body.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/{user_id}/password", dependencies=[Depends(require_role("admin"))])
+def reset_user_password(user_id: UUID, body: PasswordResetRequest, db: Session = Depends(get_db)):
+    """Reseteo por el administrador (no exige la contraseña actual: no la conoce)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    try:
+        validar_password(body.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    user.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"status": "ok"}
 
 
 # --- Spend Endpoints ---

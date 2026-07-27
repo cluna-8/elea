@@ -660,7 +660,7 @@ Autenticación basada en JWT (24h TTL) con control de acceso por rol.
 
 ```json
 POST /api/v1/users/login
-{ "username": "admin", "password": "admin" }
+{ "username": "admin", "password": "clave-de-al-menos-12" }
 
 → {
     "access_token": "eyJ...",
@@ -669,11 +669,27 @@ POST /api/v1/users/login
   }
 ```
 
+El **primer** login de `admin` sobre una instalación sin dueño (ningún usuario con rol
+administrativo) crea ese admin con la contraseña enviada. No hay credencial de fábrica y el
+mínimo es 12 caracteres.
+
 ### Uso del token en peticiones
 
 ```http
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
+
+### Cambio de contraseña
+
+```json
+POST /api/v1/users/me/password          // cualquier rol, sobre sí mismo
+{ "current_password": "...", "new_password": "..." }   // 401 si la actual no coincide
+
+POST /api/v1/users/{user_id}/password   // sólo admin: reseteo, NO pide la actual
+{ "new_password": "..." }                              // 404 si el usuario no existe
+```
+
+Mínimo 12 caracteres en ambos (`422` con el detalle en español si no llega).
 
 ### Matriz de acceso resumida
 
@@ -1040,10 +1056,14 @@ docker compose up -d
 # 2. Esperar que todo esté healthy (~30s)
 docker ps
 
-# 3. Login para obtener token de administración
+# 3. Login para obtener token de administración.
+#    Sobre una instalación nueva, este primer login CREA el admin con la contraseña que se
+#    envíe (mínimo 12 caracteres; no hay ninguna credencial de fábrica). Sólo funciona
+#    mientras la instalación no tenga dueño: si ya existe un usuario administrativo, es un
+#    login normal.
 curl -X POST http://localhost:8081/api/v1/users/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin"}'
+  -d '{"username": "admin", "password": "<contraseña del admin, mínimo 12 caracteres>"}'
 
 # 4. Crear una llave de desarrollo
 curl -X POST http://localhost:8081/api/v1/keys \
@@ -1143,6 +1163,8 @@ GET    /users
 POST   /users
 GET    /users/{id}
 PUT    /users/{id}
+POST   /users/me/password        # cambio propio (exige la actual)
+POST   /users/{id}/password      # reseteo por admin (no exige la actual)
 GET    /users/{id}/spend
 POST   /users/groups
 GET    /users/groups

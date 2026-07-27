@@ -16,9 +16,10 @@ frontend **:8090** (línea 130), Postgres **:5433** (línea 13). Master key del 
 API="http://localhost:8091/api/v1"
 MK="basa_master_key_9999"
 
-# Sesión admin (el primer login bootstrapea el usuario admin — users.py:34-45)
+# Sesión admin. Sobre una base sin dueño (ningún usuario administrativo) el primer login
+# bootstrapea el usuario admin con esta contraseña; el mínimo es 12 caracteres.
 TOK=$(curl -s $API/users/login -H 'content-type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+  -d '{"username":"admin","password":"clave-de-dev-027"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
 # Virtual key (sk-basa-…) para el tráfico de Modelo propio:
 # seed_client (specs/019-integration-surfaces/spikes-batch1.md) u onboarding existente.

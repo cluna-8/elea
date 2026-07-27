@@ -39,7 +39,8 @@ def _restore():
 
 
 def _user_payload(name, role):
-    return {"username": name, "email": f"{name}@basa.com.ar", "role": role, "password": "x"}
+    return {"username": name, "email": f"{name}@basa.com.ar", "role": role,
+            "password": "clave-de-alta-valida"}
 
 
 def test_client_creation_blocked_at_seat_limit(harness, monkeypatch, tmp_path):

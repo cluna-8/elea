@@ -29,7 +29,20 @@ class UserBase(BaseModel):
     compliance_project_id: Optional[UUID] = None
 
 class UserCreate(UserBase):
+    # Sin default y sin Optional a propósito: el endpoint tenía un `or "basa123"` que le
+    # daba la MISMA contraseña conocida a todo usuario creado sin una. La longitud mínima
+    # la valida el endpoint (no un Field) para responder el 422 en español.
     password: str
+
+class PasswordChangeRequest(BaseModel):
+    """Cambio de la contraseña propia: exige la actual porque el token de sesión sigue
+    siendo válido en un equipo ajeno y no alcanza como prueba de identidad."""
+    current_password: str
+    new_password: str
+
+class PasswordResetRequest(BaseModel):
+    """Reseteo por un admin: NO pide la actual (no la conoce, es justo el caso de uso)."""
+    new_password: str
 
 class UserResponse(UserBase):
     id: UUID

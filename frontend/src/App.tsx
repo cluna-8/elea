@@ -13,6 +13,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { CostsPage } from "./pages/CostsPage";
 import { FirewallMonitorPage } from "./pages/FirewallMonitorPage";
 import { GovernancePage } from "./pages/GovernancePage";
+import { CambiarMiPasswordModal } from "./components/CambiarMiPasswordModal";
 // `ROLE_PERMISSIONS` se importaba y no se usaba desde antes de esta rama: el gating del nav
 // se resuelve con el campo `roles` de cada item (más abajo). Se saca el import muerto en vez
 // de silenciarlo — dejarlo sugería un mecanismo de permisos que este archivo no aplica.
@@ -26,6 +27,11 @@ type Page = "dashboard" | "playground" | "firewall" | "users" | "governance" | "
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(authStorage.getUser());
+  // El cambio de la propia contraseña vive acá y no en una página del nav: es de CUALQUIER
+  // rol, y la única pantalla con campos de contraseña (Usuarios) es admin-only. Sin esto, la
+  // credencial que reparte el administrador al dar de alta a alguien no la puede rotar su
+  // propio dueño.
+  const [cambiarPassword, setCambiarPassword] = useState(false);
 
   const navigation = [
     { id: "dashboard", name: "Panel Principal", icon: LayoutDashboard, roles: null },
@@ -110,6 +116,12 @@ export const App: React.FC = () => {
               Salir
             </button>
           </div>
+          <button
+            onClick={() => setCambiarPassword(true)}
+            className="w-full text-left text-[11px] text-text-secondary hover:text-primary font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+          >
+            Cambiar mi contraseña
+          </button>
           <div className="text-center">
             <span className="text-[10px] text-text-tertiary font-mono">
               V1.0.0 | Entorno Seguro
@@ -132,6 +144,8 @@ export const App: React.FC = () => {
         {currentPage === "audit" && <AuditPage />}
         {currentPage === "docs" && <DocsPage />}
       </main>
+
+      {cambiarPassword && <CambiarMiPasswordModal onClose={() => setCambiarPassword(false)} />}
     </div>
   );
 };

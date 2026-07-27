@@ -46,9 +46,11 @@ def build_app_client(dbname):
 
 
 def admin_headers(client):
-    """Bootstrap heredado: el primer login de 'admin' lo crea (tenant_admin)."""
+    """Bootstrap del primer admin: sobre la tabla users VACÍA de la DB fresca, el login de
+    'admin' lo crea (tenant_admin). La contraseña respeta el mínimo del producto porque el
+    bootstrap ya no acepta cualquier cosa."""
     resp = client.post("/api/v1/users/login",
-                       json={"username": "admin", "password": "gate-pass"})
+                       json={"username": "admin", "password": "gate-pass-12345"})
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
