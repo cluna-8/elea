@@ -138,6 +138,18 @@ async def _lookup_identity(key_hash: str) -> Optional[dict]:
         # `row: null` es una respuesta legítima ("no existe esa key"): se cachea como
         # None y el caller lo traduce a 401. Distinto de no haber podido preguntar.
         row = r.json().get("row")
+        # Las columnas NULL se ELIMINAN del dict, no viajan como None. No es cosmético:
+        # todo este módulo y el guardrail leen con `identity.get(campo, DEFAULT)`, y el
+        # caso crítico es `redact_enabled` — nullable en la tabla y con default True
+        # (el "colapso NULL→True" que la 027/T024 documenta y que hoy es la semántica
+        # vigente). Con la clave presente valiendo None, `.get(..., True)` devuelve None
+        # (falsy) y el motor DEJA DE ENMASCARAR: una Connection creada por la UI, que no
+        # fija el flag, pasaría la PII en claro. El prisma_client no traía las columnas
+        # NULL, así que este filtro es lo que mantiene idéntico el comportamiento entre
+        # los dos caminos. Verificado en vivo el 2026-07-27: sin él, el modelo recibe
+        # nombre, teléfono y DNI sin enmascarar.
+        if isinstance(row, dict):
+            row = {k: v for k, v in row.items() if v is not None}
     else:
         # Desarrollo: motor y backend comparten base, el prisma del motor alcanza.
         # Import perezoso: el prisma client existe recién cuando el proxy terminó de bootear
