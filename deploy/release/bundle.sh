@@ -26,8 +26,33 @@ IMAGES=(
   "${CADDY_IMAGE:-caddy:2-alpine}" "${POSTGRES_IMAGE:-postgres:16}" "${REDIS_IMAGE:-redis:7-alpine}"
 )
 
+# Arquitectura del bundle = la de las imágenes, y TODAS deben coincidir. Descubierto el
+# 2026-07-27: el Mac (arm64) construyó todo en arm64 y la sede del cliente es x86_64 —
+# cada contenedor habría muerto con "exec format error" recién al arrancar. El gate
+# frena acá, donde todavía se puede reconstruir, no en la sede.
+BUNDLE_ARCH="$(docker image inspect --format '{{.Architecture}}' "${BACKEND_IMAGE}")"
+for img in "${IMAGES[@]}"; do
+  A="$(docker image inspect --format '{{.Architecture}}' "$img")"
+  [ "$A" = "$BUNDLE_ARCH" ] || { echo "❌ $img es $A pero el bundle es $BUNDLE_ARCH — rebuild/pull con --platform linux/$BUNDLE_ARCH"; exit 1; }
+done
+echo "── arquitectura del bundle: linux/$BUNDLE_ARCH"
+
 echo "── docker save (${#IMAGES[@]} imágenes)"
 docker save "${IMAGES[@]}" -o "$OUT/images.tar"
+
+# Plugin compose de la MISMA arch: el docker.io de Ubuntu no lo trae y en una sede sin
+# internet no hay apt que lo salve — install.sh lo instala sólo si el host no lo tiene.
+case "$BUNDLE_ARCH" in
+  amd64) COMPOSE_SRC="$REPO_ROOT/deploy/release/vendor/docker-compose-linux-x86_64" ;;
+  arm64) COMPOSE_SRC="$REPO_ROOT/deploy/release/vendor/docker-compose-linux-aarch64" ;;
+  *)     COMPOSE_SRC="" ;;
+esac
+if [ -n "$COMPOSE_SRC" ] && [ -f "$COMPOSE_SRC" ]; then
+  cp "$COMPOSE_SRC" "$OUT/docker-compose-plugin" && chmod +x "$OUT/docker-compose-plugin"
+  echo "── plugin compose incluido ($(cat "$REPO_ROOT/deploy/release/vendor/VERSION" 2>/dev/null || echo '?'), $BUNDLE_ARCH)"
+else
+  echo "⚠️  sin binario compose para $BUNDLE_ARCH en deploy/release/vendor/ — el host deberá traer el plugin"
+fi
 
 "$REPO_ROOT/deploy/release/render_profile.sh" "$SLUG"
 cp "$REPO_ROOT/deploy/docker/compose.prod.yml" "$OUT/"
@@ -88,7 +113,32 @@ LIC="${1:?uso: ./install.sh <fichero.lic> [nombre-de-proyecto]}"
 PROJECT="${2:-basa}"
 [ -f "$LIC" ] || { echo "❌ no existe el fichero de licencia: $LIC"; exit 2; }
 command -v docker >/dev/null || { echo "❌ docker no está instalado o no está en el PATH"; exit 1; }
-docker compose version >/dev/null 2>&1 || { echo "❌ falta el plugin 'docker compose'"; exit 1; }
+
+# Preflight de ARQUITECTURA: una imagen de otra arch no falla al cargar sino recién al
+# arrancar, con un críptico "exec format error" contenedor por contenedor. Mejor acá.
+BUNDLE_ARCH="$(awk -F': ' '/^# arch:/{print $2; exit}' "$HERE/MANIFEST" 2>/dev/null || true)"
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in x86_64) HOST_ARCH=amd64 ;; aarch64|arm64) HOST_ARCH=arm64 ;; esac
+if [ -n "$BUNDLE_ARCH" ] && [ "$BUNDLE_ARCH" != "$HOST_ARCH" ]; then
+  echo "❌ este bundle trae imágenes $BUNDLE_ARCH y el host es $HOST_ARCH — hace falta el bundle $HOST_ARCH"
+  exit 1
+fi
+
+# El docker.io de Ubuntu viene SIN el plugin compose; si el bundle trae el binario
+# (misma arch), se instala acá y la sede no necesita internet para nada.
+if ! docker compose version >/dev/null 2>&1; then
+  if [ -f "$HERE/docker-compose-plugin" ]; then
+    echo "── el host no tiene 'docker compose': instalando el plugin incluido en el bundle"
+    PLUG_DIR=/usr/local/lib/docker/cli-plugins
+    if ! mkdir -p "$PLUG_DIR" 2>/dev/null || [ ! -w "$PLUG_DIR" ]; then
+      PLUG_DIR="$HOME/.docker/cli-plugins"; mkdir -p "$PLUG_DIR"
+    fi
+    cp "$HERE/docker-compose-plugin" "$PLUG_DIR/docker-compose" && chmod +x "$PLUG_DIR/docker-compose"
+    docker compose version >/dev/null 2>&1 || { echo "❌ no pude habilitar 'docker compose' (¿ejecutar con sudo?)"; exit 1; }
+  else
+    echo "❌ falta el plugin 'docker compose' y este bundle no trae el binario"; exit 1
+  fi
+fi
 
 echo "── 1/4 cargando imágenes desde el tarball (sin red)"
 docker load -i "$HERE/images.tar"
@@ -153,6 +203,7 @@ sha256() {
 # docker); las de artefacto un sha256 pelado → el check las distingue por ese prefijo.
 {
   echo "# bundle $SLUG — $(date -u +%FT%TZ)"
+  echo "# arch: $BUNDLE_ARCH"
   echo "# images (docker load):"
   for img in "${IMAGES[@]}"; do
     echo "$img $(docker image inspect -f '{{.Id}}' "$img")"
@@ -163,5 +214,7 @@ sha256() {
   fi
 } > "$OUT/MANIFEST"
 
-tar -C "$(dirname "$OUT")" -czf "$OUT.tar.gz" "$(basename "$OUT")"
-echo "✅ bundle: $OUT.tar.gz (instalar: docker load -i images.tar; compose up con profile/)"
+# --no-xattrs: el tar de macOS mete xattrs de proveniencia que el tar de Linux escupe
+# como 60 warnings "LIBARCHIVE.xattr" — inofensivos pero alarmantes en plena instalación.
+tar -C "$(dirname "$OUT")" --no-xattrs -czf "$OUT.tar.gz" "$(basename "$OUT")"
+echo "✅ bundle: $OUT.tar.gz (linux/$BUNDLE_ARCH — instalar: ./install.sh <lic> [proyecto])"

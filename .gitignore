@@ -68,3 +68,6 @@ backend/scripts/license_out/
 # 022: build output del sitio de docs
 docs/site/
 docs/.cache/
+
+# binarios vendorizados para el bundle air-gapped (no van a git)
+deploy/release/vendor/
