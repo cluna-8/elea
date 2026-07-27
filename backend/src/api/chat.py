@@ -55,6 +55,23 @@ _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 # tras compresión es anómala (vacía/muy corta). Fail-open; raro (solo si se comprimió).
 _REVERSAL_GUARD = os.getenv("COMPRESSION_REVERSAL_GUARD", "true").lower() == "true"
 
+
+# Timeout (segundos) de la llamada al motor de IA. Configurable por env sin rebuild:
+# un modelo local/self-hosted (Ollama del cliente) puede tardar bastante más que un
+# proveedor cloud, así que el hardcode de 15s cortaba respuestas legítimas. Default
+# holgado (60s). Un valor no numérico o vacío cae al default.
+def _resolve_engine_timeout(default: float = 60.0) -> float:
+    raw = os.getenv("BASA_ENGINE_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+_ENGINE_TIMEOUT_SECONDS = _resolve_engine_timeout()
+
 _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama", "ollama_chat"}
 
 
@@ -890,7 +907,7 @@ async def chat_completions(
                     "Content-Type": "application/json"
                 },
                 json=raw_request_json,
-                timeout=15.0
+                timeout=_ENGINE_TIMEOUT_SECONDS
             )
             if response.status_code == 200:
                 res_data = response.json()
@@ -930,7 +947,7 @@ async def chat_completions(
                                 "Content-Type": "application/json",
                             },
                             json=reversal_req,
-                            timeout=15.0,
+                            timeout=_ENGINE_TIMEOUT_SECONDS,
                         )
                         if rev_response.status_code == 200:
                             rev_data = rev_response.json()

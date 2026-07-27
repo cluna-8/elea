@@ -66,16 +66,29 @@ PII_PATTERNS = {
 # cubre ya con un reconocedor propio validado (checksum) para ese idioma/región:
 #   - España: ES_NIF/ES_NIE ya son built-in de Presidio (con checksum) para
 #     supported_language="es" — NO se reimplementan acá.
-#   - IBAN, tarjetas de crédito, email, teléfono, PERSON (NER): built-in,
-#     multi-región — tampoco se reimplementan.
+#   - IBAN, tarjetas de crédito, email, PERSON (NER): built-in, multi-región —
+#     tampoco se reimplementan.
 #   - Pasaporte: sin formato único a nivel UE (varía por país emisor). Se usa un
 #     patrón genérico + palabras de contexto ("pasaporte"/"passport") que suben el
 #     score en vez de fijar un formato de un solo país — precisión limitada y
 #     documentada, mejor que no detectarlo. Ampliar por país es agregar una entrada
 #     acá, no reescribir el pipeline.
+#   - Teléfono: el built-in de Presidio SÍ es multi-región, pero sólo reconoce el
+#     número cuando lleva prefijo internacional. Verificado contra el sidecar real
+#     (2026-07-27): "+34 912 345 678" se detecta, "612 345 678" NO. Como el motor usa
+#     el NLP en lugar del regex —no además— (`basa_guardrail.py` y
+#     `guardian_service.py` son if/else), activar el sidecar sin esta entrada DEJA
+#     LOS MÓVILES ESPAÑOLES EN CLARO. De ahí el patrón nacional acá abajo: mismo
+#     criterio que el pasaporte, se agrega por país sin tocar el pipeline.
 STRUCTURED_ID_PATTERNS_BY_REGION = {
     "eu": {
         "PASSPORT": (r"\b[A-Z0-9]{6,9}\b", 0.4, ["pasaporte", "passport", "reisepass", "passeport"]),
+        # Numeración española (9 dígitos, primer dígito 6-9: móvil 6/7, fijo 8/9),
+        # con prefijo +34/0034 opcional y separadores habituales. Los 9 dígitos que
+        # NO empiezan en 6-9 (referencias, importes, expedientes) quedan fuera.
+        "PHONE_NUMBER": (r"\b(?:(?:\+|00)\s?34[\s.-]?)?[6-9](?:[\s.-]?\d){8}\b", 0.6,
+                         ["teléfono", "telefono", "tel", "móvil", "movil", "llamar",
+                          "contacto", "whatsapp"]),
     },
     # LATAM (a habilitar cuando haya despliegues en la región — no activo por default).
     "latam_ar": {

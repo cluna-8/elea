@@ -52,4 +52,25 @@ JSON
   echo "BRAND_SERVICE_ID=${TENANT_SLUG}-ai-gateway"
 } > "$OUT/instance.env"
 
+# Guarda de completitud de imágenes (hallazgo 2026-07-27, víspera del install de la
+# Cámara): el perfil no declaraba NLP_ANALYZER_IMAGE, que compose.prod.yml exige con
+# `${...:?}`. El render salía ✅ y el fallo aparecía recién en el `up` — en la sede del
+# cliente. La lista NO se hardcodea: se deriva del propio compose, así que agregar un
+# servicio nuevo con imagen pinneada queda cubierto sin tocar este script.
+COMPOSE_PROD="$REPO_ROOT/deploy/docker/compose.prod.yml"
+if [ -f "$COMPOSE_PROD" ]; then
+  faltan=""
+  # `image: "${VAR:?...}"` = variable obligatoria que el PERFIL debe aportar.
+  for var in $(grep -oE '^[[:space:]]*image:[[:space:]]*"\$\{[A-Z_]+:\?' "$COMPOSE_PROD" \
+                 | grep -oE '\{[A-Z_]+' | tr -d '{' | sort -u); do
+    grep -qE "^${var}=" "$OUT/instance.env" || faltan="$faltan $var"
+  done
+  if [ -n "$faltan" ]; then
+    echo "❌ el perfil '$SLUG' no declara imágenes que compose.prod.yml exige:$faltan"
+    echo "   Agregalas a $PROFILE/client.env y volvé a renderizar."
+    echo "   (sin esto el render sale verde y el stack revienta en el 'up', en sede)"
+    exit 1
+  fi
+fi
+
 echo "✅ perfil '$SLUG' renderizado en $OUT (dominio=$PRODUCT_DOMAIN workspace=$TOFU_WORKSPACE)"

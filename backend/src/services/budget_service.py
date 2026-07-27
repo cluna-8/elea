@@ -14,6 +14,23 @@ MODEL_PRICING = {
     "default": {"input": Decimal("5.00"), "output": Decimal("15.00")}
 }
 
+# Modelos locales/self-hosted (Ollama del cliente): el token NO tiene costo — el
+# hardware es del cliente (ver litellm/config.yaml: input/output_cost_per_token: 0
+# para `ollama-qwen3-4b`). Sin esta detección caían al `default` $5/$15 y falseaban
+# el reporte de costos del piloto. Se identifican por el prefijo del provider Ollama,
+# que es como el motor los nombra: `ollama-...` en el catálogo (model_name) y
+# `ollama/` / `ollama_chat/` como litellm_provider. El `default` conservador de
+# $5/$15 se mantiene INTACTO para modelos remotos desconocidos.
+_LOCAL_MODEL_PREFIXES = ("ollama-", "ollama/", "ollama_chat/", "ollama:")
+_LOCAL_MODEL_PRICING = {"input": Decimal("0"), "output": Decimal("0")}
+
+
+def _is_local_model(model: str) -> bool:
+    """True si el modelo es local/self-hosted (sin costo por token)."""
+    if not model:
+        return False
+    return model.strip().lower().startswith(_LOCAL_MODEL_PREFIXES)
+
 class BudgetService:
     @staticmethod
     def get_personal_budget(db: Session, user_id: str) -> Budget:
@@ -90,7 +107,10 @@ class BudgetService:
         """
         Calculates the cost of a request based on the model and token counts.
         """
-        pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
+        if _is_local_model(model):
+            pricing = _LOCAL_MODEL_PRICING
+        else:
+            pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
         input_cost = (Decimal(prompt_tokens) / Decimal("1000000")) * pricing["input"]
         output_cost = (Decimal(completion_tokens) / Decimal("1000000")) * pricing["output"]
         return input_cost + output_cost

@@ -289,14 +289,45 @@ def test_resolve_entity_action_defaults_to_mask():
 
 # ── build_ad_hoc_recognizers (spec 016 §3, SC-006) ──────────────────────────────
 
-def test_build_ad_hoc_recognizers_default_region_is_eu_passport_only():
+def test_build_ad_hoc_recognizers_default_region_is_eu_passport_and_phone():
     # España (ES_NIF/ES_NIE) ya viene built-in en Presidio — NO se reimplementa acá.
+    # El teléfono SÍ: el built-in sólo reconoce el número con prefijo internacional.
     recognizers = policy.build_ad_hoc_recognizers([])
     entities = {r["supported_entity"] for r in recognizers}
-    assert entities == {"PASSPORT"}
+    assert entities == {"PASSPORT", "PHONE_NUMBER"}
     assert not any(r.get("deny_list") for r in recognizers)
-    passport = recognizers[0]
+    passport = next(r for r in recognizers if r["supported_entity"] == "PASSPORT")
     assert "passport" in passport["context"] and "pasaporte" in passport["context"]
+
+
+@pytest.mark.parametrize("texto", [
+    "Llamame al 612 345 678 cuando puedas.",   # móvil sin prefijo: el caso que se escapaba
+    "Mi numero es 612345678.",                  # sin separadores
+    "Oficina: 912 345 678.",                    # fijo
+    "Contacto 612-345-678.",                    # con guiones
+    "Telefono +34 912 345 678.",                # con prefijo internacional
+    "Llamar al 0034 612 345 678.",              # prefijo en formato 00
+])
+def test_es_phone_pattern_detecta_numeracion_espaniola(texto):
+    """El built-in PHONE_NUMBER de Presidio sólo reconoce el número con prefijo
+    internacional (verificado contra el sidecar real, 2026-07-27). Como el motor usa
+    el NLP EN LUGAR del regex, sin este patrón los móviles españoles viajaban en claro."""
+    pattern = policy.STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0]
+    assert re.search(pattern, texto), f"no detectó el teléfono en: {texto!r}"
+
+
+@pytest.mark.parametrize("texto", [
+    "La factura numero 202600145 esta pendiente.",   # 9 dígitos que no empiezan en 6-9
+    "El importe asciende a 123456789 centimos.",
+    "IBAN ES9121000418450200051332 para la transferencia.",
+    "El NIF de la empresa es B12345678.",
+    "Codigo postal 28001, Madrid.",
+])
+def test_es_phone_pattern_no_marca_numeros_que_no_son_telefonos(texto):
+    """El precio de la cobertura no puede ser enmascarar toda cifra larga: una Cámara
+    de Comercio mueve facturas, importes y expedientes en cada prompt."""
+    pattern = policy.STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0]
+    assert not re.search(pattern, texto), f"falso positivo en: {texto!r}"
 
 
 def test_build_ad_hoc_recognizers_adds_deny_list_when_names_present():
@@ -324,9 +355,10 @@ def test_build_ad_hoc_recognizers_includes_active_custom_entities():
     ]
     recognizers = policy.build_ad_hoc_recognizers([], custom_entities=custom_entities)
     entities = {r["supported_entity"] for r in recognizers}
-    # PASSPORT (default eu) + la entidad custom activa; la de status="draft" NUNCA
-    # llega al Analyzer real (revisión humana obligatoria, ver entity_catalog_service).
-    assert entities == {"PASSPORT", "HISTORIA_CLINICA_ES"}
+    # Los estructurados de la región eu (PASSPORT, PHONE_NUMBER) + la entidad custom
+    # activa; la de status="draft" NUNCA llega al Analyzer real (revisión humana
+    # obligatoria, ver entity_catalog_service).
+    assert entities == {"PASSPORT", "PHONE_NUMBER", "HISTORIA_CLINICA_ES"}
 
 
 def test_build_ad_hoc_recognizers_ignores_custom_entity_without_regex():
