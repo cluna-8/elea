@@ -73,7 +73,11 @@ export const AuditPage: React.FC = () => {
 
   const formatTimestamp = (isoString: string) => {
     try {
-      return new Date(isoString).toLocaleString("es-AR", {
+      // Timestamp naive (UTC sin 'Z') -> forzar UTC, igual que fmtTime del monitor:
+      // sin esto el browser lo interpreta como hora local y Auditoría muestra otra
+      // hora que «Conexiones en vivo» para el mismo evento.
+      const utc = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoString) ? isoString : isoString + "Z";
+      return new Date(utc).toLocaleString("es-AR", {
         day: "2-digit", month: "2-digit", year: "numeric",
         hour: "2-digit", minute: "2-digit", second: "2-digit",
       });

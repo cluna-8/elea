@@ -37,7 +37,6 @@ export const App: React.FC = () => {
   const navigation = [
     { id: "dashboard", name: "Panel Principal", icon: LayoutDashboard, roles: null },
     { id: "playground", name: "Playground", icon: FlaskConical, roles: null },
-    { id: "firewall", name: "Firewall en vivo", icon: Activity, roles: ["admin", "compliance_officer"] },
     { id: "models", name: "Modelos & Ollama", icon: Boxes, roles: null },
     { id: "costs", name: "Costos", icon: Wallet, roles: ["admin", "compliance_officer"] },
     { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, roles: ["admin"] },
@@ -49,6 +48,7 @@ export const App: React.FC = () => {
     { id: "security", name: "Seguridad y Guardianes", icon: ShieldCheck, roles: ["admin", "compliance_officer"] },
     { id: "compliance", name: "Políticas de Cumplimiento", icon: ClipboardCheck, roles: ["admin", "compliance_officer"] },
     { id: "audit", name: "Logs de Auditoría", icon: ScrollText, roles: ["admin", "compliance_officer"] },
+    { id: "firewall", name: "Conexiones en vivo", icon: Activity, roles: ["admin", "compliance_officer"] },
     { id: "docs", name: "Documentación", icon: BookOpen, roles: null },
   ];
 

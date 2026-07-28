@@ -1110,7 +1110,7 @@ export const UsersPage: React.FC = () => {
               </select>
               <p className="mt-1 text-[10px] text-text-tertiary">
                 La llave identifica persona + herramienta: esta etiqueta es la que muestran
-                el Firewall en vivo y la auditoría. Una llave activa por herramienta por usuario.
+                «Conexiones en vivo» y la auditoría. Una llave activa por herramienta por usuario.
               </p>
             </Field>
             <div className="grid grid-cols-2 gap-4">

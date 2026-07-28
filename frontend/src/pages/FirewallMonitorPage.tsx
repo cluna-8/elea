@@ -323,7 +323,7 @@ export const FirewallMonitorPage: React.FC = () => {
       <PageHeader
         title={
           <span className="flex items-center gap-3">
-            Firewall en vivo
+            Conexiones en vivo
             <span className="flex items-center gap-1.5 text-xs font-semibold text-ok">
               <span className="h-2 w-2 rounded-full bg-ok animate-pulse" />
               EN VIVO
