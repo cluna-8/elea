@@ -9,7 +9,7 @@
 **Input**: User description: "Lo de auditoría sí o sí arreglar, es un problemón. Somos un
 producto de auditoría. (JF, 28-jul — decisión: sin coordinación con Cristian, deducir el
 contrato del código y aplicar buenas prácticas de auditoría.) Para la demo del jueves
-31-jul. La purga automática de retención (spec 018) queda explícitamente FUERA."
+30-jul. La purga automática de retención (spec 018) queda explícitamente FUERA."
 
 ## El problema, con evidencia (28-jul, líneas verificadas en el código)
 
