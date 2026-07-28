@@ -82,7 +82,20 @@ Añadir en el bloque: `[Service]` → `Environment="OLLAMA_HOST=0.0.0.0"`, y des
 sudo systemctl restart ollama && ollama list
 ```
 
-**Si el stack está en otra máquina** (o el nombre del modelo no coincide con `ollama list`): panel admin → **Modelos & Ollama → + Agregar Modelo → + Modelo personalizado** → proveedor «Ollama (Local)», modelo exacto de `ollama list` (ej. `qwen3:4b`), api base `http://IP-DEL-Z2:11434`, sin key.
+**⚠️ PRIMERO: ¿qué modelo tienen ellos?** El bundle viene renderizado asumiendo `qwen3:4b`
+debajo del alias `camara-comercio-local`, pero el modelo REAL lo decide `ollama list` en la
+máquina del cliente. Si tienen otro (o prefieren usar uno suyo), dos caminos:
+
+- **Antes de instalar** (si lo sabemos de antemano): editar `CLIENT_OLLAMA_MODEL` en el
+  `client.env` del perfil y re-renderizar/re-bundlear — una línea.
+- **En la sede, por UI** (sin tocar ficheros): panel admin → **Modelos & Ollama →
+  + Agregar Modelo → + Modelo personalizado** → proveedor «Ollama (Local)», modelo exacto
+  de `ollama list`, api base `http://IP-DEL-Z2:11434`, sin key → reiniciar el motor → y en
+  **Ruteo inteligente** repuntar el «modelo por defecto» y la ruta local al modelo nuevo
+  (2 clics, aplica al instante). Las rutas del auto-router apuntan a nombres del catálogo,
+  no al modelo de Ollama — por eso este cambio no rompe nada, y si una ruta queda
+  apuntando a un modelo borrado el panel la marca «ruta rota» y el tráfico cae al
+  default (nunca error).
 
 **Auto-router semántico (modelo «Auto» del chat)** — necesita el modelo de embeddings
 local en el Ollama del Z2 (639 MB, una sola vez):

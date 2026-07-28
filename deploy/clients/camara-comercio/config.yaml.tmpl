@@ -22,8 +22,12 @@ litellm_settings:
 model_list:
 - litellm_params:
     api_base: http://${CLIENT_OLLAMA_HOST}:11434
-    model: ollama_chat/qwen3:4b
+    model: ollama_chat/${CLIENT_OLLAMA_MODEL}
   model_name: ${TENANT_SLUG}-local
+# ^ El ALIAS es estable (las rutas del auto-router y la UI lo referencian); el modelo
+#   REAL de Ollama debajo es CLIENT_OLLAMA_MODEL en client.env — si la sede tiene otro
+#   (`ollama list`), se cambia UNA línea y se re-renderiza, o se registra por UI (§5
+#   del INSTALL) y se repuntan las rutas en el panel «Ruteo inteligente» (2 clics, caliente).
 # Embeddings del auto-router semántico (spec 030 R1): qwen3-embedding:0.6b LOCAL — el
 # contenido del prompt NO sale de la VM para decidir el ruteo (FR-003 + residencia).
 # ollama/ (no ollama_chat/): el endpoint es /v1/embeddings, no /api/chat.
