@@ -45,6 +45,7 @@ class KeyResponseSchema(BaseModel):
     key_preview: str
     user_id: Optional[UUID]
     group_id: Optional[UUID]
+    tool_type: str = "claude-code"
     is_active: bool
     compliance_project_id: Optional[UUID] = None
     rpm_limit: Optional[int] = 60

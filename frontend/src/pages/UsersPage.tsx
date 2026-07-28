@@ -7,6 +7,7 @@ import {
   SpendInfo,
   MIN_PASSWORD_LEN,
   validarPassword,
+  GOVERNANCE_SURFACES,
 } from "../services/api";
 import {
   Card,
@@ -58,9 +59,22 @@ interface VirtualKey {
   key_preview: string;
   user_id?: string;
   group_id?: string;
+  tool_type?: string;
   is_active: boolean;
   created_at: string;
 }
+
+// Copy por superficie del catálogo cerrado (GOVERNANCE_SURFACES es el espejo del
+// CHECK de la tabla): la llave declara persona + herramienta, y esta etiqueta es
+// la que muestran el monitor y la auditoría.
+const TOOL_LABELS: Record<string, string> = {
+  "claude-code": "Claude Code (terminal)",
+  "copilot": "VS Code · Copilot",
+  "cursor": "Cursor",
+  "claude-desktop": "Claude Desktop",
+  "chatgpt": "Navegador · ChatGPT",
+  "chat-ui": "Chat interno (playground)",
+};
 
 type Tab = "overview" | "teams" | "keys" | "budgets" | "auth";
 
@@ -120,6 +134,7 @@ export const UsersPage: React.FC = () => {
   const [keyComplianceProjectId, setKeyComplianceProjectId] = useState("");
 
   const [keyName, setKeyName] = useState("");
+  const [keyToolType, setKeyToolType] = useState("claude-code");
   const [keyUserId, setKeyUserId] = useState("");
   const [keyGroupId, setKeyGroupId] = useState("");
   const [keyMaxBudget, setKeyMaxBudget] = useState("");
@@ -301,7 +316,7 @@ export const UsersPage: React.FC = () => {
     e.preventDefault();
     setActionLoading(true);
     try {
-      const payload: any = { name: keyName };
+      const payload: any = { name: keyName, tool_type: keyToolType };
       if (keyUserId) payload.user_id = keyUserId;
       if (keyGroupId) payload.group_id = keyGroupId;
       if (keyMaxBudget) payload.max_budget = parseFloat(keyMaxBudget);
@@ -313,7 +328,7 @@ export const UsersPage: React.FC = () => {
       const res = await api.createKey(payload);
       setGeneratedKey(res.plain_key);
       setShowKeyModal(false);
-      setKeyName(""); setKeyUserId(""); setKeyGroupId(""); setKeyMaxBudget("");
+      setKeyName(""); setKeyToolType("claude-code"); setKeyUserId(""); setKeyGroupId(""); setKeyMaxBudget("");
       setKeyBudgetDuration("30d"); setKeyComplianceProjectId("");
       setKeyRpmLimit("60"); setKeyTpmLimit("100000");
       await fetchData();
@@ -749,6 +764,7 @@ export const UsersPage: React.FC = () => {
                 <Table.Row>
                   <Table.HeaderCell>Nombre / Identificador</Table.HeaderCell>
                   <Table.HeaderCell>Asociado a</Table.HeaderCell>
+                  <Table.HeaderCell>Herramienta</Table.HeaderCell>
                   <Table.HeaderCell>Compliance</Table.HeaderCell>
                   <Table.HeaderCell>Token Preview</Table.HeaderCell>
                   <Table.HeaderCell>Límites RPM/TPM</Table.HeaderCell>
@@ -769,6 +785,11 @@ export const UsersPage: React.FC = () => {
                       <Table.Cell className="font-semibold text-text-primary">{k.name}</Table.Cell>
                       <Table.Cell>
                         <StatusBadge tone="neutral" className="text-[10px]">{owner}</StatusBadge>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <StatusBadge tone="info" className="text-[10px]">
+                          {TOOL_LABELS[k.tool_type ?? ""] ?? k.tool_type ?? "—"}
+                        </StatusBadge>
                       </Table.Cell>
                       <Table.Cell className="text-[10px]">
                         {(k as any).compliance_project_id
@@ -1077,6 +1098,21 @@ export const UsersPage: React.FC = () => {
               onChange={(e) => setKeyName(e.target.value)}
               placeholder="ej: cardiologia-produccion"
             />
+            <Field label="Herramienta / Superficie">
+              <select
+                value={keyToolType}
+                onChange={(e) => setKeyToolType(e.target.value)}
+                className={selectClass}
+              >
+                {GOVERNANCE_SURFACES.map((s) => (
+                  <option key={s} value={s}>{TOOL_LABELS[s] ?? s}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-[10px] text-text-tertiary">
+                La llave identifica persona + herramienta: esta etiqueta es la que muestran
+                el Firewall en vivo y la auditoría. Una llave activa por herramienta por usuario.
+              </p>
+            </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Equipo">
                 <select
