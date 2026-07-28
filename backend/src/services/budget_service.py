@@ -39,6 +39,24 @@ def _is_local_model(model: str) -> bool:
     nombre = model.strip().lower()
     return nombre.startswith(_LOCAL_MODEL_PREFIXES) or nombre.endswith(_LOCAL_MODEL_SUFFIXES)
 
+
+def has_known_pricing(model: str) -> bool:
+    """¿Este catálogo sabe cuánto cuesta el modelo, o caería en el `default` conservador?
+
+    Lo necesita quien elige CON QUÉ nombre costear un pedido cuando tiene más de un
+    candidato (spec 030 R7: el motor devuelve en `model` quién contestó de verdad, que tras
+    un fallback es más honesto que el modelo pedido). El nombre del proveedor suele venir
+    versionado —`gpt-4o-mini-2024-07-18`— y ese no está en la tabla: adoptarlo a ciegas
+    haría caer el pedido en el `default` de $5/$15 y le cobraría al cliente treinta veces
+    de más por un modelo económico. Con este predicado, el llamador se queda con el nombre
+    del catálogo cuando el de la respuesta no es priceable.
+
+    NO cambia ningún precio: solo responde si `calculate_cost` tiene una entrada propia
+    para ese nombre (o si es local, que vale 0 por prefijo/sufijo).
+    """
+    return bool(model) and (_is_local_model(model) or model in MODEL_PRICING)
+
+
 class BudgetService:
     @staticmethod
     def get_personal_budget(db: Session, user_id: str) -> Budget:

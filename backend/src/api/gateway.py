@@ -127,6 +127,12 @@ _MONITOR_KEY = "basa:gw:events"       # mismo feed que alimenta /gw/monitor (US3
 _MONITOR_CAP = 100
 _MONITOR_TTL_S = 300
 _DISPLAY_CAP = 2000
+# Subset de la decisión de ruteo que ve la vitrina (spec 030, contrato del evento). El
+# objeto decisión completo (data-model §2) lleva además `requested` y `reason`: eso va al
+# Debugger Técnico y a la columna durable, no al feed efímero. Ver `_publish_monitor`.
+_ROUTING_EVENT_KEYS = ("route", "score", "model_selected", "degraded")
+# Pseudo-modelo del plano chat: el motor NO lo conoce (research R9).
+_AUTO_MODEL = "auto"
 
 # Headers que jamás se reenvían: hop-by-hop, largo/encoding (httpx los recomputa) y
 # los propios de control. TODO lo demás (Authorization OAuth, anthropic-beta,
@@ -608,7 +614,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
 
 def _publish_monitor(ident: dict, tool: str, model: str, status: str,
                      masked_entities: list, masked_preview: str, surface: Optional[str] = None,
-                     attribution=None):
+                     attribution=None, routing: Optional[dict] = None):
     """Evento efímero para /gw/monitor — MISMO esquema que basa_audit_logger, así la
     vitrina renderiza el tráfico del passthrough igual que el del motor. Preview ya
     enmascarado (C1). ``surface`` distingue la extensión browser (spec 019 US3). Best-effort.
@@ -616,7 +622,25 @@ def _publish_monitor(ident: dict, tool: str, model: str, status: str,
     Con la 027 el "mismo esquema" deja de ser convención y pasa a ser **contrato** (evento
     §8): ``applied_layers`` + ``blocked_by_layer`` viajan con exactamente el mismo elemento
     de 4 claves que persiste ``audit_logs``, serializado **sin transformar** — extender un
-    emisor sin los demás rompe el render uniforme de la vitrina."""
+    emisor sin los demás rompe el render uniforme de la vitrina.
+
+    **``routing`` (spec 030 T008) es OPCIONAL y así debe quedar.** El contrato de este
+    evento tiene TRES productores —este gateway, el plano chat (``chat.py``, que llama a
+    esta misma función) y el ``basa_audit_logger`` del motor— y sólo UNO emite el campo:
+    el plano chat, y sólo en los requests que el usuario mandó con el pseudo-modelo
+    «auto». Ni el gateway ni el motor lo mandan nunca (por /gw «auto» se resuelve al
+    default del router sin clasificar — research R9). Por eso la clave **se omite** en vez
+    de viajar en ``null``: presente = "hubo una decisión de ruteo semántico", ausente =
+    "este plano no rutea", que son cosas distintas y el consumidor (``monitor.py``) las
+    distingue renderizando el chip sólo si está. Los productores previos a la 030 siguen
+    siendo válidos sin tocarlos.
+
+    El valor se **proyecta** al subset de la vitrina (``route``/``score``/
+    ``model_selected``/``degraded``, contrato ``router-config-api.md`` §evento): el objeto
+    decisión completo lleva además ``requested`` y ``reason``, que son del Debugger
+    Técnico y de la columna durable, no del feed. La proyección vive acá —en el ÚNICO
+    serializador del evento, mismo criterio que la atribución— y no en cada call-site, que
+    es la forma de que los tres productores no emitan tres shapes del mismo hecho."""
     client = get_redis()
     if client is None:
         return
@@ -640,6 +664,10 @@ def _publish_monitor(ident: dict, tool: str, model: str, status: str,
         }
         if surface:
             event["surface"] = surface
+        if isinstance(routing, dict):
+            subset = {k: routing[k] for k in _ROUTING_EVENT_KEYS if k in routing}
+            if subset:  # dict sin ninguna clave del contrato = no hay nada que contar
+                event["routing"] = subset
         pipe = client.pipeline()
         pipe.lpush(_MONITOR_KEY, json.dumps(event, ensure_ascii=False))
         pipe.ltrim(_MONITOR_KEY, 0, _MONITOR_CAP - 1)
@@ -711,6 +739,47 @@ def _byok_headers(request: Request, basa_key: str) -> dict:
         "anthropic-version": request.headers.get("anthropic-version", "2023-06-01"),
         "Authorization": f"Bearer {basa_key}",
     }
+
+
+def _resolve_auto_model(body: dict, raw: bytes) -> bytes:
+    """«auto» por /gw: se reescribe al ``default_model`` del router y NADA más (spec 030
+    T017, research R9). Devuelve el body a mandar al motor — el mismo ``raw`` si no hay
+    nada que reescribir.
+
+    Por qué existe: «auto» es un **pseudo-modelo del plano chat**; el motor no lo tiene en
+    su catálogo, así que un body con ``model: "auto"`` se lleva un 400 suyo. Los coding
+    tools declaran modelo explícito, o sea que esto es la red de seguridad del edge case
+    (un cliente que copia el nombre que vio en el Playground), no un camino de producto.
+
+    Por qué NO clasifica: la clasificación semántica es del plano chat (v1 de la spec). Acá
+    no se embebe nada —ni una llamada al motor de embeddings, ni el prompt saliendo a
+    ningún lado— porque el ruteo por /gw no está especificado y adivinarlo sería peor que
+    el default explícito que el admin configuró.
+
+    Fail-soft deliberado: si la config no existe, está corrupta o no declara
+    ``default_model``, el body pasa **verbatim** y contesta el motor con su error normal.
+    Inventar acá un 4xx propio taparía el error real del motor con uno nuestro, y la
+    alternativa —elegir un modelo por nuestra cuenta— mandaría el tráfico a un destino que
+    nadie configuró. Queda en el log como aviso, no como silencio."""
+    if body.get("model") != _AUTO_MODEL:
+        return raw
+    try:
+        # Import perezoso a propósito: el servicio del router es del plano chat y este
+        # módulo se importa desde `inspect.py` y desde `chat.py` — importarlo arriba ata
+        # el gateway a una dependencia que sólo necesita en un edge case, y cierra un
+        # ciclo cuando el servicio crezca.
+        from ..services.auto_router_service import load_config
+        default_model = (load_config() or {}).get("default_model") or ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("gateway: model=auto y la config del router no se pudo leer (%s) — "
+                       "body verbatim al motor", exc)
+        return raw
+    default_model = default_model.strip() if isinstance(default_model, str) else ""
+    if not default_model:
+        logger.warning("gateway: model=auto sin default_model configurado — body verbatim al motor")
+        return raw
+    logger.info("gateway: model=auto → %s (default del router; /gw no clasifica)", default_model)
+    return json.dumps({**body, "model": default_model}).encode("utf-8")
 
 
 async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool):
@@ -799,7 +868,9 @@ async def gw_messages(
     # passthrough de suscripción → Anthropic (política del gateway) ──
     mode, x_basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
     if mode == "byok":
-        return await _byok_proxy(request, raw, x_basa_key, is_stream)
+        # Único retoque del body en esta ruta: «auto» → default del router (T017/R9). Todo
+        # lo demás sigue yendo verbatim al motor, que es quien aplica la política.
+        return await _byok_proxy(request, _resolve_auto_model(body, raw), x_basa_key, is_stream)
 
     ident = _resolve_attribution(x_basa_key)
     tool = policy.detect_tool(request.headers.get("user-agent"))

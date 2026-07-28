@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
+import type { RouterConfig, RouterRoute } from "../services/api";
 import {
   Button,
   Card,
@@ -12,6 +13,7 @@ import {
   TR,
   TH,
   TD,
+  Toggle,
   cn,
   inputBaseClass,
 } from "../components/ui";
@@ -110,6 +112,60 @@ const PROVIDER_FIELDS: Record<string, ProviderField[]> = {
 
 type CatalogFilter = "all" | "eu" | "local";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-router semántico (spec 030) — helpers puros del panel «Ruteo inteligente»
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Config vacía servible: el panel siempre tiene una forma completa que editar aunque el
+ *  GET devuelva un objeto parcial. Sin esto, un `routes` ausente reventaría el `.map` y el
+ *  admin se quedaría sin la única pantalla desde la que puede arreglar la config. */
+function normalizarRouter(cfg: any): RouterConfig {
+  const rutas = Array.isArray(cfg?.routes) ? cfg.routes : [];
+  return {
+    enabled: !!cfg?.enabled,
+    default_model: typeof cfg?.default_model === "string" ? cfg.default_model : "",
+    timeout_seconds: typeof cfg?.timeout_seconds === "number" ? cfg.timeout_seconds : 5,
+    embedding_model: typeof cfg?.embedding_model === "string" ? cfg.embedding_model : "",
+    routes: rutas.map((r: any) => ({
+      name: typeof r?.name === "string" ? r.name : "",
+      // Los opcionales se normalizan a "" y `routerConfigPayload` los OMITE si siguen
+      // vacíos al guardar: nunca viajan como null (rompería los `.get(campo, default)`).
+      description: typeof r?.description === "string" ? r.description : "",
+      target_model: typeof r?.target_model === "string" ? r.target_model : "",
+      score_threshold: typeof r?.score_threshold === "number" ? r.score_threshold : 0.45,
+      tier: typeof r?.tier === "string" ? r.tier : "",
+      utterances: Array.isArray(r?.utterances)
+        ? r.utterances.filter((u: any) => typeof u === "string" && u.trim())
+        : [],
+      // Sólo un `false` EXPLÍCITO señala rotura: si el backend no mandó el computado, no
+      // se pinta una alarma roja inventada.
+      target_ok: r?.target_ok !== false,
+    })),
+    default_model_ok: cfg?.default_model_ok !== false,
+    embedding_model_ok: cfg?.embedding_model_ok !== false,
+    config_error: !!cfg?.config_error,
+  };
+}
+
+const timeoutValido = (t: number) => Number.isFinite(t) && t > 0 && t <= 60;
+
+/** Espejo LIVIANO de la validación del backend (data-model §1): señala el campo exacto
+ *  antes del viaje. La autoridad sigue siendo el PUT, que responde 422 con su detalle. */
+function erroresDeRuta(ruta: RouterRoute): {
+  name?: string;
+  target?: string;
+  umbral?: string;
+  utterances?: string;
+} {
+  const errores: { name?: string; target?: string; umbral?: string; utterances?: string } = {};
+  if (!ruta.name?.trim()) errores.name = "El nombre es obligatorio.";
+  if (!ruta.target_model?.trim()) errores.target = "Elegí el modelo destino.";
+  if (!(ruta.score_threshold > 0 && ruta.score_threshold <= 1))
+    errores.umbral = "El umbral debe estar entre 0.05 y 1.";
+  if (!ruta.utterances?.length) errores.utterances = "Agregá al menos una frase de ejemplo.";
+  return errores;
+}
+
 export const ModelsPage: React.FC = () => {
   const [allModels, setAllModels] = useState<ModelDetail[]>([]);
   const [fallbacks, setFallbacks] = useState<Record<string, string>>({});
@@ -135,9 +191,23 @@ export const ModelsPage: React.FC = () => {
   const [customKey, setCustomKey] = useState("");
   const [customBase, setCustomBase] = useState("");
 
-  const activeModels = allModels.filter((m) => m.is_configured);
+  // ── Panel «Ruteo inteligente» (spec 030) ──
+  const [routerCfg, setRouterCfg] = useState<RouterConfig | null>(null);
+  const [routerLoading, setRouterLoading] = useState(true);
+  const [routerSaving, setRouterSaving] = useState(false);
+  const [routerDirty, setRouterDirty] = useState(false);
+  // Borrador del input de frases POR RUTA (índice → texto a medio escribir). Vive FUERA del
+  // config a propósito: un tipeo sin confirmar no ensucia la config ni viaja en el PUT.
+  const [utteranceDraft, setUtteranceDraft] = useState<Record<number, string>>({});
 
-  const catalogModels = allModels.filter((m) => {
+  // El pseudo-modelo «auto» lo INYECTA `GET /chat/models` para el dropdown del chat
+  // (contrato 030): no es una entrada del catálogo del motor, así que no se gestiona ni se
+  // activa desde esta página — se filtra de la tabla y del catálogo.
+  const realModels = allModels.filter((m) => m.provider !== "auto");
+
+  const activeModels = realModels.filter((m) => m.is_configured);
+
+  const catalogModels = realModels.filter((m) => {
     if (catalogFilter === "eu") return m.is_eu_compliant;
     if (catalogFilter === "local") return m.provider === "ollama" || m.provider === "local";
     return true;
@@ -159,7 +229,115 @@ export const ModelsPage: React.FC = () => {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  /** Carga APARTE de la de modelos: el ruteo caído no puede dejar sin tabla al admin, ni
+   *  un catálogo caído sin panel de ruteo. Son dos endpoints y dos fallos distintos. */
+  const loadRouter = async () => {
+    setRouterLoading(true);
+    try {
+      setRouterCfg(normalizarRouter(await api.getRouterConfig()));
+      setRouterDirty(false);
+      setUtteranceDraft({});
+    } catch (err: any) {
+      setError(err?.message || "No se pudo cargar la configuración del ruteo inteligente.");
+    } finally {
+      setRouterLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); loadRouter(); }, []);
+
+  const mutarRouter = (fn: (cfg: RouterConfig) => RouterConfig) => {
+    setRouterCfg((prev) => (prev ? fn(prev) : prev));
+    setRouterDirty(true);
+  };
+
+  const mutarRuta = (indice: number, cambios: Partial<RouterRoute>) =>
+    mutarRouter((cfg) => ({
+      ...cfg,
+      routes: cfg.routes.map((ruta, i) => (i === indice ? { ...ruta, ...cambios } : ruta)),
+    }));
+
+  const agregarUtterance = (indice: number) => {
+    const texto = (utteranceDraft[indice] || "").trim();
+    if (!texto) return;
+    const actuales = routerCfg?.routes[indice]?.utterances || [];
+    if (!actuales.includes(texto)) mutarRuta(indice, { utterances: [...actuales, texto] });
+    setUtteranceDraft((prev) => ({ ...prev, [indice]: "" }));
+  };
+
+  const quitarUtterance = (indice: number, posicion: number) =>
+    mutarRuta(indice, {
+      utterances: (routerCfg?.routes[indice]?.utterances || []).filter((_, p) => p !== posicion),
+    });
+
+  const agregarRuta = () =>
+    mutarRouter((cfg) => ({
+      ...cfg,
+      routes: [
+        ...cfg.routes,
+        {
+          name: "",
+          description: "",
+          target_model: activeModels[0]?.model_name || "",
+          score_threshold: 0.45,
+          tier: "",
+          utterances: [],
+          target_ok: true,
+        },
+      ],
+    }));
+
+  const eliminarRuta = (indice: number) => {
+    if (!confirm(`¿Eliminar la ruta "${routerCfg?.routes[indice]?.name || "sin nombre"}"?`)) return;
+    // Los borradores están indexados por posición: al correrse los índices, el que quede
+    // a medio escribir pertenecería a otra ruta. Se descartan todos.
+    setUtteranceDraft({});
+    mutarRouter((cfg) => ({ ...cfg, routes: cfg.routes.filter((_, i) => i !== indice) }));
+  };
+
+  const routerInvalido =
+    !!routerCfg &&
+    (!routerCfg.default_model.trim() ||
+      !timeoutValido(routerCfg.timeout_seconds) ||
+      routerCfg.routes.some((ruta) => Object.keys(erroresDeRuta(ruta)).length > 0));
+
+  /** Un solo botón para TODO el panel (switch incluido) y no auto-guardado por control:
+   *  el PUT escribe la config ENTERA, así que un toggle "inmediato" persistiría también
+   *  las rutas a medio editar. El estado sucio se avisa en la cabecera de la tarjeta. */
+  const guardarRouter = async () => {
+    if (!routerCfg) return;
+    setRouterSaving(true);
+    setError("");
+    setSuccessMsg("");
+    try {
+      setRouterCfg(normalizarRouter(await api.putRouterConfig(routerCfg)));
+      setRouterDirty(false);
+      setUtteranceDraft({});
+      setSuccessMsg("Ruteo inteligente guardado. Aplica en la próxima consulta, sin reiniciar el motor IA.");
+    } catch (err: any) {
+      setError(err?.message || "No se pudo guardar la configuración del ruteo inteligente.");
+    } finally {
+      setRouterSaving(false);
+    }
+  };
+
+  /** Opciones del catálogo REAL + la selección actual si ya no existe en él. Sin esa opción
+   *  fantasma el <select> quedaría en blanco y el admin no vería QUÉ modelo apunta a la
+   *  nada — justo el caso que la señal «ruta rota» existe para mostrar. */
+  const opcionesModelo = (seleccionado: string) => {
+    const nombres = activeModels.map((m) => m.model_name);
+    const faltante = seleccionado && !nombres.includes(seleccionado) ? seleccionado : null;
+    return (
+      <>
+        {faltante && (
+          <option value={faltante}>{faltante} — ya no está en el catálogo</option>
+        )}
+        {nombres.map((nombre) => (
+          <option key={nombre} value={nombre}>{nombre}</option>
+        ))}
+      </>
+    );
+  };
 
   const handleFallbackChange = async (modelName: string, value: string) => {
     const fb = value === "" ? null : value;
@@ -334,6 +512,281 @@ export const ModelsPage: React.FC = () => {
               })}
             </TBody>
           </Table>
+        )}
+      </Card>
+
+      {/* ─── Ruteo inteligente (auto-router semántico, spec 030) ─── */}
+      <Card
+        title="Ruteo inteligente"
+        actions={
+          <>
+            {routerDirty && <StatusBadge tone="warn">Cambios sin guardar</StatusBadge>}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={guardarRouter}
+              disabled={routerSaving || routerLoading || !routerCfg || !routerDirty || routerInvalido}
+            >
+              {routerSaving ? "Guardando..." : "Guardar ruteo"}
+            </Button>
+          </>
+        }
+      >
+        {routerLoading ? (
+          <div className="flex justify-center py-12 font-mono text-xs text-text-secondary">
+            Cargando configuración de ruteo...
+          </div>
+        ) : !routerCfg ? (
+          <div className="py-8 text-center text-xs text-text-secondary">
+            No se pudo cargar la configuración del ruteo.{" "}
+            <button className="text-primary underline" onClick={loadRouter}>
+              Reintentar
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {routerCfg.config_error && (
+              <div className="rounded-md border border-warn/30 bg-warn-bg px-4 py-2.5 text-xs leading-relaxed text-warn">
+                <span className="font-semibold">Configuración de ruteo no legible.</span> El archivo
+                del servidor falta o está corrupto, así que abajo se muestran los valores por defecto
+                (ruteo apagado, sin rutas). Las consultas con «Auto» se sirven mientras tanto por el
+                modelo por defecto. Al guardar se reescribe el archivo con lo que veas acá.
+              </div>
+            )}
+
+            {/* Switch global (pedido explícito: on/off del ruteo) */}
+            <div className="flex flex-wrap items-start justify-between gap-4 rounded-md border border-border bg-surface-2 p-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-text-primary">Ruteo automático</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-text-secondary">
+                  Con el modelo «Auto» elegido en el chat, cada consulta se clasifica en esta misma
+                  máquina (embeddings locales: el texto nunca sale del servidor para decidir) y va al
+                  modelo de la ruta ganadora. Apagado, «Auto» sirve siempre por el modelo por defecto
+                  y no se calcula ningún embedding.
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                <span className="text-xs font-medium text-text-secondary">
+                  {routerCfg.enabled ? "Activo" : "Inactivo"}
+                </span>
+                <Toggle
+                  checked={routerCfg.enabled}
+                  onChange={(valor) => mutarRouter((cfg) => ({ ...cfg, enabled: valor }))}
+                  label="Ruteo automático"
+                />
+              </div>
+            </div>
+
+            {/* Modelo por defecto + timeout */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Modelo por defecto"
+                hint="Se usa con el ruteo apagado, cuando ninguna ruta supera su umbral y cuando el ruteo falla."
+              >
+                <>
+                  <select
+                    value={routerCfg.default_model}
+                    onChange={(e) => mutarRouter((cfg) => ({ ...cfg, default_model: e.target.value }))}
+                    className={cn(inputBaseClass, "border-border")}
+                  >
+                    <option value="">— Elegir modelo —</option>
+                    {opcionesModelo(routerCfg.default_model)}
+                  </select>
+                  {/* Sin modelo elegido el backend computa `default_model_ok: false` igual;
+                      la alarma se guarda para el caso real (apunta a algo inexistente), que
+                      es el que el admin tiene que corregir. */}
+                  {routerCfg.default_model && !routerCfg.default_model_ok && (
+                    <StatusBadge tone="danger" className="self-start">
+                      «{routerCfg.default_model}» no está en el catálogo
+                    </StatusBadge>
+                  )}
+                </>
+              </Field>
+
+              <Field
+                label="Timeout del ruteo (segundos)"
+                type="number"
+                min={1}
+                max={60}
+                step={1}
+                value={routerCfg.timeout_seconds}
+                onChange={(e) => {
+                  const valor = Number(e.target.value);
+                  mutarRouter((cfg) => ({
+                    ...cfg,
+                    timeout_seconds: e.target.value === "" || !Number.isFinite(valor) ? 0 : valor,
+                  }));
+                }}
+                error={timeoutValido(routerCfg.timeout_seconds) ? undefined : "Debe ser un número entre 1 y 60."}
+                hint="Si la clasificación tarda más, la consulta se sirve igual por el modelo por defecto y queda registrada como ruteo degradado."
+              />
+            </div>
+
+            {/* Estado del modelo de embeddings */}
+            <div className="rounded-md border border-border p-4">
+              <p className="text-xs font-semibold text-text-primary">Modelo de embeddings</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {routerCfg.embedding_model_ok ? (
+                  <StatusBadge tone="ok">
+                    Embeddings locales: {routerCfg.embedding_model || "sin configurar"} ✓
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge tone="danger">
+                    Embeddings locales: {routerCfg.embedding_model || "sin configurar"} — no disponible
+                  </StatusBadge>
+                )}
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-text-secondary">
+                {routerCfg.embedding_model_ok
+                  ? "La clasificación corre en el servidor: el contenido de la consulta no sale de la máquina para decidir a qué modelo va."
+                  : "Falta la entrada en el catálogo del motor IA o el modelo en Ollama (ollama pull). Mientras tanto «Auto» se sirve por el modelo por defecto y cada consulta queda registrada como ruteo degradado — nunca falla."}
+              </p>
+            </div>
+
+            {/* Editor de rutas */}
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-text-primary">Rutas semánticas</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-text-secondary">
+                    Gana la ruta con mayor parecido que supere su propio umbral; con empate exacto,
+                    la primera de la lista. Si ninguna llega, va al modelo por defecto.
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" onClick={agregarRuta}>
+                  + Agregar ruta
+                </Button>
+              </div>
+
+              {routerCfg.routes.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border py-6 text-center text-xs text-text-secondary">
+                  Sin rutas configuradas: «Auto» sirve siempre por el modelo por defecto.
+                </div>
+              ) : (
+                routerCfg.routes.map((ruta, i) => {
+                  const errores = erroresDeRuta(ruta);
+                  return (
+                    <div
+                      key={i}
+                      className={cn(
+                        "space-y-4 rounded-lg border p-4",
+                        ruta.target_ok === false ? "border-danger/30 bg-danger-bg" : "border-border bg-surface"
+                      )}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[10px] text-text-tertiary">#{i + 1}</span>
+                          {ruta.tier && (
+                            <StatusBadge tone="neutral" className="uppercase">{ruta.tier}</StatusBadge>
+                          )}
+                          {ruta.target_ok === false && <StatusBadge tone="danger">Ruta rota</StatusBadge>}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => eliminarRuta(i)}
+                          className="text-danger hover:bg-danger-bg hover:text-danger"
+                        >
+                          Eliminar ruta
+                        </Button>
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field
+                          label="Nombre"
+                          value={ruta.name}
+                          onChange={(e) => mutarRuta(i, { name: e.target.value })}
+                          placeholder="ej: Código y análisis"
+                          error={errores.name}
+                        />
+                        <Field label="Modelo destino" error={errores.target}>
+                          <select
+                            value={ruta.target_model}
+                            onChange={(e) => mutarRuta(i, { target_model: e.target.value })}
+                            className={cn(inputBaseClass, errores.target ? "border-danger" : "border-border")}
+                          >
+                            <option value="">— Elegir modelo —</option>
+                            {opcionesModelo(ruta.target_model)}
+                          </select>
+                        </Field>
+                      </div>
+
+                      <Field
+                        label="Descripción"
+                        value={ruta.description || ""}
+                        onChange={(e) => mutarRuta(i, { description: e.target.value })}
+                        placeholder="Para qué sirve esta ruta (sólo informativo)"
+                      />
+
+                      <Field
+                        label="Umbral de parecido"
+                        type="number"
+                        min={0.05}
+                        max={1}
+                        step={0.05}
+                        value={ruta.score_threshold}
+                        onChange={(e) => {
+                          const valor = Number(e.target.value);
+                          mutarRuta(i, {
+                            score_threshold: e.target.value === "" || !Number.isFinite(valor) ? 0 : valor,
+                          });
+                        }}
+                        error={errores.umbral}
+                        hint="Más alto = más exigente para que la consulta caiga en esta ruta."
+                        className="sm:max-w-[240px]"
+                      />
+
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                          Frases de ejemplo
+                        </label>
+                        {ruta.utterances.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {ruta.utterances.map((frase, posicion) => (
+                              <span
+                                key={`${posicion}-${frase}`}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-text-primary"
+                              >
+                                {frase}
+                                <button
+                                  type="button"
+                                  onClick={() => quitarUtterance(i, posicion)}
+                                  aria-label={`Quitar la frase "${frase}"`}
+                                  className="leading-none text-text-tertiary transition-colors hover:text-danger"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <input
+                          value={utteranceDraft[i] || ""}
+                          onChange={(e) => setUtteranceDraft((prev) => ({ ...prev, [i]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              agregarUtterance(i);
+                            }
+                          }}
+                          placeholder="Escribí un ejemplo y presioná Enter"
+                          className={cn(inputBaseClass, errores.utterances ? "border-danger" : "border-border")}
+                        />
+                        {errores.utterances ? (
+                          <p className="text-xs text-danger">{errores.utterances}</p>
+                        ) : (
+                          <p className="text-xs text-text-tertiary">
+                            Consultas típicas de esta ruta. Se comparan por significado, no por
+                            palabras exactas.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
         )}
       </Card>
 

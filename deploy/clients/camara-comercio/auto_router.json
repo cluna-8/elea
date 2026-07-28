@@ -1,0 +1,62 @@
+{
+  "enabled": true,
+  "default_model": "camara-comercio-local",
+  "timeout_seconds": 5,
+  "embedding_model": "router-embeddings",
+  "routes": [
+    {
+      "name": "Código y análisis",
+      "description": "Consultas de código, análisis y razonamiento — modelo premium",
+      "target_model": "gpt-4o",
+      "score_threshold": 0.45,
+      "tier": "premium",
+      "utterances": [
+        "escribí una función en python",
+        "corregí este error de código",
+        "qué hace este código",
+        "programá un script que",
+        "cómo implemento esta función",
+        "revisá este fragmento de código",
+        "analizá estos resultados",
+        "compará estas dos opciones y recomendá",
+        "armá una estrategia para",
+        "hacé un diagnóstico diferencial",
+        "evaluá los riesgos de"
+      ]
+    },
+    {
+      "name": "Redacción y resumen",
+      "description": "Resumen, redacción y traducción — modelo económico",
+      "target_model": "gpt-4o-mini",
+      "score_threshold": 0.45,
+      "tier": "economy",
+      "utterances": [
+        "resumime este texto",
+        "hacé un resumen de",
+        "redactá un mail para",
+        "traducí este texto al inglés",
+        "corregí la ortografía de",
+        "reformulá este párrafo",
+        "escribí una nota breve sobre",
+        "listame los puntos principales de"
+      ]
+    },
+    {
+      "name": "Conversación trivial",
+      "description": "Saludos, despedidas y charla — modelo local, coste 0",
+      "target_model": "camara-comercio-local",
+      "score_threshold": 0.45,
+      "tier": "local",
+      "utterances": [
+        "hola, ¿qué tal?",
+        "buen día, ¿cómo andás?",
+        "buenas tardes, ¿todo bien?",
+        "gracias, nos vemos mañana",
+        "muchas gracias por la ayuda",
+        "chau, hasta luego",
+        "contame un chiste",
+        "¿cómo va todo por ahí?"
+      ]
+    }
+  ]
+}

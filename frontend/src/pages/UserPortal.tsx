@@ -11,11 +11,19 @@ import { Button, StatusBadge, cn, inputBaseClass } from "../components/ui";
 // Sin acceso a la consola de administración — el gate vive en App.tsx.
 //
 // Portado del predecesor con dos adaptaciones de contrato:
-// 1. Sin modo "Automático": esta pasarela no tiene auto-router; se listan los
-//    modelos configurados de api.getModels() y se selecciona el primero.
+// 1. El modo "Automático" volvió (spec 030): GET /chat/models antepone el pseudo-modelo
+//    «auto» cuando el ruteo está activo, así que llega en la lista como un modelo más y
+//    queda seleccionado por ser el primero. Acá NO hay lógica de ruteo: sólo la etiqueta
+//    y, en la respuesta, el modelo que contestó.
 // 2. El backend NO devuelve `blocked: true` en un 200 — un bloqueo por política
 //    llega como HTTP 400/503 con `detail` en español (api.sendChatMessage lo
 //    lanza como Error). Se muestra como aviso de la plataforma, no como fallo.
+
+// El pseudo-modelo del ruteo automático. El `value` que viaja al backend es siempre el
+// literal "auto"; lo que se traduce es sólo la etiqueta que ve el usuario final.
+const AUTO_MODEL = "auto";
+const etiquetaModelo = (nombre: string) =>
+  nombre === AUTO_MODEL ? "Auto (ruteo inteligente)" : nombre;
 
 interface Msg {
   role: "user" | "assistant" | "notice";
@@ -23,6 +31,10 @@ interface Msg {
   modelUsed?: string;
   costUsd?: number;
   maskedCount?: number;
+  /** La petición pasó por el ruteo automático. Este portal es el del usuario final: se
+   *  dice QUÉ modelo terminó contestando y nada más — la ruta ganadora, el score y el
+   *  motivo de degradación son del Debugger y de «Conexiones en vivo», no de acá. */
+  viaAuto?: boolean;
 }
 
 interface PortalProps {
@@ -74,6 +86,9 @@ export const UserPortal: React.FC<PortalProps> = ({ user, onLogout }) => {
         maskedCount: masking?.active && Array.isArray(masking?.entities_detected)
           ? masking.entities_detected.length
           : undefined,
+        // Presente sólo si la petición pasó por el router (contrato §POST /completions:
+        // el campo está AUSENTE, no en null, cuando el modelo se eligió a mano).
+        viaAuto: !!llm?.auto_router,
       }]);
     } catch (err: any) {
       // El `detail` del backend viene en español y ES el mensaje a mostrar: un
@@ -132,7 +147,7 @@ export const UserPortal: React.FC<PortalProps> = ({ user, onLogout }) => {
                 : "text-text-secondary border-border hover:text-text-primary hover:bg-surface-2"
             )}
           >
-            {m}
+            {etiquetaModelo(m)}
           </button>
         ))}
       </div>
@@ -168,9 +183,17 @@ export const UserPortal: React.FC<PortalProps> = ({ user, onLogout }) => {
                 {m.role === "assistant" ? <Markdown>{m.text}</Markdown> : m.text}
                 {m.role === "assistant" && (m.modelUsed || typeof m.costUsd === "number") && (
                   <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-border">
+                    {/* Siempre el modelo REAL que contestó: si el proveedor estaba caído,
+                        la petición la sirvió el modelo de reserva y el badge tiene que
+                        decir quién respondió de verdad, no lo que se pidió. Con ruteo
+                        automático se antepone «Auto →» para que el usuario entienda que él
+                        no eligió ese modelo. */}
                     {m.modelUsed && (
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-text-secondary">
-                        {m.modelUsed}
+                      <span
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-text-secondary"
+                        title={m.viaAuto ? "Modelo elegido automáticamente para esta consulta." : undefined}
+                      >
+                        {m.viaAuto ? `Auto → ${m.modelUsed}` : m.modelUsed}
                       </span>
                     )}
                     {typeof m.costUsd === "number" && (

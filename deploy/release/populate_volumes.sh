@@ -46,6 +46,26 @@ docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$REPO_ROOT/litellm/exten
     alpine:3 sh -c "mkdir -p /vol/extensions && cp /ext/*.py /vol/extensions/"
 echo "✅ litellm_config ← config.yaml + extensiones"
 
+# 2b) Rutas del auto-router (spec 030) → MISMO volumen: el backend lo lee en cada
+#     decisión de ruteo (/app/litellm_config/auto_router.json) y lo REESCRIBE desde el
+#     panel «Modelos & Ollama» (PUT atómico tmp + os.replace), como 10001:999. El chown
+#     de arriba nombra /vol y /vol/config.yaml, así que NO alcanza a este fichero nuevo:
+#     se chownea acá explícitamente (sin esto el fichero queda de root — la escritura
+#     atómica sobreviviría por el chown del directorio, pero el estado quedaría
+#     inconsistente con config.yaml y cualquier escritura in-place moriría).
+#     No es un .tmpl: no lleva variables de perfil (los modelos ya son nombres finales).
+#     ⚠ Re-correr el script PISA las rutas editadas por el admin desde el panel, igual
+#     que pisa el config.yaml — es el precio de la idempotencia declarada arriba.
+AUTO_ROUTER="$PROFILES_ROOT/$SLUG/auto_router.json"
+if [ -f "$AUTO_ROUTER" ]; then
+    docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$PROFILES_ROOT/$SLUG:/src:ro" \
+        alpine:3 sh -c "cp /src/auto_router.json /vol/auto_router.json \
+            && chown 10001:999 /vol/auto_router.json && chmod 664 /vol/auto_router.json"
+    echo "✅ litellm_config ← auto_router.json (rutas del auto-router)"
+else
+    echo "ℹ️  $SLUG sin auto_router.json → el auto-router arranca con defaults (enabled=false)"
+fi
+
 # 3) Branding → branding:/ (el frontend sirve /srv/branding)
 docker volume create "${PROJECT}_branding" >/dev/null
 docker run --rm -v "${PROJECT}_branding:/vol" -v "$RENDERED:/src:ro" \

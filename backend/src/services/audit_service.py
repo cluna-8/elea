@@ -34,6 +34,10 @@ class AuditService:
         tenant_id: Optional[UUID] = None,
         applied_layers: Optional[List[Dict[str, Any]]] = None,
         blocked_by_layer: Optional[str] = None,
+        # Keyword-only a propósito: la firma ya arrastra 20+ parámetros posicionales y un
+        # dict suelto al final es indistinguible de cualquier otro si se pasa por posición.
+        *,
+        routing_decision: Optional[Dict[str, Any]] = None,
     ) -> AuditLog:
         """
         Creates a secure audit log entry for a transaction.
@@ -53,6 +57,17 @@ class AuditService:
         transforma: se persiste tal cual llega, porque el contrato exige que la columna, el
         evento del motor y el del gateway lleven **el mismo elemento sin transformar**
         (prohibido que un productor "resuma distinto").
+
+        Ruteo automático (spec 030, data-model §2-§3): ``routing_decision`` es la copia
+        DURABLE de la decisión del auto-router —``{requested, route, score, model_selected,
+        degraded, reason}``— que además viaja por dos superficies efímeras (Debugger y
+        vitrina). Opcional: sólo lo manda el camino ``model == "auto"``; en cualquier otra
+        consulta persiste ``NULL``, que significa "no pasó por el auto-router" (por eso la
+        columna no tiene default). Metadata-only, igual que ``applied_layers``: ruta y
+        score son etiqueta de config y número, JAMÁS texto del prompt. Va en su PROPIA
+        columna y no dentro de ``guardian_events`` — ese campo está congelado porque la
+        hash-chain de licencias lo relee posicionalmente (licensing/audit_events.py:92-93)
+        — así que la cadena de hash no ve esta columna y no cambia.
         """
         # DEUDA CONOCIDA (spec 018, owner: Cristian): el try/except de abajo **dropea la
         # auditoría** ante cualquier fallo de escritura — la transacción se sirve igual y la
@@ -96,6 +111,7 @@ class AuditService:
                 # migra: vive en su propia columna, al lado.
                 applied_layers=applied_layers,
                 blocked_by_layer=blocked_by_layer,
+                routing_decision=routing_decision,
                 review_token=review_token,
                 ai_disclosure_delivered=ai_disclosure_delivered,
                 processing_purpose=processing_purpose,

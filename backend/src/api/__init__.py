@@ -4,6 +4,7 @@ from .budgets import router as budgets_router
 from .policy import router as policy_router
 from .audit import router as audit_router
 from .chat import router as chat_router
+from .router_config import router as router_config_router
 from .keys import router as keys_router
 from .guardians import router as guardians_router
 from .analytics import router as analytics_router
@@ -23,6 +24,9 @@ api_router.include_router(budgets_router)
 api_router.include_router(policy_router)
 api_router.include_router(audit_router)
 api_router.include_router(chat_router)
+# Auto-router semántico (spec 030): vive en su propio módulo pero con el MISMO prefijo
+# /chat, así que el panel lo consume en /api/v1/chat/router-config junto al catálogo.
+api_router.include_router(router_config_router)
 api_router.include_router(keys_router)
 api_router.include_router(guardians_router)
 api_router.include_router(analytics_router)
