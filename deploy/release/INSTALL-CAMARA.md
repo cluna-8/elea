@@ -98,7 +98,18 @@ Panel admin → Usuarios: cada alta pide **contraseña propia de 12+** (se la en
 
 ## 7 · Extensión de navegador
 
-`chrome://extensions` → Modo desarrollador → «Cargar descomprimida» → carpeta `extension/` del zip descomprimido (la que tiene `manifest.json` a la vista). En el popup: URL del gateway + la clave de esa persona. Exige `https://` salvo `localhost` — si el acceso va por IP de LAN, resolvé dominio interno + TLS de Caddy **al principio de la visita**.
+`chrome://extensions` → Modo desarrollador → «Cargar descomprimida» → carpeta `extension/` del zip descomprimido (la que tiene `manifest.json` a la vista). En el popup: URL del gateway **con el path completo** + la clave de esa persona:
+
+```
+http://localhost/api/v1/gw
+```
+
+(o `https://DOMINIO/api/v1/gw` si se accede por dominio). ⚠️ Sin el `/api/v1/gw` da «servicio no disponible». Exige `https://` salvo `localhost` — si el acceso va por IP de LAN, resolvé dominio interno + TLS de Caddy **al principio de la visita**.
+
+### Herramientas de código (misma base)
+
+- **Claude Code (suscripción del usuario, protegida)**: `ANTHROPIC_BASE_URL=http://SERVIDOR/api/v1/gw` + atribución opcional `ANTHROPIC_CUSTOM_HEADERS="X-Basa-Key: sk-basa-…"`.
+- **VS Code / Copilot custom endpoint (modelo local byok)**: url `http://SERVIDOR/api/v1/gw/v1/messages?k=sk-basa-…`, `apiType` `messages`, model id `camara-comercio-local`.
 
 ## 8 · Smoke test de la demo
 
