@@ -29,6 +29,14 @@ PROFILE_VARS="$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$PROFILE/client.env" \
 envsubst "$PROFILE_VARS" < "$PROFILE/config.yaml.tmpl" > "$OUT/config.yaml"
 grep -q '\${' "$OUT/config.yaml" && { echo "❌ variables sin resolver en config.yaml"; exit 1; } || true
 
+# Rutas del auto-router (spec 030): NO se templa —los target_model ya son nombres
+# finales del catálogo—, pero tiene que quedar en rendered/ porque el bundle air-gapped
+# empaqueta rendered/, no el perfil (bundle.sh:59). Sin esta copia el seed de rutas
+# nunca llega a la sede y el router arranca en defaults (apagado).
+if [ -f "$PROFILE/auto_router.json" ]; then
+  cp "$PROFILE/auto_router.json" "$OUT/auto_router.json"
+fi
+
 # brand.json desde branding.env (una sola fuente de verdad: env).
 cat > "$OUT/brand.json" <<JSON
 {

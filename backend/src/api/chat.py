@@ -19,7 +19,8 @@ from ..models.audit import AuditLog
 from ..models.compliance import ComplianceProject, HumanReview
 from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
-from ..services.budget_service import BudgetService
+from ..services import auto_router_service
+from ..services.budget_service import BudgetService, has_known_pricing
 from ..services.presidio_service import PresidioService
 from ..services.optimization_service import OptimizationService
 from ..services.compliance_service import ComplianceService
@@ -344,11 +345,54 @@ def _tenant_slug(db: Session, tenant_id) -> Optional[str]:
         return None
 
 
+async def _publish_chat_event(*, db: Session, user, tenant_id, model: str, status: str,
+                              prompt: str, entities, attribution,
+                              routing: Optional[dict] = None) -> None:
+    """Evento de monitor del plano chat — **único** punto de emisión de este plano.
+
+    Best-effort de punta a punta (contrato §9): cualquier fallo de esta función se traga —
+    la respuesta al cliente, sea un bloqueo o una respuesta del modelo, jamás depende de la
+    vitrina.
+
+    El evento lo serializa el emisor del gateway, no una copia local: el contrato §8 exige
+    esquema idéntico entre los tres productores, y la única forma de que eso no se
+    desincronice es que haya UN serializador. Acá se arma la identidad equivalente —el chat
+    no tiene Connection, así que la superficie es constante del plano y el cliente es el
+    usuario de sesión— y se delega. Mismo precedente que `inspect.py`.
+
+    El preview va SIEMPRE display-masked (§10), con pase propio sobre mapa desechable +
+    scrub de secretos, **independientemente** de qué capas alcanzaron a correr. En el punto
+    de bloqueo esto no es un detalle: se bloquea ANTES de que el enmascarado corra, así que
+    sin este pase el evento sería el canal por donde el texto crudo —el que motivó el
+    bloqueo— llega al feed.
+
+    ``routing`` (spec 030) es el objeto decisión COMPLETO del auto-router o ``None``. No se
+    recorta acá: la proyección al subset del evento la hace el serializador del gateway
+    (`_publish_monitor`), que es el único lugar donde el contrato del evento se decide.
+    ``None`` ⇒ el gateway omite la clave, que es la codificación de "este pedido no pasó
+    por el router" (distinta de "el router no eligió ruta").
+    """
+    try:
+        preview = await _gw_plane._safe_preview({"messages": [{"role": "user", "content": prompt}]})
+        ident = {
+            "tool_type": _CHAT_SURFACE,
+            "client_username": getattr(user, "username", None),
+            "tenant_slug": _tenant_slug(db, tenant_id),
+        }
+        _gw_plane._publish_monitor(
+            ident, _CHAT_SURFACE, model, status,
+            _summarize_entities(entities), preview,
+            surface=_CHAT_SURFACE, attribution=attribution, routing=routing,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # vitrina: jamás afecta la request
+
+
 async def _publish_block_event(*, db: Session, user, tenant_id, model: str, status: str,
                                prompt: str, entities, attribution) -> None:
     """Evento de monitor **en el punto de bloqueo** del plano chat (contrato §13).
 
-    Hasta ahora los `raise HTTPException` de bloqueo de este endpoint precedían a TODO
+    Hasta la 027 los `raise HTTPException` de bloqueo de este endpoint precedían a TODO
     registro: un pedido bloqueado no dejaba fila ni evento, o sea que el caso donde el
     firewall hace su trabajo era justo el único invisible en la vitrina (research D6). Acá
     se publica antes del `raise`, con el mismo esquema que los otros dos productores
@@ -359,34 +403,14 @@ async def _publish_block_event(*, db: Session, user, tenant_id, model: str, stat
     reordena el `raise` ni se fuerza un `log_transaction` — se emite la atribución donde
     ocurre el bloqueo, se publica al monitor, y el registro durable llega con la 018.
 
-    Best-effort de punta a punta (§9): cualquier fallo de esta función se traga: la
-    respuesta al cliente —incluido el bloqueo— jamás depende de la vitrina.
-
-    El evento lo serializa el emisor del gateway, no una copia local: el contrato §8 exige
-    esquema idéntico entre los tres productores, y la única forma de que eso no se
-    desincronice es que haya UN serializador. Acá se arma la identidad equivalente —el chat
-    no tiene Connection, así que la superficie es constante del plano y el cliente es el
-    usuario de sesión— y se delega. Mismo precedente que `inspect.py`.
+    Sin `routing` a propósito: un pedido bloqueado se rechaza ANTES de llegar al modelo, y
+    aunque el auto-router ya haya elegido destino, ese destino no procesó nada. Contarlo en
+    la vitrina daría a entender que el pedido viajó a ese modelo. La decisión igual queda
+    registrada donde corresponde el día que el bloqueo tenga fila durable (spec 018/031).
     """
-    try:
-        # §10: el preview SIEMPRE display-masked, con pase propio sobre mapa desechable +
-        # scrub de secretos, **independientemente** de qué capas alcanzaron a correr. En el
-        # punto de bloqueo esto no es un detalle: se bloquea ANTES de que el enmascarado
-        # corra, así que sin este pase el evento sería el canal por donde el texto crudo
-        # —el que motivó el bloqueo— llega al feed.
-        preview = await _gw_plane._safe_preview({"messages": [{"role": "user", "content": prompt}]})
-        ident = {
-            "tool_type": _CHAT_SURFACE,
-            "client_username": getattr(user, "username", None),
-            "tenant_slug": _tenant_slug(db, tenant_id),
-        }
-        _gw_plane._publish_monitor(
-            ident, _CHAT_SURFACE, model, status,
-            _summarize_entities(entities), preview,
-            surface=_CHAT_SURFACE, attribution=attribution,
-        )
-    except Exception:  # noqa: BLE001
-        pass  # vitrina: jamás afecta la request
+    await _publish_chat_event(db=db, user=user, tenant_id=tenant_id, model=model,
+                              status=status, prompt=prompt, entities=entities,
+                              attribution=attribution)
 
 
 def _layer_entry(attribution, layer_key: str) -> dict:
@@ -403,6 +427,73 @@ def _get_config_path() -> str:
     if not os.path.exists(path):
         path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
     return path
+
+
+def _read_engine_config() -> dict:
+    """Config del motor parseado, o `{}` si no se pudo leer.
+
+    Los tres escritores (`register_model`, `delete_model`, `set_fallback`) siguen leyendo
+    por su cuenta porque necesitan distinguir "no se pudo leer" de "está vacío" y responder
+    500: escribir sobre un `{}` fabricado borraría el catálogo entero del cliente.
+    """
+    try:
+        with open(_get_config_path(), "r") as f:
+            return yaml.safe_load(f) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("No se pudo leer el catálogo del motor: %s", type(exc).__name__)
+        return {}
+
+
+def _catalog_model_names(config_data: Optional[dict] = None):
+    """`model_name`s del catálogo del motor, o `None` si el config no se pudo leer.
+
+    `None` y `set()` NO significan lo mismo para el auto-router: con un conjunto vacío
+    TODA ruta quedaría rota (`target_missing`) y el ruteo degradaría entero por un problema
+    de LECTURA del catálogo, no de configuración. `None` = "no verificable" → el router no
+    valida el destino y sirve por la ruta ganadora. Degradar por no poder mirar sería
+    castigar al usuario por un fallo que no es suyo ni de la config.
+    """
+    datos = _read_engine_config() if config_data is None else config_data
+    if not datos:
+        return None
+    return {m.get("model_name") for m in (datos.get("model_list") or [])
+            if isinstance(m, dict) and m.get("model_name")}
+
+
+# Providers que identifican un modelo LOCAL (self-hosted del cliente) en el catálogo del
+# motor. Se mira el `litellm_params.model` —el contrato con el motor— y no el `model_name`,
+# que es white-label: en el piloto el modelo local se llama `camara-comercio-local` y no
+# tiene la palabra "ollama" a la vista, justamente para que el motor no se filtre al cliente.
+_LOCAL_PROVIDER_PREFIXES = ("ollama/", "ollama_chat/")
+
+
+def _is_local_entry(entry: dict) -> bool:
+    """¿La entrada del catálogo es un modelo local del cliente?"""
+    if not isinstance(entry, dict):
+        return False
+    model_full = (entry.get("litellm_params") or {}).get("model") or ""
+    return isinstance(model_full, str) and model_full.startswith(_LOCAL_PROVIDER_PREFIXES)
+
+
+def _local_models(config_data: dict) -> list:
+    """Entradas locales del catálogo, en el orden en que están declaradas."""
+    return [m for m in (config_data.get("model_list") or []) if _is_local_entry(m)]
+
+
+def _router_config_safe() -> dict:
+    """Config del auto-router, o los defaults si falta / está rota.
+
+    Tolerante a propósito: los consumidores de acá (el dropdown de modelos, la elección
+    del respaldo local) son features de conveniencia, y un `auto_router.json` roto no puede
+    dejar sin catálogo al chat. El camino que SÍ tiene que enterarse del error es
+    `route()`, que lo reporta como degradación con motivo.
+    """
+    try:
+        return auto_router_service.load_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto-router: config ilegible (%s) — se usan los defaults",
+                       type(exc).__name__)
+        return dict(auto_router_service.DEFAULT_CONFIG)
 
 
 def _check_configured(params: dict, model_full: str) -> bool:
@@ -557,6 +648,54 @@ async def chat_completions(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Presupuesto mensual agotado para la llave virtual o el usuario/equipo."
         )
+
+    # 1c. Auto-router semántico (spec 030 US1, research R2)
+    #
+    # El ruteo ocurre ACÁ: después de autenticar y de los gates baratos (rate limit,
+    # presupuesto) y ANTES del pipeline de protección. Las dos mitades importan:
+    #
+    # * **Antes del pipeline** (FR-010): a partir de esta línea el modelo efectivo fluye por
+    #   TODO el pipeline como si el usuario lo hubiera elegido a mano — enmascarado,
+    #   guardianes, residencia, auditoría y coste corren exactamente igual. El ruteo elige
+    #   destino y nada más: no cortocircuita ninguna capa ni la relaja.
+    # * **Después de los gates**: un pedido que va a terminar en 401/429/402 no gasta una
+    #   llamada de embeddings. El ruteo es lo único del endpoint que cuesta tiempo y CPU
+    #   antes de saber si el pedido siquiera se va a servir.
+    #
+    # `request.model` se REASIGNA al modelo efectivo a propósito, en vez de arrastrar una
+    # variable paralela por las ~600 líneas siguientes: hay una decena de consumidores de
+    # "qué modelo es este pedido" (los tres puntos de bloqueo, el guardián de ruteo, la
+    # residencia, la auditoría, el presupuesto), y una variable nueva obligaría a acordarse
+    # de cambiarlos TODOS — el que se olvidara reportaría «auto», que no es un modelo y no
+    # se puede pricear ni auditar. Lo que el usuario pidió no se pierde: viaja textual
+    # dentro de la decisión (`requested`), que va al Debugger, a la vitrina y a la columna
+    # durable. O sea: la reasignación no borra información, la mueve a donde es legible.
+    _routing_decision: Optional[Dict[str, Any]] = None
+    if request.model == auto_router_service.AUTO_MODEL:
+        # El servicio NUNCA levanta: toda caída al default viaja como decisión con
+        # `degraded` + `reason` (FR-004, la degradación jamás es silenciosa).
+        _routing_decision = await auto_router_service.route(
+            request.message, available_models=_catalog_model_names())
+        _effective_model = _routing_decision.get("model_selected") or ""
+        if not _effective_model:
+            # Único caso sin modelo servible: no hay `auto_router.json` y por lo tanto
+            # tampoco un `default_model` que leer. Mandar `model=""` al motor sería un 400
+            # críptico y elegir un modelo por nuestra cuenta sería inventar un destino que
+            # nadie configuró — con el agravante de que podría ser un cloud en una
+            # instalación que eligió local. Se falla honesto y se dice qué falta.
+            logger.error("auto-router: sin modelo servible (reason=%s) — pedido rechazado",
+                         _routing_decision.get("reason"))
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="El ruteo automático no está configurado en esta instalación (falta "
+                       "el modelo por defecto). Elegí un modelo concreto de la lista o pedile "
+                       "al administrador que configure el ruteo.",
+            )
+        logger.info("auto-router: ruta=%s score=%s modelo=%s degradado=%s motivo=%s",
+                    _routing_decision.get("route"), _routing_decision.get("score"),
+                    _effective_model, _routing_decision.get("degraded"),
+                    _routing_decision.get("reason"))
+        request.model = _effective_model
 
     # 2. Compliance: AI Act Check (Prohibited practices block immediately)
     #
@@ -1063,7 +1202,35 @@ async def chat_completions(
 
     # 8. Logging and Budget Update
     latency_ms = int((time.time() - start_time) * 1000)
-    cost = actual_cost if actual_cost is not None else BudgetService.calculate_cost(request.model, prompt_tokens, completion_tokens)
+
+    # Modelo con el que se PRICEA: el que CONTESTÓ (FR-009 / Principio V, research R7).
+    #
+    # El motor devuelve en `model` quién respondió de verdad — verificado en vivo el 28-jul:
+    # con OpenAI caído, la respuesta llegó del modelo local y el campo lo decía. Es la única
+    # fuente honesta cuando `router_settings.fallbacks` sustituye el destino sin avisar.
+    # Respaldo: `routed_model`, que es lo que efectivamente se le mandó al motor (ya incluye
+    # el re-ruteo del guardián `sensitive_routing`); `request.model` sería lo que el pipeline
+    # eligió antes de ese guardián y por lo tanto una afirmación más débil.
+    #
+    # SOLO en el camino «auto», a propósito: el gap —cobrar el modelo pedido cuando contestó
+    # otro— es viejo y general, pero generalizarlo acá cambiaría el coste de TODO el tráfico
+    # a días de la demo. Queda anotado en research R7 para su propia spec. En el camino auto
+    # no es una mejora opcional: el literal «auto» no pricea nada y el ruteo existe
+    # precisamente para que el ahorro sea visible y cierto.
+    #
+    # El nombre de la respuesta se adopta solo si el tarifario lo CONOCE: los proveedores
+    # devuelven ids versionados (`gpt-4o-mini-2024-07-18`) que no están en la tabla y
+    # caerían en el `default` conservador de $5/$15 — cobrar treinta veces de más por un
+    # modelo económico, en nombre de la honestidad, sería el mismo bug al revés.
+    _billing_model = request.model
+    if _routing_decision is not None:
+        _answered_model = (raw_response_json.get("model")
+                           if isinstance(raw_response_json, dict) else None)
+        _billing_model = (_answered_model
+                          if isinstance(_answered_model, str) and has_known_pricing(_answered_model)
+                          else routed_model)
+
+    cost = actual_cost if actual_cost is not None else BudgetService.calculate_cost(_billing_model, prompt_tokens, completion_tokens)
 
     # Store human review record if required — save the AI response (not the prompt)
     if _review_token_val:
@@ -1136,6 +1303,11 @@ async def chat_completions(
     # Save to Audit Log
     audit_log = AuditService.log_transaction(
         db=db,
+        # Modelo EFECTIVO: con «auto», `request.model` ya es el destino que el router
+        # eligió (se reasignó al principio del endpoint). La fila jamás dice «auto» —
+        # «auto» no es un modelo y una auditoría que lo registrara no podría responder
+        # "¿a qué proveedor viajó este pedido?". Lo que el usuario pidió queda en
+        # `routing_decision.requested`, que es donde se puede leer sin ambigüedad.
         model=request.model,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
@@ -1156,6 +1328,11 @@ async def chat_completions(
         # lado y son las que el dashboard y el monitor pasan a consultar.
         applied_layers=attribution.applied_layers,
         blocked_by_layer=attribution.blocked_by_layer,
+        # Copia DURABLE de la decisión de ruteo (spec 030 FR-006, data-model §2-§3).
+        # `None` en todo pedido no-«auto», y `None` significa exactamente "este pedido no
+        # pasó por el auto-router" — no "el router no decidió". Columna propia: meterlo en
+        # `guardian_events` rompería la hash-chain de licencias, que lo relee por posición.
+        routing_decision=_routing_decision,
         review_token=_review_token_val,
         ai_disclosure_delivered=_deliver_disclosure,
         processing_purpose=x_processing_purpose,
@@ -1179,7 +1356,10 @@ async def chat_completions(
         group_id=group.id if group else None,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
-        model=request.model,
+        # Mismo modelo que el del cálculo de coste (R7): el presupuesto se descuenta por lo
+        # que se consumió de verdad. Hoy `override_cost` manda igual, pero dejar acá el
+        # modelo pedido sería una bomba dormida para el día que ese override desaparezca.
+        model=_billing_model,
         override_cost=Decimal(str(cost))
     )
 
@@ -1189,6 +1369,26 @@ async def chat_completions(
             http_resp.headers["X-RateLimit-Remaining-Requests"] = str(_rpm_remaining)
         if _tpm_remaining is not None:
             http_resp.headers["X-RateLimit-Remaining-Tokens"] = str(_tpm_remaining)
+
+    # Vitrina «Conexiones en vivo»: el ÉXITO del plano chat (spec 030, research R6/SC-004).
+    #
+    # Hasta acá este plano solo publicaba sus tres BLOQUEOS: en la vitrina, el chat existía
+    # únicamente cuando el firewall rechazaba algo. Con el auto-router eso deja de ser una
+    # laguna cosmética — la demo es "tres prompts, tres modelos destino, visibles sin tocar
+    # nada" (SC-004), y eso no se puede ver si el camino feliz no publica.
+    #
+    # El `status` es el MISMO vocabulario que ya emiten los otros dos productores para un
+    # pedido servido (`passed` / `flagged_high_risk`, gateway.py:285): la vitrina tiene una
+    # tabla cerrada de estados y un literal inventado —«allowed», «masked»— caería en el
+    # fallback gris de `estado()` y se leería como "estado desconocido". Lo que se enmascaró
+    # ya viaja donde corresponde, en `masked_entities`, que es lo que la vitrina pinta como
+    # `3× EMAIL_ADDRESS`.
+    await _publish_chat_event(
+        db=db, user=user, tenant_id=_tenant_id, model=request.model,
+        status=compliance_result["status"], prompt=request.message,
+        entities=entities_detected, attribution=attribution,
+        routing=_routing_decision,
+    )
 
     # Return complete metadata package for the UI layer animation
     #
@@ -1205,6 +1405,29 @@ async def chat_completions(
     # `applied_layers` ni a ningún evento: la atribución es solo códigos y contadores.
     _masking_entry = _layer_entry(attribution, "pii_masking")
     _detection_entry = _layer_entry(attribution, "pii_detection")
+
+    # Capa 04 del Debugger Técnico + decisión del auto-router (spec 030, FR-006).
+    #
+    # `auto_router` se AGREGA solo cuando el pedido fue «auto»: la clave AUSENTE significa
+    # "este pedido no pasó por el router" y un `null` significaría "pasó y no decidió
+    # nada", que es falso. Es la misma distinción ausencia-de-dato vs ausencia-de-acción
+    # que el evento de la vitrina y la columna durable sostienen del otro lado, y la que
+    # permite que el Debugger no pinte una sección de ruteo vacía en cada consulta normal.
+    _layer_llm = {
+        # `_billing_model`, no `routed_model`: tras un fallback del motor es el modelo que
+        # CONTESTÓ (con la misma guarda de tarifario del coste) — el badge de honestidad
+        # del Playground compara contra esto y con el modelo mandado jamás dispararía.
+        "model_used": _billing_model,
+        "latency_ms": latency_ms,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cost_usd": float(cost),
+        "raw_request_json": raw_request_json,
+        "raw_response_json": raw_response_json
+    }
+    if _routing_decision is not None:
+        _layer_llm["auto_router"] = _routing_decision
+
     return {
         "response": final_response,
         "pipeline_metadata": {
@@ -1252,15 +1475,7 @@ async def chat_completions(
                 "review_token": str(_review_token_val) if _review_token_val else None,
                 "processing_purpose": x_processing_purpose,
             },
-            "layer_llm": {
-                "model_used": routed_model,
-                "latency_ms": latency_ms,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "cost_usd": float(cost),
-                "raw_request_json": raw_request_json,
-                "raw_response_json": raw_response_json
-            },
+            "layer_llm": _layer_llm,
             "layer_unmasking": {
                 "raw_response": llm_raw_response,
                 "unmasked_response": final_response
@@ -1277,13 +1492,46 @@ class ModelCreateSchema(BaseModel):
 
 @router.get("/models", dependencies=[Depends(require_authenticated())])
 async def list_available_models():
+    """Catálogo conversable: los modelos del motor, más el pseudo-modelo «auto».
+
+    Dos cosas que este endpoint hace y que NO son cosméticas (spec 030, contrato §GET):
+
+    1. **«auto» se antepone** cuando el router está encendido. No existe en el motor: lo
+       inyecta este endpoint para que el usuario final lo elija como un modelo más (FR-001).
+       Va PRIMERO porque el Playground y el portal preseleccionan el índice 0 — o sea que el
+       orden acá es la decisión de producto "el ruteo inteligente es el default".
+    2. **El modelo de embeddings se EXCLUYE.** `router-embeddings` es infraestructura del
+       ruteo, no un modelo de conversación: si aparece en el desplegable, alguien lo elige y
+       recibe un error del motor (un modelo de embeddings no contesta chat). Se filtra por el
+       nombre que declara la config del router, no por un literal, para que un cliente que
+       renombre su entrada de embeddings no lo vea reaparecer en la lista.
+    """
     config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
             config_data = yaml.safe_load(f) or {}
 
+        router_cfg = _router_config_safe()
+        embedding_model = (router_cfg.get("embedding_model")
+                           or auto_router_service.DEFAULT_CONFIG["embedding_model"])
+
         result = []
+        if router_cfg.get("enabled"):
+            result.append({
+                "model_name": auto_router_service.AUTO_MODEL,
+                "provider": auto_router_service.AUTO_MODEL,
+                "model_id": auto_router_service.AUTO_MODEL,
+                # Se declara configurado y conforme porque el destino REAL lo elige el
+                # router entre los modelos del catálogo, y cada uno responde por sí mismo:
+                # «auto» no habla con ningún proveedor, así que no tiene credencial propia
+                # ni residencia propia que afirmar.
+                "is_configured": True,
+                "is_eu_compliant": True,
+            })
+
         for m in config_data.get("model_list", []):
+            if m.get("model_name") == embedding_model:
+                continue
             params = m.get("litellm_params", {})
             model_full = params.get("model", "")
             provider = "local"
@@ -1303,12 +1551,50 @@ async def list_available_models():
         logger.warning("Failed to read models from config.yaml: %s", e)
         return []
 
+def _write_fallback(config_data: dict, model_name: str, fallback_model: Optional[str]) -> None:
+    """Escribe (o borra) el respaldo de `model_name` en `router_settings.fallbacks`.
+
+    Única implementación del formato del motor (`[{origen: [destino]}]`), compartida por el
+    `PUT /fallbacks` del admin y por el alta automática de modelos: dos escritores con dos
+    versiones del mismo formato es cómo un `fallbacks` termina con entradas duplicadas que
+    el motor resuelve por orden de aparición.
+    """
+    if "router_settings" not in config_data:
+        config_data["router_settings"] = {"disable_cooldowns": True}
+    fallbacks = config_data["router_settings"].get("fallbacks", []) or []
+    fallbacks = [item for item in fallbacks if isinstance(item, dict) and model_name not in item]
+    if fallback_model:
+        fallbacks.append({model_name: [fallback_model]})
+    config_data["router_settings"]["fallbacks"] = fallbacks
+
+
+def _default_local_model(config_data: dict) -> Optional[str]:
+    """Modelo local al que debe caer un cloud (US3 / research R8), o `None` si no hay.
+
+    Prioridad: el `default_model` del router **si es local**, si no el primer local
+    declarado en el catálogo. El orden no es arbitrario — el `default_model` es la elección
+    explícita del admin sobre "a qué modelo local va lo que no tiene destino", así que el
+    respaldo de un cloud debe ser el mismo: dos respuestas distintas a la misma pregunta
+    ("¿cuál es TU modelo local?") es exactamente lo que confunde en una instalación con
+    varios Ollama, que es el caso que la spec vino a resolver.
+    """
+    locales = _local_models(config_data)
+    if not locales:
+        return None
+    nombres = {m.get("model_name") for m in locales}
+    preferido = _router_config_safe().get("default_model")
+    if preferido in nombres:
+        return preferido
+    return locales[0].get("model_name")
+
+
 @router.post("/models", dependencies=[Depends(require_role("admin", "developer"))])
 async def register_model(model_in: ModelCreateSchema):
-    config_path = "/app/litellm_config/config.yaml"
-    if not os.path.exists(config_path):
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../litellm/config.yaml"))
-    
+    # Mismo resolutor de path que el resto del plano (era una copia literal inline): con dos
+    # resoluciones distintas, un cambio en una de ellas hace que el alta escriba en un
+    # fichero y la lectura mire otro.
+    config_path = _get_config_path()
+
     try:
         with open(config_path, "r") as f:
             config_data = yaml.safe_load(f) or {}
@@ -1338,6 +1624,26 @@ async def register_model(model_in: ModelCreateSchema):
 
     config_data["model_list"].append(new_model_entry)
 
+    # Fallback siempre-a-local (spec 030 US3 / FR-007, decisión sellada de JF 28-jul).
+    #
+    # Un modelo cloud nace con respaldo al modelo local del cliente: si el proveedor se cae,
+    # su gente sigue trabajando en el hardware propio y a coste 0, sin que nadie configure
+    # nada. Es un DEFAULT, no una opción escondida — el admin puede cambiarlo después por el
+    # `PUT /fallbacks`.
+    #
+    # Al revés jamás (`local → cloud`): eso sacaría los datos del host justo cuando falla la
+    # única pieza que garantizaba que no salieran. Por eso este bloque exige que el modelo
+    # nuevo NO sea local, y el PUT rechaza el mismo caso a mano (regla enforced en los dos
+    # escritores, no solo documentada).
+    #
+    # GOTCHA OPERATIVO: el motor lee `config.yaml` al arrancar, así que el respaldo entra en
+    # vigor con el MISMO restart que el alta del modelo ya exige (documentado en INSTALL).
+    fallback_local = None
+    if not _is_local_entry(new_model_entry):
+        fallback_local = _default_local_model(config_data)
+        if fallback_local:
+            _write_fallback(config_data, model_in.model_name, fallback_local)
+
     try:
         with open(config_path, "w") as f:
             yaml.safe_dump(config_data, f, default_flow_style=False)
@@ -1345,7 +1651,10 @@ async def register_model(model_in: ModelCreateSchema):
         logger.error(f"Failed to write litellm config: {e}")
         raise HTTPException(status_code=500, detail="Failed to save model configuration")
 
-    return {"status": "success", "message": f"Model {model_in.model_name} registered successfully"}
+    mensaje = f"Model {model_in.model_name} registered successfully"
+    if fallback_local:
+        mensaje += f" (respaldo automático al modelo local «{fallback_local}»)"
+    return {"status": "success", "message": mensaje, "fallback_model": fallback_local}
 
 @router.delete("/models/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def delete_model(model_name: str):
@@ -1441,7 +1750,18 @@ async def get_fallbacks():
 
 @router.put("/fallbacks/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def set_fallback(model_name: str, body: FallbackBody):
-    """Set or clear the fallback model for a given model. Written to config.yaml router_settings."""
+    """Define o borra el respaldo de un modelo (`router_settings` del config del motor).
+
+    **El origen no puede ser un modelo local** (spec 030 US3 / FR-007). Un respaldo
+    `local → cloud` significa: "cuando el modelo que corre en tu hardware falle, mandá los
+    datos afuera" — o sea, romper la residencia justo en el momento en que nadie la está
+    mirando, y hacerlo en silencio. La regla ya estaba escrita en el config del motor como
+    comentario; acá pasa a estar **enforced** en el escritor, que es el único lugar donde
+    puede dejar de ser una convención.
+
+    Borrar el respaldo de un modelo local SÍ se permite: quitar una entrada nunca crea una
+    fuga, y negarlo dejaría atrapado a un admin que heredó una configuración mal hecha.
+    """
     config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
@@ -1449,14 +1769,19 @@ async def set_fallback(model_name: str, body: FallbackBody):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to read config")
 
-    if "router_settings" not in config_data:
-        config_data["router_settings"] = {"disable_cooldowns": True}
-
-    fallbacks = config_data["router_settings"].get("fallbacks", [])
-    fallbacks = [item for item in fallbacks if model_name not in item]
     if body.fallback_model:
-        fallbacks.append({model_name: [body.fallback_model]})
-    config_data["router_settings"]["fallbacks"] = fallbacks
+        origen = next((m for m in (config_data.get("model_list") or [])
+                       if isinstance(m, dict) and m.get("model_name") == model_name), None)
+        if origen is not None and _is_local_entry(origen):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"«{model_name}» es un modelo local: no se le puede configurar un "
+                       "respaldo, porque una caída suya mandaría los datos fuera del host y "
+                       "la residencia que motiva tener el modelo local se perdería. El "
+                       "respaldo válido va al revés: de un modelo de la nube al local.",
+            )
+
+    _write_fallback(config_data, model_name, body.fallback_model)
 
     try:
         with open(config_path, "w") as f:

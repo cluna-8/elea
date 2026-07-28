@@ -497,6 +497,61 @@ async function passwordFetch(
   }
 }
 
+/** Ruta semántica del auto-router (spec 030, data-model §1). `target_ok` es COMPUTADO por
+ *  el GET contra el catálogo real del motor: no vive en disco y no se manda en el PUT. */
+export interface RouterRoute {
+  name: string;
+  description?: string;
+  target_model: string;
+  score_threshold: number;
+  /** Etiqueta cosmética (premium/economy/local) — sólo badge en el panel. */
+  tier?: string;
+  utterances: string[];
+  /** false = ruta rota: el modelo destino ya no está en el catálogo. */
+  target_ok?: boolean;
+}
+
+/** Config caliente del auto-router. Los tres `*_ok`/`config_error` son computados del GET
+ *  (contrato `router-config-api.md`): se muestran, nunca se persisten. */
+export interface RouterConfig {
+  enabled: boolean;
+  default_model: string;
+  timeout_seconds: number;
+  embedding_model: string;
+  routes: RouterRoute[];
+  default_model_ok?: boolean;
+  embedding_model_ok?: boolean;
+  /** true = el fichero de disco falta o está corrupto y se están mostrando defaults. */
+  config_error?: boolean;
+}
+
+/** Cuerpo del PUT: la config SIN los campos computados (contrato §PUT).
+ *
+ *  Se construye por lista blanca en vez de borrar claves del objeto del GET por dos
+ *  motivos: los computados nunca se cuelan aunque el panel los arrastre, y los opcionales
+ *  vacíos (`description`, `tier`) se OMITEN en lugar de viajar como cadena vacía o null —
+ *  una clave presente con valor nulo rompe a los consumidores que hacen `.get(campo,
+ *  default)` del lado backend. */
+function routerConfigPayload(cfg: RouterConfig): Record<string, unknown> {
+  return {
+    enabled: !!cfg.enabled,
+    default_model: cfg.default_model ?? "",
+    timeout_seconds: cfg.timeout_seconds,
+    embedding_model: cfg.embedding_model ?? "",
+    routes: (cfg.routes || []).map((ruta) => {
+      const salida: Record<string, unknown> = {
+        name: ruta.name ?? "",
+        target_model: ruta.target_model ?? "",
+        score_threshold: ruta.score_threshold,
+        utterances: ruta.utterances || [],
+      };
+      if (ruta.description) salida.description = ruta.description;
+      if (ruta.tier) salida.tier = ruta.tier;
+      return salida;
+    }),
+  };
+}
+
 export const api = {
   // --- Auth ---
   login: async (username: string, password: string): Promise<{ access_token: string; user: any }> => {
@@ -778,6 +833,54 @@ export const api = {
   getModelsPricing: async (): Promise<any[]> => {
     const res = await fetch(`${API_BASE}/chat/models/pricing`, { headers: authHeaders() });
     if (!res.ok) return [];
+    return res.json();
+  },
+
+  // --- Auto-router semántico (spec 030) ---
+
+  /** Config del ruteo + los computados del catálogo. El backend garantiza 200 aunque el
+   *  fichero de disco falte o esté corrupto (`config_error: true`), así que un error acá
+   *  es sesión/rol/red — no una config rota. */
+  getRouterConfig: async (): Promise<RouterConfig> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/chat/router-config`, { headers: authHeaders() });
+    } catch {
+      throw new ApiError("No se pudo contactar al servidor.", 0);
+    }
+    handleExpiredSession(res);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(
+        detailMessage(err, "No se pudo cargar la configuración del ruteo inteligente."),
+        res.status
+      );
+    }
+    return res.json();
+  },
+
+  /** Guarda la config completa y devuelve la RELEÍDA de disco (con computados frescos).
+   *  El 422 del backend trae la lista de errores de validación por campo: se propaga tal
+   *  cual porque es el texto que el panel muestra. */
+  putRouterConfig: async (cfg: RouterConfig): Promise<RouterConfig> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/chat/router-config`, {
+        method: "PUT",
+        headers: jsonHeaders(),
+        body: JSON.stringify(routerConfigPayload(cfg)),
+      });
+    } catch {
+      throw new ApiError("No se pudo contactar al servidor.", 0);
+    }
+    handleExpiredSession(res);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(
+        detailMessage(err, "No se pudo guardar la configuración del ruteo inteligente."),
+        res.status
+      );
+    }
     return res.json();
   },
 

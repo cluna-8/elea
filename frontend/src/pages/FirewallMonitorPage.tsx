@@ -45,6 +45,15 @@ interface GwLayer {
   decision: string | null;
   count?: number;
 }
+/** Decisión del auto-router proyectada al feed (spec 030, contrato §evento de vitrina).
+ *  Es un SUBCONJUNTO del objeto decisión: `requested` y `reason` se quedan en el Debugger
+ *  Técnico y en la columna durable, no en la vitrina. */
+interface GwRouting {
+  route?: string | null;
+  score?: number | null;
+  model_selected?: string | null;
+  degraded?: boolean;
+}
 interface GwEvent {
   tenant?: string;
   tool?: string;
@@ -58,6 +67,9 @@ interface GwEvent {
    *  llevan. Ausencia de dato ≠ ausencia de protección — el render lo dice distinto. */
   applied_layers?: GwLayer[] | null;
   blocked_by_layer?: string | null;
+  /** Campo OPCIONAL del contrato: lo emite UN solo productor (el plano chat, y sólo
+   *  cuando el usuario pidió «auto»). Su ausencia es lo normal y no se pinta nada. */
+  routing?: GwRouting | null;
 }
 
 // Familias visuales. El color cuelga de la familia, nunca del `compliance_status` crudo.
@@ -260,6 +272,51 @@ const Atribucion: React.FC<{ e: GwEvent; familia: Familia }> = ({ e, familia }) 
   );
 };
 
+/** Ruteo automático (spec 030, FR-006): a qué modelo mandó el pedido el router y por qué.
+ *
+ *  Va en su propia fila y NO mezclado con la atribución de capas, a propósito: el ruteo no
+ *  es una capa del firewall, no protege nada, y meterlo entre los chips de capas lo haría
+ *  leer como un verdicto de seguridad.
+ *
+ *  El campo es OPCIONAL en el contrato del evento y hoy lo emite un solo productor —el
+ *  plano chat, sólo en peticiones «auto»—, así que su AUSENCIA es lo normal y no se dibuja
+ *  nada: "sin chip" significa "este pedido no pasó por el router", no "el router no
+ *  eligió". Misma distinción que `sin registro de capas`. El vocabulario es el mismo que
+ *  sirve la vitrina standalone (backend/src/api/monitor.py, `ruteo()`): las dos leen el
+ *  MISMO evento y tienen que nombrarlo igual. */
+const Ruteo: React.FC<{ e: GwEvent }> = ({ e }) => {
+  const r = e.routing;
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+
+  const destino = r.model_selected ? ` → ${r.model_selected}` : "";
+  const score =
+    typeof r.score === "number" && isFinite(r.score) ? ` (${r.score.toFixed(2)})` : "";
+  // Sin ruta ganadora se DICE «modelo por defecto» en vez de omitirlo: "el router corrió y
+  // nada superó el umbral" es un dato, no un hueco.
+  const texto = r.route ? `${r.route}${score}${destino}` : `modelo por defecto${destino}`;
+  // Degradado ≠ pedido fallido: se respondió igual, pero la decisión no se pudo tomar
+  // (embeddings caídos, timeout o configuración inválida). Decirlo es el requisito —
+  // FR-004: la degradación jamás es silenciosa. Por eso el chip cambia de familia visual.
+  const titulo = r.degraded
+    ? "El ruteo no pudo decidir (modelo de embeddings caído, timeout o configuración inválida) y el pedido se sirvió por el modelo por defecto. Se respondió igual."
+    : "Modelo elegido automáticamente por similitud semántica con los ejemplos de la ruta.";
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <span
+        className={`${CHIP} ${
+          r.degraded ? FAMILIA_CLS.flag : "border-border bg-primary-tint text-primary"
+        }`}
+        title={titulo}
+      >
+        <span aria-hidden="true">🧭</span>
+        {texto}
+        {r.degraded ? " · ruteo degradado" : ""}
+      </span>
+    </div>
+  );
+};
+
 // Timestamp naive (UTC sin 'Z') -> forzar UTC para que el browser lo muestre en hora local.
 function fmtTime(iso?: string): string {
   if (!iso) return "";
@@ -330,7 +387,11 @@ export const FirewallMonitorPage: React.FC = () => {
             </span>
           </span>
         }
-        subtitle="Tráfico de coding tools (Claude Code, Cursor…) y browser atravesando el gateway. Auditado sin texto de prompt ni PII cruda."
+        // El feed dejó de ser sólo del gateway: con la 030 el plano chat publica también
+        // sus peticiones servidas (antes sólo los bloqueos), que es de donde salen los
+        // eventos con ruteo automático. Nombrar sólo las coding tools acá dejaría al
+        // usuario buscando en la pantalla equivocada el pedido que acaba de mandar.
+        subtitle="Tráfico de coding tools (Claude Code, Cursor…), del navegador y del chat de la consola. Auditado sin texto de prompt ni PII cruda."
         actions={
           <>
             <Button variant="secondary" size="sm" onClick={() => setPaused((p) => !p)}>
@@ -409,6 +470,8 @@ export const FirewallMonitorPage: React.FC = () => {
                 </div>
 
                 <Atribucion e={e} familia={familia} />
+
+                <Ruteo e={e} />
 
                 {e.masked_entities && e.masked_entities.length > 0 && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">

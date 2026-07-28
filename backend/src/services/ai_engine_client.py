@@ -325,6 +325,43 @@ def reset_guardrail_probe_cache() -> None:
     _probe_cache = _UNCONFIRMED
 
 
+# --- Embeddings (spec 030 — auto-router semántico) ---
+
+async def embeddings(model: str, inputs: list[str], timeout: float = 10.0) -> list[list[float]]:
+    """Vectores de `inputs`, en el MISMO orden, vía `POST {motor}/v1/embeddings`.
+
+    `model` es la entrada del catálogo que apunta al modelo LOCAL de embeddings
+    (`router-embeddings` → `ollama/qwen3-embedding:0.6b`): el texto que se embebe
+    para decidir el ruteo no sale del host (FR-003 de la 030 + Principio I).
+
+    Dos desvíos deliberados del resto del cliente, los dos load-bearing:
+
+    1. **Las excepciones se propagan crudas** en vez de envolverse en
+       `AIEngineClientError`: el auto-router necesita distinguir un timeout
+       (`embed_timeout`) de cualquier otro fallo (`embed_error`) para registrar la
+       degradación con motivo concreto (FR-004), y el wrapper aplasta esa diferencia
+       en un string. Quien llama es responsable de capturar.
+    2. **El timeout es parámetro**, no la constante `_TIMEOUT` del cliente: lo fija
+       el admin desde el panel del router (`timeout_seconds`), y el presupuesto de
+       latencia del ruteo (SC-002) no tiene nada que ver con el de las llamadas de
+       administración.
+
+    `inputs` es texto del usuario: no se loguea nunca (Principio VII).
+    """
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{_BASE_URL}/v1/embeddings",
+            json={"model": model, "input": inputs},
+            headers=_headers(),
+        )
+        r.raise_for_status()
+        data = r.json().get("data") or []
+    # El contrato OpenAI numera cada vector con `index`; se ordena por él para no
+    # depender de que el proveedor conserve el orden del input.
+    ordenados = sorted(data, key=lambda item: item.get("index", 0))
+    return [item["embedding"] for item in ordenados]
+
+
 async def test_guardrail(guardrail_name: str, test_text: str) -> dict:
     """Sends a minimal request to the engine with a single guardrail to test it."""
     payload = {

@@ -8,6 +8,11 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   metadata?: any;
+  /** Modelo que el usuario pidió al enviar (puede ser el pseudo-modelo «auto»).
+   *  Se guarda por mensaje —y no se lee del selector— porque el selector puede
+   *  cambiar mientras la respuesta está en vuelo: comparar contra el estado
+   *  actual haría que un mensaje viejo se marcara como sustituido sin serlo. */
+  requestedModel?: string;
 }
 
 // Clase de select/inputs compactos consumiendo tokens (sin hex hardcodeado).
@@ -15,6 +20,46 @@ const compactControl =
   "w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-primary " +
   "placeholder:text-text-tertiary transition-colors focus:outline-none focus:ring-2 " +
   "focus:ring-primary focus:ring-offset-2 focus:ring-offset-canvas";
+
+// ── Auto-router (spec 030) ────────────────────────────────────────────────────────────
+// El pseudo-modelo «auto» NO existe en el motor: lo antepone GET /chat/models cuando el
+// ruteo está activo (contrato §GET /models). Llega como un modelo más, así que acá sólo
+// se le da una etiqueta digna en el desplegable — el `value` sigue siendo el literal
+// "auto", que es lo que el backend espera recibir.
+const AUTO_MODEL = "auto";
+const etiquetaModelo = (nombre: string) =>
+  nombre === AUTO_MODEL ? "Auto (ruteo inteligente)" : nombre;
+
+// Motivos del objeto decisión (data-model §2) en castellano. `below_threshold` y
+// `switch_off` NO son fallos: son el diseño (ninguna ruta ganó / el ruteo está apagado) y
+// llegan con `degraded: false`. Los otros cuatro sí son degradación y se pintan en ámbar:
+// la petición se respondió igual, pero la decisión no se pudo tomar (FR-004 — la
+// degradación nunca es silenciosa).
+const ROUTER_REASON: Record<string, string> = {
+  switch_off: "ruteo desactivado",
+  below_threshold: "ninguna ruta superó su umbral",
+  embed_timeout: "timeout del modelo de embeddings",
+  embed_error: "el modelo de embeddings no respondió",
+  config_error: "configuración del ruteo inválida",
+  target_missing: "el modelo de la ruta no está en el catálogo",
+};
+const motivoRuteo = (reason?: string | null) =>
+  reason ? ROUTER_REASON[reason] || reason : "";
+
+/** Ruta ganadora + score en una línea. Sin ruta ganadora se DICE «modelo por defecto» en
+ *  vez de omitirlo: "el router corrió y nada superó el umbral" es un dato, no un hueco. */
+const detalleRuta = (ar: any): string => {
+  if (!ar?.route) return "modelo por defecto";
+  const score = typeof ar.score === "number" && isFinite(ar.score) ? ` (${ar.score.toFixed(2)})` : "";
+  return `${ar.route}${score}`;
+};
+
+const chipNeutro =
+  "text-[10px] font-mono px-1.5 py-0.5 rounded border border-border text-text-secondary";
+const chipAuto =
+  "text-[10px] px-1.5 py-0.5 rounded border border-primary/40 bg-primary-tint text-primary font-medium";
+const chipAmbar =
+  "text-[10px] px-1.5 py-0.5 rounded border border-warn/40 bg-warn-bg text-warn font-medium";
 
 export const PlaygroundPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -82,10 +127,13 @@ export const PlaygroundPage: React.FC = () => {
     if (overrideHeadroom !== "default") overrides.override_headroom_mode = overrideHeadroom === "active";
 
     const keyToUse = authMode === "key" ? customKey : undefined;
+    // Congelado acá: si el usuario cambia el selector mientras la petición viaja, la
+    // respuesta tiene que compararse contra lo que SE PIDIÓ, no contra lo que hay ahora.
+    const modeloSolicitado = selectedModel;
 
     try {
       const steps = [0, 1, 2, 3, 4];
-      const responsePromise = api.sendChatMessage(userMessage.content, selectedModel, keyToUse || undefined, overrides);
+      const responsePromise = api.sendChatMessage(userMessage.content, modeloSolicitado, keyToUse || undefined, overrides);
 
       for (const step of steps) {
         setAnimatingLayer(step);
@@ -99,6 +147,7 @@ export const PlaygroundPage: React.FC = () => {
         role: "assistant",
         content: data.response,
         metadata: data.pipeline_metadata,
+        requestedModel: modeloSolicitado,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -158,7 +207,25 @@ export const PlaygroundPage: React.FC = () => {
       getDetails: (meta: any) => {
         if (!meta?.layer_llm) return "Inactivo";
         const l = meta.layer_llm;
-        return `Model: ${l.model_used} | Latencia: ${l.latency_ms}ms | Costo: $${Number(l.cost_usd).toFixed(6)}`;
+        const lineas = [
+          `Model: ${l.model_used} | Latencia: ${l.latency_ms}ms | Costo: $${Number(l.cost_usd).toFixed(6)}`,
+        ];
+        // Decisión del auto-router (spec 030, FR-006). AUSENTE —no null— cuando la
+        // petición no pidió «auto»: no se pinta nada, porque "esta petición no pasó por el
+        // router" no es lo mismo que "el router no eligió".
+        const ar = l.auto_router;
+        if (ar) {
+          lineas.push(`Ruteo: ${detalleRuta(ar)} → ${ar.model_selected}`);
+          if (ar.degraded) {
+            lineas.push(`Ruteo degradado: ${motivoRuteo(ar.reason) || "motivo no informado"}`);
+          } else if (ar.reason) {
+            lineas.push(`Motivo: ${motivoRuteo(ar.reason)}`);
+          }
+          if (l.model_used && l.model_used !== ar.model_selected) {
+            lineas.push(`Contestó ${l.model_used} (sustitución del proveedor)`);
+          }
+        }
+        return lineas.join("\n");
       }
     },
     {
@@ -198,7 +265,7 @@ export const PlaygroundPage: React.FC = () => {
             >
               {models.map((m) => (
                 <option key={m.model_name} value={m.model_name}>
-                  {m.model_name}
+                  {etiquetaModelo(m.model_name)}
                 </option>
               ))}
             </select>
@@ -370,6 +437,52 @@ export const PlaygroundPage: React.FC = () => {
                     </span>
                     {msg.role === "assistant" && msg.metadata.layer_llm && (
                       <>
+                        {/* Quién contestó DE VERDAD. `model_used` es el modelo real de la
+                            respuesta del motor, que tras un fallback NO es el que se pidió
+                            (US3/FR-007): cuando difieren, el chip se pinta en ámbar y lo
+                            dice — el badge silencioso sería el fallo honesto que la spec
+                            vino a cerrar. */}
+                        {(() => {
+                          const l = msg.metadata.layer_llm;
+                          const ar = l.auto_router;
+                          const real: string | undefined = l.model_used;
+                          // Lo que se esperaba: la decisión del router si hubo ruteo; si no,
+                          // el modelo que el usuario eligió a mano.
+                          const esperado: string | undefined = ar?.model_selected || msg.requestedModel;
+                          const sustituido = !!real && !!esperado && real !== esperado;
+                          return (
+                            <>
+                              {real && (
+                                <span
+                                  className={sustituido ? chipAmbar : chipNeutro}
+                                  title={
+                                    sustituido
+                                      ? `Se pidió ${esperado} y contestó ${real}: el proveedor no estaba disponible y la petición se sirvió por el modelo de reserva.`
+                                      : "Modelo que respondió la petición."
+                                  }
+                                >
+                                  {sustituido ? `contestó ${real} (se pidió ${esperado})` : real}
+                                </span>
+                              )}
+                              {ar && (
+                                <span
+                                  className={chipAuto}
+                                  title="Modelo elegido automáticamente por similitud semántica con los ejemplos de la ruta."
+                                >
+                                  Auto → {ar.model_selected} · {detalleRuta(ar)}
+                                </span>
+                              )}
+                              {ar?.degraded && (
+                                <span
+                                  className={chipAmbar}
+                                  title="El ruteo no pudo decidir y la petición se sirvió por el modelo por defecto. La respuesta se generó igual."
+                                >
+                                  degradado: {motivoRuteo(ar.reason) || "motivo no informado"}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                         <span className="text-[10px] text-text-tertiary">•</span>
                         <span className="text-[10px] text-text-secondary">
                           Costo: <span className="text-ok font-semibold font-mono">${Number(msg.metadata.layer_llm.cost_usd).toFixed(6)}</span>
@@ -479,7 +592,9 @@ export const PlaygroundPage: React.FC = () => {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="bg-surface-2 rounded-md p-2 text-[10px] font-mono border border-border text-text-secondary break-words leading-relaxed"
+                        // `whitespace-pre-line`: el detalle de la capa 04 puede traer varias
+                        // líneas (la decisión del auto-router va debajo de la métrica).
+                        className="bg-surface-2 rounded-md p-2 text-[10px] font-mono border border-border text-text-secondary break-words leading-relaxed whitespace-pre-line"
                       >
                         {detailText}
                       </motion.div>
@@ -519,6 +634,34 @@ export const PlaygroundPage: React.FC = () => {
                         {activeMetadata.layer_llm?.prompt_tokens || 0} / {activeMetadata.layer_llm?.completion_tokens || 0}
                       </span>
                     </div>
+                    {/* Ruteo automático: sólo si esta petición pasó por el router. Su
+                        ausencia significa "el usuario eligió el modelo a mano", y por eso
+                        no se pinta una fila vacía. */}
+                    {activeMetadata.layer_llm?.auto_router && (
+                      <>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-text-secondary shrink-0">Ruteo:</span>
+                          <span className="font-mono text-primary font-semibold text-right break-all">
+                            {detalleRuta(activeMetadata.layer_llm.auto_router)} → {activeMetadata.layer_llm.auto_router.model_selected}
+                          </span>
+                        </div>
+                        {activeMetadata.layer_llm.auto_router.degraded ? (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-text-secondary shrink-0">Degradado:</span>
+                            <span className="font-mono text-warn font-semibold text-right">
+                              {motivoRuteo(activeMetadata.layer_llm.auto_router.reason) || "motivo no informado"}
+                            </span>
+                          </div>
+                        ) : activeMetadata.layer_llm.auto_router.reason ? (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-text-secondary shrink-0">Motivo:</span>
+                            <span className="font-mono text-text-primary text-right">
+                              {motivoRuteo(activeMetadata.layer_llm.auto_router.reason)}
+                            </span>
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </Card>
 

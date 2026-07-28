@@ -166,6 +166,12 @@ docker run --rm --entrypoint sh \
   -v "${PROJECT}_litellm_config:/vol" -v "$HERE/profile:/src:ro" -v "$HERE/engine-extensions:/ext:ro" "$HELPER" \
   -c "cp /src/config.yaml /vol/config.yaml && mkdir -p /vol/extensions && cp /ext/*.py /vol/extensions/ \
       && chown -R 10001:999 /vol && chmod 664 /vol/config.yaml"
+# Rutas del auto-router (spec 030) al mismo volumen. Opcional: un perfil sin
+# auto_router.json deja el router en sus defaults (apagado) en vez de romper el install.
+docker run --rm --entrypoint sh \
+  -v "${PROJECT}_litellm_config:/vol" -v "$HERE/profile:/src:ro" "$HELPER" \
+  -c "if [ -f /src/auto_router.json ]; then cp /src/auto_router.json /vol/auto_router.json \
+        && chown 10001:999 /vol/auto_router.json && chmod 664 /vol/auto_router.json; fi"
 docker run --rm --entrypoint sh \
   -v "${PROJECT}_branding:/vol" -v "$HERE/profile:/src:ro" "$HELPER" \
   -c "cp /src/brand.json /vol/brand.json"

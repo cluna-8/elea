@@ -43,6 +43,8 @@ class AuditLog(Base):
     # (editable y white-label: un rename rompería la atribución histórica). Escalar aparte del
     # JSONB para que la query de bloqueos sea trivial con índice parcial.
     blocked_by_layer = Column(String, nullable=True)
+    # Metadata de la decisión del auto-router 030 ({requested,route,score,model_selected,degraded,reason}), jamás texto del prompt.
+    routing_decision = Column(JSONB, nullable=True)
     review_token = Column(UUID(as_uuid=True), nullable=True)
     ai_disclosure_delivered = Column(Boolean, default=False)
     processing_purpose = Column(String, nullable=True)   # marketing | expense_processing | pharmacovigilance | research | administrative (alias legacy: clinical_decision)

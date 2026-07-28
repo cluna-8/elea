@@ -84,6 +84,18 @@ sudo systemctl restart ollama && ollama list
 
 **Si el stack está en otra máquina** (o el nombre del modelo no coincide con `ollama list`): panel admin → **Modelos & Ollama → + Agregar Modelo → + Modelo personalizado** → proveedor «Ollama (Local)», modelo exacto de `ollama list` (ej. `qwen3:4b`), api base `http://IP-DEL-Z2:11434`, sin key.
 
+**Auto-router semántico (modelo «Auto» del chat)** — necesita el modelo de embeddings
+local en el Ollama del Z2 (639 MB, una sola vez):
+
+```bash
+ollama pull qwen3-embedding:0.6b
+```
+
+Sin él, «Auto» sigue funcionando pero degrada todo al modelo por defecto (queda
+registrado como «ruteo degradado» en el Debugger y la auditoría — no rompe nada).
+El switch, las rutas y el modelo por defecto se gestionan en **Modelos & Ollama →
+Ruteo inteligente** (aplican al instante, sin reiniciar el motor).
+
 🔴 **CLAVE — tras CADA alta de modelo por la UI, reiniciar el motor:**
 
 ```bash

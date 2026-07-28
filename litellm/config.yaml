@@ -65,6 +65,19 @@ model_list:
     input_cost_per_token: 0
     output_cost_per_token: 0
   model_name: ollama-qwen3-4b
+# Embeddings del auto-router semántico (spec 030 R1): qwen3-embedding:0.6b LOCAL — el
+# contenido del prompt NO puede salir de la máquina para decidir el ruteo (FR-003 +
+# residencia). ollama/ (no ollama_chat/): el endpoint es /v1/embeddings, no /api/chat.
+# NO es un modelo conversable: se excluye del dropdown del chat por nombre.
+# Requiere `ollama pull qwen3-embedding:0.6b` (639 MB) en el host del runtime.
+- litellm_params:
+    api_base: http://host.docker.internal:11434
+    model: ollama/qwen3-embedding:0.6b
+  model_info:
+    input_cost_per_token: 0
+    mode: embedding
+    output_cost_per_token: 0
+  model_name: router-embeddings
 router_settings:
   disable_cooldowns: true
   num_retries: 2

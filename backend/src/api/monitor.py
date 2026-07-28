@@ -79,6 +79,16 @@ cruda (Constitución VIII: animación cosmética, datos reales; C1: sin texto se
    vivo** — se conserva porque el ring es efímero pero de 300 s, así que puede haber
    eventos de un despliegue anterior; borrar el copy los mandaría al fallback.
 
+**Spec 030 — el evento suma un campo OPCIONAL (`routing`) y la vitrina un chip.** Cuando el
+usuario pide el pseudo-modelo «auto», el plano chat adjunta la decisión del auto-router
+(ruta, score, modelo elegido, degradado sí/no). Es el ÚNICO productor que lo manda: el
+gateway y el logger del motor no rutean, así que sus eventos no lo traen y no deben
+mostrar nada. De ahí las dos reglas de acá: ``GET /gw/events`` **no filtra ni valida** el
+evento (el campo viaja por ser parte del dict, sin tocar el endpoint), y el render lo
+dibuja **sólo si está presente** — un chip vacío o un "sin ruteo" por defecto convertiría
+"este plano no rutea" en "el router no eligió", que es la misma confusión entre ausencia de
+dato y ausencia de acción que el punto 2 de arriba vino a borrar.
+
 Constitución VII: el copy de las capas nombra **lo que protegen**, nunca el guardrail ni
 el proveedor que las implementa; la clave que viaja en el evento es el ``layer_key`` del
 registry (identidad estable), jamás ``guardian.name`` (editable por el cliente).
@@ -167,6 +177,13 @@ def monitor_events(limit: int = 50):
 
     Sin ``Authorization`` válido responde 401; con un rol sin permiso, 403. Hasta la 027
     respondía 200 a cualquiera — ver el punto 0 del docstring del módulo.
+
+    El evento se sirve **tal cual lo dejó el productor**: acá no hay esquema que validar ni
+    proyección de campos, así que un campo nuevo (spec 030: ``routing``, que sólo emite el
+    plano chat y sólo en los requests «auto») viaja intacto sin tocar este endpoint, y los
+    eventos que no lo traen siguen saliendo exactamente igual. Quien decide qué se ve es el
+    render —la página de abajo y ``FirewallMonitorPage.tsx``—, que dibuja el chip de ruteo
+    sólo si el campo está: ausencia de dato no se pinta como "no hubo ruteo".
     """
     client = get_redis()
     if client is None:
@@ -226,6 +243,10 @@ _MONITOR_TEMPLATE = """<!doctype html>
   .capa.flag { background:#3d341f; color:#d29922; border-color:#d2992233; }
   .capa.inerte { color:#7d8590; }
   .capa.sinregistro { color:#7d8590; font-style:italic; }
+  /* Ruteo automático (spec 030): a qué modelo mandó el router y por qué. No es una capa
+     del firewall —no protege nada— así que se pinta con su propio color, azul de dato,
+     para que nadie lo lea como un verdicto de seguridad. */
+  .capa.ruteo { color:#79c0ff; border-color:#79c0ff33; background:#1f2d3d; }
 </style></head>
 <body>
 <header><span class="dot"></span><h1>Basa Gateway — Monitor en vivo</h1>
@@ -362,6 +383,40 @@ function atribucion(e, familia){
   return `<div class="capas">${chips.join('')}</div>`;
 }
 
+// ruteo(): a qué modelo mandó el pedido el auto-router y por qué (spec 030, FR-006). El
+// campo `routing` es OPCIONAL en el contrato del evento y hoy lo emite UN solo productor
+// —el plano chat, y sólo cuando el usuario pidió el pseudo-modelo «auto»—, así que su
+// AUSENCIA es lo normal y no se pinta nada: "sin chip" significa "este pedido no pasó por
+// el router", no "el router no eligió". Misma distinción que `sin registro de capas`.
+// El chip va aparte de la atribución a propósito: el ruteo NO es una capa del firewall, no
+// protege nada, y mezclarlo con las capas lo haría leer como un verdicto de seguridad.
+function ruteo(e){
+  const r = e.routing;
+  if(!r || typeof r !== 'object' || Array.isArray(r)) return '';
+  const chips = [];
+  const destino = r.model_selected ? ` → ${esc(r.model_selected)}` : '';
+  if(r.route){
+    const s = (typeof r.score === 'number' && isFinite(r.score)) ? ` · ${esc(r.score.toFixed(2))}` : '';
+    chips.push('<span class="capa ruteo" title="Modelo elegido automáticamente por'
+               + ' similitud semántica con los ejemplos de esta ruta.">'
+               + `Ruteo: ${esc(r.route)}${s}${destino}</span>`);
+  } else {
+    // Ninguna ruta ganó: fue al modelo por defecto. Se DICE en vez de omitirse — "el
+    // router corrió y nada superó el umbral" es un dato, no un hueco.
+    chips.push('<span class="capa ruteo" title="Ninguna ruta superó su umbral: el pedido'
+               + ' fue al modelo por defecto del router.">'
+               + `Ruteo: modelo por defecto${destino}</span>`);
+  }
+  if(r.degraded){
+    // Degradado ≠ fallo del pedido: se respondió igual, pero la decisión no se pudo tomar.
+    // Decirlo es el requisito (FR-004: la degradación jamás es silenciosa).
+    chips.push('<span class="capa flag" title="El ruteo no pudo decidir (modelo de'
+               + ' embeddings caído, timeout o configuración inválida) y se sirvió por el'
+               + ' modelo por defecto. El pedido se respondió igual.">ruteo degradado</span>');
+  }
+  return `<div class="capas">${chips.join('')}</div>`;
+}
+
 function render(events){
   if(!events.length){ feed.innerHTML = '<div class="empty">Esperando tráfico…</div>'; return; }
   feed.innerHTML = events.map(e => {
@@ -380,6 +435,7 @@ function render(events){
         <span class="muted" style="margin-left:auto">${esc(String(e.ts || '').replace('T',' ').slice(0,19))}</span>
       </div>
       ${atribucion(e, estadoCls)}
+      ${ruteo(e)}
       ${e.masked_preview ? `<div class="preview">${esc(e.masked_preview)}</div>` : ''}
     </div>`;
   }).join('');
