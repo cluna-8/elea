@@ -121,6 +121,34 @@ superficies principales.
 `gemini` → Gemini CLI, `curl`/`httpx`/`python-requests` → API directa…). Un UA no reconocido cae a
 **"Desconocido"** y **no** crashea: se audita con esa etiqueta.
 
+## 2b. Guardarraíles por tipo de cliente
+
+Qué protección aplica de verdad en cada camino. Leyenda: ✅ activo · 🔶 patrones
+(regex + validadores estructurales, sin NER) · ⬜ delegado al proveedor / no aplica.
+
+| Protección | Chat de la consola (Playground/Portal) | API key · VS Code · Cursor (`byok` → motor) | Claude Code (suscripción) | Navegador (extensión) |
+|---|---|---|---|---|
+| Enmascarado PII | ✅ NLP completo | ✅ NLP completo (fail-closed si el analizador cae) | 🔶 patrones | 🔶 patrones (en la página) |
+| Nombres propios (NER) | ✅ | ✅ | ✗ | ✗ |
+| DNI/IBAN/teléfono/email | ✅ con checksums | ✅ con checksums | ✅ regex | ✅ regex |
+| Respuesta des-enmascarada | ✅ | ✅ incl. streaming | ✅ | ✅ en el DOM |
+| Bloqueo AI-Act Art. 5 | ✅ | ✅ | ✅ | ✅ |
+| Bloqueo de secretos (claves API…) | ✅ | ✅ | ✅ | ✅ |
+| Anti-inyección / moderación | ⬜ delegada | ⬜ delegada | ⬜ delegada (Anthropic) | ⬜ la del proveedor web |
+| Límites rpm/tpm por llave | ✅ | ✅ | ✗ (OAuth, sin llave) | n/a |
+| Presupuestos (tope de gasto) | ✅ gate + coste real | ✅ **402 antes del proveedor** | ✗ | n/a |
+| Auditoría durable del tráfico | ✅ | ✅ (tokens y coste) | ✅ | ✅ (evento de protección) |
+| Auditoría durable de **bloqueos** | ✅ registrar→bloquear | ✅ registrar→bloquear | ✅ | ✅ |
+| Atribución persona+herramienta | ✅ por sesión | ✅ por llave | ✅ con `X-Basa-Key` (sin ella: anónimo, se audita igual) | ✅ por llave |
+| Fallback a modelo local | ✅ (todo cloud nace con él) | ✅ | n/a | n/a |
+| Auto-router semántico («Auto») | ✅ embeddings locales | ✗ v1 (declaran modelo) | ✗ | ✗ |
+
+Los caminos con **patrones** (suscripción y navegador) protegen identificadores
+estructurados por diseño: son planos de latencia crítica (herramientas agénticas, miles de
+tokens por petición) y su modelo de amenaza son las credenciales y los identificadores — el
+`whoami` de cada Connection lo declara. La política de fallo de auditoría es configurable
+por instalación (`BASA_AUDIT_FAIL=open|closed`, ver Operación).
+
 ---
 
 ## 3. Cómo configurar cada superficie
