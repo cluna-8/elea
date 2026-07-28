@@ -10,7 +10,7 @@
 «Modelos & Ollama» para alojarlo: switch on/off, timeout si hace falta, y pensar bien qué
 pasa con N modelos de Ollama (¿a cuál va?). Agregar un par de modelos además de gpt-4o-mini
 para probarlo bien. Fallback siempre a local por defecto (decisión JF 28-jul). Demo en la
-sede el jueves 31-jul."
+sede el jueves 30-jul."
 
 ## Contexto y evidencia previa (28-jul)
 
