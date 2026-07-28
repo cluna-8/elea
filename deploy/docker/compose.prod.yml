@@ -28,6 +28,11 @@ services:
       # Timeout del backend hacia el motor (030/T018): debe superar al del router del
       # motor (120s con modelos locales lentos) o corta él primero a mitad de un fallback.
       BASA_ENGINE_TIMEOUT_SECONDS: "${BASA_ENGINE_TIMEOUT_SECONDS:-150}"
+      # Política de fallo de auditoría (031, contrato §Config): `open` (default) sirve el
+      # tráfico y deja la pérdida CONTADA y visible; `closed` rechaza con 503 honesto
+      # mientras la fila durable no se pueda escribir. El default vive acá y en el helper
+      # del backend — una instalación que quiera fail-closed lo declara en su perfil.
+      BASA_AUDIT_FAIL: "${BASA_AUDIT_FAIL:-open}"
       # El alta de usuarios crea la identidad en el motor con la master key.
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
@@ -124,6 +129,11 @@ services:
       # tráfico de herramientas sólo deja la vitrina efímera de Redis — cero registro
       # durable, el gap más caro del core (detectado en el ensayo 2026-07-27).
       BASA_AUDIT_URL: "http://backend:8000/api/v1/internal/audit"
+      # Misma política de fallo de auditoría que el backend (031 D4): el motor la
+      # necesita para su propio camino (ola 2 — guardrail y logger de auditoría), y el
+      # valor TIENE que ser el mismo en ambos contenedores: una instalación fail-closed
+      # con el motor en `open` seguiría sirviendo byok inauditable por la puerta de atrás.
+      BASA_AUDIT_FAIL: "${BASA_AUDIT_FAIL:-open}"
       # Provider keys DEL CLIENTE (opcionales; viven en secrets.env de la
       # instalación). El alta de modelos referencia os.environ/<VAR> — sin el
       # passthrough el modelo queda dado de alta pero el motor no lo puede usar.

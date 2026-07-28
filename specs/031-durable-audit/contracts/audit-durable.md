@@ -34,7 +34,12 @@ Cacheable 5 s por el llamador si la latencia lo exige (riesgo R2 del research).
 (audit_service + chat + gateway) y extensiones del motor. compose.prod.yml la cablea a
 ambos contenedores; el perfil camara la declara `open` explícita.
 
-## GET /health (existente — extensión)
+## GET /api/v1/health (endpoint nuevo; el /health raíz NO cambia)
+
+Decisión de implementación (T009, aceptada): el `/health` raíz es el healthcheck del
+contenedor — meterle Redis+DB convertiría una degradación en reinicio en loop. El bloque
+`audit` vive en `GET /api/v1/health`, **autenticado** (admin/compliance_officer): publicar
+«llevo N eventos sin registrar» a anónimos es señalar el mejor momento para fugar datos.
 
 ```jsonc
 "audit": { "mode": "open", "lost_events": 0, "last_failure_at": null }

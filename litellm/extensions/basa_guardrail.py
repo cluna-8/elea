@@ -28,11 +28,22 @@ audit logger lo scrubbea explícitamente.
 
 GOTCHAS aplicados (research T005): NO definir ``apply_guardrail`` (redirigiría todo
 al unified_guardrail); el override del streaming hook debe estar en ESTA clase hoja.
+
+**Auditoría durable de los bloqueos (spec 031 D3, T005)**: hasta la 031, los cuatro
+puntos de bloqueo de este hook devolvían el rechazo y NO dejaban fila en ``audit_logs``
+— el logger de auditoría solo implementa el hook de ÉXITO, así que el evento más
+importante para un producto de compliance ("se intentó y se impidió") era el único sin
+rastro durable en TODO el tráfico byok de herramientas. Ahora cada punto **registra y
+después bloquea**: arma la fila (identidad de la Connection, capa, motivo, conteos) y la
+POSTea al plano interno del backend antes de devolver el rechazo.
 """
+import asyncio
 import codecs
 import logging
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Optional
 
 from litellm.integrations.custom_guardrail import CustomGuardrail
@@ -77,6 +88,277 @@ def _basa_identity(user_api_key_dict) -> dict:
     return md.get("basa") or {}
 
 
+# ── Auditoría durable de los bloqueos (spec 031 D3/D4/D5) ────────────────────────────
+#
+# Por qué vía HTTP y no un INSERT: la imagen del motor no trae driver de Postgres (ni pip
+# ni uv para agregarlo) y `audit_logs` vive en la base del BACKEND — es la misma razón por
+# la que existe el plano interno para la identidad. Se reusa el endpoint y el secreto que
+# ya usa `basa_audit_logger` para el camino de éxito; acá se estrena el emisor de BLOQUEO.
+
+# Sufijo del probe sobre la misma URL base (contrato §probe): `…/internal/audit/probe`.
+_AUDIT_PROBE_SUFFIX = "/probe"
+
+# Presupuesto de red del registro. El plano agentic paga esta latencia ANTES de devolver
+# el rechazo, así que el techo es corto y el reintento es UNO (D3): ante una avalancha de
+# bloqueos el contador de pérdidas es la válvula, jamás una cola ni un backoff creciente.
+_AUDIT_TIMEOUT_S = 5.0
+_AUDIT_REINTENTOS = 1
+_AUDIT_RETRY_BACKOFF_S = 0.2
+
+# Probe del modo `closed`: barato y con cache, porque se paga por pedido durante una caída.
+_AUDIT_PROBE_TIMEOUT_S = 2.0
+# Ventana de cache del probe (riesgo R2 del research): 5 s. Se cachean los DOS resultados
+# —escribible y no escribible—: sin cachear el "no", una caída convierte cada pedido en un
+# probe extra justo cuando la base ya no da abasto. La contrapartida es la ventana de
+# riesgo declarada: hasta 5 s de pedidos pueden pasar con la auditoría recién caída.
+_AUDIT_PROBE_CACHE_TTL_S = 5.0
+_probe_cache: Optional[tuple] = None  # (monotonic, escribible)
+
+# Contador de pérdidas (contrato §Contador de pérdidas) — MISMAS claves que el backend:
+# el health las lee de un solo lugar, vengan del plano que vengan.
+_REDIS_KEY_AUDIT_LOST = "basa:audit:lost"
+_REDIS_KEY_AUDIT_LAST_FAIL = "basa:audit:last_fail"
+
+_AUDIT_FAIL_CLOSED = "closed"
+_AUDIT_FAIL_OPEN = "open"
+
+# Capas del registry 027 (`basa_governance.LAYER_KEYS`) por punto de bloqueo. Se escriben
+# como literales y no se importa el registry: este módulo corre DENTRO de la imagen del
+# motor y no puede pagar un import más en el camino caliente por cuatro constantes. Son
+# `layer_key`s estables (identidad, no nombre de display) — ese es el contrato de la 027.
+_LAYER_AI_ACT = "ai_act_evaluation"
+_LAYER_SECRET = "secret_detection"
+_LAYER_PII = "pii_detection"
+
+# Tenant por defecto: mismo fallback que ya aplica el emisor de éxito
+# (basa_audit_logger.py) cuando la identidad no resuelve. Un bloqueo sin tenant NO puede
+# perderse — el intento existe aunque no sepamos de quién es (edge case de la spec).
+_DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
+
+# Rechazo honesto del modo `closed` (contrato §Semántica closed). Mismo mecanismo que el
+# fail-closed de NLP: se devuelve un str y el contrato del hook lo convierte en 4xx ANTES
+# de que el pedido salga al proveedor — que es lo que exige FR-005 (no gastar dinero en
+# tráfico inauditable).
+_AUDIT_UNAVAILABLE_MSG = (
+    "Petición bloqueada: auditoría no disponible — la instalación exige registro "
+    "(audit_fail=closed). El pedido NO se envió al proveedor."
+)
+
+
+def _audit_fail_mode() -> str:
+    """`open` | `closed` desde `BASA_AUDIT_FAIL` (contrato §Config).
+
+    Default `open` ante env ausente, vacía o con cualquier otro valor: un typo en la
+    configuración NUNCA puede convertirse en un corte de servicio silencioso — el
+    fail-closed es una decisión explícita de la instalación. Espejo exacto de
+    `audit_service.audit_fail_mode()` del backend; se lee por llamada (no se congela al
+    importar) para que un `compose up -d` con el valor cambiado surta efecto sin rebuild.
+    """
+    return (_AUDIT_FAIL_CLOSED
+            if os.environ.get("BASA_AUDIT_FAIL", "").strip().lower() == _AUDIT_FAIL_CLOSED
+            else _AUDIT_FAIL_OPEN)
+
+
+def _audit_url() -> str:
+    """URL del plano interno de auditoría (`BASA_AUDIT_URL`), o cadena vacía.
+
+    Sin esta env el plano motor NO tiene por dónde emitir la fila: se trata como fallo de
+    escritura (contado y logueado en `open`, rechazo honesto en `closed`) en vez de como
+    "no hace falta auditar". Es exactamente el silencio que la 031 viene a terminar."""
+    return os.environ.get("BASA_AUDIT_URL", "").strip()
+
+
+def _internal_secret() -> str:
+    return os.environ.get("LITELLM_MASTER_KEY", "")
+
+
+async def _contar_perdida(motivo: str) -> None:
+    """Deja constancia de UN evento de bloqueo sin registrar (contrato §Contador):
+    `INCR basa:audit:lost` + `SET basa:audit:last_fail <iso>`.
+
+    Tolerante a Redis caído — el piso innegociable es el `logger.error` que ya emitió el
+    caller. Jamás propaga: es el camino de degradación y no puede él mismo romper nada.
+    Redis se abre acá y no se reusa un cliente de módulo porque este proceso ya lo hace
+    así en el emisor de la vitrina (una conexión por evento, sin estado compartido)."""
+    ahora = datetime.now(timezone.utc).isoformat()
+    try:
+        import redis.asyncio as redis_lib
+    except ImportError:
+        logger.error("audit: evento PERDIDO sin contador — redis no está en la imagen "
+                     "(motivo=%s ts=%s)", motivo, ahora)
+        return
+    try:
+        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", "redis"),
+                                 port=int(os.getenv("REDIS_PORT", "6379")))
+        pipe = client.pipeline()
+        pipe.incr(_REDIS_KEY_AUDIT_LOST)
+        pipe.set(_REDIS_KEY_AUDIT_LAST_FAIL, ahora)
+        await pipe.execute()
+        await client.aclose()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("audit: evento PERDIDO y el contador (%s) también falló: %s "
+                     "(motivo=%s ts=%s)", _REDIS_KEY_AUDIT_LOST, exc, motivo, ahora)
+
+
+async def _emitir_fila(entry: dict) -> bool:
+    """POST de la fila al plano interno con UN reintento. True si quedó registrada.
+
+    Qué se reintenta y qué no: los fallos de transporte y los 5xx sí (son justo el fallo
+    transitorio que el reintento existe para absorber); un 4xx **no** — un payload que el
+    plano interno rechaza no se arregla repitiéndolo, y repetirlo solo suma latencia al
+    rechazo que el cliente está esperando.
+
+    Riesgo asumido (aceptado a cambio de no perder el evento): un timeout de LECTURA tras
+    un INSERT que sí llegó duplicaría la fila, porque el endpoint no es idempotente. Está
+    acotado a un reintento y a filas de bloqueo, que llevan 0 tokens y 0 coste — así que
+    el reintento NO puede mover el contador de presupuesto (`_acumular_gasto` corta en
+    seco con 0/0/0). Para un producto de auditoría, un duplicado acotado es un mal menor
+    frente a un bloqueo sin rastro.
+    """
+    url = _audit_url()
+    if not url:
+        logger.error(
+            "audit: BASA_AUDIT_URL no configurada — el plano motor no puede registrar el "
+            "bloqueo (compliance=%s). Cablearla en el compose del perfil.",
+            entry.get("compliance_status"))
+        return False
+
+    import httpx  # ya viene en la imagen del motor (mismo import que el resto del plano)
+    intentos = _AUDIT_REINTENTOS + 1
+    ultimo = ""
+    for intento in range(intentos):
+        try:
+            async with httpx.AsyncClient(timeout=_AUDIT_TIMEOUT_S) as client:
+                r = await client.post(url, json=entry,
+                                      headers={"X-Basa-Internal": _internal_secret()})
+            if r.status_code == 200:
+                if intento:
+                    logger.info("audit: fila de bloqueo registrada tras %d reintento(s) "
+                                "— fallo transitorio absorbido", intento)
+                return True
+            if r.status_code < 500:
+                logger.error("audit: el plano interno RECHAZÓ la fila de bloqueo "
+                             "(HTTP %s) — no se reintenta: %s", r.status_code, r.text[:200])
+                return False
+            ultimo = f"HTTP {r.status_code}"
+        except Exception as exc:  # noqa: BLE001
+            ultimo = str(exc)
+        if intento < intentos - 1:
+            logger.warning("audit: POST de la fila de bloqueo falló (%s) — reintento en %.1fs",
+                           ultimo, _AUDIT_RETRY_BACKOFF_S)
+            await asyncio.sleep(_AUDIT_RETRY_BACKOFF_S)
+    logger.error("audit: POST de la fila de bloqueo agotó los %d intentos: %s",
+                 intentos, ultimo)
+    return False
+
+
+async def _auditoria_escribible() -> bool:
+    """Pre-check del modo `closed` contra `GET /internal/audit/probe`, cacheado 5 s.
+
+    Se pregunta ANTES de correr la política y ANTES de que el pedido salga al proveedor:
+    en una instalación que exige registro, tráfico inauditable no se sirve ni se paga.
+    """
+    global _probe_cache
+    ahora = time.monotonic()
+    if _probe_cache is not None and ahora - _probe_cache[0] < _AUDIT_PROBE_CACHE_TTL_S:
+        return _probe_cache[1]
+
+    escribible = False
+    url = _audit_url()
+    if not url:
+        logger.error("audit: BASA_AUDIT_FAIL=closed sin BASA_AUDIT_URL — el plano motor "
+                     "no tiene cómo registrar: se rechaza el tráfico (fail-closed).")
+    else:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=_AUDIT_PROBE_TIMEOUT_S) as client:
+                r = await client.get(url.rstrip("/") + _AUDIT_PROBE_SUFFIX,
+                                     headers={"X-Basa-Internal": _internal_secret()})
+            escribible = r.status_code == 200
+            if not escribible:
+                logger.error("audit: probe de escribibilidad respondió %s — modo closed: "
+                             "se rechaza el tráfico", r.status_code)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("audit: probe de escribibilidad no respondió (%s) — modo closed: "
+                         "se rechaza el tráfico", exc)
+    _probe_cache = (ahora, escribible)
+    return escribible
+
+
+async def _auditar_bloqueo(user_api_key_dict, data: dict, *, compliance_status: str,
+                           layer: str, entidades: Optional[list] = None,
+                           pii_detected: bool = False, inicio: float = 0.0) -> None:
+    """Registra la fila durable del bloqueo (contrato §Fila de bloqueo) y NUNCA levanta.
+
+    Se llama ANTES de devolver el rechazo (regla de oro de la US1: registrar → bloquear).
+    Si la escritura falla, el rechazo al cliente sale igual —el bloqueo no depende de que
+    la auditoría ande— pero el fallo deja `logger.error` + contador: nunca "se bloqueó y no
+    quedó nada" en silencio.
+
+    `applied_layers` va AUSENTE a propósito (SQL NULL = "pedido sin atribución"). El motor
+    todavía no produce la atribución exhaustiva de la 027 por un canal no falsificable
+    (ver `_attribution_del_motor` en basa_audit_logger.py); `blocked_by_layer` sí es
+    afirmable —lo decidió ESTE código, en este proceso— y es lo que el contrato exige
+    obligatorio en un bloqueo.
+    """
+    try:
+        identidad = _basa_identity(user_api_key_dict)
+        entry = {
+            "tenant_id": identidad.get("tenant_id") or _DEFAULT_TENANT_ID,
+            "user_id": identidad.get("client_id"),
+            "api_key_id": identidad.get("key_id"),
+            "model": (data.get("model") if isinstance(data, dict) else None) or "desconocido",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cost_usd": 0.0,
+            "pii_detected": bool(pii_detected),
+            "masked_entities": entidades or [],
+            "compliance_status": compliance_status,
+            "latency_ms": max(0, int((time.monotonic() - inicio) * 1000)) if inicio else 0,
+            "user_group_id": identidad.get("group_id"),
+            "blocked_by_layer": layer,
+        }
+        # Las claves con valor None se ELIMINAN antes de mandar (misma convención que el
+        # plano interno aplica al emitir identidad). Acá además evita un 422: los campos
+        # escalares del modelo (`model`, tokens…) tienen default pero NO admiten null, así
+        # que una identidad anónima mandando `user_id: null` está bien y un `model: null`
+        # haría DESAPARECER la fila del intento por validación.
+        entry = {k: v for k, v in entry.items() if v is not None}
+
+        if await _emitir_fila(entry):
+            return
+        logger.error(
+            "audit: BLOQUEO NO REGISTRADO (compliance=%s capa=%s modelo=%s key=%s) — el "
+            "rechazo al cliente se emite igual, pero el registro durable se perdió",
+            compliance_status, layer, entry.get("model"), identidad.get("key_id"))
+        await _contar_perdida(f"guardrail/{compliance_status}")
+    except Exception as exc:  # noqa: BLE001
+        # El registro jamás puede voltear el BLOQUEO: un error acá (identidad rara, redis
+        # explotando) deja el evento perdido y ruidoso, nunca una request servida.
+        logger.error("audit: fallo inesperado registrando el bloqueo (%s): %s",
+                     compliance_status, exc, exc_info=True)
+
+
+def _conteo(tipo: str, cantidad: int) -> list:
+    """Conteo por tipo en el formato del contrato (`[{"type", "count"}]`) — vocabulario
+    cerrado y enteros, JAMÁS el valor detectado (C1)."""
+    return [{"type": tipo, "count": int(cantidad)}]
+
+
+def _conteos_de_entidades(entidades: list) -> list:
+    """Conteos por `entity_type` de las entidades detectadas (formato del contrato).
+
+    Se cuentan TODAS las detectadas, no solo las de tipos que bloquean: la fila responde
+    "qué había en el intento", que es lo que el officer necesita para dimensionar la fuga
+    impedida. Solo tipos del vocabulario del detector y enteros — nunca el valor."""
+    conteos: dict = {}
+    for e in entidades or []:
+        tipo = e.get("entity_type") if isinstance(e, dict) else None
+        if isinstance(tipo, str) and tipo:
+            conteos[tipo] = conteos.get(tipo, 0) + 1
+    return [{"type": t, "count": c} for t, c in sorted(conteos.items())]
+
+
 def _nlp_unavailable_block(home: dict) -> str:
     """Motivo de bloqueo fail-closed (FR-004) cuando el motor NLP no responde —
     reusado tanto en el preview de BLOCK como en el masking real."""
@@ -95,6 +377,25 @@ class BasaGuardrail(CustomGuardrail):
         if call_type not in _TEXT_CALL_TYPES:
             return None
 
+        inicio = time.monotonic()
+
+        async def _bloquear(mensaje: str, *, status: str, capa: str,
+                            entidades: Optional[list] = None,
+                            pii_detected: bool = False) -> str:
+            """Registrar → bloquear (US1, regla de oro): la fila durable se escribe ANTES
+            de devolver el rechazo, en TODOS los puntos de bloqueo de este hook."""
+            await _auditar_bloqueo(user_api_key_dict, data, compliance_status=status,
+                                   layer=capa, entidades=entidades,
+                                   pii_detected=pii_detected, inicio=inicio)
+            return mensaje
+
+        # 0) Modo `closed`: sin auditoría escribible NO hay servicio (FR-005). El corte va
+        # acá arriba —antes de la política y, sobre todo, antes de que el pedido salga al
+        # proveedor— porque el punto entero es no gastar dinero en tráfico que no se va a
+        # poder registrar. En `open` (default) este camino no cuesta ni una llamada.
+        if _audit_fail_mode() == _AUDIT_FAIL_CLOSED and not await _auditoria_escribible():
+            return _AUDIT_UNAVAILABLE_MSG
+
         identity = _basa_identity(user_api_key_dict)
         inspect_text = policy.extract_inspect_text(data)
 
@@ -103,13 +404,28 @@ class BasaGuardrail(CustomGuardrail):
         home = _metadata_home(data, call_type)
         home["basa_compliance"] = verdict
         if verdict["status"] == "blocked_prohibited":
-            return verdict["reason"]  # str → HTTPException 400 (contrato del hook)
+            # str → HTTPException 400 (contrato del hook), con fila durable ya escrita.
+            return await _bloquear(verdict["reason"], status="blocked_prohibited",
+                                   capa=_LAYER_AI_ACT)
 
         # 2) Secretos/keys: jamás salen hacia un LLM
         secrets = policy.detect_secrets(inspect_text)
         if secrets:
-            return (f"Petición bloqueada: material secreto detectado ({', '.join(secrets)}). "
-                    "Las credenciales nunca deben enviarse a un modelo.")
+            # El estado del pedido pasa a ser el del bloqueo real: sin esto, la vitrina y
+            # la fila contarían historias distintas (acá quedaba el veredicto AI-Act
+            # "passed" mientras el pedido se rechazaba por secreto).
+            home["basa_compliance"] = {
+                "status": "blocked_secret", "risk_level": "high", "reason": "secret_detected",
+            }
+            return await _bloquear(
+                (f"Petición bloqueada: material secreto detectado ({', '.join(secrets)}). "
+                 "Las credenciales nunca deben enviarse a un modelo."),
+                status="blocked_secret", capa=_LAYER_SECRET,
+                # Tipo GENÉRICO a propósito: los nombres del catálogo de secretos llevan
+                # marca de proveedor ("OpenAI API Key") y la fila se muestra en la UI
+                # white-label (Constitución VII). El conteo es la información auditable;
+                # el detalle vive en el mensaje al cliente, que no se persiste.
+                entidades=_conteo("SECRET", len(secrets)))
 
         # 3) Mask PII reversible — toggle por Connection (NULL=heredar → True hoy)
         if identity.get("redact_enabled", True):
@@ -143,7 +459,8 @@ class BasaGuardrail(CustomGuardrail):
             try:
                 preview_entities = await _analyze(inspect_text)
             except policy.NlpUnavailableError:
-                return _nlp_unavailable_block(home)
+                return await _bloquear(_nlp_unavailable_block(home),
+                                       status="blocked_nlp_unavailable", capa=_LAYER_PII)
 
             blocked_types = sorted({
                 e["entity_type"] for e in preview_entities
@@ -154,8 +471,14 @@ class BasaGuardrail(CustomGuardrail):
                     "status": "blocked_entity_type", "risk_level": "high",
                     "reason": f"tipos bloqueados por política: {', '.join(blocked_types)}",
                 }
-                return (f"Petición bloqueada: se detectaron datos personales cuya política "
-                        f"exige bloquear, no enmascarar ({', '.join(blocked_types)}).")
+                return await _bloquear(
+                    (f"Petición bloqueada: se detectaron datos personales cuya política "
+                     f"exige bloquear, no enmascarar ({', '.join(blocked_types)})."),
+                    status="blocked_entity_type", capa=_LAYER_PII,
+                    entidades=_conteos_de_entidades(preview_entities),
+                    # Detección confirmada: la fila dice "había datos personales" aunque no
+                    # se enmascarara nada (el pedido se rechazó antes) — D8/FR-002.
+                    pii_detected=True)
 
             # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
             try:
@@ -163,7 +486,8 @@ class BasaGuardrail(CustomGuardrail):
             except policy.NlpUnavailableError:
                 # Fail-closed (FR-004): sin detección NLP confiable, no hay garantía
                 # de protección — se rechaza la request en vez de degradar en silencio.
-                return _nlp_unavailable_block(home)
+                return await _bloquear(_nlp_unavailable_block(home),
+                                       status="blocked_nlp_unavailable", capa=_LAYER_PII)
 
             if ph_to_orig:
                 home["pii_tokens"] = ph_to_orig

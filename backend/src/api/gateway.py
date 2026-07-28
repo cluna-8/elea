@@ -75,7 +75,14 @@ from ..licensing.degraded import require_not_hard_blocked
 from ..models.budget import APIKey
 from ..models.tenant import DEFAULT_TENANT_ID, Tenant
 from ..services import encryption_service
-from ..services.audit_service import AuditService
+from ..services.audit_service import (
+    AUDIT_FAIL_CLOSED,
+    AuditService,
+    AuditUnavailableError,
+    audit_fail_mode,
+    audit_writable,
+    record_audit_loss,
+)
 # Gobernanza (spec 027): SIEMPRE por la puerta del backend (governance_catalog), nunca
 # importando `extensions.basa_governance` a mano — un segundo camino de import carga el
 # módulo dos veces y deja dos catálogos en memoria (ver el docstring de esa puerta).
@@ -566,8 +573,48 @@ def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
 
 # ── auditoría (metadata-only, C1) + feed del monitor (US3) ────────────────────────
 
+_AUDIT_503_DETAIL = ("auditoría no disponible — la instalación exige registro "
+                     "(audit_fail=closed)")
+
+
+def _audit_no_disponible():
+    """503 honesto del contrato (§Semántica closed), con la FORMA de error de Anthropic.
+
+    El cuerpo importa tanto como el código: las coding tools parsean ``error.message`` y un
+    503 con otro shape lo muestran como "respuesta inesperada del proxy", que es justo la
+    confusión que este modo intenta evitar. El motivo va explícito para que el operador sepa
+    que el corte es de auditoría y no del proveedor."""
+    return _anthropic_error(f"[Basa Gateway] {_AUDIT_503_DETAIL}", 503)
+
+
+def _audit_precheck_ok() -> bool:
+    """¿Puede seguir este pedido? (contrato §Semántica closed, D4).
+
+    En ``open`` devuelve True SIN tocar la base: esa instalación eligió continuidad con
+    pérdida contada, así que cobrarle un ``SELECT 1`` por pedido sería pagar por una
+    pregunta cuya respuesta no cambia nada.
+
+    En ``closed`` es el pre-check literal de FR-005 —«rechazar ANTES de llamar al
+    proveedor»—: si la base de auditoría no responde, el pedido no sale del gateway y no se
+    gasta dinero en tráfico que después nadie va a poder registrar. Sesión propia y corta
+    (este plano no tiene ``get_db``: su identidad es el OAuth del cliente, no una sesión de
+    request), cerrada acá mismo para no retener conexión del pool durante una caída.
+    """
+    if audit_fail_mode() != AUDIT_FAIL_CLOSED:
+        return True
+    db = SessionLocal()
+    try:
+        return audit_writable(db)
+    except Exception as exc:  # noqa: BLE001 — `audit_writable` ya no propaga; red de seguridad
+        logger.error("gateway: el pre-check de auditoría falló (%s) — pedido rechazado (closed)",
+                     exc)
+        return False
+    finally:
+        db.close()
+
+
 def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
-           masked_entities: list, latency_ms: int, attribution=None):
+           masked_entities: list, latency_ms: int, attribution=None) -> bool:
     """AuditLog metadata-only en sesión fresca, scopeada al tenant resuelto (el GUC de
     RLS se inyecta por ``tenant_context`` → correcto también bajo la 017). Nunca texto
     de prompt ni el mapa reversible (Constraint C1).
@@ -577,7 +624,25 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     que se escribía fijo —``{"guardian": "Basa Passthrough", "action": "PROXY"}``— pasara
     lo que pasara: un registro que decía lo mismo para un pedido enmascarado, uno bloqueado
     por secreto y uno que salió verbatim. ``guardian_events`` queda congelado como legado,
-    sin migración (D6)."""
+    sin migración (D6).
+
+    **Devuelve si la fila quedó escrita** (spec 031, D5). Antes esta función era el tercer
+    tragador en fila: envolvía TODO en un ``except`` con ``logger.warning`` («no fatal»), o
+    sea que una base caída borraba el registro del passthrough —el único plano que ya
+    auditaba bloqueos— y nadie se enteraba. Ahora el reintento acotado y el contador de
+    pérdidas viven en el escritor (``AuditService.log_transaction``) y acá sólo queda la
+    traducción a booleano:
+
+    * ``True``  → la fila es durable;
+    * ``False`` → no hay fila, y la pérdida YA quedó contada (``basa:audit:lost``) y
+      logueada con nivel error por el escritor.
+
+    Sigue sin propagar excepciones —romper el request es decisión del caller, no de la
+    auditoría— pero el caller que necesita cortar (modo ``closed``, antes de responder)
+    tiene con qué: mira el booleano. ``AuditUnavailableError`` se captura por tipo porque en
+    ``closed`` el escritor la lanza DESPUÉS de contar la pérdida: re-contarla acá inflaría
+    el contador del health al doble.
+    """
     db = SessionLocal()
     try:
         tid = uuid.UUID(ident["tenant_id"]) if ident.get("tenant_id") else DEFAULT_TENANT_ID
@@ -593,7 +658,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
             )
         )
         with tenant_context(tid):
-            AuditService.log_transaction(
+            fila = AuditService.log_transaction(
                 db=db, model=model, prompt_tokens=in_tok, completion_tokens=out_tok,
                 cost_usd=0.0,  # suscripción = tarifa plana; el costo byok lo mide el motor
                 pii_detected=pii_detected, masked_entities=masked_entities,
@@ -606,8 +671,20 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
                 blocked_by_layer=(attribution.blocked_by_layer if attribution else None),
                 tenant_id=tid,
             )
+        return fila is not None
+    except AuditUnavailableError:
+        # Modo `closed`: el escritor agotó los reintentos, ya contó la pérdida y ya la
+        # logueó. Acá sólo se traduce a "no hay fila" — quien decide qué hacer con eso es
+        # el endpoint (503 antes de responder / seguir si la respuesta ya salió).
+        return False
     except Exception as exc:  # noqa: BLE001
-        logger.warning("gateway: audit log falló (no fatal): %s", exc)
+        # Fallo ANTES o ALREDEDOR del escritor (identidad ilegible, tenant_context, sesión):
+        # el escritor no llegó a correr, así que la pérdida no está contada y hay que
+        # contarla acá o este camino volvería a ser un agujero silencioso.
+        logger.error("gateway: la fila de auditoría NO se escribió (%s): %s", status, exc,
+                     exc_info=exc)
+        record_audit_loss(reason=f"gateway/_audit/{status}")
+        return False
     finally:
         db.close()
 
@@ -868,6 +945,12 @@ async def gw_messages(
     # passthrough de suscripción → Anthropic (política del gateway) ──
     mode, x_basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
     if mode == "byok":
+        # Modo `closed` (spec 031, FR-005): el corte por auditoría es del plano que TIENE la
+        # sesión de base. El motor hace su propio pre-check contra `/internal/audit/probe`,
+        # pero eso ya es un salto de red después de haber aceptado el pedido acá; cortarlo
+        # en la puerta es más barato y no depende de que la extensión del motor esté al día.
+        if not _audit_precheck_ok():
+            return _audit_no_disponible()
         # Único retoque del body en esta ruta: «auto» → default del router (T017/R9). Todo
         # lo demás sigue yendo verbatim al motor, que es quien aplica la política.
         return await _byok_proxy(request, _resolve_auto_model(body, raw), x_basa_key, is_stream)
@@ -888,12 +971,25 @@ async def gw_messages(
 
     if block_reason:
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, 0, 0, status, masked_entities, latency, attribution)
+        # Registrar → bloquear (FR-001): la fila durable se escribe ANTES de devolver el
+        # rechazo, y con la 031 su resultado además decide la respuesta en modo `closed`.
+        registrado = _audit(ident, model, 0, 0, status, masked_entities, latency, attribution)
         _publish_monitor(ident, tool, model, status, masked_entities, preview,
                          attribution=attribution)
-        logger.info("gateway BLOCK (%s) tool=%s model=%s layer=%s",
-                    status, tool, model, attribution.blocked_by_layer)
+        logger.info("gateway BLOCK (%s) tool=%s model=%s layer=%s registrado=%s",
+                    status, tool, model, attribution.blocked_by_layer, registrado)
+        if not registrado and audit_fail_mode() == AUDIT_FAIL_CLOSED:
+            # US1 AC4: «se bloqueó y no quedó nada» nunca en silencio. En `closed` el cliente
+            # se entera de que el registro falló (el bloqueo se mantiene: sigue sin llamarse
+            # al proveedor); en `open` recibe el rechazo de siempre y la pérdida queda en el
+            # contador + el health.
+            return _audit_no_disponible()
         return _anthropic_error(f"[Basa Gateway] {block_reason}")
+
+    # Pedido permitido: en `closed`, confirmar que se va a poder registrar ANTES de gastar
+    # dinero en el proveedor (FR-005, literal). En `open` no cuesta ni un SELECT.
+    if not _audit_precheck_ok():
+        return _audit_no_disponible()
 
     send_raw = json.dumps(body).encode("utf-8") if ph_to_orig else raw
     url = _with_query(f"{_ANTHROPIC_UPSTREAM}/v1/messages", request)
@@ -922,6 +1018,10 @@ async def gw_messages(
             pass
         final_status = status if up.status_code == 200 else "upstream_error"
         latency = int((time.time() - start) * 1000)
+        # El booleano se ignora A PROPÓSITO acá: el proveedor ya respondió y la plata ya se
+        # gastó, así que un 503 tardío no des-serviría nada — sólo escondería la respuesta
+        # que el cliente ya pagó. El contrato (§closed) lo dice literal: el pre-check corta
+        # ANTES; lo que falle después es retry + contador. Mismo criterio en el streaming.
         _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency, attribution)
         _publish_monitor(ident, tool, model, final_status, masked_entities, preview,
                          attribution=attribution)
@@ -1018,7 +1118,14 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
     ``/v1/messages`` (P2): un ruteo byok explícito (``X-Basa-Upstream: byok``) con la
     virtual key SOLO en ``X-Basa-Key`` resuelve byok en vez de un 401 espurio — el scan
     de headers excluye ``x-basa-*`` (load-bearing), así que sin threadear la key el motor
-    nunca se contactaría. F2 sigue intacto: byok sin NINGUNA key sigue siendo 401."""
+    nunca se contactaría. F2 sigue intacto: byok sin NINGUNA key sigue siendo 401.
+
+    **Sin pre-check de auditoría (spec 031, decisión explícita).** Estas dos rutas no
+    generan fila de auditoría —ni con la base sana— porque no llevan prompt al modelo:
+    ``count_tokens`` cuenta y ``models`` lista. Cortarlas en ``closed`` rompería la coding
+    tool entera durante una caída sin proteger ningún registro (no hay registro que
+    proteger) y sin ahorrar dinero (no hay generación que pagar). El corte vive donde sí hay
+    tráfico auditable y facturable: ``/v1/messages``."""
     mode, basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
     if mode == "byok":
         # F2: mismo fail-closed que /v1/messages — byok sin virtual key jamás usa el

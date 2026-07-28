@@ -7,11 +7,12 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..licensing.gate import enforce_seat_gate
-from ..models.budget import APIKey
+from ..models.budget import APIKey, Budget
 from ..models.tenant import DEFAULT_TENANT_ID
 from ..models.user import User, Group
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
+from ..services.budget_service import BudgetService
 from ..services.key_material import hash_key, key_preview
 from ..auth.rbac import require_role
 
@@ -51,9 +52,53 @@ class KeyResponseSchema(BaseModel):
     rpm_limit: Optional[int] = 60
     tpm_limit: Optional[int] = 100000
     created_at: datetime
+    # Consumo REAL de la Connection (issue #76): gasto acumulado del presupuesto de NUESTRA
+    # base para el dueño de la llave. Hasta acá la UI pintaba "Consumo Real —" porque leía
+    # `GET /keys/{id}/spend`, que pregunta al provisionador de keys del MOTOR: en selfhosted
+    # ese provisionador no existe, `engine_key_token` es NULL y la respuesta era siempre
+    # `null`. El número honesto lo tenemos nosotros — es el mismo contador que corta el 402.
+    spend_usd: Optional[float] = None
 
     class Config:
         from_attributes = True
+
+
+def _gasto_por_llave(db: Session, llaves: List[APIKey]) -> dict:
+    """`{key_id: gasto_usd}` del presupuesto aplicable al dueño de cada Connection.
+
+    Misma precedencia y mismo desempate que el plano interno (`internal.py:_IDENTITY_SQL`) y
+    que `BudgetService.get_applicable_budgets`: presupuesto personal del client primero,
+    del grupo como respaldo, y el grupo sale de la llave o —si la llave no lo fija— del
+    User. Que los tres lugares elijan la MISMA fila es lo que hace que el número de la UI
+    sea el mismo que dispara el corte; si divergieran, el admin vería un consumo que no
+    explica el 402 que recibió su usuario.
+
+    Dos consultas para toda la tabla en vez de una por llave: esto se sirve en el listado.
+    """
+    personales, grupales = {}, {}
+    filas = (db.query(Budget.user_id, Budget.group_id, Budget.current_spend_usd)
+               .order_by(Budget.created_at, Budget.id).all())
+    for user_id, group_id, gasto in filas:
+        valor = float(gasto or 0)
+        # `setdefault` + ORDER BY = determinismo: con dos presupuestos del mismo dueño gana
+        # el más viejo, igual que el `LIMIT 1` ordenado del plano interno.
+        if user_id is not None:
+            personales.setdefault(user_id, valor)
+        elif group_id is not None:
+            grupales.setdefault(group_id, valor)
+
+    grupo_del_user = dict(db.query(User.id, User.group_id).all())
+
+    gastos = {}
+    for llave in llaves:
+        gasto = personales.get(llave.user_id) if llave.user_id else None
+        if gasto is None:
+            grupo = llave.group_id or grupo_del_user.get(llave.user_id)
+            gasto = grupales.get(grupo) if grupo else None
+        # None se PRESERVA: «sin presupuesto aplicable» y «gasto cero» son estados
+        # distintos y la UI los pinta distinto (mentira suave cazada en la 031/US3).
+        gastos[llave.id] = gasto
+    return gastos
 
 
 class KeyGeneratedResponse(BaseModel):
@@ -69,7 +114,11 @@ class KeyGeneratedResponse(BaseModel):
 
 @router.get("", response_model=List[KeyResponseSchema])
 def list_keys(db: Session = Depends(get_db)):
-    return db.query(APIKey).all()
+    llaves = db.query(APIKey).all()
+    gastos = _gasto_por_llave(db, llaves)
+    return [KeyResponseSchema.model_validate(llave)
+                             .model_copy(update={"spend_usd": gastos.get(llave.id)})
+            for llave in llaves]
 
 
 @router.post("", response_model=KeyGeneratedResponse, status_code=status.HTTP_201_CREATED)
@@ -200,14 +249,36 @@ async def revoke_key(key_id: UUID, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Key revoked successfully"}
 
 
+def _consumo_propio(db: Session, db_key: APIKey) -> dict:
+    """Consumo según NUESTRO presupuesto (el mismo que corta el 402 del motor).
+
+    Mismo shape que la respuesta del motor para que el consumidor no tenga que distinguir
+    de dónde salió el número. Sin presupuesto configurado no hay nada que informar: se
+    responde `null` (que es la verdad) en vez de un 0 que se leería como "no gastó nada".
+    """
+    presupuesto = BudgetService.get_budget_by_owner(
+        db,
+        user_id=str(db_key.user_id) if db_key.user_id else None,
+        group_id=str(db_key.group_id) if db_key.group_id else None,
+    )
+    if presupuesto is None:
+        return {"spend_usd": None, "max_budget": None, "remaining": None}
+    gastado = float(presupuesto.current_spend_usd or 0)
+    tope = float(presupuesto.max_spend_usd)
+    return {"spend_usd": gastado, "max_budget": tope, "remaining": tope - gastado}
+
+
 @router.get("/{key_id}/spend")
 async def get_key_spend(key_id: UUID, db: Session = Depends(get_db)):
     db_key = db.query(APIKey).filter(APIKey.id == key_id).first()
     if not db_key:
         raise HTTPException(status_code=404, detail="Key not found")
+    # Sin token del motor (el caso NORMAL en selfhosted: su provisionador de keys no existe)
+    # esto devolvía `null` y la UI pintaba "Consumo Real —" para siempre. El número honesto
+    # es el de nuestro presupuesto — issue #76.
     if not db_key.engine_key_token:
-        return {"spend_usd": None, "max_budget": None, "remaining": None}
+        return _consumo_propio(db, db_key)
     try:
         return await ai_engine_client.get_key_spend(db_key.engine_key_token)
     except AIEngineClientError:
-        return {"spend_usd": None, "max_budget": None, "remaining": None}
+        return _consumo_propio(db, db_key)

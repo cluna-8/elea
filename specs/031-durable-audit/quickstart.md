@@ -30,8 +30,13 @@ docker exec camara-db-1 psql -U basa -d basa -c \
 docker stop camara-db-1     # ⚠️ SOLO en ensayo, nunca en la sede
 # 5 peticiones al Playground → las 5 responden (open)
 docker start camara-db-1
-curl -s http://localhost/api/v1/health | jq .audit
+# El bloque `audit` es tier de OPERACIÓN (admin/compliance_officer, los mismos roles que
+# pueden abrir Logs de Auditoría): sin JWT el health responde sólo {status, service,
+# version} — publicar "llevo N eventos sin registrar" a un anónimo es avisarle a quien
+# quiera fugar datos de cuál es el mejor momento.
+curl -s http://localhost/api/v1/health -H "Authorization: Bearer $JWT" | jq .audit
 # → lost_events == 5, last_failure_at reciente; banner visible en Logs de Auditoría
+# lost_events == null (en vez de 0) significa "no se pudo leer el contador" (Redis caído).
 ```
 
 Nota: con la DB caída el login/identidad también sufre — para el ensayo determinista usar

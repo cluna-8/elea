@@ -8,6 +8,12 @@ identidad en el ``UserAPIKeyAuth`` que después reciben los hooks del guardrail.
 usuario admin por defecto (ese agujero era del demo). La única excepción es la master
 key del motor (ops/admin del proxy).
 
+**Presupuesto (#76, 2026-07-28)**: la misma resolución de identidad trae el tope y el
+gasto acumulado del dueño de la Connection (``max_budget_usd`` / ``spend_usd``), y una
+llave agotada se rechaza acá con **402 antes de llamar al proveedor** (decisión A de JF:
+rechazo duro, no degradar a local). Es el único punto del plano motor donde el corte no
+cuesta dinero — el guardrail y el logger corren cuando el pedido ya está en vuelo.
+
 **De dónde sale la identidad** (corregido 2026-07-27, víspera del install de la Cámara):
 originalmente esto reusaba el prisma client del propio motor, porque motor y backend
 compartían una sola base. Ya no: el motor tiene base PROPIA (``basa_engine``) desde que
@@ -31,12 +37,15 @@ del config.yaml, no por sys.path):
 """
 import hashlib
 import json
+import logging
 import os
 import time
 from typing import Optional
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
+
+logger = logging.getLogger("basa-custom-auth")
 
 # Mapa UA→tool portado 1:1 del demo (_TOOL_UA): primer match gana; el ORDEN es
 # semántica observable (claude antes que curl, curl antes que httpx).
@@ -77,16 +86,44 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        -- ver backend/src/services/entity_catalog_service.py) — mismo Guardian.
        (SELECT gd.config->'custom_entities' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
-           AND gd.is_active = true LIMIT 1) AS custom_entities
+           AND gd.is_active = true LIMIT 1) AS custom_entities,
+       -- #76: presupuesto de NUESTRA tabla `budgets` (no el del motor: en selfhosted su
+       -- provisionador de keys no existe y `max_budget` es siempre NULL). Nombres EXACTOS
+       -- del contrato del plano interno: max_budget_usd (float|None), spend_usd (float).
+       -- El cast a float8 lo hace acá el SQL porque prisma devuelve `Decimal`/`str` según
+       -- el driver; el plano interno hace la misma conversión en Python (`_a_float`).
+       bud.max_spend_usd::float8 AS max_budget_usd,
+       COALESCE(bud.current_spend_usd, 0)::float8 AS spend_usd
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.user_id
 LEFT JOIN groups g ON g.id = k.group_id
 LEFT JOIN tenants t ON t.id = k.tenant_id
+-- Presupuesto APLICABLE a esta Connection. UNA fila —la misma que cargaría
+-- `BudgetService.update_budget`—, no las dos capas: el contrato es un par escalar y un par
+-- no puede expresar el OR dual-capa de `has_sufficient_budget`. Orden: personal del dueño
+-- primero, grupo como respaldo (idéntica precedencia que `get_applicable_budgets`); el
+-- grupo sale de la llave o, si la llave no lo fija, del User. Desempate por created_at/id
+-- = determinismo: sin él, los dos planos podrían elegir filas distintas.
+-- ⚠️ ESTE BLOQUE ES ESPEJO de backend/src/api/internal.py (_IDENTITY_SQL): los dos caminos
+-- tienen que resolver el MISMO presupuesto o el corte dependería de qué env está cableada.
+LEFT JOIN LATERAL (
+    SELECT b.max_spend_usd, b.current_spend_usd
+      FROM budgets b
+     WHERE (b.user_id IS NOT NULL AND b.user_id = k.user_id)
+        OR (b.group_id IS NOT NULL AND b.group_id = COALESCE(k.group_id, u.group_id))
+     ORDER BY CASE WHEN b.user_id = k.user_id THEN 0 ELSE 1 END, b.created_at, b.id
+     LIMIT 1
+) bud ON TRUE
 WHERE k.key_hash = $1
 """
 
 # Cache TTL corto por key_hash: una resolución de identidad por minuto por key.
 _CACHE_TTL_S = 60
+# …salvo cuando la Connection TIENE presupuesto (#76): la fila cacheada trae el gasto
+# acumulado, y con 60 s una llave agotada seguiría pasando un minuto entero de pedidos
+# (el gasto sólo sube). 10 s acota la ventana de sobregiro sin volver la auth chatty:
+# el caso común —sin presupuesto configurado— conserva el minuto de siempre.
+_CACHE_TTL_BUDGET_S = 10
 _cache: dict = {}
 
 
@@ -114,6 +151,40 @@ def _first_not_none(*values):
     return None
 
 
+def _a_float(valor):
+    """Numérico del plano de identidad → float, o None si no se puede.
+
+    Los dos caminos entregan tipos distintos para la misma columna (JSON del plano
+    interno → float; prisma raw → str o Decimal según el driver), así que el consumidor
+    normaliza en vez de asumir. Basura ⇒ None ⇒ "sin dato", nunca una excepción en el
+    camino de auth."""
+    if valor is None:
+        return None
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _presupuesto(row: dict):
+    """``(tope, gastado)`` del presupuesto del dueño de la Connection, o ``(None, …)``.
+
+    **Ojo con los NULL**: el plano interno ELIMINA del dict las columnas NULL (ver
+    ``_lookup_identity``), así que "sin presupuesto configurado" llega como *clave
+    ausente*, no como ``None``. Por eso se lee con ``.get`` y por eso ``max_budget_usd``
+    ausente ⇒ sin tope ⇒ el pedido pasa como siempre (contrato #76)."""
+    tope = _a_float(row.get("max_budget_usd"))
+    gastado = _a_float(row.get("spend_usd")) or 0.0
+    return tope, gastado
+
+
+def _ttl_para(row: Optional[dict]) -> int:
+    """TTL de cache de esta fila: corto si trae presupuesto (el gasto se mueve)."""
+    if isinstance(row, dict) and row.get("max_budget_usd") is not None:
+        return _CACHE_TTL_BUDGET_S
+    return _CACHE_TTL_S
+
+
 _IDENTITY_URL = os.environ.get("BASA_IDENTITY_URL", "").strip()
 _INTERNAL_SECRET = os.environ.get("LITELLM_MASTER_KEY", "")
 
@@ -121,7 +192,7 @@ _INTERNAL_SECRET = os.environ.get("LITELLM_MASTER_KEY", "")
 async def _lookup_identity(key_hash: str) -> Optional[dict]:
     now = time.monotonic()
     hit = _cache.get(key_hash)
-    if hit and now - hit[0] < _CACHE_TTL_S:
+    if hit and now - hit[0] < _ttl_para(hit[1]):
         return hit[1]
 
     if _IDENTITY_URL:
@@ -185,6 +256,32 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         raise Exception("Basa Gateway: clave de acceso desconocida.")
     if not row.get("is_active"):
         raise Exception("Basa Gateway: la Connection está revocada.")
+
+    # ── Presupuesto agotado: rechazo DURO antes del proveedor (#76, decisión A de JF) ──
+    # Hasta acá, /gw no tenía enforcement NINGUNO: el tope sólo cortaba en el Playground
+    # (chat.py:646) y el `max_budget` por-llave viajaba a un provisionador del motor que
+    # en selfhosted no existe. O sea: una herramienta con virtual key gastaba sin techo.
+    # El corte va en la auth —lo más temprano posible— para que un pedido inauditable-por-
+    # presupuesto NO le cueste dinero al cliente: el proveedor nunca se llega a llamar.
+    # El 402 sale por HTTPException y no por Exception pelada porque el proxy preserva el
+    # status de las HTTPException y aplasta todo lo demás a 401 (verificado en
+    # litellm/proxy/auth/auth_exception_handler.py: `code=getattr(e, "status_code", 401)`);
+    # un "presupuesto agotado" disfrazado de 401 haría que la herramienta pida re-login.
+    tope, gastado = _presupuesto(row)
+    if tope is not None and gastado >= tope:
+        logger.warning(
+            "presupuesto agotado — rechazo 402 pre-proveedor (key_id=%s client=%s "
+            "gastado=%.8f tope=%.8f)",
+            row.get("key_id"), row.get("username"), gastado, tope,
+        )
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Basa Gateway: presupuesto agotado (${gastado:.4f} de ${tope:.4f} "
+                "consumidos). El pedido NO se envió al proveedor. Contactá al "
+                "administrador para ampliar el tope."
+            ),
+        )
 
     allowed_models = _maybe_json(row.get("allowed_models"))
     # Toggles con semántica NULL=heredar (FR-014); espejo de context_resolution del

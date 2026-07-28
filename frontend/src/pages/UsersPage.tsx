@@ -62,6 +62,10 @@ interface VirtualKey {
   tool_type?: string;
   is_active: boolean;
   created_at: string;
+  // Gasto acumulado del presupuesto de NUESTRA base para el dueño de la llave
+  // (issue #76, `KeyResponseSchema.spend_usd`). Es el mismo contador que dispara
+  // el 402 del motor, no una estimación paralela.
+  spend_usd?: number;
 }
 
 // Copy por superficie del catálogo cerrado (GOVERNANCE_SURFACES es el espejo del
@@ -85,7 +89,6 @@ export const UsersPage: React.FC = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [keys, setKeys] = useState<VirtualKey[]>([]);
   const [groupSpend, setGroupSpend] = useState<Record<string, SpendInfo>>({});
-  const [keySpend, setKeySpend] = useState<Record<string, SpendInfo>>({});
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,29 +187,29 @@ export const UsersPage: React.FC = () => {
       setKeys(fetchedKeys);
       setError(null);
 
-      const spendResults = await Promise.allSettled([
-        ...fetchedGroups
+      // El consumo por Connection YA VIENE en el listado (`spend_usd` de
+      // `KeyResponseSchema`, issue #76): no se pide más por llave. La consulta
+      // por-llave que había acá (`GET /keys/{id}/spend`) preguntaba al provisionador
+      // de keys del MOTOR y sólo se disparaba si `engine_key_token` existía — en
+      // selfhosted ese token es NULL, así que no se pedía nunca y la columna
+      // «Consumo Real» mostraba «—» para todo el mundo. Los equipos siguen leyendo
+      // del motor porque su gasto sí vive ahí (`engine_team_id`).
+      const spendResults = await Promise.allSettled(
+        fetchedGroups
           .filter((g) => g.engine_team_id)
           .map((g) => api.getGroupSpend(g.id).then((s) => ({ id: g.id, spend: s }))),
-        ...fetchedKeys
-          .filter((k: any) => k.engine_key_token)
-          .map((k: any) => api.getKeySpend(k.id).then((s) => ({ id: k.id, spend: s }))),
-      ]);
+      );
 
       const newGroupSpend: Record<string, SpendInfo> = {};
-      const newKeySpend: Record<string, SpendInfo> = {};
 
       spendResults.forEach((r) => {
         if (r.status === "fulfilled") {
           const { id, spend } = r.value as { id: string; spend: SpendInfo };
-          const isGroup = fetchedGroups.some((g) => g.id === id);
-          if (isGroup) newGroupSpend[id] = spend;
-          else newKeySpend[id] = spend;
+          newGroupSpend[id] = spend;
         }
       });
 
       setGroupSpend(newGroupSpend);
-      setKeySpend(newKeySpend);
     } catch (err) {
       setError("Error al cargar datos de la pasarela.");
     } finally {
@@ -768,7 +771,9 @@ export const UsersPage: React.FC = () => {
                   <Table.HeaderCell>Compliance</Table.HeaderCell>
                   <Table.HeaderCell>Token Preview</Table.HeaderCell>
                   <Table.HeaderCell>Límites RPM/TPM</Table.HeaderCell>
-                  <Table.HeaderCell>Consumo Real</Table.HeaderCell>
+                  <Table.HeaderCell title="Gasto acumulado del presupuesto aplicable al dueño de la Connection. Es el mismo contador que bloquea la petición al superar el tope.">
+                    Consumo Real
+                  </Table.HeaderCell>
                   <Table.HeaderCell>Fecha Creación</Table.HeaderCell>
                   <Table.HeaderCell align="right">Acciones</Table.HeaderCell>
                 </Table.Row>
@@ -804,13 +809,38 @@ export const UsersPage: React.FC = () => {
                       </Table.Cell>
                       <Table.Cell className="font-mono text-xs">
                         {(() => {
-                          const s = keySpend[k.id];
-                          if (!s || s.spend_usd == null) return <span className="text-text-tertiary">—</span>;
-                          const pct = s.max_budget ? Math.min(100, (s.spend_usd / s.max_budget) * 100) : null;
+                          // Issue #76. Esta celda mostraba «—» para TODAS las llaves porque leía
+                          // `GET /keys/{id}/spend`, que consulta al provisionador de keys del
+                          // MOTOR: en selfhosted ese provisionador no existe, `engine_key_token`
+                          // es NULL y la respuesta era siempre `null`. El número honesto lo tiene
+                          // nuestra base — `budgets.current_spend_usd`, el MISMO contador que
+                          // dispara el rechazo 402 antes de salir al proveedor — y el backend ya
+                          // lo resuelve con la precedencia del plano interno (`keys.py`,
+                          // `_gasto_por_llave`). Que el admin vea acá exactamente el número que
+                          // explica el corte de su usuario es el punto de todo el fix.
+                          // null ≠ 0: «sin presupuesto aplicable» (nadie cuenta) no es lo
+                          // mismo que «con presupuesto y gasto cero» (control activo).
+                          if (k.spend_usd === null || k.spend_usd === undefined) {
+                            return (
+                              <span
+                                className="text-text-tertiary italic"
+                                title="El dueño de esta Connection no tiene ningún presupuesto asignado: el gasto no se está contando ni limitando."
+                              >
+                                sin presupuesto
+                              </span>
+                            );
+                          }
+                          const gasto = Number(k.spend_usd);
+                          // 4 decimales a la vista: una llamada barata cuesta ~$0.0002, y con 2
+                          // decimales el admin lee $0.00 y concluye que no se consumió nada. El
+                          // tooltip da los 8 de la columna (`NUMERIC(14,8)`), que es la precisión
+                          // real del contador — no un redondeo inventado.
                           return (
-                            <span className={pct != null && pct > 90 ? "text-danger" : pct != null && pct > 70 ? "text-warn" : "text-ok"}>
-                              ${s.spend_usd.toFixed(4)}
-                              {s.max_budget != null && <span className="text-text-tertiary"> / ${s.max_budget.toFixed(2)}</span>}
+                            <span
+                              className={gasto > 0 ? "text-ok" : "text-text-tertiary"}
+                              title={`Gasto acumulado del presupuesto aplicable a esta Connection: $${gasto.toFixed(8)}`}
+                            >
+                              ${gasto.toFixed(4)}
                             </span>
                           );
                         })()}

@@ -786,6 +786,38 @@ export const CompliancePage: React.FC = () => {
       {/* ── Retention ─────────────────────────────────────────────────────── */}
       {tab === "retention" && (
         <div className="space-y-4">
+          {/*
+            Estado REAL de la retención (spec 031 FR-008 / US3).
+
+            `retention_days` se persiste (`compliance.py:314-334`) pero HOY ningún proceso lo
+            lee para borrar: `purge_log` no tiene escritores y el único scheduler del proceso
+            es el de licencias. La purga automática es trabajo de la 018 y queda explícitamente
+            FUERA de esta spec (FR-009).
+
+            Por eso la pestaña NO se apaga —la política declarada tiene valor propio para la
+            DPIA, es lo que el officer defiende ante el regulador y es exactamente lo que
+            ejecutará el purgador cuando llegue— pero SÍ declara su estado. El peor resultado
+            posible en una auditoría es que el cliente crea que sus datos ya se borran solos.
+            Sin checkbox de "purga activa" ni fecha de activación inventada: lo que se dice acá
+            es lo que el código hace.
+          */}
+          <div className="bg-warn-bg border border-warn/30 rounded-lg p-3.5 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 border border-warn/40 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warn">
+                <span className="w-1.5 h-1.5 rounded-full bg-warn" />
+                Purga automática: pendiente de activación
+              </span>
+              <span className="text-[11px] font-semibold text-warn">Llega con la actualización 018.</span>
+            </div>
+            <p className="text-xs text-text-secondary leading-relaxed">
+              Hoy este valor es la <strong className="text-text-primary">política de retención declarada por la organización</strong>: queda
+              registrada con su justificación, fechada y con autor, y es el período que aplicará el borrado automático
+              cuando se active — no requerirá volver a configurarla. Ningún proceso elimina registros por su cuenta en
+              esta versión: <strong className="text-text-primary">la supresión efectiva es hoy un procedimiento operativo del administrador</strong> de
+              la instalación, y las solicitudes de los interesados se registran y siguen en «Derechos del Interesado».
+            </p>
+          </div>
+
           <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
             <strong>GDPR Art. 5(1)(e):</strong> Los datos personales no se conservarán más tiempo del necesario para los fines del tratamiento. Configure los períodos de retención con la justificación documentada para su DPIA.
           </div>
@@ -799,6 +831,14 @@ export const CompliancePage: React.FC = () => {
                     <p className="text-[10px] font-mono text-text-secondary">Última actualización: {r.last_updated?.slice(0, 19) || "—"} {r.updated_by ? `por ${r.updated_by}` : ""}</p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* El chip por fila evita que el estado se pierda al hacer scroll: el
+                        admin edita el número acá abajo, no en la cabecera. */}
+                    <span
+                      className="text-[9px] font-semibold uppercase tracking-wide text-warn border border-warn/30 rounded px-1.5 py-0.5"
+                      title="La purga automática llega con la actualización 018. Hoy este valor es la política declarada de la organización."
+                    >
+                      Declarada
+                    </span>
                     <input
                       type="number" min={r.log_type === "config_audit" ? 365 : 30} max={2190}
                       value={r.retention_days}

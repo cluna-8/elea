@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..database import get_db
 from ..models.guardian import Guardian
@@ -11,6 +11,10 @@ from ..services.guardian_service import GuardianService
 from ..services import ai_engine_client
 from ..services import entity_catalog_service
 from ..services.encryption_service import encrypt, decrypt
+from ..services.governance_status import (
+    MOTIVO_MOTOR_SIN_CONFIRMAR,
+    MOTIVO_NO_CARGADA,
+)
 from ..auth.rbac import require_role
 
 router = APIRouter(
@@ -18,6 +22,111 @@ router = APIRouter(
     tags=["Security Guardians"],
     dependencies=[Depends(require_role("admin"))],
 )
+
+
+# ── Disponibilidad real por guardián (spec 031, US3/T012 — FR-007) ─────────────────
+#
+# El eje que faltaba en esta pantalla es el de la 027 (D4): **deseo vs estado**.
+# ``is_active`` es DESEO —lo que el admin pidió— y nunca fue prueba de que exista una
+# pieza capaz de ejecutar ese guardián. Los 5 guardianes de nube del catálogo apuntan por
+# nombre a guardrails que el motor no tiene cargados, y el motor **ignora en silencio** los
+# nombres que no conoce: activarlos devolvía 200, pintaba el interruptor en verde y no
+# cambiaba absolutamente nada del tráfico. Eso es exactamente la afirmación sin respaldo
+# que la US3 borra.
+#
+# La disponibilidad **no se persiste ni se hardcodea como lista negra**: se resuelve contra
+# la sonda al motor (``ai_engine_client.probe_loaded_guardrails``, la misma fuente B que usa
+# ``governance_status``). Consecuencia buscada: el día que una instalación cargue de verdad
+# uno de esos guardrails, su tarjeta deja de ser catálogo y el interruptor se habilita solo,
+# sin tocar una línea de este archivo.
+#
+# El vocabulario NO es nuevo (instrucción explícita de la tarea): los motivos salen del
+# catálogo CERRADO de ``governance_status`` — el mismo que ya distingue "el motor no
+# responde" de "el motor no la tiene cargada", que son dos acciones distintas para el admin
+# (FR-013 de la 027). Constitución VII: ni el ``engine_guardrail_name`` ni ningún nombre de
+# proveedor viajan en la respuesta o en el error.
+
+# Copy del rechazo. Marco de JF: son **features incoming del catálogo**, no promesas rotas —
+# el mensaje explica por qué el interruptor no existe, sin pedir perdón y sin insinuar avería.
+DETALLE_CATALOGO_INCOMING = (
+    "Este guardián es parte del catálogo incoming del producto: en esta instalación no hay "
+    "ningún guardrail instalado que lo ejecute, así que activarlo no cambiaría nada del "
+    "tráfico y el producto no lo ofrece como interruptor."
+)
+
+# ── Planos donde se consume HOY la configuración de cada guardián ─────────────────
+#
+# Códigos cerrados; el copy visible lo pone la UI (igual que el resto de esta pantalla).
+# **No sale del registry de capas a propósito**: el registry describe dónde *puede* correr
+# la capa conceptual, y esta pantalla tiene que declarar dónde se lee de verdad ESTA fila
+# de ``guardians`` (tabla de consumo real de la spec 031). Usar el registry acá sería
+# sobre-declarar —justo el defecto que la US3 corrige—, así que la única dirección en la
+# que este mapa puede equivocarse es la conservadora.
+PLANO_CHAT_INTERNO = "chat_interno"
+PLANO_API_BYOK = "api_byok"
+
+_PLANOS_POR_TIPO: Dict[str, Tuple[str, ...]] = {
+    "pii_masking": (PLANO_CHAT_INTERNO, PLANO_API_BYOK),
+    "secret_detection": (PLANO_CHAT_INTERNO,),
+    "sensitive_routing": (PLANO_CHAT_INTERNO,),
+    "presidio": (PLANO_CHAT_INTERNO,),
+}
+
+
+def _planes_ejecucion(guardian_type: Optional[str]) -> List[str]:
+    """Planos donde este guardián se ejecuta hoy. Lista vacía = ninguno (catálogo)."""
+    return list(_PLANOS_POR_TIPO.get(guardian_type or "", ()))
+
+
+def _disponibilidad(guardian, probe) -> Tuple[bool, Optional[str]]:
+    """¿Existe en ESTA instalación una pieza que ejecute este guardián?
+
+    Sin ``engine_guardrail_name`` el guardián lo ejecuta código NUESTRO dentro de nuestros
+    propios procesos (el guardrail del motor y el plano chat comparten la misma pieza): la
+    carga es estructural y no hay nada que sondear. Con nombre de motor, manda la sonda, y
+    los tres desenlaces se distinguen igual que en ``governance_status._motivo_no_disponible``:
+    cargado / el motor no lo tiene / no se pudo confirmar.
+
+    Fail-closed: "no se pudo confirmar" cuenta como NO disponible. Preferimos negarle al
+    admin un interruptor durante una caída del motor antes que dejarlo encender algo que
+    quizás nadie ejecuta — que es la mentira que esta tarea elimina.
+    """
+    nombre = getattr(guardian, "engine_guardrail_name", None)
+    if not nombre:
+        return True, None
+    if probe is not None and probe.has(nombre):
+        return True, None
+    if probe is None or not getattr(probe, "confirmed", False):
+        return False, MOTIVO_MOTOR_SIN_CONFIRMAR
+    return False, MOTIVO_NO_CARGADA
+
+
+async def _gate_activacion(guardian_like, *, quiere_activar: bool, ya_activo: bool) -> None:
+    """FR-007: activar un guardián sin guardrail que lo respalde es imposible.
+
+    Se controla la **transición** apagado→encendido, no el hecho de que la fila esté
+    encendida. Motivo: una fila heredada de una instalación anterior que ya venía en
+    ``is_active=True`` haría fallar el guardado entero de la pantalla (la página persiste
+    los 9 guardianes en un bucle) por un deseo viejo que el admin ya no puede ni tocar.
+    Esa fila queda igualmente desarmada por el otro lado: el GET la reporta
+    ``disponible=false`` y la UI la pinta como catálogo, así que su ``is_active`` ya no se
+    lee en ningún lado como "esto corre".
+
+    Tampoco se sondea al motor cuando no puede cambiar el resultado (guardián local, o
+    petición que no enciende nada): la sonda cuelga de una pantalla de admin.
+    """
+    if not quiere_activar or ya_activo:
+        return
+    if not getattr(guardian_like, "engine_guardrail_name", None):
+        return
+    probe = await ai_engine_client.probe_loaded_guardrails()
+    disponible, motivo = _disponibilidad(guardian_like, probe)
+    if disponible:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"{DETALLE_CATALOGO_INCOMING} {motivo}",
+    )
 
 
 class GuardianSchema(BaseModel):
@@ -40,6 +149,14 @@ class GuardianResponseSchema(BaseModel):
     fail_mode: Optional[str] = None
     apply_on: Optional[str] = None
     has_service_key: bool = False  # true if a service API key is stored (never return the key itself)
+    # ── Estado, separado del deseo (spec 031 FR-007, vocabulario de la 027) ──
+    # `is_active` de arriba es el DESEO. Estos tres campos son lo que de verdad hay
+    # instalado, y son los que deciden si la UI pinta un interruptor o una tarjeta de
+    # catálogo. `motivo_disponibilidad` sale del catálogo cerrado de `governance_status`:
+    # nunca de una excepción, nunca con nombres de proveedor (Constitución VII).
+    disponible: bool = True
+    motivo_disponibilidad: Optional[str] = None
+    planes_ejecucion: List[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -49,7 +166,8 @@ class GuardianTestRequest(BaseModel):
     text: str
 
 
-def _to_response(guardian: Guardian) -> GuardianResponseSchema:
+def _to_response(guardian: Guardian, probe=None) -> GuardianResponseSchema:
+    disponible, motivo = _disponibilidad(guardian, probe)
     return GuardianResponseSchema(
         id=guardian.id,
         name=guardian.name,
@@ -60,17 +178,28 @@ def _to_response(guardian: Guardian) -> GuardianResponseSchema:
         fail_mode=guardian.fail_mode,
         apply_on=guardian.apply_on,
         has_service_key=bool(guardian.service_api_key_encrypted),
+        disponible=disponible,
+        motivo_disponibilidad=motivo,
+        planes_ejecucion=_planes_ejecucion(guardian.guardian_type),
     )
 
 
 @router.get("", response_model=List[GuardianResponseSchema])
-def list_guardians(db: Session = Depends(get_db)):
+async def list_guardians(db: Session = Depends(get_db)):
     guardians = GuardianService.get_or_create_default_guardians(db)
-    return [_to_response(g) for g in guardians]
+    # UNA sonda por request (viene cacheada ~30 s en el cliente del motor): la lista tiene 9
+    # filas y sondear por fila convertiría cada pageview del admin en 9 llamadas al motor.
+    probe = await ai_engine_client.probe_loaded_guardrails()
+    return [_to_response(g, probe) for g in guardians]
 
 
 @router.post("", response_model=GuardianResponseSchema, status_code=status.HTTP_201_CREATED)
-def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)):
+async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)):
+    # El alta por API no puede fijar `engine_guardrail_name` (no está en el schema de
+    # entrada), así que hoy este gate no puede disparar. Se llama igual para que el
+    # invariante FR-007 valga para TODA puerta de activación y no dependa de que el schema
+    # siga sin ese campo mañana.
+    await _gate_activacion(payload, quiere_activar=bool(payload.is_active), ya_activo=False)
     guardian = Guardian(
         name=payload.name,
         guardian_type=payload.guardian_type,
@@ -83,7 +212,7 @@ def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)):
     db.add(guardian)
     db.commit()
     db.refresh(guardian)
-    return _to_response(guardian)
+    return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
 # ── Catálogo de entidades custom (extensión post-016) ──────────────────────────
@@ -155,10 +284,16 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{guardian_id}", response_model=GuardianResponseSchema)
-def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Session = Depends(get_db)):
+async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Session = Depends(get_db)):
     guardian = db.query(Guardian).filter(Guardian.id == guardian_id).first()
     if not guardian:
         raise HTTPException(status_code=404, detail="Guardian no encontrado.")
+
+    # FR-007 — ANTES de mutar nada: el rechazo tiene que dejar la fila exactamente como
+    # estaba. Se evalúa contra el `engine_guardrail_name` PERSISTIDO (el payload no lo
+    # trae: el nombre de motor no es editable por API, Constitución VII).
+    await _gate_activacion(guardian, quiere_activar=bool(payload.is_active),
+                           ya_activo=bool(guardian.is_active))
 
     guardian.name = payload.name
     guardian.guardian_type = payload.guardian_type
@@ -172,7 +307,9 @@ def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Session = De
 
     db.commit()
     db.refresh(guardian)
-    return _to_response(guardian)
+    # Misma sonda (cacheada) que el GET: si el PUT devolviera la disponibilidad calculada
+    # con otra fuente, la tarjeta cambiaría de forma al guardar y volvería sola al recargar.
+    return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
 @router.post("/{guardian_id}/test", response_model=Dict[str, Any])

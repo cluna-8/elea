@@ -14,8 +14,12 @@ class Budget(Base):
                        default=DEFAULT_TENANT_ID, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
+    # El TECHO lo escribe un humano en dólares con centavos: (10,4) le sobra.
     max_spend_usd = Column(Numeric(10, 4), nullable=False)
-    current_spend_usd = Column(Numeric(10, 4), default=0.0000)
+    # El CONTADOR acumula pedidos reales, y con (10,4) una llamada barata de verdad
+    # (~$0.000012 con gpt-4o-mini) redondeaba a 0.0000: el gasto quedaba congelado y el
+    # enforcement que lo lee nunca llegaba al techo. 8 decimales = migración 014 (#76).
+    current_spend_usd = Column(Numeric(14, 8), default=0)
     max_tokens = Column(BigInteger, nullable=False)
     current_tokens = Column(BigInteger, default=0)
     reset_period = Column(String, nullable=False) # daily, weekly, monthly, never

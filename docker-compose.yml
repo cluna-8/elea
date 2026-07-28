@@ -78,6 +78,10 @@ services:
       # Motor NLP real (spec 016) — nombre de servicio compose, puerto interno del app.py
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
       - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
+      # Política de fallo de auditoría (spec 031, contrato §Config). Misma env y mismo
+      # valor que el backend: si una instalación exige `closed`, el motor no puede
+      # quedarse en `open` y seguir sirviendo byok inauditable.
+      - BASA_AUDIT_FAIL=${BASA_AUDIT_FAIL:-open}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
       # Extensiones Basa (spec 014): custom_auth se resuelve relativo al config.yaml
@@ -135,6 +139,9 @@ services:
       # del fail-closed). Una imagen prod jamás la setea.
       - BASA_ALLOW_DEV_LICENSE=${BASA_ALLOW_DEV_LICENSE:-true}
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
+      # Política de fallo de auditoría (spec 031): `open` en dev — el fallo se cuenta y
+      # se ve, pero no corta. Para ejercitar el 503 honesto: BASA_AUDIT_FAIL=closed.
+      - BASA_AUDIT_FAIL=${BASA_AUDIT_FAIL:-open}
     volumes:
       - ./backend:/app
       - ./litellm:/app/litellm_config

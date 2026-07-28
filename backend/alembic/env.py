@@ -13,7 +13,16 @@ from src.models import *  # noqa: F401, F403 — registers all models with Base.
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # `disable_existing_loggers=False` NO es cosmético (hallazgo spec 031/T002): el default
+    # de `fileConfig` es True, o sea "apagá todo logger que ya exista y no esté en este
+    # .ini". `src/main.py` corre `alembic upgrade head` EN EL IMPORT (:63), después de
+    # importar el router — así que para cuando termina la migración de arranque, TODOS los
+    # `logging.getLogger("basa-secure-gateway.*")` del backend quedaban con `disabled=True`
+    # y el producto corría MUDO en producción (verificado: cero líneas del logger de la app
+    # en los logs del contenedor, sólo alembic y uvicorn).
+    # Con la 031 eso pasa de molestia a defecto de compliance: el `logger.error` que avisa
+    # "evento de auditoría NO REGISTRADO" es justamente lo que se estaba tragando.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

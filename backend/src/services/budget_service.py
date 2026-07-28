@@ -1,7 +1,25 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy.orm import Session
 from ..models.budget import Budget
 from ..models.user import User
+
+# Precisión del contador de gasto (issue #76 + migración 014). Es la MISMA escala que
+# `budgets.current_spend_usd` en la base: cuantizar acá con otra escala no serviría de nada
+# —Postgres redondearía igual al guardar— y cuantizar con MENOS decimales reintroduciría el
+# bug que la 014 arregla (una llamada de ~$0.000012 valía 0.0000 y el gasto no se movía).
+_ESCALA_USD = Decimal("0.00000001")  # 1e-8, o sea numeric(14,8)
+
+
+def cuantizar_usd(monto: Decimal) -> Decimal:
+    """Redondea un coste a la escala real de la columna (8 decimales).
+
+    Se hace explícito y no se deja al driver porque el redondeo silencioso ES el bug: con
+    la escala vieja, dos llamadas de $0.00001 sumaban $0.0000. HALF_UP (y no el HALF_EVEN
+    por defecto de `decimal`) porque es lo que espera quien lee dinero en un panel.
+    """
+    if not isinstance(monto, Decimal):
+        monto = Decimal(str(monto))
+    return monto.quantize(_ESCALA_USD, rounding=ROUND_HALF_UP)
 
 # Model pricing per 1,000,000 tokens (Input, Output) in USD
 MODEL_PRICING = {
@@ -132,6 +150,10 @@ class BudgetService:
     def calculate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> Decimal:
         """
         Calculates the cost of a request based on the model and token counts.
+
+        Devuelve el coste cuantizado a 8 decimales (issue #76): la escala de la columna que
+        lo va a acumular. Un pedido barato de verdad vale ~1e-5 USD, así que truncar antes
+        de esto es lo que dejaba el contador en cero.
         """
         if _is_local_model(model):
             pricing = _LOCAL_MODEL_PRICING
@@ -139,7 +161,7 @@ class BudgetService:
             pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
         input_cost = (Decimal(prompt_tokens) / Decimal("1000000")) * pricing["input"]
         output_cost = (Decimal(completion_tokens) / Decimal("1000000")) * pricing["output"]
-        return input_cost + output_cost
+        return cuantizar_usd(input_cost + output_cost)
 
     @staticmethod
     def update_budget(db: Session, user_id: str = None, group_id: str = None, prompt_tokens: int = 0, completion_tokens: int = 0, model: str = "", override_cost: Decimal = None) -> None:
@@ -151,10 +173,19 @@ class BudgetService:
         if not budgets:
             return
         cost = override_cost if override_cost is not None else BudgetService.calculate_cost(model, prompt_tokens, completion_tokens)
+        # El coste de fuera (`override_cost`: el que calculó el motor contra la respuesta
+        # real del proveedor, y que el plano interno reenvía como float) también se
+        # cuantiza acá — es el único punto por el que pasan TODOS los caminos de carga, así
+        # que es donde la escala tiene que quedar fijada una sola vez.
+        cost = cuantizar_usd(cost)
         total_tokens = prompt_tokens + completion_tokens
         for budget in budgets:
             if BudgetService._budget_has_credit(budget):
-                budget.current_spend_usd += cost
+                # `+=` sobre el Decimal de la columna: la suma es exacta y la escala la fija
+                # `cuantizar_usd` (8 decimales = la de la columna tras la migración 014).
+                # Con la escala vieja (10,4) esta línea sumaba 0.0000 en cada pedido barato.
+                budget.current_spend_usd = cuantizar_usd(
+                    Decimal(budget.current_spend_usd or 0) + cost)
                 budget.current_tokens += total_tokens
                 break  # charge the first budget with credit; personal exhausted → group kicks in
         db.commit()

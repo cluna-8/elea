@@ -12,14 +12,14 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Config `BASA_AUDIT_FAIL` (contrato §Config): env con default `open` leída por
+- [x] T001 Config `BASA_AUDIT_FAIL` (contrato §Config): env con default `open` leída por
       backend y extensiones; cablear en `deploy/docker/compose.prod.yml` (backend + motor),
       `docker-compose.yml` (dev) y perfil camara (`open` explícito). Helper único de
       lectura en backend (`audit_service`); las extensiones leen os.environ directo.
 
 ## Phase 2: Foundational (bloquea US1 y US2)
 
-- [ ] T002 `backend/src/services/audit_service.py` — núcleo D5: retry acotado (2×,
+- [x] T002 `backend/src/services/audit_service.py` — núcleo D5: retry acotado (2×,
       backoff 0.2/0.5 s) en la escritura; al agotar → `logger.error` + `INCR
       basa:audit:lost` + `SET basa:audit:last_fail` (tolerante a Redis caído);
       `audit_writable()` (SELECT 1 con timeout corto) para el modo closed; adiós al
@@ -28,7 +28,7 @@
       `backend/tests/unit/test_audit_service_retry.py` (mock de sesión que falla N veces:
       retry absorbe 1 fallo transitorio sin pérdida; agotamiento incrementa contador; Redis
       caído no rompe; closed propaga).
-- [ ] T003 [P] `backend/src/api/internal.py` — contrato §internal: campos opcionales
+- [x] T003 [P] `backend/src/api/internal.py` — contrato §internal: campos opcionales
       nuevos de `AuditEntry` (+columnas en el INSERT :90, retrocompatible: payload viejo
       sigue insertando igual) + `GET /internal/audit/probe` (secreto interno, 200/503).
       Tests en el fichero de tests del plano interno existente (buscarlo por
@@ -42,7 +42,7 @@
 
 **Independent Test**: quickstart SC-001 — un bloqueo por plano → 3 filas correctas.
 
-- [ ] T004 [US1] `backend/src/api/chat.py` — D2: en los 3 puntos de bloqueo (~598 AI-Act,
+- [x] T004 [US1] `backend/src/api/chat.py` — D2: en los 3 puntos de bloqueo (~598 AI-Act,
       ~728 guardián, ~839 residencia; anclar por contenido) escribir la fila durable ANTES
       del raise vía `log_transaction` (tokens 0, coste 0, `compliance_status=blocked_*`
       alineado con el motivo del monitor — D1/riesgo R3, `blocked_by_layer` del punto,
@@ -53,22 +53,22 @@
       bloqueo AI-Act → fila blocked con capa y atribución; bloqueo guardián ídem; fila
       sobrevive aunque el monitor Redis esté caído; closed+DB caída → 503 sin llamada al
       motor (mock httpx cuenta 0 llamadas).
-- [ ] T005 [P] [US1] `litellm/extensions/basa_guardrail.py` — D3: en cada punto de bloqueo,
+- [x] T005 [P] [US1] `litellm/extensions/basa_guardrail.py` — D3: en cada punto de bloqueo,
       POST al plano interno (identidad de la Connection del `user_api_key_dict`, capa,
       motivo, conteos; 1 reintento) ANTES de rechazar; en closed, pre-check a
       `/internal/audit/probe` (cache 5 s si hace falta — riesgo R2) → rechazo honesto si no
       escribible. Tests unit-style importando la extensión con mocks (mirar cómo se testean
       hoy las extensiones en backend/tests o litellm/; si no hay patrón, crear
       `backend/tests/unit/test_guardrail_block_audit.py` con sys.path a litellm/extensions).
-- [ ] T006 [P] [US1] `backend/src/api/gateway.py` — D5/D8: `_audit` del passthrough deja de
+- [x] T006 [P] [US1] `backend/src/api/gateway.py` — D5/D8: `_audit` del passthrough deja de
       tragar (:603-604 delega en el escritor con retry; en open captura para no romper el
       request); camino closed en passthrough y byok (pre-check antes de reenviar). Test:
       bloqueo passthrough con escritor que falla 1 vez → fila igual (retry); closed → 503.
-- [ ] T007 [P] [US1] `backend/src/api/audit.py` + frontend `AuditPage.tsx` — FR-006:
+- [x] T007 [P] [US1] `backend/src/api/audit.py` + frontend `AuditPage.tsx` — FR-006:
       parámetro de filtro `estado=bloqueados` (LIKE 'blocked%') en el endpoint de listado +
       control de filtro en la UI + badge rojo por fila bloqueada (estado explícito). Test
       API del filtro.
-- [ ] T008 [US1] **CHECKPOINT VIVO** (orquestador, stack camara): quickstart SC-001 — un
+- [x] T008 [US1] **CHECKPOINT VIVO** (orquestador, stack camara): quickstart SC-001 — un
       bloqueo por plano → 3 filas con plano/capa/atribución correctos, visibles con el
       filtro; SC-005 (encontrarlo en <30 s desde la UI).
 
@@ -78,15 +78,15 @@
 
 **Independent Test**: quickstart SC-002 (integración con mock + contador/banner en vivo).
 
-- [ ] T009 [US2] `backend/src/api/health.py` — bloque `audit {mode, lost_events,
+- [x] T009 [US2] `backend/src/api/health.py` — bloque `audit {mode, lost_events,
       last_failure_at}` del contrato; en closed con auditoría caída el health global
       refleja degradado. `litellm/extensions/basa_audit_logger.py`: prints→logging real,
       retry acotado, contador Redis (D5 — mismas claves). Tests: health con contador
       poblado en Redis; logger sin prints (grep en el gate).
-- [ ] T010 [P] [US2] `frontend/src/pages/AuditPage.tsx`: banner ámbar «N eventos no
+- [x] T010 [P] [US2] `frontend/src/pages/AuditPage.tsx`: banner ámbar «N eventos no
       registrados desde HH:MM» cuando `health.audit.lost_events > 0` (poll al health
       existente de la página o fetch ligero al cargar).
-- [ ] T011 [US2] **CHECKPOINT VIVO**: simular pérdida (parar DB en ensayo o inyectar
+- [x] T011 [US2] **CHECKPOINT VIVO**: simular pérdida (parar DB en ensayo o inyectar
       contador en Redis) → banner + health; restaurar → constancia queda.
 
 ## Phase 5: User Story 3 — UI honesta (P3)
@@ -96,18 +96,18 @@ checkbox mentiroso.
 
 **Independent Test**: checklist SC-004 contra la tabla de consumo real.
 
-- [ ] T012 [US3] Guardianes — D7: backend rechaza activar guardianes sin guardrail cargado
+- [x] T012 [US3] Guardianes — D7: backend rechaza activar guardianes sin guardrail cargado
       (usar `governance_status`/`probe_loaded_guardrails` — FR-007) + frontend (página de
       guardianes, nombre real a localizar): 5 cloud como tarjetas «próximamente / no
       instalado» SIN toggle; 3 reales con badge de plano(s) («chat interno + API byok» /
       «chat interno»). Copy: features incoming del catálogo, no promesas rotas (marco JF).
-- [ ] T013 [P] [US3] Retención (frontend pestaña en CompliancePage o equivalente): chip
+- [x] T013 [P] [US3] Retención (frontend pestaña en CompliancePage o equivalente): chip
       «purga automática: llega con la 018», política editable intacta, sin fecha inventada.
-- [ ] T014 [US3] **CHECKPOINT**: checklist SC-004 página por página.
+- [x] T014 [US3] **CHECKPOINT**: checklist SC-004 página por página.
 
 ## Phase 6: Polish
 
-- [ ] T015 Gate final: suite completa verde (salvo 3 preexistentes) + SC-003 explícito
+- [x] T015 Gate final: suite completa verde (salvo 3 preexistentes) + SC-003 explícito
       (`-k "hash or chain or licensing"`) + grep sin `print(` en extensiones + INSTALL:
       nota de `BASA_AUDIT_FAIL` (default open) en la sección de operación.
 

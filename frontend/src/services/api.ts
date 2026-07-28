@@ -452,6 +452,32 @@ export interface AuditLog {
   compliance_status: string;
   latency_ms: number;
   tokens_saved_by_optimization: number;
+  /** Código de la capa que bloqueó (registry 027). Sólo viene en filas de bloqueo, y sólo
+   *  si el endpoint de listado lo expone: la UI lo muestra si está y lo omite si no —
+   *  nunca inventa la capa a partir del estado (spec 031, contrato §Fila de bloqueo). */
+  blocked_by_layer?: string | null;
+}
+
+/** Bloque `audit` del health (spec 031, contrato §GET /health). Ausente en instalaciones
+ *  anteriores a la 031 —y también para quien no sea admin/compliance_officer, porque los
+ *  números viajan sólo al tier detallado—: por eso todo es opcional.
+ *
+ *  `lost_events: null` NO es cero: es "el contador no se pudo leer" (Redis caído o valor
+ *  ilegible). El backend los distingue a propósito y la UI tiene que respetarlo — decir
+ *  "cero pérdidas" sin haber podido mirar es la mentira que la 031 borra. */
+export interface AuditHealth {
+  mode?: "open" | "closed" | string;
+  lost_events?: number | null;
+  last_failure_at?: string | null;
+}
+
+export interface SystemHealth {
+  status?: "healthy" | "degraded" | string;
+  service?: string;
+  version?: string;
+  audit?: AuditHealth;
+  /** Motivo de la degradación (hoy: auditoría no escribible con `audit_fail=closed`). */
+  reason?: string | null;
 }
 
 /** Piso de longitud que exige el backend (auth/passwords.py MIN_PASSWORD_LEN). Está
@@ -735,7 +761,14 @@ export const api = {
     limit?: number;
     offset?: number;
     pii_detected?: string;
+    /** Estado exacto (igualdad). Sirve para un motivo concreto: `blocked_prohibited`. */
     compliance_status?: string;
+    /** Familia de estados (spec 031, FR-006). Hoy: `bloqueados` → LIKE 'blocked%' en el
+     *  backend. Es un filtro APARTE de `compliance_status` a propósito: «bloqueado» no es
+     *  un valor de la columna sino un conjunto de motivos (blocked_prohibited,
+     *  blocked_secret, blocked_guardian, blocked_residency, ...), y el officer filtra por
+     *  el conjunto. Los dos no se mandan juntos (la UI manda uno u otro). */
+    estado?: string;
     from_date?: string;
     to_date?: string;
   }): Promise<{ total: number; logs: AuditLog[] }> => {
@@ -744,6 +777,7 @@ export const api = {
     if (params?.offset != null) qs.append("offset", String(params.offset));
     if (params?.pii_detected) qs.append("pii_detected", params.pii_detected);
     if (params?.compliance_status) qs.append("compliance_status", params.compliance_status);
+    if (params?.estado) qs.append("estado", params.estado);
     if (params?.from_date) qs.append("from_date", params.from_date);
     if (params?.to_date) qs.append("to_date", params.to_date);
     const query = qs.toString();
@@ -955,7 +989,13 @@ export const api = {
       headers: jsonHeaders(),
       body: JSON.stringify(guardian),
     });
-    if (!res.ok) throw new Error("Failed to update guardian");
+    if (!res.ok) {
+      // El `detail` del backend ES el mensaje para el admin (mismo patrón que testGuardian):
+      // el 409 de FR-007 explica que el guardián es del catálogo incoming, y tragarlo detrás
+      // de un "Failed to update guardian" dejaba el rechazo honesto sin destinatario.
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "No se pudo guardar el guardián.");
+    }
     return res.json();
   },
 
@@ -1074,15 +1114,46 @@ export const api = {
     return res.json();
   },
 
+  /** Health de PRODUCTO (`GET /api/v1/health`, spec 031 §health). No confundir con el
+   *  `/health` de la raíz: ése es el probe barato del contenedor (healthcheck de compose)
+   *  y no lleva el bloque `audit`.
+   *
+   *  Va con credenciales porque el bloque `audit` (contador de pérdidas y hora del último
+   *  fallo) sólo viaja a admin/compliance_officer — los mismos roles que pueden entrar a
+   *  Logs de Auditoría. Sin sesión, la respuesta llega sin `audit` y el aviso no aparece.
+   *
+   *  Devuelve `null` ante CUALQUIER problema (red, 5xx, cuerpo que no es JSON). Es
+   *  deliberado: alimenta un aviso secundario de la página y un aviso que no se puede
+   *  leer nunca debe tumbar la pantalla de Logs. `null` = "no sé", y "no sé" se pinta como
+   *  nada, jamás como "todo bien". */
+  getSystemHealth: async (): Promise<SystemHealth | null> => {
+    try {
+      const res = await fetch(`${API_BASE}/health`, {
+        headers: { Accept: "application/json", ...authHeaders() },
+      });
+      if (!res.ok) return null;
+      if (!(res.headers.get("Content-Type") || "").includes("application/json")) return null;
+      return (await res.json()) as SystemHealth;
+    } catch {
+      return null;
+    }
+  },
+
   exportAuditLogs: async (filters: {
     pii_detected?: boolean;
     compliance_status?: string;
+    /** Mismo filtro de familia que el listado: el CSV exportado tiene que ser LO QUE SE VE
+     *  en pantalla. Si el backend no conociera el parámetro, FastAPI lo ignora y el CSV
+     *  saldría más ancho que la tabla — por eso el backend lo cablea en `_build_query`,
+     *  que es el helper compartido por listado y export. */
+    estado?: string;
     from_date?: string;
     to_date?: string;
   }): Promise<void> => {
     const params = new URLSearchParams();
     if (filters.pii_detected !== undefined) params.append("pii_detected", String(filters.pii_detected));
     if (filters.compliance_status) params.append("compliance_status", filters.compliance_status);
+    if (filters.estado) params.append("estado", filters.estado);
     if (filters.from_date) params.append("from_date", filters.from_date);
     if (filters.to_date) params.append("to_date", filters.to_date);
 

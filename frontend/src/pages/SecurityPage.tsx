@@ -29,6 +29,24 @@ const GUARDIAN_ICONS: Record<string, string> = {
 
 const LOCAL_TYPES = new Set(["pii_masking", "secret_detection", "sensitive_routing"]);
 
+// Copy de los planos donde se ejecuta cada guardián (spec 031, US3). Los CÓDIGOS los manda
+// el backend (`planes_ejecucion`, tabla de consumo real): acá vive solo la traducción, igual
+// que el resto del copy de esta pantalla. Un código sin entrada no se inventa: se omite.
+const PLANO_LABELS: Record<string, string> = {
+  chat_interno: "Chat interno",
+  api_byok: "API (byok)",
+};
+
+// Encuadre del catálogo incoming (marco de JF): los guardianes de nube son **features que
+// vienen**, no promesas rotas. El copy lo dice en positivo —qué son y qué falta para que
+// corran— sin pedir perdón y sin insinuar que la pantalla está averiada.
+const CATALOGO_TITULO = "Próximamente · no instalado";
+const CATALOGO_COPY =
+  "Forma parte del catálogo de guardianes que el producto irá incorporando. En esta " +
+  "instalación todavía no hay ninguna pieza que lo ejecute, así que no se ofrece como " +
+  "interruptor: encenderlo no cambiaría nada del tráfico. Los guardianes instalados siguen " +
+  "cubriendo el piso —interceptar, registrar, detectar datos personales y bloquear secretos—.";
+
 // Enlace LÓGICO guardián → capa de gobernanza (data-model §2.4: nunca FK, resuelto en
 // query del lado del servidor y por esta tabla del lado del cliente). Las claves son los
 // `guardian_type` que ya devuelve la API —los mismos que indexan los textos e íconos de
@@ -65,6 +83,8 @@ const labelText = "text-xs font-semibold uppercase tracking-wide text-text-secon
 type ControlDeseo = {
   habilitado: boolean;
   esPiso: boolean;
+  /** Guardián del catálogo incoming: no hay pieza instalada que lo ejecute (spec 031). */
+  esCatalogo: boolean;
   /** Texto del botón cuando está bloqueado; vacío cuando se puede tocar. */
   etiqueta: string;
   /** Por qué no se puede tocar; vacío cuando se puede. */
@@ -183,11 +203,32 @@ export const SecurityPage: React.FC = () => {
    *  correspondencia en la respuesta): se bloquea y se dice que no se pudo verificar. Dejar
    *  apagar "por las dudas" es exactamente el caso que se está arreglando.
    */
-  const controlDeseo = (guardianType: string, isActive: boolean): ControlDeseo => {
+  const controlDeseo = (g: any): ControlDeseo => {
+    const guardianType = g.guardian_type;
+    const isActive = !!g.is_active;
+
+    // Catálogo incoming (spec 031, FR-007) — va PRIMERO: no hay pieza instalada que ejecute
+    // este guardián, así que la pregunta por el tier ni siquiera aplica. El backend además
+    // rechaza la activación con 409, o sea que el interruptor no es solo cosmético: no
+    // existe puerta por la que encenderlo. `disponible === false` explícito (y no `!g.disponible`)
+    // para que un backend viejo —que no manda el campo— no convierta TODA la pantalla en catálogo.
+    if (g.disponible === false) {
+      return {
+        habilitado: false,
+        esPiso: false,
+        esCatalogo: true,
+        etiqueta: CATALOGO_TITULO,
+        // El copy de producto, no el `motivo_disponibilidad` del backend: ese motivo ya se
+        // renderiza aparte (bloque FR-013) y está escrito para diagnosticar una capa, no
+        // para presentar una pieza del catálogo que todavía no llegó.
+        motivo: CATALOGO_COPY,
+      };
+    }
     if (estadoCargando) {
       return {
         habilitado: false,
         esPiso: false,
+        esCatalogo: false,
         etiqueta: "Verificando…",
         motivo:
           "Todavía no se sabe si esta capa pertenece al piso no negociable. El interruptor se " +
@@ -199,6 +240,7 @@ export const SecurityPage: React.FC = () => {
       return {
         habilitado: false,
         esPiso: false,
+        esCatalogo: false,
         etiqueta: "Sin verificar",
         motivo:
           (estadoNoDisponible ? `${estadoNoDisponible} ` : "") +
@@ -210,6 +252,7 @@ export const SecurityPage: React.FC = () => {
       return {
         habilitado: false,
         esPiso: true,
+        esCatalogo: false,
         etiqueta: "Siempre activo",
         motivo:
           "Piso no negociable: interceptar y registrar el tráfico, detectar datos personales y " +
@@ -218,7 +261,7 @@ export const SecurityPage: React.FC = () => {
           "eso acá no hay interruptor. El detalle, en la sección Gobernanza.",
       };
     }
-    return { habilitado: true, esPiso: false, etiqueta: "", motivo: "" };
+    return { habilitado: true, esPiso: false, esCatalogo: false, etiqueta: "", motivo: "" };
   };
 
   const handleToggleGuardian = (id: string, control: ControlDeseo) => {
@@ -242,6 +285,7 @@ export const SecurityPage: React.FC = () => {
     if (!policy) return;
     try {
       setSaving(true);
+      setLoadError(null);
       await api.updateSecurityPolicy(policy);
       for (const g of guardians) {
         await api.updateGuardian(g.id, {
@@ -255,8 +299,10 @@ export const SecurityPage: React.FC = () => {
       }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch {
-      alert("Error al guardar la configuración de seguridad.");
+    } catch (e: any) {
+      // El motivo real del backend (p. ej. el 409 de FR-007) llega al admin en vez de un
+      // "Error al guardar" genérico que lo deja adivinando cuál de los 9 guardianes falló.
+      setLoadError(e?.message || "Error al guardar la configuración de seguridad.");
     } finally {
       setSaving(false);
     }
@@ -322,6 +368,10 @@ export const SecurityPage: React.FC = () => {
   }
 
   const selected = guardians.find((g) => g.id === selectedId) || null;
+  // Guardián del catálogo incoming: su panel es una VISTA PREVIA. Nada de lo que se
+  // configure acá corre todavía, y el panel de prueba no puede hacer otra cosa que fallar
+  // (el guardrail no está cargado en el motor), así que no se ofrece.
+  const selectedEsCatalogo = selected?.disponible === false;
   const isLocal = selected ? LOCAL_TYPES.has(selected.guardian_type) || selected.guardian_type === "presidio" : false;
   const isPii = selected?.guardian_type === "pii_masking";
   const isSecret = selected?.guardian_type === "secret_detection";
@@ -374,6 +424,15 @@ export const SecurityPage: React.FC = () => {
             y apagarlas no es configurable—, y si no se puede verificar a qué tier pertenece una capa, el
             control queda bloqueado. El detalle completo, en la sección Gobernanza.
           </p>
+          {/* US3 de la 031: el catálogo se presenta como lo que es. Va acá arriba para que el
+              admin entienda las tarjetas grises ANTES de tocarlas. */}
+          <p className="text-[11px] text-text-secondary">
+            Los guardianes marcados{" "}
+            <span className="text-info font-semibold">{CATALOGO_TITULO}</span> son piezas del catálogo
+            que el producto irá incorporando: todavía no hay nada instalado que las ejecute, así que
+            no se ofrecen como interruptor. Los guardianes instalados llevan el badge del{" "}
+            <span className="text-text-primary font-semibold">plano donde se aplican</span>.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -383,7 +442,13 @@ export const SecurityPage: React.FC = () => {
             // El borde ya no celebra el DESEO: solo se pinta de verde lo que realmente corre.
             const estado = estadoDe(g.guardian_type);
             const aplicandose = estado?.estado_efectivo === "aplicandose";
-            const control = controlDeseo(g.guardian_type, !!g.is_active);
+            const control = controlDeseo(g);
+            // Planos donde se ejecuta HOY este guardián (backend: `planes_ejecucion`). Un
+            // guardián sin planos no puede llevar badge de alcance: es justo la afirmación
+            // sin respaldo que la US3 borra.
+            const planes: string[] = (g.planes_ejecucion || [])
+              .map((p: string) => PLANO_LABELS[p])
+              .filter(Boolean);
 
             return (
               <div
@@ -407,7 +472,19 @@ export const SecurityPage: React.FC = () => {
                     <span className="font-semibold text-text-primary text-xs truncate">{g.name}</span>
                   </div>
                   <div className="flex-shrink-0">
-                    {estado ? (
+                    {control.esCatalogo ? (
+                      // Tarjeta de CATÁLOGO: ni estado efectivo ni "desconocido". Lo honesto
+                      // acá no es un estado —no hay nada corriendo que estimar— sino decir
+                      // qué es: una pieza del catálogo que todavía no se instala.
+                      <StatusBadge
+                        tone="info"
+                        title={CATALOGO_COPY}
+                        className="text-[10px] font-bold"
+                      >
+                        <span aria-hidden="true" className="leading-none">◷</span>
+                        {CATALOGO_TITULO}
+                      </StatusBadge>
+                    ) : estado ? (
                       <EstadoBadge estado={estado.estado_efectivo} />
                     ) : (
                       <EstadoDesconocido
@@ -426,9 +503,27 @@ export const SecurityPage: React.FC = () => {
                     con el "Activar: no" guardado —que es la mentira nueva que este fix mata. */}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] text-text-secondary">
-                    {control.esPiso ? "No configurable" : "Deseado"}
+                    {control.esCatalogo ? "Aún no disponible" : control.esPiso ? "No configurable" : "Deseado"}
                   </span>
-                  {control.habilitado ? (
+                  {control.esCatalogo ? (
+                    // Interruptor VISIBLE pero inerte, con el porqué en el tooltip: que se vea
+                    // el control que va a existir cuando el guardián se instale, sin que se
+                    // pueda mover. Apagado siempre: pintar el deseo guardado de una fila que
+                    // nadie ejecuta es la mentira vieja.
+                    <span
+                      onClick={(e) => e.stopPropagation()}
+                      title={control.motivo}
+                      className="inline-flex flex-shrink-0 cursor-not-allowed"
+                    >
+                      <Toggle
+                        size="sm"
+                        checked={false}
+                        disabled
+                        onChange={() => undefined}
+                        label={`${g.name}: ${CATALOGO_TITULO}`}
+                      />
+                    </span>
+                  ) : control.habilitado ? (
                     // Toggle real del kit: cambia el DESEO local; persiste con "Guardar Cambios".
                     <span
                       onClick={(e) => e.stopPropagation()}
@@ -464,6 +559,15 @@ export const SecurityPage: React.FC = () => {
                         igual: ese interruptor nunca tuvo efecto sobre el tráfico.
                       </span>
                     )}
+                    {/* Discrepancia simétrica en el catálogo: el interruptor se pinta apagado
+                        —no hay nada corriendo— pero si la fila heredó un `is_active` en true de
+                        una versión anterior, se dice, en vez de esconderlo. */}
+                    {control.esCatalogo && !!g.is_active && (
+                      <span className="block mt-1 text-warn">
+                        La configuración guardada figura como activada, pero no hay nada instalado
+                        que la ejecute: ese interruptor nunca tuvo efecto sobre el tráfico.
+                      </span>
+                    )}
                   </p>
                 )}
 
@@ -474,17 +578,32 @@ export const SecurityPage: React.FC = () => {
                   </p>
                 )}
 
-                {/* Row 2: type chips */}
+                {/* Row 2: chips de naturaleza + PLANO(S) DE EJECUCIÓN (spec 031, US3).
+                    El badge de plano es la otra mitad de la honestidad: un guardián que
+                    corre solo en el chat interno no puede dejar creer que cubre el tráfico
+                    de las herramientas. Los de catálogo no llevan badge de plano —no hay
+                    ninguno— y su chip dice qué son, no dónde correrían. */}
                 <div className="flex gap-1.5 flex-wrap">
                   <span className={cn(
                     "px-1.5 py-0.5 rounded text-[10px] font-bold border",
-                    local
+                    control.esCatalogo
+                      ? "bg-info-bg border-info/20 text-info"
+                      : local
                       ? "bg-primary-tint border-primary/20 text-primary"
                       : "bg-surface-2 border-border text-text-secondary"
                   )}>
-                    {local ? "Local" : "Motor IA"}
+                    {control.esCatalogo ? "Catálogo" : local ? "Local" : "Motor IA"}
                   </span>
-                  {!local && (
+                  {planes.map((etiqueta) => (
+                    <span
+                      key={etiqueta}
+                      title="Plano donde este guardián se aplica hoy."
+                      className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-ok-bg border border-ok/20 text-ok"
+                    >
+                      {etiqueta}
+                    </span>
+                  ))}
+                  {!local && !control.esCatalogo && (
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-2 border border-border text-text-secondary">
                       {g.apply_on || "pre_call"}
                     </span>
@@ -499,10 +618,14 @@ export const SecurityPage: React.FC = () => {
                 {/* Row 4: configure hint */}
                 <div className="flex items-center justify-between pt-0.5">
                   <span className={cn("text-[10px] transition-colors", isSelected ? "text-primary" : "text-text-secondary")}>
-                    {isSelected ? "▲ Configurando" : "▼ Configurar"}
+                    {control.esCatalogo
+                      ? isSelected ? "▲ Vista previa" : "▼ Ver qué traerá"
+                      : isSelected ? "▲ Configurando" : "▼ Configurar"}
                   </span>
                   {!local && (
-                    <span className="text-[10px] text-text-tertiary">Motor externo</span>
+                    <span className="text-[10px] text-text-tertiary">
+                      {control.esCatalogo ? "Sin instalar" : "Motor externo"}
+                    </span>
                   )}
                 </div>
               </div>
@@ -527,6 +650,13 @@ export const SecurityPage: React.FC = () => {
             </div>
 
             <div className="space-y-4 text-xs text-text-primary">
+              {selectedEsCatalogo && (
+                <div className="bg-info-bg border border-info/20 text-info px-3 py-2.5 rounded-md text-[11px] leading-relaxed">
+                  <span className="font-semibold">{CATALOGO_TITULO}.</span> {CATALOGO_COPY} Lo
+                  que configures acá queda guardado y quedará listo para el día en que se instale.
+                </div>
+              )}
+
               {/* Engine: fail_mode + apply_on */}
               {!isLocal && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -738,8 +868,10 @@ export const SecurityPage: React.FC = () => {
                 </label>
               )}
 
-              {/* Test panel (engine-backed only) */}
-              {!isLocal && (
+              {/* Test panel (engine-backed only). Se oculta para el catálogo: sin guardrail
+                  cargado el test solo puede devolver un error, y un botón que únicamente
+                  falla es otra forma de prometer algo que no existe. */}
+              {!isLocal && !selectedEsCatalogo && (
                 <div className="border-t border-border pt-4 space-y-3">
                   <label className={labelText} htmlFor="test-text">Panel de prueba</label>
                   <textarea

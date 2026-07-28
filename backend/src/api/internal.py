@@ -19,15 +19,22 @@ servicios YA tienen (`LITELLM_MASTER_KEY`) — no hay un secreto nuevo que provi
 """
 import hmac
 import json
+import logging
 import os
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..models.tenant import DEFAULT_TENANT_ID
+from ..services.budget_service import BudgetService
+
+logger = logging.getLogger("basa-secure-gateway.internal")
 
 router = APIRouter(prefix="/internal", tags=["Internal"], include_in_schema=False)
 
@@ -48,11 +55,36 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
            AND gd.is_active = true LIMIT 1) AS custom_names,
        (SELECT gd.config->'custom_entities' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
-           AND gd.is_active = true LIMIT 1) AS custom_entities
+           AND gd.is_active = true LIMIT 1) AS custom_entities,
+       bud.max_spend_usd AS max_budget_usd,
+       bud.current_spend_usd AS spend_usd
 FROM api_keys k
 LEFT JOIN users u ON u.id = k.user_id
 LEFT JOIN groups g ON g.id = k.group_id
 LEFT JOIN tenants t ON t.id = k.tenant_id
+-- Presupuesto APLICABLE a esta Connection (issue #76, decisión A de JF = rechazo duro):
+-- el motor no puede frenar el gasto de lo que no ve, y hasta acá la identidad no llevaba
+-- ni el techo ni el gasto, así que TODO el tráfico byok gastaba sin límite mientras el
+-- Playground sí frenaba. Se elige UNA fila —la misma que `BudgetService.update_budget`
+-- cargaría— y no las dos capas: el contrato del plano interno es un par escalar
+-- (max_budget_usd, spend_usd) y un par no puede expresar el OR dual-capa de
+-- `has_sufficient_budget`. Orden: personal del dueño de la llave primero, el del grupo
+-- como respaldo (idéntica precedencia que `get_applicable_budgets`, budget_service.py:74).
+-- El grupo sale de la llave o, si la llave no lo fija, del User (mismo fallback que el
+-- servicio). El desempate por created_at/id es determinismo puro: `get_personal_budget`
+-- usa `.first()` sin ORDER BY, y con dos presupuestos del mismo dueño los dos planos
+-- podrían elegir filas distintas.
+-- ⚠️ ESTE BLOQUE ES ESPEJO del de litellm/extensions/custom_auth.py (_IDENTITY_SQL, camino
+-- de desarrollo con base compartida): los dos tienen que resolver el MISMO presupuesto o el
+-- corte de #76 dependería de qué env está cableada. Se cambian juntos.
+LEFT JOIN LATERAL (
+    SELECT b.max_spend_usd, b.current_spend_usd
+      FROM budgets b
+     WHERE (b.user_id IS NOT NULL AND b.user_id = k.user_id)
+        OR (b.group_id IS NOT NULL AND b.group_id = COALESCE(k.group_id, u.group_id))
+     ORDER BY CASE WHEN b.user_id = k.user_id THEN 0 ELSE 1 END, b.created_at, b.id
+     LIMIT 1
+) bud ON TRUE
 WHERE k.key_hash = :key_hash
 """)
 
@@ -66,6 +98,19 @@ def _require_internal_secret(x_basa_internal: str = Header(default="")) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
 
+def _a_float(valor) -> Optional[float]:
+    """`Numeric` de Postgres llega como `Decimal`; el contrato con el motor habla en
+    floats de JSON. `None` se preserva (significa "no hay presupuesto"), no se colapsa a 0:
+    un techo de 0.0 querría decir "sin crédito" y frenaría a un cliente que no tiene
+    presupuesto configurado."""
+    if valor is None:
+        return None
+    try:
+        return float(valor)
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+
+
 @router.get("/identity", dependencies=[Depends(_require_internal_secret)])
 def resolve_identity(key_hash: str = Query(min_length=64, max_length=64),
                      db: Session = Depends(get_db)):
@@ -75,7 +120,27 @@ def resolve_identity(key_hash: str = Query(min_length=64, max_length=64),
     debe traducirse a 401 del lado del cliente, distinta de "no pude preguntar" (que es
     fail-closed y sí es un error de transporte)."""
     row = db.execute(_IDENTITY_SQL, {"key_hash": key_hash}).mappings().first()
-    return {"row": dict(row) if row is not None else None}
+    if row is None:
+        return {"row": None}
+
+    datos = dict(row)
+    # Presupuesto (issue #76). Nombres EXACTOS del contrato con el motor:
+    # `max_budget_usd` (float|None) y `spend_usd` (float, SIEMPRE presente). Sin
+    # presupuesto configurado, el techo se OMITE —no viaja como 0— y el gasto vale 0.0:
+    # así el consumidor distingue "sin límite configurado" de "límite agotado".
+    maximo = _a_float(datos.pop("max_budget_usd", None))
+    gasto = _a_float(datos.pop("spend_usd", None))
+    if maximo is not None:
+        datos["max_budget_usd"] = maximo
+    datos["spend_usd"] = gasto if gasto is not None else 0.0
+
+    # Las columnas NULL se ELIMINAN del JSON, no viajan como `null`. Es el MISMO filtro que
+    # hoy aplica el consumidor al recibir (custom_auth.py:151-152) y que existe porque todo
+    # el motor lee con `identity.get(campo, DEFAULT)`: con la clave presente valiendo None,
+    # `.get("redact_enabled", True)` devuelve None (falsy) y el motor deja de enmascarar
+    # (verificado en vivo el 2026-07-27). Se aplica también acá, del lado del emisor, para
+    # que la garantía sea del contrato y no de la disciplina de cada consumidor.
+    return {"row": {k: v for k, v in datos.items() if v is not None}}
 
 
 # ── Auditoría durable del plano MOTOR ────────────────────────────────────────────────
@@ -107,8 +172,20 @@ class AuditEntry(BaseModel):
     compartido (misma confianza que cuando insertaba directo en la base), pero el saneo
     por vocabulario se mantiene igual (hallazgo A3 de la 027): la procedencia confiable
     evita la falsificación; el saneo evita que texto libre termine en el JSONB (C1).
-    Son dos defensas distintas y hacen falta las dos."""
-    tenant_id: str
+    Son dos defensas distintas y hacen falta las dos.
+
+    Fila de BLOQUEO (spec 031, contrato §Fila de bloqueo): el modelo ya la soporta sin
+    campos nuevos — `compliance_status` (convención D1: prefijo `blocked_`, filtro canónico
+    `LIKE 'blocked%'`) y `blocked_by_layer` (layer_key del registry 027) existen desde la
+    027 y son opcionales, así que el payload de ÉXITO de `basa_audit_logger` sigue
+    insertando exactamente igual. Lo único que se relaja acá es `tenant_id` (ver abajo)."""
+    # Antes obligatorio. Un bloqueo sin identidad resoluble (llave master, o el edge case
+    # "llave inválida" de la spec) llegaría sin tenant y el 422 de Pydantic haría
+    # DESAPARECER la fila del intento — exactamente el agujero que la 031 paga. La columna
+    # es NOT NULL, así que la ausencia se resuelve al tenant por defecto (mismo fallback
+    # que ya aplica el emisor en basa_audit_logger.py:152), y el intento queda registrado
+    # con atribución anónima en lugar de perderse.
+    tenant_id: Optional[str] = None
     user_id: Optional[str] = None
     api_key_id: Optional[str] = None
     model: str = "desconocido"
@@ -137,11 +214,38 @@ def _entidades_saneadas(items: list) -> list:
     return limpias
 
 
+def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
+    """Descuenta el pedido del presupuesto aplicable (issue #76, mitad "contador").
+
+    El plano chat ya lo hace en su camino feliz (chat.py:1353) con el MISMO servicio; el
+    plano motor no lo hacía por ningún lado, así que el gasto byok —la superficie principal
+    del producto— nunca movía el contador: el panel de costes mostraba solo el Playground.
+    Se reusa `BudgetService.update_budget` (nada de SQL duplicado): así la precedencia
+    personal→grupo, el reset y el conteo de tokens son los mismos en los dos planos.
+
+    El coste que se acumula es el del EVENTO, no el de la tabla local de precios: lo
+    calculó el motor contra la respuesta real del proveedor. Que el presupuesto y la suma
+    de `cost_usd` de `audit_logs` cierren es un requisito de auditoría — si acá
+    recalculáramos con `MODEL_PRICING`, la fila diría una cosa y el contador otra.
+    """
+    if not (entry.cost_usd or entry.prompt_tokens or entry.completion_tokens):
+        return  # fila de bloqueo (0/0/0): no hubo consumo que cargarle a nadie
+    BudgetService.update_budget(
+        db=db,
+        user_id=entry.user_id,
+        group_id=entry.user_group_id,
+        prompt_tokens=entry.prompt_tokens,
+        completion_tokens=entry.completion_tokens,
+        model=entry.model,
+        override_cost=Decimal(str(entry.cost_usd or 0)),
+    )
+
+
 @router.post("/audit", dependencies=[Depends(_require_internal_secret)])
 def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     entidades = _entidades_saneadas(entry.masked_entities)
     db.execute(_INSERT_AUDIT_SQL, {
-        "tenant_id": entry.tenant_id,
+        "tenant_id": entry.tenant_id or str(DEFAULT_TENANT_ID),
         "user_id": entry.user_id,
         "api_key_id": entry.api_key_id,
         "model": entry.model[:128],
@@ -159,4 +263,64 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
     })
     db.commit()
+
+    # DESPUÉS del commit de la fila y con su propio try: el registro es el entregable de
+    # este endpoint y no puede caerse porque el contador de gasto falle. Pero tampoco se
+    # traga en silencio —la 031 existe para terminar con eso—: queda en el log del servicio
+    # con nivel de error y traza.
+    try:
+        _acumular_gasto(db, entry)
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "[basa-internal] la fila de auditoría se registró pero el presupuesto NO se "
+            "actualizó (tenant=%s user=%s modelo=%s coste=%s)",
+            entry.tenant_id, entry.user_id, entry.model, entry.cost_usd)
     return {"ok": True}
+
+
+# ── Escribibilidad de la auditoría (spec 031, contrato §probe) ───────────────────────
+# El modo `closed` (BASA_AUDIT_FAIL) exige rechazar ANTES de llamar al proveedor cuando la
+# auditoría no puede escribirse — no gastar dinero en tráfico inauditable (FR-005). El
+# backend resuelve eso contra su propia sesión; el MOTOR no tiene driver de Postgres (misma
+# restricción que parió este plano), así que pregunta por HTTP.
+
+# Techo del `SELECT 1`: esto vive en el pre-call de cada pedido del guardrail en modo
+# closed, así que una base colgada tiene que resolverse como "no escribible" rápido en vez
+# de sumar su latencia al pedido. Constante y no env: el contrato §Config declara UNA sola
+# variable nueva (BASA_AUDIT_FAIL) y otra perilla sin documentar es deuda.
+_PROBE_TIMEOUT_MS = 1500
+
+
+@router.get("/audit/probe", dependencies=[Depends(_require_internal_secret)])
+def audit_probe(db: Session = Depends(get_db)):
+    """200 `{"writable": true}` si la base de auditoría contesta; 503 si no.
+
+    El 503 también trae `writable: false` en el cuerpo: el llamador puede decidir por
+    código de estado o por campo, sin que las dos lecturas se contradigan.
+
+    Es un `SELECT 1` (lo que fija el contrato), no un INSERT de prueba: la pregunta es "¿la
+    base responde?" y ensuciar `audit_logs` con filas sonda para responderla contaminaría
+    el registro que este endpoint protege.
+    """
+    try:
+        # Statement timeout LOCAL a la transacción de esta request: se va con el rollback y
+        # no toca la configuración del servidor ni la de las otras sesiones del pool.
+        db.execute(text(f"SET LOCAL statement_timeout = {_PROBE_TIMEOUT_MS}"))
+        db.execute(text("SELECT 1"))
+        return {"writable": True}
+    except Exception as exc:
+        logger.error("[basa-internal] auditoría NO escribible: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"writable": False,
+                     "detail": "la base de auditoría no responde"},
+        )
+    finally:
+        # Cierra la transacción abierta por el SET LOCAL/SELECT. `close()` de get_db la
+        # cerraría igual, pero dejarla abierta hasta ahí retiene la conexión del pool en
+        # una transacción idle por cada probe, que en modo closed es uno por pedido.
+        try:
+            db.rollback()
+        except Exception:  # base caída: el rollback también falla y da igual
+            pass

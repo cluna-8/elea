@@ -24,7 +24,14 @@ from ..services.budget_service import BudgetService, has_known_pricing
 from ..services.presidio_service import PresidioService
 from ..services.optimization_service import OptimizationService
 from ..services.compliance_service import ComplianceService
-from ..services.audit_service import AuditService
+from ..services.audit_service import (
+    AUDIT_FAIL_CLOSED,
+    AuditService,
+    AuditUnavailableError,
+    audit_fail_mode,
+    audit_writable,
+    record_audit_loss,
+)
 from ..services.guardian_service import GuardianService
 from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
 from ..services.governance_catalog import (
@@ -73,6 +80,15 @@ def _resolve_engine_timeout(default: float = 60.0) -> float:
 _ENGINE_TIMEOUT_SECONDS = _resolve_engine_timeout()
 
 _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama", "ollama_chat"}
+
+# Copy ÚNICO del 503 de `audit_fail=closed` (spec 031, contrato §Semántica closed). Se
+# comparte entre el pre-check del camino feliz y el fallo de escritura en un punto de
+# bloqueo a propósito: para el usuario los dos casos son el mismo hecho —"esta instalación
+# no sirve tráfico que no pueda registrar"— y dos textos distintos harían que el operador
+# creyera que son dos incidentes. Mismo tono honesto que el 402 de licencias (021).
+_AUDIT_CLOSED_DETAIL = (
+    "auditoría no disponible — la instalación exige registro (audit_fail=closed)"
+)
 
 
 # ── Gobernanza del plano chat (spec 027 US2, T027) ────────────────────────────────
@@ -398,19 +414,123 @@ async def _publish_block_event(*, db: Session, user, tenant_id, model: str, stat
     se publica antes del `raise`, con el mismo esquema que los otros dos productores
     (§8) más `applied_layers`/`blocked_by_layer`.
 
-    **La FILA DURABLE del bloqueo NO es alcance de esta spec** (corte explícito, D6 /
-    contrato §14): depende de la completitud de auditoría de la 018. Por eso acá NO se
-    reordena el `raise` ni se fuerza un `log_transaction` — se emite la atribución donde
-    ocurre el bloqueo, se publica al monitor, y el registro durable llega con la 018.
+    Esto es la VITRINA y nada más: efímera (TTL 300 s) y best-effort. La FILA DURABLE del
+    bloqueo la escribe `_registrar_bloqueo`, que llama a esta función después de persistir
+    (spec 031 D2 — el corte que la 027 declaró acá se pagó). Los dos registros conviven a
+    propósito y **cuentan la misma historia**: el `status` y la atribución son el MISMO
+    objeto, no dos derivaciones que puedan divergir (riesgo R3 del research). Lo único que
+    puede diferir es el desglose de entidades cuando el enmascarado está apagado: la fila
+    lleva el hallazgo del piso —es un registro de cumplimiento y tiene que decir qué había—
+    y la vitrina sigue mostrando lo que se enmascaró, que es cero. A propósito y en la
+    dirección segura: el registro durable nunca afirma menos de lo que se detectó.
 
     Sin `routing` a propósito: un pedido bloqueado se rechaza ANTES de llegar al modelo, y
     aunque el auto-router ya haya elegido destino, ese destino no procesó nada. Contarlo en
-    la vitrina daría a entender que el pedido viajó a ese modelo. La decisión igual queda
-    registrada donde corresponde el día que el bloqueo tenga fila durable (spec 018/031).
+    la vitrina daría a entender que el pedido viajó a ese modelo. La decisión SÍ va en la
+    fila durable (columna `routing_decision`), que es donde el officer necesita saber qué
+    modelo se habría usado sin que eso signifique que el texto viajó.
     """
     await _publish_chat_event(db=db, user=user, tenant_id=tenant_id, model=model,
                               status=status, prompt=prompt, entities=entities,
                               attribution=attribution)
+
+
+def _entidades_de_fila(floor_entities, detected) -> list:
+    """Desglose `[{"type","count"}]` que va a las columnas legadas de la fila durable.
+
+    Una sola expresión para los CUATRO escritores de fila de este plano (los 3 puntos de
+    bloqueo + el camino feliz), porque la regla es una sola: manda el hallazgo del PISO
+    (`_floor_entities`), que corre esté o no encendido el enmascarado; sólo cuando el
+    detector de piso no pudo confirmar nada (`None`) se cae a lo que el enmascarado sí
+    produjo. Nunca al revés: derivar de lo enmascarado haría que una fila con
+    `pii_masking=off` dijera "no hubo datos personales" justo cuando los hubo y encima
+    salieron en claro (el hallazgo adversarial que fija `test_chat_audit_row_pii`).
+    """
+    return _summarize_entities(detected) if floor_entities is None else floor_entities
+
+
+async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id,
+                             model: str, estado: str, prompt: str, entities, attribution,
+                             start_time: float, routing: Optional[dict] = None,
+                             entidades_fila: Optional[list] = None) -> None:
+    """**Registrar → bloquear**: fila DURABLE del bloqueo y, después, evento de vitrina.
+
+    Es el pago del corte D6 de la 027 (spec 031 US1/FR-002): los 3 puntos de bloqueo de este
+    endpoint publicaban al monitor efímero y hacían `raise` antes del único
+    `log_transaction`, así que a los 300 s de un intento impedido no quedaba NADA. Para un
+    producto que se vende como «logueamos todo para compliance», el evento más importante
+    —«se intentó y se impidió»— era el único sin rastro.
+
+    Decisiones que este helper encapsula (una sola vez, para los tres puntos):
+
+    * **La fila va PRIMERO.** Si el proceso muere en el medio, lo que tiene que sobrevivir
+      es el registro durable, no la vitrina.
+    * **Reusa `log_transaction`** (D2): un solo escritor, así el retry acotado y el contador
+      de pérdidas de la US2 valen también para los bloqueos, sin una segunda vía de
+      escritura que mantener.
+    * **`compliance_status` es el MISMO literal que ya viaja al monitor** (D1 + riesgo R3):
+      `blocked_prohibited` / `blocked_by_policy` / `blocked_residency`, que la tabla de la
+      vitrina ya conoce (`monitor.py`) y que entran al filtro canónico
+      `compliance_status LIKE 'blocked%'` sin columna nueva ni migración.
+    * **Tokens 0/0 y coste 0** (contrato §Fila de bloqueo): no se consumió proveedor. El
+      estado de bloqueo es EXPLÍCITO en su columna, así que el officer no tiene que
+      interpretar un 0/0 para saber que el pedido no se sirvió (FR-006).
+    * **Atribución completa**: usuario, llave, grupo y tenant si se resolvieron; `NULL`
+      cuando no (el intento se registra igual — edge case de la spec).
+
+    Qué pasa si la fila NO se puede escribir:
+
+    * `open` (default): el usuario recibe el MISMO 4xx de siempre. El escritor ya contó la
+      pérdida y la logueó con nivel error; hacer fallar distinto un bloqueo por un problema
+      de la base sería castigar al usuario por algo que no es suyo. El `except` ancho es
+      para lo IMPREVISTO (en `open` `log_transaction` no lanza): ahí se cuenta acá, porque
+      lo único innegociable es que la pérdida no sea silenciosa.
+    * `closed`: `AuditUnavailableError` → 503 honesto con el copy del contrato. La vitrina
+      se publica igual ANTES de responder: el bloqueo ocurrió de verdad y el operador tiene
+      que poder verlo mientras diagnostica la caída de la auditoría.
+
+    El parámetro se llama `estado` y no `status` porque en este módulo `status` es el enum
+    de códigos HTTP de FastAPI: el shadowing dejaría al helper sin poder nombrar su 503.
+    """
+    resumen = _summarize_entities(entities) if entidades_fila is None else entidades_fila
+    fallo_closed: Optional[AuditUnavailableError] = None
+    try:
+        AuditService.log_transaction(
+            db=db,
+            # Modelo EFECTIVO del pedido: con «auto» `request.model` ya es el destino que
+            # eligió el router, y lo que el usuario pidió viaja textual en `routing`.
+            model=model,
+            prompt_tokens=0,
+            completion_tokens=0,
+            cost_usd=0.0,
+            pii_detected=bool(resumen),
+            masked_entities=resumen,
+            compliance_status=estado,
+            latency_ms=int((time.time() - start_time) * 1000),
+            user_id=getattr(user, "id", None),
+            api_key_id=getattr(api_key_obj, "id", None),
+            user_group_id=getattr(group, "id", None),
+            applied_layers=attribution.applied_layers if attribution else None,
+            blocked_by_layer=attribution.blocked_by_layer if attribution else None,
+            routing_decision=routing,
+            tenant_id=tenant_id,
+        )
+    except AuditUnavailableError as exc:
+        fallo_closed = exc
+    except Exception as exc:  # noqa: BLE001
+        logger.error("audit: la fila durable del bloqueo (%s) no se pudo escribir: %s",
+                     estado, exc, exc_info=exc)
+        record_audit_loss(reason=f"chat/{estado}")
+
+    await _publish_block_event(db=db, user=user, tenant_id=tenant_id, model=model,
+                               status=estado, prompt=prompt, entities=entities,
+                               attribution=attribution)
+
+    if fallo_closed is not None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_AUDIT_CLOSED_DETAIL,
+        ) from fallo_closed
 
 
 def _layer_entry(attribution, layer_key: str) -> dict:
@@ -733,11 +853,18 @@ async def chat_completions(
         "flagged_high_risk": "flag",
     }.get(_ai_act_floor["status"], "allow"))
     if compliance_result["status"] == "blocked_prohibited":
-        # Punto de bloqueo 1/3 (contrato §13): la atribución se emite ACÁ, antes del raise.
-        await _publish_block_event(
-            db=db, user=user, tenant_id=_tenant_id, model=request.model,
-            status=compliance_result["status"], prompt=request.message, entities=[],
+        # Punto de bloqueo 1/3 (contrato §13 de la 027 + spec 031 D2): la fila DURABLE y la
+        # atribución se emiten ACÁ, antes del raise — registrar → bloquear.
+        #
+        # `entities=[]` no es un descuido: el AI-Act corta ANTES del pipeline de guardianes,
+        # así que en este punto todavía no corrió ningún detector. Una lista vacía dice "no
+        # hay medición", que es la verdad; inventar un cero sería afirmar que se miró.
+        await _registrar_bloqueo(
+            db=db, user=user, api_key_obj=api_key_obj, group=group, tenant_id=_tenant_id,
+            model=request.model, estado=compliance_result["status"],
+            prompt=request.message, entities=[],
             attribution=build_attribution(profile, verdicts),
+            start_time=start_time, routing=_routing_decision,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -861,13 +988,20 @@ async def chat_completions(
     # tarea que reescribe ese servicio, no de este archivo.
 
     if guardian_res["blocked"]:
-        # Punto de bloqueo 2/3 (contrato §13). `blocked_by_layer` sale del veredicto de la
-        # capa que bloqueó —`secret_detection` o `pii_detection`— y JAMÁS del nombre del
-        # guardián, que es editable y white-label (D6).
-        await _publish_block_event(
-            db=db, user=user, tenant_id=_tenant_id, model=request.model,
-            status="blocked_by_policy", prompt=request.message, entities=_entities,
+        # Punto de bloqueo 2/3 (contrato §13 + spec 031 D2). `blocked_by_layer` sale del
+        # veredicto de la capa que bloqueó —`secret_detection` o `pii_detection`— y JAMÁS
+        # del nombre del guardián, que es editable y white-label (D6).
+        #
+        # El desglose de entidades de la fila sale del PISO, igual que en el camino feliz:
+        # el pedido se bloqueó, pero saber CUÁNTOS datos personales llevaba es justo lo que
+        # el officer necesita del intento impedido.
+        await _registrar_bloqueo(
+            db=db, user=user, api_key_obj=api_key_obj, group=group, tenant_id=_tenant_id,
+            model=request.model, estado="blocked_by_policy",
+            prompt=request.message, entities=_entities,
             attribution=build_attribution(profile, verdicts, credentials=_credentials),
+            start_time=start_time, routing=_routing_decision,
+            entidades_fila=_entidades_de_fila(_floor_entities, _entities),
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -968,17 +1102,23 @@ async def chat_completions(
     for proj in active_projects:
         if proj.eu_region_required and not any(routed_model.startswith(p) for p in eu_safe_prefixes):
             logger.warning("EU region enforcement blocked model %s for project %s", routed_model, proj.name)
-            # Punto de bloqueo 3/3 (contrato §13). Este bloqueo sale de la residencia de
-            # datos del proyecto de cumplimiento, que **no es una capa del registry**: se
-            # publica el evento con la atribución de lo que sí corrió y `blocked_by_layer`
-            # queda en NULL. Atribuírselo a `ai_act_evaluation` porque "suena a
-            # cumplimiento" sería falsear el registro — y falsear la atribución es
-            # exactamente lo que esta spec existe para terminar. Si la residencia debe ser
-            # gobernable y atribuible, entra al catálogo por su propia spec.
-            await _publish_block_event(
-                db=db, user=user, tenant_id=_tenant_id, model=routed_model,
-                status="blocked_residency", prompt=request.message, entities=_entities,
+            # Punto de bloqueo 3/3 (contrato §13 + spec 031 D2). Este bloqueo sale de la
+            # residencia de datos del proyecto de cumplimiento, que **no es una capa del
+            # registry**: la fila y el evento llevan la atribución de lo que sí corrió y
+            # `blocked_by_layer` queda en NULL — que en la fila durable significa "bloqueado
+            # por una regla fuera del catálogo de capas", legible junto al
+            # `compliance_status=blocked_residency` que sí nombra el motivo. Atribuírselo a
+            # `ai_act_evaluation` porque "suena a cumplimiento" sería falsear el registro —
+            # y falsear la atribución es exactamente lo que esta spec existe para terminar.
+            # Si la residencia debe ser gobernable y atribuible, entra al catálogo por su
+            # propia spec.
+            await _registrar_bloqueo(
+                db=db, user=user, api_key_obj=api_key_obj, group=group,
+                tenant_id=_tenant_id, model=routed_model, estado="blocked_residency",
+                prompt=request.message, entities=_entities,
                 attribution=build_attribution(profile, verdicts, credentials=_credentials),
+                start_time=start_time, routing=_routing_decision,
+                entidades_fila=_entidades_de_fila(_floor_entities, _entities),
             )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1023,6 +1163,30 @@ async def chat_completions(
     # `ai_engine_client.get_active_guardrail_names`, que devuelve nombres sin el tipo y por
     # lo tanto no permite mapear cada guardrail a su capa.
     active_engine_guardrails = _engine_guardrails_for_profile(_guardians, profile)
+
+    # ── `audit_fail=closed`: no se gasta proveedor en tráfico inauditable ─────────────
+    #
+    # FR-005 es literal —"ANTES de llamar al proveedor"— y por eso el chequeo va acá y no
+    # junto al `log_transaction` del final: para cuando la fila se escribe, la respuesta ya
+    # se pagó y ya no se puede des-servir (el caso streaming queda documentado en la spec:
+    # la petición aceptada se completa, el corte aplica a las siguientes).
+    #
+    # En `open` (default, y el del piloto) NO se ejecuta NADA de esto: ni un `SELECT 1` ni
+    # una lectura extra. La instalación que no pidió fail-closed no paga su latencia.
+    #
+    # `audit_writable` cierra su propia transacción con `rollback` —obligado, porque deja un
+    # `statement_timeout` de sentencia que si no moriría pegado al resto del request—, así
+    # que se llama en el único punto del endpoint donde no hay trabajo sin commitear: los
+    # bloqueos ya salieron por `raise` y el `review_entry` todavía no se agregó. Los objetos
+    # ORM ya cargados quedan expirados y se refrescan solos al leerlos; es un par de SELECT
+    # extra que sólo paga el modo `closed` durante una caída de la auditoría.
+    if audit_fail_mode() == AUDIT_FAIL_CLOSED and not audit_writable(db):
+        logger.error("audit: modo closed y la base de auditoría no responde — se rechaza el "
+                     "pedido ANTES de llamar al proveedor (model=%s)", routed_model)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_AUDIT_CLOSED_DETAIL,
+        )
 
     try:
         async with httpx.AsyncClient() as client:
@@ -1296,8 +1460,11 @@ async def chat_completions(
     # camino de bloqueo no llega hasta acá, hace `raise` antes). Ahí se cae a lo que el
     # enmascarado sí produjo: es menos que la verdad pero nunca es una afirmación falsa —
     # nunca dice "no hubo PII" habiendo enmascarado alguna.
-    _pii_row_entities = (_summarize_entities(entities_detected) if _floor_entities is None
-                         else _floor_entities)
+    #
+    # La regla vive en `_entidades_de_fila` porque los 3 puntos de bloqueo (spec 031) la
+    # necesitan idéntica: una fila de bloqueo que contara la PII distinto que una servida
+    # haría que el mismo texto apareciera con dos hallazgos según lo hubiéramos dejado pasar.
+    _pii_row_entities = _entidades_de_fila(_floor_entities, entities_detected)
     _pii_row_detected = bool(_pii_row_entities)
 
     # Save to Audit Log
