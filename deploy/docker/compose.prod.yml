@@ -25,6 +25,9 @@ services:
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
       LITELLM_API_BASE: "http://litellm:4000"
+      # Timeout del backend hacia el motor (030/T018): debe superar al del router del
+      # motor (120s con modelos locales lentos) o corta él primero a mitad de un fallback.
+      BASA_ENGINE_TIMEOUT_SECONDS: "${BASA_ENGINE_TIMEOUT_SECONDS:-150}"
       # El alta de usuarios crea la identidad en el motor con la master key.
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.

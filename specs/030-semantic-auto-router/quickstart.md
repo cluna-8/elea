@@ -1,5 +1,24 @@
 # Quickstart — 030 Auto-router semántico
 
+> **RESULTADOS MEDIDOS (28-jul, stack camara vivo, checkpoints T001/T010/T015/T018)**
+> - T001: motor `/v1/embeddings` → qwen3-embedding:0.6b desde el backend: 1024 dims,
+>   2,36 s frío / **0,12 s caliente** (SC-002 ✓).
+> - SC-001: benchmark 9 queries contra el seed vivo = **9/9** (la 3ª ruta trivial arregló
+>   el único fallo del 8/9 original).
+> - SC-004: 3 prompts → gpt-4o (0.583) / local below_threshold / local trivial (1.0),
+>   visibles en «Conexiones en vivo» con chip 🧭 y en `audit_logs.routing_decision`.
+> - SC-003: switch OFF por PUT → reason `switch_off`, **cero** llamadas a /v1/embeddings
+>   (contadas en logs del motor), config caliente aplica al siguiente request.
+> - SC-005: gpt-4o con api_base roto → 200 por el local, `model_used` =
+>   `ollama_chat/qwen3:4b` (modelo REAL), coste 0, **17,4 s** (el grueso es la generación
+>   con thinking del qwen; el spec decía ≤15 s — aceptado con nota).
+> - Hallazgo T018: el timeout 30 s del router del motor cortaba generaciones locales
+>   largas → subido a **120 s** (template + volumen) y `BASA_ENGINE_TIMEOUT_SECONDS`
+>   parametrizado en compose (default 150 el backend, para no cortar él primero).
+> - Nota vitrina: un prompt de resumen REAL (con el texto pegado) diluye la similitud y
+>   puede caer al default local — comportamiento correcto (barato y honesto), pero para
+>   la demo usar instrucciones cortas tipo «resumime este documento en tres puntos».
+
 ## Prerrequisitos (una vez)
 
 ```bash
