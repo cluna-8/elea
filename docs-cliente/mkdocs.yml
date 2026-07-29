@@ -1,0 +1,75 @@
+# Sitio de documentación de CLIENTE FINAL (admin de la organización + usuarios).
+# Separado por construcción del sitio de producto (docs/) que es para distribuidores/
+# operadores: aquí JAMÁS entra contenido de operación, licenciamiento ni economía
+# (mismo espíritu FR-007/FR-018 de la 022). Marca-neutra; la marca entra por overlay
+# INHERIT (mkdocs.<slug>.yml) derivado del brand-pack, igual que el sitio de producto.
+site_name: Basa Secure AI Gateway
+site_description: Guía de uso para administradores y usuarios
+site_url: !ENV [DOCS_CLIENTE_SITE_URL, "http://localhost:8093/"]
+
+docs_dir: docs
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  language: es
+  icon:
+    logo: material/shield-check
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Modo oscuro
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Modo claro
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+extra:
+  generator: false
+
+plugins:
+  - search:
+      lang:
+        - es
+  - privacy # 0 egress: cualquier asset externo se embebe en build
+  - offline # el sitio funciona desde file:// (entregable en zip/USB)
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Inicio: index.md
+  - Guía del administrador:
+      - Primeros pasos: admin/index.md
+      - Dar de alta usuarios: admin/usuarios.md
+      - Crear llaves de acceso: admin/llaves.md
+      - Configurar modelos de IA: admin/modelos.md
+      - Presupuestos y límites de gasto: admin/presupuestos.md
+      - Consultar la auditoría: admin/auditoria.md
+      - Políticas de protección de datos: admin/politicas.md
+  - Guía del usuario:
+      - Primeros pasos: usuario/index.md
+      - Conectar tu herramienta de IA: usuario/conectar-herramienta.md
+      - Extensión del navegador: usuario/extension.md
+      - Datos enmascarados y bloqueos: usuario/proteccion-datos.md

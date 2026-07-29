@@ -1,0 +1,8 @@
+# Overlay de marca 'camara-comercio' para el sitio de CLIENTE — derivado a mano del
+# brand-pack del bundle (profile/brand.json). Mismo patrón INHERIT que el sitio de
+# producto (022): solo tokens de marca, contenido intacto.
+INHERIT: mkdocs.yml
+site_name: "Cámara de Comercio — AI Gateway"
+site_description: "Uso seguro y auditado de IA"
+extra_css:
+  - assets/brand/extra.css
