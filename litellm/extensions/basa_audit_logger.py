@@ -281,6 +281,20 @@ class BasaAuditLogger(CustomLogger):
         # antes se leía un solo home y los eventos byok bridged salían anónimos).
         basa = policy.proxy_identity_from(data) or policy.proxy_identity_from(kwargs)
 
+        # Sin identidad de Connection = llamada INTERNA con la master key (el chat de la
+        # consola, la generación de frases del router, embeddings…): ese tráfico ya lo
+        # registra el plano que lo originó (chat.py escribe su propia fila) y registrarlo
+        # acá también DUPLICABA cada petición del Playground en Logs de Auditoría, con el
+        # costo contado dos veces en los agregados (hallazgo de JF, 29-jul: 2 llamadas →
+        # 3 filas; qwen3:4b anónima + camara-comercio-local con usuario eran EL MISMO
+        # pedido). Cada plano registra solo su propio tráfico: este logger existe para el
+        # byok de herramientas, que siempre llega con identidad resuelta por custom_auth.
+        if not (basa and (basa.get("key_id") or basa.get("client_id"))):
+            logger.debug("pedido interno sin identidad de Connection: lo registra su "
+                         "plano de origen, no este logger (modelo=%s)",
+                         kwargs.get("model") or data.get("model"))
+            return
+
         request_md = {}
         for key in ("litellm_metadata", "metadata"):
             home = kwargs.get(key) or data.get(key)

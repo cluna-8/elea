@@ -328,6 +328,32 @@ async def test_el_hook_de_exito_emite_la_fila_al_plano_interno(monkeypatch, cont
 
 
 @pytest.mark.asyncio
+async def test_sin_identidad_de_connection_no_se_registra(monkeypatch, contador, esperas):
+    """Llamada INTERNA con la master key (chat de la consola, generación de frases del
+    router, embeddings): NO lleva identidad Basa y su plano de origen ya escribe la fila
+    canónica. Registrarla acá también duplicaba cada petición del Playground en Logs
+    (hallazgo JF 29-jul: 2 llamadas → 3 filas, costo contado dos veces). Cero POST, cero
+    pérdida contada: no es un fallo, es tráfico que no le pertenece a este plano."""
+    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    plano = _PlanoInterno([200]).instalar(monkeypatch)
+    inicio = datetime(2026, 7, 28, 10, 0, 0)
+    fin = datetime(2026, 7, 28, 10, 0, 1)
+    kwargs = {
+        "model": "camara-comercio-local",
+        "litellm_params": {},
+        "metadata": {},
+        "response_cost": 0.0,
+    }
+    respuesta = type("_R", (), {"usage": {"prompt_tokens": 23, "completion_tokens": 1972}})()
+
+    await logger_mod.basa_audit_logger_instance.async_log_success_event(
+        kwargs, respuesta, inicio, fin)
+
+    assert plano.posts == []
+    assert contador["incrs"] == []
+
+
+@pytest.mark.asyncio
 async def test_una_excepcion_inesperada_del_hook_tambien_cuenta(monkeypatch, contador, logs):
     """El hook nunca voltea la respuesta al cliente, pero si revienta el pedido NO quedó
     registrado — y eso se cuenta igual que un POST agotado."""
