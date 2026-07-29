@@ -4,18 +4,18 @@ import { api } from "../services/api";
 type Tab = "projects" | "dpas" | "dsr" | "retention" | "dpo" | "consents";
 
 const LEGAL_BASIS_LABELS: Record<string, string> = {
-  art_9_2_h: "Art. 9(2)(h) — Prestación sanitaria",
-  art_9_2_j: "Art. 9(2)(j) — Interés público / investigación",
-  art_9_2_a: "Art. 9(2)(a) — Consentimiento explícito",
-  art_6_1_c: "Art. 6(1)(c) — Obligación legal",
-  art_6_1_e: "Art. 6(1)(e) — Misión de interés público",
+  art_9_2_h: "Art. 9(2)(h): prestación sanitaria",
+  art_9_2_j: "Art. 9(2)(j): interés público o investigación",
+  art_9_2_a: "Art. 9(2)(a): consentimiento explícito",
+  art_6_1_c: "Art. 6(1)(c): obligación legal",
+  art_6_1_e: "Art. 6(1)(e): misión de interés público",
 };
 
 const RISK_LABELS: Record<string, { label: string; color: string }> = {
   minimal: { label: "Riesgo Mínimo", color: "text-success" },
   limited: { label: "Riesgo Limitado", color: "text-primary" },
-  high_risk_annex3: { label: "Alto Riesgo — Annex III", color: "text-warning" },
-  high_risk_annex1: { label: "Alto Riesgo — Annex I (MDR)", color: "text-danger" },
+  high_risk_annex3: { label: "Alto riesgo (Annex III)", color: "text-warning" },
+  high_risk_annex1: { label: "Alto riesgo (Annex I, MDR)", color: "text-danger" },
 };
 
 const DPA_STATUS: Record<string, { label: string; color: string }> = {
@@ -353,7 +353,7 @@ export const CompliancePage: React.FC = () => {
               pharmacovigilance: "Farmacovigilancia",
               research: "Investigación",
               administrative: "Administrativo",
-              clinical_decision: "Decisión clínica (legacy)",
+              clinical_decision: "Decisión clínica (en desuso)",
               sin_especificar: "Sin especificar",
             };
             const PURPOSE_COLORS: Record<string, string> = {
@@ -397,7 +397,7 @@ export const CompliancePage: React.FC = () => {
           <div className="bg-surface border border-border rounded-xl p-5 space-y-3">
             <div>
               <p className="text-sm font-bold text-text-primary">Control de Revisión Humana</p>
-              <p className="text-[10px] text-text-secondary mt-0.5">Activar o desactivar la cola de revisión por proyecto. Cuando está activo, cada respuesta de IA requiere validación antes de considerarse definitiva.</p>
+              <p className="text-[10px] text-text-secondary mt-0.5">Activa o desactiva la cola de revisión por proyecto. Con la cola activa, cada respuesta de IA necesita validación antes de darse por definitiva.</p>
             </div>
             {projects.filter((p: any) => p.is_active).length === 0 ? (
               <p className="text-xs text-text-secondary">No hay proyectos activos.</p>
@@ -435,7 +435,7 @@ export const CompliancePage: React.FC = () => {
               <button
                 onClick={async () => { try { await api.exportRAT(); } catch (e: any) { showMsg(e.message, true); } }}
                 className="px-3 py-1.5 text-xs border border-primary/40 text-primary rounded hover:bg-primary/10 transition-colors">
-                ↓ RAT — Art. 30 GDPR (CSV)
+                ↓ RAT (Art. 30 GDPR, CSV)
               </button>
               <button
                 onClick={async () => { try { await api.exportHumanReviewLog(); } catch (e: any) { showMsg(e.message, true); } }}
@@ -458,7 +458,7 @@ export const CompliancePage: React.FC = () => {
           <div className="bg-surface border border-border rounded-xl p-5 space-y-4">
           <div className="flex items-start gap-2 bg-surface-2 border border-border rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>La revisión en esta cola es un <strong className="text-text-primary">proceso interno de supervisión</strong>. No constituye validación certificada ni reemplaza la responsabilidad profesional sobre el uso de la respuesta de IA.</span>
+            <span>Esta cola es un <strong className="text-text-primary">proceso interno de supervisión</strong>. No es una validación certificada ni reemplaza la responsabilidad profesional sobre el uso de la respuesta.</span>
           </div>
             <div className="flex items-center justify-between">
               <div>
@@ -492,7 +492,7 @@ export const CompliancePage: React.FC = () => {
                     pharmacovigilance: "Farmacovigilancia",
                     research: "Investigación",
                     administrative: "Administrativo",
-                    clinical_decision: "Decisión clínica (legacy)",
+                    clinical_decision: "Decisión clínica (en desuso)",
                   };
                   return (
                     <div key={r.review_token} className="border border-warning/20 bg-warning/5 rounded-lg overflow-hidden">
@@ -500,7 +500,7 @@ export const CompliancePage: React.FC = () => {
                       <div className="flex items-center justify-between px-4 py-3 border-b border-warning/10">
                         <div className="flex items-center gap-3 flex-wrap">
                           <span className="text-[10px] font-mono text-text-secondary">
-                            {r.created_at ? new Date(r.created_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                            {r.created_at ? new Date(r.created_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "sin fecha"}
                           </span>
                           {ctx?.processing_purpose && (
                             <span className="text-[9px] px-2 py-0.5 rounded bg-primary/10 border border-primary/30 text-primary font-semibold">
@@ -534,18 +534,18 @@ export const CompliancePage: React.FC = () => {
                       <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px]">
                         <div>
                           <p className="text-text-secondary uppercase tracking-wider mb-0.5">Modelo</p>
-                          <p className="text-text-primary font-mono">{ctx?.model || "—"}</p>
+                          <p className="text-text-primary font-mono">{ctx?.model || "sin dato"}</p>
                         </div>
                         <div>
                           <p className="text-text-secondary uppercase tracking-wider mb-0.5">Tokens (prompt / resp.)</p>
                           <p className="text-text-primary font-mono">
-                            {ctx?.prompt_tokens ?? "—"} / {ctx?.completion_tokens ?? "—"}
+                            {ctx?.prompt_tokens ?? "sin dato"} / {ctx?.completion_tokens ?? "sin dato"}
                           </p>
                         </div>
                         <div>
                           <p className="text-text-secondary uppercase tracking-wider mb-0.5">Estado compliance</p>
                           <p className={`font-semibold ${ctx?.compliance_status === "passed" ? "text-success" : "text-warning"}`}>
-                            {ctx?.compliance_status || "—"}
+                            {ctx?.compliance_status || "sin dato"}
                           </p>
                         </div>
                         <div>
@@ -573,11 +573,11 @@ export const CompliancePage: React.FC = () => {
                           </div>
                         ) : (
                           <p className="text-xs text-text-tertiary italic">
-                            Texto no disponible — esta revisión fue generada antes de la actualización del sistema.
+                            Texto no disponible: esta revisión se generó antes de una actualización del sistema.
                           </p>
                         )}
                         <p className="text-[9px] text-text-tertiary mt-1.5">
-                          El prompt del paciente no se almacena (GDPR Art. 5 — minimización de datos).
+                          El prompt del paciente no se almacena (GDPR Art. 5, minimización de datos).
                         </p>
                       </div>
                     </div>
@@ -679,7 +679,7 @@ export const CompliancePage: React.FC = () => {
                         <td className="p-3 text-text-secondary">{d.dpa_type}</td>
                         <td className="p-3">{d.processing_region.toUpperCase()}</td>
                         <td className="p-3">{d.covers_special_categories ? <span className="text-success">Sí</span> : <span className="text-danger">No</span>}</td>
-                        <td className="p-3 text-text-secondary">{d.expiration_date || "—"}</td>
+                        <td className="p-3 text-text-secondary">{d.expiration_date || "sin fecha"}</td>
                         <td className="p-3"><span className={`font-semibold ${st.color}`}>{st.label}</span></td>
                         <td className="p-3 flex gap-2">
                           <button onClick={() => openEditDPA(d)} className="text-primary hover:underline">Editar</button>
@@ -704,7 +704,7 @@ export const CompliancePage: React.FC = () => {
         <div className="space-y-6">
           <div className="flex items-start gap-2 bg-surface-2 border border-border rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>Este módulo es una herramienta de <strong className="text-text-primary">registro y seguimiento interno</strong>. No sustituye el proceso legal de respuesta al interesado ni garantiza cumplimiento automatizado del plazo de 30 días. Validar con el DPO y asesoría jurídica antes de usar en producción.</span>
+            <span>Este módulo es un <strong className="text-text-primary">registro y seguimiento interno</strong>. No sustituye el proceso legal de respuesta al interesado ni controla por sí solo el plazo de 30 días.</span>
           </div>
           {/* Search */}
           <div className="bg-surface border border-border rounded-lg p-4 space-y-3">
@@ -718,10 +718,10 @@ export const CompliancePage: React.FC = () => {
             {dsrSearchResult && (
               <div className="space-y-2">
                 <p className="text-xs text-text-primary">Sujeto: <span className="font-mono text-primary">{dsrSearchResult.subject_identifier}</span></p>
-                <p className="text-xs text-text-secondary">{dsrSearchResult.audit_log_count} registros en audit log · {dsrSearchResult.dsr_requests.length} solicitudes previas</p>
+                <p className="text-xs text-text-secondary">{dsrSearchResult.audit_log_count} registros de auditoría · {dsrSearchResult.dsr_requests.length} solicitudes previas</p>
                 {dsrSearchResult.audit_logs.slice(0, 5).map((l: any) => (
                   <div key={l.id} className="text-[10px] font-mono text-text-secondary bg-surface-2 px-3 py-1 rounded">
-                    {l.timestamp?.slice(0, 19)} — {l.model} — {l.compliance_status} — PII: {l.pii_detected ? "sí" : "no"}
+                    {l.timestamp?.slice(0, 19)} · {l.model} · {l.compliance_status} · PII: {l.pii_detected ? "sí" : "no"}
                   </div>
                 ))}
               </div>
@@ -757,7 +757,7 @@ export const CompliancePage: React.FC = () => {
                       <td className="p-3 font-sans">{DSR_TYPE_LABELS[d.request_type] || d.request_type}</td>
                       <td className="p-3 text-primary">{d.subject_identifier}</td>
                       <td className="p-3 text-text-secondary">{d.date_received}</td>
-                      <td className="p-3 text-text-secondary">{d.handled_by || "—"}</td>
+                      <td className="p-3 text-text-secondary">{d.handled_by || "sin asignar"}</td>
                       <td className="p-3">
                         <span className={`font-semibold ${d.status === "completed" ? "text-success" : d.status === "open" ? "text-warning" : "text-text-secondary"}`}>
                           {d.status === "open" ? "Abierta" : d.status === "completed" ? "Completada" : d.status}
@@ -807,14 +807,13 @@ export const CompliancePage: React.FC = () => {
                 <span className="w-1.5 h-1.5 rounded-full bg-warn" />
                 Purga automática: pendiente de activación
               </span>
-              <span className="text-[11px] font-semibold text-warn">Llega con la actualización 018.</span>
+              <span className="text-[11px] font-semibold text-warn">Llega en una próxima versión.</span>
             </div>
             <p className="text-xs text-text-secondary leading-relaxed">
-              Hoy este valor es la <strong className="text-text-primary">política de retención declarada por la organización</strong>: queda
-              registrada con su justificación, fechada y con autor, y es el período que aplicará el borrado automático
-              cuando se active — no requerirá volver a configurarla. Ningún proceso elimina registros por su cuenta en
-              esta versión: <strong className="text-text-primary">la supresión efectiva es hoy un procedimiento operativo del administrador</strong> de
-              la instalación, y las solicitudes de los interesados se registran y siguen en «Derechos del Interesado».
+              Hoy este valor es la <strong className="text-text-primary">política de retención declarada por la organización</strong>:
+              queda registrada con su justificación, su fecha y su autor, y será el período que aplique el borrado
+              automático cuando se active. En esta versión ningún proceso elimina registros por su cuenta:{" "}
+              <strong className="text-text-primary">la supresión la ejecuta el administrador de la instalación</strong>.
             </p>
           </div>
 
@@ -828,14 +827,14 @@ export const CompliancePage: React.FC = () => {
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-sm font-semibold text-text-primary">{LOG_TYPE_LABELS[r.log_type] || r.log_type}</p>
-                    <p className="text-[10px] font-mono text-text-secondary">Última actualización: {r.last_updated?.slice(0, 19) || "—"} {r.updated_by ? `por ${r.updated_by}` : ""}</p>
+                    <p className="text-[10px] font-mono text-text-secondary">Última actualización: {r.last_updated?.slice(0, 19) || "sin fecha"} {r.updated_by ? `por ${r.updated_by}` : ""}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {/* El chip por fila evita que el estado se pierda al hacer scroll: el
                         admin edita el número acá abajo, no en la cabecera. */}
                     <span
                       className="text-[9px] font-semibold uppercase tracking-wide text-warn border border-warn/30 rounded px-1.5 py-0.5"
-                      title="La purga automática llega con la actualización 018. Hoy este valor es la política declarada de la organización."
+                      title="La purga automática llega en una próxima versión. Hoy este valor es la política declarada de la organización."
                     >
                       Declarada
                     </span>
@@ -871,7 +870,7 @@ export const CompliancePage: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-start gap-2 bg-surface-2 border border-border rounded-lg px-4 py-3 text-[11px] text-text-secondary">
             <span className="text-warning font-bold shrink-0">⚠</span>
-            <span>Este módulo registra consentimientos para <strong className="text-text-primary">auditoría interna</strong>. No incluye firma digital ni verificación criptográfica. El consentimiento legalmente válido debe obtenerse a través del sistema de origen o proceso físico documentado.</span>
+            <span>Este módulo registra consentimientos para <strong className="text-text-primary">auditoría interna</strong>. No incluye firma digital: el consentimiento legalmente válido se obtiene en el sistema de origen o en papel.</span>
           </div>
           <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
             <strong>GDPR Art. 7 y 9:</strong> El consentimiento para el uso de IA en datos de salud debe ser explícito, revocable en cualquier momento y documentado con marca temporal e IP de origen.
@@ -916,13 +915,13 @@ export const CompliancePage: React.FC = () => {
                         <td className="p-3 font-semibold">{user?.username || <span className="font-mono text-text-secondary text-[10px]">{String(c.user_id).slice(0, 8)}…</span>}</td>
                         <td className="p-3 text-text-secondary">{CONSENT_LABELS[c.consent_type] || c.consent_type}</td>
                         <td className="p-3 font-mono text-text-secondary">{c.version}</td>
-                        <td className="p-3 font-mono text-text-secondary text-[10px]">{c.granted_at ? new Date(c.granted_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="p-3 font-mono text-text-secondary text-[10px]">{c.granted_at ? new Date(c.granted_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "sin fecha"}</td>
                         <td className="p-3">
                           {c.is_active
                             ? <span className="text-success font-semibold">Activo</span>
                             : <span className="text-text-tertiary">Revocado</span>}
                         </td>
-                        <td className="p-3 font-mono text-text-secondary text-[10px]">{c.revoked_at ? new Date(c.revoked_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                        <td className="p-3 font-mono text-text-secondary text-[10px]">{c.revoked_at ? new Date(c.revoked_at).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" }) : "sin revocar"}</td>
                         <td className="p-3">
                           {c.is_active && (
                             <button onClick={() => revokeConsent(String(c.id))} className="text-danger hover:underline text-[10px]">Revocar</button>
@@ -990,7 +989,7 @@ export const CompliancePage: React.FC = () => {
               {[
                 { key: "is_active", label: "Proyecto activo" },
                 { key: "eu_region_required", label: "Forzar procesamiento en región EU" },
-                { key: "ai_disclosure_enabled", label: "Notificación IA (Art. 50 — ya obligatoria)" },
+                { key: "ai_disclosure_enabled", label: "Notificación IA (Art. 50, obligatoria)" },
                 { key: "human_review_required", label: "Revisión humana obligatoria en respuestas de alto riesgo" },
               ].map(({ key, label }) => (
                 <label key={key} className="flex items-center gap-2 cursor-pointer">
@@ -1075,7 +1074,7 @@ export const CompliancePage: React.FC = () => {
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={dpaForm.covers_special_categories} onChange={e => setDPAForm((d: any) => ({ ...d, covers_special_categories: e.target.checked }))}
                 className="w-3 h-3 accent-primary" />
-              <span className="text-xs text-text-primary">Cubre datos de categoría especial (Art. 9 GDPR — datos de salud)</span>
+              <span className="text-xs text-text-primary">Cubre datos de categoría especial (Art. 9 GDPR, datos de salud)</span>
             </label>
 
             <div className="flex gap-2 justify-end pt-2">
@@ -1104,7 +1103,7 @@ export const CompliancePage: React.FC = () => {
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Notas del revisor {reviewModal.action === "rejected" && "*"}</label>
               <textarea rows={3} value={reviewNotes} onChange={e => setReviewNotes(e.target.value)}
-                placeholder={reviewModal.action === "approved" ? "Opcional — observaciones" : "Motivo del rechazo"}
+                placeholder={reviewModal.action === "approved" ? "Observaciones (opcional)" : "Motivo del rechazo"}
                 className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary resize-none" />
             </div>
             <div className="flex gap-2 justify-end pt-1">
@@ -1132,7 +1131,7 @@ export const CompliancePage: React.FC = () => {
               <label className="text-xs text-text-secondary">Usuario *</label>
               <select value={consentForm.user_id} onChange={e => setConsentForm(f => ({ ...f, user_id: e.target.value }))}
                 className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
-                <option value="">— Seleccionar usuario —</option>
+                <option value="">Seleccionar usuario</option>
                 {users.map((u: any) => <option key={u.id} value={u.id}>{u.username} ({u.email})</option>)}
               </select>
             </div>
@@ -1143,7 +1142,7 @@ export const CompliancePage: React.FC = () => {
                 className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary">
                 <option value="ai_use">Uso de IA</option>
                 <option value="data_processing">Tratamiento de datos</option>
-                <option value="special_category">Categoría especial (Art. 9 — datos de salud)</option>
+                <option value="special_category">Categoría especial (Art. 9, datos de salud)</option>
               </select>
             </div>
 

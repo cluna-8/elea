@@ -162,7 +162,8 @@ function erroresDeRuta(ruta: RouterRoute): {
   if (!ruta.target_model?.trim()) errores.target = "Elegí el modelo destino.";
   if (!(ruta.score_threshold > 0 && ruta.score_threshold <= 1))
     errores.umbral = "El umbral debe estar entre 0.05 y 1.";
-  if (!ruta.utterances?.length) errores.utterances = "Agregá al menos una frase de ejemplo.";
+  if (!ruta.utterances?.length)
+    errores.utterances = "Generá o agregá al menos una frase de ejemplo.";
   return errores;
 }
 
@@ -199,6 +200,19 @@ export const ModelsPage: React.FC = () => {
   // Borrador del input de frases POR RUTA (índice → texto a medio escribir). Vive FUERA del
   // config a propósito: un tipeo sin confirmar no ensucia la config ni viaja en el PUT.
   const [utteranceDraft, setUtteranceDraft] = useState<Record<number, string>>({});
+  // Acordeón: UNA ruta abierta a la vez (null = todas plegadas). El panel entero tiene que
+  // entrar en una pantalla con la lista plegada; abrir todo a la vez era la queja concreta.
+  const [rutaAbierta, setRutaAbierta] = useState<number | null>(null);
+  // La calibración es el bloque LARGO (chips de frases): dentro de la ruta abierta arranca
+  // colapsada, porque el flujo objetivo no la necesita — se generan y listo.
+  const [calibracionAbierta, setCalibracionAbierta] = useState(false);
+  // Índice generando (null = ninguno) y el error de ESA generación, mostrado al lado del
+  // botón y no en la banda global de arriba: el admin está mirando acá abajo.
+  const [generandoRuta, setGenerandoRuta] = useState<number | null>(null);
+  const [errorGeneracion, setErrorGeneracion] = useState("");
+  // Ruta recién creada: le pone el foco al nombre (autoFocus se dispara al montarse el
+  // bloque expandido) sin necesidad de forwardRef en Field.
+  const [rutaNueva, setRutaNueva] = useState<number | null>(null);
 
   // El pseudo-modelo «auto» lo INYECTA `GET /chat/models` para el dropdown del chat
   // (contrato 030): no es una entrada del catálogo del motor, así que no se gestiona ni se
@@ -212,6 +226,26 @@ export const ModelsPage: React.FC = () => {
     if (catalogFilter === "local") return m.provider === "ollama" || m.provider === "local";
     return true;
   });
+
+  /** Plegar todo y limpiar lo que sólo tiene sentido con una ruta abierta. */
+  const cerrarAcordeon = () => {
+    setRutaAbierta(null);
+    setCalibracionAbierta(false);
+    setErrorGeneracion("");
+    setRutaNueva(null);
+  };
+
+  /** Abre la ruta `i` (y cierra la que estuviera abierta) o la pliega si ya lo estaba. */
+  const alternarRuta = (i: number) => {
+    if (rutaAbierta === i) {
+      cerrarAcordeon();
+      return;
+    }
+    setRutaAbierta(i);
+    setCalibracionAbierta(false);
+    setErrorGeneracion("");
+    setRutaNueva(null);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -237,6 +271,7 @@ export const ModelsPage: React.FC = () => {
       setRouterCfg(normalizarRouter(await api.getRouterConfig()));
       setRouterDirty(false);
       setUtteranceDraft({});
+      cerrarAcordeon();
     } catch (err: any) {
       setError(err?.message || "No se pudo cargar la configuración del ruteo inteligente.");
     } finally {
@@ -270,7 +305,10 @@ export const ModelsPage: React.FC = () => {
       utterances: (routerCfg?.routes[indice]?.utterances || []).filter((_, p) => p !== posicion),
     });
 
-  const agregarRuta = () =>
+  /** Nace YA EXPANDIDA y con el foco en el nombre: el flujo es nombre → descripción →
+   *  modelo → «Generar ejemplos» → guardar, sin un solo clic de más para empezar. */
+  const agregarRuta = () => {
+    const indice = routerCfg?.routes.length ?? 0;
     mutarRouter((cfg) => ({
       ...cfg,
       routes: [
@@ -286,13 +324,63 @@ export const ModelsPage: React.FC = () => {
         },
       ],
     }));
+    setRutaAbierta(indice);
+    setCalibracionAbierta(false);
+    setErrorGeneracion("");
+    setRutaNueva(indice);
+  };
 
   const eliminarRuta = (indice: number) => {
     if (!confirm(`¿Eliminar la ruta "${routerCfg?.routes[indice]?.name || "sin nombre"}"?`)) return;
     // Los borradores están indexados por posición: al correrse los índices, el que quede
     // a medio escribir pertenecería a otra ruta. Se descartan todos.
     setUtteranceDraft({});
+    // Mismo motivo para el acordeón: si se borra una ruta ANTERIOR a la abierta, el índice
+    // guardado pasaría a señalar a su vecina y se vería expandida la ruta equivocada.
+    setRutaAbierta((prev) =>
+      prev === null || prev === indice ? null : prev > indice ? prev - 1 : prev
+    );
+    if (rutaAbierta === indice) setCalibracionAbierta(false);
+    setErrorGeneracion("");
+    setRutaNueva(null);
     mutarRouter((cfg) => ({ ...cfg, routes: cfg.routes.filter((_, i) => i !== indice) }));
+  };
+
+  /** Redacta las frases con el modelo local a partir de nombre + descripción y las MEZCLA
+   *  con las que ya haya, sin duplicados (comparación laxa: espacios y mayúsculas no hacen
+   *  frase nueva). No pisa lo escrito a mano — sólo agrega. */
+  const generarEjemplos = async (indice: number) => {
+    const ruta = routerCfg?.routes[indice];
+    if (!ruta) return;
+    setGenerandoRuta(indice);
+    setErrorGeneracion("");
+    try {
+      const generadas = await api.generateUtterances(
+        ruta.name.trim(),
+        (ruta.description || "").trim(),
+        ruta.utterances
+      );
+      const vistas = new Set(ruta.utterances.map((u) => u.trim().toLowerCase()));
+      const nuevas = generadas.filter((frase) => {
+        const clave = frase.trim().toLowerCase();
+        if (!clave || vistas.has(clave)) return false;
+        vistas.add(clave);
+        return true;
+      });
+      if (nuevas.length === 0) {
+        setErrorGeneracion(
+          "El modelo no devolvió ninguna frase nueva. Probá con una descripción más específica."
+        );
+        return;
+      }
+      mutarRuta(indice, { utterances: [...ruta.utterances, ...nuevas] });
+    } catch (err: any) {
+      // El detalle del backend tal cual (p.ej. «no hay modelo local disponible»): una causa
+      // genérica mandaría al admin a buscar el problema donde no está.
+      setErrorGeneracion(err?.message || "No se pudieron generar frases de ejemplo.");
+    } finally {
+      setGenerandoRuta(null);
+    }
   };
 
   const routerInvalido =
@@ -330,7 +418,7 @@ export const ModelsPage: React.FC = () => {
     return (
       <>
         {faltante && (
-          <option value={faltante}>{faltante} — ya no está en el catálogo</option>
+          <option value={faltante}>{faltante} (ya no está en el catálogo)</option>
         )}
         {nombres.map((nombre) => (
           <option key={nombre} value={nombre}>{nombre}</option>
@@ -471,7 +559,7 @@ export const ModelsPage: React.FC = () => {
                     <TD>
                       {(() => {
                         const px = pricing[m.model_name];
-                        if (!px) return <span className="text-[10px] text-text-tertiary">—</span>;
+                        if (!px) return <span className="text-[10px] text-text-tertiary">sin dato</span>;
                         if (px.input === 0 && px.output === 0)
                           return <span className="font-mono text-[10px] font-bold text-ok">Gratis</span>;
                         return (
@@ -529,6 +617,22 @@ export const ModelsPage: React.FC = () => {
             >
               {routerSaving ? "Guardando..." : "Guardar ruteo"}
             </Button>
+            {routerCfg && (
+              <div
+                className="ml-1 flex items-center gap-2 border-l border-border pl-3"
+                title="Con «Auto» elegido en el chat, cada consulta se clasifica en esta misma máquina (embeddings locales: el texto nunca sale del servidor para decidir) y va al modelo de la ruta ganadora. Apagado, «Auto» se sirve siempre por el modelo por defecto."
+              >
+                <span className="text-xs font-medium text-text-secondary">
+                  {routerCfg.enabled ? "Activo" : "Inactivo"}
+                </span>
+                <Toggle
+                  checked={routerCfg.enabled}
+                  onChange={(valor) => mutarRouter((cfg) => ({ ...cfg, enabled: valor }))}
+                  label="Ruteo automático"
+                  size="sm"
+                />
+              </div>
+            )}
           </>
         }
       >
@@ -544,7 +648,7 @@ export const ModelsPage: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {routerCfg.config_error && (
               <div className="rounded-md border border-warn/30 bg-warn-bg px-4 py-2.5 text-xs leading-relaxed text-warn">
                 <span className="font-semibold">Configuración de ruteo no legible.</span> El archivo
@@ -553,29 +657,6 @@ export const ModelsPage: React.FC = () => {
                 modelo por defecto. Al guardar se reescribe el archivo con lo que veas acá.
               </div>
             )}
-
-            {/* Switch global (pedido explícito: on/off del ruteo) */}
-            <div className="flex flex-wrap items-start justify-between gap-4 rounded-md border border-border bg-surface-2 p-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-text-primary">Ruteo automático</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-text-secondary">
-                  Con el modelo «Auto» elegido en el chat, cada consulta se clasifica en esta misma
-                  máquina (embeddings locales: el texto nunca sale del servidor para decidir) y va al
-                  modelo de la ruta ganadora. Apagado, «Auto» sirve siempre por el modelo por defecto
-                  y no se calcula ningún embedding.
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <span className="text-xs font-medium text-text-secondary">
-                  {routerCfg.enabled ? "Activo" : "Inactivo"}
-                </span>
-                <Toggle
-                  checked={routerCfg.enabled}
-                  onChange={(valor) => mutarRouter((cfg) => ({ ...cfg, enabled: valor }))}
-                  label="Ruteo automático"
-                />
-              </div>
-            </div>
 
             {/* Modelo por defecto + timeout */}
             <div className="grid gap-4 sm:grid-cols-2">
@@ -589,7 +670,7 @@ export const ModelsPage: React.FC = () => {
                     onChange={(e) => mutarRouter((cfg) => ({ ...cfg, default_model: e.target.value }))}
                     className={cn(inputBaseClass, "border-border")}
                   >
-                    <option value="">— Elegir modelo —</option>
+                    <option value="">Elegir modelo…</option>
                     {opcionesModelo(routerCfg.default_model)}
                   </select>
                   {/* Sin modelo elegido el backend computa `default_model_ok: false` igual;
@@ -622,37 +703,32 @@ export const ModelsPage: React.FC = () => {
               />
             </div>
 
-            {/* Estado del modelo de embeddings */}
-            <div className="rounded-md border border-border p-4">
-              <p className="text-xs font-semibold text-text-primary">Modelo de embeddings</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {routerCfg.embedding_model_ok ? (
-                  <StatusBadge tone="ok">
-                    Embeddings locales: {routerCfg.embedding_model || "sin configurar"} ✓
-                  </StatusBadge>
-                ) : (
-                  <StatusBadge tone="danger">
-                    Embeddings locales: {routerCfg.embedding_model || "sin configurar"} — no disponible
-                  </StatusBadge>
-                )}
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-text-secondary">
+            {/* Estado del modelo de embeddings: una línea discreta, no una tarjeta. El caso
+                normal es «anda» y no merece un bloque; el roto se ve igual en rojo. */}
+            <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] leading-relaxed text-text-secondary">
+              <span className={cn("text-sm leading-none", routerCfg.embedding_model_ok ? "text-ok" : "text-danger")}>
+                ●
+              </span>
+              <span>Embeddings locales:</span>
+              <span className="font-mono text-text-primary">
+                {routerCfg.embedding_model || "sin configurar"}
+              </span>
+              <span className={routerCfg.embedding_model_ok ? undefined : "text-danger"}>
                 {routerCfg.embedding_model_ok
-                  ? "La clasificación corre en el servidor: el contenido de la consulta no sale de la máquina para decidir a qué modelo va."
-                  : "Falta la entrada en el catálogo del motor IA o el modelo en Ollama (ollama pull). Mientras tanto «Auto» se sirve por el modelo por defecto y cada consulta queda registrada como ruteo degradado — nunca falla."}
-              </p>
-            </div>
+                  ? ": la clasificación corre en esta máquina y el texto de la consulta no sale para decidir."
+                  : "no disponible: falta en el catálogo del motor IA o en Ollama (ollama pull). Mientras tanto «Auto» va por el modelo por defecto y queda registrado como ruteo degradado."}
+              </span>
+            </p>
 
-            {/* Editor de rutas */}
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-text-primary">Rutas semánticas</p>
-                  <p className="mt-0.5 text-[11px] leading-relaxed text-text-secondary">
-                    Gana la ruta con mayor parecido que supere su propio umbral; con empate exacto,
-                    la primera de la lista. Si ninguna llega, va al modelo por defecto.
-                  </p>
-                </div>
+            {/* Editor de rutas: lista plegada, se abre UNA a la vez */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="min-w-0 text-[11px] leading-relaxed text-text-secondary">
+                  <span className="text-xs font-semibold text-text-primary">Rutas semánticas</span>
+                  {" · "}
+                  Gana la de mayor parecido que supere su propio umbral; con empate, la primera.
+                  Si ninguna llega, va al modelo por defecto.
+                </p>
                 <Button variant="secondary" size="sm" onClick={agregarRuta}>
                   + Agregar ruta
                 </Button>
@@ -663,127 +739,261 @@ export const ModelsPage: React.FC = () => {
                   Sin rutas configuradas: «Auto» sirve siempre por el modelo por defecto.
                 </div>
               ) : (
-                routerCfg.routes.map((ruta, i) => {
-                  const errores = erroresDeRuta(ruta);
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        "space-y-4 rounded-lg border p-4",
-                        ruta.target_ok === false ? "border-danger/30 bg-danger-bg" : "border-border bg-surface"
-                      )}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-[10px] text-text-tertiary">#{i + 1}</span>
-                          {ruta.tier && (
-                            <StatusBadge tone="neutral" className="uppercase">{ruta.tier}</StatusBadge>
-                          )}
-                          {ruta.target_ok === false && <StatusBadge tone="danger">Ruta rota</StatusBadge>}
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => eliminarRuta(i)}
-                          className="text-danger hover:bg-danger-bg hover:text-danger"
-                        >
-                          Eliminar ruta
-                        </Button>
-                      </div>
-
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <Field
-                          label="Nombre"
-                          value={ruta.name}
-                          onChange={(e) => mutarRuta(i, { name: e.target.value })}
-                          placeholder="ej: Código y análisis"
-                          error={errores.name}
-                        />
-                        <Field label="Modelo destino" error={errores.target}>
-                          <select
-                            value={ruta.target_model}
-                            onChange={(e) => mutarRuta(i, { target_model: e.target.value })}
-                            className={cn(inputBaseClass, errores.target ? "border-danger" : "border-border")}
+                <div className="divide-y divide-border overflow-hidden rounded-md border border-border">
+                  {routerCfg.routes.map((ruta, i) => {
+                    const errores = erroresDeRuta(ruta);
+                    const incompleta = Object.keys(errores).length > 0;
+                    const abierta = rutaAbierta === i;
+                    const generandoEsta = generandoRuta === i;
+                    // Sin las dos cosas el modelo no tiene de dónde sacar las frases: mejor
+                    // botón apagado con motivo que una generación que devuelve cualquier cosa.
+                    const puedeGenerar = !!ruta.name.trim() && !!(ruta.description || "").trim();
+                    return (
+                      <div key={i} className={cn(abierta ? "bg-surface-2" : "bg-surface")}>
+                        {/* Renglón plegado: altura de fila de tabla, todo lo decisivo de un vistazo */}
+                        <div className="flex items-center gap-2 px-3 py-1.5">
+                          <button
+                            type="button"
+                            onClick={() => alternarRuta(i)}
+                            aria-expanded={abierta}
+                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
                           >
-                            <option value="">— Elegir modelo —</option>
-                            {opcionesModelo(ruta.target_model)}
-                          </select>
-                        </Field>
-                      </div>
-
-                      <Field
-                        label="Descripción"
-                        value={ruta.description || ""}
-                        onChange={(e) => mutarRuta(i, { description: e.target.value })}
-                        placeholder="Para qué sirve esta ruta (sólo informativo)"
-                      />
-
-                      <Field
-                        label="Umbral de parecido"
-                        type="number"
-                        min={0.05}
-                        max={1}
-                        step={0.05}
-                        value={ruta.score_threshold}
-                        onChange={(e) => {
-                          const valor = Number(e.target.value);
-                          mutarRuta(i, {
-                            score_threshold: e.target.value === "" || !Number.isFinite(valor) ? 0 : valor,
-                          });
-                        }}
-                        error={errores.umbral}
-                        hint="Más alto = más exigente para que la consulta caiga en esta ruta."
-                        className="sm:max-w-[240px]"
-                      />
-
-                      <div className="flex flex-col gap-1.5">
-                        <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                          Frases de ejemplo
-                        </label>
-                        {ruta.utterances.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {ruta.utterances.map((frase, posicion) => (
+                            <span className="w-6 shrink-0 font-mono text-[10px] text-text-tertiary">
+                              #{i + 1}
+                            </span>
+                            {ruta.tier && (
+                              <StatusBadge tone="neutral" className="shrink-0 uppercase">
+                                {ruta.tier}
+                              </StatusBadge>
+                            )}
+                            <span
+                              className={cn(
+                                "shrink-0 text-xs font-semibold",
+                                ruta.name.trim() ? "text-text-primary" : "text-text-tertiary"
+                              )}
+                            >
+                              {ruta.name.trim() || "Ruta sin nombre"}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[11px] text-text-secondary">
+                              {ruta.description?.trim() ? `· ${ruta.description.trim()}` : ""}
+                            </span>
+                            <span className="shrink-0 text-[11px] text-text-secondary">
+                              →{" "}
                               <span
-                                key={`${posicion}-${frase}`}
-                                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-text-primary"
+                                className={cn(
+                                  "font-mono",
+                                  ruta.target_model ? "text-text-primary" : "text-danger"
+                                )}
                               >
-                                {frase}
-                                <button
-                                  type="button"
-                                  onClick={() => quitarUtterance(i, posicion)}
-                                  aria-label={`Quitar la frase "${frase}"`}
-                                  className="leading-none text-text-tertiary transition-colors hover:text-danger"
-                                >
-                                  ×
-                                </button>
+                                {ruta.target_model || "sin modelo"}
                               </span>
-                            ))}
+                            </span>
+                            <span
+                              className="shrink-0 text-[11px] text-text-tertiary"
+                              title="Frases de ejemplo con las que se calibra esta ruta"
+                            >
+                              🏷 {ruta.utterances.length}{" "}
+                              {ruta.utterances.length === 1 ? "frase" : "frases"}
+                            </span>
+                            {ruta.target_ok === false && (
+                              <StatusBadge tone="danger" className="shrink-0">Ruta rota</StatusBadge>
+                            )}
+                            {/* La validación espejo tiene que verse TAMBIÉN plegada: si no, el
+                                botón «Guardar ruteo» queda gris sin decir por culpa de cuál. */}
+                            {!abierta && incompleta && (
+                              <StatusBadge tone="warn" className="shrink-0">Incompleta</StatusBadge>
+                            )}
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => alternarRuta(i)}>
+                              {abierta ? "Cerrar" : "Editar"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => eliminarRuta(i)}
+                              className="text-danger hover:bg-danger-bg hover:text-danger"
+                            >
+                              Eliminar
+                            </Button>
+                          </div>
+                        </div>
+
+                        {abierta && (
+                          <div className="space-y-3 border-t border-border px-3 py-3">
+                            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_7rem]">
+                              <Field
+                                label="Nombre"
+                                value={ruta.name}
+                                onChange={(e) => mutarRuta(i, { name: e.target.value })}
+                                placeholder="ej: Código y análisis"
+                                error={errores.name}
+                                autoFocus={rutaNueva === i}
+                              />
+                              <Field label="Modelo destino" error={errores.target}>
+                                <select
+                                  value={ruta.target_model}
+                                  onChange={(e) => mutarRuta(i, { target_model: e.target.value })}
+                                  className={cn(
+                                    inputBaseClass,
+                                    errores.target ? "border-danger" : "border-border"
+                                  )}
+                                >
+                                  <option value="">Elegir modelo…</option>
+                                  {opcionesModelo(ruta.target_model)}
+                                </select>
+                              </Field>
+                              {/* La ayuda del umbral va en el tooltip, no en un párrafo: es el
+                                  campo que menos se toca y el que más alto ocupaba. */}
+                              <Field
+                                label={
+                                  <span title="Parecido mínimo (0.05 a 1) para que una consulta caiga en esta ruta. Más alto = más exigente.">
+                                    Umbral ⓘ
+                                  </span>
+                                }
+                                type="number"
+                                min={0.05}
+                                max={1}
+                                step={0.05}
+                                value={ruta.score_threshold}
+                                onChange={(e) => {
+                                  const valor = Number(e.target.value);
+                                  mutarRuta(i, {
+                                    score_threshold:
+                                      e.target.value === "" || !Number.isFinite(valor) ? 0 : valor,
+                                  });
+                                }}
+                                error={errores.umbral}
+                                title="Parecido mínimo (0.05 a 1) para que una consulta caiga en esta ruta. Más alto = más exigente."
+                              />
+                            </div>
+
+                            <Field
+                              label="Descripción"
+                              value={ruta.description || ""}
+                              onChange={(e) => mutarRuta(i, { description: e.target.value })}
+                              placeholder="Para qué sirve esta ruta: de acá salen las frases de ejemplo"
+                            />
+
+                            {/* Calibración: colapsada por defecto. El flujo objetivo del admin
+                                (nombre + descripción + modelo + generar + guardar) no la abre. */}
+                            <div className="rounded-md border border-border bg-surface">
+                              <button
+                                type="button"
+                                onClick={() => setCalibracionAbierta((v) => !v)}
+                                aria-expanded={calibracionAbierta}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left"
+                              >
+                                <span className="w-3 shrink-0 text-[10px] text-text-tertiary">
+                                  {calibracionAbierta ? "▾" : "▸"}
+                                </span>
+                                <span className="shrink-0 text-xs font-semibold text-text-primary">
+                                  Calibración (frases de ejemplo)
+                                </span>
+                                <StatusBadge
+                                  tone={errores.utterances ? "danger" : "neutral"}
+                                  className="shrink-0"
+                                >
+                                  {ruta.utterances.length}{" "}
+                                  {ruta.utterances.length === 1 ? "frase" : "frases"}
+                                </StatusBadge>
+                                {errores.utterances && !calibracionAbierta && (
+                                  <span className="min-w-0 truncate text-[11px] text-danger">
+                                    {errores.utterances}
+                                  </span>
+                                )}
+                                <span className="ml-auto shrink-0 text-[11px] text-text-tertiary">
+                                  {calibracionAbierta ? "Ocultar" : "Abrir"}
+                                </span>
+                              </button>
+
+                              {calibracionAbierta && (
+                                <div className="space-y-2 border-t border-border px-3 py-3">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {/* El title va en el envoltorio: el botón deshabilitado
+                                        tiene pointer-events:none y no mostraría su tooltip
+                                        justo cuando hace falta explicar por qué está gris. */}
+                                    <span
+                                      title={
+                                        puedeGenerar
+                                          ? "Redacta frases típicas de esta ruta con el modelo local y las agrega abajo."
+                                          : "Escribí nombre y descripción primero"
+                                      }
+                                    >
+                                      <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => generarEjemplos(i)}
+                                        disabled={!puedeGenerar || generandoRuta !== null || routerSaving}
+                                        leftIcon={
+                                          generandoEsta ? (
+                                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                                          ) : null
+                                        }
+                                      >
+                                        {generandoEsta ? "Generando..." : "✨ Generar ejemplos"}
+                                      </Button>
+                                    </span>
+                                    <span className="text-[11px] text-text-tertiary">
+                                      Las escribe el modelo local a partir del nombre y la
+                                      descripción. Puede tardar unos segundos.
+                                    </span>
+                                  </div>
+
+                                  {errorGeneracion && (
+                                    <div className="rounded-md border border-danger/30 bg-danger-bg px-3 py-2 text-[11px] leading-relaxed text-danger">
+                                      {errorGeneracion}
+                                    </div>
+                                  )}
+
+                                  {ruta.utterances.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {ruta.utterances.map((frase, posicion) => (
+                                        <span
+                                          key={`${posicion}-${frase}`}
+                                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] text-text-primary"
+                                        >
+                                          {frase}
+                                          <button
+                                            type="button"
+                                            onClick={() => quitarUtterance(i, posicion)}
+                                            aria-label={`Quitar la frase "${frase}"`}
+                                            className="leading-none text-text-tertiary transition-colors hover:text-danger"
+                                          >
+                                            ×
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  <input
+                                    value={utteranceDraft[i] || ""}
+                                    onChange={(e) =>
+                                      setUtteranceDraft((prev) => ({ ...prev, [i]: e.target.value }))
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        agregarUtterance(i);
+                                      }
+                                    }}
+                                    placeholder="¿Falta un caso? Escribilo y presioná Enter"
+                                    className={cn(
+                                      inputBaseClass,
+                                      "h-8 text-xs",
+                                      errores.utterances ? "border-danger" : "border-border"
+                                    )}
+                                  />
+                                </div>
+                              )}
+                            </div>
                           </div>
                         )}
-                        <input
-                          value={utteranceDraft[i] || ""}
-                          onChange={(e) => setUtteranceDraft((prev) => ({ ...prev, [i]: e.target.value }))}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              agregarUtterance(i);
-                            }
-                          }}
-                          placeholder="Escribí un ejemplo y presioná Enter"
-                          className={cn(inputBaseClass, errores.utterances ? "border-danger" : "border-border")}
-                        />
-                        {errores.utterances ? (
-                          <p className="text-xs text-danger">{errores.utterances}</p>
-                        ) : (
-                          <p className="text-xs text-text-tertiary">
-                            Consultas típicas de esta ruta. Se comparan por significado, no por
-                            palabras exactas.
-                          </p>
-                        )}
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>

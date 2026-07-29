@@ -918,6 +918,45 @@ export const api = {
     return res.json();
   },
 
+  /** Redacta frases de ejemplo para una ruta con el modelo local, a partir de su nombre y
+   *  descripción (US2: «ruteo automático» significa que el admin NO carga frases a mano).
+   *
+   *  Manda las frases actuales en `existing` para que el backend no repita lo que ya hay; el
+   *  merge sin duplicados lo hace igual el panel, porque el modelo puede devolver variantes.
+   *  El `detail` del backend se propaga tal cual (p.ej. «no hay modelo local disponible»):
+   *  es el texto que el panel muestra, y una causa inventada acá mandaría al admin a buscar
+   *  el problema donde no está. */
+  generateUtterances: async (
+    name: string,
+    description: string,
+    existing: string[] = []
+  ): Promise<string[]> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/chat/router-config/generate-utterances`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ name, description, existing }),
+      });
+    } catch {
+      throw new ApiError("No se pudo contactar al servidor.", 0);
+    }
+    handleExpiredSession(res);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(
+        detailMessage(err, "No se pudieron generar frases de ejemplo."),
+        res.status
+      );
+    }
+    const datos = await res.json().catch(() => ({}));
+    return Array.isArray(datos?.utterances)
+      ? datos.utterances
+          .filter((u: any) => typeof u === "string" && u.trim())
+          .map((u: string) => u.trim())
+      : [];
+  },
+
   // --- Virtual Keys ---
   getKeys: async (): Promise<any[]> => {
     const res = await fetch(`${API_BASE}/keys`, { headers: authHeaders() });

@@ -63,7 +63,7 @@ export const DashboardPage: React.FC = () => {
       setSummary(summaryData);
       setEngineStatus(statusData.status);
     } catch (e: any) {
-      setError("No se pudieron cargar las métricas. Verifique la conexión con el servidor.");
+      setError("No se pudieron cargar las métricas. Revise la conexión con el servidor.");
     } finally {
       setLoading(false);
     }
@@ -209,7 +209,7 @@ export const DashboardPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span
                     className="text-text-secondary"
-                    title="Capas de protección que se están aplicando de verdad, no las que están declaradas."
+                    title="Capas de protección que se están aplicando ahora mismo."
                   >
                     Capas aplicándose
                   </span>
@@ -220,7 +220,7 @@ export const DashboardPage: React.FC = () => {
                   ) : (
                     <span
                       className="font-semibold text-text-tertiary font-mono"
-                      title="El estado real de las capas no está disponible para esta sesión."
+                      title="No se pudo consultar el estado de las capas con esta sesión."
                     >
                       sin dato
                     </span>

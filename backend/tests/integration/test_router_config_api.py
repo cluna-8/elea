@@ -16,6 +16,18 @@ Qué se fija acá —el contrato de `contracts/router-config-api.md`, no la impl
 - **Config corrupta ⇒ 200 con `config_error`**, jamás 500: si un JSON roto tumbara el GET, el
   admin se quedaría sin la única pantalla desde la que podría arreglarlo.
 
+Y el contrato del generador de frases (`POST .../generate-utterances`), que es lo que hace
+que «ruteo automático» no signifique «sentate a inventar veinte ejemplos»:
+
+- **El generador es el modelo LOCAL o no hay generador** (422 honesto): el nombre y la
+  descripción de una ruta describen el negocio del cliente, y mandarlos a un cloud para
+  ahorrarle tipeo al admin regalaría justo lo que el producto promete que no sale del host.
+- **El parseo aguanta un modelo chico**: qwen contesta con `<think>` y verborrea alrededor
+  del array. Si el parser se rinde ahí, la feature no funciona en la única instalación real.
+- **No repite lo que ya está cargado**: dos utterances iguales son un vector repetido — una
+  llamada de embedding más y cero señal nueva para el clasificador.
+- **No persiste nada**: generar es una propuesta; guardar sigue siendo el PUT.
+
 El fichero de config vive en un tmp por test (monkeypatch de `get_config_path`): la suite no
 escribe ni en el repo ni en el volumen del motor.
 """
@@ -24,6 +36,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 _TESTS = Path(__file__).resolve().parent.parent
 for _dir in (_TESTS, _TESTS / "integration"):
@@ -37,7 +50,15 @@ require_postgres()
 
 DB = "basa_test_router_config_api"
 URL = "/api/v1/chat/router-config"
+GENERAR = f"{URL}/generate-utterances"
 MODELOS = "/api/v1/chat/models"
+
+# Nombres white-label a propósito: en el piloto el modelo local NO se llama "ollama-algo"
+# (el motor no se filtra al cliente), así que "es local" tiene que salir del
+# `litellm_params.model` y no de una heurística sobre el `model_name`.
+LOCAL = "modelo-del-cliente"
+LOCAL_SECUNDARIO = "segundo-modelo-del-cliente"
+CLOUD = "modelo-remoto"
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────────
@@ -86,6 +107,110 @@ def modelo_real(harness, admin):
                if m.get("model_name") and m.get("provider") != "auto" and m["model_name"] != "auto"]
     assert nombres, "catálogo del motor vacío: los computados no se pueden verificar"
     return nombres[0]
+
+
+# ── Dobles y fixtures del generador de frases ─────────────────────────────────────
+
+
+def _entrada(nombre, modelo_completo):
+    return {"model_name": nombre, "litellm_params": {"model": modelo_completo}}
+
+
+def _catalogo(monkeypatch, tmp_path, entradas):
+    """`config.yaml` temporal + `router_config` apuntando ahí.
+
+    Se parchea el símbolo **de `router_config`** y no el de `chat`: el módulo importa
+    `_get_config_path` POR VALOR (`from .chat import _get_config_path as
+    _engine_config_path`), así que parchear `chat._get_config_path` no lo tocaría y el test
+    leería el catálogo real del repo.
+    """
+    from src.api import router_config
+
+    destino = tmp_path / "config_motor.yaml"
+    destino.write_text(yaml.safe_dump({"model_list": entradas}), encoding="utf-8")
+    monkeypatch.setattr(router_config, "_engine_config_path", lambda: str(destino))
+    return destino
+
+
+@pytest.fixture
+def catalogo_con_local(monkeypatch, tmp_path):
+    """Catálogo con un cloud PRIMERO y un local después: el generador tiene que saltearlo."""
+    return _catalogo(monkeypatch, tmp_path, [
+        _entrada(CLOUD, "openai/gpt-4o"),
+        _entrada(LOCAL, "ollama_chat/qwen3:4b"),
+    ])
+
+
+@pytest.fixture
+def catalogo_sin_local(monkeypatch, tmp_path):
+    return _catalogo(monkeypatch, tmp_path, [
+        _entrada(CLOUD, "openai/gpt-4o"),
+        _entrada("otro-remoto", "gemini/gemini-2.5-flash"),
+    ])
+
+
+class _RespuestaMotor:
+    status_code = 200
+
+    def __init__(self, contenido):
+        self._contenido = contenido
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"choices": [{"message": {"role": "assistant", "content": self._contenido}}]}
+
+
+class _ClienteMotor:
+    def __init__(self, falso):
+        self._falso = falso
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return False
+
+    async def post(self, url, **kwargs):
+        self._falso.pedidos.append({
+            "url": url,
+            "json": kwargs.get("json") or {},
+            "headers": kwargs.get("headers") or {},
+        })
+        return _RespuestaMotor(self._falso.contenido)
+
+
+class _HttpxFalso:
+    """Doble del módulo `httpx` de `router_config`: registra el pedido al motor."""
+
+    def __init__(self, contenido):
+        self.contenido = contenido
+        self.pedidos = []
+        self.timeouts = []
+
+    def AsyncClient(self, *_args, **kwargs):  # noqa: N802 — espeja el nombre real
+        self.timeouts.append(kwargs.get("timeout"))
+        return _ClienteMotor(self)
+
+
+@pytest.fixture
+def motor(monkeypatch):
+    """Devuelve un `responder(contenido)` que deja el motor mockeado y el registro a mano."""
+    from src.api import router_config
+
+    def responder(contenido):
+        falso = _HttpxFalso(contenido)
+        monkeypatch.setattr(router_config, "httpx", falso)
+        return falso
+
+    return responder
+
+
+def prompt_de(falso):
+    """El texto del mensaje de usuario que se le mandó al modelo."""
+    mensajes = falso.pedidos[0]["json"]["messages"]
+    return next(m["content"] for m in mensajes if m["role"] == "user")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────────
@@ -357,3 +482,188 @@ def test_sin_sesion_es_401(harness, config_temporal):
     """Fail-closed: sin credencial no se responde la config del ruteo."""
     client, _ = harness
     assert client.get(URL).status_code == 401
+
+
+# ── Generación de frases de calibración ───────────────────────────────────────────
+
+
+def test_generar_frases_usa_el_modelo_local_y_no_persiste_nada(
+        harness, admin, config_temporal, catalogo_con_local, motor):
+    """El caso feliz completo: array limpio del modelo local ⇒ frases listas para revisar.
+
+    Se afirma también CÓMO se pidió, porque cada parámetro es una decisión de producto:
+    el modelo es el local (residencia + coste 0), la temperatura es alta (si no vuelven
+    diez maneras de decir lo mismo, que para el clasificador es una sola utterance) y el
+    timeout es largo (un Ollama frío tarda, y cortarlo convierte un caso normal en error).
+    """
+    client, _ = harness
+    falso = motor('["mandame el estado de mi expediente", "quiero ver mis trámites"]')
+
+    resp = client.post(GENERAR, headers=admin, json={
+        "name": "Trámites de socios",
+        "description": "Consultas sobre expedientes y trámites",
+    })
+
+    assert resp.status_code == 200, resp.text
+    cuerpo = resp.json()
+    assert cuerpo["utterances"] == ["mandame el estado de mi expediente",
+                                    "quiero ver mis trámites"]
+    assert cuerpo["model_used"] == LOCAL, "el cloud del catálogo no puede haber sido elegido"
+
+    pedido = falso.pedidos[0]
+    assert pedido["url"].endswith("/v1/chat/completions")
+    assert pedido["json"]["model"] == LOCAL
+    assert pedido["json"]["temperature"] == 0.8
+    assert pedido["headers"].get("Authorization", "").startswith("Bearer")
+    assert falso.timeouts == [90.0]
+    # La ruta viaja al modelo: es de ahí de donde salen las frases.
+    assert "Trámites de socios" in prompt_de(falso)
+
+    # Generar es proponer: el fichero del router sigue sin existir.
+    assert not config_temporal.exists(), "generar frases no puede escribir la config"
+
+
+def test_el_thinking_del_modelo_no_rompe_el_parseo(
+        harness, admin, catalogo_con_local, motor):
+    """qwen razona en voz alta antes del array: hay que sacarle el array igual.
+
+    Es el caso REAL de la instalación del piloto, no una hipótesis: el generador corre
+    contra un modelo chico con thinking, y un parser que sólo acepte `json.loads` del
+    contenido entero deja la feature muerta en la única máquina donde tiene que andar.
+    El `[1, 2, 3]` del razonamiento está a propósito: parsea como JSON perfectamente y NO
+    es el array buscado, así que el barrido tiene que seguir de largo.
+    """
+    client, _ = harness
+    contenido = (
+        "<think>\n"
+        "El usuario pide frases sobre reclamos. Pienso [1, 2, 3] variantes distintas.\n"
+        "</think>\n\n"
+        'Acá van las frases:\n["me cobraron de más este mes", "quiero reclamar una factura"]\n'
+    )
+    falso = motor(contenido)
+
+    resp = client.post(GENERAR, headers=admin, json={
+        "name": "Reclamos de facturación", "description": "Quejas sobre cobros",
+    })
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["utterances"] == ["me cobraron de más este mes",
+                                         "quiero reclamar una factura"]
+    assert falso.pedidos, "el motor tiene que haber sido consultado"
+
+
+def test_sin_array_se_cae_a_las_lineas_en_vez_de_fallar(harness, admin, catalogo_con_local,
+                                                        motor):
+    """Un modelo chico que se olvida del JSON no puede dejar al admin sin nada.
+
+    Diez frases con una que se borra de un click es mejor producto que un error que lo manda
+    a escribir las diez a mano. El razonamiento sí se descarta: si cada línea del monólogo
+    entrara como "frase", el fallback daría más trabajo del que ahorra.
+    """
+    client, _ = harness
+    motor("<think>\nA ver, el usuario quiere frases de turnos.\nPienso tres.\n</think>\n"
+          "1. quiero sacar un turno\n- necesito cambiar mi turno\n\"cancelame el turno\",\n")
+
+    resp = client.post(GENERAR, headers=admin, json={"name": "Turnos", "description": "Agenda"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["utterances"] == ["quiero sacar un turno", "necesito cambiar mi turno",
+                                         "cancelame el turno"]
+
+
+def test_las_frases_ya_cargadas_no_vuelven_a_proponerse(
+        harness, admin, catalogo_con_local, motor):
+    """Dedup case-insensitive contra `existing` y contra sí misma.
+
+    Insensible a mayúsculas porque para el clasificador «Quiero mi factura» y «quiero mi
+    factura» son el mismo vector: guardar las dos cuesta una llamada de embedding más y no
+    agrega ninguna señal. Y las existentes viajan en el prompt para que genere
+    COMPLEMENTARIAS, no para filtrarlas después.
+    """
+    client, _ = harness
+    falso = motor('["Quiero mi factura", "quiero mi factura", '
+                  '"necesito el comprobante de pago", "Necesito el comprobante de pago"]')
+
+    resp = client.post(GENERAR, headers=admin, json={
+        "name": "Facturación",
+        "description": "Consultas de facturas",
+        "existing": ["quiero mi factura"],
+    })
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["utterances"] == ["necesito el comprobante de pago"]
+    assert "quiero mi factura" in prompt_de(falso), \
+        "sin las existentes en el prompt el modelo repite y el dedup se come todo"
+
+
+def test_count_recorta_lo_que_el_modelo_manda_de_más(harness, admin, catalogo_con_local, motor):
+    """El panel pide N y recibe N: un modelo generoso no puede inundar el formulario."""
+    client, _ = harness
+    falso = motor('["una", "dos", "tres", "cuatro", "cinco"]')
+
+    resp = client.post(GENERAR, headers=admin,
+                       json={"name": "Ruta", "description": "algo", "count": 2})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["utterances"] == ["una", "dos"]
+    assert "2" in prompt_de(falso), "el count pedido también se le dice al modelo"
+
+
+def test_el_default_del_router_gana_si_es_local(
+        harness, admin, config_temporal, monkeypatch, tmp_path, motor):
+    """Con varios Ollama, el generador usa el que el admin ya eligió como default.
+
+    Dos respuestas distintas a «¿cuál es TU modelo local?» en la misma instalación es
+    exactamente lo que confunde: el respaldo de los cloud ya usa esta regla, y el generador
+    tiene que usar la misma.
+    """
+    client, _ = harness
+    _catalogo(monkeypatch, tmp_path, [
+        _entrada(LOCAL, "ollama_chat/qwen3:4b"),
+        _entrada(LOCAL_SECUNDARIO, "ollama/qwen3:8b"),
+    ])
+    config_temporal.write_text(json.dumps({
+        "enabled": True, "default_model": LOCAL_SECUNDARIO, "timeout_seconds": 5,
+        "embedding_model": "router-embeddings", "routes": [],
+    }), encoding="utf-8")
+    falso = motor('["una frase corta de ejemplo"]')
+
+    resp = client.post(GENERAR, headers=admin, json={"name": "Ruta", "description": "algo"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["model_used"] == LOCAL_SECUNDARIO
+    assert falso.pedidos[0]["json"]["model"] == LOCAL_SECUNDARIO
+
+
+def test_sin_modelo_local_es_422_honesto_y_no_llama_a_ningún_cloud(
+        harness, admin, catalogo_sin_local, motor):
+    """Catálogo sólo con cloud ⇒ 422 que dice qué hacer, y CERO tráfico saliente.
+
+    El nombre y la descripción de una ruta describen el negocio del cliente («Reclamos de
+    facturación», «Expedientes de socios»). Mandarlos a OpenAI para ahorrarle tipeo al admin
+    regalaría justo lo que el producto promete que no sale del host — y encima facturado.
+    Sin local no se genera: se lo decimos y escribe a mano.
+    """
+    client, _ = harness
+    falso = motor('["esto no se tendría que haber pedido nunca"]')
+
+    resp = client.post(GENERAR, headers=admin,
+                       json={"name": "Reclamos de facturación", "description": "Quejas"})
+
+    assert resp.status_code == 422, resp.text
+    detalle = resp.json()["detail"]
+    assert "modelo local" in detalle and "Ollama" in detalle, \
+        "el 422 tiene que decir QUÉ hacer, no sólo que no se pudo"
+    assert falso.pedidos == [], "sin modelo local no se llama a NADA: ni un cloud de refilón"
+
+
+def test_generar_frases_es_admin_only(harness, admin, catalogo_con_local, motor):
+    """Mismo guard que el GET/PUT: el generador quema tiempo de GPU del cliente."""
+    client, factory = harness
+    falso = motor('["no se tendría que haber generado"]')
+    headers = _headers_no_admin(client, factory)
+
+    resp = client.post(GENERAR, headers=headers, json={"name": "Ruta", "description": "algo"})
+
+    assert resp.status_code == 403, resp.text
+    assert falso.pedidos == [], "un 403 no puede haber tocado el motor"

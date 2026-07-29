@@ -13,6 +13,7 @@ export interface Brand {
   // URL del sitio de documentación de producto (spec 022): por instancia, via
   // brand.json del deploy. Default: /docs/ detrás del mismo ingress.
   docsUrl: string;
+  docsPort?: number;
   colors?: { primary?: string; background?: string; panel?: string };
 }
 

@@ -53,7 +53,7 @@ const ETIQUETAS_ESTADO = new Map<string, [FamiliaEstado, string]>([
   ["blocked_by_policy", ["bloqueado", "Bloqueado (política)"]],
   ["blocked_residency", ["bloqueado", "Bloqueado (residencia)"]],
   ["blocked_entity", ["bloqueado", "Bloqueado (dato personal)"]],
-  ["upstream_error", ["error", "Error upstream"]],
+  ["upstream_error", ["error", "Error del proveedor"]],
 ]);
 
 /** Familia + etiqueta + tono de un `compliance_status`.
@@ -77,7 +77,7 @@ export const estadoDeCumplimiento = (
     ? (["riesgo", raw] as [FamiliaEstado, string])
     : raw.includes("error")
     ? (["error", raw] as [FamiliaEstado, string])
-    : (["desconocido", raw || "—"] as [FamiliaEstado, string]);
+    : (["desconocido", raw || "sin estado"] as [FamiliaEstado, string]);
   return {
     familia,
     etiqueta,
@@ -243,7 +243,7 @@ export const AuditPage: React.FC = () => {
         to_date: toDate ? new Date(toDate + "T23:59:59").toISOString() : undefined,
       });
     } catch (e) {
-      alert("Error al exportar. Intente nuevamente.");
+      alert("No se pudo exportar. Intente nuevamente.");
     } finally {
       setExporting(false);
     }
@@ -272,7 +272,7 @@ export const AuditPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-text-primary">Logs de Auditoría</h1>
           <p className="text-xs text-text-secondary mt-1">
-            Registro inmutable de transacciones para control de cumplimiento y costos. No se almacena PII.
+            Registro de cada transacción para control de cumplimiento y costos. No se guarda el texto de los prompts.
           </p>
         </div>
         <div className="flex gap-2">
@@ -303,9 +303,8 @@ export const AuditPage: React.FC = () => {
           <div className="space-y-1">
             <p className="text-xs font-semibold text-warn">{aviso}</p>
             <p className="text-[11px] text-text-secondary">
-              La escritura de auditoría falló y esos intentos no dejaron fila: el registro de
-              abajo está incompleto. El contador queda como constancia hasta que se reinicie
-              el servicio. Avise a quien opera la instalación.
+              Esas peticiones no se pudieron guardar, así que el registro de abajo está incompleto.
+              Avise a quien opera la instalación.
             </p>
           </div>
         </div>
@@ -427,7 +426,7 @@ export const AuditPage: React.FC = () => {
                                 {guardianCount} evento{guardianCount > 1 ? "s" : ""}
                               </span>
                             ) : (
-                              <span className="text-text-tertiary">—</span>
+                              <span className="text-text-tertiary">sin eventos</span>
                             )}
                           </td>
                           <td className="p-3 text-warning">{log.latency_ms}ms</td>
@@ -507,11 +506,11 @@ export const AuditPage: React.FC = () => {
                                         ) : "blocked_by_layer" in log ? (
                                           // Bloqueo real sin capa del catálogo (p. ej. residencia de
                                           // datos, que no es una capa del registry 027).
-                                          <span className="text-text-tertiary">sin capa del catálogo</span>
+                                          <span className="text-text-tertiary">sin capa asociada</span>
                                         ) : (
                                           // El listado no trae el dato: "no hay registro" ≠ "no actuó
                                           // ninguna capa". No se afirma lo que no se sabe.
-                                          <span className="text-text-tertiary">sin registro de capa</span>
+                                          <span className="text-text-tertiary">sin dato</span>
                                         )}
                                       </p>
                                     )}

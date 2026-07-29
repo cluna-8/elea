@@ -40,11 +40,11 @@ import {
 const LAYER_COPY: Record<string, { name: string; que_protege: string }> = {
   interception_audit: {
     name: "Intercepción y registro",
-    que_protege: "Cada pedido se intercepta y queda registrado con su atribución. Es lo que hace del producto un firewall y no un proxy.",
+    que_protege: "Cada petición se intercepta y queda registrada, junto con la capa que actuó sobre ella.",
   },
   pii_detection: {
     name: "Detección de datos personales",
-    que_protege: "Detecta datos personales en el texto aunque el enmascarado esté apagado: el pedido nunca queda sin relato.",
+    que_protege: "Detecta datos personales en el texto, aunque el enmascarado esté apagado.",
   },
   secret_detection: {
     name: "Bloqueo de secretos",
@@ -56,7 +56,7 @@ const LAYER_COPY: Record<string, { name: string; que_protege: string }> = {
   },
   pii_masking: {
     name: "Enmascarado de datos personales",
-    que_protege: "Transforma lo detectado antes de que salga. Se puede apagar por herramienta (en herramientas de código el enmascarado rompe el código); apagarlo no apaga la detección.",
+    que_protege: "Transforma lo detectado antes de que salga. Se puede apagar por herramienta (en las de código el enmascarado rompe el código); apagarlo no apaga la detección.",
   },
   sensitive_routing: {
     name: "Reruteo de prompts sensibles",
@@ -98,7 +98,7 @@ const ESTADO_UI: Record<
     text: "text-ok",
     border: "border-ok/30",
     bg: "bg-ok-bg",
-    resumen: "Corre sobre el tráfico de este modo, confirmado — no es una intención declarada.",
+    resumen: "Se está aplicando al tráfico de este modo.",
   },
   delegada: {
     label: "Delegada",
@@ -106,7 +106,7 @@ const ESTADO_UI: Record<
     text: "text-info",
     border: "border-info/30",
     bg: "bg-info-bg",
-    resumen: "No la aplicamos nosotros: la aporta el proveedor del modelo en su propio extremo. El tráfico no queda desprotegido — la protección base se sigue aplicando.",
+    resumen: "La aplica el proveedor del modelo en su extremo. La protección base sigue activa.",
   },
   requiere_credencial: {
     label: "Requiere credencial",
@@ -114,7 +114,7 @@ const ESTADO_UI: Record<
     text: "text-warn",
     border: "border-warn/30",
     bg: "bg-warn-bg",
-    resumen: "Está deseada pero le falta la credencial: no se está aplicando y no se cuenta como protección.",
+    resumen: "Falta la credencial, así que no se está aplicando.",
   },
   degradada: {
     label: "Degradada",
@@ -122,7 +122,7 @@ const ESTADO_UI: Record<
     text: "text-danger",
     border: "border-danger/30",
     bg: "bg-danger-bg",
-    resumen: "Venía aplicándose y dejó de confirmarse. Se reporta degradada, jamás activa.",
+    resumen: "Venía aplicándose y dejó de responder.",
   },
   no_disponible: {
     label: "No disponible",
@@ -130,7 +130,7 @@ const ESTADO_UI: Record<
     text: "text-text-tertiary",
     border: "border-border",
     bg: "bg-surface-2",
-    resumen: "No se está aplicando en este modo. Es el estado por defecto: sin confirmación, no se afirma nada.",
+    resumen: "No se está aplicando en este modo.",
   },
 };
 
@@ -153,7 +153,7 @@ const MODE_SHORT: Record<string, string> = {
 };
 const MODE_LONG: Record<string, string> = {
   subscription: "Tráfico contra la suscripción de la organización. El proveedor del modelo aporta parte de las protecciones en su propio extremo.",
-  "gateway-models": "Tráfico contra un modelo propio administrado por el gateway (incluidos los locales). Acá solo protege lo que aplica el producto.",
+  "gateway-models": "Tráfico contra un modelo propio administrado por el gateway, incluidos los locales. Solo se aplica la protección del producto.",
 };
 
 // Precedencia traducida a copy de usuario (sin la palabra "origen", sin "default").
@@ -260,7 +260,7 @@ function ModeBadge({ estado, motivo }: { estado: GovernanceEffectiveState; motiv
   const ui = estadoUi(estado);
   return (
     <span
-      title={motivo ? `${ui.label} — ${motivo}` : `${ui.label} — ${ui.resumen}`}
+      title={motivo ? `${ui.label}: ${motivo}` : `${ui.label}: ${ui.resumen}`}
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold whitespace-nowrap ${ui.border} ${ui.bg} ${ui.text}`}
     >
       <span aria-hidden="true" className="text-[11px] leading-none">{ui.glyph}</span>
@@ -274,7 +274,7 @@ function SaveIndicator({ strip }: { strip?: SaveStrip }) {
   if (!strip) return <span className="inline-block w-4" />;
   if (strip.saving || strip.reconciliando)
     return <span title="Guardando…" className="text-text-secondary animate-pulse">⟳</span>;
-  if (strip.incierto) return <span title="Sin confirmar — expandí para reconsultar" className="text-warning">⚠</span>;
+  if (strip.incierto) return <span title="Sin confirmar. Abra el detalle para volver a consultar." className="text-warning">⚠</span>;
   if (strip.error) return <span title={strip.error} className="text-danger">✕</span>;
   if (strip.savedAt) return <span title={`Guardado ${strip.savedAt}`} className="text-success">✓</span>;
   return <span className="inline-block w-4" />;
@@ -376,8 +376,8 @@ function HelpPopover() {
             <div className="space-y-1 border-t border-border pt-3">
               <p className="text-[11px] font-bold uppercase tracking-wider text-text-secondary">Heredar</p>
               <p className="text-[11px] text-text-secondary leading-relaxed">
-                Un control en <span className="text-text-primary">Heredar</span> no decide por ese modo: cede al valor
-                por defecto (o a lo que fije la organización). La protección base va siempre, fuera de este orden.
+                Un control en <span className="text-text-primary">Heredar</span> no decide nada por ese modo: vale el
+                valor por defecto o lo que fije la organización. La protección base se aplica siempre.
               </p>
             </div>
           </div>
@@ -428,15 +428,14 @@ function LayerDetailRow({
                 </p>
               )}
               {(strip?.porModo?.length ?? 0) > 1 && (
-                <p className="text-[10px] text-text-secondary pl-2.5">Recalculado tras tu cambio.</p>
+                <p className="text-[10px] text-text-secondary pl-2.5">Recalculado tras el cambio.</p>
               )}
               {strip?.incierto && (
                 <div className="space-y-1.5 border-l-2 border-warning/40 pl-2.5">
-                  <p className="text-[11px] font-bold text-warning">Estado incierto: reconfirmá contra el servidor</p>
+                  <p className="text-[11px] font-bold text-warning">No se pudo confirmar el guardado</p>
                   <p className="text-[11px] leading-relaxed text-warning/90">
-                    No hubo respuesta al guardar, así que no se puede afirmar si el cambio quedó aplicado. Este
-                    control <span className="font-semibold">no</span> se revirtió: hasta reconfirmar, no se afirma
-                    ningún estado para esta capa en este modo.
+                    El servidor no respondió al guardar, así que no se sabe si el cambio quedó aplicado. El control{" "}
+                    <span className="font-semibold">no</span> se revirtió: vuelva a consultar para ver el estado.
                   </p>
                   <button
                     type="button"
@@ -444,7 +443,7 @@ function LayerDetailRow({
                     disabled={strip?.reconciliando}
                     className="px-2.5 py-1 rounded text-[11px] font-semibold border border-warning/40 bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-40 disabled:cursor-wait transition-colors"
                   >
-                    {strip?.reconciliando ? "Re-consultando…" : "Re-consultar al servidor"}
+                    {strip?.reconciliando ? "Consultando…" : "Volver a consultar"}
                   </button>
                 </div>
               )}
@@ -473,10 +472,10 @@ function LayerDetailRow({
 
       {hayDelegadaODisponible && !esPiso && (
         <p className="text-[11px] text-text-secondary leading-relaxed">
-          Una capa <span className="text-primary">delegada</span> no es tráfico desprotegido: la aporta el
-          proveedor del modelo en su extremo. Si figura <span className="text-text-secondary">no disponible</span> o{" "}
-          <span className="text-warning">requiere credencial</span>, esa protección concreta no corre — y la
-          protección base se sigue aplicando igual.
+          Una capa <span className="text-primary">delegada</span> la aplica el proveedor del modelo en su extremo. Si
+          figura <span className="text-text-secondary">no disponible</span> o{" "}
+          <span className="text-warning">requiere credencial</span>, esa protección no se está aplicando; la
+          protección base sigue activa.
         </p>
       )}
     </div>
@@ -524,7 +523,7 @@ function LayerMatrixRow({
         <span className="text-text-primary text-xs font-semibold truncate group-hover:text-primary transition-colors">{copy.name}</span>
       </button>
       {alerta && (
-        <span aria-hidden="true" title="Requiere atención — expandí para el detalle" className={`text-[11px] shrink-0 ${alerta.c}`}>{alerta.g}</span>
+        <span aria-hidden="true" title="Requiere atención. Abra el detalle." className={`text-[11px] shrink-0 ${alerta.c}`}>{alerta.g}</span>
       )}
     </div>
   );
@@ -601,16 +600,15 @@ function AdvancedSection({
         className="w-full flex items-center gap-2 px-4 py-3 text-left text-text-secondary hover:text-text-primary transition-colors"
       >
         <span aria-hidden="true" className="text-[10px]">{open ? "▾" : "▸"}</span>
-        <span className="text-xs font-semibold">Avanzado — apagar una capa solo en una herramienta</span>
+        <span className="text-xs font-semibold">Avanzado: apagar una capa solo en una herramienta</span>
         <span className="text-[10px] text-text-secondary ml-auto">código, chat, editor…</span>
       </button>
 
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
           <p className="text-[11px] text-text-secondary leading-relaxed">
-            Ajuste fino por herramienta declarada en la Conexión (por ejemplo, apagar el enmascarado solo en
-            herramientas de código, donde rompe el código). Refina el modo; el efecto real se ve arriba, en la
-            columna del modo. El tráfico cuya herramienta se deduce del cliente no se relaja nunca.
+            Excepción por herramienta: por ejemplo, apagar el enmascarado solo en las herramientas de código, donde
+            rompe el código. El resultado se ve arriba, en la columna de cada modo.
           </p>
 
           <label className="flex items-center gap-2 text-xs">
@@ -683,9 +681,9 @@ export const GovernancePage: React.FC = () => {
     } catch (e: any) {
       const apiError = e instanceof ApiError ? e : null;
       if (apiError?.isForbidden) {
-        setError({ kind: "forbidden", message: e.message || "Esta vista es solo para administradores. Tu sesión no tiene permiso para consultar el estado de gobernanza." });
+        setError({ kind: "forbidden", message: e.message || "Esta página es solo para administradores." });
       } else if (apiError?.isNetwork) {
-        setError({ kind: "network", message: "No se pudo contactar al servidor. El estado no se puede afirmar sin respuesta: no se muestra nada como activo." });
+        setError({ kind: "network", message: "No se pudo contactar al servidor, así que no se muestra ningún estado." });
       } else {
         const detalle = e?.message || "El servidor no devolvió un motivo.";
         setError({ kind: "other", message: apiError ? `No se pudo obtener el estado (HTTP ${apiError.status}): ${detalle}` : detalle });
@@ -830,7 +828,7 @@ export const GovernancePage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-text-primary">Gobernanza</h1>
             <p className="text-xs text-text-secondary mt-0.5">
-              Lo que protege de verdad a cada tipo de tráfico. Una capa que no corre nunca figura activa.
+              Qué protección se aplica a cada tipo de tráfico, y cómo configurarla.
             </p>
           </div>
           <div className="flex items-center gap-3 flex-wrap">

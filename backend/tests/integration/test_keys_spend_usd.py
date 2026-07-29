@@ -107,13 +107,15 @@ def test_el_gasto_fino_no_se_redondea_al_serializar(harness):
     assert round(gasto, 4) == 0.0, "el test perdería sentido si el importe fuera grueso"
 
 
-def test_sin_presupuesto_el_listado_dice_cero(harness):
-    """La mayoría de las llaves del piloto no tienen tope: la UI tiene que renderizarlas
-    igual, no romperse ni inventar un consumo."""
+def test_sin_presupuesto_el_listado_dice_null(harness):
+    """La mayoría de las llaves del piloto no tienen tope: la UI las renderiza igual,
+    y el contrato es NULL, no 0.0 — «sin presupuesto aplicable» y «con presupuesto y
+    gasto cero» son estados distintos y la celda los pinta distinto (US3 de la 031:
+    un cero que parece control activo es la clase de mentira suave que esta spec mata)."""
     client, factory, headers = harness
     key_id, _ = _sembrar(factory)
 
-    assert _llave(client, headers, key_id)["spend_usd"] == 0.0
+    assert _llave(client, headers, key_id)["spend_usd"] is None
 
 
 def test_el_presupuesto_del_grupo_es_el_respaldo(harness):

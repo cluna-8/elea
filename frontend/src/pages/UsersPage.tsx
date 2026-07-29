@@ -33,8 +33,8 @@ const LEGAL_BASIS_SHORT: Record<string, string> = {
 const RISK_BADGE: Record<string, { label: string; tone: BadgeTone }> = {
   minimal:           { label: "Mínimo",          tone: "neutral" },
   limited:           { label: "Limitado",         tone: "info" },
-  high_risk_annex3:  { label: "Alto — Annex III", tone: "warn" },
-  high_risk_annex1:  { label: "Alto — MDR",       tone: "danger" },
+  high_risk_annex3:  { label: "Alto (Annex III)", tone: "warn" },
+  high_risk_annex1:  { label: "Alto (MDR)",       tone: "danger" },
 };
 
 // Overlay compartido de modales (tema claro Foundry).
@@ -211,7 +211,7 @@ export const UsersPage: React.FC = () => {
 
       setGroupSpend(newGroupSpend);
     } catch (err) {
-      setError("Error al cargar datos de la pasarela.");
+      setError("No se pudieron cargar los datos de la pasarela.");
     } finally {
       setLoading(false);
     }
@@ -523,7 +523,7 @@ export const UsersPage: React.FC = () => {
               { label: "Usuarios activos", value: users.filter((u) => u.is_active).length, cls: "text-primary" },
               { label: "Llaves activas", value: keys.filter((k) => k.is_active).length, cls: "text-ok" },
               { label: "Presupuestos", value: budgets.length, cls: "text-warn" },
-              { label: "Gasto total acum.", value: `$${totalSpendUsd.toFixed(4)}`, cls: "text-text-primary" },
+              { label: "Gasto total acumulado", value: `$${totalSpendUsd.toFixed(4)}`, cls: "text-text-primary" },
             ].map((kpi) => (
               <Card key={kpi.label} className="p-4 space-y-1">
                 <p className="text-[10px] text-text-secondary uppercase tracking-wider">{kpi.label}</p>
@@ -551,7 +551,7 @@ export const UsersPage: React.FC = () => {
                       <div className="flex justify-between items-center">
                         <span className="text-text-primary font-semibold">{name}</span>
                         <span className={cn("font-mono font-bold", pct >= 100 ? "text-danger" : "text-warn")}>
-                          {pct.toFixed(1)}% — ${Number(b.current_spend_usd).toFixed(4)} / ${Number(b.max_spend_usd).toFixed(4)}
+                          {pct.toFixed(1)}% (${Number(b.current_spend_usd).toFixed(4)} de ${Number(b.max_spend_usd).toFixed(4)})
                         </span>
                       </div>
                       <div className="w-full bg-surface-2 rounded-full h-1.5 overflow-hidden">
@@ -643,24 +643,24 @@ export const UsersPage: React.FC = () => {
                       <Table.Row key={g.id} className="hover:bg-surface-2 transition-colors">
                         <Table.Cell>
                           <p className="font-semibold text-text-primary">{g.name}</p>
-                          <p className="text-[10px] text-text-secondary mt-0.5">{g.description || "—"}</p>
+                          <p className="text-[10px] text-text-secondary mt-0.5">{g.description || "Sin descripción"}</p>
                         </Table.Cell>
                         <Table.Cell className="text-text-secondary">{membersCount}</Table.Cell>
                         <Table.Cell className="text-[11px] text-primary">
-                          {cg?.default_legal_basis ? (LEGAL_BASIS_SHORT[cg.default_legal_basis] || cg.default_legal_basis) : <span className="text-text-tertiary">—</span>}
+                          {cg?.default_legal_basis ? (LEGAL_BASIS_SHORT[cg.default_legal_basis] || cg.default_legal_basis) : <span className="text-text-tertiary">sin dato</span>}
                         </Table.Cell>
                         <Table.Cell>
                           {risk ? (
                             <StatusBadge tone={risk.tone}>{risk.label}</StatusBadge>
-                          ) : <span className="text-text-tertiary text-[10px]">—</span>}
+                          ) : <span className="text-text-tertiary text-[10px]">sin dato</span>}
                         </Table.Cell>
                         <Table.Cell className="text-[11px] text-text-secondary">
-                          {cg?.compliance_project_name || <span className="text-text-tertiary">—</span>}
+                          {cg?.compliance_project_name || <span className="text-text-tertiary">sin dato</span>}
                         </Table.Cell>
                         <Table.Cell className="font-mono text-[11px]">
                           {spend?.spend_usd != null ? (
                             <span className="text-ok">${spend.spend_usd.toFixed(4)}</span>
-                          ) : <span className="text-text-tertiary">—</span>}
+                          ) : <span className="text-text-tertiary">sin dato</span>}
                         </Table.Cell>
                         <Table.Cell>
                           <button
@@ -721,7 +721,7 @@ export const UsersPage: React.FC = () => {
                             <StatusBadge tone={risk.tone}>
                               {risk.label}{u.risk_level ? "" : " ↑"}
                             </StatusBadge>
-                          ) : <span className="text-text-tertiary text-[10px]">—</span>}
+                          ) : <span className="text-text-tertiary text-[10px]">sin dato</span>}
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex items-center gap-4">
@@ -752,7 +752,7 @@ export const UsersPage: React.FC = () => {
       {/* ── Tab: Llaves Virtuales ─────────────────────────────────────────── */}
       {activeTab === "keys" && (
         <Card
-          title="Llaves Virtuales Activas (Bearer Tokens)"
+          title="Llaves virtuales activas"
           actions={
             <Button variant="primary" size="sm" onClick={() => setShowKeyModal(true)}>
               Generar Llave Virtual
@@ -769,10 +769,10 @@ export const UsersPage: React.FC = () => {
                   <Table.HeaderCell>Asociado a</Table.HeaderCell>
                   <Table.HeaderCell>Herramienta</Table.HeaderCell>
                   <Table.HeaderCell>Compliance</Table.HeaderCell>
-                  <Table.HeaderCell>Token Preview</Table.HeaderCell>
+                  <Table.HeaderCell>Vista previa</Table.HeaderCell>
                   <Table.HeaderCell>Límites RPM/TPM</Table.HeaderCell>
                   <Table.HeaderCell title="Gasto acumulado del presupuesto aplicable al dueño de la Connection. Es el mismo contador que bloquea la petición al superar el tope.">
-                    Consumo Real
+                    Consumo
                   </Table.HeaderCell>
                   <Table.HeaderCell>Fecha Creación</Table.HeaderCell>
                   <Table.HeaderCell align="right">Acciones</Table.HeaderCell>
@@ -793,7 +793,7 @@ export const UsersPage: React.FC = () => {
                       </Table.Cell>
                       <Table.Cell>
                         <StatusBadge tone="info" className="text-[10px]">
-                          {TOOL_LABELS[k.tool_type ?? ""] ?? k.tool_type ?? "—"}
+                          {TOOL_LABELS[k.tool_type ?? ""] ?? k.tool_type ?? "sin dato"}
                         </StatusBadge>
                       </Table.Cell>
                       <Table.Cell className="text-[10px]">
@@ -873,7 +873,7 @@ export const UsersPage: React.FC = () => {
             <div>
               <h2 className="text-[15px] font-semibold text-text-primary">Límites de Consumo</h2>
               <p className="text-xs text-text-secondary mt-0.5">
-                Presupuestos máximos en USD y tokens para usuarios y equipos. Doble capa activa: se verifican ambos (personal + equipo) simultáneamente.
+                Presupuestos máximos en USD y tokens. Si hay presupuesto personal y de equipo, se verifican los dos.
               </p>
             </div>
             <Button variant="primary" size="sm" onClick={() => setShowBudgetModal(true)}>
@@ -958,8 +958,7 @@ export const UsersPage: React.FC = () => {
         <div className="space-y-6">
           <Card title="Métodos de Autenticación Disponibles">
             <p className="text-xs text-text-secondary mb-5">
-              Métodos de login soportados por la plataforma. Los marcados como "Próximamente" están en roadmap
-              y pueden activarse como feature adicional.
+              Métodos de acceso a la consola. Los marcados como «Próximamente» se habilitan como servicio adicional.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1048,8 +1047,8 @@ export const UsersPage: React.FC = () => {
             </div>
 
             <div className="mt-5 p-3 rounded-card bg-surface-2 border border-border text-xs text-text-secondary">
-              Para habilitar un proveedor SSO, contactá al equipo de Basa o abrí un ticket indicando el proveedor
-              elegido y el dominio corporativo. La integración tarda típicamente 1–2 días de configuración.
+              Para habilitar un proveedor SSO, contacte a su equipo de soporte indicando el proveedor
+              de identidad elegido y el dominio corporativo. La configuración lleva entre 1 y 2 días.
             </div>
           </Card>
         </div>
@@ -1057,7 +1056,7 @@ export const UsersPage: React.FC = () => {
 
       {/* ── Compliance Profile Modal ─────────────────────────────────────── */}
       {showComplianceModal && editingGroup && (
-        <ModalShell title={`Perfil de Compliance — ${editingGroup.name}`}>
+        <ModalShell title={`Perfil de compliance: ${editingGroup.name}`}>
           <div className="space-y-4">
             <Field label="Base legal GDPR por defecto">
               <select
@@ -1066,11 +1065,11 @@ export const UsersPage: React.FC = () => {
                 className={selectClass}
               >
                 <option value="">Sin configurar</option>
-                <option value="art_9_2_h">Art. 9(2)(h) — Prestación sanitaria</option>
-                <option value="art_9_2_j">Art. 9(2)(j) — Investigación / interés público</option>
-                <option value="art_9_2_a">Art. 9(2)(a) — Consentimiento explícito</option>
-                <option value="art_6_1_c">Art. 6(1)(c) — Obligación legal</option>
-                <option value="art_6_1_e">Art. 6(1)(e) — Misión de interés público</option>
+                <option value="art_9_2_h">Art. 9(2)(h): prestación sanitaria</option>
+                <option value="art_9_2_j">Art. 9(2)(j): investigación o interés público</option>
+                <option value="art_9_2_a">Art. 9(2)(a): consentimiento explícito</option>
+                <option value="art_6_1_c">Art. 6(1)(c): obligación legal</option>
+                <option value="art_6_1_e">Art. 6(1)(e): misión de interés público</option>
               </select>
             </Field>
 
@@ -1083,8 +1082,8 @@ export const UsersPage: React.FC = () => {
                 <option value="">Sin configurar</option>
                 <option value="minimal">Riesgo Mínimo</option>
                 <option value="limited">Riesgo Limitado</option>
-                <option value="high_risk_annex3">Alto Riesgo — Annex III (farmacovigilancia / evaluación de personas)</option>
-                <option value="high_risk_annex1">Alto Riesgo — Annex I (MDR, producto sanitario)</option>
+                <option value="high_risk_annex3">Alto riesgo (Annex III: farmacovigilancia, evaluación de personas)</option>
+                <option value="high_risk_annex1">Alto riesgo (Annex I: MDR, producto sanitario)</option>
               </select>
             </Field>
 
@@ -1128,7 +1127,7 @@ export const UsersPage: React.FC = () => {
               onChange={(e) => setKeyName(e.target.value)}
               placeholder="ej: cardiologia-produccion"
             />
-            <Field label="Herramienta / Superficie">
+            <Field label="Herramienta">
               <select
                 value={keyToolType}
                 onChange={(e) => setKeyToolType(e.target.value)}
@@ -1139,8 +1138,8 @@ export const UsersPage: React.FC = () => {
                 ))}
               </select>
               <p className="mt-1 text-[10px] text-text-tertiary">
-                La llave identifica persona + herramienta: esta etiqueta es la que muestran
-                «Conexiones en vivo» y la auditoría. Una llave activa por herramienta por usuario.
+                Cada llave identifica a una persona y una herramienta. Se admite una llave activa
+                por herramienta y usuario.
               </p>
             </Field>
             <div className="grid grid-cols-2 gap-4">
@@ -1247,7 +1246,7 @@ export const UsersPage: React.FC = () => {
               </button>
             </div>
             <div className="bg-warn-bg border border-warn/20 text-warn rounded-md p-3.5 text-[11px]">
-              Guarde esta credencial de forma segura. Cualquier persona con esta clave puede realizar consultas en la pasarela en nombre de los límites asignados.
+              Guarde esta credencial en un lugar seguro. Cualquiera que la tenga puede consultar la pasarela con los límites asignados.
             </div>
             <div className="flex justify-end pt-2">
               <Button variant="primary" size="sm" onClick={() => setGeneratedKey(null)}>
@@ -1344,7 +1343,7 @@ export const UsersPage: React.FC = () => {
             </Field>
 
             <div className="border-t border-border pt-3 space-y-3">
-              <p className="text-[10px] text-text-secondary uppercase tracking-wider font-semibold">Perfil de compliance individual (sobreescribe el del equipo)</p>
+              <p className="text-[10px] text-text-secondary uppercase tracking-wider font-semibold">Perfil de compliance individual (sobrescribe el del equipo)</p>
               <Field label="Base legal GDPR">
                 <select
                   value={userLegalBasis}
@@ -1352,11 +1351,11 @@ export const UsersPage: React.FC = () => {
                   className={selectClass}
                 >
                   <option value="">Heredar del equipo</option>
-                  <option value="art_9_2_h">Art. 9(2)(h) — Prestación sanitaria</option>
-                  <option value="art_9_2_j">Art. 9(2)(j) — Investigación</option>
-                  <option value="art_9_2_a">Art. 9(2)(a) — Consentimiento explícito</option>
-                  <option value="art_6_1_c">Art. 6(1)(c) — Obligación legal</option>
-                  <option value="art_6_1_e">Art. 6(1)(e) — Interés público</option>
+                  <option value="art_9_2_h">Art. 9(2)(h): prestación sanitaria</option>
+                  <option value="art_9_2_j">Art. 9(2)(j): investigación</option>
+                  <option value="art_9_2_a">Art. 9(2)(a): consentimiento explícito</option>
+                  <option value="art_6_1_c">Art. 6(1)(c): obligación legal</option>
+                  <option value="art_6_1_e">Art. 6(1)(e): interés público</option>
                 </select>
               </Field>
               <Field label="Nivel de riesgo AI Act">
@@ -1368,8 +1367,8 @@ export const UsersPage: React.FC = () => {
                   <option value="">Heredar del equipo</option>
                   <option value="minimal">Riesgo Mínimo</option>
                   <option value="limited">Riesgo Limitado</option>
-                  <option value="high_risk_annex3">Alto Riesgo — Annex III</option>
-                  <option value="high_risk_annex1">Alto Riesgo — MDR</option>
+                  <option value="high_risk_annex3">Alto riesgo (Annex III)</option>
+                  <option value="high_risk_annex1">Alto riesgo (MDR)</option>
                 </select>
               </Field>
               <Field label="Proyecto de compliance">
@@ -1500,7 +1499,7 @@ export const UsersPage: React.FC = () => {
 
       {/* ── Assign Group Modal ───────────────────────────────────────────── */}
       {assignGroupUser && (
-        <ModalShell title={`Asignar equipo — ${assignGroupUser.username}`} maxW="max-w-sm">
+        <ModalShell title={`Asignar equipo: ${assignGroupUser.username}`} maxW="max-w-sm">
           <div className="space-y-4">
             <Field label="Equipo">
               <select
@@ -1524,7 +1523,7 @@ export const UsersPage: React.FC = () => {
 
       {/* ── Reset Password Modal (acción de administrador) ───────────────── */}
       {resetUser && (
-        <ModalShell title={`Restablecer contraseña — ${resetUser.username}`} maxW="max-w-sm">
+        <ModalShell title={`Restablecer contraseña: ${resetUser.username}`} maxW="max-w-sm">
           <form onSubmit={handleResetPassword} className="space-y-4 text-xs">
             <p className="text-text-secondary leading-relaxed">
               Se define una contraseña nueva para esta persona. No hace falta conocer la anterior:

@@ -244,7 +244,7 @@ export const UserPortal: React.FC<PortalProps> = ({ user, onLogout }) => {
           </Button>
         </form>
         <p className="text-center text-[10px] text-text-tertiary mt-2">
-          Respuestas generadas por IA — verifique la información importante antes de aplicarla.
+          Respuestas generadas por IA. Verifique la información importante antes de usarla.
         </p>
       </div>
 

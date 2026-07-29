@@ -117,7 +117,7 @@ const STATUS_LABEL: Record<string, string> = {
   // Residencia de datos del proyecto: NO es capa del registry, así que este evento viene con
   // `blocked_by_layer` en null a propósito (chat.py:797-805).
   blocked_residency: "BLOQUEADO POR RESIDENCIA",
-  upstream_error: "ERROR UPSTREAM",
+  upstream_error: "ERROR DEL PROVEEDOR",
 };
 
 /** Familia + etiqueta de un `compliance_status`. La familia se DERIVA del nombre cuando la
@@ -135,7 +135,7 @@ function estadoEvento(status?: string): { label: string; familia: Familia } {
     : raw.includes("error")
     ? "error"
     : "otro";
-  return { label: STATUS_LABEL[raw] || (raw || "—").toUpperCase(), familia };
+  return { label: STATUS_LABEL[raw] || (raw || "sin estado").toUpperCase(), familia };
 }
 
 // ── Vocabulario de la atribución (spec 027) ───────────────────────────────────────────
@@ -161,10 +161,10 @@ const LAYER_STATUS_STATE: Record<string, GovernanceEffectiveState> = {
 // donde "qué me cubrió y qué no" se responde sin pasar el mouse por encima.
 const LAYER_STATUS_LABEL: Record<string, string> = {
   applied: "aplicada",
-  skipped: "omitida por configuración",
+  skipped: "apagada por configuración",
   not_configured: "sin configurar",
   requires_credential: "requiere credencial",
-  delegated: "delegada al servicio upstream",
+  delegated: "la aplica el proveedor del modelo",
   degraded: "degradada",
 };
 const DECISION_LABEL: Record<string, string> = {
@@ -192,7 +192,7 @@ const Atribucion: React.FC<{ e: GwEvent; familia: Familia }> = ({ e, familia }) 
     return (
       <div className="flex items-center gap-2 mt-3 flex-wrap">
         <span className={`${CHIP} border-border bg-surface-2 text-text-tertiary italic font-normal`}>
-          sin registro de capas
+          sin detalle de capas
         </span>
       </div>
     );
@@ -222,9 +222,9 @@ const Atribucion: React.FC<{ e: GwEvent; familia: Familia }> = ({ e, familia }) 
         // que es exactamente lo que esta spec vino a terminar.
         <span
           className={`${CHIP} font-bold ${FAMILIA_CLS.blocked}`}
-          title="El bloqueo lo produjo una política que no está en el catálogo de capas gobernables (por ejemplo, residencia de datos). Ninguna capa se lo atribuye porque ninguna lo produjo."
+          title="El bloqueo no viene de una capa configurable sino de una política del proyecto, por ejemplo la residencia de datos."
         >
-          <span aria-hidden="true">■</span> Bloqueado fuera del catálogo de capas
+          <span aria-hidden="true">■</span> Bloqueado por política del proyecto
         </span>
       ) : null}
 
@@ -248,7 +248,7 @@ const Atribucion: React.FC<{ e: GwEvent; familia: Familia }> = ({ e, familia }) 
           title={limpias.map((l) => layerCopy(l.layer_code).name).join(" · ")}
         >
           <span aria-hidden="true">{uiAplicada.glyph}</span>
-          {limpias.length} capa(s) aplicadas sin hallazgos
+          {limpias.length === 1 ? "1 capa sin hallazgos" : `${limpias.length} capas sin hallazgos`}
         </span>
       )}
 
@@ -298,8 +298,8 @@ const Ruteo: React.FC<{ e: GwEvent }> = ({ e }) => {
   // (embeddings caídos, timeout o configuración inválida). Decirlo es el requisito —
   // FR-004: la degradación jamás es silenciosa. Por eso el chip cambia de familia visual.
   const titulo = r.degraded
-    ? "El ruteo no pudo decidir (modelo de embeddings caído, timeout o configuración inválida) y el pedido se sirvió por el modelo por defecto. Se respondió igual."
-    : "Modelo elegido automáticamente por similitud semántica con los ejemplos de la ruta.";
+    ? "El ruteo automático no pudo decidir y la petición se respondió con el modelo por defecto."
+    : "Modelo elegido automáticamente según el contenido de la petición.";
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -391,7 +391,7 @@ export const FirewallMonitorPage: React.FC = () => {
         // sus peticiones servidas (antes sólo los bloqueos), que es de donde salen los
         // eventos con ruteo automático. Nombrar sólo las coding tools acá dejaría al
         // usuario buscando en la pantalla equivocada el pedido que acaba de mandar.
-        subtitle="Tráfico de coding tools (Claude Code, Cursor…), del navegador y del chat de la consola. Auditado sin texto de prompt ni PII cruda."
+        subtitle="Peticiones en tiempo real de las herramientas de código, el navegador y el chat de la consola. No se muestra el texto de los prompts."
         actions={
           <>
             <Button variant="secondary" size="sm" onClick={() => setPaused((p) => !p)}>
@@ -404,22 +404,8 @@ export const FirewallMonitorPage: React.FC = () => {
         }
       />
 
-      {/* Banda de contexto. Decía, en verde y sin condiciones: "Redacción activa… el modelo
-          nunca ve el dato real". Es una afirmación que esta misma pantalla contradice dos
-          centímetros más abajo: con la atribución renderizada, un evento puede mostrar
-          "Enmascarado de datos personales: omitida por configuración" —que es una postura
-          LEGÍTIMA y frecuente (D8: en herramientas de código el enmascarado rompe el
-          código)— debajo de un cartel que promete lo contrario. Afirmar cobertura que no se
-          verificó es el mismo pecado que pintar un bloqueo de gris, sólo que hacia el lado
-          que tranquiliza. Ahora la banda explica dónde mirar y no promete nada. */}
-      <div className="flex items-start gap-2 rounded-card border border-border bg-primary-tint px-4 py-3 text-sm text-text-secondary">
-        <span aria-hidden="true">🔒</span>
-        <span>
-          Qué protege cada pedido lo decide la postura de la organización, y cambia por
-          alcance. Cada evento de abajo lleva las capas que se aplicaron <strong>de verdad</strong>{" "}
-          y las que no; la configuración vigente se ve en <strong>Gobernanza</strong>.
-        </span>
-      </div>
+      {/* Sin banda de contexto: la página se explica con sus propios eventos y chips.
+          La configuración vigente de cada capa vive en Gobernanza. */}
 
       {/* Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -439,10 +425,10 @@ export const FirewallMonitorPage: React.FC = () => {
       {total === 0 ? (
         <div className="rounded-card border border-dashed border-border bg-surface py-16 text-center text-text-secondary">
           {denegado
-            ? "Esta cuenta no tiene permiso para ver el firewall en vivo. Se necesita un rol de administración o de cumplimiento."
+            ? "Esta cuenta no tiene permiso para ver las conexiones en vivo."
             : connected
-            ? "Esperando tráfico… enviá una request por el gateway (Claude Code, VS Code o el browser)."
-            : "Conectando con el feed del gateway…"}
+            ? "Esperando tráfico. Envíe una petición desde Claude Code, VS Code o el navegador."
+            : "Conectando…"}
         </div>
       ) : (
         <div className="space-y-3">
@@ -461,9 +447,9 @@ export const FirewallMonitorPage: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-3">
                   <StatusBadge tone={FAMILIA_TONE[familia]}>{label}</StatusBadge>
                   <span className="rounded-md border border-border bg-primary-tint px-2.5 py-0.5 text-xs font-medium text-primary">
-                    ▸ {e.tenant || "—"}
+                    ▸ {e.tenant || "sin dato"}
                   </span>
-                  <strong className="text-text-primary">{e.tool || "—"}</strong>
+                  <strong className="text-text-primary">{e.tool || "sin dato"}</strong>
                   <span className="text-sm text-text-secondary">· {e.client || "anónimo"}</span>
                   {e.model && <span className="font-mono text-xs text-text-secondary">{e.model}</span>}
                   <span className="ml-auto font-mono text-xs text-text-tertiary">{fmtTime(e.ts)}</span>
@@ -475,7 +461,7 @@ export const FirewallMonitorPage: React.FC = () => {
 
                 {e.masked_entities && e.masked_entities.length > 0 && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-text-secondary">PII enmascarada:</span>
+                    <span className="text-xs text-text-secondary">Datos personales enmascarados:</span>
                     {e.masked_entities.map((x, j) => (
                       <span key={j} className="rounded border border-border bg-primary-tint px-2 py-0.5 font-mono text-[11px] text-primary">
                         {x.count}× {x.type}

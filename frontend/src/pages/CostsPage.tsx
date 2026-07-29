@@ -17,7 +17,7 @@ const VEREDICTO_LABELS: Record<string, { label: string; cls: string }> = {
 };
 
 const fmtUsd = (v: number | null | undefined) =>
-  v == null ? "—" : `$${Number(v).toFixed(4)}`;
+  v == null ? "sin dato" : `$${Number(v).toFixed(4)}`;
 
 const STRATEGY_APPLIED_LABELS: Record<string, string> = {
   headroom: "Headroom (local)",
@@ -59,7 +59,7 @@ function BreakdownTable({
             <tr className="text-text-secondary text-left border-b border-border">
               <th className="pb-2 font-medium">{nameKey}</th>
               <th className="pb-2 font-medium text-right">Gasto</th>
-              <th className="pb-2 font-medium text-right">Requests</th>
+              <th className="pb-2 font-medium text-right">Peticiones</th>
               <th className="pb-2 font-medium text-right">Ahorrado</th>
             </tr>
           </thead>
@@ -123,7 +123,7 @@ export const CostsPage: React.FC = () => {
       gc.forEach(([id, c]) => { if (c) map[id] = c; });
       setGroupConfigs(map);
     } catch (e: any) {
-      setError(e.message || "Error al cargar costes");
+      setError(e.message || "No se pudieron cargar los costos.");
     } finally {
       setLoading(false);
     }
@@ -135,7 +135,7 @@ export const CostsPage: React.FC = () => {
       await api.updateCostConfig(enabled);
       setCostConfig((c) => (c ? { ...c, enabled } : c));
     } catch (e: any) {
-      setError(e.message || "Error al guardar config global");
+      setError(e.message || "No se pudo guardar la configuración global.");
     } finally {
       setConfigSaving(null);
     }
@@ -154,7 +154,7 @@ export const CostsPage: React.FC = () => {
       });
       setGroupConfigs((m) => ({ ...m, [groupId]: saved }));
     } catch (e: any) {
-      setError(e.message || "Error al guardar config del grupo");
+      setError(e.message || "No se pudo guardar la configuración del grupo.");
     } finally {
       setConfigSaving(null);
     }
@@ -174,7 +174,7 @@ export const CostsPage: React.FC = () => {
       });
       setAnalysis(res);
     } catch (e: any) {
-      setError(e.message || "Error en la calculadora");
+      setError(e.message || "No se pudo calcular el ahorro.");
     } finally {
       setCalcLoading(false);
     }
@@ -189,7 +189,7 @@ export const CostsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Costos</h1>
           <p className="text-xs text-text-secondary">
-            Visualiza el gasto y calcula si te conviene activar la compresión de tokens (Ahorro de Costes IA).
+            Gasto por modelo, usuario y equipo, y calculadora de ahorro por compresión de tokens.
           </p>
         </div>
         <div className="flex gap-1 bg-surface border border-border rounded-lg p-1">
@@ -216,10 +216,10 @@ export const CostsPage: React.FC = () => {
       {/* KPIs */}
       <div className="grid grid-cols-4 gap-4">
         <KpiCard label="Gasto total" value={fmtUsd(summary?.total_cost_usd)} sub="USD" color="text-danger" />
-        <KpiCard label="Requests" value={summary?.total_requests ?? "—"} sub={RANGE_LABELS[range]} />
+        <KpiCard label="Peticiones" value={summary?.total_requests ?? "sin dato"} sub={RANGE_LABELS[range]} />
         <KpiCard
           label="Tokens ahorrados"
-          value={summary?.tokens_saved?.toLocaleString() ?? "—"}
+          value={summary?.tokens_saved?.toLocaleString() ?? "sin dato"}
           sub="por compresión"
           color="text-success"
         />
@@ -237,8 +237,7 @@ export const CostsPage: React.FC = () => {
           <div>
             <h2 className="text-sm font-bold text-text-primary">Configuración de compresión</h2>
             <p className="text-[10px] text-text-secondary">
-              Activa la compresión globalmente y configura la estrategia por grupo. El motor headroom
-              comprime contenido estructurado (JSON/RAG/arrays) sin gastar tokens.
+              Active la compresión para toda la organización y ajuste la estrategia por grupo.
             </p>
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
@@ -318,7 +317,7 @@ export const CostsPage: React.FC = () => {
             </tbody>
           </table>
         ) : (
-          <p className="text-xs text-text-secondary">No hay grupos. Crea grupos desde Usuarios &amp; Equipos.</p>
+          <p className="text-xs text-text-secondary">No hay grupos. Créelos desde Usuarios y Equipos.</p>
         )}
       </div>
 
@@ -352,7 +351,7 @@ export const CostsPage: React.FC = () => {
         <div>
           <h2 className="text-sm font-bold text-text-primary">Calculadora de compresión</h2>
           <p className="text-[10px] text-text-secondary">
-            Pega un prompt, elige modelo y mira cuántos tokens ahorrarías y si conviene activar.
+            Pegue un prompt, elija un modelo y vea cuántos tokens ahorraría.
           </p>
         </div>
 
@@ -372,7 +371,7 @@ export const CostsPage: React.FC = () => {
                 className="w-full mt-1 bg-surface border border-border rounded-lg p-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="deterministic">Determinista (prosa, local)</option>
-                <option value="headroom">Headroom (estructurado, local · sin tokens)</option>
+                <option value="headroom">Headroom (estructurado, local, sin tokens)</option>
               </select>
             </div>
             <div>
@@ -382,7 +381,7 @@ export const CostsPage: React.FC = () => {
                 onChange={(e) => setModel(e.target.value)}
                 className="w-full mt-1 bg-surface border border-border rounded-lg p-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
-                {!pricing.length && <option value="">— sin modelos —</option>}
+                {!pricing.length && <option value="">Sin modelos disponibles</option>}
                 {pricing.map((p) => (
                   <option key={p.model_name} value={p.model_name}>
                     {p.model_name} (${p.input_cost_per_million}/M)
@@ -406,9 +405,9 @@ export const CostsPage: React.FC = () => {
 
           {strategy === "headroom" && (
             <p className="text-[10px] text-text-secondary">
-              El módulo headroom (SmartCrusher, Rust) comprime contenido estructurado (JSON, logs,
-              tool outputs, RAG, arrays) de forma local — <span className="text-success">sin gastar tokens</span> ni
-              llamar a ningún LLM. Para prosa libre cae al determinista. Pega un JSON/array para ver el ahorro real.
+              Headroom comprime contenido estructurado (JSON, logs, arrays) de forma local,{" "}
+              <span className="text-success">sin gastar tokens</span> ni llamar a ningún modelo. Para prosa libre
+              usa la estrategia determinista. Pegue un JSON o un array para ver el ahorro real.
             </p>
           )}
 
@@ -465,7 +464,7 @@ export const CostsPage: React.FC = () => {
 
               {!analysis.would_compress && (
                 <p className="text-[10px] text-text-secondary text-center">
-                  Por debajo del umbral ({analysis.threshold} tokens) o sin ahorro — no se comprimiría.
+                  Por debajo del umbral ({analysis.threshold} tokens) o sin ahorro: no se comprimiría.
                 </p>
               )}
             </div>

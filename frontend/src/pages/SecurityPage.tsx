@@ -7,7 +7,7 @@ const GUARDIAN_DESCRIPTIONS: Record<string, string> = {
   pii_masking: "Enmascaramiento local por expresiones regulares. Detecta DNI, CUIL, emails, teléfonos y personas sin depender de servicios externos.",
   secret_detection: "Detecta claves de API o tokens de seguridad y los redacta antes de enviarlos al modelo.",
   sensitive_routing: "Enruta prompts con términos sensibles a un modelo local on-premise de forma transparente.",
-  presidio: "Detección NLP real de PII/PHI mediante el motor NLP del gateway (modelos de lenguaje, no regex). Requiere los dos microservicios del motor NLP (analyzer y anonymizer).",
+  presidio: "Detección de datos personales con modelos de lenguaje, no solo con patrones. Requiere los dos servicios del motor NLP (analyzer y anonymizer).",
   openai_moderation: "Filtro de contenido: detecta odio, acoso, autolesiones, violencia y contenido sexual.",
   lakera_prompt_injection: "Defensa en tiempo real contra ataques de jailbreak e inyecciones de prompts adversarias.",
   azure_content_safety: "Clasificación y mitigación de contenido inapropiado mediante filtros de seguridad en la nube.",
@@ -34,7 +34,7 @@ const LOCAL_TYPES = new Set(["pii_masking", "secret_detection", "sensitive_routi
 // que el resto del copy de esta pantalla. Un código sin entrada no se inventa: se omite.
 const PLANO_LABELS: Record<string, string> = {
   chat_interno: "Chat interno",
-  api_byok: "API (byok)",
+  api_byok: "API con llave propia",
 };
 
 // Encuadre del catálogo incoming (marco de JF): los guardianes de nube son **features que
@@ -43,9 +43,7 @@ const PLANO_LABELS: Record<string, string> = {
 const CATALOGO_TITULO = "Próximamente · no instalado";
 const CATALOGO_COPY =
   "Forma parte del catálogo de guardianes que el producto irá incorporando. En esta " +
-  "instalación todavía no hay ninguna pieza que lo ejecute, así que no se ofrece como " +
-  "interruptor: encenderlo no cambiaría nada del tráfico. Los guardianes instalados siguen " +
-  "cubriendo el piso —interceptar, registrar, detectar datos personales y bloquear secretos—.";
+  "instalación todavía no hay nada que lo ejecute, por eso no se ofrece como interruptor.";
 
 // Enlace LÓGICO guardián → capa de gobernanza (data-model §2.4: nunca FK, resuelto en
 // query del lado del servidor y por esta tabla del lado del cliente). Las claves son los
@@ -140,7 +138,7 @@ export const SecurityPage: React.FC = () => {
         // compliance_officer entraba por el nav y veía un grid vacío sin explicación —
         // un problema de permisos que parecía un producto roto.
         setLoadError(
-          e?.message || "No se pudo cargar la configuración de seguridad. Verificá la conexión y tus permisos."
+          e?.message || "No se pudo cargar la configuración de seguridad. Revise la conexión y sus permisos."
         );
       } finally {
         setLoading(false);
@@ -168,8 +166,8 @@ export const SecurityPage: React.FC = () => {
         setEstadoPorCapa({});
         setEstadoNoDisponible(
           e instanceof ApiError && e.isForbidden
-            ? "Tu rol no puede consultar el estado real de las capas: se muestra como desconocido, nunca como activo."
-            : "No se pudo consultar el estado real de las capas. Lo que ves abajo es la configuración deseada, no lo que se está aplicando."
+            ? "Su rol no puede consultar el estado de las capas: se muestra como desconocido."
+            : "No se pudo consultar el estado de las capas. Abajo se ve la configuración guardada, no lo que se está aplicando."
         );
       } finally {
         setEstadoCargando(false);
@@ -231,8 +229,7 @@ export const SecurityPage: React.FC = () => {
         esCatalogo: false,
         etiqueta: "Verificando…",
         motivo:
-          "Todavía no se sabe si esta capa pertenece al piso no negociable. El interruptor se " +
-          "habilita recién cuando gobernanza confirma que es una capa opcional.",
+          "Se está comprobando si esta capa es opcional. El interruptor se habilita cuando se confirme.",
       };
     }
     const estado = estadoDe(guardianType);
@@ -244,8 +241,8 @@ export const SecurityPage: React.FC = () => {
         etiqueta: "Sin verificar",
         motivo:
           (estadoNoDisponible ? `${estadoNoDisponible} ` : "") +
-          "Sin el estado de gobernanza no se puede verificar si esta capa es del piso, así que " +
-          `no se permite apagarla desde acá. Configuración guardada: ${isActive ? "activada" : "desactivada"}.`,
+          "Sin el estado de gobernanza no se puede saber si esta capa es del piso, así que no se " +
+          `permite apagarla desde acá. Configuración guardada: ${isActive ? "activada" : "desactivada"}.`,
       };
     }
     if (estado.tier === "floor") {
@@ -255,10 +252,9 @@ export const SecurityPage: React.FC = () => {
         esCatalogo: false,
         etiqueta: "Siempre activo",
         motivo:
-          "Piso no negociable: interceptar y registrar el tráfico, detectar datos personales y " +
-          "bloquear secretos se aplican siempre, en todos los modos y superficies. Ninguna " +
-          "configuración los desactiva —cualquier intento se rechaza y queda registrado—, por " +
-          "eso acá no hay interruptor. El detalle, en la sección Gobernanza.",
+          "Protección base: interceptar y registrar el tráfico, detectar datos personales y " +
+          "bloquear secretos se aplican siempre, en todos los modos y herramientas. Ninguna " +
+          "configuración los desactiva, por eso acá no hay interruptor. El detalle está en Gobernanza.",
       };
     }
     return { habilitado: true, esPiso: false, esCatalogo: false, etiqueta: "", motivo: "" };
@@ -328,7 +324,7 @@ export const SecurityPage: React.FC = () => {
       // Revert + aviso: nunca dejamos la UI mostrando algo que no se guardó.
       setPolicy(previo);
       setHeadroomError(
-        "No se pudo guardar la optimización de contexto. El cambio se revirtió; reintentá."
+        "No se pudo guardar la optimización de contexto. El cambio se revirtió, vuelva a intentarlo."
       );
     }
   };
@@ -417,21 +413,14 @@ export const SecurityPage: React.FC = () => {
         <div className="space-y-1">
           <h2 className={labelText}>Guardianes de Seguridad</h2>
           <p className="text-[11px] text-text-secondary">
-            El estado de cada tarjeta es el estado REAL de su capa (lo que se está aplicando). El
-            interruptor es el estado <span className="text-text-primary font-semibold">deseado</span>: activarlo no
-            hace que la capa corra. Las capas del{" "}
-            <span className="text-text-primary font-semibold">piso</span> no tienen interruptor —se aplican siempre
-            y apagarlas no es configurable—, y si no se puede verificar a qué tier pertenece una capa, el
-            control queda bloqueado. El detalle completo, en la sección Gobernanza.
+            El estado de cada tarjeta es lo que se está aplicando; el interruptor es lo que se pide aplicar. Las
+            capas de <span className="text-text-primary font-semibold">protección base</span> se aplican siempre y
+            no llevan interruptor. El detalle completo está en Gobernanza.
           </p>
-          {/* US3 de la 031: el catálogo se presenta como lo que es. Va acá arriba para que el
-              admin entienda las tarjetas grises ANTES de tocarlas. */}
           <p className="text-[11px] text-text-secondary">
             Los guardianes marcados{" "}
-            <span className="text-info font-semibold">{CATALOGO_TITULO}</span> son piezas del catálogo
-            que el producto irá incorporando: todavía no hay nada instalado que las ejecute, así que
-            no se ofrecen como interruptor. Los guardianes instalados llevan el badge del{" "}
-            <span className="text-text-primary font-semibold">plano donde se aplican</span>.
+            <span className="text-info font-semibold">{CATALOGO_TITULO}</span> todavía no tienen nada que los
+            ejecute en esta instalación. Los instalados llevan la etiqueta de dónde se aplican.
           </p>
         </div>
 
@@ -490,7 +479,7 @@ export const SecurityPage: React.FC = () => {
                       <EstadoDesconocido
                         motivo={
                           estadoNoDisponible ||
-                          "Este guardián no tiene una capa de gobernanza con correspondencia clara: no se puede afirmar que se esté aplicando."
+                          "Este guardián no está asociado a ninguna capa de gobernanza, así que no se puede saber si se está aplicando."
                         }
                       />
                     )}
@@ -503,7 +492,7 @@ export const SecurityPage: React.FC = () => {
                     con el "Activar: no" guardado —que es la mentira nueva que este fix mata. */}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] text-text-secondary">
-                    {control.esCatalogo ? "Aún no disponible" : control.esPiso ? "No configurable" : "Deseado"}
+                    {control.esCatalogo ? "Aún no disponible" : control.esPiso ? "No configurable" : "Activar"}
                   </span>
                   {control.esCatalogo ? (
                     // Interruptor VISIBLE pero inerte, con el porqué en el tooltip: que se vea
@@ -597,7 +586,7 @@ export const SecurityPage: React.FC = () => {
                   {planes.map((etiqueta) => (
                     <span
                       key={etiqueta}
-                      title="Plano donde este guardián se aplica hoy."
+                      title="Dónde se aplica hoy este guardián."
                       className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-ok-bg border border-ok/20 text-ok"
                     >
                       {etiqueta}
@@ -639,7 +628,7 @@ export const SecurityPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-sm font-bold text-text-primary">{selected.name}</span>
-                <span className="ml-2 text-xs text-text-secondary">— Configuración</span>
+                <span className="ml-2 text-xs text-text-secondary">Configuración</span>
               </div>
               <button
                 onClick={() => setSelectedId(null)}
@@ -652,8 +641,8 @@ export const SecurityPage: React.FC = () => {
             <div className="space-y-4 text-xs text-text-primary">
               {selectedEsCatalogo && (
                 <div className="bg-info-bg border border-info/20 text-info px-3 py-2.5 rounded-md text-[11px] leading-relaxed">
-                  <span className="font-semibold">{CATALOGO_TITULO}.</span> {CATALOGO_COPY} Lo
-                  que configures acá queda guardado y quedará listo para el día en que se instale.
+                  <span className="font-semibold">{CATALOGO_TITULO}.</span> {CATALOGO_COPY} Lo que configure acá
+                  queda guardado y listo para el día en que se instale.
                 </div>
               )}
 
@@ -692,9 +681,8 @@ export const SecurityPage: React.FC = () => {
                   <div className="bg-surface border border-primary/20 rounded-md p-3 text-[11px] text-text-secondary space-y-1">
                     <p className="font-semibold text-text-primary">Servicios requeridos</p>
                     <p>
-                      El motor NLP corre como dos microservicios HTTP independientes, incluidos en el
-                      stack de despliegue (perfil del cliente). Las URLs de abajo apuntan a esos
-                      servicios; los detalles de imagen y puerto viven en la guía de despliegue.
+                      El motor NLP corre como dos servicios independientes incluidos en la instalación.
+                      Las URLs de abajo apuntan a esos servicios.
                     </p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -739,7 +727,7 @@ export const SecurityPage: React.FC = () => {
                   </div>
                   <div className="text-[11px] text-text-secondary bg-surface border border-border rounded-md p-3">
                     <span className="font-semibold text-text-primary">Sin URL configurada:</span>{" "}
-                    el guardián <span className="text-warn">PII/PHI (regex)</span> sigue activo como fallback. El motor NLP solo toma precedencia cuando ambas URLs están configuradas.
+                    sigue actuando la detección local por patrones. El motor NLP solo se usa cuando las dos URLs están configuradas.
                   </div>
                 </div>
               )}
@@ -944,9 +932,8 @@ export const SecurityPage: React.FC = () => {
         )}
 
         <div className="mt-4 bg-surface-2 border border-border rounded-md p-4 text-xs text-text-secondary">
-          Al activar Headroom, los textos redundantes y comentarios de código se limpian localmente en la
-          pasarela. Los prompts extensos se optimizan logrando ahorrar entre un 60% y 95% de tokens,
-          reduciendo costos de API y acelerando la respuesta del modelo.
+          Los prompts largos y el código se comprimen localmente antes de salir: menos tokens, menor costo
+          y respuestas más rápidas.
         </div>
       </Card>
     </div>

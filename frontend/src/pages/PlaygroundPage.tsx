@@ -185,7 +185,7 @@ export const PlaygroundPage: React.FC = () => {
         const o = meta.layer_optimization;
         return o.active
           ? `Compresión activa: Reducción de ${o.original_length} a ${o.optimized_length} caracteres. Ahorro: ${o.tokens_saved} tokens.`
-          : "Saltado (Optimizador inactivo o desactivado en la petición)";
+          : "No se aplicó: el optimizador está inactivo o desactivado en esta petición.";
       }
     },
     {
@@ -315,7 +315,7 @@ export const PlaygroundPage: React.FC = () => {
                   </div>
                   {authMode === "session" ? (
                     <p className="text-[11px] text-text-tertiary">
-                      Usando el usuario logueado. El gasto se atribuye a tu cuenta.
+                      Se usa la sesión actual. El gasto se atribuye a su cuenta.
                     </p>
                   ) : (
                     <>
@@ -327,7 +327,7 @@ export const PlaygroundPage: React.FC = () => {
                         className={cn(compactControl, "font-mono")}
                       />
                       <p className="text-[11px] text-text-tertiary">
-                        Probá como un usuario/integración específica. El gasto se atribuye a esa llave.
+                        Pruebe como un usuario o integración concreta. El gasto se atribuye a esa llave.
                       </p>
                     </>
                   )}
@@ -347,7 +347,7 @@ export const PlaygroundPage: React.FC = () => {
                         onChange={(e: any) => setOverridePii(e.target.value)}
                         className={compactControl}
                       >
-                        <option value="default">Usar Config. de Base</option>
+                        <option value="default">Usar configuración base</option>
                         <option value="active">Forzar Activo</option>
                         <option value="inactive">Forzar Inactivo</option>
                       </select>
@@ -361,7 +361,7 @@ export const PlaygroundPage: React.FC = () => {
                         onChange={(e: any) => setOverrideGdpr(e.target.value)}
                         className={compactControl}
                       >
-                        <option value="default">Usar Config. de Base</option>
+                        <option value="default">Usar configuración base</option>
                         <option value="active">Forzar Activo (EU)</option>
                         <option value="inactive">Forzar Inactivo (Global)</option>
                       </select>
@@ -375,7 +375,7 @@ export const PlaygroundPage: React.FC = () => {
                         onChange={(e: any) => setOverrideAiAct(e.target.value)}
                         className={compactControl}
                       >
-                        <option value="default">Usar Config. de Base</option>
+                        <option value="default">Usar configuración base</option>
                         <option value="active">Forzar Activo</option>
                         <option value="inactive">Forzar Inactivo</option>
                       </select>
@@ -389,7 +389,7 @@ export const PlaygroundPage: React.FC = () => {
                         onChange={(e: any) => setOverrideHeadroom(e.target.value)}
                         className={compactControl}
                       >
-                        <option value="default">Usar Config. de Base</option>
+                        <option value="default">Usar configuración base</option>
                         <option value="active">Forzar Activo</option>
                         <option value="inactive">Forzar Inactivo</option>
                       </select>
@@ -407,7 +407,7 @@ export const PlaygroundPage: React.FC = () => {
             <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
               <StatusBadge tone="ok" dot>Canal Seguro Activo</StatusBadge>
               <p className="text-xs text-text-secondary max-w-sm">
-                Escriba un mensaje para ver cómo la pasarela procesa, enmascara y optimiza los datos sensibles (PII/PHI) en tiempo real.
+                Escriba un mensaje y vea cómo se enmascaran y optimizan los datos sensibles antes de salir.
               </p>
             </div>
           ) : (
@@ -457,7 +457,7 @@ export const PlaygroundPage: React.FC = () => {
                                   className={sustituido ? chipAmbar : chipNeutro}
                                   title={
                                     sustituido
-                                      ? `Se pidió ${esperado} y contestó ${real}: el proveedor no estaba disponible y la petición se sirvió por el modelo de reserva.`
+                                      ? `Se pidió ${esperado} y contestó ${real}: el proveedor no estaba disponible y respondió el modelo de reserva.`
                                       : "Modelo que respondió la petición."
                                   }
                                 >
@@ -467,7 +467,7 @@ export const PlaygroundPage: React.FC = () => {
                               {ar && (
                                 <span
                                   className={chipAuto}
-                                  title="Modelo elegido automáticamente por similitud semántica con los ejemplos de la ruta."
+                                  title="Modelo elegido automáticamente según el contenido de la petición."
                                 >
                                   Auto → {ar.model_selected} · {detalleRuta(ar)}
                                 </span>
@@ -475,7 +475,7 @@ export const PlaygroundPage: React.FC = () => {
                               {ar?.degraded && (
                                 <span
                                   className={chipAmbar}
-                                  title="El ruteo no pudo decidir y la petición se sirvió por el modelo por defecto. La respuesta se generó igual."
+                                  title="El ruteo automático no pudo decidir y respondió el modelo por defecto."
                                 >
                                   degradado: {motivoRuteo(ar.reason) || "motivo no informado"}
                                 </span>
@@ -609,7 +609,7 @@ export const PlaygroundPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs text-text-primary">
             {!activeMetadata ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-4 text-text-secondary">
-                <p className="text-[11px]">Seleccione una respuesta o envíe un mensaje para inspeccionar los payloads JSON en tiempo real.</p>
+                <p className="text-[11px]">Envíe un mensaje o seleccione una respuesta para ver el JSON de la petición y de la respuesta.</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -625,7 +625,7 @@ export const PlaygroundPage: React.FC = () => {
                       <span className="font-mono text-warn font-semibold">{activeMetadata.layer_llm?.latency_ms || 0}ms</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-text-secondary">Costo Est:</span>
+                      <span className="text-text-secondary">Costo estimado:</span>
                       <span className="font-mono text-ok font-semibold">${activeMetadata.layer_llm?.cost_usd?.toFixed(6) || "0.000000"}</span>
                     </div>
                     <div className="flex justify-between">
