@@ -711,7 +711,7 @@ export const CompliancePage: React.FC = () => {
             <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">Búsqueda por Identificador de Sujeto</h2>
             <div className="flex gap-2">
               <input type="text" value={dsrSearch} onChange={e => setDSRSearch(e.target.value)}
-                placeholder="ID de paciente o usuario (pseudonimizado)"
+                placeholder="ID del interesado (pseudonimizado)"
                 className="flex-1 bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
               <button onClick={handleDSRSearch} className="bg-primary text-white font-semibold px-4 py-2 rounded text-xs">Buscar</button>
             </div>
@@ -1184,7 +1184,7 @@ export const CompliancePage: React.FC = () => {
             <div className="space-y-1">
               <label className="text-xs text-text-secondary">Identificador del sujeto (pseudonimizado) *</label>
               <input value={dsrForm.subject_identifier} onChange={e => setDSRForm(d => ({ ...d, subject_identifier: e.target.value }))}
-                placeholder="ID de paciente o usuario"
+                placeholder="ID del interesado"
                 className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary" />
             </div>
 

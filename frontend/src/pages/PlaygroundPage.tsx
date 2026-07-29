@@ -518,7 +518,7 @@ export const PlaygroundPage: React.FC = () => {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Escriba un mensaje (ej: Paciente Pedro DNI 123...)"
+              placeholder="Escriba un mensaje (ej: redactá una carta para Marta Gutiérrez, DNI 28456789A)"
             />
             <Button
               type="submit"

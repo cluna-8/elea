@@ -1267,13 +1267,13 @@ export const UsersPage: React.FC = () => {
               required
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
-              placeholder="ej: Cardiología"
+              placeholder="ej: Comercio Exterior"
             />
             <Field label="Descripción">
               <textarea
                 value={teamDesc}
                 onChange={(e) => setTeamDesc(e.target.value)}
-                placeholder="ej: Especialistas del departamento cardíaco del hospital."
+                placeholder="ej: Equipo de certificados de origen y ferias internacionales."
                 rows={3}
                 className={textareaClass}
               />
