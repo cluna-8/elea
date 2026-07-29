@@ -165,6 +165,30 @@ todo lo demás lo resuelve con esta documentación.
 
 ---
 
+## Documentación para el cliente final
+
+Además de esta documentación (que es **suya**, del partner/operador), el entregable de
+una instalación incluye un **sitio de documentación para el cliente final**: guía del
+administrador de la organización (altas de usuarios y equipos, llaves virtuales,
+presupuestos, modelos, auditoría y políticas) y guía del usuario (asistente seguro,
+protección de datos, conexión de aplicaciones por API, extensión del navegador).
+
+Características del sitio de cliente:
+
+- **Separado por construcción de este sitio**: no contiene material de operación,
+  licenciamiento ni programa de partners. Lo que usted está leyendo nunca se entrega
+  al cliente.
+- **Con la marca del cliente**: se genera desde la misma fuente marca-neutra con un
+  overlay derivado del brand-pack del perfil (`profile/brand.json` del bundle).
+- **Offline**: funciona sin red y desde `file://` (se entrega como zip o desplegado
+  junto al stack), con búsqueda incluida.
+- Las capturas de pantalla se toman de una instalación real con datos ficticios.
+
+El partner entrega este sitio al administrador del cliente durante el install y lo usa
+como material del training de usuarios.
+
+---
+
 ## Límites y estado
 
 - 🟢 **El material de soporte del programa existe hoy**: el
@@ -177,6 +201,9 @@ todo lo demás lo resuelve con esta documentación.
   los primeros onboardings.
 - 🔵 **Certificación con artefacto formal** (constancia/registro de partners
   certificados): estado-objetivo, no existe aún.
+- 🟡 **El sitio de documentación del cliente final existe** (fuente `docs-cliente/`
+  del repo) pero su generación todavía no está integrada al pipeline de release: por
+  ahora se construye y brandea a mano por instalación.
 
 ---
 
