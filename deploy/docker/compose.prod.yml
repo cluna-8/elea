@@ -81,6 +81,10 @@ services:
   docs:
     image: "${DOCS_IMAGE:?imagen del sitio de docs pinneada por marca (022)}"
     restart: unless-stopped
+    # Puerto propio (no va por el ingress: los assets del sitio usan rutas absolutas).
+    # El botón «Abrir la documentación» de la consola apunta a este puerto.
+    ports:
+      - "${DOCS_PORT:-8082}:8080"
 
   # Motor de detección NLP real (spec 016). Sidecar propio, sin puerto publicado:
   # solo lo consume el motor por DNS interno de la red compose. NO es opcional en
