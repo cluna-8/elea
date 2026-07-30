@@ -23,6 +23,30 @@ SHELLCHECK_IMG="${SHELLCHECK_IMG:-koalaman/shellcheck:stable}"
 
 fail() { echo "❌ trust-kit: $1"; exit 1; }
 
+# ── Imágenes de terceros: esto es un GATE, no un "si acaso" ──────────────────
+# Hasta 2026-07-30 los pasos con contenedor se OMITÍAN con un warning cuando la
+# imagen no estaba en local, y el check daba verde igual: en un host fresco de
+# CI/release el gate pasaba sin haber parseado NUNCA el install-ca.ps1, que es
+# exactamente lo que este check existe para impedir. Un gate que se auto-desactiva
+# no es un gate.
+# Este check corre en el host de build (con red), no en la caja air-gapped del
+# cliente: si la imagen falta se trae, y si no se puede traer, ROJO.
+#   $1 = imagen, $2 = plataforma (opcional; vacío = la nativa del host)
+ensure_image() {
+    local img="$1" platform="${2:-}"
+    docker image inspect "$img" >/dev/null 2>&1 && return 0
+    local args
+    args=(pull)
+    [ -n "$platform" ] && args+=(--platform "$platform")
+    args+=("$img")
+    echo "   $img no está en local — docker ${args[*]}"
+    docker "${args[@]}" --quiet >/dev/null && return 0
+    fail "no se pudo traer $img (¿sin red? ¿rate limit del registry?) y sin ella la
+   validación no se ejecuta — este check NO da verde sin correrla.
+   Traerla a mano en un host con red y reintentar:  docker ${args[*]}
+   (o apuntar a un mirror interno exportando PWSH_IMG / SHELLCHECK_IMG)"
+}
+
 # ── 1. Completitud ───────────────────────────────────────────────────────────
 for f in install-ca.ps1 install-ca.bat install-ca-macos.sh export-ca.sh; do
     [ -f "$KIT/$f" ] || fail "falta $f"
@@ -44,18 +68,15 @@ NO_ASCII="$(LC_ALL=C tr -d '\000-\177' < "$KIT/install-ca.bat" | wc -c | tr -d '
 bash -n "$KIT/install-ca-macos.sh" || fail "install-ca-macos.sh no parsea"
 bash -n "$KIT/export-ca.sh"        || fail "export-ca.sh no parsea"
 
-if docker image inspect "$SHELLCHECK_IMG" >/dev/null 2>&1; then
-    docker run --rm -v "$KIT":/mnt "$SHELLCHECK_IMG" --shell=bash --severity=style \
-        install-ca-macos.sh export-ca.sh || fail "shellcheck encontró hallazgos"
-    echo "   shellcheck: limpio"
-else
-    echo "   ⚠️  $SHELLCHECK_IMG no está localmente — shellcheck OMITIDO (docker pull $SHELLCHECK_IMG)"
-fi
+ensure_image "$SHELLCHECK_IMG"
+docker run --rm -v "$KIT":/mnt "$SHELLCHECK_IMG" --shell=bash --severity=style \
+    install-ca-macos.sh export-ca.sh || fail "shellcheck encontró hallazgos"
+echo "   shellcheck: limpio"
 
 # ── 4. Parseo real del .ps1 ──────────────────────────────────────────────────
-if docker image inspect "$PWSH_IMG" >/dev/null 2>&1; then
-    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-    cat > "$tmp/parse.ps1" <<'PS'
+ensure_image "$PWSH_IMG" linux/amd64
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+cat > "$tmp/parse.ps1" <<'PS'
 $errores = $null; $tokens = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile(
     '/kit/install-ca.ps1', [ref]$tokens, [ref]$errores)
@@ -65,11 +86,8 @@ if ($errores.Count -gt 0) {
 }
 Write-Host "   parser de PowerShell: 0 errores de sintaxis"
 PS
-    docker run --rm --platform linux/amd64 -v "$KIT":/kit:ro -v "$tmp":/t:ro \
-        "$PWSH_IMG" pwsh -NoProfile -File /t/parse.ps1 || fail "install-ca.ps1 NO parsea"
-else
-    echo "   ⚠️  $PWSH_IMG no está localmente — parseo del .ps1 OMITIDO (docker pull --platform linux/amd64 $PWSH_IMG)"
-fi
+docker run --rm --platform linux/amd64 -v "$KIT":/kit:ro -v "$tmp":/t:ro \
+    "$PWSH_IMG" pwsh -NoProfile -File /t/parse.ps1 || fail "install-ca.ps1 NO parsea"
 
 # ── 5. El bundle se lo lleva ─────────────────────────────────────────────────
 grep -q 'trust-kit' "$REPO_ROOT/deploy/release/bundle.sh" \
