@@ -337,11 +337,12 @@ aplica.
 avisos": la deja **fuera de servicio**. Por eso el reparto del certificado va **antes** que
 el reparto del paquete (§5.2), no después.
 
-**Kit de confianza — armarlo una vez, en el servidor de la instalación:**
+**Kit de confianza — armarlo una vez, en el servidor de la instalación**, desde el
+directorio del bundle desplegado (el mismo desde el que se levantó el stack):
 
 ```bash
-deploy/release/trust-kit/export-ca.sh --project <proyecto-compose> \
-                                      --url https://<direccion-de-la-pasarela>
+./trust-kit/export-ca.sh --project <proyecto-compose> \
+                         --url https://<direccion-de-la-pasarela>
 ```
 
 Extrae la raíz de la CA interna del contenedor del ingress
