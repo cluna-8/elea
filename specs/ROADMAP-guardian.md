@@ -50,6 +50,36 @@ define el patrón de resolución por scope que la 023 reutiliza: coordinar orden
 | 029 | Rediseño de la UI del panel — estilo Azure Foundry (claro, lean) | JF | P2 | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US4, 2026-07-24; merge `598577b` a `dev-fran` el 2026-07-27 — **sin PR a main**); 6 páginas del piloto + shell. Deuda menor: checkboxes de `tasks.md` sin marcar | VII, VIII | — |
 | 030 | Auto-router semántico + rediseño «Modelos & Ollama» | JF | **P1** | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US3, 20/20 tareas, 2026-07-28, commits `34caf6c`+`d4ff8df` — **sin PR a main**); verificada en vivo sobre el stack del piloto (SC-001 = **9/9** contra el seed); pulido UX+editorial 2026-07-29 (`b9ae624`, `1192a8c`) | II, V, VI, VIII | — |
 | 031 | Auditoría durable de bloqueos (motor/chat/gateway) + UI honesta | JF | **P1** | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US3, 15/15 tareas, 2026-07-28, commit `e21a686` — **sin PR a main**); paga el corte D6 que la 027 había diferido "a la 018"; la **purga de retención sigue siendo de la 018** (Cristian) | II, VIII, I, VI | — |
+| 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | JF | **P1** | **Roadmap — sin spec, arranque pendiente de decisión de JF** (research 2026-07-30, veredicto en [#51](https://github.com/DrZuzzjen/basa-guardian/issues/51)). Recomendada como primera del paquete: máximo impacto comercial y **primer ladrillo del portal de partners** (mismo plano de control que el firmante central de FR-030). Est. 2-4 d (`managed`) + 2-3 d (`byo`+`internal`) | VII, IV, VI | — |
+| 033 | Engine reload sin restart manual + feedback en UI | JF | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#50](https://github.com/DrZuzzjen/basa-guardian/issues/50)). Prerrequisito de escritura atómica **ya pago** (`1151b1e` en `dev-fran`). Est. ~2-2.5 d con retest E2E del bundle amd64 | VI, VIII, VII | — |
+| 034 | Rol `auditor` canónico read-only | JF | P2 | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#52](https://github.com/DrZuzzjen/basa-guardian/issues/52)). El quick-win [PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54) sólo expone el `compliance_officer` existente **declarando que NO es read-only**; la **017** (Cristian) lo absorbe en su matriz definitiva. Est. 1-1.5 d | III, SC-3, II | adelanta parte de **017** |
+
+### 032/033/034 — Paquete «onboarding v2» (post-instalación Cámara, sin arrancar)
+Los tres salen del **research del 2026-07-30** (4 minions + síntesis) sobre el feedback en vivo de Rafa y Javi
+durante la instalación del piloto — issues [#49](https://github.com/DrZuzzjen/basa-guardian/issues/49)–[#52](https://github.com/DrZuzzjen/basa-guardian/issues/52).
+Diagnóstico de JF: «el onboarding **es** cargar modelos; urge que tenga sentido o parece amateur».
+
+- **032 — Ingress cert modes (`INGRESS_CERT_MODE=managed|byo|internal`)**: la decisión que resuelve TLS y
+  cert-en-Windows de un golpe. En `managed` el VPS de control emite por DNS-01 un certificado público por
+  cliente y el appliance lo baja autenticado con su licencia; el cliente sólo agrega **un registro A** en su
+  DNS interno y **no se instala nada en ningún puesto**. `byo` (CSR / AD CS) es la única vía air-gap
+  sostenible con la vida de los certs cayendo a 47 días en 2029; `internal` es lo de hoy, productizado. Las
+  tres convergen en el mismo cambio del `Caddyfile.ingress`. **Es además el primer ladrillo real del portal de
+  partners**: usa el mismo plano de control que el «firmante central» de FR-030.
+- **033 — Engine reload sin restart manual**: wrapper-supervisor como entrypoint del motor (~50 líneas, viaja
+  por el volumen) que detecta el cambio de config, valida el YAML y relanza; más `GET /models/status` y estado
+  «Aplicando cambios…» en la UI, que es literalmente lo que el cliente pidió ver. **Verificado leyendo el
+  código de la imagen pinneada: LiteLLM NO tiene reload sin DB**, así que «que lo haga el motor» no existe
+  como opción. Su prerrequisito —escritura atómica del `config.yaml`— **ya está pago** (commit `1151b1e`).
+- **034 — Rol `auditor` canónico read-only**: migración del CHECK + gates + deny explícito de chat +
+  navegación reducida. El quick-win de hoy ([PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54))
+  sólo hizo creable el `compliance_officer` existente y **declara honestamente que no es read-only**: hoy ese
+  rol puede desactivar la política de protección activa y acortar la retención de los registros que audita.
+  No consume seats (argumento comercial) y la futura **017** lo absorbe en su matriz definitiva.
+
+Estimación del paquete: **~8-10 días**. **Orden de arranque pendiente de decisión de JF** (recomendación:
+032 primero, por impacto comercial y porque adelanta el portal). Detalle completo en el artifact «Onboarding
+v2 — opciones tras el research».
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
