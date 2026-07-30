@@ -20,6 +20,7 @@ from ..models.compliance import ComplianceProject, HumanReview
 from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
 from ..services import auto_router_service
+from ..services.atomic_file import escribir_atomico
 from ..services.budget_service import BudgetService, has_known_pricing
 from ..services.presidio_service import PresidioService
 from ..services.optimization_service import OptimizationService
@@ -562,6 +563,20 @@ def _read_engine_config() -> dict:
     except Exception as exc:  # noqa: BLE001
         logger.warning("No se pudo leer el catálogo del motor: %s", type(exc).__name__)
         return {}
+
+
+def _write_engine_config(config_data: dict) -> None:
+    """Persiste el catálogo del motor de forma ATÓMICA. Único escritor del `config.yaml`.
+
+    Los cuatro endpoints que editan el catálogo (alta, baja, credenciales y respaldos)
+    pasan por acá. La escritura in-place que había antes truncaba el fichero antes de
+    volcar el contenido nuevo: un proceso que muriera —o un reinicio— en esa ventana
+    dejaba al motor arrancando con un YAML cortado, o sea al cliente sin catálogo.
+    """
+    escribir_atomico(
+        _get_config_path(),
+        lambda f: yaml.safe_dump(config_data, f, default_flow_style=False),
+    )
 
 
 def _catalog_model_names(config_data: Optional[dict] = None):
@@ -1812,8 +1827,7 @@ async def register_model(model_in: ModelCreateSchema):
             _write_fallback(config_data, model_in.model_name, fallback_local)
 
     try:
-        with open(config_path, "w") as f:
-            yaml.safe_dump(config_data, f, default_flow_style=False)
+        _write_engine_config(config_data)
     except Exception as e:
         logger.error(f"Failed to write litellm config: {e}")
         raise HTTPException(status_code=500, detail="Failed to save model configuration")
@@ -1842,8 +1856,7 @@ async def delete_model(model_name: str):
         raise HTTPException(status_code=404, detail="Model not found")
 
     try:
-        with open(config_path, "w") as f:
-            yaml.safe_dump(config_data, f, default_flow_style=False)
+        _write_engine_config(config_data)
     except Exception as e:
         logger.error("Failed to write config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save model configuration")
@@ -1883,8 +1896,7 @@ async def update_model_credential(model_name: str, body: ModelCredentialSchema):
         raise HTTPException(status_code=404, detail="Model not found")
 
     try:
-        with open(config_path, "w") as f:
-            yaml.safe_dump(config_data, f, default_flow_style=False)
+        _write_engine_config(config_data)
     except Exception as e:
         logger.error("Failed to write config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to save model configuration")
@@ -1951,9 +1963,9 @@ async def set_fallback(model_name: str, body: FallbackBody):
     _write_fallback(config_data, model_name, body.fallback_model)
 
     try:
-        with open(config_path, "w") as f:
-            yaml.safe_dump(config_data, f, default_flow_style=False)
+        _write_engine_config(config_data)
     except Exception as e:
+        logger.error("Failed to write config: %s", e)
         raise HTTPException(status_code=500, detail="Failed to write config")
 
     return {"status": "ok"}

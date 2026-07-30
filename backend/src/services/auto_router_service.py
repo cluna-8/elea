@@ -32,11 +32,11 @@ import json
 import logging
 import math
 import os
-import tempfile
 
 import httpx
 
 from . import ai_engine_client
+from .atomic_file import escribir_atomico
 from .redis_client import get_redis
 
 logger = logging.getLogger("basa-secure-gateway.auto-router")
@@ -192,35 +192,16 @@ def validate_config(cfg: dict) -> list[str]:
 
 
 def save_config(cfg: dict) -> None:
-    """Persiste el config de forma ATÓMICA: fichero temporal en el MISMO directorio
-    + `os.replace`.
+    """Persiste el config de forma ATÓMICA (`escribir_atomico`: temporal + `os.replace`).
 
-    El mismo directorio importa: `os.replace` solo es atómico dentro del sistema de
-    ficheros de destino, y acá el destino es un volumen montado. Sin esto, una
-    consulta que llegue durante el guardado podría leer un JSON a medio escribir —
-    que es justo el `config_error` que el panel existe para evitar.
-
-    Permisos 0644 explícitos: `mkstemp` crea 0600 y el fichero vive en un volumen
-    compartido; un contenedor con otro UID debe poder leerlo.
+    Sin atomicidad, una consulta que llegue durante el guardado podría leer un JSON a
+    medio escribir — que es justo el `config_error` que el panel existe para evitar.
+    El mecanismo es compartido con el `config.yaml` del motor: ver `atomic_file`.
     """
-    destino = get_config_path()
-    directorio = os.path.dirname(destino) or "."
-    os.makedirs(directorio, exist_ok=True)
-
-    fd, tmp = tempfile.mkstemp(prefix=".auto_router.", suffix=".tmp", dir=directorio)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, destino)
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    escribir_atomico(
+        get_config_path(),
+        lambda f: json.dump(cfg, f, ensure_ascii=False, indent=2),
+    )
 
 
 # --------------------------------------------------------------------------- #
