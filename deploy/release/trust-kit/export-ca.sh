@@ -98,6 +98,8 @@ else
   echo "   Recomendado: volver a correr con --url https://<direccion-de-la-pasarela>"
 fi
 
+HUELLA_PLANA="$(printf '%s' "$HUELLA" | tr -d ':')"
+
 cat <<FIN
 
 ✅ kit de confianza listo en: $OUT
@@ -108,9 +110,19 @@ cat <<FIN
 
    ⚠️  Entregue esa huella SHA-256 al IT del cliente por un canal DISTINTO del que
        lleva el fichero (teléfono, por ejemplo). Es lo que les permite comprobar
-       que la CA que instalan es la de esta instalación y no otra cosa.
+       que la CA que instalan es la de esta instalación y no otra cosa, y los
+       instaladores NO tocan el almacén del equipo hasta que quede cotejada.
 
    En cada puesto Windows:  doble-click en install-ca.bat
+                            (muestra la huella y espera que la confirmen)
    En cada Mac:             ./install-ca-macos.sh
+
+   Desatendido (GPO, gestión de flota, MDM) — sin nadie que pueda confirmar por
+   pantalla, la huella va por parámetro y el despliegue se aborta en todo equipo
+   donde el fichero no sea el que se espera:
+
+     install-ca.bat -NoPause -Fingerprint $HUELLA_PLANA
+     ./install-ca-macos.sh --fingerprint $HUELLA_PLANA
+
    Para toda la flota AD:   directiva de grupo (ver la documentación del producto)
 FIN

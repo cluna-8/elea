@@ -13,16 +13,30 @@
 
     Este script hace lo que el asistente no hace:
       1. Se auto-eleva a administrador (el almacén de máquina lo exige).
-      2. Importa la CA en Cert:\LocalMachine\Root — equivalente exacto de
+      2. SE DETIENE hasta que la huella SHA-256 del fichero queda verificada:
+         confirmación del operador, o -Fingerprint con la huella esperada, o
+         -AcceptFingerprint como salida explícita. Sin una de las tres, no
+         escribe NADA en el almacén.
+      3. Importa la CA en Cert:\LocalMachine\Root — equivalente exacto de
          `certutil -addstore -f Root <fichero>`.
-      3. Opcionalmente (-EnterpriseStore) la importa también en el almacén
+      4. Opcionalmente (-EnterpriseStore) la importa también en el almacén
          «Enterprise» (HKLM\...\EnterpriseCertificates\Root).
-      4. Habilita en Firefox la directiva ImportEnterpriseRoots, porque Firefox NO
+      5. Habilita en Firefox la directiva ImportEnterpriseRoots, porque Firefox NO
          usa el almacén de Windows salvo que esa directiva esté puesta.
-      5. VERIFICA de verdad: abre una conexión TLS contra la URL de la pasarela y
+      6. VERIFICA de verdad: abre una conexión TLS contra la URL de la pasarela y
          valida la cadena con el almacén del sistema. VERDE o ROJO, sin ambigüedad.
 
     Es idempotente: correrlo dos veces no duplica el certificado ni rompe nada.
+
+    POR QUÉ EL PASO 2 ES OBLIGATORIO: instalar una CA en el almacén raíz de la
+    MÁQUINA hace que ese equipo acepte cualquier certificado que esa CA firme —
+    para todo el mundo, en todos los navegadores. Si el root.crt que llegó no es
+    el de esta instalación (manipulado en tránsito, o simplemente el de otro
+    cliente), el equipo queda expuesto y no hay ningún síntoma visible. Cotejar
+    la huella por un canal distinto del que trajo el fichero es la ÚNICA
+    salvaguarda que tiene el kit, así que el script no la deja saltar por
+    descuido: o la confirma una persona, o la valida una huella pasada por
+    parámetro, o se renuncia a ella a propósito y por escrito.
 
 .PARAMETER CertPath
     Fichero de la CA raíz (.crt/.cer/.pem). Si se omite, se busca un único
@@ -34,6 +48,21 @@
     Si se omite, se lee de `gateway-url.txt` junto al script; si tampoco existe,
     se pregunta por pantalla.
 
+.PARAMETER Fingerprint
+    Huella SHA-256 ESPERADA de la CA, la que le pasaron por un canal distinto del
+    que trajo el fichero. El script la compara con la del certificado y, si no
+    coincide, ABORTA (código 4) sin tocar el almacén y sin preguntar nada.
+    Es la forma correcta de desplegar desatendido (GPO, tarea programada): la
+    única que conserva la salvaguarda cuando no hay nadie mirando la pantalla.
+    Se acepta tal cual se la hayan dado: mayúsculas o minúsculas, con o sin ':'
+    y con o sin espacios.
+
+.PARAMETER AcceptFingerprint
+    Salta la confirmación a propósito. ÚSELO SÓLO si ya cotejó la huella por otro
+    medio (por ejemplo, la comprobó a mano antes de empujar el fichero por su
+    herramienta de gestión de flota). No es un "sí a todo": es la renuncia
+    explícita y por escrito a la única salvaguarda del kit.
+
 .PARAMETER EnterpriseStore
     Además del almacén Root de la máquina, importa en el almacén Enterprise.
     APAGADO por defecto: en un dominio, ese almacén es territorio de las
@@ -44,7 +73,10 @@
     No toca la directiva de Firefox.
 
 .PARAMETER NoPause
-    No espera una tecla al terminar (para despliegue desatendido / GPO).
+    No espera una tecla al terminar, y declara la ejecución DESATENDIDA: sin
+    nadie delante, la confirmación por pantalla no existiría, así que en este
+    modo hace falta -Fingerprint (o -AcceptFingerprint). No es un bypass: si no
+    va ninguno de los dos, el script aborta con código 4 sin instalar nada.
 
 .PARAMETER Elevated
     Uso interno: marca la re-ejecución ya elevada. No lo use a mano.
@@ -52,20 +84,31 @@
 .EXAMPLE
     .\install-ca.ps1 -CertPath .\root.crt -Url https://192.168.1.50
 
+    Puesto a puesto, con una persona delante: muestra la huella y espera que la
+    coteje antes de instalar nada.
+
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ca.ps1 -NoPause
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\install-ca.ps1 `
+        -NoPause -Fingerprint "A1:B2:...:FF" -Url https://192.168.1.50
+
+    Desatendido (GPO / herramienta de flota): sin preguntas, y con el despliegue
+    abortado en todo equipo donde el fichero no sea el que se espera.
 
 .NOTES
     Este fichero se guarda en UTF-8 CON BOM a propósito: Windows PowerShell 5.1
     interpreta un .ps1 sin BOM con la codificación ANSI del sistema y destroza
     los acentos de los mensajes.
     Códigos de salida: 0 = verde · 1 = la verificación TLS falló ·
-    2 = error de entrada (falta el certificado / URL) · 3 = no se pudo elevar.
+    2 = error de entrada (falta el certificado / URL) · 3 = no se pudo elevar ·
+    4 = huella no verificada (no coincide, cancelada o no aportada en modo
+    desatendido): NO se instaló nada, el almacén quedó como estaba.
 #>
 [CmdletBinding()]
 param(
     [string]$CertPath,
     [string]$Url,
+    [string]$Fingerprint,
+    [switch]$AcceptFingerprint,
     [switch]$EnterpriseStore,
     [switch]$SkipFirefox,
     [switch]$NoPause,
@@ -90,6 +133,26 @@ function Exit-Script {
     exit $Code
 }
 
+# ── Huellas ───────────────────────────────────────────────────────────────────
+# El IT pega la huella tal como se la dieron: del navegador viene con ':', de
+# `certutil -hashfile` con espacios, de `openssl` en mayúsculas, de un correo a
+# veces en minúsculas y partida en varias líneas. Comparar cadenas crudas haría
+# fallar una huella correcta, y una comparación que falla por formato termina en
+# alguien usando -AcceptFingerprint "porque no funciona". Se normaliza a hex en
+# mayúsculas, sin separadores.
+function ConvertTo-HuellaNormalizada {
+    param([string]$Valor)
+    if (-not $Valor) { return '' }
+    $limpia = $Valor -replace '^\s*0[xX]', ''
+    return ($limpia -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+}
+
+# Desatendido = nadie puede contestar a una pregunta por pantalla. -NoPause lo
+# declara explícitamente (es el switch que existe justo para GPO), y UserInteractive
+# lo detecta cuando corre como servicio o tarea programada sin escritorio.
+# En ese modo NO se pregunta: o hay huella esperada, o el script se planta.
+$Desatendido = $NoPause.IsPresent -or (-not [Environment]::UserInteractive)
+
 $ScriptPath = $PSCommandPath
 if (-not $ScriptPath) { $ScriptPath = $MyInvocation.MyCommand.Definition }
 $ScriptDir = Split-Path -Parent $ScriptPath
@@ -105,6 +168,36 @@ Write-Host "  Confianza del certificado de la pasarela — instalación y verifi
 Write-Host "  ---------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
 
+# ── 0. Precondiciones de la huella (ANTES de elevar) ──────────────────────────
+# Se comprueban aquí, y no más abajo, porque la elevación abre una VENTANA NUEVA:
+# un error de parámetro detectado allí se lo lleva esa ventana al cerrarse y el
+# operador se queda mirando la suya sin saber qué pasó.
+$HuellaEsperada = ''
+if ($Fingerprint) {
+    $HuellaEsperada = ConvertTo-HuellaNormalizada $Fingerprint
+    if ($HuellaEsperada.Length -ne 64) {
+        Write-Bad "la huella de -Fingerprint no es un SHA-256: leí $($HuellaEsperada.Length) dígitos hexadecimales, hacen falta 64."
+        Write-Host "     Recibido : $Fingerprint" -ForegroundColor DarkGray
+        Write-Host "     Se acepta con ':' o sin él, en mayúsculas o minúsculas; lo que no vale" -ForegroundColor DarkGray
+        Write-Host "     es una huella SHA-1 (40 dígitos) ni una huella cortada al copiarla." -ForegroundColor DarkGray
+        Exit-Script 2
+    }
+}
+
+if ($Desatendido -and -not $Fingerprint -and -not $AcceptFingerprint) {
+    Write-Bad "modo desatendido sin huella esperada: no se instala nada."
+    Write-Host ""
+    Write-Host "     Instalar una CA en el almacén de la MÁQUINA hace que este equipo acepte" -ForegroundColor DarkGray
+    Write-Host "     cualquier certificado que ella firme. Sin nadie delante que coteje la" -ForegroundColor DarkGray
+    Write-Host "     huella, la única forma de que eso sea seguro es decirle al script cuál" -ForegroundColor DarkGray
+    Write-Host "     es la huella que espera:" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "       -Fingerprint <huella SHA-256 que le dio su proveedor>" -ForegroundColor White
+    Write-Host ""
+    Write-Host "     Si ya la cotejó por otro medio y asume la responsabilidad, -AcceptFingerprint." -ForegroundColor DarkGray
+    Exit-Script 4
+}
+
 # ── 1. Auto-elevación ─────────────────────────────────────────────────────────
 function Test-IsAdministrator {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -119,6 +212,13 @@ if (-not (Test-IsAdministrator)) {
         Exit-Script 3
     }
     Write-Step "sin permisos de administrador: pidiendo elevación (aparecerá el aviso de Windows)"
+    if (-not $HuellaEsperada -and -not $AcceptFingerprint) {
+        # La confirmación de la huella ocurre en la instancia elevada, o sea en
+        # OTRA ventana. Sin este aviso, el operador se queda mirando ésta —que
+        # sólo dice «esperando»— sin saber que hay una pregunta abierta al lado.
+        Write-Host "     La huella del certificado hay que cotejarla EN LA VENTANA NUEVA," -ForegroundColor Yellow
+        Write-Host "     la que abre Windows como administrador. Esta se queda esperando." -ForegroundColor Yellow
+    }
 
     # El host actual puede ser powershell.exe (5.1) o pwsh.exe (7+): reusamos el mismo.
     $hostExe = $null
@@ -134,6 +234,12 @@ if (-not (Test-IsAdministrator)) {
     )
     if ($CertPath)        { $argLine += @('-CertPath', ('"{0}"' -f $CertPath)) }
     if ($Url)             { $argLine += @('-Url',      ('"{0}"' -f $Url)) }
+    # La huella VIAJA a la ventana elevada. Si no se propagara, la instancia
+    # elevada —que es la que escribe en el almacén— se quedaría sin la
+    # comprobación y volvería a preguntar o a plantarse: el parámetro parecería
+    # "no funcionar" en el único proceso donde importa.
+    if ($HuellaEsperada)   { $argLine += @('-Fingerprint', ('"{0}"' -f $HuellaEsperada)) }
+    if ($AcceptFingerprint) { $argLine += '-AcceptFingerprint' }
     if ($EnterpriseStore) { $argLine += '-EnterpriseStore' }
     if ($SkipFirefox)     { $argLine += '-SkipFirefox' }
     if ($NoPause)         { $argLine += '-NoPause' }
@@ -200,8 +306,6 @@ Write-Host "    Emitido por  : $($cert.Issuer)"
 Write-Host "    Validez      : $($cert.NotBefore.ToString('yyyy-MM-dd')) → $($cert.NotAfter.ToString('yyyy-MM-dd'))"
 Write-Host "    SHA-256      : $huella" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "    ^ Coteje esa huella con la que le dio su proveedor ANTES de continuar." -ForegroundColor DarkGray
-Write-Host ""
 
 # Cordura: que sea de verdad una CA raíz y que no esté caducada.
 $esRaiz = ($cert.Subject -eq $cert.Issuer)
@@ -217,6 +321,57 @@ if ($cert.NotAfter -lt (Get-Date)) {
     Write-Bad "el certificado CADUCÓ el $($cert.NotAfter.ToString('yyyy-MM-dd')): instalarlo no va a servir de nada."
     Write-Host "     Pida a su proveedor la CA vigente." -ForegroundColor DarkGray
     Exit-Script 2
+}
+
+# ── 2b. PUNTO DE PARADA: la huella se verifica ANTES de tocar el almacén ──────
+# Todo lo que va debajo de este bloque escribe en un almacén de confianza de la
+# MÁQUINA. Nada llega ahí sin una de estas tres cosas: huella esperada que
+# coincide, confirmación de una persona, o renuncia explícita.
+$HuellaReal = ConvertTo-HuellaNormalizada $huella
+
+if ($HuellaEsperada) {
+    if ($HuellaEsperada -ne $HuellaReal) {
+        Write-Bad "LA HUELLA NO COINCIDE. No se ha instalado nada."
+        Write-Host ""
+        Write-Host "     Esperada  : $HuellaEsperada" -ForegroundColor DarkGray
+        Write-Host "     Del fichero: $HuellaReal" -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "     El fichero que hay en este equipo NO es la CA que usted espera." -ForegroundColor Yellow
+        Write-Host "     Puede ser el certificado de otra instalación, una copia vieja, o un" -ForegroundColor Yellow
+        Write-Host "     fichero alterado por el camino. No lo instale: pida a su proveedor" -ForegroundColor Yellow
+        Write-Host "     que le reenvíe la CA y vuelva a cotejar la huella por teléfono." -ForegroundColor Yellow
+        Exit-Script 4
+    }
+    Write-Ok "huella verificada: coincide con la esperada (-Fingerprint)"
+} elseif ($AcceptFingerprint) {
+    Write-Warn2 "confirmación omitida a propósito (-AcceptFingerprint): se instala sin cotejar la huella."
+} elseif ($Desatendido) {
+    # Red de seguridad: la precondición 0 ya cubre este caso antes de elevar.
+    # Se repite aquí porque este bloque es la última línea antes de escribir, y
+    # nadie debería tener que leer 200 líneas hacia arriba para saber que está
+    # protegido.
+    Write-Bad "modo desatendido sin huella esperada: no se instala nada (use -Fingerprint)."
+    Exit-Script 4
+} else {
+    Write-Host "  ¿Coincide esa huella, carácter a carácter, con la que le dio su proveedor" -ForegroundColor White
+    Write-Host "  por teléfono (o por el canal que sea, distinto del que trajo el fichero)?" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Si NO coincide, o no tiene con qué compararla, conteste que no: instalar" -ForegroundColor DarkGray
+    Write-Host "  esta CA hace que el equipo acepte todo lo que ella firme." -ForegroundColor DarkGray
+    Write-Host ""
+    $respuesta = ''
+    try {
+        $respuesta = Read-Host "  Escriba SI para instalar (cualquier otra cosa cancela) [s/N]"
+    } catch {
+        # Sin consola de la que leer, la respuesta segura es NO.
+        $respuesta = ''
+    }
+    if ($respuesta -notmatch '^\s*(s|si|sí|y|yes)\s*$') {
+        Write-Bad "cancelado: NO se ha instalado nada, el almacén del equipo queda como estaba."
+        Write-Host "     Si la huella no coincidía, avise a su proveedor antes de repetir." -ForegroundColor DarkGray
+        Exit-Script 4
+    }
+    Write-Ok "huella confirmada por el operador"
 }
 
 # ── 3. Almacén de MÁQUINA (el paso que el doble-click no hace) ────────────────

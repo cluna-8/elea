@@ -8,17 +8,32 @@
 # Hasta hoy este procedimiento se pasaba a mano por chat (issue #51); acá queda
 # como parte del kit.
 #
+# Antes de tocar el llavero SE DETIENE a que la huella SHA-256 de la CA quede
+# verificada. Instalar una raíz en el llavero del sistema hace que ese Mac acepte
+# cualquier certificado que ella firme, para todas las apps; si el fichero que
+# llegó no es el de esta instalación, no hay ningún síntoma visible. Cotejar la
+# huella por un canal distinto del que trajo el fichero es la única salvaguarda
+# del kit, así que no se puede saltar por descuido.
+#
 # Uso:
 #   ./install-ca-macos.sh --cert root.crt --url https://192.168.1.50
 #   ./install-ca-macos.sh                    # autodetecta el .crt y lee gateway-url.txt
 #
 # Opciones:
-#   --cert <fichero>   CA raíz (.crt/.cer/.pem). Default: el único que haya al lado.
-#   --url  <url>       URL https de la pasarela para verificar. Default: gateway-url.txt.
-#   --skip-firefox     No toca la directiva de Firefox.
-#   -h | --help        Esta ayuda.
+#   --cert <fichero>       CA raíz (.crt/.cer/.pem). Default: el único que haya al lado.
+#   --url  <url>           URL https de la pasarela para verificar. Default: gateway-url.txt.
+#   --fingerprint <huella> Huella SHA-256 ESPERADA. Si no coincide, aborta (4) sin
+#                          preguntar ni instalar. Es la forma correcta de desplegar
+#                          desatendido (MDM, script de flota). Se acepta con ':' o
+#                          sin él, en mayúsculas o minúsculas.
+#   --accept-fingerprint   Salta la confirmación a propósito. SÓLO si ya cotejó la
+#                          huella por otro medio.
+#   --skip-firefox         No toca la directiva de Firefox.
+#   -h | --help            Esta ayuda.
 #
-# Salidas: 0 = verde · 1 = la verificación falló · 2 = error de entrada.
+# Salidas: 0 = verde · 1 = la verificación falló · 2 = error de entrada ·
+#          4 = huella no verificada (no coincide, cancelada, o sin terminal donde
+#              preguntar y sin --fingerprint): NO se instaló nada.
 #
 # Compatible con el bash 3.2 que trae macOS de fábrica (nada de mapfile ni de
 # ${arr[@]} sobre arrays vacíos con `set -u`).
@@ -28,6 +43,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CERT=""
 URL=""
 SKIP_FIREFOX=0
+HUELLA_ESPERADA=""
+ACEPTAR_HUELLA=0
 
 verde() { printf '\033[32m%s\033[0m\n' "$1"; }
 rojo()  { printf '\033[31m%s\033[0m\n' "$1"; }
@@ -43,13 +60,33 @@ uso() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --cert)         CERT="${2:?--cert necesita un fichero}"; shift 2 ;;
-    --url)          URL="${2:?--url necesita una dirección}"; shift 2 ;;
-    --skip-firefox) SKIP_FIREFOX=1; shift ;;
-    -h|--help)      uso 0 ;;
+    --cert)               CERT="${2:?--cert necesita un fichero}"; shift 2 ;;
+    --url)                URL="${2:?--url necesita una dirección}"; shift 2 ;;
+    --fingerprint)        HUELLA_ESPERADA="${2:?--fingerprint necesita una huella}"; shift 2 ;;
+    --accept-fingerprint) ACEPTAR_HUELLA=1; shift ;;
+    --skip-firefox)       SKIP_FIREFOX=1; shift ;;
+    -h|--help)            uso 0 ;;
     *) rojo "❌ opción desconocida: $1"; uso 2 ;;
   esac
 done
+
+# El IT pega la huella tal como se la dieron: del navegador con ':', de openssl en
+# mayúsculas, de un correo a veces en minúsculas. Comparar en crudo haría fallar una
+# huella correcta, y una comparación que falla por formato acaba en alguien usando
+# --accept-fingerprint «porque no funciona». Se normaliza a hex en mayúsculas.
+normalizar_huella() {
+  printf '%s' "$1" | tr -d '\n' | tr -cd '0-9A-Fa-f' | tr '[:lower:]' '[:upper:]'
+}
+
+if [ -n "$HUELLA_ESPERADA" ]; then
+  HUELLA_ESPERADA="$(normalizar_huella "$HUELLA_ESPERADA")"
+  if [ "${#HUELLA_ESPERADA}" -ne 64 ]; then
+    rojo "❌ --fingerprint no es un SHA-256: leí ${#HUELLA_ESPERADA} dígitos hexadecimales, hacen falta 64."
+    echo "   Se acepta con ':' o sin él, en mayúsculas o minúsculas; lo que no vale es una"
+    echo "   huella SHA-1 (40 dígitos) ni una huella cortada al copiarla."
+    exit 2
+  fi
+fi
 
 [ "$(uname -s)" = "Darwin" ] || { rojo "❌ este script es para macOS; en Windows use install-ca.ps1"; exit 2; }
 
@@ -58,23 +95,10 @@ echo "  Confianza del certificado de la pasarela — instalación y verificació
 echo "  ---------------------------------------------------------------------"
 echo
 
-# ── 1. Elevación ─────────────────────────────────────────────────────────────
-# El llavero del SISTEMA (a diferencia del llavero de inicio de sesión) exige root.
-# Es exactamente el mismo error que en Windows: instalarlo "sólo para mí" no sirve.
-if [ "$(id -u)" -ne 0 ]; then
-  paso "el llavero del sistema exige privilegios: re-lanzando con sudo"
-  REARGS=()
-  if [ -n "$CERT" ]; then REARGS+=(--cert "$CERT"); fi
-  if [ -n "$URL" ];  then REARGS+=(--url "$URL"); fi
-  if [ "$SKIP_FIREFOX" -eq 1 ]; then REARGS+=(--skip-firefox); fi
-  if [ "${#REARGS[@]}" -gt 0 ]; then
-    exec sudo "$0" "${REARGS[@]}"
-  else
-    exec sudo "$0"
-  fi
-fi
-
-# ── 2. Localizar el certificado ──────────────────────────────────────────────
+# ── 1. Localizar el certificado ──────────────────────────────────────────────
+# Leer el fichero y sacarle la huella NO necesita root, así que va antes de pedir
+# la contraseña: el operador coteja la huella —y cancela si no cuadra— en su
+# propia terminal, sin haber escalado privilegios para nada.
 if [ -z "$CERT" ]; then
   CANDIDATOS=()
   while IFS= read -r f; do
@@ -111,7 +135,6 @@ echo "    Emitido para : $SUJETO"
 echo "    Emitido por  : $EMISOR"
 echo "    Válido hasta : $HASTA"
 ambar "    SHA-256      : $HUELLA"
-echo "    ^ Coteje esa huella con la que le dio su proveedor antes de continuar."
 echo
 
 if ! openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then
@@ -120,7 +143,76 @@ if ! openssl x509 -in "$CERT" -noout -checkend 0 >/dev/null 2>&1; then
   exit 2
 fi
 
-# ── 3. Llavero del SISTEMA (idempotente) ─────────────────────────────────────
+# ── 2. PUNTO DE PARADA: la huella se verifica ANTES de escalar y de instalar ──
+# Nada de lo que hay debajo ocurre sin una de estas tres cosas: huella esperada
+# que coincide, confirmación de una persona, o renuncia explícita.
+HUELLA_REAL="$(normalizar_huella "$HUELLA")"
+
+if [ -n "$HUELLA_ESPERADA" ]; then
+  if [ "$HUELLA_ESPERADA" != "$HUELLA_REAL" ]; then
+    rojo "❌ LA HUELLA NO COINCIDE. No se ha instalado nada."
+    echo
+    echo "   Esperada    : $HUELLA_ESPERADA"
+    echo "   Del fichero : $HUELLA_REAL"
+    echo
+    ambar "   El fichero que hay en este Mac NO es la CA que usted espera. Puede ser el"
+    ambar "   certificado de otra instalación, una copia vieja, o un fichero alterado por"
+    ambar "   el camino. No lo instale: pida a su proveedor que le reenvíe la CA y vuelva"
+    ambar "   a cotejar la huella por teléfono."
+    exit 4
+  fi
+  verde "   OK  huella verificada: coincide con la esperada (--fingerprint)"
+elif [ "$ACEPTAR_HUELLA" -eq 1 ]; then
+  ambar "   !!  confirmación omitida a propósito (--accept-fingerprint): se instala sin cotejar la huella."
+elif [ ! -t 0 ]; then
+  # Sin terminal no hay a quién preguntar (MDM, cron, `| bash`): la respuesta
+  # segura es NO. Quien despliega desatendido tiene --fingerprint para eso.
+  rojo "❌ no hay terminal donde confirmar la huella y no se pasó --fingerprint: no se instala nada."
+  echo
+  echo "   Instalar una CA en el llavero del sistema hace que este Mac acepte cualquier"
+  echo "   certificado que ella firme. Sin nadie delante que coteje la huella, la única"
+  echo "   forma de que eso sea seguro es decirle al script cuál espera:"
+  echo
+  echo "     --fingerprint <huella SHA-256 que le dio su proveedor>"
+  echo
+  echo "   Si ya la cotejó por otro medio y asume la responsabilidad, --accept-fingerprint."
+  exit 4
+else
+  echo "  ¿Coincide esa huella, carácter a carácter, con la que le dio su proveedor por"
+  echo "  teléfono (o por el canal que sea, distinto del que trajo el fichero)?"
+  echo
+  echo "  Si NO coincide, o no tiene con qué compararla, conteste que no: instalar esta"
+  echo "  CA hace que el Mac acepte todo lo que ella firme."
+  echo
+  printf '  Escriba SI para instalar (cualquier otra cosa cancela) [s/N]: '
+  RESPUESTA=""
+  read -r RESPUESTA || RESPUESTA=""
+  case "$(printf '%s' "$RESPUESTA" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    s|si|sí|y|yes) verde "   OK  huella confirmada por el operador" ;;
+    *)
+      rojo "❌ cancelado: NO se ha instalado nada, el llavero queda como estaba."
+      echo "   Si la huella no coincidía, avise a su proveedor antes de repetir."
+      exit 4
+      ;;
+  esac
+fi
+
+# ── 3. Elevación ─────────────────────────────────────────────────────────────
+# El llavero del SISTEMA (a diferencia del llavero de inicio de sesión) exige root.
+# Es exactamente el mismo error que en Windows: instalarlo "sólo para mí" no sirve.
+if [ "$(id -u)" -ne 0 ]; then
+  paso "el llavero del sistema exige privilegios: re-lanzando con sudo"
+  # La huella REAL viaja a la instancia con privilegios, que la vuelve a comparar
+  # contra el fichero. Así el proceso que escribe en el llavero tiene su propia
+  # comprobación —no hereda una confirmación de palabra— y un cambio del fichero
+  # entre las dos lecturas se cazaría en la segunda.
+  REARGS=(--cert "$CERT" --fingerprint "$HUELLA_REAL")
+  if [ -n "$URL" ]; then REARGS+=(--url "$URL"); fi
+  if [ "$SKIP_FIREFOX" -eq 1 ]; then REARGS+=(--skip-firefox); fi
+  exec sudo "$0" "${REARGS[@]}"
+fi
+
+# ── 4. Llavero del SISTEMA (idempotente) ─────────────────────────────────────
 LLAVERO=/Library/Keychains/System.keychain
 paso "instalando en el llavero del sistema como raíz de confianza"
 
@@ -137,7 +229,7 @@ else
   exit 1
 fi
 
-# ── 4. Firefox ───────────────────────────────────────────────────────────────
+# ── 5. Firefox ───────────────────────────────────────────────────────────────
 # Firefox trae su propio almacén (NSS) y NO mira el llavero de macOS salvo con la
 # directiva empresarial ImportEnterpriseRoots. Se activa igual que en Windows, para
 # que el equipo no quede "arreglado" en Safari/Chrome y roto en Firefox.
@@ -155,7 +247,7 @@ else
   ambar "   !!  Firefox omitido (--skip-firefox): allí el certificado NO será de confianza"
 fi
 
-# ── 5. URL de verificación ───────────────────────────────────────────────────
+# ── 6. URL de verificación ───────────────────────────────────────────────────
 if [ -z "$URL" ] && [ -f "$HERE/gateway-url.txt" ]; then
   URL="$(head -n1 "$HERE/gateway-url.txt" | tr -d '[:space:]')"
   if [ -n "$URL" ]; then paso "URL de la pasarela leída de gateway-url.txt: $URL"; fi
@@ -180,7 +272,7 @@ VHOST="${HOSTPORT%%:*}"
 VPORT="${HOSTPORT##*:}"
 if [ "$VPORT" = "$HOSTPORT" ]; then VPORT=443; fi
 
-# ── 6. VERIFICACIÓN de verdad ────────────────────────────────────────────────
+# ── 7. VERIFICACIÓN de verdad ────────────────────────────────────────────────
 # Dos pasos, y el que manda es el segundo:
 #   (a) handshake TLS contra la pasarela, para traerse la cadena que sirve;
 #   (b) `security verify-cert`, que es la evaluación de confianza DEL SISTEMA —

@@ -134,21 +134,31 @@ En el servidor, una vez, armar el kit:
 ```
 
 Deja en `./kit-certificado/` la `root.crt` + los instaladores de puesto + `gateway-url.txt`,
-y **muestra la huella SHA-256**: pasásela al IT por un canal distinto del que lleva la carpeta.
+y **muestra la huella SHA-256**: pasásela al IT **por un canal distinto** del que lleva la
+carpeta (llamada, no el mismo correo). Los instaladores **se plantan hasta que esa huella
+queda cotejada** — sin ella no escriben en el almacén del equipo.
 
 En cada puesto:
 
-- **Windows**: doble-click en `install-ca.bat` → se auto-eleva → termina en **VERDE/ROJO**
-  (hace un handshake TLS real, no sólo el import). Idempotente.
-- **macOS**: `./install-ca-macos.sh`.
+- **Windows**: doble-click en `install-ca.bat` → se auto-eleva → **muestra la huella y
+  pregunta en la VENTANA NUEVA** (avisale al IT, o mira la ventana equivocada; el default
+  es No) → termina en **VERDE/ROJO** (hace un handshake TLS real, no sólo el import).
+  Idempotente.
+- **macOS**: `./install-ca-macos.sh` — pregunta la huella **antes** de pedir la contraseña.
+- **Desatendido / flota**: con la huella por parámetro, que es lo que imprime `export-ca.sh`:
+  `install-ca.bat -NoPause -Fingerprint <HUELLA>`. Sin `-Fingerprint`, `-NoPause` **aborta
+  con código 4** en vez de instalar a ciegas.
 - **Flota en dominio**: GPO → *Configuración del equipo → Directivas → Configuración de
   Windows → Configuración de seguridad → Directivas de clave pública → Entidades de
   certificación raíz de confianza* → Importar `root.crt` → vincular a la OU → `gpupdate /force`.
+  Ojo: la GPO **no coteja nada**, así que la huella se verifica a mano antes de importar
+  (`certutil -hashfile root.crt SHA256`).
 
 🔴 **NO** dejar que el IT haga doble-click sobre el `.crt`: el asistente de Windows importa en el
 almacén del **usuario**, dice «importación correcta» y el navegador sigue avisando. Ése fue el
-fallo real. El `.bat` es el camino; el atajo telefónico es
-`certutil -addstore -f Root C:\ruta\root.crt` **en consola de administrador**.
+fallo real. El `.bat` es el camino; el atajo telefónico es cotejar primero con
+`certutil -hashfile C:\ruta\root.crt SHA256` y sólo entonces
+`certutil -addstore -f Root C:\ruta\root.crt`, **en consola de administrador**.
 
 La guía para entregarle al cliente está en el sitio de docs de cliente
 («Confiar el certificado en los equipos»).
@@ -197,6 +207,7 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | 401 en todo con clave válida | Motor sin `BASA_IDENTITY_URL` |
 | «Sitio no seguro» tras instalar el .crt con doble-click | Fue al almacén del USUARIO, no al de la máquina → `install-ca.bat` del trust-kit |
 | La extensión no conecta por https y la URL es correcta | Ese puesto todavía no confía en la CA interna → correr el instalador ahí y ver el VERDE |
+| «LA HUELLA NO COINCIDE» / código 4 al instalar la CA | El `root.crt` de ese puesto no es el del kit recién exportado (copia vieja u otro cliente) → reponerlo y recotejar; **no** forzar con `-AcceptFingerprint` sin saber por qué |
 | Detecta emails pero no nombres | El sidecar NLP no está arriba |
 | 403 «rollback de reloj» al crear usuarios | Se cura solo en ≤5 min (corregido en este build) |
 

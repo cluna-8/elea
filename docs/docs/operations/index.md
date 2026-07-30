@@ -357,22 +357,62 @@ el script lo dice y no genera nada — no hay CA interna que repartir.
 | `install-ca-macos.sh` | puesto macOS |
 | `gateway-url.txt` | la URL que el instalador usa para verificar sin que nadie teclee |
 
-**La huella SHA-256 viaja por un canal distinto** del que lleva la carpeta. Es lo único que
-permite al IT del cliente comprobar que la CA que va a empujar a toda la flota es la de su
-instalación; el instalador la muestra en pantalla antes de tocar nada.
+**La huella SHA-256 viaja por un canal distinto** del que lleva la carpeta. No es
+ceremonia: una CA en el almacén raíz de la máquina hace que ese puesto acepte **cualquier**
+certificado que ella firme, para todo destino y sin ningún síntoma visible si el fichero
+que llegó no era el correcto. Cotejar la huella fuera de banda es la **única** salvaguarda
+del kit, así que **los instaladores no escriben en el almacén hasta que queda verificada** —
+y el operador es quien tiene que poner esa huella en manos del IT antes de que empiecen.
 
 **Puesto a puesto:** doble-click en `install-ca.bat` (se auto-eleva) o `./install-ca-macos.sh`.
-Ambos son idempotentes y terminan con un **VERDE/ROJO** que no sale de mirar el almacén: abren
-un **handshake TLS real** contra la pasarela y validan la cadena contra el almacén del sistema
-—el mismo camino que hace el navegador—, distinguiendo un fallo de **conexión** (red, dirección
-equivocada) de uno de **validación** (confianza, nombre del certificado).
+Muestran la huella y **se detienen a preguntar**; el default es **No**, así que un INTRO
+distraído cancela en vez de instalar. En Windows la pregunta sale en la **ventana elevada**
+(la que abre el UAC), no en la original — dígaselo al IT o se quedará mirando la ventana
+equivocada. Ambos son idempotentes y terminan con un **VERDE/ROJO** que no sale de mirar el
+almacén: abren un **handshake TLS real** contra la pasarela y validan la cadena contra el
+almacén del sistema —el mismo camino que hace el navegador—, distinguiendo un fallo de
+**conexión** (red, dirección equivocada) de uno de **validación** (confianza, nombre del
+certificado).
+
+**Desatendido (GPO con script de inicio, gestión de flota, MDM): con `-Fingerprint`, y no
+hay alternativa.** Sin nadie que pueda contestar por pantalla, la huella se pasa por
+parámetro y la comprueba el propio instalador en cada equipo:
+
+```bat
+install-ca.bat -NoPause -Fingerprint <HUELLA-SHA-256> -Url https://<direccion-de-la-pasarela>
+```
+
+```bash
+./install-ca-macos.sh --fingerprint <HUELLA-SHA-256> --url https://<direccion-de-la-pasarela>
+```
+
+El equipo al que le llegue otro fichero **aborta con código 4 y no instala nada**, en vez de
+confiar en una CA que nadie miró. `export-ca.sh` imprime estas dos líneas ya rellenas al
+armar el kit: páselas tal cual. Se acepta la huella con `:` o sin él, en mayúsculas o
+minúsculas, que es como el IT la va a pegar.
+
+!!! warning "`-NoPause` no es un bypass"
+    `-NoPause` declara «no hay nadie delante». **Sin `-Fingerprint`, el instalador aborta
+    (código 4) en lugar de instalar a ciegas**: el modo que toca más máquinas no puede ser
+    el que no comprueba nada. La salida explícita es `-Fingerprint`; existe además
+    `-AcceptFingerprint` / `--accept-fingerprint` para renunciar a la comprobación a
+    propósito, y sólo tiene sentido si el IT ya cotejó la huella por otro medio.
+
+    Códigos de salida para la herramienta de despliegue: `0` verde · `1` la verificación
+    TLS falló · `2` error de entrada · `3` no se pudo elevar · `4` **huella no verificada,
+    no se instaló nada**.
 
 **Flota Windows en dominio:** directiva de grupo, que evita tocar equipo por equipo →
 *Configuración del equipo → Directivas → Configuración de Windows → Configuración de
 seguridad → Directivas de clave pública → **Entidades de certificación raíz de confianza***
 → botón derecho → **Importar** → `root.crt`; vincular la directiva a la OU de los equipos y
-`gpupdate /force` en uno de prueba. La guía para el cliente final vive en el **sitio de
-documentación de cliente** (`docs-cliente/`, sección «Confiar el certificado en los equipos»).
+`gpupdate /force` en uno de prueba. **Ojo con este camino:** la consola de directivas no
+coteja ninguna huella y lo que se importe ahí se instala solo en todo el dominio, así que
+el IT tiene que verificarla a mano **antes** de importar (`certutil -hashfile root.crt
+SHA256`). Si prefiere repartir el instalador en vez del certificado, use la forma con
+`-Fingerprint` de arriba: es la que mantiene la comprobación en cada equipo. La guía para
+el cliente final vive en el **sitio de documentación de cliente** (`docs-cliente/`, sección
+«Confiar el certificado en los equipos»).
 
 **Gotchas verificados en el piloto (síntoma → causa → fix):**
 
@@ -394,6 +434,15 @@ documentación de cliente** (`docs-cliente/`, sección «Confiar el certificado 
 - **Todos los puestos dejan de confiar a la vez** → caducó la CA interna → reemitirla en el
   ingress y volver a distribuir el kit (la CA interna se regenera con el volumen del
   ingress: **borrarlo obliga a repetir la distribución en toda la flota**).
+- **El instalador termina en «LA HUELLA NO COINCIDE» (código 4)** → el `root.crt` de ese
+  puesto no es el de esta instalación: copia de un kit anterior, kit de otro cliente, o
+  fichero alterado en tránsito → **no lo instale**; reponer el `root.crt` desde el kit
+  recién exportado y volver a cotejar la huella por el canal aparte. Si aparece **después
+  de recrear el volumen del ingress**, la causa es la CA regenerada: hay kit y huella
+  nuevos, y toca redistribuir.
+- **El despliegue desatendido no instala en ningún equipo y devuelve 4** → se lanzó con
+  `-NoPause` sin `-Fingerprint`, y ese camino aborta a propósito → añadir la huella al
+  comando (la imprime `export-ca.sh`).
 
 !!! note "Esto es el fallback, no el destino"
     Distribuir una CA interna funciona y es lo correcto en air-gap, pero pone un paso manual

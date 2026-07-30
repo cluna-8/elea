@@ -11,6 +11,12 @@
 #      el .bat sale ilegible en la ventana del usuario.
 #   4. Los .sh pasan shellcheck y `bash -n`.
 #   5. El kit está completo y bundle.sh lo empaqueta.
+#   6. EL PUNTO DE PARADA DE LA HUELLA FUNCIONA, ejecutando los instaladores de verdad
+#      contra una CA de prueba. Es la única salvaguarda del kit —cotejar la huella por
+#      un canal distinto del que trajo el fichero— y hasta el 2026-07-30 se imprimía
+#      pero no se aplicaba: el script decía «coteje ANTES de continuar» y continuaba
+#      solo. Un aviso que no detiene nada no es una salvaguarda, así que aquí se
+#      comprueba el COMPORTAMIENTO, no que el mensaje esté escrito.
 #
 # Lo que este check NO cubre (hay que probarlo en una VM Windows real): la elevación UAC,
 # la escritura en Cert:\LocalMachine\Root y en el almacén Enterprise, y la directiva de
@@ -89,7 +95,208 @@ PS
 docker run --rm --platform linux/amd64 -v "$KIT":/kit:ro -v "$tmp":/t:ro \
     "$PWSH_IMG" pwsh -NoProfile -File /t/parse.ps1 || fail "install-ca.ps1 NO parsea"
 
-# ── 5. El bundle se lo lleva ─────────────────────────────────────────────────
+# ── 5. Punto de parada de la huella: COMPORTAMIENTO, no mensajes ─────────────
+# Se ejecutan los dos instaladores de verdad contra una CA de prueba generada aquí.
+command -v openssl >/dev/null \
+    || fail "falta openssl, y sin él no hay CA de prueba con la que ejercitar el punto de parada"
+
+fixture="$tmp/fixture"; mkdir -p "$fixture"
+openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "$fixture/ca.key" -out "$fixture/root.crt" -days 30 \
+    -subj "/CN=Trust Kit Gate Test CA" \
+    -addext "basicConstraints=critical,CA:TRUE" >/dev/null 2>&1 \
+    || fail "no se pudo generar la CA de prueba con openssl"
+HUELLA_OK="$(openssl x509 -in "$fixture/root.crt" -noout -fingerprint -sha256 \
+             | sed 's/^.*=//' | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+HUELLA_MALA="$(printf '%064d' 0)"
+
+# ── 5a. install-ca.ps1, en el contenedor de PowerShell ───────────────────────
+# UN solo retoque sobre la copia que se ejecuta: Test-IsAdministrator llama a
+# WindowsIdentity::GetCurrent(), que en Linux lanza PlatformNotSupportedException y
+# tumbaría el script antes de llegar a nada. Se fuerza a $true. Todo lo demás —enlace
+# de parámetros, normalización de la huella, comparación, pregunta, códigos de salida
+# y el ORDEN respecto de la escritura en el almacén— es el fichero que se entrega.
+tr -d '\r' < "$KIT/install-ca.ps1" \
+    | sed 's/^function Test-IsAdministrator {/function Test-IsAdministrator {\n    return $true  # SHIM DEL GATE: en Linux no hay WindowsIdentity/' \
+    > "$fixture/install-ca.ps1"
+grep -q 'SHIM DEL GATE' "$fixture/install-ca.ps1" \
+    || fail "el shim de Test-IsAdministrator no se aplicó: ¿cambió la firma de la función en install-ca.ps1?"
+
+# En Linux, Cert:\LocalMachine\Root es de sólo lectura ("Unix LocalMachine X509Stores
+# are read-only"), así que el intento de escritura falla SIEMPRE con código 1 y un
+# mensaje que menciona LocalMachine. Eso lo convierte en un marcador exacto y sin
+# acentos de "el script llegó a tocar el almacén":
+#   rc=1 + 'LocalMachine' en la salida  →  pasó el punto de parada
+#   rc=4 y ni rastro de 'LocalMachine'  →  se plantó antes, que es lo que se exige
+cat > "$tmp/comportamiento.ps1" <<'PS'
+$ErrorActionPreference = 'Continue'
+$instalador = '/fix/install-ca.ps1'
+$cert       = '/fix/root.crt'
+$global:fallos = 0
+
+function Invoke-Caso {
+    param([string]$Titulo, [string]$Entrada, [string[]]$Argumentos,
+          [bool]$DebeTocarAlmacen, [int]$Codigo)
+
+    if ($Entrada) {
+        $salida = ($Entrada | & pwsh -NoProfile -File $instalador @Argumentos 2>&1 | Out-String)
+    } else {
+        $salida = (& pwsh -NoProfile -File $instalador @Argumentos 2>&1 | Out-String)
+    }
+    $rc = $LASTEXITCODE
+    $tocoAlmacen = [bool]($salida -match 'LocalMachine')
+
+    if (($rc -eq $Codigo) -and ($tocoAlmacen -eq $DebeTocarAlmacen)) {
+        Write-Host ("   OK  {0}" -f $Titulo)
+        return
+    }
+    Write-Host ("   XX  {0}" -f $Titulo)
+    Write-Host ("       esperaba rc={0} y tocarAlmacen={1}; obtuve rc={2} y tocarAlmacen={3}" -f
+        $Codigo, $DebeTocarAlmacen, $rc, $tocoAlmacen)
+    $salida -split "`n" | Select-Object -Last 12 | ForEach-Object { Write-Host "       | $_" }
+    $global:fallos++
+}
+
+$buena = $env:HUELLA_OK
+$mala  = $env:HUELLA_MALA
+$comu  = @('-CertPath', $cert, '-SkipFirefox', '-Url', 'https://127.0.0.1:1')
+
+# (a) desatendido con la huella correcta: procede sin preguntar nada — la vía GPO.
+Invoke-Caso 'huella correcta por -Fingerprint (desatendido): instala' `
+    '' ($comu + @('-NoPause', '-Fingerprint', $buena)) $true 1
+
+# (b) desatendido con huella equivocada: se planta, y no por casualidad.
+Invoke-Caso 'huella EQUIVOCADA por -Fingerprint: aborta sin tocar el almacén' `
+    '' ($comu + @('-NoPause', '-Fingerprint', $mala)) $false 4
+
+# (c) interactivo contestando que no: el caso del hallazgo.
+Invoke-Caso 'interactivo respondiendo "no": aborta sin tocar el almacén' `
+    "no`n" $comu $false 4
+
+# (d) todo lo que no sea un sí explícito cancela: el default es No.
+Invoke-Caso 'interactivo respondiendo INTRO a secas: aborta (default = No)' `
+    "`n" $comu $false 4
+
+# (e) el agujero de raíz: desatendido sin huella NO puede instalar a ciegas.
+#     -NoPause era el switch documentado para GPO; si dejara pasar, el modo que más
+#     máquinas toca sería justo el que no comprueba nada.
+Invoke-Caso '-NoPause sin huella: aborta y NO se cuela como bypass' `
+    '' ($comu + @('-NoPause')) $false 4
+
+# (f) la salida explícita sigue existiendo, o el operador acabaría buscando otra peor.
+Invoke-Caso '-AcceptFingerprint: instala a propósito, sin preguntar' `
+    '' ($comu + @('-NoPause', '-AcceptFingerprint')) $true 1
+
+# (g) el IT pega la huella como se la dieron: minúsculas, con ':' y con espacios.
+$comoLaPegan = ' ' + ((([regex]::Matches($buena, '..') | ForEach-Object { $_.Value }) -join ':').ToLowerInvariant()) + ' '
+Invoke-Caso 'huella en minúsculas y con ":" (como la pega el IT): instala' `
+    '' ($comu + @('-NoPause', '-Fingerprint', $comoLaPegan)) $true 1
+
+# (h) una huella que no es un SHA-256 es un error de entrada, no un "pues instalo".
+Invoke-Caso 'huella truncada al copiarla: error de entrada, no instala' `
+    '' ($comu + @('-NoPause', '-Fingerprint', 'AB:CD:EF')) $false 2
+
+# (i) interactivo contestando que sí: la confirmación no está clavada en "no".
+Invoke-Caso 'interactivo respondiendo "si": instala' `
+    "si`n" $comu $true 1
+
+if ($global:fallos -gt 0) {
+    Write-Host ("   {0} caso(s) del punto de parada fallaron" -f $global:fallos)
+    exit 1
+}
+Write-Host '   punto de parada de la huella (install-ca.ps1): 9/9 casos'
+PS
+docker run --rm --platform linux/amd64 \
+    -e HUELLA_OK="$HUELLA_OK" -e HUELLA_MALA="$HUELLA_MALA" \
+    -v "$fixture":/fix:ro -v "$tmp":/t:ro \
+    "$PWSH_IMG" pwsh -NoProfile -File /t/comportamiento.ps1 \
+    || fail "install-ca.ps1 instala la CA sin la huella verificada — el punto de parada NO protege"
+
+# ── 5b. install-ca-macos.sh, aquí mismo ──────────────────────────────────────
+# Corre en el host, sin contenedor y sin root, con dos programas falsos por delante en
+# el PATH: `uname` (para que el script se crea en un Mac también cuando el gate corre
+# en Linux) y `sudo` (que sólo deja constancia de que lo llamaron, en vez de escalar de
+# verdad). El punto de parada está ANTES de la elevación justamente para esto: si el
+# script llega a invocar sudo, es que decidió instalar.
+command -v python3 >/dev/null \
+    || fail "falta python3, y sin él no se puede simular la terminal del operador"
+
+fake="$tmp/fakebin"; mkdir -p "$fake"
+UNAME_REAL="$(command -v uname)"
+printf '#!/bin/sh\nif [ "$1" = "-s" ]; then echo Darwin; else exec %s "$@"; fi\n' "$UNAME_REAL" > "$fake/uname"
+printf '#!/bin/sh\necho "SUDO-INVOCADO $*" >> "$SUDO_TESTIGO"\nexit 0\n' > "$fake/sudo"
+chmod +x "$fake/uname" "$fake/sudo"
+
+# El script distingue «hay una persona delante» con `[ -t 0 ]`, así que las respuestas
+# del operador no se pueden simular con una tubería: haría falso el caso interactivo y
+# probaríamos la rama equivocada. Este ayudante le da una terminal de verdad (pty) y
+# escribe la respuesta en ella. El alarm(60) es para que un cuelgue rompa el gate en
+# vez de dejarlo colgado.
+cat > "$tmp/con_terminal.py" <<'PY'
+import os, pty, signal, sys
+signal.alarm(60)
+respuesta = (sys.argv[1] + "\n").encode()
+enviado = [False]
+def del_hijo(fd):
+    return os.read(fd, 4096)
+def hacia_el_hijo(fd):
+    if enviado[0]:
+        return b""
+    enviado[0] = True
+    return respuesta
+sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[2:], del_hijo, hacia_el_hijo)))
+PY
+
+macos_caso() {
+    # $1 titulo · $2 eleva? (si/no) · $3 código esperado · $4 respuesta en terminal
+    # ('-' = sin terminal, stdin desde /dev/null) · resto: argumentos del instalador
+    local titulo="$1" espera="$2" codigo="$3" respuesta="$4"; shift 4
+    local testigo="$tmp/testigo.txt"
+    : > "$testigo"
+    local salida rc
+    set +e
+    if [ "$respuesta" = "-" ]; then
+        salida="$(PATH="$fake:$PATH" SUDO_TESTIGO="$testigo" \
+            "$KIT/install-ca-macos.sh" --cert "$fixture/root.crt" "$@" </dev/null 2>&1)"
+    else
+        salida="$(PATH="$fake:$PATH" SUDO_TESTIGO="$testigo" \
+            python3 "$tmp/con_terminal.py" "$respuesta" \
+            "$KIT/install-ca-macos.sh" --cert "$fixture/root.crt" "$@" </dev/null 2>&1)"
+    fi
+    rc=$?
+    set -e
+    local elevo="no"
+    grep -q 'SUDO-INVOCADO' "$testigo" && elevo="si"
+    if [ "$rc" = "$codigo" ] && [ "$elevo" = "$espera" ]; then
+        echo "   OK  $titulo"
+    else
+        echo "   XX  $titulo"
+        echo "       esperaba rc=$codigo y elevar=$espera; obtuve rc=$rc y elevar=$elevo"
+        printf '       | %s\n' "$(echo "$salida" | tail -n 8)"
+        MACOS_FALLOS=$((MACOS_FALLOS + 1))
+    fi
+}
+
+MACOS_FALLOS=0
+HUELLA_MINUS="$(echo "$HUELLA_OK" | tr '[:upper:]' '[:lower:]')"
+macos_caso 'huella correcta por --fingerprint: procede a instalar' si 0 - \
+    --fingerprint "$HUELLA_OK"
+macos_caso 'huella en minúsculas (como la pega el IT): procede' si 0 - \
+    --fingerprint "$HUELLA_MINUS"
+macos_caso 'huella EQUIVOCADA: aborta sin elevar ni instalar' no 4 - \
+    --fingerprint "$HUELLA_MALA"
+macos_caso 'huella truncada al copiarla: error de entrada' no 2 - \
+    --fingerprint 'AB:CD:EF'
+macos_caso 'sin terminal y sin --fingerprint: aborta, no instala a ciegas' no 4 -
+macos_caso '--accept-fingerprint: procede a propósito' si 0 - --accept-fingerprint
+macos_caso 'interactivo respondiendo "no": aborta sin elevar' no 4 'no'
+macos_caso 'interactivo respondiendo INTRO a secas: aborta (default = No)' no 4 ''
+macos_caso 'interactivo respondiendo "si": procede a instalar' si 0 'si'
+[ "$MACOS_FALLOS" -eq 0 ] \
+    || fail "install-ca-macos.sh instala la CA sin la huella verificada ($MACOS_FALLOS caso/s)"
+echo "   punto de parada de la huella (install-ca-macos.sh): 9/9 casos"
+
+# ── 6. El bundle se lo lleva ─────────────────────────────────────────────────
 grep -q 'trust-kit' "$REPO_ROOT/deploy/release/bundle.sh" \
     || fail "bundle.sh no empaqueta el trust-kit (en la sede no hay repo del que sacarlo)"
 
