@@ -75,7 +75,7 @@ bash -n "$KIT/install-ca-macos.sh" || fail "install-ca-macos.sh no parsea"
 bash -n "$KIT/export-ca.sh"        || fail "export-ca.sh no parsea"
 
 ensure_image "$SHELLCHECK_IMG"
-docker run --rm -v "$KIT":/mnt "$SHELLCHECK_IMG" --shell=bash --severity=style \
+docker run --rm -v "$KIT":/mnt:ro "$SHELLCHECK_IMG" --shell=bash --severity=style \
     install-ca-macos.sh export-ca.sh || fail "shellcheck encontró hallazgos"
 echo "   shellcheck: limpio"
 
