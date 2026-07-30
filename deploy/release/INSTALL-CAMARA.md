@@ -130,7 +130,7 @@ repartir nada. Fue la fricción que costó tiempo el 30-jul (issue #51).
 En el servidor, una vez, armar el kit:
 
 ```bash
-deploy/release/trust-kit/export-ca.sh --project camara --url https://IP-O-DOMINIO-DEL-SERVIDOR
+./trust-kit/export-ca.sh --project camara --url https://IP-O-DOMINIO-DEL-SERVIDOR
 ```
 
 Deja en `./kit-certificado/` la `root.crt` + los instaladores de puesto + `gateway-url.txt`,
