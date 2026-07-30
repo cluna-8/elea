@@ -1,0 +1,15 @@
+# Estos dos ficheros los ejecuta Windows y viajan tal cual en el kit que se le
+# entrega al IT del cliente, así que sus finales de línea son parte del artefacto:
+#
+#   · .bat — cmd.exe tropieza con los bloques `if (...)` y con `goto` cuando el
+#     fichero tiene sólo LF. Con CRLF no hay sorpresas.
+#   · .ps1 — PowerShell tolera ambos, pero se mantiene CRLF por coherencia con el
+#     resto del kit. Lo que sí es obligatorio es su BOM UTF-8 (sin él, Windows
+#     PowerShell 5.1 lo lee con la codificación ANSI del sistema y destroza los
+#     acentos): el BOM es contenido, no se ve afectado por esta normalización, y
+#     `deploy/release/checks/test_trust_kit.sh` lo verifica en el gate.
+#
+# `text eol=crlf` guarda LF en el repo (diffs legibles en el PR) y entrega CRLF en
+# el árbol de trabajo de cualquier plataforma, que es de donde `bundle.sh` copia.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
