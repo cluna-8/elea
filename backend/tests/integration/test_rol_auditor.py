@@ -309,11 +309,19 @@ def test_el_auditor_todavia_puede_usar_el_chat(harness, auditor):
     contenido (una capa que bloquea el prompt) es una respuesta legítima de este endpoint y
     no tiene nada que ver con el rol, así que lo que se busca es el rechazo por rol, que
     tiene un texto propio.
+
+    El cuerpo es el de `ChatRequest` (``message`` en singular, el shape que manda la
+    consola), NO el de la API de OpenAI. La diferencia no es cosmética: con un cuerpo que
+    no valida, pydantic corta en 422 ANTES de que corra una sola línea de autenticación,
+    y las dos afirmaciones de abajo pasarían sin haber ejercitado nunca el path que dicen
+    ejercitar. Por eso el 422 se afirma explícitamente: es el canario de esa deriva.
     """
     client, _ = harness
     resp = client.post("/api/v1/chat/completions", headers=auditor,
-                       json={"messages": [{"role": "user", "content": "hola"}],
-                             "model": "ollama-qwen3-4b"})
+                       json={"message": "hola", "model": "ollama-qwen3-4b"})
 
+    assert resp.status_code != 422, (
+        "el cuerpo dejó de validar contra ChatRequest: pydantic corta antes de auth/rol, "
+        f"así que este test no probaría nada → {resp.text[:200]}")
     assert resp.status_code != 401, resp.text[:200]
     assert "Acción no permitida para el rol" not in resp.text, resp.text[:200]
