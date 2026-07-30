@@ -29,6 +29,11 @@ organización.
 
 Si cree que necesita la extensión y no la tiene, escriba a su administrador.
 
+Para que la extensión pueda hablar con la pasarela, el equipo tiene que **confiar en el
+certificado** de la instalación. De eso se encarga su administrador —está descrito en
+[Confiar el certificado en los equipos](../admin/certificado.md)—; si la extensión no
+conecta y la dirección es la correcta, ése suele ser el motivo.
+
 !!! note "No la instale por su cuenta"
     Solo la copia que le facilite su administrador está configurada con las políticas de
     su organización. Cualquier complemento de aspecto similar obtenido por otra vía no

@@ -62,6 +62,7 @@ nav:
   - Inicio: index.md
   - Guía del administrador:
       - Primeros pasos: admin/index.md
+      - Confiar el certificado en los equipos: admin/certificado.md
       - Dar de alta usuarios: admin/usuarios.md
       - Crear llaves de acceso: admin/llaves.md
       - Configurar modelos de IA: admin/modelos.md

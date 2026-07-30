@@ -291,6 +291,8 @@ Los códigos **G#** refieren al detalle causa → fix en
 | Placeholders `[PERSON_0]` visibles en un artefacto de Claude (G5) | Artefacto en `iframe`, `all_frames:false` | Limitación conocida; mostrar en el chat |
 | La página web queda bloqueada por un overlay 🛡️ | Fail-closed: sin key válida o gateway caído | Conectar con key válida en el popup; verificar que el gateway responde `/api/v1/gw/whoami` |
 | La extensión no llega al gateway (sin CORS pero sin respuesta) | Falta el **permiso de host** del gateway, o la dirección ingresada no apunta al gateway real | En el popup (**⚙**) verificar la **dirección del gateway** y **conceder el permiso de host** cuando el navegador lo pida; una dirección remota debe ser `https://` |
+| La extensión no conecta y el navegador avisa «sitio no seguro» en esa dirección | El puesto no confía en la **CA interna** del ingress (el `.crt` se instaló con doble-click → almacén del **usuario**, no de la máquina) | Correr `install-ca.bat` del kit de confianza en ese puesto y comprobar el VERDE — ver [§5.1](#51-confianza-del-certificado) |
+| Todos los puestos pierden la confianza a la vez tras tocar el ingress | Se recreó el volumen del ingress: la **CA interna se regeneró** y la anterior ya no vale | Re-exportar el kit (`export-ca.sh`) y redistribuir; con GPO, reimportar el `root.crt` nuevo en la directiva |
 | Al conectar, el navegador pide un permiso y sin él no conecta | Permiso de host en runtime (la dirección la ingresa el usuario, no viene horneada) | Conceder el permiso al host del gateway; cambiar de host vuelve a pedirlo. Denegar deja la sesión sin conectar |
 | Chip **ámbar** "Detección por patrones · cobertura parcial" en el panel | Indicador de honestidad de la superficie: la detección es por patrones, no lingüística | **No es un fallo** — es el indicador correcto (texto del servidor). Nunca presentarlo como "protegido" / cobertura total |
 | El envío se frena con un **motivo**, no con "servicio no disponible" | Bloqueo de política del gateway (el motivo lo da el servidor) | Es correcto: la extensión muestra el motivo real. "Servicio no disponible" es sólo cuando el gateway está **caído** |
@@ -323,7 +325,82 @@ operador la **reparte** y acompaña la conexión de cada usuario; la configuraci
 hace el **propio usuario** (dirección del gateway + key). El detalle de la superficie, su contrato y
 su diagrama están en [Integraciones §3.3](../integrations/index.md).
 
-### 5.1 Reparto del paquete
+### 5.1 Requisito previo: que el puesto confíe en el certificado { #51-confianza-del-certificado }
+
+**Cuándo aplica:** sólo cuando el ingress termina TLS con su **CA interna** (`tls internal`
+en el Caddyfile), que es el caso de una LAN sin dominio público. Con un certificado público
+o emitido por la CA del propio cliente **no hay nada que distribuir** y esta subsección no
+aplica.
+
+**Por qué NO es opcional:** la extensión exige `https` válido para cualquier host que no sea
+`localhost`. Un certificado en el que el puesto no confía no deja la superficie "con
+avisos": la deja **fuera de servicio**. Por eso el reparto del certificado va **antes** que
+el reparto del paquete (§5.2), no después.
+
+**Kit de confianza — armarlo una vez, en el servidor de la instalación:**
+
+```bash
+deploy/release/trust-kit/export-ca.sh --project <proyecto-compose> \
+                                      --url https://<direccion-de-la-pasarela>
+```
+
+Extrae la raíz de la CA interna del contenedor del ingress
+(`/data/caddy/pki/authorities/local/root.crt`), la deja junto a los instaladores de puesto
+y **muestra su huella SHA-256**. Si el ingress sirve HTTP plano o TLS con otro certificado,
+el script lo dice y no genera nada — no hay CA interna que repartir.
+
+| Fichero del kit | Destino |
+|---|---|
+| `root.crt` | la CA raíz de esa instalación |
+| `install-ca.bat` + `install-ca.ps1` | puesto Windows (doble-click en el `.bat`) |
+| `install-ca-macos.sh` | puesto macOS |
+| `gateway-url.txt` | la URL que el instalador usa para verificar sin que nadie teclee |
+
+**La huella SHA-256 viaja por un canal distinto** del que lleva la carpeta. Es lo único que
+permite al IT del cliente comprobar que la CA que va a empujar a toda la flota es la de su
+instalación; el instalador la muestra en pantalla antes de tocar nada.
+
+**Puesto a puesto:** doble-click en `install-ca.bat` (se auto-eleva) o `./install-ca-macos.sh`.
+Ambos son idempotentes y terminan con un **VERDE/ROJO** que no sale de mirar el almacén: abren
+un **handshake TLS real** contra la pasarela y validan la cadena contra el almacén del sistema
+—el mismo camino que hace el navegador—, distinguiendo un fallo de **conexión** (red, dirección
+equivocada) de uno de **validación** (confianza, nombre del certificado).
+
+**Flota Windows en dominio:** directiva de grupo, que evita tocar equipo por equipo →
+*Configuración del equipo → Directivas → Configuración de Windows → Configuración de
+seguridad → Directivas de clave pública → **Entidades de certificación raíz de confianza***
+→ botón derecho → **Importar** → `root.crt`; vincular la directiva a la OU de los equipos y
+`gpupdate /force` en uno de prueba. La guía para el cliente final vive en el **sitio de
+documentación de cliente** (`docs-cliente/`, sección «Confiar el certificado en los equipos»).
+
+**Gotchas verificados en el piloto (síntoma → causa → fix):**
+
+- **El certificado "se instaló" y el navegador sigue avisando** → el doble-click sobre el
+  `.crt` abre el asistente de Windows, que por defecto importa en el almacén del **usuario
+  actual** y termina diciendo «importación correcta»: cero feedback de que fue al almacén
+  equivocado → correr `install-ca.bat`, que va a `Cert:\LocalMachine\Root` (equivalente de
+  `certutil -addstore -f Root <fichero>`) y **comprueba**. Ésta fue la causa raíz de la
+  fricción del 30-jul.
+- **Funciona en Edge/Chrome y falla en Firefox** → Firefox no usa el almacén de Windows,
+  trae el suyo (NSS) → los instaladores activan la directiva `ImportEnterpriseRoots`
+  (`HKLM\SOFTWARE\Policies\Mozilla\Firefox\Certificates` en Windows,
+  `/Library/Preferences/org.mozilla.firefox` en macOS); **Firefox debe reiniciarse** para
+  tomarla.
+- **ROJO en etapa «validación» con la CA correcta instalada** → la dirección por la que se
+  entra no está en el certificado del servidor: si se emitió con SAN de **IP**, hay que
+  entrar por esa IP, no por un nombre → reemitir el certificado del servidor con el SAN que
+  corresponda; no se arregla en el puesto.
+- **Todos los puestos dejan de confiar a la vez** → caducó la CA interna → reemitirla en el
+  ingress y volver a distribuir el kit (la CA interna se regenera con el volumen del
+  ingress: **borrarlo obliga a repetir la distribución en toda la flota**).
+
+!!! note "Esto es el fallback, no el destino"
+    Distribuir una CA interna funciona y es lo correcto en air-gap, pero pone un paso manual
+    en cada alta de equipo. El camino sin fricción —certificado público real por cliente, sin
+    nada que instalar en los puestos— y el camino BYO/AD CS para el tier pesado se siguen en
+    el **issue #51**.
+
+### 5.2 Reparto del paquete
 
 - **Paquete por partner:** la extensión se entrega como un **zip con la marca del partner** y un
   **identificador estable**, **sin dirección de gateway horneada**. Viaja dentro del **bundle de
@@ -334,7 +411,7 @@ su diagrama están en [Integraciones §3.3](../integrations/index.md).
 - **Marca neutra:** el mismo contenido de runtime se rebrandea por cliente. El operador **no** edita
   código para cambiar de marca ni para apuntar a su propio gateway.
 
-### 5.2 Conexión y permiso de host
+### 5.3 Conexión y permiso de host
 
 El usuario, **una sola vez**, ingresa en el popup (**⚙**) la **dirección del gateway**
 (`https://<host>/api/v1/gw`) y su **API key**, y **Guardar y conectar**:
@@ -350,7 +427,7 @@ El usuario, **una sola vez**, ingresa en el popup (**⚙**) la **dirección del 
 - **Bloqueo con motivo real:** un envío bloqueado por política muestra el **motivo del servidor**;
   sólo un gateway caído muestra "servicio no disponible".
 
-### 5.3 Offboarding (revocación / vencimiento)
+### 5.4 Offboarding (revocación / vencimiento)
 
 Dar de baja a un usuario o vencer su acceso lo **desconecta** de la superficie `browser` sin tocar
 su navegador:
