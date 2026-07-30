@@ -21,6 +21,7 @@ import {
   cn,
 } from "../components/ui";
 import type { BadgeTone } from "../components/ui";
+import { ROLE_LABELS } from "../services/auth";
 
 const LEGAL_BASIS_SHORT: Record<string, string> = {
   art_9_2_h: "Art. 9(2)(h) Sanitario",
@@ -52,6 +53,40 @@ const ModalShell: React.FC<{
 
 const selectClass = inputBaseClass;
 const textareaClass = cn(inputBaseClass, "h-auto py-2 resize-none");
+
+/** Rol que la consola muestra como «Auditor». El valor es el que guarda la base. */
+const ROL_AUDITOR = "compliance_officer";
+
+/**
+ * Lo que de verdad puede y no puede hacer hoy un Auditor, junto a la opción que lo crea.
+ *
+ * El producto se vende por compliance, así que esta ficha no puede insinuar un rol de solo
+ * lectura que todavía no existe: el rol accede a auditoría y compliance, pero el backend
+ * también le acepta escrituras sobre la política de protección, la conservación de
+ * registros y la configuración de costos, y le acepta el chat sin gate de rol. Quien da el
+ * alta tiene que enterarse ACÁ y no cuando pase algo. Cada afirmación de este texto está
+ * fijada por `backend/tests/integration/test_rol_auditor.py`: si un gate cambia, el test
+ * falla y este copy se corrige con él.
+ */
+const FichaDelAuditor: React.FC = () => (
+  <div className="rounded-md border border-border bg-surface-2 p-3 space-y-2 text-[11px] leading-relaxed">
+    <p className="font-semibold text-text-primary">Qué puede hacer un Auditor</p>
+    <p className="text-text-secondary">
+      <span className="font-semibold text-text-primary">Ve:</span> Logs de Auditoría,
+      reportes y tablero de compliance, consumo y conexiones en vivo.
+    </p>
+    <p className="text-text-secondary">
+      <span className="font-semibold text-text-primary">No puede:</span> crear usuarios,
+      generar ni revocar llaves virtuales, administrar modelos ni tocar la gobernanza.
+    </p>
+    <p className="rounded border border-warn/20 bg-warn-bg p-2 text-warn">
+      Todavía no es un rol de solo lectura: también puede editar las políticas de
+      cumplimiento y la política de protección de datos, incluso desactivar la que está
+      activa, cambiar los plazos de conservación de los registros, ajustar la configuración
+      de costos y usar el chat interno.
+    </p>
+  </div>
+);
 
 interface VirtualKey {
   id: string;
@@ -714,7 +749,12 @@ export const UsersPage: React.FC = () => {
                       <Table.Row key={u.id} className="hover:bg-surface-2 transition-colors">
                         <Table.Cell className="font-semibold text-text-primary">{u.username}</Table.Cell>
                         <Table.Cell className="text-text-secondary">{u.email}</Table.Cell>
-                        <Table.Cell className="uppercase text-[10px] font-mono text-primary font-semibold">{u.role}</Table.Cell>
+                        {/* Etiqueta visible, no el identificador técnico: quien acaba de dar
+                            de alta a un «Auditor» tiene que reconocerlo en la lista. El rol
+                            real queda en el tooltip para soporte. */}
+                        <Table.Cell className="text-[11px] text-primary font-semibold" title={u.role}>
+                          {ROLE_LABELS[u.role] ?? u.role}
+                        </Table.Cell>
                         <Table.Cell className="text-text-secondary">{groupName}</Table.Cell>
                         <Table.Cell>
                           {risk ? (
@@ -1326,9 +1366,14 @@ export const UsersPage: React.FC = () => {
                 <option value="clinician">Especialista</option>
                 <option value="researcher">Investigador</option>
                 <option value="developer">Desarrollador</option>
+                {/* Mismo valor que guarda la base (`compliance_officer`): acá sólo se le
+                    pone el nombre con el que lo pide el cliente. No se inventa un rol
+                    nuevo ni se cambia ningún permiso. */}
+                <option value={ROL_AUDITOR}>Auditor</option>
                 <option value="admin">Administrador</option>
               </select>
             </Field>
+            {role === ROL_AUDITOR && <FichaDelAuditor />}
             <Field label="Asociar a Equipo (Opcional)">
               <select
                 value={groupId}

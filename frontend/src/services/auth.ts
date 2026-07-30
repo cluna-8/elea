@@ -41,9 +41,14 @@ export const authStorage = {
   isLoggedIn: (): boolean => !!localStorage.getItem(TOKEN_KEY),
 };
 
+// Etiqueta VISIBLE de cada rol. `compliance_officer` se muestra como «Auditor» porque es
+// el nombre con el que lo pide el cliente; el rol técnico guardado sigue siendo el mismo,
+// acá no se renombra nada en la base ni cambian los permisos. Lo que ese rol puede y no
+// puede hacer hoy está escrito en el alta de usuarios (UsersPage) y en la documentación de
+// administración: NO es un rol de solo lectura todavía.
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
-  compliance_officer: "Oficial de Compliance",
+  compliance_officer: "Auditor",
   clinician: "Especialista",
   developer: "Desarrollador",
   // Canónicos post-013 (por si llegan sin normalizar)
