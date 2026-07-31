@@ -78,6 +78,12 @@
     modo hace falta -Fingerprint (o -AcceptFingerprint). No es un bypass: si no
     va ninguno de los dos, el script aborta con código 4 sin instalar nada.
 
+    -NoPause no es la única forma de quedarse sin operador: el script también
+    trata como desatendida la ejecución con la ENTRADA REDIRIGIDA (stdin desde
+    /dev/null, desde una tubería o desde una herramienta de gestión de flota) y
+    la sesión sin escritorio. En cualquiera de esos casos tampoco pregunta: o
+    -Fingerprint, o -AcceptFingerprint, o código 4 sin tocar el almacén.
+
 .PARAMETER Elevated
     Uso interno: marca la re-ejecución ya elevada. No lo use a mano.
 
@@ -147,11 +153,28 @@ function ConvertTo-HuellaNormalizada {
     return ($limpia -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
 }
 
-# Desatendido = nadie puede contestar a una pregunta por pantalla. -NoPause lo
-# declara explícitamente (es el switch que existe justo para GPO), y UserInteractive
-# lo detecta cuando corre como servicio o tarea programada sin escritorio.
+# Desatendido = nadie puede contestar a una pregunta por pantalla. Basta UNA de
+# estas tres señales, y las tres hacen falta porque ninguna cubre a las otras:
+#
+#   · -NoPause lo declara explícitamente (es el switch que existe justo para GPO).
+#   · [Console]::IsInputRedirected es el equivalente exacto del `[ ! -t 0 ]` que ya
+#     tenía el instalador de macOS, y es la única que caza el caso que se nos coló:
+#     stdin redirigido (de /dev/null, de una tubería, de una herramienta de flota).
+#     Ahí Read-Host NO lanza excepción —el catch no salva nada— y NO devuelve $null:
+#     devuelve AutomationNull, que los operadores de comparación tratan como una
+#     COLECCIÓN VACÍA. `$respuesta -notmatch '...'` daba @(), un `if` sobre @() es
+#     falso, y el script se saltaba el «cancelado» para escribir la CA en el almacén
+#     de la MÁQUINA imprimiendo, encima, «huella confirmada por el operador».
+#   · UserInteractive detecta el servicio o la tarea programada sin escritorio en
+#     Windows. Se conserva, pero NO basta sola: devuelve True aunque stdin venga
+#     redirigido (y en Linux devuelve True siempre), que es justo por qué el agujero
+#     de arriba pasó el gate.
+#
 # En ese modo NO se pregunta: o hay huella esperada, o el script se planta.
-$Desatendido = $NoPause.IsPresent -or (-not [Environment]::UserInteractive)
+# Si la comprobación misma reventara, se asume desatendido: fail-closed.
+$EntradaRedirigida = $true
+try { $EntradaRedirigida = [Console]::IsInputRedirected } catch { $EntradaRedirigida = $true }
+$Desatendido = $NoPause.IsPresent -or $EntradaRedirigida -or (-not [Environment]::UserInteractive)
 
 $ScriptPath = $PSCommandPath
 if (-not $ScriptPath) { $ScriptPath = $MyInvocation.MyCommand.Definition }
@@ -185,7 +208,13 @@ if ($Fingerprint) {
 }
 
 if ($Desatendido -and -not $Fingerprint -and -not $AcceptFingerprint) {
-    Write-Bad "modo desatendido sin huella esperada: no se instala nada."
+    if ($NoPause) {
+        Write-Bad "modo desatendido (-NoPause) sin huella esperada: no se instala nada."
+    } elseif ($EntradaRedirigida) {
+        Write-Bad "no hay entrada interactiva donde confirmar la huella y no se pasó -Fingerprint: no se instala nada."
+    } else {
+        Write-Bad "sesión sin escritorio (servicio o tarea programada) sin huella esperada: no se instala nada."
+    }
     Write-Host ""
     Write-Host "     Instalar una CA en el almacén de la MÁQUINA hace que este equipo acepte" -ForegroundColor DarkGray
     Write-Host "     cualquier certificado que ella firme. Sin nadie delante que coteje la" -ForegroundColor DarkGray
@@ -366,7 +395,21 @@ if ($HuellaEsperada) {
         # Sin consola de la que leer, la respuesta segura es NO.
         $respuesta = ''
     }
-    if ($respuesta -notmatch '^\s*(s|si|sí|y|yes)\s*$') {
+    # SEGUNDA CAPA, por si la detección de "no hay con quién hablar" de arriba
+    # fallara en algún host que no hemos podido probar: la comparación se hace a
+    # prueba de AutomationNull y en positivo. Con stdin en EOF, Read-Host no lanza
+    # y no devuelve $null: devuelve AutomationNull, que en una comparación se
+    # comporta como colección vacía y hacía que `-notmatch` diera @() —falso en un
+    # `if`—, o sea que la rama de CANCELAR no se ejecutaba. El casteo a [string]
+    # lo convierte en '' y $Confirmado sólo se pone a $true si hay una respuesta
+    # afirmativa explícita: cualquier otra cosa (vacío, nulo, colección, basura)
+    # cae en cancelar. Fail-closed por construcción, no por descarte.
+    $RespuestaTexto = ([string]$respuesta).Trim()
+    $Confirmado = $false
+    if (-not [string]::IsNullOrWhiteSpace($RespuestaTexto)) {
+        $Confirmado = [bool]($RespuestaTexto -match '^(s|si|sí|y|yes)$')
+    }
+    if (-not $Confirmado) {
         Write-Bad "cancelado: NO se ha instalado nada, el almacén del equipo queda como estaba."
         Write-Host "     Si la huella no coincidía, avise a su proveedor antes de repetir." -ForegroundColor DarkGray
         Exit-Script 4
@@ -448,10 +491,15 @@ if (-not $Url) {
         if ($Url) { Write-Step "URL de la pasarela leída de gateway-url.txt: $Url" }
     }
 }
-if (-not $Url) {
+if (-not $Url -and -not $Desatendido) {
     Write-Host ""
     Write-Host "  Falta la dirección de la pasarela para poder VERIFICAR la instalación." -ForegroundColor Yellow
-    $Url = (Read-Host "  Dirección https de la pasarela (ej. https://192.168.1.50)").Trim()
+    # El casteo a [string] NO es cosmético: con stdin en EOF, Read-Host devuelve
+    # AutomationNull y `.Trim()` directo sobre él revienta con «no se puede llamar a
+    # un método en una expresión nula», que con $ErrorActionPreference='Stop' tumba
+    # el script con un volcado rojo de PowerShell en vez del mensaje de abajo.
+    # Sin preguntar cuando no hay nadie delante ($Desatendido), además, no se cuelga.
+    $Url = ([string](Read-Host "  Dirección https de la pasarela (ej. https://192.168.1.50)")).Trim()
 }
 if (-not $Url) {
     Write-Bad "sin dirección no puedo verificar: el certificado quedó instalado, pero SIN COMPROBAR."

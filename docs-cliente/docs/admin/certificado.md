@@ -113,6 +113,16 @@ minúsculas.
     `-AcceptFingerprint` — pero entonces la única salvaguarda del kit queda en su
     palabra, no en una comprobación.
 
+!!! danger "Y no hace falta `-NoPause` para que se plante"
+    El instalador también aborta con **código 4** cuando lo lanzan **sin entrada
+    interactiva** —una herramienta de gestión de flota que ejecuta el `.bat` sin
+    consola, una tarea con la entrada redirigida, una llamada desde otro script—
+    aunque nadie haya puesto `-NoPause`. Antes, en ese caso, la pregunta se daba por
+    contestada que sí y la CA entraba en el almacén sin que nadie hubiera cotejado
+    nada. **Si su herramienta de despliegue empieza a devolver 4 donde antes decía
+    que todo fue bien, esos equipos nunca tuvieron la huella verificada**: añada
+    `-Fingerprint <huella>` al comando y vuelva a lanzarlo.
+
 Códigos de salida, por si los recoge su herramienta de despliegue: `0` correcto ·
 `1` la comprobación contra la pasarela falló · `2` error de entrada · `3` no se pudo
 elevar a administrador · `4` **huella no verificada, no se instaló nada**.
@@ -231,7 +241,8 @@ opción de **importar las raíces de la empresa**.
 | --- | --- | --- |
 | El aviso de sitio no seguro sigue apareciendo tras el doble-click sobre el `.crt` | El certificado se instaló para el usuario, no para el equipo | Ejecute `install-ca.bat`; es exactamente lo que corrige |
 | El instalador dice **«LA HUELLA NO COINCIDE»** y termina sin instalar (código 4) | El `root.crt` que hay en ese equipo no es el de su instalación: copia vieja, el de otra organización, o un fichero alterado por el camino | **No lo instale.** Pida a su proveedor que le reenvíe la CA y vuelva a cotejar la huella por el canal aparte |
-| El instalador dice **«modo desatendido sin huella esperada»** y no instala | Se lanzó con `-NoPause` (sin nadie que pueda confirmar) y sin `-Fingerprint` | Añada `-Fingerprint <huella>` al comando de su herramienta de despliegue |
+| El instalador dice **«modo desatendido (-NoPause) sin huella esperada»** y no instala | Se lanzó con `-NoPause` (sin nadie que pueda confirmar) y sin `-Fingerprint` | Añada `-Fingerprint <huella>` al comando de su herramienta de despliegue |
+| El instalador dice **«no hay entrada interactiva donde confirmar la huella»** y no instala (código 4) | Se lanzó sin consola con la que preguntar: herramienta de flota, tarea con la entrada redirigida, o llamado desde otro script. No hace falta `-NoPause` para caer aquí | Añada `-Fingerprint <huella>`. Si el mismo comando antes «funcionaba», esos equipos se instalaron **sin cotejar la huella**: repita el despliegue con la huella puesta |
 | El instalador termina en ROJO en la etapa «conexión» | No es un problema de confianza: el equipo no llega a la pasarela | Revise la dirección y que la red permita el acceso |
 | El instalador termina en ROJO en la etapa «validación» | La CA instalada no es la de esta instalación, o la dirección no coincide con el nombre del certificado | Coteje la huella SHA-256; entre por la dirección exacta para la que se emitió |
 | Funciona en Edge y Chrome, pero no en Firefox | Firefox no había reiniciado tras activarse la directiva | Cierre Firefox del todo y vuelva a abrirlo |

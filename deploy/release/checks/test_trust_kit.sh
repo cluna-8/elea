@@ -17,6 +17,11 @@
 #      pero no se aplicaba: el script decía «coteje ANTES de continuar» y continuaba
 #      solo. Un aviso que no detiene nada no es una salvaguarda, así que aquí se
 #      comprueba el COMPORTAMIENTO, no que el mensaje esté escrito.
+#      El 2026-07-31 se aprendió la otra mitad de esa lección: la batería daba verde
+#      con un segundo agujero dentro porque ningún caso recorría la rama que PREGUNTA
+#      sin nadie que conteste (stdin en EOF). Cubrir un camino a medias es lo mismo
+#      que no cubrirlo, así que los casos con operador delante corren ahora bajo una
+#      terminal de verdad (pty) y hay un caso explícito para el EOF.
 #
 # Lo que este check NO cubre (hay que probarlo en una VM Windows real): la elevación UAC,
 # la escritura en Cert:\LocalMachine\Root y en el almacén Enterprise, y la directiva de
@@ -134,27 +139,57 @@ $instalador = '/fix/install-ca.ps1'
 $cert       = '/fix/root.crt'
 $global:fallos = 0
 
+# Las respuestas del operador NO se pueden simular con una tubería: el script
+# distingue «hay alguien delante» con [Console]::IsInputRedirected —el equivalente
+# exacto del `[ ! -t 0 ]` del instalador de macOS—, así que una tubería caería en
+# la rama de «no hay con quién hablar» y probaríamos la rama equivocada. `script(1)`
+# le da al hijo una terminal de verdad (pty) y le mete por ella lo que llegue por su
+# propia entrada: es el mismo papel que hace con_terminal.py en los casos de macOS,
+# pero con lo que ya trae la imagen. El `timeout` convierte un cuelgue en un rojo
+# del gate en vez de dejarlo colgado para siempre.
+function ConvertTo-ArgumentoSh {
+    param([string]$Valor)
+    return "'" + ($Valor -replace "'", "'\''") + "'"
+}
+
 function Invoke-Caso {
     param([string]$Titulo, [string]$Entrada, [string[]]$Argumentos,
-          [bool]$DebeTocarAlmacen, [int]$Codigo)
+          [bool]$DebeTocarAlmacen, [int]$Codigo, [string]$NoDebeDecir)
 
     if ($Entrada) {
-        $salida = ($Entrada | & pwsh -NoProfile -File $instalador @Argumentos 2>&1 | Out-String)
+        $linea = "pwsh -NoProfile -File $instalador " +
+                 (($Argumentos | ForEach-Object { ConvertTo-ArgumentoSh $_ }) -join ' ')
+        # El salto de línea de más es para el «Pulse INTRO para cerrar» del final:
+        # en una terminal de verdad ese Read-Host se queda esperando, y sin nada
+        # que darle el caso se colgaría hasta el timeout.
+        $salida = (($Entrada + "`n") | & timeout 60 script -qec $linea /dev/null 2>&1 | Out-String)
     } else {
         $salida = (& pwsh -NoProfile -File $instalador @Argumentos 2>&1 | Out-String)
     }
     $rc = $LASTEXITCODE
     $tocoAlmacen = [bool]($salida -match 'LocalMachine')
+    # Un aborto que además deja escrito «huella confirmada» es peor que no abortar:
+    # miente en la traza que audita quien revisa la instalación después.
+    $mintio = $false
+    if ($NoDebeDecir) { $mintio = [bool]($salida -match [regex]::Escape($NoDebeDecir)) }
 
-    if (($rc -eq $Codigo) -and ($tocoAlmacen -eq $DebeTocarAlmacen)) {
+    if (($rc -eq $Codigo) -and ($tocoAlmacen -eq $DebeTocarAlmacen) -and (-not $mintio)) {
         Write-Host ("   OK  {0}" -f $Titulo)
         return
     }
     Write-Host ("   XX  {0}" -f $Titulo)
     Write-Host ("       esperaba rc={0} y tocarAlmacen={1}; obtuve rc={2} y tocarAlmacen={3}" -f
         $Codigo, $DebeTocarAlmacen, $rc, $tocoAlmacen)
+    if ($mintio) { Write-Host ("       y ADEMÁS imprimió lo que no debía: «{0}»" -f $NoDebeDecir) }
     $salida -split "`n" | Select-Object -Last 12 | ForEach-Object { Write-Host "       | $_" }
     $global:fallos++
+}
+
+if (-not (Get-Command script -ErrorAction SilentlyContinue)) {
+    Write-Host '   XX  falta script(1) en la imagen de PowerShell: sin pty no se pueden'
+    Write-Host '       ejercitar los casos con operador delante, y sin ellos este bloque'
+    Write-Host '       comprobaría sólo la mitad que no importa.'
+    exit 1
 }
 
 $buena = $env:HUELLA_OK
@@ -171,11 +206,11 @@ Invoke-Caso 'huella EQUIVOCADA por -Fingerprint: aborta sin tocar el almacén' `
 
 # (c) interactivo contestando que no: el caso del hallazgo.
 Invoke-Caso 'interactivo respondiendo "no": aborta sin tocar el almacén' `
-    "no`n" $comu $false 4
+    "no`n" $comu $false 4 'huella confirmada por el operador'
 
 # (d) todo lo que no sea un sí explícito cancela: el default es No.
 Invoke-Caso 'interactivo respondiendo INTRO a secas: aborta (default = No)' `
-    "`n" $comu $false 4
+    "`n" $comu $false 4 'huella confirmada por el operador'
 
 # (e) el agujero de raíz: desatendido sin huella NO puede instalar a ciegas.
 #     -NoPause era el switch documentado para GPO; si dejara pasar, el modo que más
@@ -200,11 +235,30 @@ Invoke-Caso 'huella truncada al copiarla: error de entrada, no instala' `
 Invoke-Caso 'interactivo respondiendo "si": instala' `
     "si`n" $comu $true 1
 
+# (j) EL CAMINO QUE ESTA BATERÍA NO RECORRÍA, y por el que se colaba el agujero:
+#     sin -NoPause, sin huella y sin escape —o sea, por la rama que PREGUNTA— pero
+#     con stdin en EOF (redirigido de /dev/null, tubería ya cerrada, herramienta de
+#     flota que lanza el script sin consola). Ahí Read-Host NO lanza excepción (el
+#     `catch` no salvaba nada) y NO devuelve $null: devuelve AutomationNull, que los
+#     operadores de comparación tratan como COLECCIÓN VACÍA, así que el viejo
+#     `$respuesta -notmatch '...'` daba @() y un `if` sobre @() es FALSO. El script
+#     se saltaba el Exit-Script 4, imprimía «huella confirmada por el operador» y
+#     escribía la CA en el almacén de la MÁQUINA sin que nadie hubiera cotejado
+#     nada. Los casos de arriba no lo cazaban: los interactivos traen respuesta y
+#     los demás llevan -NoPause o huella, así que el gate cantaba verde con el
+#     agujero dentro.
+#     Se exige lo mismo que el equivalente de macOS (caso «sin terminal y sin
+#     --fingerprint»), más una tercera condición que allí no hace falta: NI RASTRO
+#     de la confirmación en la traza. Un aborto que deja escrito que un operador
+#     cotejó la huella le miente a quien audite la instalación después.
+Invoke-Caso 'stdin en EOF por la rama que pregunta: aborta (4), no toca el almacén y no finge confirmación' `
+    '' $comu $false 4 'huella confirmada por el operador'
+
 if ($global:fallos -gt 0) {
     Write-Host ("   {0} caso(s) del punto de parada fallaron" -f $global:fallos)
     exit 1
 }
-Write-Host '   punto de parada de la huella (install-ca.ps1): 9/9 casos'
+Write-Host '   punto de parada de la huella (install-ca.ps1): 10/10 casos'
 PS
 docker run --rm --platform linux/amd64 \
     -e HUELLA_OK="$HUELLA_OK" -e HUELLA_MALA="$HUELLA_MALA" \

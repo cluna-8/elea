@@ -147,7 +147,9 @@ En cada puesto:
 - **macOS**: `./install-ca-macos.sh` — pregunta la huella **antes** de pedir la contraseña.
 - **Desatendido / flota**: con la huella por parámetro, que es lo que imprime `export-ca.sh`:
   `install-ca.bat -NoPause -Fingerprint <HUELLA>`. Sin `-Fingerprint`, `-NoPause` **aborta
-  con código 4** en vez de instalar a ciegas.
+  con código 4** en vez de instalar a ciegas. Y **no hace falta `-NoPause`**: lanzarlo sin
+  consola con la que preguntar (herramienta de flota, entrada redirigida) aborta igual con
+  `4` — antes ese camino se colaba y la CA entraba sin que nadie cotejara la huella.
 - **Flota en dominio**: GPO → *Configuración del equipo → Directivas → Configuración de
   Windows → Configuración de seguridad → Directivas de clave pública → Entidades de
   certificación raíz de confianza* → Importar `root.crt` → vincular a la OU → `gpupdate /force`.

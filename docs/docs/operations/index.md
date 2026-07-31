@@ -398,6 +398,16 @@ minúsculas, que es como el IT la va a pegar.
     `-AcceptFingerprint` / `--accept-fingerprint` para renunciar a la comprobación a
     propósito, y sólo tiene sentido si el IT ya cotejó la huella por otro medio.
 
+    **Y `-NoPause` no es la única forma de quedarse sin operador.** Desde el 2026-07-31
+    los dos instaladores tratan como desatendida también la ejecución **con la entrada
+    redirigida** (sin consola, desde una herramienta de flota, con `stdin` en `/dev/null`
+    o por tubería) y la sesión sin escritorio: ahí tampoco preguntan, abortan con `4`.
+    En macOS eso ya lo hacía `[ ! -t 0 ]`; en Windows faltaba, y por ese hueco la pregunta
+    se daba por contestada que **sí** y la CA entraba en el almacén de la máquina.
+    Si una herramienta de despliegue empieza a devolver `4` donde antes daba verde, la
+    lectura correcta es que **esos equipos nunca cotejaron la huella**: hay que rehacer
+    el despliegue con `-Fingerprint`, no buscar cómo volver al comportamiento anterior.
+
     Códigos de salida para la herramienta de despliegue: `0` verde · `1` la verificación
     TLS falló · `2` error de entrada · `3` no se pudo elevar · `4` **huella no verificada,
     no se instaló nada**.
