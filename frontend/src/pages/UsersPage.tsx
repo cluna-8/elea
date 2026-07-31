@@ -64,9 +64,16 @@ const ROL_AUDITOR = "compliance_officer";
  * lectura que todavía no existe: el rol accede a auditoría y compliance, pero el backend
  * también le acepta escrituras sobre la política de protección, la conservación de
  * registros y la configuración de costos, y le acepta el chat sin gate de rol. Quien da el
- * alta tiene que enterarse ACÁ y no cuando pase algo. Cada afirmación de este texto está
- * fijada por `backend/tests/integration/test_rol_auditor.py`: si un gate cambia, el test
- * falla y este copy se corrige con él.
+ * alta tiene que enterarse ACÁ y no cuando pase algo.
+ *
+ * Cada afirmación de este texto está fijada por `backend/tests/integration/test_rol_auditor.py`
+ * —las cinco superficies que dice ver, las cinco que dice negar y las cinco escrituras que
+ * todavía le entran, endpoint por endpoint—: si un gate cambia, el test falla y este copy se
+ * corrige con él. Agregar una línea acá sin su entrada allá vuelve a romper esa garantía, que
+ * es lo único que impide que la ficha envejezca prometiendo permisos que el backend ya no da.
+ *
+ * Excepción única y a propósito: la exportación DSAR no está fijada porque hoy responde 500 a
+ * cualquier rol (`reports.py:89`, bug ajeno al gate); los otros tres reportes de la consola sí.
  */
 const FichaDelAuditor: React.FC = () => (
   <div className="rounded-md border border-border bg-surface-2 p-3 space-y-2 text-[11px] leading-relaxed">

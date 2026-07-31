@@ -12,13 +12,28 @@ consola que promete solo lectura y un backend que acepta escrituras.
 
 Las tres afirmaciones, en el mismo orden en que las dice la UI:
 
-- **Ve**: auditoría (listado y exportación), compliance y el detalle de salud del producto.
-- **No puede**: usuarios, equipos, llaves, presupuestos, guardianes, gobernanza, modelos ni
-  el auto-router. Todos 403, ninguno 200 silencioso.
-- **Todavía NO es de solo lectura**: le siguen entrando escrituras sobre la política de
-  protección de datos (incluida su desactivación), sobre los plazos de conservación de los
-  registros, y el chat interno no tiene gate de rol. Esto es lo que paga la spec del rol de
-  solo lectura canónico; hasta entonces, se dice en voz alta.
+- **Ve**: auditoría (listado y exportación), los reportes de compliance, el tablero y las
+  políticas de cumplimiento, el consumo (la pantalla Costos) y las conexiones en vivo (el
+  feed del firewall), más el detalle de salud del producto.
+- **No puede**: usuarios, equipos, llaves —listarlas, generarlas y revocarlas—,
+  presupuestos, guardianes, gobernanza, modelos ni el auto-router. Todos 403 **por rol**
+  (se afirma el texto del rechazo, no sólo el código), ninguno 200 silencioso.
+- **Todavía NO es de solo lectura**: le siguen entrando escrituras sobre las políticas de
+  cumplimiento (alta, edición y baja de proyectos), sobre la política de protección de datos
+  (incluida su desactivación), sobre los plazos de conservación de los registros y sobre la
+  configuración de costos; y el chat interno no tiene gate de rol. Esto es lo que paga la
+  spec del rol de solo lectura canónico; hasta entonces, se dice en voz alta.
+
+**Cada ítem de la ficha del alta** (``FichaDelAuditor``, ``frontend/src/pages/UsersPage.tsx``)
+tiene acá su endpoint, y esa correspondencia es lo único que impide que el copy siga
+prometiéndole al administrador un alcance que el backend ya no tiene. Una entrada nueva en
+la ficha sin su entrada acá es la brecha que este archivo existe para cerrar.
+
+La ÚNICA pieza que no se fija, a propósito y con nombre: la exportación DSAR
+(``GET /reports/dsar/{id}``). No es cosa del rol —responde 500 a **cualquiera**, admin
+incluido, porque ``reports.py:89`` le pasa el ``str`` de Python a ``.cast()`` donde
+SQLAlchemy espera un tipo—; afirmarla acá pincharía la rotura en vez del permiso. Los otros
+tres reportes de la consola (RAT, ejecutivo y revisiones humanas) sí están fijados.
 
 El motor se mockea (el alta provisiona, y el chat saldría a buscar proveedor): lo que se
 mide es el gate, no la disponibilidad del stack.
@@ -185,12 +200,32 @@ def test_solo_un_admin_puede_dar_de_alta_un_auditor(harness, auditor):
 
 
 VE = [
+    # «Logs de Auditoría» de la ficha.
     ("get", "/api/v1/audit-logs"),
     ("get", "/api/v1/audit-logs/export"),
+    # «tablero de compliance» y las políticas que la pantalla lee al cargar.
     ("get", "/api/v1/compliance/dashboard"),
     ("get", "/api/v1/compliance/retention"),
     ("get", "/api/v1/compliance/projects"),
+    ("get", "/api/v1/compliance/dpas"),
+    ("get", "/api/v1/compliance/dsr"),
     ("get", "/api/v1/security/policy"),
+    # «reportes»: los que la consola le ofrece a este rol (`api.ts`, sección Reports).
+    # Falta el cuarto, la exportación DSAR, y el motivo está en el docstring del módulo:
+    # está rota para todos los roles, así que no es una afirmación sobre el permiso.
+    ("get", "/api/v1/reports/rat"),
+    ("get", "/api/v1/reports/executive"),
+    ("get", "/api/v1/reports/human-review-log"),
+    # «consumo»: la pantalla Costos, que el nav le da a este rol (`App.tsx`). El gate está
+    # en el APIRouter de `costs.py`, así que estas dos lecturas son las que la pantalla
+    # pide al abrir. Sin motor arriba el precio por token no se resuelve y la respuesta
+    # trae el campo en null — eso es dato ausente, no rechazo, y el 200 lo distingue.
+    ("get", "/api/v1/costs/summary"),
+    ("get", "/api/v1/costs/config"),
+    # «conexiones en vivo»: el feed del firewall (`FirewallMonitorPage`). Sin Redis el
+    # endpoint devuelve 200 con la lista vacía y el motivo adentro (degradado explícito),
+    # que es justo lo que hace observable el permiso sin depender del stack.
+    ("get", "/api/v1/gw/events"),
 ]
 
 
@@ -215,6 +250,11 @@ def test_el_auditor_ve_el_detalle_de_salud(harness, auditor):
 # ── Lo que NO puede (lo que el cliente pidió que no viera) ───────────────────────
 
 
+# UUID inventado a propósito: el gate de `keys.py` vive en el APIRouter, así que corre ANTES
+# del handler y la llave no necesita existir. Si algún día el gate bajara al handler, esta
+# ruta devolvería 404 y el test lo cantaría.
+_LLAVE_INEXISTENTE = uuid.uuid4()
+
 NO_PUEDE = [
     ("get", "/api/v1/users"),                       # gestión de usuarios
     ("get", "/api/v1/users/groups"),                # equipos
@@ -223,22 +263,32 @@ NO_PUEDE = [
     ("get", "/api/v1/guardians"),                   # guardianes
     ("get", "/api/v1/governance/status"),           # gobernanza
     ("get", "/api/v1/governance/profile"),
+    ("put", "/api/v1/governance/profile"),          # …ni escribirla
     ("get", "/api/v1/groups"),
     ("post", "/api/v1/chat/models"),                # alta de modelos
     ("get", "/api/v1/chat/router-config"),          # auto-router
-    ("post", "/api/v1/keys"),
+    ("post", "/api/v1/keys"),                       # generar llaves
+    ("delete", f"/api/v1/keys/{_LLAVE_INEXISTENTE}"),   # revocarlas
     ("post", "/api/v1/budgets"),
 ]
+
+# Texto del rechazo POR ROL (`rbac.require_role`). Se afirma además del 403 porque el código
+# solo no distingue «te lo negó el rol» de un 403 de otra capa (licencia, tenant, un guard
+# nuevo): sin esto, mover el gate a un permiso más ancho y que otra cosa siguiera devolviendo
+# 403 dejaría el test verde y la ficha mintiendo.
+RECHAZO_POR_ROL = f"Acción no permitida para el rol '{ROL_AUDITOR}'"
 
 
 @pytest.mark.parametrize("metodo,ruta", NO_PUEDE)
 def test_el_auditor_no_administra(harness, auditor, metodo, ruta):
     """403, no 401 ni 200: la sesión es válida y aun así el recurso le está negado."""
     client, _ = harness
-    kwargs = {"json": {}} if metodo == "post" else {}
+    kwargs = {"json": {}} if metodo in ("post", "put") else {}
     resp = getattr(client, metodo)(ruta, headers=auditor, **kwargs)
 
     assert resp.status_code == 403, f"{ruta} → {resp.status_code}: {resp.text[:200]}"
+    assert RECHAZO_POR_ROL in resp.text, (
+        f"{ruta} devolvió 403 pero NO por el rol: {resp.text[:200]}")
 
 
 def test_el_auditor_no_ve_el_menu_de_modelos_porque_no_los_administra(harness, auditor):
@@ -299,6 +349,73 @@ def test_el_auditor_todavia_puede_tocar_la_conservacion_de_registros(harness, au
     resp = client.put("/api/v1/compliance/retention", headers=auditor, json=[])
 
     assert resp.status_code == 200, resp.text
+
+
+def test_el_auditor_todavia_puede_editar_las_politicas_de_cumplimiento(harness, auditor):
+    """«Editar las políticas de cumplimiento» del alta: alta, edición y baja de proyectos.
+
+    Son las fichas legales que deciden la base jurídica y el nivel de riesgo AI-Act con que
+    se procesa cada pedido: quien las escribe está moviendo el marco que después audita. Se
+    ejercita el ciclo entero —crear, modificar y borrar— porque el gate está por endpoint
+    (``compliance.py``), no en el router: cerrar sólo el POST dejaría el PUT abierto.
+
+    Los tres asserts son POSITIVOS (201/200/204), así que un cuerpo que dejara de validar
+    daría 422 y el test fallaría en vez de pasar por la razón equivocada.
+    """
+    client, _ = harness
+    ficha = {
+        "name": f"auditor-{uuid.uuid4().hex[:8]}",
+        "legal_basis": "art_6_1_c",
+        "data_category": "standard",
+        "ai_act_risk_level": "limited",
+        "is_active": False,
+    }
+
+    creado = client.post("/api/v1/compliance/projects", headers=auditor, json=ficha)
+    assert creado.status_code == 201, creado.text
+    proyecto_id = creado.json()["id"]
+
+    editado = client.put(f"/api/v1/compliance/projects/{proyecto_id}", headers=auditor,
+                         json={**ficha, "is_active": True, "legal_basis": "art_6_1_e"})
+    assert editado.status_code == 200, editado.text
+    assert editado.json()["legal_basis"] == "art_6_1_e", "el rol reescribió la base legal"
+
+    # Se borra lo que se creó: el resto del módulo comparte la base (y el borrado ES la
+    # tercera escritura que la ficha declara).
+    borrado = client.delete(f"/api/v1/compliance/projects/{proyecto_id}", headers=auditor)
+    assert borrado.status_code == 204, borrado.text
+
+
+def test_el_auditor_todavia_puede_ajustar_la_configuracion_de_costos(harness, auditor):
+    """«Ajustar la configuración de costos» del alta: el interruptor global de compresión.
+
+    No es cosmético — apagarlo o encenderlo cambia qué se le manda al proveedor por cada
+    pedido de toda la organización. El gate vive en el APIRouter de ``costs.py``, el mismo
+    que le abre la pantalla Costos; el día que la spec del rol de solo lectura lo saque de
+    ahí, este test se da vuelta junto con la lectura de la ficha.
+
+    El GET de la política de protección va primero A PROPÓSITO: ``PUT /costs/config`` escribe
+    sobre la política activa y en una base recién migrada todavía no hay ninguna, así que sin
+    esto el test dependería del orden en que corrió el resto del módulo.
+    """
+    client, _ = harness
+    assert client.get("/api/v1/security/policy",
+                      headers=auditor).status_code == 200
+
+    antes = client.get("/api/v1/costs/config", headers=auditor)
+    assert antes.status_code == 200, antes.text
+    original = antes.json()["enabled"]
+
+    cambio = client.put("/api/v1/costs/config", headers=auditor,
+                        json={"enabled": not original})
+    assert cambio.status_code == 200, cambio.text
+    # Se relee: el 200 solo probaría que el endpoint le abrió, no que el valor quedó escrito.
+    despues = client.get("/api/v1/costs/config", headers=auditor)
+    assert despues.status_code == 200, despues.text
+    assert despues.json()["enabled"] is (not original), "el rol movió el interruptor global"
+
+    vuelta = client.put("/api/v1/costs/config", headers=auditor, json={"enabled": original})
+    assert vuelta.status_code == 200, vuelta.text
 
 
 def test_el_auditor_todavia_puede_usar_el_chat(harness, auditor):
