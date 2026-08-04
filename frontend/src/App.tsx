@@ -36,8 +36,16 @@ export const App: React.FC = () => {
 
   const navigation = [
     { id: "dashboard", name: "Panel Principal", icon: LayoutDashboard, roles: null },
+    // El Playground SIGUE visible para el Auditor a propósito: el backend acepta el chat de
+    // cualquier sesión válida (`POST /chat/completions` no tiene gate de rol), así que
+    // esconderlo del menú daría a entender una restricción que no existe. El alta de
+    // usuarios lo dice con todas las letras. Quitarlo de verdad es trabajo del rol de solo
+    // lectura, que se cierra por su propia spec.
     { id: "playground", name: "Playground", icon: FlaskConical, roles: null },
-    { id: "models", name: "Modelos & Ollama", icon: Boxes, roles: null },
+    // Alta/baja/credenciales de modelos son admin o developer en el backend
+    // (`chat.py`, POST/PATCH/DELETE /chat/models). Con `roles: null` el Auditor entraba a
+    // una pantalla donde toda acción terminaba en 403.
+    { id: "models", name: "Modelos & Ollama", icon: Boxes, roles: ["admin", "developer"] },
     { id: "costs", name: "Costos", icon: Wallet, roles: ["admin", "compliance_officer"] },
     { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, roles: ["admin"] },
     // OJO: este array usa el vocabulario LEGACY de roles — `visibleNav` compara contra el
@@ -45,7 +53,12 @@ export const App: React.FC = () => {
     // super_admin en "admin". Escribir "tenant_admin" acá hace que el item no se muestre
     // NUNCA, y falla en silencio. El gate real es admin-only en el router del backend.
     { id: "governance", name: "Gobernanza", icon: Scale, roles: ["admin"] },
-    { id: "security", name: "Seguridad y Guardianes", icon: ShieldCheck, roles: ["admin", "compliance_officer"] },
+    // El listado de guardianes (`/guardians`) y el estado de gobernanza son admin-only en el
+    // backend, y la pantalla los pide al cargar: un compliance_officer entraba por el menú y
+    // se comía un cartel de error en lugar de la pantalla. Se saca del menú de ese rol. OJO:
+    // esto NO le quita el permiso de escritura sobre la política de protección, que sigue
+    // aceptando su sesión por API — está documentado en el alta de usuarios.
+    { id: "security", name: "Seguridad y Guardianes", icon: ShieldCheck, roles: ["admin"] },
     { id: "compliance", name: "Políticas de Cumplimiento", icon: ClipboardCheck, roles: ["admin", "compliance_officer"] },
     { id: "audit", name: "Logs de Auditoría", icon: ScrollText, roles: ["admin", "compliance_officer"] },
     { id: "firewall", name: "Conexiones en vivo", icon: Activity, roles: ["admin", "compliance_officer"] },

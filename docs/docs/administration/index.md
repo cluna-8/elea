@@ -67,7 +67,7 @@ La plataforma define cuatro roles canónicos:
 |---|---|---|
 | **Super admin** | Cross-tenant | Operación por encima de los tenants (solo tiene sentido en modo cloud multi-tenant). No se crea automáticamente: se siembra de forma explícita. Dentro de un tenant equivale a un tenant admin. |
 | **Tenant admin** | Su tenant (= la instancia) | Administración completa: usuarios y grupos, Connections, presupuestos, políticas de seguridad, compliance, auditoría y salud de la licencia. Es el rol del operador. |
-| **Compliance officer** | Su tenant | Ver y editar políticas de seguridad y configuración de compliance, ver auditoría, exportar reportes, aprobar revisiones humanas y consultar el detalle de salud de la licencia. **No** gestiona usuarios ni presupuestos. |
+| **Compliance officer** (en la consola: **Auditor**) | Su tenant | Ver y editar políticas de seguridad y configuración de compliance, ver auditoría, exportar reportes, aprobar revisiones humanas y consultar el detalle de salud de la licencia. **No** gestiona usuarios, grupos, Connections ni presupuestos, y **no** ve guardianes ni gobernanza. |
 | **Client** | Su propio uso | Usuario final que consume IA a través de sus Connections. El rol en sí no consume seat: los seats los consumen sus **Connections activas** (ver [Licencias y seats](#licencias-y-seats)). |
 
 Los usuarios *client* pueden llevar una **etiqueta de perfil** (`display_label`, p. ej.
@@ -88,6 +88,21 @@ Matriz de permisos vigente en la instancia:
 | Aprobar revisión humana | ✅ | ✅ | solo perfil `clinician` |
 | Usar la IA por el gateway | ✅ | ✅ | ✅ |
 | Detalle de salud de licencia | ✅ | ✅ | ❌ |
+
+!!! info "El rol «Auditor» de la consola"
+    La pantalla de usuarios permite dar de alta a alguien con el rol **Auditor**: es el
+    *compliance officer* de la tabla de arriba, con el nombre que usan los clientes. 🟢
+    Sirve para el caso de uso habitual, mostrarle la auditoría y el compliance a dirección
+    sin entregarle el panel entero: ve los logs de auditoría y sus exportaciones, el tablero
+    y los reportes de compliance, el consumo y las conexiones en vivo, y no puede crear
+    usuarios, generar Connections, administrar modelos ni entrar a gobernanza. No consume
+    seat de licencia.
+
+    **Todavía no es un rol de solo lectura**, y la consola lo dice en el momento del alta:
+    con los permisos vigentes también puede editar la política de protección de datos
+    (incluso desactivar la que está activa), cambiar los plazos de conservación de los
+    registros, ajustar la configuración de costos y usar el chat interno. Un rol de
+    auditoría **estrictamente de solo lectura** es 🔵 **OBJETIVO** de roadmap.
 
 !!! warning "Fail-closed en la administración"
     Todos los endpoints de administración exigen una **sesión JWT válida** de un usuario
