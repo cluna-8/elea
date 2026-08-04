@@ -1,6 +1,11 @@
-# Roadmap — Basa Guardian (producto-core)
+# Roadmap — Guardian App Ecosystem
 
-**Última actualización**: 2026-07-29 (se saldan 027-031, que existían en `specs/` sin fila acá: 027 gobernanza configurable, 028 extensión productizada, 029 UI Foundry, 030 auto-router semántico, 031 auditoría durable — **las cinco viven hoy en `dev-fran`, la rama de integración, no en `main`**)
+**Última actualización**: 2026-08-04 — **la mudanza**: (1) `main` promovido por fast-forward de `dev-fran`
+(`78637e6`) y taggeado **`checkpoint-camara-2026-08`** — el punto de desprendimiento para el repo de
+Install & Factory; (2) este roadmap queda **solo con el producto** (Guardian App Ecosystem, JF): las filas
+de Install & Factory (020, 025, 026, 032 y la operativa) se mudan a
+[`deploy/ROADMAP-factory.md`](../deploy/ROADMAP-factory.md), que viaja con `deploy/` cuando Falime haga su
+repo; (3) los estados 016/027-031 pasan a **Implementada en `main`** (ya no "en dev-fran").
 **Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.0.0.
 
@@ -14,18 +19,20 @@ SSO, D5 env vars).
 `013` es el **bedrock** (sin multi-tenant + client model nada del resto encaja). `014` es el **titular**
 (el firewall que da las demos). El resto son endurecimientos que dependen de esos dos.
 
-## Módulos y owners (reunión 2026-07-15)
+## Departamentos (decisión 2026-08-03 — supera la división por módulos del 15-jul)
 
-El equipo core trabaja en paralelo por módulos, una spec por vez, con el flujo SDD del repo
-(branch por spec → PR → merge humano de otro; ver [CODEOWNERS](../.github/CODEOWNERS)):
+- **Guardian App Ecosystem — JF (@DrZuzzjen), responsable total**: todo lo de este roadmap. Dentro del
+  ecosistema ya no hay sub-owners por persona: 023 pasa a JF por herencia (regla 2 del acuerdo) y las
+  filas 015/017/018 son producto con responsable JF.
+- **Install & Factory — Falime (@FalimeJ)**: `deploy/` entero + su roadmap propio en
+  [`deploy/ROADMAP-factory.md`](../deploy/ROADMAP-factory.md). En mudanza a repo propio
+  (`guardian-factory`), desprendiéndose del tag `checkpoint-camara-2026-08`.
+- **Cristian (@cluna-8) — gate de review, no departamento**: custodia/rotación de claves de firma,
+  RBAC de firma y auth (ver [CODEOWNERS](../.github/CODEOWNERS)).
 
-- **JF (@DrZuzzjen)** — clientes, integraciones y producto/distribución: 019 (spikes), 020, 021, 022, 024 (fix bridged), 025 (partner-enablement), 026 (CLI de operador), 027 (gobernanza configurable), 028 (extensión productizada), 029 (UI Foundry), 030 (auto-router semántico), 031 (auditoría durable).
-- **Cristian (@cluna-8)** — seguridad y guardianes: 015, 016, 017, 018 (+ anti-jailbreak del "later").
-- **Falime (@FalimeJ)** — datos, costes y ruteo: 023 (generaliza la 012 al plano firewall).
-
-Punto de contacto entre módulos: el **motor LiteLLM** (`litellm/`) — ahí conviven la política de
-seguridad (Cristian) y la optimización de costes (Falime); los cambios piden review cruzado. La 015
-define el patrón de resolución por scope que la 023 reutiliza: coordinar orden de merge.
+Las costuras entre departamentos (extensión app/distribución, release, zero-day, docs
+contenido/entrega, bugs triage/installs) se formalizan como **contratos**: el dueño publica el
+artefacto versionado, el otro lo consume pinneado. El doc canónico es «Manos a la obra» (tech-team/).
 
 ## Features del core
 
@@ -33,53 +40,40 @@ define el patrón de resolución por scope que la 023 reutiliza: coordinar orden
 |------|--------|-------|-----------|--------|--------------|----------------|
 | **013** | **Multi-Tenant Foundation & Client Model** | — (core) | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
 | **014** | **LiteLLM-Native Firewall (base_url clients)** | — (core) | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
-| 015 | Scoped SecurityPolicy (per-group/per-client) | Cristian | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
-| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | Cristian | P2 | **Lista para merge** ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21), rebaseada sobre main — suite completa (incl. `tests/integration/`) y `make check-docs` verdes tras rename `NLP_ANALYZER_URL`/servicio `nlp-analyzer`) | I, SC-2 | **C2** |
-| 017 | Auth hardening & Multi-Tenant RBAC + SSO | Cristian | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
-| 018 | Compliance Enforcement Tiers + retention purge | Cristian | P3 | Roadmap | II [D3] | A4 |
+| 015 | Scoped SecurityPolicy (per-group/per-client) | JF | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
+| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | JF | P2 | **Implementada en `main`** (integrada vía `dev-fran` con fixes; [PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21) absorbido por el fast-forward 2026-08-04). ⚠️ Deuda viva: degradación **silenciosa** a regex en el plano backend ([#63](https://github.com/DrZuzzjen/basa-guardian/issues/63)) + paracaídas regex pobre y con etiquetas engañosas ([#64](https://github.com/DrZuzzjen/basa-guardian/issues/64)) — caso real del piloto 04-ago | I, SC-2 | **C2** |
+| 017 | Auth hardening & Multi-Tenant RBAC + SSO | JF (gate: Cristian) | P2 | Roadmap | III, SC-3 | **C3, C4, C5**, D5 |
+| 018 | Compliance Enforcement Tiers + retention purge | JF | P3 | Roadmap | II [D3] | A4 |
 | 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados ([PR #29](https://github.com/DrZuzzjen/basa-guardian/pull/29)) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
-| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | JF | P2 | **Implementada** (US1-US6, 2026-07-20, [PR #23](https://github.com/DrZuzzjen/basa-guardian/pull/23)); resta T040 (tofu apply e2e sandbox) | VII, IV, III | D5 |
-| 021 | Licensing & Seat Enforcement (offline Ed25519) | JF | P2 | **Implementada** (US1-US5, 2026-07-20, stack [PR #18](https://github.com/DrZuzzjen/basa-guardian/pull/18)→#19→#20→[#22](https://github.com/DrZuzzjen/basa-guardian/pull/22)) | VII, III, II | — |
-| 022 | Product Documentation Site (MkDocs Material, contenedor `docs` air-gap) | JF | P2 | **Implementada** (US1-US7, 2026-07-20, [PR #25](https://github.com/DrZuzzjen/basa-guardian/pull/25) + [#26](https://github.com/DrZuzzjen/basa-guardian/pull/26) docs-en-DoD) | VII, VIII, II | — |
-| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | Falime | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
+| 021 | Licensing & Seat Enforcement (offline Ed25519) — **lib runtime** | JF (gate: Cristian) | P2 | **Implementada** (US1-US5, 2026-07-20, stack [PR #18](https://github.com/DrZuzzjen/basa-guardian/pull/18)→#19→#20→[#22](https://github.com/DrZuzzjen/basa-guardian/pull/22)). **Mixta**: acá vive solo la lib (`backend/src/licensing`, fuente única); la operativa de emisión/cupos/true-up es de Factory ([roadmap](../deploy/ROADMAP-factory.md)) | VII, III, II | — |
+| 022 | Product Documentation Site — **contenido** | JF | P2 | **Implementada** (US1-US7, 2026-07-20, [PR #25](https://github.com/DrZuzzjen/basa-guardian/pull/25) + [#26](https://github.com/DrZuzzjen/basa-guardian/pull/26) docs-en-DoD). **Mixta**: contenido acá; build+entrega brandeada = Factory. Contrato: `openapi.json` single-source | VII, VIII, II | — |
+| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | JF (herencia 03-ago) | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
 | 024 | Unmask + atribución en respuestas byok (rutas bridged) | JF | P2 | **Implementada** (2026-07-21, [PR #31](https://github.com/DrZuzzjen/basa-guardian/pull/31), cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
-| 025 | Partner Enablement (capacitación + certificación del partner) | JF | P2 | **Implementada** (2026-07-22, [PR #36](https://github.com/DrZuzzjen/basa-guardian/pull/36)); doc oficial del ciclo de onboarding | VII, IV | — |
-| 026 | CLI de operador (`basa-admin`) — firma de licencias e instalación guiada offline | JF | **P1** | **Spec** (2026-07-22, branch `026-cli-operador-basa`); MVP firma+install, absorbe #33/#34, habilitador del piloto Cámara | VII, VI, II | #33, #34 |
-| 027 | Gobernanza configurable + enforcement honesto del firewall | JF | **P1** | **Implementada en `dev-fran`, pendiente de integrar a main** (Foundational+US1+US2, 2026-07-23; merge `7beae34` a `dev-fran` el 2026-07-24; el [PR #43](https://github.com/DrZuzzjen/basa-guardian/pull/43) sigue **abierto contra main**). `tasks.md` declara **parciales por diseño** SC-003/SC-005/SC-006; restan T024/T025 (plano motor, bloqueadas por el [PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21) de la 016), T034 (quickstart e2e), T036 (P3, frontera con Cristian) y el CRITICAL de T037 (enmienda de constitución por D8, **gatea JF**) | I [D8], II, VI, VIII | — |
-| 028 | Productización de la extensión de navegador (white-label, conexión, honestidad, sesión) | JF | P1 | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US8, 2026-07-24; merge `25107b8` a `dev-fran` el 2026-07-27 — **sin PR a main**). Brief de handoff en [#46](https://github.com/DrZuzzjen/basa-guardian/issues/46); precedida por el hardening [#44](https://github.com/DrZuzzjen/basa-guardian/issues/44) / [PR #45](https://github.com/DrZuzzjen/basa-guardian/pull/45) (merge `ca3725b` a `dev-fran`, PR **abierto contra main**). Deuda menor: los checkboxes de `tasks.md` quedaron sin marcar (se implementó por minions) | VII, I, C1 | — |
-| 029 | Rediseño de la UI del panel — estilo Azure Foundry (claro, lean) | JF | P2 | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US4, 2026-07-24; merge `598577b` a `dev-fran` el 2026-07-27 — **sin PR a main**); 6 páginas del piloto + shell. Deuda menor: checkboxes de `tasks.md` sin marcar | VII, VIII | — |
-| 030 | Auto-router semántico + rediseño «Modelos & Ollama» | JF | **P1** | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US3, 20/20 tareas, 2026-07-28, commits `34caf6c`+`d4ff8df` — **sin PR a main**); verificada en vivo sobre el stack del piloto (SC-001 = **9/9** contra el seed); pulido UX+editorial 2026-07-29 (`b9ae624`, `1192a8c`) | II, V, VI, VIII | — |
-| 031 | Auditoría durable de bloqueos (motor/chat/gateway) + UI honesta | JF | **P1** | **Implementada en `dev-fran`, pendiente de integrar a main** (US1-US3, 15/15 tareas, 2026-07-28, commit `e21a686` — **sin PR a main**); paga el corte D6 que la 027 había diferido "a la 018"; la **purga de retención sigue siendo de la 018** (Cristian) | II, VIII, I, VI | — |
-| 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | JF | **P1** | **Roadmap — sin spec, arranque pendiente de decisión de JF** (research 2026-07-30, veredicto en [#51](https://github.com/DrZuzzjen/basa-guardian/issues/51)). Recomendada como primera del paquete: máximo impacto comercial y **primer ladrillo del portal de partners** (mismo plano de control que el firmante central de FR-030). Est. 2-4 d (`managed`) + 2-3 d (`byo`+`internal`) | VII, IV, VI | — |
-| 033 | Engine reload sin restart manual + feedback en UI | JF | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#50](https://github.com/DrZuzzjen/basa-guardian/issues/50)). Prerrequisito de escritura atómica **ya pago** (`1151b1e` en `dev-fran`). Est. ~2-2.5 d con retest E2E del bundle amd64 | VI, VIII, VII | — |
-| 034 | Rol `auditor` canónico read-only | JF | P2 | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#52](https://github.com/DrZuzzjen/basa-guardian/issues/52)). El quick-win [PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54) sólo expone el `compliance_officer` existente **declarando que NO es read-only**; la **017** (Cristian) lo absorbe en su matriz definitiva. Est. 1-1.5 d | III, SC-3, II | adelanta parte de **017** |
+| 027 | Gobernanza configurable + enforcement honesto del firewall | JF | **P1** | **Implementada en `main`** (Foundational+US1+US2; [PR #43](https://github.com/DrZuzzjen/basa-guardian/pull/43) absorbido por el fast-forward 2026-08-04). `tasks.md` declara **parciales por diseño** SC-003/SC-005/SC-006; restan T024/T025 (plano motor — **desbloqueadas**: la 016 ya está en `main`), T034 (quickstart e2e), T036 (P3) y el CRITICAL de T037 (enmienda de constitución por D8, **gatea JF**) | I [D8], II, VI, VIII | — |
+| 028 | Productización de la extensión de navegador — **features** | JF | P1 | **Implementada en `main`** (US1-US8; fast-forward 2026-08-04, incl. hardening [#44](https://github.com/DrZuzzjen/basa-guardian/issues/44)/[PR #45](https://github.com/DrZuzzjen/basa-guardian/pull/45) integrado). **Mixta**: features acá; white-label/zip/distribución = Factory. Contratos: `contracts/whoami-proteccion.md` + checksum en MANIFEST. Siguiente: Firefox ([#65](https://github.com/DrZuzzjen/basa-guardian/issues/65), nivel 2) | VII, I, C1 | — |
+| 029 | Rediseño de la UI del panel — estilo Azure Foundry (claro, lean) | JF | P2 | **Implementada en `main`** (US1-US4; fast-forward 2026-08-04); 6 páginas del piloto + shell | VII, VIII | — |
+| 030 | Auto-router semántico + rediseño «Modelos & Ollama» | JF | **P1** | **Implementada en `main`** (US1-US3, 20/20 tareas; fast-forward 2026-08-04); verificada en vivo sobre el stack del piloto (SC-001 = **9/9** contra el seed) | II, V, VI, VIII | — |
+| 031 | Auditoría durable de bloqueos (motor/chat/gateway) + UI honesta | JF | **P1** | **Implementada en `main`** (US1-US3, 15/15 tareas; fast-forward 2026-08-04); paga el corte D6 que la 027 había diferido "a la 018"; la **purga de retención sigue en la 018** | II, VIII, I, VI | — |
+| 033 | Engine reload sin restart manual + feedback en UI | JF | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#50](https://github.com/DrZuzzjen/basa-guardian/issues/50)). Prerrequisito de escritura atómica **ya pago** (`1151b1e`, en `main`). Est. ~2-2.5 d con retest E2E del bundle amd64 (retest = costura con Factory) | VI, VIII, VII | — |
+| 034 | Rol `auditor` canónico read-only | JF | P2 | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#52](https://github.com/DrZuzzjen/basa-guardian/issues/52)). El quick-win [PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54) (**mergeado 2026-08-04**) sólo expone el `compliance_officer` existente **declarando que NO es read-only**; la **017** lo absorbe en su matriz definitiva. Est. 1-1.5 d | III, SC-3, II | adelanta parte de **017** |
 
-### 032/033/034 — Paquete «onboarding v2» (post-instalación Cámara, sin arrancar)
-Los tres salen del **research del 2026-07-30** (4 minions + síntesis) sobre el feedback en vivo de Rafa y Javi
+### 033/034 — Paquete «onboarding v2», lado producto (post-instalación Cámara, sin arrancar)
+Salen del **research del 2026-07-30** (4 minions + síntesis) sobre el feedback en vivo de Rafa y Javi
 durante la instalación del piloto — issues [#49](https://github.com/DrZuzzjen/basa-guardian/issues/49)–[#52](https://github.com/DrZuzzjen/basa-guardian/issues/52).
 Diagnóstico de JF: «el onboarding **es** cargar modelos; urge que tenga sentido o parece amateur».
+La tercera pata del paquete —**032 ingress cert modes**— es de Install & Factory y vive en
+[su roadmap](../deploy/ROADMAP-factory.md).
 
-- **032 — Ingress cert modes (`INGRESS_CERT_MODE=managed|byo|internal`)**: la decisión que resuelve TLS y
-  cert-en-Windows de un golpe. En `managed` el VPS de control emite por DNS-01 un certificado público por
-  cliente y el appliance lo baja autenticado con su licencia; el cliente sólo agrega **un registro A** en su
-  DNS interno y **no se instala nada en ningún puesto**. `byo` (CSR / AD CS) es la única vía air-gap
-  sostenible con la vida de los certs cayendo a 47 días en 2029; `internal` es lo de hoy, productizado. Las
-  tres convergen en el mismo cambio del `Caddyfile.ingress`. **Es además el primer ladrillo real del portal de
-  partners**: usa el mismo plano de control que el «firmante central» de FR-030.
 - **033 — Engine reload sin restart manual**: wrapper-supervisor como entrypoint del motor (~50 líneas, viaja
   por el volumen) que detecta el cambio de config, valida el YAML y relanza; más `GET /models/status` y estado
   «Aplicando cambios…» en la UI, que es literalmente lo que el cliente pidió ver. **Verificado leyendo el
   código de la imagen pinneada: LiteLLM NO tiene reload sin DB**, así que «que lo haga el motor» no existe
   como opción. Su prerrequisito —escritura atómica del `config.yaml`— **ya está pago** (commit `1151b1e`).
 - **034 — Rol `auditor` canónico read-only**: migración del CHECK + gates + deny explícito de chat +
-  navegación reducida. El quick-win de hoy ([PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54))
+  navegación reducida. El quick-win ([PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54), mergeado)
   sólo hizo creable el `compliance_officer` existente y **declara honestamente que no es read-only**: hoy ese
   rol puede desactivar la política de protección activa y acortar la retención de los registros que audita.
   No consume seats (argumento comercial) y la futura **017** lo absorbe en su matriz definitiva.
-
-Estimación del paquete: **~8-10 días**. **Orden de arranque pendiente de decisión de JF** (recomendación:
-032 primero, por impacto comercial y porque adelanta el portal). Detalle completo en el artifact «Onboarding
-v2 — opciones tras el research».
 
 ### 013 — Multi-Tenant Foundation & Client Model (P1, bedrock)
 El aislamiento por tenant + el modelo de "client" como dato. `tenant_id` en todas las entidades + RLS Postgres;
@@ -123,17 +117,6 @@ Gemini web=vía DOM-hook (spike), Claude Desktop=MCP tool-plane only. Research: 
 el approach de Basa es el patrón dominante — **moat: des-enmascarar en vez de bloquear** (mantiene UX). Docs de
 training/soporte en `docs/integration-surfaces.md`.
 
-### 020 — White-Label Packaging & Deploy (P2)
-Empaquetado para el modelo distribuidor marca-blanca: Dockerfiles de producción + imágenes / tarball air-gapped,
-branding **config-as-data** (never fork), perfil por cliente, módulo IaC portable. Research build-vs-buy: **OpenTofu**
-(no Terraform, por BSL + HashiCorp=IBM al entregar a terceros); v1 = VM + docker compose + Caddy + SOPS/age;
-v2 = **k3s + Helm + Zarf** (ECS Anywhere **no** corre air-gapped). Secretos por instalación (D5). Runbook en
-`docs/whitelabel-deployment.md`. **Addendum 2026-07-14**: tarball air-gap **validado por el mercado**
-(Harbor/GitLab/Replicated hacen lo mismo); registry privado autenticado = watch-item v2 como canal de entrega
-para clientes conectados, **nunca** como enforcement (post-pull un `docker save` lo anula — el gate de pago es
-la licencia 021 en runtime). Segundo punto de contacto con la 021: el deploy provisiona el **volumen/secret de
-la deployment key** (par del install que firma los true-up; FR-032/T042), sin lógica de licencias acá.
-
 ### 021 — Licensing & Seat Enforcement (P2)
 Enforcement de licencias **offline** para el modelo "install + N seats" (el cliente corre la caja, sin phone-home).
 Research build-vs-buy: **DIY Ed25519** — no hay producto que aplique por el air-gap; `seat = Connection activa`
@@ -169,25 +152,6 @@ pelado y los bridges con deltas de 1-3 chars partían el placeholder ahí (bug l
 logger leía la identidad de un solo metadata-home. Todo en `litellm/extensions/` (Principio VI), con e2e
 contra el motor vivo que antes no existía. **Promueve a FUNCIONA** las 3 superficies que la 019 había dejado
 en PARCIAL (Ollama upstream, Claude Code → modelo propio, Aider).
-
-### 025 — Partner Enablement (P2, doc oficial)
-Página GUÍA del programa de capacitación y certificación del partner en la documentación de producto:
-etapas (formación → práctica → 2-3 installs acompañados → certificación), prerequisitos del ingeniero,
-checklist de autonomía y tabla quién-hace-qué post-certificación. **Filtro editorial FR-007**: la doc se
-vende → cero economía interna del fabricante (FTE/horas/costos); esa parte vive solo en el doc ejecutivo.
-
-### 026 — CLI de operador `basa-admin` (P1, habilitador del piloto)
-Una **CLI local, offline y airgap-safe** que le da cara humana a las operaciones que hoy son
-**scripts sueltos con foot-guns** (inventario 2026-07-22: 54 operaciones; ver
-`specs/026-cli-operador-basa/inventario-scripts.md`). MVP acotado a **firma de licencias**
-(el primer ladrillo — hoy `issue_dev_license.py` regenera el keyset y **invalida cajas ya
-instaladas** en cada corrida) e **instalación guiada** de un cliente hasta stack corriendo y
-verificado (perfil → secretos → bundle → up → seed → licencia → admin → verify), con
-validación, dry-run y confirmaciones. **Absorbe #33** (firma prod, pre-portal) y **#34**
-(password admin sin SQL crudo). No rompe airgap: produce/consume archivos, cero phone-home;
-los comandos que necesitan red (build/publish/cloud) quedan separados y marcados, nunca en la
-caja del cliente. Fase 2: `ops` día-2 (rotación, true-up, backup), `cloud`, docs brand.
-Frontera con seguridad (custodia de claves, RBAC de firma) → coordinación con la 017 (Cristian).
 
 ### 027 — Gobernanza configurable y enforcement honesto del firewall (P1)
 El mapeo del plano firewall (2026-07-22) encontró que **el catálogo de guardianes que la UI presenta como
@@ -263,13 +227,13 @@ Esta tabla es la **fuente de verdad del estado** y debe actualizarse en el **mis
 (pasar el Estado a *Implementada* con el link al PR, o *En review* con el link, y cerrar el issue de tracking
 con `Closes #NN`). Un roadmap que dice "Roadmap (greenfield)" sobre algo ya mergeado es un bug de proceso.
 
-**Dónde vive cada cosa (desde la 027)**: `main` sigue siendo el default del repo, pero el trabajo del piloto
-Cámara se integra en **`dev-fran`**. Las specs 027-031 están mergeadas **en `dev-fran`** y **no** en `main`:
-la 027 tiene PR abierto contra `main` ([#43](https://github.com/DrZuzzjen/basa-guardian/pull/43)) y las
-028-031 se mergearon por commit directo a `dev-fran`, sin PR a `main`. Mientras esa integración no ocurra,
-"Implementada" en esas filas significa **implementada en `dev-fran`** — decirlo de otro modo sería
-exactamente el bug de proceso que este archivo existe para evitar. La deuda de este roadmap se saldó el
-2026-07-29: las cinco specs existían en `specs/` sin fila acá.
+**Dónde vive cada cosa (desde el 2026-08-04)**: `main` es la **única rama de verdad** — el fast-forward
+`78637e6` absorbió todo `dev-fran` (016+fixes, 027-031, los 4 PRs del gate #53-#56) y quedó taggeado como
+**`checkpoint-camara-2026-08`**, el punto de desprendimiento del repo de Install & Factory. `dev-fran`
+queda **jubilada** (puntero histórico; no recibirá más trabajo). Flujo desde hoy: ramas cortas de feature
+contra `main` + gate `/codex-gate` antes de mergear. Ojo: la **sede** de la Cámara corre la imagen de un
+bundle anterior a los últimos fixes — el estado exacto instalado es el MANIFEST de ese bundle, no el tag;
+el drop de imagen acumulado es operativa de Factory.
 
 ## Fuera de scope del core (siguen como research/later)
 - **Browser-DLP web** (ChatGPT/Claude/Gemini) — **promovido a spec 019** (viable: el body no está firmado →
