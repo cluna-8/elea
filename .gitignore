@@ -60,7 +60,12 @@ bun.lockb
 .agents/skills/ui-ux-pro-max-skill/
 .specify/memory/credentials.json
 .specify/memory/tokens.json
-.claude/
+# `.claude/*` y no `.claude/`: git no entra en un directorio ignorado, así que la
+# excepción de abajo sólo funciona si el patrón lista el contenido.
+.claude/*
+# Los subagentes del repo SÍ se comparten con el equipo (Claude Code los carga
+# desde esta ruta); el resto de .claude/ es configuración personal.
+!.claude/agents/
 
 # spec 021: claves privadas del emisor dev de licencias — NUNCA commitear
 backend/scripts/license_out/
