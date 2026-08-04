@@ -1,28 +1,23 @@
 <!--
 SYNC IMPACT REPORT — Basa Guardian Constitution
-Version change: 1.0.0 (heredada, gatelite "Basa Secure AI Gateway", ratif. 2026-06-29) -> 2.0.0
-Naturaleza del cambio: MAJOR. Rename de producto (Basa Secure AI Gateway -> Basa Guardian),
-  giro a multi-tenant y nuevos principios. NO deroga principios heredados: los 5 originales
-  se conservan (keep) o evolucionan (evolve) con justificacion; los añadidos son ADITIVOS.
+Version change: 2.0.0 -> 2.1.0 (MINOR: cambio de texto de un principio core, per Governance)
+Enmienda "D8 de la 027" (decision sellada por el owner el 2026-07-22 en
+  specs/027-governance-configurable-enforcement/research.md §D8; ejecutada el 2026-08-04 con OK
+  explicito de JF). OJO: no confundir con el default interno [D8] de esta constitucion (compresion).
 
-Reconciliacion (basada en un mapeo del producto heredado, workflow map-inherited-product):
-- I  Privacy/Masking-First ....... EVOLVE (scopeable por grupo; "nunca solo regex en prod"; masking ANTES de compresion)
-- II Strict Compliance ............ EVOLVE + ELEVADO a tesis de producto; dos niveles (gate duro vs evidencia auditada)
-- III Budget & Enforcement ........ EVOLVE (texto honesto: post-hoc, sin "tiempo real"/streaming); fusionado en V (Cost Governance)
-- IV Containerized & White-Label .. KEEP (+ regla config+seed nunca fork)
-- V  Explanatory Playground ....... EVOLVE -> principio de Transparencia/Observabilidad; Playground como vitrina
-- + Multi-Tenant by Design (NUEVO), Client Onboarding as Data (NUEVO), LiteLLM-Native (NUEVO),
-    Cost Governance & Optimization (FUSION: budget heredado + compresion 012)
-
-Gaps del critico corregidos en esta version:
-- Seccion Governance RESTAURADA (se habia perdido en el draft).
-- Compresion ("Ahorro de Costes IA") con hogar constitucional (Principio V).
-- Modelo de roles reconciliado (4 roles legacy + client + super/tenant-admin) en Principio III y SC.
-
-Defaults tomados sobre open-questions (revisables, ver seccion "Decisiones (defaults revisables)").
-Templates a re-validar en la primera spec: plan-template.md, spec-template.md, tasks-template.md.
-STATUS: RATIFICADA 2026-07-10 con defaults documentados. Cualquier default marcado [D#] es
-enmendable de una linea sin bump mayor si el usuario lo corrige antes de codear.
+- I. Privacy & PII/PHI Masking-First ....... MODIFICADO (titulo y MUST). El mandato se parte en dos:
+    PISO no-negociable = interceptar + detectar PII + evaluar + registrar (constante de codigo,
+    ningun perfil/toggle lo apaga) y TRANSFORMAR (enmascarar) = gobernable como decision de la capa
+    pii_masking (absorbe redact_enabled de la 013), jamas silencioso: con enmascarado off el pedido
+    queda registrado como "PII detectada, no enmascarada por configuracion".
+    Motivo: la letra anterior ("todo prompt DEBE enmascararse") derogaba FR-014 de la 013 ya
+    entregado y contradecia la semantica real de los dos planos (basa_guardrail.py / gateway.py).
+- Actualizacion factual de paso (sin cambio normativo): Presidio ya no es scaffolding inactivo —
+    la 016 esta implementada en main; su deuda de señalizacion de degradacion vive en #63/#64.
+- Secciones agregadas/quitadas: ninguna. Los 8 principios se conservan.
+- Templates revisados: plan/spec/tasks-template y AGENTS.md sin referencias al texto viejo
+    (grep "enmascar|Masking-First" = 0 hits) — ✅ nada que propagar.
+- Informe anterior (1.0.0 -> 2.0.0, reconciliacion y ratificacion 2026-07-10): en la historia git.
 -->
 
 # Basa Guardian — Constitución
@@ -39,18 +34,26 @@ Los despliegues por cliente (Elea, Cámara de Comercio…) son **configuración 
 
 ## Core Principles
 
-### I. Privacy & PII/PHI Masking-First (scopeable)
-Todo prompt con PII/PHI DEBE detectarse y enmascararse en el **backend** antes de salir hacia el
-motor/LLM, con un **mapa reversible** (`placeholder_map`) que reconstruye los valores en la respuesta
-(incluido el camino de streaming cuando exista). El motor y el LLM **solo ven placeholders**, nunca PII
-cruda — este es el control más fuerte del producto y es real hoy.
-Reglas duras: (a) el enmascaramiento ocurre **ANTES** de la compresión — los placeholders son tokens
-atómicos intocables; (b) el mapa reversible vive donde exista el estado (backend/guardrail del motor),
-jamás se delega a un tercero que rompa la reversibilidad; (c) **nunca solo regex en producción** con PHI:
-el default actual es regex (aceptable para demo/dev), pero el despliegue productivo exige NLP real
-(Presidio o equivalente) — hoy Presidio es *scaffolding inactivo*, elevarlo a real es precondición de prod
-(ver SC). La política de enmascaramiento (`entity_configs`) DEBE ser **scopeable por grupo con override
-por cliente** (reemplazando el singleton global actual).
+### I. Privacy & PII/PHI Masking-First (piso: detectar/evaluar/registrar · transformar: gobernable)
+Todo prompt DEBE pasar por el **piso no-negociable** del firewall: interceptar, **detectar** PII/PHI,
+evaluar (AI-Act, secretos) y **registrar** el pedido con su atribución. El piso es **constante de
+código**: ningún perfil, toggle ni configuración puede apagarlo.
+El **transformar** (enmascarar antes de salir hacia el motor/LLM) es la decisión de la capa
+`pii_masking` y SÍ es gobernable por configuración (absorbe el `redact_enabled` de la 013 como
+decisión de capa — D8 de la 027, sellada 2026-07-22): apagarlo es una elección legítima y scopeable
+(p. ej. herramientas de código donde el enmascarado rompe el código), pero **JAMÁS silenciosa** — con
+el enmascarado desactivado el pedido queda registrado como *"PII detectada, no enmascarada por
+configuración"*, visible en gobernanza, atribuible y auditable. El enmascarado es el **default** y
+sigue siendo el control más fuerte del producto.
+Reglas duras cuando el enmascarado actúa: (a) opera con **mapa reversible** (`placeholder_map`) que
+reconstruye los valores en la respuesta (incluido streaming) — el motor y el LLM **solo ven
+placeholders**, nunca PII cruda; (b) ocurre **ANTES** de la compresión — los placeholders son tokens
+atómicos intocables; (c) el mapa reversible vive donde exista el estado (backend/guardrail del motor),
+jamás se delega a un tercero que rompa la reversibilidad; (d) **nunca solo regex en producción** con
+PHI: el despliegue productivo exige NLP real (Presidio o equivalente — real desde la 016; la
+señalización de su degradación se trackea en #63/#64). La política de enmascaramiento
+(`entity_configs`) DEBE ser **scopeable por grupo con override por cliente** (reemplazando el
+singleton global actual).
 
 ### II. Compliance & Governance FIRST (GDPR + EU AI Act)
 La compliance es la **propuesta de valor central** y opera en **dos niveles que la constitución no debe
@@ -186,5 +189,5 @@ es una enmienda de una línea:
 - **[D9] RBAC reconciliado**: super-admin/tenant-admin (tiers por tenant) + compliance_officer + client;
   clinician/developer → labels de display configurables.
 
-**Versión**: 2.0.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Basa Secure AI Gateway" v1.0.0
-(2026-06-29) + feature/012 | **Última enmienda**: 2026-07-10
+**Versión**: 2.1.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Basa Secure AI Gateway" v1.0.0
+(2026-06-29) + feature/012 | **Última enmienda**: 2026-08-04 (D8 de la 027: piso vs transformar)
