@@ -95,6 +95,20 @@ fi
 mkdir -p "$OUT/engine-extensions"
 cp "$REPO_ROOT"/litellm/extensions/*.py "$OUT/engine-extensions/"
 
+# Kit de confianza del certificado (issue #51). Cuando el ingress termina TLS con su CA
+# interna (LAN sin dominio público), cada puesto tiene que confiar en esa CA o la
+# extensión de navegador NO conecta —exige https fuera de localhost—. En la sede no hay
+# repo del que sacar los instaladores: viajan en el tarball, como todo lo demás.
+# La `root.crt` NO se puede incluir acá: la genera el ingress en su primer arranque; se
+# extrae ya en el servidor con `trust-kit/export-ca.sh`.
+mkdir -p "$OUT/trust-kit"
+cp "$REPO_ROOT"/deploy/release/trust-kit/install-ca.ps1 \
+   "$REPO_ROOT"/deploy/release/trust-kit/install-ca.bat \
+   "$REPO_ROOT"/deploy/release/trust-kit/install-ca-macos.sh \
+   "$REPO_ROOT"/deploy/release/trust-kit/export-ca.sh "$OUT/trust-kit/"
+chmod +x "$OUT/trust-kit/export-ca.sh" "$OUT/trust-kit/install-ca-macos.sh"
+echo "── kit de confianza del certificado incluido (trust-kit/)"
+
 # Instalador AUTOCONTENIDO. Antes el bundle no traía ninguno y el procedimiento real
 # vivía en populate_volumes.sh, que no puede correr en la sede: está fuera del tarball,
 # lee las extensiones del repo, y hace `docker run alpine:3` — un PULL, o sea imposible
@@ -194,7 +208,10 @@ cat <<FIN
         → anotá chain.genesis_license_id (es la génesis de auditoría de esta instalación)
      2. primer login como 'admin' en el navegador: la contraseña que escribas QUEDA
         (mínimo 12 caracteres)
-     3. la extensión de navegador está en este mismo directorio
+     3. si el acceso va por https con la CA interna del ingress, armá el kit de
+        confianza ANTES de repartir la extensión (sin él no conecta):
+          ./trust-kit/export-ca.sh --project $PROJECT --url https://<host>
+     4. la extensión de navegador está en este mismo directorio
 
    Para parar o reiniciar hay que repetir los --env-file; sin ellos compose no puede
    interpolar las variables obligatorias y falla:

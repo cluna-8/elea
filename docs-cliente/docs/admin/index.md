@@ -74,18 +74,22 @@ Si un miembro del equipo pierde su contraseña, usted puede asignarle una nueva:
 
 ## Checklist de puesta en marcha
 
-Complete estos cinco pasos y la plataforma queda operativa:
+Complete estos pasos y la plataforma queda operativa:
 
-1. **Cree el primer equipo.** Los equipos son la unidad sobre la que se reparten el
+1. **Haga que los equipos confíen en el certificado.** Si su instalación se publica en
+   una dirección interna, ningún puesto la abrirá sin avisos —ni podrá usar la extensión
+   del navegador— hasta que se distribuya la autoridad de certificación.
+   → [Confiar el certificado en los equipos](certificado.md)
+2. **Cree el primer equipo.** Los equipos son la unidad sobre la que se reparten el
    presupuesto y el perfil de cumplimiento. → [Personas y equipos](usuarios.md)
-2. **Registre a las personas.** Alta con nombre de usuario, email, contraseña inicial y
+3. **Registre a las personas.** Alta con nombre de usuario, email, contraseña inicial y
    rol; asócielas al equipo que corresponda. → [Personas y equipos](usuarios.md)
-3. **Revise qué modelo está disponible.** Compruebe en la tabla de modelos activos cuál
+4. **Revise qué modelo está disponible.** Compruebe en la tabla de modelos activos cuál
    servirá las consultas y si necesita añadir alguno más del catálogo.
    → [Modelos de IA](modelos.md)
-4. **Asigne presupuestos.** Fije un límite de consumo por equipo y, si lo necesita, otro
+5. **Asigne presupuestos.** Fije un límite de consumo por equipo y, si lo necesita, otro
    individual: se comprueban ambos a la vez. → [Presupuestos y límites](presupuestos.md)
-5. **Pruebe en el Playground.** Lance una consulta que incluya datos personales
+6. **Pruebe en el Playground.** Lance una consulta que incluya datos personales
    ficticios y verifique en **Firewall en vivo** que el texto salió enmascarado hacia el
    modelo. → [Consultar la auditoría](auditoria.md)
 

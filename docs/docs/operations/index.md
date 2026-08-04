@@ -291,6 +291,8 @@ Los códigos **G#** refieren al detalle causa → fix en
 | Placeholders `[PERSON_0]` visibles en un artefacto de Claude (G5) | Artefacto en `iframe`, `all_frames:false` | Limitación conocida; mostrar en el chat |
 | La página web queda bloqueada por un overlay 🛡️ | Fail-closed: sin key válida o gateway caído | Conectar con key válida en el popup; verificar que el gateway responde `/api/v1/gw/whoami` |
 | La extensión no llega al gateway (sin CORS pero sin respuesta) | Falta el **permiso de host** del gateway, o la dirección ingresada no apunta al gateway real | En el popup (**⚙**) verificar la **dirección del gateway** y **conceder el permiso de host** cuando el navegador lo pida; una dirección remota debe ser `https://` |
+| La extensión no conecta y el navegador avisa «sitio no seguro» en esa dirección | El puesto no confía en la **CA interna** del ingress (el `.crt` se instaló con doble-click → almacén del **usuario**, no de la máquina) | Correr `install-ca.bat` del kit de confianza en ese puesto y comprobar el VERDE — ver [§5.1](#51-confianza-del-certificado) |
+| Todos los puestos pierden la confianza a la vez tras tocar el ingress | Se recreó el volumen del ingress: la **CA interna se regeneró** y la anterior ya no vale | Re-exportar el kit (`export-ca.sh`) y redistribuir; con GPO, reimportar el `root.crt` nuevo en la directiva |
 | Al conectar, el navegador pide un permiso y sin él no conecta | Permiso de host en runtime (la dirección la ingresa el usuario, no viene horneada) | Conceder el permiso al host del gateway; cambiar de host vuelve a pedirlo. Denegar deja la sesión sin conectar |
 | Chip **ámbar** "Detección por patrones · cobertura parcial" en el panel | Indicador de honestidad de la superficie: la detección es por patrones, no lingüística | **No es un fallo** — es el indicador correcto (texto del servidor). Nunca presentarlo como "protegido" / cobertura total |
 | El envío se frena con un **motivo**, no con "servicio no disponible" | Bloqueo de política del gateway (el motivo lo da el servidor) | Es correcto: la extensión muestra el motivo real. "Servicio no disponible" es sólo cuando el gateway está **caído** |
@@ -323,7 +325,142 @@ operador la **reparte** y acompaña la conexión de cada usuario; la configuraci
 hace el **propio usuario** (dirección del gateway + key). El detalle de la superficie, su contrato y
 su diagrama están en [Integraciones §3.3](../integrations/index.md).
 
-### 5.1 Reparto del paquete
+### 5.1 Requisito previo: que el puesto confíe en el certificado { #51-confianza-del-certificado }
+
+**Cuándo aplica:** sólo cuando el ingress termina TLS con su **CA interna** (`tls internal`
+en el Caddyfile), que es el caso de una LAN sin dominio público. Con un certificado público
+o emitido por la CA del propio cliente **no hay nada que distribuir** y esta subsección no
+aplica.
+
+**Por qué NO es opcional:** la extensión exige `https` válido para cualquier host que no sea
+`localhost`. Un certificado en el que el puesto no confía no deja la superficie "con
+avisos": la deja **fuera de servicio**. Por eso el reparto del certificado va **antes** que
+el reparto del paquete (§5.2), no después.
+
+**Kit de confianza — armarlo una vez, en el servidor de la instalación**, desde el
+directorio del bundle desplegado (el mismo desde el que se levantó el stack):
+
+```bash
+./trust-kit/export-ca.sh --project <proyecto-compose> \
+                         --url https://<direccion-de-la-pasarela>
+```
+
+Extrae la raíz de la CA interna del contenedor del ingress
+(`/data/caddy/pki/authorities/local/root.crt`), la deja junto a los instaladores de puesto
+y **muestra su huella SHA-256**. Si el ingress sirve HTTP plano o TLS con otro certificado,
+el script lo dice y no genera nada — no hay CA interna que repartir.
+
+| Fichero del kit | Destino |
+|---|---|
+| `root.crt` | la CA raíz de esa instalación |
+| `install-ca.bat` + `install-ca.ps1` | puesto Windows (doble-click en el `.bat`) |
+| `install-ca-macos.sh` | puesto macOS |
+| `gateway-url.txt` | la URL que el instalador usa para verificar sin que nadie teclee |
+
+**La huella SHA-256 viaja por un canal distinto** del que lleva la carpeta. No es
+ceremonia: una CA en el almacén raíz de la máquina hace que ese puesto acepte **cualquier**
+certificado que ella firme, para todo destino y sin ningún síntoma visible si el fichero
+que llegó no era el correcto. Cotejar la huella fuera de banda es la **única** salvaguarda
+del kit, así que **los instaladores no escriben en el almacén hasta que queda verificada** —
+y el operador es quien tiene que poner esa huella en manos del IT antes de que empiecen.
+
+**Puesto a puesto:** doble-click en `install-ca.bat` (se auto-eleva) o `./install-ca-macos.sh`.
+Muestran la huella y **se detienen a preguntar**; el default es **No**, así que un INTRO
+distraído cancela en vez de instalar. En Windows la pregunta sale en la **ventana elevada**
+(la que abre el UAC), no en la original — dígaselo al IT o se quedará mirando la ventana
+equivocada. Ambos son idempotentes y terminan con un **VERDE/ROJO** que no sale de mirar el
+almacén: abren un **handshake TLS real** contra la pasarela y validan la cadena contra el
+almacén del sistema —el mismo camino que hace el navegador—, distinguiendo un fallo de
+**conexión** (red, dirección equivocada) de uno de **validación** (confianza, nombre del
+certificado).
+
+**Desatendido (GPO con script de inicio, gestión de flota, MDM): con `-Fingerprint`, y no
+hay alternativa.** Sin nadie que pueda contestar por pantalla, la huella se pasa por
+parámetro y la comprueba el propio instalador en cada equipo:
+
+```bat
+install-ca.bat -NoPause -Fingerprint <HUELLA-SHA-256> -Url https://<direccion-de-la-pasarela>
+```
+
+```bash
+./install-ca-macos.sh --fingerprint <HUELLA-SHA-256> --url https://<direccion-de-la-pasarela>
+```
+
+El equipo al que le llegue otro fichero **aborta con código 4 y no instala nada**, en vez de
+confiar en una CA que nadie miró. `export-ca.sh` imprime estas dos líneas ya rellenas al
+armar el kit: páselas tal cual. Se acepta la huella con `:` o sin él, en mayúsculas o
+minúsculas, que es como el IT la va a pegar.
+
+!!! warning "`-NoPause` no es un bypass"
+    `-NoPause` declara «no hay nadie delante». **Sin `-Fingerprint`, el instalador aborta
+    (código 4) en lugar de instalar a ciegas**: el modo que toca más máquinas no puede ser
+    el que no comprueba nada. La salida explícita es `-Fingerprint`; existe además
+    `-AcceptFingerprint` / `--accept-fingerprint` para renunciar a la comprobación a
+    propósito, y sólo tiene sentido si el IT ya cotejó la huella por otro medio.
+
+    **Y `-NoPause` no es la única forma de quedarse sin operador.** Desde el 2026-07-31
+    los dos instaladores tratan como desatendida también la ejecución **con la entrada
+    redirigida** (sin consola, desde una herramienta de flota, con `stdin` en `/dev/null`
+    o por tubería) y la sesión sin escritorio: ahí tampoco preguntan, abortan con `4`.
+    En macOS eso ya lo hacía `[ ! -t 0 ]`; en Windows faltaba, y por ese hueco la pregunta
+    se daba por contestada que **sí** y la CA entraba en el almacén de la máquina.
+    Si una herramienta de despliegue empieza a devolver `4` donde antes daba verde, la
+    lectura correcta es que **esos equipos nunca cotejaron la huella**: hay que rehacer
+    el despliegue con `-Fingerprint`, no buscar cómo volver al comportamiento anterior.
+
+    Códigos de salida para la herramienta de despliegue: `0` verde · `1` la verificación
+    TLS falló · `2` error de entrada · `3` no se pudo elevar · `4` **huella no verificada,
+    no se instaló nada**.
+
+**Flota Windows en dominio:** directiva de grupo, que evita tocar equipo por equipo →
+*Configuración del equipo → Directivas → Configuración de Windows → Configuración de
+seguridad → Directivas de clave pública → **Entidades de certificación raíz de confianza***
+→ botón derecho → **Importar** → `root.crt`; vincular la directiva a la OU de los equipos y
+`gpupdate /force` en uno de prueba. **Ojo con este camino:** la consola de directivas no
+coteja ninguna huella y lo que se importe ahí se instala solo en todo el dominio, así que
+el IT tiene que verificarla a mano **antes** de importar (`certutil -hashfile root.crt
+SHA256`). Si prefiere repartir el instalador en vez del certificado, use la forma con
+`-Fingerprint` de arriba: es la que mantiene la comprobación en cada equipo. La guía para
+el cliente final vive en el **sitio de documentación de cliente** (`docs-cliente/`, sección
+«Confiar el certificado en los equipos»).
+
+**Gotchas verificados en el piloto (síntoma → causa → fix):**
+
+- **El certificado "se instaló" y el navegador sigue avisando** → el doble-click sobre el
+  `.crt` abre el asistente de Windows, que por defecto importa en el almacén del **usuario
+  actual** y termina diciendo «importación correcta»: cero feedback de que fue al almacén
+  equivocado → correr `install-ca.bat`, que va a `Cert:\LocalMachine\Root` (equivalente de
+  `certutil -addstore -f Root <fichero>`) y **comprueba**. Ésta fue la causa raíz de la
+  fricción del 30-jul.
+- **Funciona en Edge/Chrome y falla en Firefox** → Firefox no usa el almacén de Windows,
+  trae el suyo (NSS) → los instaladores activan la directiva `ImportEnterpriseRoots`
+  (`HKLM\SOFTWARE\Policies\Mozilla\Firefox\Certificates` en Windows,
+  `/Library/Preferences/org.mozilla.firefox` en macOS); **Firefox debe reiniciarse** para
+  tomarla.
+- **ROJO en etapa «validación» con la CA correcta instalada** → la dirección por la que se
+  entra no está en el certificado del servidor: si se emitió con SAN de **IP**, hay que
+  entrar por esa IP, no por un nombre → reemitir el certificado del servidor con el SAN que
+  corresponda; no se arregla en el puesto.
+- **Todos los puestos dejan de confiar a la vez** → caducó la CA interna → reemitirla en el
+  ingress y volver a distribuir el kit (la CA interna se regenera con el volumen del
+  ingress: **borrarlo obliga a repetir la distribución en toda la flota**).
+- **El instalador termina en «LA HUELLA NO COINCIDE» (código 4)** → el `root.crt` de ese
+  puesto no es el de esta instalación: copia de un kit anterior, kit de otro cliente, o
+  fichero alterado en tránsito → **no lo instale**; reponer el `root.crt` desde el kit
+  recién exportado y volver a cotejar la huella por el canal aparte. Si aparece **después
+  de recrear el volumen del ingress**, la causa es la CA regenerada: hay kit y huella
+  nuevos, y toca redistribuir.
+- **El despliegue desatendido no instala en ningún equipo y devuelve 4** → se lanzó con
+  `-NoPause` sin `-Fingerprint`, y ese camino aborta a propósito → añadir la huella al
+  comando (la imprime `export-ca.sh`).
+
+!!! note "Esto es el fallback, no el destino"
+    Distribuir una CA interna funciona y es lo correcto en air-gap, pero pone un paso manual
+    en cada alta de equipo. El camino sin fricción —certificado público real por cliente, sin
+    nada que instalar en los puestos— y el camino BYO/AD CS para el tier pesado se siguen en
+    el **issue #51**.
+
+### 5.2 Reparto del paquete
 
 - **Paquete por partner:** la extensión se entrega como un **zip con la marca del partner** y un
   **identificador estable**, **sin dirección de gateway horneada**. Viaja dentro del **bundle de
@@ -334,7 +471,7 @@ su diagrama están en [Integraciones §3.3](../integrations/index.md).
 - **Marca neutra:** el mismo contenido de runtime se rebrandea por cliente. El operador **no** edita
   código para cambiar de marca ni para apuntar a su propio gateway.
 
-### 5.2 Conexión y permiso de host
+### 5.3 Conexión y permiso de host
 
 El usuario, **una sola vez**, ingresa en el popup (**⚙**) la **dirección del gateway**
 (`https://<host>/api/v1/gw`) y su **API key**, y **Guardar y conectar**:
@@ -350,7 +487,7 @@ El usuario, **una sola vez**, ingresa en el popup (**⚙**) la **dirección del 
 - **Bloqueo con motivo real:** un envío bloqueado por política muestra el **motivo del servidor**;
   sólo un gateway caído muestra "servicio no disponible".
 
-### 5.3 Offboarding (revocación / vencimiento)
+### 5.4 Offboarding (revocación / vencimiento)
 
 Dar de baja a un usuario o vencer su acceso lo **desconecta** de la superficie `browser` sin tocar
 su navegador:

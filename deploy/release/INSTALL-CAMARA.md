@@ -121,7 +121,51 @@ Si no: el Playground "no hace nada" (es un 400 que la UI no muestra). Orden siem
 
 Panel admin → Usuarios: cada alta pide **contraseña propia de 12+** (se la entregás por canal seguro). Los admins de la Cámara pueden crear los que quieran (300 asientos). Cada persona que use API/herramientas necesita además su **Connection** — la clave se muestra UNA sola vez, copiala en el momento.
 
-## 7 · Extensión de navegador
+## 7 · Confianza del certificado en los puestos (ANTES de la extensión)
+
+Sólo si el acceso va por **https con la CA interna del ingress** (LAN sin dominio público).
+La extensión exige https fuera de `localhost`: sin esto no conecta, así que va **antes** de
+repartir nada. Fue la fricción que costó tiempo el 30-jul (issue #51).
+
+En el servidor, una vez, armar el kit:
+
+```bash
+./trust-kit/export-ca.sh --project camara --url https://IP-O-DOMINIO-DEL-SERVIDOR
+```
+
+Deja en `./kit-certificado/` la `root.crt` + los instaladores de puesto + `gateway-url.txt`,
+y **muestra la huella SHA-256**: pasásela al IT **por un canal distinto** del que lleva la
+carpeta (llamada, no el mismo correo). Los instaladores **se plantan hasta que esa huella
+queda cotejada** — sin ella no escriben en el almacén del equipo.
+
+En cada puesto:
+
+- **Windows**: doble-click en `install-ca.bat` → se auto-eleva → **muestra la huella y
+  pregunta en la VENTANA NUEVA** (avisale al IT, o mira la ventana equivocada; el default
+  es No) → termina en **VERDE/ROJO** (hace un handshake TLS real, no sólo el import).
+  Idempotente.
+- **macOS**: `./install-ca-macos.sh` — pregunta la huella **antes** de pedir la contraseña.
+- **Desatendido / flota**: con la huella por parámetro, que es lo que imprime `export-ca.sh`:
+  `install-ca.bat -NoPause -Fingerprint <HUELLA>`. Sin `-Fingerprint`, `-NoPause` **aborta
+  con código 4** en vez de instalar a ciegas. Y **no hace falta `-NoPause`**: lanzarlo sin
+  consola con la que preguntar (herramienta de flota, entrada redirigida) aborta igual con
+  `4` — antes ese camino se colaba y la CA entraba sin que nadie cotejara la huella.
+- **Flota en dominio**: GPO → *Configuración del equipo → Directivas → Configuración de
+  Windows → Configuración de seguridad → Directivas de clave pública → Entidades de
+  certificación raíz de confianza* → Importar `root.crt` → vincular a la OU → `gpupdate /force`.
+  Ojo: la GPO **no coteja nada**, así que la huella se verifica a mano antes de importar
+  (`certutil -hashfile root.crt SHA256`).
+
+🔴 **NO** dejar que el IT haga doble-click sobre el `.crt`: el asistente de Windows importa en el
+almacén del **usuario**, dice «importación correcta» y el navegador sigue avisando. Ése fue el
+fallo real. El `.bat` es el camino; el atajo telefónico es cotejar primero con
+`certutil -hashfile C:\ruta\root.crt SHA256` y sólo entonces
+`certutil -addstore -f Root C:\ruta\root.crt`, **en consola de administrador**.
+
+La guía para entregarle al cliente está en el sitio de docs de cliente
+(«Confiar el certificado en los equipos»).
+
+## 8 · Extensión de navegador
 
 `chrome://extensions` → Modo desarrollador → «Cargar descomprimida» → carpeta `extension/` del zip descomprimido (la que tiene `manifest.json` a la vista). En el popup: URL del gateway **con el path completo** + la clave de esa persona:
 
@@ -136,13 +180,13 @@ http://localhost/api/v1/gw
 - **Claude Code (suscripción del usuario, protegida)**: `ANTHROPIC_BASE_URL=http://SERVIDOR/api/v1/gw` + atribución opcional `ANTHROPIC_CUSTOM_HEADERS="X-Basa-Key: sk-basa-…"`.
 - **VS Code / Copilot custom endpoint (modelo local byok)**: url `http://SERVIDOR/api/v1/gw/v1/messages?k=sk-basa-…`, `apiType` `messages`, model id `camara-comercio-local`.
 
-## 8 · Smoke test de la demo
+## 9 · Smoke test de la demo
 
 1. Playground → «Escribe un email para Marta Gutiérrez, DNI 28456789A, teléfono 611 234 567»
 2. Pestaña **Debugger Técnico** → el JSON de la petición muestra `[PERSON_0]`, `[PASSPORT_0]`, `[PHONE_NUMBER_0]` → **eso es lo que recibió el proveedor** (la respuesta se des-enmascara sola: que se vean los datos reales en la respuesta es lo CORRECTO)
 3. Usá formatos españoles en la demo (DNI con letra, IBAN, email) — verificados. Coste de modelo local personalizado puede mostrar una tarifa conservadora: es cosmético, decilo antes de que pregunten.
 
-## 9 · Parar / reiniciar
+## 10 · Parar / reiniciar
 
 Siempre con los `--env-file` (sin ellos compose falla):
 
@@ -150,7 +194,7 @@ Siempre con los `--env-file` (sin ellos compose falla):
 cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.prod.yml --profile selfhosted --env-file profile/instance.env --env-file profile/secrets.env down
 ```
 
-## 10 · NUNCA
+## 11 · NUNCA
 
 - **NO** correr `issue_dev_license.py` (invalida la licencia viva).
 - **NO** "limpiar" `secrets.env` (sin `BASA_ALLOW_DEV_LICENSE=true` no se puede dar de alta nada).
@@ -163,6 +207,9 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | Playground «no hace nada» tras alta de modelo | Falta `docker restart camara-litellm-1` |
 | `Cannot connect to host host.docker.internal:11434` | Ollama sin `OLLAMA_HOST=0.0.0.0`, o stack en otra máquina → alta por UI con IP |
 | 401 en todo con clave válida | Motor sin `BASA_IDENTITY_URL` |
+| «Sitio no seguro» tras instalar el .crt con doble-click | Fue al almacén del USUARIO, no al de la máquina → `install-ca.bat` del trust-kit |
+| La extensión no conecta por https y la URL es correcta | Ese puesto todavía no confía en la CA interna → correr el instalador ahí y ver el VERDE |
+| «LA HUELLA NO COINCIDE» / código 4 al instalar la CA | El `root.crt` de ese puesto no es el del kit recién exportado (copia vieja u otro cliente) → reponerlo y recotejar; **no** forzar con `-AcceptFingerprint` sin saber por qué |
 | Detecta emails pero no nombres | El sidecar NLP no está arriba |
 | 403 «rollback de reloj» al crear usuarios | Se cura solo en ≤5 min (corregido en este build) |
 

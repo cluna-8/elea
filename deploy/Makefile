@@ -8,7 +8,7 @@ DOCS_IMG ?= basa-docs:prod
 # Marca por defecto para el entregable de la extensión (028): el piloto Cámara.
 EXT_BRAND ?= camara-comercio
 
-.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs
+.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit
 
 build: build-backend build-frontend build-docs
 
@@ -39,7 +39,7 @@ build-extension-brand:
 	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(BRAND) \
 		$(REPO_ROOT)/deploy/clients/$(BRAND)/brand.extension.json
 
-check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs
+check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit
 
 # Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
 docs-refs:
@@ -80,6 +80,12 @@ check-extension-whitelabel:
 
 check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh
+
+# Kit de confianza del certificado (issue #51): el .ps1 parsea de verdad, la codificación
+# no rompe en la ventana del cliente y el bundle se lo lleva. Los pasos que exigen Windows
+# (UAC, almacén de máquina, registro de Firefox) quedan para una VM real.
+check-trust-kit:
+	$(REPO_ROOT)/deploy/release/checks/test_trust_kit.sh
 
 check-tofu:
 	$(REPO_ROOT)/deploy/release/checks/test_tofu_validate.sh

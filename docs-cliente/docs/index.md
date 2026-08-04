@@ -32,6 +32,8 @@ auditable** de cada petición y permite **controlar el gasto** por persona y por
 
 - **[Primeros pasos del administrador](admin/index.md)** — primer acceso, recorrido del
   panel y checklist de puesta en marcha.
+- **[Confiar el certificado en los equipos](admin/certificado.md)** — el paso de puesta
+  en marcha que habilita el acceso por https y la extensión del navegador.
 - **[Personas y equipos](admin/usuarios.md)** — crear equipos, registrar miembros y
   asignarles rol y perfil de cumplimiento.
 - **[Llaves de acceso](admin/llaves.md)** y **[presupuestos](admin/presupuestos.md)** —
