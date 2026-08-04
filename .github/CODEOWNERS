@@ -1,57 +1,24 @@
-# CODEOWNERS — módulos Basa Guardian (división acordada en la reunión 2026-07-15)
-#   JF      = @DrZuzzjen  → clientes, integraciones, producto/distribución
-#   Cristian = @cluna-8   → seguridad y guardianes
-#   Falime  = @FalimeJ    → datos, costes y ruteo
-# El dueño de módulo revisa los PRs que tocan su área; el merge lo hace un humano
-# distinto del autor. Orden: la ÚLTIMA regla que matchea gana.
+# CODEOWNERS — 2 departamentos (decisión 2026-08-03, "Manos a la obra")
+#   Guardian App Ecosystem = JF (@DrZuzzjen) — responsable total del producto
+#   Install & Factory      = Falime (@FalimeJ) — deploy/ entero, en mudanza a repo propio
+#                            (desprendimiento desde el tag checkpoint-camara-2026-08)
+#   Cristian (@cluna-8)    = GATE de review (custodia/rotación de claves de firma,
+#                            RBAC de firma y auth), NO departamento.
+# Orden: la ÚLTIMA regla que matchea gana.
+# Regla de la casa: todo PR que mueva ficheros entre áreas actualiza este archivo en el mismo PR.
 
-# Default — arquitectura e integración
+# ── Guardian App Ecosystem (default) ──
 * @DrZuzzjen
 
-# ── Módulo seguridad y guardianes (Cristian) ──
-backend/src/api/policy.py @cluna-8
-backend/src/api/guardians.py @cluna-8
-backend/src/api/users.py @cluna-8
-backend/src/api/compliance.py @cluna-8
-backend/src/api/consent.py @cluna-8
-backend/src/api/audit.py @cluna-8
-backend/src/services/guardian_service.py @cluna-8
-backend/src/services/presidio_service.py @cluna-8
-backend/src/services/compliance_service.py @cluna-8
-backend/src/services/encryption_service.py @cluna-8
-specs/015-* @cluna-8
-specs/016-* @cluna-8
-specs/017-* @cluna-8
-specs/018-* @cluna-8
+# ── Install & Factory ──
+deploy/ @FalimeJ
 
-# ── Módulo datos, costes y ruteo (Falime) ──
-backend/src/api/costs.py @FalimeJ
-backend/src/api/budgets.py @FalimeJ
-backend/src/api/analytics.py @FalimeJ
-backend/src/services/optimization_service.py @FalimeJ
-backend/src/services/budget_service.py @FalimeJ
-backend/src/services/token_counter.py @FalimeJ
-backend/src/services/routing_service.py @FalimeJ
-specs/023-* @FalimeJ
+# ── Gate de Cristian: custodia, firma y auth ──
+backend/src/licensing/ @DrZuzzjen @cluna-8
+backend/src/keys/ @DrZuzzjen @cluna-8
+backend/src/auth/ @DrZuzzjen @cluna-8
+backend/scripts/issue_license.py @DrZuzzjen @cluna-8
+backend/scripts/issue_dev_license.py @DrZuzzjen @cluna-8
 
-# ── Módulo clientes, integraciones y distribución (JF) ──
-backend/src/api/gateway.py @DrZuzzjen
-backend/src/api/inspect.py @DrZuzzjen
-extension/ @DrZuzzjen
-specs/019-* @DrZuzzjen
-specs/020-* @DrZuzzjen
-specs/021-* @DrZuzzjen
-specs/022-* @DrZuzzjen
-# Sitio de documentación de producto (022): el contenido lo escribe el dueño de cada
-# módulo (DoD en AGENTS.md), pero el sitio/estructura/checks los revisa JF.
-docs/ @DrZuzzjen
-deploy/release/checks/test_docs_* @DrZuzzjen
-
-# ── Superficie compartida: motor LiteLLM ──
-# Acá conviven la política de seguridad (guardrail/auth) y la futura optimización
-# de costes. Cualquier cambio pide review de ambos módulos.
-litellm/ @cluna-8 @FalimeJ @DrZuzzjen
-
-# ── Gobernanza SDD (constitución, templates, scripts) — los tres ──
-.specify/ @DrZuzzjen @cluna-8 @FalimeJ
-.github/CODEOWNERS @DrZuzzjen @cluna-8 @FalimeJ
+# ── Gobernanza del propio reparto ──
+.github/CODEOWNERS @DrZuzzjen
