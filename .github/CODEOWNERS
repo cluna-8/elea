@@ -22,3 +22,5 @@ backend/scripts/issue_dev_license.py @DrZuzzjen @cluna-8
 
 # ── Gobernanza del propio reparto ──
 .github/CODEOWNERS @DrZuzzjen
+# La convención operativa es de Cristian: cambios con su aprobación (regla del propio doc)
+CONTRIBUTING.md @cluna-8
