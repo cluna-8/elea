@@ -14,20 +14,24 @@
 
 **MVP** = firma de licencias + instalación mínima a stack corriendo/verificado.
 
-### `basa-admin license` — basa-firma
+### `basa-admin-signer license` — firma interna Basa
 
-- 🟢 MVP — `basa-admin license issue-dev --tenant <id> --seats 50 --expiry 2099-01-01 --out ./license_out [--rotate-keys]`
+> Artefacto separado (`basa-admin-signer`), corre únicamente en la estación de firma
+> aislada de Basa; nunca se entrega a partners/clientes ni viaja en el bundle air-gapped
+> (spec.md Clarifications — Session 2026-08-05; FR-016/FR-017).
+
+- 🟢 MVP — `basa-admin-signer license issue-dev --tenant <id> --seats 50 --expiry 2099-01-01 --out ./license_out [--rotate-keys]`
   - Emitir licencia dev/demo (par Ed25519 + firma + escribir keyset)
-- 🟢 MVP — `basa-admin license issue --tenant <id> --seats N --expiry <fecha> --out <slug>.lic`
+- 🟢 MVP — `basa-admin-signer license issue --tenant <id> --seats N --expiry <fecha> --out <slug>.lic`
   - Emitir licencia de produccion firmada (tenant/seats/expiry)
-- 🟢 MVP — `basa-admin license keyset export --kid <kid> --out basa_public_keys.pem`
+- 🟢 MVP — `basa-admin-signer license keyset export --kid <kid> --out basa_public_keys.pem`
   - Exportar/publicar el keyset publico del emisor (kid + clave)
-- 🔵 fase 2 — `basa-admin license deployment-key register --tenant <id> --pubkey <file.pem>`
+- 🔵 fase 2 — `basa-admin-signer license deployment-key register --tenant <id> --pubkey <file.pem>`
   - Registrar la deployment key publica que envia el operador (out-of-band)
-- 🔵 fase 2 — `basa-admin license trueup verify <trueup.json> --genesis <genesis_license_id>`
+- 🔵 fase 2 — `basa-admin-signer license trueup verify <trueup.json> --genesis <genesis_license_id>`
   - Verificar el TrueUpExport firmado del cliente contra su genesis
 
-### `basa-admin install` — partner-instala
+### `basa-admin install` — partner/cliente
 
 - 🟢 MVP — `basa-admin install profile new <slug> --domain <base> --region eu-central-1 --model <deployment> --from example`
   - Crear el perfil del cliente (scaffold desde example)
@@ -85,15 +89,93 @@
 
 La CLI es una herramienta LOCAL que le da la mano a un humano: corre en el host (o en la maquina de firma de Basa) y nunca hace phone-home. Todos los comandos del MVP son airgap_safe=true y operan solo sobre entradas y salidas en disco: `license issue`/`issue-dev` firman con la clave privada local y producen un .lic + keyset.pem; `bundle create` empaqueta imagenes por docker save contra un release.lock ya presente localmente (verifica presencia antes del save, cero pull en runtime); `load`/`up`/`seed`/`license install`/`verify` hablan con Docker, Postgres y el filesystem del propio host, sin salir a internet. La verificacion de licencia y de true-up es 100% offline (Ed25519 contra el keyset embebido, sin llamar al emisor). El true-up y el registro de la deployment-key publica se entregan como ARCHIVOS que el operador transporta fuera de banda (USB/SFTP/mail), no como trafico de red del producto hacia el fabricante. Las virtual keys en claro se escriben a un archivo con permisos 600 en vez de a stdout. Los unicos comandos que NO son airgap-safe estan explicitamente marcados (airgap_safe=false) y son de fabricacion/cloud (`release build`, `release publish`, `cloud apply`, `engine bump`): requieren red o registry y viven en la maquina de build del partner, nunca en la caja airgapped del cliente. Regla de diseno: si un comando necesitara egress, se marca y se separa; el nucleo de firmar+instalar+operar no toca la red.
 
-## Preguntas abiertas (para /speckit-plan y /speckit-clarify)
+## Preguntas de diseño y estado de resolución
 
-- Lenguaje/runtime de la CLI: Go (binario estatico unico, ideal airgap, cross-compile, sin runtime que instalar en la caja) vs Python (reusa canonical_payload_bytes, src/licensing/verifier.py y services/onboarding.py del backend pero arrastra interprete). Si es Go, la firma Ed25519 se reimplementa o se llama a la lib del backend?
-- Donde vive el ledger del cupo/seats y de la genesis en Basa mientras no hay portal (#33): la CLI de firma mantiene un registro local (archivo/SQLite firmado) de que licencias emitio por tenant, o es stateless y el estado autoritativo vive en el true-up + genesis de cada caja? Esto condiciona `trueup verify` y la renovacion.
-- Custodia de la clave privada de firma prod: DIY Ed25519 en archivo cifrado para el MVP y KMS/HSM en Fase 2, o KMS desde el dia 1? El research dijo DIY Ed25519; hay que decidir el envelope (age/SOPS?) y quien puede correr `license issue`.
-- Empaquetado y distribucion de la propia CLI: un unico binario con subcomandos gateados por rol/clave (basa-firma vs partner vs operador) o binarios separados? Se distribuye dentro del bundle airgap o se instala aparte en cada maquina (firma de Basa / build del partner / host del cliente)?
-- Punto de ejecucion: la CLI corre en el host FUERA del contenedor hablando a Postgres y a los volumenes, o sigue envolviendo docker exec? Hoy los scripts corren dentro del container con cwd=/app; una 'tool local' necesita definir esto para seed/license install/admin bootstrap.
-- Rotacion de keyset con multiples kid en paralelo en airgap: como valida `keyset update` que TODAS las licencias vivas verifican antes de retirar el kid viejo si la CLI no conoce todas las cajas desplegadas? Se valida solo contra las licencias instaladas en ESA caja?
-- Auditoria sin red: donde se registran los eventos de la CLI (issue, rotate, install, seed) si no hay egress? Un audit-log local firmado por caja/por maquina de firma, exportable como archivo?
-- Los 3 fixes out-of-repo (API_BASE en api.ts, vite.config/tsconfig, frontend.prod + SPA fallback): se cierran en el repo como parte del producto (recomendado) en vez de exponerse como comandos CLI? Confirmar que la ruta 020 los supersede y cerrar la deuda del onboarding VPS.
-- Estrategia de migracion de los scripts sueltos: la CLI reemplaza issue_dev_license.py / apply_profile_seed.py / generate_trueup.py o los envuelve durante una transicion? Que pasa con el tenant DEFAULT hardcodeado y el modelo 'una instancia = un tenant' al pasar a comandos con --tenant explicito?
-- Recordatorio de renovacion sin red: como se avisa que el true-up esta por vencer (grace/expired) si no hay canal del producto hacia Basa? Un check local en `verify`/`license status` que alerte por dias restantes?
+Este documento sigue siendo el grounding histórico (barrido del 2026-07-22) que fundó el
+árbol de comandos y el recorte MVP. Las preguntas que quedaron abiertas en esa fecha se
+revisan acá contra el estado actual de spec.md/research.md/data-model.md/tasks.md,
+incluida la sesión de clarificación del 2026-08-05. No se inventan decisiones nuevas:
+donde el artefacto actual no fija una respuesta final, la pregunta queda ABIERTA.
+
+- **[RESUELTA] Lenguaje/runtime de la CLI**: ¿Go vs Python?
+  - **Resolución**: Python 3.11+, `click` + `cryptography`, distribuido como zipapp
+    `.pyz` (vía `shiv`) por arquitectura. La alternativa Go se investigó a fondo y quedó
+    descartada (registrada por trazabilidad, no por descarte apresurado).
+  - **Fuente**: research.md D1–D3 (incluye "Alternativa Go — evaluada, viable,
+    descartada"); plan.md.
+
+- **[RESUELTA] Dónde vive el ledger del cupo/seats/génesis mientras no hay portal**
+  - **Resolución**: ledger local **JSONL append-only con hash-encadenado** (lado Basa),
+    da visibilidad humana del cupo consumido por pool; **no** hace enforcement duro (eso
+    vive en el portal, fase posterior de #33). El estado autoritativo de seats sigue
+    siendo el true-up + génesis de cada caja.
+  - **Fuente**: research.md D5; data-model.md § "Ledger local de emisiones (lado Basa)".
+
+- **[RESUELTA] Custodia de la clave privada de firma prod**
+  - **Resolución**: PEM **PKCS8 cifrado** con `BestAvailableEncryption` (lib
+    `cryptography`, cero deps nuevas), escritura `O_EXCL`+`0600` en dir `0700`,
+    passphrase siempre por prompt sin eco (sin fallback por env en el MVP). KMS/HSM
+    queda diferido a fase 2. Nota: el RBAC de "quién puede correr `license issue`" sigue
+    coordinándose con la spec 017 (Cristian) — ese punto puntual no está cerrado acá,
+    pero el mecanismo de custodia sí.
+  - **Fuente**: research.md D2; spec.md FR-003 y § Assumptions ("Custodia de la privada"
+    y "Frontera con seguridad").
+
+- **[RESUELTA] Empaquetado y distribución de la propia CLI**
+  - **Resolución**: **dos artefactos físicamente separados** — `basa-admin-signer`
+    (interno Basa, estación de firma aislada, nunca se entrega a partners/clientes ni
+    viaja en el bundle) y `basa-admin` (partner/cliente, único artefacto dentro del
+    bundle air-gapped). Un binario único gateado por rol/flag/env var queda
+    explícitamente rechazado como alternativa válida; la separación se verifica en build
+    time con contract test + test de inspección de artefacto.
+  - **Fuente**: spec.md § Clarifications — Session 2026-08-05; FR-016 a FR-023.
+
+- **[RESUELTA] Punto de ejecución**
+  - **Resolución**: la CLI en el host orquesta archivos/Docker de forma nativa (profile
+    scaffold/render, secrets gen, bundle create/verify/load, up + readiness, license
+    verify/issue) y **shellea a entrypoints `python -m` endurecidos** dentro del
+    contenedor backend para lo que toca modelos SQLAlchemy con la DB del deployment
+    (seed, admin bootstrap/rotate, génesis) — el host no arrastra SQLAlchemy/psycopg ni
+    credenciales de DB.
+  - **Fuente**: research.md D4 ("la CLI orquesta, los entrypoints ejecutan dominio");
+    plan.md.
+
+- **[ABIERTA] Rotación de keyset con múltiples kid en paralelo en airgap**
+  - **Estado**: data-model.md fija que ninguna transición puede ELIMINAR un kid con
+    licencias vivas **conocidas por esa caja** (bloqueo salvo `--force` con confirmación
+    doble), pero eso no resuelve el problema de fondo: cómo se valida que TODAS las
+    cajas desplegadas (que la CLI no conoce) siguen verificando antes de retirar un kid
+    viejo. Ningún artefacto define ese mecanismo cross-fleet todavía.
+  - **Fuente parcial**: data-model.md § "Estados y transiciones relevantes" (Keyset).
+
+- **[RESUELTA] Auditoría sin red**
+  - **Resolución**: audit-log local **JSONL append-only por máquina**, metadata-only
+    (`ts, comando, args_sanitizados, resultado, operador`, sin secretos ni payloads),
+    exportable como archivo junto al true-up.
+  - **Fuente**: research.md D5; data-model.md § "Audit-log local de la CLI (ambos
+    lados)"; FR-013.
+
+- **[RESUELTA] Los 3 fixes out-of-repo (#35)**
+  - **Resolución**: se cierran como **PR en el repo** (parte del producto, no comando de
+    la CLI); la ruta 020 los supersede. Confirmado explícitamente, no como comando
+    `ops fix frontend-prod` (que queda documentado más abajo solo por trazabilidad
+    histórica del inventario).
+  - **Fuente**: research.md § "Fuera de alcance (confirmado)"; spec.md § Assumptions
+    ("Los 3 fixes out-of-repo").
+
+- **[RESUELTA] Estrategia de migración de los scripts sueltos**
+  - **Resolución**: la CLI **reemplaza** (no envuelve indefinidamente)
+    `issue_dev_license.py`, `apply_profile_seed.py`, `generate_trueup.py` y los
+    `.sh` sueltos; los scripts quedan deprecados con banner + puntero de migración. El
+    detalle del tenant `DEFAULT` hardcodeado se resuelve en la práctica vía el flag
+    `--tenant` explícito ya presente en el árbol de comandos (`install seed apply
+    --tenant <slug>`), pero ningún artefacto documenta aparte una migración formal del
+    modelo "una instancia = un tenant".
+  - **Fuente**: spec.md FR-012; tasks.md T025.
+
+- **[ABIERTA] Recordatorio de renovación sin red**
+  - **Estado**: ningún artefacto (spec/research/data-model/tasks) define un check local
+    en `verify`/`license status` que alerte por días restantes antes de que venza el
+    true-up (grace/expired). Sigue sin definirse.
+  - **Fuente**: no hay fuente — confirmado ausente en spec.md, research.md,
+    data-model.md y tasks.md.

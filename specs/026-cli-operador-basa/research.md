@@ -1,24 +1,26 @@
-# Research — 026 CLI de operador (`basa-admin`)
+# Research — 026 CLI de operador (`basa-admin` + `basa-admin-signer`)
 
-**Fecha**: 2026-07-22 · **Método**: 4 investigaciones en paralelo (firma cross-lenguaje,
-custodia de clave, arquitectura, mapa de integración con el stack), la de firma
-**verificada empíricamente en Docker** contra el `verifier.py` real del repo.
-**Decisión de lenguaje (JF, 22-jul): Python.** La alternativa Go fue evaluada a fondo y
-es viable (ver "Alternativa Go" al final — la evidencia se conserva por trazabilidad SDD);
-se eligió Python por reuso directo de la lib de licensing y por ser el lenguaje nativo
-del equipo. No quedan NEEDS CLARIFICATION.
+**Fecha**: 2026-07-22 · **Actualizado**: 2026-08-05 (D6 nuevo, tras la sesión de
+clarificación que fijó la separación física en dos artefactos — spec.md § Clarifications).
+**Método**: 4 investigaciones en paralelo (firma cross-lenguaje, custodia de clave,
+arquitectura, mapa de integración con el stack), la de firma **verificada empíricamente
+en Docker** contra el `verifier.py` real del repo. **Decisión de lenguaje (JF, 22-jul):
+Python.** La alternativa Go fue evaluada a fondo y es viable (ver "Alternativa Go" al
+final — la evidencia se conserva por trazabilidad SDD); se eligió Python por reuso directo
+de la lib de licensing y por ser el lenguaje nativo del equipo. No quedan NEEDS
+CLARIFICATION.
 
 ## D1 — Firma: reusar la lib de licensing existente (cero divergencia por construcción)
 
-**Decisión**: el emisor de la CLI **importa** `canonical_payload_bytes` y el formato de
-`token.py` + `verifier.py` (spec 021) — la MISMA lib que corre en las cajas desplegadas.
-No existe serialización paralela: el riesgo de que emisor y verificador diverjan
-desaparece **por construcción**, no por tests. El build del artefacto CLI (D3) incluye
-`backend/src/licensing/` como fuente única; un **contract test del artefacto** garantiza
-que lo que el binario empaquetado firma lo valida el backend del producto (mismo código,
-pero el test cubre el empaquetado).
+**Decisión**: el emisor (`basa-admin-signer`) **importa** `canonical_payload_bytes` y el
+formato de `token.py` + `verifier.py` (spec 021) — la MISMA lib que corre en las cajas
+desplegadas. No existe serialización paralela: el riesgo de que emisor y verificador
+diverjan desaparece **por construcción**, no por tests. El build de `basa-admin-signer`
+(D3/D6) incluye `backend/src/licensing/` como fuente única; un **contract test del
+artefacto** garantiza que lo que el binario empaquetado firma lo valida el backend del
+producto (mismo código, pero el test cubre el empaquetado).
 
-**Invariantes que la CLI hereda del wire de la 021** (sin reimplementar):
+**Invariantes que `basa-admin-signer` hereda del wire de la 021** (sin reimplementar):
 `json.dumps(payload, sort_keys=True, separators=(",",":"), ensure_ascii=False).encode("utf-8")`,
 firma Ed25519 detached en `sig` (base64url **con** padding), keyset PEM con línea
 `# key_id: <kid>` antes de cada bloque (verifier.py:57-72), rotación = **agregar** kid.
@@ -58,35 +60,47 @@ keyring del OS (no portable a la máquina de firma dedicada); KMS/HSM = fase 2 (
 021 fijó DIY Ed25519). Patrón de referencia: cosign/minisign (clave cifrada con
 passphrase en archivo, de un humano en una máquina).
 
-## D3 — Arquitectura: paquete Python `cli/` + click, distribuido como zipapp `.pyz`
+## D3 — Arquitectura: paquetes Python `cli/` + click, distribuidos como zipapp `.pyz`
 
-**Decisión**: paquete `cli/basa_admin/` en la raíz del repo (hermano de `backend/`),
-framework **click** (maduro, prompts/confirm integrados, `CliRunner` para tests), con la
-lib de licensing del backend como fuente única (el build la incluye — sin fork del
-código). Distribución: **zipapp single-file (`shiv`) → `basa-admin.pyz`** por plataforma
-(linux x86_64/arm64 — las wheels de `cryptography` van adentro), con sha256 en el
-MANIFEST del bundle. **Prerrequisito del host: Python 3.11+** (se añade al perfil de
-prerrequisitos del partner en la doc 025 — hoy ya exige Docker/shell/SQL; en los Linux
-objetivo Python está presente por default). Build y tests corren **en contenedor** (la
-imagen backend ya tiene Python + deps — no se exige nada nuevo al equipo). Versión
-embebida en el artefacto; `basa-admin --version` la reporta.
+**Decisión**: dos paquetes en la raíz del repo (hermanos de `backend/`) —
+`cli/basa_admin_signer/` y `cli/basa_admin/` (separación física fijada en D6/spec.md
+Clarifications) —, framework **click** (maduro, prompts/confirm integrados, `CliRunner`
+para tests) en ambos, con la lib de licensing del backend como fuente única para lo que
+no toca la privada del emisor (el build la incluye — sin fork del código; ver D6 para qué
+módulos entran en cada uno). Distribución: **zipapp single-file (`shiv`) por artefacto** —
+`basa-admin-<arch>.pyz` por plataforma (linux x86_64/arm64 — las wheels de `cryptography`
+van adentro) **es el único que viaja dentro del bundle air-gapped**, con sha256 en el
+MANIFEST (FR-021/FR-022); `basa-admin-signer.pyz` se construye single-arch para la
+estación de firma de Basa y **nunca** se empaqueta en el bundle (FR-017/FR-021).
+**Prerrequisito del host: Python 3.11+** (se añade al perfil de prerrequisitos del
+partner en la doc 025 — hoy ya exige Docker/shell/SQL; en los Linux objetivo Python está
+presente por default). Build y tests corren **en contenedor** (la imagen backend ya tiene
+Python + deps — no se exige nada nuevo al equipo). Versión embebida en cada artefacto;
+`--version` la reporta en ambos.
 
-**Garantía offline por construcción**: el núcleo no importa `requests`/`httpx`/sockets —
-un test del gate lo verifica (grep de imports + suite corrida con la red cortada). Los
-comandos [CLOUD] de fase 2 llegan como subárbol separado con su propio gate.
+**Garantía offline por construcción**: el núcleo de ambos artefactos no importa
+`requests`/`httpx`/sockets — un test del gate lo verifica por paquete (grep de imports +
+suite corrida con la red cortada). Los comandos [CLOUD] de fase 2 llegan como subárbol
+separado con su propio gate.
 
-**Gotchas**: los strings de `--help`/errores del `.pyz` viajan en el bundle → aplican los
-checks **white-label** (`prohibited_names.txt`); el `.pyz` (ambas arch linux) va DENTRO
-del tarball air-gapped — mismo edge case que las imágenes: artefacto fuera del tarball =
-install roto sin egress; las wheels de `cryptography` son por-plataforma → un `.pyz` por
-arquitectura, nombrado y verificado en el MANIFEST; `shiv` cachea en `~/.shiv` al primer
-run → documentar (y fijar `SHIV_ROOT` a un dir del operador para no sorprender en hosts
-restringidos).
+**Gotchas**: los strings de `--help`/errores de ambos `.pyz` aplican los checks
+**white-label** (`prohibited_names.txt`) — el de `basa-admin` porque viaja en el bundle,
+el de `basa-admin-signer` porque es el mismo estándar del producto; el `.pyz` de
+`basa-admin` (ambas arch linux) va DENTRO del tarball air-gapped — mismo edge case que las
+imágenes: artefacto fuera del tarball = install roto sin egress; las wheels de
+`cryptography` son por-plataforma → un `.pyz` por arquitectura, nombrado y verificado en
+el MANIFEST; `shiv` cachea en `~/.shiv` al primer run → documentar (y fijar `SHIV_ROOT` a
+un dir del operador para no sorprender en hosts restringidos); **dos `pyproject.toml`
+independientes** evita que un `pip install -e .` de desarrollo arrastre por accidente el
+paquete del signer al entorno de `basa-admin` (o viceversa).
 
 **Alternativas**: Go (ver al final — viable, descartada por decisión); PyInstaller
 (binario más pesado y frágil ante SO viejos; `.pyz` es más simple y auditable); pip
 install en el host (host airgap sin índice → no); correr TODO dentro del contenedor
-backend (chicken-and-egg: `install load`/`up` corren ANTES de que exista el stack).
+backend (chicken-and-egg: `install load`/`up` corren ANTES de que exista el stack); **un
+único `.pyz` con subcomandos gateados por rol/flag/env var** (evaluada y **rechazada
+explícitamente** en la sesión de clarificación del 2026-08-05 — ver D6: el ocultamiento en
+runtime no es un límite de seguridad válido, FR-019).
 
 ## D4 — Integración con el stack: "la CLI orquesta, los entrypoints ejecutan dominio"
 
@@ -138,6 +152,54 @@ metadata-only, exportable como archivo — trazabilidad sin egress (FR-013).
 **Alternativa rechazada**: SQLite local — estado opaco para un humano y otra superficie
 de tooling, para un problema que JSONL + hash chain resuelve legible; el estado
 autoritativo de seats vive en el true-up de cada caja (021), no acá.
+
+## D6 — Separación física `basa-admin-signer` / `basa-admin`: build time, no runtime
+
+**Decisión** (spec.md § Clarifications — Session 2026-08-05; FR-016 a FR-023): dos
+paquetes Python independientes, cada uno con su propio `pyproject.toml` y entry point, sin
+dependencia del uno hacia el otro. División de `backend/src/licensing/` por lo que cada
+módulo toca:
+
+- **Elegibles para `basa-admin` (no tocan la privada del emisor de Basa)**: `verifier.py`
+  (verificación pública Ed25519), `token.py` (`canonical_payload_bytes`, `LicenseToken`,
+  parsing), `deployment_key.py` (la clave del **deployment**, no la del emisor — se genera
+  y firma del lado del cliente para los true-ups) y `trueup_export.py` (`generate_signed_export`
+  es del lado del cliente; `verify_export` requiere la pública del deployment ya
+  registrada — no la privada del emisor). Ninguno de estos módulos existentes requiere
+  cambios de wire.
+- **Exclusivo de `basa-admin-signer` (código nuevo, no vive en `backend/`)**:
+  `keycustody.py` (PKCS8 cifrado de la privada del emisor, D2), `signing.py` (el emisor
+  que arma y firma el payload), y el `ledger.py` de emisiones (D5, lado Basa). Estos tres
+  módulos **nunca** se importan desde `basa_admin/`.
+- Módulos de `backend/src/licensing/` que tocan SQLAlchemy/DB (`audit_events.py`,
+  `gate.py`, `seat_counter.py`, `reconcile.py`) no se embeben en ningún `.pyz` — corren
+  como entrypoints `python -m` dentro del contenedor backend (D4), igual que hoy.
+
+**Verificación** (FR-020, obligatoria, build time):
+
+1. **Contract test de `basa-admin-signer`**: el `.pyz` firma un `.lic` → el backend del
+   producto (mismo `verifier.py`) lo valida. Cubre el empaquetado, no solo el código
+   (hereda D1).
+2. **Test de inspección de artefacto de `basa-admin`**: abre el `.pyz` (es un zip) y
+   falla el build si aparece cualquiera de: los módulos `keycustody`/`signing`/`ledger`
+   del signer, símbolos de firma con la privada del emisor, o una dependencia declarada
+   hacia `basa_admin_signer`. Implementación de referencia: listar el índice del zip
+   (`zipfile.ZipFile.namelist()`) contra una denylist de paths, más un import-graph check
+   (`modulefinder` o equivalente) sobre el entry point para detectar imports indirectos.
+
+**Por qué build time y no runtime**: la sesión de clarificación fijó explícitamente que
+ningún mecanismo en runtime (subcomando Click oculto, flag de rol, gate por variable de
+entorno, gate de comando parchable en un binario universal) es un límite de seguridad
+válido para esta frontera (FR-019) — un binario universal siempre puede ser inspeccionado
+o parcheado por quien lo tiene en la mano; la separación física + test de build es la
+única garantía que sobrevive a esa amenaza.
+
+**Alternativas rechazadas**: un único `.pyz` con subcomandos gateados por rol/flag/env var
+(exactamente lo que FR-019 prohíbe); dos repos Git separados (overkill para el MVP — un
+monorepo con dos paquetes y CI que corre ambas suites alcanza el mismo aislamiento sin el
+costo operativo de sincronizar dos repos); PyOxidizer con excludes por target (más
+granular pero tooling más pesado y menos maduro que `shiv`+`zipfile`; se deja como opción
+si el test de inspección basado en `zipfile` resultara insuficiente).
 
 ## Alternativa Go — evaluada, viable, descartada (registro por trazabilidad)
 
