@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manos a la obra &#8212; Basa Guardian</title>
+<meta name="description" content="Departamentos y responsabilidades de Basa Guardian.">
+<style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; min-height: 100vh; }
+    img, svg, video { max-width: 100%; }
+    table { border-collapse: collapse; }
+    :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+    .theme-toggle { position: fixed; top: 14px; right: 14px; z-index: 99;
+      font: 600 12px/1 var(--font-display, system-ui);
+      background: var(--surface); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 999px; padding: 9px 15px; cursor: pointer; }
+    .theme-toggle:hover { border-color: var(--basa); }
+    @media print { .theme-toggle { display: none; } }
+</style>
+</head>
+<body>
+<button class="theme-toggle" type="button">Tema</button>
+<style>
+  :root {
+    --basa: #0891B2;
+    --basa-soft: rgba(8, 145, 178, 0.10);
+    --partner: #059669;
+    --partner-soft: rgba(5, 150, 105, 0.10);
+    --caja: #164E63;
+    --caja-soft: rgba(22, 78, 99, 0.08);
+    --dev: #7C3AED;
+    --dev-soft: rgba(124, 58, 237, 0.10);
+    --danger: #DC2626;
+    --amber: #B45309;
+    --amber-soft: rgba(180, 83, 9, 0.10);
+    --bg: #F4FAFC;
+    --surface: #FFFFFF;
+    --surface-2: #EAF4F7;
+    --ink: #0E3A4A;
+    --ink-soft: #4A6B78;
+    --line: #CFE3EA;
+    --chip-bg: #0E3A4A;
+    --chip-fg: #A5F3FC;
+    --font-display: "Avenir Next", "Avenir", "Seravek", "Segoe UI", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --basa: #38BDD8; --basa-soft: rgba(56,189,216,0.12);
+      --partner: #34C99A; --partner-soft: rgba(52,201,154,0.12);
+      --caja: #9CC8D8; --caja-soft: rgba(156,200,216,0.10);
+      --dev: #A78BFA; --dev-soft: rgba(167,139,250,0.12);
+      --danger: #F07171;
+      --amber: #E0A458; --amber-soft: rgba(224,164,88,0.12);
+      --bg: #0A1D25; --surface: #102833; --surface-2: #16323F;
+      --ink: #D9EEF4; --ink-soft: #8FB2BE; --line: #23414E;
+      --chip-bg: #06141A; --chip-fg: #7DE3F4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --basa: #38BDD8; --basa-soft: rgba(56,189,216,0.12);
+    --partner: #34C99A; --partner-soft: rgba(52,201,154,0.12);
+    --caja: #9CC8D8; --caja-soft: rgba(156,200,216,0.10);
+    --dev: #A78BFA; --dev-soft: rgba(167,139,250,0.12);
+    --danger: #F07171;
+    --amber: #E0A458; --amber-soft: rgba(224,164,88,0.12);
+    --bg: #0A1D25; --surface: #102833; --surface-2: #16323F;
+    --ink: #D9EEF4; --ink-soft: #8FB2BE; --line: #23414E;
+    --chip-bg: #06141A; --chip-fg: #7DE3F4;
+  }
+  :root[data-theme="light"] {
+    --basa: #0891B2; --basa-soft: rgba(8,145,178,0.10);
+    --partner: #059669; --partner-soft: rgba(5,150,105,0.10);
+    --caja: #164E63; --caja-soft: rgba(22,78,99,0.08);
+    --dev: #7C3AED; --dev-soft: rgba(124,58,237,0.10);
+    --danger: #DC2626;
+    --amber: #B45309; --amber-soft: rgba(180,83,9,0.10);
+    --bg: #F4FAFC; --surface: #FFFFFF; --surface-2: #EAF4F7;
+    --ink: #0E3A4A; --ink-soft: #4A6B78; --line: #CFE3EA;
+    --chip-bg: #0E3A4A; --chip-fg: #A5F3FC;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--basa); margin: 0 0 10px; }
+  h1 { font-size: clamp(30px, 5vw, 42px); font-weight: 700; line-height: 1.12; margin: 0 0 14px; text-wrap: balance; }
+  .lede { font-size: 18px; color: var(--ink-soft); max-width: 64ch; margin: 0; text-wrap: pretty; }
+  .lede strong { color: var(--ink); }
+  .thesis {
+    margin-top: 22px; border: 1.5px solid var(--basa); border-radius: 10px;
+    background: var(--basa-soft); padding: 16px 20px;
+    font-size: 15.5px; max-width: 74ch; text-wrap: pretty;
+  }
+  .thesis strong { color: var(--basa); }
+
+  section { margin-top: 68px; }
+  .kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 6px; }
+  h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px; text-wrap: balance; }
+  .sub { color: var(--ink-soft); max-width: 68ch; margin: 0 0 26px; text-wrap: pretty; }
+  .sub strong { color: var(--ink); }
+
+  .fchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11.5px; background: var(--chip-bg); color: var(--chip-fg); border-radius: 4px; padding: 3px 8px; white-space: nowrap; }
+  .pill { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; padding: 2.5px 8px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+  .p-dev { background: var(--dev-soft); color: var(--dev); }
+  .p-basa { background: var(--basa-soft); color: var(--basa); }
+  .p-partner { background: var(--partner-soft); color: var(--partner); }
+  .p-caja { background: var(--caja-soft); color: var(--caja); }
+  .p-amber { background: var(--amber-soft); color: var(--amber); }
+
+  /* ---------- protagonistas ---------- */
+  .actors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .actor { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 13px 15px; }
+  .actor .at { font-weight: 700; font-size: 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .actor p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* ---------- pipeline ---------- */
+  .pipe { display: flex; flex-direction: column; }
+  .stage { display: grid; grid-template-columns: 52px 1fr; gap: 18px; }
+  .stage .rail { display: flex; flex-direction: column; align-items: center; }
+  .stage .num {
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+    border: 1.5px solid; background: var(--surface);
+  }
+  .num.c-dev { color: var(--dev); border-color: var(--dev); }
+  .num.c-basa { color: var(--basa); border-color: var(--basa); }
+  .num.c-partner { color: var(--partner); border-color: var(--partner); }
+  .num.c-caja { color: var(--caja); border-color: var(--caja); }
+  .stage .cord { width: 1.5px; flex: 1; background: var(--line); margin: 4px 0; }
+  .stage:last-child .cord { display: none; }
+  .stage .body { padding-bottom: 10px; min-width: 0; }
+
+  .scard { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 16px 20px; }
+  .scard .sh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+  .scard h3 { margin: 0; font-size: 17px; }
+  .scard .where { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin-left: auto; }
+  .scard p { margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); max-width: 70ch; text-wrap: pretty; }
+  .scard p strong { color: var(--ink); }
+  .scard .io { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; align-items: center; }
+  .scard .io .lbl { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-right: 2px; }
+
+  .flow-note {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft);
+    padding: 10px 0 16px 0;
+  }
+  .flow-note .arr { color: var(--basa); font-size: 14px; }
+
+  .loopback {
+    margin-top: 6px; border: 1px dashed var(--line); border-radius: 10px;
+    background: var(--surface-2); padding: 14px 20px;
+    font-size: 13.5px; color: var(--ink-soft); max-width: none; text-wrap: pretty;
+  }
+  .loopback strong { color: var(--ink); }
+
+  /* ---------- tabla d\F3nde ---------- */
+  .twrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; background: var(--surface); font-size: 13.5px; }
+  th { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); text-align: left; padding: 11px 16px; border-bottom: 1.5px solid var(--line); background: var(--surface-2); }
+  td { padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td .mono { font-family: var(--font-mono); font-size: 12px; }
+  td.never { color: var(--danger); font-weight: 600; }
+
+  /* ---------- ediciones ---------- */
+  .ed { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .edcard { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 16px 20px; }
+  .edcard h3 { margin: 0 0 8px; font-size: 15.5px; }
+  .edcard p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-soft); text-wrap: pretty; }
+  .edcard p strong { color: var(--ink); }
+  .stackv { display: flex; flex-direction: column; gap: 7px; }
+  .layer { border: 1px solid var(--line); border-radius: 7px; padding: 9px 13px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--surface); }
+  .layer .ln { font-weight: 600; }
+  .layer .ld { color: var(--ink-soft); font-size: 11.5px; text-align: right; }
+  .layer.base { border-style: solid; border-color: var(--basa); background: var(--basa-soft); }
+
+  /* ---------- planos de arquitectura ---------- */
+  .planos { display: flex; flex-direction: column; gap: 30px; }
+  .plano { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 18px 20px 20px; }
+  .plano-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .plano-h h3 { margin: 0; font-size: 17px; }
+  .plano-h .where { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin-left: auto; }
+  .region { border: 1.5px dashed; border-radius: 10px; padding: 13px 15px; }
+  .rg-caja { border-color: var(--caja); background: var(--caja-soft); }
+  .rg-basa { border-color: var(--basa); background: var(--basa-soft); }
+  .rg-partner { border-color: var(--partner); background: var(--partner-soft); }
+  .region-lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 11px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .rg-caja > .region-lbl { color: var(--caja); }
+  .rg-basa > .region-lbl { color: var(--basa); }
+  .rg-partner > .region-lbl { color: var(--partner); }
+  .machine { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); padding: 12px 14px; }
+  .mh { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 13.5px; flex-wrap: wrap; }
+  .mh .sub2 { font-size: 11px; color: var(--ink-soft); font-weight: 400; }
+  .dband { border: 1.5px solid #2496ED; border-radius: 8px; padding: 10px 12px; margin-top: 10px; background: rgba(36, 150, 237, 0.06); }
+  .dband .dh { display: flex; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 600; margin-bottom: 9px; }
+  .svcgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .svc { border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; min-width: 0; }
+  .svc .sn { font-size: 11.5px; font-weight: 600; line-height: 1.25; }
+  .svc .sd { font-size: 9.5px; color: var(--ink-soft); font-family: var(--font-mono); }
+  .ic { width: 22px; height: 22px; flex: none; display: block; }
+  .ic-lg { width: 28px; height: 28px; }
+  .mic { width: 22px; height: 22px; flex: none; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 8px; font-weight: 700; color: var(--ink-soft); letter-spacing: 0; }
+  .volstrip, .flowio { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; align-items: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+  .stackg { display: flex; flex-direction: column; gap: 10px; }
+  .toolrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .tool { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 6px 10px; font-size: 12px; font-weight: 600; }
+  .tool .td { font-size: 10px; color: var(--ink-soft); font-weight: 400; font-family: var(--font-mono); }
+  .pnote { font-size: 12.5px; color: var(--ink-soft); margin: 10px 0 0; max-width: 78ch; text-wrap: pretty; }
+  .pnote strong { color: var(--ink); }
+
+  .foot { margin-top: 72px; border-top: 1px solid var(--line); padding-top: 18px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft); line-height: 1.8; }
+  .foot a { color: var(--basa); }
+
+  @media (max-width: 780px) {
+    .actors { grid-template-columns: 1fr; }
+    .ed { grid-template-columns: 1fr; }
+    .scard .where { margin-left: 0; width: 100%; }
+    .svcgrid { grid-template-columns: repeat(2, 1fr); }
+    .cols2 { grid-template-columns: 1fr; }
+    .plano-h .where { margin-left: 0; width: 100%; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .scard, .actor, .edcard { transition: border-color 0.15s ease; }
+    .scard:hover, .actor:hover, .edcard:hover { border-color: var(--basa); }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Basa Guardian &#183; Manos a la obra &#183; 03-ago-2026</p>
+    <h1>Departamentos y responsabilidades</h1>
+    <p class="lede"><strong>Guardian App Ecosystem</strong> (jefe t&#233;cnico: JF) e <strong>Install &amp; Factory</strong> (jefe t&#233;cnico: Falime). Mapa de &#225;reas, router de responsabilidades, reglas de operaci&#243;n y plan de septiembre. Compa&#241;ero del <a href="https://claude.ai/code/artifact/3ca103b8-65c1-4bce-8e12-26c64faef3ce" style="color:var(--basa)">ArquitectOverview</a>.</p>
+  </header>
+
+  <section>
+    <p class="kicker">01 &#183; El mapa</p>
+    <h2>&#193;reas por departamento</h2>
+    <p class="sub">Cada chip es un &#225;rea con due&#241;o &#250;nico. La costura agrupa los trabajos que requieren a ambos departamentos.</p>
+    <div style="overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:12px 8px">
+      <svg viewBox="0 0 1240 549" style="min-width:900px; width:100%; height:auto; display:block; font-family:var(--font-display)" role="img" aria-label="Departamentos y responsabilidades">
+  <rect x="20" y="16" width="590" height="317" rx="12" style="fill:var(--surface-2); stroke:var(--basa); stroke-width:1.8"/>
+  <text x="38" y="44" style="font-family:var(--font-mono); font-size:12px; letter-spacing:1.5px; font-weight:700; fill:var(--basa)">GUARDIAN APP ECOSYSTEM</text>
+  <text x="38" y="62" style="font-size:11.5px; fill:var(--ink-soft)">jefe t&#233;cnico: JF</text>
+  <rect x="36" y="74" width="159" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="87" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="91" style="font-size:11.0px; fill:var(--ink)">Gateway & API backend</text>
+  <rect x="203" y="74" width="195" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="216" cy="87" r="3.4" style="fill:var(--basa)"/>
+  <text x="227" y="91" style="font-size:11.0px; fill:var(--ink)">Motor firewall & guardrails</text>
+  <rect x="36" y="109" width="189" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="122" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="126" style="font-size:11.0px; fill:var(--ink)">Detecci&#243;n PII: NLP + regex</text>
+  <rect x="233" y="109" width="201" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="246" cy="122" r="3.4" style="fill:var(--basa)"/>
+  <text x="257" y="126" style="font-size:11.0px; fill:var(--ink)">Extensi&#243;n de navegador (app)</text>
+  <rect x="36" y="144" width="409" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="157" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="161" style="font-size:11.0px; fill:var(--ink)">Integraciones 3rd-party: Claude Code &#183; VS Code &#183; Cursor &#183; Aider</text>
+  <rect x="36" y="179" width="207" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="192" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="196" style="font-size:11.0px; fill:var(--ink)">UI interna de cliente (panel)</text>
+  <rect x="251" y="179" width="153" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="264" cy="192" r="3.4" style="fill:var(--basa)"/>
+  <text x="275" y="196" style="font-size:11.0px; fill:var(--ink)">Playground & monitor</text>
+  <rect x="412" y="179" width="159" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="425" cy="192" r="3.4" style="fill:var(--basa)"/>
+  <text x="436" y="196" style="font-size:11.0px; fill:var(--ink)">Auto-router sem&#225;ntico</text>
+  <rect x="36" y="214" width="165" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="227" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="231" style="font-size:11.0px; fill:var(--ink)">Auditor&#237;a & compliance</text>
+  <rect x="209" y="214" width="201" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="222" cy="227" r="3.4" style="fill:var(--basa)"/>
+  <text x="233" y="231" style="font-size:11.0px; fill:var(--ink)">Presupuestos & cost tracking</text>
+  <rect x="418" y="214" width="165" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="431" cy="227" r="3.4" style="fill:var(--basa)"/>
+  <text x="442" y="231" style="font-size:11.0px; fill:var(--ink)">Gobernanza & pol&#237;ticas</text>
+  <rect x="36" y="249" width="189" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="262" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="266" style="font-size:11.0px; fill:var(--ink)">Multi-tenant & migraciones</text>
+  <rect x="233" y="249" width="189" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="246" cy="262" r="3.4" style="fill:var(--basa)"/>
+  <text x="257" y="266" style="font-size:11.0px; fill:var(--ink)">Lib de licensing (runtime)</text>
+  <rect x="36" y="284" width="201" height="26" rx="6" style="fill:var(--surface); stroke:var(--basa); stroke-width:1.1"/>
+  <circle cx="49" cy="297" r="3.4" style="fill:var(--basa)"/>
+  <text x="60" y="301" style="font-size:11.0px; fill:var(--ink)">Docs de producto (contenido)</text>
+  <rect x="630" y="16" width="590" height="317" rx="12" style="fill:var(--surface-2); stroke:var(--partner); stroke-width:1.8"/>
+  <text x="648" y="44" style="font-family:var(--font-mono); font-size:12px; letter-spacing:1.5px; font-weight:700; fill:var(--partner)">INSTALL &amp; FACTORY</text>
+  <text x="648" y="62" style="font-size:11.5px; fill:var(--ink-soft)">jefe t&#233;cnico: Falime</text>
+  <rect x="646" y="74" width="159" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="659" cy="87" r="3.4" style="fill:var(--partner)"/>
+  <text x="670" y="91" style="font-size:11.0px; fill:var(--ink)">Bundles & white-label</text>
+  <rect x="813" y="74" width="260" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="826" cy="87" r="3.4" style="fill:var(--partner)"/>
+  <text x="837" y="91" style="font-size:11.0px; fill:var(--ink)">Instalaciones en sede + IT del cliente</text>
+  <rect x="646" y="109" width="183" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="659" cy="122" r="3.4" style="fill:var(--partner)"/>
+  <text x="670" y="126" style="font-size:11.0px; fill:var(--ink)">Updates &#183; parches &#183; flota</text>
+  <rect x="837" y="109" width="236" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="850" cy="122" r="3.4" style="fill:var(--partner)"/>
+  <text x="861" y="126" style="font-size:11.0px; fill:var(--ink)">Licencias: emisi&#243;n, cupos, true-up</text>
+  <rect x="1081" y="109" width="117" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="1094" cy="122" r="3.4" style="fill:var(--partner)"/>
+  <text x="1105" y="126" style="font-size:11.0px; fill:var(--ink)">CLI basa-admin</text>
+  <rect x="646" y="144" width="129" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="659" cy="157" r="3.4" style="fill:var(--partner)"/>
+  <text x="670" y="161" style="font-size:11.0px; fill:var(--ink)">CI/CD & releases</text>
+  <rect x="783" y="144" width="224" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="796" cy="157" r="3.4" style="fill:var(--partner)"/>
+  <text x="807" y="161" style="font-size:11.0px; fill:var(--ink)">Registry & storage de artefactos</text>
+  <rect x="1015" y="144" width="123" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="1028" cy="157" r="3.4" style="fill:var(--partner)"/>
+  <text x="1039" y="161" style="font-size:11.0px; fill:var(--ink)">Infra: VPS demo</text>
+  <rect x="646" y="179" width="201" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="659" cy="192" r="3.4" style="fill:var(--partner)"/>
+  <text x="670" y="196" style="font-size:11.0px; fill:var(--ink)">Distribuci&#243;n de la extensi&#243;n</text>
+  <rect x="855" y="179" width="218" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="868" cy="192" r="3.4" style="fill:var(--partner)"/>
+  <text x="879" y="196" style="font-size:11.0px; fill:var(--ink)">Docs: build & entrega brandeada</text>
+  <rect x="646" y="214" width="153" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="659" cy="227" r="3.4" style="fill:var(--partner)"/>
+  <text x="670" y="231" style="font-size:11.0px; fill:var(--ink)">Perfiles de clientes</text>
+  <rect x="807" y="214" width="141" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="820" cy="227" r="3.4" style="fill:var(--partner)"/>
+  <text x="831" y="231" style="font-size:11.0px; fill:var(--ink)">TLS & certificados</text>
+  <rect x="956" y="214" width="153" height="26" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.1"/>
+  <circle cx="969" cy="227" r="3.4" style="fill:var(--partner)"/>
+  <text x="980" y="231" style="font-size:11.0px; fill:var(--ink)">Vendor Portal (oct+)</text>
+  <rect x="20" y="353" width="1200" height="116" rx="12" style="fill:var(--surface); stroke:var(--line); stroke-dasharray:7 5"/>
+  <text x="38" y="380" style="font-family:var(--font-mono); font-size:11px; letter-spacing:1.5px; fill:var(--ink-soft)">COSTURA &#8212; REQUIERE A AMBOS DEPARTAMENTOS</text>
+  <rect x="36" y="393" width="272" height="26" rx="6" style="fill:var(--surface); stroke:var(--line)"/>
+  <circle cx="47" cy="406" r="3.2" style="fill:var(--basa)"/>
+  <circle cx="56" cy="406" r="3.2" style="fill:var(--partner)"/>
+  <text x="66" y="410" style="font-size:11.0px; fill:var(--ink)">Extensi&#243;n &#8212; JF app &#183; Falime distribuci&#243;n</text>
+  <rect x="316" y="393" width="278" height="26" rx="6" style="fill:var(--surface); stroke:var(--line)"/>
+  <circle cx="327" cy="406" r="3.2" style="fill:var(--basa)"/>
+  <circle cx="336" cy="406" r="3.2" style="fill:var(--partner)"/>
+  <text x="346" y="410" style="font-size:11.0px; fill:var(--ink)">Release &#8212; JF contenido &#183; Falime empaqueta</text>
+  <rect x="602" y="393" width="272" height="26" rx="6" style="fill:var(--surface); stroke:var(--line)"/>
+  <circle cx="613" cy="406" r="3.2" style="fill:var(--basa)"/>
+  <circle cx="622" cy="406" r="3.2" style="fill:var(--partner)"/>
+  <text x="632" y="410" style="font-size:11.0px; fill:var(--ink)">Zero-day &#8212; JF parche &#183; Falime despliegue</text>
+  <rect x="882" y="393" width="248" height="26" rx="6" style="fill:var(--surface); stroke:var(--line)"/>
+  <circle cx="893" cy="406" r="3.2" style="fill:var(--basa)"/>
+  <circle cx="902" cy="406" r="3.2" style="fill:var(--partner)"/>
+  <text x="912" y="410" style="font-size:11.0px; fill:var(--ink)">Docs &#8212; JF contenido &#183; Falime entrega</text>
+  <rect x="36" y="428" width="248" height="26" rx="6" style="fill:var(--surface); stroke:var(--line)"/>
+  <circle cx="47" cy="441" r="3.2" style="fill:var(--basa)"/>
+  <circle cx="56" cy="441" r="3.2" style="fill:var(--partner)"/>
+  <text x="66" y="445" style="font-size:11.0px; fill:var(--ink)">Bugs &#8212; JF triage &#183; installs a Falime</text>
+  <rect x="20" y="485" width="1200" height="44" rx="12" style="fill:var(--amber-soft); stroke:var(--amber); stroke-dasharray:6 4"/>
+  <text x="38" y="512" style="font-family:var(--font-mono); font-size:11px; letter-spacing:1.2px; fill:var(--amber)">GATE DE SEGURIDAD &#8212; CRISTIAN &#183; review obligatorio en custodia/rotaci&#243;n de claves de firma, RBAC de firma (017) y auth</text>
+</svg>
+    </div>
+  </section>
+
+  <section>
+    <p class="kicker">02 &#183; Router de responsabilidades</p>
+    <h2>Qu&#233; entra d&#243;nde</h2>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>Situaci&#243;n</th><th>Responsable</th><th>Notas</th></tr></thead>
+        <tbody>
+          <tr><td>Bug report de un cliente o partner</td><td><span class="pill p-basa">JF</span></td><td>clasifica; instalaci&#243;n/update se deriva a Falime.</td></tr>
+          <tr><td>Instalaci&#243;n de un cliente nuevo (bundle, sede, IT)</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>JF interviene solo si aflora un bug de producto.</td></tr>
+          <tr><td>Corte de release (vX.Y)</td><td><span class="pill p-amber">Ambos</span></td><td>JF define contenido; Falime buildea, pinnea digests y publica.</td></tr>
+          <tr><td>Zero-day / parche urgente</td><td><span class="pill p-amber">Ambos</span></td><td>JF parchea el c&#243;digo; Falime fabrica el bundle-parche y lo distribuye.</td></tr>
+          <tr><td>Emisi&#243;n o renovaci&#243;n de licencia (.lic, cupos, true-up)</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>gate de Cristian si toca custodia o claves.</td></tr>
+          <tr><td>La extensi&#243;n deja de enmascarar tras un cambio del proveedor</td><td><span class="pill p-basa">JF</span></td><td>adapters y rutas de API (riesgo US10).</td></tr>
+          <tr><td>Distribuci&#243;n de la extensi&#243;n brandeada a los puestos</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>render de marca, zip, manifest.key, CWS.</td></tr>
+          <tr><td>Fallo de arranque del stack / fallo de update</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>runbooks, preflight de arquitectura, bundle.</td></tr>
+          <tr><td>Alta de una superficie nueva (Gemini web, MCP&#8230;)</td><td><span class="pill p-basa">JF</span></td><td>spike con evidencia + fila en la matriz 019.</td></tr>
+          <tr><td>VPS demo: ca&#237;da o actualizaci&#243;n</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>infra; el contenido de la demo es de JF.</td></tr>
+          <tr><td>TLS / certificados en el onboarding</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>trust-kit, cert modes.</td></tr>
+          <tr><td>Docs para cliente final o partner</td><td><span class="pill p-amber">Ambos</span></td><td>JF contenido; Falime build brandeado + inclusi&#243;n en bundle.</td></tr>
+          <tr><td>CI/CD y convenci&#243;n de ramas/releases</td><td><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">Falime</span></td><td>no existe hoy.</td></tr>
+          <tr><td>Operabilidad del motor (alta de modelo, reload)</td><td><span class="pill p-basa">JF</span></td><td>feature del motor.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <p class="kicker">03 &#183; Reglas de operaci&#243;n</p>
+    <h2>Cinco reglas</h2>
+    <div class="road">
+      <div class="rstep"><span class="st pill p-basa">regla 1</span><div><div class="rt">Puerta &#250;nica de clientes</div><div class="rd">Todo reporte de cliente o partner entra por JF, que clasifica y deriva.</div></div></div>
+      <div class="rstep"><span class="st pill p-basa">regla 2</span><div><div class="rt">Herencia</div><div class="rd">Trabajo de Falime sin commits ni PR que caiga en &#225;rea de producto pasa a JF al 100% (incluye 023/#16). Lo que tenga PR abierto se termina o se traspasa de forma expl&#237;cita.</div></div></div>
+      <div class="rstep"><span class="st pill p-amber">regla 3</span><div><div class="rt">Gate de custodia</div><div class="rd">Cambios en claves de firma, keyset o RBAC de firma requieren review de Cristian antes de merge.</div></div></div>
+      <div class="rstep"><span class="st pill p-ok" style="background:var(--partner-soft);color:var(--partner)">regla 4</span><div><div class="rt">Fuente &#250;nica de licensing</div><div class="rd">backend/src/licensing es c&#243;digo de Guardian; Factory lo consume como librer&#237;a, sin copias.</div></div></div>
+      <div class="rstep"><span class="st pill p-ok" style="background:var(--partner-soft);color:var(--partner)">regla 5</span><div><div class="rt">CODEOWNERS</div><div class="rd">Todo PR que mueva ficheros entre &#225;reas actualiza CODEOWNERS en el mismo PR.</div></div></div>
+    </div>
+    <div class="loopback" style="margin-top:20px"><strong>Cambios que requieren a ambos departamentos:</strong> contratos-espejo motor&#8596;backend (Redis keys, _IDENTITY_SQL, layer_keys) &#183; formato del bundle/MANIFEST &#183; api/internal.py &#183; rotaci&#243;n de kid del keyset (+ gate Cristian) &#183; copias de engine-extensions por release &#183; alta de imagen nueva (5 ubicaciones).</div>
+  </section>
+
+  <section>
+    <p class="kicker">04 &#183; Plan de septiembre</p>
+    <h2>Objetivo: el partner instalando a todos los clientes posibles</h2>
+    <p class="sub">El Vendor Portal no entra en septiembre; su l&#243;gica se entrega v&#237;a CLI. La cara web llega en octubre+ sobre la CLI probada en campo.</p>
+    <div class="road">
+      <div class="rstep"><span class="st pill p-basa">1 &#183; JF</span><div><div class="rt">Rama instalable</div><div class="rd">Cerrar dev-fran&#8594;main (#21 &#8594; #43 &#8594; #45) o declarar dev-fran como release del mes. main no incluye 016/027/029/030/031.</div></div></div>
+      <div class="rstep"><span class="st pill p-ok" style="background:var(--partner-soft);color:var(--partner)">2 &#183; Falime</span><div><div class="rt">CLI basa-admin MVP (install + license)</div><div class="rd">Custodia PKCS8 cifrada y traspaso de firma con review de Cristian. Spec, plan y tasks completos; implementaci&#243;n en cero.</div></div></div>
+      <div class="rstep"><span class="st pill p-ok" style="background:var(--partner-soft);color:var(--partner)">3 &#183; Falime</span><div><div class="rt">Trust-kit TLS (PR #55)</div><div class="rd">Merge + runbook Windows (instalaci&#243;n de CA en almac&#233;n de m&#225;quina).</div></div></div>
+      <div class="rstep"><span class="st pill p-ok" style="background:var(--partner-soft);color:var(--partner)">4 &#183; Falime</span><div><div class="rt">Camino de update v0</div><div class="rd">Bundle-parche + procedimiento documentado. Estado actual: solo reinstalaci&#243;n fresca.</div></div></div>
+      <div class="rstep"><span class="st pill p-amber">5 &#183; Ambos</span><div><div class="rt">Kit del partner</div><div class="rd">Bundle base amd64 &#183; overlay por cliente &#183; docs de cliente final &#183; agente con skills sobre la CLI &#183; certificaci&#243;n (025).</div></div></div>
+    </div>
+    <div class="loopback" style="margin-top:20px"><strong>Fuera de alcance de septiembre:</strong> Vendor Portal (octubre+) &#183; Zarf/k3s &#183; build farm (CI m&#237;nima s&#237;) &#183; 023.</div>
+  </section>
+
+  <p class="foot">
+    Manos a la obra v3 &#183; 03-ago-2026 &#183; Compa&#241;ero del ArquitectOverview.
+  </p>
+
+</div>
+
+<script>
+(function () {
+  const root = document.documentElement, btn = document.querySelector('.theme-toggle');
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const label = () => { btn.textContent = isDark() ? 'Tema claro' : 'Tema oscuro'; };
+  btn.addEventListener('click', () => { root.dataset.theme = isDark() ? 'light' : 'dark'; label(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (!root.dataset.theme) label(); });
+  label();
+})();
+</script>
+</body>
+</html>

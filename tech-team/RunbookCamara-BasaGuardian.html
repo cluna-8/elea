@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runbook install &#8212; C&#225;mara de Comercio</title>
+<meta name="description" content="Runbook as-built de la instalación de Basa Guardian en la Cámara de Comercio (Valencia): topología, pasos, gotchas, soporte.">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; min-height: 100vh; }
+  img, svg, video { max-width: 100%; }
+  table { border-collapse: collapse; }
+  :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+  :root {
+    --basa: #0891B2;
+    --basa-soft: rgba(8,145,178,0.10);
+    --ok: #059669;
+    --ok-soft: rgba(5,150,105,0.10);
+    --amber: #B45309;
+    --amber-soft: rgba(180,83,9,0.10);
+    --danger: #DC2626;
+    --danger-soft: rgba(220,38,38,0.08);
+    --bg: #F6FAFB;
+    --surface: #FFFFFF;
+    --surface-2: #EAF4F7;
+    --ink: #0E3A4A;
+    --ink-soft: #4A6B78;
+    --line: #CFE3EA;
+    --font-display: "Avenir Next", "Avenir", "Seravek", "Segoe UI", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --basa: #38BDD8; --basa-soft: rgba(56,189,216,0.12);
+      --ok: #34C99A; --ok-soft: rgba(52,201,154,0.12);
+      --amber: #E0A458; --amber-soft: rgba(224,164,88,0.12);
+      --danger: #F07171; --danger-soft: rgba(240,113,113,0.10);
+      --bg: #0A1D25; --surface: #102833; --surface-2: #16323F;
+      --ink: #D9EEF4; --ink-soft: #8FB2BE; --line: #23414E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --basa: #38BDD8; --basa-soft: rgba(56,189,216,0.12);
+    --ok: #34C99A; --ok-soft: rgba(52,201,154,0.12);
+    --amber: #E0A458; --amber-soft: rgba(224,164,88,0.12);
+    --danger: #F07171; --danger-soft: rgba(240,113,113,0.10);
+    --bg: #0A1D25; --surface: #102833; --surface-2: #16323F;
+    --ink: #D9EEF4; --ink-soft: #8FB2BE; --line: #23414E;
+  }
+  :root[data-theme="light"] {
+    --basa: #0891B2; --basa-soft: rgba(8,145,178,0.10);
+    --ok: #059669; --ok-soft: rgba(5,150,105,0.10);
+    --amber: #B45309; --amber-soft: rgba(180,83,9,0.10);
+    --danger: #DC2626; --danger-soft: rgba(220,38,38,0.08);
+    --bg: #F6FAFB; --surface: #FFFFFF; --surface-2: #EAF4F7;
+    --ink: #0E3A4A; --ink-soft: #4A6B78; --line: #CFE3EA;
+  }
+
+  .theme-toggle { position: fixed; top: 14px; right: 14px; z-index: 99;
+    font: 600 12px/1 var(--font-display);
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 999px; padding: 9px 15px; cursor: pointer; }
+  .theme-toggle:hover { border-color: var(--basa); }
+  @media print { .theme-toggle { display: none; } }
+
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--basa); margin: 0 0 10px; }
+  h1 { font-size: clamp(30px, 5vw, 40px); font-weight: 700; line-height: 1.12; margin: 0 0 14px; text-wrap: balance; }
+  .lede { font-size: 17.5px; color: var(--ink-soft); max-width: 68ch; margin: 0; text-wrap: pretty; }
+  .lede strong { color: var(--ink); }
+  .thesis { margin-top: 20px; border: 1.5px solid var(--basa); border-radius: 10px; background: var(--basa-soft); padding: 15px 20px; font-size: 15px; max-width: 80ch; text-wrap: pretty; }
+  .thesis strong { color: var(--basa); }
+
+  section { margin-top: 58px; }
+  .kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 6px; }
+  h2 { font-size: 23px; font-weight: 700; margin: 0 0 6px; text-wrap: balance; }
+  .sub { color: var(--ink-soft); max-width: 72ch; margin: 0 0 22px; text-wrap: pretty; }
+  .sub strong { color: var(--ink); }
+  .mono { font-family: var(--font-mono); font-size: 0.86em; }
+  code.block { display: block; font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px; margin-top: 8px; overflow-x: auto; white-space: pre; color: var(--ink); }
+
+  /* topología */
+  .machines { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .machine { border: 1.5px solid var(--line); border-radius: 11px; background: var(--surface); padding: 16px 19px; }
+  .machine h3 { margin: 0 0 8px; font-size: 15.5px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .machine h3 .ip { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); font-weight: 400; }
+  .machine ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-soft); }
+  .machine ul li { margin-bottom: 6px; text-wrap: pretty; }
+  .machine ul li strong { color: var(--ink); }
+  .machine .never { color: var(--danger); font-weight: 600; }
+
+  /* pasos */
+  .cycle { display: flex; flex-direction: column; }
+  .cstep { display: grid; grid-template-columns: 52px 1fr; gap: 16px; }
+  .cstep .rail { display: flex; flex-direction: column; align-items: center; }
+  .cstep .num { width: 38px; height: 38px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 14px; font-weight: 700; border: 1.5px solid var(--basa); color: var(--basa); background: var(--surface); }
+  .cstep .cord { width: 1.5px; flex: 1; background: var(--line); margin: 4px 0; }
+  .cstep:last-child .cord { display: none; }
+  .cstep .body { padding-bottom: 14px; min-width: 0; }
+  .ccard { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 14px 18px; }
+  .ccard h3 { margin: 0; font-size: 15.5px; }
+  .ccard p { margin: 7px 0 0; font-size: 13.5px; color: var(--ink-soft); max-width: 80ch; text-wrap: pretty; }
+  .ccard p strong { color: var(--ink); }
+  .ccard .warn { color: var(--danger); font-weight: 600; }
+
+  /* tablas */
+  .twrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table.t { border-collapse: collapse; width: 100%; min-width: 620px; background: var(--surface); font-size: 13px; }
+  table.t th { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); text-align: left; padding: 10px 14px; border-bottom: 1.5px solid var(--line); background: var(--surface-2); }
+  table.t td { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.t tr:last-child td { border-bottom: 0; }
+
+  .hotbox { margin-top: 14px; border: 1.5px solid var(--danger); border-radius: 10px; background: var(--danger-soft); padding: 13px 18px; font-size: 13.5px; text-wrap: pretty; }
+  .hotbox strong { color: var(--danger); }
+  .rulebox { margin-top: 14px; border: 1.5px solid var(--amber); border-radius: 10px; background: var(--amber-soft); padding: 13px 18px; font-size: 13.5px; text-wrap: pretty; }
+  .rulebox strong { color: var(--amber); }
+  .okbox { margin-top: 14px; border: 1.5px dashed var(--ok); border-radius: 10px; background: var(--ok-soft); padding: 13px 18px; font-size: 13.5px; text-wrap: pretty; }
+  .okbox strong { color: var(--ok); }
+
+  ul.tight { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-soft); }
+  ul.tight li { margin-bottom: 7px; text-wrap: pretty; }
+  ul.tight li strong { color: var(--ink); }
+
+  .foot { margin-top: 60px; border-top: 1px solid var(--line); padding-top: 16px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); line-height: 1.8; }
+  .foot a { color: var(--basa); }
+
+  @media (max-width: 820px) { .machines { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<button class="theme-toggle" type="button">Tema</button>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Basa Guardian &#183; piloto C&#225;mara de Comercio (Valencia) &#183; as-built 30-jul-2026</p>
+    <h1>Runbook de instalaci&#243;n en sede</h1>
+    <p class="lede">C&#243;mo se instal&#243; el piloto real — y c&#243;mo se repite en el pr&#243;ximo cliente. Instalaci&#243;n <strong>on-prem, air-gapped, desde pendrive</strong>: 8 im&#225;genes x86_64 + licencia + instalador. Resultado del 30-jul: <strong>todo verde</strong>.</p>
+    <div class="thesis"><strong>Para qui&#233;n:</strong> desde la mudanza del 04-ago, las instalaciones son del departamento <strong>Install &amp; Factory (Falime)</strong> — este runbook es parte de la dote. La fuente can&#243;nica paso-a-paso vive en el repo (<span class="mono">deploy/release/INSTALL-CAMARA.md</span>, viaja en el pendrive del cliente); esto es la vista de equipo: topolog&#237;a real, cicatrices y soporte. <strong>Cero credenciales ac&#225;</strong>: viven en <span class="mono">sede.env</span> (custodia JF, canal seguro).</div>
+  </header>
+
+  <section>
+    <p class="kicker">01 &#183; La sede real</p>
+    <h2>Topolog&#237;a: dos m&#225;quinas, dos mundos</h2>
+    <div class="machines">
+      <div class="machine">
+        <h3>🖥️ delorean <span class="ip">192.168.46.168 &#183; x86_64 &#183; frontal</span></h3>
+        <ul>
+          <li><strong>Corre NUESTRO stack</strong>: proyecto compose <span class="mono">camara</span>, bundle en <span class="mono">~/basa-install/bundle-camara-comercio/</span>.</li>
+          <li>Puertos nuestros: <strong>8080</strong> http &#183; <strong>8443</strong> https (CA interna Caddy) &#183; <strong>8082</strong> docs.</li>
+          <li><span class="never">⚠️ También corre el Dokploy/Traefik DE ELLOS en :80/:443</span> (n8n, OpenWebUI, Qdrant) — jam&#225;s tocar. Un redirect nuestro hacia ah&#237; ya caus&#243; un incidente; el Caddyfile lleva <span class="mono">auto_https disable_redirects</span> y no se quita.</li>
+          <li><span class="never">delorean JAM&#193;S corre modelos</span> (regla explícita del cliente y de JF).</li>
+        </ul>
+      </div>
+      <div class="machine">
+        <h3>🧠 t800 <span class="ip">192.168.46.149 &#183; Ryzen AI Max &#183; 128 GB &#183; inferencia</span></h3>
+        <ul>
+          <li>Solo accesible <strong>desde delorean</strong> (firewall): salto SSH v&#237;a el frontal.</li>
+          <li>Corre <strong>SU llama.cpp</strong> (:8080 chat 30B &#183; :8081 embeddings — no tocar) y <strong>NUESTRO Ollama</strong> (:11434 — qwen3:30b-a3b-instruct + qwen3-embedding:0.6b).</li>
+          <li>Sus GGUF en <span class="mono">/opt/models</span> no se tocan. Partici&#243;n de 98 GB que <strong>ya se llen&#243; dos veces</strong>: <span class="mono">df -h /</span> antes de bajar nada grande.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="rulebox"><strong>Acceso remoto: SIN RESOLVER (#80, Falime).</strong> Fuera de la sede, hoy todo se ejecuta pas&#225;ndole comandos a Rafa (IT del cliente, resolutivo). Credenciales SSH: custodia JF, se piden por canal seguro.</div>
+  </section>
+
+  <section>
+    <p class="kicker">02 &#183; El install</p>
+    <h2>Los 10 pasos (as&#237; se hizo, as&#237; se repite)</h2>
+    <div class="cycle">
+
+      <div class="cstep"><div class="rail"><div class="num">1</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Preflight del host</h3>
+        <p><span class="mono">uname -m</span> = x86_64 (el instalador se niega solo si no — cicatriz del showstopper arm64) &#183; Docker sin sudo &#183; ~10 GB libres en <span class="mono">/var/lib/docker</span> &#183; RAM ≥8 GB (el NLP carga un modelo en memoria) &#183; puertos libres o alternativos. El plugin compose lo trae el bundle.</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">2</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Copiar e instalar — dos comandos</h3>
+        <p>Copiar bundle + <span class="mono">.lic</span> del pendrive, descomprimir y:</p>
+        <code class="block">./install.sh ../camara-comercio-300.lic camara</code>
+        <p>Con :80/:443 ocupados (el caso real): <span class="mono">INGRESS_HTTP_PORT=8080 INGRESS_HTTPS_PORT=8443</span> antepuestos. <span class="warn">Falsa alarma conocida:</span> el motor puede reportar <span class="mono">unhealthy</span> en el primer arranque (migraciones) — esperar 2-3 min, <strong>no reiniciar</strong>. Al final: <strong>8 contenedores</strong> arriba.</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">3</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Licencia y g&#233;nesis — antes del primer login</h3>
+        <code class="block">curl -s http://localhost/api/v1/health/license</code>
+        <p>Esperado <span class="mono">"status":"active"</span> — y <strong>anotar el <span class="mono">genesis_license_id</span></strong>: es la g&#233;nesis de auditor&#237;a de ESTA instalaci&#243;n y se registra del lado Basa (el ancla del true-up futuro).</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">4</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Primer login</h3>
+        <p>Navegador &#8594; la URL de la m&#225;quina. Usuario <span class="mono">admin</span> + contrase&#241;a que se fija en ese momento y <strong>queda</strong> (12+ caracteres, elegida ANTES, no delante del cliente). En la C&#225;mara la admin ra&#237;z es compartida JF/Rafa.</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">5</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Modelo local — la pregunta ANTES de tocar nada: &#191;qu&#233; modelo tienen ELLOS?</h3>
+        <p>El bundle asume un modelo bajo el alias del cliente, pero el modelo REAL lo dicta <span class="mono">ollama list</span> en su m&#225;quina. Si difiere: alta por UI (Modelos &amp; Ollama &#8594; modelo personalizado &#8594; proveedor Ollama, api base la IP del servidor de inferencia) y repuntar el default en <strong>Ruteo inteligente</strong> (2 clics, al instante). Ollama debe escuchar fuera de localhost (<span class="mono">OLLAMA_HOST=0.0.0.0</span>). Para el modo «Auto» del chat: <span class="mono">ollama pull qwen3-embedding:0.6b</span> (639 MB, una vez) — sin &#233;l no rompe, degrada al default y queda registrado.</p>
+        <p><span class="warn">🔴 La regla de oro del piloto:</span> tras CADA alta de modelo por UI &#8594; <span class="mono">docker restart camara-litellm-1</span> &#8594; probar. Sin restart, el Playground «no hace nada» (400 silencioso). <em>Esto es exactamente lo que la spec 033 elimina.</em></p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">6</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Usuarios y Connections</h3>
+        <p>Cada alta pide contrase&#241;a propia 12+ (entregada por canal seguro). Cada persona que use API/herramientas necesita adem&#225;s su <strong>Connection</strong> — la clave se muestra UNA sola vez. Recordatorio de seats: 1 seat = 1 Connection activa (300 en la licencia de la C&#225;mara).</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">7</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Confianza del certificado en los puestos — ANTES de repartir la extensi&#243;n</h3>
+        <p>Si el acceso va por https con la CA interna (LAN sin dominio p&#250;blico): armar el kit con <span class="mono">trust-kit/export-ca.sh</span>, pasar la <strong>huella SHA-256 por un canal DISTINTO</strong> del que lleva la carpeta, y en cada puesto el instalador (<span class="mono">install-ca.bat</span> / <span class="mono">install-ca-macos.sh</span>) que <strong>coteja la huella antes de instalar</strong> y termina en VERDE/ROJO con handshake real.</p>
+        <p><span class="warn">El fallo real del 30-jul (#51):</span> doble-click en el <span class="mono">.crt</span> importa en el almac&#233;n del USUARIO, dice «correcta» y el navegador sigue avisando. El <span class="mono">.bat</span> es el camino. Esta fricci&#243;n cost&#243; tiempo — va SIEMPRE antes de la extensi&#243;n.</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">8</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Extensi&#243;n + herramientas de c&#243;digo</h3>
+        <p>Extensi&#243;n: cargar descomprimida, y en el popup la URL del gateway <strong>con el path completo</strong> — <span class="mono">http(s)://SERVIDOR/api/v1/gw</span> (sin el path: «servicio no disponible») + la clave de esa persona. Exige https fuera de localhost (por eso el paso 7 va antes). Claude Code: <span class="mono">ANTHROPIC_BASE_URL</span> al mismo gateway. VS Code/Copilot custom endpoint: la URL con <span class="mono">?k=sk-basa-&#8230;</span> y el modelo local.</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">9</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Smoke test (el de la demo)</h3>
+        <p>Playground con PII espa&#241;ola real (DNI con letra, tel&#233;fono, IBAN) &#8594; pesta&#241;a <strong>Debugger T&#233;cnico</strong>: el JSON muestra <span class="mono">[PERSON_0]</span>, <span class="mono">[PHONE_NUMBER_0]</span>&#8230; — <strong>eso es lo que recibi&#243; el proveedor</strong>. Que la respuesta muestre los datos reales es lo CORRECTO (des-enmascarado autom&#225;tico).</p>
+      </div></div></div>
+
+      <div class="cstep"><div class="rail"><div class="num">10</div><div class="cord"></div></div><div class="body"><div class="ccard">
+        <h3>Operar: parar / reiniciar</h3>
+        <p>Siempre con los DOS env-files (sin ellos compose falla):</p>
+        <code class="block">docker compose -p camara -f compose.prod.yml --profile selfhosted \
+  --env-file profile/instance.env --env-file profile/secrets.env down</code>
+      </div></div></div>
+
+    </div>
+
+    <div class="hotbox"><strong>Los NUNCA:</strong> no correr <span class="mono">issue_dev_license.py</span> (invalida la licencia viva) &#183; no «limpiar» <span class="mono">secrets.env</span> &#183; no reiniciar el motor por el <span class="mono">unhealthy</span> del primer arranque &#183; no tocar el Traefik del cliente en :80/:443 &#183; las llaves dev de Basa <strong>no viajan</strong> a instalaciones de cliente (la API key cloud es DEL cliente).</div>
+  </section>
+
+  <section>
+    <p class="kicker">03 &#183; Cuando algo falla</p>
+    <h2>Troubleshooting expr&#233;s</h2>
+    <div class="twrap">
+      <table class="t">
+        <thead><tr><th>S&#237;ntoma</th><th>Causa / arreglo</th></tr></thead>
+        <tbody>
+          <tr><td>Playground «no hace nada» tras alta de modelo</td><td>falta <span class="mono">docker restart camara-litellm-1</span></td></tr>
+          <tr><td><span class="mono">Cannot connect &#8230; :11434</span></td><td>Ollama sin <span class="mono">OLLAMA_HOST=0.0.0.0</span>, o stack en otra m&#225;quina &#8594; alta por UI con IP</td></tr>
+          <tr><td>401 en todo con clave v&#225;lida</td><td>motor sin <span class="mono">BASA_IDENTITY_URL</span></td></tr>
+          <tr><td>«Sitio no seguro» tras instalar el .crt</td><td>fue al almac&#233;n del USUARIO (doble-click) &#8594; instalador del trust-kit</td></tr>
+          <tr><td>Extensi&#243;n no conecta por https, URL correcta</td><td>ese puesto no conf&#237;a a&#250;n en la CA &#8594; correr el instalador ah&#237;, ver el VERDE</td></tr>
+          <tr><td>Detecta emails pero no nombres</td><td>el sidecar NLP no est&#225; arriba</td></tr>
+          <tr><td>Playground colgado / cola infinita</td><td>incidente conocido del pool (r&#225;faga de peticiones largas) &#8594; <span class="mono">docker restart camara-backend-1</span>; py-spy ya instalado para diagnosticar. <em>El fix real (anti-starvation) est&#225; en el tech tree, Fase 0.</em></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:14px">Herramienta #1 de diagn&#243;stico: el access log del ingress (<span class="mono">docker logs camara-ingress-1</span> — JSON por l&#237;nea con TODO el tr&#225;fico; uvicorn no loguea accesos). Despu&#233;s: <span class="mono">docker logs --tail 100 camara-backend-1</span> (&#237;dem litellm, nlp-analyzer).</p>
+  </section>
+
+  <section>
+    <p class="kicker">04 &#183; Despu&#233;s del install</p>
+    <h2>Soporte y c&#243;mo pasar un fix</h2>
+    <ul class="tight">
+      <li><strong>Canal</strong>: interno con el cliente (Rafa = IT, resolutivo; Javi = negocio). Triage seg&#250;n la regla de la casa: instalaci&#243;n/update &#8594; Factory &#183; software &#8594; Guardian (issue con label de depto).</li>
+      <li><strong>Pasar un fix</strong> (runbook probado): build SIEMPRE <span class="mono">--platform linux/amd64</span> &#8594; <span class="mono">docker save | gzip</span> &#8594; transferir (LAN: http.server; remoto: VPS basa-dev) &#8594; <strong>verificar sha256</strong> &#8594; <span class="mono">docker load</span> &#8594; levantar SOLO el servicio tocado con los dos env-files &#8594; verificar health + la superficie afectada de punta a punta.</li>
+      <li><strong>Config del motor</strong>: editar <span class="mono">profile/config.yaml</span> &#8594; copiar al volumen (chown 10001:999) &#8594; restart litellm — escritura at&#243;mica desde el fix #50.</li>
+      <li><strong>Sin pendrive</strong>: los ficheros viven adem&#225;s en el Mac de JF y en el VPS de basa-dev; por HTTP el bundle solo viaja <strong>cifrado</strong> (lleva los secretos de la instalaci&#243;n — passphrase la tiene JF; la .lic va aparte, es texto).</li>
+    </ul>
+    <div class="okbox"><strong>Estado as-built del cat&#225;logo (30-jul):</strong> alias <span class="mono">camara-comercio-local</span> (su 30B v&#237;a Ollama del t800) &#183; <span class="mono">router-embeddings</span> &#183; <span class="mono">api-chatgpt</span> (gpt-5.5) &#183; <span class="mono">api-gpt-4.1-mini</span>. Rutas del auto-router: C&#243;digo&#8594;chatgpt &#183; Redacci&#243;n&#8594;4.1-mini &#183; Trivial&#8594;local. Fallback cloud&#8594;local activo.</div>
+    <div class="rulebox"><strong>Pendientes vivos de esta instalaci&#243;n:</strong> drop de imagen con los fixes acumulados (#79, Falime — la sede corre una imagen anterior a main) &#183; acceso remoto VPN/t&#250;nel con Rafa (#80, Falime) &#183; rotaci&#243;n de la API key cloud del cliente (la gestiona Rafa) &#183; licencia vence <strong>21-oct-2026</strong>: primer ciclo real de renovaci&#243;n/true-up.</div>
+  </section>
+
+  <p class="foot">
+    Runbook install C&#225;mara &#183; as-built 30-jul-2026, doc 05-ago &#183; fuente can&#243;nica paso-a-paso: <span class="mono">deploy/release/INSTALL-CAMARA.md</span> (repo + pendrive) &#183; conocimiento operativo: agente <span class="mono">soporte-camara</span> (.claude/agents/, compartido con el equipo) &#183; companion del <a href="Licencias-BasaGuardian.html">ciclo de licencias</a> y del <a href="EcosystemOverview-BasaGuardian.html">EcosystemOverview</a> &#183; sin credenciales: viven en <span class="mono">sede.env</span> (custodia JF).
+  </p>
+
+</div>
+
+<script>
+(function () {
+  const root = document.documentElement, btn = document.querySelector('.theme-toggle');
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const label = () => { btn.textContent = isDark() ? 'Tema claro' : 'Tema oscuro'; };
+  btn.addEventListener('click', () => { root.dataset.theme = isDark() ? 'light' : 'dark'; label(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (!root.dataset.theme) label(); });
+  label();
+})();
+</script>
+</body>
+</html>
