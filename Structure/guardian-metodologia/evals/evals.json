@@ -1,0 +1,17 @@
+{
+  "skill_name": "guardian-metodologia",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Fran me mandó un PR que se llama 'Update masking', tiene como 800 líneas, mezcla el fix del fallback a regex con un refactor del servicio de presidio, y no tiene issue linkeado. ¿Qué le digo? Redáctame la respuesta para mandarle.",
+      "expected_output": "Respuesta que pida partir el PR (<400 líneas, un propósito), crear/linkear issue (#63), título conventional commits, checklist DoD (tests + docs), label depto:guardian",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "Nos salió un cliente demo en Colombia. ¿Cómo lo organizamos, quién hace qué y en qué orden? Y ¿hay que crear una rama nueva para Colombia?",
+      "expected_output": "No rama por país (perfil de configuración/policy pack en deploy/clients, ADR-0001), runbook de instalación: Fran congela versión, Cristian define compliance, Falime emite licencia (gate Cristian) + perfil + bundle + instala, bugs a issues por depto",
+      "files": []
+    }
+  ]
+}
