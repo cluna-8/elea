@@ -1,6 +1,6 @@
 # Organización: router, reglas y runbooks
 
-Fuente: `Structure/ManosALaObra-BasaGuardian.html` v3 (03-ago-2026) + estado real del repo.
+Fuente: `Structure/ManosALaObra-BasaGuardian.html` v4 (05-ago-2026) + estado real del repo.
 
 ## Router de responsabilidades
 
@@ -43,7 +43,7 @@ Orden fijo (ejemplo real: demo Evidenze):
 ## Runbook: corte de release
 
 1. JF declara contenido (qué specs/fixes entran) y verifica DoD (tests + docs verdes).
-2. Falime buildea, pinnea digests, corre los 21 checks de `deploy/release/checks/`, taggea y publica.
+2. Falime buildea, pinnea digests, corre los 20 checks de `deploy/release/checks/`, taggea y publica.
 3. Copias de engine-extensions y alta de imagen (5 ubicaciones) — checklist compartida.
 
 ## Plan de septiembre 2026 (referencia)

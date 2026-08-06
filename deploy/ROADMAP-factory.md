@@ -33,7 +33,7 @@ consume pinneado.
 | 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#51](https://github.com/DrZuzzjen/basa-guardian/issues/51)); primer ladrillo del plano de control del futuro Vendor Portal |
 | — | Trust-kit TLS del certificado | **P1** | Mergeado ([PR #55](https://github.com/DrZuzzjen/basa-guardian/pull/55)); **pendiente: pasada en VM Windows real** (UAC, almacén de máquina, GPO, `IsInputRedirected` como SYSTEM) antes de entregarlo a la sede; instaladores sin firma → [#61](https://github.com/DrZuzzjen/basa-guardian/issues/61) |
 | — | Camino de update v0 (bundle-parche + procedimiento) | **P1** | No existe — hoy solo reinstalación fresca. Prerrequisito del zero-day O(N) del partner |
-| — | CI/CD y convención de releases | **P1** | No existe (`.github/` = solo CODEOWNERS); los 21 checks de `deploy/release/checks/` corren a mano |
+| — | CI/CD y convención de releases | **P1** | No existe (`.github/` = solo CODEOWNERS); los 20 checks de `deploy/release/checks/` corren a mano |
 | — | Vendor Portal | oct+ | Su lógica se entrega vía CLI 026; la cara web llega sobre la CLI probada en campo. 100% Factory |
 
 ## Operativa heredada de la sesión del 04-ago
