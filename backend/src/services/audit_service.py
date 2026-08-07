@@ -101,6 +101,95 @@ def record_audit_loss(reason: str = "") -> None:
         )
 
 
+# ── Estado de la degradación NLP (issue #63) ─────────────────────────────────────────
+#
+# Vive en ESTE módulo —y no en uno nuevo— por la misma razón por la que el contador de
+# pérdidas vive acá: es el sitio del backend que ya sabe escribir "constancia de algo que
+# salió mal" en Redis con la disciplina correcta (tolerante a Redis caído, jamás propaga,
+# el `logger.error` como piso innegociable). Duplicar ese patrón en otro archivo es cómo se
+# terminan teniendo dos formas distintas de contar la misma clase de hecho.
+#
+# Las claves son las MISMAS que escribe el plano motor (`litellm/extensions/basa_guardrail.py`,
+# `_marcar_nlp_degradado`): el health tiene que poder responder "¿se está degradando?" sin
+# preguntarle a cada plano por separado, igual que ya hace con `basa:audit:lost`.
+#
+# Sin TTL, igual que el contador de pérdidas: es CONSTANCIA, no una métrica que se auto-borre.
+# El único que limpia es `GET /api/v1/health` cuando CONFIRMA que el analyzer volvió a
+# responder (un solo punto de reseteo, documentado allá) — nunca el paso del tiempo.
+REDIS_KEY_NLP_DEGRADED_SINCE = "basa:nlp:degraded_since"
+REDIS_KEY_NLP_DEGRADED_COUNT = "basa:nlp:degraded_requests"
+
+
+def record_nlp_degradation(reason: str = "") -> None:
+    """Deja constancia de UNA request servida con regex por analyzer NLP caído (issue #63).
+
+    `SET NX` en `degraded_since` (instante de la PRIMERA degradación: el operador necesita
+    "desde cuándo", no "la última vez") + `INCR` del contador. El `logger.error` es
+    obligatorio y va SIEMPRE, aunque Redis ande: la promesa del #63 es que degradar nunca sea
+    silencioso, y un contador que nadie mira no es ruido suficiente.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    logger.error(
+        "nlp: pedido servido con detección REGEX de dev porque el motor NLP no responde "
+        "(nlp_fail_mode=degrade). Cobertura de PII REDUCIDA. motivo=%s ts=%s", reason, now_iso,
+    )
+    try:
+        redis_conn = get_redis()
+        if redis_conn is None:
+            logger.error("nlp: degradación sin marca de estado — Redis no disponible (%s)",
+                         REDIS_KEY_NLP_DEGRADED_SINCE)
+            return
+        redis_conn.set(REDIS_KEY_NLP_DEGRADED_SINCE, now_iso, nx=True)
+        redis_conn.incr(REDIS_KEY_NLP_DEGRADED_COUNT)
+    except Exception as exc:  # noqa: BLE001 — la marca es best-effort, el log NO
+        logger.error("nlp: degradación y la marca de estado (%s) también falló: %s",
+                     REDIS_KEY_NLP_DEGRADED_SINCE, exc)
+
+
+def clear_nlp_degradation() -> None:
+    """Borra la marca de degradación — SOLO cuando se confirmó que el analyzer volvió.
+
+    Deliberadamente no lo llama el camino caliente: cobrar un `DEL` por request sana sería
+    pagar en el 99,9% de los pedidos por una limpieza que sirve una vez. El punto de reseteo
+    es el probe de `GET /api/v1/health`, que ya pregunta si el analyzer responde.
+    """
+    try:
+        redis_conn = get_redis()
+        if redis_conn is None:
+            return
+        redis_conn.delete(REDIS_KEY_NLP_DEGRADED_SINCE, REDIS_KEY_NLP_DEGRADED_COUNT)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nlp: no se pudo limpiar la marca de degradación: %s", exc)
+
+
+def read_nlp_degradation() -> tuple:
+    """`(degraded_since, degraded_requests)` desde Redis.
+
+    Misma distinción que `_leer_contadores_de_perdida` del health: `None` en el contador es
+    "no se pudo leer", NO "cero". `degraded_since` en `None` con contador `0` es el estado
+    sano; con contador `None` es "no sabemos". Nunca propaga.
+    """
+    try:
+        redis_conn = get_redis()
+        if redis_conn is None:
+            return None, None
+        desde = redis_conn.get(REDIS_KEY_NLP_DEGRADED_SINCE)
+        crudo = redis_conn.get(REDIS_KEY_NLP_DEGRADED_COUNT)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nlp: estado de degradación ilegible (%s)", exc)
+        return None, None
+
+    if isinstance(desde, bytes):
+        desde = desde.decode()
+    if crudo is None:
+        return desde, 0
+    try:
+        return desde, int(crudo.decode() if isinstance(crudo, bytes) else crudo)
+    except (TypeError, ValueError):
+        logger.warning("nlp: valor ilegible en %s: %r", REDIS_KEY_NLP_DEGRADED_COUNT, crudo)
+        return desde, None
+
+
 def audit_writable(db: Session) -> bool:
     """`SELECT 1` con timeout corto sobre la sesión de auditoría (D4).
 
