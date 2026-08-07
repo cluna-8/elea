@@ -28,7 +28,7 @@ Criterio único: si la spec no obligaría a tomar ninguna decisión, no se escri
 |---|---|
 | Código nuevo = tests nuevos | En el mismo PR, sin excepciones para backend. Un PR de feature sin tests no está terminado aunque la suite vieja pase |
 | Suites backend | `backend/tests/` — unit + `contract/` + `integration/` + `e2e/` (78 archivos). Comando real: `cd backend && pytest tests/ -q` |
-| Frontend / extensión | Gap conocido: sin framework de tests. Mínimo hoy: `tsc` + `eslint` verdes + smoke manual descrito en el PR («cómo probar»). Meta: vitest en fase 1 |
+| Frontend / extensión | Gap conocido: sin framework de tests. Mínimo hoy: `tsc --noEmit` verde + smoke manual descrito en el PR («cómo probar»); ESLint sin config aún (#86) — al cerrarse, entra al gate. Meta: vitest en fase 1 |
 | Pre-release | Test integral E2E (routing + fallback + auditoría durable; precedente 28-jul) + ensayo de instalación si el cambio toca deploy |
 | Capacidad | Gates 125/250/500 del harness = DoD de fase 0 (`specs/ROADMAP-pisos.md`). No aplican por-PR |
 

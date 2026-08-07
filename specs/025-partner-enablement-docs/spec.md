@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-21
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`deploy/ROADMAP-factory.md`](../../deploy/ROADMAP-factory.md)
 
 **Input**: User description: "Página de partner enablement en la doc de producto: programa de capacitación y certificación del partner (distribuidor) para que instale de forma autónoma"
 

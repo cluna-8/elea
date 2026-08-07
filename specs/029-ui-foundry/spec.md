@@ -2,7 +2,7 @@
 
 **Feature Branch**: `029-ui-foundry`
 **Created**: 2026-07-24
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 **Input**: Pedido de JF — "la UI es muy horrible; quiero algo más como Azure Foundry, blanco, tipografías normales de Google Fonts, lean. EN/ES eventual. Piloto Cámara el martes." + 4 screenshots de Azure AI Foundry como referencia.
 
 ## Contexto

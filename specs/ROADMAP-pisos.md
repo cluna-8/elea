@@ -2,7 +2,7 @@
 
 **Departamento**: Guardian App Ecosystem (JF) · **Fecha**: 2026-08-05 · **Estado**: propuesta para la reunión de departamentos (betting del ciclo 1)
 **Presentación**: artifact «Tech Tree Guardian» (mismo contenido que este archivo; este markdown es la fuente de verdad).
-**Companion de**: `specs/ROADMAP-guardian.md` (estado por spec) · ArquitectOverview (mapa técnico) · ManosALaObra v4 (metodología).
+**Companion de**: `specs/ROADMAP-guardian.md` (estado por spec) · ArquitectOverview (mapa técnico, **HISTÓRICO** pre-mudanza — el vigente es EcosystemOverview) · ManosALaObra v4 (metodología).
 
 ---
 
@@ -107,6 +107,8 @@ Nodos de Fase 1/2 solo entran a un ciclo si los gates van verdes por delante de 
 - **Evidenze**: preparar el entorno + documentar para install autónoma + pruebas internas antes del despliegue real.
 
 ## Preguntas abiertas
+
+- **La frontera de los Dockerfiles prod** (audit 07-ago): viven en `deploy/` (Falime) pero hornean código Guardian con contexto en la raíz del repo (`deploy/docker/backend.prod.Dockerfile` COPY backend/src…). Antes de la mudanza hay que decidir: (a) Guardian publica imágenes versionadas y Factory solo consume tags, o (b) Factory consume un artefacto de release con fuentes. Decisión JF+Falime, documentar en `deploy/ROADMAP-factory.md`.
 
 1. **Licencia de test de 500 seats** para el harness (la de Cámara es de 300): emisión Falime, gate Cristian si toca custodia.
 2. **Costura secrets.env**: los secretos del stack viajan en claro en el bundle; el fix (generarlos en sede) toca bundle (Falime) y puede necesitar código de producto — coordinar.

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-13
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Documentar y portar el LADO CLIENTE del firewall: qué herramientas se
 integran a Basa, cómo se enganchan (passthrough de suscripción, auto-byok, key-in-URL, extensión de

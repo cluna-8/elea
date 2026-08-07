@@ -15,7 +15,7 @@ de Presidio hace sustitución irreversible, no sirve al moat de des-enmascarar).
 **Rationale**:
 - Es exactamente el scaffolding que el código heredado ya anticipaba (`PresidioService.analyze_text_http`,
   Guardian `guardian_type="presidio"` con `analyzer_url`/`anonymizer_url`) — cierra la brecha entre lo
-  documentado como intención y lo real (HANDOFF.md §7, Constraint SC-2).
+  documentado como intención y lo real (HANDOFF.md §7 — histórico, hoy en el historial git —, Constraint SC-2).
 - Confirmado (docs oficiales): la imagen oficial de `presidio-analyzer` se construye con
   `docker build --build-arg NLP_CONF_FILE=<config>.yaml`, donde el config declara el modelo spaCy a
   instalar. Para español hace falta un `NLP_CONF_FILE` propio apuntando a `es_core_news_md` (o `_lg` si

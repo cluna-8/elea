@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-17
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Real NLP entity detection and masking hardening: activate Presidio (or equivalent NLP) for PII/PHI detection replacing regex-only, connect SecurityPolicy entity_configs (per-entity MASK/BLOCK) to the live firewall path (spec 014 BasaGuardrail), and harden PERSON detection to not depend on title prefixes, fixing overlapping-match corruption risk in the masking engine"
 

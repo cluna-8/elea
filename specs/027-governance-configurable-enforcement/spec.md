@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-22
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Governance configurable y enforcement honesto del firewall: el Admin configura qué capas de gobernanza aplican por modo de conexión (suscripción vs gateway-models) y por superficie/herramienta, con un piso no-negociable siempre activo; la UI muestra el estado REAL de cada guardián en vez de mostrar activos los que no corren; y los guardrails del proveedor se cablean de verdad cuando el Admin los activa"
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-10
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Portar el firewall del demo (hoy hand-rolled en `gatelite backend/src/api/gateway.py`) a extensiones NATIVAS de LiteLLM (CustomGuardrail pre/post/streaming, custom_auth para identidad, CustomLogger para audit, `/v1/messages` nativo), con la excepción propia del passthrough OAuth de suscripción en el backend. Router GDPR = N/A (excepción acotada del Principio II). Incluir el monitor en vivo para demos. Depende de la spec 013."
 

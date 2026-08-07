@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-14
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Un SITIO de documentación de producto (no la doc interna de Spec Kit): la
 doc para el DISTRIBUIDOR y el OPERADOR que instalan, marca-blanquean, administran e integran Basa Guardian.

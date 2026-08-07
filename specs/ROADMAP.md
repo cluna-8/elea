@@ -1,9 +1,11 @@
 # Roadmap — Basa Secure AI Gateway
 
+> **HISTÓRICO (banner 07-ago-2026)** — roadmap del fork gatelite, congelado el 03-jul. Se conserva SOLO por la deuda heredada A–F que cita `ROADMAP-guardian.md`. La planificación viva: [`ROADMAP-guardian.md`](./ROADMAP-guardian.md) + [`ROADMAP-pisos.md`](./ROADMAP-pisos.md). Nota: la spec 012 figura abajo como draft pero está **CERRADA** (✅ US1–US6, 20/20 tests).
+
 **Última actualización**: 2026-07-03
 **Estado del proyecto**: 11 specs (5 completos, 6 parciales) + 1 spec nuevo en draft (012).
 
-Este roadmap consolida TODO el trabajo pendiente del proyecto: tareas abiertas de los specs 001–011, mejoras no formalizadas y la nueva feature de reducción de costes (spec 012). Es el documento único de planificación; cada item apunta a su spec de origen.
+Este roadmap consolida TODO el trabajo pendiente del proyecto: tareas abiertas de los specs 001–011, mejoras no formalizadas y la nueva feature de reducción de costes (spec 012). Era el documento único de planificación del fork; cada item apunta a su spec de origen.
 
 ---
 

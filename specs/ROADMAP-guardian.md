@@ -7,7 +7,8 @@ de Install & Factory (020, 025, 026, 032 y la operativa) se mudan a
 [`deploy/ROADMAP-factory.md`](../deploy/ROADMAP-factory.md), que viaja con `deploy/` cuando Falime haga su
 repo; (3) los estados 016/027-031 pasan a **Implementada en `main`** (ya no "en dev-fran").
 **Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
-**Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.0.0.
+**Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.1.0.
+**Tech tree y ciclos**: [`ROADMAP-pisos.md`](./ROADMAP-pisos.md) — fases 0–2, gates 125/250/500 y apuestas por ciclo.
 
 Este roadmap encadena el producto-core de **Basa Guardian** a partir del spec **013**, respetando las
 specs 001-012 heredadas. Convierte el giro demo→prod (multi-tenant, client-as-data, firewall LiteLLM-native)

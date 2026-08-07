@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-28
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Lo de auditoría sí o sí arreglar, es un problemón. Somos un
 producto de auditoría. (JF, 28-jul — decisión: sin coordinación con Cristian, deducir el
