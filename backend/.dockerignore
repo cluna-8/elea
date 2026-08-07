@@ -1,0 +1,16 @@
+# Contexto de build = ./backend (docker-compose.yml). El COPY . . del Dockerfile
+# hornea todo lo no excluido aquí — este archivo es la única barrera.
+
+# Material de firma y licencias emitidas: JAMÁS dentro de una imagen.
+# (backend/src/keys/basa_public_keys.pem NO se excluye: el verificador la necesita.)
+scripts/license_out/
+*.lic
+
+# Artefactos locales
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.env
