@@ -32,7 +32,19 @@ Criterio único: si la spec no obligaría a tomar ninguna decisión, no se escri
 | Pre-release | Test integral E2E (routing + fallback + auditoría durable; precedente 28-jul) + ensayo de instalación si el cambio toca deploy |
 | Capacidad | Gates 125/250/500 del harness = DoD de fase 0 (`specs/ROADMAP-pisos.md`). No aplican por-PR |
 
-## 4 · Review de PRs
+## 4 · Documentación — las 3 superficies
+
+Al cerrar una feature, preguntarse SIEMPRE cuáles de las tres toca. La doc desactualizada es bug de severidad alta (regla desde la 022).
+
+| Superficie | Audiencia | Cuándo se toca | Gate |
+|---|---|---|---|
+| `docs/` (mkdocs producto) | Partner/admin — **se vende** con el producto | La feature cambia API, config, operación o superficies | Ya en el DoD del CONTRIBUTING: páginas afectadas actualizadas + `make -C deploy check-docs` verde. FR-007: cero economía interna |
+| `docs-cliente/` (mkdocs usuario final) | Usuario final del cliente — viaja en el kit de sede | La feature cambia lo que el usuario final VE (extensión, portal/chat, mensajes de bloqueo, onboarding) | Páginas afectadas en el MISMO PR + `mkdocs build --strict` del sitio verde |
+| Interna (`tech-team/` + README + AGENTS.md) | El equipo | La feature cambia el mapa: módulos, arquitectura, flujo, roles | Doc afectado actualizado en el mismo PR (o issue linkeado si es un doc grande) |
+
+Los kits de instalación del partner (spec 025 y `deploy/`) son de Factory: costura docs = JF contenido / Falime entrega brandeada.
+
+## 5 · Review de PRs
 
 Orden de gates para todo PR del depto:
 
@@ -42,7 +54,7 @@ Orden de gates para todo PR del depto:
 4. **Área propia no exime**: aunque nadie más revise (regla de review cruzada del CONTRIBUTING), los gates 1-3 aplican igual. Auto-merge solo con todos los gates verdes.
 5. **Gate de Cristian** cuando el CONTRIBUTING lo manda (claves de firma, keyset, RBAC de firma, auth).
 
-## 5 · Modo autónomo (jefe de depto ausente)
+## 6 · Modo autónomo (jefe de depto ausente)
 
 | Regla | Detalle |
 |---|---|
@@ -51,7 +63,7 @@ Orden de gates para todo PR del depto:
 | Evidencia en el PR | Comandos corridos con salida, resultado del codex-gate, capturas si hay UI |
 | Bloqueos | Si un gate no se puede pasar (crédito, entorno), el PR queda abierto con el estado anotado — nunca se degrada el gate |
 
-## 6 · CI
+## 7 · CI
 
 Pendiente (issue [#82](https://github.com/DrZuzzjen/basa-guardian/issues/82)): workflow de GitHub Actions que corra pytest + check-docs en cada PR. Hasta entonces, todos los gates se corren en local y se pega la evidencia en el PR.
 
