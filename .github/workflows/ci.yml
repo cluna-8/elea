@@ -22,6 +22,8 @@ jobs:
           } >> .env
       - name: Levantar Postgres + Redis
         run: docker compose up -d db redis
+      - name: Migraciones (el CMD del contenedor las corre en runtime; pytest lo pisa)
+        run: docker compose run --rm --no-deps backend alembic upgrade head
       - name: Suite completa
         run: docker compose run --rm --no-deps backend pytest tests/ -q
 
