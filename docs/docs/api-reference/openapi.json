@@ -36,6 +36,17 @@
             ],
             "title": "Api Key Id"
           },
+          "blocked_by_layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked By Layer"
+          },
           "completion_tokens": {
             "title": "Completion Tokens",
             "type": "integer"
@@ -1193,6 +1204,14 @@
         "title": "DSRUpdateSchema",
         "type": "object"
       },
+      "EstadoFiltro": {
+        "enum": [
+          "bloqueados",
+          "permitidos"
+        ],
+        "title": "EstadoFiltro",
+        "type": "string"
+      },
       "EstadoPorModoSchema": {
         "description": "El estado recomputado de la capa escrita, para UN modo de conexión.",
         "properties": {
@@ -1534,6 +1553,11 @@
             "title": "Config",
             "type": "object"
           },
+          "disponible": {
+            "default": true,
+            "title": "Disponible",
+            "type": "boolean"
+          },
           "engine_guardrail_name": {
             "anyOf": [
               {
@@ -1574,9 +1598,27 @@
             "title": "Is Active",
             "type": "boolean"
           },
+          "motivo_disponibilidad": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo Disponibilidad"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "planes_ejecucion": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Planes Ejecucion",
+            "type": "array"
           }
         },
         "required": [
@@ -1967,6 +2009,22 @@
             ],
             "default": 60,
             "title": "Rpm Limit"
+          },
+          "spend_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Usd"
+          },
+          "tool_type": {
+            "default": "claude-code",
+            "title": "Tool Type",
+            "type": "string"
           },
           "tpm_limit": {
             "anyOf": [
@@ -3076,6 +3134,24 @@
             }
           },
           {
+            "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+            "in": "query",
+            "name": "estado",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EstadoFiltro"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+              "title": "Estado"
+            }
+          },
+          {
             "in": "query",
             "name": "from_date",
             "required": false,
@@ -3154,7 +3230,7 @@
     },
     "/api/v1/audit-logs/export": {
       "get": {
-        "description": "Streams audit logs as CSV. No prompt text or PII is included.",
+        "description": "Streams audit logs as CSV. No prompt text or PII is included.\n\nAcepta los MISMOS filtros que el listado (incluido `estado`, spec 031): el officer que\nfiltró «Bloqueados» en pantalla y exporta tiene que llevarse esas filas y no la tabla\nentera — un export que ignora el filtro visible es una trampa silenciosa.",
         "operationId": "export_audit_logs_csv_api_v1_audit_logs_export_get",
         "parameters": [
           {
@@ -3187,6 +3263,24 @@
                 }
               ],
               "title": "Compliance Status"
+            }
+          },
+          {
+            "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+            "in": "query",
+            "name": "estado",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EstadoFiltro"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+              "title": "Estado"
             }
           },
           {
@@ -3673,7 +3767,7 @@
     },
     "/api/v1/chat/fallbacks/{model_name}": {
       "put": {
-        "description": "Set or clear the fallback model for a given model. Written to config.yaml router_settings.",
+        "description": "Define o borra el respaldo de un modelo (`router_settings` del config del motor).\n\n**El origen no puede ser un modelo local** (spec 030 US3 / FR-007). Un respaldo\n`local → cloud` significa: \"cuando el modelo que corre en tu hardware falle, mandá los\ndatos afuera\" — o sea, romper la residencia justo en el momento en que nadie la está\nmirando, y hacerlo en silencio. La regla ya estaba escrita en el config del motor como\ncomentario; acá pasa a estar **enforced** en el escritor, que es el único lugar donde\npuede dejar de ser una convención.\n\nBorrar el respaldo de un modelo local SÍ se permite: quitar una entrada nunca crea una\nfuga, y negarlo dejaría atrapado a un admin que heredó una configuración mal hecha.",
         "operationId": "set_fallback_api_v1_chat_fallbacks__model_name__put",
         "parameters": [
           {
@@ -3740,6 +3834,7 @@
     },
     "/api/v1/chat/models": {
       "get": {
+        "description": "Catálogo conversable: los modelos del motor, más el pseudo-modelo «auto».\n\nDos cosas que este endpoint hace y que NO son cosméticas (spec 030, contrato §GET):\n\n1. **«auto» se antepone** cuando el router está encendido. No existe en el motor: lo\n   inyecta este endpoint para que el usuario final lo elija como un modelo más (FR-001).\n   Va PRIMERO porque el Playground y el portal preseleccionan el índice 0 — o sea que el\n   orden acá es la decisión de producto \"el ruteo inteligente es el default\".\n2. **El modelo de embeddings se EXCLUYE.** `router-embeddings` es infraestructura del\n   ruteo, no un modelo de conversación: si aparece en el desplegable, alguien lo elige y\n   recibe un error del motor (un modelo de embeddings no contesta chat). Se filtra por el\n   nombre que declara la config del router, no por un literal, para que un cliente que\n   renombre su entrada de embeddings no lo vea reaparecer en la lista.",
         "operationId": "list_available_models_api_v1_chat_models_get",
         "parameters": [
           {
@@ -4005,6 +4100,172 @@
         "summary": "Update Model Credential",
         "tags": [
           "Playground Chat"
+        ]
+      }
+    },
+    "/api/v1/chat/router-config": {
+      "get": {
+        "description": "Config del router + computados. 200 siempre (contrato §GET).",
+        "operationId": "get_router_config_api_v1_chat_router_config_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Router Config",
+        "tags": [
+          "Auto Router"
+        ]
+      },
+      "put": {
+        "description": "Valida (422 con detalle), escribe atómicamente y devuelve el config RELEÍDO.\n\nReleído y no el entrante: lo que el panel muestra después de guardar tiene que ser lo\nque quedó en disco, que es lo que el runtime va a leer en la siguiente consulta.",
+        "operationId": "put_router_config_api_v1_chat_router_config_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Router Config",
+        "tags": [
+          "Auto Router"
+        ]
+      }
+    },
+    "/api/v1/chat/router-config/generate-utterances": {
+      "post": {
+        "description": "Propone frases de calibración para una ruta con el modelo local. NO guarda nada.\n\nNo toca `auto_router.json` a propósito: el admin tiene que poder pedir frases, borrar\nlas que no le gustan y recién ahí guardar con el PUT. Un endpoint que generara Y\npersistiera convertiría un «a ver qué sale» en un cambio de ruteo en producción.",
+        "operationId": "generate_utterances_api_v1_chat_router_config_generate_utterances_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Utterances",
+        "tags": [
+          "Auto Router"
         ]
       }
     },
@@ -6816,7 +7077,7 @@
     },
     "/api/v1/gw/events": {
       "get": {
-        "description": "Últimos eventos del firewall (metadata-only, preview enmascarado). **Exige sesión.**\n\nSin ``Authorization`` válido responde 401; con un rol sin permiso, 403. Hasta la 027\nrespondía 200 a cualquiera — ver el punto 0 del docstring del módulo.",
+        "description": "Últimos eventos del firewall (metadata-only, preview enmascarado). **Exige sesión.**\n\nSin ``Authorization`` válido responde 401; con un rol sin permiso, 403. Hasta la 027\nrespondía 200 a cualquiera — ver el punto 0 del docstring del módulo.\n\nEl evento se sirve **tal cual lo dejó el productor**: acá no hay esquema que validar ni\nproyección de campos, así que un campo nuevo (spec 030: ``routing``, que sólo emite el\nplano chat y sólo en los requests «auto») viaja intacto sin tocar este endpoint, y los\neventos que no lo traen siguen saliendo exactamente igual. Quien decide qué se ve es el\nrender —la página de abajo y ``FirewallMonitorPage.tsx``—, que dibuja el chip de ruteo\nsólo si el campo está: ausencia de dato no se pinta como \"no hubo ruteo\".",
         "operationId": "monitor_events_api_v1_gw_events_get",
         "parameters": [
           {
@@ -7203,6 +7464,54 @@
         "summary": "Gw Whoami",
         "tags": [
           "Browser-DLP (extensión MV3)"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Health del producto, con el bloque `audit` del contrato §health.\n\nTier anónimo: `{status, service, version}` — el estado global sí es público (un probe\nde ops sin credenciales tiene que poder preguntar \"¿esto está sano?\"), los números no.\nTier admin/compliance_officer: además `audit {mode, lost_events, last_failure_at}` y el\n`reason` de la degradación.",
+        "operationId": "service_health_api_v1_health_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Service Health",
+        "tags": [
+          "Health"
         ]
       }
     },
