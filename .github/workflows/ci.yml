@@ -49,10 +49,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: DEBUG deriva apiref (temporal, se quita antes del merge)
-        run: |
-          docker compose run --rm --no-deps -e BRAND_NAME="AI Gateway" backend python scripts/export_openapi.py 2>/tmp/export.err > /tmp/openapi-ci.json || echo "EXPORT FALLO exit=$?"
-          wc -c /tmp/openapi-ci.json docs/docs/api-reference/openapi.json
-          diff -u docs/docs/api-reference/openapi.json /tmp/openapi-ci.json | head -80 || true
-          tail -5 /tmp/export.err
+      # Warm-up: el primer `docker compose run` de una máquina fresca mete el
+      # progreso del build en stdout y corrompe el export que captura el check
+      # de apiref (visto en CI 07-ago; hardening del script → issue de Factory).
+      - name: Build previo de la imagen backend
+        run: docker compose build backend
       - run: make -C deploy check-docs
