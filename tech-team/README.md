@@ -11,9 +11,10 @@ Documentos de arquitectura y organización del equipo. Standalone: se abren con 
 | [TechTree-BasaGuardian.html](TechTree-BasaGuardian.html) | **Tech Tree Guardian**: Fase 0 (la promesa, nodo por nodo) + examen de gates 125/250/500, Fases 1-2 bloqueadas, ciclos para el betting, preguntas abiertas | https://claude.ai/code/artifact/36b67156-c690-4535-b394-8091ab00f5ac |
 | [Licencias-BasaGuardian.html](Licencias-BasaGuardian.html) | **El ciclo de las licencias**: las dos llaves (firma vs evidencia), emisión→entrega→verificación offline→seats→degradado→true-up, evolución script→CLI 026→portal, cicatrices del piloto | https://claude.ai/code/artifact/e854bdc5-124e-449d-b40b-71dd4e80177f |
 | [RunbookCamara-BasaGuardian.html](RunbookCamara-BasaGuardian.html) | **Runbook install Cámara (as-built 30-jul)**: topología delorean/t800, los 10 pasos, los NUNCA, troubleshooting exprés, soporte y pasar-un-fix; sin credenciales (dote a Factory) | https://claude.ai/code/artifact/6f1cffaa-1e9c-4497-8c1e-d86edc83e361 |
+| [DevFlow-BasaGuardian.md](DevFlow-BasaGuardian.md) | **DevFlow depto Guardian**: operativa propia encima del CONTRIBUTING — orquestación con agentes (Fable/Opus 5), SDD con speckit, testing (código nuevo = tests nuevos), codex-gate y review adversarial, reglas del modo autónomo | — (solo .md) |
 
 Nota: los dos docs nuevos (05-ago) son de alcance **solo departamento Guardian**; el ArquitectOverview del 31-jul es el mapa completo pre-departamentos (histórico). La fuente markdown del Tech Tree vive en el repo: `basa-guardian/specs/ROADMAP-pisos.md`.
 
 Versiones **solo-datos** (.md limpio, mismas tablas sin narrativa — para reutilizar en presentaciones/diseño): [EcosystemOverview-BasaGuardian.md](EcosystemOverview-BasaGuardian.md) · [TechTree-BasaGuardian.md](TechTree-BasaGuardian.md).
 
-Última actualización: 2026-08-05.
+Última actualización: 2026-08-07.
