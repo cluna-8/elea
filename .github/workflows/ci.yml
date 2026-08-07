@@ -1,0 +1,50 @@
+name: CI
+
+# CI mínimo (#82): corre en cada PR y en main EXACTAMENTE los comandos del gate
+# documentado (AGENTS.md / README) — nada de réplicas con pip que deriven.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    name: pytest (suite completa, Postgres real)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secretos efímeros del stack de test
+        run: |
+          {
+            echo "FERNET_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"
+          } >> .env
+      - name: Levantar Postgres + Redis
+        run: docker compose up -d db redis
+      - name: Suite completa
+        run: docker compose run --rm --no-deps backend pytest tests/ -q
+
+  frontend-tsc:
+    name: tsc --noEmit (gate frontend vigente, DevFlow §3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+
+  docs-check:
+    name: check-docs (build + linter del sitio que se vende)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: make -C deploy check-docs
