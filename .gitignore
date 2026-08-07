@@ -41,7 +41,7 @@ build/
 .vercel
 .yarn-state.yml
 yarn-error.log
-package-lock.json
+# package-lock.json SÍ se versiona (builds reproducibles, decisión 07-ago #84)
 yarn.lock
 pnpm-lock.yaml
 bun.lockb
