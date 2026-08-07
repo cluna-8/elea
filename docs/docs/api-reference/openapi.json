@@ -7469,7 +7469,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Health del producto, con el bloque `audit` del contrato §health.\n\nTier anónimo: `{status, service, version}` — el estado global sí es público (un probe\nde ops sin credenciales tiene que poder preguntar \"¿esto está sano?\"), los números no.\nTier admin/compliance_officer: además `audit {mode, lost_events, last_failure_at}` y el\n`reason` de la degradación.",
+        "description": "Health del producto, con los bloques `audit` (031 §health) y `nlp` (issue #63).\n\nTier anónimo: `{status, service, version}` — el estado global sí es público (un probe\nde ops sin credenciales tiene que poder preguntar \"¿esto está sano?\"), los números no.\nTier admin/compliance_officer: además `audit {mode, lost_events, last_failure_at}`,\n`nlp {configured, status, degraded_since, degraded_requests, fail_mode_efectivo}` y el\n`reason` de la degradación.\n\nEl bloque `nlp` va en el tier DETALLADO por el mismo criterio que los números de\nauditoría: \"el detector de datos personales está caído ahora mismo\" es exactamente el\ndato que le diría a quien quiera fugar información cuál es el mejor momento. Lo que sí\nes público es el `status: degraded` — un probe de ops tiene que verlo, y por sí solo no\ndice qué se cayó.",
         "operationId": "service_health_api_v1_health_get",
         "parameters": [
           {

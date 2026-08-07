@@ -81,6 +81,7 @@ self-hosted** el stack se levanta con `--profile selfhosted` (o exportando
 |---|---|---|
 | Backend (liveness) | `GET /health` del backend | `200` — el **proceso** del backend responde. Es una respuesta estática: **no** verifica la base de datos |
 | Motor del gateway | `GET /health/readiness` del motor | `200` — el motor terminó sus migraciones y acepta tráfico |
+| Producto | `GET /api/v1/health` del backend | Estado del **producto** (no del contenedor): `healthy` / `degraded`, con el detalle de auditoría y de la detección de datos personales para roles de operación |
 | Licencia | `GET /api/v1/health/license` del backend | Estado de la licencia instalada, en **dos niveles** (ver abajo) |
 
 El health de licencia responde en **dos niveles**, a propósito:
@@ -95,6 +96,42 @@ El health de licencia responde en **dos niveles**, a propósito:
 Para señales de **base de datos**, `GET /health` no alcanza: mirar los logs de migraciones del
 backend al arranque (sección 1.3) y el estado de los servicios
 (`docker compose --profile selfhosted ps`).
+
+#### Estado de la detección de datos personales
+
+El health de producto lleva un bloque `nlp` con el estado del **motor de detección** (el
+servicio de lenguaje que hace la detección real). Va en el tier de operación, con la misma
+lógica de dos niveles: el `status` global sí es público, el detalle no.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+     http://<host>/api/v1/health | jq .nlp
+```
+
+| `status` | Significa | Acción |
+|---|---|---|
+| `ok` | El motor está configurado y responde. | Ninguna. |
+| `not_configured` | No hay motor de detección cableado: la instalación corre con detección local por patrones (modo de desarrollo). **No** degrada el estado global — no es una avería. | Si el despliegue trata datos reales, cablear el servicio. |
+| `unreachable` | El motor está configurado y **no responde**. El estado global pasa a `degraded`. | Sección 1.3 (logs) y el estado del servicio de detección en `ps`. |
+
+Cuando el estado es `unreachable`, `fail_mode_efectivo` dice qué le está pasando al tráfico
+**ahora mismo** — y son dos situaciones muy distintas:
+
+- `block` (por defecto): las peticiones con enmascarado activo se están **rechazando**. El
+  síntoma que reporta el usuario es "el asistente devuelve un error", no "va lento".
+- `degrade`: las peticiones **siguen saliendo** con detección por patrones, con cobertura de
+  datos personales reducida. `degraded_since` y `degraded_requests` acotan el alcance: desde
+  cuándo y cuántas peticiones se sirvieron así.
+
+!!! warning "`degraded_requests: null` no es cero"
+    Igual que el contador de auditoría: `null` significa que **no se pudo leer** el contador
+    (cache no disponible), no que no haya habido degradación. Cero es cero; `null` es "no lo
+    sé".
+
+El contador se limpia solo cuando el backend **confirma** que el motor volvió a responder — no
+por el paso del tiempo, para que una racha corta no desaparezca sin que nadie la haya visto.
+La política ante esta caída se configura en el panel: ver
+[Gobernanza — qué pasa si el motor de detección deja de responder](../administration/gobernanza.md#que-pasa-si-el-motor-de-deteccion-deja-de-responder).
 
 !!! warning "La licencia es fail-closed"
     Sin una licencia válida instalada, el producto rechaza la operación licenciada en lugar de

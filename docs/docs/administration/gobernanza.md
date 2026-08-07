@@ -139,6 +139,54 @@ prefiere decir "no lo puedo confirmar" antes que afirmar una protección que no 
 
 ---
 
+## Qué pasa si el motor de detección deja de responder
+
+La detección de datos personales en producción la hace un **motor de lenguaje** (NLP), un
+servicio aparte del resto del stack. Cuando ese servicio no responde, la instancia tiene que
+elegir entre dos males, y esa elección es del administrador — no un accidente del despliegue.
+El control está en **Seguridad → Enmascaramiento de datos**, junto a la configuración de esa
+capa. 🟢
+
+| Opción | Qué hace | Cuándo elegirla |
+|---|---|---|
+| **Bloquear las peticiones** (por defecto) | Sin garantía de detección no se envía nada al modelo: las peticiones con enmascarado activo se rechazan con un mensaje explícito hasta que el motor vuelva. | Siempre que haya datos de salud o cualquier dato personal de terceros. Es lo que exige la normativa. |
+| **Continuar con detección por patrones** | Las peticiones siguen saliendo, protegidas sólo por la detección local por patrones. | Instalaciones donde la continuidad del servicio pesa más que la cobertura, y el contenido no incluye datos sensibles. |
+
+**El valor por defecto es bloquear, y también es lo que aplica si el control nunca se tocó.**
+Una instancia actualizada desde una versión anterior no cambia de comportamiento: sin decisión
+escrita, se bloquea. Continuar es una elección que hay que tomar explícitamente.
+
+!!! warning "Continuar significa cobertura menor, no cobertura igual"
+    La detección por patrones encuentra menos que el motor de lenguaje. Dos ejemplos concretos:
+    un nombre y apellido sin tratamiento previo ("escribile a Marta Iglesias") y un teléfono
+    nacional sin prefijo internacional pueden **salir sin enmascarar**. Por eso esta opción no
+    es recomendable con datos de salud.
+
+### La degradación nunca es silenciosa
+
+Cuando la instancia continúa con detección por patrones, el hecho queda registrado en tres
+sitios distintos, y ninguno es opcional: 🟢
+
+- **En el panel principal**, un aviso persistente mientras dure, con desde cuándo y cuántas
+  peticiones se sirvieron así.
+- **En cada registro de auditoría** afectado, con un estado propio que lo distingue de una
+  petición normal: quien revise el histórico puede aislar exactamente qué tráfico pasó con
+  protección reducida.
+- **En el estado de salud** de la instancia, que pasa a *degradado* — con los dos modos: si la
+  política es bloquear, el estado también degrada, porque hay tráfico rechazándose.
+
+El aviso desaparece solo cuando la instancia **confirma** que el motor volvió a responder, no
+por el paso del tiempo.
+
+### Si no hay motor de detección configurado
+
+Es un caso distinto y se informa distinto: no hay avería, hay una instalación que corre con la
+detección local por patrones (modo de desarrollo). El panel lo dice —*"Detección NLP: no
+configurada — modo regex de desarrollo"*— y el estado de salud sigue siendo sano. **No debe
+operarse así con datos reales de pacientes o clientes.** 🟢
+
+---
+
 ## Ajuste fino por herramienta
 
 Además de por modo, una capa gobernable puede relajarse para **una herramienta concreta** (por

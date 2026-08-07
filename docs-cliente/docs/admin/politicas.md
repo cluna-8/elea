@@ -56,6 +56,41 @@ contenido inapropiado, la protección anti-jailbreak y la moderación de segurid
     detectar datos personales y bloquear secretos se aplican siempre, en todos los modos y
     superficies. Ninguna configuración los desactiva.
 
+## El aviso de "Detección NLP" en el panel principal
+
+La detección de datos personales en producción la hace un **motor de lenguaje**, un servicio
+propio de su instalación. El **Panel Principal** muestra su estado en la tarjeta *Estado del
+Sistema* y, cuando hace falta, con un aviso arriba de todo que no se puede cerrar. Verá una de
+estas tres cosas:
+
+| Lo que ve | Qué significa | Qué hacer |
+| --- | --- | --- |
+| **Detección NLP · Activa** (verde) | Todo normal: los datos personales se detectan con el motor completo. | Nada. |
+| **Detección NLP: no configurada — modo regex de desarrollo** (aviso gris) | Su instalación no tiene el motor de lenguaje conectado y detecta con patrones locales, que encuentran menos casos. | Es habitual en instalaciones de prueba. **No trabaje con datos reales de pacientes o clientes** hasta confirmarlo con soporte. |
+| **El motor de detección de datos personales no responde** (aviso rojo) | El motor está conectado pero caído ahora mismo. | Avise a **soporte@basa-dev.com** indicando desde qué hora aparece el aviso. |
+
+Cuando aparece el aviso rojo, el propio texto le dice qué le está pasando a las consultas,
+porque hay dos comportamientos posibles y su organización tiene configurado uno:
+
+- **Se están bloqueando.** Es la configuración recomendada y la que viene por defecto: sin
+  garantía de detección no se envía nada al modelo. Los usuarios verán un mensaje de error al
+  consultar; es el sistema protegiéndoles, no una avería del asistente.
+- **Se están sirviendo con detección por patrones.** Las consultas siguen funcionando, pero
+  con **menos cobertura**: un nombre y apellido sin tratamiento previo o un teléfono sin
+  prefijo internacional pueden salir sin enmascarar. El aviso indica desde cuándo y cuántas
+  consultas se han servido así.
+
+En los dos casos, cada consulta afectada queda marcada en
+[Logs de Auditoría](auditoria.md) con un estado propio, de forma que después se puede aislar
+exactamente qué tráfico pasó durante la caída. El aviso desaparece solo cuando el sistema
+comprueba que el motor volvió a responder.
+
+!!! warning "Elegir entre bloquear y continuar es una decisión de su organización"
+    Las dos opciones son legítimas y dependen de qué pesa más: la continuidad del servicio o
+    la cobertura de la detección. Con datos de salud, la respuesta correcta es **bloquear**.
+    Para revisar o cambiar esta configuración, hable con su soporte técnico en
+    **soporte@basa-dev.com**.
+
 ## Políticas de Cumplimiento
 
 Se abre desde **Políticas de Cumplimiento**. Es el espacio de trabajo de la persona
