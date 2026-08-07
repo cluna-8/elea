@@ -1,15 +1,18 @@
-# Contrato de comandos — `basa-admin` (026)
+# Contrato de comandos — `basa-admin-signer` + `basa-admin` (026)
 
-Contrato de la interfaz pública de la CLI (lo que un humano puede invocar y qué garantiza
-cada comando). El detalle de flags puede evolucionar en implementación; **los invariantes
-numerados no**. Árbol completo con fase en [inventario-scripts.md](../inventario-scripts.md).
+Contrato de la interfaz pública de **dos artefactos físicamente separados** (spec.md §
+Clarifications — Session 2026-08-05; FR-016 a FR-023): lo que un humano puede invocar en
+cada uno y qué garantiza cada comando. El detalle de flags puede evolucionar en
+implementación; **los invariantes numerados no**. Árbol completo con fase en
+[inventario-scripts.md](../inventario-scripts.md).
 
 ## Invariantes globales
 
-1. **Offline por defecto**: ningún comando del núcleo (`license`, `install`, `ops`) abre
-   sockets de red salientes. Los comandos con red viven bajo un subárbol separado
-   (`release`, `cloud`), se declaran como tales en su help, y **rehúsan correr** si
-   detectan que están en una caja instalada (marker del deployment) salvo `--i-know`.
+1. **Offline por defecto**: ningún comando del núcleo de ninguno de los dos artefactos
+   (`license` en `basa-admin-signer`; `install`/`ops` en `basa-admin`) abre sockets de red
+   salientes. Los comandos con red viven bajo un subárbol separado (`release`, `cloud`) de
+   `basa-admin`, se declaran como tales en su help, y **rehúsan correr** si detectan que
+   están en una caja instalada (marker del deployment) salvo `--i-know`.
 2. **Sin secretos en stdout/logs/args**: passwords y passphrases SOLO por prompt o stdin;
    material sensible generado va a archivo con permisos `600`. Los args se auditan
    sanitizados.
@@ -19,46 +22,65 @@ numerados no**. Árbol completo con fase en [inventario-scripts.md](../inventari
 4. **Errores legibles**: precondición incumplida → mensaje que dice QUÉ falta y CÓMO
    resolverlo + exit code ≠ 0. Nunca un traceback crudo como salida esperada.
 5. **Audit local**: todo comando que produce/muta registra una entrada en el audit-log
-   local (data-model.md), sin contenido sensible.
+   local de SU artefacto (data-model.md), sin contenido sensible. No hay audit-log
+   compartido entre `basa-admin-signer` y `basa-admin`.
 6. **Exit codes**: `0` ok · `1` error de operación · `2` uso inválido/precondición ·
    `3` cancelado por el usuario · `4` verificación fallida (verify/bundle verify).
+7. **Separación física, no runtime** (FR-016/FR-019/FR-020): `basa-admin-signer` y
+   `basa-admin` son artefactos de build distintos, sin subcomandos ocultos, flags de rol
+   ni gates por variable de entorno como sustituto. `basa-admin` no contiene físicamente
+   los comandos de emisión/custodia de este contrato — están fuera de su binario, no solo
+   fuera de su `--help`.
 
-## `basa-admin license` (lado Basa — máquina de firma)
+## `basa-admin-signer license` (interno Basa — estación de firma aislada)
+
+> Nunca se entrega a partners/clientes ni viaja en el bundle air-gapped (FR-017/FR-021).
 
 ### `license issue`
+- **Comando**: `basa-admin-signer license issue --tenant <id> --seats N --expiry <fecha> --out <slug>.lic`
 - **Entrada**: `--tenant`, `--seats`, `--expiry` (obligatorios); `--distributor`, `--pool`,
   `--flags`, `--grace`, `--not-before`, `--out` (defaults sanos y documentados).
 - **Garantías**: (a) produce un `.lic` cuya firma valida contra `verifier.py` del producto
   — el emisor importa `canonical_payload_bytes` como fuente única (contract test del
-  artefacto en el gate);
+  artefacto en el gate, research.md D1/D6);
   (b) **JAMÁS toca el keyset público** (invariante anti-foot-gun; la rotación es otro
-  comando); (c) registra la emisión en el ledger local (supersede visible si ya había una
-  para ese tenant); (d) pide la passphrase de la privada por prompt.
+  comando); (c) registra la emisión en el ledger local de `basa-admin-signer` (supersede
+  visible si ya había una para ese tenant); (d) pide la passphrase de la privada por
+  prompt.
 - **Errores**: sin privada → exit 2 con instrucción de `keyset rotate --init`; expiry en
   pasado o seats < 0 → exit 2.
 
 ### `license issue-dev`
+- **Comando**: `basa-admin-signer license issue-dev --tenant <id> --seats 50 --expiry 2099-01-01 --out ./license_out`
 - Igual que `issue` con defaults dev (kid `basa-dev-*`, expiry lejana) y advertencia de
   que solo sirve con `BASA_ALLOW_DEV_LICENSE=true`. Mismas garantías (b)-(d).
 
 ### `license keyset export`
+- **Comando**: `basa-admin-signer license keyset export --kid <kid> --out basa_public_keys.pem`
 - Emite el keyset público (kid + PEM, formato `# key_id:` de `verifier.py`) a un archivo.
-  **Nunca** material privado.
+  **Nunca** material privado. Es el archivo que después consume `basa-admin` para
+  `license verify` — nunca se regenera del lado `basa-admin` (research.md D6).
 
 ### `license keyset rotate`
+- **Comando**: `basa-admin-signer license keyset rotate [--retire-kid <kid> --force]`
 - **Único** comando que genera un par nuevo. Garantías: (a) **agrega** el kid nuevo al
   keyset, nunca reemplaza el archivo; (b) muestra qué kids existen antes y después y pide
   confirmación; (c) la privada nueva nace cifrada; (d) retirar un kid viejo es un flag
-  aparte con confirmación doble y advertencia de cajas vivas.
+  aparte con confirmación doble y advertencia de cajas vivas (la validación cross-fleet
+  sigue ABIERTA — ver inventario-scripts.md).
 
 ### `license verify <archivo.lic>`
-- Verificación offline de un `.lic` contra un keyset dado (sanity pre-envío). Exit 4 si
-  no valida.
+- **Comando**: `basa-admin-signer license verify <archivo.lic> --keyset <keyset.pem>`
+- Verificación offline de un `.lic` contra un keyset dado (sanity pre-envío, lado Basa).
+  Exit 4 si no valida. Usa solo `verifier.py` (público) — la misma función que expone
+  `basa-admin install license verify` del lado partner/cliente (research.md D6).
 
-## `basa-admin install` (lado partner/operador — host de instalación)
+## `basa-admin install` (lado partner/cliente — host de instalación, distribuido en el bundle)
 
 Secuencia guiada; cada comando valida sus precondiciones y es re-ejecutable
 (idempotente por paso). `install status <slug>` muestra en qué paso está la instalación.
+Ninguno de estos comandos importa código de `basa-admin-signer` (research.md D6, test de
+inspección de artefacto FR-020).
 
 ### `install profile new <slug>` / `install profile render <slug>`
 - `new`: scaffold desde `deploy/clients/example` con los datos pedidos por prompt/flags;
@@ -72,10 +94,19 @@ Secuencia guiada; cada comando valida sus precondiciones y es re-ejecutable
 
 ### `install bundle create <slug>` / `install bundle verify <tarball>`
 - `create`: toma las refs+digests de un lockfile de release (no 7 env vars); verifica que
-  todas las imágenes existan localmente ANTES del `docker save`.
-- `verify`: contra el MANIFEST — presencia y digest de cada imagen. Exit 4 con lista
-  exacta de faltantes/mismatches. **Correr `verify` antes de transferir es el contrato**
-  que evita el pull-en-runtime en la caja airgap.
+  todas las imágenes existan localmente ANTES del `docker save`; empaqueta el layout
+  completo de FR-021 — `bin/{basa-admin-x86_64.pyz, basa-admin-arm64.pyz}` (sha256 en el
+  MANIFEST), `images/`, `manifests/`, `profiles/` **y genera `install.sh`** (el único
+  mecanismo sancionado para colocar `basa-admin` en el host destino: detecta la
+  arquitectura, copia el `.pyz` correspondiente, fija permisos ejecutables e imprime los
+  próximos pasos — nunca invoca pip/apt/yum ni un índice externo, FR-023). `basa-admin-signer`
+  **nunca** entra a este tarball, en ninguna ruta.
+- `verify`: contra el MANIFEST — presencia y digest de cada imagen **y del layout
+  completo del bundle** (`bin/`, `images/`, `manifests/`, `profiles/`, `install.sh`).
+  Exit 4 con lista exacta de faltantes/mismatches, incluyendo cualquier archivo
+  `basa-admin-signer*` encontrado en el tarball (nunca debería aparecer — FR-021).
+  **Correr `verify` antes de transferir es el contrato** que evita el pull-en-runtime en
+  la caja airgap.
 
 ### `install load <bundle>` / `install up <slug>`
 - `load`: `docker load` + re-verificación contra MANIFEST en el host destino.
@@ -88,10 +119,20 @@ Secuencia guiada; cada comando valida sus precondiciones y es re-ejecutable
   real pide confirmación mostrando **a qué DB/deployment** apunta; (c) keys emitidas van
   a archivo `600`, jamás a stdout.
 
+### `install license verify <archivo.lic>`
+- Verificación offline standalone de un `.lic` contra el keyset ya presente en el host
+  (FR-018), sin instalarlo — sanity previo al paso real. Misma función de `verifier.py`
+  que usa `basa-admin-signer license verify` (research.md D6); exit 4 si no valida.
+
 ### `install license install <archivo.lic>`
-- Valida el `.lic` offline ANTES de instalarlo; lo coloca donde el deployment lo lee
-  (`BASA_LICENSE_TOKEN_FILE`); registra la génesis de la cadena de audit; muestra el
-  estado resultante (`active`/`grace`/…) y explica cualquier estado ≠ active.
+- Valida el `.lic` offline ANTES de instalarlo. **Mutación de estado productivo → dry-run
+  + confirmación (FR-006)**: (a) `--dry-run` muestra el diff entre la licencia actualmente
+  instalada (si hay una) y la entrante (tenant, seats, expiry, kid) sin escribirla; (b) la
+  aplicación real pide confirmación mostrando **a qué deployment/DB** apunta, igual que
+  `install seed apply`; `--yes` la saltea para automatización consciente (invariante
+  global 3). Luego la coloca donde el deployment lo lee (`BASA_LICENSE_TOKEN_FILE`);
+  registra la génesis de la cadena de audit; muestra el estado resultante
+  (`active`/`grace`/…) y explica cualquier estado ≠ active.
 
 ### `install admin bootstrap`
 - Crea/actualiza el primer admin vía entrypoint del backend (cero SQL): username por flag,
@@ -112,4 +153,5 @@ Secuencia guiada; cada comando valida sus precondiciones y es re-ejecutable
 - `ops backup create/restore` — respaldo lógico incluyendo el `.lic`.
 
 Los contratos finos de `ops` se fijan cuando entre la fase 2; los invariantes globales
-1-6 ya les aplican.
+1-7 ya les aplican. Qué artefacto aloja `ops` (¿`basa-admin`? ¿un tercer artefacto?) no
+está decidido — ver inventario-scripts.md.

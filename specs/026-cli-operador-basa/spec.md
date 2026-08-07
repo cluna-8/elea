@@ -20,6 +20,44 @@ Sumado a esto, el bootstrap/rotación del admin es **SQL crudo** (issue #34), y 
 
 **Regla dura, no negociable**: la CLI **no rompe el modelo airgap**. Es una herramienta **local** que corre en el host (o en la máquina de firma de Basa), **produce y consume archivos**, y **jamás hace phone-home**. La verificación de licencias sigue siendo 100% offline; el true-up y el registro de la deployment key viajan como **archivos** fuera de banda, no como tráfico del producto hacia el fabricante.
 
+## Clarifications
+
+### Session 2026-08-05
+
+- **Q**: ¿La CLI se distribuye como un único binario universal (con comandos de firma y de
+  instalación dentro, gateados por rol/flag) o como artefactos físicamente separados? →
+  **A**: **Dos artefactos físicamente separados**: `basa-admin-signer` (herramienta interna de
+  firma de Basa: emisión de licencias, custodia de clave privada PKCS8 cifrada, import/unlock
+  de clave, rotación de clave del emisor, export del keyset público, ledger de emisiones,
+  verificación de licencias — corre solo en la estación de firma aislada de Basa, nunca se
+  entrega a partners/clientes ni se incluye en el bundle air-gapped) y `basa-admin` (herramienta
+  de partner/cliente: perfil, secretos, bundle, load, up, seed, instalación/verificación de
+  licencia, bootstrap de admin, estado/verificación de instalación — NO contiene físicamente
+  código de emisión, custodia de clave privada de Basa, rotación de clave del emisor, comandos
+  exclusivos de firma, ni módulos del signer transitivamente importables).
+- **Q**: ¿El ocultamiento en runtime (subcomandos Click ocultos, flags de rol, gates por
+  variable de entorno, gates de comando parchables en un binario universal) es un límite de
+  seguridad aceptable para separar firma de instalación? → **A**: **No**. Ninguna forma de
+  ocultamiento en runtime es un límite de seguridad válido; la separación es física (dos
+  artefactos) y se decide en build time.
+- **Q**: ¿Cómo se aplica y verifica esa separación? → **A**: En **build time**, con dos tests
+  obligatorios: un contract test para `basa-admin-signer`, y un test de inspección de artefacto
+  que falla el build si `basa-admin` contiene módulos, símbolos, comandos o dependencias
+  exclusivos del signer.
+- **Q**: ¿Qué va dentro del bundle air-gapped y con qué layout? → **A**: Únicamente
+  `basa-admin` (nunca `basa-admin-signer`). Layout esperado:
+  `bundle-v<version>.tar.gz` con `bin/{basa-admin-x86_64.pyz, basa-admin-arm64.pyz}`,
+  `images/`, `manifests/`, `profiles/`, `install.sh`.
+- **Q**: ¿Qué garantías deben cumplir los `.pyz` operacionales y cómo se instala `basa-admin`
+  en el host air-gapped? → **A**: Los `.pyz` deben figurar en el MANIFEST con validación
+  SHA-256, compartir la misma versión de release que imágenes/migraciones/perfiles/manifests,
+  incluir dependencias específicas de arquitectura, correr sin descargas, y requerir solo
+  Python 3.11+ y Docker en el host destino. `basa-admin` NUNCA se instala vía pip, apt, yum ni
+  repositorios externos dentro del entorno air-gapped — la única vía es el `.pyz` del bundle.
+  Matriz de despliegue: estación de firma de Basa → `basa-admin-signer`; máquina de build/CI
+  del partner → `basa-admin`; host air-gapped del cliente → `basa-admin` empaquetado en el
+  bundle.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Firmar una licencia sin foot-guns (Priority: P1)
@@ -124,53 +162,63 @@ y que el true-up valida offline.
   nunca en la caja airgapped.
 - **Secretos/virtual keys** → siempre a archivo con permisos restringidos; nunca a stdout ni
   a logs.
+- **Build de `basa-admin` que arrastra código/dependencias del signer** → el test de
+  inspección de artefacto (build time) DEBE fallar el build antes de que pueda distribuirse.
+- **`basa-admin-signer` incluido por error en el armado del bundle air-gapped** → nunca debe
+  ocurrir; el proceso de empaquetado del bundle solo toma `basa-admin` como entrada.
+- **Intento de separar firma de instalación solo con un flag de rol o variable de entorno en un
+  binario único** → rechazado como solución válida; la separación es física (dos artefactos),
+  no runtime.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-**Núcleo — firma (US1, MVP)**
+**Núcleo — firma (US1, MVP) — exclusivo de `basa-admin-signer`**
 
-- **FR-001**: La CLI DEBE emitir un `.lic` de producción firmado tomando el payload
-  (tenant, seats, expiry, feature flags, grace) por **flags/parámetros**, sin editar código.
+- **FR-001**: `basa-admin-signer` DEBE emitir un `.lic` de producción firmado tomando el
+  payload (tenant, seats, expiry, feature flags, grace) por **flags/parámetros**, sin editar
+  código.
 - **FR-002**: La emisión NUNCA DEBE regenerar ni sobrescribir el keyset público salvo con una
   **acción de rotación explícita**; ante un keyset ya existente DEBE avisar y no pisarlo por
   defecto (corrige el foot-gun crítico verificado en `issue_dev_license.py`).
 - **FR-003**: La clave privada de firma NUNCA DEBE quedar escrita en claro en disco; se maneja
-  **cifrada en reposo** y se usa sin exponerla.
-- **FR-004**: La CLI DEBE poder **exportar el keyset público** (kid + clave) como archivo para
-  embeber/distribuir, sin exponer la privada.
+  **cifrada en reposo (PKCS8)** dentro de `basa-admin-signer` y se usa sin exponerla.
+- **FR-004**: `basa-admin-signer` DEBE poder **exportar el keyset público** (kid + clave) como
+  archivo para embeber/distribuir, sin exponer la privada.
 
-**Núcleo — instalación (US2, MVP)**
+**Núcleo — instalación (US2, MVP) — exclusivo de `basa-admin`**
 
-- **FR-005**: La CLI DEBE cubrir el camino de **cero a stack corriendo y verificado**: crear y
-  renderizar el perfil del cliente, generar secretos, empaquetar/cargar el bundle air-gapped
-  (o levantar el compose), sembrar el tenant, instalar la licencia (con registro de génesis),
-  hacer bootstrap del admin y correr el smoke test — cada paso con **validación de
+- **FR-005**: `basa-admin` DEBE cubrir el camino de **cero a stack corriendo y verificado**:
+  crear y renderizar el perfil del cliente, generar secretos, empaquetar/cargar el bundle
+  air-gapped (o levantar el compose), sembrar el tenant, instalar la licencia (con registro de
+  génesis), hacer bootstrap del admin y correr el smoke test — cada paso con **validación de
   precondiciones** y mensajes de error legibles (no tracebacks crudos).
 - **FR-006**: Toda operación que mute datos productivos (seed que renombra tenant, instalación
   de licencia) DEBE ofrecer `--dry-run` (mostrar el cambio sin commit) y **pedir confirmación**
   antes de aplicar.
-- **FR-007**: Antes de mutar la base, la CLI DEBE **validar a qué deployment/DB apunta**; no
-  puede modificar una instancia equivocada en silencio.
+- **FR-007**: Antes de mutar la base, `basa-admin` DEBE **validar a qué deployment/DB apunta**;
+  no puede modificar una instancia equivocada en silencio.
 - **FR-008**: El bootstrap y la rotación del admin DEBEN hacerse **sin SQL crudo**; la password
   se ingresa por prompt/stdin, nunca por argumento ni por `UPDATE` manual (absorbe issue #34).
 - **FR-009**: Secretos y virtual keys generados DEBEN escribirse a **archivos con permisos
   restringidos**, nunca a stdout ni a logs.
-- **FR-010**: La CLI DEBE ofrecer una **verificación end-to-end** post-deploy (contenedores
-  arriba, licencia activa, gateway responde, masking/bloqueo en vivo) que salga en rojo si algo
-  falla.
+- **FR-010**: `basa-admin` DEBE ofrecer una **verificación end-to-end** post-deploy
+  (contenedores arriba, licencia activa, gateway responde, masking/bloqueo en vivo) que salga
+  en rojo si algo falla.
 
-**Transversales**
+**Transversales (ambos artefactos)**
 
-- **FR-011**: Todos los comandos del núcleo (firma + instalación + operación día-2) DEBEN
-  correr **offline, sin egress ni phone-home**, operando solo sobre archivos y sobre el host
-  local. Cualquier comando que requiera red (build/publish/cloud) DEBE estar **separado y
-  marcado explícitamente**, y la CLI DEBE impedir/avisar su ejecución en la caja del cliente.
-- **FR-012**: La CLI DEBE **reemplazar** (no envolver indefinidamente) los scripts sueltos
-  `issue_dev_license.py`, `apply_profile_seed.py`, `generate_trueup.py` y los
+- **FR-011**: Todos los comandos del núcleo (firma en `basa-admin-signer` + instalación y
+  operación día-2 en `basa-admin`) DEBEN correr **offline, sin egress ni phone-home**,
+  operando solo sobre archivos y sobre el host local. Cualquier comando que requiera red
+  (build/publish/cloud) DEBE estar **separado y marcado explícitamente**, y DEBE impedirse/
+  avisarse su ejecución en la caja del cliente.
+- **FR-012**: `basa-admin-signer` y `basa-admin` DEBEN, entre los dos, **reemplazar** (no
+  envolver indefinidamente) los scripts sueltos `issue_dev_license.py`,
+  `apply_profile_seed.py`, `generate_trueup.py` y los
   `render_profile.sh`/`bundle.sh`/`publish.sh`/`render_docs_brand.sh`; los scripts quedan
-  deprecados con puntero a la CLI y una ruta de migración.
+  deprecados con puntero al artefacto correspondiente y una ruta de migración.
 - **FR-013**: Cada operación relevante (emisión, instalación, seed, rotación) DEBE dejar
   registro en un **audit-log local** (sin red), exportable como archivo — trazabilidad sin
   egress, coherente con el pilar de auditoría del producto.
@@ -184,20 +232,75 @@ y que el true-up valida offline.
   de true-up con nombre correcto, estado de licencia offline, rotación de keyset/deployment
   key, backup/restore) — sin SQL crudo y airgap-safe. Estos NO forman parte del MVP.
 
+**Empaquetado y frontera de confianza (transversal, MVP)**
+
+- **FR-016**: La solución DEBE producirse como **dos artefactos físicamente separados**:
+  `basa-admin-signer` (herramienta interna de firma de Basa) y `basa-admin` (herramienta de
+  instalación/operación offline para partners/clientes). NO DEBE existir un binario único que
+  combine ambos roles.
+- **FR-017**: `basa-admin-signer` corre únicamente en la estación de firma aislada de Basa;
+  puede contener emisión de licencias, custodia de la clave privada de firma en PKCS8 cifrada,
+  import/unlock de clave, rotación de la clave del emisor, export del keyset público, ledger de
+  emisiones y verificación de licencias. NUNCA DEBE entregarse a partners/clientes ni incluirse
+  en el bundle air-gapped del cliente.
+- **FR-018**: `basa-admin` puede contener los comandos de perfil, secretos, bundle, load, up,
+  seed, instalación/verificación de licencia, bootstrap de admin, y estado/verificación de
+  instalación. NO DEBE contener físicamente — ni como módulo transitivamente importable —
+  código de emisión de licencias, custodia de la clave privada de Basa, rotación de la clave
+  privada del emisor, ni ningún comando exclusivo de firma.
+- **FR-019**: El ocultamiento en runtime NO es un límite de seguridad válido para esta
+  separación: NO DEBE implementarse vía subcomandos Click ocultos, flags de rol, gates por
+  variable de entorno, ni gates de comando parchables dentro de un ejecutable universal.
+- **FR-020**: La separación entre `basa-admin-signer` y `basa-admin` DEBE aplicarse en **build
+  time** y verificarse con tests: un contract test para `basa-admin-signer`, y un test de
+  inspección de artefacto que **falle el build** si `basa-admin` contiene módulos, símbolos,
+  comandos o dependencias exclusivos del signer.
+- **FR-021**: El bundle air-gapped DEBE distribuir únicamente `basa-admin` (nunca
+  `basa-admin-signer`), con el layout:
+
+  ```
+  bundle-v<version>.tar.gz
+  ├── bin/
+  │   ├── basa-admin-x86_64.pyz
+  │   └── basa-admin-arm64.pyz
+  ├── images/
+  ├── manifests/
+  ├── profiles/
+  └── install.sh
+  ```
+
+- **FR-022**: Los artefactos `.pyz` operacionales DEBEN: figurar en el MANIFEST con validación
+  SHA-256; compartir la misma versión de release que imágenes, migraciones, perfiles y
+  manifests; incluir dependencias específicas de arquitectura; correr **sin descargas**; y
+  requerir solo **Python 3.11+ y Docker** en el host destino.
+- **FR-023**: `basa-admin` NO DEBE instalarse vía pip, apt, yum ni repositorios externos dentro
+  del entorno air-gapped; la única vía de instalación es el `.pyz` incluido en el bundle.
+
 ### Key Entities *(include if feature involves data)*
 
-- **Licencia `.lic`**: artefacto firmado (definido en 021) — la CLI lo **produce** (US1) y lo
-  **instala** (US2). No redefine su formato.
-- **Keyset público del emisor** (kid + clave): la CLI lo **exporta**; jamás lo pisa sin
-  rotación explícita.
-- **Clave privada de firma**: custodiada, cifrada en reposo, solo del lado Basa — la CLI la usa
-  para firmar sin exponerla.
-- **Perfil de cliente** (config + branding + env): la CLI lo **scaffolda y renderiza** desde el
-  ejemplo, validando el layout y las variables del template.
-- **Bundle air-gapped** (tarball de imágenes + MANIFEST): la CLI lo **crea, verifica y carga**,
-  garantizando que ninguna imagen falte antes de la transferencia.
-- **Registro de emisiones / audit-log local**: traza offline de lo que la CLI hizo (qué se
-  emitió por tenant, qué se instaló), exportable como archivo.
+- **`basa-admin-signer`** (artefacto separado, interno Basa): herramienta de la estación de
+  firma aislada — emisión de licencias, custodia/rotación de la clave privada del emisor,
+  export del keyset público, ledger de emisiones, verificación. Nunca se distribuye a
+  partners/clientes ni viaja en el bundle air-gapped.
+- **`basa-admin`** (artefacto separado, distribuido en el bundle): herramienta de
+  instalación/operación offline para partners/clientes — perfil, secretos, bundle, load, up,
+  seed, instalación/verificación de licencia, bootstrap de admin, estado/verificación. No
+  contiene físicamente código, claves ni comandos exclusivos del signer.
+- **Licencia `.lic`**: artefacto firmado (definido en 021) — `basa-admin-signer` lo **produce**
+  (US1) y `basa-admin` lo **instala** (US2). No redefine su formato.
+- **Keyset público del emisor** (kid + clave): `basa-admin-signer` lo **exporta**; jamás lo pisa
+  sin rotación explícita.
+- **Clave privada de firma**: custodiada, cifrada en reposo (PKCS8), solo dentro de
+  `basa-admin-signer` en la estación de firma de Basa — se usa para firmar sin exponerla; nunca
+  existe en `basa-admin`.
+- **Perfil de cliente** (config + branding + env): `basa-admin` lo **scaffolda y renderiza**
+  desde el ejemplo, validando el layout y las variables del template.
+- **Bundle air-gapped** (tarball de imágenes + MANIFEST + `basa-admin` `.pyz` por arquitectura):
+  se **crea, verifica y carga** garantizando que ninguna imagen ni artefacto falte antes de la
+  transferencia; nunca incluye `basa-admin-signer`.
+- **Registro de emisiones / audit-log local**: traza offline de lo que cada artefacto hizo (qué
+  se emitió por tenant vía `basa-admin-signer`, qué se instaló vía `basa-admin`), exportable
+  como archivo.
 
 ## Success Criteria *(mandatory)*
 
@@ -236,7 +339,16 @@ y que el true-up valida offline.
   como comando de la CLI — la ruta 020 los supersede.
 - **Frontera con seguridad**: la custodia de claves y el RBAC de "quién puede firmar" tocan
   territorio de la 017 (Cristian) — coordinación y review cruzado.
-- **Punto de ejecución** (host vs `docker exec`) y **empaquetado** (binario único gateado por
-  rol vs binarios separados) se resuelven en el plan; la spec solo fija el QUÉ.
+- **Punto de ejecución** (host vs `docker exec`) se resuelve en el plan.
+- **Empaquetado — DECIDIDO (ver Clarifications 2026-08-05, FR-016 a FR-023)**: dos artefactos
+  físicamente separados, `basa-admin-signer` (interno Basa, estación de firma aislada) y
+  `basa-admin` (partner/cliente, distribuido en el bundle air-gapped). Un binario único
+  gateado por rol/flag/env var **no** es una alternativa válida; la separación se aplica en
+  build time y se verifica con un contract test del signer y un test de inspección de
+  artefacto sobre `basa-admin`.
+- **Matriz de despliegue**: estación de firma de Basa → `basa-admin-signer`; máquina de
+  build/CI del partner → `basa-admin` (se construye ahí); host air-gapped del cliente →
+  `basa-admin` empaquetado dentro del bundle. `basa-admin-signer` nunca corre ni se distribuye
+  fuera de la estación de firma de Basa.
 - **Contexto de validación**: el MVP se prueba en el **ensayo VPS→main** y como preparación del
   **piloto de Cámara de Comercio** (cliente+partner, uso interno).
