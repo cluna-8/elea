@@ -181,7 +181,57 @@ class NlpUnavailableError(Exception):
     guardrail) DEBE traducir esto en un bloqueo de la request — jamás en `[]`
     silencioso. Reemplaza el `except: return []` fail-open heredado de
     `PresidioService.analyze_text_http`.
+
+    Desde el issue #63 el "bloqueo" deja de ser la ÚNICA salida: sigue siendo el
+    default, pero la instalación puede elegir degradar a regex de forma RUIDOSA
+    (ver `resolve_nlp_fail_mode`). Lo que queda prohibido para siempre es lo que el
+    issue denuncia: degradar en silencio.
     """
+
+
+# ── Política ante analyzer NLP caído (issue #63) ─────────────────────────────────────
+#
+# Vocabulario COMPARTIDO por los dos planos (motor `basa_guardrail` y backend `/gw`), y por
+# eso vive acá y no en cada uno: el bug del #63 era justamente que cada plano decidía por su
+# cuenta qué hacer sin el NLP (el motor bloqueaba, el backend ni siquiera lo usaba). Con una
+# sola fuente, "qué pasa si el detector real no está" es UNA respuesta para todo el producto.
+NLP_FAIL_BLOCK = "block"
+NLP_FAIL_DEGRADE = "degrade"
+NLP_FAIL_MODES = (NLP_FAIL_BLOCK, NLP_FAIL_DEGRADE)
+# Clave dentro de `Guardian.config` del guardián `pii_masking`. NO es la columna
+# `Guardian.fail_mode` (ésa tiene otra semántica: los guardrails delegados al motor).
+NLP_FAIL_MODE_KEY = "nlp_fail_mode"
+
+# Estados de compliance del pedido. Cerrados y compartidos para que la fila durable, el
+# evento de la vitrina y el mensaje al cliente digan la MISMA palabra en los dos planos.
+STATUS_NLP_BLOCKED = "blocked_nlp_unavailable"
+STATUS_NLP_DEGRADED = "degraded_nlp_regex"
+
+# Mensaje único del rechazo fail-closed (lo emiten el motor y el gateway, verbatim).
+NLP_BLOCK_MESSAGE = ("Petición bloqueada: el motor de detección de datos personales "
+                     "no está disponible. No se procesa sin garantía de protección de PII/PHI.")
+
+
+def resolve_nlp_fail_mode(config: Optional[dict]) -> str:
+    """`block` | `degrade` — qué hacer cuando el analyzer NLP no responde (issue #63).
+
+    Lee `config["nlp_fail_mode"]`; `config` puede ser el `Guardian.config` del guardián
+    `pii_masking` o el dict de identidad que lo transporta (ambos llevan la misma clave).
+
+    **Default `block` ante clave ausente, valor vacío o valor no reconocido** — mismo patrón
+    defensivo que `resolve_entity_action`, y por la misma razón: una configuración incompleta
+    o mal tipeada NUNCA puede convertirse en menos protección. Es además lo que exige la
+    Constitución (Principio I, regla (d): «nunca solo regex en producción con PHI») y lo que
+    el motor viene haciendo desde la spec 016. Degradar es legítimo, pero tiene que ser una
+    decisión ESCRITA del administrador, no el resultado de que falte una clave.
+
+    Consecuencia deliberada para instalaciones ya existentes: su guardián `pii_masking` no
+    tiene la clave, así que resuelven `block` sin migración-on-read ni pisar su config.
+    """
+    raw = (config or {}).get(NLP_FAIL_MODE_KEY)
+    if isinstance(raw, str):
+        raw = raw.strip().lower()
+    return raw if raw in NLP_FAIL_MODES else NLP_FAIL_BLOCK
 
 
 def resolve_overlaps(entities: list) -> list:

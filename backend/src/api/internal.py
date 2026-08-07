@@ -56,6 +56,15 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        (SELECT gd.config->'custom_entities' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
            AND gd.is_active = true LIMIT 1) AS custom_entities,
+       -- issue #63: qué hacer si el analyzer NLP no responde (`block` | `degrade`).
+       -- ⚠️ ESPEJO de litellm/extensions/custom_auth.py (_IDENTITY_SQL): si una copia lo trae
+       -- y la otra no, la postura del admin depende de qué env está cableada y el bug del #63
+       -- (degradar sin que nadie lo decida) renace por el camino que no lo lleva.
+       -- `->>` y no `->`: el consumidor compara contra un str del vocabulario cerrado, y un
+       -- valor JSON entrecomillado ("degrade" con comillas) no matchearía nunca.
+       (SELECT gd.config->>'nlp_fail_mode' FROM guardians gd
+         WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
+           AND gd.is_active = true LIMIT 1) AS nlp_fail_mode,
        bud.max_spend_usd AS max_budget_usd,
        bud.current_spend_usd AS spend_usd
 FROM api_keys k
