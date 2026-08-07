@@ -746,6 +746,42 @@ export const SecurityPage: React.FC = () => {
                       <option value="BLOCK">Bloquear petición entera</option>
                     </select>
                   </label>
+                  {/* issue #63: qué hacer cuando el motor de detección NLP no responde.
+                      Antes esta decisión no existía en ningún lado: cada plano hacía lo
+                      suyo (uno bloqueaba, el otro ni siquiera usaba el motor). Es un
+                      producto de seguridad, así que degradar es legítimo pero tiene que ser
+                      una elección CONSCIENTE — de ahí el aviso explícito al elegirlo. */}
+                  <label className="flex flex-col gap-1.5">
+                    <span className={labelText}>Si el motor de detección NLP no responde</span>
+                    <select
+                      value={selected.config.nlp_fail_mode || "block"}
+                      onChange={(e) => handleGuardianConfigChange(selected.id, "nlp_fail_mode", e.target.value)}
+                      className={controlCls}
+                    >
+                      <option value="block">
+                        Bloquear las peticiones (recomendado)
+                      </option>
+                      <option value="degrade">
+                        Continuar con detección por patrones (cobertura menor)
+                      </option>
+                    </select>
+                    {selected.config.nlp_fail_mode === "degrade" ? (
+                      <span className="text-[11px] text-danger bg-danger-bg border border-danger rounded-md p-2.5">
+                        <strong>Atención:</strong> con esta opción, si el motor de detección
+                        deja de responder las peticiones <strong>siguen saliendo</strong>,
+                        protegidas sólo por patrones locales. Detectan menos casos que el motor
+                        de lenguaje: nombres sin tratamiento previo y teléfonos sin prefijo
+                        internacional pueden salir <strong>sin enmascarar</strong>. Cada
+                        petición afectada queda registrada y el panel principal muestra un aviso
+                        mientras dure. No es recomendable con datos de salud.
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-text-tertiary">
+                        Sin garantía de detección no se envía nada al modelo: es la postura por
+                        defecto y la que exige la normativa cuando hay datos de salud.
+                      </span>
+                    )}
+                  </label>
                   <label className="flex flex-col gap-1.5">
                     <span className={labelText}>Nombres personalizados a capturar</span>
                     <textarea
