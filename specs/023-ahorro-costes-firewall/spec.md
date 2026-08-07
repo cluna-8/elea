@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Owner**: Falime (módulo datos/costes/ruteo)
+**Owner**: JF — herencia 03-ago, la división por módulos del 15-jul quedó superada (ver `ROADMAP-guardian.md`)
 
 **Input**: User description: "Llevar Ahorro de Costes IA (spec 012) al plano firewall: compresión de tokens en el motor para clientes byok, perfiles de optimización por scope (tenant/grupo/cliente, perfiles developer sin fricción), ahorro medible en presupuesto y auditoría, y ruteo coste-consciente a modelos más baratos con guardia de calidad"
 

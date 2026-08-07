@@ -140,7 +140,11 @@ litellm/           Motor LiteLLM + extensiones nativas (014):
 frontend/          React + Vite + Tailwind (panel, playground, monitor)
 extension/         Extensión MV3 Basa Guard (browser-DLP: ChatGPT/Claude web)
 specs/             SDD — una spec por feature (spec/plan/tasks/research); ver ROADMAP-guardian.md
+deploy/            Install & Factory (depto Falime): bundles white-label, perfiles de clientes,
+                   imágenes prod, checks de release — en mudanza a repo propio guardian-factory
 docs/              Docs de operación: integration-surfaces, whitelabel-deployment, compliance-policies
+docs-cliente/      Sitio de docs para el cliente final (viaja en el kit de sede)
+tech-team/         Mapas del equipo: EcosystemOverview, TechTree, Licencias, RunbookCamara, DevFlow
 .specify/          Spec-Kit (constitución + templates + scripts del flujo SDD)
 ```
 
@@ -151,7 +155,7 @@ Redis · React/Vite · Docker Compose.
 
 ```bash
 # Suite completa del backend (unit + integration + contract), contra Postgres real:
-docker compose run --rm --no-deps backend pytest tests/ -q          # ~297 passed
+docker compose run --rm --no-deps backend pytest tests/ -q          # 979 tests
 # Contract checks del motor (DENTRO de la imagen pinneada):
 docker compose exec -T litellm python /app/extensions/contract_checks.py
 docker compose exec -T litellm python /app/extensions/integration_checks.py
@@ -166,10 +170,13 @@ El repo se desarrolla **spec-driven** con [Spec-Kit](.specify/): cada feature vi
 Usar el **tooling de Spec-Kit** (skills `speckit-*` y `.specify/scripts/`) para los pasos SDD — no
 ediciones manuales; `speckit-analyze` valida consistencia spec↔plan↔tasks.
 
-- **Estado y secuencia**: [`specs/ROADMAP-guardian.md`](specs/ROADMAP-guardian.md) — 013 (multi-tenant),
-  014 (firewall LiteLLM-native) y 019 (superficies de integración) implementadas; 015–018 y 020–023 en roadmap.
-- **Módulos y owners** (reunión 2026-07-15): clientes/integraciones (JF), seguridad/guardianes (Cristian),
-  datos/costes/ruteo (Falime) — detalle y reglas de review en el roadmap + [CODEOWNERS](.github/CODEOWNERS).
+- **Estado y secuencia**: [`specs/ROADMAP-guardian.md`](specs/ROADMAP-guardian.md) — 013–014, 016,
+  019–022, 024 y 027–031 implementadas en `main`; 017/018, 023 y 033/034 en roadmap. El tech tree con
+  fases y gates 125/250/500: [`specs/ROADMAP-pisos.md`](specs/ROADMAP-pisos.md).
+- **Departamentos** (decisión 2026-08-03, supera la división por módulos del 15-jul): Guardian App
+  Ecosystem (JF, el producto) e Install & Factory (Falime, `deploy/`); Cristian = gate de seguridad, no
+  departamento. Convención de trabajo: [CONTRIBUTING.md](CONTRIBUTING.md) + [CODEOWNERS](.github/CODEOWNERS);
+  operativa del depto Guardian: [tech-team/DevFlow-BasaGuardian.md](tech-team/DevFlow-BasaGuardian.md).
 - **Gobernanza**: [`.specify/memory/constitution.md`](.specify/memory/constitution.md) (principios I–VIII;
   fail-closed, audit metadata-only, white-label config-as-data, never fork).
 - **Flujo de PRs**: cada spec/fase → branch → PR (merge humano). Hardening con review multi-agente +

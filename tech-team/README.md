@@ -13,7 +13,7 @@ Documentos de arquitectura y organización del equipo. Standalone: se abren con 
 | [RunbookCamara-BasaGuardian.html](RunbookCamara-BasaGuardian.html) | **Runbook install Cámara (as-built 30-jul)**: topología delorean/t800, los 10 pasos, los NUNCA, troubleshooting exprés, soporte y pasar-un-fix; sin credenciales (dote a Factory) | https://claude.ai/code/artifact/6f1cffaa-1e9c-4497-8c1e-d86edc83e361 |
 | [DevFlow-BasaGuardian.md](DevFlow-BasaGuardian.md) | **DevFlow depto Guardian**: operativa propia encima del CONTRIBUTING — orquestación con agentes (Fable/Opus 5), SDD con speckit, testing (código nuevo = tests nuevos), codex-gate y review adversarial, reglas del modo autónomo | — (solo .md) |
 
-Nota: los dos docs nuevos (05-ago) son de alcance **solo departamento Guardian**; el ArquitectOverview del 31-jul es el mapa completo pre-departamentos (histórico). La fuente markdown del Tech Tree vive en el repo: `basa-guardian/specs/ROADMAP-pisos.md`.
+La metodología canónica del equipo vive en **`Structure/`** (dueño Cristian, PR #80): ManosALaObra v4 + skill `guardian-metodologia` v2 + copia del CONTRIBUTING — la copia de ManosALaObra de esta carpeta es de referencia visual. Nota: los dos docs nuevos (05-ago) son de alcance **solo departamento Guardian**; el ArquitectOverview del 31-jul es el mapa completo pre-departamentos (histórico). La fuente markdown del Tech Tree vive en el repo: `basa-guardian/specs/ROADMAP-pisos.md`.
 
 Versiones **solo-datos** (.md limpio, mismas tablas sin narrativa — para reutilizar en presentaciones/diseño): [EcosystemOverview-BasaGuardian.md](EcosystemOverview-BasaGuardian.md) · [TechTree-BasaGuardian.md](TechTree-BasaGuardian.md).
 

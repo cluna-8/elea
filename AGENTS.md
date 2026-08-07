@@ -1,7 +1,8 @@
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/016-real-nlp-masking/plan.md
+No hay spec activa en vuelo. El plan vigente del ciclo vive en
+specs/ROADMAP-pisos.md (tech tree, gates 125/250/500 y apuestas por ciclo) y
+specs/ROADMAP-guardian.md (estado por spec). Al arrancar una spec nueva,
+speckit regenera este bloque apuntando a su plan.md.
 <!-- SPECKIT END -->
 
 # Acuerdo de trabajo del equipo (humanos + agentes)
@@ -9,11 +10,15 @@ at specs/016-real-nlp-masking/plan.md
 Reglas que TODA sesión de trabajo en este repo respeta, sea de JF, Cristian o Falime
 (módulos y ownership: `.github/CODEOWNERS`; roadmap: `specs/ROADMAP-guardian.md`).
 
-## SDD siempre
+## SDD cuando amerita (pragmático)
 
-Toda feature va por Spec-Kit completo: spec → plan → tasks → implement, con los
-skills `.agents/skills/speckit-*` (no ediciones manuales de los artefactos). TDD
-por user story; el trabajo termina en PR — jamás commits directos a main.
+Feature con superficie, contrato o decisión de diseño nueva → Spec-Kit completo:
+spec → plan → tasks → implement, con los skills `.agents/skills/speckit-*` (no
+ediciones manuales de los artefactos). Fix de causa clara o cambio trivial → rama
+corta directa, sin spec. Criterio: si la spec no obligaría a decidir nada, no se
+escribe. En ambos casos: TDD donde hay código nuevo y el trabajo termina en PR —
+jamás commits directos a main. Operativa completa del depto Guardian:
+`tech-team/DevFlow-BasaGuardian.md`; convención común: `CONTRIBUTING.md`.
 
 ## Definition of Done — la documentación de producto es PARTE de la feature
 

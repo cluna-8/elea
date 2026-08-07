@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-13
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Modelo comercial 'install + X licencias' vendido a un distribuidor marca-blanca. El cliente CORRE el software (Basa no controla la caja) → el enforcement de licencias debe ser OFFLINE y anti-tamper, sin phone-home (on-prem/VPN puede no tener egress). Falta hoy TODO el enforcement (cero max_seats/license_key/entitlement); es greenfield sobre plomería sólida (Connection=APIKey, custom_auth fail-closed, audit inmutable). Complementa la 020 (deploy)."
 

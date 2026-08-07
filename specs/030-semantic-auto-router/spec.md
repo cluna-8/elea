@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-28
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Portar el auto-router semántico de llm-guardian y mejorar
 «Modelos & Ollama» para alojarlo: switch on/off, timeout si hace falta, y pensar bien qué

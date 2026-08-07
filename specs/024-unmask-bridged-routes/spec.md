@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-20
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Fix-spec del issue #27 (spike 019 batch 1): en el camino byok con modelos no-Claude del motor, la restauración (unmask) de PII sobre la respuesta no corre — el empleado ve placeholders — y los eventos del monitor llegan sin identidad (tool/client/tenant null). Cerrar el round-trip mask→unmask en TODO camino byok y devolver la atribución, con la evidencia e2e que hoy falta."
 

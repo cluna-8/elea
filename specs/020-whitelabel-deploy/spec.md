@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-13
 
-**Status**: Draft
+**Status**: Implementada — estado canónico en [`deploy/ROADMAP-factory.md`](../../deploy/ROADMAP-factory.md)
 
 **Input**: User description: "Empaquetar Basa Guardian para el modelo de negocio real: Basa cobra INSTALL + X
 licencias y vende a un DISTRIBUIDOR (marca blanca) que garantiza training+soporte. Basa NO instala a cliente

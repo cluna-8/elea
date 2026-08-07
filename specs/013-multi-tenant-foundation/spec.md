@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-10
 
-**Status**: Draft — **bedrock del producto** (precondición de 014–018). Ver [`ROADMAP-guardian.md`](../ROADMAP-guardian.md).
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md) — **bedrock del producto** (precondición de 014–018). Ver [`ROADMAP-guardian.md`](../ROADMAP-guardian.md).
 
 **Constitución**: v2.0.0 — Principios **III** (Multi-Tenant by Design), **IV** (Client Onboarding as Data), **VII** (Config+Seed, never fork); constraints **SC-3** (fail-closed identidad), **SC-4** (Tenant Isolation / RLS).
 
