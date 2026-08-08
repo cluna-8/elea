@@ -285,9 +285,14 @@ async def _detect_floor_pii(prompt: str, guardians) -> Optional[list]:
     con detectores distintos, la promesa de D8 no sería verificable: cambiaría el hallazgo
     al mover el toggle.
 
-    El ``is_active`` de la fila NO se consulta: la detección es piso y no pide permiso a un
-    toggle de la UI (SC-004). La fila aporta solo **vocabulario** (qué entidades y qué
-    nombres propios del cliente), y si no existe se usa el default de producto.
+    Qué fila aporta el **vocabulario** (qué entidades y qué nombres propios del cliente): la
+    ``pii_masking`` ACTIVA más antigua (``created_at, id``), el MISMO desempate determinista
+    que usan el escritor del catálogo custom y los planos de tráfico (#104/#119), para que
+    todos coincidan en la fila que gobierna. Esto NO gatea el piso con el toggle de la UI
+    (SC-004): la detección corre igual —lo que trae a este camino es el toggle de gobernanza
+    ``pii_masking:off``, que NO es el ``is_active`` de la fila (una instalación por defecto la
+    tiene activa)—; el filtro sólo decide de qué fila sale el vocabulario, y si no hay ninguna
+    activa se usa el default de producto (igual que el tráfico, que tampoco lee filas inactivas).
 
     Devuelve el desglose POR TIPO y no un entero pelado porque el hallazgo del piso tiene
     dos lectores con la misma exigencia de verdad: ``applied_layers`` (que solo necesita el
@@ -304,7 +309,13 @@ async def _detect_floor_pii(prompt: str, guardians) -> Optional[list]:
     if not prompt:
         return []
     try:
-        pii_guardian = next((g for g in guardians if g.guardian_type == "pii_masking"), None)
+        # issue #119: la ACTIVA más antigua (`created_at, id`) — mismo desempate determinista
+        # que el escritor del catálogo custom y los lectores de tráfico (#104), para que TODOS
+        # coincidan en la fila que gobierna. Sin él, con dos `pii_masking` activos este piso
+        # podía leer entidades/nombres de una fila distinta a la que el panel edita.
+        pii_guardian = min(
+            (g for g in guardians if g.guardian_type == "pii_masking" and g.is_active),
+            key=lambda g: (g.created_at, g.id), default=None)
         config = getattr(pii_guardian, "config", None) or {}
         entities_to_scan = config.get("entities") or list(_DEFAULT_PII_ENTITIES)
         raw_entities = await PresidioService.analyze_text(prompt)

@@ -205,6 +205,9 @@ class _FakeQuery:
     def filter(self, *args, **kwargs):
         return self
 
+    def order_by(self, *args, **kwargs):
+        return self  # el fake no ordena; sólo que el método exista (#119 lo llama)
+
     def with_for_update(self):
         return self  # el fake no simula locking real, solo que el método existe
 

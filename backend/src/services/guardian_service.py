@@ -277,7 +277,14 @@ class GuardianService:
                 })
 
         # 3. PII/PHI Masking Guardian (Presidio + Custom Names)
-        pii_guardian = next((g for g in guardians if g.guardian_type == "pii_masking" and g.is_active), None)
+        # issue #119: desempate determinista (la ACTIVA más antigua por `created_at, id`) para
+        # coincidir con el escritor del catálogo custom (`entity_catalog_service._pii_guardian`)
+        # y con los lectores de tráfico (#104). Sin él, con dos `pii_masking` activos este plano
+        # tomaba una fila ARBITRARIA con `next(...)` y podía no ver el vocabulario (entidades/
+        # nombres) que el panel escribió en la fila que de verdad gobierna.
+        pii_guardian = min(
+            (g for g in guardians if g.guardian_type == "pii_masking" and g.is_active),
+            key=lambda g: (g.created_at, g.id), default=None)
         is_pii_active = pii_guardian is not None
         if overrides and overrides.get("override_pii_masking") is not None:
             is_pii_active = overrides["override_pii_masking"]
