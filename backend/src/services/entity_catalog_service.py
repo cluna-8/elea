@@ -414,30 +414,55 @@ async def draft_entity(description: str) -> Dict[str, Any]:
     }
 
 
+def _select_pii_guardian(db: Session, tenant_id, *, for_update: bool) -> Optional[Guardian]:
+    """LA fila `pii_masking` que gobierna, con el MISMO desempate determinista que los
+    lectores de tráfico (#104) y de chat (#119): la ACTIVA más antigua
+    (`is_active=true ORDER BY created_at, id LIMIT 1`).
+
+    Por qué acá también (#119): el catálogo custom tiene que ESCRIBIRSE en la misma fila que
+    TODOS los planos LEEN. Antes esto era `.first()` sin orden ni filtro de actividad, así que
+    con dos `pii_masking` activos el panel podía escribir una entidad custom en una fila y el
+    tráfico leer OTRA — la entidad no aplicaba, en silencio (hallazgo BAJO del gate del #118).
+
+    Fallback deliberado (sin filtrar `is_active`) cuando NO hay ninguna fila activa: mantiene
+    operativo el catálogo (crear/listar/borrar) aunque el admin tenga el guardián apagado
+    —comportamiento previo al #119 con un único guardián—. No reintroduce el bug: si hay al
+    menos UNA activa gana esa (el único caso donde el determinismo importa, porque los lectores
+    sólo miran filas activas); sin ninguna activa los lectores tampoco leen nada, así que no hay
+    divergencia posible — la entidad simplemente no aplica hasta que se active la fila, que es
+    justo lo que un guardián apagado debe hacer."""
+    base = (db.query(Guardian)
+            .filter(Guardian.tenant_id == tenant_id,
+                    Guardian.guardian_type == "pii_masking")
+            .order_by(Guardian.created_at, Guardian.id))
+    activa = base.filter(Guardian.is_active.is_(True))
+    if for_update:
+        activa = activa.with_for_update()
+    guardian = activa.first()
+    if guardian is not None:
+        return guardian
+    if for_update:
+        base = base.with_for_update()
+    return base.first()
+
+
 def _pii_guardian(db: Session, tenant_id, *, for_update: bool = False) -> Guardian:
     """`for_update=True` (T045): toma un lock de fila Postgres (`SELECT ... FOR
     UPDATE`) para las operaciones de escritura (create/delete) — sin esto, dos
     requests concurrentes leen el mismo `custom_entities`, cada una modifica su
     copia en memoria y comitea, y la que comitea después pisa a la primera
     (lost update). El lock serializa: la segunda transacción espera a que la
-    primera comitee antes de leer, así que ve la lista ya actualizada."""
-    query = db.query(Guardian).filter(
-        Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking"
-    )
-    if for_update:
-        query = query.with_for_update()
-    guardian = query.first()
-    if not guardian:
+    primera comitee antes de leer, así que ve la lista ya actualizada.
+
+    La fila la elige `_select_pii_guardian` (la ACTIVA más antigua): ver ahí el porqué del
+    desempate determinista del #119 —escritor y lectores tienen que coincidir en LA misma fila."""
+    guardian = _select_pii_guardian(db, tenant_id, for_update=for_update)
+    if guardian is None:
         # Auto-provisiona el catálogo por default (mismo que dispara GET /guardians) —
         # sin esto, pedir el catálogo de entidades custom ANTES de haber abierto el
         # panel de guardianes una vez rompía con un 500 (bug encontrado con curl).
         GuardianService.get_or_create_default_guardians(db)
-        query = db.query(Guardian).filter(
-            Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking"
-        )
-        if for_update:
-            query = query.with_for_update()
-        guardian = query.first()
+        guardian = _select_pii_guardian(db, tenant_id, for_update=for_update)
     if not guardian:
         raise ValueError("No existe el guardián de enmascaramiento PII para este tenant.")
     return guardian

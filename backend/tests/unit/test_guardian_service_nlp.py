@@ -14,6 +14,9 @@ herramientas (spec 016 Assumptions)— y aun así arrastraba dos silencios:
 El playground SIGUE degradando (no se le aplica el fail-closed del tráfico real: es una
 herramienta interna y bloquearla no protege a nadie). Lo que cambia es que ya no es mudo.
 """
+import uuid
+from datetime import datetime
+
 import pytest
 
 from src.services import guardian_service
@@ -31,6 +34,11 @@ class _GuardianFalso:
         self.is_active = is_active
         self.name = f"guardián {guardian_type}"
         self.engine_guardrail_name = None
+        # Espeja el contrato del modelo real (Guardian): `process_prompt` desempata la fila
+        # `pii_masking` por `(created_at, id)` desde el #119. Toda fila real los trae no-nulos
+        # (migración 015 + PK); el fake también, o la selección no tiene por dónde ordenar.
+        self.created_at = datetime.utcnow()
+        self.id = uuid.uuid4()
 
 
 @pytest.fixture(autouse=True)
