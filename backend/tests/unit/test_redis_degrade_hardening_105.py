@@ -29,30 +29,40 @@ import pytest
 import redis
 
 
-# ── Doble de litellm.integrations.custom_guardrail para poder importar el motor ─────────
-# (idéntico al de test_guardrail_block_audit.py: litellm no está instalado en el backend y no
-# hace falta que lo esté — lo que se prueba es NUESTRA lógica de Redis, no el SDK del motor).
-def _instalar_doble_litellm():
-    if "litellm.integrations.custom_guardrail" in sys.modules:
-        return
-
-    class CustomGuardrail:
-        def __init__(self, *args, **kwargs):
-            pass
-
+# ── Dobles de litellm para poder importar las extensiones del motor ─────────────────────
+# (idéntico al de test_guardrail_block_audit.py / test_audit_logger_retry.py: litellm no está
+# instalado en el backend y no hace falta que lo esté — lo que se prueba es NUESTRA lógica de
+# Redis, no el SDK del motor). Se doblan las DOS bases: el guardrail y el logger de éxito.
+def _instalar_dobles_litellm():
     litellm_mod = sys.modules.setdefault("litellm", types.ModuleType("litellm"))
     integrations = sys.modules.setdefault(
         "litellm.integrations", types.ModuleType("litellm.integrations"))
-    modulo = types.ModuleType("litellm.integrations.custom_guardrail")
-    modulo.CustomGuardrail = CustomGuardrail
-    sys.modules["litellm.integrations.custom_guardrail"] = modulo
     litellm_mod.integrations = integrations
-    integrations.custom_guardrail = modulo
+
+    if "litellm.integrations.custom_guardrail" not in sys.modules:
+        class CustomGuardrail:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        modulo = types.ModuleType("litellm.integrations.custom_guardrail")
+        modulo.CustomGuardrail = CustomGuardrail
+        sys.modules["litellm.integrations.custom_guardrail"] = modulo
+        integrations.custom_guardrail = modulo
+
+    if "litellm.integrations.custom_logger" not in sys.modules:
+        class CustomLogger:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        modulo = types.ModuleType("litellm.integrations.custom_logger")
+        modulo.CustomLogger = CustomLogger
+        sys.modules["litellm.integrations.custom_logger"] = modulo
+        integrations.custom_logger = modulo
 
 
-_instalar_doble_litellm()
+_instalar_dobles_litellm()
 
-from extensions import basa_guardrail  # noqa: E402
+from extensions import basa_audit_logger, basa_guardrail  # noqa: E402
 from src.services import audit_service, redis_client  # noqa: E402
 
 
@@ -315,3 +325,117 @@ async def test_la_marca_de_degradacion_no_bloquea_el_event_loop(monkeypatch):
     assert capturado["hilo"] != hilo_del_loop, (
         "la marca corrió INLINE en el event loop — un Redis lento bloquearía el worker (#8). "
         "Tiene que despacharse a un hilo (asyncio.to_thread).")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# Round 2 (a) — los OTROS 2 clientes async del motor (basa_audit_logger) también con timeouts
+# ══════════════════════════════════════════════════════════════════════════════════════
+# El contador de pérdidas de la fila DURABLE y el feed de la vitrina abrían `redis.asyncio`
+# SIN timeouts. El feed corre en CADA request exitosa (incluidas las degradadas), así que el
+# mismo Redis colgado que motiva el PR seguía colgando ese `pipe.execute()` para siempre.
+
+
+class _PipeSano:
+    def __getattr__(self, _name):  # incr/set/lpush/ltrim/expire → no-op
+        return lambda *a, **k: None
+
+    async def execute(self):
+        return True
+
+
+class _RedisCapturaKwargs:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    def pipeline(self):
+        return _PipeSano()
+
+    async def aclose(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_registrar_perdida_del_logger_construye_redis_con_timeouts(monkeypatch):
+    import redis.asyncio as redis_lib
+    capturado = {}
+    monkeypatch.setattr(redis_lib, "Redis",
+                        lambda **kw: capturado.update(kw) or _RedisCapturaKwargs(**kw))
+
+    await basa_audit_logger._registrar_perdida("motivo-de-prueba")
+
+    assert _es_timeout_acotado(capturado.get("socket_timeout")), capturado
+    assert _es_timeout_acotado(capturado.get("socket_connect_timeout")), capturado
+
+
+@pytest.mark.asyncio
+async def test_publish_monitor_event_del_logger_construye_redis_con_timeouts(monkeypatch):
+    import redis.asyncio as redis_lib
+    capturado = {}
+    monkeypatch.setattr(redis_lib, "Redis",
+                        lambda **kw: capturado.update(kw) or _RedisCapturaKwargs(**kw))
+
+    await basa_audit_logger.basa_audit_logger_instance._publish_monitor_event(
+        {}, [], "passed", {"messages": [{"role": "user", "content": "hola"}], "model": "m"})
+
+    assert _es_timeout_acotado(capturado.get("socket_timeout")), capturado
+    assert _es_timeout_acotado(capturado.get("socket_connect_timeout")), capturado
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# Round 2 (b) — el cliente se CIERRA aunque `pipe.execute()` timeoutee (no leak, aclose en finally)
+# ══════════════════════════════════════════════════════════════════════════════════════
+# Con `socket_timeout`, un execute que timeoutea es el camino COMÚN. Si `aclose()` fuera la
+# última sentencia del `try`, se lo saltaría y el cliente quedaría sin cerrar (hasta 2 por
+# request bajo NLP-down + Redis-lento). Tiene que cerrarse en `finally`.
+
+
+class _RedisTimeoutEnExecute:
+    """Doble cuyo `pipe.execute()` timeoutea; cuenta cuántas veces se cerró el cliente."""
+
+    def __init__(self, cerrado, **kwargs):
+        self._cerrado = cerrado
+
+    def pipeline(self):
+        cerrado = self._cerrado
+
+        class _Pipe:
+            def __getattr__(self, _name):
+                return lambda *a, **k: None
+
+            async def execute(self):
+                raise redis.exceptions.TimeoutError("Timeout reading from socket")
+
+        return _Pipe()
+
+    async def aclose(self):
+        self._cerrado["n"] += 1
+
+
+@pytest.mark.asyncio
+async def test_marcar_nlp_degradado_cierra_el_cliente_aunque_execute_timeoutee(monkeypatch):
+    import redis.asyncio as redis_lib
+    cerrado = {"n": 0}
+    monkeypatch.setattr(redis_lib, "Redis", lambda **kw: _RedisTimeoutEnExecute(cerrado, **kw))
+
+    # Que el conteo de pérdida (que abre OTRO cliente) no interfiera con la cuenta de cierres.
+    async def _noop(_motivo):
+        pass
+
+    monkeypatch.setattr(basa_guardrail, "_contar_perdida", _noop)
+
+    await basa_guardrail._marcar_nlp_degradado()
+
+    assert cerrado["n"] == 1, (
+        "el cliente tiene que cerrarse en `finally` aunque `pipe.execute()` timeoutee — si no, "
+        "se filtra una conexión por cada request degradada bajo Redis lento (#8)")
+
+
+@pytest.mark.asyncio
+async def test_contar_perdida_cierra_el_cliente_aunque_execute_timeoutee(monkeypatch):
+    import redis.asyncio as redis_lib
+    cerrado = {"n": 0}
+    monkeypatch.setattr(redis_lib, "Redis", lambda **kw: _RedisTimeoutEnExecute(cerrado, **kw))
+
+    await basa_guardrail._contar_perdida("motivo-de-prueba")
+
+    assert cerrado["n"] == 1, "no leak: `aclose()` en `finally` aunque el execute timeoutee (#8)"
