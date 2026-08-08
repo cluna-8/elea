@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from src.api import gateway, inspect
 
 EMAIL = "juan.perez@hospital.es"
-DNI = "12.345.678"
+DNI = "12345678Z"   # DNI español (formato NIF): se reconoce como ES_NIF por formato (#64)
 
 VALID = {"tenant_id": "00000000-0000-0000-0000-000000000001", "api_key_id": "key-1",
          "user_id": "u1", "group_id": "g1", "client_username": "dev.browser",
@@ -55,10 +55,9 @@ def test_inspect_masks_and_returns_replacements(client):
                     headers={"X-Basa-Key": "sk-basa-valid"})
     assert r.status_code == 200
     j = r.json()
-    # el modelo (ChatGPT) verá placeholders, no la PII. Nota (spec 016, corrección
-    # post-review Europa/no-Argentina): el fallback dev `default_analyze` ya no
-    # tiene un tipo "DNI" propio — el valor sigue enmascarándose, pero cae en el
-    # patrón genérico PHONE_NUMBER (ver test_route_parity.py / test_browser_dlp_e2e.py).
+    # el modelo (ChatGPT) verá placeholders, no la PII. Nota (#64): el fallback dev
+    # `default_analyze` reconoce el DNI español como ES_NIF por formato — ya no lo
+    # trocea/mal-etiqueta como PHONE_NUMBER (ver test_route_parity.py / test_browser_dlp_e2e.py).
     assert EMAIL not in j["masked"] and DNI not in j["masked"]
     assert "[EMAIL_ADDRESS_" in j["masked"]
     # replacements = token→original para que la extensión des-enmascare el DOM

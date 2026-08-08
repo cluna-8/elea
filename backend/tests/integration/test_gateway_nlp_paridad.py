@@ -394,6 +394,34 @@ def test_analyzer_caido_con_degrade_sirve_con_regex_y_lo_deja_marcado(
     assert int(redis_falso.datos[audit_service.REDIS_KEY_NLP_DEGRADED_COUNT]) == 1
 
 
+def test_degrade_enmascara_tarjeta_y_iban_con_separador_no_estandar(
+        harness, proveedor, nlp_configurado, guardian_pii, redis_falso, key_atribuible):
+    """E2E del #64 (round 5) por el camino de USUARIO: con el sidecar caído y `degrade`, una
+    tarjeta escrita con punto y otra con coma, y un IBAN con puntos, salen ENMASCARADOS hacia
+    el proveedor — cero dígitos del PAN/IBAN en claro. Antes del round 5 el fallback sólo
+    toleraba espacio/guión: cualquier otro separador fracturaba la corrida en trozos <umbral y
+    el número ENTERO salía en claro al LLM. Se mide sobre el body que efectivamente salió, no
+    sobre la función — la garantía es "no fugó por el cable", no "se llamó a tal regex"."""
+    guardian_pii(nlp_fail_mode="degrade")
+    nlp_configurado(caido=True)
+    client, _factory = harness
+
+    texto = ("tarjeta 4111.1111.1111.1111 y de respaldo 4111,1111,1111,1111, "
+             "IBAN ES91.2100.0418.4502.0005.1332 — gracias")
+    respuesta = client.post(GW, json=_cuerpo(texto), headers=key_atribuible)
+
+    assert respuesta.status_code == 200, respuesta.text
+    enviado = body_enviado(proveedor)
+    # Normalizando a sólo-dígitos, ninguna ventana del PAN/IBAN puede aparecer en claro.
+    solo_digitos = re.sub(r"\D", "", enviado)
+    assert "4111111111111111" not in solo_digitos, f"tarjeta EN CLARO al proveedor: {enviado}"
+    assert "9121000418450200051332" not in solo_digitos, f"IBAN EN CLARO: {enviado}"
+    assert "ES91" not in enviado, f"prefijo IBAN en claro: {enviado}"
+    # Y los placeholders reversibles correctos SÍ están (etiquetas honestas del fallback).
+    assert "[CREDIT_CARD_" in enviado, f"tarjeta sin placeholder: {enviado}"
+    assert "[IBAN_CODE_" in enviado, f"IBAN sin placeholder: {enviado}"
+
+
 def test_degrade_no_pierde_el_mapa_reversible(harness, proveedor, guardian_pii, monkeypatch,
                                               key_atribuible):
     """Regresión del camino más peligroso del fix: si el analyzer se cae A MITAD de

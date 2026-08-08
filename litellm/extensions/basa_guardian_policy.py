@@ -51,12 +51,26 @@ AnalyzeFn = Callable[[str], Awaitable[list]]
 
 # PII por regex — SOLO fallback de dev/demo (ver `default_analyze` más abajo). El
 # camino de producción usa `presidio_analyze` (NLP real, spec 016, Constraint SC-2).
-# Genérico e internacional a propósito (sin +54 ni formatos AR): el dev-fallback no
-# intenta simular reconocedores estructurados por país — esos SOLO existen vía NLP
-# real (ver STRUCTURED_ID_PATTERNS_BY_REGION más abajo).
+# NO sustituye al NLP: los nombres SIN tratamiento siguen necesitando NER real. El fix
+# del #64 (piloto Cámara) es que el paracaídas de emergencia no MIENTA mientras actúa.
+# Antes tenía un `PHONE_NUMBER` genérico (`\b\+?[0-9][0-9\-. ]{7,14}[0-9]\b`) que
+# troceaba un IBAN en DOS falsos `[PHONE_NUMBER]` dejando el prefijo (`ES91`) EN CLARO, y
+# etiquetaba facturas (`FAC-2026-001587`) como teléfonos inexistentes → conteos de
+# auditoría inflados. Ahora: (a) el teléfono nacional exige estructura real (patrón de
+# STRUCTURED_ID_PATTERNS_BY_REGION, primer dígito 6-9 → no engulle IBANs ni importes) y el
+# internacional exige prefijo `+`/`00` (empieza por dígito de país, no se pisa con IBANs
+# que empiezan por letras — restaura la cobertura intl que perdía el genérico, review R2),
+# (b) IBAN/tarjeta se CONFIRMAN con checksum y NIF/NIE por formato, y (c) lo que NO se
+# reconoce con confianza se deja SIN TOCAR: mejor un hueco honesto que una etiqueta falsa
+# (el NLP real cubre el resto). Etiquetas = tipos canónicos del producto (IBAN_CODE,
+# CREDIT_CARD, ES_NIF, ES_NIE; ver el seed EU de guardianes).
+#
+# EMAIL: local ≤64 y dominio ≤255 chars (topes RFC 5321) + grupo atómico en el local.
+# Sin el TOPE, el `+` sobre `[A-Za-z0-9._%+-]` (que incluye `-`) es O(n²) por reintento de
+# arranque cuando NO hay `@` (medido: 80KB de `9-` → 17 s). El tope lo vuelve LINEAL (mismo
+# input → 28 ms); el grupo atómico mata además el backtracking interno (review R2, #64).
 PII_PATTERNS = {
-    "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    "PHONE_NUMBER": r"\b\+?[0-9][0-9\-. ]{7,14}[0-9]\b",
+    "EMAIL_ADDRESS": r"\b(?>[A-Za-z0-9._%+-]{1,64})@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}\b",
     "PERSON": r"\b(?:sr|sra|dr|dra|mr|mrs|ms)\.?\s+([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b",
 }
 
@@ -98,6 +112,141 @@ STRUCTURED_ID_PATTERNS_BY_REGION = {
     },
 }
 DEFAULT_REGION = "eu"
+
+# ── Fallback estructurado de detección (dev/demo, #64) ────────────────────────────────
+#
+# Sólo lo usa `default_analyze` (el paracaídas regex). Va aparte de `PII_PATTERNS` porque
+# NO es "match directo": IBAN y tarjeta se CONFIRMAN con checksum (mod-97 / Luhn) — sin
+# eso, cualquier corrida de dígitos o token `AA00…` saldría etiquetado como tarjeta/IBAN,
+# la mentira exacta que el #64 prohíbe. DNI/NIE y el teléfono nacional son por-país
+# (región-aware); IBAN y tarjeta son INTERNACIONALES (no dependen de región).
+
+# Estructurados por-país del fallback. El teléfono NACIONAL REUTILIZA el patrón validado del
+# camino NLP (primer dígito 6-9: NO trocea IBANs/importes/expedientes). DNI/NIE por FORMATO
+# (8 díg + letra / [XYZ]+7 díg + letra); el checksum de la letra es un extra que sólo el NLP
+# real aporta — acá basta el formato para no dejar el documento en claro sin mentir de tipo.
+#
+# `PHONE_INTL` restaura la cobertura de números NO españoles que el genérico borrado del #64
+# cubría (`+44 20 7946 0958`, `+33 1 42 68 53 00`, `+1 202 555 0173`) SIN reintroducir el
+# sobre-matcheo: EXIGE prefijo `+`/`00` + dígito de país 1-9. Como arranca por `+`/`00` y los
+# IBANs por letras y las facturas sin prefijo, no se pisan (review R2). La etiqueta que emite
+# es `PHONE_NUMBER` (ver `default_analyze`): `PHONE_INTL` es sólo la clave del patrón.
+FALLBACK_STRUCTURED_BY_REGION = {
+    "eu": {
+        "PHONE_NUMBER": STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0],
+        "PHONE_INTL": r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b",
+        "ES_NIF": r"\b\d{8}[A-Za-z]\b",
+        "ES_NIE": r"\b[XYZxyz]\d{7}[A-Za-z]\b",
+    },
+}
+# Clave del patrón fallback → etiqueta canónica emitida (cuando difieren). El teléfono
+# internacional se detecta con un patrón propio pero cuenta como PHONE_NUMBER en auditoría.
+_FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
+
+# Corridas estructuradas del fallback fail-safe (decisión JF, opción A — ver
+# `_structured_id_spans`). NO se busca dónde empieza/termina el identificador dentro de la
+# corrida (eso, con checksum + fronteras, fue el origen de TRES variantes de fuga: R1 sufijo,
+# R2/R3 partición de grupos, R3 dígito pegado al primer grupo). Se enmascara la corrida
+# ENTERA. Patrones LINEALES (cada iteración consume ≥1 char, clases disjuntas → sin ReDoS).
+# El separador interno es CUALQUIER carácter no alfanumérico (`[^0-9A-Za-z]`), no sólo
+# espacio/guión: cualquier otro separador (punto, barra, coma, NBSP U+00A0, narrow-NBSP
+# U+202F, salto de línea, mixtos) fracturaba la corrida en trozos bajo el umbral y fugaba el
+# número ENTERO en claro (4ª clase de fuga, hallada por el gate adversarial). Con el separador
+# genérico ningún carácter puede fracturar la corrida — cierre del family POR CONSTRUCCIÓN.
+#   - Tarjeta: cualquier corrida de dígitos separados por ≤1 no-alfanumérico.
+#   - IBAN: corrida que arranca por país (2 letras) + 2 dígitos de control. El ancla admite
+#     un no-alfanumérico antes de cada dígito de control (`(?:[^0-9A-Za-z]?\d){2}`) para NO
+#     fugar IBANs en grupos no estándar (`MT 84 …`, `MT8 4…`) que parten el par de control;
+#     NO relaja las 2 letras iniciales, así una palabra en mayúsculas delante (`IBAN ES91…`)
+#     no se traga el identificador (el ancla arranca en `ES91`, no en `IB`).
+# Residual ACEPTADO (JF, «ruidoso pero seguro»): un separador de ≥2 code-points (doble
+# espacio, ` - `, ` . `, `\r\n`, un emoji multi-codepoint —bandera/ZWJ/keycap—, o una LETRA
+# ASCII intercalada entre dígitos) todavía fractura la corrida, porque `[^0-9A-Za-z]?` consume
+# UN solo carácter. Sólo cruza el umbral de fuga (≥6 díg en claro) con un PAN SIN agrupar
+# (8+8): el formato realista —grupos de 4 con cualquier separador simple— nunca deja ≥6 en
+# claro. NO se ensancha a multi-char a propósito: bridgearía números distantes en prosa
+# (`1234 y 5678 y …`) y sobre-enmascararía texto legítimo, peor trade que un leak no realista.
+# Aceptable para un paracaídas de degrade/dev — el NLP real es el detector de producción. El
+# conteo de unidades usa `c.isalnum()` (el separador ya no es un set fijo, no se puede contar
+# por exclusión de un `_SEP_CHARS`).
+_CARD_RUN_RE = re.compile(r"\d(?:[^0-9A-Za-z]?\d)*")
+_IBAN_RUN_RE = re.compile(r"\b[A-Z]{2}(?:[^0-9A-Za-z]?\d){2}(?:[^0-9A-Za-z]?[A-Z0-9])*")
+_CARD_MIN_DIGITS = 13   # longitud mínima de una tarjeta (≥13 cubre también corridas largas)
+_IBAN_MIN_ALNUM = 15    # IBAN más corto (Noruega); sin tope superior a propósito (fail-safe)
+
+
+# `_luhn_ok` / `_iban_ok`: los checksums YA NO gobiernan la detección del fallback (opción A:
+# el paracaídas nunca deja pasar algo que PODRÍA ser tarjeta/IBAN, aunque no valide). Se
+# conservan como utilidades puras — las usan los scripts de verificación del gate para
+# construir/validar tarjetas de test — pero `default_analyze` no las llama.
+def _luhn_ok(candidate: str) -> bool:
+    """Checksum Luhn (utilidad de test; la detección fail-safe ya no depende de él)."""
+    if any(not (c.isdigit() or c in " -") for c in candidate):
+        return False
+    digits = [int(c) for c in candidate if c.isdigit()]
+    if not 13 <= len(digits) <= 19:
+        return False
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def _iban_ok(candidate: str) -> bool:
+    """Checksum mod-97 ISO 13616 (utilidad de test; la detección fail-safe ya no lo llama)."""
+    s = re.sub(r"\s", "", candidate).upper()
+    if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", s):
+        return False
+    rearranged = s[4:] + s[:4]
+    try:
+        numeric = "".join(str(int(ch, 36)) for ch in rearranged)  # A→10 … Z→35, dígitos igual
+    except ValueError:
+        return False
+    return int(numeric) % 97 == 1
+
+
+def _merge_spans(spans: list) -> list:
+    """Une los (start, end) que se solapan en tramos disjuntos (unión de intervalos)."""
+    if not spans:
+        return []
+    spans = sorted(spans)
+    merged = [spans[0]]
+    for s, e in spans[1:]:
+        ls, le = merged[-1]
+        if s <= le:
+            merged[-1] = (ls, max(le, e))
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def _structured_id_spans(text: str, run_re, min_units: int) -> list:
+    """`[(start, end)]` a enmascarar: cada CORRIDA de `run_re` cuyo nº de unidades (chars no
+    separador: dígitos para tarjeta, alnum para IBAN) alcance `min_units` se enmascara ENTERA.
+
+    FAIL-SAFE (decisión JF, opción A). No hay checksum ni sub-escaneo de fronteras: buscar
+    dónde empieza/termina el identificador DENTRO de la corrida fue el origen de las tres
+    variantes de fuga (R1 sufijo colgando; R2/R3 partición entre grupos; R3 dígito pegado al
+    primer grupo). Al tapar la corrida completa es IMPOSIBLE, por construcción, dejar un tramo
+    del PAN/IBAN en claro. Umbral por longitud (≥13 díg / ≥15 alnum) SIN tope superior: una
+    corrida larga (dos tarjetas pegadas, un ID de 40 dígitos) se enmascara igual, entera.
+
+    Precio ACEPTADO (JF, «ruidoso pero seguro»): un número legítimo largo (un nº de pedido de
+    16 dígitos) cae como CREDIT_CARD en el camino de degrade/dev. Sobre-enmascara, nunca fuga.
+    El NLP real (camino de producción) es quien distingue con precisión; esto es el paracaídas.
+
+    Coste O(len) por corrida (contar unidades + un span) ⇒ lineal, sin sub-escaneo ni ReDoS."""
+    spans = []
+    for m in run_re.finditer(text):
+        run = m.group()
+        if sum(1 for c in run if c.isalnum()) >= min_units:
+            spans.append((m.start(), m.end()))
+    return _merge_spans(spans)
+
 
 # Prácticas prohibidas EU AI Act Art.5 (espejo de ComplianceService.PROHIBITED_KEYWORDS)
 PROHIBITED_PATTERNS = [
@@ -159,18 +308,40 @@ def detect_tool(user_agent: Optional[str]) -> str:
     return "Desconocido"
 
 
-async def default_analyze(text: str) -> list:
+async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
     """Analyzer PII por regex — SOLO fallback explícito de dev/demo cuando no hay
-    `NLP_ANALYZER_URL` configurada. NUNCA es el detector del camino de
-    producción (spec 016, Constraint SC-2): no distingue nombres sin prefijo, y
-    ante coincidencias solapadas debe pasar igual por `resolve_overlaps`."""
+    `NLP_ANALYZER_URL` configurada. NUNCA es el detector del camino de producción
+    (spec 016, Constraint SC-2): no distingue nombres sin tratamiento y es lossy por
+    diseño. Ante coincidencias solapadas pasa igual por `resolve_overlaps`.
+
+    `region` (opcional, retrocompatible) elige los estructurados por-país; IBAN y tarjeta
+    son internacionales y se detectan siempre. IBAN y tarjeta van por FAIL-SAFE (opción A,
+    decisión JF): se enmascara la corrida entera que PODRÍA ser una tarjeta/IBAN, sin
+    checksum — ruidoso pero imposible de fugar (ver `_structured_id_spans`). NIF/NIE por
+    formato. `resolve_overlaps` desempata solapes (gana el más largo → el IBAN, que contiene
+    a la corrida de dígitos de su cuerpo, tapa el falso CREDIT_CARD sobre esos mismos dígitos).
+
+    TODO(región): no se threadea `BASA_ENTITY_REGION` desde los call-sites (misma postura
+    YAGNI que `basa_guardrail`): hoy el único despliegue es eu y el default lo cubre.
+    Cuando haya otra región activa, pasar `region` desde `_build_analyze`/el guardrail."""
     entities = []
-    for entity_type, pattern in PII_PATTERNS.items():
-        flags = re.IGNORECASE if entity_type != "PERSON" else 0
+    patterns = dict(PII_PATTERNS)
+    patterns.update(FALLBACK_STRUCTURED_BY_REGION.get(region, {}))
+    for entity_type, pattern in patterns.items():
+        flags = 0 if entity_type == "PERSON" else re.IGNORECASE
+        label = _FALLBACK_LABEL.get(entity_type, entity_type)   # PHONE_INTL → PHONE_NUMBER
         for m in re.finditer(pattern, text, flags):
             start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
             entities.append({"start": start, "end": end,
-                             "entity_type": entity_type, "score": 0.95})
+                             "entity_type": label, "score": 0.95})
+    # IBAN y tarjeta: fail-safe (opción A) — cualquier corrida que PODRÍA serlo se enmascara
+    # ENTERA (`_structured_id_spans`), sin checksum. IBAN primero: al ser más largo (incluye
+    # las 2 letras de país) gana en `resolve_overlaps` sobre el CREDIT_CARD que la regla de
+    # tarjeta pondría sobre los dígitos del cuerpo del IBAN.
+    for etype, run_re, min_units in (("IBAN_CODE", _IBAN_RUN_RE, _IBAN_MIN_ALNUM),
+                                     ("CREDIT_CARD", _CARD_RUN_RE, _CARD_MIN_DIGITS)):
+        for start, end in _structured_id_spans(text, run_re, min_units):
+            entities.append({"start": start, "end": end, "entity_type": etype, "score": 0.95})
     return resolve_overlaps(entities)
 
 

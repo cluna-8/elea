@@ -12,7 +12,7 @@ import json
 import pytest
 
 EMAIL = "juan.perez@hospital.es"
-DNI = "12.345.678"
+DNI = "12345678Z"   # DNI español (formato NIF): se reconoce como ES_NIF por formato (#64)
 
 
 def test_t5_whoami_fail_closed(gw, seeded_byok_key):
@@ -39,10 +39,9 @@ def test_t6_inspect_masking_round_trip(gw, seeded_byok_key):
     assert resp.status_code == 200, resp.text
     j = resp.json()
 
-    # El upstream (ChatGPT/Claude web) verá placeholders, NUNCA la PII cruda. Nota
-    # (spec 016, corrección post-review Europa/no-Argentina): el fallback dev
-    # `default_analyze` ya no tiene un tipo "DNI" propio — el valor DNI cae en el
-    # patrón genérico PHONE_NUMBER y se enmascara igual (ver test_route_parity.py).
+    # El upstream (ChatGPT/Claude web) verá placeholders, NUNCA la PII cruda. Nota (#64):
+    # el fallback dev `default_analyze` reconoce el DNI español como ES_NIF por formato —
+    # ya no lo trocea/mal-etiqueta como PHONE_NUMBER genérico (ver test_route_parity.py).
     assert EMAIL not in j["masked"] and DNI not in j["masked"], j["masked"]
     assert "[EMAIL_ADDRESS_" in j["masked"], j["masked"]
 
