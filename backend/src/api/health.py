@@ -17,6 +17,7 @@ anónimo es decirle a quien quiera fugar datos cuál es el mejor momento para ha
 """
 import logging
 import os
+import threading
 import time
 from typing import Optional, Tuple
 
@@ -173,34 +174,77 @@ _NLP_PROBE_TIMEOUT_S = 1.5
 # convertiría en un DoS contra el sidecar (que además es el que atiende el tráfico real).
 _NLP_PROBE_CACHE_TTL_S = 10.0
 _nlp_probe_cache: Optional[Tuple[float, bool]] = None  # (monotonic, alcanzable)
+# Single-flight (hallazgo del review adversarial del #63): este endpoint es `def` síncrono,
+# o sea que FastAPI lo corre en el threadpool y N pedidos concurrentes entran de verdad en
+# paralelo. Con el cache escrito DESPUÉS del probe y sin lock, los N que caen en la ventana
+# disparaban N probes: martilleo al sidecar y N hilos del pool ocupados 1,5 s cada uno, todo
+# disparable por callers ANÓNIMOS. El lock hace que sólo uno pruebe y el resto conteste con
+# el último valor conocido.
+_nlp_probe_lock = threading.Lock()
+# Espera máxima del arranque en frío (ver `_nlp_alcanzable`): el probe + margen.
+_NLP_PROBE_COLD_WAIT_S = _NLP_PROBE_TIMEOUT_S + 0.5
 
 
-def _nlp_alcanzable(url: str) -> bool:
-    """`GET {url}/health` con timeout corto y cache de ~10 s. Nunca propaga."""
+def _nlp_alcanzable(url: str) -> Tuple[bool, bool]:
+    """`(alcanzable, fresco)` — `GET {url}/health`, con cache de ~10 s y single-flight.
+
+    `fresco` es True SÓLO si esta llamada ejecutó el probe de verdad. Lo necesita el
+    reseteo de la marca de degradación: borrar constancia a partir de un veredicto que puede
+    tener 10 s de antigüedad haría que un poller cada 5 s limpiara marcas RECIÉN escritas
+    durante una oscilación del sidecar — justo las que el operador tiene que ver.
+
+    Concurrencia: si otro hilo ya está probando, se contesta con el último valor conocido en
+    vez de encolar otro probe. La única espera es el arranque en frío (todavía no hay ningún
+    valor): ahí sí conviene esperar al ganador, porque la alternativa es reportar
+    `unreachable` sin haber preguntado nunca. Pasa una vez por proceso.
+
+    Nunca propaga."""
     global _nlp_probe_cache
-    ahora = time.monotonic()
-    if _nlp_probe_cache is not None and ahora - _nlp_probe_cache[0] < _NLP_PROBE_CACHE_TTL_S:
-        return _nlp_probe_cache[1]
+    cache = _nlp_probe_cache
+    if cache is not None and time.monotonic() - cache[0] < _NLP_PROBE_CACHE_TTL_S:
+        return cache[1], False
+
+    en_frio = cache is None
+    if not _nlp_probe_lock.acquire(blocking=en_frio, timeout=_NLP_PROBE_COLD_WAIT_S):
+        # Otro hilo está probando. Con valor previo se contesta ese; sin valor previo
+        # (arranque en frío que agotó la espera) se degrada honesto, sin probar.
+        cache = _nlp_probe_cache
+        return (cache[1] if cache is not None else False), False
     try:
-        r = httpx.get(f"{url.rstrip('/')}/health", timeout=_NLP_PROBE_TIMEOUT_S)
-        alcanzable = r.status_code == 200
-    except Exception as exc:  # noqa: BLE001 — el sidecar caído no puede tumbar el health
-        logger.warning("health: el motor de detección NLP no responde (%s)", exc)
-        alcanzable = False
-    _nlp_probe_cache = (ahora, alcanzable)
-    return alcanzable
+        # Re-check bajo el lock: el ganador pudo terminar mientras esperábamos.
+        cache = _nlp_probe_cache
+        if cache is not None and time.monotonic() - cache[0] < _NLP_PROBE_CACHE_TTL_S:
+            return cache[1], False
+        try:
+            r = httpx.get(f"{url.rstrip('/')}/health", timeout=_NLP_PROBE_TIMEOUT_S)
+            alcanzable = r.status_code == 200
+        except Exception as exc:  # noqa: BLE001 — el sidecar caído no puede tumbar el health
+            logger.warning("health: el motor de detección NLP no responde (%s)", exc)
+            alcanzable = False
+        _nlp_probe_cache = (time.monotonic(), alcanzable)
+        return alcanzable, True
+    finally:
+        _nlp_probe_lock.release()
 
 
-def _fail_mode_efectivo(db: Session) -> str:
-    """`nlp_fail_mode` que aplicaría HOY, resuelto por la MISMA función que usan los dos
-    planos de tráfico. Se muestra en el health porque "qué va a pasar si el NLP se cae" es
-    justamente la pregunta que el operador no podía responder antes del #63.
+def _fail_mode_efectivo(db: Session, tenant_id) -> str:
+    """`nlp_fail_mode` que aplicaría HOY para el tenant de la sesión, resuelto por la MISMA
+    función que usan los dos planos de tráfico. Se muestra en el health porque "qué va a
+    pasar si el NLP se cae" es justamente la pregunta que el operador no podía responder
+    antes del #63.
+
+    El filtro por `tenant_id` es load-bearing (hallazgo del review adversarial): sin él,
+    `.first()` sobre `guardians` devolvía la fila de CUALQUIER tenant, así que en una
+    instalación multi-tenant un admin podía ver publicada la postura de otro — lectura
+    cross-tenant, prohibida por Constitución III. Se resuelve igual que en `_nlp_context`
+    del gateway, contra el tenant del que pregunta.
 
     Sin fila legible ⇒ el default fail-closed (`block`), que es lo que de verdad aplicaría."""
     from ..models.guardian import Guardian
     try:
         fila = (db.query(Guardian.config)
-                .filter(Guardian.guardian_type == "pii_masking",
+                .filter(Guardian.tenant_id == tenant_id,
+                        Guardian.guardian_type == "pii_masking",
                         Guardian.is_active.is_(True))
                 .first())
         return policy.resolve_nlp_fail_mode((fila[0] if fila else None) or {})
@@ -217,7 +261,8 @@ def _fail_mode_efectivo(db: Session) -> str:
 _MOTIVO_NLP_SIN_DETALLE = "detección NLP no disponible"
 
 
-def _estado_nlp(db: Session, detallado: bool) -> Tuple[Optional[dict], Optional[str]]:
+def _estado_nlp(db: Session, detallado: bool, tenant_id=None) -> Tuple[Optional[dict],
+                                                                      Optional[str]]:
     """`(bloque_nlp|None, motivo_degradado|None)` del contrato §health (issue #63).
 
     Con `detallado=False` devuelve sólo si hay degradación (el bloque es del tier de
@@ -231,17 +276,25 @@ def _estado_nlp(db: Session, detallado: bool) -> Tuple[Optional[dict], Optional[
                 "degraded_since": None, "degraded_requests": 0,
                 "fail_mode_efectivo": None}, None
 
-    alcanzable = _nlp_alcanzable(url)
-    if alcanzable:
-        # ÚNICO punto de reseteo de la marca: se limpia cuando se CONFIRMA que el analyzer
-        # volvió, no por el paso del tiempo (las claves no tienen TTL a propósito). Ponerlo
-        # acá y no en el camino caliente evita cobrar un `DEL` por request sana.
-        audit_service.clear_nlp_degradation()
+    alcanzable, fresco = _nlp_alcanzable(url)
     if not detallado:
+        # El tier anónimo NO escribe en Redis (hallazgo del review adversarial: el `clear`
+        # estaba antes de este `return`, o sea que era una escritura disparable SIN
+        # credenciales, y contradecía el docstring de arriba).
         return None, None if alcanzable else _MOTIVO_NLP_SIN_DETALLE
 
+    if alcanzable and fresco:
+        # ÚNICO punto de reseteo de la marca: se limpia cuando se CONFIRMA —ahora mismo, con
+        # un probe FRESCO— que el analyzer volvió, no por el paso del tiempo (las claves no
+        # tienen TTL a propósito). Exigir `fresco` evita que un poller cada 5 s borre marcas
+        # recién escritas apoyándose en un veredicto cacheado de hasta 10 s de antigüedad:
+        # durante una oscilación del sidecar, esas marcas son justo la evidencia que el
+        # operador necesita. Y que sea sólo el camino de admin evita que un anónimo pueda
+        # provocar el borrado.
+        audit_service.clear_nlp_degradation()
+
     desde, degradadas = audit_service.read_nlp_degradation()
-    fail_mode = _fail_mode_efectivo(db)
+    fail_mode = _fail_mode_efectivo(db, tenant_id)
     bloque = {
         "configured": True,
         "status": "ok" if alcanzable else "unreachable",
@@ -279,7 +332,9 @@ def service_health(user: Optional[User] = Depends(get_current_user),
     """
     detallado = user is not None and not effective_roles(user).isdisjoint(_DETAIL_ROLES)
     modo, motivo_auditoria = _estado_de_auditoria(db)
-    nlp, motivo_nlp = _estado_nlp(db, detallado)
+    # El tenant sale de la SESIÓN, nunca de un parámetro del pedido: es lo que hace que un
+    # admin vea la postura de su organización y sólo la suya (Constitución III).
+    nlp, motivo_nlp = _estado_nlp(db, detallado, getattr(user, "tenant_id", None))
     # Los dos motivos se concatenan en vez de que el primero gane: si el stack está
     # degradado por dos razones distintas, esconder una haría que el operador arreglara la
     # que ve y creyera que terminó.
