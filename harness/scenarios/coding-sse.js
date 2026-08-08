@@ -5,7 +5,7 @@
 import sse from 'k6/x/sse';
 import {
   API, MODEL_CODING, pickIdentity, authHeaders, promptFor,
-  recordLatency, recordTTFT, phaseOf, metrics,
+  recordLatency, recordTTFT, recordRejection, saturatedRejection, phaseOf, metrics,
 } from './common.js';
 
 export function coding() {
@@ -33,7 +33,11 @@ export function coding() {
   let cut = false;
   let sawStop = false;
 
-  sse.open(API + '/gw/v1/messages', params, function (client) {
+  // `sse.open` devuelve el HTTPResponse del intento: xk6-sse v0.1.12 expone `status` y
+  // `headers` (struct HTTPResponse{url,status,headers,error}; su propio test
+  // TestOpenWrongStatusCode afirma `res.status` sobre un 404). Por eso el rechazo de
+  // admisión se clasifica acá igual que en chat, y no a ciegas.
+  const res = sse.open(API + '/gw/v1/messages', params, function (client) {
     client.on('event', function (ev) {
       if (!firstToken) { recordTTFT(phase, Date.now() - t0); firstToken = true; }
       // fin limpio del stream Anthropic: message_stop.
@@ -43,7 +47,20 @@ export function coding() {
     client.on('error', function () { cut = true; });
   });
 
-  recordLatency('coding', phase, Date.now() - t0);
+  const elapsed = Date.now() - t0;
+
+  // Rechazo de admisión (C1): 503 con `X-Basa-Rejected: saturated`. El early-return va
+  // ANTES de la lógica de cortes a propósito — un rechazo NO es un corte de stream: nunca
+  // hubo stream que cortar, y contarlo como corte culparía al streaming de una defensa
+  // que funcionó. La fila durable sí existe → sigue siendo evento auditable.
+  if (saturatedRejection(res)) {
+    metrics.saturated_rejections.add(1);
+    recordRejection(phase, elapsed);
+    metrics.auditable_events.add(1);
+    return;
+  }
+
+  recordLatency('coding', phase, elapsed);
   metrics.auditable_events.add(1);
   // corte = error explícito, o el stream nunca abrió, o cerró sin message_stop.
   if (cut || !firstToken || !sawStop) { metrics.stream_cuts.add(1); }

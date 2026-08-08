@@ -4,7 +4,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 import {
   API, MODEL_CHAT, pickIdentity, authHeaders, promptFor,
-  recordLatency, phaseOf, metrics,
+  recordLatency, recordRejection, saturatedRejection, phaseOf, metrics,
 } from './common.js';
 
 export function chat() {
@@ -23,10 +23,28 @@ export function chat() {
     headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
     tags: { surface: 'chat', phase: phase },
   });
-  recordLatency('chat', phase, Date.now() - t0);
-  metrics.auditable_events.add(1); // toda request de chat debe dejar fila de auditoría
+  const elapsed = Date.now() - t0;
+
+  // Rechazo de admisión (C1): el backend está saturado y contesta 503 RÁPIDO. No es
+  // latencia de servicio — si entrara en lat_chat hundiría los percentiles del gate. Se
+  // cronometra en su propia Trend.
+  if (saturatedRejection(res)) {
+    metrics.saturated_rejections.add(1);
+    recordRejection(phase, elapsed);
+  } else {
+    recordLatency('chat', phase, elapsed);
+  }
+  // Toda request de chat debe dejar fila de auditoría — TAMBIÉN la rechazada: el contrato
+  // exige la fila durable ANTES de responder el 503, así que sigue contando para la
+  // reconciliación.
+  metrics.auditable_events.add(1);
 
   // Un bloqueo por PII (fail-closed) es un resultado LEGÍTIMO del examen, no un error del
-  // guion: 4xx de política no invalida nada. Solo 5xx sería un fallo del producto.
-  check(res, { 'chat sin 5xx': function (r) { return r.status < 500; } });
+  // guion: 4xx de política no invalida nada. Un 503 de admisión también es legítimo (el
+  // producto se defiende); solo el 5xx SIN el header de rechazo es fallo del producto.
+  check(res, {
+    'chat sin 5xx (salvo saturación)': function (r) {
+      return r.status < 500 || saturatedRejection(r);
+    },
+  });
 }
