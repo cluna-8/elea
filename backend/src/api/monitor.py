@@ -292,6 +292,11 @@ const STATUS = tabla({
   // El firewall dejó pasar el pedido y falló el servicio de destino. Es lo contrario de un
   // bloqueo y se dice distinto.
   upstream_error:['error','ERROR UPSTREAM'],
+  // Tope de admisión al motor (nodo C1): el pedido no se sirvió porque el modelo estaba a
+  // capacidad. NO es un bloqueo —ninguna capa lo impidió, no hubo secreto ni dato personal— y
+  // por eso ni el estado empieza con `blocked` ni el chip se pinta como bloqueo. Sin esta
+  // entrada, el fallback de estado() lo pintaría gris/neutro, que es justo lo que no es.
+  rejected_saturated:['error','RECHAZADO POR CAPACIDAD'],
 });
 
 // estado(): familia visual + etiqueta de un `compliance_status`. La familia se DERIVA del

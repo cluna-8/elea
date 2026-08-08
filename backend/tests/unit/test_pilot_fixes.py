@@ -20,23 +20,36 @@ from src.services.budget_service import BudgetService, _is_local_model
 
 # --------------------------------------------------------------------------- #
 # Bug 1 — timeout del motor como setting (env), default holgado
+#
+# El parser se MUDÓ de `chat._resolve_engine_timeout` al helper compartido de
+# `engine_gate` (nodo C1: el mismo timeout lo usan el chat y el byok de /gw, que
+# tenía su propio 120 s hardcodeado). El env y el default no cambian, así que la
+# regresión del piloto se sigue afirmando igual — sólo cambia dónde vive. El
+# CABLEADO de la constante y la guardia de rango nueva viven en
+# tests/unit/test_engine_gate.py.
 # --------------------------------------------------------------------------- #
+_ENGINE_TIMEOUT_ENV = "BASA_ENGINE_TIMEOUT_SECONDS"
+
+
+def _engine_timeout(monkeypatch, valor=None):
+    from src.services.engine_gate import _env_float
+    if valor is None:
+        monkeypatch.delenv(_ENGINE_TIMEOUT_ENV, raising=False)
+    else:
+        monkeypatch.setenv(_ENGINE_TIMEOUT_ENV, valor)
+    return _env_float(_ENGINE_TIMEOUT_ENV, 60.0, maximo=600.0)
+
+
 def test_engine_timeout_default_without_env(monkeypatch):
-    monkeypatch.delenv("BASA_ENGINE_TIMEOUT_SECONDS", raising=False)
-    from src.api.chat import _resolve_engine_timeout
-    assert _resolve_engine_timeout() == 60.0
+    assert _engine_timeout(monkeypatch) == 60.0
 
 
 def test_engine_timeout_reads_env_value(monkeypatch):
-    monkeypatch.setenv("BASA_ENGINE_TIMEOUT_SECONDS", "120")
-    from src.api.chat import _resolve_engine_timeout
-    assert _resolve_engine_timeout() == 120.0
+    assert _engine_timeout(monkeypatch, "120") == 120.0
 
 
 def test_engine_timeout_invalid_value_falls_back_to_default(monkeypatch):
-    monkeypatch.setenv("BASA_ENGINE_TIMEOUT_SECONDS", "not-a-number")
-    from src.api.chat import _resolve_engine_timeout
-    assert _resolve_engine_timeout() == 60.0
+    assert _engine_timeout(monkeypatch, "not-a-number") == 60.0
 
 
 # --------------------------------------------------------------------------- #
