@@ -33,6 +33,16 @@ un SLO.
 **Overhead** (FR-008): por superficie y percentil, ``overhead = latencia medida −
 latencia programada del stub``. TTFT y cortes de stream SOLO en coding (única superficie
 SSE).
+
+**Drill de saturación (extensión C1)**: cuando el backend se defiende de la saturación
+rechazando con un 503 rápido (``X-Basa-Rejected: saturated``), el examen mide TAMBIÉN esa
+defensa. ``saturated_503_rows_durable`` es el espejo de (d) para el rechazo —negar
+servicio sin dejar fila durable es tan grave como bloquear sin dejarla— y se evalúa en
+todo run que vea rechazos. Los criterios de tiempo (``rejection_time_to_503_p95``,
+``admin_latency_budget_p95``) son propios del gate ``kind: drill`` y viven en
+``drill.criteria``: NO reemplazan ni relajan los 4 SLO de oro, que siguen siendo
+obligatorios. Un run sin rechazos y sin drill produce un verdict IDÉNTICO al de antes de
+C1: las filas nuevas no se agregan.
 """
 from __future__ import annotations
 
@@ -240,6 +250,97 @@ def eval_blocked_durable(reconciliation: dict) -> SLOResult:
     return SLOResult("blocked_rows_durable_100", medido, veredicto, detalle)
 
 
+# ── Extensión C1: rechazo de admisión (503 saturado) ──────────────────────────────────
+
+def eval_saturated_durable(k6_summary: dict, reconciliation: dict) -> SLOResult:
+    """Espejo de (d) para el rechazo de admisión: 1 fila durable por cada 503 saturado.
+
+    El guion cuenta un rechazo por cada 503 con ``X-Basa-Rejected: saturated`` (el header
+    ES la llave: un 503 sin él es un proxy, no admisión). El producto debe tener esa misma
+    cantidad de filas en ``audit_logs`` con el estado literal ``rejected_saturated``,
+    escritas ANTES de responder —incluido el camino del queue-timeout—. Negar servicio sin
+    rastro auditable es el mismo pecado que bloquear sin rastro.
+    """
+    rechazos = k6_summary.get("saturated_rejections")
+    filas = reconciliation.get("filas_rejected_saturated")
+    detalle = {"rechazos_guion": rechazos, "filas_rejected_saturated": filas,
+               "fuente": "503 con X-Basa-Rejected: saturated (guion) vs audit_logs con "
+                         "estado 'rejected_saturated' (producto)"}
+    if not _is_int(rechazos) or rechazos == 0:
+        # Vacuamente satisfecho: el producto nunca tuvo que rechazar (100% trivial).
+        detalle["nota"] = "no hubo rechazos por saturación en este run (100% trivial)"
+        return SLOResult("saturated_503_rows_durable", 1.0, "PASS", detalle)
+    if not _is_int(filas):
+        detalle["nota"] = ("hubo rechazos pero falta el conteo de filas "
+                           "'rejected_saturated' — no se puede afirmar durabilidad → FAIL")
+        return SLOResult("saturated_503_rows_durable", None, "FAIL", detalle)
+    medido = round(filas / rechazos, 6)
+    veredicto = "PASS" if filas == rechazos else "FAIL"
+    if veredicto == "FAIL":
+        detalle["nota"] = (f"{rechazos - filas} rechazo(s) 503 SIN fila durable: se negó "
+                           "servicio sin dejar rastro auditable")
+    return SLOResult("saturated_503_rows_durable", medido, veredicto, detalle)
+
+
+def eval_drill_criteria(k6_summary: dict, criteria: dict) -> tuple[list, list]:
+    """Criterios propios del gate ``kind: drill``. Devuelve ``(filas, notas)``.
+
+    Un criterio SIN umbral no se evalúa con un número inventado: no produce fila y deja
+    una nota que dice cómo fijarlo. Con umbral fijado es VINCULANTE (entra en el global
+    del drill) — para eso se corre el drill.
+    """
+    filas: list = []
+    notas: list = []
+
+    # (1) tiempo hasta el 503: un rechazo SANO tarda ~el queue-timeout. El anti-patrón que
+    # este criterio caza son los timeouts largos (el incidente del 30-jul): el cliente
+    # esperando minutos por una respuesta que el backend ya sabía que no iba a dar.
+    umbral_rej = criteria.get("rejection_p95_max_ms")
+    if not _is_num(umbral_rej):
+        notas.append("criterio rejection sin umbral: 'drill.criteria.rejection_p95_max_ms' "
+                     "no está fijado, no se evalúa el tiempo hasta el 503")
+    else:
+        rechazos = k6_summary.get("saturated_rejections")
+        p95 = (k6_summary.get("rejection_ms") or {}).get("p95")
+        detalle = {"umbral_ms": float(umbral_rej), "rechazos": rechazos,
+                   "fuente": "k6 rejection_ms.p95 (Trend lat_rejection, aparte de las "
+                             "latencias de servicio)"}
+        if not _is_int(rechazos) or rechazos == 0 or not _is_num(p95):
+            detalle["nota"] = ("el producto no rechazó ninguna request: el criterio no "
+                               "aplica (PASS vacuo, no hay p95 que medir)")
+            filas.append(SLOResult("rejection_time_to_503_p95", None, "PASS", detalle))
+        else:
+            veredicto = "PASS" if p95 <= umbral_rej else "FAIL"
+            if veredicto == "FAIL":
+                detalle["nota"] = (f"el rechazo tardó demasiado: p95={p95} ms > "
+                                   f"{umbral_rej} ms — la defensa existe pero llega tarde")
+            filas.append(SLOResult("rejection_time_to_503_p95", p95, veredicto, detalle))
+
+    # (2) presupuesto del panel admin: bajo saturación, el plano de administración no puede
+    # irse al pasto (es por donde se diagnostica y se apaga el incendio).
+    umbral_admin = criteria.get("admin_p95_budget_ms")
+    if not _is_num(umbral_admin):
+        notas.append("umbral admin sin fijar: derivarlo del baseline del gate oficial del "
+                     "mismo día y pasarlo por --drill-admin-budget-ms")
+    else:
+        admin = ((k6_summary.get("surfaces") or {}).get("admin") or {}).get("latency_ms") or {}
+        p95 = admin.get("p95")
+        detalle = {"umbral_ms": float(umbral_admin),
+                   "fuente": "k6 surfaces.admin.latency_ms.p95"}
+        if not _is_num(p95):
+            detalle["nota"] = ("no hay latencia de admin medida en el run: con un "
+                               "presupuesto fijado, no poder afirmarlo es FAIL")
+            filas.append(SLOResult("admin_latency_budget_p95", None, "FAIL", detalle))
+        else:
+            veredicto = "PASS" if p95 <= umbral_admin else "FAIL"
+            if veredicto == "FAIL":
+                detalle["nota"] = (f"el panel admin se salió del presupuesto bajo "
+                                   f"saturación: p95={p95} ms > {umbral_admin} ms")
+            filas.append(SLOResult("admin_latency_budget_p95", p95, veredicto, detalle))
+
+    return filas, notas
+
+
 # ── Instrumento (evidencia de modelo abierto + headroom del stub) ─────────────────────
 
 def eval_instrument(k6_summary: dict, stub_report: dict) -> dict:
@@ -351,9 +452,13 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
              stub_report: dict, reconciliation: dict,
              programmed_latency_ms: Optional[dict] = None,
              interrupted: bool = False, kind: str = "gate_oficial",
-             notas: Optional[list] = None) -> Verdict:
+             notas: Optional[list] = None,
+             drill_overrides: Optional[dict] = None) -> Verdict:
     """Computa el ``Verdict`` de un run a partir de k6 + producto + stub (NUNCA de la
-    observabilidad — R3). ``timestamp`` INYECTADO (determinismo)."""
+    observabilidad — R3). ``timestamp`` INYECTADO (determinismo).
+
+    ``drill_overrides`` pisa los umbrales de ``drill.criteria`` del gate (el umbral de
+    admin se deriva del baseline MEDIDO del gate oficial del mismo día, no se hornea)."""
     gate_meta, gate_obj = _gate_meta(gate)
     programmed = _programmed_from_gate(gate_obj, programmed_latency_ms)
 
@@ -364,6 +469,22 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
     slos = [audit_res, recon_res, canary_res, blocked_res]
     # Orden canónico estable (FR-007) para comparabilidad byte a byte del verdict.json.
     slos.sort(key=lambda r: CANONICAL_SLOS.index(r.slo) if r.slo in CANONICAL_SLOS else 99)
+
+    # ── extensión C1 (aditiva, DESPUÉS de las 4 canónicas) ────────────────────────────
+    # La durabilidad del rechazo se evalúa si el run es un drill o si el guion vio algún
+    # 503 saturado. Sin drill y sin rechazos NO se agrega fila: el verdict de un
+    # gate_oficial queda byte a byte igual al de antes de C1 (regla de oro del cambio).
+    notas_drill: list = []
+    rechazos = k6_summary.get("saturated_rejections")
+    kind_drill = (kind == "drill") or (gate_obj is not None
+                                       and getattr(gate_obj, "kind", "gate_oficial") == "drill")
+    if kind_drill or (_is_int(rechazos) and rechazos > 0):
+        slos.append(eval_saturated_durable(k6_summary, reconciliation))
+    if kind_drill and gate_obj is not None:
+        criteria = dict((getattr(gate_obj, "drill", None) or {}).get("criteria") or {})
+        criteria.update(drill_overrides or {})
+        filas_drill, notas_drill = eval_drill_criteria(k6_summary, criteria)
+        slos.extend(filas_drill)
 
     instrumento = eval_instrument(k6_summary, stub_report)
     overhead = compute_overhead(k6_summary, programmed)
@@ -392,7 +513,7 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
         run_id=run_id, gate=gate_meta, estado=estado,
         global_veredicto=global_veredicto, slos=slos, por_fase=por_fase,
         instrumento=instrumento, overhead=overhead, invalid_reason=invalid_reason,
-        timestamp=timestamp, kind=kind, notas=list(notas or []),
+        timestamp=timestamp, kind=kind, notas=list(notas or []) + notas_drill,
     )
 
 
