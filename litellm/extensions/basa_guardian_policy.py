@@ -56,14 +56,21 @@ AnalyzeFn = Callable[[str], Awaitable[list]]
 # Antes tenía un `PHONE_NUMBER` genérico (`\b\+?[0-9][0-9\-. ]{7,14}[0-9]\b`) que
 # troceaba un IBAN en DOS falsos `[PHONE_NUMBER]` dejando el prefijo (`ES91`) EN CLARO, y
 # etiquetaba facturas (`FAC-2026-001587`) como teléfonos inexistentes → conteos de
-# auditoría inflados. Ahora: (a) el teléfono exige estructura real (patrón nacional de
-# STRUCTURED_ID_PATTERNS_BY_REGION, primer dígito 6-9 → no engulle IBANs ni importes),
+# auditoría inflados. Ahora: (a) el teléfono nacional exige estructura real (patrón de
+# STRUCTURED_ID_PATTERNS_BY_REGION, primer dígito 6-9 → no engulle IBANs ni importes) y el
+# internacional exige prefijo `+`/`00` (empieza por dígito de país, no se pisa con IBANs
+# que empiezan por letras — restaura la cobertura intl que perdía el genérico, review R2),
 # (b) IBAN/tarjeta se CONFIRMAN con checksum y NIF/NIE por formato, y (c) lo que NO se
 # reconoce con confianza se deja SIN TOCAR: mejor un hueco honesto que una etiqueta falsa
 # (el NLP real cubre el resto). Etiquetas = tipos canónicos del producto (IBAN_CODE,
 # CREDIT_CARD, ES_NIF, ES_NIE; ver el seed EU de guardianes).
+#
+# EMAIL: local ≤64 y dominio ≤255 chars (topes RFC 5321) + grupo atómico en el local.
+# Sin el TOPE, el `+` sobre `[A-Za-z0-9._%+-]` (que incluye `-`) es O(n²) por reintento de
+# arranque cuando NO hay `@` (medido: 80KB de `9-` → 17 s). El tope lo vuelve LINEAL (mismo
+# input → 28 ms); el grupo atómico mata además el backtracking interno (review R2, #64).
 PII_PATTERNS = {
-    "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+    "EMAIL_ADDRESS": r"\b(?>[A-Za-z0-9._%+-]{1,64})@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}\b",
     "PERSON": r"\b(?:sr|sra|dr|dra|mr|mrs|ms)\.?\s+([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b",
 }
 
@@ -114,24 +121,34 @@ DEFAULT_REGION = "eu"
 # la mentira exacta que el #64 prohíbe. DNI/NIE y el teléfono nacional son por-país
 # (región-aware); IBAN y tarjeta son INTERNACIONALES (no dependen de región).
 
-# Estructurados por-país del fallback. El teléfono REUTILIZA el patrón validado del camino
-# NLP (primer dígito 6-9: NO trocea IBANs/importes/expedientes). DNI/NIE por FORMATO (8
-# díg + letra / [XYZ]+7 díg + letra); el checksum de la letra es un extra que sólo el NLP
+# Estructurados por-país del fallback. El teléfono NACIONAL REUTILIZA el patrón validado del
+# camino NLP (primer dígito 6-9: NO trocea IBANs/importes/expedientes). DNI/NIE por FORMATO
+# (8 díg + letra / [XYZ]+7 díg + letra); el checksum de la letra es un extra que sólo el NLP
 # real aporta — acá basta el formato para no dejar el documento en claro sin mentir de tipo.
+#
+# `PHONE_INTL` restaura la cobertura de números NO españoles que el genérico borrado del #64
+# cubría (`+44 20 7946 0958`, `+33 1 42 68 53 00`, `+1 202 555 0173`) SIN reintroducir el
+# sobre-matcheo: EXIGE prefijo `+`/`00` + dígito de país 1-9. Como arranca por `+`/`00` y los
+# IBANs por letras y las facturas sin prefijo, no se pisan (review R2). La etiqueta que emite
+# es `PHONE_NUMBER` (ver `default_analyze`): `PHONE_INTL` es sólo la clave del patrón.
 FALLBACK_STRUCTURED_BY_REGION = {
     "eu": {
         "PHONE_NUMBER": STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0],
+        "PHONE_INTL": r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b",
         "ES_NIF": r"\b\d{8}[A-Za-z]\b",
         "ES_NIE": r"\b[XYZxyz]\d{7}[A-Za-z]\b",
     },
 }
+# Clave del patrón fallback → etiqueta canónica emitida (cuando difieren). El teléfono
+# internacional se detecta con un patrón propio pero cuenta como PHONE_NUMBER en auditoría.
+_FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
+
+_SEP_CHARS = " -"  # separadores admitidos DENTRO de un IBAN/tarjeta (espacio o guión)
 
 # Candidatos IBAN/tarjeta: patrones ACOTADOS — cuantificador con tope ({11,30}/{12,18}) y
 # clases separador/dígito DISJUNTAS, así que no hay backtracking catastrófico (ReDoS).
-# Son greedy a propósito: si capturan de más porque otro token IBAN/tarjeta-able viene
-# pegado, `_checksummed_spans` recorta por la cola hasta el identificador válido — así lo
-# que siga detrás NUNCA hace que se fugue el IBAN entero (ese era el modo de fallo del
-# troceo, #64).
+# Son greedy a propósito: capturan la corrida entera y `_checksummed_spans` la re-escanea
+# buscando el identificador VÁLIDO adentro (ver su docstring).
 _IBAN_CANDIDATE_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b")
 _CARD_CANDIDATE_RE = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
 
@@ -140,7 +157,13 @@ def _luhn_ok(candidate: str) -> bool:
     """Checksum Luhn de una tarjeta (13-19 dígitos con separadores opcionales). BONUS
     honesto (#64): sin esto, un nº de pedido/expediente de 13-19 dígitos saldría como
     CREDIT_CARD — etiqueta falsa. Con Luhn, sólo lo que de verdad puede ser una tarjeta
-    la lleva; lo que no valida queda sin tocar (hueco honesto, lo cubre el NLP real)."""
+    la lleva; lo que no valida queda sin tocar (hueco honesto, lo cubre el NLP real).
+
+    LÍMITE CONOCIDO (review R2): Luhn es sólo un dígito de control, así que ~1 de cada 10
+    números aleatorios de 13-19 dígitos lo pasa por azar (medido: ~10%). Un nº de pedido
+    largo puede, esporádicamente, enmascararse como CREDIT_CARD — sobre-enmascara (lado
+    SEGURO), pero infla el conteo. Sin rangos BIN no hay forma de desambiguar en regex; el
+    NLP real (Presidio) es quien distingue de verdad. NO se añade heurística de BIN acá."""
     if any(not (c.isdigit() or c in " -") for c in candidate):
         return False
     digits = [int(c) for c in candidate if c.isdigit()]
@@ -173,22 +196,53 @@ def _iban_ok(candidate: str) -> bool:
 
 def _checksummed_spans(text: str, candidate_re, validate) -> list:
     """`[(start, end)]` de cada identificador de `candidate_re` que valide `validate`.
-    Si el match greedy no valida (capturó de más porque otro token venía pegado), recorta
-    por la COLA hasta el prefijo válido más largo — así lo que siga detrás nunca hace que
-    se fugue el identificador entero. No inspecciona sub-spans interiores: el paracaídas no
-    resuelve concatenaciones patológicas (dos identificadores pegados sin separación) —
-    eso es trabajo del NLP real (#64)."""
+
+    El candidato greedy puede capturar de más cuando otro token va PEGADO. El bug del
+    round-1 (review R2, ALTO): sólo recortaba PREFIJOS (`cand[:end]`, por la cola), así que
+    un identificador REAL pegado DETRÁS de basura corta con separador (`999 4111…`,
+    `XX99 ES91…`) quedaba como SUFIJO y se FUGABA en claro. Fix: RE-ESCANEO por posiciones
+    de inicio de token (tras cada separador), de izquierda a derecha, saltando tras cada
+    match. Invariante: ningún identificador válido queda sin enmascarar por tener basura
+    corta delante.
+
+    Dos reglas que garantizan que no se corte un identificador dejando cola en claro:
+      1. Un match sólo puede TERMINAR en límite de token (el char siguiente es separador o
+         fin). Así, arrancando en la basura, el único fin posible es el fin de la corrida
+         (que TAPA el identificador entero → sobre-enmascara, NUNCA fuga) o nada (→ se avanza
+         al inicio del identificador real y se enmascara limpio).
+      2. Excepción para candidatos SIN separadores internos (`ES91…ABC`): ahí la basura
+         pegada al final no está delimitada, así que se recorta por la cola hasta el prefijo
+         válido (la cola sobrante es basura, no un identificador oculto). Concatenaciones
+         patológicas de dos identificadores sin separación siguen fuera de alcance (las
+         cubre el NLP real, #64).
+
+    Coste acotado (sin ReDoS): los candidatos están topados por los cuantificadores del
+    patrón; el barrido interno es a lo sumo O(len(candidato)^2) sobre tokens cortos."""
     spans = []
     for m in candidate_re.finditer(text):
-        cand, start, end = m.group(), m.start(), len(m.group())
-        while end > 0:
-            if cand[end - 1] in " -":          # no cortar dejando un separador colgando
-                end -= 1
+        cand, base, n = m.group(), m.start(), len(m.group())
+        contiguous = not any(c in _SEP_CHARS for c in cand)
+        i = 0
+        while i < n:
+            # `i` debe ser inicio de token: posición 0, o justo tras un separador (y no
+            # sobre un separador). En medio de una corrida no se arranca.
+            if cand[i] in _SEP_CHARS or (i > 0 and cand[i - 1] not in _SEP_CHARS):
+                i += 1
                 continue
-            if validate(cand[:end]):
-                spans.append((start, start + end))
-                break
-            end -= 1
+            found = None
+            for j in range(n, i, -1):
+                if cand[j - 1] in _SEP_CHARS:            # no terminar sobre un separador
+                    continue
+                if (not contiguous) and j < n and cand[j] not in _SEP_CHARS:
+                    continue                             # (regla 1) fin sólo en límite de token
+                if validate(cand[i:j]):
+                    found = j
+                    break
+            if found is not None:
+                spans.append((base + i, base + found))
+                i = found                                # re-escanea la cola restante
+            else:
+                i += 1
     return spans
 
 
@@ -271,11 +325,12 @@ async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
     patterns.update(FALLBACK_STRUCTURED_BY_REGION.get(region, {}))
     for entity_type, pattern in patterns.items():
         flags = 0 if entity_type == "PERSON" else re.IGNORECASE
+        label = _FALLBACK_LABEL.get(entity_type, entity_type)   # PHONE_INTL → PHONE_NUMBER
         for m in re.finditer(pattern, text, flags):
             start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
             entities.append({"start": start, "end": end,
-                             "entity_type": entity_type, "score": 0.95})
-    # IBAN y tarjeta: detección con checksum + recorte (ver `_checksummed_spans`), no un
+                             "entity_type": label, "score": 0.95})
+    # IBAN y tarjeta: detección con checksum + re-escaneo (ver `_checksummed_spans`), no un
     # match directo — un `AA00…`/una corrida de dígitos que no valide queda SIN etiquetar.
     for etype, cand_re, validate in (("IBAN_CODE", _IBAN_CANDIDATE_RE, _iban_ok),
                                      ("CREDIT_CARD", _CARD_CANDIDATE_RE, _luhn_ok)):

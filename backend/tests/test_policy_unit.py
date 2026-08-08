@@ -599,12 +599,103 @@ async def test_default_analyze_region_es_retrocompatible_e_internacional():
 
 
 @pytest.mark.asyncio
-async def test_fallback_no_redos_en_entrada_adversarial():
-    """Los patrones nuevos IBAN/tarjeta están acotados (cuantificador con tope + clases
-    separador/dígito disjuntas): una entrada larga hostil NO dispara backtracking
-    catastrófico. Cota generosa para no ser flaky en CI cargado."""
+async def test_fallback_no_redos_en_entrada_patologica():
+    """Regresión ReDoS (review R2). Input PATOLÓGICO de verdad: `"9-"*N` SIN `@`. `-` está
+    en la clase del local del EMAIL (`[A-Za-z0-9._%+-]`), así que sin el tope de longitud el
+    `+` reintenta arranque en cada posición → O(n²) (medido: 80KB → 17 s). El tope RFC (≤64)
+    lo vuelve LINEAL. Con 100KB debe terminar MUY por debajo del límite; un patrón O(n²)
+    tardaría decenas de segundos y reventaría esta cota estricta."""
     import time
-    hostil = "ES00 " + "1" * 6000 + " tarjeta " + "4" * 6000
+    hostil = "9-" * 50000            # 100.000 chars, sin '@' (el peor caso del local del EMAIL)
     t0 = time.monotonic()
     await policy.default_analyze(hostil)
-    assert time.monotonic() - t0 < 3.0
+    elapsed = time.monotonic() - t0
+    assert elapsed < 3.0, f"posible ReDoS: {elapsed:.2f}s en 100KB (esperado <1s)"
+
+
+def test_email_pattern_local_acotado_mata_el_backtracking():
+    """El tope del local (`{1,64}`) es lo que garantiza el tiempo lineal: sin él, el mismo
+    input crece cuadrático. Se mide directamente sobre el patrón EMAIL para que la garantía
+    no dependa del resto del pipeline (review R2, hallazgo 3)."""
+    import time
+    rx = re.compile(policy.PII_PATTERNS["EMAIL_ADDRESS"], re.IGNORECASE)
+    hostil = "a-" * 50000           # 100.000 chars sin '@'
+    t0 = time.monotonic()
+    assert rx.findall(hostil) == []
+    assert time.monotonic() - t0 < 1.0
+    # y sigue reconociendo emails normales
+    assert rx.findall("escribe a juan.perez@hospital.es hoy") == ["juan.perez@hospital.es"]
+
+
+# ── Fugas de PII con basura pegada delante/detrás (review R2, hallazgo ALTO) ────────
+#
+# El round-1 sólo recortaba PREFIJOS del candidato greedy, así que un identificador real
+# pegado DETRÁS de un token corto con separador quedaba como SUFIJO y salía EN CLARO. Estos
+# son los reproductores exactos del reviewer + variantes: el invariante es que NINGÚN
+# IBAN/tarjeta válido presente en el texto puede quedar sin enmascarar.
+
+_LEAK_SENSITIVE = ["ES9121000418450200051332", "DE89370400440532013000",
+                   "4111111111111111", "5555555555554444"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", [
+    "999 4111111111111111",                       # tarjeta tras basura corta + espacio
+    "XX99 ES9121000418450200051332",              # IBAN tras token IBAN-able corto
+    "Importe 250 4111111111111111 gracias",       # fuga parcial del round-1 ([CARD]11)
+    "GB12AB ES9121000418450200051332",            # fuga parcial del round-1 ([IBAN]…51332)
+    "ES9121000418450200051332 DE89370400440532013000",  # dos IBANs separados (ya iba bien)
+    "ES9121000418450200051332 4111111111111111",  # IBAN + tarjeta
+    "4111111111111111 5555555555554444",          # dos tarjetas
+    "ES9121000418450200051332ABC",                # basura pegada al final (contiguo)
+    "4111111111111111999",                         # tarjeta + dígitos pegados al final
+    "99 4111111111111111",                         # basura mínima + tarjeta real
+])
+async def test_fallback_no_fuga_identificador_con_basura_pegada(text):
+    """Ningún IBAN/tarjeta válido del texto sobrevive en claro, y el masking es reversible."""
+    masked, _types, pmap = await _fallback_mask(text)
+    for tok in _LEAK_SENSITIVE:
+        if tok in text:
+            assert tok not in masked, f"FUGA de {tok!r} en {masked!r}"
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_fuga_parcial_del_round1_ahora_enmascara_entero():
+    """Caso puntual del reviewer: `250 <tarjeta>` dejaba `11` en claro. Ahora la tarjeta
+    entera queda enmascarada (el `250`/`Importe`/`gracias`, que no son PII, se dejan)."""
+    masked, types, _ = await _fallback_mask("Importe 250 4111111111111111 gracias")
+    assert types == ["CREDIT_CARD"]
+    assert "4111111111111111" not in masked and "11 gracias" not in masked
+    # la tarjeta entera es UN placeholder; el `250` y las palabras no-PII quedan
+    assert masked.startswith("Importe 250 [CREDIT_CARD_0_") and masked.endswith("] gracias")
+
+
+# ── Teléfono internacional restaurado sin reintroducir el sobre-matcheo (R2, hallazgo 2) ──
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,numero", [
+    ("Llama al +44 20 7946 0958 por favor", "+44 20 7946 0958"),
+    ("Oficina de París +33 1 42 68 53 00 hoy", "+33 1 42 68 53 00"),
+    ("US line +1 202 555 0173 disponible", "+1 202 555 0173"),
+    ("Alemania +49 30 123456 extensión", "+49 30 123456"),
+])
+async def test_fallback_telefono_internacional_se_enmascara(text, numero):
+    """El intl (prefijo `+`/`00`) que el genérico borrado del #64 cubría vuelve a salir como
+    PHONE_NUMBER — sin él, números NO españoles viajaban en claro (regresión R2)."""
+    masked, types, _ = await _fallback_mask(text)
+    assert types == ["PHONE_NUMBER"]
+    assert numero not in masked
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", [
+    "IBAN ES9121000418450200051332 para la transferencia",   # empieza por letras, no por +
+    "La factura 202600145 sigue pendiente",                   # sin prefijo +/00
+    "referencia 4567 890 123 del expediente",                 # dígitos sin prefijo intl
+])
+async def test_fallback_intl_no_reintroduce_sobre_matcheo(text):
+    """El intl EXIGE prefijo `+`/`00`: IBANs (letras), facturas y referencias sin prefijo NO
+    se marcan como teléfono — no se re-rompe el bug del #64."""
+    _masked, types, _ = await _fallback_mask(text)
+    assert "PHONE_NUMBER" not in types
