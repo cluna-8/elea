@@ -97,14 +97,16 @@ async def test_analyzer_caido_deja_trigger_visible_y_registro_durable(monkeypatc
         "degradar no es dejar de proteger: el regex sigue enmascarando lo que puede")
 
 
-# ── El cambio de postura queda registrado (issue #63; el gap general es del #72) ──
+# ── El cambio de postura EFECTIVA del tenant queda registrado (issue #63/#104) ──
+#
+# El round 2 del #104 movió el criterio: se audita la postura que GOBIERNA el tráfico (el
+# `pii_masking` activo más antiguo del tenant, vía `_postura_efectiva_tenant`), no la de la fila
+# aislada que se toca. El auditor (`_auditar_cambio_postura_tenant`) recibe la postura efectiva
+# ANTES y DESPUÉS y escribe iff cambió; los escenarios multi-fila (promoción por desactivar o
+# borrar la gobernante, alta gobernante, no-ruido de altas inactivas) se prueban de punta a punta
+# en `tests/integration/test_nlp_posture_determinista.py`.
 
-
-class _GuardianFila:
-    def __init__(self, config, guardian_type="pii_masking"):
-        self.config = config
-        self.guardian_type = guardian_type
-        self.tenant_id = None
+TENANT = "00000000-0000-0000-0000-0000000000aa"
 
 
 @pytest.fixture
@@ -117,111 +119,42 @@ def filas_de_auditoria(monkeypatch):
     return registro
 
 
-@pytest.mark.parametrize("previo, config_nueva, esperado_en_modelo", [
-    ("block", {"nlp_fail_mode": "degrade"}, "block->degrade"),
-    ("degrade", {"nlp_fail_mode": "block"}, "degrade->block"),
-    # Borrar la clave TAMBIÉN es un cambio de postura (vuelve al default fail-closed) y
-    # tiene que auditarse: si sólo se mirara el valor escrito, vaciar el campo sería la
-    # forma de cambiar la política sin dejar rastro.
-    ("degrade", {}, "degrade->block"),
+@pytest.mark.parametrize("previo, actual, esperado_en_modelo", [
+    ("block", "degrade", "block->degrade"),
+    ("degrade", "block", "degrade->block"),
 ])
-def test_el_cambio_de_nlp_fail_mode_deja_fila_durable(filas_de_auditoria, previo,
-                                                      config_nueva, esperado_en_modelo):
+def test_cambio_de_postura_efectiva_deja_fila_durable(filas_de_auditoria, previo, actual,
+                                                      esperado_en_modelo):
+    """Cuando la postura efectiva del tenant cambia, hay fila durable con vocabulario cerrado y
+    cero tráfico (o contaminaría analytics y presupuestos)."""
     from src.api import guardians as guardians_api
 
-    # Edición clásica por PUT: la fila ya era `pii_masking` y sigue siéndolo (tipo_previo =
-    # tipo_actual = pii_masking). El #104 sólo agrega el `tipo_previo` explícito a la firma.
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila(config_nueva), tipo_previo="pii_masking", previo=previo)
+    guardians_api._auditar_cambio_postura_tenant(None, TENANT, previo, actual)
 
     assert len(filas_de_auditoria) == 1, (
         "una decisión de seguridad que nadie puede reconstruir después no es auditable")
     fila = filas_de_auditoria[0]
     assert fila["compliance_status"] == "config_change_nlp_fail_mode"
     assert esperado_en_modelo in fila["model"]
-    # No hubo tráfico: ni tokens ni coste, o la fila contaminaría analytics y presupuestos.
+    assert fila["tenant_id"] == TENANT
     assert (fila["prompt_tokens"], fila["completion_tokens"], fila["cost_usd"]) == (0, 0, 0.0)
 
 
-def test_guardar_sin_cambiar_la_postura_no_ensucia_la_auditoria(filas_de_auditoria):
-    """La pantalla de Seguridad persiste los 9 guardianes en un bucle cada vez que se
-    guarda: registrar "cambió" en cada guardado llenaría la auditoría de ruido y el officer
+@pytest.mark.parametrize("postura", ["block", "degrade"])
+def test_postura_efectiva_sin_cambio_no_ensucia_la_auditoria(filas_de_auditoria, postura):
+    """La pantalla de Seguridad persiste los 9 guardianes en un bucle: registrar en cada
+    guardado que NO mueve la postura efectiva llenaría la auditoría de ruido y el officer
     dejaría de mirarla."""
     from src.api import guardians as guardians_api
 
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "block"}), tipo_previo="pii_masking",
-        previo="block")
+    guardians_api._auditar_cambio_postura_tenant(None, TENANT, postura, postura)
 
     assert filas_de_auditoria == []
 
 
-def test_otro_guardian_no_genera_fila(filas_de_auditoria):
-    from src.api import guardians as guardians_api
-
-    # Ni el tipo previo ni el nuevo son `pii_masking`: no hay postura NLP en juego.
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({}, guardian_type="secret_detection"),
-        tipo_previo="secret_detection", previo="degrade")
-
-    assert filas_de_auditoria == []
-
-
-# ── issue #104: la firma type-aware cierra el alta muda y la evasión por doble PUT ──
-
-
-def test_alta_de_pii_masking_en_degrade_deja_fila(filas_de_auditoria):
-    """POST /guardians: la fila NO existía antes (tipo_previo=None ⇒ línea base `block`). Un
-    alta en `degrade` es un cambio de postura contra el default y tiene que quedar registrada."""
-    from src.api import guardians as guardians_api
-
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "degrade"}), tipo_previo=None, previo="block")
-
-    assert len(filas_de_auditoria) == 1
-    assert "block->degrade" in filas_de_auditoria[0]["model"]
-
-
-def test_alta_de_pii_masking_en_block_no_deja_fila(filas_de_auditoria):
-    """El alta en el default (`block`) no cambia la postura: sin fila (nada de ruido)."""
-    from src.api import guardians as guardians_api
-
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({}), tipo_previo=None, previo="block")
-
-    assert filas_de_auditoria == []
-
-
-def test_parkear_degrade_sacando_el_tipo_no_deja_fila(filas_de_auditoria):
-    """PUT #1 de la evasión: `pii_masking`(block) → `regex` guardando `degrade`. Mientras la
-    fila NO es `pii_masking`, ese `degrade` está INERTE y la postura efectiva sigue en `block`,
-    así que todavía no hay cambio que auditar."""
-    from src.api import guardians as guardians_api
-
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "degrade"}, guardian_type="regex"),
-        tipo_previo="pii_masking", previo="block")
-
-    assert filas_de_auditoria == []
-
-
-def test_devolver_el_tipo_con_degrade_parkeado_si_deja_fila(filas_de_auditoria):
-    """PUT #2 de la evasión: `regex`(degrade inerte) → `pii_masking`. Ahora el `degrade` pasa a
-    gobernar de verdad. La línea base del lado previo (no era `pii_masking`) es `block`, así que
-    el cambio `block->degrade` SÍ queda registrado: la evasión del #104 no puede completarse."""
-    from src.api import guardians as guardians_api
-
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "degrade"}, guardian_type="pii_masking"),
-        tipo_previo="regex", previo="block")
-
-    assert len(filas_de_auditoria) == 1
-    assert "block->degrade" in filas_de_auditoria[0]["model"]
-
-
-def test_un_fallo_del_registro_no_voltea_el_guardado(monkeypatch):
-    """El guardado ya se commiteó cuando esto corre: si el registro explota, el cambio del
-    admin no puede "deshacerse" con un 500. Queda el `logger.error` como piso."""
+def test_un_fallo_del_registro_no_voltea_la_mutacion(monkeypatch):
+    """La mutación ya se commiteó cuando esto corre: si el registro explota, no puede
+    "deshacerse" con un 500. Queda el `logger.error` como piso."""
     from src.api import guardians as guardians_api
 
     def _revienta(**_kw):
@@ -229,9 +162,50 @@ def test_un_fallo_del_registro_no_voltea_el_guardado(monkeypatch):
 
     monkeypatch.setattr(guardians_api.AuditService, "log_transaction", staticmethod(_revienta))
 
-    guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "degrade"}), tipo_previo="pii_masking",
-        previo="block")  # no levanta
+    guardians_api._auditar_cambio_postura_tenant(None, TENANT, "block", "degrade")  # no levanta
+
+
+# ── `_postura_efectiva_tenant` = el MISMO criterio que los cuatro lectores del #104 ──
+
+
+class _FakeQueryPostura:
+    """Modela `db.query(Guardian.config).filter(...).order_by(...).first()`."""
+
+    def __init__(self, fila):
+        self._fila = fila
+
+    def filter(self, *_a, **_k):
+        return self
+
+    def order_by(self, *_a, **_k):
+        return self
+
+    def first(self):
+        return self._fila
+
+
+class _FakeSessionPostura:
+    def __init__(self, fila):
+        self._fila = fila
+
+    def query(self, *_a, **_k):
+        return _FakeQueryPostura(self._fila)
+
+
+def test_postura_efectiva_tenant_sin_fila_activa_es_block():
+    """Espejo del fail-closed de los lectores: sin `pii_masking` activo, `block`."""
+    from src.api import guardians as guardians_api
+
+    assert guardians_api._postura_efectiva_tenant(_FakeSessionPostura(None), TENANT) == "block"
+
+
+def test_postura_efectiva_tenant_resuelve_la_config_de_la_fila_elegida():
+    """Con la fila del `pii_masking` activo más antiguo se resuelve su `nlp_fail_mode`. El
+    `first()` de `query(Guardian.config)` devuelve una tupla de un elemento."""
+    from src.api import guardians as guardians_api
+
+    sesion = _FakeSessionPostura(({"nlp_fail_mode": "degrade"},))
+    assert guardians_api._postura_efectiva_tenant(sesion, TENANT) == "degrade"
 
 
 @pytest.mark.asyncio

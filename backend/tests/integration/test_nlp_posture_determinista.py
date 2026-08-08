@@ -283,3 +283,81 @@ def test_doble_put_no_evade_la_auditoria(harness):
     filas = filas_config_change(factory)
     assert any(f["model"].endswith("->degrade") for f in filas), (
         f"la postura terminó en degrade sin fila de auditoría (evasión del #104): {filas}")
+
+
+# ── (round 2) La postura EFECTIVA del tenant no se mueve sin rastro ────────────────
+#
+# El gate adversarial reprodujo que auditar la fila AISLADA seguía dejando escapar la evasión
+# por PROMOCIÓN: la postura que gobierna es la del `pii_masking` activo más antiguo, así que
+# desactivar o borrar la gobernante promueve a la siguiente y mueve la política sin que ninguna
+# fila "cambie". El fix audita la postura efectiva del tenant antes/después de cada mutación.
+
+
+def _payload_de(config, *, is_active=True, guardian_type="pii_masking", name="PII"):
+    return {"name": name, "guardian_type": guardian_type,
+            "is_active": is_active, "config": config}
+
+
+def _postura_del_tenant(factory):
+    """La postura EFECTIVA que hoy gobierna el tráfico del tenant por defecto, leída por el
+    mismo `_fail_mode_efectivo` que publica `/health`."""
+    from src.api.health import _fail_mode_efectivo
+    from src.models.tenant import DEFAULT_TENANT_ID
+    db = factory()
+    try:
+        return _fail_mode_efectivo(db, DEFAULT_TENANT_ID)
+    finally:
+        db.close()
+
+
+def test_desactivar_la_gobernante_promueve_y_deja_fila(harness):
+    """Repro exacto del round 2: A (más antigua, `block`, activa) gobierna; B (más nueva,
+    `degrade`, activa) espera detrás. `PUT A is_active=false` promueve a B ⇒ la postura EFECTIVA
+    del tenant pasa `block→degrade`. Auditar la fila AISLADA (A sigue siendo pii_masking/block
+    antes y después) NO veía el cambio; auditar la postura efectiva sí. Sin el fix del round 2
+    este test falla (0 filas)."""
+    client, factory = harness
+    gid_a = sembrar_pii(factory, config={"nlp_fail_mode": "block"}, created_at=VIEJO, name="A")
+    sembrar_pii(factory, config={"nlp_fail_mode": "degrade"}, created_at=NUEVO, name="B")
+    assert _postura_del_tenant(factory) == "block"  # A gobierna
+
+    r = client.put(f"{GUARDIANS}/{gid_a}", headers=admin_headers(client),
+                   json=_payload_de({"nlp_fail_mode": "block"}, is_active=False, name="A"))
+    assert r.status_code == 200, r.text
+
+    # La postura efectiva se movió a degrade (B promovida)…
+    assert _postura_del_tenant(factory) == "degrade"
+    # …y NO en silencio: hay fila durable del cambio.
+    filas = filas_config_change(factory)
+    assert any(f["model"].endswith("block->degrade") for f in filas), (
+        f"promover B al desactivar A movió la postura sin rastro (evasión round 2): {filas}")
+
+
+def test_borrar_la_gobernante_promueve_y_deja_fila(harness):
+    """`DELETE` de la gobernante también promueve a la siguiente y mueve la postura efectiva.
+    Antes, `DELETE` ni siquiera llamaba a la auditoría — el agujero más crudo. Sin el fix, falla."""
+    client, factory = harness
+    gid_a = sembrar_pii(factory, config={"nlp_fail_mode": "block"}, created_at=VIEJO, name="A")
+    sembrar_pii(factory, config={"nlp_fail_mode": "degrade"}, created_at=NUEVO, name="B")
+    assert _postura_del_tenant(factory) == "block"
+
+    r = client.delete(f"{GUARDIANS}/{gid_a}", headers=admin_headers(client))
+    assert r.status_code == 204, r.text
+
+    assert _postura_del_tenant(factory) == "degrade"
+    filas = filas_config_change(factory)
+    assert any(f["model"].endswith("block->degrade") for f in filas), (
+        f"borrar la gobernante movió la postura sin rastro: {filas}")
+
+
+def test_post_pii_masking_inactivo_en_degrade_no_genera_ruido(harness):
+    """El criterio "postura EFECTIVA" borra además el ruido del round 1: un `pii_masking`
+    INACTIVO en `degrade` no gobierna nada (los lectores filtran `is_active=true`), así que su
+    alta no cambia la postura efectiva del tenant ⇒ no audita."""
+    client, factory = harness
+    r = client.post(GUARDIANS, headers=admin_headers(client),
+                    json=_payload_de({"nlp_fail_mode": "degrade"}, is_active=False))
+
+    assert r.status_code == 201, r.text
+    assert _postura_del_tenant(factory) == "block"  # el inactivo no gobierna
+    assert filas_config_change(factory) == []
