@@ -129,8 +129,10 @@ def test_el_cambio_de_nlp_fail_mode_deja_fila_durable(filas_de_auditoria, previo
                                                       config_nueva, esperado_en_modelo):
     from src.api import guardians as guardians_api
 
+    # Edición clásica por PUT: la fila ya era `pii_masking` y sigue siéndolo (tipo_previo =
+    # tipo_actual = pii_masking). El #104 sólo agrega el `tipo_previo` explícito a la firma.
     guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila(config_nueva), previo)
+        None, _GuardianFila(config_nueva), tipo_previo="pii_masking", previo=previo)
 
     assert len(filas_de_auditoria) == 1, (
         "una decisión de seguridad que nadie puede reconstruir después no es auditable")
@@ -148,7 +150,8 @@ def test_guardar_sin_cambiar_la_postura_no_ensucia_la_auditoria(filas_de_auditor
     from src.api import guardians as guardians_api
 
     guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "block"}), "block")
+        None, _GuardianFila({"nlp_fail_mode": "block"}), tipo_previo="pii_masking",
+        previo="block")
 
     assert filas_de_auditoria == []
 
@@ -156,10 +159,64 @@ def test_guardar_sin_cambiar_la_postura_no_ensucia_la_auditoria(filas_de_auditor
 def test_otro_guardian_no_genera_fila(filas_de_auditoria):
     from src.api import guardians as guardians_api
 
+    # Ni el tipo previo ni el nuevo son `pii_masking`: no hay postura NLP en juego.
     guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({}, guardian_type="secret_detection"), "degrade")
+        None, _GuardianFila({}, guardian_type="secret_detection"),
+        tipo_previo="secret_detection", previo="degrade")
 
     assert filas_de_auditoria == []
+
+
+# ── issue #104: la firma type-aware cierra el alta muda y la evasión por doble PUT ──
+
+
+def test_alta_de_pii_masking_en_degrade_deja_fila(filas_de_auditoria):
+    """POST /guardians: la fila NO existía antes (tipo_previo=None ⇒ línea base `block`). Un
+    alta en `degrade` es un cambio de postura contra el default y tiene que quedar registrada."""
+    from src.api import guardians as guardians_api
+
+    guardians_api._auditar_cambio_nlp_fail_mode(
+        None, _GuardianFila({"nlp_fail_mode": "degrade"}), tipo_previo=None, previo="block")
+
+    assert len(filas_de_auditoria) == 1
+    assert "block->degrade" in filas_de_auditoria[0]["model"]
+
+
+def test_alta_de_pii_masking_en_block_no_deja_fila(filas_de_auditoria):
+    """El alta en el default (`block`) no cambia la postura: sin fila (nada de ruido)."""
+    from src.api import guardians as guardians_api
+
+    guardians_api._auditar_cambio_nlp_fail_mode(
+        None, _GuardianFila({}), tipo_previo=None, previo="block")
+
+    assert filas_de_auditoria == []
+
+
+def test_parkear_degrade_sacando_el_tipo_no_deja_fila(filas_de_auditoria):
+    """PUT #1 de la evasión: `pii_masking`(block) → `regex` guardando `degrade`. Mientras la
+    fila NO es `pii_masking`, ese `degrade` está INERTE y la postura efectiva sigue en `block`,
+    así que todavía no hay cambio que auditar."""
+    from src.api import guardians as guardians_api
+
+    guardians_api._auditar_cambio_nlp_fail_mode(
+        None, _GuardianFila({"nlp_fail_mode": "degrade"}, guardian_type="regex"),
+        tipo_previo="pii_masking", previo="block")
+
+    assert filas_de_auditoria == []
+
+
+def test_devolver_el_tipo_con_degrade_parkeado_si_deja_fila(filas_de_auditoria):
+    """PUT #2 de la evasión: `regex`(degrade inerte) → `pii_masking`. Ahora el `degrade` pasa a
+    gobernar de verdad. La línea base del lado previo (no era `pii_masking`) es `block`, así que
+    el cambio `block->degrade` SÍ queda registrado: la evasión del #104 no puede completarse."""
+    from src.api import guardians as guardians_api
+
+    guardians_api._auditar_cambio_nlp_fail_mode(
+        None, _GuardianFila({"nlp_fail_mode": "degrade"}, guardian_type="pii_masking"),
+        tipo_previo="regex", previo="block")
+
+    assert len(filas_de_auditoria) == 1
+    assert "block->degrade" in filas_de_auditoria[0]["model"]
 
 
 def test_un_fallo_del_registro_no_voltea_el_guardado(monkeypatch):
@@ -173,7 +230,8 @@ def test_un_fallo_del_registro_no_voltea_el_guardado(monkeypatch):
     monkeypatch.setattr(guardians_api.AuditService, "log_transaction", staticmethod(_revienta))
 
     guardians_api._auditar_cambio_nlp_fail_mode(
-        None, _GuardianFila({"nlp_fail_mode": "degrade"}), "block")  # no levanta
+        None, _GuardianFila({"nlp_fail_mode": "degrade"}), tipo_previo="pii_masking",
+        previo="block")  # no levanta
 
 
 @pytest.mark.asyncio

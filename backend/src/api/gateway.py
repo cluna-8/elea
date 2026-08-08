@@ -592,10 +592,15 @@ def _nlp_context(db, tenant_id, atribuible: bool = False) -> dict:
     AGREGAR entidades a enmascarar, nunca quitar. La barrera descarta relajaciones, no datos."""
     try:
         from ..models.guardian import Guardian
+        # issue #104: `ORDER BY (created_at, id)` — sin él, con dos `pii_masking` activos el
+        # `.first()` devolvía una fila ARBITRARIA y este plano podía leer una postura distinta
+        # a la del motor o a la que publica `/health`. Mismo desempate «determinista» que
+        # `_IDENTITY_SQL` ya aplica al presupuesto: los cuatro lectores eligen la MISMA fila.
         fila = (db.query(Guardian.config)
                 .filter(Guardian.tenant_id == tenant_id,
                         Guardian.guardian_type == "pii_masking",
                         Guardian.is_active.is_(True))
+                .order_by(Guardian.created_at, Guardian.id)
                 .first())
         cfg = (fila[0] if fila else None) or {}
         return {

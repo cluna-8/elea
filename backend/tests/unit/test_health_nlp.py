@@ -69,7 +69,12 @@ class _FakeSession:
                 cfg = sesion.configs_por_tenant.get(tenant)
             else:
                 cfg = sesion.guardian_config
-            return SimpleNamespace(first=lambda: None if cfg is None else (cfg,))
+            # issue #104: el lector ahora encadena `.order_by(created_at, id).first()` para que
+            # la postura sea determinista con dos `pii_masking` activos. El doble modela ese
+            # `order_by` como no-op (una sola config de prueba) que devuelve el mismo resultado.
+            resultado = SimpleNamespace(first=lambda: None if cfg is None else (cfg,))
+            resultado.order_by = lambda *_a, **_k: resultado
+            return resultado
 
         return SimpleNamespace(filter=_filter)
 

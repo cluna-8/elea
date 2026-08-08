@@ -220,6 +220,12 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     db.add(guardian)
     db.commit()
     db.refresh(guardian)
+    # issue #104: el alta también audita. Antes, `POST` podía crear un `pii_masking` ACTIVO con
+    # `nlp_fail_mode: degrade` SIN fila durable —el registro sólo colgaba del PUT—, dejando una
+    # decisión de seguridad sin rastro. Tipo previo `None` (la fila no existía) ⇒ línea base el
+    # default `block`: un alta con postura != `block` queda registrada igual que un PUT; un alta
+    # en `block` (o de otro tipo) no genera ruido.
+    _auditar_cambio_nlp_fail_mode(db, guardian, tipo_previo=None, previo=policy.NLP_FAIL_BLOCK)
     return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
@@ -308,12 +314,34 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
 _COMPLIANCE_CAMBIO_NLP = "config_change_nlp_fail_mode"
 
 
-def _auditar_cambio_nlp_fail_mode(db: Session, guardian, previo: str) -> None:
+def _postura_efectiva(tipo: Optional[str], config: Optional[dict]) -> str:
+    """Postura NLP que gobierna de verdad para una fila con ese `guardian_type` y esa `config`.
+
+    Sólo un `pii_masking` gobierna la detección: si la fila no es `pii_masking`, su
+    `nlp_fail_mode` está INERTE y la postura efectiva es el default fail-closed (`block`),
+    aunque su config lleve `degrade` escrito. Esto es lo que cierra la evasión por doble PUT
+    del #104 (parkear `degrade` en una fila mientras no es `pii_masking` y devolverle el tipo
+    después): la línea base contra la que se compara no arrastra ese `degrade` inerte."""
+    if tipo != "pii_masking":
+        return policy.NLP_FAIL_BLOCK
+    return policy.resolve_nlp_fail_mode(config or {})
+
+
+def _auditar_cambio_nlp_fail_mode(db: Session, guardian, *, tipo_previo: Optional[str],
+                                  previo: str) -> None:
     """Deja constancia durable si la postura ante el NLP caído cambió. Nunca propaga:
-    un fallo del registro no puede voltear un guardado que ya se commiteó."""
-    if guardian.guardian_type != "pii_masking":
+    un fallo del registro no puede voltear un guardado que ya se commiteó.
+
+    El chequeo `pii_masking` mira el tipo ORIGINAL **y** el nuevo (issue #104). Evaluarlo sólo
+    sobre el tipo ya mutado dejaba dos agujeros: el alta por `POST` de un `pii_masking` con
+    `degrade` no registraba nada (el `previo`/`tipo_previo` de una fila nueva es "no existía",
+    tratado como default `block`), y la evasión por doble PUT —sacar el tipo, guardar `degrade`,
+    devolverlo— salía sin rastro. Si NINGUNO de los dos lados es `pii_masking` no hay postura NLP
+    en juego y no hay nada que auditar."""
+    tipo_actual = guardian.guardian_type
+    if tipo_previo != "pii_masking" and tipo_actual != "pii_masking":
         return
-    actual = policy.resolve_nlp_fail_mode(guardian.config or {})
+    actual = _postura_efectiva(tipo_actual, guardian.config)
     if actual == previo:
         return
     _log.warning("guardianes: nlp_fail_mode cambió de %s a %s (guardián PII, tenant=%s)",
@@ -347,11 +375,13 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     await _gate_activacion(guardian, quiere_activar=bool(payload.is_active),
                            ya_activo=bool(guardian.is_active))
 
-    # issue #63: la postura ante el motor NLP caído se captura ANTES de mutar, para poder
-    # comparar. Se resuelve por la MISMA función que usan los planos de tráfico, así el
-    # registro dice el valor EFECTIVO (una clave borrada vuelve a `block`, y eso también es
-    # un cambio de postura que hay que poder auditar).
-    nlp_previo = policy.resolve_nlp_fail_mode(guardian.config or {})
+    # issue #63/#104: la postura ante el motor NLP caído se captura ANTES de mutar, para poder
+    # comparar. Se resuelve con `_postura_efectiva` (una clave borrada vuelve a `block`, y eso
+    # también es un cambio de postura auditable). El `guardian_type` ORIGINAL se guarda aparte:
+    # el chequeo `pii_masking` NO puede evaluarse sobre el tipo ya mutado (evasión por doble PUT
+    # del #104), así que viaja explícito a `_auditar_cambio_nlp_fail_mode`.
+    tipo_previo = guardian.guardian_type
+    nlp_previo = _postura_efectiva(tipo_previo, guardian.config)
 
     guardian.name = payload.name
     guardian.guardian_type = payload.guardian_type
@@ -364,7 +394,7 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
         guardian.service_api_key_encrypted = encrypt(payload.service_api_key) if payload.service_api_key else None
 
     db.commit()
-    _auditar_cambio_nlp_fail_mode(db, guardian, nlp_previo)
+    _auditar_cambio_nlp_fail_mode(db, guardian, tipo_previo=tipo_previo, previo=nlp_previo)
     db.refresh(guardian)
     # Misma sonda (cacheada) que el GET: si el PUT devolviera la disponibilidad calculada
     # con otra fuente, la tarjeta cambiaría de forma al guardar y volvería sola al recargar.

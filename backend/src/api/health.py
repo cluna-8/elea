@@ -254,10 +254,16 @@ def _fail_mode_efectivo(db: Session, tenant_id) -> str:
     Sin fila legible ⇒ el default fail-closed (`block`), que es lo que de verdad aplicaría."""
     from ..models.guardian import Guardian
     try:
+        # issue #104: `ORDER BY (created_at, id)` para que `/health` publique EXACTAMENTE la
+        # postura que aplicarán los planos de tráfico. Sin él, con dos `pii_masking` activos,
+        # el health podía anunciar `block` mientras el tráfico se servía con `degrade` (o al
+        # revés): el operador vería una postura que no es la que rige. Mismo desempate
+        # determinista que `_nlp_context` y `_IDENTITY_SQL`.
         fila = (db.query(Guardian.config)
                 .filter(Guardian.tenant_id == tenant_id,
                         Guardian.guardian_type == "pii_masking",
                         Guardian.is_active.is_(True))
+                .order_by(Guardian.created_at, Guardian.id)
                 .first())
         return policy.resolve_nlp_fail_mode((fila[0] if fila else None) or {})
     except Exception as exc:  # noqa: BLE001
