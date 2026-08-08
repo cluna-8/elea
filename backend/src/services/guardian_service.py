@@ -4,6 +4,7 @@ import logging
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from ..models.guardian import Guardian
+from .audit_service import record_nlp_degradation
 from .presidio_service import PresidioService, NlpUnavailableError
 
 logger = logging.getLogger("basa-secure-gateway.guardian")
@@ -68,7 +69,14 @@ class GuardianService:
                     "entities": ["PERSON", "ES_NIF", "ES_NIE", "PASSPORT", "EMAIL_ADDRESS",
                                 "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD"],
                     "action": "MASK",
-                    "custom_names": ["Pedro", "Cristian", "Juan Pérez", "María López", "Carlos Rodríguez"]
+                    "custom_names": ["Pedro", "Cristian", "Juan Pérez", "María López", "Carlos Rodríguez"],
+                    # issue #63: qué hacer si el motor NLP no responde. Se siembra EXPLÍCITO
+                    # aunque el default del resolutor ya sea el mismo, para que el admin vea
+                    # la postura escrita en la pantalla en vez de tener que deducirla de una
+                    # clave ausente. Deliberadamente NO hay migración-on-read arriba: en una
+                    # instalación existente la clave ausente resuelve `block` igual, y
+                    # escribirla sería pisar la config de un cliente que quizá ya la editó.
+                    "nlp_fail_mode": "block",
                 }
             )
             g2 = Guardian(
@@ -339,8 +347,28 @@ class GuardianService:
                         "detail": "Motor de detección NLP no disponible — degradado a regex "
                                   "de dev (SOLO panel/playground, nunca en el firewall real).",
                     })
+                    # issue #63: el trigger es EFÍMERO (vive en la respuesta de este prompt y
+                    # se lo lleva el próximo). Que la degradación se vea en la pantalla no es
+                    # lo mismo que quede registrada: sin esta marca, un operador que revisa
+                    # el estado media hora después no tiene forma de saber que el detector
+                    # real estuvo caído. La marca es durable y la publica `GET /health`.
+                    record_nlp_degradation(reason="playground/process_prompt")
                     raw_entities = await PresidioService.analyze_text(processed_prompt)
             else:
+                # issue #63: sin `NLP_ANALYZER_URL` el playground SIEMPRE corrió con el regex
+                # de dev, y hasta acá no lo decía en ningún lado — la pantalla mostraba un
+                # enmascarado exitoso sin distinguir con qué detector. No es una avería (es
+                # el modo de desarrollo, Constraint SC-2), pero tampoco puede ser invisible:
+                # la diferencia de cobertura es real y la ve el mismo humano que después
+                # decide si el producto "detecta bien". Sin marca durable a propósito: no hay
+                # degradación de un servicio configurado, hay una instalación sin motor NLP.
+                triggers.append({
+                    "guardian": pii_guardian.name if pii_guardian else "PII Guard",
+                    "action": "DEGRADED",
+                    "detail": "Detección NLP no configurada en esta instalación — se usa la "
+                              "detección local por patrones (modo desarrollo, cobertura "
+                              "menor). No usar con datos reales de pacientes.",
+                })
                 raw_entities = await PresidioService.analyze_text(processed_prompt)
             filtered_entities = [e for e in raw_entities if e["entity_type"] in entities_to_scan]
             

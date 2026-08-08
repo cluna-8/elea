@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { api, GovernanceLayerStatus } from "../services/api";
+import { api, GovernanceLayerStatus, NlpHealth } from "../services/api";
 import {
   Card,
   PageHeader,
@@ -10,6 +10,75 @@ import {
 } from "../components/ui";
 
 type Range = "day" | "week" | "month";
+
+/** Aviso PERSISTENTE del estado de la detección de datos personales (issue #63).
+ *
+ *  Existe porque el producto podía estar detectando PII con patrones de desarrollo —o
+ *  rechazando tráfico— sin que ninguna pantalla lo dijera. Un firewall que degrada su capa
+ *  más importante en silencio es peor que uno que no la tiene: el operador cree que está
+ *  protegido. Por eso el aviso no se puede cerrar y vive en el panel principal, no escondido
+ *  en una pantalla de configuración.
+ *
+ *  Tres formas distintas para tres hechos distintos — colapsarlos sería reintroducir el bug:
+ *  - `unreachable` → ROJO. El motor está caído y hay consecuencia AHORA (según la política:
+ *    tráfico rechazado o servido con cobertura reducida).
+ *  - `not_configured` → INFORMATIVO. No hay motor cableado: es el modo de desarrollo, una
+ *    decisión de despliegue. Se dice, no se alarma.
+ *  - `ok` (o sin dato) → nada. "No sé" se pinta como nada, jamás como "todo bien". */
+function AvisoNlp({ nlp }: { nlp: NlpHealth | null }) {
+  if (!nlp || nlp.status === "ok") return null;
+
+  if (nlp.status === "not_configured") {
+    return (
+      <div
+        role="status"
+        className="bg-surface-2 border border-border text-text-secondary px-4 py-3 rounded-md text-sm"
+      >
+        <span className="font-semibold text-text-primary">
+          Detección NLP: no configurada — modo regex de desarrollo.
+        </span>{" "}
+        Los datos personales se detectan con patrones locales, que cubren menos casos que el
+        motor de lenguaje (nombres sin tratamiento previo, móviles sin prefijo internacional).
+        No utilice esta instalación con datos reales de pacientes o clientes.
+      </div>
+    );
+  }
+
+  if (nlp.status !== "unreachable") return null;
+
+  const degradando = nlp.fail_mode_efectivo === "degrade";
+  return (
+    <div
+      role="alert"
+      className="bg-danger-bg border border-danger text-danger px-4 py-3 rounded-md text-sm space-y-1"
+    >
+      <p className="font-semibold">
+        Detección NLP: el motor de detección de datos personales no responde.
+      </p>
+      <p>
+        {degradando
+          ? "La política de esta instalación es continuar (degradar): las peticiones se están " +
+            "sirviendo con detección por patrones y la cobertura de datos personales es MENOR " +
+            "de la habitual."
+          : "La política de esta instalación es bloquear: las peticiones con enmascarado activo " +
+            "se están rechazando hasta que el motor vuelva."}
+      </p>
+      {degradando && nlp.degraded_since && (
+        <p className="text-xs">
+          Desde {new Date(nlp.degraded_since).toLocaleString("es-ES")}
+          {typeof nlp.degraded_requests === "number" && nlp.degraded_requests > 0
+            ? ` · ${nlp.degraded_requests} peticiones servidas con patrones`
+            : ""}
+          .
+        </p>
+      )}
+      <p className="text-xs">
+        Revise el servicio de detección con el administrador del sistema. La postura ante esta
+        caída se configura en Seguridad → Enmascaramiento de datos.
+      </p>
+    </div>
+  );
+}
 
 const RANGE_LABELS: Record<Range, string> = {
   day: "Hoy",
@@ -49,6 +118,9 @@ export const DashboardPage: React.FC = () => {
   // por `is_active`, que contaba DESEOS: mostrar "N activos" a partir de una intención es
   // la misma mentira que la 027 elimina, y en el panel principal es la más visible.
   const [layers, setLayers] = useState<GovernanceLayerStatus[] | null>(null);
+  // Estado de la detección de datos personales (issue #63). `null` = no se pudo leer, y se
+  // pinta como nada: nunca como "todo bien".
+  const [nlp, setNlp] = useState<NlpHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,6 +158,17 @@ export const DashboardPage: React.FC = () => {
       } catch {
         setLayers(null);
       }
+    })();
+  }, []);
+
+  useEffect(() => {
+    // Health de producto, por separado de las métricas: si el health no responde, el panel
+    // se dibuja igual (mismo criterio que el aviso de pérdidas de auditoría en Logs). El
+    // bloque `nlp` sólo viaja a admin/compliance_officer; para el resto llega ausente y el
+    // aviso simplemente no aparece.
+    (async () => {
+      const health = await api.getSystemHealth();
+      setNlp(health?.nlp ?? null);
     })();
   }, []);
 
@@ -144,6 +227,11 @@ export const DashboardPage: React.FC = () => {
           </div>
         }
       />
+
+      {/* Aviso de estado de la detección NLP: va ANTES del error de métricas y fuera del
+          `loading`, porque es lo que el operador tiene que ver aunque las métricas no
+          carguen — y no depende de ellas. */}
+      <AvisoNlp nlp={nlp} />
 
       {error && (
         <div className="bg-danger-bg text-danger px-4 py-3 rounded-md text-sm">
@@ -221,6 +309,34 @@ export const DashboardPage: React.FC = () => {
                     <span
                       className="font-semibold text-text-tertiary font-mono"
                       title="No se pudo consultar el estado de las capas con esta sesión."
+                    >
+                      sin dato
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-text-secondary"
+                    title="Motor de detección de datos personales (NLP). Sin él, la detección es por patrones locales."
+                  >
+                    Detección NLP
+                  </span>
+                  {nlp?.status === "ok" ? (
+                    <StatusBadge tone="ok" dot>
+                      Activa
+                    </StatusBadge>
+                  ) : nlp?.status === "unreachable" ? (
+                    <StatusBadge tone="danger" dot>
+                      No responde
+                    </StatusBadge>
+                  ) : nlp?.status === "not_configured" ? (
+                    <StatusBadge tone="warn" dot>
+                      No configurada
+                    </StatusBadge>
+                  ) : (
+                    <span
+                      className="font-semibold text-text-tertiary font-mono text-xs"
+                      title="No se pudo consultar el estado del motor NLP con esta sesión."
                     >
                       sin dato
                     </span>

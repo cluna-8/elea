@@ -1,23 +1,17 @@
 <!--
 SYNC IMPACT REPORT — Basa Guardian Constitution
-Version change: 2.0.0 -> 2.1.0 (MINOR: cambio de texto de un principio core, per Governance)
-Enmienda "D8 de la 027" (decision sellada por el owner el 2026-07-22 en
-  specs/027-governance-configurable-enforcement/research.md §D8; ejecutada el 2026-08-04 con OK
-  explicito de JF). OJO: no confundir con el default interno [D8] de esta constitucion (compresion).
+Version change: 2.1.0 -> 2.2.0 (MINOR: default nuevo [D10] + actualizacion factual de la regla (d)
+del Principio I, per Governance "defaults enmendables de una linea").
+Enmienda "D10 del #63" (decision sellada por el owner el 2026-08-07 en el issue #63; la pregunta
+abierta era la prioridad proteccion-vs-continuidad cuando el motor NLP cae — no estaba escrita).
 
-- I. Privacy & PII/PHI Masking-First ....... MODIFICADO (titulo y MUST). El mandato se parte en dos:
-    PISO no-negociable = interceptar + detectar PII + evaluar + registrar (constante de codigo,
-    ningun perfil/toggle lo apaga) y TRANSFORMAR (enmascarar) = gobernable como decision de la capa
-    pii_masking (absorbe redact_enabled de la 013), jamas silencioso: con enmascarado off el pedido
-    queda registrado como "PII detectada, no enmascarada por configuracion".
-    Motivo: la letra anterior ("todo prompt DEBE enmascararse") derogaba FR-014 de la 013 ya
-    entregado y contradecia la semantica real de los dos planos (basa_guardrail.py / gateway.py).
-- Actualizacion factual de paso (sin cambio normativo): Presidio ya no es scaffolding inactivo —
-    la 016 esta implementada en main; su deuda de señalizacion de degradacion vive en #63/#64.
+- I. Privacy & PII/PHI Masking-First ....... regla (d) ACTUALIZADA (factual, sin cambio de mandato):
+    la señalizacion de degradacion que "se trackeaba en #63/#64" quedo resuelta para #63 — la
+    degradacion NLP ya no puede ser silenciosa en ningun plano y su postura es el default [D10].
+    #64 (packs regex por region) sigue abierto y se menciona como pendiente.
+- Decisiones: se agrega [D10] (nlp_fail_mode). Ningun principio cambia de mandato.
 - Secciones agregadas/quitadas: ninguna. Los 8 principios se conservan.
-- Templates revisados: plan/spec/tasks-template y AGENTS.md sin referencias al texto viejo
-    (grep "enmascar|Masking-First" = 0 hits) — ✅ nada que propagar.
-- Informe anterior (1.0.0 -> 2.0.0, reconciliacion y ratificacion 2026-07-10): en la historia git.
+- Informes anteriores (1.0.0 -> 2.0.0 -> 2.1.0): en la historia git.
 -->
 
 # Basa Guardian — Constitución
@@ -50,8 +44,9 @@ reconstruye los valores en la respuesta (incluido streaming) — el motor y el L
 placeholders**, nunca PII cruda; (b) ocurre **ANTES** de la compresión — los placeholders son tokens
 atómicos intocables; (c) el mapa reversible vive donde exista el estado (backend/guardrail del motor),
 jamás se delega a un tercero que rompa la reversibilidad; (d) **nunca solo regex en producción** con
-PHI: el despliegue productivo exige NLP real (Presidio o equivalente — real desde la 016; la
-señalización de su degradación se trackea en #63/#64). La política de enmascaramiento
+PHI: el despliegue productivo exige NLP real (Presidio o equivalente — real desde la 016; su
+degradación es **ruidosa y gobernable** desde el #63, ver [D10]; los packs regex por región se
+trackean en #64). La política de enmascaramiento
 (`entity_configs`) DEBE ser **scopeable por grupo con override por cliente** (reemplazando el
 singleton global actual).
 
@@ -188,6 +183,14 @@ es una enmienda de una línea:
 - **[D8] Compresión** obtiene hogar en Principio V (Cost Governance & Optimization), fusionada con budget.
 - **[D9] RBAC reconciliado**: super-admin/tenant-admin (tiers por tenant) + compliance_officer + client;
   clinician/developer → labels de display configurables.
+- **[D10] Motor NLP caído = decisión gobernable del admin** (#63, sellada 2026-08-07): `nlp_fail_mode`
+  (`block` | `degrade`) en el guardián `pii_masking`, obedecido por **los dos planos** (motor y `/gw`).
+  Default de fábrica y ante clave ausente/valor no reconocido: **`block`** (coherente con la regla (d)
+  del Principio I y con la 016). `degrade` es legítimo pero **SIEMPRE ruidoso**: marca durable en la
+  auditoría de cada request degradada + estado en `/health` + aviso persistente en el panel; el cambio
+  de postura queda registrado. Sin `NLP_ANALYZER_URL` configurada = modo dev/demo permitido pero
+  visible. La granularidad por riesgo/rol NO vive aquí: se especifica junto con la política de
+  auditoría (#72).
 
-**Versión**: 2.1.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Basa Secure AI Gateway" v1.0.0
-(2026-06-29) + feature/012 | **Última enmienda**: 2026-08-04 (D8 de la 027: piso vs transformar)
+**Versión**: 2.2.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Basa Secure AI Gateway" v1.0.0
+(2026-06-29) + feature/012 | **Última enmienda**: 2026-08-07 (D10 del #63: postura ante NLP caído)

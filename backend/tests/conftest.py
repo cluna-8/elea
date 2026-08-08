@@ -29,6 +29,18 @@ os.environ.setdefault("FERNET_SECRET_KEY", "")  # encryption off in unit tests
 # Headroom module is optional/fail-open; tests that need it set the env themselves.
 os.environ.setdefault("COMPRESSION_HEADROOM_ENABLED", "true")
 
+# Motor de detección NLP: APAGADO en la suite (issue #63). El servicio `backend` del compose
+# —donde corre esta suite— trae `NLP_ANALYZER_URL` cableada, pero el sidecar `nlp-analyzer`
+# NO se levanta para los tests. Con la env puesta y nadie contestando, todo el plano `/gw`
+# resolvería fail-closed y la suite mediría "el sidecar no está" en vez de la política.
+#
+# Se BORRA en vez de apuntarla a un doble global: el camino NLP es exactamente lo que el #63
+# vino a hacer verificable, así que los tests que lo ejercitan la setean ELLOS
+# (`monkeypatch.setenv`) y doblan `presidio_analyze` — la misma disciplina que ya usan los
+# tests del guardrail del motor con `_PRESIDIO_URL`. Un doble global escondería qué test
+# depende del NLP y cuál no.
+os.environ.pop("NLP_ANALYZER_URL", None)
+
 # Reconciliación de seats (spec 021 US3): scheduler APAGADO en la suite. Los
 # tests que usan `with TestClient(app)` disparan el lifespan, y el scheduler
 # real correría contra SessionLocal (la DB VIVA del compose, no la DB de test

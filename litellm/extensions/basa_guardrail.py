@@ -119,6 +119,21 @@ _probe_cache: Optional[tuple] = None  # (monotonic, escribible)
 _REDIS_KEY_AUDIT_LOST = "basa:audit:lost"
 _REDIS_KEY_AUDIT_LAST_FAIL = "basa:audit:last_fail"
 
+# Default del host de Redis ALINEADO con el del backend (`services/redis_client.py`:
+# `eu-redis`). Antes acá decía `redis` —el nombre del servicio del compose de DEV— y el
+# backend decía otra cosa: en un despliegue que no cablee `REDIS_HOST` (el perfil de nube no
+# se lo pasaba al servicio `litellm`), el motor ESCRIBÍA las marcas en un host y el health
+# las LEÍA de otro, así que la degradación se reportaba como cero. Las claves son
+# compartidas entre planos; el destino también tiene que serlo.
+_REDIS_HOST_DEFAULT = "eu-redis"
+
+
+def _redis_endpoint() -> tuple:
+    """`(host, port)` de Redis para este proceso. Único lugar donde se resuelve, para que
+    los dos escritores de este módulo no puedan apuntar a sitios distintos."""
+    return os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT), int(os.getenv("REDIS_PORT", "6379"))
+
+
 _AUDIT_FAIL_CLOSED = "closed"
 _AUDIT_FAIL_OPEN = "open"
 
@@ -188,8 +203,8 @@ async def _contar_perdida(motivo: str) -> None:
                      "(motivo=%s ts=%s)", motivo, ahora)
         return
     try:
-        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", "redis"),
-                                 port=int(os.getenv("REDIS_PORT", "6379")))
+        host, port = _redis_endpoint()
+        client = redis_lib.Redis(host=host, port=port)
         pipe = client.pipeline()
         pipe.incr(_REDIS_KEY_AUDIT_LOST)
         pipe.set(_REDIS_KEY_AUDIT_LAST_FAIL, ahora)
@@ -363,11 +378,56 @@ def _nlp_unavailable_block(home: dict) -> str:
     """Motivo de bloqueo fail-closed (FR-004) cuando el motor NLP no responde —
     reusado tanto en el preview de BLOCK como en el masking real."""
     home["basa_compliance"] = {
-        "status": "blocked_nlp_unavailable", "risk_level": "unknown",
+        "status": policy.STATUS_NLP_BLOCKED, "risk_level": "unknown",
         "reason": "nlp_unavailable",
     }
-    return ("Petición bloqueada: el motor de detección de datos personales "
-            "no está disponible. No se procesa sin garantía de protección de PII/PHI.")
+    return policy.NLP_BLOCK_MESSAGE
+
+
+# ── Degradación NLP RUIDOSA (issue #63) ──────────────────────────────────────────────
+#
+# `nlp_fail_mode = "degrade"` permite seguir sirviendo con el regex de dev cuando el sidecar
+# NLP no responde. Es una postura legítima —hay instalaciones que prefieren continuidad—,
+# pero el issue #63 es exactamente sobre lo contrario: que esa degradación fuese INVISIBLE.
+# Por eso cada request degradada deja TRES rastros y ninguno es opcional:
+#   1. `basa_compliance.status = degraded_nlp_regex` → lo copia el emisor de éxito
+#      (`basa_audit_logger`, `compliance = request_md["basa_compliance"]["status"]`), así que
+#      la fila DURABLE de esa transacción lo lleva sin tocar el logger;
+#   2. marca de estado en Redis (`basa:nlp:degraded_*`) → la lee `GET /api/v1/health` y la
+#      pinta el panel — mismas claves que escribe el backend, un solo lugar donde mirar;
+#   3. `logger.error` (no warning): el nivel efectivo del contenedor es WARNING, y una
+#      degradación de la capa de PII no es ruido de fondo.
+_REDIS_KEY_NLP_DEGRADED_SINCE = "basa:nlp:degraded_since"
+_REDIS_KEY_NLP_DEGRADED_COUNT = "basa:nlp:degraded_requests"
+
+
+async def _marcar_nlp_degradado() -> None:
+    """Deja constancia en Redis de UNA request servida con regex por NLP caído.
+
+    Mismo contrato que `_contar_perdida`: tolerante a Redis ausente y JAMÁS propaga — el
+    piso innegociable es el `logger.error` del caller. `SET NX` en `degraded_since` para que
+    sobreviva el instante de la PRIMERA degradación (el operador necesita "desde cuándo",
+    no "la última vez"); el contador sí acumula. Lo limpia el health cuando confirma que el
+    analyzer volvió (un solo punto de reseteo, ver `backend/src/api/health.py`).
+    """
+    ahora = datetime.now(timezone.utc).isoformat()
+    try:
+        import redis.asyncio as redis_lib
+    except ImportError:
+        logger.error("nlp: DEGRADADO a regex sin poder marcarlo — redis no está en la imagen "
+                     "(ts=%s)", ahora)
+        return
+    try:
+        host, port = _redis_endpoint()
+        client = redis_lib.Redis(host=host, port=port)
+        pipe = client.pipeline()
+        pipe.set(_REDIS_KEY_NLP_DEGRADED_SINCE, ahora, nx=True)
+        pipe.incr(_REDIS_KEY_NLP_DEGRADED_COUNT)
+        await pipe.execute()
+        await client.aclose()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("nlp: DEGRADADO a regex y la marca de estado (%s) también falló: %s "
+                     "(ts=%s)", _REDIS_KEY_NLP_DEGRADED_SINCE, exc, ahora)
 
 
 class BasaGuardrail(CustomGuardrail):
@@ -450,6 +510,35 @@ class BasaGuardrail(CustomGuardrail):
                 )
                 _analyze = policy.default_analyze
 
+            # Postura ante el analyzer CAÍDO (issue #63). Viaja con la identidad de la
+            # Connection (`custom_auth` la trae del `Guardian.config` del guardián
+            # `pii_masking`, igual que `custom_names`), así los DOS planos obedecen la misma
+            # decisión del admin. Ausente ⇒ `block`: el comportamiento de la 016 no cambia
+            # para ninguna instalación existente.
+            nlp_fail_mode = policy.resolve_nlp_fail_mode(identity)
+
+            async def _degradar_a_regex(texto_o_body, *, es_body: bool, pmap=None):
+                """Rehace la detección con el regex de dev y deja los tres rastros del #63.
+
+                `pmap` se REUSA a propósito cuando se degrada en medio de `mask_body`: si se
+                creara un mapa nuevo, los placeholders que el NLP ya alcanzó a insertar antes
+                de caerse quedarían huérfanos (otro nonce) y saldrían crudos al cliente en el
+                unmask. Reusarlo mantiene UN solo mapa reversible por request.
+                """
+                logger.error(
+                    "nlp: motor de detección NLP no disponible y la política de la "
+                    "instalación es `degrade` — este pedido se sirve con detección REGEX de "
+                    "dev (cobertura menor; Constraint SC-2). Queda marcado como %s.",
+                    policy.STATUS_NLP_DEGRADED)
+                await _marcar_nlp_degradado()
+                home["basa_compliance"] = {
+                    "status": policy.STATUS_NLP_DEGRADED, "risk_level": "unknown",
+                    "reason": "nlp_unavailable_degraded_regex",
+                }
+                if es_body:
+                    return await policy.mask_body(texto_o_body, policy.default_analyze, pmap)
+                return await policy.default_analyze(texto_o_body)
+
             # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
             # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
             # body — evita enmascarar parcialmente una request que después se
@@ -459,8 +548,14 @@ class BasaGuardrail(CustomGuardrail):
             try:
                 preview_entities = await _analyze(inspect_text)
             except policy.NlpUnavailableError:
-                return await _bloquear(_nlp_unavailable_block(home),
-                                       status="blocked_nlp_unavailable", capa=_LAYER_PII)
+                if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
+                    return await _bloquear(_nlp_unavailable_block(home),
+                                           status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
+                # `degrade`: se sigue, pero con el detector de dev y marcado en los tres
+                # canales. El resto del hook (BLOCK por tipo, mask) corre igual sobre estas
+                # entidades — degradar no puede además saltearse la política por tipo.
+                preview_entities = await _degradar_a_regex(inspect_text, es_body=False)
+                _analyze = policy.default_analyze
 
             blocked_types = sorted({
                 e["entity_type"] for e in preview_entities
@@ -481,13 +576,21 @@ class BasaGuardrail(CustomGuardrail):
                     pii_detected=True)
 
             # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
+            # El `PlaceholderMap` se crea ACÁ y no dentro de `mask_body` porque el camino de
+            # degradación (#63) necesita continuar con el MISMO mapa: `mask_body` recorre
+            # los turnos de a uno, así que una caída a mitad de camino deja parte del body ya
+            # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
+            # volver y saldrían crudos al cliente.
+            pmap = policy.PlaceholderMap()
             try:
-                data, ph_to_orig = await policy.mask_body(data, _analyze)
+                data, ph_to_orig = await policy.mask_body(data, _analyze, pmap)
             except policy.NlpUnavailableError:
-                # Fail-closed (FR-004): sin detección NLP confiable, no hay garantía
-                # de protección — se rechaza la request en vez de degradar en silencio.
-                return await _bloquear(_nlp_unavailable_block(home),
-                                       status="blocked_nlp_unavailable", capa=_LAYER_PII)
+                if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
+                    # Fail-closed (FR-004, default): sin detección NLP confiable no hay
+                    # garantía de protección — se rechaza en vez de degradar en silencio.
+                    return await _bloquear(_nlp_unavailable_block(home),
+                                           status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
+                data, ph_to_orig = await _degradar_a_regex(data, es_body=True, pmap=pmap)
 
             if ph_to_orig:
                 home["pii_tokens"] = ph_to_orig

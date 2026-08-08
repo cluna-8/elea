@@ -230,15 +230,20 @@ async def gw_inspect(body: dict,
     # tener su propia media-política. Es lo que hace estructuralmente imposible que esta
     # superficie vuelva a divergir del piso (fix P4).
     synthetic = {"model": superficie, "messages": [{"role": "user", "content": text}]}
+    # `ident["nlp"]` (issue #63): el contexto de detección del tenant se threadea igual que en
+    # `/gw/v1/messages`. Es la misma razón por la que este endpoint reusa
+    # `evaluate_request_policy` — si esta superficie eligiera detector por su cuenta,
+    # volvería a divergir del piso, que es justo lo que el fix P4 vino a cerrar.
+    nlp_ctx = ident.get("nlp") or {}
     block_reason, status, ph_to_orig, entities, attribution = \
-        await gateway.evaluate_request_policy(synthetic, profile)
+        await gateway.evaluate_request_policy(synthetic, profile, nlp_ctx)
 
     latency = int((time.time() - start) * 1000)
     # Preview del monitor: SIEMPRE display-masked sobre mapa desechable + scrub de secretos
     # (contrato evento §10). Vale también —sobre todo— para el evento de BLOQUEO, donde el
     # bloqueo ocurre antes del enmascarado y el texto sigue crudo: sin este pase propio, la
     # vitrina se convertiría en el canal de fuga del contenido que acabamos de bloquear.
-    preview = await gateway._safe_preview(synthetic)
+    preview = await gateway._safe_preview(synthetic, nlp_ctx)
     gateway._audit(ident, superficie, 0, 0, status, entities, latency, attribution)
     gateway._publish_monitor(ident, superficie, superficie, status, entities, preview,
                              surface="browser", attribution=attribution)

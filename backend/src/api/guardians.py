@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any, Tuple
@@ -7,15 +9,21 @@ from pydantic import BaseModel, Field
 from ..database import get_db
 from ..models.guardian import Guardian
 from ..models.tenant import DEFAULT_TENANT_ID
+from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
 from ..services import ai_engine_client
 from ..services import entity_catalog_service
 from ..services.encryption_service import encrypt, decrypt
+# Vocabulario del issue #63 desde la librería PURA compartida (ver el comentario del import
+# equivalente en `health.py`): quién decide qué significa `nlp_fail_mode` es UNA función.
+from ..services.presidio_service import policy
 from ..services.governance_status import (
     MOTIVO_MOTOR_SIN_CONFIRMAR,
     MOTIVO_NO_CARGADA,
 )
 from ..auth.rbac import require_role
+
+_log = logging.getLogger("basa-secure-gateway.guardians")
 
 router = APIRouter(
     prefix="/guardians",
@@ -283,6 +291,50 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
     return None
 
 
+# ── Registro durable del cambio de postura NLP (issue #63) ────────────────────────
+#
+# `nlp_fail_mode` decide si, con el detector real caído, el tráfico se RECHAZA o se sirve con
+# media protección. Es una decisión de seguridad, y una decisión de seguridad que nadie puede
+# reconstruir después no es auditable.
+#
+# GAP CONOCIDO (para #72): este repo NO tiene hoy un mecanismo genérico de auditoría de
+# cambios de configuración — ningún endpoint de admin registra "quién cambió qué y cuándo".
+# Lo que se hace acá es el mínimo honesto para ESTE campo, no la solución del problema
+# general: una fila en `audit_logs` (la única bitácora durable que el compliance officer ya
+# consulta) con `compliance_status` propio y CERO tokens/coste, más el `logger.warning`. Falta
+# el actor: este endpoint depende de `require_role("admin")` y no recibe el `User`, así que la
+# fila registra el HECHO, no el autor. Cerrar eso —actor + cobertura de todos los campos— es
+# trabajo del issue #72, no de este fix.
+_COMPLIANCE_CAMBIO_NLP = "config_change_nlp_fail_mode"
+
+
+def _auditar_cambio_nlp_fail_mode(db: Session, guardian, previo: str) -> None:
+    """Deja constancia durable si la postura ante el NLP caído cambió. Nunca propaga:
+    un fallo del registro no puede voltear un guardado que ya se commiteó."""
+    if guardian.guardian_type != "pii_masking":
+        return
+    actual = policy.resolve_nlp_fail_mode(guardian.config or {})
+    if actual == previo:
+        return
+    _log.warning("guardianes: nlp_fail_mode cambió de %s a %s (guardián PII, tenant=%s)",
+                 previo, actual, getattr(guardian, "tenant_id", None))
+    try:
+        AuditService.log_transaction(
+            db=db,
+            # Metadata-only: el "modelo" de esta fila es el códido del cambio, no un LLM.
+            # Ni tokens ni coste — no hubo tráfico, hubo una decisión de configuración.
+            model=f"{_COMPLIANCE_CAMBIO_NLP}:{previo}->{actual}",
+            prompt_tokens=0, completion_tokens=0, cost_usd=0.0,
+            pii_detected=False, masked_entities=[],
+            compliance_status=_COMPLIANCE_CAMBIO_NLP, latency_ms=0,
+            processing_purpose="administrative",
+            tenant_id=getattr(guardian, "tenant_id", None),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.error("guardianes: el cambio de nlp_fail_mode (%s → %s) NO quedó registrado: %s",
+                   previo, actual, exc)
+
+
 @router.put("/{guardian_id}", response_model=GuardianResponseSchema)
 async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Session = Depends(get_db)):
     guardian = db.query(Guardian).filter(Guardian.id == guardian_id).first()
@@ -295,6 +347,12 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     await _gate_activacion(guardian, quiere_activar=bool(payload.is_active),
                            ya_activo=bool(guardian.is_active))
 
+    # issue #63: la postura ante el motor NLP caído se captura ANTES de mutar, para poder
+    # comparar. Se resuelve por la MISMA función que usan los planos de tráfico, así el
+    # registro dice el valor EFECTIVO (una clave borrada vuelve a `block`, y eso también es
+    # un cambio de postura que hay que poder auditar).
+    nlp_previo = policy.resolve_nlp_fail_mode(guardian.config or {})
+
     guardian.name = payload.name
     guardian.guardian_type = payload.guardian_type
     guardian.is_active = payload.is_active
@@ -306,6 +364,7 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
         guardian.service_api_key_encrypted = encrypt(payload.service_api_key) if payload.service_api_key else None
 
     db.commit()
+    _auditar_cambio_nlp_fail_mode(db, guardian, nlp_previo)
     db.refresh(guardian)
     # Misma sonda (cacheada) que el GET: si el PUT devolviera la disponibilidad calculada
     # con otra fuente, la tarjeta cambiaría de forma al guardar y volvería sola al recargar.

@@ -471,12 +471,33 @@ export interface AuditHealth {
   last_failure_at?: string | null;
 }
 
+/** Bloque `nlp` del health (issue #63). Ausente en instalaciones anteriores al fix y para
+ *  quien no sea admin/compliance_officer: todo opcional.
+ *
+ *  Los tres `status` NO son intercambiables y la UI no puede colapsarlos:
+ *  - `not_configured` — no hay motor NLP cableado. Modo de desarrollo por patrones: es una
+ *    elección de despliegue, no una avería. Se informa, no se alarma.
+ *  - `ok` — configurado y respondiendo.
+ *  - `unreachable` — configurado y CAÍDO. Según `fail_mode_efectivo`, el tráfico se está
+ *    rechazando (`block`) o sirviendo con cobertura reducida (`degrade`). Esto sí alarma. */
+export interface NlpHealth {
+  configured?: boolean;
+  status?: "ok" | "unreachable" | "not_configured" | string;
+  /** Instante de la PRIMERA request degradada de la racha actual (ISO), o null. */
+  degraded_since?: string | null;
+  /** Cuántas se sirvieron con patrones. `null` = no se pudo leer el contador, NO cero. */
+  degraded_requests?: number | null;
+  fail_mode_efectivo?: "block" | "degrade" | string | null;
+}
+
 export interface SystemHealth {
   status?: "healthy" | "degraded" | string;
   service?: string;
   version?: string;
   audit?: AuditHealth;
-  /** Motivo de la degradación (hoy: auditoría no escribible con `audit_fail=closed`). */
+  nlp?: NlpHealth;
+  /** Motivo de la degradación (auditoría no escribible con `audit_fail=closed`, y/o motor
+   *  de detección NLP caído — pueden venir los dos concatenados con " | "). */
   reason?: string | null;
 }
 

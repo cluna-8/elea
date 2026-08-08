@@ -39,7 +39,7 @@ build-extension-brand:
 	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(BRAND) \
 		$(REPO_ROOT)/deploy/clients/$(BRAND)/brand.extension.json
 
-check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit
+check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-redis-wiring
 
 # Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
 docs-refs:
@@ -80,6 +80,13 @@ check-extension-whitelabel:
 
 check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh
+
+# costura → Falime (Factory): backend y motor escriben/leen las MISMAS claves de Redis
+# (`basa:audit:*` de la 031, `basa:nlp:*` del #63). Si el perfil no le cablea REDIS_HOST al
+# motor —o los defaults del código divergen—, el health cuenta cero mientras el otro plano
+# registra: la degradación vuelve a ser silenciosa sin ningún síntoma visible.
+check-redis-wiring:
+	$(REPO_ROOT)/deploy/release/checks/test_redis_wiring.sh
 
 # Kit de confianza del certificado (issue #51): el .ps1 parsea de verdad, la codificación
 # no rompe en la ventana del cliente y el bundle se lo lleva. Los pasos que exigen Windows

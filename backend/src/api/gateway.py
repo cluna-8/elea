@@ -82,6 +82,7 @@ from ..services.audit_service import (
     audit_fail_mode,
     audit_writable,
     record_audit_loss,
+    record_nlp_degradation,
 )
 # Gobernanza (spec 027): SIEMPRE por la puerta del backend (governance_catalog), nunca
 # importando `extensions.basa_governance` a mano — un segundo camino de import carga el
@@ -166,8 +167,44 @@ def _with_query(url: str, request: Request) -> str:
     return f"{url}?{q}" if q else url
 
 
+def _textos_enmascarables(bloque: dict) -> list:
+    """Strings de un bloque de content que el enmascarado SÍ transforma.
+
+    **Espejo exacto de ``policy._mask_content``** — y tiene que seguir siéndolo. Ese es el
+    contrato: cada string que este helper devuelve es un string que ``mask_body`` reescribe,
+    o sea que leerlo del body ya enmascarado es seguro.
+
+    Por qué es load-bearing (hallazgo ALTO del review adversarial del #63): antes se
+    recogía ``b.get("text")`` de CUALQUIER dict del content, sin mirar el ``type``, mientras
+    el masker sólo toca ``type == "text"`` y ``type == "tool_result"``. Un bloque
+    ``{"type": "image", "text": "Sr. Juan Pérez, juan@clinica.es"}`` —forma válida de la API,
+    y trivial de construir para un cliente— viajaba SIN enmascarar y salía LITERAL a la
+    vitrina y a Redis por el atajo ``ya_enmascarado`` de ``_safe_preview``. C1 prohíbe
+    exactamente eso: PII cruda en el monitor.
+
+    Nota deliberada: ``policy.extract_inspect_text`` sigue siendo más amplio (recoge todo
+    ``text``) y está bien así — ese texto alimenta DETECTORES (AI-Act, secretos, conteo de
+    PII), donde mirar de más es conservador. Acá se MUESTRA, y mostrar de más es una fuga."""
+    tipo = bloque.get("type")
+    if tipo == "text":
+        return [bloque["text"]] if isinstance(bloque.get("text"), str) else []
+    if tipo == "tool_result":
+        contenido = bloque.get("content")
+        if isinstance(contenido, str):
+            return [contenido]
+        if isinstance(contenido, list):
+            return [sub["text"] for sub in contenido
+                    if isinstance(sub, dict) and sub.get("type") == "text"
+                    and isinstance(sub.get("text"), str)]
+    return []
+
+
 def _last_user_text(body: dict) -> str:
-    """Turno user más reciente, aplanado a texto (para el preview del monitor)."""
+    """Turno user más reciente, aplanado a texto (para el preview del monitor).
+
+    Sólo los strings que el enmascarado transforma (``_textos_enmascarables``): lo que este
+    helper devuelve termina en la vitrina, así que no puede incluir un campo que el masker
+    nunca tocó."""
     messages = body.get("messages")
     for msg in reversed(messages if isinstance(messages, list) else []):
         if not isinstance(msg, dict) or msg.get("role") != "user":
@@ -176,23 +213,49 @@ def _last_user_text(body: dict) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
-            parts = [b.get("text", "") for b in content
-                     if isinstance(b, dict) and isinstance(b.get("text"), str)]
+            parts = [texto for b in content if isinstance(b, dict)
+                     for texto in _textos_enmascarables(b)]
             return "\n".join(p for p in parts if p)
     return ""
 
 
-async def _safe_preview(body: dict) -> str:
+async def _safe_preview(body: dict, nlp: Optional[dict] = None,
+                        ya_enmascarado: bool = False) -> str:
     """Preview del turno user SIEMPRE enmascarado (Constraint C1): el monitor jamás
     muestra PII cruda, aun en modo detección. Usa un mapa desechable (no toca el body
-    reenviado)."""
+    reenviado).
+
+    Usa el MISMO analizador que la política del pedido (issue #63): con el sidecar NLP
+    configurado, un preview enmascarado con regex mostraría en la vitrina justo lo que el
+    regex no caza —un nombre sin tratamiento, un móvil español sin +34— mientras el tráfico
+    real sí quedaba protegido. La vitrina no puede ser la superficie menos protegida.
+
+    Con el analyzer CAÍDO este camino es fail-open a ``""`` **y jamás cae al regex**, ni
+    siquiera con ``nlp_fail_mode = degrade``: una preview sub-enmascarada es una fuga de PII
+    a Redis y al monitor (C1), y una preview vacía no filtra nada. La degradación a regex es
+    una decisión sobre el TRÁFICO (que el cliente necesita para trabajar), no sobre una
+    vitrina de la que nadie depende.
+
+    ``ya_enmascarado`` evita el pase de detección REDUNDANTE. ``evaluate_request_policy``
+    muta el body in-place, así que cuando el enmascarado corrió con el detector real el texto
+    que se lee acá **ya viene con placeholders** y volver a analizarlo no puede encontrar nada
+    nuevo: sólo cuesta otro viaje al sidecar por pedido. Con el detector NLP configurado ese
+    viaje no es gratis —es el componente más caro del camino caliente— y duplicarlo para una
+    vitrina sería pagar el doble por lo mismo. El caller sólo lo pasa en `True` cuando el
+    enmascarado REALMENTE corrió y con el detector real: en el camino de bloqueo (body crudo)
+    y en el degradado a regex se sigue haciendo el pase propio."""
     text = _last_user_text(body)[:_DISPLAY_CAP]
     if not text:
         return ""
+    if ya_enmascarado:
+        # El texto ya lleva placeholders; sólo falta el scrub de credenciales, que es regex
+        # pura y no depende de ningún detector (C1: una credencial jamás llega a la vitrina).
+        return policy.redact_secrets(text)
+    analyze, _usa_nlp = _build_analyze(nlp)
     try:
-        masked = await policy.mask_text(text, policy.default_analyze, policy.PlaceholderMap())
+        masked = await policy.mask_text(text, analyze, policy.PlaceholderMap())
         return policy.redact_secrets(masked)  # una credencial jamás llega a la vitrina (C1)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — incluye NlpUnavailableError, a propósito (ver docstring)
         return ""  # vitrina: nunca arriesgar mostrar el original si el masker falla
 
 
@@ -204,6 +267,52 @@ def _anthropic_error(message: str, status_code: int = 400):
 
 
 # ── política (paridad EXACTA con BasaGuardrail.async_pre_call_hook) ────────────────
+#
+# Detección NLP en ESTE plano (issue #63). Hasta el fix, todo `/gw` corría
+# `policy.default_analyze` —el regex de dev/demo— aunque `NLP_ANALYZER_URL` estuviera
+# configurada y el sidecar sano: el docstring del módulo prometía «paridad EXACTA con
+# BasaGuardrail.async_pre_call_hook» y el motor sí usaba el NLP real. Resultado observable:
+# el mismo prompt salía enmascarado por byok (motor) y sub-enmascarado por suscripción
+# (gateway), sin que nada lo dijera. La paridad se restituye en UN solo punto de decisión
+# (`_build_analyze`) para que los tres call-sites de este archivo no puedan volver a divergir.
+
+
+def nlp_analyzer_url() -> str:
+    """URL del sidecar de detección NLP, o cadena vacía si no está configurada.
+
+    Se lee POR LLAMADA y no se congela al importar (a diferencia del motor, que corre en una
+    imagen pinneada): mismo criterio que `audit_fail_mode()` — un `compose up -d` con la env
+    cambiada surte efecto sin rebuild, y los tests la pueden monkeypatchear sin recargar el
+    módulo. Cadena vacía = modo regex de desarrollo EXPLÍCITO (Constraint SC-2)."""
+    return (os.environ.get("NLP_ANALYZER_URL") or "").strip()
+
+
+def _build_analyze(nlp: Optional[dict]):
+    """``(analyze, usa_nlp)`` — el ÚNICO punto donde este plano elige detector.
+
+    Réplica de la decisión del motor (`basa_guardrail.async_pre_call_hook`, paso 3): con
+    `NLP_ANALYZER_URL` seteada se llama al sidecar con los `custom_names`/`custom_entities`
+    del guardián `pii_masking` y la región configurada; sin ella, el regex de dev.
+
+    ``nlp`` es el contexto que resolvió `_resolve_attribution` (una sola lectura por pedido,
+    en la sesión que ese helper ya abría). ``None`` ⇒ se usa el sidecar igual, pero sin
+    listas personalizadas: no tener la config del guardián no puede degradar el detector."""
+    url = nlp_analyzer_url()
+    if not url:
+        return policy.default_analyze, False
+    cfg = nlp or {}
+    custom_names = cfg.get("custom_names") or []
+    custom_entities = cfg.get("custom_entities") or []
+    # Misma env y mismo default que el motor (spec 016): la región no puede diferir entre
+    # planos o el mismo texto detectaría entidades distintas según por dónde entró.
+    region = os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)
+
+    async def _analyze(text: str) -> list:
+        return await policy.presidio_analyze(text, url, custom_names, region,
+                                             custom_entities=custom_entities)
+
+    return _analyze, True
+
 
 def _as_profile(profile) -> Profile:
     """Acepta un ``Profile`` o el booleano de masking legado (013) y devuelve SIEMPRE un
@@ -222,7 +331,7 @@ def _as_profile(profile) -> Profile:
                            surface_trusted=False, connection_overrides=overrides)
 
 
-async def _count_detected_pii(inspect_text: str) -> Optional[int]:
+async def _count_detected_pii(inspect_text: str, analyze=None) -> Optional[int]:
     """Cuenta la PII del pedido **sin tocar el body** — el piso ``pii_detection`` (D8).
 
     Con el enmascarado apagado, antes de la 027 no corría ningún detector: el pedido
@@ -233,12 +342,17 @@ async def _count_detected_pii(inspect_text: str) -> Optional[int]:
 
     ``None`` si el detector falla: sin veredicto la capa se reporta ``not_configured`` —
     "no pudimos confirmar que corrió"— en vez de afirmar un cero que sería una mentira
-    tranquilizadora."""
+    tranquilizadora. Con el analyzer NLP caído ese ``None`` **es** la respuesta correcta y no
+    se sustituye por un conteo de regex (issue #63): este contador vive en el camino donde el
+    enmascarado está APAGADO por decisión, así que un número sacado de otro detector diría
+    "encontramos N" cuando lo cierto es "no pudimos mirar con lo que corresponde"."""
     if not inspect_text:
         return 0
+    if analyze is None:
+        analyze, _usa_nlp = _build_analyze(None)
     try:
         pmap = policy.PlaceholderMap()
-        await policy.mask_text(inspect_text, policy.default_analyze, pmap)
+        await policy.mask_text(inspect_text, analyze, pmap)
         return len(pmap.ph_to_orig)
     except Exception as exc:  # noqa: BLE001
         # C1: se loguea el hecho, jamás el texto ni el valor detectado.
@@ -251,7 +365,7 @@ def _verdict(decision: str, count: Optional[int] = None) -> dict:
     return {"decision": decision, "count": count} if count else {"decision": decision}
 
 
-async def evaluate_request_policy(body: dict, profile=None):
+async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] = None):
     """Aplica la política Basa a un body Anthropic, en el MISMO orden que el guardrail
     del motor: (1) AI-Act Art.5 → block, (2) secretos → block, (3) PII → detección
     (piso) → enmascarado reversible **solo si** el perfil lo tiene encendido.
@@ -265,8 +379,15 @@ async def evaluate_request_policy(body: dict, profile=None):
     **Los veredictos se reportan de lo que REALMENTE pasó, no de lo que se deseaba**: una
     capa que no llegó a correr (porque una anterior bloqueó) NO se reporta, y
     ``build_attribution`` la marca ``not_configured``. Ese es el punto entero de la 027:
-    "no la aplicamos" y "no corrió" dejan de ser indistinguibles."""
+    "no la aplicamos" y "no corrió" dejan de ser indistinguibles.
+
+    ``nlp`` (issue #63) es el contexto de detección del tenant —``custom_names``,
+    ``custom_entities`` y ``nlp_fail_mode``— que ``_resolve_attribution`` resolvió en la
+    sesión que ya abría por pedido. ``None`` es válido (lo usan los tests y el call-site de
+    la superficie browser): el detector NLP se elige igual por env, sin listas personalizadas
+    y con ``nlp_fail_mode`` en su default ``block``."""
     profile = _as_profile(profile)
+    analyze, _usa_nlp = _build_analyze(nlp)
     # El piso `interception_audit` es la propiedad que hace del producto un firewall:
     # llegado este punto el pedido está interceptado y va a auditarse, así que su
     # veredicto es afirmable siempre.
@@ -293,7 +414,35 @@ async def evaluate_request_policy(body: dict, profile=None):
     ph_to_orig: dict = {}
     masked_entities: list = []
     if profile.is_on("pii_masking"):
-        _, ph_to_orig = await policy.mask_body(body, policy.default_analyze)
+        # El `PlaceholderMap` se crea acá —y no dentro de `mask_body`— porque el camino de
+        # degradación del #63 continúa con el MISMO mapa: `mask_body` recorre los turnos de a
+        # uno, así que una caída del analyzer a mitad de camino deja parte del body ya
+        # enmascarada. Con un mapa nuevo (otro nonce) esos placeholders no tendrían original
+        # al que volver y saldrían CRUDOS al cliente en el unmask de la respuesta.
+        pmap = policy.PlaceholderMap()
+        try:
+            _, ph_to_orig = await policy.mask_body(body, analyze, pmap)
+        except policy.NlpUnavailableError:
+            fail_mode = policy.resolve_nlp_fail_mode(nlp)
+            if fail_mode == policy.NLP_FAIL_BLOCK:
+                # Fail-closed (default, y lo que ya hacía el motor desde la 016): sin
+                # detección NLP confiable no hay garantía de protección. El bloqueo se
+                # atribuye a `pii_detection` —la capa que falló— con el MISMO vocabulario del
+                # motor, para que la fila durable de los dos planos sea indistinguible.
+                verdicts["pii_detection"] = _verdict(VERDICT_BLOCK)
+                return (policy.NLP_BLOCK_MESSAGE, policy.STATUS_NLP_BLOCKED, {}, [],
+                        build_attribution(profile, verdicts))
+            # `degrade`: se sigue sirviendo con el regex de dev, pero JAMÁS en silencio —
+            # marca de estado en Redis + `logger.error` (los dos dentro de
+            # `record_nlp_degradation`) + `compliance_status` propio en la fila durable de
+            # ESTA transacción, que es lo que hace consultable el hecho después.
+            record_nlp_degradation(reason="gateway/mask_body")
+            _, ph_to_orig = await policy.mask_body(body, policy.default_analyze, pmap)
+            # El estado de degradación PISA `passed`/`flagged_high_risk`: entre "salió sin
+            # novedad" y "salió con media protección", lo segundo es lo que el officer tiene
+            # que ver en la columna. El flag de AI-Act no se pierde — sigue en
+            # `applied_layers` como veredicto `flag` de `ai_act_evaluation`.
+            status = policy.STATUS_NLP_DEGRADED
         if ph_to_orig:
             masked_entities = _entity_counts(ph_to_orig)
         detected: Optional[int] = len(ph_to_orig)
@@ -304,7 +453,7 @@ async def evaluate_request_policy(body: dict, profile=None):
         # `pii_masking` queda SIN veredicto ⇒ `skipped` (apagada por decisión), y
         # `pii_detection` lleva el hallazgo: esa combinación ES el registro "datos
         # personales detectados, no enmascarados por configuración" (FR-002).
-        detected = await _count_detected_pii(inspect_text)
+        detected = await _count_detected_pii(inspect_text, analyze)
     if detected is not None:
         verdicts["pii_detection"] = _verdict(VERDICT_FLAG if detected else VERDICT_ALLOW,
                                              detected)
@@ -362,6 +511,13 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         # NO abrir una segunda sesión por pedido — el perfil se resuelve después, en
         # memoria, con la cascada pura.
         "governance_decisions": (),
+        # Contexto de detección NLP del tenant (issue #63): `custom_names`,
+        # `custom_entities` y `nlp_fail_mode` del guardián `pii_masking`. Viaja por el MISMO
+        # canal y por la MISMA razón que las decisiones de gobernanza — una lectura por
+        # pedido en la sesión que este helper ya abre, en vez de N queries en el camino
+        # caliente. Es el equivalente en este plano a lo que `custom_auth` le pasa al motor
+        # dentro de `user_api_key_metadata.basa`.
+        "nlp": {},
     }
     db = SessionLocal()
     try:
@@ -400,11 +556,61 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         # cuya postura configuró el admin. Saltear la lectura acá dejaría al tráfico sin
         # atribución fuera de la gobernanza que el admin cree haber configurado.
         ident["governance_decisions"] = _governance_rows(db, ident["tenant_id"])
+        ident["nlp"] = _nlp_context(db, ident["tenant_id"],
+                                    atribuible=_tenant_atribuible(ident))
     except Exception as exc:  # noqa: BLE001
         logger.warning("gateway: atribución best-effort falló (%s); sigo anónimo", exc)
     finally:
         db.close()
     return ident
+
+
+def _nlp_context(db, tenant_id, atribuible: bool = False) -> dict:
+    """Config de detección del guardián ``pii_masking`` del tenant (issue #63).
+
+    UNA consulta por pedido, sobre la sesión que ``_resolve_attribution`` ya tiene abierta:
+    el mismo precio que la 027 aceptó pagar para que la postura del admin gobierne también
+    al tráfico anónimo. Es la puerta del backend equivalente al subquery que ``custom_auth``
+    ya hace para el motor, así que los dos planos leen exactamente la misma fila.
+
+    **Fail-closed**: si la lectura falla, dict vacío ⇒ sin listas personalizadas y
+    ``nlp_fail_mode`` en su default ``block``. No poder leer la config sólo puede quitar
+    relajaciones, nunca concederlas — mismo criterio que ``_governance_rows``.
+
+    **Sin tenant atribuible, ``nlp_fail_mode`` se fuerza a ``block``** (hallazgo ALTO del
+    review adversarial). Es la MISMA barrera que la 027 ya aplica al perfil de gobernanza en
+    ``_resolve_governance_profile`` (``Profile.from_dict(..., trusted=False)``: sobreviven
+    las decisiones que AGREGAN protección, se descartan las que RELAJAN), y falta acá por el
+    mismo motivo por el que hacía falta allá. ``X-Basa-Key`` es OPCIONAL en esta ruta —la
+    credencial es el OAuth—, así que sin esta línea, en una instalación multi-tenant,
+    **omitir el header** bastaba para caer al ``DEFAULT_TENANT_ID``: si ESE tenant tiene
+    ``degrade``, un cliente cuyo admin configuró ``block`` conseguía que su tráfico se
+    sirviera con regex tirando abajo el sidecar. La atribución puede degradarse a anónima;
+    la postura no puede degradarse a "la de otro".
+
+    ``custom_names``/``custom_entities`` del tenant de fallback SÍ se conservan: sólo pueden
+    AGREGAR entidades a enmascarar, nunca quitar. La barrera descarta relajaciones, no datos."""
+    try:
+        from ..models.guardian import Guardian
+        fila = (db.query(Guardian.config)
+                .filter(Guardian.tenant_id == tenant_id,
+                        Guardian.guardian_type == "pii_masking",
+                        Guardian.is_active.is_(True))
+                .first())
+        cfg = (fila[0] if fila else None) or {}
+        return {
+            "custom_names": cfg.get("custom_names") or [],
+            "custom_entities": cfg.get("custom_entities") or [],
+            # Crudo: quien decide es `policy.resolve_nlp_fail_mode`, que tiene el default
+            # fail-closed en UN solo lugar para los dos planos. Salvo sin tenant atribuible,
+            # donde la barrera de la 027 obliga al valor más protector.
+            policy.NLP_FAIL_MODE_KEY: (cfg.get(policy.NLP_FAIL_MODE_KEY) if atribuible
+                                       else policy.NLP_FAIL_BLOCK),
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("gateway: config de detección NLP no legible (%s); defaults "
+                       "fail-closed (nlp_fail_mode=block, sin listas personalizadas)", exc)
+        return {}
 
 
 # Campos que el resolutor lee de cada fila de decisión. Se copian a un dict PLANO a
@@ -961,13 +1167,23 @@ async def gw_messages(
     profile = _resolve_governance_profile(ident, tool, x_basa_redact)
 
     # ── política: bloquear/enmascarar (misma librería que el motor) ──
+    # `ident["nlp"]` (issue #63) lleva el contexto de detección del tenant: con
+    # `NLP_ANALYZER_URL` configurada este plano usa el sidecar NLP —igual que el motor— en vez
+    # del regex de dev que usaba siempre.
+    nlp_ctx = ident.get("nlp") or {}
     block_reason, status, ph_to_orig, masked_entities, attribution = \
-        await evaluate_request_policy(body, profile)
+        await evaluate_request_policy(body, profile, nlp_ctx)
     # Preview SIEMPRE display-masked (contrato evento §10): se construye sobre un mapa
     # desechable + scrub de secretos pase lo que pase con las capas. Es load-bearing en el
     # camino de bloqueo, donde el bloqueo ocurre ANTES de que corra el enmascarado y el
     # body sigue crudo: sin este pase propio, la vitrina sería el canal de fuga.
-    preview = await _safe_preview(body)
+    # `ya_enmascarado`: el enmascarado corrió, no hubo bloqueo (el body está mutado) y corrió
+    # con el detector REAL. Las tres condiciones importan: sin bloqueo el body sigue crudo;
+    # con `pii_masking` apagado nunca se tocó; y en el degradado a regex el pase propio se
+    # hace igual, para que la vitrina no herede la cobertura menor de esa ronda.
+    ya_enmascarado = (not block_reason and profile.is_on("pii_masking")
+                      and status != policy.STATUS_NLP_DEGRADED)
+    preview = await _safe_preview(body, nlp_ctx, ya_enmascarado)
 
     if block_reason:
         latency = int((time.time() - start) * 1000)
