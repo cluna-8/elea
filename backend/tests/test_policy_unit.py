@@ -975,3 +975,120 @@ async def test_fallback_intl_no_reintroduce_sobre_matcheo(text):
     se marcan como teléfono — no se re-rompe el bug del #64."""
     _masked, types, _ = await _fallback_mask(text)
     assert "PHONE_NUMBER" not in types
+
+
+# ── 4ª clase de fuga: separador interno EXÓTICO fracturaba la corrida (gate adversarial) ──
+#
+# Antes el separador interno de la corrida sólo toleraba espacio/guión, así que CUALQUIER otro
+# separador de UN carácter (punto, barra, coma, tab, NBSP, narrow-NBSP, ZWSP, underscore, pipe,
+# newline, mixtos) partía el PAN/IBAN en trozos <umbral y lo fugaba ENTERO en claro. El fix
+# generalizó el separador a `[^0-9A-Za-z]?` (cualquier no-alfanumérico de 1 char): con eso
+# NINGÚN separador de 1 char puede fracturar la corrida — cierre del family POR CONSTRUCCIÓN.
+# Este test PARAMETRIZADO fija ese family: cada variante DEBE enmascarar la corrida entera,
+# cero dígitos del secreto en claro. Residual EXPLÍCITAMENTE aceptado (JF, «ruidoso pero
+# seguro»): separadores de 2+ chars/code-points (doble espacio, ` - `, emoji multi-codepoint)
+# todavía fracturan — NO se cubren acá porque son el precio documentado del paracaídas de
+# degrade/dev; el NLP real es el detector de producción.
+
+_CARD_16 = "4111111111111111"          # PAN de test (Luhn válido), 16 dígitos
+
+
+def _grouped(digits: str, sep: str) -> str:
+    """`digits` en grupos de 4 unidos por `sep` (formato humano con separador arbitrario)."""
+    return sep.join(digits[i:i + 4] for i in range(0, len(digits), 4))
+
+
+def _no_secret_digits_in_clear(masked: str, secret_digits: str, pmap) -> None:
+    """Afirma que NI UN tramo de dígitos del secreto sobrevive en el texto en claro
+    (placeholders quitados: su nonce hex podría coincidir por azar con dígitos del PAN).
+    Escanea todas las corridas de dígitos que quedan sueltas: ningún substring del secreto
+    de longitud ≥4 puede aparecer, y el PAN compacto tampoco."""
+    clear = _clear_text(masked, pmap)
+    runs = re.findall(r"\d+", clear)
+    for L in range(4, len(secret_digits) + 1):
+        for s in range(len(secret_digits) - L + 1):
+            frag = secret_digits[s:s + L]
+            assert all(frag not in run for run in runs), \
+                f"fuga de {frag!r} ({L} díg.) en claro: {masked!r}"
+    assert secret_digits not in re.sub(r"\s", "", clear), f"PAN compacto en claro: {masked!r}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,secret", [
+    pytest.param(f"Pago {_grouped(_CARD_16, ' ')} gracias", _CARD_16, id="espacio"),
+    pytest.param(f"Pago {_grouped(_CARD_16, '-')} gracias", _CARD_16, id="guion"),
+    pytest.param(f"Pago {_grouped(_CARD_16, '.')} gracias", _CARD_16, id="punto"),
+    pytest.param(f"Pago {_grouped(_CARD_16, '/')} gracias", _CARD_16, id="barra"),
+    pytest.param(f"Pago {_grouped(_CARD_16, ',')} gracias", _CARD_16, id="coma"),
+    pytest.param(f"Pago {_grouped(_CARD_16, chr(9))} gracias", _CARD_16, id="tab"),
+    pytest.param(f"Pago {_grouped(_CARD_16, chr(0x00A0))} gracias", _CARD_16, id="NBSP"),
+    pytest.param(f"Pago {_grouped(_CARD_16, chr(0x202F))} gracias", _CARD_16, id="narrow-NBSP"),
+    pytest.param(f"Pago {_grouped(_CARD_16, chr(0x200B))} gracias", _CARD_16, id="ZWSP"),
+    pytest.param(f"Pago {_grouped(_CARD_16, '_')} gracias", _CARD_16, id="underscore"),
+    pytest.param(f"Pago {_grouped(_CARD_16, '|')} gracias", _CARD_16, id="pipe"),
+    pytest.param(f"Pago {_grouped(_CARD_16, chr(10))} gracias", _CARD_16, id="newline"),
+    pytest.param("Pago 4111.1111 1111.1111 gracias", _CARD_16, id="mixto-punto+espacio"),
+    pytest.param("Pago 4111111111111111 gracias", _CARD_16, id="contiguo"),
+    pytest.param("4111 1111 1111 1111 5555 5555 5555 4444",
+                 "41111111111111115555555555554444", id="dos-tarjetas-pegadas"),
+    pytest.param("44787 7893 2879 2170", "44787789328792170", id="R3-fused"),
+])
+async def test_fallback_card_separador_family_enmascara_entero(text, secret):
+    """Family de separadores de la 4ª fuga: cada corrida se enmascara ENTERA como CREDIT_CARD,
+    con cero dígitos del secreto en claro y masking reversible."""
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["CREDIT_CARD"], f"tipo inesperado: {types} en {masked!r}"
+    _no_secret_digits_in_clear(masked, secret, pmap)
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+_IBAN_ES = "ES91 2100 0418 4502 0005 1332"
+_IBAN_ES_BODY = "ES9121000418450200051332"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", [
+    pytest.param("ES91.2100.0418.4502.0005.1332", id="punto"),
+    pytest.param("ES91 2100 0418 4502 0005 1332", id="NBSP"),
+    pytest.param("ES91/2100/0418/4502/0005/1332", id="barra"),
+])
+async def test_fallback_iban_separador_family_enmascara(text):
+    """El IBAN con separador exótico de 1 char (punto/NBSP/barra) se enmascara ENTERO como
+    IBAN_CODE: ni el prefijo `ES91` ni el cuerpo quedan en claro, y el masking es reversible."""
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["IBAN_CODE"], f"tipo inesperado: {types} en {masked!r}"
+    assert "ES91" not in masked
+    assert _IBAN_ES_BODY not in re.sub(r"[^0-9A-Za-z]", "", _clear_text(masked, pmap))
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_iban_con_etiqueta_no_se_traga_la_palabra():
+    """`IBAN ES91 …` debe quedar `IBAN [IBAN_CODE_…]`: el ancla arranca en `ES91` (2 letras de
+    país + control), NO en la palabra `IBAN` de delante — no se traga la etiqueta ni deja el
+    identificador en claro."""
+    text = f"IBAN {_IBAN_ES}"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["IBAN_CODE"]
+    assert masked.startswith("IBAN [IBAN_CODE_0_") and masked.endswith("]")
+    assert "ES91" not in masked and "1332" not in masked
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,expected_types", [
+    pytest.param("pedido 12345", [], id="pedido-corto"),
+    pytest.param("FAC-2026-001587", [], id="factura"),
+    pytest.param("expediente 202600145", [], id="expediente"),
+    pytest.param("DNI 12345678Z", ["ES_NIF"], id="dni-es_nif"),
+])
+async def test_fallback_goldens_no_se_sobre_enmascaran(text, expected_types):
+    """Goldens que DEBEN sobrevivir: facturas/expedientes/pedidos cortos quedan INTACTOS
+    (nada que ver con tarjeta/IBAN) y el DNI español sale como ES_NIF por formato — el fix del
+    family de separadores no debe empezar a sobre-enmascarar identificadores legítimos."""
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == expected_types, f"tipos inesperados {types} en {masked!r}"
+    if not expected_types:
+        assert masked == text
+    else:
+        assert policy.unmask_text(masked, pmap.ph_to_orig) == text

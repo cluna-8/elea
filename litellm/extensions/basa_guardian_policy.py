@@ -143,21 +143,34 @@ FALLBACK_STRUCTURED_BY_REGION = {
 # internacional se detecta con un patrón propio pero cuenta como PHONE_NUMBER en auditoría.
 _FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
 
-_SEP_CHARS = " -"  # separadores admitidos DENTRO de un IBAN/tarjeta (espacio o guión)
-
 # Corridas estructuradas del fallback fail-safe (decisión JF, opción A — ver
 # `_structured_id_spans`). NO se busca dónde empieza/termina el identificador dentro de la
 # corrida (eso, con checksum + fronteras, fue el origen de TRES variantes de fuga: R1 sufijo,
 # R2/R3 partición de grupos, R3 dígito pegado al primer grupo). Se enmascara la corrida
 # ENTERA. Patrones LINEALES (cada iteración consume ≥1 char, clases disjuntas → sin ReDoS).
-#   - Tarjeta: cualquier corrida de dígitos-con-separadores.
+# El separador interno es CUALQUIER carácter no alfanumérico (`[^0-9A-Za-z]`), no sólo
+# espacio/guión: cualquier otro separador (punto, barra, coma, NBSP U+00A0, narrow-NBSP
+# U+202F, salto de línea, mixtos) fracturaba la corrida en trozos bajo el umbral y fugaba el
+# número ENTERO en claro (4ª clase de fuga, hallada por el gate adversarial). Con el separador
+# genérico ningún carácter puede fracturar la corrida — cierre del family POR CONSTRUCCIÓN.
+#   - Tarjeta: cualquier corrida de dígitos separados por ≤1 no-alfanumérico.
 #   - IBAN: corrida que arranca por país (2 letras) + 2 dígitos de control. El ancla admite
-#     un espacio antes de cada dígito de control (`(?:[ ]?\d){2}`) para NO fugar IBANs
-#     escritos en grupos no estándar (`MT 84 …`, `MT8 4…`) que parten el par de control;
+#     un no-alfanumérico antes de cada dígito de control (`(?:[^0-9A-Za-z]?\d){2}`) para NO
+#     fugar IBANs en grupos no estándar (`MT 84 …`, `MT8 4…`) que parten el par de control;
 #     NO relaja las 2 letras iniciales, así una palabra en mayúsculas delante (`IBAN ES91…`)
 #     no se traga el identificador (el ancla arranca en `ES91`, no en `IB`).
-_CARD_RUN_RE = re.compile(r"\d(?:[ -]?\d)*")
-_IBAN_RUN_RE = re.compile(r"\b[A-Z]{2}(?:[ ]?\d){2}(?:[ ]?[A-Z0-9])*")
+# Residual ACEPTADO (JF, «ruidoso pero seguro»): un separador de ≥2 code-points (doble
+# espacio, ` - `, ` . `, `\r\n`, un emoji multi-codepoint —bandera/ZWJ/keycap—, o una LETRA
+# ASCII intercalada entre dígitos) todavía fractura la corrida, porque `[^0-9A-Za-z]?` consume
+# UN solo carácter. Sólo cruza el umbral de fuga (≥6 díg en claro) con un PAN SIN agrupar
+# (8+8): el formato realista —grupos de 4 con cualquier separador simple— nunca deja ≥6 en
+# claro. NO se ensancha a multi-char a propósito: bridgearía números distantes en prosa
+# (`1234 y 5678 y …`) y sobre-enmascararía texto legítimo, peor trade que un leak no realista.
+# Aceptable para un paracaídas de degrade/dev — el NLP real es el detector de producción. El
+# conteo de unidades usa `c.isalnum()` (el separador ya no es un set fijo, no se puede contar
+# por exclusión de un `_SEP_CHARS`).
+_CARD_RUN_RE = re.compile(r"\d(?:[^0-9A-Za-z]?\d)*")
+_IBAN_RUN_RE = re.compile(r"\b[A-Z]{2}(?:[^0-9A-Za-z]?\d){2}(?:[^0-9A-Za-z]?[A-Z0-9])*")
 _CARD_MIN_DIGITS = 13   # longitud mínima de una tarjeta (≥13 cubre también corridas largas)
 _IBAN_MIN_ALNUM = 15    # IBAN más corto (Noruega); sin tope superior a propósito (fail-safe)
 
@@ -230,7 +243,7 @@ def _structured_id_spans(text: str, run_re, min_units: int) -> list:
     spans = []
     for m in run_re.finditer(text):
         run = m.group()
-        if sum(1 for c in run if c not in _SEP_CHARS) >= min_units:
+        if sum(1 for c in run if c.isalnum()) >= min_units:
             spans.append((m.start(), m.end()))
     return _merge_spans(spans)
 
