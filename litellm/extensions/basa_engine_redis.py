@@ -15,23 +15,41 @@ cierra en ``finally``. El cierre NO se hace acá a propósito: un ``aclose()`` a
 COMÚN— y filtraría el cliente. Cada escritor cierra en ``finally``.
 """
 import logging
+import math
 import os
 
 logger = logging.getLogger("basa-secure-gateway.engine-redis")
 
+# Techo duro de cualquier timeout tuneable por env (mismo valor que el backend). Un valor
+# absurdo (`inf`, `1e9`) equivale a NO tener timeout y reinstala el cuelgue que este módulo
+# existe para evitar; 60 s ya es holgadísimo para cualquier op de Redis sana.
+_MAX_TIMEOUT_SECONDS = 60.0
+
 
 def _env_float(name: str, default: float) -> float:
-    """Float desde env, robusto: ausente/vacío/malformado → `default` (nunca revienta el
-    import del módulo del motor por un env vacío o un typo — mismo criterio que el backend
-    en `services/redis_client.py`)."""
+    """Float ACOTADO desde env: ausente/vacío/malformado/fuera de rango → `default` (nunca
+    revienta el import del módulo del motor por un env vacío o un typo). Además del parse se
+    valida el RANGO (finito, > 0 y ≤ `_MAX_TIMEOUT_SECONDS`): `inf`, `nan` y `1e400` parsean
+    SIN error pero dejarían al cliente Redis sin timeout efectivo.
+
+    Es una COPIA DELIBERADA del helper del backend (`services/redis_client.py`), no un
+    descuido: los dos planos se despliegan por separado (el motor monta sólo
+    `litellm/extensions/`) y acoplar el mount del motor a un import del backend sería peor
+    que duplicar diez líneas. Si cambia el criterio, cambia en los DOS sitios."""
     raw = os.getenv(name)
     if raw is None or not raw.strip():
         return default
     try:
-        return float(raw)
+        valor = float(raw)
     except ValueError:
         logger.warning("%s=%r no es un float válido; usando default %.3f", name, raw, default)
         return default
+    if not math.isfinite(valor) or not 0 < valor <= _MAX_TIMEOUT_SECONDS:
+        logger.warning(
+            "%s=%r fuera del rango válido (finito, 0 < v <= %.1f s); usando default %.3f",
+            name, raw, _MAX_TIMEOUT_SECONDS, default)
+        return default
+    return valor
 
 
 # Mismos nombres de env que el backend (`services/redis_client.py`), y sub-segundo por default:

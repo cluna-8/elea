@@ -1,3 +1,4 @@
+import math
 import os
 import logging
 import redis
@@ -15,19 +16,34 @@ _client: redis.Redis | None = None
 #   * socket_connect_timeout: techo del handshake TCP (antes era 2 s; se acota).
 #   * socket_timeout: techo de CADA operación una vez conectado (el que faltaba).
 # Env-tuneables, pero con default sub-segundo: para un Redis sano (ops < 1 ms) es holgado.
+# Techo duro de cualquier timeout tuneable por env. Un valor absurdo (`inf`, `1e9`) equivale a
+# NO tener timeout y reinstala el cuelgue que este módulo existe para evitar; 60 s ya es
+# holgadísimo para cualquier op de Redis sana.
+_MAX_TIMEOUT_SECONDS = 60.0
+
+
 def _env_float(name: str, default: float) -> float:
-    """Float desde env, robusto: ausente/vacío/malformado → `default`. Un `float("")`
-    reventaría el import (ValueError) y tumbaría el plano ENTERO por un env vacío
+    """Float ACOTADO desde env: ausente/vacío/malformado/fuera de rango → `default`. Un
+    `float("")` reventaría el import (ValueError) y tumbaría el plano ENTERO por un env vacío
     (`- VAR=` en compose) o un typo — desproporcionado para un timeout. Vacío se trata como
-    'no seteado' (silencioso); un valor no-float se loguea como warning y cae al default."""
+    'no seteado' (silencioso); un valor no-float se loguea como warning y cae al default.
+    Además del parse se valida el RANGO (finito, > 0 y ≤ `_MAX_TIMEOUT_SECONDS`): `inf`,
+    `nan` y `1e400` parsean SIN error pero dejan al cliente Redis sin timeout efectivo, que
+    es exactamente el cuelgue que "nunca infinito" vino a matar."""
     raw = os.getenv(name)
     if raw is None or not raw.strip():
         return default
     try:
-        return float(raw)
+        valor = float(raw)
     except ValueError:
         logger.warning("%s=%r no es un float válido; usando default %.3f", name, raw, default)
         return default
+    if not math.isfinite(valor) or not 0 < valor <= _MAX_TIMEOUT_SECONDS:
+        logger.warning(
+            "%s=%r fuera del rango válido (finito, 0 < v <= %.1f s); usando default %.3f",
+            name, raw, _MAX_TIMEOUT_SECONDS, default)
+        return default
+    return valor
 
 
 REDIS_CONNECT_TIMEOUT_SECONDS = _env_float("REDIS_CONNECT_TIMEOUT_SECONDS", 1.0)
