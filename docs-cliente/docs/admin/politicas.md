@@ -78,7 +78,9 @@ porque hay dos comportamientos posibles y su organización tiene configurado uno
 - **Se están sirviendo con detección por patrones.** Las consultas siguen funcionando, pero
   con **menos cobertura**: un nombre y apellido sin tratamiento previo o un teléfono sin
   prefijo internacional pueden salir sin enmascarar. El aviso indica desde cuándo y cuántas
-  consultas se han servido así.
+  consultas se han servido así. Esto solo ocurre con las conexiones que su soporte técnico
+  dio de alta para su organización: cualquier tráfico que llegue sin esa credencial se
+  **bloquea igual**, aunque esté configurado para continuar.
 
 En los dos casos, cada consulta afectada queda marcada en
 [Logs de Auditoría](auditoria.md) con un estado propio, de forma que después se puede aislar

@@ -171,6 +171,18 @@ escrita, se bloquea. Continuar es una elección que hay que tomar explícitament
     nacional sin prefijo internacional pueden **salir sin enmascarar**. Por eso esta opción no
     es recomendable con datos de salud.
 
+!!! note "*Continuar* sólo aplica al tráfico con credencial de atribución"
+    La relajación se honra únicamente cuando el pedido llega con la **credencial que el
+    operador provisionó** (la que identifica a la organización). El tráfico que no la lleva se
+    **bloquea igual**, aunque la instancia esté configurada para continuar.
+
+    No es una limitación: es la misma regla que gobierna todas las capas (ver [Ajuste fino por
+    herramienta](#ajuste-fino-por-herramienta)). En esta ruta esa credencial es **opcional** —
+    la autenticación la aporta la suscripción—, así que sin la regla bastaría con **omitirla**
+    para heredar la configuración más laxa de otra organización de la misma instancia. Relajar
+    exige siempre un dato provisionado por el administrador; nunca se consigue quitando algo
+    del pedido.
+
 ### La degradación nunca es silenciosa
 
 Cuando la instancia continúa con detección por patrones, el hecho queda registrado en tres
