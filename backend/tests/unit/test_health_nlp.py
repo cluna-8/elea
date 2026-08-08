@@ -112,7 +112,17 @@ def _admin(tenant_id=None):
 
 @pytest.fixture(autouse=True)
 def sin_cache_ni_env(monkeypatch):
-    """El cache del probe es global del módulo: sin resetear, un test se lleva al siguiente."""
+    """El cache del probe es global del módulo: sin resetear, un test se lleva al siguiente.
+
+    ⚠️ PUNTO CIEGO CONOCIDO (y por qué existe este aviso): al dejar el cache SIEMPRE en
+    `None`, este fixture hace que todos los tests entren por el camino de "arranque en
+    frío". El estado intermedio —**cache PRESENTE pero EXPIRADO**, o sea el worker normal a
+    partir del segundo probe— no lo ejercitaba ningún test, y ahí vivía una regresión que se
+    coló entera: un `Lock.acquire(blocking=False, timeout=...)` que CPython prohíbe y que
+    devolvía 500 en cada `/health` de cualquier instalación con NLP configurado.
+
+    Regla para quien agregue tests acá: si tocás `_nlp_alcanzable`, sembrá el cache a mano
+    (ver `test_cache_expirado_refresca_sin_explotar`) en vez de confiar en este reset."""
     monkeypatch.setattr(health_api, "_nlp_probe_cache", None, raising=False)
     monkeypatch.delenv("NLP_ANALYZER_URL", raising=False)
     monkeypatch.delenv(audit_service.AUDIT_FAIL_ENV, raising=False)
@@ -269,6 +279,61 @@ def test_el_probe_se_cachea_entre_llamadas(redis_falso, sidecar):
     client.get(RUTA)
 
     assert len(llamadas) == 1, f"el probe se pagó {len(llamadas)} veces"
+
+
+def test_cache_expirado_refresca_sin_explotar(monkeypatch, redis_falso, sidecar):
+    """Regresión del round 2, y el estado que NINGÚN test cubría: cache PRESENTE y EXPIRADO.
+
+    Es el camino NORMAL de cualquier worker a partir del segundo probe —y por eso el bug era
+    total, no un edge case—: con cache el `single-flight` resolvía `en_frio = False` y hacía
+    `Lock.acquire(blocking=False, timeout=2.0)`, combinación que CPython PROHÍBE
+    (`ValueError: can't specify a timeout for a non-blocking call`). Resultado: 500 permanente
+    en `/api/v1/health` de toda instalación con `NLP_ANALYZER_URL`, el banner del panel muerto
+    y la degradación otra vez silenciosa — el #63 renacido por su propio arreglo.
+
+    Se siembra el cache con edad > TTL en vez de dejar que lo resetee el fixture autouse: ese
+    reset es justo lo que escondía el agujero."""
+    llamadas = sidecar(vivo=True)
+    # Veredicto viejo (11 s > TTL de 10 s) y CONTRARIO al que devolverá el probe fresco, para
+    # que el test también falle si se devolviera el cacheado sin refrescar.
+    monkeypatch.setattr(health_api, "_nlp_probe_cache",
+                        (time.monotonic() - 11.0, False), raising=False)
+
+    alcanzable, fresco = health_api._nlp_alcanzable(ANALYZER)
+
+    assert alcanzable is True, "no refrescó: devolvió el veredicto vencido"
+    assert fresco is True, "el probe se ejecutó, así que tiene que declararse fresco"
+    assert llamadas == [f"{ANALYZER}/health"]
+
+
+def test_cache_expirado_por_el_endpoint_no_devuelve_500(monkeypatch, redis_falso, sidecar):
+    """El mismo agujero visto desde afuera, que es como lo sufre el operador: el endpoint
+    tiene que seguir contestando 200 con el bloque `nlp`, no un 500."""
+    sidecar(vivo=True)
+    monkeypatch.setattr(health_api, "_nlp_probe_cache",
+                        (time.monotonic() - 11.0, False), raising=False)
+
+    resp = _app(_FakeSession({}), usuario=_admin()).get(RUTA)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nlp"]["status"] == "ok"
+
+
+def test_cache_expirado_con_otro_hilo_probando_usa_el_valor_previo(monkeypatch, sidecar):
+    """La contracara del fix: con cache expirado y el lock TOMADO por otro hilo, no se espera
+    ni se explota — se contesta el último valor conocido, marcado como NO fresco (así no
+    autoriza el borrado de la marca de degradación)."""
+    llamadas = sidecar(vivo=True)
+    monkeypatch.setattr(health_api, "_nlp_probe_cache",
+                        (time.monotonic() - 11.0, True), raising=False)
+    health_api._nlp_probe_lock.acquire()
+    try:
+        alcanzable, fresco = health_api._nlp_alcanzable(ANALYZER)
+    finally:
+        health_api._nlp_probe_lock.release()
+
+    assert (alcanzable, fresco) == (True, False)
+    assert llamadas == [], "no puede encolar un probe mientras otro hilo lo está haciendo"
 
 
 @pytest.mark.parametrize("vivo", [True, False])
