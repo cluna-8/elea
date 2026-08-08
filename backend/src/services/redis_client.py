@@ -15,8 +15,23 @@ _client: redis.Redis | None = None
 #   * socket_connect_timeout: techo del handshake TCP (antes era 2 s; se acota).
 #   * socket_timeout: techo de CADA operación una vez conectado (el que faltaba).
 # Env-tuneables, pero con default sub-segundo: para un Redis sano (ops < 1 ms) es holgado.
-REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("REDIS_CONNECT_TIMEOUT_SECONDS", "1.0"))
-REDIS_SOCKET_TIMEOUT_SECONDS = float(os.getenv("REDIS_SOCKET_TIMEOUT_SECONDS", "1.0"))
+def _env_float(name: str, default: float) -> float:
+    """Float desde env, robusto: ausente/vacío/malformado → `default`. Un `float("")`
+    reventaría el import (ValueError) y tumbaría el plano ENTERO por un env vacío
+    (`- VAR=` en compose) o un typo — desproporcionado para un timeout. Vacío se trata como
+    'no seteado' (silencioso); un valor no-float se loguea como warning y cae al default."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("%s=%r no es un float válido; usando default %.3f", name, raw, default)
+        return default
+
+
+REDIS_CONNECT_TIMEOUT_SECONDS = _env_float("REDIS_CONNECT_TIMEOUT_SECONDS", 1.0)
+REDIS_SOCKET_TIMEOUT_SECONDS = _env_float("REDIS_SOCKET_TIMEOUT_SECONDS", 1.0)
 
 
 def get_redis() -> redis.Redis | None:

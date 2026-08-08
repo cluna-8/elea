@@ -439,3 +439,38 @@ async def test_contar_perdida_cierra_el_cliente_aunque_execute_timeoutee(monkeyp
     await basa_guardrail._contar_perdida("motivo-de-prueba")
 
     assert cerrado["n"] == 1, "no leak: `aclose()` en `finally` aunque el execute timeoutee (#8)"
+
+
+@pytest.mark.asyncio
+async def test_publish_monitor_event_cierra_el_cliente_aunque_execute_timeoutee(monkeypatch):
+    # #124: el 3er escritor async del motor (feed de la vitrina, corre en CADA request exitosa)
+    # también tiene que cerrar en `finally` — le faltaba el test simétrico de los otros dos.
+    import redis.asyncio as redis_lib
+    cerrado = {"n": 0}
+    monkeypatch.setattr(redis_lib, "Redis", lambda **kw: _RedisTimeoutEnExecute(cerrado, **kw))
+
+    await basa_audit_logger.basa_audit_logger_instance._publish_monitor_event(
+        {}, [], "passed", {"messages": [{"role": "user", "content": "hola"}], "model": "m"})
+
+    assert cerrado["n"] == 1, (
+        "el feed de la vitrina tiene que cerrar el cliente en `finally` aunque `pipe.execute()` "
+        "timeoutee — si no, filtra una conexión por cada request exitosa bajo Redis lento (#8)")
+
+
+@pytest.mark.parametrize("modname", ["src.services.redis_client", "basa_engine_redis"])
+def test_env_float_robusto_no_revienta_por_env_vacio_o_malformado(monkeypatch, modname):
+    # #124: un env vacío (`- VAR=` en compose) o malformado NO puede reventar el import del plano
+    # (float("") → ValueError tumbaría todo). `_env_float` cae al default. Mismo criterio en los
+    # dos sitios (backend `redis_client` + motor `basa_engine_redis`).
+    import importlib
+    _env_float = importlib.import_module(modname)._env_float
+    monkeypatch.delenv("X_TIMEOUT_TEST_124", raising=False)
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # ausente → default
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # vacío → default
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "   ")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # whitespace → default
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "no-soy-float")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # malformado → default (no ValueError)
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "2.5")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 2.5          # válido → parseado

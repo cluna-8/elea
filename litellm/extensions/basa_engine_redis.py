@@ -14,12 +14,30 @@ cierra en ``finally``. El cierre NO se hace acá a propósito: un ``aclose()`` a
 ``try`` se saltaría cuando ``pipe.execute()`` timeoutea —el camino que estos timeouts vuelven
 COMÚN— y filtraría el cliente. Cada escritor cierra en ``finally``.
 """
+import logging
 import os
+
+logger = logging.getLogger("basa-secure-gateway.engine-redis")
+
+
+def _env_float(name: str, default: float) -> float:
+    """Float desde env, robusto: ausente/vacío/malformado → `default` (nunca revienta el
+    import del módulo del motor por un env vacío o un typo — mismo criterio que el backend
+    en `services/redis_client.py`)."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("%s=%r no es un float válido; usando default %.3f", name, raw, default)
+        return default
+
 
 # Mismos nombres de env que el backend (`services/redis_client.py`), y sub-segundo por default:
 # holgado para un Redis sano (ops < 1 ms) y acota el peor caso a ~1 s en vez de infinito.
-ENGINE_REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("REDIS_CONNECT_TIMEOUT_SECONDS", "1.0"))
-ENGINE_REDIS_SOCKET_TIMEOUT_SECONDS = float(os.getenv("REDIS_SOCKET_TIMEOUT_SECONDS", "1.0"))
+ENGINE_REDIS_CONNECT_TIMEOUT_SECONDS = _env_float("REDIS_CONNECT_TIMEOUT_SECONDS", 1.0)
+ENGINE_REDIS_SOCKET_TIMEOUT_SECONDS = _env_float("REDIS_SOCKET_TIMEOUT_SECONDS", 1.0)
 
 
 def async_redis_con_timeouts(redis_lib, host, port):
