@@ -439,3 +439,84 @@ async def test_contar_perdida_cierra_el_cliente_aunque_execute_timeoutee(monkeyp
     await basa_guardrail._contar_perdida("motivo-de-prueba")
 
     assert cerrado["n"] == 1, "no leak: `aclose()` en `finally` aunque el execute timeoutee (#8)"
+
+
+@pytest.mark.asyncio
+async def test_publish_monitor_event_cierra_el_cliente_aunque_execute_timeoutee(monkeypatch):
+    # #124: el 3er escritor async del motor (feed de la vitrina, corre en CADA request exitosa)
+    # también tiene que cerrar en `finally` — le faltaba el test simétrico de los otros dos.
+    import redis.asyncio as redis_lib
+    cerrado = {"n": 0}
+    monkeypatch.setattr(redis_lib, "Redis", lambda **kw: _RedisTimeoutEnExecute(cerrado, **kw))
+
+    await basa_audit_logger.basa_audit_logger_instance._publish_monitor_event(
+        {}, [], "passed", {"messages": [{"role": "user", "content": "hola"}], "model": "m"})
+
+    assert cerrado["n"] == 1, (
+        "el feed de la vitrina tiene que cerrar el cliente en `finally` aunque `pipe.execute()` "
+        "timeoutee — si no, filtra una conexión por cada request exitosa bajo Redis lento (#8)")
+
+
+@pytest.mark.parametrize("modname", ["src.services.redis_client", "basa_engine_redis"])
+def test_env_float_robusto_no_revienta_por_env_vacio_o_malformado(monkeypatch, modname):
+    # #124: un env vacío (`- VAR=` en compose) o malformado NO puede reventar el import del plano
+    # (float("") → ValueError tumbaría todo). `_env_float` cae al default. Mismo criterio en los
+    # dos sitios (backend `redis_client` + motor `basa_engine_redis`).
+    import importlib
+    _env_float = importlib.import_module(modname)._env_float
+    monkeypatch.delenv("X_TIMEOUT_TEST_124", raising=False)
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # ausente → default
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # vacío → default
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "   ")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # whitespace → default
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "no-soy-float")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0          # malformado → default (no ValueError)
+    monkeypatch.setenv("X_TIMEOUT_TEST_124", "2.5")
+    assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 2.5          # válido → parseado
+
+    # Round 2 (H1): parsear NO alcanza. Estos valores son floats legítimos para `float()` pero
+    # dejan al cliente Redis SIN timeout efectivo (o con uno imposible), que es exactamente el
+    # cuelgue que #105 mató ("nunca infinito"). Tienen que caer al default como el malformado.
+    for absurdo in ("inf", "nan", "Infinity", "1e400", "-1", "0", "1e9"):
+        monkeypatch.setenv("X_TIMEOUT_TEST_124", absurdo)
+        assert _env_float("X_TIMEOUT_TEST_124", 1.0) == 1.0, (
+            f"{absurdo!r} pasó crudo al cliente Redis — un timeout no finito, ≤0 o absurdamente "
+            "grande equivale a no tener timeout")
+
+
+@pytest.mark.parametrize("modname,constantes", [
+    ("src.services.redis_client",
+     ("REDIS_CONNECT_TIMEOUT_SECONDS", "REDIS_SOCKET_TIMEOUT_SECONDS")),
+    ("basa_engine_redis",
+     ("ENGINE_REDIS_CONNECT_TIMEOUT_SECONDS", "ENGINE_REDIS_SOCKET_TIMEOUT_SECONDS")),
+])
+@pytest.mark.parametrize("valor_env", ["", "1e9"], ids=["vacio", "fuera-de-rango"])
+def test_las_constantes_de_timeout_estan_cableadas_a_env_float(
+        monkeypatch, modname, constantes, valor_env):
+    """Round 2 (H2): el test de arriba ejercita `_env_float` con un env SINTÉTICO, así que
+    pasaría igual si las constantes reales volvieran a `float(os.getenv(...))` — la mutación
+    que reinstala el bug. Acá se prueba el CABLEADO con las envs REALES, en sus DOS propiedades:
+    con la env vacía el import sobrevive y cae al default (sin `_env_float`, `float("")`
+    levanta ValueError y el reload revienta); con `"1e9"` (parsea, pero equivale a no tener
+    timeout) la GUARDIA DE RANGO se aplica sobre las constantes — un wiring "simplificado" tipo
+    `float(os.getenv(...) or 1.0)` sobrevive el caso vacío pero deja pasar el 1e9 crudo.
+
+    El módulo del motor se importa por su nombre PELADO (`basa_engine_redis`), que es como lo
+    importan las extensiones en producción."""
+    import importlib
+    modulo = importlib.import_module(modname)
+    try:
+        with monkeypatch.context() as m:
+            m.setenv("REDIS_SOCKET_TIMEOUT_SECONDS", valor_env)
+            m.setenv("REDIS_CONNECT_TIMEOUT_SECONDS", valor_env)
+            recargado = importlib.reload(modulo)
+            for nombre in constantes:
+                assert getattr(recargado, nombre) == 1.0, (
+                    f"{modname}.{nombre} no pasa por `_env_float` completo — con la env "
+                    f"{valor_env!r} tendría que caer al default de 1.0")
+    finally:
+        # Restauración OBLIGATORIA: el reload de arriba dejó el módulo con las envs de prueba
+        # (y, en el backend, con el singleton `_client` en None). Con el monkeypatch ya
+        # deshecho, un reload final devuelve el estado real y no envenena a los otros tests.
+        importlib.reload(modulo)
