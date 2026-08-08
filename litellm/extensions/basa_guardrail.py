@@ -134,6 +134,16 @@ def _redis_endpoint() -> tuple:
     return os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT), int(os.getenv("REDIS_PORT", "6379"))
 
 
+# Timeouts ACOTADOS para TODO cliente Redis de este módulo (hallazgo #8 de #105). El default
+# de `redis.asyncio` es SIN timeout: si Redis está lento o colgado, el `await` del connect o
+# del `pipe.execute()` no vuelve nunca y la request degradada —que abre un cliente NUEVO por
+# evento— queda pegada. Con timeouts, la marca de estado o el contador fallan RÁPIDO y caen al
+# piso de log, sin colgar el request. Nunca infinito. Sub-segundo es holgado para un Redis
+# sano (ops < 1 ms). Env-tuneables y con el MISMO nombre que en el backend (`redis_client`).
+_REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("REDIS_CONNECT_TIMEOUT_SECONDS", "1.0"))
+_REDIS_SOCKET_TIMEOUT_SECONDS = float(os.getenv("REDIS_SOCKET_TIMEOUT_SECONDS", "1.0"))
+
+
 _AUDIT_FAIL_CLOSED = "closed"
 _AUDIT_FAIL_OPEN = "open"
 
@@ -204,7 +214,9 @@ async def _contar_perdida(motivo: str) -> None:
         return
     try:
         host, port = _redis_endpoint()
-        client = redis_lib.Redis(host=host, port=port)
+        client = redis_lib.Redis(host=host, port=port,
+                                 socket_timeout=_REDIS_SOCKET_TIMEOUT_SECONDS,
+                                 socket_connect_timeout=_REDIS_CONNECT_TIMEOUT_SECONDS)
         pipe = client.pipeline()
         pipe.incr(_REDIS_KEY_AUDIT_LOST)
         pipe.set(_REDIS_KEY_AUDIT_LAST_FAIL, ahora)
@@ -419,7 +431,9 @@ async def _marcar_nlp_degradado() -> None:
         return
     try:
         host, port = _redis_endpoint()
-        client = redis_lib.Redis(host=host, port=port)
+        client = redis_lib.Redis(host=host, port=port,
+                                 socket_timeout=_REDIS_SOCKET_TIMEOUT_SECONDS,
+                                 socket_connect_timeout=_REDIS_CONNECT_TIMEOUT_SECONDS)
         pipe = client.pipeline()
         pipe.set(_REDIS_KEY_NLP_DEGRADED_SINCE, ahora, nx=True)
         pipe.incr(_REDIS_KEY_NLP_DEGRADED_COUNT)
@@ -428,6 +442,11 @@ async def _marcar_nlp_degradado() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.error("nlp: DEGRADADO a regex y la marca de estado (%s) también falló: %s "
                      "(ts=%s)", _REDIS_KEY_NLP_DEGRADED_SINCE, exc, ahora)
+        # #8 (#105): con timeout, la marca que no responde falla RÁPIDO en vez de colgar el
+        # request. La pérdida de la marca se cuenta REUTILIZANDO el contador ya existente
+        # (`_contar_perdida` → `basa:audit:lost` + /health), no un mecanismo nuevo.
+        # `_contar_perdida` es best-effort y jamás propaga.
+        await _contar_perdida("nlp_degrade_mark")
 
 
 class BasaGuardrail(CustomGuardrail):

@@ -54,6 +54,7 @@ pasara; (3) ``X-Basa-Redact`` pasa a ser **solo restrictivo**: puede forzar el m
 ON para ese pedido, pero su "off" se ignora con telemetría — ningún input por-request
 controlado por el cliente puede relajar la postura del admin (research D5).
 """
+import asyncio
 import codecs
 import json
 import logging
@@ -436,7 +437,14 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
             # marca de estado en Redis + `logger.error` (los dos dentro de
             # `record_nlp_degradation`) + `compliance_status` propio en la fila durable de
             # ESTA transacción, que es lo que hace consultable el hecho después.
-            record_nlp_degradation(reason="gateway/mask_body")
+            # #8 (#105): `record_nlp_degradation` usa el cliente Redis SÍNCRONO, y esta rama
+            # corre en CADA request mientras el analyzer está caído. Llamarla inline bloquea el
+            # event loop del worker en cada pedido degradado si Redis está lento. Se despacha a
+            # un hilo (mismo patrón que `entity_catalog_service`) para no frenar el loop; con
+            # los timeouts acotados de `redis_client` el hilo tampoco queda pegado. Best-effort:
+            # jamás propaga, así que el pedido degradado se sirve igual pase lo que pase con la
+            # marca.
+            await asyncio.to_thread(record_nlp_degradation, reason="gateway/mask_body")
             _, ph_to_orig = await policy.mask_body(body, policy.default_analyze, pmap)
             # El estado de degradación PISA `passed`/`flagged_high_risk`: entre "salió sin
             # novedad" y "salió con media protección", lo segundo es lo que el officer tiene
