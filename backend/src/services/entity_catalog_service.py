@@ -17,11 +17,14 @@ cuantificador) ANTES de poder guardarse — un patrón que cuelga el proceso de
 detección en producción es un DoS real sobre el firewall completo.
 """
 import asyncio
+import functools
 import logging
 import multiprocessing as mp
+import os
 import re
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -46,6 +49,38 @@ _ADVERSARIAL_INPUTS = ["a" * 40 + "!", "0" * 40 + "!", ("ab" * 25) + "!"]
 # de un grupo que a su vez está cuantificado — la forma más común de ReDoS
 # catastrófico ((a+)+, (a*)*, (a+)*, (a*)+...). Se corre ANTES de ejecutar nada.
 _NESTED_QUANTIFIER_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*]")
+
+
+# ── Aislamiento del threadpool (#106, defensa en profundidad) ──────────────────
+# Modelo de amenaza: NO DoS anónimo. `POST /custom-entities` y `draft_entity` están
+# admin-gated, así que el atacante es un ADMIN HOSTIL o una PROMPT INJECTION (las
+# listas de test strings del draft las escribe el LLM desde `description`). Aun así
+# el riesgo es real: cada validación ReDoS spawnea subprocesos y BLOQUEA su hilo hasta
+# ~REGEX_TIMEOUT_S por input; `POST /custom-entities` es un handler que corría en el
+# threadpool anyio de Starlette (~40 hilos compartidos con TODOS los endpoints `def`
+# síncronos), así que un pico de validaciones catastróficas dejaba sin hilos al resto
+# del backend.
+#
+# Solución: un executor DEDICADO y ACOTADO (cola propia + `max_workers` chico) al que
+# se derivan TODAS las validaciones ReDoS/subprocesos, vía `run_in_executor` desde los
+# handlers `async`. Con esto (1) el event loop no se bloquea, (2) el threadpool anyio
+# general NUNCA lo toca una validación, y (3) la concurrencia de validaciones (y por
+# ende de subprocesos `spawn`) queda topeada — un pico hostil se ENCOLA en este executor
+# en vez de starvar los hilos de los demás endpoints. `max_workers` NO es un semáforo
+# suelto adrede: un `Semaphore` acotaría los subprocesos pero dejaría a los hilos
+# llamantes bloqueados en `acquire()` (seguirían consumiendo el threadpool general); un
+# executor propio además REUBICA los hilos fuera de ese pool, que es lo que aísla.
+REDOS_VALIDATION_CONCURRENCY = max(1, min(8, int(os.environ.get("REDOS_VALIDATION_CONCURRENCY", "3"))))
+_VALIDATION_EXECUTOR = ThreadPoolExecutor(
+    max_workers=REDOS_VALIDATION_CONCURRENCY, thread_name_prefix="redos-validation")
+
+
+async def _offload_bounded(fn, *args):
+    """Corre `fn(*args)` (bloqueante: spawnea subprocesos y los espera) en el executor
+    DEDICADO y ACOTADO de validación ReDoS, no en el threadpool anyio general (#106).
+    Solo se llama desde código `async` (hay loop corriendo)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_VALIDATION_EXECUTOR, fn, *args)
 
 
 class UnsafePatternError(ValueError):
@@ -100,6 +135,13 @@ _QUEUE_GRACE_S = 0.2
 # descontarle la gracia.
 _MIN_JOIN_S = 0.1
 
+# Techo del `join` final tras `kill()` (#106). Sin timeout, un hijo en estado D
+# (uninterruptible sleep — I/O de disco/FS colgado) NO responde ni al SIGKILL y el
+# `p.join()` pelado colgaría el hilo PARA SIEMPRE. Con techo, tras el intento best-effort
+# el hilo se libera; si el hijo sigue vivo se loguea y se abandona (lo cosechará el
+# `_cleanup()` de un `start()` futuro cuando por fin muera) — nunca se bloquea el hilo.
+_KILL_JOIN_TIMEOUT_S = 2.0
+
 # Serializa el ciclo de vida de los subprocesos ENTRE HILOS (#98). Restricción no
 # deducible del código: `Process.start()` llama por dentro a
 # `multiprocessing.process._cleanup()`, que recorre el set GLOBAL `_children` y cosecha
@@ -112,6 +154,13 @@ _MIN_JOIN_S = 0.1
 # ruta POST /custom-entities es `def`, o sea threadpool de FastAPI) rechazaban un regex
 # sano con un 422 espurio "no respondió a tiempo": ~2-8 falsos timeouts cada 120
 # subprocesos, y ~43% de fallo en el test de concurrencia del catálogo.
+#
+# INVARIANTE (#98/#106): TODO ciclo de vida de un `multiprocessing.Process` en el backend
+# —`start()` y las consultas de vida (`is_alive`/`poll`)— debe pasar por este lock (o por
+# `_sigue_vivo`). Un `ProcessPoolExecutor` o un `Process.start()` suelto en OTRO servicio del
+# mismo proceso reintroduce la carrera de `_cleanup()` descrita arriba (su `start()` cosecha
+# NUESTROS hijos sin tomar este lock). Hoy NO hay lint/test que lo impida; queda como
+# follow-up deliberado del #106 (un meta-guard/linter es desproporcionado para este PR).
 _PROC_LIFECYCLE_LOCK = threading.Lock()
 
 
@@ -172,10 +221,21 @@ def _run_in_process(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S)
         # quedaría un proceso colgado por cada validación.
         if _sigue_vivo(p):
             p.terminate()
-            p.join(timeout=2.0)
+            p.join(timeout=_KILL_JOIN_TIMEOUT_S)
             if _sigue_vivo(p):
                 p.kill()
-                p.join()
+                # `join` ACOTADO, no pelado (#106): un hijo en estado D ignora el SIGKILL
+                # y un `p.join()` sin timeout colgaría este hilo indefinidamente. Se compone
+                # con `_PROC_LIFECYCLE_LOCK` (#98) igual que el `join` de arriba: la espera va
+                # FUERA del lock (no serializar la espera larga), solo `_sigue_vivo` lo toma.
+                p.join(timeout=_KILL_JOIN_TIMEOUT_S)
+                if _sigue_vivo(p):
+                    logger.warning(
+                        "Subproceso de validación ReDoS %s sigue vivo tras terminate()+kill() "
+                        "y join(timeout=%ss) — probable estado D (uninterruptible). Se abandona "
+                        "best-effort para no bloquear el hilo; lo cosechará un start() futuro.",
+                        getattr(p, "pid", "?"), _KILL_JOIN_TIMEOUT_S,
+                    )
 
 
 def _matches_within_timeout(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> bool:
@@ -216,6 +276,13 @@ def validate_pattern_safety(pattern: str) -> None:
 
 
 MAX_TEST_STRING_LEN = 300
+# Cap de CANTIDAD de test strings (#106). `MAX_TEST_STRING_LEN` topea el LARGO de cada
+# string, NO cuántas hay: `test_pattern` spawnea UN subproceso por string, y en el path
+# `draft_entity` las listas las escribe el LLM desde `description` (influenciables por
+# prompt injection). Sin techo, ~100 strings = ~7 min de un hilo bloqueado. Se truncan a
+# este cap ANTES de spawnear nada, y el recorte se REPORTA en el resultado (honesto, no
+# silencioso), nunca se descarta en silencio.
+MAX_TEST_STRINGS = 25
 
 
 def test_pattern(pattern: str, positives: List[str], negatives: List[str]) -> Dict[str, Any]:
@@ -225,7 +292,20 @@ def test_pattern(pattern: str, positives: List[str], negatives: List[str]) -> Di
     prueba largos fijos ~40-45 chars); un test_positive/test_negative más largo
     podría igual colgarse contra un patrón "safe" a esa longitud (blowup polinómico,
     no solo exponencial) — mismo backstop de proceso+timeout que `validate_pattern_safety`,
-    aplicado acá también, más un cap de largo para no legitimar strings absurdos."""
+    aplicado acá también, más un cap de largo para no legitimar strings absurdos.
+
+    Cap de CANTIDAD (#106): un subproceso por string sin techo es un DoS de hilo si la
+    lista viene inflada (LLM/prompt injection). Se trunca a `MAX_TEST_STRINGS` ANTES de
+    spawnear, y el recorte se reporta (`truncated`) en vez de descartarse en silencio.
+    El cap vive acá —en la frontera que spawnea— para proteger a CUALQUIER caller, no
+    solo a `draft_entity`."""
+    positives = list(positives or [])
+    negatives = list(negatives or [])
+    pos_total, neg_total = len(positives), len(negatives)
+    truncated = pos_total > MAX_TEST_STRINGS or neg_total > MAX_TEST_STRINGS
+    positives = positives[:MAX_TEST_STRINGS]
+    negatives = negatives[:MAX_TEST_STRINGS]
+
     def _run(t: str) -> bool:
         t = t[:MAX_TEST_STRING_LEN]
         result = _run_in_process(pattern, t)
@@ -241,6 +321,12 @@ def test_pattern(pattern: str, positives: List[str], negatives: List[str]) -> Di
         "all_positives_matched": all_positives_matched,
         "all_negatives_clean": all_negatives_clean,
         "looks_correct": all_positives_matched and all_negatives_clean,
+        # Aviso honesto: se probaron a lo sumo `MAX_TEST_STRINGS` por lista; si el caller
+        # (o el LLM) mandó más, `truncated` es True y `*_total` dice cuántos se recibieron.
+        "truncated": truncated,
+        "max_test_strings": MAX_TEST_STRINGS,
+        "positives_total": pos_total,
+        "negatives_total": neg_total,
     }
 
 
@@ -303,19 +389,26 @@ async def draft_entity(description: str) -> Dict[str, Any]:
     # `validate_pattern_safety` y `test_pattern` corren regex en subprocesos y los
     # esperan con `join(timeout)` — sincrónico y de hasta ~15-20s con un patrón malicioso.
     # Este es el ÚNICO endpoint `async def` que los llama: hacerlo en línea congelaba el
-    # event loop del backend entero (nadie más era atendido mientras tanto). En hilo
-    # aparte, el bloqueo queda contenido en la request que lo provocó.
-    await asyncio.to_thread(validate_pattern_safety, pattern)  # UnsafePatternError -> el draft NO se devuelve
-    test_result = await asyncio.to_thread(
-        test_pattern, pattern, draft.get("test_positive", []), draft.get("test_negative", []))
+    # event loop del backend entero (nadie más era atendido mientras tanto). Se derivan al
+    # executor DEDICADO y ACOTADO (#106): fuera del threadpool anyio general y con la
+    # concurrencia de validaciones topeada, para que un pico hostil no starve al backend.
+    await _offload_bounded(validate_pattern_safety, pattern)  # UnsafePatternError -> el draft NO se devuelve
+
+    # Cap de CANTIDAD sobre las listas del LLM (#106): `test_pattern` trunca a
+    # `MAX_TEST_STRINGS` y lo reporta. Se devuelven las listas REALMENTE probadas (las
+    # mismas truncadas), no las crudas — coherente con `test_result`, sin mentir sobre qué
+    # se ejecutó.
+    raw_positive = list(draft.get("test_positive") or [])
+    raw_negative = list(draft.get("test_negative") or [])
+    test_result = await _offload_bounded(test_pattern, pattern, raw_positive, raw_negative)
 
     return {
         "entity_type": draft.get("entity_type", "CUSTOM"),
         "regex": pattern,
         "score": max(0.0, min(1.0, score)),
         "context": draft.get("context", []),
-        "test_positive": draft.get("test_positive", []),
-        "test_negative": draft.get("test_negative", []),
+        "test_positive": raw_positive[:MAX_TEST_STRINGS],
+        "test_negative": raw_negative[:MAX_TEST_STRINGS],
         "test_result": test_result,
         "ai_generated": True,
     }
@@ -400,6 +493,21 @@ def create_custom_entity(
     logger.info("Nueva entidad custom '%s' (%s) agregada al catálogo del tenant %s",
                 name, normalized_type, tenant_id)
     return entity
+
+
+async def create_custom_entity_async(db: Session, tenant_id, **kwargs) -> Dict[str, Any]:
+    """Envoltorio `async` de `create_custom_entity` para el handler `POST /custom-entities`
+    (#106). Deriva TODO el cuerpo bloqueante (la validación ReDoS —que spawnea subprocesos y
+    puede tardar ~12s con un regex catastrófico— y el commit) al executor DEDICADO y ACOTADO,
+    NO al threadpool anyio general. Así un admin hostil que dispare N altas con regex
+    catastróficos ya no puede dejar sin hilos al resto de los endpoints síncronos: sus
+    validaciones se ENCOLAN en este executor (concurrencia topeada a REDOS_VALIDATION_CONCURRENCY)
+    mientras el event loop y el threadpool general siguen atendiendo todo lo demás.
+
+    La Session se usa exclusivamente dentro del hilo del executor (uso secuencial de un solo
+    hilo, no compartida en concurrencia) — patrón estándar de FastAPI async + Session sync.
+    Se re-valida el regex adentro (invariante de `create_custom_entity`), no se debilita."""
+    return await _offload_bounded(functools.partial(create_custom_entity, db, tenant_id, **kwargs))
 
 
 def delete_custom_entity(db: Session, tenant_id, entity_id: str) -> None:

@@ -271,12 +271,18 @@ def list_custom_entities(db: Session = Depends(get_db)):
 
 
 @router.post("/custom-entities", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
-def create_custom_entity(payload: CustomEntityCreateRequest, db: Session = Depends(get_db)):
+async def create_custom_entity(payload: CustomEntityCreateRequest, db: Session = Depends(get_db)):
     """Persiste un patrón ya revisado (aceptado o editado a mano tras el draft) —
     único punto donde algo se activa en el firewall real. Revalida seguridad
-    siempre, sin importar si vino de un draft de IA o se tipeó a mano."""
+    siempre, sin importar si vino de un draft de IA o se tipeó a mano.
+
+    `async` + executor dedicado (#106): la revalidación ReDoS spawnea subprocesos y puede
+    tardar ~12s con un regex catastrófico. Antes este handler era `def` (threadpool anyio,
+    ~40 hilos compartidos con TODOS los endpoints síncronos), así que un admin hostil que
+    disparara ~40 altas hostiles dejaba sin hilos al backend entero. Ahora la validación se
+    deriva a un executor propio y acotado, aislada del threadpool general."""
     try:
-        return entity_catalog_service.create_custom_entity(
+        return await entity_catalog_service.create_custom_entity_async(
             db, DEFAULT_TENANT_ID,
             name=payload.name, entity_type=payload.entity_type, regex=payload.regex,
             score=payload.score, context=payload.context, region=payload.region,
