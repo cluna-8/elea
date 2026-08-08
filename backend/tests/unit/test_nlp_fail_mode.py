@@ -17,6 +17,7 @@ El plano `/gw` (la otra mitad del issue) se cubre en
 """
 import sys
 import types
+from pathlib import Path
 
 import httpx
 import pytest
@@ -39,6 +40,22 @@ def _instalar_doble_litellm():
     sys.modules["litellm.integrations.custom_guardrail"] = modulo
     litellm_mod.integrations = integrations
     integrations.custom_guardrail = modulo
+
+
+def _instalar_doble_custom_logger():
+    """`basa_audit_logger` hereda de OTRA base del SDK (`custom_logger`). Se dobla aparte
+    para no cargarla en los tests que sólo necesitan el guardrail."""
+    if "litellm.integrations.custom_logger" in sys.modules:
+        return
+
+    class CustomLogger:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    modulo = types.ModuleType("litellm.integrations.custom_logger")
+    modulo.CustomLogger = CustomLogger
+    sys.modules["litellm.integrations.custom_logger"] = modulo
+    sys.modules["litellm.integrations"].custom_logger = modulo
 
 
 _instalar_doble_litellm()
@@ -352,6 +369,35 @@ def test_las_dos_copias_del_sql_de_identidad_traen_nlp_fail_mode():
         # `->>` y no `->`: el consumidor compara contra un str del vocabulario cerrado, y un
         # valor JSON entrecomillado no matchearía nunca (fallaría silencioso hacia `block`).
         assert "config->>'nlp_fail_mode'" in sql, f"{nombre} lo lee como JSON, no como texto"
+
+
+# ── 4) El motor y el backend escriben/leen el MISMO Redis ────────────────────────
+
+
+def test_el_default_de_redis_del_motor_coincide_con_el_del_backend():
+    """Las marcas del #63 (`basa:nlp:*`) y el contador de la 031 (`basa:audit:*`) los ESCRIBE
+    el motor y los LEE el backend. Compartir las claves no sirve de nada si cada plano las
+    escribe en un host distinto: el health contaría cero con el sidecar caído, que es
+    exactamente la promesa que el issue viene a cumplir. El default del motor decía `redis`
+    (el nombre del servicio del compose de DEV) y el del backend `eu-redis`.
+
+    La otra mitad de este fix —que el perfil de producción le PASE `REDIS_HOST`/`REDIS_PORT`
+    al servicio del motor— no se puede afirmar desde acá: el contenedor de la suite sólo
+    monta `backend/` y `litellm/`, no la raíz del repo. Vive en
+    `deploy/release/checks/test_redis_wiring.sh` (gate de release), que sí ve los compose."""
+    import inspect as _inspect
+
+    # El logger de auditoría necesita SU propia base del SDK (otro módulo de litellm).
+    _instalar_doble_custom_logger()
+    from extensions import basa_audit_logger
+    from src.services import redis_client
+
+    fuente = _inspect.getsource(redis_client.get_redis)
+    assert f'"{basa_guardrail._REDIS_HOST_DEFAULT}"' in fuente, (
+        f"el motor default-ea a {basa_guardrail._REDIS_HOST_DEFAULT!r} y el backend a otra "
+        "cosa: escribirían y leerían en instancias distintas")
+    # Y los dos emisores del motor comparten el mismo valor entre sí.
+    assert basa_audit_logger._REDIS_HOST_DEFAULT == basa_guardrail._REDIS_HOST_DEFAULT
 
 
 def test_custom_auth_propaga_la_postura_cruda_a_la_identidad(monkeypatch):

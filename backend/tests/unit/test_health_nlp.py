@@ -15,6 +15,8 @@ Tres estados, tres significados que NO se colapsan:
 
 Sin Postgres ni Redis reales: se mide la política del endpoint, no el stack.
 """
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -33,11 +35,18 @@ ISO = "2026-08-07T09:00:00+00:00"
 
 
 class _FakeSession:
-    """Sesión mínima: `audit_writable` ejecuta, `query` devuelve la config del guardián."""
+    """Sesión mínima: `audit_writable` ejecuta, `query` devuelve la config del guardián.
 
-    def __init__(self, guardian_config=None):
+    `configs_por_tenant` permite tener filas de VARIOS tenants (para el test cross-tenant):
+    el `filter` registra los criterios y sólo devuelve la fila del tenant pedido, que es
+    justo lo que hace Postgres cuando el `WHERE tenant_id = …` está presente… y lo que NO
+    hacía cuando faltaba."""
+
+    def __init__(self, guardian_config=None, configs_por_tenant=None):
         self.guardian_config = guardian_config
+        self.configs_por_tenant = configs_por_tenant
         self.consultas = 0
+        self.filtros = []
 
     def execute(self, _sentencia):
         return None
@@ -50,9 +59,29 @@ class _FakeSession:
 
     def query(self, *_args):
         self.consultas += 1
-        cfg = self.guardian_config
-        return SimpleNamespace(filter=lambda *a, **k: SimpleNamespace(
-            first=lambda: None if cfg is None else (cfg,)))
+        sesion = self
+
+        def _filter(*criterios, **_k):
+            sesion.filtros.append(criterios)
+            if sesion.configs_por_tenant is not None:
+                # Emula el WHERE por tenant: se resuelve por el tenant que el caller pasó.
+                tenant = sesion._tenant_del_filtro(criterios)
+                cfg = sesion.configs_por_tenant.get(tenant)
+            else:
+                cfg = sesion.guardian_config
+            return SimpleNamespace(first=lambda: None if cfg is None else (cfg,))
+
+        return SimpleNamespace(filter=_filter)
+
+    @staticmethod
+    def _tenant_del_filtro(criterios):
+        """Extrae el valor comparado contra `Guardian.tenant_id` en el `filter(...)`."""
+        for c in criterios:
+            texto = str(getattr(c, "left", ""))
+            if texto.endswith("tenant_id"):
+                derecha = getattr(c, "right", None)
+                return getattr(derecha, "value", None)
+        return None
 
 
 class _FakeRedis:
@@ -77,8 +106,8 @@ def _app(db, usuario=None) -> TestClient:
     return TestClient(app)
 
 
-def _admin():
-    return SimpleNamespace(role="admin", display_label=None)
+def _admin(tenant_id=None):
+    return SimpleNamespace(role="admin", display_label=None, tenant_id=tenant_id)
 
 
 @pytest.fixture(autouse=True)
@@ -240,6 +269,119 @@ def test_el_probe_se_cachea_entre_llamadas(redis_falso, sidecar):
     client.get(RUTA)
 
     assert len(llamadas) == 1, f"el probe se pagó {len(llamadas)} veces"
+
+
+@pytest.mark.parametrize("vivo", [True, False])
+def test_n_llamadas_concurrentes_pagan_UN_solo_probe(monkeypatch, vivo):
+    """Single-flight (hallazgo del review adversarial). El cache por sí solo no alcanza: el
+    endpoint es `def` síncrono —FastAPI lo corre en el THREADPOOL, o sea concurrencia real—,
+    el cache se escribe DESPUÉS del probe, y sin lock los N pedidos que caen en la ventana
+    disparan N probes. Consecuencia: martilleo al sidecar y N hilos del pool ocupados 1,5 s
+    cada uno, todo disparable por callers ANÓNIMOS.
+
+    Se ejercita `_nlp_alcanzable` directamente —es la unidad con el estado compartido— con un
+    probe LENTO (la ventana existe de verdad) y N hilos entrando a la vez. Se prueban los dos
+    veredictos: el estampido con el sidecar CAÍDO es el peor caso, porque ahí cada probe
+    además agota su timeout.
+    """
+    monkeypatch.setattr(health_api, "_nlp_probe_cache", None, raising=False)
+    llamadas = []
+    cerrojo = threading.Lock()
+
+    def _get_lento(url, timeout=None):
+        with cerrojo:
+            llamadas.append(url)
+        time.sleep(0.3)  # ventana amplia: sin single-flight entran todos
+        if not vivo:
+            raise ConnectionError("name or service not known")
+        return SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr(health_api.httpx, "get", _get_lento)
+
+    n = 6
+    barrera = threading.Barrier(n)
+    resultados = []
+
+    def _consultar():
+        barrera.wait()
+        resultados.append(health_api._nlp_alcanzable(ANALYZER))
+
+    hilos = [threading.Thread(target=_consultar) for _ in range(n)]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join(timeout=15)
+
+    assert len(llamadas) == 1, (
+        f"{len(llamadas)} probes para {n} llamadas concurrentes — el sidecar recibe el "
+        "estampido entero y el threadpool se queda sin hilos")
+    assert len(resultados) == n
+    # Todos contestan el MISMO veredicto: en arranque en frío los perdedores esperan al
+    # ganador en vez de inventar un `unreachable` que dispararía una alarma falsa.
+    assert all(alcanzable is vivo for alcanzable, _fresco in resultados), resultados
+    # Y exactamente uno lo marca como FRESCO: es el que puede autorizar el borrado de la
+    # marca de degradación (ver los tests del `clear`).
+    assert sum(1 for _a, fresco in resultados if fresco) == 1, resultados
+
+
+# ── 3 bis) El reseteo de la marca no lo dispara cualquiera ni cualquier veredicto ──
+
+
+def test_el_tier_anonimo_no_borra_la_marca(redis_falso, sidecar):
+    """Hallazgo del review: el `clear` corría ANTES del corte por tier, o sea que era una
+    escritura en Redis disparable SIN credenciales — y contradecía el docstring que promete
+    que el tier anónimo no toca Redis."""
+    r = redis_falso
+    r.valores[audit_service.REDIS_KEY_NLP_DEGRADED_SINCE] = ISO
+    sidecar(vivo=True)
+
+    _app(_FakeSession({})).get(RUTA)  # sin usuario
+
+    assert r.borrados == [], "un caller anónimo no puede borrar la constancia de degradación"
+    assert audit_service.REDIS_KEY_NLP_DEGRADED_SINCE in r.valores
+
+
+def test_un_veredicto_CACHEADO_no_borra_la_marca(redis_falso, sidecar):
+    """El `clear` exige un probe FRESCO. Con un poller cada 5 s y un cache de 10 s, el
+    veredicto "está vivo" puede tener 10 s de antigüedad: borrar con eso limpiaría marcas
+    escritas DESPUÉS del probe, que es justo la evidencia de una oscilación del sidecar."""
+    r = redis_falso
+    sidecar(vivo=True)
+    client = _app(_FakeSession({}), usuario=_admin())
+
+    client.get(RUTA)                     # probe fresco → limpia (estado sano)
+    assert r.borrados, "el camino fresco sí tiene que limpiar"
+    r.borrados.clear()
+
+    # Entre medio, el motor degrada y deja marca. El veredicto cacheado sigue diciendo "ok".
+    r.valores[audit_service.REDIS_KEY_NLP_DEGRADED_SINCE] = ISO
+    client.get(RUTA)
+
+    assert r.borrados == [], "un veredicto cacheado no puede borrar una marca recién escrita"
+    assert r.valores.get(audit_service.REDIS_KEY_NLP_DEGRADED_SINCE) == ISO
+
+
+# ── 3 ter) La postura publicada es la del tenant que pregunta ─────────────────────
+
+
+def test_el_fail_mode_no_se_lee_de_otro_tenant(redis_falso, sidecar):
+    """Hallazgo del review: `_fail_mode_efectivo` filtraba por `guardian_type`/`is_active`
+    pero NO por `tenant_id`, así que `.first()` devolvía la fila de cualquiera. En
+    multi-tenant, un admin veía publicada la postura de otra organización — lectura
+    cross-tenant, prohibida por Constitución III."""
+    sidecar(vivo=False)
+    mio, ajeno = "tenant-propio", "tenant-ajeno"
+    db = _FakeSession(configs_por_tenant={
+        ajeno: {"nlp_fail_mode": "degrade"},   # el de al lado relaja…
+        mio: {"nlp_fail_mode": "block"},       # …y el mío no
+    })
+
+    body = _app(db, usuario=_admin(tenant_id=mio)).get(RUTA).json()
+
+    assert body["nlp"]["fail_mode_efectivo"] == "block"
+    assert "rechazando" in body["reason"], "el motivo también sale de la postura equivocada"
+    assert any(any(str(getattr(c, "left", "")).endswith("tenant_id") for c in criterios)
+               for criterios in db.filtros), "la consulta tiene que filtrar por tenant"
 
 
 def test_redis_caido_no_rompe_el_health_ni_inventa_un_cero(monkeypatch, sidecar):

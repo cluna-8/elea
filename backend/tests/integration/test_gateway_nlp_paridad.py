@@ -210,6 +210,36 @@ def guardian_pii(harness):
 
 
 @pytest.fixture
+def key_atribuible(harness):
+    """Emite una Connection real y devuelve la cabecera `X-Basa-Key` que la resuelve.
+
+    Necesaria desde el hallazgo ALTO del review: la postura `degrade` sólo se honra con
+    tenant ATRIBUIBLE. Un test que la ejercite sin key estaría midiendo el bypass, no la
+    función."""
+    _, factory = harness
+    from src.models.budget import APIKey
+    from src.models.tenant import DEFAULT_TENANT_ID
+    from src.services.key_material import hash_key
+
+    clave = "sk-basa-test-atribuible-63"
+    db = factory()
+    try:
+        db.query(APIKey).filter(APIKey.key_hash == hash_key(clave)).delete()
+        # `upstream_mode="byok"`: la Connection sólo se usa para ATRIBUIR. El ruteo de este
+        # plano lo decide `_detect_mode_and_key` mirando headers/URL —y `X-Basa-Key` está
+        # excluido del scan a propósito—, así que el pedido sigue yendo por passthrough. Se
+        # usa byok porque una fila `subscription-passthrough` exige `oauth_credential_ref`
+        # (CHECK `ck_api_keys_subscription_oauth`) y acá no hay credencial que custodiar.
+        db.add(APIKey(tenant_id=DEFAULT_TENANT_ID, key_hash=hash_key(clave),
+                      key_preview="sk-basa-…63", name="conexión de prueba #63",
+                      is_active=True, tool_type="claude-code", upstream_mode="byok"))
+        db.commit()
+    finally:
+        db.close()
+    return {"X-Basa-Key": clave}
+
+
+@pytest.fixture
 def nlp_configurado(monkeypatch):
     """`NLP_ANALYZER_URL` seteada + doble del sidecar. `caido=True` lo tumba."""
     from src.api import gateway
@@ -334,16 +364,20 @@ def test_el_texto_del_prompt_no_llega_a_la_fila_del_bloqueo(harness, nlp_configu
 
 
 def test_analyzer_caido_con_degrade_sirve_con_regex_y_lo_deja_marcado(
-        harness, proveedor, nlp_configurado, guardian_pii, redis_falso):
+        harness, proveedor, nlp_configurado, guardian_pii, redis_falso, key_atribuible):
     """`degrade` es una postura legítima; degradar EN SILENCIO no lo es. El pedido se sirve,
     pero deja los tres rastros: enmascarado por regex, `compliance_status` propio en la fila
-    durable y estado consultable en Redis."""
+    durable y estado consultable en Redis.
+
+    Va con `X-Basa-Key`: la relajación sólo se honra con tenant atribuible (ver la sección
+    de la barrera de la 027 más abajo)."""
     from src.services import audit_service
     guardian_pii(nlp_fail_mode="degrade")
     nlp_configurado(caido=True)
     client, factory = harness
 
-    respuesta = client.post(GW, json=_cuerpo("escribile a marta.iglesias@camara.es hoy"))
+    respuesta = client.post(GW, json=_cuerpo("escribile a marta.iglesias@camara.es hoy"),
+                            headers=key_atribuible)
 
     assert respuesta.status_code == 200, respuesta.text
     enviado = body_enviado(proveedor)
@@ -360,7 +394,8 @@ def test_analyzer_caido_con_degrade_sirve_con_regex_y_lo_deja_marcado(
     assert int(redis_falso.datos[audit_service.REDIS_KEY_NLP_DEGRADED_COUNT]) == 1
 
 
-def test_degrade_no_pierde_el_mapa_reversible(harness, proveedor, guardian_pii, monkeypatch):
+def test_degrade_no_pierde_el_mapa_reversible(harness, proveedor, guardian_pii, monkeypatch,
+                                              key_atribuible):
     """Regresión del camino más peligroso del fix: si el analyzer se cae A MITAD de
     `mask_body`, parte del body ya quedó enmascarada. Reanudar con un `PlaceholderMap` nuevo
     dejaría esos placeholders sin original al que volver y saldrían CRUDOS al cliente."""
@@ -385,7 +420,7 @@ def test_degrade_no_pierde_el_mapa_reversible(harness, proveedor, guardian_pii, 
         {"role": "user", "content": f"primero: {NOMBRE}"},
         {"role": "user", "content": "segundo: escribile a a@b.es"},
     ]}
-    respuesta = client.post(GW, json=cuerpo)
+    respuesta = client.post(GW, json=cuerpo, headers=key_atribuible)
 
     assert respuesta.status_code == 200, respuesta.text
     enviado = body_enviado(proveedor)
@@ -453,8 +488,99 @@ def test_con_analyzer_sano_el_preview_del_monitor_va_enmascarado(harness, nlp_co
     assert "[PERSON_0_" in eventos[-1]
 
 
+def test_bloque_no_enmascarable_no_llega_a_la_vitrina(harness, nlp_configurado,
+                                                      guardian_pii, monkeypatch,
+                                                      key_atribuible):
+    """Hallazgo ALTO del review adversarial: `_last_user_text` recogía `text` de CUALQUIER
+    bloque del content, pero el masker sólo toca `type` en ("text", "tool_result"). Un bloque
+    `{"type": "image", "text": "<PII>"}` —forma válida de la API— viajaba sin enmascarar y el
+    atajo `ya_enmascarado` lo copiaba LITERAL a la vitrina y a Redis. C1 lo prohíbe."""
+    from src.api import gateway
+    guardian_pii(nlp_fail_mode="block")
+    nlp_configurado()
+    eventos = []
+    monkeypatch.setattr(gateway, "_publish_monitor",
+                        lambda *a, **k: eventos.append(a[5] if len(a) > 5 else None))
+    client, _factory = harness
+
+    cuerpo = {"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": [
+        {"type": "text", "text": f"mirá esto de {NOMBRE}"},
+        # El bloque que el masker NO transforma: su `text` no puede salir a la vitrina.
+        {"type": "image", "text": "Sr. Juan Perez, juan@clinica.es"},
+    ]}]}
+    respuesta = client.post(GW, json=cuerpo, headers=key_atribuible)
+
+    assert respuesta.status_code == 200, respuesta.text
+    preview = eventos[-1]
+    assert "juan@clinica.es" not in preview, f"PII cruda en la vitrina (C1): {preview!r}"
+    assert "Juan Perez" not in preview
+    # Y lo que SÍ se enmascara sigue mostrándose, enmascarado: el fix no vacía la vitrina.
+    assert "[PERSON_0_" in preview
+
+
+def test_el_texto_de_un_tool_result_si_se_muestra_y_va_enmascarado(harness, nlp_configurado,
+                                                                   guardian_pii, monkeypatch,
+                                                                   key_atribuible):
+    """Contracara del filtro: `tool_result` SÍ lo enmascara el masker (sobre `content`), así
+    que la vitrina lo puede mostrar. El filtro alinea con `_mask_content`, no recorta por
+    recortar — si sólo se aceptara `type == "text"`, la vitrina perdería información real."""
+    from src.api import gateway
+    guardian_pii(nlp_fail_mode="block")
+    nlp_configurado()
+    eventos = []
+    monkeypatch.setattr(gateway, "_publish_monitor",
+                        lambda *a, **k: eventos.append(a[5] if len(a) > 5 else None))
+    client, _factory = harness
+
+    cuerpo = {"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": [
+        {"type": "tool_result", "content": f"el paciente es {NOMBRE}"},
+    ]}]}
+    assert client.post(GW, json=cuerpo, headers=key_atribuible).status_code == 200
+
+    assert NOMBRE not in eventos[-1]
+    assert "[PERSON_0_" in eventos[-1]
+
+
+# ── Barrera de atribución de la 027 sobre la postura NLP (hallazgo ALTO) ──────────
+
+
+def test_sin_tenant_atribuible_la_postura_degrade_no_se_hereda(harness, proveedor,
+                                                               nlp_configurado, guardian_pii):
+    """`X-Basa-Key` es OPCIONAL en esta ruta (la credencial es el OAuth). Sin la barrera,
+    OMITIRLA bastaba para caer al tenant por defecto y heredar SU `degrade`: en multi-tenant,
+    un cliente cuyo admin exige `block` conseguía que su tráfico se sirviera con regex sólo
+    con tirar abajo el sidecar. Misma regla que la 027 ya aplica al perfil: sin tenant
+    atribuible sólo se acepta lo que AGREGA protección."""
+    guardian_pii(nlp_fail_mode="degrade")  # el tenant de fallback relaja…
+    nlp_configurado(caido=True)
+    client, factory = harness
+
+    respuesta = client.post(GW, json=_cuerpo())  # …y el pedido llega SIN key
+
+    assert respuesta.status_code == 400, respuesta.text
+    assert "no está disponible" in respuesta.json()["error"]["message"]
+    assert proveedor.llamadas == [], "la relajación de otro tenant no puede dejar salir el pedido"
+    assert filas(factory)[0]["compliance_status"] == "blocked_nlp_unavailable"
+
+
+def test_con_tenant_atribuible_la_misma_postura_si_se_honra(harness, proveedor,
+                                                            nlp_configurado, guardian_pii,
+                                                            key_atribuible):
+    """Contracara imprescindible: la barrera no puede convertir `degrade` en papel mojado.
+    Con la Connection del admin viajando en el pedido, la relajación SÍ aplica."""
+    guardian_pii(nlp_fail_mode="degrade")
+    nlp_configurado(caido=True)
+    client, _factory = harness
+
+    respuesta = client.post(GW, json=_cuerpo("escribile a a@b.es"), headers=key_atribuible)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert len(proveedor.llamadas) == 1
+
+
 def test_con_analyzer_caido_el_preview_del_monitor_va_vacio(harness, nlp_configurado,
-                                                            guardian_pii, monkeypatch):
+                                                            guardian_pii, monkeypatch,
+                                                            key_atribuible):
     """Con el NLP caído, la vitrina NO degrada a regex ni con `degrade`: una preview
     sub-enmascarada muestra en pantalla (y guarda en Redis) justo la PII que el regex no
     caza. Vacía no filtra nada, y de la vitrina no depende el trabajo de nadie."""
@@ -466,6 +592,6 @@ def test_con_analyzer_caido_el_preview_del_monitor_va_vacio(harness, nlp_configu
                         lambda *a, **k: eventos.append(a[5] if len(a) > 5 else None))
     client, _factory = harness
 
-    assert client.post(GW, json=_cuerpo()).status_code == 200
+    assert client.post(GW, json=_cuerpo(), headers=key_atribuible).status_code == 200
     assert eventos and eventos[-1] == "", (
         "la vitrina no puede ser la superficie menos protegida del producto")
