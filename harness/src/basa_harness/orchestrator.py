@@ -78,7 +78,8 @@ class Orchestrator:
                  stub_url: str = "http://localhost:9900",
                  runs_dir: Optional[Union[str, Path]] = None,
                  seed: Union[int, str] = DEFAULT_SEED, kind: str = "gate_oficial",
-                 dry_run: bool = False, n_canaries: int = 64, n_corpus_docs: int = 200,
+                 dry_run: bool = False, drill_admin_budget_ms: Optional[float] = None,
+                 n_canaries: int = 64, n_corpus_docs: int = 200,
                  timestamp: Optional[str] = None, now: Optional[Callable[[], datetime]] = None,
                  health_fn: Optional[Callable[[str], dict]] = None,
                  stub_client: Optional[object] = None,
@@ -92,8 +93,14 @@ class Orchestrator:
         self.backend_url = backend_url.rstrip("/")
         self.stub_url = stub_url.rstrip("/")
         self.seed = seed
-        self.kind = "dry-run" if dry_run else kind
+        # kind efectivo: si el YAML declara un kind propio (p. ej. ``drill``), MANDA el
+        # YAML — un drill no puede correrse por accidente como gate oficial. ``--kind``
+        # explícito sigue sirviendo para runs ad-hoc sobre los gates oficiales.
+        gate_kind = getattr(self.gate, "kind", "gate_oficial")
+        self.kind = "dry-run" if dry_run else (gate_kind if gate_kind != "gate_oficial"
+                                               else kind)
         self.dry_run = dry_run
+        self.drill_admin_budget_ms = drill_admin_budget_ms
         self.n_canaries = n_canaries
         self.n_corpus_docs = n_corpus_docs
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -141,6 +148,7 @@ class Orchestrator:
                 health_final=health_final, stub_report=stub_report,
                 reconciliation=reconciliation, kind=self.kind,
                 notas=(["run en seco: datos sintéticos, NO oficial"] if self.dry_run else None),
+                drill_overrides=_drill_overrides(self.drill_admin_budget_ms),
             )
             fingerprint = self._build_fingerprint(corpus, k6_summary)
             self._write_outputs(verdict, fingerprint, evidence=self._evidence_refs())
@@ -341,11 +349,20 @@ class Orchestrator:
 
     def _reconcile(self, k6_summary: dict) -> dict:
         """Reconciliación de auditoría (filas persistidas vs eventos del guion) + bloqueos
-        durables. En dry-run: paridad sintética perfecta (eventos==filas, 0 bloqueos)."""
+        durables. En dry-run: paridad sintética perfecta (eventos==filas, 0 bloqueos).
+
+        En un **drill de saturación**, ``reconcile_fn`` debe devolver ADEMÁS
+        ``filas_rejected_saturated``: el conteo de filas de ``audit_logs`` con el estado
+        LITERAL ``'rejected_saturated'`` (el rechazo de admisión C1 — deliberadamente NO es
+        un bloqueo de política, así que no se mezcla con ``bloqueos_provocados``)."""
         if self.dry_run:
             eventos = int(k6_summary.get("auditable_events", 0))
-            return {"eventos_guion": eventos, "filas_persistidas": eventos,
-                    "bloqueos_provocados": 0, "con_fila": 0}
+            recon = {"eventos_guion": eventos, "filas_persistidas": eventos,
+                     "bloqueos_provocados": 0, "con_fila": 0}
+            if getattr(self.gate, "kind", "gate_oficial") == "drill":
+                # solo en drills: el dry-run del gate oficial no cambia ni un byte.
+                recon["filas_rejected_saturated"] = 0
+            return recon
         if self._reconcile_fn is None:
             raise OrchestratorError(
                 "reconciliación no configurada: pasá --reconcile_fn o corré con --dry-run. "
@@ -504,6 +521,20 @@ class Orchestrator:
         return json.loads((self.run_dir / name).read_text(encoding="utf-8"))
 
 
+# ── overrides de criterios del drill ──────────────────────────────────────────────────
+
+def _drill_overrides(admin_budget_ms: Optional[float]) -> Optional[dict]:
+    """Umbrales del drill que llegan por CLI en vez de por YAML.
+
+    El presupuesto de admin NO se hornea en la definición: se DERIVA del baseline medido
+    del gate oficial del mismo día (mismo hardware, misma imagen) y se pasa por
+    ``--drill-admin-budget-ms``. Sin el flag no hay override y el criterio queda sin
+    umbral (nota informativa, sin fila)."""
+    if admin_budget_ms is None:
+        return None
+    return {"admin_p95_budget_ms": float(admin_budget_ms)}
+
+
 # ── drift de stack_config_required ────────────────────────────────────────────────────
 
 def _stack_config_drift(required: dict, observed: dict) -> list[str]:
@@ -578,12 +609,16 @@ def main(argv: Optional[list] = None) -> int:
                    choices=("gate_oficial", "diagnostico", "smoke", "fault_injection"))
     p.add_argument("--dry-run", action="store_true",
                    help="corre SIN stack ni k6: estructura completa con datos sintéticos")
+    p.add_argument("--drill-admin-budget-ms", type=float, default=None,
+                   help="drill de saturación: presupuesto p95 del panel admin (ms), "
+                        "derivado del baseline del gate oficial del MISMO día")
     args = p.parse_args(argv)
 
     gate = load_gate(args.gate_file) if args.gate_file else load_gate_by_number(args.gate)
     orch = Orchestrator(gate, run_id=args.run_id, backend_url=args.backend_url,
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
-                        kind=args.kind, dry_run=args.dry_run)
+                        kind=args.kind, dry_run=args.dry_run,
+                        drill_admin_budget_ms=args.drill_admin_budget_ms)
     verdict = orch.run()
     print(f"run {verdict.run_id}: estado={verdict.estado} global={verdict.global_veredicto}")
     print(f"  artefactos → {orch.run_dir}")
