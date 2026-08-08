@@ -6692,7 +6692,7 @@
         ]
       },
       "post": {
-        "description": "Persiste un patrón ya revisado (aceptado o editado a mano tras el draft) —\núnico punto donde algo se activa en el firewall real. Revalida seguridad\nsiempre, sin importar si vino de un draft de IA o se tipeó a mano.",
+        "description": "Persiste un patrón ya revisado (aceptado o editado a mano tras el draft) —\núnico punto donde algo se activa en el firewall real. Revalida seguridad\nsiempre, sin importar si vino de un draft de IA o se tipeó a mano.\n\n`async` + executor dedicado (#106): la revalidación ReDoS spawnea subprocesos y puede\ntardar ~12s con un regex catastrófico. Antes este handler era `def` (threadpool anyio,\n~40 hilos compartidos con TODOS los endpoints síncronos), así que un admin hostil que\ndisparara ~40 altas hostiles dejaba sin hilos al backend entero. Ahora la validación se\nderiva a un executor propio y acotado, aislada del threadpool general.",
         "operationId": "create_custom_entity_api_v1_guardians_custom_entities_post",
         "parameters": [
           {
