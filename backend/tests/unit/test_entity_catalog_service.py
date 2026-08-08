@@ -1,6 +1,8 @@
 """Catálogo de entidades custom (extensión post-016): validación de seguridad del
 regex (compila / largo / ReDoS con timeout), test_pattern, y el ciclo
 create/list/delete sobre un Guardian fake (sin Postgres real — DB stub mínimo)."""
+import threading
+
 import pytest
 
 from src.services import entity_catalog_service as svc
@@ -40,6 +42,42 @@ def test_validate_pattern_safety_rejects_ambiguous_alternation_via_execution():
     assert not svc._NESTED_QUANTIFIER_RE.search(r"(a|aa)+$")
     with pytest.raises(svc.UnsafePatternError, match="denegación de servicio"):
         svc.validate_pattern_safety(r"(a|aa)+$")
+
+
+# ── concurrencia: carrera de multiprocessing bajo hilos (#98) ──────────────────
+
+def test_validate_pattern_safety_no_rechaza_patrones_sanos_entre_hilos():
+    """Regresión #98: cada match corre en un subproceso, y `Process.start()` cosecha
+    con `waitpid` a los hijos de OTROS hilos; en la ventana entre ese `waitpid` y la
+    asignación del `returncode`, `is_alive()` reporta VIVO un proceso que ya terminó
+    bien, y el validador lo lee como "no respondió a tiempo" → rechaza un regex SANO.
+
+    La concurrencia de acá es la de producción, no de laboratorio: `POST
+    /custom-entities` es un `def`, así que FastAPI lo corre en su threadpool y dos
+    altas simultáneas ya alcanzan. Se lanzan 120 subprocesos (8 hilos x 5 rondas x 3
+    inputs adversariales), el mismo volumen con el que se midió el bug: ~2-8 falsos
+    timeouts cada 120, y ~43% de fallo en el test de concurrencia del catálogo.
+    """
+    hilos_n, rondas = 8, 5
+    errores = []
+
+    def _validar(i):
+        for ronda in range(rondas):
+            try:
+                svc.validate_pattern_safety(rf"\bZZ{i}-\d{{4}}\b")  # sano, debe pasar
+            except Exception as e:
+                errores.append(f"hilo {i} ronda {ronda}: {e!r}")
+
+    hilos = [threading.Thread(target=_validar, args=(i,)) for i in range(hilos_n)]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join(timeout=120)
+
+    # Un `join` con timeout que expira NO falla solo: sin este assert, un hilo colgado
+    # se leería como "no hubo errores" y el test pasaría en falso.
+    assert not [h for h in hilos if h.is_alive()], "quedaron hilos sin terminar"
+    assert errores == [], f"patrones sanos rechazados (carrera #98): {errores}"
 
 
 # ── test_pattern ────────────────────────────────────────────────────────────────
