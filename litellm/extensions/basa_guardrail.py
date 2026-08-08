@@ -50,6 +50,7 @@ from litellm.integrations.custom_guardrail import CustomGuardrail
 
 sys.path.insert(0, os.path.dirname(__file__))
 import basa_guardian_policy as policy  # noqa: E402
+import basa_engine_redis  # noqa: E402  — construcción ÚNICA de clientes Redis con timeouts (#8)
 
 logger = logging.getLogger("basa-guardrail")
 
@@ -202,17 +203,25 @@ async def _contar_perdida(motivo: str) -> None:
         logger.error("audit: evento PERDIDO sin contador — redis no está en la imagen "
                      "(motivo=%s ts=%s)", motivo, ahora)
         return
+    client = None
     try:
-        host, port = _redis_endpoint()
-        client = redis_lib.Redis(host=host, port=port)
+        client = basa_engine_redis.async_redis_con_timeouts(redis_lib, *_redis_endpoint())
         pipe = client.pipeline()
         pipe.incr(_REDIS_KEY_AUDIT_LOST)
         pipe.set(_REDIS_KEY_AUDIT_LAST_FAIL, ahora)
         await pipe.execute()
-        await client.aclose()
     except Exception as exc:  # noqa: BLE001
         logger.error("audit: evento PERDIDO y el contador (%s) también falló: %s "
                      "(motivo=%s ts=%s)", _REDIS_KEY_AUDIT_LOST, exc, motivo, ahora)
+    finally:
+        # #8 (#105): `aclose()` en `finally`. Con `socket_timeout`, un `pipe.execute()` que
+        # timeoutea es el camino COMÚN, y un `aclose()` al final del `try` se lo saltaría →
+        # cliente filtrado. Mismo patrón que `basa_audit_logger._registrar_perdida`.
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001 — cerrar un cliente ya roto no aporta nada
+                pass
 
 
 async def _emitir_fila(entry: dict) -> bool:
@@ -417,17 +426,30 @@ async def _marcar_nlp_degradado() -> None:
         logger.error("nlp: DEGRADADO a regex sin poder marcarlo — redis no está en la imagen "
                      "(ts=%s)", ahora)
         return
+    client = None
     try:
-        host, port = _redis_endpoint()
-        client = redis_lib.Redis(host=host, port=port)
+        client = basa_engine_redis.async_redis_con_timeouts(redis_lib, *_redis_endpoint())
         pipe = client.pipeline()
         pipe.set(_REDIS_KEY_NLP_DEGRADED_SINCE, ahora, nx=True)
         pipe.incr(_REDIS_KEY_NLP_DEGRADED_COUNT)
         await pipe.execute()
-        await client.aclose()
     except Exception as exc:  # noqa: BLE001
         logger.error("nlp: DEGRADADO a regex y la marca de estado (%s) también falló: %s "
                      "(ts=%s)", _REDIS_KEY_NLP_DEGRADED_SINCE, exc, ahora)
+        # #8 (#105): con timeout, la marca que no responde falla RÁPIDO en vez de colgar el
+        # request. La pérdida de la marca se cuenta REUTILIZANDO el contador ya existente
+        # (`_contar_perdida` → `basa:audit:lost` + /health), no un mecanismo nuevo.
+        # `_contar_perdida` es best-effort y jamás propaga.
+        await _contar_perdida("nlp_degrade_mark")
+    finally:
+        # #8 (#105): `aclose()` en `finally` — un `pipe.execute()` que timeoutea (camino ahora
+        # COMÚN con `socket_timeout`) se saltaría un `aclose()` al final del `try` y filtraría
+        # el cliente en cada request degradada bajo Redis lento.
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 class BasaGuardrail(CustomGuardrail):

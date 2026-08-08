@@ -138,7 +138,9 @@ def contador(monkeypatch):
     """
     registro = {"incrs": [], "sets": {}, "cerrado": False, "explota": False}
     modulo = types.ModuleType("redis.asyncio")
-    modulo.Redis = lambda host=None, port=None: _RedisFalso(registro)
+    # **kwargs: desde #105 #8 el cliente se construye con socket_timeout/socket_connect_timeout
+    # (vía basa_engine_redis) — el doble tiene que aceptarlos sin romper.
+    modulo.Redis = lambda host=None, port=None, **kwargs: _RedisFalso(registro)
     padre = sys.modules.setdefault("redis", types.ModuleType("redis"))
     monkeypatch.setitem(sys.modules, "redis.asyncio", modulo)
     monkeypatch.setattr(padre, "asyncio", modulo, raising=False)

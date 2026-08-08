@@ -34,6 +34,7 @@ from litellm.integrations.custom_logger import CustomLogger
 
 sys.path.insert(0, os.path.dirname(__file__))
 import basa_guardian_policy as policy  # noqa: E402
+import basa_engine_redis  # noqa: E402  — construcción ÚNICA de clientes Redis con timeouts (#8)
 
 # Mismo patrón que las otras extensiones del motor (`basa-guardrail`, `basa-custom-auth`):
 # un logger nombrado, que LITELLM_LOG y el recolector de logs del cliente ya capturan.
@@ -116,8 +117,11 @@ async def _registrar_perdida(motivo: str) -> None:
         return
     client = None
     try:
-        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT),
-                                 port=int(os.getenv("REDIS_PORT", "6379")))
+        # #8 (#105): timeouts SIEMPRE — este contador corre en el camino de una fila durable
+        # perdida; un Redis colgado no puede convertir esa pérdida en un cuelgue del hook.
+        client = basa_engine_redis.async_redis_con_timeouts(
+            redis_lib, os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT),
+            int(os.getenv("REDIS_PORT", "6379")))
         pipe = client.pipeline()
         pipe.incr(_REDIS_KEY_AUDIT_LOST)
         pipe.set(_REDIS_KEY_AUDIT_LAST_FAIL, ahora)
@@ -411,9 +415,14 @@ class BasaAuditLogger(CustomLogger):
             import redis.asyncio as redis_lib
         except ImportError:
             return
+        client = None
         try:
-            client = redis_lib.Redis(host=os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT),
-                                     port=int(os.getenv("REDIS_PORT", "6379")))
+            # #8 (#105): timeouts SIEMPRE. Esta publicación corre en CADA request exitosa
+            # (incluidas las degradadas): sin timeout, el MISMO Redis colgado que motiva el PR
+            # cuelga este `pipe.execute()` para siempre justo cuando el sistema ya está tocado.
+            client = basa_engine_redis.async_redis_con_timeouts(
+                redis_lib, os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT),
+                int(os.getenv("REDIS_PORT", "6379")))
             messages = (kwargs.get("messages") or
                         (kwargs.get("litellm_params", {}) or {}).get("messages") or [])
             preview = ""
@@ -450,10 +459,18 @@ class BasaAuditLogger(CustomLogger):
             pipe.ltrim(_MONITOR_KEY, 0, _MONITOR_CAP - 1)
             pipe.expire(_MONITOR_KEY, _MONITOR_TTL_S)
             await pipe.execute()
-            await client.aclose()
         except Exception as exc:  # noqa: BLE001
             # El monitor es vitrina: jamás afecta la request NI cuenta como pérdida de
             # auditoría (lo durable ya se resolvió arriba). Pero se dice en debug: un feed
             # vacío con tráfico real es, si no, imposible de diagnosticar.
             logger.debug("no se pudo publicar el evento del monitor (vitrina): %s", exc)
+        finally:
+            # #8 (#105): `aclose()` en `finally` — con `socket_timeout`, un `pipe.execute()`
+            # que timeoutea se saltaría un `aclose()` al final del `try` y filtraría el cliente
+            # en CADA request exitosa mientras Redis esté lento.
+            if client is not None:
+                try:
+                    await client.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
 basa_audit_logger_instance = BasaAuditLogger()

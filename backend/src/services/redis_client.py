@@ -6,6 +6,18 @@ logger = logging.getLogger("basa-secure-gateway.redis")
 
 _client: redis.Redis | None = None
 
+# Timeouts ACOTADOS del cliente Redis compartido (hallazgo #8 de #105). El default de
+# redis-py es SIN timeout de operación: una lectura/escritura contra un Redis lento o colgado
+# se queda pegada para siempre. En el camino de degradación NLP —que corre en CADA request
+# mientras el analyzer está caído— eso bloquea un worker de forma indefinida justo cuando el
+# sistema ya está tocado. Con timeouts, una marca de degradación que no responde falla RÁPIDO
+# (el caller la cuenta como pérdida y sigue) en vez de colgar el pedido. Nunca infinito.
+#   * socket_connect_timeout: techo del handshake TCP (antes era 2 s; se acota).
+#   * socket_timeout: techo de CADA operación una vez conectado (el que faltaba).
+# Env-tuneables, pero con default sub-segundo: para un Redis sano (ops < 1 ms) es holgado.
+REDIS_CONNECT_TIMEOUT_SECONDS = float(os.getenv("REDIS_CONNECT_TIMEOUT_SECONDS", "1.0"))
+REDIS_SOCKET_TIMEOUT_SECONDS = float(os.getenv("REDIS_SOCKET_TIMEOUT_SECONDS", "1.0"))
+
 
 def get_redis() -> redis.Redis | None:
     global _client
@@ -14,7 +26,11 @@ def get_redis() -> redis.Redis | None:
     host = os.getenv("REDIS_HOST", "eu-redis")
     port = int(os.getenv("REDIS_PORT", "6379"))
     try:
-        _client = redis.Redis(host=host, port=port, db=0, decode_responses=True, socket_connect_timeout=2)
+        _client = redis.Redis(
+            host=host, port=port, db=0, decode_responses=True,
+            socket_connect_timeout=REDIS_CONNECT_TIMEOUT_SECONDS,
+            socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+        )
         _client.ping()
         logger.info(f"Redis connected: {host}:{port}")
     except Exception as e:

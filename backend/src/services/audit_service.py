@@ -144,6 +144,11 @@ def record_nlp_degradation(reason: str = "") -> None:
     except Exception as exc:  # noqa: BLE001 — la marca es best-effort, el log NO
         logger.error("nlp: degradación y la marca de estado (%s) también falló: %s",
                      REDIS_KEY_NLP_DEGRADED_SINCE, exc)
+        # #8 (#105): con `socket_timeout` acotado (redis_client), una marca que no responde
+        # falla RÁPIDO en vez de colgar el request. Esa marca perdida se cuenta REUTILIZANDO
+        # el contador de pérdidas ya existente (`basa:audit:lost` + /health) — no un mecanismo
+        # nuevo. `record_audit_loss` es best-effort y jamás propaga.
+        record_audit_loss(reason=f"nlp_degradation_mark/{reason}")
 
 
 def clear_nlp_degradation() -> None:
