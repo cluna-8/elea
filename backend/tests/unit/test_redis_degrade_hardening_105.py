@@ -491,12 +491,16 @@ def test_env_float_robusto_no_revienta_por_env_vacio_o_malformado(monkeypatch, m
     ("basa_engine_redis",
      ("ENGINE_REDIS_CONNECT_TIMEOUT_SECONDS", "ENGINE_REDIS_SOCKET_TIMEOUT_SECONDS")),
 ])
-def test_las_constantes_de_timeout_estan_cableadas_a_env_float(monkeypatch, modname, constantes):
+@pytest.mark.parametrize("valor_env", ["", "1e9"], ids=["vacio", "fuera-de-rango"])
+def test_las_constantes_de_timeout_estan_cableadas_a_env_float(
+        monkeypatch, modname, constantes, valor_env):
     """Round 2 (H2): el test de arriba ejercita `_env_float` con un env SINTÉTICO, así que
     pasaría igual si las constantes reales volvieran a `float(os.getenv(...))` — la mutación
-    que reinstala el bug. Acá se prueba el CABLEADO: con las envs REALES en vacío se recarga
-    cada módulo y se verifica que el import sobrevive y las constantes quedan en el default.
-    Sin `_env_float`, `float("")` levanta ValueError y el reload revienta.
+    que reinstala el bug. Acá se prueba el CABLEADO con las envs REALES, en sus DOS propiedades:
+    con la env vacía el import sobrevive y cae al default (sin `_env_float`, `float("")`
+    levanta ValueError y el reload revienta); con `"1e9"` (parsea, pero equivale a no tener
+    timeout) la GUARDIA DE RANGO se aplica sobre las constantes — un wiring "simplificado" tipo
+    `float(os.getenv(...) or 1.0)` sobrevive el caso vacío pero deja pasar el 1e9 crudo.
 
     El módulo del motor se importa por su nombre PELADO (`basa_engine_redis`), que es como lo
     importan las extensiones en producción."""
@@ -504,13 +508,13 @@ def test_las_constantes_de_timeout_estan_cableadas_a_env_float(monkeypatch, modn
     modulo = importlib.import_module(modname)
     try:
         with monkeypatch.context() as m:
-            m.setenv("REDIS_SOCKET_TIMEOUT_SECONDS", "")
-            m.setenv("REDIS_CONNECT_TIMEOUT_SECONDS", "")
+            m.setenv("REDIS_SOCKET_TIMEOUT_SECONDS", valor_env)
+            m.setenv("REDIS_CONNECT_TIMEOUT_SECONDS", valor_env)
             recargado = importlib.reload(modulo)
             for nombre in constantes:
                 assert getattr(recargado, nombre) == 1.0, (
-                    f"{modname}.{nombre} no pasa por `_env_float` — con la env vacía tendría "
-                    "que caer al default de 1.0")
+                    f"{modname}.{nombre} no pasa por `_env_float` completo — con la env "
+                    f"{valor_env!r} tendría que caer al default de 1.0")
     finally:
         # Restauración OBLIGATORIA: el reload de arriba dejó el módulo con las envs de prueba
         # (y, en el backend, con el singleton `_client` en None). Con el monkeypatch ya
