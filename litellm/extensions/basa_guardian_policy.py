@@ -145,12 +145,18 @@ _FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
 
 _SEP_CHARS = " -"  # separadores admitidos DENTRO de un IBAN/tarjeta (espacio o guión)
 
-# Candidatos IBAN/tarjeta: patrones ACOTADOS — cuantificador con tope ({11,30}/{12,18}) y
-# clases separador/dígito DISJUNTAS, así que no hay backtracking catastrófico (ReDoS).
-# Son greedy a propósito: capturan la corrida entera y `_checksummed_spans` la re-escanea
-# buscando el identificador VÁLIDO adentro (ver su docstring).
-_IBAN_CANDIDATE_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b")
-_CARD_CANDIDATE_RE = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
+# Corridas MÁXIMAS de dígitos/alnum con separadores simples (sin tope de longitud). NO son
+# el identificador: son la REGIÓN donde `_checksummed_spans` busca identificadores válidos
+# adentro (ver su docstring). Patrones LINEALES (cada iteración consume ≥1 char, clases
+# separador/alnum DISJUNTAS → sin backtracking catastrófico/ReDoS). Sin tope a propósito:
+# el candidato acotado del round-2 (`{12,18}`) PARTÍA una tarjeta agrupada precedida de un
+# número (`100000007 4111 1111 1111 1111`) porque la corrida excedía 19 dígitos y finditer
+# la cortaba a mitad → fuga (review R3). La longitud del IDENTIFICADOR se acota luego, por
+# ventana (`_CARD_MAXLEN`/`_IBAN_MAXLEN`), no en el patrón de la corrida.
+_CARD_RUN_RE = re.compile(r"\d(?:[ -]?\d)*")
+_IBAN_RUN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9])*")
+_CARD_MAXLEN = 37   # 19 dígitos + hasta 18 separadores
+_IBAN_MAXLEN = 42   # 34 alnum (IBAN más largo) + hasta 8 espacios de grupo
 
 
 def _luhn_ok(candidate: str) -> bool:
@@ -194,55 +200,71 @@ def _iban_ok(candidate: str) -> bool:
     return int(numeric) % 97 == 1
 
 
-def _checksummed_spans(text: str, candidate_re, validate) -> list:
-    """`[(start, end)]` de cada identificador de `candidate_re` que valide `validate`.
+def _merge_spans(spans: list) -> list:
+    """Une los (start, end) que se solapan en tramos disjuntos (unión de intervalos)."""
+    if not spans:
+        return []
+    spans = sorted(spans)
+    merged = [spans[0]]
+    for s, e in spans[1:]:
+        ls, le = merged[-1]
+        if s <= le:
+            merged[-1] = (ls, max(le, e))
+        else:
+            merged.append((s, e))
+    return merged
 
-    El candidato greedy puede capturar de más cuando otro token va PEGADO. El bug del
-    round-1 (review R2, ALTO): sólo recortaba PREFIJOS (`cand[:end]`, por la cola), así que
-    un identificador REAL pegado DETRÁS de basura corta con separador (`999 4111…`,
-    `XX99 ES91…`) quedaba como SUFIJO y se FUGABA en claro. Fix: RE-ESCANEO por posiciones
-    de inicio de token (tras cada separador), de izquierda a derecha, saltando tras cada
-    match. Invariante: ningún identificador válido queda sin enmascarar por tener basura
-    corta delante.
 
-    Dos reglas que garantizan que no se corte un identificador dejando cola en claro:
-      1. Un match sólo puede TERMINAR en límite de token (el char siguiente es separador o
-         fin). Así, arrancando en la basura, el único fin posible es el fin de la corrida
-         (que TAPA el identificador entero → sobre-enmascara, NUNCA fuga) o nada (→ se avanza
-         al inicio del identificador real y se enmascara limpio).
-      2. Excepción para candidatos SIN separadores internos (`ES91…ABC`): ahí la basura
-         pegada al final no está delimitada, así que se recorta por la cola hasta el prefijo
-         válido (la cola sobrante es basura, no un identificador oculto). Concatenaciones
-         patológicas de dos identificadores sin separación siguen fuera de alcance (las
-         cubre el NLP real, #64).
+def _checksummed_spans(text: str, run_re, validate, max_len: int) -> list:
+    """`[(start, end)]` a enmascarar: la UNIÓN de todo identificador válido dentro de cada
+    corrida de dígitos/alnum. `run_re` delimita las corridas; `validate` (Luhn / mod-97)
+    confirma cada identificador; `max_len` acota su longitud (evita ReDoS y ventanas absurdas).
 
-    Coste acotado (sin ReDoS): los candidatos están topados por los cuantificadores del
-    patrón; el barrido interno es a lo sumo O(len(candidato)^2) sobre tokens cortos."""
+    Historia (por qué UNIÓN y no una regla de preferencia):
+      - Round-1: recorte por cola → fuga de SUFIJO (`999 4111…` dejaba la tarjeta en claro).
+      - Round-2: "fin sólo en límite de token" → cerró la fuga TOTAL, pero la frontera entre
+        GRUPOS de una tarjeta humana (`016 4398 2597 9190 7482`) es un límite de token, así
+        que enmascaraba `016 4398 2597 9190` y dejaba `7482` colgando → fuga PARCIAL (R3).
+      - La causa de fondo: Luhn valida ~1/10 ventanas al azar, así que CUALQUIER heurística
+        de "preferir el span izquierdo/derecho" es NO determinista y deja variantes de fuga
+        (importe delante, basura detrás, varias tarjetas en una misma corrida).
+
+    Solución determinista y sin fugas: enmascarar la UNIÓN de TODOS los identificadores
+    válidos de la corrida. Todo PAN/IBAN válido presente queda íntegramente cubierto por
+    construcción. Coste: si un token corto pegado (un importe) forma por azar una ventana
+    Luhn-válida junto al identificador, se sobre-enmascara ese token — lado SEGURO, nunca
+    fuga (review R3). El NLP real desambigua en el camino de producción.
+
+    Ventana y coste: desde cada inicio de token se toma el identificador VÁLIDO más largo
+    (los más cortos quedan subsumidos), acotado a `max_len` chars → O(len·max_len²) por
+    corrida, con `max_len` constante ⇒ lineal en el texto (sin ReDoS)."""
     spans = []
-    for m in candidate_re.finditer(text):
-        cand, base, n = m.group(), m.start(), len(m.group())
-        contiguous = not any(c in _SEP_CHARS for c in cand)
+    for m in run_re.finditer(text):
+        run, base, n = m.group(), m.start(), len(m.group())
+        contiguous = not any(c in _SEP_CHARS for c in run)
+        found = []
         i = 0
         while i < n:
-            # `i` debe ser inicio de token: posición 0, o justo tras un separador (y no
-            # sobre un separador). En medio de una corrida no se arranca.
-            if cand[i] in _SEP_CHARS or (i > 0 and cand[i - 1] not in _SEP_CHARS):
+            # `i` sólo arranca en inicio de token: posición 0, o justo tras un separador.
+            if run[i] in _SEP_CHARS or (i > 0 and run[i - 1] not in _SEP_CHARS):
                 i += 1
                 continue
-            found = None
-            for j in range(n, i, -1):
-                if cand[j - 1] in _SEP_CHARS:            # no terminar sobre un separador
+            hi = min(n, i + max_len)
+            for j in range(hi, i, -1):
+                if run[j - 1] in _SEP_CHARS:              # no terminar sobre un separador
                     continue
-                if (not contiguous) and j < n and cand[j] not in _SEP_CHARS:
-                    continue                             # (regla 1) fin sólo en límite de token
-                if validate(cand[i:j]):
-                    found = j
+                # En una corrida AGRUPADA el identificador termina en frontera de grupo
+                # (sep o fin de corrida) — nunca a mitad de un grupo, que dejaría dígitos
+                # colgando (fuga parcial del R3). En una corrida CONTIGUA (sin separadores
+                # internos) no hay grupos: se recorta por la cola (basura pegada tipo `…ABC`).
+                if (not contiguous) and j < n and run[j] not in _SEP_CHARS:
+                    continue
+                if validate(run[i:j]):
+                    found.append((i, j))                  # el más largo desde este inicio
                     break
-            if found is not None:
-                spans.append((base + i, base + found))
-                i = found                                # re-escanea la cola restante
-            else:
-                i += 1
+            i += 1
+        for s, e in _merge_spans(found):
+            spans.append((base + s, base + e))
     return spans
 
 
@@ -330,11 +352,13 @@ async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
             start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
             entities.append({"start": start, "end": end,
                              "entity_type": label, "score": 0.95})
-    # IBAN y tarjeta: detección con checksum + re-escaneo (ver `_checksummed_spans`), no un
-    # match directo — un `AA00…`/una corrida de dígitos que no valide queda SIN etiquetar.
-    for etype, cand_re, validate in (("IBAN_CODE", _IBAN_CANDIDATE_RE, _iban_ok),
-                                     ("CREDIT_CARD", _CARD_CANDIDATE_RE, _luhn_ok)):
-        for start, end in _checksummed_spans(text, cand_re, validate):
+    # IBAN y tarjeta: detección con checksum sobre la UNIÓN de identificadores válidos de
+    # cada corrida (ver `_checksummed_spans`), no un match directo — un `AA00…`/una corrida
+    # de dígitos que no valide queda SIN etiquetar.
+    for etype, run_re, validate, max_len in (
+            ("IBAN_CODE", _IBAN_RUN_RE, _iban_ok, _IBAN_MAXLEN),
+            ("CREDIT_CARD", _CARD_RUN_RE, _luhn_ok, _CARD_MAXLEN)):
+        for start, end in _checksummed_spans(text, run_re, validate, max_len):
             entities.append({"start": start, "end": end, "entity_type": etype, "score": 0.95})
     return resolve_overlaps(entities)
 

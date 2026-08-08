@@ -671,6 +671,133 @@ async def test_fallback_fuga_parcial_del_round1_ahora_enmascara_entero():
     assert masked.startswith("Importe 250 [CREDIT_CARD_0_") and masked.endswith("] gracias")
 
 
+# ── Fuga PARCIAL en tarjeta AGRUPADA precedida de un importe (review R3, hallazgo ALTO) ──
+#
+# El round-2 permitía que un match terminara en una frontera de token INTERNA (los espacios
+# entre los grupos de 4 de una tarjeta escrita en formato humano). Cuando `importe + primeros
+# grupos` daba Luhn válido pero `importe + tarjeta completa` no, enmascaraba `importe+prefijo`
+# y dejaba los últimos grupos (dígitos del PAN) colgando en claro. Ningún test anterior lo
+# cazaba porque TODOS usaban tarjetas sin espacios (`4111111111111111`). Estos usan el formato
+# agrupado real. FALLAN sobre el código round-2 (dejan 4-12 dígitos del PAN en claro).
+
+# Tarjetas de test reales (Luhn válidas) en grupos de 4 (formato humano).
+_GROUPED_CARDS = ["4111 1111 1111 1111", "4398 2597 9190 7482", "5555 5555 5555 4444",
+                  "4526 0181 5908 3012", "4000 0012 3456 7899"]
+
+
+def _clear_text(masked: str, pmap) -> str:
+    """El texto que sobrevive EN CLARO: `masked` con los placeholders quitados. Hace falta
+    porque el nonce del placeholder (`[CREDIT_CARD_0_<hex>]`) puede contener por azar 4
+    dígitos que coincidan con un grupo del PAN — eso NO es fuga (el PAN sí está enmascarado)."""
+    clear = masked
+    for ph in pmap.ph_to_orig:
+        clear = clear.replace(ph, " ")
+    return clear
+
+
+def _pan_groups_in_clear(masked: str, card: str, pmap) -> list:
+    """Grupos de 4 dígitos del PAN que sobreviven en el texto EN CLARO. Con importes de
+    ≤3 dígitos NO hay coincidencia posible de un grupo de 4 → cualquier hit es fuga real."""
+    clear = _clear_text(masked, pmap)
+    pan = card.replace(" ", "").replace("-", "")
+    return [pan[k:k + 4] for k in range(0, len(pan), 4) if pan[k:k + 4] in clear]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("card", _GROUPED_CARDS)
+@pytest.mark.parametrize("amount", ["0", "7", "16", "42", "250", "999", "016", "007"])
+@pytest.mark.parametrize("layout", ["{a} {c}", "{a}-{c}", "{c} {a}", "importe {a}, tarjeta {c}."])
+async def test_fallback_tarjeta_agrupada_con_importe_cero_pan_en_claro(card, amount, layout):
+    """Ni un dígito del PAN de una tarjeta AGRUPADA queda en claro por llevar un importe
+    pegado delante/detrás (review R3). Importes ≤3 díg ⇒ un grupo de 4 del PAN en claro es
+    fuga inequívoca."""
+    text = layout.format(a=amount, c=card)
+    masked, _types, pmap = await _fallback_mask(text)
+    assert _pan_groups_in_clear(masked, card, pmap) == [], f"fuga parcial del PAN: {masked!r}"
+    assert card not in _clear_text(masked, pmap)
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,card", [
+    ("016 4398 2597 9190 7482", "4398 2597 9190 7482"),               # evidencia R3 (4 díg. fugaban)
+    ("100000007 4111 1111 1111 1111", "4111 1111 1111 1111"),         # evidencia R3 (12 díg.)
+    ("94875749118625 4526 0181 5908 3012", "4526 0181 5908 3012"),    # evidencia R3 (12 díg.)
+])
+async def test_fallback_evidencia_r3_cero_pan_en_claro(text, card):
+    """Las 3 cadenas de evidencia del reviewer: el PAN queda ÍNTEGRAMENTE enmascarado (cero
+    dígitos en claro), y el masking es reversible."""
+    masked, _types, pmap = await _fallback_mask(text)
+    pan = card.replace(" ", "")
+    # ningún tramo de ≥4 dígitos consecutivos del PAN sobrevive en una corrida EN CLARO
+    # (placeholders quitados: su nonce hex podría coincidir por azar con dígitos del PAN)
+    clear_runs = re.findall(r"\d+", _clear_text(masked, pmap))
+    for run in clear_runs:
+        for L in range(4, len(pan) + 1):
+            for s in range(len(pan) - L + 1):
+                assert pan[s:s + L] not in run, f"{L} díg. del PAN en claro: {masked!r}"
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_iban_agrupado_con_basura_delante_cero_fuga():
+    """Análogo del R3 para IBAN agrupado (grupos de 4). Un token corto delante no deja el
+    IBAN colgando en una frontera de grupo interna."""
+    for junk in ["XX", "12", "ES", "REF"]:
+        text = f"{junk} ES91 2100 0418 4502 0005 1332"
+        masked, _types, pmap = await _fallback_mask(text)
+        clear = _clear_text(masked, pmap)
+        # ni el IBAN completo ni ningún grupo final del cuerpo en claro
+        assert "ES9121000418450200051332" not in clear.replace(" ", "")
+        assert "0005 1332" not in clear and "4502 0005 1332" not in clear
+        assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_fuzz_tarjeta_agrupada_importe_cero_fugas():
+    """Fuzz acotado (regresión R3): tarjetas Luhn-válidas en 3 formatos × importes ≤3 díg ×
+    posiciones/separadores. Ni un dígito del PAN en claro (importe corto ⇒ sin coincidencia).
+    Cubre el espacio que el reviewer midió con fuga en ~9% de importes sobre el código viejo."""
+    import random
+    rnd = random.Random(64)
+
+    def make_card():
+        while True:
+            base = "4" + "".join(rnd.choice("0123456789") for _ in range(14))
+            for last in "0123456789":
+                if _luhn(base + last):
+                    return base + last
+
+    def _luhn(num):
+        d = [int(c) for c in num]
+        tot = 0
+        for i, x in enumerate(reversed(d)):
+            if i % 2 == 1:
+                x *= 2
+                if x > 9:
+                    x -= 9
+            tot += x
+        return tot % 10 == 0
+
+    checked = leaks = 0
+    for _ in range(400):
+        pan = make_card()
+        forms = [pan, " ".join(pan[k:k + 4] for k in range(0, 16, 4)),
+                 "-".join(pan[k:k + 4] for k in range(0, 16, 4))]
+        for f in forms:
+            for amount in (str(rnd.randint(0, 999)), str(rnd.randint(0, 9))):
+                for sep in (" ", "-"):
+                    for text in (f"{amount}{sep}{f}", f"{f}{sep}{amount}"):
+                        masked, _t, pmap = await _fallback_mask(text)
+                        checked += 1
+                        # importe ≤3 díg: un grupo de 4 del PAN en claro es fuga inequívoca
+                        # (placeholders quitados: el nonce hex podría coincidir por azar)
+                        clear = _clear_text(masked, pmap)
+                        if any(pan[k:k + 4] in clear for k in range(0, 16, 4)):
+                            leaks += 1
+    assert leaks == 0, f"{leaks}/{checked} inputs con dígitos del PAN en claro"
+
+
 # ── Teléfono internacional restaurado sin reintroducir el sobre-matcheo (R2, hallazgo 2) ──
 
 @pytest.mark.asyncio
