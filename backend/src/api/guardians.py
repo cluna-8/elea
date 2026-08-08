@@ -208,6 +208,9 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     # invariante FR-007 valga para TODA puerta de activación y no dependa de que el schema
     # siga sin ese campo mañana.
     await _gate_activacion(payload, quiere_activar=bool(payload.is_active), ya_activo=False)
+    # issue #104: postura efectiva del tenant ANTES del alta. El alta cae en DEFAULT_TENANT_ID
+    # (el schema de entrada no trae tenant), que es donde la resolverá el bloque de abajo.
+    postura_previa = _postura_efectiva_tenant(db, DEFAULT_TENANT_ID)
     guardian = Guardian(
         name=payload.name,
         guardian_type=payload.guardian_type,
@@ -220,6 +223,12 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     db.add(guardian)
     db.commit()
     db.refresh(guardian)
+    # issue #63/#104: el alta también audita — antes `POST` podía crear un `pii_masking` ACTIVO
+    # con `degrade` sin fila durable. Se audita SI el alta movió la postura EFECTIVA del tenant:
+    # un `pii_masking` activo que se vuelve gobernante en `degrade` queda registrado; uno INACTIVO
+    # (o que no llega a ser el más antiguo, o de otro tipo) no cambia nada ⇒ no genera ruido.
+    _auditar_cambio_postura_tenant(db, guardian.tenant_id, postura_previa,
+                                   _postura_efectiva_tenant(db, guardian.tenant_id))
     return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
@@ -291,11 +300,22 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
     return None
 
 
-# ── Registro durable del cambio de postura NLP (issue #63) ────────────────────────
+# ── Registro durable del cambio de postura NLP EFECTIVA del tenant (issue #63/#104) ─
 #
 # `nlp_fail_mode` decide si, con el detector real caído, el tráfico se RECHAZA o se sirve con
 # media protección. Es una decisión de seguridad, y una decisión de seguridad que nadie puede
 # reconstruir después no es auditable.
+#
+# Lo que se audita es la postura EFECTIVA del tenant —la del `pii_masking` ACTIVO más antiguo,
+# exactamente la fila que eligen los cuatro lectores del #104—, NO la de la fila aislada que se
+# está tocando. Auditar la fila aislada dejaba una evasión (hallazgo round 2 del gate): con dos
+# `pii_masking` activos (A viejo `block`, B nuevo `degrade`), `PUT A is_active=false` promueve a
+# B y mueve la postura del tenant `block→degrade` sin cambiar ninguna fila de forma "auditable";
+# y `DELETE` de la gobernante promueve a la siguiente. Comparando la postura efectiva ANTES y
+# DESPUÉS de cada mutación, un solo criterio cubre: cambio de config, toggle de is_active,
+# cambio de tipo, alta que se vuelve gobernante, y DELETE que promueve. Como bonus, un alta o
+# edición que NO cambia la postura efectiva (p.ej. un `pii_masking` INACTIVO en `degrade`) no
+# escribe nada: cero ruido.
 #
 # GAP CONOCIDO (para #72): este repo NO tiene hoy un mecanismo genérico de auditoría de
 # cambios de configuración — ningún endpoint de admin registra "quién cambió qué y cuándo".
@@ -308,31 +328,52 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
 _COMPLIANCE_CAMBIO_NLP = "config_change_nlp_fail_mode"
 
 
-def _auditar_cambio_nlp_fail_mode(db: Session, guardian, previo: str) -> None:
-    """Deja constancia durable si la postura ante el NLP caído cambió. Nunca propaga:
-    un fallo del registro no puede voltear un guardado que ya se commiteó."""
-    if guardian.guardian_type != "pii_masking":
-        return
-    actual = policy.resolve_nlp_fail_mode(guardian.config or {})
+def _postura_efectiva_tenant(db: Session, tenant_id) -> str:
+    """Postura NLP que GOBIERNA el tráfico del tenant: la del `pii_masking` ACTIVO más antiguo.
+
+    Corre EXACTAMENTE la misma selección que los cuatro lectores del #104 (`is_active=true`
+    ORDER BY created_at, id LIMIT 1) — es un espejo de `health._fail_mode_efectivo` y de
+    `gateway._nlp_context`, para que "qué se auditó" y "qué se sirve" no puedan divergir. Sin
+    ninguna fila activa, el default fail-closed `block`, que es lo que esos lectores aplican.
+
+    Es esta postura —no la de una fila aislada— la que hay que auditar: moverla desactivando,
+    borrando o reordenando filas es un cambio de política igual que editar el `nlp_fail_mode`."""
+    fila = (db.query(Guardian.config)
+            .filter(Guardian.tenant_id == tenant_id,
+                    Guardian.guardian_type == "pii_masking",
+                    Guardian.is_active.is_(True))
+            .order_by(Guardian.created_at, Guardian.id)
+            .first())
+    return policy.resolve_nlp_fail_mode((fila[0] if fila else None) or {})
+
+
+def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: str) -> None:
+    """Escribe la fila durable SI y sólo si la postura NLP EFECTIVA del tenant cambió. Nunca
+    propaga: un fallo del registro no puede voltear una mutación ya commiteada.
+
+    `previo` y `actual` los computa el handler con `_postura_efectiva_tenant` antes y después de
+    la mutación (y de su commit). Comparar la postura efectiva —no la de la fila tocada— es lo
+    que cierra la evasión por promoción del round 2 y, de paso, evita el ruido de altas/ediciones
+    que no cambian lo que de verdad gobierna."""
     if actual == previo:
         return
-    _log.warning("guardianes: nlp_fail_mode cambió de %s a %s (guardián PII, tenant=%s)",
-                 previo, actual, getattr(guardian, "tenant_id", None))
+    _log.warning("guardianes: nlp_fail_mode EFECTIVO del tenant cambió de %s a %s (tenant=%s)",
+                 previo, actual, tenant_id)
     try:
         AuditService.log_transaction(
             db=db,
-            # Metadata-only: el "modelo" de esta fila es el códido del cambio, no un LLM.
+            # Metadata-only: el "modelo" de esta fila es el código del cambio, no un LLM.
             # Ni tokens ni coste — no hubo tráfico, hubo una decisión de configuración.
             model=f"{_COMPLIANCE_CAMBIO_NLP}:{previo}->{actual}",
             prompt_tokens=0, completion_tokens=0, cost_usd=0.0,
             pii_detected=False, masked_entities=[],
             compliance_status=_COMPLIANCE_CAMBIO_NLP, latency_ms=0,
             processing_purpose="administrative",
-            tenant_id=getattr(guardian, "tenant_id", None),
+            tenant_id=tenant_id,
         )
     except Exception as exc:  # noqa: BLE001
-        _log.error("guardianes: el cambio de nlp_fail_mode (%s → %s) NO quedó registrado: %s",
-                   previo, actual, exc)
+        _log.error("guardianes: el cambio de nlp_fail_mode EFECTIVO (%s → %s) NO quedó "
+                   "registrado: %s", previo, actual, exc)
 
 
 @router.put("/{guardian_id}", response_model=GuardianResponseSchema)
@@ -347,11 +388,12 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     await _gate_activacion(guardian, quiere_activar=bool(payload.is_active),
                            ya_activo=bool(guardian.is_active))
 
-    # issue #63: la postura ante el motor NLP caído se captura ANTES de mutar, para poder
-    # comparar. Se resuelve por la MISMA función que usan los planos de tráfico, así el
-    # registro dice el valor EFECTIVO (una clave borrada vuelve a `block`, y eso también es
-    # un cambio de postura que hay que poder auditar).
-    nlp_previo = policy.resolve_nlp_fail_mode(guardian.config or {})
+    # issue #63/#104: se captura la postura EFECTIVA del tenant ANTES de tocar nada (sobre la DB
+    # sin mutar) y se vuelve a leer DESPUÉS del commit. Cualquier cambio de config, de is_active
+    # o de tipo que mueva la postura que de verdad gobierna —incluida la promoción de OTRA fila
+    # al desactivar la gobernante— queda registrado; lo que no la mueve, no.
+    tenant_id = guardian.tenant_id
+    postura_previa = _postura_efectiva_tenant(db, tenant_id)
 
     guardian.name = payload.name
     guardian.guardian_type = payload.guardian_type
@@ -364,7 +406,8 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
         guardian.service_api_key_encrypted = encrypt(payload.service_api_key) if payload.service_api_key else None
 
     db.commit()
-    _auditar_cambio_nlp_fail_mode(db, guardian, nlp_previo)
+    _auditar_cambio_postura_tenant(db, tenant_id, postura_previa,
+                                   _postura_efectiva_tenant(db, tenant_id))
     db.refresh(guardian)
     # Misma sonda (cacheada) que el GET: si el PUT devolviera la disponibilidad calculada
     # con otra fuente, la tarjeta cambiaría de forma al guardar y volvería sola al recargar.
@@ -395,6 +438,14 @@ def delete_guardian(guardian_id: UUID, db: Session = Depends(get_db)):
     guardian = db.query(Guardian).filter(Guardian.id == guardian_id).first()
     if not guardian:
         raise HTTPException(status_code=404, detail="Guardian no encontrado.")
+    # issue #104: borrar la gobernante PROMUEVE a la siguiente `pii_masking` activa y puede mover
+    # la postura efectiva del tenant sin que ninguna fila "cambie" — la misma evasión que el PUT
+    # con is_active=false. Se compara la postura efectiva antes/después del borrado. `tenant_id`
+    # se captura ANTES del delete (después la instancia queda desprendida).
+    tenant_id = guardian.tenant_id
+    postura_previa = _postura_efectiva_tenant(db, tenant_id)
     db.delete(guardian)
     db.commit()
+    _auditar_cambio_postura_tenant(db, tenant_id, postura_previa,
+                                   _postura_efectiva_tenant(db, tenant_id))
     return None

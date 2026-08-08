@@ -79,23 +79,29 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        -- por tenant; la cascada fina por client/group es spec 015).
        (SELECT sp.entity_configs FROM security_policies sp
          WHERE sp.tenant_id = k.tenant_id AND sp.is_active = true LIMIT 1) AS entity_configs,
+       -- issue #104: `ORDER BY gd.created_at, gd.id` en las TRES subconsultas de `pii_masking`.
+       -- Sin él, con dos guardianes `pii_masking` activos cada subconsulta elegía una fila
+       -- ARBITRARIA y este plano podía leer una postura distinta a la del backend y a la que
+       -- publica `/health`. Mismo desempate determinista que el presupuesto de abajo (#76), y
+       -- espejo EXACTO del de backend/src/api/internal.py para que ambos elijan la misma fila.
        (SELECT gd.config->'custom_names' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
-           AND gd.is_active = true LIMIT 1) AS custom_names,
+           AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS custom_names,
        -- Catálogo de entidades custom (regex + contexto agregados vía panel/IA,
        -- ver backend/src/services/entity_catalog_service.py) — mismo Guardian.
        (SELECT gd.config->'custom_entities' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
-           AND gd.is_active = true LIMIT 1) AS custom_entities,
+           AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS custom_entities,
        -- issue #63: qué hacer si el analyzer NLP no responde (`block` | `degrade`).
        -- ⚠️ ESPEJO de backend/src/api/internal.py (_IDENTITY_SQL): si una copia lo trae y la
        -- otra no, la postura del admin depende de qué env está cableada y el bug del #63
-       -- (degradar sin que nadie lo decida) renace por el camino que no lo lleva.
+       -- (degradar sin que nadie lo decida) renace por el camino que no lo lleva. El ORDER BY
+       -- del #104 también es espejo: las dos copias eligen la misma fila más antigua.
        -- `->>` y no `->`: el consumidor compara contra un str del vocabulario cerrado, y un
        -- valor JSON entrecomillado ("degrade" con comillas) no matchearía nunca.
        (SELECT gd.config->>'nlp_fail_mode' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
-           AND gd.is_active = true LIMIT 1) AS nlp_fail_mode,
+           AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS nlp_fail_mode,
        -- #76: presupuesto de NUESTRA tabla `budgets` (no el del motor: en selfhosted su
        -- provisionador de keys no existe y `max_budget` es siempre NULL). Nombres EXACTOS
        -- del contrato del plano interno: max_budget_usd (float|None), spend_usd (float).
