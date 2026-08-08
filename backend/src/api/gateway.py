@@ -167,8 +167,44 @@ def _with_query(url: str, request: Request) -> str:
     return f"{url}?{q}" if q else url
 
 
+def _textos_enmascarables(bloque: dict) -> list:
+    """Strings de un bloque de content que el enmascarado SÍ transforma.
+
+    **Espejo exacto de ``policy._mask_content``** — y tiene que seguir siéndolo. Ese es el
+    contrato: cada string que este helper devuelve es un string que ``mask_body`` reescribe,
+    o sea que leerlo del body ya enmascarado es seguro.
+
+    Por qué es load-bearing (hallazgo ALTO del review adversarial del #63): antes se
+    recogía ``b.get("text")`` de CUALQUIER dict del content, sin mirar el ``type``, mientras
+    el masker sólo toca ``type == "text"`` y ``type == "tool_result"``. Un bloque
+    ``{"type": "image", "text": "Sr. Juan Pérez, juan@clinica.es"}`` —forma válida de la API,
+    y trivial de construir para un cliente— viajaba SIN enmascarar y salía LITERAL a la
+    vitrina y a Redis por el atajo ``ya_enmascarado`` de ``_safe_preview``. C1 prohíbe
+    exactamente eso: PII cruda en el monitor.
+
+    Nota deliberada: ``policy.extract_inspect_text`` sigue siendo más amplio (recoge todo
+    ``text``) y está bien así — ese texto alimenta DETECTORES (AI-Act, secretos, conteo de
+    PII), donde mirar de más es conservador. Acá se MUESTRA, y mostrar de más es una fuga."""
+    tipo = bloque.get("type")
+    if tipo == "text":
+        return [bloque["text"]] if isinstance(bloque.get("text"), str) else []
+    if tipo == "tool_result":
+        contenido = bloque.get("content")
+        if isinstance(contenido, str):
+            return [contenido]
+        if isinstance(contenido, list):
+            return [sub["text"] for sub in contenido
+                    if isinstance(sub, dict) and sub.get("type") == "text"
+                    and isinstance(sub.get("text"), str)]
+    return []
+
+
 def _last_user_text(body: dict) -> str:
-    """Turno user más reciente, aplanado a texto (para el preview del monitor)."""
+    """Turno user más reciente, aplanado a texto (para el preview del monitor).
+
+    Sólo los strings que el enmascarado transforma (``_textos_enmascarables``): lo que este
+    helper devuelve termina en la vitrina, así que no puede incluir un campo que el masker
+    nunca tocó."""
     messages = body.get("messages")
     for msg in reversed(messages if isinstance(messages, list) else []):
         if not isinstance(msg, dict) or msg.get("role") != "user":
@@ -177,8 +213,8 @@ def _last_user_text(body: dict) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
-            parts = [b.get("text", "") for b in content
-                     if isinstance(b, dict) and isinstance(b.get("text"), str)]
+            parts = [texto for b in content if isinstance(b, dict)
+                     for texto in _textos_enmascarables(b)]
             return "\n".join(p for p in parts if p)
     return ""
 
@@ -520,7 +556,8 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         # cuya postura configuró el admin. Saltear la lectura acá dejaría al tráfico sin
         # atribución fuera de la gobernanza que el admin cree haber configurado.
         ident["governance_decisions"] = _governance_rows(db, ident["tenant_id"])
-        ident["nlp"] = _nlp_context(db, ident["tenant_id"])
+        ident["nlp"] = _nlp_context(db, ident["tenant_id"],
+                                    atribuible=_tenant_atribuible(ident))
     except Exception as exc:  # noqa: BLE001
         logger.warning("gateway: atribución best-effort falló (%s); sigo anónimo", exc)
     finally:
@@ -528,7 +565,7 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
     return ident
 
 
-def _nlp_context(db, tenant_id) -> dict:
+def _nlp_context(db, tenant_id, atribuible: bool = False) -> dict:
     """Config de detección del guardián ``pii_masking`` del tenant (issue #63).
 
     UNA consulta por pedido, sobre la sesión que ``_resolve_attribution`` ya tiene abierta:
@@ -538,7 +575,21 @@ def _nlp_context(db, tenant_id) -> dict:
 
     **Fail-closed**: si la lectura falla, dict vacío ⇒ sin listas personalizadas y
     ``nlp_fail_mode`` en su default ``block``. No poder leer la config sólo puede quitar
-    relajaciones, nunca concederlas — mismo criterio que ``_governance_rows``."""
+    relajaciones, nunca concederlas — mismo criterio que ``_governance_rows``.
+
+    **Sin tenant atribuible, ``nlp_fail_mode`` se fuerza a ``block``** (hallazgo ALTO del
+    review adversarial). Es la MISMA barrera que la 027 ya aplica al perfil de gobernanza en
+    ``_resolve_governance_profile`` (``Profile.from_dict(..., trusted=False)``: sobreviven
+    las decisiones que AGREGAN protección, se descartan las que RELAJAN), y falta acá por el
+    mismo motivo por el que hacía falta allá. ``X-Basa-Key`` es OPCIONAL en esta ruta —la
+    credencial es el OAuth—, así que sin esta línea, en una instalación multi-tenant,
+    **omitir el header** bastaba para caer al ``DEFAULT_TENANT_ID``: si ESE tenant tiene
+    ``degrade``, un cliente cuyo admin configuró ``block`` conseguía que su tráfico se
+    sirviera con regex tirando abajo el sidecar. La atribución puede degradarse a anónima;
+    la postura no puede degradarse a "la de otro".
+
+    ``custom_names``/``custom_entities`` del tenant de fallback SÍ se conservan: sólo pueden
+    AGREGAR entidades a enmascarar, nunca quitar. La barrera descarta relajaciones, no datos."""
     try:
         from ..models.guardian import Guardian
         fila = (db.query(Guardian.config)
@@ -551,8 +602,10 @@ def _nlp_context(db, tenant_id) -> dict:
             "custom_names": cfg.get("custom_names") or [],
             "custom_entities": cfg.get("custom_entities") or [],
             # Crudo: quien decide es `policy.resolve_nlp_fail_mode`, que tiene el default
-            # fail-closed en UN solo lugar para los dos planos.
-            policy.NLP_FAIL_MODE_KEY: cfg.get(policy.NLP_FAIL_MODE_KEY),
+            # fail-closed en UN solo lugar para los dos planos. Salvo sin tenant atribuible,
+            # donde la barrera de la 027 obliga al valor más protector.
+            policy.NLP_FAIL_MODE_KEY: (cfg.get(policy.NLP_FAIL_MODE_KEY) if atribuible
+                                       else policy.NLP_FAIL_BLOCK),
         }
     except Exception as exc:  # noqa: BLE001
         logger.warning("gateway: config de detección NLP no legible (%s); defaults "
