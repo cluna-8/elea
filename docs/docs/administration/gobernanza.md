@@ -156,6 +156,15 @@ capa. 🟢
 Una instancia actualizada desde una versión anterior no cambia de comportamiento: sin decisión
 escrita, se bloquea. Continuar es una elección que hay que tomar explícitamente.
 
+!!! important "Esta opción gobierna el enmascarado, no es un interruptor general"
+    *Bloquear* corta el camino del **enmascarado**: sólo afecta al tráfico cuya capa de
+    enmascarado está encendida. Donde el enmascarado esté apagado por decisión —una relajación
+    legítima, por ejemplo en herramientas de código— el tráfico **sigue saliendo sin
+    transformar** aunque el motor esté caído, exactamente igual que cuando está sano. La
+    protección base no se ve afectada en ningún caso: interceptar, registrar, evaluar
+    cumplimiento y bloquear secretos siguen corriendo. Dicho de otro modo: esto decide qué
+    pasa cuando **no se puede enmascarar con garantías**, no es un corte global del servicio.
+
 !!! warning "Continuar significa cobertura menor, no cobertura igual"
     La detección por patrones encuentra menos que el motor de lenguaje. Dos ejemplos concretos:
     un nombre y apellido sin tratamiento previo ("escribile a Marta Iglesias") y un teléfono

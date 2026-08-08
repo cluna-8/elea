@@ -91,6 +91,15 @@ comprueba que el motor volvió a responder.
     Para revisar o cambiar esta configuración, hable con su soporte técnico en
     **soporte@basa-dev.com**.
 
+!!! note "Qué alcanza «bloquear» (y qué no)"
+    Esta opción gobierna el **enmascaramiento**: afecta al tráfico cuya capa de
+    enmascaramiento está encendida. Si su organización la tiene apagada para algún tipo de
+    tráfico —por ejemplo en herramientas de programación, donde los marcadores rompen el
+    código—, ese tráfico **sigue saliendo sin enmascarar** durante la caída, igual que
+    cuando el motor está sano. No es un interruptor general del servicio. Las protecciones
+    de base (interceptar, registrar, evaluar cumplimiento y bloquear secretos) siguen
+    aplicándose en todos los casos.
+
 ## Políticas de Cumplimiento
 
 Se abre desde **Políticas de Cumplimiento**. Es el espacio de trabajo de la persona
