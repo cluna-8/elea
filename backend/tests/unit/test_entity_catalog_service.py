@@ -1,7 +1,10 @@
 """Catálogo de entidades custom (extensión post-016): validación de seguridad del
 regex (compila / largo / ReDoS con timeout), test_pattern, y el ciclo
 create/list/delete sobre un Guardian fake (sin Postgres real — DB stub mínimo)."""
+import asyncio
+import json
 import threading
+import time
 
 import pytest
 
@@ -319,3 +322,177 @@ def test_create_custom_entity_allows_same_type_if_existing_is_not_active(monkeyp
     )
     assert created["status"] == "active"
     assert len(svc.list_custom_entities(db, "tenant-x")) == 2
+
+
+# ── Hardening #106: DoS del threadpool + cap de cantidad + join acotado ─────────
+# Modelo de amenaza: NO DoS anónimo. `POST /custom-entities` y `draft_entity` están
+# admin-gated; el atacante es un ADMIN HOSTIL o una PROMPT INJECTION (las listas de test
+# strings del draft las escribe el LLM desde `description`). Defensa en profundidad real.
+
+# (b) join(timeout) tras kill(): un hijo que NO muere no cuelga el hilo para siempre.
+
+class _FakeUnkillableProc:
+    """Simula un subproceso en estado D (uninterruptible): ignora terminate()/kill() y
+    NUNCA reporta que murió. Sus `join()` no duermen — verificamos que el código PASA un
+    timeout finito (no un `join()` pelado), no el reloj de pared."""
+    def __init__(self):
+        self.pid = 4242
+        self.started = False
+        self.terminated = False
+        self.killed = False
+        self.joins = []  # timeouts con los que se llamó a join()
+
+    def start(self):
+        self.started = True
+
+    def is_alive(self):
+        return True  # nunca muere
+
+    def join(self, timeout=None):
+        self.joins.append(timeout)  # no bloquea: solo registra el timeout recibido
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+
+class _FakeEmptyQueue:
+    def get(self, timeout=None):
+        raise Exception("empty")  # nada en la cola -> _run_in_process resuelve "desconocido"
+
+
+class _FakeSpawnCtx:
+    def __init__(self, proc):
+        self._proc = proc
+
+    def Queue(self):
+        return _FakeEmptyQueue()
+
+    def Process(self, target, args):
+        return self._proc
+
+
+def test_run_in_process_join_after_kill_is_bounded(monkeypatch):
+    """#106 hallazgo 3: `p.kill(); p.join()` sin timeout colgaría el hilo PARA SIEMPRE si el
+    hijo quedó en estado D. Con el fix, el join final lleva `_KILL_JOIN_TIMEOUT_S` y el hilo
+    se libera aunque el hijo nunca muera (best-effort, se loguea)."""
+    proc = _FakeUnkillableProc()
+    monkeypatch.setattr(svc.mp, "get_context", lambda method: _FakeSpawnCtx(proc))
+
+    start = time.monotonic()
+    result = svc._run_in_process("x", "y", timeout_s=0.5)
+    elapsed = time.monotonic() - start
+
+    assert result is None  # cola vacía -> desconocido (nunca "matcheó")
+    assert proc.terminated and proc.killed  # recorrió el camino de matar de verdad
+    assert proc.joins, "no se llamó a join()"
+    # NINGÚN join es pelado: un `join(None)` es exactamente el que colgaría el hilo.
+    assert all(t is not None for t in proc.joins), f"join sin timeout (colgaría): {proc.joins}"
+    # El join final (tras kill) usa el techo del #106.
+    assert proc.joins[-1] == svc._KILL_JOIN_TIMEOUT_S
+    # No colgó: con joins no-op el retorno es inmediato (holgura amplia sobre el tope real).
+    assert elapsed < 5.0
+
+
+# (a) cap de CANTIDAD de test strings (prompt injection influye las listas del LLM).
+
+def test_test_pattern_caps_number_of_test_strings(monkeypatch):
+    """#106 hallazgo 2: `test_pattern` spawnea UN subproceso por string; sin techo, una lista
+    inflada (LLM/prompt injection) = ~7 min de hilo. Se truncan a `MAX_TEST_STRINGS` ANTES de
+    spawnear, y el recorte se reporta (honesto, no silencioso)."""
+    calls = []
+    monkeypatch.setattr(svc, "_run_in_process",
+                        lambda pattern, text, *a, **k: (calls.append(text) or True))
+
+    over = svc.MAX_TEST_STRINGS + 30
+    result = svc.test_pattern(
+        r"m-\d+",
+        positives=[f"m-{i}" for i in range(over)],
+        negatives=[f"n-{i}" for i in range(svc.MAX_TEST_STRINGS + 5)],
+    )
+
+    # No se spawnea un subproceso por string sin límite: cap por lista.
+    assert len(result["positives"]) == svc.MAX_TEST_STRINGS
+    assert len(result["negatives"]) == svc.MAX_TEST_STRINGS
+    assert len(calls) == 2 * svc.MAX_TEST_STRINGS
+    # Aviso honesto, no descarte silencioso.
+    assert result["truncated"] is True
+    assert result["max_test_strings"] == svc.MAX_TEST_STRINGS
+    assert result["positives_total"] == over
+
+
+def test_test_pattern_small_lists_not_truncated(monkeypatch):
+    """Happy-path del cap: listas por debajo del techo NO se marcan truncadas."""
+    monkeypatch.setattr(svc, "_run_in_process", lambda pattern, text, *a, **k: True)
+    result = svc.test_pattern(r"m-\d+", positives=["m-1", "m-2"], negatives=["n-1"])
+    assert result["truncated"] is False
+    assert result["positives_total"] == 2 and result["negatives_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_draft_entity_caps_ai_test_strings(monkeypatch):
+    """#106 hallazgo 2 en el path que importa: las listas del draft las escribe el LLM. Un
+    draft con MÁS de `MAX_TEST_STRINGS` no spawnea N subprocesos ilimitados — se truncan y el
+    draft devuelve SOLO lo realmente probado, con el flag `truncated`."""
+    n = svc.MAX_TEST_STRINGS + 40
+    fake_response = {"choices": [{"message": {"content": json.dumps({
+        "entity_type": "HISTORIA_CLINICA_ES", "regex": r"\bHC-\d{6}\b", "score": 0.7,
+        "context": [], "test_positive": [f"HC-{i:06d}" for i in range(n)], "test_negative": [],
+    })}}]}
+
+    async def fake_post(path, payload):
+        return fake_response
+
+    monkeypatch.setattr(svc.ai_engine_client, "_post", fake_post)
+    calls = []
+    monkeypatch.setattr(svc, "_run_in_process",
+                        lambda pattern, text, *a, **k: (calls.append(text) or True))
+
+    draft = await svc.draft_entity("historia clínica")
+
+    # El draft devuelve lo REALMENTE probado (truncado), no las N listas crudas del LLM.
+    assert len(draft["test_positive"]) == svc.MAX_TEST_STRINGS
+    assert len(draft["test_result"]["positives"]) == svc.MAX_TEST_STRINGS
+    assert draft["test_result"]["truncated"] is True
+    assert draft["test_result"]["positives_total"] == n
+    # Subprocesos acotados: 3 de validate_pattern_safety (inputs adversariales fijos) +
+    # a lo sumo MAX_TEST_STRINGS de las positives, NO uno por cada uno de los N del LLM.
+    assert len(calls) == 3 + svc.MAX_TEST_STRINGS
+
+
+# (c) aislamiento: la validación corre en un executor dedicado y ACOTADO, no en el
+#     threadpool anyio general -> un pico hostil se encola, no starva al backend.
+
+def test_validation_executor_is_dedicated_and_bounded():
+    """#106 hallazgo 1: existe un executor propio y su límite está en el rango de diseño
+    (2-4). El `max_workers` ES el semáforo efectivo sobre las validaciones/subprocesos."""
+    assert svc._VALIDATION_EXECUTOR._max_workers == svc.REDOS_VALIDATION_CONCURRENCY
+    assert 2 <= svc.REDOS_VALIDATION_CONCURRENCY <= 4
+
+
+@pytest.mark.asyncio
+async def test_offload_bounded_caps_concurrency():
+    """El aislamiento se APLICA: aunque se disparen muchas más validaciones que `max_workers`,
+    nunca corren más de N a la vez — la (N+1) espera. Determinista: el executor no puede
+    exceder su `max_workers`."""
+    n = svc.REDOS_VALIDATION_CONCURRENCY
+    lock = threading.Lock()
+    state = {"cur": 0, "max": 0}
+
+    def _work(_i):
+        with lock:
+            state["cur"] += 1
+            state["max"] = max(state["max"], state["cur"])
+        time.sleep(0.05)  # fuerza solapamiento para que el pico realmente alcance N
+        with lock:
+            state["cur"] -= 1
+        return True
+
+    await asyncio.gather(*[svc._offload_bounded(_work, i) for i in range(n * 3)])
+
+    # Nunca más de N validaciones concurrentes (aislamiento real, no teórico).
+    assert state["max"] <= n
+    # Y el límite se alcanza: con 3xN tareas solapadas el pico llega a N (no quedó en 1).
+    assert state["max"] == n
