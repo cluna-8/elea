@@ -47,6 +47,49 @@ lanza con un comando, verifica las precondiciones del stack (fingerprint + confi
 exigida), genera carga con modelo de llegadas abierto, y produce
 `verdict.json` + `fingerprint.json` + `reporte.md` sin análisis manual.
 
+## Drill de saturación (C1)
+
+Un **drill** no pregunta «¿aguanta 125?» sino «cuando NO aguanta, ¿se defiende bien?».
+`gates/drill-saturacion-125.yaml` (`kind: drill`) corre en **modo sede-lenta**: el stub
+gotea (`token_rate_tps: 5`) con streams largos (60-120 s) que ocupan el tope de
+concurrencia al motor, y una ráfaga de chat (`burst`, `arrival_factor: 3`) encuentra la
+cola llena. Ahí el backend debe **rechazar rápido**, no colgarse.
+
+**Contrato de wire** (sellado con el core — el harness lo mide, no lo define):
+
+| Pieza | Valor |
+|---|---|
+| Identificación | header `X-Basa-Rejected: saturated` en **todo** 503 de saturación, en los dos caminos (`/api/v1/chat/completions` y `/api/v1/gw/v1/messages`). El header ES la llave: un 503 **sin** él no es rechazo de admisión (puede ser Caddy o un proxy de la sede) y no se cuenta. En chat el body agrega `code: "rejected_saturated"`; en `/gw` el error mantiene shape Anthropic. |
+| Estado auditado | fila en `audit_logs` con el estado **literal** `rejected_saturated` (deliberadamente NO es un bloqueo de política). |
+| Durabilidad | 1 fila durable por request rechazada, escrita **ANTES** de responder el 503 — incluido el camino del queue-timeout. |
+
+```bash
+# 1) baseline: el gate 125 oficial del MISMO día (mismo hardware, misma imagen)
+python -m basa_harness.orchestrator --gate 125 --backend-url https://<sut>/
+
+# 2) derivar el presupuesto de admin del baseline (p95 de admin + 50% de margen)
+jq '.overhead.admin.medida_ms.p95 * 1.5' runs/<run-id-baseline>/verdict.json
+
+# 3) el drill, con ese umbral (el YAML lo deja en null a propósito: no se hornea)
+python -m basa_harness.orchestrator \
+  --gate-file gates/drill-saturacion-125.yaml \
+  --run-id 20260809-drill-sat-01 \
+  --backend-url https://<sut>/ --drill-admin-budget-ms 33
+```
+
+El run sale marcado `kind: drill` (lo impone el YAML, no el flag) y el `verdict.json`
+suma hasta tres filas **después** de los 4 SLO de oro, que siguen intactos y
+obligatorios: `saturated_503_rows_durable` (espejo de los bloqueos durables — negar
+servicio sin fila es tan grave como bloquear sin ella), `rejection_time_to_503_p95`
+(umbral 6000 ms = queue-timeout de 5 s + 1 s de margen; caza el anti-patrón de los
+timeouts de 150 s del incidente del 30-jul) y `admin_latency_budget_p95`. Detalle de las
+filas en [`contracts/run-report.md`](../specs/035-load-harness/contracts/run-report.md).
+
+> Los rechazos se cronometran en una Trend **aparte** (`lat_rejection`): un 503 rápido no
+> es latencia de servicio y hundiría los percentiles del gate. Y un rechazo **no** cuenta
+> como corte de stream en coding — nunca hubo stream que cortar. Un run sin rechazos
+> produce un verdict idéntico al de antes de C1.
+
 ## Entorno de examen
 
 Hetzner Cloud, project dedicado `guardian-itv` (swap desde AWS aprobado el 08-ago —

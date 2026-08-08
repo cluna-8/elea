@@ -31,6 +31,25 @@ Reglas: `medido: null` en el SLO (a) ⇒ FAIL (nunca se interpreta como 0) · co
 final < inicial ⇒ `estado: invalid` (no hay verdict) · `global: PASS` ⟺ 4 PASS +
 `estado: completed` + `instrumento.valido: true`.
 
+### Filas OPCIONALES del rechazo de admisión (extensión C1, 2026-08-08)
+
+Van SIEMPRE después de las 4 canónicas y en este orden. `global: PASS` exige que pasen
+**todas** las filas presentes. Si ninguna aplica, el `verdict.json` es byte a byte el de
+antes de C1 — los gates oficiales existentes no se mueven.
+
+| Fila | Cuándo aparece | Medido |
+|---|---|---|
+| `saturated_503_rows_durable` | el run es `kind: drill` **o** el guion vio ≥1 rechazo | `filas / rechazos` (1.0 = paridad). Sin rechazos: `1.0` PASS vacuo. Con rechazos y sin conteo de filas: `null` ⇒ FAIL |
+| `rejection_time_to_503_p95` | run `drill` **y** `rejection_p95_max_ms` fijado | p95 de `rejection_ms` (ms). Sin rechazos en el run: `null` con veredicto PASS (vacuo — no hay p95 que medir; la regla del `null`⇒FAIL es exclusiva del SLO (a)) |
+| `admin_latency_budget_p95` | run `drill` **y** `admin_p95_budget_ms` fijado (YAML o `--drill-admin-budget-ms`) | p95 de `surfaces.admin.latency_ms` (ms) |
+
+Un criterio de drill **sin umbral** no produce fila: deja una entrada en `notas` que dice
+cómo fijarlo (p. ej. derivar el presupuesto de admin del baseline del gate oficial del
+mismo día). El insumo del guion es `k6_summary.saturated_rejections` + `rejection_ms`
+(Trend `lat_rejection`, aparte de las latencias de servicio para no hundir los
+percentiles del gate); el del producto es `reconciliation.filas_rejected_saturated` =
+filas de `audit_logs` con el estado literal `rejected_saturated`.
+
 ## `fingerprint.json`
 
 Lista mínima de FR-009 (data-model): producto (commit + digests), masking por scope,
