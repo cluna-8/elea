@@ -119,6 +119,21 @@ _probe_cache: Optional[tuple] = None  # (monotonic, escribible)
 _REDIS_KEY_AUDIT_LOST = "basa:audit:lost"
 _REDIS_KEY_AUDIT_LAST_FAIL = "basa:audit:last_fail"
 
+# Default del host de Redis ALINEADO con el del backend (`services/redis_client.py`:
+# `eu-redis`). Antes acá decía `redis` —el nombre del servicio del compose de DEV— y el
+# backend decía otra cosa: en un despliegue que no cablee `REDIS_HOST` (el perfil de nube no
+# se lo pasaba al servicio `litellm`), el motor ESCRIBÍA las marcas en un host y el health
+# las LEÍA de otro, así que la degradación se reportaba como cero. Las claves son
+# compartidas entre planos; el destino también tiene que serlo.
+_REDIS_HOST_DEFAULT = "eu-redis"
+
+
+def _redis_endpoint() -> tuple:
+    """`(host, port)` de Redis para este proceso. Único lugar donde se resuelve, para que
+    los dos escritores de este módulo no puedan apuntar a sitios distintos."""
+    return os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT), int(os.getenv("REDIS_PORT", "6379"))
+
+
 _AUDIT_FAIL_CLOSED = "closed"
 _AUDIT_FAIL_OPEN = "open"
 
@@ -188,8 +203,8 @@ async def _contar_perdida(motivo: str) -> None:
                      "(motivo=%s ts=%s)", motivo, ahora)
         return
     try:
-        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", "redis"),
-                                 port=int(os.getenv("REDIS_PORT", "6379")))
+        host, port = _redis_endpoint()
+        client = redis_lib.Redis(host=host, port=port)
         pipe = client.pipeline()
         pipe.incr(_REDIS_KEY_AUDIT_LOST)
         pipe.set(_REDIS_KEY_AUDIT_LAST_FAIL, ahora)
@@ -403,8 +418,8 @@ async def _marcar_nlp_degradado() -> None:
                      "(ts=%s)", ahora)
         return
     try:
-        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", "redis"),
-                                 port=int(os.getenv("REDIS_PORT", "6379")))
+        host, port = _redis_endpoint()
+        client = redis_lib.Redis(host=host, port=port)
         pipe = client.pipeline()
         pipe.set(_REDIS_KEY_NLP_DEGRADED_SINCE, ahora, nx=True)
         pipe.incr(_REDIS_KEY_NLP_DEGRADED_COUNT)

@@ -22,6 +22,11 @@ services:
       POSTGRES_USER: "${POSTGRES_USER:?}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?generado por instalación (US5), jamás default}"
       REDIS_HOST: "${REDIS_HOST:?}"
+      # costura → Falime (Factory): el puerto viajaba sólo por default. Se declara explícito
+      # para que backend y motor resuelvan el MISMO endpoint — los dos escriben y leen las
+      # mismas claves (`basa:audit:*`, `basa:nlp:*`) y apuntar a instancias distintas hace
+      # que el health cuente cero mientras el otro plano registra.
+      REDIS_PORT: "${REDIS_PORT:-6379}"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
       LITELLM_API_BASE: "http://litellm:4000"
@@ -113,6 +118,16 @@ services:
       # Detección NLP real (016): nombre de servicio compose + puerto interno del
       # sidecar. Sin esta línea el motor enmascara con regex y el cliente no se entera.
       NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
+      # costura → Falime (Factory): el motor ESCRIBE en Redis las mismas claves que el
+      # backend LEE — contador de eventos de auditoría perdidos (031) y marca de degradación
+      # de la detección NLP (#63) —, pero este servicio no recibía `REDIS_HOST`. En nube,
+      # donde Redis es gestionado y no existe ningún host llamado `redis`, el motor escribía
+      # al vacío y `GET /api/v1/health` reportaba cero degradaciones con el sidecar caído: la
+      # promesa central del #63 ("degradar nunca es silencioso") no se cumplía en el perfil
+      # que más la necesita. MISMAS variables que consume el backend, para que los dos planos
+      # no puedan apuntar a instancias distintas.
+      REDIS_HOST: "${REDIS_HOST:?}"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
       # Región del catálogo de entidades por defecto (eu = España).
       BASA_ENTITY_REGION: "${BASA_ENTITY_REGION:-eu}"
       # Base PROPIA del motor (jamás la del backend): su migrador Prisma aplica

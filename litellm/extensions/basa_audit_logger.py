@@ -70,6 +70,13 @@ _REDIS_KEY_AUDIT_LOST = "basa:audit:lost"
 _REDIS_KEY_AUDIT_LAST_FAIL = "basa:audit:last_fail"
 _AUDIT_FAIL_ENV = "BASA_AUDIT_FAIL"
 
+# Host de Redis: el ESPEJO de arriba vale también para el destino, no sólo para las claves.
+# El default se alinea con el del backend (`services/redis_client.py`) y con el de
+# `basa_guardrail.py`: escribir las mismas claves en OTRO host es exactamente la divergencia
+# que este bloque de comentarios viene advirtiendo desde la 031. En todo despliegue real
+# `REDIS_HOST` viaja explícita (compose de dev y de prod); esto es la red de seguridad.
+_REDIS_HOST_DEFAULT = "eu-redis"
+
 # Presupuesto FIJO: 2 reintentos (3 intentos) con backoff corto. Es el edge case
 # anti-avalancha de la spec — ante una caída del backend el contador es la válvula, no
 # una cola ni un backoff creciente que multiplique la carga sobre un servicio ya herido.
@@ -109,7 +116,7 @@ async def _registrar_perdida(motivo: str) -> None:
         return
     client = None
     try:
-        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", "redis"),
+        client = redis_lib.Redis(host=os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT),
                                  port=int(os.getenv("REDIS_PORT", "6379")))
         pipe = client.pipeline()
         pipe.incr(_REDIS_KEY_AUDIT_LOST)
@@ -405,7 +412,7 @@ class BasaAuditLogger(CustomLogger):
         except ImportError:
             return
         try:
-            client = redis_lib.Redis(host=os.getenv("REDIS_HOST", "redis"),
+            client = redis_lib.Redis(host=os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT),
                                      port=int(os.getenv("REDIS_PORT", "6379")))
             messages = (kwargs.get("messages") or
                         (kwargs.get("litellm_params", {}) or {}).get("messages") or [])
