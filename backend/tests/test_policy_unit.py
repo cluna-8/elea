@@ -524,23 +524,26 @@ async def test_fallback_tarjeta_valida_es_credit_card_luhn():
 
 
 @pytest.mark.asyncio
-async def test_fallback_numero_largo_no_luhn_no_es_tarjeta():
-    """#64: una corrida de 13-19 dígitos que NO valida Luhn (un nº de pedido) no se
-    etiqueta como CREDIT_CARD — hueco honesto, no una etiqueta falsa. El NLP real es quien
-    decide los casos dudosos; el paracaídas no inventa tarjetas."""
+async def test_fallback_numero_largo_sin_luhn_se_enmascara_fail_safe():
+    """CAMBIO DE COMPORTAMIENTO (opción A, decisión JF): el fallback ya NO usa Luhn. Una
+    corrida de ≥13 dígitos (un nº de pedido) se enmascara como CREDIT_CARD aunque NO sea una
+    tarjeta — over-mask deliberado, «ruidoso pero seguro». Antes (R1-R3, con checksum) quedaba
+    intacta; el checksum + búsqueda de fronteras era justo el origen de las 3 fugas."""
     text = "El pedido 1234567890123 sigue en curso"       # 13 dígitos, no Luhn
     masked, types, _ = await _fallback_mask(text)
-    assert "CREDIT_CARD" not in types
-    assert masked == text
+    assert types == ["CREDIT_CARD"]
+    assert "1234567890123" not in masked
 
 
 @pytest.mark.asyncio
-async def test_fallback_iban_con_checksum_invalido_no_se_enmascara():
-    """#64: un `AA00…` con checksum mod-97 inválido NO es un IBAN — no se etiqueta como
-    IBAN_CODE. Evita sobre-enmascarar códigos internos que empiezan como un IBAN."""
+async def test_fallback_iban_shape_sin_checksum_se_enmascara_fail_safe():
+    """CAMBIO DE COMPORTAMIENTO (opción A): sin mod-97, cualquier corrida con forma de IBAN
+    (país + 2 dígitos de control + ≥15 alnum) se enmascara como IBAN_CODE aunque el checksum
+    no cuadre. Antes quedaba intacta. Over-mask deliberado para no fugar (JF)."""
     text = "El codigo interno ES00 1111 1111 1111 1111 1111 no es una cuenta"
     masked, types, _ = await _fallback_mask(text)
-    assert "IBAN_CODE" not in types
+    assert types == ["IBAN_CODE"]
+    assert "ES00" not in masked
 
 
 @pytest.mark.asyncio
@@ -598,31 +601,54 @@ async def test_default_analyze_region_es_retrocompatible_e_internacional():
     assert sorted(e["entity_type"] for e in ents_mars) == ["IBAN_CODE"]
 
 
-@pytest.mark.asyncio
-async def test_fallback_no_redos_en_entrada_patologica():
-    """Regresión ReDoS (review R2). Input PATOLÓGICO de verdad: `"9-"*N` SIN `@`. `-` está
-    en la clase del local del EMAIL (`[A-Za-z0-9._%+-]`), así que sin el tope de longitud el
-    `+` reintenta arranque en cada posición → O(n²) (medido: 80KB → 17 s). El tope RFC (≤64)
-    lo vuelve LINEAL. Con 100KB debe terminar MUY por debajo del límite; un patrón O(n²)
-    tardaría decenas de segundos y reventaría esta cota estricta."""
+async def _best_time(coro_factory, reps=3):
+    """Mejor de `reps` corridas (resta ruido de scheduling/GC) del tiempo de un callable."""
     import time
-    hostil = "9-" * 50000            # 100.000 chars, sin '@' (el peor caso del local del EMAIL)
-    t0 = time.monotonic()
-    await policy.default_analyze(hostil)
-    elapsed = time.monotonic() - t0
-    assert elapsed < 3.0, f"posible ReDoS: {elapsed:.2f}s en 100KB (esperado <1s)"
+    best = float("inf")
+    for _ in range(reps):
+        t0 = time.perf_counter()
+        await coro_factory()
+        best = min(best, time.perf_counter() - t0)
+    return best
 
 
-def test_email_pattern_local_acotado_mata_el_backtracking():
-    """El tope del local (`{1,64}`) es lo que garantiza el tiempo lineal: sin él, el mismo
-    input crece cuadrático. Se mide directamente sobre el patrón EMAIL para que la garantía
-    no dependa del resto del pipeline (review R2, hallazgo 3)."""
+@pytest.mark.asyncio
+async def test_fallback_escala_lineal_no_redos():
+    """Regresión ReDoS como PROPIEDAD DE ESCALADO, no como wall-clock absoluto. Un umbral de
+    segundos (`< 3s`) era el fallo de CI: pasaba en local y fallaba en el runner de 2 cores
+    (medía el hardware, no el algoritmo). Aquí se mide t(N), t(2N), t(4N) sobre el peor caso
+    (`9-`*N: EMAIL sin `@` + corridas densas para tarjeta) y se exige que el tiempo NO
+    EXPLOTE: t(kN)/t(N) ≈ k (lineal). Un patrón O(n²) daría ~4x al duplicar y ~16x al
+    cuadruplicar, reventando estos umbrales — en CUALQUIER máquina, rápida o lenta."""
+    base = 20000
+    t1 = await _best_time(lambda: policy.default_analyze("9-" * base))
+    t2 = await _best_time(lambda: policy.default_analyze("9-" * (2 * base)))
+    t4 = await _best_time(lambda: policy.default_analyze("9-" * (4 * base)))
+    # Lineal: al 2x y 4x el tiempo crece ~2x y ~4x. Umbrales holgados (≤3x/≤6x) para no ser
+    # flaky; un O(n²) daría ~4x/~16x y NO pasaría. El criterio es el ESCALADO, no los segundos.
+    assert t2 / t1 < 3.0, f"escalado no lineal al 2x: t1={t1:.4f}s t2={t2:.4f}s (ratio {t2/t1:.2f})"
+    assert t4 / t1 < 6.0, f"escalado no lineal al 4x: t1={t1:.4f}s t4={t4:.4f}s (ratio {t4/t1:.2f})"
+    # Techo de sanidad MUY holgado y secundario (independiente del hardware razonable).
+    assert t4 < 30.0, f"tiempo absurdo aun siendo lineal: t4={t4:.2f}s"
+
+
+@pytest.mark.asyncio
+async def test_email_pattern_local_acotado_escala_lineal():
+    """El tope RFC del local (`{1,64}`) es lo que garantiza tiempo lineal del EMAIL: sin él,
+    `"a-"*N` sin `@` es O(n²) (review R2). Se mide sobre el patrón aislado y se exige escalado
+    lineal (ratio ~2 al duplicar), no un wall-clock absoluto."""
     import time
     rx = re.compile(policy.PII_PATTERNS["EMAIL_ADDRESS"], re.IGNORECASE)
-    hostil = "a-" * 50000           # 100.000 chars sin '@'
-    t0 = time.monotonic()
-    assert rx.findall(hostil) == []
-    assert time.monotonic() - t0 < 1.0
+
+    def t(n):
+        best = float("inf")
+        for _ in range(3):
+            t0 = time.perf_counter()
+            assert rx.findall("a-" * n) == []          # sin '@' → 0 matches
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    assert t(2 * 40000) / t(40000) < 3.0                # O(n²) daría ~4x
     # y sigue reconociendo emails normales
     assert rx.findall("escribe a juan.perez@hospital.es hoy") == ["juan.perez@hospital.es"]
 
@@ -662,13 +688,15 @@ async def test_fallback_no_fuga_identificador_con_basura_pegada(text):
 
 @pytest.mark.asyncio
 async def test_fallback_fuga_parcial_del_round1_ahora_enmascara_entero():
-    """Caso puntual del reviewer: `250 <tarjeta>` dejaba `11` en claro. Ahora la tarjeta
-    entera queda enmascarada (el `250`/`Importe`/`gracias`, que no son PII, se dejan)."""
+    """Caso puntual del reviewer: `250 <tarjeta>` dejaba `11` en claro. Ahora la CORRIDA
+    entera (`250 4111…`, un solo run de dígitos) se enmascara — cero PAN en claro. Nota
+    (opción A): `250` cae DENTRO del placeholder (over-mask del importe pegado), no queda
+    fuera como en R2/R3; es el precio aceptado del fail-safe («ruidoso pero seguro»)."""
     masked, types, _ = await _fallback_mask("Importe 250 4111111111111111 gracias")
     assert types == ["CREDIT_CARD"]
     assert "4111111111111111" not in masked and "11 gracias" not in masked
-    # la tarjeta entera es UN placeholder; el `250` y las palabras no-PII quedan
-    assert masked.startswith("Importe 250 [CREDIT_CARD_0_") and masked.endswith("] gracias")
+    # `250 4111…` es UN run → UN placeholder; sólo las PALABRAS (no dígitos) quedan fuera.
+    assert masked.startswith("Importe [CREDIT_CARD_0_") and masked.endswith("] gracias")
 
 
 # ── Fuga PARCIAL en tarjeta AGRUPADA precedida de un importe (review R3, hallazgo ALTO) ──
@@ -796,6 +824,127 @@ async def test_fallback_fuzz_tarjeta_agrupada_importe_cero_fugas():
                         if any(pan[k:k + 4] in clear for k in range(0, 16, 4)):
                             leaks += 1
     assert leaks == 0, f"{leaks}/{checked} inputs con dígitos del PAN en claro"
+
+
+# ── Fail-safe over-mask sin checksum (opción A, decisión JF) — 3ª variante de fuga (R3) ──
+#
+# El re-review encontró que checksum+fronteras NO puede ser leak-free: un dígito pegado al
+# PRIMER grupo (la tarjeta ya no arranca en un inicio de token) fugaba el PAN entero. JF
+# eligió la opción A: enmascarar la CORRIDA entera que PODRÍA ser tarjeta/IBAN, sin checksum.
+# Ruidoso pero imposible de fugar por construcción.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,pan", [
+    ("44787 7893 2879 2170", "44787789328792170"),                 # cadena nueva del coordinador
+    ("Pague 5004917 4845 8989 7107 ayer", "5004917484589897107"),  # idem
+    ("94011 5244 9390 9269", "94011524493909269"),                 # idem
+    ("94398 2597 9190 7482", "94398259791907482"),                 # dígito pegado al 1er grupo (3ª variante)
+    ("2 4398 2597 9190 7482", "24398259791907482"),                # idem, 1 díg + espacio
+    ("2504398259791907482", "2504398259791907482"),                # importe pegado sin separador ({a}{c})
+    ("43 9825 979190 7482", "4398259791907482"),                   # grupos irregulares
+])
+async def test_fallback_corrida_larga_se_enmascara_entera_cero_fuga(text, pan):
+    """Cualquier corrida de dígitos ≥13 se tapa ENTERA: ni un dígito consecutivo del PAN
+    sobrevive en claro, sea cual sea el troceo o la basura pegada (3ª variante R3)."""
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["CREDIT_CARD"]
+    clear = _clear_text(masked, pmap)
+    # ningún tramo de ≥4 dígitos consecutivos del PAN en una corrida en claro
+    for run in re.findall(r"\d+", clear):
+        for L in range(4, len(pan) + 1):
+            for s in range(len(pan) - L + 1):
+                assert pan[s:s + L] not in run, f"fuga de {pan[s:s+L]!r} en {masked!r}"
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_dos_tarjetas_pegadas_se_enmascaran_juntas():
+    """Dos tarjetas agrupadas en una misma corrida (`4111… 5555…`) → un solo run ≥13 díg →
+    todo enmascarado. Antes (checksum) el boundary-finding podía dejar una en claro."""
+    text = "4111 1111 1111 1111 5555 5555 5555 4444"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["CREDIT_CARD"]
+    assert "4444" not in _clear_text(masked, pmap) and "4111" not in _clear_text(masked, pmap)
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("grouped", [
+    "ES91 2100 0418 4502 0005 1332",          # estándar grupos de 4
+    "ES9121000418450200051332",               # contiguo
+    "ES 91 2100 0418 4502 0005 1332",         # espacio tras el país (parte al control)
+    "MT 84 MA LT 01 10 00 01 23 45 MT LC AS T0 01 S",   # grupos de 2 (parten control)
+])
+async def test_fallback_iban_grouping_no_estandar_se_enmascara(grouped):
+    """El ancla admite un espacio antes de cada dígito de control, así que agrupaciones no
+    estándar (`ES 91…`, `MT 84…`) que parten el par de control NO fugan el IBAN (opción A).
+    LÍMITE DOCUMENTADO: un IBAN con espacio entre CADA carácter (incluido el país, `M T 8 4…`)
+    no se detecta — formato no humano; catcharlo obligaría a sobre-enmascarar prosa en
+    mayúsculas. Ese caso lo cubre sólo el NLP real."""
+    masked, types, pmap = await _fallback_mask(grouped)
+    assert types == ["IBAN_CODE"]
+    assert grouped.replace(" ", "") not in _clear_text(masked, pmap).replace(" ", "")
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == grouped
+
+
+@pytest.mark.asyncio
+async def test_fallback_over_mask_numero_legitimo_es_aceptado():
+    """Precio ACEPTADO del fail-safe (JF «ruidoso pero seguro»): un número largo legítimo
+    de ≥13 dígitos cae como CREDIT_CARD en degrade/dev. Se documenta como comportamiento
+    esperado, NO como bug. (Los cortos <13 —factura, expediente, DNI— siguen intactos.)"""
+    masked, types, _ = await _fallback_mask("El pedido 1234567890123456 se envió")   # 16 díg
+    assert types == ["CREDIT_CARD"]
+    # contraparte: lo corto NO se toca
+    m2, t2, _ = await _fallback_mask("expediente 202600145 y factura FAC-2026-001587")
+    assert t2 == [] and m2 == "expediente 202600145 y factura FAC-2026-001587"
+
+
+@pytest.mark.asyncio
+async def test_fallback_fuzz_failsafe_todos_los_layouts_cero_fuga():
+    """Fuzz grande (opción A): tarjeta en 3 formatos × importes (incl. LARGOS) × TODOS los
+    layouts, INCLUYENDO pegado sin separador (`{a}{c}`) — el que abrió la 3ª fuga. Ni un
+    tramo ≥6 del PAN en claro. Con el fail-safe la corrida entera se tapa, así que 0 fugas."""
+    import random
+    rnd = random.Random(64)
+
+    def _luhn(num):
+        d = [int(c) for c in num]
+        tot = 0
+        for i, x in enumerate(reversed(d)):
+            if i % 2 == 1:
+                x *= 2
+                if x > 9:
+                    x -= 9
+            tot += x
+        return tot % 10 == 0
+
+    def make_card():
+        while True:
+            base = "4" + "".join(rnd.choice("0123456789") for _ in range(14))
+            for last in "0123456789":
+                if _luhn(base + last):
+                    return base + last
+
+    checked = leaks = 0
+    for _ in range(1500):
+        pan = make_card()
+        forms = [pan, " ".join(pan[k:k + 4] for k in range(0, 16, 4)),
+                 "-".join(pan[k:k + 4] for k in range(0, 16, 4))]
+        amounts = [str(rnd.randint(0, 999)), str(rnd.randint(0, 9)),
+                   "".join(rnd.choice("0123456789") for _ in range(rnd.randint(1, 6)))]
+        for f in forms:
+            for a in amounts:
+                for layout in (f"{a} {f}", f"{a}-{f}", f"{f} {a}", f"{a}{f}", f"{f}{a}"):
+                    masked, _t, pmap = await _fallback_mask(layout)
+                    checked += 1
+                    clear = _clear_text(masked, pmap)
+                    # cualquier tramo de ≥6 dígitos del PAN en una corrida en claro = fuga
+                    for run in re.findall(r"\d+", clear):
+                        if any(pan[s:s + 6] in run for s in range(len(pan) - 5)):
+                            leaks += 1
+                            break
+    assert leaks == 0, f"{leaks}/{checked} inputs con ≥6 dígitos del PAN en claro"
 
 
 # ── Teléfono internacional restaurado sin reintroducir el sobre-matcheo (R2, hallazgo 2) ──

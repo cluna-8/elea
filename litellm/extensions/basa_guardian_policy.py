@@ -145,31 +145,29 @@ _FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
 
 _SEP_CHARS = " -"  # separadores admitidos DENTRO de un IBAN/tarjeta (espacio o guión)
 
-# Corridas MÁXIMAS de dígitos/alnum con separadores simples (sin tope de longitud). NO son
-# el identificador: son la REGIÓN donde `_checksummed_spans` busca identificadores válidos
-# adentro (ver su docstring). Patrones LINEALES (cada iteración consume ≥1 char, clases
-# separador/alnum DISJUNTAS → sin backtracking catastrófico/ReDoS). Sin tope a propósito:
-# el candidato acotado del round-2 (`{12,18}`) PARTÍA una tarjeta agrupada precedida de un
-# número (`100000007 4111 1111 1111 1111`) porque la corrida excedía 19 dígitos y finditer
-# la cortaba a mitad → fuga (review R3). La longitud del IDENTIFICADOR se acota luego, por
-# ventana (`_CARD_MAXLEN`/`_IBAN_MAXLEN`), no en el patrón de la corrida.
+# Corridas estructuradas del fallback fail-safe (decisión JF, opción A — ver
+# `_structured_id_spans`). NO se busca dónde empieza/termina el identificador dentro de la
+# corrida (eso, con checksum + fronteras, fue el origen de TRES variantes de fuga: R1 sufijo,
+# R2/R3 partición de grupos, R3 dígito pegado al primer grupo). Se enmascara la corrida
+# ENTERA. Patrones LINEALES (cada iteración consume ≥1 char, clases disjuntas → sin ReDoS).
+#   - Tarjeta: cualquier corrida de dígitos-con-separadores.
+#   - IBAN: corrida que arranca por país (2 letras) + 2 dígitos de control. El ancla admite
+#     un espacio antes de cada dígito de control (`(?:[ ]?\d){2}`) para NO fugar IBANs
+#     escritos en grupos no estándar (`MT 84 …`, `MT8 4…`) que parten el par de control;
+#     NO relaja las 2 letras iniciales, así una palabra en mayúsculas delante (`IBAN ES91…`)
+#     no se traga el identificador (el ancla arranca en `ES91`, no en `IB`).
 _CARD_RUN_RE = re.compile(r"\d(?:[ -]?\d)*")
-_IBAN_RUN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9])*")
-_CARD_MAXLEN = 37   # 19 dígitos + hasta 18 separadores
-_IBAN_MAXLEN = 42   # 34 alnum (IBAN más largo) + hasta 8 espacios de grupo
+_IBAN_RUN_RE = re.compile(r"\b[A-Z]{2}(?:[ ]?\d){2}(?:[ ]?[A-Z0-9])*")
+_CARD_MIN_DIGITS = 13   # longitud mínima de una tarjeta (≥13 cubre también corridas largas)
+_IBAN_MIN_ALNUM = 15    # IBAN más corto (Noruega); sin tope superior a propósito (fail-safe)
 
 
+# `_luhn_ok` / `_iban_ok`: los checksums YA NO gobiernan la detección del fallback (opción A:
+# el paracaídas nunca deja pasar algo que PODRÍA ser tarjeta/IBAN, aunque no valide). Se
+# conservan como utilidades puras — las usan los scripts de verificación del gate para
+# construir/validar tarjetas de test — pero `default_analyze` no las llama.
 def _luhn_ok(candidate: str) -> bool:
-    """Checksum Luhn de una tarjeta (13-19 dígitos con separadores opcionales). BONUS
-    honesto (#64): sin esto, un nº de pedido/expediente de 13-19 dígitos saldría como
-    CREDIT_CARD — etiqueta falsa. Con Luhn, sólo lo que de verdad puede ser una tarjeta
-    la lleva; lo que no valida queda sin tocar (hueco honesto, lo cubre el NLP real).
-
-    LÍMITE CONOCIDO (review R2): Luhn es sólo un dígito de control, así que ~1 de cada 10
-    números aleatorios de 13-19 dígitos lo pasa por azar (medido: ~10%). Un nº de pedido
-    largo puede, esporádicamente, enmascararse como CREDIT_CARD — sobre-enmascara (lado
-    SEGURO), pero infla el conteo. Sin rangos BIN no hay forma de desambiguar en regex; el
-    NLP real (Presidio) es quien distingue de verdad. NO se añade heurística de BIN acá."""
+    """Checksum Luhn (utilidad de test; la detección fail-safe ya no depende de él)."""
     if any(not (c.isdigit() or c in " -") for c in candidate):
         return False
     digits = [int(c) for c in candidate if c.isdigit()]
@@ -186,9 +184,7 @@ def _luhn_ok(candidate: str) -> bool:
 
 
 def _iban_ok(candidate: str) -> bool:
-    """Checksum mod-97 (ISO 13616) de un IBAN. Mismo criterio que Luhn: un `AA00…`
-    cualquiera no es un IBAN; el checksum evita etiquetar como IBAN_CODE un código de
-    producto o referencia que casualmente empiece con dos letras y dos dígitos (#64)."""
+    """Checksum mod-97 ISO 13616 (utilidad de test; la detección fail-safe ya no lo llama)."""
     s = re.sub(r"\s", "", candidate).upper()
     if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", s):
         return False
@@ -215,57 +211,28 @@ def _merge_spans(spans: list) -> list:
     return merged
 
 
-def _checksummed_spans(text: str, run_re, validate, max_len: int) -> list:
-    """`[(start, end)]` a enmascarar: la UNIÓN de todo identificador válido dentro de cada
-    corrida de dígitos/alnum. `run_re` delimita las corridas; `validate` (Luhn / mod-97)
-    confirma cada identificador; `max_len` acota su longitud (evita ReDoS y ventanas absurdas).
+def _structured_id_spans(text: str, run_re, min_units: int) -> list:
+    """`[(start, end)]` a enmascarar: cada CORRIDA de `run_re` cuyo nº de unidades (chars no
+    separador: dígitos para tarjeta, alnum para IBAN) alcance `min_units` se enmascara ENTERA.
 
-    Historia (por qué UNIÓN y no una regla de preferencia):
-      - Round-1: recorte por cola → fuga de SUFIJO (`999 4111…` dejaba la tarjeta en claro).
-      - Round-2: "fin sólo en límite de token" → cerró la fuga TOTAL, pero la frontera entre
-        GRUPOS de una tarjeta humana (`016 4398 2597 9190 7482`) es un límite de token, así
-        que enmascaraba `016 4398 2597 9190` y dejaba `7482` colgando → fuga PARCIAL (R3).
-      - La causa de fondo: Luhn valida ~1/10 ventanas al azar, así que CUALQUIER heurística
-        de "preferir el span izquierdo/derecho" es NO determinista y deja variantes de fuga
-        (importe delante, basura detrás, varias tarjetas en una misma corrida).
+    FAIL-SAFE (decisión JF, opción A). No hay checksum ni sub-escaneo de fronteras: buscar
+    dónde empieza/termina el identificador DENTRO de la corrida fue el origen de las tres
+    variantes de fuga (R1 sufijo colgando; R2/R3 partición entre grupos; R3 dígito pegado al
+    primer grupo). Al tapar la corrida completa es IMPOSIBLE, por construcción, dejar un tramo
+    del PAN/IBAN en claro. Umbral por longitud (≥13 díg / ≥15 alnum) SIN tope superior: una
+    corrida larga (dos tarjetas pegadas, un ID de 40 dígitos) se enmascara igual, entera.
 
-    Solución determinista y sin fugas: enmascarar la UNIÓN de TODOS los identificadores
-    válidos de la corrida. Todo PAN/IBAN válido presente queda íntegramente cubierto por
-    construcción. Coste: si un token corto pegado (un importe) forma por azar una ventana
-    Luhn-válida junto al identificador, se sobre-enmascara ese token — lado SEGURO, nunca
-    fuga (review R3). El NLP real desambigua en el camino de producción.
+    Precio ACEPTADO (JF, «ruidoso pero seguro»): un número legítimo largo (un nº de pedido de
+    16 dígitos) cae como CREDIT_CARD en el camino de degrade/dev. Sobre-enmascara, nunca fuga.
+    El NLP real (camino de producción) es quien distingue con precisión; esto es el paracaídas.
 
-    Ventana y coste: desde cada inicio de token se toma el identificador VÁLIDO más largo
-    (los más cortos quedan subsumidos), acotado a `max_len` chars → O(len·max_len²) por
-    corrida, con `max_len` constante ⇒ lineal en el texto (sin ReDoS)."""
+    Coste O(len) por corrida (contar unidades + un span) ⇒ lineal, sin sub-escaneo ni ReDoS."""
     spans = []
     for m in run_re.finditer(text):
-        run, base, n = m.group(), m.start(), len(m.group())
-        contiguous = not any(c in _SEP_CHARS for c in run)
-        found = []
-        i = 0
-        while i < n:
-            # `i` sólo arranca en inicio de token: posición 0, o justo tras un separador.
-            if run[i] in _SEP_CHARS or (i > 0 and run[i - 1] not in _SEP_CHARS):
-                i += 1
-                continue
-            hi = min(n, i + max_len)
-            for j in range(hi, i, -1):
-                if run[j - 1] in _SEP_CHARS:              # no terminar sobre un separador
-                    continue
-                # En una corrida AGRUPADA el identificador termina en frontera de grupo
-                # (sep o fin de corrida) — nunca a mitad de un grupo, que dejaría dígitos
-                # colgando (fuga parcial del R3). En una corrida CONTIGUA (sin separadores
-                # internos) no hay grupos: se recorta por la cola (basura pegada tipo `…ABC`).
-                if (not contiguous) and j < n and run[j] not in _SEP_CHARS:
-                    continue
-                if validate(run[i:j]):
-                    found.append((i, j))                  # el más largo desde este inicio
-                    break
-            i += 1
-        for s, e in _merge_spans(found):
-            spans.append((base + s, base + e))
-    return spans
+        run = m.group()
+        if sum(1 for c in run if c not in _SEP_CHARS) >= min_units:
+            spans.append((m.start(), m.end()))
+    return _merge_spans(spans)
 
 
 # Prácticas prohibidas EU AI Act Art.5 (espejo de ComplianceService.PROHIBITED_KEYWORDS)
@@ -335,9 +302,11 @@ async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
     diseño. Ante coincidencias solapadas pasa igual por `resolve_overlaps`.
 
     `region` (opcional, retrocompatible) elige los estructurados por-país; IBAN y tarjeta
-    son internacionales y se detectan siempre. Los identificadores estructurados se
-    CONFIRMAN con checksum (IBAN/tarjeta) o formato (NIF/NIE) para no etiquetar en falso, y
-    lo que no se reconoce con confianza se deja sin tocar (#64).
+    son internacionales y se detectan siempre. IBAN y tarjeta van por FAIL-SAFE (opción A,
+    decisión JF): se enmascara la corrida entera que PODRÍA ser una tarjeta/IBAN, sin
+    checksum — ruidoso pero imposible de fugar (ver `_structured_id_spans`). NIF/NIE por
+    formato. `resolve_overlaps` desempata solapes (gana el más largo → el IBAN, que contiene
+    a la corrida de dígitos de su cuerpo, tapa el falso CREDIT_CARD sobre esos mismos dígitos).
 
     TODO(región): no se threadea `BASA_ENTITY_REGION` desde los call-sites (misma postura
     YAGNI que `basa_guardrail`): hoy el único despliegue es eu y el default lo cubre.
@@ -352,13 +321,13 @@ async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
             start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
             entities.append({"start": start, "end": end,
                              "entity_type": label, "score": 0.95})
-    # IBAN y tarjeta: detección con checksum sobre la UNIÓN de identificadores válidos de
-    # cada corrida (ver `_checksummed_spans`), no un match directo — un `AA00…`/una corrida
-    # de dígitos que no valide queda SIN etiquetar.
-    for etype, run_re, validate, max_len in (
-            ("IBAN_CODE", _IBAN_RUN_RE, _iban_ok, _IBAN_MAXLEN),
-            ("CREDIT_CARD", _CARD_RUN_RE, _luhn_ok, _CARD_MAXLEN)):
-        for start, end in _checksummed_spans(text, run_re, validate, max_len):
+    # IBAN y tarjeta: fail-safe (opción A) — cualquier corrida que PODRÍA serlo se enmascara
+    # ENTERA (`_structured_id_spans`), sin checksum. IBAN primero: al ser más largo (incluye
+    # las 2 letras de país) gana en `resolve_overlaps` sobre el CREDIT_CARD que la regla de
+    # tarjeta pondría sobre los dígitos del cuerpo del IBAN.
+    for etype, run_re, min_units in (("IBAN_CODE", _IBAN_RUN_RE, _IBAN_MIN_ALNUM),
+                                     ("CREDIT_CARD", _CARD_RUN_RE, _CARD_MIN_DIGITS)):
+        for start, end in _structured_id_spans(text, run_re, min_units):
             entities.append({"start": start, "end": end, "entity_type": etype, "score": 0.95})
     return resolve_overlaps(entities)
 
