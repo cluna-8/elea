@@ -26,7 +26,10 @@ from src.api import gateway
 from extensions import basa_guardian_policy as policy
 
 EMAIL = "juan.perez@hospital.es"
-DNI = "12.345.678"
+# DNI español (formato NIF): 8 dígitos + letra. Antes se usaba "12.345.678" (formato AR),
+# que el fallback dev sólo enmascaraba porque el PHONE_NUMBER genérico sobre-matcheaba
+# (mentía el tipo). Tras el #64 el fallback reconoce el DNI español como ES_NIF por formato.
+DNI = "12345678Z"
 PII_TEXT = f"Contactá a {EMAIL}, DNI {DNI}, para el alta."
 PROHIBITED_TEXT = "Implementá social scoring de los ciudadanos por barrio."
 SECRET_TEXT = "Mi key es sk-abc123def456ghi789 y no la compartas."
@@ -87,12 +90,10 @@ async def test_parity_mask_entities_match_shared_lib():
     _, ph_ref = await policy.mask_body(_body(PII_TEXT), policy.default_analyze)
     ref_types = sorted({policy.PH_TYPE_RE.match(p).group(1) for p in ph_ref})
     assert gw_types == ref_types
-    # Nota (spec 016, corrección post-review Europa/no-Argentina): el fallback
-    # `default_analyze` es SOLO dev/demo y ya no simula un tipo "DNI" propio —
-    # los formatos estructurados reales (NIF/NIE español, etc.) solo se
-    # detectan vía el motor NLP real (Presidio). El valor DNI de PII_TEXT sigue
-    # cayendo en el patrón genérico PHONE_NUMBER del fallback — lo que importa
-    # acá es la paridad (gw_types == ref_types), ya verificada arriba.
+    # Nota (#64): el fallback `default_analyze` sigue siendo SOLO dev/demo, pero ya no
+    # trocea ni mal-etiqueta — el DNI español (formato NIF) se reconoce como ES_NIF por
+    # formato, en vez de caer en un PHONE_NUMBER genérico que mentía el tipo. Lo que
+    # importa acá es la PARIDAD (gw_types == ref_types), ya verificada arriba.
     assert "EMAIL_ADDRESS" in gw_types
 
 
@@ -242,8 +243,8 @@ def test_endpoint_masks_upstream_and_unmasks_reply(client):
     assert r.status_code == 200
     sent = _FakeAsyncClient.captured["content"].decode()
     assert EMAIL not in sent and DNI not in sent              # upstream sólo ve placeholders
-    # DNI cae en el patrón genérico PHONE_NUMBER del fallback dev (ver nota en
-    # test_parity_mask_entities_match_shared_lib) — igual queda enmascarado.
+    # El DNI español se enmascara como ES_NIF (formato) en el fallback dev (#64) — ver
+    # nota en test_parity_mask_entities_match_shared_lib.
     assert "[EMAIL_ADDRESS_" in sent
     reply = "".join(b.get("text", "") for b in r.json()["content"])
     assert EMAIL in reply and DNI in reply                    # el caller recupera lo real

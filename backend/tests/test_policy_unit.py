@@ -447,3 +447,164 @@ def test_rewrite_sse_block_full_stream():
     assert "".join(out_text) == f"Hola {_NAME}!"
     assert in_tok == 12 and out_tok == 7
     assert carry == ""
+
+
+# ── Fallback honesto: default_analyze (#64, golden del piloto Cámara) ───────────────
+#
+# El fallback regex es el camino de DEGRADE (issue #63: por default es `block`; el regex
+# sólo actúa si el admin eligió `degrade`, o en dev/demo sin NLP_ANALYZER_URL). NO
+# sustituye al NLP (los nombres sin tratamiento siguen necesitando NER real). Estos tests
+# blindan el arreglo del #64: el paracaídas no MIENTE mientras actúa — no trocea IBANs en
+# falsos teléfonos, no etiqueta facturas como PHONE_NUMBER, y lo que no reconoce con
+# confianza lo deja sin tocar (hueco honesto) en vez de sobre-enmascarar con etiqueta falsa.
+
+
+async def _fallback_mask(text: str):
+    """Enmascara `text` con el fallback regex real (`default_analyze`) y devuelve
+    (masked, tipos_detectados, pmap) para afirmar tipo + round-trip."""
+    pmap = policy.PlaceholderMap()
+    masked = await policy.mask_text(text, policy.default_analyze, pmap)
+    types = [policy.PH_TYPE_RE.match(ph).group(1) for ph in pmap.ph_to_orig]
+    return masked, types, pmap
+
+
+@pytest.mark.asyncio
+async def test_fallback_iban_no_se_trocea_ni_deja_prefijo_en_claro():
+    """Golden #1 del piloto: `ES91 2100 0418 4502 0005 1332` entra como UN solo
+    [IBAN_CODE], sin dejar el prefijo `ES91` en claro y sin partirse en dos
+    [PHONE_NUMBER] (el bug exacto del #64)."""
+    text = "Transfiere a ES91 2100 0418 4502 0005 1332 antes del viernes"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["IBAN_CODE"]
+    assert masked.count("[IBAN_CODE_") == 1
+    assert "PHONE_NUMBER" not in "|".join(types)      # CERO teléfonos falsos
+    assert "ES91" not in masked and "1332" not in masked  # nada del IBAN en claro
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text  # round-trip exacto
+
+
+@pytest.mark.asyncio
+async def test_fallback_referencias_no_son_telefonos_falsos():
+    """Golden #2: números de factura/expediente NO deben salir como [PHONE_NUMBER]
+    (auditoría con "teléfonos" inexistentes, conteos inflados). El fallback los deja SIN
+    TOCAR — mejor un hueco honesto que una etiqueta falsa."""
+    text = "Refs FAC-2026-001587 y PROP-2026-1842 pendientes de pago"
+    masked, types, _ = await _fallback_mask(text)
+    assert types == []
+    assert masked == text                              # intacto, sin PHONE_NUMBER inventado
+
+
+@pytest.mark.asyncio
+async def test_fallback_dni_espaniol_es_es_nif_por_formato():
+    """Golden #3: `12345678Z` (DNI español) se reconoce como ES_NIF por FORMATO."""
+    text = "El titular presenta DNI 12345678Z en la solicitud"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["ES_NIF"]
+    assert "12345678Z" not in masked
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_nie_espaniol_es_es_nie_por_formato():
+    """Complemento del #3: el NIE (letra inicial X/Y/Z) sale como ES_NIE por formato."""
+    text = "Extranjero con NIE X1234567L verificado"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["ES_NIE"]
+    assert "X1234567L" not in masked
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_tarjeta_valida_es_credit_card_luhn():
+    """Golden #4: `4111 1111 1111 1111` (Luhn válido) sale como CREDIT_CARD."""
+    text = "Pago con la tarjeta 4111 1111 1111 1111 hoy"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["CREDIT_CARD"]
+    assert "4111" not in masked
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_numero_largo_no_luhn_no_es_tarjeta():
+    """#64: una corrida de 13-19 dígitos que NO valida Luhn (un nº de pedido) no se
+    etiqueta como CREDIT_CARD — hueco honesto, no una etiqueta falsa. El NLP real es quien
+    decide los casos dudosos; el paracaídas no inventa tarjetas."""
+    text = "El pedido 1234567890123 sigue en curso"       # 13 dígitos, no Luhn
+    masked, types, _ = await _fallback_mask(text)
+    assert "CREDIT_CARD" not in types
+    assert masked == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_iban_con_checksum_invalido_no_se_enmascara():
+    """#64: un `AA00…` con checksum mod-97 inválido NO es un IBAN — no se etiqueta como
+    IBAN_CODE. Evita sobre-enmascarar códigos internos que empiezan como un IBAN."""
+    text = "El codigo interno ES00 1111 1111 1111 1111 1111 no es una cuenta"
+    masked, types, _ = await _fallback_mask(text)
+    assert "IBAN_CODE" not in types
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text,numero", [
+    ("Llamame al +34 612 345 678 cuando puedas", "612 345 678"),
+    ("Mi movil es 612 345 678, gracias", "612 345 678"),
+    ("Oficina 912 345 678", "912 345 678"),
+])
+async def test_fallback_telefono_espaniol_sigue_siendo_phone_number(text, numero):
+    """Golden #5: el fix no puede romper la cobertura que SÍ funcionaba — un teléfono
+    español real (con o sin prefijo +34) sigue saliendo como [PHONE_NUMBER]."""
+    masked, types, _ = await _fallback_mask(text)
+    assert types == ["PHONE_NUMBER"]
+    assert numero not in masked
+
+
+@pytest.mark.asyncio
+async def test_fallback_iban_y_numero_cercano_no_corrompe_el_masked():
+    """Golden #6 (regresión de overlaps): un IBAN + un número cerca pasan por
+    `resolve_overlaps` sin corromper el texto por offsets solapados. El expediente (ni
+    teléfono ni tarjeta) queda intacto; el round-trip es exacto."""
+    text = "IBAN ES91 2100 0418 4502 0005 1332 expediente 202600145"
+    masked, types, pmap = await _fallback_mask(text)
+    assert types == ["IBAN_CODE"]
+    assert "202600145" in masked                       # el expediente, sin tocar (honesto)
+    assert "ES91" not in masked
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_fallback_mix_completo_cada_tipo_a_su_etiqueta():
+    """Escenario denso (piloto Cámara): email + IBAN + tarjeta + DNI + teléfono conviven,
+    cada uno a su tipo canónico (#64) y sin trocear ni contaminar offsets. (PERSON queda
+    fuera a propósito: su patrón fallback es un asunto aparte del #64.)"""
+    text = ("Datos: DNI 12345678Z, IBAN ES91 2100 0418 4502 0005 1332, "
+            "tarjeta 4111 1111 1111 1111, tel 612345678, mail juan@acme.com")
+    masked, types, pmap = await _fallback_mask(text)
+    assert set(types) == {"ES_NIF", "IBAN_CODE", "CREDIT_CARD",
+                          "PHONE_NUMBER", "EMAIL_ADDRESS"}
+    for crudo in ("12345678Z", "ES91", "4111 1111", "612345678", "juan@acme.com"):
+        assert crudo not in masked
+    assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+@pytest.mark.asyncio
+async def test_default_analyze_region_es_retrocompatible_e_internacional():
+    """La firma nueva `default_analyze(text, region=...)` es retrocompatible (los
+    call-sites la pasan como AnalyzeFn de un solo argumento → default eu). IBAN y tarjeta
+    son INTERNACIONALES: se detectan aunque la región no tenga estructurados por-país."""
+    ents = await policy.default_analyze("DNI 12345678Z")           # sin región → eu
+    assert [e["entity_type"] for e in ents] == ["ES_NIF"]
+    # Región sin patrones por-país: no hay ES_NIF, pero el IBAN (internacional) sigue.
+    ents_mars = await policy.default_analyze(
+        "DNI 12345678Z IBAN ES91 2100 0418 4502 0005 1332", region="mars")
+    assert sorted(e["entity_type"] for e in ents_mars) == ["IBAN_CODE"]
+
+
+@pytest.mark.asyncio
+async def test_fallback_no_redos_en_entrada_adversarial():
+    """Los patrones nuevos IBAN/tarjeta están acotados (cuantificador con tope + clases
+    separador/dígito disjuntas): una entrada larga hostil NO dispara backtracking
+    catastrófico. Cota generosa para no ser flaky en CI cargado."""
+    import time
+    hostil = "ES00 " + "1" * 6000 + " tarjeta " + "4" * 6000
+    t0 = time.monotonic()
+    await policy.default_analyze(hostil)
+    assert time.monotonic() - t0 < 3.0

@@ -51,12 +51,19 @@ AnalyzeFn = Callable[[str], Awaitable[list]]
 
 # PII por regex — SOLO fallback de dev/demo (ver `default_analyze` más abajo). El
 # camino de producción usa `presidio_analyze` (NLP real, spec 016, Constraint SC-2).
-# Genérico e internacional a propósito (sin +54 ni formatos AR): el dev-fallback no
-# intenta simular reconocedores estructurados por país — esos SOLO existen vía NLP
-# real (ver STRUCTURED_ID_PATTERNS_BY_REGION más abajo).
+# NO sustituye al NLP: los nombres SIN tratamiento siguen necesitando NER real. El fix
+# del #64 (piloto Cámara) es que el paracaídas de emergencia no MIENTA mientras actúa.
+# Antes tenía un `PHONE_NUMBER` genérico (`\b\+?[0-9][0-9\-. ]{7,14}[0-9]\b`) que
+# troceaba un IBAN en DOS falsos `[PHONE_NUMBER]` dejando el prefijo (`ES91`) EN CLARO, y
+# etiquetaba facturas (`FAC-2026-001587`) como teléfonos inexistentes → conteos de
+# auditoría inflados. Ahora: (a) el teléfono exige estructura real (patrón nacional de
+# STRUCTURED_ID_PATTERNS_BY_REGION, primer dígito 6-9 → no engulle IBANs ni importes),
+# (b) IBAN/tarjeta se CONFIRMAN con checksum y NIF/NIE por formato, y (c) lo que NO se
+# reconoce con confianza se deja SIN TOCAR: mejor un hueco honesto que una etiqueta falsa
+# (el NLP real cubre el resto). Etiquetas = tipos canónicos del producto (IBAN_CODE,
+# CREDIT_CARD, ES_NIF, ES_NIE; ver el seed EU de guardianes).
 PII_PATTERNS = {
     "EMAIL_ADDRESS": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    "PHONE_NUMBER": r"\b\+?[0-9][0-9\-. ]{7,14}[0-9]\b",
     "PERSON": r"\b(?:sr|sra|dr|dra|mr|mrs|ms)\.?\s+([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b",
 }
 
@@ -98,6 +105,92 @@ STRUCTURED_ID_PATTERNS_BY_REGION = {
     },
 }
 DEFAULT_REGION = "eu"
+
+# ── Fallback estructurado de detección (dev/demo, #64) ────────────────────────────────
+#
+# Sólo lo usa `default_analyze` (el paracaídas regex). Va aparte de `PII_PATTERNS` porque
+# NO es "match directo": IBAN y tarjeta se CONFIRMAN con checksum (mod-97 / Luhn) — sin
+# eso, cualquier corrida de dígitos o token `AA00…` saldría etiquetado como tarjeta/IBAN,
+# la mentira exacta que el #64 prohíbe. DNI/NIE y el teléfono nacional son por-país
+# (región-aware); IBAN y tarjeta son INTERNACIONALES (no dependen de región).
+
+# Estructurados por-país del fallback. El teléfono REUTILIZA el patrón validado del camino
+# NLP (primer dígito 6-9: NO trocea IBANs/importes/expedientes). DNI/NIE por FORMATO (8
+# díg + letra / [XYZ]+7 díg + letra); el checksum de la letra es un extra que sólo el NLP
+# real aporta — acá basta el formato para no dejar el documento en claro sin mentir de tipo.
+FALLBACK_STRUCTURED_BY_REGION = {
+    "eu": {
+        "PHONE_NUMBER": STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0],
+        "ES_NIF": r"\b\d{8}[A-Za-z]\b",
+        "ES_NIE": r"\b[XYZxyz]\d{7}[A-Za-z]\b",
+    },
+}
+
+# Candidatos IBAN/tarjeta: patrones ACOTADOS — cuantificador con tope ({11,30}/{12,18}) y
+# clases separador/dígito DISJUNTAS, así que no hay backtracking catastrófico (ReDoS).
+# Son greedy a propósito: si capturan de más porque otro token IBAN/tarjeta-able viene
+# pegado, `_checksummed_spans` recorta por la cola hasta el identificador válido — así lo
+# que siga detrás NUNCA hace que se fugue el IBAN entero (ese era el modo de fallo del
+# troceo, #64).
+_IBAN_CANDIDATE_RE = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b")
+_CARD_CANDIDATE_RE = re.compile(r"\b\d(?:[ -]?\d){12,18}\b")
+
+
+def _luhn_ok(candidate: str) -> bool:
+    """Checksum Luhn de una tarjeta (13-19 dígitos con separadores opcionales). BONUS
+    honesto (#64): sin esto, un nº de pedido/expediente de 13-19 dígitos saldría como
+    CREDIT_CARD — etiqueta falsa. Con Luhn, sólo lo que de verdad puede ser una tarjeta
+    la lleva; lo que no valida queda sin tocar (hueco honesto, lo cubre el NLP real)."""
+    if any(not (c.isdigit() or c in " -") for c in candidate):
+        return False
+    digits = [int(c) for c in candidate if c.isdigit()]
+    if not 13 <= len(digits) <= 19:
+        return False
+    total = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def _iban_ok(candidate: str) -> bool:
+    """Checksum mod-97 (ISO 13616) de un IBAN. Mismo criterio que Luhn: un `AA00…`
+    cualquiera no es un IBAN; el checksum evita etiquetar como IBAN_CODE un código de
+    producto o referencia que casualmente empiece con dos letras y dos dígitos (#64)."""
+    s = re.sub(r"\s", "", candidate).upper()
+    if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}", s):
+        return False
+    rearranged = s[4:] + s[:4]
+    try:
+        numeric = "".join(str(int(ch, 36)) for ch in rearranged)  # A→10 … Z→35, dígitos igual
+    except ValueError:
+        return False
+    return int(numeric) % 97 == 1
+
+
+def _checksummed_spans(text: str, candidate_re, validate) -> list:
+    """`[(start, end)]` de cada identificador de `candidate_re` que valide `validate`.
+    Si el match greedy no valida (capturó de más porque otro token venía pegado), recorta
+    por la COLA hasta el prefijo válido más largo — así lo que siga detrás nunca hace que
+    se fugue el identificador entero. No inspecciona sub-spans interiores: el paracaídas no
+    resuelve concatenaciones patológicas (dos identificadores pegados sin separación) —
+    eso es trabajo del NLP real (#64)."""
+    spans = []
+    for m in candidate_re.finditer(text):
+        cand, start, end = m.group(), m.start(), len(m.group())
+        while end > 0:
+            if cand[end - 1] in " -":          # no cortar dejando un separador colgando
+                end -= 1
+                continue
+            if validate(cand[:end]):
+                spans.append((start, start + end))
+                break
+            end -= 1
+    return spans
+
 
 # Prácticas prohibidas EU AI Act Art.5 (espejo de ComplianceService.PROHIBITED_KEYWORDS)
 PROHIBITED_PATTERNS = [
@@ -159,18 +252,35 @@ def detect_tool(user_agent: Optional[str]) -> str:
     return "Desconocido"
 
 
-async def default_analyze(text: str) -> list:
+async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
     """Analyzer PII por regex — SOLO fallback explícito de dev/demo cuando no hay
-    `NLP_ANALYZER_URL` configurada. NUNCA es el detector del camino de
-    producción (spec 016, Constraint SC-2): no distingue nombres sin prefijo, y
-    ante coincidencias solapadas debe pasar igual por `resolve_overlaps`."""
+    `NLP_ANALYZER_URL` configurada. NUNCA es el detector del camino de producción
+    (spec 016, Constraint SC-2): no distingue nombres sin tratamiento y es lossy por
+    diseño. Ante coincidencias solapadas pasa igual por `resolve_overlaps`.
+
+    `region` (opcional, retrocompatible) elige los estructurados por-país; IBAN y tarjeta
+    son internacionales y se detectan siempre. Los identificadores estructurados se
+    CONFIRMAN con checksum (IBAN/tarjeta) o formato (NIF/NIE) para no etiquetar en falso, y
+    lo que no se reconoce con confianza se deja sin tocar (#64).
+
+    TODO(región): no se threadea `BASA_ENTITY_REGION` desde los call-sites (misma postura
+    YAGNI que `basa_guardrail`): hoy el único despliegue es eu y el default lo cubre.
+    Cuando haya otra región activa, pasar `region` desde `_build_analyze`/el guardrail."""
     entities = []
-    for entity_type, pattern in PII_PATTERNS.items():
-        flags = re.IGNORECASE if entity_type != "PERSON" else 0
+    patterns = dict(PII_PATTERNS)
+    patterns.update(FALLBACK_STRUCTURED_BY_REGION.get(region, {}))
+    for entity_type, pattern in patterns.items():
+        flags = 0 if entity_type == "PERSON" else re.IGNORECASE
         for m in re.finditer(pattern, text, flags):
             start, end = (m.start(1), m.end(1)) if entity_type == "PERSON" else (m.start(), m.end())
             entities.append({"start": start, "end": end,
                              "entity_type": entity_type, "score": 0.95})
+    # IBAN y tarjeta: detección con checksum + recorte (ver `_checksummed_spans`), no un
+    # match directo — un `AA00…`/una corrida de dígitos que no valide queda SIN etiquetar.
+    for etype, cand_re, validate in (("IBAN_CODE", _IBAN_CANDIDATE_RE, _iban_ok),
+                                     ("CREDIT_CARD", _CARD_CANDIDATE_RE, _luhn_ok)):
+        for start, end in _checksummed_spans(text, cand_re, validate):
+            entities.append({"start": start, "end": end, "entity_type": etype, "score": 0.95})
     return resolve_overlaps(entities)
 
 
