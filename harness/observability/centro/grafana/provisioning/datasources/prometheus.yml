@@ -1,0 +1,9 @@
+# Datasource provisionado como código (no clic-ops). Grafana lee del Prometheus del centro.
+apiVersion: 1
+datasources:
+  - name: Prometheus-ITV
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

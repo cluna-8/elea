@@ -1,0 +1,53 @@
+# Sonda de observabilidad — override del compose de examen, corre EN el SUT junto al stack
+# de producción. Out-of-band (FR-010): lee /proc, cgroups y Postgres SIN tocar el producto.
+# Prometheus en AGENT MODE hace remote_write SALIENTE al centro (push): sin puertos entrantes
+# en el SUT, tolera IP nueva por run, y si el centro se cae el examen sigue (el veredicto no
+# depende de él, R3).
+#
+# Uso:  docker compose -f compose.prod.yml -f harness/observability/sonda/compose.sonda.yml up
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.0
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    environment:
+      # Sólo lectura de métricas; el DSN se inyecta por env del overlay de examen.
+      DATA_SOURCE_NAME: ${SONDA_PG_DSN:?definir SONDA_PG_DSN en el overlay de examen}
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    environment:
+      REDIS_ADDR: ${SONDA_REDIS_ADDR:-redis://redis:6379}
+    restart: unless-stopped
+
+  prometheus-agent:
+    image: prom/prometheus:v3.1.0
+    command:
+      - --config.file=/etc/prometheus/agent.yml
+      - --enable-feature=agent          # agent mode: sólo scrape local + remote_write, sin TSDB
+    volumes:
+      - ./agent.yml:/etc/prometheus/agent.yml:ro
+    depends_on:
+      - node-exporter
+      - cadvisor
+    restart: unless-stopped

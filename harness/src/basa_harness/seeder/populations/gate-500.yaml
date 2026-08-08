@@ -1,0 +1,46 @@
+# Población del gate 500 (spec 035, T020; data-model §Población/Seed, research R5).
+#
+# Aritmética R5 (verificada por test_seeder.py):
+#   475 client + 17 tenant_admin + 8 compliance_officer = 500  (== gate)
+#   seats (= client = llaves) = 475 ≤ 500 (licencia del examen) con headroom.
+#
+# Este es el único gate que necesita la licencia de 500 seats (los otros dos entran en
+# la de 300). Ver gate-125.yaml para el detalle de client_type/tool_type/budgets.
+gate: 500
+tenant: itv-examen
+seed_prefix: itv
+email_domain: itv-examen.example
+
+license:
+  expected_max_seats: 500
+
+admin_bootstrap:
+  username: admin
+
+roles:
+  tenant_admin:
+    count: 17
+  compliance_officer:
+    count: 8
+  client:
+    buckets:
+      - client_type: chat_ui
+        tool_type: chat-ui
+        count: 300
+      - client_type: desktop
+        tool_type: claude-desktop
+        count: 125
+      - client_type: base_url
+        tool_type: claude-code
+        count: 50
+
+budgets:
+  default:
+    max_spend_usd: 10000
+    max_tokens: 100000000
+    reset_period: monthly
+  cohort_402_pct: 2
+  cohort_402:
+    max_spend_usd: 0.01
+    max_tokens: 100
+    reset_period: monthly

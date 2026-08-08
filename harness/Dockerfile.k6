@@ -1,0 +1,45 @@
+# Dockerfile.k6 — build reproducible del generador de carga del harness ITV (spec 035,
+# T023; research R1). k6 OSS v1.8.0 + xk6-sse v0.1.12, PINEADOS, x86_64.
+#
+# ⚠️ NO k6 v2.x: la v2.0.0 (11-may-2026) rompió el module path de extensiones y xk6-sse no
+# migró (research R1). La línea 1.x sigue mantenida en paralelo; v1.8.0 es POSTERIOR a la
+# 2.0.0. El pin exacto es lo que hace el binario versionable en el fingerprint
+# (versiones_instrumento.k6 / .xk6_sse).
+#
+# Build (la caja de examen Hetzner es amd64 — el showstopper de arch del piloto NO se
+# repite):
+#   docker build -f harness/Dockerfile.k6 --platform linux/amd64 -t basa-harness-k6 harness
+#
+# Correr un gate con la imagen (el orquestador Python monta runs/<id>/ y pasa GATE_CONFIG):
+#   docker run --rm --network host -v "$PWD/harness/scenarios:/scenarios" \
+#     -v "$PWD/harness/runs/<id>:/run" -w /run basa-harness-k6 \
+#     run --env GATE_CONFIG="$(cat /run/k6_config.json)" \
+#         --env POOL_FILE=/run/pool.json --env CORPUS_FILE=/run/corpus.json \
+#         --env SUMMARY_FILE=/run/summary.json /scenarios/gate.js
+#
+# Alternativa sin imagen (binario suelto para el fingerprint): scripts/build-k6.sh.
+
+ARG XK6_IMAGE=grafana/xk6:1.0.0
+ARG K6_VERSION=v1.8.0
+ARG XK6_SSE_VERSION=v0.1.12
+
+# ── build: xk6 compila k6 + la extensión SSE en un único binario Go estático ────────────
+FROM --platform=linux/amd64 ${XK6_IMAGE} AS build
+ARG K6_VERSION
+ARG XK6_SSE_VERSION
+WORKDIR /build
+# GOFLAGS/CGO fijos para un binario reproducible y portable (sin libc dinámica).
+ENV CGO_ENABLED=0
+RUN xk6 build "${K6_VERSION}" \
+      --with github.com/phymbert/xk6-sse@"${XK6_SSE_VERSION}" \
+      --output /build/k6 \
+ && /build/k6 version
+
+# ── runtime: imagen mínima con SOLO el binario ─────────────────────────────────────────
+FROM --platform=linux/amd64 alpine:3.20 AS runtime
+RUN adduser -D -u 10001 k6
+COPY --from=build /build/k6 /usr/local/bin/k6
+USER k6
+WORKDIR /scenarios
+ENTRYPOINT ["k6"]
+CMD ["version"]

@@ -1,0 +1,30 @@
+[project]
+name = "basa-harness"
+version = "0.1.0"
+description = "La ITV — banco de pruebas de carga de Basa Guardian (spec 035)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "zstandard>=0.22",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+# Open question R6 (T006) RESUELTA: Faker es_ES + python-stdnum DESCARTADAS. Motivo:
+# el dataset versionado se pinnea por sha256 y debe ser reproducible byte a byte en
+# cualquier máquina; los datasets internos de Faker cambian entre versiones y romperían
+# el hash. Los checksums (NIF mod23, NIE, IBAN mod97, Luhn) y los pools es-ES viven
+# versionados en src/basa_harness/corpus/oracle.py + generator.py — cero deps externas.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+where = ["src"]

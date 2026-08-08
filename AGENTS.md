@@ -1,8 +1,8 @@
 <!-- SPECKIT START -->
-No hay spec activa en vuelo. El plan vigente del ciclo vive en
-specs/ROADMAP-pisos.md (tech tree, gates 125/250/500 y apuestas por ciclo) y
-specs/ROADMAP-guardian.md (estado por spec). Al arrancar una spec nueva,
-speckit regenera este bloque apuntando a su plan.md.
+Spec activa: 035 harness de carga «El examen existe» (La ITV, issue #95, rama
+035-load-harness). Plan vigente: specs/035-load-harness/plan.md (research sellado en
+specs/035-load-harness/research.md). Contexto de ciclo: specs/ROADMAP-pisos.md (tech
+tree, gates 125/250/500) y specs/ROADMAP-guardian.md (estado por spec).
 <!-- SPECKIT END -->
 
 # Acuerdo de trabajo del equipo (humanos + agentes)

@@ -1,0 +1,30 @@
+# Prometheus AGENT mode en el SUT: scrapea los exporters locales y hace remote_write
+# SALIENTE al centro por la red privada del project guardian-itv (10.x, sin cruzar internet).
+# El ${CENTRO_REMOTE_WRITE_URL} lo inyecta el overlay de examen (ej. http://10.0.0.5:9090/api/v1/write).
+global:
+  scrape_interval: 15s
+  external_labels:
+    origin: guardian-itv-sonda
+    # el run_id se inyecta por env para que el centro separe las series por run
+    run: ${SONDA_RUN_ID:-adhoc}
+
+scrape_configs:
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+remote_write:
+  - url: ${CENTRO_REMOTE_WRITE_URL:?definir CENTRO_REMOTE_WRITE_URL en el overlay de examen}
+    # Si el centro va detrás de Caddy con auth (cross-red), descomentar:
+    # basic_auth:
+    #   username: ${CENTRO_USER}
+    #   password_file: /run/secrets/centro_pass

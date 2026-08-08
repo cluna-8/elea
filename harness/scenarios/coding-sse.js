@@ -1,0 +1,50 @@
+// coding-sse.js — superficie coding tools (spec 035, T024). ÚNICA superficie SSE:
+// POST /api/v1/gw/v1/messages con stream:true, vía xk6-sse (`k6/x/sse`). Mide TTFT (primer
+// evento) y cortes (close/error a mitad). k6 core bufferea SSE y NO puede medir TTFT — por
+// eso xk6-sse es imprescindible aquí (research R1); NO usar k6 v2.x (rompió xk6-sse).
+import sse from 'k6/x/sse';
+import {
+  API, MODEL_CODING, pickIdentity, authHeaders, promptFor,
+  recordLatency, recordTTFT, phaseOf, metrics,
+} from './common.js';
+
+export function coding() {
+  const id = pickIdentity('coding');
+  const headers = authHeaders(id, 'coding'); // { 'X-Basa-Key': ... } (byok/subscription)
+  if (!headers) { metrics.harness_errors.add(1); return; }
+
+  const phase = phaseOf();
+  const payload = JSON.stringify({
+    model: MODEL_CODING,
+    stream: true,
+    max_tokens: 256,
+    messages: [{ role: 'user', content: promptFor('coding') }],
+  });
+  const params = {
+    method: 'POST',
+    body: payload,
+    headers: Object.assign(
+      { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, headers),
+    tags: { surface: 'coding', phase: phase },
+  };
+
+  const t0 = Date.now();
+  let firstToken = false;
+  let cut = false;
+  let sawStop = false;
+
+  sse.open(API + '/gw/v1/messages', params, function (client) {
+    client.on('event', function (ev) {
+      if (!firstToken) { recordTTFT(phase, Date.now() - t0); firstToken = true; }
+      // fin limpio del stream Anthropic: message_stop.
+      if (ev && ev.name === 'message_stop') sawStop = true;
+      if (ev && ev.name === 'error') cut = true;
+    });
+    client.on('error', function () { cut = true; });
+  });
+
+  recordLatency('coding', phase, Date.now() - t0);
+  metrics.auditable_events.add(1);
+  // corte = error explícito, o el stream nunca abrió, o cerró sin message_stop.
+  if (cut || !firstToken || !sawStop) { metrics.stream_cuts.add(1); }
+}

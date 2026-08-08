@@ -1,0 +1,19 @@
+# Override del ENTORNO DE EXAMEN (spec 035, T019; research R2 punto 2).
+#
+# Por qué existe: gateway.py:125 lee BASA_GW_ANTHROPIC_BASE (default api.anthropic.com)
+# para el passthrough de suscripción Anthropic, pero compose.prod.yml NO lo pasa al
+# backend (hallazgo R2 — "NO está en ningún compose, agregarla al overlay"). Este override
+# lo cablea al STUB del harness SIN editar el compose compartido (territorio Falime,
+# CODEOWNERS): se aplica como capa adicional.
+#
+#   docker compose --env-file deploy/clients/itv-examen/rendered/instance.env \
+#     -f deploy/docker/compose.prod.yml \
+#     -f deploy/clients/itv-examen/compose.itv-examen.override.yml \
+#     --profile selfhosted up -d
+#
+# Con esto, el 100% del tráfico (byok por model_list + suscripción por el gateway) sale al
+# stub. El candado final es el firewall con egress bloqueado (R2 punto 4).
+services:
+  backend:
+    environment:
+      BASA_GW_ANTHROPIC_BASE: "${BASA_GW_ANTHROPIC_BASE:-https://api.anthropic.com}"

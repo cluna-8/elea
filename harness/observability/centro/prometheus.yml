@@ -1,0 +1,13 @@
+# Prometheus del centro. No scrapea nada de la caja de examen (la sonda hace remote_write
+# SALIENTE hacia acá → sin puertos entrantes en el SUT, IP nueva por run irrelevante).
+# k6 también hace remote_write acá (-o experimental-prometheus-rw) para el tablero en vivo.
+global:
+  scrape_interval: 15s
+  external_labels:
+    origin: guardian-itv-centro
+
+# Sólo se auto-monitorea; el resto llega por remote_write.
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

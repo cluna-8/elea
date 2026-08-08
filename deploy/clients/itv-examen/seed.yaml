@@ -1,0 +1,12 @@
+# Seed del onboarding-as-data (013 US6 → seed_clients_from_config): DELIBERADAMENTE VACÍO.
+#
+# A diferencia de un cliente real, la población del examen NO se siembra por este archivo:
+# la aprovisiona el SEEDER del harness vía la API REST real, de forma reproducible e
+# idempotente (spec 035 T020 · harness/src/basa_harness/seeder/). Motivo: el seed ES el
+# primer mini-examen del plano admin (login storm, JWT del chat, seat gate) y necesita
+# users con password real + engine_user_id — cosas que el seed por config no da.
+#
+#   python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/  --seed 20260808
+#
+# (ver harness/README.md § "Seeder + licencias del examen").
+clients: []

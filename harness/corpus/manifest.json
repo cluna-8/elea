@@ -1,0 +1,42 @@
+{
+  "version": "1.1.0",
+  "sha256": "f563f44e6b947d8158adfa621a607dad0ad4edaa1d050ef5fd8cc4f366a4417e",
+  "generator_version": "1.1.0",
+  "seed": 20260808,
+  "python_version": "3.14",
+  "unicodedata_version": "16.0.0",
+  "densities": {
+    "0": 3,
+    "1": 4,
+    "2": 5,
+    "3": 4,
+    "4": 2,
+    "5": 2
+  },
+  "counts": {
+    "total_docs": 312,
+    "clean_docs": 47,
+    "total_entities": 681,
+    "by_entity_type": {
+      "CREDIT_CARD": 72,
+      "DATE_TIME": 85,
+      "EMAIL_ADDRESS": 74,
+      "ES_NIE": 50,
+      "ES_NIF": 42,
+      "IBAN_CODE": 77,
+      "LOCATION": 81,
+      "PASSPORT": 36,
+      "PERSON": 88,
+      "PHONE_NUMBER": 76
+    },
+    "by_source": {
+      "generated": 300,
+      "regression-63": 12
+    },
+    "by_difficulty": {
+      "easy": 107,
+      "hard": 65,
+      "medium": 140
+    }
+  }
+}

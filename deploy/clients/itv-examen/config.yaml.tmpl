@@ -1,0 +1,71 @@
+# LiteLLM config del ENTORNO DE EXAMEN ${TENANT_SLUG} (spec 035, T019; research R2 punto 1).
+#
+# ⚠️ ESTO NO ES UN CLIENTE REAL. Es la población del banco de pruebas de carga (La ITV):
+# TODO el model_list apunta al STUB del harness — jamás a un proveedor real. El egress del
+# SUT va bloqueado por firewall (R2 punto 4): el candado que convierte "creemos que todo
+# pasa por el stub" en "no puede no pasar". Ver README.md de este perfil.
+#
+# Bloque general/guardrails = EL MISMO de la 014 (paridad de política: el examen mide el
+# stack de producción tal cual, con masking + auditoría + guardrails encendidos).
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  custom_auth: extensions.custom_auth.user_api_key_auth
+  custom_auth_run_common_checks: true
+guardrails:
+- guardrail_name: basa-guardian
+  litellm_params:
+    guardrail: extensions.basa_guardrail.BasaGuardrail
+    mode: [pre_call, post_call]
+    default_on: true
+litellm_settings:
+  callbacks: extensions.basa_audit_logger.basa_audit_logger_instance
+  cache: false          # examen: cache OFF (incompatible con masking reversible, issue #30)
+  drop_params: true
+  set_verbose: false
+
+# ── model_list: 100% openai/<alias> → STUB ────────────────────────────────────────────
+# Cada entrada es un wire OpenAI apuntando a ${STUB_URL}/v1 con una api_key DUMMY (el stub
+# la ignora). No hay ni una sola entrada que pueda salir a internet: si alguien repunta un
+# alias a un proveedor real, la key de ese proveedor está VACÍA en el overlay (client.env)
+# → falla ruidoso en vez de gastar o fugar (R2 punto 3).
+model_list:
+# Alias local del examen (el default del auto-router; equivalente al -local de la Cámara,
+# pero stub-backed como todo lo demás).
+- litellm_params:
+    api_base: ${STUB_URL}/v1
+    api_key: ${STUB_API_KEY}
+    model: openai/local
+  model_name: ${TENANT_SLUG}-local
+# Conversables del guion (tiers premium/economy del auto-router). Stub-backed: el stub
+# programa por alias su latencia/ritmo de tokens/errores desde la API de control por run.
+- litellm_params:
+    api_base: ${STUB_URL}/v1
+    api_key: ${STUB_API_KEY}
+    model: openai/premium
+  model_name: ${TENANT_SLUG}-premium
+- litellm_params:
+    api_base: ${STUB_URL}/v1
+    api_key: ${STUB_API_KEY}
+    model: openai/economy
+  model_name: ${TENANT_SLUG}-economy
+# Embeddings del auto-router semántico (spec 030): el vector lo sirve el stub en
+# /v1/embeddings — el contenido del prompt tampoco sale del SUT para decidir el ruteo.
+- litellm_params:
+    api_base: ${STUB_URL}/v1
+    api_key: ${STUB_API_KEY}
+    model: openai/router-embeddings
+  model_info:
+    input_cost_per_token: 0
+    mode: embedding
+    output_cost_per_token: 0
+  model_name: router-embeddings
+
+# fallbacks SOLO entre aliases stub-backed (R2 punto 1): jamás un fallback que salga del
+# stub. Todo cae al alias local (también stub) para que un alias saturado no invente egress.
+router_settings:
+  disable_cooldowns: true
+  num_retries: 2
+  timeout: 120
+  fallbacks:
+  - ${TENANT_SLUG}-premium: [${TENANT_SLUG}-local]
+  - ${TENANT_SLUG}-economy: [${TENANT_SLUG}-local]

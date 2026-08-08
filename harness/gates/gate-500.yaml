@@ -1,0 +1,55 @@
+# Gate 500 — definición VERSIONADA (spec 035, T011; contract gate-definition.md).
+# Delta sobre el 125: fases `sustained` → `peak ×2` → `recovery` (verificación de vuelta
+# a niveles normales sin intervención) + sección OPCIONAL `knee_search` (informativa,
+# fuera del pass/fail, explícitamente diferible al ciclo 3). Todo lo demás hereda del 125.
+gate: 500
+version: 1.0.0            # bump en PR ante CUALQUIER cambio, incluida la tolerancia
+description: Objetivo septiembre — 500 usuarios con pico ×2 y recuperación
+phases:
+  - name: sustained
+    duration: 1h
+  - name: peak
+    duration: 30m
+    arrival_factor: 2      # ×2 la tasa de llegada sostenida (ramping-arrival-rate, R1)
+  - name: recovery
+    duration: 30m          # verificación de vuelta a niveles normales sin intervención
+population_ref: populations/gate-500.yaml
+mix:                      # heredada del 125
+  chat: 60
+  extension: 25
+  coding_sse: 10
+  admin: 5
+cadence_s:                # heredadas del 125
+  chat: [60, 180]
+  extension: [90, 300]
+  coding_sse: [120, 300]
+  admin: [180, 600]
+pii_densities_per_mille: [0, 1, 5, 20]
+stack_config_required:
+  masking:
+    default: on
+  nlp_analyzer: real
+  nlp_analyzer_url: configured
+  nlp_fail_mode: block
+  producto_incluye: ["PR #97"]
+  auto_router: "off"
+stub:
+  latency_ms: {chat: 800, coding_first_token: 600}
+  token_rate_tps: 40
+  stream_duration_s: [10, 60]
+  error_rate: 0.0
+slo:                      # idénticos en las tres fases
+  - audit_lost_events_delta_zero
+  - reconciliation_rows
+  - zero_raw_canaries
+  - blocked_rows_durable_100
+repeatability_tolerance_pct: 10
+budget_api_usd: 0
+knee_search:              # OPCIONAL · informativa · FUERA del pass/fail · diferible (ciclo 3)
+  enabled: false
+  note: >
+    Búsqueda del «codo»: barrido incremental de la tasa por encima del pico para
+    localizar el punto de saturación del producto. Informativo; NO computa veredicto.
+  start_factor: 1.0
+  step_factor: 0.25
+  max_factor: 3.0

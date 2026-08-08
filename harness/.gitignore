@@ -1,0 +1,8 @@
+# Entorno de test local (el CI usa setup-python; local usa venv por PEP 668)
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# Binario k6 versionado por sha256 (se reconstruye con scripts/build-k6.sh — NO se commitea)
+bin/

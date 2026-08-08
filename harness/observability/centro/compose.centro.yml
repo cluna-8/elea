@@ -1,0 +1,50 @@
+# Centro de observabilidad de La ITV — vive en la CPX21 fija del project guardian-itv
+# (NO en el VPS compartido: ese no tiene headroom, df 55% con los Postgres de Plane/Twenty).
+# Prometheus (receiver on, retención larga) + Grafana OSS. Es el tablero EN VIVO del run
+# (pedido JF) y la memoria que sobrevive a las cajas de examen efímeras (FR-013).
+#
+# REGLA DURA (R3): el veredicto por SLO se computa del JSON de k6 + health del producto +
+# detector del stub — NUNCA de Prometheus/Grafana. Esta caja caída invalida el tablero,
+# no el examen.
+services:
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver          # recibe remote_write de la sonda y de k6
+      - --storage.tsdb.retention.time=400d          # histórico comparable entre ciclos (ago→sept)
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    restart: unless-stopped
+    # Puerto NO publicado a internet: sólo red privada del project + Caddy como reverse
+    # proxy con auth si se quiere la UI pública (se define con devops la semana del 11).
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"     # soberanía del dato (producto de compliance)
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro   # datasource + dashboards como código
+      - grafana-data:/var/lib/grafana
+    secrets:
+      - grafana_admin
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+
+secrets:
+  grafana_admin:
+    file: ./secrets/grafana_admin.txt          # gitignored; se crea en la CPX21 (chmod 600)
+
+volumes:
+  prom-data:
+  grafana-data:

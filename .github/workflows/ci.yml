@@ -43,6 +43,22 @@ jobs:
       - run: npx tsc --noEmit
         working-directory: frontend
 
+  harness-tests:
+    name: pytest harness (instrumento La ITV, sin stack)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar el harness (deps + dev)
+        run: pip install -e ".[dev]"
+        working-directory: harness
+      - name: Tests del instrumento
+        run: pytest tests/ -q
+        working-directory: harness
+
   docs-check:
     name: check-docs (build + linter del sitio que se vende)
     runs-on: ubuntu-latest

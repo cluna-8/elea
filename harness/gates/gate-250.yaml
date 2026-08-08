@@ -1,0 +1,47 @@
+# Gate 250 — definición VERSIONADA (spec 035, T011; contract gate-definition.md).
+# Delta sobre el 125: fase previa `login_storm` (toda la población entra en la ventana;
+# métricas separadas por fase) + `sustained`. Los SLOs son IDÉNTICOS en ambas fases —
+# la tormenta no relaja nada. Todo lo demás hereda del 125 (mezcla, cadencias,
+# densidades, config exigida, stub, tolerancia).
+gate: 250
+version: 1.0.0            # bump en PR ante CUALQUIER cambio, incluida la tolerancia
+description: Doble de sede con tormenta de login en frío (~250)
+phases:
+  - name: login_storm     # R1: 250 logins / 10 min, startTime escalonado
+    duration: 10m
+    enters: all_population # toda la población entra en la ventana
+    metrics: separate      # fase separable por tag; SLOs idénticos a sustained
+  - name: sustained
+    duration: 30m
+population_ref: populations/gate-250.yaml
+mix:                      # heredada del 125
+  chat: 60
+  extension: 25
+  coding_sse: 10
+  admin: 5
+cadence_s:                # heredadas del 125
+  chat: [60, 180]
+  extension: [90, 300]
+  coding_sse: [120, 300]
+  admin: [180, 600]
+pii_densities_per_mille: [0, 1, 5, 20]
+stack_config_required:
+  masking:
+    default: on
+  nlp_analyzer: real
+  nlp_analyzer_url: configured
+  nlp_fail_mode: block
+  producto_incluye: ["PR #97"]
+  auto_router: "off"
+stub:
+  latency_ms: {chat: 800, coding_first_token: 600}
+  token_rate_tps: 40
+  stream_duration_s: [10, 60]
+  error_rate: 0.0
+slo:                      # idénticos en login_storm y sustained
+  - audit_lost_events_delta_zero
+  - reconciliation_rows
+  - zero_raw_canaries
+  - blocked_rows_durable_100
+repeatability_tolerance_pct: 10
+budget_api_usd: 0

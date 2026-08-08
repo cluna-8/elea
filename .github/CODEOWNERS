@@ -13,6 +13,9 @@
 # ── Install & Factory ──
 deploy/ @FalimeJ
 
+# ── La ITV (harness de carga, spec 035 — label team:itv) ──
+harness/ @DrZuzzjen
+
 # ── Gate de Cristian: custodia, firma y auth ──
 backend/src/licensing/ @DrZuzzjen @cluna-8
 backend/src/keys/ @DrZuzzjen @cluna-8

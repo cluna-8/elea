@@ -1,0 +1,51 @@
+{
+  "enabled": true,
+  "default_model": "itv-examen-local",
+  "timeout_seconds": 5,
+  "embedding_model": "router-embeddings",
+  "_comment": "Rutas del examen (spec 035). target_model = alias FINAL de config.yaml (render_profile copia este JSON verbatim, NO lo templa). Los 3 targets son stub-backed; el auto-router on/off lo fija la definición del gate.",
+  "routes": [
+    {
+      "name": "Código y análisis",
+      "description": "Consultas de código y razonamiento (tier premium, stub-backed)",
+      "target_model": "itv-examen-premium",
+      "score_threshold": 0.45,
+      "tier": "premium",
+      "utterances": [
+        "escribí una función en python",
+        "corregí este error de código",
+        "qué hace este código",
+        "programá un script que",
+        "revisá este fragmento de código",
+        "analizá estos resultados"
+      ]
+    },
+    {
+      "name": "Redacción y resumen",
+      "description": "Resumen, redacción y traducción (tier economy, stub-backed)",
+      "target_model": "itv-examen-economy",
+      "score_threshold": 0.45,
+      "tier": "economy",
+      "utterances": [
+        "resumime este texto",
+        "hacé un resumen de",
+        "redactá un mail para",
+        "traducí este texto al inglés",
+        "reformulá este párrafo"
+      ]
+    },
+    {
+      "name": "Conversación trivial",
+      "description": "Saludos y charla (alias local, stub-backed)",
+      "target_model": "itv-examen-local",
+      "score_threshold": 0.45,
+      "tier": "local",
+      "utterances": [
+        "hola, ¿qué tal?",
+        "buen día, ¿cómo andás?",
+        "gracias, nos vemos mañana",
+        "chau, hasta luego"
+      ]
+    }
+  ]
+}

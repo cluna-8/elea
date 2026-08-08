@@ -1,0 +1,57 @@
+# Población del gate 125 (spec 035, T020; data-model §Población/Seed, research R5).
+#
+# DATA declarativa que el seeder (seed.py) aprovisiona vía la API REST real del
+# producto. La aritmética es la de R5 y está VERIFICADA por test_seeder.py:
+#   119 client + 4 tenant_admin + 2 compliance_officer = 125  (== gate)
+#   seats (= client = llaves) = 119 ≤ 300 (licencia del examen) con headroom.
+#
+# El client_type describe CÓMO consume la persona (base_url/desktop/chat_ui) y el
+# tool_type es la herramienta de la Connection (= el seat). Las cuentas admin NO
+# consumen seat; super_admin NO se siembra (enum verificado en models/user.py).
+gate: 125
+tenant: itv-examen
+# Prefijo + dominio de las identidades derivadas (username = <prefijo>-g<gate>-<rol>-<idx>).
+seed_prefix: itv
+email_domain: itv-examen.example
+
+# Licencia esperada para este gate: el pre-check en vivo (GET /health/license) manda,
+# pero este número deja el invariante "seats ≤ licencia" auditable en seco (SC-008).
+license:
+  expected_max_seats: 300
+
+admin_bootstrap:
+  username: admin
+
+roles:
+  tenant_admin:
+    count: 4
+  compliance_officer:
+    count: 2       # el lector de SLO usa una de estas cuentas del seed (R5)
+  client:
+    # tool_type por superficie — pendiente de confirmar contra la distribución real
+    # de la Cámara (open question R5); es DATA, se ajusta sin tocar código.
+    buckets:
+      - client_type: chat_ui
+        tool_type: chat-ui
+        count: 75
+      - client_type: desktop
+        tool_type: claude-desktop
+        count: 31
+      - client_type: base_url
+        tool_type: claude-code
+        count: 13
+
+budgets:
+  # Generoso por default para NO contaminar el gate (R5): ningún corte por presupuesto
+  # salvo en la cohorte que existe justo para provocar el 402.
+  default:
+    max_spend_usd: 10000
+    max_tokens: 100000000
+    reset_period: monthly
+  # Cohorte ~2% de clients con presupuesto ínfimo → provoca el 402 del escenario dedicado.
+  # Se aplica a los primeros N clients por índice (determinista); N = round(pct% · clients).
+  cohort_402_pct: 2
+  cohort_402:
+    max_spend_usd: 0.01
+    max_tokens: 100
+    reset_period: monthly

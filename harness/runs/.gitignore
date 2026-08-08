@@ -1,0 +1,4 @@
+# Los runs son evidencia local de scratch. Lo persistido va a la plataforma de
+# resultados (observabilidad R3 / plataforma FR-013), nunca al repo.
+*
+!.gitignore
