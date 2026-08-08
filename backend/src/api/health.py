@@ -204,8 +204,20 @@ def _nlp_alcanzable(url: str) -> Tuple[bool, bool]:
     if cache is not None and time.monotonic() - cache[0] < _NLP_PROBE_CACHE_TTL_S:
         return cache[1], False
 
-    en_frio = cache is None
-    if not _nlp_probe_lock.acquire(blocking=en_frio, timeout=_NLP_PROBE_COLD_WAIT_S):
+    # Las dos ramas van EXPLÍCITAS y no en un `acquire(blocking=en_frio, timeout=…)`
+    # parametrizado: CPython prohíbe combinar `blocking=False` con un timeout distinto de -1
+    # (`ValueError: can't specify a timeout for a non-blocking call`), y esa forma compacta
+    # lo hacía en el camino MÁS común —cache presente y vencido, o sea cualquier worker a
+    # partir de su segundo probe—, devolviendo 500 en todo `/health` con NLP configurado.
+    # Separarlas hace que la combinación ilegal no se pueda volver a escribir por descuido.
+    if cache is None:
+        # Arranque en frío: conviene ESPERAR al ganador — la alternativa es reportar
+        # `unreachable` sin haber preguntado nunca, o sea una alarma falsa. Pasa una vez.
+        adquirido = _nlp_probe_lock.acquire(timeout=_NLP_PROBE_COLD_WAIT_S)
+    else:
+        # Ya hay un veredicto previo utilizable: nadie espera, se contesta con él.
+        adquirido = _nlp_probe_lock.acquire(blocking=False)
+    if not adquirido:
         # Otro hilo está probando. Con valor previo se contesta ese; sin valor previo
         # (arranque en frío que agotó la espera) se degrada honesto, sin probar.
         cache = _nlp_probe_cache
