@@ -87,11 +87,18 @@ def _validate_entity_type(entity_type: str) -> str:
     return normalized
 
 
-# Gracia para leer el resultado del hijo DESPUÉS de que `join()` volvió (#98). No es
-# tiempo de cómputo: el hijo ya terminó, es solo margen para que el dato termine de
-# cruzar el pipe de la Queue. En el camino feliz `get()` devuelve al instante y no
-# suma latencia; solo se paga entero cuando el hijo murió sin reportar.
+# Tramo FINAL del presupuesto `timeout_s`, NO un extra: `_run_in_process` le descuenta
+# esta misma cantidad al `join`, así que un patrón nunca dispone de más de
+# `REGEX_TIMEOUT_S` en total (si esto se sumara, el umbral real pasaría a ser 2.2s y
+# `REGEX_TIMEOUT_S` sería mentira — hallazgo del review del #98).
+# Lo que se acepta durante la gracia es un resultado COMPLETO que llega tarde, nunca
+# cómputo extra: el worker hace `put` como última sentencia, de modo que si hay dato en
+# la cola el match ya estaba decidido; lo único que faltaba era cruzar el pipe.
 _QUEUE_GRACE_S = 0.2
+
+# Piso del `join` para que un `timeout_s` chico (tests) no quede en cero o negativo al
+# descontarle la gracia.
+_MIN_JOIN_S = 0.1
 
 # Serializa el ciclo de vida de los subprocesos ENTRE HILOS (#98). Restricción no
 # deducible del código: `Process.start()` llama por dentro a
@@ -136,30 +143,39 @@ def _run_in_process(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S)
     ctx = mp.get_context("spawn")
     q: "mp.Queue" = ctx.Queue()
     p = ctx.Process(target=_redos_worker.match_worker, args=(pattern, text, q))
-    with _PROC_LIFECYCLE_LOCK:
-        p.start()
-    # `join` va FUERA del lock a propósito: es la espera larga (hasta `timeout_s`) y
-    # serializarla ahogaría a los demás hilos. Que su `poll()` interno pierda la carrera
-    # y no registre el `returncode` es inocuo, porque quien decide acá abajo es la cola.
-    p.join(timeout_s)
-
-    # El resultado en la cola MANDA sobre `is_alive()` (#98): en la carrera descrita en
-    # `_PROC_LIFECYCLE_LOCK` el hijo ya terminó y ya dejó su resultado — lo único
-    # equivocado es la contabilidad del padre. Preguntar primero por la cola convierte
-    # ese caso en la respuesta correcta en vez de en un falso "no respondió a tiempo".
     try:
-        return q.get(timeout=_QUEUE_GRACE_S)
-    except Exception:
-        pass  # sin resultado: recién ahora tiene sentido preguntar si sigue corriendo
+        with _PROC_LIFECYCLE_LOCK:
+            p.start()
+        # `join` va FUERA del lock a propósito: es la espera larga y serializarla
+        # ahogaría a los demás hilos. Que su `poll()` interno pierda la carrera y no
+        # registre el `returncode` es inocuo, porque quien decide abajo es la cola.
+        # Se acorta en `_QUEUE_GRACE_S` para que join + gracia sumen `timeout_s` y el
+        # presupuesto TOTAL siga siendo el que promete `REGEX_TIMEOUT_S`.
+        p.join(max(timeout_s - _QUEUE_GRACE_S, _MIN_JOIN_S))
 
-    if _sigue_vivo(p):
-        p.terminate()
-        p.join(timeout=2.0)
+        # El resultado en la cola MANDA sobre `is_alive()` (#98): en la carrera descrita
+        # en `_PROC_LIFECYCLE_LOCK` el hijo ya terminó y ya dejó su resultado — lo único
+        # equivocado es la contabilidad del padre. Preguntar primero por la cola
+        # convierte ese caso en la respuesta correcta en vez de en un falso "no
+        # respondió a tiempo".
+        try:
+            return q.get(timeout=_QUEUE_GRACE_S)
+        except Exception:
+            return None  # nada dentro del presupuesto -> resultado desconocido
+    finally:
+        # El hijo no sobrevive a esta función, salga por donde salga (#98). Hoy el
+        # camino de la cola implica que ya terminó (el `put` del worker es su última
+        # sentencia), así que este bloque no se activa — pero el contrato del docstring
+        # es "si no termina a tiempo, se mata de verdad", y con un `return` temprano
+        # afuera del `finally` ese contrato dependía de un detalle del worker. Si el
+        # worker evoluciona (reportar progreso parcial, reusar el proceso), sin esto
+        # quedaría un proceso colgado por cada validación.
         if _sigue_vivo(p):
-            p.kill()
-            p.join()
-        return None
-    return None  # el proceso murió sin reportar -> resultado desconocido
+            p.terminate()
+            p.join(timeout=2.0)
+            if _sigue_vivo(p):
+                p.kill()
+                p.join()
 
 
 def _matches_within_timeout(pattern: str, text: str, timeout_s: float = REGEX_TIMEOUT_S) -> bool:
