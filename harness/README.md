@@ -52,8 +52,13 @@ exigida), genera carga con modelo de llegadas abierto, y produce
 Un **drill** no pregunta «¿aguanta 125?» sino «cuando NO aguanta, ¿se defiende bien?».
 `gates/drill-saturacion-125.yaml` (`kind: drill`) corre en **modo sede-lenta**: el stub
 gotea (`token_rate_tps: 5`) con streams largos (60-120 s) que ocupan el tope de
-concurrencia al motor, y una ráfaga de chat (`burst`, `arrival_factor: 3`) encuentra la
-cola llena. Ahí el backend debe **rechazar rápido**, no colgarse.
+concurrencia al motor durante el sostenido, y **después** una ráfaga global (`burst`,
+`arrival_factor: 3` — ×3 sobre TODAS las superficies, dominada por chat por la mezcla
+60/25/10/5) encuentra la cola llena. Ahí el backend debe **rechazar rápido**, no colgarse.
+
+Las fases son **secuenciales** (el orquestador escalona el `startTime` de los scenarios
+k6): **15 min de examen** = 10 min de sostenido + 5 min de ráfaga. Si el burst arrancara a
+la vez que el sostenido, caería sobre una cola fría y el drill no mediría nada.
 
 **Contrato de wire** (sellado con el core — el harness lo mide, no lo define):
 
@@ -87,8 +92,15 @@ filas en [`contracts/run-report.md`](../specs/035-load-harness/contracts/run-rep
 
 > Los rechazos se cronometran en una Trend **aparte** (`lat_rejection`): un 503 rápido no
 > es latencia de servicio y hundiría los percentiles del gate. Y un rechazo **no** cuenta
-> como corte de stream en coding — nunca hubo stream que cortar. Un run sin rechazos
-> produce un verdict idéntico al de antes de C1.
+> como corte de stream en coding — nunca hubo stream que cortar (tampoco emite TTFT). Un
+> run de gate oficial sin rechazos produce un verdict idéntico al de antes de C1.
+
+> **Un drill que no llega a saturar es un examen INVÁLIDO, no un PASS**: si no hubo
+> rechazos, la defensa nunca se ejercitó y el verdict sale `INVALID` con el motivo (¿stub
+> en modo sede-lenta? ¿SUT sobrado?). El `--dry-run` queda afuera de esa regla.
+> Sin `--run-id`, el id por defecto lleva el kind (`20260810-g125-drill-01`) para no
+> chocar con el del gate oficial del mismo día; y un `run_dir` que ya tiene `verdict.json`
+> **no se sobrescribe**: el harness aborta y pide otro `--run-id`.
 
 ## Entorno de examen
 

@@ -3,9 +3,13 @@
 # NO es un gate del tech tree: es un examen DIRIGIDO al fix de admisión del nodo C1. En
 # vez de preguntar «¿aguanta 125?», pregunta «cuando NO aguanta, ¿se defiende bien?»:
 # streams largos y lentos (token_rate bajo + stream_duration alto) llenan el tope de
-# concurrencia al motor, la ráfaga de chat encuentra la cola llena y el backend debe
-# contestar 503 RÁPIDO con `X-Basa-Rejected: saturated` y fila durable
+# concurrencia al motor durante el sostenido, y DESPUÉS la ráfaga global (×3 sobre TODAS
+# las superficies, dominada por chat por la mezcla 60/25/10/5) encuentra la cola llena. Ahí
+# el backend debe contestar 503 RÁPIDO con `X-Basa-Rejected: saturated` y fila durable
 # (`estado='rejected_saturated'`) escrita ANTES de responder.
+#
+# Las fases son SECUENCIALES (el orquestador escalona el `startTime` de los scenarios k6):
+# 10 min de sostenido + 5 min de ráfaga = 15 min de examen.
 #
 # Los 4 SLO de oro siguen vigentes y obligatorios: un drill no relaja nada. Los criterios
 # propios del drill viven en `drill.criteria`.
@@ -17,8 +21,9 @@ phases:
   - name: sustained
     duration: 10m         # llenar el tope de concurrencia y sostenerlo
   - name: burst
-    duration: 5m
-    arrival_factor: 3     # ×3 sobre la tasa base: la ráfaga que encuentra la cola llena
+    duration: 5m          # arranca a los 10m (fases secuenciales), no en paralelo
+    arrival_factor: 3     # ×3 sobre la tasa base de TODAS las superficies: la ráfaga
+                          # global (la domina chat) que encuentra la cola llena
 population_ref: populations/gate-125.yaml   # misma población que el 125 oficial
 mix:                      # idénticos al gate-125: el drill cambia el ESTRÉS, no la mezcla
   chat: 60
