@@ -18,6 +18,13 @@ SECUENCIA de R5 y con las guardas que la spec pide:
   (402/403/422…) es fail-fast con contexto.
 - **verify-only**: entre runs, sin crear nada — lista y comprueba que la población
   declarada está completa; reporta lo que falte.
+- **Material de llave en el pool** (corrida real): ``POST /keys`` devuelve la key EN CLARO
+  (``plain_key``) UNA sola vez — la DB guarda hash+preview y no hay endpoint que la
+  recupere. Se captura al vuelo y viaja en el pool emitido como ``basa_key``, porque las
+  superficies extensión/coding de k6 se autentican con ``X-Basa-Key`` (common.js
+  ``authHeaders``) y sin ella NO pueden correr. Si alguna identidad de esas dos
+  superficies queda sin material, el seeder termina con EXIT ≠ 0: el examen no corre a
+  medias con dos superficies mudas.
 
 DETERMINISMO: toda la lógica que los tests verifican deriva de ``(seed, gate, idx)`` —
 sin ``uuid``/``time``/``random``.
@@ -43,6 +50,11 @@ DEFAULT_SEED = 20260808
 # Cuántas credenciales derivadas se comprueban contra la DB antes de crear/verificar
 # (FIX-7): suficientes para detectar un mismatch de semilla en masa sin pagar N logins.
 _CREDENTIAL_SAMPLE = 4
+
+# client_type cuyas superficies k6 se autentican con la KEY de la Connection (X-Basa-Key),
+# no con JWT: `desktop` → extensión, `base_url` → coding-SSE (scenarios/common.js:144-152).
+# `chat_ui` va por JWT, así que su identidad no necesita material de llave para correr.
+KEY_SURFACE_CLIENT_TYPES: frozenset[str] = frozenset({"desktop", "base_url"})
 
 
 class SeedError(RuntimeError):
@@ -71,25 +83,34 @@ class SeedReport:
     # FIX-4: budgets presentes pero con monto distinto al planificado (drift). No se
     # corrige automáticamente, pero se REPORTA (un budget mal contamina el gate).
     budget_drift: list[str] = field(default_factory=list)
-    # Pool de credenciales (username/password/rol/client_type) para k6 y el lector de SLO.
+    # Pool de credenciales (username/password/rol/client_type/tool_type/basa_key) para k6
+    # y el lector de SLO.
     credentials: list[dict] = field(default_factory=list)
+    # Identidades de extensión/coding que quedaron SIN material de llave (la Connection ya
+    # existía y su key en claro no es recuperable). El pool las marca con `basa_key: null`;
+    # el CLI sale con EXIT ≠ 0 porque esas dos superficies no podrían autenticarse.
+    keys_sin_material: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
+        sin_key = (f" ⚠ {len(self.keys_sin_material)} identidades de extensión/coding SIN "
+                   "material de llave" if self.keys_sin_material else "")
         if self.state == "verified":
             drift = f" (⚠ {len(self.budget_drift)} budgets con drift)" if self.budget_drift else ""
             return (f"gate {self.gate}: VERIFICADO — {self.planned_seats} seats, población "
-                    f"completa{drift}.")
+                    f"completa{drift}.{sin_key}")
         if self.state == "absent":
             parts = []
             if self.missing:
                 parts.append(f"faltan {len(self.missing)} elementos")
             if self.budget_drift:
                 parts.append(f"{len(self.budget_drift)} budgets con drift")
+            if self.keys_sin_material:
+                parts.append(f"{len(self.keys_sin_material)} sin material de llave")
             return f"gate {self.gate}: INCOMPLETO — {', '.join(parts)} (ver detalle)."
         return (f"gate {self.gate}: SEEDED — users +{self.users_created}/~{self.users_converged}, "
                 f"keys +{self.keys_created}/~{self.keys_converged}, "
                 f"budgets +{self.budgets_created}/~{self.budgets_converged} "
-                f"(seats {self.planned_seats}).")
+                f"(seats {self.planned_seats}).{sin_key}")
 
 
 # ── Licencia + pre-check de seats ─────────────────────────────────────────────────────
@@ -151,11 +172,20 @@ def precheck_seats(client: SeedClient, net_seats_needed: int) -> dict:
 # ── Orquestación ──────────────────────────────────────────────────────────────────────
 
 def seed(pop: Population, client: SeedClient, *, seed: Union[int, str] = DEFAULT_SEED,
-         verify_only: bool = False, admin_password: Optional[str] = None) -> SeedReport:
+         verify_only: bool = False, admin_password: Optional[str] = None,
+         pool_previo: Optional[list] = None) -> SeedReport:
     """Ejecuta (o verifica) el seed de ``pop`` contra ``client``.
 
     ``client`` es cualquier cosa que cumpla ``SeedClient`` (el ``BackendClient`` real o el
-    falso de los tests). ``seed`` fija identidades/passwords deterministas."""
+    falso de los tests). ``seed`` fija identidades/passwords deterministas.
+
+    ``pool_previo`` (sólo ``verify_only``): pool ya emitido en disco, del que se recuperan
+    las ``basa_key`` — el backend no las devuelve dos veces. Se validan contra
+    ``/gw/whoami`` sobre una muestra, mismo criterio que ``_assert_seed_matches``.
+
+    OJO: ``report.keys_sin_material`` no vacío significa que el examen NO puede correr
+    completo (extensión/coding sin autenticación). El CLI lo convierte en EXIT ≠ 0; un
+    llamador programático DEBE mirarlo."""
     members = plan_members(pop, seed)
     admin_pwd = admin_password or derive_password(seed, pop.admin_username)
 
@@ -182,7 +212,7 @@ def seed(pop: Population, client: SeedClient, *, seed: Union[int, str] = DEFAULT
         # abortaba verify-only sobre poblaciones 250/500 ya sembradas). Sólo se valida que
         # la licencia exista / sea admin-visible (legítimo también en verify).
         report.license = _license_state(client)
-        return _verify(pop, client, members, report)
+        return _verify(pop, client, members, report, pool_previo)
     return _apply(pop, client, members, report)
 
 
@@ -233,14 +263,17 @@ def _apply(pop: Population, client: SeedClient, members: list[Member],
     # Users PRIMERO (todos), luego keys, luego budgets — el orden de R5 (el seat gate corre
     # en users.py y keys.py, pero el seat sólo se CONSUME al crear la llave).
     ids: dict[str, str] = {}
+    creds = _credentials_by_username(report)
     for m in members:
         ids[m.username] = _create_or_converge_user(client, m, users_map, report)
     for m in clients:
-        _create_or_converge_key(client, m, ids[m.username], active_keys, report)
+        _create_or_converge_key(client, m, ids[m.username], active_keys, report,
+                                creds.get(m.username))
     for m in clients:
         if m.budget is not None:
             _create_or_converge_budget(client, m, ids[m.username], report)
 
+    _seal_key_material(members, creds, report)
     return report
 
 
@@ -278,15 +311,24 @@ def _create_or_converge_user(client: SeedClient, m: Member,
 
 
 def _create_or_converge_key(client: SeedClient, m: Member, user_id: str,
-                           active_keys: set, report: SeedReport) -> None:
+                           active_keys: set, report: SeedReport,
+                           cred: Optional[dict] = None) -> None:
     if (user_id, m.tool_type) in active_keys:  # Connection ya activa → convergemos
         report.keys_converged += 1
+        # La key en claro de una Connection preexistente NO es recuperable (la DB guarda
+        # key_hash + key_preview, keys.py:194-206): `basa_key` queda en null y
+        # `_seal_key_material` decide si eso deja al examen inservible.
         return
     try:
-        client.create_key(name=f"{m.username}-{m.tool_type}", user_id=user_id,
-                          tool_type=m.tool_type)
+        resp = client.create_key(name=f"{m.username}-{m.tool_type}", user_id=user_id,
+                                 tool_type=m.tool_type)
         report.keys_created += 1
         active_keys.add((user_id, m.tool_type))
+        # `plain_key` viaja UNA sola vez (KeyGeneratedResponse, keys.py:221-230): o se
+        # captura acá, o la identidad se queda sin material para siempre.
+        material = resp.get("plain_key") if isinstance(resp, dict) else None
+        if cred is not None and isinstance(material, str) and material:
+            cred["basa_key"] = material
     except BackendError as e:
         # 409 = Connection duplicada (único duplicado que keys.py devuelve). 400 no existe
         # para keys; 402/403 = seat gate/licencia; 422 = user sin engine_user_id.
@@ -321,7 +363,7 @@ def _create_or_converge_budget(client: SeedClient, m: Member, user_id: str,
 
 
 def _verify(pop: Population, client: SeedClient, members: list[Member],
-            report: SeedReport) -> SeedReport:
+            report: SeedReport, pool_previo: Optional[list] = None) -> SeedReport:
     users = {u["username"]: str(u["id"]) for u in client.list_users()}
     # FIX-7: verify-only también emite el pool de credenciales; comprobá una muestra para
     # no dar por buena una población sembrada con otra semilla.
@@ -355,10 +397,75 @@ def _verify(pop: Population, client: SeedClient, members: list[Member],
 
     report.missing = missing
     report.budget_drift = drift
+    # Material de llave: verify NO puede recrearlo (la key en claro no se recupera), así
+    # que sale del pool ya emitido en disco y se COMPRUEBA contra el producto.
+    creds = _credentials_by_username(report)
+    _merge_key_material(creds, pool_previo)
+    _assert_keys_usable(client, report)
+    _seal_key_material(members, creds, report)
     # Sólo "verified" con población COMPLETA y sin drift: verify greenlightea un run, y un
     # budget mal (p.ej. generoso donde debía ser ínfimo) contaminaría el gate.
     report.state = "verified" if not missing and not drift else "absent"
     return report
+
+
+# ── Material de llave del pool (X-Basa-Key de extensión/coding) ───────────────────────
+
+def _credentials_by_username(report: SeedReport) -> dict:
+    return {c["username"]: c for c in report.credentials}
+
+
+def _merge_key_material(creds: dict, pool_previo: Optional[list]) -> None:
+    """Recupera las ``basa_key`` de un pool ya emitido (verify-only).
+
+    El backend devuelve la key en claro UNA vez; entre runs, la única fuente es el pool
+    0600 que el seed dejó en disco. Se copia SOLO el material (nunca passwords ni roles:
+    esos se re-derivan de la semilla y son la fuente de verdad)."""
+    if not pool_previo:
+        return
+    for entry in pool_previo:
+        if not isinstance(entry, dict):
+            continue
+        material = entry.get("basa_key")
+        cred = creds.get(entry.get("username"))
+        if cred is not None and isinstance(material, str) and material:
+            cred["basa_key"] = material
+
+
+def _assert_keys_usable(client: SeedClient, report: SeedReport) -> None:
+    """Comprueba contra ``/gw/whoami`` que las ``basa_key`` del pool AUTENTICAN.
+
+    Mismo criterio que ``_assert_seed_matches`` (FIX-7) y por la misma razón: un pool con
+    keys que el backend ya no acepta (Connection revocada, stack re-creado, pool de otra
+    instalación) haría fallar extensión y coding EN MASA por una causa imposible de
+    diagnosticar desde el summary de k6 — ahí sólo se ve `harness_errors`. Se paga sólo
+    una muestra."""
+    muestra = [c for c in report.credentials if c.get("basa_key")][:_CREDENTIAL_SAMPLE]
+    for c in muestra:
+        if not client.verify_basa_key(c["basa_key"]):
+            raise SeedError(
+                f"la basa_key de {c['username']!r} NO autentica contra /gw/whoami: el pool "
+                "en disco es de OTRA instalación o esa Connection fue revocada. Las "
+                "superficies extensión y coding fallarían en masa. Re-seedeá contra un "
+                "stack fresco (`down -v`) y volvé a emitir el pool.")
+
+
+def _seal_key_material(members: list[Member], creds: dict, report: SeedReport) -> None:
+    """Marca las identidades de extensión/coding que quedaron SIN ``basa_key``.
+
+    Fail-closed operativo: k6 no puede autenticar esas superficies sin la key
+    (common.js ``authHeaders`` devuelve null y la iteración cuenta como `harness_errors`),
+    así que el examen mediría 2 de 4 superficies y el veredicto no sería el del gate. El
+    pool se emite igual —con el campo en null, para que se VEA cuál falta— pero el CLI
+    sale con EXIT ≠ 0."""
+    faltan = []
+    for m in members:
+        if m.client_type not in KEY_SURFACE_CLIENT_TYPES:
+            continue
+        cred = creds.get(m.username)
+        if cred is None or not cred.get("basa_key"):
+            faltan.append(m.username)
+    report.keys_sin_material = faltan
 
 
 def _budget_drift(m: Member, got: dict) -> Optional[str]:
@@ -387,12 +494,18 @@ def _credentials(members: list[Member], admin_username: str, admin_password: str
 
     Passwords REALES conocidas — imprescindibles para el login storm del gate 250 y el
     JWT del chat (R5). Es material de RUN: se emite fuera del repo (``runs/`` es scratch
-    gitignored), nunca se commitea."""
+    gitignored), nunca se commitea.
+
+    Shape PARITARIO con el pool que exporta el orquestador (``_export_identities``) y que
+    consume ``scenarios/common.js``: ``username``/``password``/``role``/``client_type``
+    (filtros de pool por superficie) + ``tool_type`` + ``basa_key`` (X-Basa-Key de
+    extensión/coding, se rellena al crear la Connection)."""
     creds = [{"username": admin_username, "password": admin_password, "role": "tenant_admin",
-              "client_type": None, "bootstrap": True}]
+              "client_type": None, "tool_type": None, "bootstrap": True, "basa_key": None}]
     for m in members:
         creds.append({"username": m.username, "password": m.password, "role": m.role,
-                      "client_type": m.client_type})
+                      "client_type": m.client_type, "tool_type": m.tool_type,
+                      "basa_key": None})
     return creds
 
 
@@ -443,7 +556,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--admin-password", default=None,
                    help="password del admin bootstrap (default: derivada de la semilla)")
     p.add_argument("--emit-credentials", type=Path, default=None,
-                   help="escribe el pool de credenciales (JSON) para k6; NO lo commitees")
+                   help="escribe el pool de credenciales (JSON 0600) para k6; NO lo "
+                        "commitees. Con --verify-only, si el archivo YA existe se LEE "
+                        "primero para recuperar las basa_key (el backend no las devuelve "
+                        "dos veces) y se validan contra /gw/whoami")
     p.add_argument("--timeout", type=float, default=30.0, help="timeout HTTP en segundos")
     args = p.parse_args(argv)
 
@@ -457,10 +573,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     else:
         seed_value = args.seed
 
+    # verify-only: el material de llave sale del pool YA emitido (el backend no devuelve
+    # la key en claro dos veces). Sin ese archivo no hay nada que validar.
+    pool_previo = _read_pool(args.emit_credentials) if args.verify_only else None
+
     try:
         with BackendClient(args.backend_url, timeout=args.timeout) as client:
             report = seed(pop, client, seed=seed_value, verify_only=args.verify_only,
-                          admin_password=args.admin_password)
+                          admin_password=args.admin_password, pool_previo=pool_previo)
     except SeedError as e:
         print(f"❌ {e}", file=sys.stderr)
         return 2
@@ -476,8 +596,33 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.emit_credentials:
         _write_credentials(args.emit_credentials, report.credentials)
         print(f"credenciales → {args.emit_credentials} (material de run 0600, no lo commitees)")
+    # Sin material de llave, extensión y coding no pueden autenticarse: el examen correría
+    # con 2 de 4 superficies mudas y su veredicto NO sería el del gate. Exit ≠ 0 SIEMPRE,
+    # aunque la población esté completa.
+    if report.keys_sin_material:
+        muestra = ", ".join(report.keys_sin_material[:5])
+        print(f"❌ {len(report.keys_sin_material)} identidad(es) de extensión/coding sin "
+              f"basa_key (p. ej. {muestra}): sus Connections ya existían y la key en claro "
+              "no es recuperable. k6 no podría autenticar esas superficies. Recreá el stack "
+              "(`down -v`) y re-seedeá, o revocá esas Connections para que el seeder las "
+              "vuelva a crear.", file=sys.stderr)
+        return 3
     # verify-only con faltantes o drift = exit 1 (útil para gatear un run).
     return 1 if report.state == "absent" else 0
+
+
+def _read_pool(path: Optional[Path]) -> Optional[list]:
+    """Lee un pool ya emitido, si existe. Un archivo ilegible/corrupto NO se ignora en
+    silencio: se avisa y se sigue SIN material (el sello de `keys_sin_material` decide)."""
+    if path is None or not Path(path).exists():
+        return None
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        print(f"⚠ pool previo ilegible ({path}): {e}. Se verifica SIN material de llave.",
+              file=sys.stderr)
+        return None
+    return data if isinstance(data, list) else None
 
 
 if __name__ == "__main__":  # pragma: no cover
