@@ -6,15 +6,18 @@ Con FIXTURES y hooks inyectados — sin backend, sin stub, sin k6. Cubren:
   del run (verdict.json + fingerprint.json + reporte.md) con datos sintéticos limpios;
 - **run interrumpido** (esc. 7): reporte PARCIAL marcado, nunca un dir a medias;
 - **precondición no cumplida**: aborta ANTES de generar carga (k6 no se lanza);
-- **pipeline completo con fakes**: health/stub/k6/reconcile inyectados → verdict real.
+- **pipeline completo con fakes**: health/stub/k6/reconcile inyectados → verdict real;
+- **corrida real (T031)**: ventana del run alrededor de k6, material de llave del pool del
+  seeder y evidencia del conteo de auditoría.
 """
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from basa_harness.orchestrator import Orchestrator
+from basa_harness.orchestrator import Orchestrator, main
 
 TS = "2026-08-12T00:00:00Z"
 
@@ -245,3 +248,229 @@ def test_fallo_inesperado_produce_parcial_no_traceback(tmp_path):
     assert "RuntimeError" in (verdict.invalid_reason or "")
     assert (orch.run_dir / "verdict.json").exists()
     assert (orch.run_dir / "reporte.md").exists()
+
+
+# ── corrida real: ventana, pool del seeder, evidencia del conteo (T031) ───────────────
+
+class FakeReconcile:
+    """Hook de reconciliación con ventana, como el ``HttpReconcile`` real."""
+
+    def __init__(self, recon):
+        self._recon = recon
+        self.window = None
+        self.llamado_con = None
+
+    def set_window(self, desde, hasta):
+        self.window = (desde, hasta)
+
+    def __call__(self, summary):
+        self.llamado_con = summary
+        return dict(self._recon)
+
+
+def _recon_limpia():
+    return {"eventos_guion": 40, "filas_persistidas": 40,
+            "bloqueos_provocados": 0, "con_fila": 0}
+
+
+def _reloj_falso():
+    """Reloj monotónico inyectable: un tick por llamada (t0 y t1 no pueden coincidir)."""
+    base = datetime(2026, 8, 11, 9, 0, 0, tzinfo=timezone.utc)
+    estado = {"n": 0}
+
+    def ahora():
+        estado["n"] += 1
+        return base + timedelta(minutes=estado["n"])
+    return ahora
+
+
+def test_ventana_del_run_se_captura_alrededor_de_k6(tmp_path):
+    """t0 ANTES de la carga y t1 DESPUÉS: es el rango sobre el que se cuentan las filas."""
+    recon = FakeReconcile(_recon_limpia())
+    marcas = {}
+
+    def k6(cfg):
+        marcas["durante"] = True
+        return _clean_summary()
+
+    orch = _orch(tmp_path, dry_run=False, now=_reloj_falso(),
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=k6, reconcile_fn=recon)
+    verdict = orch.run()
+
+    assert verdict.global_veredicto == "PASS"
+    assert marcas["durante"] is True
+    assert recon.window == (orch.window_t0, orch.window_t1)
+    assert orch.window_t0 < orch.window_t1
+    # el timestamp del verdict sigue siendo el INYECTADO (el evaluador no mira relojes)
+    assert verdict.timestamp == TS
+
+
+def test_hook_sin_ventana_sigue_funcionando(tmp_path):
+    """Un reconcile_fn simple (los fakes de siempre) no tiene set_window: no debe romper."""
+    orch = _orch(tmp_path, dry_run=False,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(),
+                 reconcile_fn=lambda s: _recon_limpia())
+    assert orch.run().global_veredicto == "PASS"
+
+
+def test_conteo_de_auditoria_queda_como_evidencia(tmp_path):
+    recon = FakeReconcile(dict(_recon_limpia(), filas_rejected_saturated=0,
+                               fuente="GET /api/v1/audit-logs"))
+    orch = _orch(tmp_path, dry_run=False, now=_reloj_falso(),
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=recon)
+    orch.run()
+
+    data = json.loads((orch.run_dir / "reconciliation.json").read_text())
+    assert data["filas_persistidas"] == 40
+    assert data["ventana"]["desde"] == orch.window_t0.isoformat()
+    assert data["ventana"]["hasta"] == orch.window_t1.isoformat()
+    # y el reporte lo lista como evidencia del run
+    assert "reconciliation.json" in (orch.run_dir / "reporte.md").read_text()
+
+
+def _pool_del_seeder(tmp_path, *, con_keys=True):
+    """Pool como el que emite `seeder.seed --emit-credentials` para el gate 125."""
+    from basa_harness.seeder.population import (derive_password, load_population_by_gate,
+                                                plan_members)
+    from basa_harness.seeder.seed import DEFAULT_SEED
+    pop = load_population_by_gate(125)
+    creds = [{"username": pop.admin_username,
+              "password": derive_password(DEFAULT_SEED, pop.admin_username),
+              "role": "tenant_admin", "client_type": None, "tool_type": None,
+              "bootstrap": True, "basa_key": None}]
+    for m in plan_members(pop, DEFAULT_SEED):
+        key = None
+        if con_keys and m.client_type in ("desktop", "base_url"):
+            key = f"sk-{m.username}"
+        creds.append({"username": m.username, "password": m.password, "role": m.role,
+                      "client_type": m.client_type, "tool_type": m.tool_type,
+                      "basa_key": key})
+    path = tmp_path / "pool-seeder.json"
+    path.write_text(json.dumps(creds), encoding="utf-8")
+    return path
+
+
+def test_pool_file_injerta_la_basa_key_en_el_pool_de_k6(tmp_path):
+    pool_file = _pool_del_seeder(tmp_path)
+    orch = _orch(tmp_path, dry_run=False, pool_file=pool_file,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(),
+                 reconcile_fn=lambda s: _recon_limpia())
+    assert orch.run().global_veredicto == "PASS"
+
+    pool = json.loads((orch.run_dir / "pool.json").read_text())
+    porsuperficie = {"desktop": [], "base_url": [], "chat_ui": []}
+    for entry in pool:
+        if entry["client_type"] in porsuperficie:
+            porsuperficie[entry["client_type"]].append(entry)
+    # extensión y coding autentican con X-Basa-Key: TODAS tienen material…
+    assert porsuperficie["desktop"] and all(e["basa_key"] for e in porsuperficie["desktop"])
+    assert porsuperficie["base_url"] and all(e["basa_key"] for e in porsuperficie["base_url"])
+    # …y el resto conserva el shape que espera common.js (password para el JWT).
+    assert all(e["password"] for e in porsuperficie["chat_ui"])
+
+
+def test_pool_sin_material_aborta_antes_de_generar_carga(tmp_path):
+    pool_file = _pool_del_seeder(tmp_path, con_keys=False)
+    lanzado = {"k6": False}
+
+    def k6(cfg):
+        lanzado["k6"] = True
+        return _clean_summary()
+
+    orch = _orch(tmp_path, dry_run=False, pool_file=pool_file,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=k6, reconcile_fn=lambda s: _recon_limpia())
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "basa_key" in (verdict.invalid_reason or "")
+    assert lanzado["k6"] is False          # no se quemó una ventana de examen
+    assert orch.k6_launched is False
+
+
+def test_pool_file_ilegible_es_accionable(tmp_path):
+    malo = tmp_path / "pool.json"
+    malo.write_text("{no json", encoding="utf-8")
+    orch = _orch(tmp_path, dry_run=False, pool_file=malo,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(),
+                 reconcile_fn=lambda s: _recon_limpia())
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "pool de credenciales ilegible" in (verdict.invalid_reason or "")
+
+
+def test_dry_run_no_necesita_pool_ni_reconcile(tmp_path):
+    """El dry-run no cambia: sin pool (basa_key null) y con reconciliación sintética."""
+    orch = _orch(tmp_path, dry_run=True)
+    assert orch.run().global_veredicto == "PASS"
+    pool = json.loads((orch.run_dir / "pool.json").read_text())
+    assert all(e["basa_key"] is None for e in pool)
+    data = json.loads((orch.run_dir / "reconciliation.json").read_text())
+    assert data["filas_persistidas"] == data["eventos_guion"]
+
+
+# ── CLI de la corrida real ────────────────────────────────────────────────────────────
+
+def test_cli_reconcile_http_sin_pool_es_error_accionable(tmp_path, capsys):
+    with pytest.raises(SystemExit) as ei:
+        main(["--gate", "125", "--reconcile", "http", "--runs-dir", str(tmp_path)])
+    assert ei.value.code == 2
+    assert "--pool-file" in capsys.readouterr().err
+
+
+def test_cli_reconcile_http_no_aplica_a_dry_run(tmp_path, capsys):
+    with pytest.raises(SystemExit) as ei:
+        main(["--gate", "125", "--reconcile", "http", "--dry-run",
+              "--runs-dir", str(tmp_path)])
+    assert ei.value.code == 2
+    assert "dry-run" in capsys.readouterr().err
+
+
+def test_cli_reconcile_http_sin_lector_en_el_pool_es_error(tmp_path, capsys):
+    pool = tmp_path / "pool.json"
+    pool.write_text(json.dumps([{"username": "cli", "password": "x", "role": "client"}]),
+                    encoding="utf-8")
+    with pytest.raises(SystemExit) as ei:
+        main(["--gate", "125", "--reconcile", "http", "--pool-file", str(pool),
+              "--runs-dir", str(tmp_path)])
+    assert ei.value.code == 2
+    assert "admin-only" in capsys.readouterr().err
+
+
+def test_cli_dry_run_sigue_verde_y_sin_reconcile(tmp_path, capsys):
+    rc = main(["--gate", "125", "--dry-run", "--runs-dir", str(tmp_path),
+               "--run-id", "cli-dry-01"])
+    assert rc == 0
+    assert "global=PASS" in capsys.readouterr().out
+    assert (tmp_path / "cli-dry-01" / "verdict.json").exists()
+
+
+def test_cli_real_sin_reconcile_avisa(tmp_path, capsys, monkeypatch):
+    """Un run real sin --reconcile http no puede computar (b) ni (d): tiene que avisarlo
+    ANTES, no descubrirse al final del examen."""
+    import basa_harness.orchestrator as orchmod
+
+    class OrchFalso:
+        run_dir = tmp_path
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def run(self):
+            from basa_harness.reporting.evaluator import Verdict
+            return Verdict(run_id="x", gate={"n": 125, "version": "1.0.0"},
+                           estado="completed", global_veredicto="PASS", slos=[])
+
+    monkeypatch.setattr(orchmod, "Orchestrator", OrchFalso)
+    main(["--gate", "125", "--runs-dir", str(tmp_path)])
+    assert "reconciliation_rows" in capsys.readouterr().err
