@@ -130,6 +130,7 @@ class Orchestrator:
 
     def run(self) -> Verdict:
         """Corre el gate. Devuelve el ``Verdict`` (parcial si se interrumpe/aborta)."""
+        self._guard_evidencia_existente()
         self.run_dir.mkdir(parents=True, exist_ok=True)
         try:
             self._check_preconditions()          # ABORTA antes de generar carga si drift
@@ -163,6 +164,16 @@ class Orchestrator:
             # un directorio a medias que parezca examen completo (edge case de la spec).
             return self._abort(f"fallo inesperado del orquestador ({type(exc).__name__}): "
                                f"{exc}", estado="invalid")
+
+    def _guard_evidencia_existente(self) -> None:
+        """La evidencia de un run NO se sobrescribe. Se levanta ANTES del ``try`` a
+        propósito: dentro, el manejo de errores escribiría un verdict PARCIAL encima del
+        run que se quiere proteger. Por eso este error SALE del orquestador."""
+        vpath = self.run_dir / "verdict.json"
+        if vpath.exists():
+            raise OrchestratorError(
+                f"el run_dir ya contiene un verdict.json ({vpath}): elegí otro --run-id — "
+                "no se sobrescribe evidencia")
 
     # ── precondiciones ─────────────────────────────────────────────────────────────────
 
@@ -240,10 +251,20 @@ class Orchestrator:
         """Traduce el gate a la config que k6 consume: por cada (superficie, fase) un
         scenario ``constant-arrival-rate`` con ``rate=N_s`` sobre ``timeUnit=cadencia_media``
         (research R1). El math del gate vive en Python (surface_arrival_rates); k6 solo lo
-        ejecuta."""
+        ejecuta.
+
+        **Las fases son SECUENCIALES** (``startTime`` acumulado por orden de declaración):
+        sin él k6 arranca TODOS los scenarios en t=0 y los corre en paralelo — la ráfaga
+        del drill caería sobre una cola FRÍA en vez de sobre la que llenó el sostenido, y
+        «tormenta → pico → recuperación» de los gates 250/500 dejaría de ser una secuencia.
+        Todas las superficies de una misma fase comparten ``startTime``; la fase i arranca
+        en la suma de las duraciones de las fases 0..i-1.
+        """
         rates = surface_arrival_rates(self.gate)
         scenarios = []
+        offset_s = 0.0
         for phase in self.gate.phases:
+            start_time = f"{offset_s:g}s"
             for surface, ar in rates.items():
                 exec_name = SURFACE_EXEC.get(surface)
                 if exec_name is None:
@@ -253,7 +274,7 @@ class Orchestrator:
                     "surface": surface, "exec": exec_name, "phase": phase.name,
                     "executor": "constant-arrival-rate",
                     "rate": rate, "timeUnit": f"{ar.cadence_mean_s:g}s",
-                    "duration": phase.duration,
+                    "duration": phase.duration, "startTime": start_time,
                     "preAllocatedVUs": max(10, rate * 2), "maxVUs": max(20, rate * 6),
                 })
             # login_storm / peak llevan su propio scenario si el gate lo declara.
@@ -263,11 +284,14 @@ class Orchestrator:
                 raw = phase.extra.get("enters", self.gate.total_population)
                 enters = raw if (isinstance(raw, int) and not isinstance(raw, bool)) \
                     else self.gate.total_population
+                # La tormenta arranca en t=0 por DISEÑO (es la primera fase del 250: toda
+                # la población entrando junta), no por omisión del escalonado.
                 scenarios.append({
                     "surface": "login", "exec": "login", "phase": phase.name,
                     "executor": "constant-arrival-rate",
                     "rate": enters, "timeUnit": phase.duration, "duration": phase.duration,
                     "preAllocatedVUs": 50, "maxVUs": max(100, enters), "startTime": "0s"})
+            offset_s += phase.duration_s
         cfg = {
             "gate": self.gate.gate, "version": self.gate.version,
             "base_url": self.backend_url, "stub_url": self.stub_url,
@@ -507,7 +531,13 @@ class Orchestrator:
     # ── util ───────────────────────────────────────────────────────────────────────────
 
     def _default_run_id(self) -> str:
+        """Id por defecto del run. Incluye el KIND efectivo cuando no es ``gate_oficial``
+        (``20260810-g125-drill-01``, ``…-dry-run-01``): sin eso, el drill de saturación y
+        el gate 125 oficial del mismo día proponen el MISMO id y el segundo run pisaría la
+        evidencia del primero — dos exámenes distintos con la misma identidad."""
         fecha = self._now().strftime("%Y%m%d")
+        if self.kind != "gate_oficial":
+            return f"{fecha}-g{self.gate.gate}-{self.kind}-01"
         return f"{fecha}-g{self.gate.gate}-01"
 
     def _write_json(self, name: str, data: object) -> Path:
@@ -628,7 +658,13 @@ def main(argv: Optional[list] = None) -> int:
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
                         kind=args.kind, dry_run=args.dry_run,
                         drill_admin_budget_ms=args.drill_admin_budget_ms)
-    verdict = orch.run()
+    try:
+        verdict = orch.run()
+    except OrchestratorError as exc:
+        # Precondición del run (p. ej. run_dir con evidencia): mensaje accionable, no
+        # traceback — y sin tocar el directorio existente.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(f"run {verdict.run_id}: estado={verdict.estado} global={verdict.global_veredicto}")
     print(f"  artefactos → {orch.run_dir}")
     if verdict.invalid_reason:

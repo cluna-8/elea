@@ -21,7 +21,8 @@ import json
 import pytest
 import yaml
 
-from basa_harness.orchestrator import Orchestrator, _drill_overrides, main
+from basa_harness.orchestrator import (Orchestrator, OrchestratorError, _drill_overrides,
+                                       main)
 from basa_harness.reporting.evaluator import (SLOResult, Verdict, evaluate,
                                               eval_drill_criteria, eval_saturated_durable)
 from basa_harness.reporting.gate_loader import (GATES_DIR, GateError, dry_run, load_gate,
@@ -512,6 +513,67 @@ def test_dry_run_gana_sobre_el_kind_del_yaml(tmp_path):
     orch = Orchestrator(load_gate(DRILL_FILE), run_id="d3", runs_dir=tmp_path, timestamp=TS,
                         dry_run=True)
     assert orch.kind == "dry-run"
+
+
+def test_fases_del_drill_son_secuenciales_en_k6(tmp_path):
+    """A2: sin `startTime` k6 corre TODOS los scenarios desde t=0 — la ráfaga caería sobre
+    una cola FRÍA, no sobre la que llenó el sostenido. El burst arranca a los 10 min."""
+    orch = Orchestrator(load_gate(DRILL_FILE), run_id="k1", runs_dir=tmp_path, timestamp=TS,
+                        dry_run=True, n_canaries=4, n_corpus_docs=4)
+    orch.run_dir.mkdir(parents=True, exist_ok=True)
+    cfg = orch._write_k6_config([], {})
+    starts = {(s["surface"], s["phase"]): s["startTime"] for s in cfg["scenarios"]}
+    assert {v for (surf, ph), v in starts.items() if ph == "sustained"} == {"0s"}
+    assert {v for (surf, ph), v in starts.items() if ph == "burst"} == {"600s"}
+    # todas las superficies de una misma fase comparten arranque
+    assert len([s for s in cfg["scenarios"] if s["phase"] == "burst"]) == 4
+
+
+def test_gate_de_una_fase_arranca_en_cero(tmp_path):
+    orch = Orchestrator(load_gate(GATE_FILE), run_id="k2", runs_dir=tmp_path, timestamp=TS,
+                        dry_run=True, n_canaries=4, n_corpus_docs=4)
+    orch.run_dir.mkdir(parents=True, exist_ok=True)
+    cfg = orch._write_k6_config([], {})
+    assert {s["startTime"] for s in cfg["scenarios"]} == {"0s"}
+
+
+def test_default_run_id_del_drill_no_choca_con_el_del_oficial(tmp_path):
+    """A3: mismo día, mismo gate 125 → el id por defecto tiene que distinguir el examen."""
+    from datetime import datetime, timezone
+    ahora = lambda: datetime(2026, 8, 10, 9, 0, tzinfo=timezone.utc)  # noqa: E731
+    drill = Orchestrator(load_gate(DRILL_FILE), runs_dir=tmp_path, timestamp=TS, now=ahora)
+    oficial = Orchestrator(load_gate(GATE_FILE), runs_dir=tmp_path, timestamp=TS, now=ahora)
+    assert drill.run_id == "20260810-g125-drill-01"
+    assert oficial.run_id == "20260810-g125-01"
+    assert drill.run_id != oficial.run_id
+    seco = Orchestrator(load_gate(DRILL_FILE), runs_dir=tmp_path, timestamp=TS, now=ahora,
+                        dry_run=True)
+    assert seco.run_id == "20260810-g125-dry-run-01"
+
+
+def test_segundo_run_al_mismo_run_dir_no_pisa_la_evidencia(tmp_path):
+    """La evidencia de un run NO se sobrescribe: el error SALE (dentro del try se
+    escribiría un verdict parcial encima del run que se quiere proteger)."""
+    def _orch():
+        return Orchestrator(load_gate(DRILL_FILE), run_id="d7", runs_dir=tmp_path,
+                            timestamp=TS, dry_run=True, n_canaries=4, n_corpus_docs=4)
+
+    primero = _orch()
+    primero.run()
+    original = (primero.run_dir / "verdict.json").read_text(encoding="utf-8")
+    with pytest.raises(OrchestratorError) as exc:
+        _orch().run()
+    assert "ya contiene un verdict.json" in str(exc.value)
+    assert "--run-id" in str(exc.value)
+    assert (primero.run_dir / "verdict.json").read_text(encoding="utf-8") == original
+
+
+def test_cli_segundo_run_mismo_run_id_error_accionable(tmp_path, capsys):
+    argv = ["--gate-file", str(DRILL_FILE), "--dry-run", "--runs-dir", str(tmp_path),
+            "--run-id", "t1"]
+    assert main(argv) in (0, 1, 2)          # el primero corre y reporta
+    assert main(argv) == 2                  # el segundo NO pisa: error accionable
+    assert "ya contiene un verdict.json" in capsys.readouterr().err
 
 
 def test_drill_overrides_desde_la_cli():
