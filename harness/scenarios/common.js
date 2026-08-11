@@ -144,7 +144,15 @@ export function saturatedRejection(res) {
   const h = res.headers;
   if (!h) return false;   // xk6-sse devuelve {error} sin headers si la conexión ni abrió
   const v = h['X-Basa-Rejected'] || h['x-basa-rejected'];
-  return typeof v === 'string' && v.toLowerCase() === 'saturated';
+  if (typeof v !== 'string') return false;
+  // Comparación por TOKENS: si el header se escribe en dos capas (backend + un middleware
+  // de la sede), Go los junta en un solo valor separado por ', ' ('saturated, saturated')
+  // y una igualdad estricta lo daría por NO-rechazo — se perderían los 503 que sí lo son.
+  const parts = v.split(',');
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].trim().toLowerCase() === 'saturated') return true;
+  }
+  return false;
 }
 
 // ── autenticación por superficie ───────────────────────────────────────────────────────
