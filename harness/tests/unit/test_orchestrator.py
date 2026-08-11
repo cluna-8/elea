@@ -474,3 +474,12 @@ def test_cli_real_sin_reconcile_avisa(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(orchmod, "Orchestrator", OrchFalso)
     main(["--gate", "125", "--runs-dir", str(tmp_path)])
     assert "reconciliation_rows" in capsys.readouterr().err
+
+
+def test_pool_del_run_no_es_world_readable(tmp_path):
+    """El pool del run lleva passwords en claro y las keys de las Connections: 0600."""
+    import stat
+    orch = _orch(tmp_path, dry_run=True)
+    orch.run()
+    modo = stat.S_IMODE((orch.run_dir / "pool.json").stat().st_mode)
+    assert modo == 0o600, f"pool.json quedó {oct(modo)}"

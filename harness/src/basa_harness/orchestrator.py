@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -249,7 +250,10 @@ class Orchestrator:
                          "basa_key": material.get(m.username)})
         if self.pool_file is not None:
             self._assert_key_material(members, material)
-        self._write_json("pool.json", pool)
+        # 0600: el pool lleva passwords EN CLARO y —desde la corrida real— las keys de las
+        # Connections. Es material de RUN, no evidencia publicable (mismo criterio que
+        # ``seeder.seed._write_credentials``).
+        self._write_secret_json("pool.json", pool)
         return pool
 
     def _read_pool_file(self) -> list:
@@ -665,6 +669,19 @@ class Orchestrator:
 
     def _write_json(self, name: str, data: object) -> Path:
         return self._write_text(name, json.dumps(data, ensure_ascii=False, indent=2))
+
+    def _write_secret_json(self, name: str, data: object) -> Path:
+        """Escribe con permisos 0600 desde el fd (nunca una ventana world-readable, ni
+        siquiera al sobrescribir un archivo previo de un run anterior)."""
+        path = self.run_dir / name
+        blob = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, blob)
+        finally:
+            os.close(fd)
+        return path
 
     def _write_text(self, name: str, text: str) -> Path:
         path = self.run_dir / name
