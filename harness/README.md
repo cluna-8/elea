@@ -47,6 +47,24 @@ lanza con un comando, verifica las precondiciones del stack (fingerprint + confi
 exigida), genera carga con modelo de llegadas abierto, y produce
 `verdict.json` + `fingerprint.json` + `reporte.md` sin análisis manual.
 
+**La secuencia operativa completa de una corrida REAL** (infra → precarga → egress →
+stack + licencia de test → seed → run → artefactos → destroy), con los comandos exactos,
+está en [`RUNBOOK-examen.md`](RUNBOOK-examen.md).
+
+```bash
+# gate oficial: el pool 0600 del seeder aporta las basa_key (extensión/coding) y la
+# credencial compliance que cuenta las filas de audit_logs en la ventana del run.
+python -m basa_harness.orchestrator --gate 125 \
+  --backend-url http://10.0.0.10:8000 --stub-url http://10.0.0.20:8080 \
+  --pool-file /run/itv/pool-g125.json --reconcile http --seed "$ITV_SEED"
+```
+
+Sin `--reconcile http` no se pueden computar los SLO (b) `reconciliation_rows` y (d)
+`blocked_rows_durable_100`: el run avisa al arrancar y aborta al reconciliar. El conteo
+queda como evidencia en `runs/<run-id>/reconciliation.json` (ventana consultada, filas
+bloqueadas/permitidas y fuente), y el `pool.json` del run —passwords y keys en claro,
+0600— **no** se publica con la evidencia.
+
 ## Drill de saturación (C1)
 
 Un **drill** no pregunta «¿aguanta 125?» sino «cuando NO aguanta, ¿se defiende bien?».
@@ -128,15 +146,24 @@ budgets. Poblaciones declarativas en `src/basa_harness/seeder/populations/gate-<
 
 ```bash
 # seedear un despliegue (una vez); la semilla fija identidades/passwords deterministas
-python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --seed 20260808
+python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --seed 20260808 \
+  --emit-credentials /run/itv/pool-g125.json
 
 # entre runs: verificar sin crear nada (sale 1 si falta población)
-python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --verify-only
+python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --verify-only \
+  --emit-credentials /run/itv/pool-g125.json
 ```
 
 > La **semilla** se fija una vez por despliegue: cambiarla cambia todas las passwords
 > derivadas y exige DB fresca (`down -v`). Las credenciales (`--emit-credentials`) son
-> material de RUN: van a `runs/` (gitignored), nunca al repo.
+> material de RUN: van a un archivo 0600 fuera del repo, nunca se commitean.
+
+El pool emitido lleva además la **`basa_key`** de cada Connection: `POST /keys` devuelve la
+key en claro UNA vez y las superficies extensión/coding se autentican con ella
+(`X-Basa-Key`). Si alguna identidad de esas dos queda sin material —la Connection ya
+existía y la key no es recuperable— el seeder sale con **exit ≠ 0**: el examen no corre a
+medias con dos superficies mudas. En `--verify-only` el material se recupera del pool ya
+emitido y se comprueba contra `/gw/whoami` sobre una muestra.
 
 ### Licencias in-house — ⚠️ PENDIENTE (T022, requiere la privada de JF)
 

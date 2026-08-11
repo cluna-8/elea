@@ -27,6 +27,11 @@ output "sut_public_ip" {
   value       = hcloud_server.sut.ipv4_address
 }
 
+output "gen_public_ip" {
+  description = "Generador (k6 + stub): por acá entra el operador a lanzar el examen y a recoger artefactos. El firewall de egress es del SUT, no del generador."
+  value       = hcloud_server.gen.ipv4_address
+}
+
 output "fingerprint_hardware" {
   description = "Bloque hardware listo para inyectar en el fingerprint del run."
   value = {
