@@ -10,9 +10,15 @@ comparación con diff»).
 Lista mínima de FR-009 (data-model):
     producto (commit + digests) · masking_por_scope · config_nlp (incl. nlp_fail_mode,
     nlp_analyzer_url) · workers_procesos (backend/motor/nlp) · limites_recursos ·
-    gate (n + version) · corpus (version + sha256 + seed) · mix_y_cadencia_usadas ·
-    hardware (server_type/datacenter — outputs de OpenTofu) · licencia (lic_id/max_seats) ·
-    seed_estado · versiones_instrumento (k6+xk6-sse, stub, harness commit) · timestamp.
+    gate (n + version + kind) · examen (programa del stub + fases) · corpus (version +
+    sha256 + seed) · mix_y_cadencia_usadas · hardware (server_type/datacenter — outputs de
+    OpenTofu) · licencia (lic_id/max_seats) · seed_estado · versiones_instrumento
+    (k6+xk6-sse, stub, harness commit) · timestamp.
+
+``gate.kind`` y ``examen`` son la extensión C1: el drill de saturación y el gate 125
+oficial comparten número, versión, mezcla y cadencia — sin esos campos sus fingerprints
+solo diferían en el ``timestamp`` (no material) y el comparador declaraba «LEGÍTIMA» la
+comparación de dos exámenes distintos.
 
 DETERMINISMO (restricción del entorno de ejecución): la lógica pura NO lee el reloj ni
 genera uuid/random. El ``timestamp`` se INYECTA como parámetro de ``capture`` — así los
@@ -33,6 +39,7 @@ FINGERPRINT_FIELDS: tuple[str, ...] = (
     "workers_procesos",
     "limites_recursos",
     "gate",
+    "examen",
     "corpus",
     "mix_y_cadencia_usadas",
     "hardware",
@@ -46,6 +53,10 @@ FINGERPRINT_FIELDS: tuple[str, ...] = (
 # invalidan la comparación (el timestamp SIEMPRE cambia — si contara, ningún par de
 # repetibilidad sería legítimo).
 NON_MATERIAL: frozenset[str] = frozenset({"timestamp"})
+
+# Campos ADITIVOS (post-C1) con default: un fingerprint escrito a mano o previo puede no
+# traerlos y se lee igual. ``capture`` (la única vía real) SIEMPRE los completa.
+_OPTIONAL_FIELDS: frozenset[str] = frozenset({"examen"})
 
 # Estados de run que NO son comparables (data-model Run: interrupted/invalid NUNCA).
 _COMPARABLE_STATES = frozenset({"completed"})
@@ -67,6 +78,14 @@ class Fingerprint:
     seed_estado: str
     versiones_instrumento: dict
     timestamp: str
+    # ``examen``: QUÉ examen se corrió, no solo con qué config. El programa del stub
+    # (latencias, token_rate, duración de stream, error_rate) y las fases (nombre,
+    # duración, arrival_factor) son MATERIALES: el drill de saturación y el gate 125
+    # oficial comparten gate/mix/cadencia y sin esto sus fingerprints salían idénticos —
+    # el comparador declaraba «LEGÍTIMA» la comparación de dos exámenes distintos.
+    # Va al final por la regla de dataclasses (campo con default), no por importancia:
+    # su lugar canónico en el JSON lo fija FINGERPRINT_FIELDS (justo después de `gate`).
+    examen: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Dict JSON-serializable en el orden canónico de FR-009 (para fingerprint.json)."""
@@ -77,23 +96,31 @@ class Fingerprint:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Fingerprint":
-        faltan = [k for k in FINGERPRINT_FIELDS if k not in data]
+        faltan = [k for k in FINGERPRINT_FIELDS
+                  if k not in data and k not in _OPTIONAL_FIELDS]
         if faltan:
             raise ValueError(f"fingerprint incompleto (FR-009): faltan {faltan}")
-        return cls(**{k: data[k] for k in FINGERPRINT_FIELDS})
+        return cls(**{k: data[k] for k in FINGERPRINT_FIELDS if k in data})
 
 
 def capture(*, producto: dict, masking_por_scope: dict, config_nlp: dict,
             workers_procesos: dict, limites_recursos: dict, gate: dict, corpus: dict,
             mix_y_cadencia_usadas: dict, hardware: dict, licencia: dict,
-            seed_estado: str, versiones_instrumento: dict, timestamp: str) -> Fingerprint:
-    """Captura un fingerprint. ``timestamp`` se INYECTA (nunca se lee del reloj acá)."""
+            seed_estado: str, versiones_instrumento: dict, timestamp: str,
+            examen: Union[dict, None] = None) -> Fingerprint:
+    """Captura un fingerprint. ``timestamp`` se INYECTA (nunca se lee del reloj acá).
+
+    ``gate`` lleva ``{n, version, kind}``: el KIND del run es material — un drill y un
+    gate oficial del mismo número NO son el mismo examen. ``examen`` lleva el programa
+    del stub y las fases (ver el docstring del campo).
+    """
     return Fingerprint(
         producto=producto, masking_por_scope=masking_por_scope, config_nlp=config_nlp,
         workers_procesos=workers_procesos, limites_recursos=limites_recursos, gate=gate,
         corpus=corpus, mix_y_cadencia_usadas=mix_y_cadencia_usadas, hardware=hardware,
         licencia=licencia, seed_estado=seed_estado,
         versiones_instrumento=versiones_instrumento, timestamp=timestamp,
+        examen=dict(examen or {}),
     )
 
 

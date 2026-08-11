@@ -53,11 +53,18 @@ filas de `audit_logs` con el estado literal `rejected_saturated`.
 ## `fingerprint.json`
 
 Lista mínima de FR-009 (data-model): producto (commit + digests), masking por scope,
-config NLP, workers/procesos, límites de recursos, gate n+version, corpus
-versión+semilla, mix y cadencia usadas, hardware (instance_type/AMI/región — outputs de
-OpenTofu), licencia (lic_id/max_seats), estado del seed, versiones del instrumento
-(k6+xk6-sse, stub, harness commit), timestamp. El comparador de runs diffea
-fingerprints ANTES que métricas y marca ilegítima cualquier comparación con diff.
+config NLP, workers/procesos, límites de recursos, gate n+version+**kind**, **examen**
+(programa del stub + fases), corpus versión+semilla, mix y cadencia usadas, hardware
+(instance_type/AMI/región — outputs de OpenTofu), licencia (lic_id/max_seats), estado del
+seed, versiones del instrumento (k6+xk6-sse, stub, harness commit), timestamp. El
+comparador de runs diffea fingerprints ANTES que métricas y marca ilegítima cualquier
+comparación con diff.
+
+`gate.kind` y `examen` (extensión C1) son MATERIALES: el drill de saturación y el gate 125
+oficial comparten número, versión, mezcla y cadencia, así que sin ellos sus fingerprints
+solo diferían en el `timestamp` (no material) y el comparador declaraba «LEGÍTIMA» la
+comparación de dos exámenes distintos. `examen` = `{stub: {latency_ms, token_rate_tps,
+stream_duration_s, error_rate}, phases: [{name, duration, arrival_factor}…]}`.
 
 ## `reporte.md` (humano, comparable con diff)
 

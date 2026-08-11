@@ -397,9 +397,15 @@ class Orchestrator:
     # ── fingerprint ────────────────────────────────────────────────────────────────────
 
     def _build_fingerprint(self, corpus: dict, k6_summary: dict) -> Fingerprint:
+        """Huella del run. Incluye QUÉ examen fue, no solo con qué config corrió: el
+        ``kind`` en el bloque ``gate`` y el bloque ``examen`` (programa del stub + fases).
+        Sin ellos, el drill de saturación y el gate 125 oficial —mismo número, misma
+        versión, misma mezcla y cadencia— producían fingerprints que solo diferían en el
+        timestamp (no material) y el comparador los daba por LEGÍTIMAMENTE comparables."""
         pop = self._population_obj()
         rates = {s: ar.k6 for s, ar in surface_arrival_rates(self.gate).items()}
         scr = self.gate.stack_config_required
+        stub = self.gate.stub or {}
         return capture(
             producto=self._producto or {"commit": "unknown", "digests": {},
                                         "dry_run": self.dry_run},
@@ -409,7 +415,14 @@ class Orchestrator:
                         "nlp_fail_mode": scr.get("nlp_fail_mode")},
             workers_procesos=(self._producto or {}).get("workers_procesos", {}),
             limites_recursos=(self._producto or {}).get("limites_recursos", {}),
-            gate={"n": self.gate.gate, "version": self.gate.version},
+            gate={"n": self.gate.gate, "version": self.gate.version, "kind": self.kind},
+            examen={"stub": {"latency_ms": stub.get("latency_ms"),
+                             "token_rate_tps": stub.get("token_rate_tps"),
+                             "stream_duration_s": stub.get("stream_duration_s"),
+                             "error_rate": stub.get("error_rate")},
+                    "phases": [{"name": p.name, "duration": p.duration,
+                                "arrival_factor": p.arrival_factor}
+                               for p in self.gate.phases]},
             corpus={"version": corpus.get("corpus_version"), "seed": corpus.get("seed"),
                     "n_canaries": len(corpus.get("canaries", [])),
                     "densities_per_mille": corpus.get("densities_per_mille")},

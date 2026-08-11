@@ -25,6 +25,7 @@ from basa_harness.orchestrator import (Orchestrator, OrchestratorError, _drill_o
                                        main)
 from basa_harness.reporting.evaluator import (SLOResult, Verdict, evaluate,
                                               eval_drill_criteria, eval_saturated_durable)
+from basa_harness.reporting.fingerprint import compare
 from basa_harness.reporting.gate_loader import (GATES_DIR, GateError, dry_run, load_gate,
                                                 validate_gate)
 
@@ -574,6 +575,44 @@ def test_cli_segundo_run_mismo_run_id_error_accionable(tmp_path, capsys):
     assert main(argv) in (0, 1, 2)          # el primero corre y reporta
     assert main(argv) == 2                  # el segundo NO pisa: error accionable
     assert "ya contiene un verdict.json" in capsys.readouterr().err
+
+
+def _fingerprint_de(gate_file, tmp_path, run_id):
+    orch = Orchestrator(load_gate(gate_file), run_id=run_id, runs_dir=tmp_path,
+                        timestamp=TS, n_canaries=4, n_corpus_docs=4)
+    return orch._build_fingerprint({"corpus_version": "1.0.0", "seed": 1, "canaries": [],
+                                    "densities_per_mille": [0]}, {})
+
+
+def test_fingerprint_del_drill_no_es_comparable_con_el_del_125_oficial(tmp_path):
+    """A4: mismo gate, misma versión, misma mezcla y cadencia — antes los dos fingerprints
+    solo diferían en el timestamp (NO material) y el comparador decía «LEGÍTIMA»: se podían
+    contrastar las métricas de dos exámenes distintos como si fueran el mismo."""
+    drill = _fingerprint_de(DRILL_FILE, tmp_path, "fp-drill")
+    oficial = _fingerprint_de(GATE_FILE, tmp_path, "fp-oficial")
+    res = compare(drill, oficial)
+    assert res.comparable is True
+    assert res.legitimate is False
+    paths = {d.path for d in res.diffs}
+    assert "gate.kind" in paths                                  # drill vs gate_oficial
+    assert any(p.startswith("examen.stub") for p in paths)       # sede-lenta vs normal
+    assert any(p.startswith("examen.phases") for p in paths)     # sustained+burst vs solo
+    # y el par de repetibilidad del propio drill SIGUE siendo legítimo
+    assert compare(drill, _fingerprint_de(DRILL_FILE, tmp_path, "fp-drill-2")).legitimate
+
+
+def test_fingerprint_del_drill_declara_el_programa_del_examen(tmp_path):
+    fp = _fingerprint_de(DRILL_FILE, tmp_path, "fp-drill-3").to_dict()
+    assert fp["gate"] == {"n": 125, "version": "1.0.0", "kind": "drill"}
+    assert fp["examen"]["stub"] == {"latency_ms": {"chat": 800, "coding_first_token": 600},
+                                    "token_rate_tps": 5, "stream_duration_s": [60, 120],
+                                    "error_rate": 0.0}
+    assert fp["examen"]["phases"] == [
+        {"name": "sustained", "duration": "10m", "arrival_factor": 1.0},
+        {"name": "burst", "duration": "5m", "arrival_factor": 3.0}]
+    # orden canónico: `examen` va inmediatamente después de `gate`
+    claves = list(fp)
+    assert claves[claves.index("gate") + 1] == "examen"
 
 
 def test_drill_overrides_desde_la_cli():
