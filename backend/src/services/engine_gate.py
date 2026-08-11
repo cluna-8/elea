@@ -59,10 +59,6 @@ STATUS_SATURATED = "rejected_saturated"
 HEADER_REJECTED = "X-Basa-Rejected"
 HEADER_REJECTED_SATURATED = "saturated"
 
-# `Retry-After` del 503. Segundos, como string porque va a una cabecera HTTP. Del orden del
-# queue-timeout a propósito: es el tiempo que de verdad puede tardar en liberarse un turno.
-RETRY_AFTER_SATURATED = "5"
-
 
 class EngineSaturatedError(Exception):
     """No hubo turno hacia el motor dentro del timeout de admisión.
@@ -143,13 +139,38 @@ ENGINE_MAX_CONCURRENCY = _env_int("BASA_ENGINE_MAX_CONCURRENCY", 8, minimo=1, ma
 # la sede con otro nombre.
 ENGINE_QUEUE_TIMEOUT_SECONDS = _env_float("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", 5.0, maximo=60.0)
 
-# Timeout de la llamada AL MOTOR, compartido por los dos planos. Reemplaza al parser propio de
-# `chat.py` (`_resolve_engine_timeout`, sin guardia de rango: un `1e9` pasaba crudo y dejaba la
-# llamada efectivamente sin timeout) y al `120.0` hardcodeado del byok de `/gw`. Mismo nombre de
-# env que antes: las instalaciones que ya lo setean no cambian nada.
+# `Retry-After` del 503. Segundos, como string porque va a una cabecera HTTP.
+#
+# DERIVADO del queue-timeout y no un "5" fijo (H9 del gate de #135): lo que el header promete es
+# «en tanto puede haber turno», y el tiempo que de verdad tarda en decidirse un turno es el
+# queue-timeout configurado. Con el default (5 s) da exactamente el mismo "5" de siempre, pero
+# una instalación que suba la espera a 20 s deja de mandar a todos sus clientes a reintentar a
+# los 5 —justo cuando el pico todavía está—, que es la estampida que el fix vino a evitar.
+# `ceil` + piso de 1: el header es en segundos ENTEROS y un `Retry-After: 0` es "reintentá ya".
+RETRY_AFTER_SATURATED = str(max(1, math.ceil(ENGINE_QUEUE_TIMEOUT_SECONDS)))
+
+# Timeout de la llamada AL MOTOR del plano CHAT. Reemplaza al parser propio de `chat.py`
+# (`_resolve_engine_timeout`, sin guardia de rango: un `1e9` pasaba crudo y dejaba la llamada
+# efectivamente sin timeout). Mismo nombre de env que antes: las instalaciones que ya lo setean
+# no cambian nada.
 # Techo 600 y no 60 como en Redis: son dominios distintos. Una generación local legítima puede
 # tardar minutos; una operación de Redis sana tarda menos de un milisegundo.
 ENGINE_TIMEOUT_SECONDS = _env_float("BASA_ENGINE_TIMEOUT_SECONDS", 60.0, maximo=600.0)
+
+# Timeout TOTAL del byok no-stream de `/gw`. Env PROPIA y no la del chat (H3 del gate de #135):
+# compartirlas parecía economía y era una regresión silenciosa —este camino tenía `120.0`
+# hardcodeado y pasaba a heredar el default 60 del chat—, o sea que un byok legítimo que antes
+# se servía empezaba a cortarse solo a la mitad.
+#
+# Default 150 s por la misma regla que fija el read del stream: el que ESPERA tiene que aguantar
+# más que el que TRABAJA. El router del motor en el perfil prod espera 120 s por generación, así
+# que cualquier techo nuestro por debajo de eso convierte una respuesta lenta pero buena en un
+# error nuestro, y encima con el trabajo del modelo ya pagado.
+#
+# Los dos planos siguen siendo configurables por separado a propósito: el chat es una UI con una
+# persona esperando (60 s es una eternidad ahí) y el byok es una coding tool que tolera —y
+# necesita— generaciones largas.
+GW_BYOK_TIMEOUT_SECONDS = _env_float("BASA_GW_BYOK_TIMEOUT_SECONDS", 150.0, maximo=600.0)
 
 # Read timeout ENTRE CHUNKS del stream byok de `/gw`. Antes eran 60 s hardcodeados, heredados
 # del passthrough de suscripción (donde Anthropic manda `ping` SSE periódicos y 60 s es
@@ -210,10 +231,17 @@ class TurnoDelMotor:
     nunca entró le regalaría un permiso al semáforo (con `BoundedSemaphore`, un `ValueError`).
     """
 
-    __slots__ = ("_adquirido",)
+    __slots__ = ("_adquirido", "_semaforo_propio")
 
     def __init__(self) -> None:
         self._adquirido = False
+        # Semáforo que dio el permiso. Se guarda al adquirir y se suelta sobre ÉL —nunca sobre
+        # el que `_semaforo()` devuelva al liberar—: entre las dos cosas puede haber un rebind
+        # (loop nuevo del worker, un test que monta la app en otro loop) y entonces el permiso
+        # se devolvería a un semáforo que jamás lo entregó. Eso es doble daño: el nuevo se
+        # infla (o revienta con `ValueError`, que es lo que hace `BoundedSemaphore`) y el viejo
+        # se queda encogido para siempre. Ver H5 del gate de #135.
+        self._semaforo_propio: Optional[asyncio.BoundedSemaphore] = None
 
     @property
     def adquirido(self) -> bool:
@@ -235,13 +263,19 @@ class TurnoDelMotor:
                 f"sin turno hacia el motor tras {ENGINE_QUEUE_TIMEOUT_SECONDS:.1f}s "
                 f"(tope={ENGINE_MAX_CONCURRENCY} en vuelo por proceso)") from exc
         self._adquirido = True
+        self._semaforo_propio = sem
         return self
 
     def liberar(self) -> None:
+        """Devuelve el permiso AL semáforo que lo dio. Sync e idempotente a propósito: es lo
+        que permite llamarla como PRIMERA sentencia de un `finally`, donde una cancelación en
+        vuelo hace que cualquier `await` posterior no llegue a ejecutarse nunca."""
         if not self._adquirido:
             return
         self._adquirido = False
-        _semaforo().release()
+        sem, self._semaforo_propio = self._semaforo_propio, None
+        if sem is not None:
+            sem.release()
 
     async def __aenter__(self) -> "TurnoDelMotor":
         return await self.adquirir()

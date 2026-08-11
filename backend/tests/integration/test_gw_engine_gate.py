@@ -82,6 +82,12 @@ class _RespuestaStream:
         return b""
 
     async def aclose(self):
+        # El `sleep(0)` NO es relleno: es lo que hace de este doble un cierre HONESTO. El
+        # `aclose()` real habla con la red y por lo tanto SUSPENDE, y una suspensión dentro de
+        # un scope cancelado vuelve a recibir la cancelación (anyio la re-entrega en cada
+        # checkpoint hasta que el scope sale). Un doble que cierra sin suspender jamás nunca
+        # reproduciría la fuga de turno de H1, y el test pasaría con el bug puesto.
+        await asyncio.sleep(0)
         self.cerrado = True
 
 
@@ -123,7 +129,7 @@ class _MotorLento:
                 return respuesta
 
             async def aclose(self):
-                pass
+                await asyncio.sleep(0)  # cerrar un cliente httpx real suspende; ver arriba
 
         return _Cliente()
 
@@ -272,6 +278,51 @@ async def test_byok_saturado_responde_503_con_shape_anthropic_y_header(
 
 
 @pytest.mark.asyncio
+async def test_la_fila_del_rechazo_registra_el_modelo_ruteado_y_no_el_auto_del_body(
+        harness, motor, gate_de_uno, eventos_de_vitrina, monkeypatch):
+    """H7 del gate de #135: la fila decía `model="auto"`, que no es ningún modelo.
+
+    «auto» es un pseudo-modelo: el router lo reescribe al default configurado ANTES de que el
+    pedido salga hacia el motor. Si la fila del rechazo guarda el literal del body, el día que
+    la sede pregunte «¿qué modelo estábamos rebotando el martes?» —que es LA pregunta de un
+    incidente de capacidad— la respuesta es «auto», o sea nada. El chat ya escribe el modelo
+    ruteado (`routed_model`); los dos planos tienen que contar la misma historia.
+
+    Va por el endpoint y no por `_byok_proxy` porque la resolución del router vive ahí arriba.
+    """
+    import httpx as _httpx  # el REAL: `gateway.httpx` está doblado por la fixture `motor`
+
+    from src.main import app
+    from src.services import auto_router_service
+
+    _, factory = harness
+    borrar_filas(factory)
+    monkeypatch.setattr(auto_router_service, "load_config",
+                        lambda: {"default_model": "ollama-qwen3-4b"})
+
+    turno = await gate_de_uno.adquirir_turno().adquirir()  # cap=1 ⇒ semáforo AGOTADO
+    try:
+        async with _httpx.AsyncClient(transport=_httpx.ASGITransport(app=app),
+                                      base_url="http://test") as ac:
+            respuesta = await ac.post(GW, json={**CUERPO, "model": "auto"},
+                                      headers={"x-api-key": CLAVE,
+                                               "user-agent": "claude-cli/1.0"})
+    finally:
+        turno.liberar()
+
+    assert respuesta.status_code == 503, respuesta.text
+    assert respuesta.headers.get("X-Basa-Rejected") == "saturated"
+
+    rechazos = filas(factory, SATURADO)
+    assert len(rechazos) == 1, f"una fila durable por rechazo, quedaron {len(rechazos)}"
+    assert rechazos[0]["model"] == "ollama-qwen3-4b", (
+        "la fila tiene que decir a qué modelo IBA el pedido, no el pseudo-modelo del body")
+    assert [e["model"] for e in eventos_de_vitrina] == ["ollama-qwen3-4b"], (
+        "la vitrina y la fila cuentan la misma historia o no sirve ninguna de las dos")
+    assert not motor.llamadas, "el pedido rechazado no puede haber llegado al motor"
+
+
+@pytest.mark.asyncio
 async def test_el_turno_del_byok_no_stream_se_devuelve_al_responder(harness, motor, gate_de_uno):
     """Un turno filtrado bajaría el tope de forma permanente hasta reiniciar el worker."""
     motor.soltar.set()
@@ -320,7 +371,12 @@ async def test_un_stream_abierto_sin_drenar_retiene_el_turno_y_al_cerrarse_lo_li
 async def test_un_stream_abandonado_por_el_cliente_tambien_devuelve_el_turno(
         harness, motor, gate_de_uno):
     """Un cliente que corta a mitad (Ctrl-C en la coding tool) cierra el generador: el `finally`
-    corre igual y el turno vuelve. Sin esto, cada cancelación se comería un turno para siempre."""
+    corre igual y el turno vuelve. Sin esto, cada cancelación se comería un turno para siempre.
+
+    Cubre el camino `GeneratorExit` —el cierre explícito del iterador—, que NO es el mismo que
+    la cancelación real de starlette: aquél entra por `aclose()` del generador y éste por la
+    cancelación del task group. Los dos tienen test propio a propósito (H1 del gate de #135).
+    """
     respuesta = await _byok(stream=True)
     await respuesta.body_iterator.__anext__()
 
@@ -329,6 +385,159 @@ async def test_un_stream_abandonado_por_el_cliente_tambien_devuelve_el_turno(
 
     motor.soltar.set()  # el siguiente pedido no tiene por qué esperar a nadie
     assert (await _byok()).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_la_cancelacion_real_de_starlette_no_se_come_el_turno(harness, motor, gate_de_uno):
+    """H1 del gate de #135, por el camino de VERDAD: el cliente desconecta y starlette cancela.
+
+    Este es el escenario de producción y no lo cubría ningún test. `StreamingResponse.__call__`
+    corre dos tareas en un task group —drenar el cuerpo y escuchar `http.disconnect`— y al
+    llegar la desconexión CANCELA el grupo. La cancelación se re-entrega en cada punto de
+    suspensión hasta que el scope sale, así que un `finally` que empieza con `await
+    up.aclose()` se lleva el `CancelledError` ahí mismo y nunca alcanza el `liberar()` de
+    abajo. El turno queda tomado por nadie **para siempre**: con 8 cancelaciones (Ctrl-C en una
+    coding tool es lo más normal del mundo) el worker rechaza 503 con el motor vacío.
+
+    Por eso se ejecuta la respuesta como ASGI de verdad —`await respuesta(scope, receive,
+    send)`— en vez de simular el corte con `body_iterator.aclose()`: ese atajo entra por
+    `GeneratorExit`, que es otro camino y no reproduce nada.
+    """
+    respuesta = await _byok(stream=True)
+    assert respuesta.status_code == 200
+
+    semaforo = gate_de_uno._semaforo()
+    assert semaforo._value == 0, "cap=1: el stream abierto tiene que tener el turno tomado"
+
+    primer_chunk = asyncio.Event()
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+        if mensaje["type"] == "http.response.body" and mensaje.get("body"):
+            primer_chunk.set()  # el cliente ya recibió tokens... y ahora se va
+
+    async def receive():
+        await primer_chunk.wait()
+        return {"type": "http.disconnect"}
+
+    scope = {"type": "http", "http_version": "1.1", "method": "POST",
+             "path": "/gw/v1/messages", "headers": [], "query_string": b"",
+             "scheme": "http", "server": ("test", 80), "client": ("test", 1), "root_path": ""}
+
+    # El upstream NUNCA se suelta: el generador queda suspendido esperando el chunk siguiente,
+    # que es exactamente donde lo agarra la cancelación.
+    await asyncio.wait_for(respuesta(scope, receive, send), timeout=10)
+    await asyncio.sleep(0)  # que corra el `finally` del generador cancelado
+
+    assert "http.response.body" in enviados, "el escenario no llegó a mandar el primer chunk"
+    assert semaforo._value == 1, (
+        "la cancelación de starlette se comió el turno: el tope quedó encogido de forma "
+        "permanente hasta reiniciar el worker")
+
+    motor.soltar.set()
+    assert (await _byok()).status_code == 200, "y el turno tiene que servir de verdad"
+
+
+@pytest.mark.asyncio
+async def test_el_turno_vuelve_aunque_el_cierre_del_upstream_reviente(
+        harness, motor, gate_de_uno):
+    """La mitad DETERMINISTA de H1: si un `await` del `finally` levanta, el turno ya se soltó.
+
+    Sin depender de cómo entregue la cancelación la versión de anyio/starlette de turno: lo que
+    se fija es el ORDEN. `liberar()` es sync e infalible y va PRIMERO; los `aclose()` son I/O y
+    pueden fallar (un socket ya muerto, un bump de httpx que cambie el comportamiento) sin que
+    eso le cueste un turno al worker.
+
+    Tres vueltas y no una: con cap=1 una sola fuga ya cuelga la segunda, así que si el orden
+    está mal esto falla en la vuelta 2 y no por casualidad.
+    """
+    class _CierreRoto(Exception):
+        pass
+
+    async def _aclose_que_revienta():
+        raise _CierreRoto("el socket del upstream ya estaba muerto")
+
+    for vuelta in range(3):
+        motor.soltar.clear()
+        respuesta = await _byok(stream=True)
+        assert respuesta.status_code == 200, f"vuelta {vuelta}: el turno de la anterior se filtró"
+        motor.streams[-1].aclose = _aclose_que_revienta
+
+        motor.soltar.set()
+        with pytest.raises(_CierreRoto):
+            async for _ in respuesta.body_iterator:
+                pass
+
+    assert (await _byok()).status_code == 200, (
+        "tres cierres rotos y el semáforo tiene que estar entero")
+
+
+# ── H2: el rechazo no puede congelar el worker ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_el_rechazo_por_capacidad_no_bloquea_el_event_loop(
+        harness, motor, gate_de_uno, eventos_de_vitrina, monkeypatch):
+    """H2 del gate de #135: el 503 "rápido" congelaba el worker justo cuando había saturación.
+
+    `_rechazo_por_capacidad` abre dos sesiones Postgres NUEVAS (este plano no tiene `get_db`), y
+    el `acquire` del pool de SQLAlchemy es SÍNCRONO: con el pool agotado —que es el estado
+    normal durante un pico— espera `pool_timeout` desde el event loop y ahí se termina el
+    producto entero. Medido en el gate: 503 en **120,9 s con el loop bloqueado 120,7 s**. El
+    camino que existe para no degradar el producto era el que lo tumbaba.
+
+    El test no mide Postgres: stubbea la escritura durable con un `time.sleep` (I/O bloqueante
+    de laboratorio) y mide el HUECO máximo entre iteraciones de un latido del loop. Si el
+    registro corre en el loop, el latido se para medio segundo; si corre en un hilo, no lo nota.
+    """
+    from src.api import gateway
+
+    ESPERA_DE_LA_BASE = 0.5
+
+    def _audit_lento(*_a, **_k):
+        time.sleep(ESPERA_DE_LA_BASE)  # el `acquire` síncrono del pool, en miniatura
+        return True
+
+    monkeypatch.setattr(gateway, "_audit", _audit_lento)
+
+    hueco_maximo = 0.0
+    latiendo = True
+
+    async def latido():
+        nonlocal hueco_maximo
+        loop = asyncio.get_running_loop()
+        anterior = loop.time()
+        while latiendo:
+            await asyncio.sleep(0.005)
+            ahora = loop.time()
+            hueco_maximo = max(hueco_maximo, ahora - anterior)
+            anterior = ahora
+
+    corazon = asyncio.create_task(latido())
+    await asyncio.sleep(0.05)  # unas cuantas iteraciones sanas de referencia
+
+    turno = await gate_de_uno.adquirir_turno().adquirir()  # cap=1 ⇒ el próximo rebota
+    try:
+        inicio = asyncio.get_running_loop().time()
+        rechazo = await _byok()
+        tardanza = asyncio.get_running_loop().time() - inicio
+    finally:
+        turno.liberar()
+        latiendo = False
+        await corazon
+
+    assert rechazo.status_code == 503
+    assert rechazo.headers.get("X-Basa-Rejected") == "saturated"
+    # La fila SIGUE escribiéndose antes de responder (registrar → rechazar): lo que cambia es
+    # DÓNDE corre, no cuándo. Por eso el pedido tarda lo que tarda la base...
+    assert tardanza >= ESPERA_DE_LA_BASE, (
+        "el rechazo contestó sin esperar el registro — eso sería la fila diferida, que es otra "
+        "decisión (y es de JF)")
+    # ...pero el resto del producto no se entera.
+    assert hueco_maximo < 0.05, (
+        f"el event loop quedó bloqueado {hueco_maximo:.3f}s escribiendo la fila del rechazo: "
+        "con el pool bajo presión eso es el worker entero congelado")
 
 
 # ── El passthrough de suscripción NO se gatea (postura deliberada) ────────────────
@@ -367,17 +576,23 @@ async def test_el_passthrough_de_suscripcion_pasa_aunque_el_semaforo_este_lleno(
 
 
 @pytest.mark.asyncio
-async def test_el_byok_no_stream_usa_el_timeout_compartido_del_motor(harness, motor):
-    """Antes: `120.0` hardcodeado en este plano y otro parser en `chat.py`. Ahora, un solo
-    `BASA_ENGINE_TIMEOUT_SECONDS` acotado para los dos caminos que van al motor."""
+async def test_el_byok_no_stream_usa_su_propio_timeout_y_no_el_del_chat(harness, motor):
+    """Antes: `120.0` hardcodeado acá y otro parser en `chat.py`; en el round 1 los dos caminos
+    compartieron `BASA_ENGINE_TIMEOUT_SECONDS` y eso REGRESÓ este camino de 120 a 60 s (H3 del
+    gate). Ahora cada plano tiene su env acotada, y la de acá arranca en 150 s.
+
+    Igualdad con la constante propia: si alguien reinstala un literal o vuelve a cablear la del
+    chat, este assert cae — que es justo lo que hay que impedir.
+    """
     from src.services import engine_gate
     motor.soltar.set()
 
     assert (await _byok()).status_code == 200
 
-    # Igualdad con la constante COMPARTIDA: si alguien reinstala un literal (`120.0`) o un
-    # parser propio, este assert cae — que es justo lo que hay que impedir.
-    assert motor.kwargs_cliente[0]["timeout"] == engine_gate.ENGINE_TIMEOUT_SECONDS
+    assert motor.kwargs_cliente[0]["timeout"] == engine_gate.GW_BYOK_TIMEOUT_SECONDS
+    assert engine_gate.GW_BYOK_TIMEOUT_SECONDS > 120.0, (
+        "el byok tiene que aguantar más que los 120 s que el router del perfil prod espera por "
+        "generación, o convierte una respuesta lenta pero buena en un error nuestro")
 
 
 @pytest.mark.asyncio

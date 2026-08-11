@@ -86,6 +86,7 @@ def test_env_float_robusto_no_revienta_y_acota_el_rango(monkeypatch):
     ("BASA_ENGINE_MAX_CONCURRENCY", "ENGINE_MAX_CONCURRENCY", 8),
     ("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", "ENGINE_QUEUE_TIMEOUT_SECONDS", 5.0),
     ("BASA_ENGINE_TIMEOUT_SECONDS", "ENGINE_TIMEOUT_SECONDS", 60.0),
+    ("BASA_GW_BYOK_TIMEOUT_SECONDS", "GW_BYOK_TIMEOUT_SECONDS", 150.0),
     ("BASA_GW_BYOK_READ_TIMEOUT_SECONDS", "GW_BYOK_READ_TIMEOUT_SECONDS", 150.0),
 ])
 @pytest.mark.parametrize("valor_env", ["", "1e9"], ids=["vacio", "fuera-de-rango"])
@@ -113,12 +114,55 @@ def test_con_la_env_valida_la_constante_la_toma(monkeypatch):
         m.setenv("BASA_ENGINE_MAX_CONCURRENCY", "16")
         m.setenv("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", "2.5")
         m.setenv("BASA_ENGINE_TIMEOUT_SECONDS", "150")
+        m.setenv("BASA_GW_BYOK_TIMEOUT_SECONDS", "200")
         m.setenv("BASA_GW_BYOK_READ_TIMEOUT_SECONDS", "200")
         copia = _copia_del_modulo()
     assert copia.ENGINE_MAX_CONCURRENCY == 16
     assert copia.ENGINE_QUEUE_TIMEOUT_SECONDS == 2.5
     assert copia.ENGINE_TIMEOUT_SECONDS == 150.0
+    assert copia.GW_BYOK_TIMEOUT_SECONDS == 200.0
     assert copia.GW_BYOK_READ_TIMEOUT_SECONDS == 200.0
+
+
+def test_el_byok_no_stream_tiene_su_propia_env_y_no_hereda_el_default_del_chat(monkeypatch):
+    """H3 del gate de #135: los dos timeouts al motor son INDEPENDIENTES.
+
+    Fusionarlos parecía economía y era una regresión silenciosa: el byok de `/gw` tenía `120.0`
+    hardcodeado y pasaba a heredar el default 60 del chat, o sea que empezaba a cortar solo
+    generaciones que antes servía —y encima con el trabajo del modelo ya pagado—. Son dominios
+    distintos: el chat es una UI con una persona esperando, el byok es una coding tool. Que
+    setear uno mueva al otro es exactamente el bug.
+    """
+    with monkeypatch.context() as m:
+        m.setenv("BASA_ENGINE_TIMEOUT_SECONDS", "30")
+        m.delenv("BASA_GW_BYOK_TIMEOUT_SECONDS", raising=False)
+        copia = _copia_del_modulo()
+    assert copia.ENGINE_TIMEOUT_SECONDS == 30.0
+    assert copia.GW_BYOK_TIMEOUT_SECONDS == 150.0, (
+        "el byok heredó el timeout del chat — esa es la regresión de H3")
+    # El default tiene que SUPERAR los 120 s que el router del perfil prod espera por
+    # generación: el que espera aguanta más que el que trabaja, o convierte una respuesta lenta
+    # pero buena en un error nuestro.
+    assert copia.GW_BYOK_TIMEOUT_SECONDS > 120.0
+
+
+@pytest.mark.parametrize("queue_timeout,esperado", [
+    ("5", "5"),        # el default histórico: el contrato con La ITV no se mueve
+    ("20", "20"),
+    ("2.4", "3"),      # segundos ENTEROS, y hacia arriba: nunca prometer antes de tiempo
+    ("0.25", "1"),     # piso 1: un `Retry-After: 0` es "reintentá ya" = estampida
+])
+def test_el_retry_after_se_deriva_del_queue_timeout_real(monkeypatch, queue_timeout, esperado):
+    """H9 del gate de #135: `Retry-After` decía "5" aunque la espera fuera configurable.
+
+    El header promete «en tanto puede haber turno». Con un queue-timeout de 20 s, mandar a todos
+    los clientes a reintentar a los 5 los devuelve en pleno pico — la estampida que el rechazo
+    rápido vino a evitar.
+    """
+    with monkeypatch.context() as m:
+        m.setenv("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", queue_timeout)
+        copia = _copia_del_modulo()
+    assert copia.RETRY_AFTER_SATURATED == esperado
 
 
 def test_el_estado_de_saturacion_no_matchea_el_filtro_canonico_de_bloqueos():
@@ -278,6 +322,33 @@ async def test_liberar_dos_veces_no_regala_permisos(gate_chico):
     finally:
         for t in dentro:
             t.liberar()
+
+
+@pytest.mark.asyncio
+async def test_liberar_suelta_el_semaforo_que_dio_el_permiso_y_no_el_de_turno(gate_chico):
+    """H5 del gate de #135: el turno recuerda SU semáforo, no vuelve a preguntar cuál es.
+
+    Entre adquirir y liberar el semáforo del proceso puede rebindearse —el loop cambió (worker
+    reiniciado, una suite que monta la app en otro loop) y `_semaforo()` reconstruye—. Soltando
+    sobre el que devuelva `_semaforo()` en ese momento pasan las dos cosas malas a la vez: el
+    semáforo NUEVO recibe un permiso que jamás entregó (con `BoundedSemaphore`, un `ValueError`
+    que revienta el `finally` del stream y se lleva puesto el cierre del upstream) y el VIEJO
+    se queda encogido para siempre.
+    """
+    turno = await engine_gate.adquirir_turno().adquirir()
+    viejo = engine_gate._semaforo()
+    assert viejo._value == 1, "cap=2 y un turno tomado"
+
+    # Rebind: exactamente lo que hace `_semaforo()` cuando el loop cambió.
+    engine_gate._semaforo_actual = None
+    engine_gate._loop_del_semaforo = None
+    nuevo = engine_gate._semaforo()
+    assert nuevo is not viejo
+
+    turno.liberar()  # sin la referencia guardada, acá saltaba `ValueError`
+
+    assert viejo._value == 2, "el permiso tiene que volver al semáforo que lo dio"
+    assert nuevo._value == 2, "y el semáforo nuevo no puede quedar inflado por un permiso ajeno"
 
 
 @pytest.mark.asyncio

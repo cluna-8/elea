@@ -326,6 +326,56 @@ async def test_el_turno_se_devuelve_y_el_siguiente_pedido_pasa(harness, motor, g
 
 
 @pytest.mark.asyncio
+async def test_con_la_auditoria_caida_el_503_de_saturacion_igual_lleva_el_header(
+        harness, motor, gate_de_uno, monkeypatch):
+    """H6 del gate de #135: el contrato de wire dice TODO 503 de saturación, sin asteriscos.
+
+    Hay un cruce de caminos que se le escapaba: si la instalación corre en `audit_fail=closed`
+    y la base de auditoría se cae justo mientras se registra un rechazo por capacidad, el 503
+    que sale es el de `_registrar_bloqueo` —«no sirvo tráfico que no pueda registrar»— y ese
+    salía pelado. Para el harness de La ITV un 503 sin `X-Basa-Rejected` es un 503 ajeno (de
+    Caddy, del proxy de la sede), así que el drill de saturación contaría mal justo en el
+    escenario que más importa: saturado Y con la auditoría en problemas.
+
+    El pedido sigue siendo un rechazo de saturación, se lo mire por donde se lo mire; que la
+    respuesta la construya otra rama del código no cambia el hecho.
+    """
+    client, _ = harness
+    calentar_catalogo(client, motor)
+
+    from src.api import chat
+    from src.services.audit_service import AuditUnavailableError
+
+    # La base se cae SÓLO al registrar el rechazo por capacidad, que es el cruce exacto que se
+    # prueba. El pedido de adentro sigue escribiendo su fila normal: si se tumbara la auditoría
+    # entera, el test también rompería el camino feliz y ya no se sabría qué está midiendo.
+    escritor_real = chat.AuditService.log_transaction
+
+    def _base_caida(**kwargs):
+        if kwargs.get("compliance_status") == SATURADO:
+            raise AuditUnavailableError("la base de auditoría no responde")
+        return escritor_real(**kwargs)
+
+    monkeypatch.setattr(chat.AuditService, "log_transaction", staticmethod(_base_caida))
+
+    async with _cliente_async(client) as ac:
+        primera = asyncio.create_task(ac.post(CHAT, json={"message": SIN_PII, "model": MODELO}))
+        await asyncio.wait_for(motor.primera.wait(), timeout=10)
+        segunda = await ac.post(CHAT, json={"message": SIN_PII, "model": MODELO})
+        motor.soltar.set()
+        await asyncio.wait_for(primera, timeout=10)
+
+    assert segunda.status_code == 503, segunda.text
+    # Es el 503 de la auditoría (no el de saturación): el copy lo dice, y eso prueba que se
+    # ejercitó el cruce y no el camino de siempre.
+    assert "auditoría" in segunda.json()["detail"], segunda.text
+    assert segunda.headers.get("X-Basa-Rejected") == "saturated", (
+        "un 503 de saturación sin la cabecera es un 503 que el harness de carga no puede "
+        "distinguir de uno de Caddy")
+    assert segunda.headers.get("Retry-After") == "5"
+
+
+@pytest.mark.asyncio
 async def test_sin_saturacion_el_chat_no_cambia_en_nada(harness, motor, gate_de_uno):
     """Contracara obligatoria: el tope no puede cobrarle nada al camino feliz. Con el motor
     libre, un pedido normal responde 200 y NO deja fila de rechazo."""

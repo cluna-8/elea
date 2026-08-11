@@ -467,7 +467,8 @@ def _entidades_de_fila(floor_entities, detected) -> list:
 async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id,
                              model: str, estado: str, prompt: str, entities, attribution,
                              start_time: float, routing: Optional[dict] = None,
-                             entidades_fila: Optional[list] = None) -> None:
+                             entidades_fila: Optional[list] = None,
+                             cabeceras_del_503: Optional[dict] = None) -> None:
     """**Registrar → bloquear**: fila DURABLE del bloqueo y, después, evento de vitrina.
 
     Es el pago del corte D6 de la 027 (spec 031 US1/FR-002): los 3 puntos de bloqueo de este
@@ -506,6 +507,14 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
 
     El parámetro se llama `estado` y no `status` porque en este módulo `status` es el enum
     de códigos HTTP de FastAPI: el shadowing dejaría al helper sin poder nombrar su 503.
+
+    `cabeceras_del_503` es para los llamadores cuyo rechazo tiene un CONTRATO DE WIRE propio
+    (H6 del gate de #135). Hoy sólo el rechazo por capacidad: La ITV acordó que
+    `X-Basa-Rejected: saturated` viaja en TODO 503 de saturación, y si la auditoría se cae
+    mientras se registra uno, el 503 que sale por esta puerta sigue siendo la respuesta a un
+    pedido saturado. Sin la cabecera, el harness de carga lo contaría como un 503 ajeno —de
+    Caddy, del proxy de la sede— y el drill mediría mal justo en el caso interesante. Los tres
+    puntos de bloqueo por política no la pasan: su 503 no tiene contrato de wire.
     """
     resumen = _summarize_entities(entities) if entidades_fila is None else entidades_fila
     fallo_closed: Optional[AuditUnavailableError] = None
@@ -545,6 +554,7 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_AUDIT_CLOSED_DETAIL,
+            headers=cabeceras_del_503,
         ) from fallo_closed
 
 
@@ -1369,6 +1379,12 @@ async def chat_completions(
         # El estado NO es un `blocked_*`: ninguna capa bloqueó nada (ver `STATUS_SATURATED`).
         logger.warning("engine_gate: pedido rechazado por capacidad (model=%s): %s",
                        routed_model, exc)
+        # Contrato de wire de La ITV: la cabecera viaja en TODO 503 de saturación, incluido el
+        # que puede salir de `_registrar_bloqueo` si la auditoría está caída en modo `closed`
+        # (H6 del gate). Se arma una sola vez y se usa en los dos caminos para que no puedan
+        # divergir.
+        cabeceras_de_saturacion = {"Retry-After": RETRY_AFTER_SATURATED,
+                                   HEADER_REJECTED: HEADER_REJECTED_SATURATED}
         await _registrar_bloqueo(
             db=db, user=user, api_key_obj=api_key_obj, group=group, tenant_id=_tenant_id,
             model=routed_model, estado=STATUS_SATURATED,
@@ -1376,6 +1392,7 @@ async def chat_completions(
             attribution=build_attribution(profile, verdicts, credentials=_credentials),
             start_time=start_time, routing=_routing_decision,
             entidades_fila=_entidades_de_fila(_floor_entities, _entities),
+            cabeceras_del_503=cabeceras_de_saturacion,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1387,8 +1404,7 @@ async def chat_completions(
                 "message": ("El modelo está a capacidad; el pedido no se encoló para no "
                             "degradar el resto del producto. Reintentá en unos segundos."),
             },
-            headers={"Retry-After": RETRY_AFTER_SATURATED,
-                     HEADER_REJECTED: HEADER_REJECTED_SATURATED},
+            headers=cabeceras_de_saturacion,
         ) from exc
     except Exception as e:
         # Check if we were able to reach the server. If yes, it's a model execution error.
