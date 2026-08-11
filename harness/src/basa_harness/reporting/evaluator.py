@@ -43,6 +43,11 @@ todo run que vea rechazos. Los criterios de tiempo (``rejection_time_to_503_p95`
 ``drill.criteria``: NO reemplazan ni relajan los 4 SLO de oro, que siguen siendo
 obligatorios. Un run sin rechazos y sin drill produce un verdict IDÉNTICO al de antes de
 C1: las filas nuevas no se agregan.
+
+Y un **drill que no saturó** no es un PASS: sus criterios quedan vacuos porque la defensa
+nunca se ejercitó, así que el run sale ``invalid`` (examen no tomado, no aprobado). El
+dry-run del drill queda afuera de esa regla: corre con datos sintéticos y ya está marcado
+NO oficial.
 """
 from __future__ import annotations
 
@@ -311,10 +316,17 @@ def eval_drill_criteria(k6_summary: dict, criteria: dict) -> tuple[list, list]:
         detalle = {"umbral_ms": float(umbral_rej), "rechazos": rechazos,
                    "fuente": "k6 rejection_ms.p95 (Trend lat_rejection, aparte de las "
                              "latencias de servicio)"}
-        if not _is_int(rechazos) or rechazos == 0 or not _is_num(p95):
+        hubo_rechazos = _is_num(rechazos) and rechazos > 0
+        if not hubo_rechazos:
             detalle["nota"] = ("el producto no rechazó ninguna request: el criterio no "
                                "aplica (PASS vacuo, no hay p95 que medir)")
             filas.append(SLOResult("rejection_time_to_503_p95", None, "PASS", detalle))
+        elif not _is_num(p95):
+            # HUBO rechazos y falta el cronómetro: no es lo mismo que no haber rechazado.
+            # Espejo de la rama admin — con el criterio fijado, no poder afirmarlo es FAIL.
+            detalle["nota"] = (f"hubo {rechazos} rechazos pero falta rejection_ms.p95 — no "
+                               "se puede afirmar el tiempo hasta el 503")
+            filas.append(SLOResult("rejection_time_to_503_p95", None, "FAIL", detalle))
         else:
             veredicto = "PASS" if p95 <= umbral_rej else "FAIL"
             if veredicto == "FAIL":
@@ -506,6 +518,13 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
     elif not instrumento["valido"]:
         estado = "invalid"
         invalid_reason = "instrumento inválido: " + "; ".join(instrumento["razones_invalidez"])
+    elif kind_drill and kind != "dry-run" and _sin_saturacion(rechazos):
+        # Un drill que NO saturó no midió la defensa C1: sus criterios quedan vacuos y el
+        # verdict saldría PASS por no haber ejercitado nada. Eso no es un aprobado, es un
+        # examen que no se tomó (el dry-run queda afuera: datos sintéticos, ya NO oficial).
+        estado = "invalid"
+        invalid_reason = ("el drill no alcanzó saturación: la defensa C1 no llegó a "
+                          "ejercitarse (¿stub en modo sede-lenta? ¿SUT sobrado?)")
 
     all_pass = all(r.veredicto == "PASS" for r in slos)
     if estado != "completed":
@@ -521,6 +540,14 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
         instrumento=instrumento, overhead=overhead, invalid_reason=invalid_reason,
         timestamp=timestamp, kind=kind, notas=list(notas or []) + notas_drill,
     )
+
+
+def _sin_saturacion(rechazos: object) -> bool:
+    """¿El guion NO vio rechazos? Solo ``ausente/None`` y el entero ``0`` cuentan como
+    «no saturó». Un conteo presente pero ILEGIBLE (float, string, bool) no se interpreta
+    a favor de ninguna hipótesis: no vuelve el examen inválido — lo reprueba la fila
+    ``saturated_503_rows_durable``, que ya lo marca FAIL por ilegible."""
+    return rechazos is None or (_is_int(rechazos) and rechazos == 0)
 
 
 def _gate_meta(gate: Union[Gate, dict, None]) -> tuple[dict, Optional[Gate]]:

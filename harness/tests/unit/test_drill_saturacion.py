@@ -338,9 +338,10 @@ def test_drill_admin_budget_excedido_fail():
     assert v.global_veredicto == "FAIL"
 
 
-def test_drill_sin_rechazos_pass_vacuo():
-    """El producto nunca tuvo que rechazar: las filas del drill existen (es un drill) pero
-    son vacuamente satisfechas — no se fabrica un p95."""
+def test_drill_sin_saturacion_es_examen_invalido_no_pass():
+    """Un drill que NO saturó no midió la defensa C1: sus criterios quedan vacuos y el
+    verdict saldría PASS por no haber ejercitado nada. Eso no es un aprobado — es un examen
+    que no se tomó. Las filas se conservan como EVIDENCIA de por qué es inválido."""
     v = _evaluate(gate=load_gate(DRILL_FILE), reconciliation=_clean_reconciliation())
     s = _slo(v, "saturated_503_rows_durable")
     assert s.medido == 1.0 and s.veredicto == "PASS"
@@ -348,7 +349,48 @@ def test_drill_sin_rechazos_pass_vacuo():
     r = _slo(v, "rejection_time_to_503_p95")
     assert r.medido is None and r.veredicto == "PASS"
     assert "no aplica" in r.detalle["nota"]
+    assert v.estado == "invalid"
+    assert v.global_veredicto == "INVALID"
+    assert "no alcanzó saturación" in (v.invalid_reason or "")
+    assert "sede-lenta" in (v.invalid_reason or "")
+
+
+def test_drill_con_rechazos_en_cero_explicito_tambien_es_invalido():
+    """`saturated_rejections: 0` es lo mismo que no haber rechazado."""
+    k6 = _saturated_summary(rechazos=0)
+    v = _evaluate(gate=load_gate(DRILL_FILE), k6_summary=k6,
+                  reconciliation=_clean_reconciliation())
+    assert v.estado == "invalid" and v.global_veredicto == "INVALID"
+
+
+def test_dry_run_del_drill_sin_saturacion_sigue_completed():
+    """El dry-run corre con datos sintéticos y ya está marcado NO oficial: exigirle
+    saturación invalidaría todo ensayo en seco del cableado."""
+    v = _evaluate(gate=load_gate(DRILL_FILE), reconciliation=_clean_reconciliation(),
+                  kind="dry-run")
+    assert v.estado == "completed"
     assert v.global_veredicto == "PASS"
+
+
+def test_gate_oficial_sin_rechazos_no_se_invalida():
+    """La regla es del drill: un gate oficial no tiene por qué saturar."""
+    v = _evaluate()
+    assert v.estado == "completed" and v.global_veredicto == "PASS"
+
+
+def test_drill_con_rechazos_y_sin_p95_es_fail_medido_null():
+    """M3: hubo rechazos pero falta el cronómetro. No es lo mismo que no haber rechazado
+    (PASS vacuo): con el criterio fijado, no poder afirmarlo es FAIL — espejo de admin."""
+    k6 = _saturated_summary()
+    del k6["rejection_ms"]
+    recon = _clean_reconciliation()
+    recon["filas_rejected_saturated"] = 120
+    v = _evaluate(gate=load_gate(DRILL_FILE), k6_summary=k6, reconciliation=recon)
+    r = _slo(v, "rejection_time_to_503_p95")
+    assert r.medido is None and r.veredicto == "FAIL"
+    assert "hubo 120 rechazos" in r.detalle["nota"]
+    assert "falta rejection_ms.p95" in r.detalle["nota"]
+    assert v.estado == "completed" and v.global_veredicto == "FAIL"
 
 
 def test_drill_rechazos_sin_conteo_de_filas_fail():

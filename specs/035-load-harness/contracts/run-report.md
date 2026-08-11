@@ -40,8 +40,18 @@ antes de C1 — los gates oficiales existentes no se mueven.
 | Fila | Cuándo aparece | Medido |
 |---|---|---|
 | `saturated_503_rows_durable` | el run es `kind: drill` **o** el guion vio ≥1 rechazo | `filas / rechazos` (1.0 = paridad). Sin rechazos: `1.0` PASS vacuo. Con rechazos y sin conteo de filas: `null` ⇒ FAIL |
-| `rejection_time_to_503_p95` | run `drill` **y** `rejection_p95_max_ms` fijado | p95 de `rejection_ms` (ms). Sin rechazos en el run: `null` con veredicto PASS (vacuo — no hay p95 que medir; la regla del `null`⇒FAIL es exclusiva del SLO (a)) |
+| `rejection_time_to_503_p95` | run `drill` **y** `rejection_p95_max_ms` fijado | p95 de `rejection_ms` (ms). **Sin rechazos**: `null` con veredicto PASS (vacuo — no hay p95 que medir; la regla del `null`⇒FAIL es exclusiva del SLO (a)). **Con rechazos y sin `rejection_ms.p95`**: `null` ⇒ **FAIL** (hubo 503 pero falta el cronómetro: no se puede afirmar el tiempo hasta el rechazo — espejo de la rama de admin) |
 | `admin_latency_budget_p95` | run `drill` **y** `admin_p95_budget_ms` fijado (YAML o `--drill-admin-budget-ms`) | p95 de `surfaces.admin.latency_ms` (ms) |
+
+**Un drill que no saturó es un examen INVÁLIDO, no un PASS.** Si el run es `kind: drill`
+(y no `dry-run`), quedó `completed` y los rechazos del guion son `0`/ausentes, el verdict
+sale `estado: invalid` + `global: INVALID` con
+`invalid_reason: "el drill no alcanzó saturación: la defensa C1 no llegó a ejercitarse
+(¿stub en modo sede-lenta? ¿SUT sobrado?)"`. Los criterios quedarían vacuos y el run
+saldría PASS por no haber ejercitado nada — eso no es un aprobado, es un examen que no se
+tomó. Las filas se conservan como evidencia. El **dry-run** del drill sigue `completed`
+(datos sintéticos, ya marcado NO oficial), y un conteo de rechazos presente pero
+**ilegible** (no entero) no invalida: lo reprueba la fila `saturated_503_rows_durable`.
 
 Un criterio de drill **sin umbral** no produce fila: deja una entrada en `notas` que dice
 cómo fijarlo (p. ej. derivar el presupuesto de admin del baseline del gate oficial del
