@@ -376,10 +376,13 @@ class Orchestrator:
         """Reconciliación de auditoría (filas persistidas vs eventos del guion) + bloqueos
         durables. En dry-run: paridad sintética perfecta (eventos==filas, 0 bloqueos).
 
-        En un **drill de saturación**, ``reconcile_fn`` debe devolver ADEMÁS
-        ``filas_rejected_saturated``: el conteo de filas de ``audit_logs`` con el estado
-        LITERAL ``'rejected_saturated'`` (el rechazo de admisión C1 — deliberadamente NO es
-        un bloqueo de política, así que no se mezcla con ``bloqueos_provocados``)."""
+        En CUALQUIER run que vea rechazos —no solo en un drill— ``reconcile_fn`` debe
+        devolver ADEMÁS ``filas_rejected_saturated``: el conteo de filas de ``audit_logs``
+        con el estado LITERAL ``'rejected_saturated'`` (el rechazo de admisión C1 —
+        deliberadamente NO es un bloqueo de política, así que no se mezcla con
+        ``bloqueos_provocados``), o ``0`` si no hubo ninguna. Sin ese campo, el evaluador
+        no puede afirmar durabilidad y la fila sale FAIL. La fuente de verdad del contrato
+        es ``contracts/run-report.md``, no este docstring."""
         if self.dry_run:
             eventos = int(k6_summary.get("auditable_events", 0))
             recon = {"eventos_guion": eventos, "filas_persistidas": eventos,
@@ -667,6 +670,16 @@ def main(argv: Optional[list] = None) -> int:
                 "derivalo del p95 de admin del gate oficial del mismo día")
 
     gate = load_gate(args.gate_file) if args.gate_file else load_gate_by_number(args.gate)
+
+    # El presupuesto de admin es un criterio del drill: sobre otro gate el flag no haría
+    # NADA (el evaluador solo mira drill.criteria en un run drill) y el operador creería
+    # haber fijado un umbral. Se avisa en vez de tragárselo. Ojo: el kind acá es el del
+    # GATE — un --dry-run del drill sigue siendo un drill para esta guarda.
+    kind_efectivo = gate.kind if gate.kind != "gate_oficial" else args.kind
+    if args.drill_admin_budget_ms is not None and kind_efectivo != "drill":
+        p.error(f"--drill-admin-budget-ms solo aplica a un gate kind: drill; este gate es "
+                f"{kind_efectivo!r} (¿querías --gate-file gates/drill-saturacion-125.yaml?)")
+
     orch = Orchestrator(gate, run_id=args.run_id, backend_url=args.backend_url,
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
                         kind=args.kind, dry_run=args.dry_run,

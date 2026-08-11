@@ -39,7 +39,7 @@ antes de C1 — los gates oficiales existentes no se mueven.
 
 | Fila | Cuándo aparece | Medido |
 |---|---|---|
-| `saturated_503_rows_durable` | el run es `kind: drill` **o** el guion vio ≥1 rechazo | `filas / rechazos` (1.0 = paridad). Sin rechazos: `1.0` PASS vacuo. Con rechazos y sin conteo de filas: `null` ⇒ FAIL |
+| `saturated_503_rows_durable` | el run es `kind: drill` **o** `saturated_rejections` está presente con valor ≠ `0`/`null` (incluido un valor ilegible: así el FAIL se ve) | `filas / rechazos` (1.0 = paridad ESTRICTA). Ausente/`null` o `0`: `1.0` PASS vacuo. Conteo presente no-entero: `null` ⇒ FAIL («conteo de rechazos ilegible»). Con rechazos y sin conteo de filas: `null` ⇒ FAIL. Filas de menos ⇒ FAIL «sin fila durable»; filas de más ⇒ FAIL «filas fantasma o rechazos no vistos» |
 | `rejection_time_to_503_p95` | run `drill` **y** `rejection_p95_max_ms` fijado | p95 de `rejection_ms` (ms). **Sin rechazos**: `null` con veredicto PASS (vacuo — no hay p95 que medir; la regla del `null`⇒FAIL es exclusiva del SLO (a)). **Con rechazos y sin `rejection_ms.p95`**: `null` ⇒ **FAIL** (hubo 503 pero falta el cronómetro: no se puede afirmar el tiempo hasta el rechazo — espejo de la rama de admin) |
 | `admin_latency_budget_p95` | run `drill` **y** `admin_p95_budget_ms` fijado (YAML o `--drill-admin-budget-ms`) | p95 de `surfaces.admin.latency_ms` (ms) |
 

@@ -277,7 +277,18 @@ def eval_saturated_durable(k6_summary: dict, reconciliation: dict) -> SLOResult:
     detalle = {"rechazos_guion": rechazos, "filas_rejected_saturated": filas,
                "fuente": "503 con X-Basa-Rejected: saturated (guion) vs audit_logs con "
                          "estado 'rejected_saturated' (producto)"}
-    if not _is_int(rechazos) or rechazos == 0:
+    # TRES lecturas distintas del conteo del guion, que no se pueden confundir:
+    #   ausente/None → el guion no declaró rechazos (vacuo);
+    #   0 (int)      → declaró explícitamente que no hubo (vacuo);
+    #   no-int       → ILEGIBLE: jamás se interpreta a favor (principio del SLO (a)).
+    if rechazos is None:
+        detalle["nota"] = "no hubo rechazos por saturación en este run (100% trivial)"
+        return SLOResult("saturated_503_rows_durable", 1.0, "PASS", detalle)
+    if not _is_int(rechazos):
+        detalle["nota"] = ("conteo de rechazos ilegible: saturated_rejections no es un "
+                           "entero — no se puede afirmar durabilidad → FAIL")
+        return SLOResult("saturated_503_rows_durable", None, "FAIL", detalle)
+    if rechazos == 0:
         # Vacuamente satisfecho: el producto nunca tuvo que rechazar (100% trivial).
         detalle["nota"] = "no hubo rechazos por saturación en este run (100% trivial)"
         return SLOResult("saturated_503_rows_durable", 1.0, "PASS", detalle)
@@ -288,8 +299,16 @@ def eval_saturated_durable(k6_summary: dict, reconciliation: dict) -> SLOResult:
     medido = round(filas / rechazos, 6)
     veredicto = "PASS" if filas == rechazos else "FAIL"
     if veredicto == "FAIL":
-        detalle["nota"] = (f"{rechazos - filas} rechazo(s) 503 SIN fila durable: se negó "
-                           "servicio sin dejar rastro auditable")
+        # La paridad es ESTRICTA en los dos sentidos, pero el diagnóstico no es el mismo:
+        # faltar filas es negar servicio sin rastro; sobrar filas es un desajuste de
+        # contabilidad que también invalida la afirmación de paridad.
+        if filas < rechazos:
+            detalle["nota"] = (f"{rechazos - filas} rechazo(s) 503 SIN fila durable: se "
+                               "negó servicio sin dejar rastro auditable")
+        else:
+            detalle["nota"] = (f"sobran {filas - rechazos} fila(s) rejected_saturated "
+                               "frente a los 503 observados por el guion: filas fantasma "
+                               "o rechazos no vistos")
     return SLOResult("saturated_503_rows_durable", medido, veredicto, detalle)
 
 
@@ -496,7 +515,10 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
     rechazos = k6_summary.get("saturated_rejections")
     kind_drill = (kind == "drill") or (gate_obj is not None
                                        and getattr(gate_obj, "kind", "gate_oficial") == "drill")
-    if kind_drill or (_is_int(rechazos) and rechazos > 0):
+    # La fila se agrega si es un drill o si el guion DECLARÓ algo distinto de 0/ausente —
+    # incluido un valor ilegible (float/string): así el FAIL por conteo ilegible se VE, en
+    # vez de desaparecer junto con la fila. Clave ausente = golden intacto.
+    if kind_drill or (rechazos is not None and rechazos != 0):
         slos.append(eval_saturated_durable(k6_summary, reconciliation))
     if kind_drill and gate_obj is not None:
         criteria = dict((getattr(gate_obj, "drill", None) or {}).get("criteria") or {})

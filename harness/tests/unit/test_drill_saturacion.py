@@ -415,6 +415,43 @@ def test_eval_saturated_durable_directo():
     assert r.medido is None and r.veredicto == "FAIL"
 
 
+def test_saturated_durable_filas_de_sobra_es_fail_con_nota_propia():
+    """B2: la paridad es ESTRICTA en los dos sentidos, pero el diagnóstico no es el mismo:
+    faltar filas es negar servicio sin rastro; sobrar filas es contabilidad que no cuadra."""
+    r = eval_saturated_durable({"saturated_rejections": 100},
+                               {"filas_rejected_saturated": 103})
+    assert r.veredicto == "FAIL" and r.medido == 1.03
+    assert "sobran 3 fila(s) rejected_saturated" in r.detalle["nota"]
+    assert "filas fantasma o rechazos no vistos" in r.detalle["nota"]
+    # y la nota del faltante NO cambió
+    r = eval_saturated_durable({"saturated_rejections": 100},
+                               {"filas_rejected_saturated": 97})
+    assert "SIN fila durable" in r.detalle["nota"]
+
+
+@pytest.mark.parametrize("valor", [120.0, "120", True])
+def test_conteo_de_rechazos_ilegible_es_fail_visible(valor):
+    """B3: un conteo presente pero no-entero JAMÁS se interpreta a favor. Y la fila se
+    AGREGA aunque el run no sea drill, para que el FAIL se vea en el verdict."""
+    k6 = _clean_k6_summary()
+    k6["saturated_rejections"] = valor
+    recon = _clean_reconciliation()
+    recon["filas_rejected_saturated"] = 120
+    directo = eval_saturated_durable(k6, recon)
+    assert directo.medido is None and directo.veredicto == "FAIL"
+    assert "conteo de rechazos ilegible" in directo.detalle["nota"]
+    v = _evaluate(k6_summary=k6, reconciliation=recon)      # gate OFICIAL, no drill
+    assert _slo(v, "saturated_503_rows_durable").veredicto == "FAIL"
+    assert v.global_veredicto == "FAIL" and v.estado == "completed"
+
+
+def test_conteo_de_rechazos_ausente_en_oficial_no_agrega_fila():
+    """El otro lado de B3: clave ausente = el golden de los gates oficiales, intacto."""
+    v = _evaluate()
+    assert "saturated_rejections" not in _clean_k6_summary()
+    assert _slo_opt(v, "saturated_503_rows_durable") is None
+
+
 def test_eval_drill_criteria_sin_umbrales_solo_notas():
     filas, notas = eval_drill_criteria(_saturated_summary(), {})
     assert filas == []
@@ -655,6 +692,27 @@ def test_fingerprint_del_drill_declara_el_programa_del_examen(tmp_path):
     # orden canónico: `examen` va inmediatamente después de `gate`
     claves = list(fp)
     assert claves[claves.index("gate") + 1] == "examen"
+
+
+def test_cli_budget_sobre_gate_no_drill_error_accionable(tmp_path, capsys):
+    """B1: sobre un gate oficial el flag no haría NADA (el evaluador solo mira
+    drill.criteria en un run drill) y el operador creería haber fijado un umbral."""
+    with pytest.raises(SystemExit) as exc:
+        main(["--gate", "125", "--dry-run", "--runs-dir", str(tmp_path),
+              "--run-id", "b1", "--drill-admin-budget-ms=33"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--drill-admin-budget-ms solo aplica a un gate kind: drill" in err
+    assert not (tmp_path / "b1").exists()
+
+
+def test_cli_budget_sobre_el_drill_en_seco_si_aplica(tmp_path):
+    """La guarda mira el kind del GATE: un --dry-run del drill sigue siendo un drill."""
+    assert main(["--gate-file", str(DRILL_FILE), "--dry-run", "--runs-dir", str(tmp_path),
+                 "--run-id", "b1-ok", "--drill-admin-budget-ms=33"]) == 0
+    data = json.loads((tmp_path / "b1-ok" / "verdict.json").read_text(encoding="utf-8"))
+    fila = next(s for s in data["slos"] if s["slo"] == "admin_latency_budget_p95")
+    assert fila["detalle"]["umbral_ms"] == 33.0
 
 
 def test_drill_overrides_desde_la_cli():
