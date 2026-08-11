@@ -563,6 +563,33 @@ def test_gate_oficial_con_rechazos_si_agrega_fila():
     assert _slo_opt(v, "admin_latency_budget_p95") is None
 
 
+def test_filas_saturadas_sin_rechazos_observados_fail():
+    """Gate ciego del core (#139 hallazgo 1): el producto tiene filas rejected_saturated
+    pero el guion no vio NINGÚN 503 saturado — un proxy que come el header dejaría al
+    detector ciego. Eso jamás puede ser un PASS trivial."""
+    recon = _clean_reconciliation()
+    recon["filas_rejected_saturated"] = 120
+    # (1) el guion declaró explícitamente 0 rechazos
+    k6 = _clean_k6_summary()
+    k6["saturated_rejections"] = 0
+    v = _evaluate(k6_summary=k6, reconciliation=recon)
+    s = _slo(v, "saturated_503_rows_durable")
+    assert s.veredicto == "FAIL" and s.medido is None
+    assert "proxy" in s.detalle["nota"]
+    assert v.global_veredicto == "FAIL"
+    # (2) el guion ni declaró el contador (summary pre-C1): la asimetría igual se VE
+    v2 = _evaluate(reconciliation=recon)
+    s2 = _slo(v2, "saturated_503_rows_durable")
+    assert s2.veredicto == "FAIL" and v2.global_veredicto == "FAIL"
+    # (3) filas=0 con 0 rechazos sigue siendo vacuo (dry-run del drill intacto)
+    recon0 = _clean_reconciliation()
+    recon0["filas_rejected_saturated"] = 0
+    k60 = _clean_k6_summary()
+    k60["saturated_rejections"] = 0
+    v3 = _evaluate(gate=load_gate(DRILL_FILE), k6_summary=k60, reconciliation=recon0)
+    assert _slo(v3, "saturated_503_rows_durable").veredicto == "PASS"
+
+
 def test_verdict_del_drill_es_determinista():
     recon = _clean_reconciliation()
     recon["filas_rejected_saturated"] = 120

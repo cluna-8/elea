@@ -281,6 +281,14 @@ def eval_saturated_durable(k6_summary: dict, reconciliation: dict) -> SLOResult:
     #   ausente/None → el guion no declaró rechazos (vacuo);
     #   0 (int)      → declaró explícitamente que no hubo (vacuo);
     #   no-int       → ILEGIBLE: jamás se interpreta a favor (principio del SLO (a)).
+    # Y el vacuo NO es incondicional: si el PRODUCTO tiene filas rejected_saturated que el
+    # guion nunca vio, algo se comió el header en el camino (¿un proxy?) — el examen no
+    # puede dar por buena una asimetría que lo dejaría ciego a rechazos reales.
+    if _is_int(filas) and filas > 0 and (rechazos is None or rechazos == 0):
+        detalle["nota"] = (f"el producto tiene {filas} fila(s) rejected_saturated pero el "
+                           "guion no observó NINGÚN 503 saturado: ¿un proxy comió el "
+                           "header X-Basa-Rejected? El detector de rechazos está ciego")
+        return SLOResult("saturated_503_rows_durable", None, "FAIL", detalle)
     if rechazos is None:
         detalle["nota"] = "no hubo rechazos por saturación en este run (100% trivial)"
         return SLOResult("saturated_503_rows_durable", 1.0, "PASS", detalle)
@@ -517,8 +525,12 @@ def evaluate(gate: Union[Gate, dict, None], *, run_id: str, timestamp: str,
                                        and getattr(gate_obj, "kind", "gate_oficial") == "drill")
     # La fila se agrega si es un drill o si el guion DECLARÓ algo distinto de 0/ausente —
     # incluido un valor ilegible (float/string): así el FAIL por conteo ilegible se VE, en
-    # vez de desaparecer junto con la fila. Clave ausente = golden intacto.
-    if kind_drill or (rechazos is not None and rechazos != 0):
+    # vez de desaparecer junto con la fila. También si el PRODUCTO trae filas
+    # rejected_saturated que el guion no vio (proxy que come el header): esa asimetría es
+    # un FAIL que debe verse. Clave ausente en ambos lados = golden intacto.
+    filas_saturadas = reconciliation.get("filas_rejected_saturated")
+    if (kind_drill or (rechazos is not None and rechazos != 0)
+            or (_is_int(filas_saturadas) and filas_saturadas > 0)):
         slos.append(eval_saturated_durable(k6_summary, reconciliation))
     if kind_drill and gate_obj is not None:
         criteria = dict((getattr(gate_obj, "drill", None) or {}).get("criteria") or {})
