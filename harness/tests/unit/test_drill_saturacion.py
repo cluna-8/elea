@@ -21,9 +21,9 @@ import json
 import pytest
 import yaml
 
-from basa_harness.orchestrator import Orchestrator, _drill_overrides
-from basa_harness.reporting.evaluator import (evaluate, eval_drill_criteria,
-                                              eval_saturated_durable)
+from basa_harness.orchestrator import Orchestrator, _drill_overrides, main
+from basa_harness.reporting.evaluator import (SLOResult, Verdict, evaluate,
+                                              eval_drill_criteria, eval_saturated_durable)
 from basa_harness.reporting.gate_loader import (GATES_DIR, GateError, dry_run, load_gate,
                                                 validate_gate)
 
@@ -185,6 +185,77 @@ def test_umbral_null_es_valido():
     d = _drill_dict()
     d["drill"]["criteria"]["rejection_p95_max_ms"] = None
     assert validate_gate(d) == []
+
+
+def test_bloque_drill_sin_kind_drill_error_accionable():
+    """Cross-check (a): con el bloque `drill` pero sin `kind: drill`, el evaluador NUNCA
+    miraría los criterios — el examen parecería medir sin medir."""
+    d = _drill_dict()
+    del d["kind"]
+    errs = validate_gate(d)
+    assert any("bloque 'drill' en una definición gate_oficial" in e for e in errs)
+    assert any("falta 'kind: drill'" in e and "sobra el bloque" in e for e in errs)
+
+
+def test_bloque_drill_con_kind_gate_oficial_explicito_error_accionable():
+    """Mismo cross-check con el kind escrito a mano (no solo ausente)."""
+    d = _drill_dict()
+    d["kind"] = "gate_oficial"
+    errs = validate_gate(d)
+    assert any("bloque 'drill' en una definición gate_oficial" in e for e in errs)
+
+
+def test_kind_drill_sin_bloque_drill_error_accionable():
+    """Cross-check (b): un drill sin criterios propios «pasaría» por no medir nada."""
+    d = _drill_dict()
+    del d["drill"]
+    errs = validate_gate(d)
+    assert any("'kind: drill' sin bloque 'drill'" in e and "criteria" in e for e in errs)
+
+
+def test_kind_drill_con_criteria_en_null_sigue_valido():
+    """Los VALORES pueden ser null (umbral sin fijar); la CLAVE no."""
+    d = _drill_dict()
+    d["drill"]["criteria"] = {"rejection_p95_max_ms": None, "admin_p95_budget_ms": None}
+    assert validate_gate(d) == []
+
+
+@pytest.mark.parametrize("literal", [".inf", "-.inf", ".nan"])
+def test_umbral_no_finito_error_accionable(literal):
+    """`.inf` volvería el criterio decorativo (nada lo supera) y `.nan` aleatorio: ninguna
+    comparación los delata (`nan <= 0` es False, `.inf > 0` es True)."""
+    texto = DRILL_FILE.read_text(encoding="utf-8").replace(
+        "rejection_p95_max_ms: 6000", f"rejection_p95_max_ms: {literal}")
+    d = yaml.safe_load(texto)
+    # el YAML REALMENTE los parsea como float (por eso hace falta la guarda explícita)
+    assert isinstance(d["drill"]["criteria"]["rejection_p95_max_ms"], float)
+    errs = validate_gate(d)
+    assert any("rejection_p95_max_ms" in e and "FINITO" in e for e in errs)
+
+
+@pytest.mark.parametrize("valor", ["nan", "inf", "-inf", "-5", "0"])
+def test_cli_budget_no_finito_o_no_positivo_error_accionable(valor, tmp_path, capsys):
+    """argparse acepta 'nan'/'inf' como float: la guarda es del harness, y corre ANTES de
+    construir el orquestador (no se empieza un examen con un criterio roto)."""
+    with pytest.raises(SystemExit) as exc:
+        # forma `--flag=valor`: los negativos con espacio los leería argparse como opción
+        main(["--gate-file", str(DRILL_FILE), "--dry-run", "--runs-dir", str(tmp_path),
+              "--run-id", "cli-budget", f"--drill-admin-budget-ms={valor}"])
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--drill-admin-budget-ms" in err and "FINITO > 0" in err
+    assert not (tmp_path / "cli-budget").exists()      # no se tocó disco
+
+
+def test_verdict_con_nan_revienta_en_vez_de_escribir_json_invalido():
+    """Cinturón: NaN/Infinity no existen en JSON (RFC 8259). Mejor un fallo ruidoso que un
+    verdict.json que ningún parser estándar lee."""
+    v = Verdict(run_id="x", gate={"n": 125, "version": "1.0.0"}, estado="completed",
+                global_veredicto="FAIL",
+                slos=[SLOResult("rejection_time_to_503_p95", float("nan"), "FAIL", {})],
+                timestamp=TS)
+    with pytest.raises(ValueError):
+        v.to_json()
 
 
 def test_load_gate_drill_invalido_levanta_gateerror(tmp_path):

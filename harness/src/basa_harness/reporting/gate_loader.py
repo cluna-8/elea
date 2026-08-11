@@ -182,6 +182,7 @@ def validate_gate(data: object) -> list[str]:
 
     errors += _validate_kind(data.get("kind"), tag)
     errors += _validate_drill(data.get("drill"), tag)
+    errors += _validate_kind_drill_coherencia(data.get("kind"), data.get("drill"), tag)
     errors += _validate_phases(data.get("phases"), tag)
     errors += _validate_population_ref(data.get("population_ref"), n, tag)
     errors += _validate_mix_cadence(data.get("mix"), data.get("cadence_s"), tag)
@@ -215,6 +216,31 @@ def _validate_kind(kind: object, tag: str) -> list[str]:
     return []
 
 
+def _validate_kind_drill_coherencia(kind: object, drill: object, tag: str) -> list[str]:
+    """Cross-check BIDIRECCIONAL entre ``kind`` y el bloque ``drill``.
+
+    Las dos incoherencias son silenciosas y caras si se dejan pasar:
+
+    - bloque ``drill`` con ``kind`` de gate oficial ⇒ los criterios NO se evaluarían
+      (el evaluador solo los mira en un run drill): un drill que parece medir y no mide;
+    - ``kind: drill`` sin bloque ``drill`` ⇒ un drill sin ningún criterio propio, que
+      «pasa» por no medir nada.
+
+    Solo corre con un ``kind`` VÁLIDO: con un typo en ``kind`` manda el error de
+    ``_validate_kind`` (agregar acá un segundo error apuntaría al bloque equivocado).
+    """
+    if kind is not None and (not isinstance(kind, str) or kind not in GATE_KINDS):
+        return []
+    efectivo = kind if isinstance(kind, str) else "gate_oficial"
+    if drill is not None and efectivo != "drill":
+        return [f"{tag} bloque 'drill' en una definición {efectivo}: o falta 'kind: drill' "
+                "o sobra el bloque"]
+    if efectivo == "drill" and drill is None:
+        return [f"{tag} 'kind: drill' sin bloque 'drill' con 'criteria': un drill sin "
+                "criterios propios no mide nada (los VALORES pueden ser null, la clave no)"]
+    return []
+
+
 def _validate_drill(drill: object, tag: str) -> list[str]:
     """``drill`` es OPCIONAL y solo tiene sentido en un ``kind: drill``. Claves
     desconocidas son ERROR: un criterio mal escrito se leería como «sin umbral» y el drill
@@ -241,8 +267,12 @@ def _validate_drill(drill: object, tag: str) -> list[str]:
         if k not in criteria or criteria[k] is None:
             continue      # null = umbral sin fijar: se deriva del baseline del mismo día
         v = criteria[k]
-        if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
-            errors.append(f"{tag} drill.criteria.{k} debe ser un número > 0 o null, "
+        # FINITUD explícita: YAML acepta `.inf`/`.nan` y ninguna comparación los delata
+        # (`nan <= 0` es False, `.inf > 0` es True). Un umbral infinito nunca se supera —
+        # el criterio quedaría PASS por construcción — y un NaN reprueba/aprueba al azar.
+        if (not isinstance(v, (int, float)) or isinstance(v, bool)
+                or not math.isfinite(v) or v <= 0):
+            errors.append(f"{tag} drill.criteria.{k} debe ser un número FINITO > 0 o null, "
                           f"es {v!r}")
     return errors
 

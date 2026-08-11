@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -613,6 +614,14 @@ def main(argv: Optional[list] = None) -> int:
                    help="drill de saturación: presupuesto p95 del panel admin (ms), "
                         "derivado del baseline del gate oficial del MISMO día")
     args = p.parse_args(argv)
+
+    # El presupuesto de admin es un UMBRAL vinculante: un valor no finito o <= 0 lo
+    # volvería decorativo (nada lo supera) o aleatorio (NaN). Se valida ANTES de construir
+    # el orquestador — no se empieza un examen con un criterio roto.
+    budget = args.drill_admin_budget_ms
+    if budget is not None and (not math.isfinite(budget) or budget <= 0):
+        p.error(f"--drill-admin-budget-ms debe ser un número FINITO > 0 (ms), es {budget!r}; "
+                "derivalo del p95 de admin del gate oficial del mismo día")
 
     gate = load_gate(args.gate_file) if args.gate_file else load_gate_by_number(args.gate)
     orch = Orchestrator(gate, run_id=args.run_id, backend_url=args.backend_url,

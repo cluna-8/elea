@@ -78,6 +78,19 @@ drill:                    # opcional; única clave válida: `criteria`
   (mismo hardware, misma imagen) y se pasa por `--drill-admin-budget-ms`; por eso vive
   como `null` en el YAML.
 
+**Cross-check `kind` ↔ `drill` (bidireccional, error de validación).** Los dos campos son
+opcionales por separado pero NO independientes; las dos incoherencias son silenciosas y
+caras:
+
+| Definición | Resultado | Por qué |
+|---|---|---|
+| bloque `drill` sin `kind: drill` (ausente o explícito `gate_oficial`) | **error**: «bloque 'drill' en una definición gate_oficial: o falta 'kind: drill' o sobra el bloque» | el evaluador solo mira `drill.criteria` en un run drill: los criterios no se evaluarían y el examen parecería medir sin medir |
+| `kind: drill` sin bloque `drill` con `criteria` | **error**: «'kind: drill' sin bloque 'drill' con 'criteria'…» | un drill sin criterios propios «pasa» por no medir nada |
+
+Los VALORES de `criteria` pueden ser `null` (umbral sin fijar, legítimo); la **clave** no.
+Un umbral fijado debe ser un número **finito** > 0: `.inf` volvería el criterio decorativo
+(nada lo supera) y `.nan` lo haría aleatorio — ambos son error de validación.
+
 Reglas del contrato:
 1. Todo Run cita `gate + version`; reportes de versiones distintas no se comparan como
    equivalentes (el comparador lo señala).

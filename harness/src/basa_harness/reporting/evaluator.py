@@ -118,8 +118,14 @@ class Verdict:
         return out
 
     def to_json(self, *, indent: int = 2) -> str:
+        """Serializa el verdict. ``allow_nan=False`` es un CINTURÓN: NaN/Infinity no
+        existen en JSON (RFC 8259) y Python los escribiría como los literales inválidos
+        ``NaN``/``Infinity``. Un verdict.json que ningún parser estándar lee es peor que
+        un fallo ruidoso — si un percentil llegó NaN, revienta acá y el run se marca
+        inválido, no se publica evidencia no-parseable."""
         import json
-        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent, sort_keys=False)
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent,
+                          sort_keys=False, allow_nan=False)
 
 
 # ── SLO (a): contador de auditoría ────────────────────────────────────────────────────
