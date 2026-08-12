@@ -90,6 +90,9 @@ export const PHASES = phaseList();
 function buildMetrics() {
   const lat = {};
   const ttft = { global: new Trend('ttft_coding', true), phase: {} };
+  // Cronómetro APARTE de los rechazos de admisión (C1): un 503 rápido no es latencia de
+  // servicio y hundiría los percentiles de la superficie. Mismo patrón que lat_<superficie>.
+  const rejection = { global: new Trend('lat_rejection', true), phase: {} };
   for (let s = 0; s < SURFACES.length; s++) {
     const name = SURFACES[s];
     lat[name] = { global: new Trend('lat_' + name, true), phase: {} };
@@ -99,14 +102,17 @@ function buildMetrics() {
   }
   for (let p = 0; p < PHASES.length; p++) {
     ttft.phase[PHASES[p]] = new Trend('ttft_coding__' + PHASES[p], true);
+    rejection.phase[PHASES[p]] = new Trend('lat_rejection__' + PHASES[p], true);
   }
   return {
     lat: lat,
     ttft: ttft,
+    rejection: rejection,
     stream_cuts: new Counter('coding_stream_cuts'),
     auditable_events: new Counter('auditable_events'),
     provoked_blocks: new Counter('provoked_blocks'),
     observed_blocks: new Counter('observed_blocks'),
+    saturated_rejections: new Counter('saturated_rejections'),
     harness_errors: new Counter('harness_errors'),
   };
 }
@@ -121,6 +127,32 @@ export function recordLatency(surface, phase, ms) {
 export function recordTTFT(phase, ms) {
   metrics.ttft.global.add(ms);
   if (metrics.ttft.phase[phase]) metrics.ttft.phase[phase].add(ms);
+}
+export function recordRejection(phase, ms) {
+  metrics.rejection.global.add(ms);
+  if (metrics.rejection.phase[phase]) metrics.rejection.phase[phase].add(ms);
+}
+
+// ── rechazo de admisión por saturación (nodo C1 del core) ──────────────────────────────
+// Contrato de wire SELLADO: TODO 503 de saturación lleva el header
+// `X-Basa-Rejected: saturated`, en los dos caminos (chat del panel y /gw). Ese header ES
+// la llave: un 503 SIN él NO es rechazo de admisión (puede ser Caddy o cualquier proxy de
+// la sede) y NO debe contarse como tal. En chat el body además trae
+// `code: "rejected_saturated"`, pero el body es EXTRA — acá no se parsea.
+export function saturatedRejection(res) {
+  if (!res || res.status !== 503) return false;
+  const h = res.headers;
+  if (!h) return false;   // xk6-sse devuelve {error} sin headers si la conexión ni abrió
+  const v = h['X-Basa-Rejected'] || h['x-basa-rejected'];
+  if (typeof v !== 'string') return false;
+  // Comparación por TOKENS: si el header se escribe en dos capas (backend + un middleware
+  // de la sede), Go los junta en un solo valor separado por ', ' ('saturated, saturated')
+  // y una igualdad estricta lo daría por NO-rechazo — se perderían los 503 que sí lo son.
+  const parts = v.split(',');
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].trim().toLowerCase() === 'saturated') return true;
+  }
+  return false;
 }
 
 // ── autenticación por superficie ───────────────────────────────────────────────────────
@@ -227,8 +259,14 @@ export function buildSummary(data) {
     for (let s = 0; s < SURFACES.length; s++) {
       surf[SURFACES[s]] = surfaceEntry(data, SURFACES[s], ph);
     }
-    by_phase[ph] = { surfaces: surf, dropped_iterations_total: counterVal(data, 'dropped_iterations') };
+    by_phase[ph] = {
+      surfaces: surf,
+      dropped_iterations_total: counterVal(data, 'dropped_iterations'),
+      rejection_ms: pct(metricValues(data, 'lat_rejection__' + ph)),
+    };
   }
+  // `saturated_rejections` y `rejection_ms` son ADITIVOS: el esquema sigue siendo
+  // `basa-harness/k6-summary@1` (un summary sin rechazos trae 0 y percentiles en 0).
   return {
     schema: 'basa-harness/k6-summary@1',
     gate: CONFIG.gate,
@@ -239,6 +277,8 @@ export function buildSummary(data) {
     auditable_events: counterVal(data, 'auditable_events'),
     provoked_blocks: counterVal(data, 'provoked_blocks'),
     observed_blocks: counterVal(data, 'observed_blocks'),
+    saturated_rejections: counterVal(data, 'saturated_rejections'),
+    rejection_ms: pct(metricValues(data, 'lat_rejection')),
     harness_errors: counterVal(data, 'harness_errors'),
   };
 }

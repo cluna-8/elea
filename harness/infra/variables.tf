@@ -1,7 +1,7 @@
 variable "location" {
   description = "Datacenter Hetzner (queda en el fingerprint del run)."
   type        = string
-  default     = "fsn1" # Falkenstein, Alemania (UE)
+  default     = "hel1" # Helsinki — co-ubicado con el resto de la infra Basa (decisión DevOps+ITV 09-ago)
 }
 
 variable "sut_server_type" {

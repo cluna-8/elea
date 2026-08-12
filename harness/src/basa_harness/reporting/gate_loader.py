@@ -36,6 +36,16 @@ CANONICAL_SLOS: tuple[str, ...] = (
     "blocked_rows_durable_100",
 )
 
+# Tipo de definición (opcional, default el gate oficial del tech tree). Un ``drill`` es un
+# examen DIRIGIDO —p. ej. el drill de saturación C1, modo sede-lenta— que agrega criterios
+# propios en ``drill.criteria`` SIN tocar ni relajar los 4 SLO de oro, que siguen siendo
+# obligatorios en ``slo:``.
+GATE_KINDS: frozenset = frozenset({"gate_oficial", "drill"})
+
+# Criterios que un drill puede fijar. Cada uno: número > 0, o null = umbral sin fijar (se
+# deriva del baseline medido, no se hornea en el YAML).
+_DRILL_CRITERIA_KEYS: tuple[str, ...] = ("rejection_p95_max_ms", "admin_p95_budget_ms")
+
 # Claves de stack_config_required que el gate oficial fija explícito (precondición
 # del fingerprint — contract regla 2).
 _REQUIRED_STACK_KEYS = (
@@ -92,6 +102,8 @@ class Gate:
     budget_api_usd: float
     knee_search: Union[dict, None]
     raw: dict
+    kind: str = "gate_oficial"
+    drill: Union[dict, None] = None
 
     @property
     def total_population(self) -> int:
@@ -168,6 +180,9 @@ def validate_gate(data: object) -> list[str]:
     if not isinstance(data.get("description"), str) or not data.get("description"):
         errors.append(f"{tag} falta 'description' (string no vacío)")
 
+    errors += _validate_kind(data.get("kind"), tag)
+    errors += _validate_drill(data.get("drill"), tag)
+    errors += _validate_kind_drill_coherencia(data.get("kind"), data.get("drill"), tag)
     errors += _validate_phases(data.get("phases"), tag)
     errors += _validate_population_ref(data.get("population_ref"), n, tag)
     errors += _validate_mix_cadence(data.get("mix"), data.get("cadence_s"), tag)
@@ -188,6 +203,77 @@ def validate_gate(data: object) -> list[str]:
     if ks is not None and not isinstance(ks, dict):
         errors.append(f"{tag} 'knee_search' (opcional) debe ser un mapeo si está presente")
 
+    return errors
+
+
+def _validate_kind(kind: object, tag: str) -> list[str]:
+    """``kind`` es OPCIONAL (ausente = ``gate_oficial``): un valor desconocido no se
+    ignora en silencio — un typo cambiaría qué criterios se evalúan."""
+    if kind is None:
+        return []
+    if not isinstance(kind, str) or kind not in GATE_KINDS:
+        return [f"{tag} 'kind' desconocido: {kind!r} (esperado uno de {sorted(GATE_KINDS)})"]
+    return []
+
+
+def _validate_kind_drill_coherencia(kind: object, drill: object, tag: str) -> list[str]:
+    """Cross-check BIDIRECCIONAL entre ``kind`` y el bloque ``drill``.
+
+    Las dos incoherencias son silenciosas y caras si se dejan pasar:
+
+    - bloque ``drill`` con ``kind`` de gate oficial ⇒ los criterios NO se evaluarían
+      (el evaluador solo los mira en un run drill): un drill que parece medir y no mide;
+    - ``kind: drill`` sin bloque ``drill`` ⇒ un drill sin ningún criterio propio, que
+      «pasa» por no medir nada.
+
+    Solo corre con un ``kind`` VÁLIDO: con un typo en ``kind`` manda el error de
+    ``_validate_kind`` (agregar acá un segundo error apuntaría al bloque equivocado).
+    """
+    if kind is not None and (not isinstance(kind, str) or kind not in GATE_KINDS):
+        return []
+    efectivo = kind if isinstance(kind, str) else "gate_oficial"
+    if drill is not None and efectivo != "drill":
+        return [f"{tag} bloque 'drill' en una definición {efectivo}: o falta 'kind: drill' "
+                "o sobra el bloque"]
+    if efectivo == "drill" and drill is None:
+        return [f"{tag} 'kind: drill' sin bloque 'drill' con 'criteria': un drill sin "
+                "criterios propios no mide nada (los VALORES pueden ser null, la clave no)"]
+    return []
+
+
+def _validate_drill(drill: object, tag: str) -> list[str]:
+    """``drill`` es OPCIONAL y solo tiene sentido en un ``kind: drill``. Claves
+    desconocidas son ERROR: un criterio mal escrito se leería como «sin umbral» y el drill
+    pasaría por no medir nada."""
+    if drill is None:
+        return []
+    if not isinstance(drill, dict):
+        return [f"{tag} 'drill' (opcional) debe ser un mapeo con la clave 'criteria'"]
+    errors: list[str] = []
+    desconocidas = sorted(k for k in drill if k != "criteria")
+    if desconocidas:
+        errors.append(f"{tag} clave(s) desconocida(s) en 'drill': {desconocidas} "
+                      "(la única válida es 'criteria')")
+    criteria = drill.get("criteria")
+    if not isinstance(criteria, dict):
+        errors.append(f"{tag} 'drill.criteria' debe ser un mapeo de criterios "
+                      f"(válidos: {list(_DRILL_CRITERIA_KEYS)})")
+        return errors
+    desconocidos = sorted(k for k in criteria if k not in _DRILL_CRITERIA_KEYS)
+    if desconocidos:
+        errors.append(f"{tag} criterio(s) de drill desconocido(s): {desconocidos} "
+                      f"(válidos: {list(_DRILL_CRITERIA_KEYS)})")
+    for k in _DRILL_CRITERIA_KEYS:
+        if k not in criteria or criteria[k] is None:
+            continue      # null = umbral sin fijar: se deriva del baseline del mismo día
+        v = criteria[k]
+        # FINITUD explícita: YAML acepta `.inf`/`.nan` y ninguna comparación los delata
+        # (`nan <= 0` es False, `.inf > 0` es True). Un umbral infinito nunca se supera —
+        # el criterio quedaría PASS por construcción — y un NaN reprueba/aprueba al azar.
+        if (not isinstance(v, (int, float)) or isinstance(v, bool)
+                or not math.isfinite(v) or v <= 0):
+            errors.append(f"{tag} drill.criteria.{k} debe ser un número FINITO > 0 o null, "
+                          f"es {v!r}")
     return errors
 
 
@@ -334,6 +420,8 @@ def _build_gate(data: dict) -> Gate:
         budget_api_usd=data["budget_api_usd"],
         knee_search=data.get("knee_search"),
         raw=data,
+        kind=data.get("kind", "gate_oficial"),
+        drill=data.get("drill"),
     )
 
 

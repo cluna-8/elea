@@ -31,14 +31,50 @@ Reglas: `medido: null` en el SLO (a) ⇒ FAIL (nunca se interpreta como 0) · co
 final < inicial ⇒ `estado: invalid` (no hay verdict) · `global: PASS` ⟺ 4 PASS +
 `estado: completed` + `instrumento.valido: true`.
 
+### Filas OPCIONALES del rechazo de admisión (extensión C1, 2026-08-08)
+
+Van SIEMPRE después de las 4 canónicas y en este orden. `global: PASS` exige que pasen
+**todas** las filas presentes. Si ninguna aplica, el `verdict.json` es byte a byte el de
+antes de C1 — los gates oficiales existentes no se mueven.
+
+| Fila | Cuándo aparece | Medido |
+|---|---|---|
+| `saturated_503_rows_durable` | el run es `kind: drill` **o** `saturated_rejections` está presente con valor ≠ `0`/`null` (incluido un valor ilegible: así el FAIL se ve) | `filas / rechazos` (1.0 = paridad ESTRICTA). Ausente/`null` o `0`: `1.0` PASS vacuo. Conteo presente no-entero: `null` ⇒ FAIL («conteo de rechazos ilegible»). Con rechazos y sin conteo de filas: `null` ⇒ FAIL. Filas de menos ⇒ FAIL «sin fila durable»; filas de más ⇒ FAIL «filas fantasma o rechazos no vistos» |
+| `rejection_time_to_503_p95` | run `drill` **y** `rejection_p95_max_ms` fijado | p95 de `rejection_ms` (ms). **Sin rechazos**: `null` con veredicto PASS (vacuo — no hay p95 que medir; la regla del `null`⇒FAIL es exclusiva del SLO (a)). **Con rechazos y sin `rejection_ms.p95`**: `null` ⇒ **FAIL** (hubo 503 pero falta el cronómetro: no se puede afirmar el tiempo hasta el rechazo — espejo de la rama de admin) |
+| `admin_latency_budget_p95` | run `drill` **y** `admin_p95_budget_ms` fijado (YAML o `--drill-admin-budget-ms`) | p95 de `surfaces.admin.latency_ms` (ms) |
+
+**Un drill que no saturó es un examen INVÁLIDO, no un PASS.** Si el run es `kind: drill`
+(y no `dry-run`), quedó `completed` y los rechazos del guion son `0`/ausentes, el verdict
+sale `estado: invalid` + `global: INVALID` con
+`invalid_reason: "el drill no alcanzó saturación: la defensa C1 no llegó a ejercitarse
+(¿stub en modo sede-lenta? ¿SUT sobrado?)"`. Los criterios quedarían vacuos y el run
+saldría PASS por no haber ejercitado nada — eso no es un aprobado, es un examen que no se
+tomó. Las filas se conservan como evidencia. El **dry-run** del drill sigue `completed`
+(datos sintéticos, ya marcado NO oficial), y un conteo de rechazos presente pero
+**ilegible** (no entero) no invalida: lo reprueba la fila `saturated_503_rows_durable`.
+
+Un criterio de drill **sin umbral** no produce fila: deja una entrada en `notas` que dice
+cómo fijarlo (p. ej. derivar el presupuesto de admin del baseline del gate oficial del
+mismo día). El insumo del guion es `k6_summary.saturated_rejections` + `rejection_ms`
+(Trend `lat_rejection`, aparte de las latencias de servicio para no hundir los
+percentiles del gate); el del producto es `reconciliation.filas_rejected_saturated` =
+filas de `audit_logs` con el estado literal `rejected_saturated`.
+
 ## `fingerprint.json`
 
 Lista mínima de FR-009 (data-model): producto (commit + digests), masking por scope,
-config NLP, workers/procesos, límites de recursos, gate n+version, corpus
-versión+semilla, mix y cadencia usadas, hardware (instance_type/AMI/región — outputs de
-OpenTofu), licencia (lic_id/max_seats), estado del seed, versiones del instrumento
-(k6+xk6-sse, stub, harness commit), timestamp. El comparador de runs diffea
-fingerprints ANTES que métricas y marca ilegítima cualquier comparación con diff.
+config NLP, workers/procesos, límites de recursos, gate n+version+**kind**, **examen**
+(programa del stub + fases), corpus versión+semilla, mix y cadencia usadas, hardware
+(instance_type/AMI/región — outputs de OpenTofu), licencia (lic_id/max_seats), estado del
+seed, versiones del instrumento (k6+xk6-sse, stub, harness commit), timestamp. El
+comparador de runs diffea fingerprints ANTES que métricas y marca ilegítima cualquier
+comparación con diff.
+
+`gate.kind` y `examen` (extensión C1) son MATERIALES: el drill de saturación y el gate 125
+oficial comparten número, versión, mezcla y cadencia, así que sin ellos sus fingerprints
+solo diferían en el `timestamp` (no material) y el comparador declaraba «LEGÍTIMA» la
+comparación de dos exámenes distintos. `examen` = `{stub: {latency_ms, token_rate_tps,
+stream_duration_s, error_rate}, phases: [{name, duration, arrival_factor}…]}`.
 
 ## `reporte.md` (humano, comparable con diff)
 

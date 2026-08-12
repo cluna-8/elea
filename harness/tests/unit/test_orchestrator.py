@@ -196,9 +196,10 @@ def test_pipeline_completo_con_fakes_pass(tmp_path):
     # el stub se configuró en el orden esperado
     assert stub.calls[0] == "reset"
     assert "finalize" in stub.calls
-    # el fingerprint quedó escrito con la config del gate
+    # el fingerprint quedó escrito con la config del gate (el kind del run es MATERIAL:
+    # un drill y un gate oficial del mismo número no son el mismo examen)
     fp = json.loads((orch.run_dir / "fingerprint.json").read_text())
-    assert fp["gate"] == {"n": 125, "version": "1.0.0"}
+    assert fp["gate"] == {"n": 125, "version": "1.0.0", "kind": "gate_oficial"}
     assert fp["versiones_instrumento"]["k6"] == "v1.8.0"
 
 

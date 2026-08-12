@@ -1,0 +1,68 @@
+# Drill de saturación C1 — modo «sede lenta» (spec 035; contract gate-definition.md).
+#
+# NO es un gate del tech tree: es un examen DIRIGIDO al fix de admisión del nodo C1. En
+# vez de preguntar «¿aguanta 125?», pregunta «cuando NO aguanta, ¿se defiende bien?»:
+# streams largos y lentos (token_rate bajo + stream_duration alto) llenan el tope de
+# concurrencia al motor durante el sostenido, y DESPUÉS la ráfaga global (×3 sobre TODAS
+# las superficies, dominada por chat por la mezcla 60/25/10/5) encuentra la cola llena. Ahí
+# el backend debe contestar 503 RÁPIDO con `X-Basa-Rejected: saturated` y fila durable
+# (`estado='rejected_saturated'`) escrita ANTES de responder.
+#
+# Las fases son SECUENCIALES (el orquestador escalona el `startTime` de los scenarios k6):
+# 10 min de sostenido + 5 min de ráfaga = 15 min de examen.
+#
+# Los 4 SLO de oro siguen vigentes y obligatorios: un drill no relaja nada. Los criterios
+# propios del drill viven en `drill.criteria`.
+gate: 125
+version: 1.0.0            # bump en PR ante CUALQUIER cambio (misma regla que un gate)
+kind: drill               # el YAML manda: el orquestador marca el run como `drill`
+description: Drill de saturación C1 — modo sede-lenta (rechazo por admisión bajo streams largos)
+phases:
+  - name: sustained
+    duration: 10m         # llenar el tope de concurrencia y sostenerlo
+  - name: burst
+    duration: 5m          # arranca a los 10m (fases secuenciales), no en paralelo
+    arrival_factor: 3     # ×3 sobre la tasa base de TODAS las superficies: la ráfaga
+                          # global (la domina chat) que encuentra la cola llena
+population_ref: populations/gate-125.yaml   # misma población que el 125 oficial
+mix:                      # idénticos al gate-125: el drill cambia el ESTRÉS, no la mezcla
+  chat: 60
+  extension: 25
+  coding_sse: 10
+  admin: 5
+cadence_s:
+  chat: [60, 180]
+  extension: [90, 300]
+  coding_sse: [120, 300]
+  admin: [180, 600]
+pii_densities_per_mille: [0, 1, 5, 20]
+stack_config_required:
+  masking:
+    default: on
+  nlp_analyzer: real
+  nlp_analyzer_url: configured
+  nlp_fail_mode: block
+  producto_incluye: ["PR #97"]
+  auto_router: "off"
+stub:                     # «sede lenta»: el proveedor tarda y gotea
+  latency_ms: {chat: 800, coding_first_token: 600}
+  token_rate_tps: 5       # 8× más lento que el gate oficial (40): los streams no se sueltan
+  stream_duration_s: [60, 120]   # streams LARGOS que ocupan la concurrencia al motor
+  error_rate: 0.0         # el 503 debe salir de la admisión del producto, no del stub
+slo:                      # los 4 de oro, intactos — el drill no reemplaza el examen
+  - audit_lost_events_delta_zero
+  - reconciliation_rows
+  - zero_raw_canaries
+  - blocked_rows_durable_100
+drill:
+  criteria:
+    # queue-timeout de admisión = 5 s + 1 s de margen. Un rechazo SANO tarda ~≤5 s; el
+    # anti-patrón que este criterio caza son los timeouts de 150 s del incidente del
+    # 30-jul (el cliente esperando minutos por un no que el backend ya sabía dar).
+    rejection_p95_max_ms: 6000
+    # null = umbral SIN fijar a propósito: no se hornea un número inventado. Se deriva del
+    # baseline MEDIDO del gate 125 oficial del MISMO día (mismo hardware, misma imagen) y
+    # se pasa por `--drill-admin-budget-ms`. Sin el flag: nota informativa, sin fila.
+    admin_p95_budget_ms: null
+repeatability_tolerance_pct: 10
+budget_api_usd: 0                 # FR-012: solo contra stub

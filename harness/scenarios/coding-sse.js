@@ -5,7 +5,7 @@
 import sse from 'k6/x/sse';
 import {
   API, MODEL_CODING, pickIdentity, authHeaders, promptFor,
-  recordLatency, recordTTFT, phaseOf, metrics,
+  recordLatency, recordTTFT, recordRejection, saturatedRejection, phaseOf, metrics,
 } from './common.js';
 
 export function coding() {
@@ -29,13 +29,22 @@ export function coding() {
   };
 
   const t0 = Date.now();
-  let firstToken = false;
+  let firstTokenAt = null;   // INSTANTE del primer evento (null = nunca hubo)
   let cut = false;
   let sawStop = false;
 
-  sse.open(API + '/gw/v1/messages', params, function (client) {
+  // `sse.open` devuelve el HTTPResponse del intento: xk6-sse v0.1.12 expone `status` y
+  // `headers` (struct HTTPResponse{url,status,headers,error}; su propio test
+  // TestOpenWrongStatusCode afirma `res.status` sobre un 404). Por eso el rechazo de
+  // admisión se clasifica acá igual que en chat, y no a ciegas.
+  const res = sse.open(API + '/gw/v1/messages', params, function (client) {
     client.on('event', function (ev) {
-      if (!firstToken) { recordTTFT(phase, Date.now() - t0); firstToken = true; }
+      // Acá SOLO se captura el instante: el TTFT se emite después de clasificar la
+      // respuesta. Emitirlo desde el handler contaminaría `ttft_coding` con los 503
+      // saturados cuyo body se parsee como SSE (a sse.go v0.1.12 le basta una línea en
+      // blanco para despachar un `event`): un rechazo de ~5 s entraría como «primer token
+      // lentísimo» y hundiría el percentil de una superficie que ni llegó a servirse.
+      if (!firstTokenAt) firstTokenAt = Date.now();
       // fin limpio del stream Anthropic: message_stop.
       if (ev && ev.name === 'message_stop') sawStop = true;
       if (ev && ev.name === 'error') cut = true;
@@ -43,8 +52,23 @@ export function coding() {
     client.on('error', function () { cut = true; });
   });
 
-  recordLatency('coding', phase, Date.now() - t0);
+  const elapsed = Date.now() - t0;
+
+  // Rechazo de admisión (C1): 503 con `X-Basa-Rejected: saturated`. El early-return va
+  // ANTES de la lógica de cortes a propósito — un rechazo NO es un corte de stream: nunca
+  // hubo stream que cortar, y contarlo como corte culparía al streaming de una defensa
+  // que funcionó. La fila durable sí existe → sigue siendo evento auditable.
+  if (saturatedRejection(res)) {
+    metrics.saturated_rejections.add(1);
+    recordRejection(phase, elapsed);
+    metrics.auditable_events.add(1);
+    return;                    // sin TTFT: no hubo primer token, hubo un no rápido
+  }
+
+  // Recién acá se sabe que la respuesta fue servicio y no rechazo: el TTFT es legítimo.
+  if (firstTokenAt) { recordTTFT(phase, firstTokenAt - t0); }
+  recordLatency('coding', phase, elapsed);
   metrics.auditable_events.add(1);
   // corte = error explícito, o el stream nunca abrió, o cerró sin message_stop.
-  if (cut || !firstToken || !sawStop) { metrics.stream_cuts.add(1); }
+  if (cut || !firstTokenAt || !sawStop) { metrics.stream_cuts.add(1); }
 }

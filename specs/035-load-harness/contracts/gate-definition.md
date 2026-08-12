@@ -52,6 +52,45 @@ Deltas de los otros gates:
   niveles normales sin intervención); sección opcional `knee_search` (informativa,
   fuera del pass/fail, explícitamente diferible).
 
+## Extensión C1 — campos opcionales `kind` y `drill` (2026-08-08)
+
+**Aditivos**: una definición sin ellos es exactamente el gate de siempre (`kind` ausente
+= `gate_oficial`), y los 4 SLO de oro de `slo:` siguen siendo obligatorios en toda
+definición — un drill **no** los reemplaza ni los relaja.
+
+```yaml
+kind: drill               # opcional; {gate_oficial (default), drill}. Un valor
+                          # desconocido es error de validación, no se ignora.
+drill:                    # opcional; única clave válida: `criteria`
+  criteria:               # claves desconocidas → error (un typo se leería como «sin
+                          # umbral» y el drill pasaría por no medir nada)
+    rejection_p95_max_ms: 6000   # número > 0, o null = umbral sin fijar
+    admin_p95_budget_ms: null    # null: se deriva del baseline medido del mismo día
+```
+
+- `kind: drill` marca un examen **dirigido** (`harness/gates/drill-saturacion-125.yaml`:
+  el drill de saturación del nodo C1, modo «sede lenta»). El YAML MANDA sobre `--kind`:
+  un drill no puede correrse por accidente como gate oficial.
+- `drill.criteria` son criterios **propios del drill**, no SLO de oro. Un criterio con
+  umbral fijado es vinculante para el veredicto del drill; con `null` (o ausente) no
+  produce fila — deja una nota que dice cómo fijarlo. Nunca se inventa un número.
+- `admin_p95_budget_ms` se deriva del baseline MEDIDO del gate oficial del mismo día
+  (mismo hardware, misma imagen) y se pasa por `--drill-admin-budget-ms`; por eso vive
+  como `null` en el YAML.
+
+**Cross-check `kind` ↔ `drill` (bidireccional, error de validación).** Los dos campos son
+opcionales por separado pero NO independientes; las dos incoherencias son silenciosas y
+caras:
+
+| Definición | Resultado | Por qué |
+|---|---|---|
+| bloque `drill` sin `kind: drill` (ausente o explícito `gate_oficial`) | **error**: «bloque 'drill' en una definición gate_oficial: o falta 'kind: drill' o sobra el bloque» | el evaluador solo mira `drill.criteria` en un run drill: los criterios no se evaluarían y el examen parecería medir sin medir |
+| `kind: drill` sin bloque `drill` con `criteria` | **error**: «'kind: drill' sin bloque 'drill' con 'criteria'…» | un drill sin criterios propios «pasa» por no medir nada |
+
+Los VALORES de `criteria` pueden ser `null` (umbral sin fijar, legítimo); la **clave** no.
+Un umbral fijado debe ser un número **finito** > 0: `.inf` volvería el criterio decorativo
+(nada lo supera) y `.nan` lo haría aleatorio — ambos son error de validación.
+
 Reglas del contrato:
 1. Todo Run cita `gate + version`; reportes de versiones distintas no se comparan como
    equivalentes (el comparador lo señala).

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -78,7 +79,8 @@ class Orchestrator:
                  stub_url: str = "http://localhost:9900",
                  runs_dir: Optional[Union[str, Path]] = None,
                  seed: Union[int, str] = DEFAULT_SEED, kind: str = "gate_oficial",
-                 dry_run: bool = False, n_canaries: int = 64, n_corpus_docs: int = 200,
+                 dry_run: bool = False, drill_admin_budget_ms: Optional[float] = None,
+                 n_canaries: int = 64, n_corpus_docs: int = 200,
                  timestamp: Optional[str] = None, now: Optional[Callable[[], datetime]] = None,
                  health_fn: Optional[Callable[[str], dict]] = None,
                  stub_client: Optional[object] = None,
@@ -92,8 +94,14 @@ class Orchestrator:
         self.backend_url = backend_url.rstrip("/")
         self.stub_url = stub_url.rstrip("/")
         self.seed = seed
-        self.kind = "dry-run" if dry_run else kind
+        # kind efectivo: si el YAML declara un kind propio (p. ej. ``drill``), MANDA el
+        # YAML — un drill no puede correrse por accidente como gate oficial. ``--kind``
+        # explícito sigue sirviendo para runs ad-hoc sobre los gates oficiales.
+        gate_kind = getattr(self.gate, "kind", "gate_oficial")
+        self.kind = "dry-run" if dry_run else (gate_kind if gate_kind != "gate_oficial"
+                                               else kind)
         self.dry_run = dry_run
+        self.drill_admin_budget_ms = drill_admin_budget_ms
         self.n_canaries = n_canaries
         self.n_corpus_docs = n_corpus_docs
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -122,6 +130,7 @@ class Orchestrator:
 
     def run(self) -> Verdict:
         """Corre el gate. Devuelve el ``Verdict`` (parcial si se interrumpe/aborta)."""
+        self._guard_evidencia_existente()
         self.run_dir.mkdir(parents=True, exist_ok=True)
         try:
             self._check_preconditions()          # ABORTA antes de generar carga si drift
@@ -141,6 +150,7 @@ class Orchestrator:
                 health_final=health_final, stub_report=stub_report,
                 reconciliation=reconciliation, kind=self.kind,
                 notas=(["run en seco: datos sintéticos, NO oficial"] if self.dry_run else None),
+                drill_overrides=_drill_overrides(self.drill_admin_budget_ms),
             )
             fingerprint = self._build_fingerprint(corpus, k6_summary)
             self._write_outputs(verdict, fingerprint, evidence=self._evidence_refs())
@@ -154,6 +164,16 @@ class Orchestrator:
             # un directorio a medias que parezca examen completo (edge case de la spec).
             return self._abort(f"fallo inesperado del orquestador ({type(exc).__name__}): "
                                f"{exc}", estado="invalid")
+
+    def _guard_evidencia_existente(self) -> None:
+        """La evidencia de un run NO se sobrescribe. Se levanta ANTES del ``try`` a
+        propósito: dentro, el manejo de errores escribiría un verdict PARCIAL encima del
+        run que se quiere proteger. Por eso este error SALE del orquestador."""
+        vpath = self.run_dir / "verdict.json"
+        if vpath.exists():
+            raise OrchestratorError(
+                f"el run_dir ya contiene un verdict.json ({vpath}): elegí otro --run-id — "
+                "no se sobrescribe evidencia")
 
     # ── precondiciones ─────────────────────────────────────────────────────────────────
 
@@ -231,10 +251,20 @@ class Orchestrator:
         """Traduce el gate a la config que k6 consume: por cada (superficie, fase) un
         scenario ``constant-arrival-rate`` con ``rate=N_s`` sobre ``timeUnit=cadencia_media``
         (research R1). El math del gate vive en Python (surface_arrival_rates); k6 solo lo
-        ejecuta."""
+        ejecuta.
+
+        **Las fases son SECUENCIALES** (``startTime`` acumulado por orden de declaración):
+        sin él k6 arranca TODOS los scenarios en t=0 y los corre en paralelo — la ráfaga
+        del drill caería sobre una cola FRÍA en vez de sobre la que llenó el sostenido, y
+        «tormenta → pico → recuperación» de los gates 250/500 dejaría de ser una secuencia.
+        Todas las superficies de una misma fase comparten ``startTime``; la fase i arranca
+        en la suma de las duraciones de las fases 0..i-1.
+        """
         rates = surface_arrival_rates(self.gate)
         scenarios = []
+        offset_s = 0.0
         for phase in self.gate.phases:
+            start_time = f"{offset_s:g}s"
             for surface, ar in rates.items():
                 exec_name = SURFACE_EXEC.get(surface)
                 if exec_name is None:
@@ -244,7 +274,7 @@ class Orchestrator:
                     "surface": surface, "exec": exec_name, "phase": phase.name,
                     "executor": "constant-arrival-rate",
                     "rate": rate, "timeUnit": f"{ar.cadence_mean_s:g}s",
-                    "duration": phase.duration,
+                    "duration": phase.duration, "startTime": start_time,
                     "preAllocatedVUs": max(10, rate * 2), "maxVUs": max(20, rate * 6),
                 })
             # login_storm / peak llevan su propio scenario si el gate lo declara.
@@ -254,11 +284,14 @@ class Orchestrator:
                 raw = phase.extra.get("enters", self.gate.total_population)
                 enters = raw if (isinstance(raw, int) and not isinstance(raw, bool)) \
                     else self.gate.total_population
+                # La tormenta arranca en t=0 por DISEÑO (es la primera fase del 250: toda
+                # la población entrando junta), no por omisión del escalonado.
                 scenarios.append({
                     "surface": "login", "exec": "login", "phase": phase.name,
                     "executor": "constant-arrival-rate",
                     "rate": enters, "timeUnit": phase.duration, "duration": phase.duration,
                     "preAllocatedVUs": 50, "maxVUs": max(100, enters), "startTime": "0s"})
+            offset_s += phase.duration_s
         cfg = {
             "gate": self.gate.gate, "version": self.gate.version,
             "base_url": self.backend_url, "stub_url": self.stub_url,
@@ -341,11 +374,23 @@ class Orchestrator:
 
     def _reconcile(self, k6_summary: dict) -> dict:
         """Reconciliación de auditoría (filas persistidas vs eventos del guion) + bloqueos
-        durables. En dry-run: paridad sintética perfecta (eventos==filas, 0 bloqueos)."""
+        durables. En dry-run: paridad sintética perfecta (eventos==filas, 0 bloqueos).
+
+        En CUALQUIER run que vea rechazos —no solo en un drill— ``reconcile_fn`` debe
+        devolver ADEMÁS ``filas_rejected_saturated``: el conteo de filas de ``audit_logs``
+        con el estado LITERAL ``'rejected_saturated'`` (el rechazo de admisión C1 —
+        deliberadamente NO es un bloqueo de política, así que no se mezcla con
+        ``bloqueos_provocados``), o ``0`` si no hubo ninguna. Sin ese campo, el evaluador
+        no puede afirmar durabilidad y la fila sale FAIL. La fuente de verdad del contrato
+        es ``contracts/run-report.md``, no este docstring."""
         if self.dry_run:
             eventos = int(k6_summary.get("auditable_events", 0))
-            return {"eventos_guion": eventos, "filas_persistidas": eventos,
-                    "bloqueos_provocados": 0, "con_fila": 0}
+            recon = {"eventos_guion": eventos, "filas_persistidas": eventos,
+                     "bloqueos_provocados": 0, "con_fila": 0}
+            if getattr(self.gate, "kind", "gate_oficial") == "drill":
+                # solo en drills: el dry-run del gate oficial no cambia ni un byte.
+                recon["filas_rejected_saturated"] = 0
+            return recon
         if self._reconcile_fn is None:
             raise OrchestratorError(
                 "reconciliación no configurada: pasá --reconcile_fn o corré con --dry-run. "
@@ -355,9 +400,15 @@ class Orchestrator:
     # ── fingerprint ────────────────────────────────────────────────────────────────────
 
     def _build_fingerprint(self, corpus: dict, k6_summary: dict) -> Fingerprint:
+        """Huella del run. Incluye QUÉ examen fue, no solo con qué config corrió: el
+        ``kind`` en el bloque ``gate`` y el bloque ``examen`` (programa del stub + fases).
+        Sin ellos, el drill de saturación y el gate 125 oficial —mismo número, misma
+        versión, misma mezcla y cadencia— producían fingerprints que solo diferían en el
+        timestamp (no material) y el comparador los daba por LEGÍTIMAMENTE comparables."""
         pop = self._population_obj()
         rates = {s: ar.k6 for s, ar in surface_arrival_rates(self.gate).items()}
         scr = self.gate.stack_config_required
+        stub = self.gate.stub or {}
         return capture(
             producto=self._producto or {"commit": "unknown", "digests": {},
                                         "dry_run": self.dry_run},
@@ -367,7 +418,14 @@ class Orchestrator:
                         "nlp_fail_mode": scr.get("nlp_fail_mode")},
             workers_procesos=(self._producto or {}).get("workers_procesos", {}),
             limites_recursos=(self._producto or {}).get("limites_recursos", {}),
-            gate={"n": self.gate.gate, "version": self.gate.version},
+            gate={"n": self.gate.gate, "version": self.gate.version, "kind": self.kind},
+            examen={"stub": {"latency_ms": stub.get("latency_ms"),
+                             "token_rate_tps": stub.get("token_rate_tps"),
+                             "stream_duration_s": stub.get("stream_duration_s"),
+                             "error_rate": stub.get("error_rate")},
+                    "phases": [{"name": p.name, "duration": p.duration,
+                                "arrival_factor": p.arrival_factor}
+                               for p in self.gate.phases]},
             corpus={"version": corpus.get("corpus_version"), "seed": corpus.get("seed"),
                     "n_canaries": len(corpus.get("canaries", [])),
                     "densities_per_mille": corpus.get("densities_per_mille")},
@@ -489,7 +547,13 @@ class Orchestrator:
     # ── util ───────────────────────────────────────────────────────────────────────────
 
     def _default_run_id(self) -> str:
+        """Id por defecto del run. Incluye el KIND efectivo cuando no es ``gate_oficial``
+        (``20260810-g125-drill-01``, ``…-dry-run-01``): sin eso, el drill de saturación y
+        el gate 125 oficial del mismo día proponen el MISMO id y el segundo run pisaría la
+        evidencia del primero — dos exámenes distintos con la misma identidad."""
         fecha = self._now().strftime("%Y%m%d")
+        if self.kind != "gate_oficial":
+            return f"{fecha}-g{self.gate.gate}-{self.kind}-01"
         return f"{fecha}-g{self.gate.gate}-01"
 
     def _write_json(self, name: str, data: object) -> Path:
@@ -502,6 +566,20 @@ class Orchestrator:
 
     def _read_json(self, name: str) -> dict:
         return json.loads((self.run_dir / name).read_text(encoding="utf-8"))
+
+
+# ── overrides de criterios del drill ──────────────────────────────────────────────────
+
+def _drill_overrides(admin_budget_ms: Optional[float]) -> Optional[dict]:
+    """Umbrales del drill que llegan por CLI en vez de por YAML.
+
+    El presupuesto de admin NO se hornea en la definición: se DERIVA del baseline medido
+    del gate oficial del mismo día (mismo hardware, misma imagen) y se pasa por
+    ``--drill-admin-budget-ms``. Sin el flag no hay override y el criterio queda sin
+    umbral (nota informativa, sin fila)."""
+    if admin_budget_ms is None:
+        return None
+    return {"admin_p95_budget_ms": float(admin_budget_ms)}
 
 
 # ── drift de stack_config_required ────────────────────────────────────────────────────
@@ -578,13 +656,41 @@ def main(argv: Optional[list] = None) -> int:
                    choices=("gate_oficial", "diagnostico", "smoke", "fault_injection"))
     p.add_argument("--dry-run", action="store_true",
                    help="corre SIN stack ni k6: estructura completa con datos sintéticos")
+    p.add_argument("--drill-admin-budget-ms", type=float, default=None,
+                   help="drill de saturación: presupuesto p95 del panel admin (ms), "
+                        "derivado del baseline del gate oficial del MISMO día")
     args = p.parse_args(argv)
 
+    # El presupuesto de admin es un UMBRAL vinculante: un valor no finito o <= 0 lo
+    # volvería decorativo (nada lo supera) o aleatorio (NaN). Se valida ANTES de construir
+    # el orquestador — no se empieza un examen con un criterio roto.
+    budget = args.drill_admin_budget_ms
+    if budget is not None and (not math.isfinite(budget) or budget <= 0):
+        p.error(f"--drill-admin-budget-ms debe ser un número FINITO > 0 (ms), es {budget!r}; "
+                "derivalo del p95 de admin del gate oficial del mismo día")
+
     gate = load_gate(args.gate_file) if args.gate_file else load_gate_by_number(args.gate)
+
+    # El presupuesto de admin es un criterio del drill: sobre otro gate el flag no haría
+    # NADA (el evaluador solo mira drill.criteria en un run drill) y el operador creería
+    # haber fijado un umbral. Se avisa en vez de tragárselo. Ojo: el kind acá es el del
+    # GATE — un --dry-run del drill sigue siendo un drill para esta guarda.
+    kind_efectivo = gate.kind if gate.kind != "gate_oficial" else args.kind
+    if args.drill_admin_budget_ms is not None and kind_efectivo != "drill":
+        p.error(f"--drill-admin-budget-ms solo aplica a un gate kind: drill; este gate es "
+                f"{kind_efectivo!r} (¿querías --gate-file gates/drill-saturacion-125.yaml?)")
+
     orch = Orchestrator(gate, run_id=args.run_id, backend_url=args.backend_url,
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
-                        kind=args.kind, dry_run=args.dry_run)
-    verdict = orch.run()
+                        kind=args.kind, dry_run=args.dry_run,
+                        drill_admin_budget_ms=args.drill_admin_budget_ms)
+    try:
+        verdict = orch.run()
+    except OrchestratorError as exc:
+        # Precondición del run (p. ej. run_dir con evidencia): mensaje accionable, no
+        # traceback — y sin tocar el directorio existente.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(f"run {verdict.run_id}: estado={verdict.estado} global={verdict.global_veredicto}")
     print(f"  artefactos → {orch.run_dir}")
     if verdict.invalid_reason:
