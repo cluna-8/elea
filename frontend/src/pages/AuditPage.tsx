@@ -57,6 +57,19 @@ const ETIQUETAS_ESTADO = new Map<string, [FamiliaEstado, string]>([
   // —por eso no es familia «bloqueado»— pero el officer tiene que poder explicar por qué el
   // pedido no salió sin leer el literal interno. Mismo evento y texto que en la vitrina.
   ["rejected_saturated", ["error", "Rechazado por capacidad"]],
+  // Rechazo por presupuesto agotado (#157): mismo criterio que el de capacidad — no lo
+  // impidió una política, pero el officer tiene que poder explicar por qué el pedido no
+  // salió sin leer el literal interno. Mismo evento y texto que en la vitrina.
+  //
+  // DESBALANCE CONOCIDO, dicho de frente: la entrada gemela del backend
+  // (`api/monitor.py`) SÍ tiene test —`backend/tests/unit/test_monitor_status_map.py`, que
+  // importa la constante del producto y falla si el mapa se olvida de ella—; ésta NO. No es
+  // un descuido del #157: este repo no tiene runner de tests de frontend (sin vitest/jest,
+  // cero `*.test.tsx`, y el CI corre sólo `tsc --noEmit`), y montar toda esa infraestructura
+  // para cubrir una fila de un Map excede el issue. O sea: borrar esta línea no pone rojo a
+  // nadie y el officer se entera en la sede. Si alguna vez entra un runner de frontend, la
+  // primera cobertura barata es este Map.
+  ["rejected_budget", ["error", "Rechazado por presupuesto"]],
   ["upstream_error", ["error", "Error del proveedor"]],
 ]);
 

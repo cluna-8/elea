@@ -274,8 +274,10 @@ function tabla(obj){ return Object.assign(Object.create(null), obj); }
 //                     upstream_error        (gateway.py:262-275, :829)
 //   motor           → passed · flagged_high_risk · blocked_prohibited
 //                     (basa_guardian_policy.evaluate_ai_act, vía basa_compliance.status)
-//   chat            → blocked_prohibited · blocked_by_policy · blocked_residency
-//                     (chat.py:566, :694, :805)
+//   chat            → bloqueos de política: blocked_prohibited · blocked_by_policy ·
+//                     blocked_residency; rechazos NUESTROS: rejected_saturated (#135) ·
+//                     rejected_budget (#157)   (chat.py, los 5 llamadores de
+//                     `_registrar_bloqueo`)
 const STATUS = tabla({
   passed:['pass','OK'],
   flagged_high_risk:['flag','ALTO RIESGO'],
@@ -297,6 +299,10 @@ const STATUS = tabla({
   // por eso ni el estado empieza con `blocked` ni el chip se pinta como bloqueo. Sin esta
   // entrada, el fallback de estado() lo pintaría gris/neutro, que es justo lo que no es.
   rejected_saturated:['error','RECHAZADO POR CAPACIDAD'],
+  // Tope de presupuesto agotado (#157): tampoco lo impidió una política, es un límite
+  // económico nuestro. Sin esta entrada el fallback lo pintaría gris/neutro con el literal
+  // crudo, que se lee como «no sé» cuando sí sabemos por qué no se sirvió.
+  rejected_budget:['error','RECHAZADO POR PRESUPUESTO'],
 });
 
 // estado(): familia visual + etiqueta de un `compliance_status`. La familia se DERIVA del

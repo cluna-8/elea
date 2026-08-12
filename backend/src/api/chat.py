@@ -21,7 +21,11 @@ from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
 from ..services import auto_router_service
 from ..services.atomic_file import escribir_atomico
-from ..services.budget_service import BudgetService, has_known_pricing
+from ..services.budget_service import (
+    STATUS_BUDGET_EXHAUSTED,
+    BudgetService,
+    has_known_pricing,
+)
 from ..services.presidio_service import PresidioService
 from ..services.optimization_service import OptimizationService
 from ..services.compliance_service import ComplianceService
@@ -453,8 +457,13 @@ async def _publish_block_event(*, db: Session, user, tenant_id, model: str, stat
 def _entidades_de_fila(floor_entities, detected) -> list:
     """Desglose `[{"type","count"}]` que va a las columnas legadas de la fila durable.
 
-    Una sola expresión para los CUATRO escritores de fila de este plano (los 3 puntos de
-    bloqueo + el camino feliz), porque la regla es una sola: manda el hallazgo del PISO
+    Una sola expresión para los CUATRO escritores de fila que llegan con entidades ya
+    medidas (bloqueo por política, bloqueo por residencia, rechazo por capacidad y el camino
+    feliz). Los otros dos escritores del plano —el bloqueo AI-Act y el rechazo por
+    presupuesto— no pasan por acá: cortan ANTES de que corra ningún detector y mandan
+    `entities=[]`, que dice «no hay medición» en vez de inventar un cero.
+
+    Para los cuatro que sí pasan, la regla es una sola: manda el hallazgo del PISO
     (`_floor_entities`), que corre esté o no encendido el enmascarado; sólo cuando el
     detector de piso no pudo confirmar nada (`None`) se cae a lo que el enmascarado sí
     produjo. Nunca al revés: derivar de lo enmascarado haría que una fila con
@@ -469,15 +478,31 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
                              start_time: float, routing: Optional[dict] = None,
                              entidades_fila: Optional[list] = None,
                              cabeceras_del_503: Optional[dict] = None) -> None:
-    """**Registrar → bloquear**: fila DURABLE del bloqueo y, después, evento de vitrina.
+    """**Registrar → bloquear**: fila DURABLE del rechazo y, después, evento de vitrina.
 
-    Es el pago del corte D6 de la 027 (spec 031 US1/FR-002): los 3 puntos de bloqueo de este
-    endpoint publicaban al monitor efímero y hacían `raise` antes del único
-    `log_transaction`, así que a los 300 s de un intento impedido no quedaba NADA. Para un
-    producto que se vende como «logueamos todo para compliance», el evento más importante
-    —«se intentó y se impidió»— era el único sin rastro.
+    Es el pago del corte D6 de la 027 (spec 031 US1/FR-002): cuando nació este helper, los 3
+    puntos de bloqueo por política de este endpoint publicaban al monitor efímero y hacían
+    `raise` antes del único `log_transaction`, así que a los 300 s de un intento impedido no
+    quedaba NADA. Para un producto que se vende como «logueamos todo para compliance», el
+    evento más importante —«se intentó y se impidió»— era el único sin rastro.
 
-    Decisiones que este helper encapsula (una sola vez, para los tres puntos):
+    Hoy tiene CINCO llamadores, y no todos son bloqueos de política. Conviene no meterlos en
+    la misma bolsa, porque lo que le decimos al officer cambia:
+
+    * **Bloqueos de política** (3) — una capa del firewall impidió el pedido:
+      `blocked_prohibited` (AI-Act), `blocked_by_policy` (guardián de postura) y
+      `blocked_residency`. El `compliance_status` empieza con `blocked` y entra al filtro
+      canónico `LIKE 'blocked%'`.
+    * **Rechazos NUESTROS** (2) — no lo impidió ninguna capa, el pedido simplemente no se
+      sirvió y el motivo es de la casa: `rejected_saturated` (tope de admisión al motor,
+      #135) y `rejected_budget` (tope de presupuesto agotado, #157). Prefijo `rejected` a
+      propósito: contarlos como bloqueos le mentiría al officer sobre cuántos intentos
+      bloqueó el firewall.
+
+    Lo que sí comparten los cinco —y por eso comparten helper— es la matriz: fila durable
+    primero, vitrina después, respuesta al final.
+
+    Decisiones que este helper encapsula (una sola vez, para los cinco llamadores):
 
     * **La fila va PRIMERO.** Si el proceso muere en el medio, lo que tiene que sobrevivir
       es el registro durable, no la vitrina.
@@ -485,9 +510,11 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
       de pérdidas de la US2 valen también para los bloqueos, sin una segunda vía de
       escritura que mantener.
     * **`compliance_status` es el MISMO literal que ya viaja al monitor** (D1 + riesgo R3):
-      `blocked_prohibited` / `blocked_by_policy` / `blocked_residency`, que la tabla de la
-      vitrina ya conoce (`monitor.py`) y que entran al filtro canónico
-      `compliance_status LIKE 'blocked%'` sin columna nueva ni migración.
+      los cinco literales de arriba, que la tabla de la vitrina ya conoce (`monitor.py`), y
+      ninguno necesitó columna nueva ni migración. Los tres `blocked_*` entran al filtro
+      canónico `LIKE 'blocked%'`; los dos `rejected_*` quedan fuera de los DOS baldes del
+      filtro binario de la vitrina de auditoría (`api/audit.py`), que es justo lo que hace
+      falta para no contarlos ni como bloqueo ni como pedido permitido.
     * **Tokens 0/0 y coste 0** (contrato §Fila de bloqueo): no se consumió proveedor. El
       estado de bloqueo es EXPLÍCITO en su columna, así que el officer no tiene que
       interpretar un 0/0 para saber que el pedido no se sirvió (FR-006).
@@ -496,14 +523,20 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
 
     Qué pasa si la fila NO se puede escribir:
 
-    * `open` (default): el usuario recibe el MISMO 4xx de siempre. El escritor ya contó la
-      pérdida y la logueó con nivel error; hacer fallar distinto un bloqueo por un problema
+    * `open` (default): el usuario recibe EXACTAMENTE la misma respuesta de siempre (el 400
+      del bloqueo, el 402 del presupuesto, el 503 de saturación). El escritor ya contó la
+      pérdida y la logueó con nivel error; hacer fallar distinto un rechazo por un problema
       de la base sería castigar al usuario por algo que no es suyo. El `except` ancho es
       para lo IMPREVISTO (en `open` `log_transaction` no lanza): ahí se cuenta acá, porque
       lo único innegociable es que la pérdida no sea silenciosa.
-    * `closed`: `AuditUnavailableError` → 503 honesto con el copy del contrato. La vitrina
-      se publica igual ANTES de responder: el bloqueo ocurrió de verdad y el operador tiene
-      que poder verlo mientras diagnostica la caída de la auditoría.
+    * `closed`: `AuditUnavailableError` → 503 honesto con el copy del contrato, **en lugar
+      del código que el llamador iba a devolver**. Esto es observable desde afuera y hay que
+      decirlo con todas las letras: en `closed` y con la auditoría caída, un bloqueo de
+      política no responde 400 sino 503, y el rechazo por presupuesto no responde 402 sino
+      503. No es un bug de precedencia: la instalación pidió «sin registro no hay servicio»,
+      y un 402 sin fila diría «te negamos servicio y quedó registrado» cuando no quedó nada.
+      La vitrina se publica igual ANTES de responder: el rechazo ocurrió de verdad y el
+      operador tiene que poder verlo mientras diagnostica la caída de la auditoría.
 
     El parámetro se llama `estado` y no `status` porque en este módulo `status` es el enum
     de códigos HTTP de FastAPI: el shadowing dejaría al helper sin poder nombrar su 503.
@@ -513,16 +546,21 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
     `X-Basa-Rejected: saturated` viaja en TODO 503 de saturación, y si la auditoría se cae
     mientras se registra uno, el 503 que sale por esta puerta sigue siendo la respuesta a un
     pedido saturado. Sin la cabecera, el harness de carga lo contaría como un 503 ajeno —de
-    Caddy, del proxy de la sede— y el drill mediría mal justo en el caso interesante. Los tres
-    puntos de bloqueo por política no la pasan: su 503 no tiene contrato de wire.
+    Caddy, del proxy de la sede— y el drill mediría mal justo en el caso interesante. Los
+    otros CUATRO llamadores no la pasan: ni los tres bloqueos de política ni el rechazo por
+    presupuesto tienen contrato de wire acordado para su respuesta.
     """
     resumen = _summarize_entities(entities) if entidades_fila is None else entidades_fila
     fallo_closed: Optional[AuditUnavailableError] = None
     try:
         AuditService.log_transaction(
             db=db,
-            # Modelo EFECTIVO del pedido: con «auto» `request.model` ya es el destino que
-            # eligió el router, y lo que el usuario pidió viaja textual en `routing`.
+            # Modelo del pedido, tal como lo conoce el llamador. En los llamadores que
+            # corren DESPUÉS del auto-router es el modelo efectivo (con «auto»,
+            # `request.model` ya es el destino que eligió el router, y lo pedido viaja
+            # textual en `routing`). El gate de presupuesto corre ANTES del router, así que
+            # ahí es el modelo PEDIDO y puede ser literalmente «auto»: ver el comentario de
+            # ese llamador.
             model=model,
             prompt_tokens=0,
             completion_tokens=0,
@@ -803,6 +841,37 @@ async def chat_completions(
     group_id_check = group.id if group else None
     
     if not BudgetService.has_sufficient_budget(db, user_id=user_id_check, group_id=group_id_check):
+        # Registrar → responder (issue #157): negar servicio sin fila durable deja al officer
+        # sin poder reconstruir a quién le negamos servicio por presupuesto y cuándo. Misma
+        # matriz que el rechazo por capacidad: fila primero, respuesta después, y los modos
+        # `open`/`closed` los resuelve `_registrar_bloqueo`.
+        #
+        # Lo que ese reparto de responsabilidades implica ACÁ, y que conviene no dejar
+        # implícito porque es OBSERVABLE por el cliente: en `audit_fail=closed`, si la
+        # auditoría está caída, `_registrar_bloqueo` levanta su propio 503 y el cliente
+        # recibe **503 en vez del 402 de abajo**. El código HTTP cambia, y está bien que
+        # cambie: la instalación pidió «sin registro no hay servicio», así que responder 402
+        # sin fila afirmaría «te negamos servicio y quedó registrado» cuando no quedó nada.
+        # En `open` (default) el 402 sale intacto y la pérdida se cuenta. Los dos cruces los
+        # fija `tests/integration/test_chat_budget_audit.py`.
+        #
+        # Qué se pasa y qué NO, porque este gate corre ANTES del resto del pipeline:
+        # * `model=request.model` es el modelo PEDIDO, no el efectivo: la reasignación del
+        #   auto-router ocurre más abajo, así que en un pedido con `auto` la fila dice
+        #   literalmente «auto». Es lo que el usuario pidió y es verdad; elegir un destino
+        #   por nuestra cuenta inventaría un modelo que nadie eligió.
+        # * `entities=[]` no es una medición de cero: ningún detector corrió todavía (el
+        #   pipeline de guardianes arranca después). Mismo criterio que el bloqueo AI-Act.
+        # * sin `routing`: el auto-router todavía no decidió nada, y `routing_decision` NULL
+        #   es exactamente eso.
+        # * sin `cabeceras_del_503`: este 402 no tiene contrato de wire acordado con La ITV.
+        await _registrar_bloqueo(
+            db=db, user=user, api_key_obj=api_key_obj, group=group, tenant_id=_tenant_id,
+            model=request.model, estado=STATUS_BUDGET_EXHAUSTED,
+            prompt=request.message, entities=[],
+            attribution=build_attribution(profile, verdicts),
+            start_time=start_time,
+        )
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Presupuesto mensual agotado para la llave virtual o el usuario/equipo."
@@ -823,12 +892,16 @@ async def chat_completions(
     #
     # `request.model` se REASIGNA al modelo efectivo a propósito, en vez de arrastrar una
     # variable paralela por las ~600 líneas siguientes: hay una decena de consumidores de
-    # "qué modelo es este pedido" (los tres puntos de bloqueo, el guardián de ruteo, la
-    # residencia, la auditoría, el presupuesto), y una variable nueva obligaría a acordarse
-    # de cambiarlos TODOS — el que se olvidara reportaría «auto», que no es un modelo y no
-    # se puede pricear ni auditar. Lo que el usuario pidió no se pierde: viaja textual
-    # dentro de la decisión (`requested`), que va al Debugger, a la vitrina y a la columna
-    # durable. O sea: la reasignación no borra información, la mueve a donde es legible.
+    # "qué modelo es este pedido" (los tres bloqueos de política, el rechazo por capacidad,
+    # el guardián de ruteo, la residencia, la auditoría, el costeo del presupuesto), y una
+    # variable nueva obligaría a acordarse de cambiarlos TODOS — el que se olvidara
+    # reportaría «auto», que no es un modelo y no se puede pricear ni auditar. (El gate de
+    # presupuesto de más arriba es la excepción declarada: corre ANTES de esta reasignación
+    # y por eso su fila SÍ puede decir «auto», que es lo que el usuario pidió.)
+    #
+    # Lo que el usuario pidió no se pierde: viaja textual dentro de la decisión
+    # (`requested`), que va al Debugger, a la vitrina y a la columna durable. O sea: la
+    # reasignación no borra información, la mueve a donde es legible.
     _routing_decision: Optional[Dict[str, Any]] = None
     if request.model == auto_router_service.AUTO_MODEL:
         # El servicio NUNCA levanta: toda caída al default viaja como decisión con
@@ -892,7 +965,7 @@ async def chat_completions(
         "flagged_high_risk": "flag",
     }.get(_ai_act_floor["status"], "allow"))
     if compliance_result["status"] == "blocked_prohibited":
-        # Punto de bloqueo 1/3 (contrato §13 de la 027 + spec 031 D2): la fila DURABLE y la
+        # Bloqueo de política 1/3 (contrato §13 de la 027 + spec 031 D2): la fila DURABLE y la
         # atribución se emiten ACÁ, antes del raise — registrar → bloquear.
         #
         # `entities=[]` no es un descuido: el AI-Act corta ANTES del pipeline de guardianes,
@@ -1027,7 +1100,7 @@ async def chat_completions(
     # tarea que reescribe ese servicio, no de este archivo.
 
     if guardian_res["blocked"]:
-        # Punto de bloqueo 2/3 (contrato §13 + spec 031 D2). `blocked_by_layer` sale del
+        # Bloqueo de política 2/3 (contrato §13 + spec 031 D2). `blocked_by_layer` sale del
         # veredicto de la capa que bloqueó —`secret_detection` o `pii_detection`— y JAMÁS
         # del nombre del guardián, que es editable y white-label (D6).
         #
@@ -1141,7 +1214,7 @@ async def chat_completions(
     for proj in active_projects:
         if proj.eu_region_required and not any(routed_model.startswith(p) for p in eu_safe_prefixes):
             logger.warning("EU region enforcement blocked model %s for project %s", routed_model, proj.name)
-            # Punto de bloqueo 3/3 (contrato §13 + spec 031 D2). Este bloqueo sale de la
+            # Bloqueo de política 3/3 (contrato §13 + spec 031 D2). Este bloqueo sale de la
             # residencia de datos del proyecto de cumplimiento, que **no es una capa del
             # registry**: la fila y el evento llevan la atribución de lo que sí corrió y
             # `blocked_by_layer` queda en NULL — que en la fila durable significa "bloqueado
@@ -1553,9 +1626,11 @@ async def chat_completions(
     # enmascarado sí produjo: es menos que la verdad pero nunca es una afirmación falsa —
     # nunca dice "no hubo PII" habiendo enmascarado alguna.
     #
-    # La regla vive en `_entidades_de_fila` porque los 3 puntos de bloqueo (spec 031) la
-    # necesitan idéntica: una fila de bloqueo que contara la PII distinto que una servida
-    # haría que el mismo texto apareciera con dos hallazgos según lo hubiéramos dejado pasar.
+    # La regla vive en `_entidades_de_fila` porque los otros tres escritores que llegan con
+    # entidades ya medidas (bloqueo por política, bloqueo por residencia y el rechazo por
+    # capacidad) la necesitan idéntica: una fila de rechazo que contara la PII distinto que
+    # una servida haría que el mismo texto apareciera con dos hallazgos según lo hubiéramos
+    # dejado pasar.
     _pii_row_entities = _entidades_de_fila(_floor_entities, entities_detected)
     _pii_row_detected = bool(_pii_row_entities)
 

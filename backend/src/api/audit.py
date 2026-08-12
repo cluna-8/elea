@@ -45,15 +45,22 @@ BLOQUEADO_LIKE = "blocked%"
 # hash-chain no se toca: sólo se la deja fuera de un filtro de tráfico (FR-010).
 MODELO_LICENCIA = "license"
 
-# Los rechazos por capacidad (`rejected_saturated`, `services/engine_gate.py`: el tope de
-# admisión devolvió 503 porque no había turno hacia el motor) NO empiezan con `blocked` a
-# propósito —capacidad no es política, ninguna capa impidió nada—, y justamente por eso
-# caerían en el `else` de este filtro y se contarían como PERMITIDOS. Eso es una mentira
-# estadística en la pantalla que el officer le enseña al cliente: el pedido nunca se sirvió, y
-# el motivo fue NUESTRO. Hasta que tengan balde propio («Rechazados», ciclo 2) quedan fuera de
-# los dos, con el mismo criterio que los eslabones de licencia. Sin filtro `estado` siguen
-# visibles en el listado: son auditoría durable y el officer los tiene que poder ver.
-# Ref: gate adversarial del PR #135 (H4), decisión JF 12-ago-2026.
+# Los rechazos NUESTROS —por capacidad (`rejected_saturated`, `services/engine_gate.py`: el
+# tope de admisión devolvió 503 porque no había turno hacia el motor) y por presupuesto
+# agotado (`rejected_budget`, `services/budget_service.py`: 402 del gate de presupuesto,
+# issue #157)— NO empiezan con `blocked` a propósito: en ninguno de los dos el firewall
+# impidió nada. El de capacidad ni siquiera es una decisión sobre el pedido —no había turno
+# hacia el motor—, y el de presupuesto es un tope ADMINISTRATIVO nuestro, no una infracción
+# del usuario: el pedido era perfectamente lícito y aun así no se sirvió. Contarlos entre
+# los bloqueos inflaría «cuántos intentos bloqueó el firewall» con pedidos que nadie bloqueó.
+#
+# Y justamente por no empezar con `blocked` caerían en el `else` de este filtro y se
+# contarían como PERMITIDOS, que es la otra mitad de la mentira: en los dos casos el pedido
+# NUNCA se sirvió, y el motivo fue NUESTRO. Hasta que tengan balde propio («Rechazados»,
+# ciclo 2) quedan fuera de los dos, con el mismo criterio que los eslabones de licencia. Sin
+# filtro `estado` siguen visibles en el listado: son auditoría durable y el officer los
+# tiene que poder ver.
+# Ref: gate adversarial del PR #135 (H4), decisión JF 12-ago-2026; issue #157.
 RECHAZADO_LIKE = "rejected%"
 
 

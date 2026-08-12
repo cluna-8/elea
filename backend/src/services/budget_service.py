@@ -21,6 +21,18 @@ def cuantizar_usd(monto: Decimal) -> Decimal:
         monto = Decimal(str(monto))
     return monto.quantize(_ESCALA_USD, rounding=ROUND_HALF_UP)
 
+
+# `compliance_status` del rechazo por presupuesto agotado (issue #157).
+#
+# NO empieza con `blocked` A PROPÓSITO, con el mismo criterio que `STATUS_SATURATED`
+# (`services/engine_gate.py`): el filtro canónico `compliance_status LIKE 'blocked%'`
+# significa «el firewall impidió este pedido por política», y acá no lo impidió ninguna
+# capa — no hubo dato personal, ni secreto, ni práctica prohibida. Es un tope económico
+# NUESTRO. Por eso es un `rejected_*`: el prefijo ya está fuera de los dos baldes del
+# filtro binario de la vitrina de auditoría (`api/audit.py`, `RECHAZADO_LIKE = 'rejected%'`),
+# así que no se cuenta ni como bloqueo de política ni como pedido permitido.
+STATUS_BUDGET_EXHAUSTED = "rejected_budget"
+
 # Model pricing per 1,000,000 tokens (Input, Output) in USD
 MODEL_PRICING = {
     "gpt-4o": {"input": Decimal("5.00"), "output": Decimal("15.00")},
