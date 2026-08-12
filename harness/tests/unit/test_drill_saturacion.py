@@ -467,7 +467,7 @@ def test_eval_drill_criteria_sin_umbrales_solo_notas():
 GOLDEN_PRE_C1 = json.loads(r"""
 {
   "run_id": "20260812-g125-01",
-  "gate": {"n": 125, "version": "1.0.0"},
+  "gate": {"n": 125, "version": "1.1.0"},
   "kind": "gate_oficial",
   "estado": "completed",
   "global": "PASS",
@@ -709,7 +709,7 @@ def test_fingerprint_del_drill_no_es_comparable_con_el_del_125_oficial(tmp_path)
 
 def test_fingerprint_del_drill_declara_el_programa_del_examen(tmp_path):
     fp = _fingerprint_de(DRILL_FILE, tmp_path, "fp-drill-3").to_dict()
-    assert fp["gate"] == {"n": 125, "version": "1.0.0", "kind": "drill"}
+    assert fp["gate"] == {"n": 125, "version": "1.1.0", "kind": "drill"}
     assert fp["examen"]["stub"] == {"latency_ms": {"chat": 800, "coding_first_token": 600},
                                     "token_rate_tps": 5, "stream_duration_s": [60, 120],
                                     "error_rate": 0.0}

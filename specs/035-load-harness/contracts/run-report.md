@@ -58,7 +58,13 @@ cómo fijarlo (p. ej. derivar el presupuesto de admin del baseline del gate ofic
 mismo día). El insumo del guion es `k6_summary.saturated_rejections` + `rejection_ms`
 (Trend `lat_rejection`, aparte de las latencias de servicio para no hundir los
 percentiles del gate); el del producto es `reconciliation.filas_rejected_saturated` =
-filas de `audit_logs` con el estado literal `rejected_saturated`.
+filas de `audit_logs` con el estado literal `rejected_saturated`. Desde el flip del 402
+(PR del harness post-#177 del producto, gates v1.1.0) la reconciliación cuenta un cuarto
+balde con la misma mecánica: `reconciliation.filas_rejected_budget` = filas con el literal
+`rejected_budget` (el 402 de presupuesto del plano chat deja fila durable ANTES de
+responder; el plano motor sigue sin fila — issue #176). La cohorte del guion queda en
+`reconciliation.respuestas_402` (antes `respuestas_402_sin_fila`, nombre que dejó de ser
+cierto), cruzable contra ese balde.
 
 ## `fingerprint.json`
 

@@ -268,6 +268,8 @@ producto: son «no se puede certificar»):
 | `la credencial … no autentica` | el pool es de otra semilla/instalación | re-seedear contra stack fresco |
 | `prueba de humo fallida` | una superficie no se sirve en seco (wire, alias, key, ruta) | corregir y volver a lanzar — no se generó carga |
 | `precondición nlp_fail_mode … no publica` | el health no trae `fail_mode_efectivo` | no se certifica sin poder verificar la precondición |
+| `el guion recibió N respuesta(s) 402 … NINGUNA fila rejected_budget` | imagen del producto anterior al PR #177 (el 402 hacía `raise` antes de auditar) | no certificar; correr contra una imagen con #177 en main |
+| `el backend cuenta los rechazos <literal> DENTRO de permitidos` | imagen sin la exclusión `rejected%` del filtro binario (H4 del PR #135) | no certificar; correr contra una imagen con #135 o posterior |
 
 ### Residuo declarado del instrumento (leer antes de interpretar un FAIL)
 
@@ -288,7 +290,27 @@ que es un hueco nuestro:
   `masking`, `nlp_analyzer`, `auto_router` y `producto_incluye` se registran en el
   fingerprint pero **nadie los compara** contra el stack real: un drift ahí no aborta el
   run. Si dos runs no cuadran y el fingerprint dice que son comparables, ése es el primer
-  lugar a mirar.
+  lugar a mirar. Media verdad desde el flip del 402: el drift sigue sin verificarse, pero
+  el caso concreto de una imagen **pre-#177** ya no pasa en silencio — lo caza en runtime
+  la guarda de la reconciliación (fila nueva de la tabla de abortos), que aborta con causa
+  en vez de dejar que la paridad falle sin explicación.
+- **Los baldes `rejected_*` se cuentan por match EXACTO** (`rejected_saturated` y
+  `rejected_budget`), no por prefijo. Si el core acuña un literal `rejected_*` NUEVO, esas
+  filas quedan fuera de los cuatro baldes y la paridad dará «faltan filas» que **no** es
+  pérdida de auditoría: es vocabulario que el harness todavía no conoce. Es deliberado —
+  dictamen del gate del core: contar por prefijo podría REGALAR un PASS (una fila de un
+  literal desconocido cancelaría una fila de tráfico realmente perdida), mientras que el
+  literal exacto sólo puede fallar ruidoso. El cierre fino (canario de vocabulario: total
+  por prefijo, usado SÓLO como diagnóstico del delta) va con el issue #166.
+- **Auditoría caída + `BASA_AUDIT_FAIL=closed` disfraza los 402 de 5xx.** Los gates
+  oficiales corren con ese perfil: si la auditoría se cae, el producto falla ANTES de
+  responder y los 402 de la cohorte de presupuesto salen como **503 sin**
+  `X-Basa-Rejected`. `chat.js` hoy no tiene rama para ese caso y lo cuenta en el `else`
+  final (latencia de servicio + evento auditable que no va a tener fila). Síntoma
+  combinado: la paridad reprueba con déficit de filas **y** el check `chat sin 5xx (salvo
+  saturación)` falló. Ante esa pareja, mirar la **salud de la auditoría** antes de acusar
+  al producto de perder filas. La rama explícita del 5xx-sin-header es deuda del
+  instrumento: issue #168.
 - **Drills con streams largos**: k6 corta las iteraciones en vuelo al terminar la fase, y
   el producto ya escribió su fila → la reconciliación puede dar «sobran filas» sin que se
   haya perdido nada. Visto en `20260812-g125-drill-01` (+15).

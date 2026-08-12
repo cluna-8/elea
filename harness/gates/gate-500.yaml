@@ -3,7 +3,7 @@
 # a niveles normales sin intervención) + sección OPCIONAL `knee_search` (informativa,
 # fuera del pass/fail, explícitamente diferible al ciclo 3). Todo lo demás hereda del 125.
 gate: 500
-version: 1.0.0            # bump en PR ante CUALQUIER cambio, incluida la tolerancia
+version: 1.1.0            # bump en PR ante CUALQUIER cambio, incluida la tolerancia
 description: Objetivo septiembre — 500 usuarios con pico ×2 y recuperación
 phases:
   - name: sustained
@@ -31,7 +31,10 @@ stack_config_required:
   nlp_analyzer: real
   nlp_analyzer_url: configured
   nlp_fail_mode: block
-  producto_incluye: ["PR #97"]
+  # #97 = paridad NLP; #177 = fila durable `rejected_budget` antes del 402 (plano chat).
+  # El guion cuenta el 402 como evento auditable ASUMIENDO esa fila: contra una imagen
+  # pre-#177 la paridad daría un falso «faltan filas».
+  producto_incluye: ["PR #97", "PR #177"]
   auto_router: "off"
 stub:
   latency_ms: {chat: 800, coding_first_token: 600}

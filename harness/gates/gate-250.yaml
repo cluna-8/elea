@@ -4,7 +4,7 @@
 # la tormenta no relaja nada. Todo lo demás hereda del 125 (mezcla, cadencias,
 # densidades, config exigida, stub, tolerancia).
 gate: 250
-version: 1.0.0            # bump en PR ante CUALQUIER cambio, incluida la tolerancia
+version: 1.1.0            # bump en PR ante CUALQUIER cambio, incluida la tolerancia
 description: Doble de sede con tormenta de login en frío (~250)
 phases:
   - name: login_storm     # R1: 250 logins / 10 min, startTime escalonado
@@ -31,7 +31,10 @@ stack_config_required:
   nlp_analyzer: real
   nlp_analyzer_url: configured
   nlp_fail_mode: block
-  producto_incluye: ["PR #97"]
+  # #97 = paridad NLP; #177 = fila durable `rejected_budget` antes del 402 (plano chat).
+  # El guion cuenta el 402 como evento auditable ASUMIENDO esa fila: contra una imagen
+  # pre-#177 la paridad daría un falso «faltan filas».
+  producto_incluye: ["PR #97", "PR #177"]
   auto_router: "off"
 stub:
   latency_ms: {chat: 800, coding_first_token: 600}

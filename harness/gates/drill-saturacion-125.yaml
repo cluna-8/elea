@@ -14,7 +14,7 @@
 # Los 4 SLO de oro siguen vigentes y obligatorios: un drill no relaja nada. Los criterios
 # propios del drill viven en `drill.criteria`.
 gate: 125
-version: 1.0.0            # bump en PR ante CUALQUIER cambio (misma regla que un gate)
+version: 1.1.0            # bump en PR ante CUALQUIER cambio (misma regla que un gate)
 kind: drill               # el YAML manda: el orquestador marca el run como `drill`
 description: Drill de saturación C1 — modo sede-lenta (rechazo por admisión bajo streams largos)
 phases:
@@ -42,8 +42,24 @@ stack_config_required:
   nlp_analyzer: real
   nlp_analyzer_url: configured
   nlp_fail_mode: block
-  producto_incluye: ["PR #97"]
+  # #97 = paridad NLP; #177 = fila durable `rejected_budget` antes del 402 (plano chat).
+  # El guion cuenta el 402 como evento auditable ASUMIENDO esa fila: contra una imagen
+  # pre-#177 la paridad daría un falso «faltan filas».
+  producto_incluye: ["PR #97", "PR #177"]
   auto_router: "off"
+  # H6 (aviso del core, informativo para el runbook de lectura, NO es criterio): con
+  # `BASA_AUDIT_FAIL=closed` —el perfil de este examen— y la auditoría caída, el producto
+  # falla ANTES de responder, así que los 402 de la cohorte de presupuesto salen como 503
+  # SIN `X-Basa-Rejected`. Es pre-existente en política (fail-closed hace exactamente lo
+  # que promete), pero ahora alcanza tráfico que el drill genera A PROPÓSITO.
+  # Qué hace HOY el guion con ese 503: nada especial — chat.js no tiene rama para el
+  # 5xx-sin-header, así que cae en el `else` final y lo cuenta como request servida:
+  # `recordLatency` (un «no» barato metido en lat_chat) + un evento auditable que NO va a
+  # tener fila. El síntoma visible es doble: el check `chat sin 5xx (salvo saturación)`
+  # falla y la paridad queda con déficit de filas.
+  # Cómo leerlo: ante un FAIL de paridad de este drill, mirar la SALUD DE LA AUDITORÍA
+  # antes de concluir que el producto perdió filas. La rama explícita del 5xx-sin-header
+  # es una decisión de semántica de medición y queda en issue propio del harness.
 stub:                     # «sede lenta»: el proveedor tarda y gotea
   latency_ms: {chat: 800, coding_first_token: 600}
   token_rate_tps: 5       # 8× más lento que el gate oficial (40): los streams no se sueltan

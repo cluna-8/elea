@@ -38,12 +38,16 @@ export function chat() {
     // El contrato C1 exige la fila durable ANTES del 503 → sigue siendo auditable.
     metrics.auditable_events.add(1);
   } else if (res.status === 402) {
-    // Presupuesto agotado (cohorte 402 del gate): HOY el producto responde SIN escribir
-    // fila de auditoría (chat.py hace raise antes de auditar — issue #157). NO es evento
-    // auditable ni latencia de servicio: se cuenta en su propio Counter y la cifra queda
-    // en reconciliation.json. El día que el backend escriba fila para el 402, la paridad
-    // saldrá con «sobran filas» y se verá — ajustar el guion en ese mismo ciclo.
+    // Presupuesto agotado (cohorte 402 del gate): post-#177 (463801d) el producto escribe
+    // fila durable `compliance_status='rejected_budget'` ANTES de responder el 402 en el
+    // PLANO CHAT (el plano motor —coding tools/byok vía custom_auth— sigue sin fila,
+    // issue #176), así que ES evento auditable y entra en la paridad. NO es latencia de
+    // servicio —igual que el 503 saturado, un «no» barato hundiría los percentiles—, así
+    // que no va a recordLatency. `budget_402` se mantiene como conteo de la cohorte: es la
+    // evidencia del tamaño del grupo y lo que hace reconciliable el balde rejected_budget
+    // del producto contra lo que vio el guion.
     metrics.budget_402.add(1);
+    metrics.auditable_events.add(1);
   } else if (policyBlock(res)) {
     // Bloqueo de política (PII prohibida, clave privada, o fail-closed del NLP): es un
     // RESULTADO legítimo del examen y deja fila durable — cuenta como evento auditable y

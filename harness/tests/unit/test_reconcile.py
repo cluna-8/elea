@@ -3,8 +3,9 @@
 Frontera del módulo (DevFlow §3): pytest prueba el instrumento sin backend. Acá se cubre
 lo que decide un veredicto:
 
-- los totales salen de los filtros correctos (bloqueados + permitidos = tráfico, sin los
-  eslabones ``model='license'``) y la ventana viaja en los params;
+- los totales salen de los filtros correctos (bloqueados + permitidos + los dos baldes
+  ``rejected_*`` = tráfico, sin los eslabones ``model='license'``) y la ventana viaja en
+  los params;
 - fail-closed en TODOS los caminos por los que el módulo podría mentir: credencial mala,
   GET que falla, respuesta sin ``total``, filtro de fechas ignorado, contador de k6
   ausente, bloqueos que el guion no vio;
@@ -46,8 +47,9 @@ class FakeSession:
     puedan romperlas de a una:
 
     - ``estado`` parte el universo del tráfico excluyendo los eslabones ``model='license'``
-      y —desde la H4 del PR #135— los rechazos por capacidad (``~LIKE 'rejected%'``).
-      ``h4=False`` modela una imagen PRE-#135, donde los rechazos caen en ``permitidos``.
+      y —desde la H4 del PR #135— TODOS los rechazos (``~LIKE 'rejected%'``: por capacidad
+      y, desde #177, por presupuesto). ``h4=False`` modela una imagen PRE-#135, donde los
+      rechazos caen en ``permitidos``.
     - ``compliance_status`` filtra exacto y es COMPONIBLE con ``estado`` (el backend
       aplica los dos filtros; en un backend con H4 esa combinación es contradictoria).
     - las fechas se parsean POR CAMPO dentro de un ``try/except ValueError: pass``:
@@ -55,12 +57,14 @@ class FakeSession:
       el otro. Las filas del seed viven "antes del run" y las del run, dentro.
     """
 
-    def __init__(self, *, bloqueados=0, permitidos=0, rejected=0, licencia=0, seed_rows=5,
+    def __init__(self, *, bloqueados=0, permitidos=0, rejected=0, rejected_budget=0,
+                 licencia=0, seed_rows=5,
                  login_status=200, audit_status=200, total_override=...,
                  ignora_from=False, ignora_to=False, h4=True):
         self.bloqueados = bloqueados
         self.permitidos = permitidos
-        self.rejected = rejected
+        self.rejected = rejected                  # compliance_status='rejected_saturated'
+        self.rejected_budget = rejected_budget    # compliance_status='rejected_budget'
         self.licencia = licencia          # eslabones model='license' de la hash-chain
         self.seed_rows = seed_rows        # tráfico del seed, FUERA de la ventana del run
         self.login_status = login_status
@@ -99,34 +103,49 @@ class FakeSession:
             return 0                       # ventana pasada: el borde superior corta todo
         if anio_hasta == "1970" and self.ignora_to:
             # `to_date` descartado en silencio → vuelve la tabla entera (incluido el run)
-            return self.bloqueados + self.permitidos + self.rejected + self.licencia
+            return (self.bloqueados + self.permitidos + self._rechazos() + self.licencia)
         extra = self.seed_rows if (incluye_seed and anio_desde != "1970") else 0
 
         # 2) filtros de clase.
         estado = params.get("estado")
         status = params.get("compliance_status")
         if estado is None and status is not None:
-            return self.rejected if status == "rejected_saturated" else 0
+            return self._por_literal(status)
         if estado is None:
             # sin `estado`: el universo incluye los eslabones de licencia (lo que NO queremos)
-            return self.bloqueados + self.permitidos + self.rejected + self.licencia + extra
-        # con `estado`: fuera license y (si hay H4) fuera los rechazos.
+            return (self.bloqueados + self.permitidos + self._rechazos() + self.licencia
+                    + extra)
+        # con `estado`: fuera license y (si hay H4) fuera TODOS los rechazos.
         if estado == "bloqueados":
             base = self.bloqueados
         else:
-            base = self.permitidos if self.h4 else self.permitidos + self.rejected
+            base = self.permitidos if self.h4 else self.permitidos + self._rechazos()
         if status is not None:
             # AND de los dos filtros: con H4 es contradictorio (0); sin H4, los rechazos
             # están dentro de `permitidos` y la combinación los devuelve.
-            if self.h4 or estado == "bloqueados" or status != "rejected_saturated":
+            if self.h4 or estado == "bloqueados":
                 return 0
-            return self.rejected
+            return self._por_literal(status)
         return base + (extra if estado == "permitidos" else 0)
 
+    def _rechazos(self):
+        """Todo lo que el prefijo `rejected%` del filtro `estado` deja afuera."""
+        return self.rejected + self.rejected_budget
 
-def _summary(auditable=100, blocks=0):
+    def _por_literal(self, status):
+        if status == "rejected_saturated":
+            return self.rejected
+        if status == "rejected_budget":
+            return self.rejected_budget
+        return 0
+
+
+def _summary(auditable=100, blocks=0, budget_402=0):
+    # `buildSummary` (common.js) emite SIEMPRE los cuatro contadores, 0 incluido: un
+    # summary al que le falte uno no es el que produce este harness.
     return {"schema": "basa-harness/k6-summary@1", "auditable_events": auditable,
-            "observed_blocks": blocks, "provoked_blocks": blocks}
+            "observed_blocks": blocks, "provoked_blocks": blocks,
+            "budget_402": budget_402}
 
 
 def _fn(session, **kw):
@@ -153,8 +172,9 @@ def test_cuenta_trafico_como_bloqueados_mas_permitidos():
     assert recon["con_fila"] == 6
     assert recon["bloqueos_provocados"] == 6
     assert recon["filas_rejected_saturated"] == 0
+    assert recon["filas_rejected_budget"] == 0
     assert recon["desglose"] == {"filas_bloqueadas": 6, "filas_permitidas": 94,
-                                 "filas_rechazadas": 0}
+                                 "filas_rechazadas": 0, "filas_rechazadas_budget": 0}
 
 
 def test_los_rechazos_de_admision_cuentan_como_trafico():
@@ -169,9 +189,29 @@ def test_los_rechazos_de_admision_cuentan_como_trafico():
     assert recon["filas_rejected_saturated"] == 10
     assert recon["con_fila"] == 6                     # SLO (d) sigue siendo SOLO política
     assert recon["desglose"] == {"filas_bloqueadas": 6, "filas_permitidas": 84,
-                                 "filas_rechazadas": 10}
+                                 "filas_rechazadas": 10, "filas_rechazadas_budget": 0}
     # Contrafáctico: solo bloqueados+permitidos habría dado 90 → «faltan 10 filas».
     assert session.bloqueados + session.permitidos == 90
+
+
+def test_los_402_de_presupuesto_cuentan_como_trafico():
+    """Post-#177 el plano chat escribe fila durable `rejected_budget` ANTES de responder el
+    402, y el guion cuenta ese 402 como evento auditable. El literal cae bajo el mismo
+    prefijo `rejected%` que excluye el filtro binario, así que necesita su propio balde:
+    sin él, un run con la cohorte 402 que el gate 125 siembra a propósito reportaría
+    «faltan N filas» que el producto SÍ escribió (falso FAIL del SLO (b))."""
+    session = FakeSession(bloqueados=6, permitidos=79, rejected=10, rejected_budget=5,
+                          licencia=2)
+    recon = _fn(session)(_summary(auditable=100, blocks=6))
+
+    assert recon["filas_persistidas"] == 100      # 6 + 79 + 10 + 5, sin los 2 de licencia
+    assert recon["filas_rejected_budget"] == 5
+    assert recon["filas_rejected_saturated"] == 10
+    assert recon["con_fila"] == 6                 # SLO (d) sigue siendo SOLO política
+    assert recon["desglose"] == {"filas_bloqueadas": 6, "filas_permitidas": 79,
+                                 "filas_rechazadas": 10, "filas_rechazadas_budget": 5}
+    # Contrafáctico: sin el cuarto balde el total habría dado 95 → «faltan 5 filas».
+    assert session.bloqueados + session.permitidos + session.rejected == 95
 
 
 def test_el_total_sin_estado_habria_inflado_las_filas():
@@ -200,14 +240,16 @@ def test_la_ventana_viaja_en_los_params_y_en_formato_naive_utc():
         assert c["headers"]["Authorization"] == "Bearer tok-compliance"
 
 
-def test_los_tres_filtros_se_piden_siempre():
-    session = FakeSession(bloqueados=3, permitidos=7, rejected=5)
+def test_los_cuatro_filtros_se_piden_siempre():
+    session = FakeSession(bloqueados=3, permitidos=7, rejected=5, rejected_budget=2)
     recon = _fn(session)(_summary(auditable=10, blocks=3))
     params = [c["params"] for c in _audit_calls(session)]
     assert {"bloqueados", "permitidos"} <= {p.get("estado") for p in params}
-    assert "rejected_saturated" in {p.get("compliance_status") for p in params}
-    # el contrato pide el conteo de rechazos SIEMPRE, aunque hoy el core no los escriba
+    assert {"rejected_saturated", "rejected_budget"} <= {p.get("compliance_status")
+                                                         for p in params}
+    # el contrato pide el conteo de rechazos SIEMPRE, aunque el run no produzca ninguno
     assert recon["filas_rejected_saturated"] == 5
+    assert recon["filas_rejected_budget"] == 2
 
 
 def test_ventana_iso_string_tambien_vale():
@@ -322,30 +364,94 @@ def test_backend_pre_h4_no_se_certifica():
         _fn(perdidas)(_summary(auditable=100, blocks=6))
 
 
-def test_sin_rechazos_no_se_sondea_la_h4():
-    """Si no hubo rechazos no hay nada que doble-contar: la sonda extra no se paga."""
-    session = FakeSession(bloqueados=4, permitidos=96, rejected=0, seed_rows=0)
+def test_backend_que_cuenta_los_402_dentro_de_permitidos_no_se_certifica():
+    """Espejo de A1 para `rejected_budget`: la exclusión `rejected%` (H4) cubre también el
+    literal del 402, pero contra una imagen que no la tenga esas filas viven DENTRO de
+    `permitidos` y re-sumar el balde las doble-contaría — tapando filas de tráfico perdidas
+    hasta cuadrar (PASS regalado del SLO (b)). El mensaje nombra el literal para que quien
+    lea el abort sepa por cuál balde entró."""
+    session = FakeSession(bloqueados=6, permitidos=84, rejected=0, rejected_budget=10,
+                          h4=False, seed_rows=0)
+    with pytest.raises(ReconcileError) as ei:
+        _fn(session)(_summary(auditable=100, blocks=6))
+    assert "rejected_budget" in str(ei.value)
+
+
+@pytest.mark.parametrize("rejected,budget,sondeados", [
+    (0, 0, set()),
+    (10, 0, {"rejected_saturated"}),
+    (0, 7, {"rejected_budget"}),
+    (10, 7, {"rejected_saturated", "rejected_budget"}),
+])
+def test_la_sonda_de_doble_conteo_se_paga_por_balde_con_filas(rejected, budget, sondeados):
+    """Si un balde `rejected_*` vino en 0 no hay nada que doble-contar y la sonda extra no
+    se paga. Si vino con filas, se paga SOLO por ese literal: la exclusión `rejected%` del
+    backend es una sola, pero cada balde se re-suma por separado y el doble conteo entra
+    por el que de verdad tuvo filas."""
+    session = FakeSession(bloqueados=4, permitidos=96 - rejected - budget,
+                          rejected=rejected, rejected_budget=budget, seed_rows=0)
     recon = _fn(session)(_summary(auditable=100, blocks=4))
     assert recon["filas_persistidas"] == 100
-    combinadas = [c for c in _audit_calls(session)
-                  if c["params"].get("estado") and c["params"].get("compliance_status")]
-    assert combinadas == []
+    combinadas = {c["params"].get("compliance_status") for c in _audit_calls(session)
+                  if c["params"].get("estado") and c["params"].get("compliance_status")}
+    assert combinadas == sondeados
 
 
-def test_los_402_sin_fila_quedan_en_la_evidencia():
-    """A4: el guion NO cuenta los 402 de presupuesto como auditables (el producto no les
-    escribe fila, issue #157). El conteo viaja igual a la evidencia para que el delta de
-    la reconciliación sea explicable a posteriori."""
+def test_la_cohorte_402_del_guion_queda_en_la_evidencia():
+    """Post-#177 los 402 del plano chat YA están dentro de `auditable_events` (el producto
+    les escribe fila `rejected_budget`). El Counter del guion viaja igual a la evidencia:
+    es lo que permite cruzar la cohorte que vio el guion contra `filas_rejected_budget`
+    del producto cuando la paridad no cuadra."""
+    session = FakeSession(bloqueados=2, permitidos=61, rejected_budget=37, seed_rows=0)
+    recon = _fn(session)(_summary(auditable=100, blocks=2, budget_402=37))
+    assert recon["respuestas_402"] == 37
+    assert recon["filas_rejected_budget"] == 37       # cruzan: cohorte del guion = filas
+    assert recon["filas_persistidas"] == 100
+
+    # La clave está SIEMPRE (el contador también): un run sin cohorte reporta 0, no la omite.
+    limpio = _fn(FakeSession(bloqueados=2, permitidos=98, seed_rows=0))(
+        _summary(auditable=100, blocks=2))
+    assert limpio["respuestas_402"] == 0
+
+
+def test_summary_sin_budget_402_no_se_degrada_a_no_se():
+    """`budget_402` es el insumo de la guarda pre-#177, así que leerlo con `.get` sería
+    fail-OPEN: un summary sin el contador saltearía la guarda en silencio y dejaría pasar
+    justo la imagen que la guarda existe para cazar. Se lee como el resto de los
+    contadores — ausente = summary que no es de este harness = abort."""
     session = FakeSession(bloqueados=2, permitidos=98, seed_rows=0)
-    summary = _summary(auditable=100, blocks=2)
-    summary["budget_402"] = 37
-    recon = _fn(session)(summary)
-    assert recon["respuestas_402_sin_fila"] == 37
-    assert recon["filas_persistidas"] == 100          # los 402 no cuentan de ningún lado
+    with pytest.raises(ReconcileError) as ei:
+        _fn(session)({"auditable_events": 100, "observed_blocks": 2})
+    assert "budget_402" in str(ei.value)
 
-    # Un summary sin el contador (guion pre-A4) no inventa la clave.
-    assert "respuestas_402_sin_fila" not in _fn(
-        FakeSession(bloqueados=2, permitidos=98, seed_rows=0))(_summary(auditable=100, blocks=2))
+
+def test_cohorte_402_sin_filas_rejected_budget_es_imagen_pre_177():
+    """El guion cuenta el 402 como auditable ASUMIENDO la fila del PR #177. Contra una
+    imagen sin ese PR la paridad saldría con un «faltan N filas» que parece pérdida de
+    auditoría — y el yaml NO puede impedirlo: `producto_incluye` es una lista y
+    `_stack_config_drift` solo compara escalares, así que jamás produce drift. La firma
+    (cohorte vista > 0, cero filas) se caza acá y el run sale `invalid` con causa."""
+    session = FakeSession(bloqueados=2, permitidos=98, rejected_budget=0, seed_rows=0)
+    with pytest.raises(ReconcileError) as ei:
+        _fn(session)(_summary(auditable=100, blocks=2, budget_402=18))
+    assert "#177" in str(ei.value)
+
+
+def test_sin_cohorte_402_ejercitada_la_guarda_no_se_dispara():
+    """Un run sin cohorte 402 (b402 == 0) no afirma nada sobre el escritor de filas: sin
+    402 recibidos no hay fila que exigir. Abortar ahí invalidaría runs legítimos."""
+    session = FakeSession(bloqueados=2, permitidos=98, rejected_budget=0, seed_rows=0)
+    recon = _fn(session)(_summary(auditable=100, blocks=2, budget_402=0))
+    assert recon["respuestas_402"] == 0
+    assert recon["filas_rejected_budget"] == 0
+
+
+def test_cohorte_402_con_sus_filas_no_aborta():
+    """El camino post-#177: cada 402 que vio el guion tiene su fila `rejected_budget`."""
+    session = FakeSession(bloqueados=2, permitidos=80, rejected_budget=18, seed_rows=0)
+    recon = _fn(session)(_summary(auditable=100, blocks=2, budget_402=18))
+    assert recon["respuestas_402"] == 18 and recon["filas_rejected_budget"] == 18
+    assert recon["filas_persistidas"] == 100
 
 
 def test_sin_ventana_no_cuenta():

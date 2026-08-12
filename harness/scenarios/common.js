@@ -117,9 +117,13 @@ function buildMetrics() {
     provoked_blocks: new Counter('provoked_blocks'),
     observed_blocks: new Counter('observed_blocks'),
     saturated_rejections: new Counter('saturated_rejections'),
-    // 402 de presupuesto agotado: el producto responde SIN fila durable (issue #157),
-    // así que NO es evento auditable — contarlo como tal haría FAIL falso del SLO (b)
-    // con la cohorte 402 que el gate 125 siembra a propósito.
+    // 402 de presupuesto agotado: desde el PR #177 el plano CHAT escribe fila durable
+    // (`compliance_status='rejected_budget'`) antes de responder, así que esos 402 SÍ son
+    // eventos auditables. Este Counter mide el tamaño de la cohorte 402 que el gate 125
+    // siembra a propósito: es lo que permite cruzar «cuántos 402 vio el guion» contra el
+    // balde `rejected_budget` del producto. El plano MOTOR (coding tools/byok vía
+    // custom_auth) sigue respondiendo el 402 sin fila (issue #176) — hoy ningún scenario
+    // de este harness maneja 402 fuera de chat.js.
     budget_402: new Counter('budget_402'),
     harness_errors: new Counter('harness_errors'),
   };

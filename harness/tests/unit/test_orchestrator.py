@@ -122,7 +122,7 @@ def test_dry_run_verdict_json_valido(tmp_path):
     orch = _orch(tmp_path, dry_run=True)
     orch.run()
     data = json.loads((orch.run_dir / "verdict.json").read_text())
-    assert data["gate"] == {"n": 125, "version": "1.0.0"}
+    assert data["gate"] == {"n": 125, "version": "1.1.0"}
     assert {s["slo"] for s in data["slos"]} == {
         "audit_lost_events_delta_zero", "reconciliation_rows",
         "zero_raw_canaries", "blocked_rows_durable_100"}
@@ -206,7 +206,7 @@ def test_pipeline_completo_con_fakes_pass(tmp_path):
     # el fingerprint quedó escrito con la config del gate (el kind del run es MATERIAL:
     # un drill y un gate oficial del mismo número no son el mismo examen)
     fp = json.loads((orch.run_dir / "fingerprint.json").read_text())
-    assert fp["gate"] == {"n": 125, "version": "1.0.0", "kind": "gate_oficial"}
+    assert fp["gate"] == {"n": 125, "version": "1.1.0", "kind": "gate_oficial"}
     assert fp["versiones_instrumento"]["k6"] == "v1.8.0"
 
 

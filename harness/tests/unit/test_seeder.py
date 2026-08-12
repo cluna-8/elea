@@ -202,6 +202,35 @@ def test_plan_members_cuenta_exacta_y_cohorte_402():
     assert all(m.tool_type is None for m in members if m.role != "client")
 
 
+@pytest.mark.parametrize("gate", GATES)
+def test_la_cohorte_402_cae_entera_en_el_bucket_de_chat(gate):
+    """La cohorte 402 vive en `chat_ui` por ACOPLAMIENTO DE ÍNDICE GLOBAL, no por
+    declaración: `plan_members` reparte el presupuesto ínfimo a los primeros
+    `cohort_402_size` clients recorriendo los buckets en el orden del yaml. Hoy caen todos
+    en chat sólo porque ese bucket se declara PRIMERO y es más grande que la cohorte — dos
+    hechos de DATA, en un archivo que se documenta a sí mismo como «se ajusta sin tocar
+    código».
+
+    Y la superficie NO es un detalle: el 402 se cuenta distinto en cada guion. chat.js lo
+    cuenta como evento auditable (asume la fila `rejected_budget` del PR #177);
+    coding-sse.js lo manda a `harness_errors`, que INVALIDA el run; extension.js ya sumó el
+    evento auditable antes de mirar el status. Un reorden de los buckets mudaría la cohorte
+    a `desktop`/`base_url` y rompería la paridad en silencio. Este test es lo que hace
+    ruidoso ese reorden — los tamaños salen del yaml, no se hornean acá."""
+    pop = load_population_by_gate(gate)
+    primero = pop.buckets[0]
+    # `chat_ui` es además el único client_type que los pools de extension (desktop) y de
+    # coding (base_url) de common.js NO reclaman: la cohorte solo la ejercita chat.js.
+    assert primero.client_type == "chat_ui"
+    assert 0 < pop.cohort_402_size <= primero.count
+
+    # De punta a punta: cada miembro de la cohorte sale del plan con client_type chat_ui.
+    clients = [m for m in plan_members(pop, DEFAULT_SEED) if m.is_seat]
+    cohorte = [m for m in clients if m.budget and m.budget.kind == "cohort_402"]
+    assert len(cohorte) == pop.cohort_402_size
+    assert {m.client_type for m in cohorte} == {"chat_ui"}
+
+
 def test_validacion_detecta_suma_rota():
     pop = load_population_by_gate(125)
     bad = dict(pop.raw)

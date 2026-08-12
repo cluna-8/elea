@@ -36,7 +36,7 @@ GATE_FILES = {n: GATES_DIR / f"gate-{n}.yaml" for n in (125, 250, 500)}
 def test_los_tres_yaml_cargan(n):
     gate = load_gate(GATE_FILES[n])
     assert gate.gate == n
-    assert gate.version == "1.0.0"
+    assert gate.version == "1.1.0"
     assert set(gate.slo) == set(CANONICAL_SLOS)
 
 
@@ -68,7 +68,7 @@ def test_gate_125_campos_del_contrato():
     assert scr["nlp_analyzer"] == "real"
     assert scr["nlp_analyzer_url"] == "configured"
     assert scr["nlp_fail_mode"] == "block"
-    assert scr["producto_incluye"] == ["PR #97"]
+    assert scr["producto_incluye"] == ["PR #97", "PR #177"]
     assert scr["auto_router"] == "off"
     assert [p.name for p in g.phases] == ["sustained"]
     assert g.phases[0].duration_s == 30 * 60

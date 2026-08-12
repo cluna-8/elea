@@ -15,11 +15,13 @@ la lectura que NO pueda regalar un PASS. En concreto:
    los rechazos por capacidad** (``~LIKE 'rejected%'``, ``backend/src/api/audit.py``): un
    rechazo no es ni permitido ni bloqueado por política, así que no vive en ningún balde
    del filtro binario. Pero para la reconciliación SÍ es tráfico: el contrato C1 exige una
-   fila durable por rechazo y el guion cuenta cada 503 saturado como evento auditable
-   (``chat.js``/``coding-sse.js``). Por eso el total se arma como ``estado=bloqueados`` +
-   ``estado=permitidos`` + el conteo exacto de ``compliance_status=rejected_saturated`` —
-   sin ese tercer balde, un run con N rechazos reportaría «faltan N filas» que el producto
-   sí escribió (falso FAIL del SLO (b)). La alternativa (pedir el total SIN ``estado``)
+   fila durable por rechazo, el PR #177 extendió el mismo patrón al 402 de presupuesto en
+   el plano chat, y el guion cuenta ambos como eventos auditables (``chat.js``/
+   ``coding-sse.js``). Por eso el total se arma con CUATRO baldes:
+   ``estado=bloqueados`` + ``estado=permitidos`` + el conteo exacto de
+   ``compliance_status=rejected_saturated`` + el de ``compliance_status=rejected_budget``
+   — sin los dos últimos, un run con N rechazos reportaría «faltan N filas» que el
+   producto sí escribió (falso FAIL del SLO (b)). La alternativa (pedir el total SIN ``estado``)
    contaría además los eslabones ``model='license'`` de la hash-chain (021), que se
    escriben DURANTE el run y no son tráfico: inflarían ``filas_persistidas`` y podrían
    TAPAR filas de tráfico perdidas hasta cuadrar con los eventos del guion. Es decir,
@@ -47,10 +49,22 @@ la lectura que NO pueda regalar un PASS. En concreto:
    sobre un run donde el bloqueo demostrablemente ocurrió: se aborta con error accionable
    (run sin veredicto limpio) en vez de certificarlo.
 
-Errores fail-closed: si el GET falla, la credencial no loguea o la respuesta no trae
-``total``, se levanta ``ReconcileError``. JAMÁS se devuelve un conteo inventado ni un 0
-por defecto — el orquestador convierte la excepción en un run marcado ``invalid``, que es
-la lectura honesta de «no se pudo medir».
+5. **Imagen anterior al PR #177.** El guion cuenta cada 402 de presupuesto como evento
+   auditable porque el producto escribe la fila ``rejected_budget`` ANTES de responder
+   (plano chat). Contra una imagen sin ese PR no hay fila y la paridad saldría con un FAIL
+   críptico de «faltan N filas» que parecería pérdida de auditoría. El yaml del gate lo
+   exige en ``stack_config_required.producto_incluye``, pero esa precondición NO es
+   verificable por drift (``orchestrator._stack_config_drift`` solo compara escalares: una
+   lista jamás produce drift). Así que la firma se detecta acá: cohorte 402 vista por el
+   guion > 0 con CERO filas ``rejected_budget`` en la ventana → se aborta. Cambia un falso
+   FAIL por un run ``invalid`` con causa accionable, que sigue siendo fail-closed. El
+   insumo de esa guarda (``budget_402``) se lee con ``_counter`` como los demás: si el
+   summary no lo trae se aborta en vez de degradar a «no sé», que saltearía la guarda.
+
+Errores fail-closed: si el GET falla, la credencial no loguea, la respuesta no trae
+``total`` o al summary de k6 le falta un contador, se levanta ``ReconcileError``. JAMÁS se
+devuelve un conteo inventado ni un 0 por defecto — el orquestador convierte la excepción en
+un run marcado ``invalid``, que es la lectura honesta de «no se pudo medir».
 """
 from __future__ import annotations
 
@@ -66,15 +80,19 @@ AUDIT_PATH = "/api/v1/audit-logs"
 ESTADO_BLOQUEADOS = "bloqueados"
 ESTADO_PERMITIDOS = "permitidos"
 
-# Estado LITERAL del rechazo de admisión C1 (contrato de wire sellado con el core; en main
-# desde el PR #135). Se pide SIEMPRE porque el contrato lo exige ante cualquier rechazo y
-# cuesta una request. Dos huecos CONOCIDOS y aceptados de este balde (hallazgos B1/B2 del
-# gate): (1) va sin `estado`, así que no excluye `model='license'` — hoy imposible que
+# Estados LITERALES de rechazo que el core acuña hoy y que el filtro binario `estado`
+# excluye por prefijo (`~LIKE 'rejected%'`): el rechazo de admisión C1 (contrato de wire
+# sellado; en main desde el PR #135) y el 402 de presupuesto agotado del plano chat (fila
+# durable ANTES de responder, PR #177 — el plano motor todavía responde sin fila, #176).
+# Los dos se piden SIEMPRE: el contrato los exige ante cualquier rechazo y cuestan una
+# request cada uno. Dos huecos CONOCIDOS y aceptados de estos baldes (hallazgos B1/B2 del
+# gate): (1) van sin `estado`, así que no excluyen `model='license'` — hoy imposible que
 # colisione: los eventos de licencia solo emiten passed/flagged_high_risk/blocked_by_policy;
-# (2) cualquier `rejected_*` FUTURO distinto de este literal quedaría fuera de los tres
-# baldes (el filtro `estado` excluye por prefijo, esto cuenta por match exacto) — el día
-# que el core acuñe otro literal (p. ej. rejected_budget), ampliar el conteo acá.
+# (2) cualquier `rejected_*` FUTURO distinto de estos dos literales quedaría fuera de los
+# cuatro baldes (el filtro `estado` excluye por prefijo, esto cuenta por match exacto) —
+# el aviso sigue vigente: el día que el core acuñe otro literal, ampliar el conteo acá.
 COMPLIANCE_REJECTED_SATURATED = "rejected_saturated"
+COMPLIANCE_REJECTED_BUDGET = "rejected_budget"
 
 # Ventanas imposibles para las sondas de "¿el filtro de fechas se está aplicando?"
 # (punto 2). Se necesitan las DOS porque el `except ValueError: pass` de `_build_query`
@@ -141,23 +159,44 @@ class HttpReconcile:
 
         eventos = _counter(k6_summary, "auditable_events")
         bloqueos = _counter(k6_summary, "observed_blocks")
-        # Informativo, no decide SLO: 402s de presupuesto que el guion NO contó como
-        # auditables porque el producto no les escribe fila (issue #157). Queda en la
-        # evidencia para que el delta de la reconciliación sea explicable a posteriori.
-        b402 = k6_summary.get("budget_402")
-        b402 = b402 if isinstance(b402, int) and not isinstance(b402, bool) else None
+        # Informativo, no decide SLO: tamaño de la cohorte 402 de presupuesto que vio el
+        # guion. Desde el PR #177 el plano chat SÍ escribe fila (`rejected_budget`) antes
+        # de responder el 402, así que estos 402 YA están dentro de `auditable_events` y
+        # esta clave sirve para cruzar la cohorte del guion contra `filas_rejected_budget`
+        # del producto: si no cuadran, el delta de la paridad tiene explicación. (El plano
+        # motor sigue respondiendo 402 sin fila, #176 — hoy ningún scenario lo ejercita.)
+        # Se lee con `_counter` como los demás: un summary sin el contador NO se degrada a
+        # «no sé» —eso saltearía la guarda de abajo—, se aborta.
+        b402 = _counter(k6_summary, "budget_402")
 
         self._assert_filtro_de_ventana_activo()
         bloqueadas = self._total(estado=ESTADO_BLOQUEADOS)
         permitidas = self._total(estado=ESTADO_PERMITIDOS)
         rechazadas = self._total(compliance_status=COMPLIANCE_REJECTED_SATURATED)
-        # A1: el conteo re-suma `rechazadas` porque se ASUME que el backend tiene la H4
-        # (#135), que excluye `rejected%` del filtro `estado`. Contra un backend pre-#135
-        # las rechazadas YA están dentro de `permitidos` y re-sumarlas las doble-cuenta —
-        # y el caso perverso cancela filas perdidas reales (PASS regalado). Solo importa
-        # si de verdad hubo rechazos: si son 0, no hay nada que doble-contar.
+        rechazadas_budget = self._total(compliance_status=COMPLIANCE_REJECTED_BUDGET)
+        # A1: el conteo re-suma los baldes `rejected_*` porque se ASUME que el backend
+        # tiene la H4 (#135), que excluye `rejected%` del filtro `estado`. Contra un
+        # backend sin esa exclusión los rechazos YA están dentro de `permitidos` y
+        # re-sumarlos los doble-cuenta — y el caso perverso cancela filas perdidas reales
+        # (PASS regalado). La sonda se paga por literal y solo si de verdad hubo filas de
+        # ese tipo: con 0 no hay nada que doble-contar.
         if rechazadas > 0:
-            self._assert_backend_tiene_h4()
+            self._assert_backend_excluye_rejected(COMPLIANCE_REJECTED_SATURATED)
+        if rechazadas_budget > 0:
+            self._assert_backend_excluye_rejected(COMPLIANCE_REJECTED_BUDGET)
+        # Guarda de imagen pre-#177 (punto 5). Solo se dispara con la cohorte EJERCITADA:
+        # si el guion no vio ningún 402 no hay nada que afirmar sobre el escritor de filas
+        # (un run sin cohorte 402 es legítimo y no debe abortar).
+        if b402 > 0 and rechazadas_budget == 0:
+            raise ReconcileError(
+                f"el guion recibió {b402} respuesta(s) 402 de presupuesto pero el producto "
+                f"no escribió NINGUNA fila `compliance_status={COMPLIANCE_REJECTED_BUDGET}` "
+                "en la ventana: es la firma de una imagen ANTERIOR al PR #177 (el 402 hacía "
+                "raise antes de auditar, issue #157). El guion cuenta esos 402 como eventos "
+                "auditables, así que la paridad saldría con un «faltan filas» que parecería "
+                "pérdida de auditoría y no lo es. El yaml lo exige en `producto_incluye`, "
+                "pero esa precondición no la caza el drift (compara escalares, no listas). "
+                "Corré el gate contra una imagen con #177 en main.")
 
         if bloqueos == 0 and bloqueadas > 0:
             raise ReconcileError(
@@ -171,21 +210,24 @@ class HttpReconcile:
             "eventos_guion": eventos,
             # Los rechazos se re-suman: el filtro `estado` los excluye de ambos baldes
             # (H4, #135) pero son filas de tráfico que el guion contó como auditables.
-            "filas_persistidas": bloqueadas + permitidas + rechazadas,
+            "filas_persistidas": bloqueadas + permitidas + rechazadas + rechazadas_budget,
             "bloqueos_provocados": bloqueos,
             "con_fila": bloqueadas,
             "filas_rejected_saturated": rechazadas,
+            "filas_rejected_budget": rechazadas_budget,
+            # Cohorte 402 que vio el guion, cruzable contra `filas_rejected_budget`.
+            "respuestas_402": b402,
             # Evidencia del conteo (el evaluador ignora las claves que no conoce; esto va al
             # reconciliation.json del run para que la cifra sea auditable después).
             "ventana": {"desde": self._desde.isoformat(), "hasta": self._hasta.isoformat()},
             "desglose": {"filas_bloqueadas": bloqueadas, "filas_permitidas": permitidas,
-                         "filas_rechazadas": rechazadas},
+                         "filas_rechazadas": rechazadas,
+                         "filas_rechazadas_budget": rechazadas_budget},
             "fuente": (f"GET {AUDIT_PATH} (estado=bloqueados + estado=permitidos + "
-                       "compliance_status=rejected_saturated; excluye model='license', "
+                       "compliance_status=rejected_saturated + "
+                       "compliance_status=rejected_budget; excluye model='license', "
                        "que no es tráfico)"),
         }
-        if b402 is not None:
-            resultado["respuestas_402_sin_fila"] = b402
         return resultado
 
     # ── HTTP ───────────────────────────────────────────────────────────────────────────
@@ -222,27 +264,30 @@ class HttpReconcile:
                 "que los conteos contarían tráfico posterior a t1. No se certifica un "
                 "examen con la ventana rota.")
 
-    def _assert_backend_tiene_h4(self) -> None:
+    def _assert_backend_excluye_rejected(self, literal: str) -> None:
         """Sonda A1: confirma que el backend excluye ``rejected%`` del filtro ``estado``.
 
-        Un AND de ``estado=permitidos`` y ``compliance_status=rejected_saturated`` es
-        contradictorio en un backend post-#135 (la rama ``estado`` filtra
-        ``~LIKE 'rejected%'``, así que ninguna fila rechazada cae en ``permitidos``) →
-        total 0 SIEMPRE. Si devuelve >0, el backend está contando los rechazos DENTRO de
-        ``permitidos`` (imagen pre-#135): re-sumar ``rechazadas`` los doble-contaría. Un
-        gate oficial no se corre —ni se certifica— contra una imagen sin la H4."""
+        Se corre POR LITERAL rechazado con conteo >0, porque la exclusión es una sola
+        (``~LIKE 'rejected%'``) pero cada balde se re-suma por separado: si la imagen no la
+        tiene, el doble conteo entra por el literal que de verdad tuvo filas.
+
+        Un AND de ``estado=permitidos`` y ``compliance_status=<literal>`` es contradictorio
+        en un backend post-#135 (la rama ``estado`` filtra ``~LIKE 'rejected%'``, así que
+        ninguna fila rechazada cae en ``permitidos``) → total 0 SIEMPRE. Si devuelve >0, el
+        backend está contando ese rechazo DENTRO de ``permitidos`` (imagen pre-#135):
+        re-sumar el balde lo doble-contaría. Un gate oficial no se corre —ni se certifica—
+        contra una imagen sin la H4."""
         solapan = self._get_total({"limit": _LIMIT, "estado": ESTADO_PERMITIDOS,
-                                   "compliance_status": COMPLIANCE_REJECTED_SATURATED,
+                                   "compliance_status": literal,
                                    "from_date": _wire(self._desde),
                                    "to_date": _wire(self._hasta)})
         if solapan != 0:
             raise ReconcileError(
-                f"el backend cuenta los rechazos por capacidad DENTRO de `permitidos` "
+                f"el backend cuenta los rechazos `{literal}` DENTRO de `permitidos` "
                 f"({solapan} fila(s) con estado=permitidos Y "
-                "compliance_status=rejected_saturated): es una imagen anterior al PR #135 "
-                "(sin la exclusión `rejected%` del filtro binario, H4). Re-sumar las filas "
-                "rechazadas las doble-contaría y el SLO (b) mentiría. Corré el gate contra "
-                "una imagen con #135 en main.")
+                f"compliance_status={literal}): es una imagen sin la exclusión `rejected%` "
+                "del filtro binario (H4, PR #135). Re-sumar esas filas las doble-contaría "
+                "y el SLO (b) mentiría. Corré el gate contra una imagen con #135 en main.")
 
     def _total(self, *, estado: Optional[str] = None,
                compliance_status: Optional[str] = None) -> int:
