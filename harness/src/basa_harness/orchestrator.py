@@ -501,6 +501,10 @@ class Orchestrator:
             "desde": self.window_t0.isoformat() if self.window_t0 else None,
             "hasta": self.window_t1.isoformat() if self.window_t1 else None,
         })
+        # La evidencia puede persistirse desde un _reconcile suelto (tests lo hacen) sin
+        # que run() haya creado el directorio todavía; mkdir exist_ok no pisa nada — la
+        # guarda anti-sobrescritura es sobre verdict.json, al arrancar run().
+        self.run_dir.mkdir(parents=True, exist_ok=True)
         self._write_json("reconciliation.json", data)
 
     # ── fingerprint ────────────────────────────────────────────────────────────────────
