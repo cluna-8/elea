@@ -72,9 +72,15 @@ ESTADO_PERMITIDOS = "permitidos"
 # cuesta una request.
 COMPLIANCE_REJECTED_SATURATED = "rejected_saturated"
 
-# Ventana imposible para la sonda de "¿el filtro de fechas se está aplicando?" (punto 2).
-_SONDA_DESDE = "2999-01-01T00:00:00"
-_SONDA_HASTA = "2999-01-02T00:00:00"
+# Ventanas imposibles para las sondas de "¿el filtro de fechas se está aplicando?"
+# (punto 2). Se necesitan las DOS porque el `except ValueError: pass` de `_build_query`
+# es por campo: la futura prueba el borde `from_date`, la pasada el borde `to_date`.
+# El formato lleva microsegundos, igual que el que emite `_wire()` para los conteos
+# reales: la sonda debe validar el MISMO formato que se usa de verdad.
+_SONDA_FUTURO_DESDE = "2999-01-01T00:00:00.000000"
+_SONDA_FUTURO_HASTA = "2999-01-02T00:00:00.000000"
+_SONDA_PASADO_DESDE = "1970-01-01T00:00:00.000000"
+_SONDA_PASADO_HASTA = "1970-01-02T00:00:00.000000"
 
 # ``limit`` mínimo aceptado por el endpoint (``Query(50, ge=1, le=100)``): sólo interesa
 # ``total``, así que se pide la fila más chica posible en vez de paginar miles.
@@ -131,11 +137,23 @@ class HttpReconcile:
 
         eventos = _counter(k6_summary, "auditable_events")
         bloqueos = _counter(k6_summary, "observed_blocks")
+        # Informativo, no decide SLO: 402s de presupuesto que el guion NO contó como
+        # auditables porque el producto no les escribe fila (issue #157). Queda en la
+        # evidencia para que el delta de la reconciliación sea explicable a posteriori.
+        b402 = k6_summary.get("budget_402")
+        b402 = b402 if isinstance(b402, int) and not isinstance(b402, bool) else None
 
         self._assert_filtro_de_ventana_activo()
         bloqueadas = self._total(estado=ESTADO_BLOQUEADOS)
         permitidas = self._total(estado=ESTADO_PERMITIDOS)
         rechazadas = self._total(compliance_status=COMPLIANCE_REJECTED_SATURATED)
+        # A1: el conteo re-suma `rechazadas` porque se ASUME que el backend tiene la H4
+        # (#135), que excluye `rejected%` del filtro `estado`. Contra un backend pre-#135
+        # las rechazadas YA están dentro de `permitidos` y re-sumarlas las doble-cuenta —
+        # y el caso perverso cancela filas perdidas reales (PASS regalado). Solo importa
+        # si de verdad hubo rechazos: si son 0, no hay nada que doble-contar.
+        if rechazadas > 0:
+            self._assert_backend_tiene_h4()
 
         if bloqueos == 0 and bloqueadas > 0:
             raise ReconcileError(
@@ -145,7 +163,7 @@ class HttpReconcile:
                 "aprobado regalado sobre un run donde el bloqueo SÍ ocurrió. Revisá esas "
                 "filas a mano (GET /api/v1/audit-logs?estado=bloqueados) antes de certificar.")
 
-        return {
+        resultado = {
             "eventos_guion": eventos,
             # Los rechazos se re-suman: el filtro `estado` los excluye de ambos baldes
             # (H4, #135) pero son filas de tráfico que el guion contó como auditables.
@@ -162,24 +180,65 @@ class HttpReconcile:
                        "compliance_status=rejected_saturated; excluye model='license', "
                        "que no es tráfico)"),
         }
+        if b402 is not None:
+            resultado["respuestas_402_sin_fila"] = b402
+        return resultado
 
     # ── HTTP ───────────────────────────────────────────────────────────────────────────
 
     def _assert_filtro_de_ventana_activo(self) -> None:
-        """Sonda: una ventana imposible tiene que devolver 0 filas.
+        """Sondas: una ventana imposible tiene que devolver 0 filas, por AMBOS bordes.
 
-        Si devuelve cualquier otra cosa, el backend está descartando el filtro de fechas
-        (el ``except ValueError: pass`` de ``_build_query``) y todo conteo de este módulo
-        estaría contando la tabla entera — incluido el tráfico del seed."""
-        total = self._get_total({"limit": _LIMIT, "estado": ESTADO_PERMITIDOS,
-                                 "from_date": _SONDA_DESDE, "to_date": _SONDA_HASTA})
-        if total != 0:
+        El ``except ValueError: pass`` de ``_build_query`` es POR CAMPO: descarta una
+        ``from_date`` ilegible sin tocar ``to_date`` y viceversa. Por eso hacen falta dos
+        sondas: (1) ventana en el FUTURO (año 2999) — si ``from_date`` se aplica, da 0
+        aunque ``to_date`` se descarte, así que esta prueba SOLO el borde inferior; (2)
+        ventana espejo en el PASADO (1970) — la tabla del examen tiene filas del seed
+        posteriores a 1970, así que si ``to_date`` se descarta vuelve la tabla entera y se
+        detecta. Con las dos, ningún borde puede caerse en silencio y contar tráfico fuera
+        de la ventana del run."""
+        futuro = self._get_total({"limit": _LIMIT, "estado": ESTADO_PERMITIDOS,
+                                  "from_date": _SONDA_FUTURO_DESDE,
+                                  "to_date": _SONDA_FUTURO_HASTA})
+        if futuro != 0:
             raise ReconcileError(
-                f"el filtro de ventana NO se está aplicando: una ventana imposible "
-                f"({_SONDA_DESDE} … {_SONDA_HASTA}) devolvió {total} filas. El backend "
-                "descarta las fechas que no parsea en silencio, así que los conteos "
-                "contarían la tabla entera (incluido el tráfico del seed). No se certifica "
-                "un examen con la ventana rota.")
+                f"el filtro de ventana NO se aplica en el borde inferior: una ventana "
+                f"futura imposible ({_SONDA_FUTURO_DESDE} … {_SONDA_FUTURO_HASTA}) "
+                f"devolvió {futuro} filas. El backend descarta `from_date` en silencio, "
+                "así que los conteos contarían tráfico anterior a t0 (incluido el seed). "
+                "No se certifica un examen con la ventana rota.")
+        pasado = self._get_total({"limit": _LIMIT, "estado": ESTADO_PERMITIDOS,
+                                  "from_date": _SONDA_PASADO_DESDE,
+                                  "to_date": _SONDA_PASADO_HASTA})
+        if pasado != 0:
+            raise ReconcileError(
+                f"el filtro de ventana NO se aplica en el borde superior: una ventana "
+                f"pasada imposible ({_SONDA_PASADO_DESDE} … {_SONDA_PASADO_HASTA}) "
+                f"devolvió {pasado} filas. El backend descarta `to_date` en silencio, así "
+                "que los conteos contarían tráfico posterior a t1. No se certifica un "
+                "examen con la ventana rota.")
+
+    def _assert_backend_tiene_h4(self) -> None:
+        """Sonda A1: confirma que el backend excluye ``rejected%`` del filtro ``estado``.
+
+        Un AND de ``estado=permitidos`` y ``compliance_status=rejected_saturated`` es
+        contradictorio en un backend post-#135 (la rama ``estado`` filtra
+        ``~LIKE 'rejected%'``, así que ninguna fila rechazada cae en ``permitidos``) →
+        total 0 SIEMPRE. Si devuelve >0, el backend está contando los rechazos DENTRO de
+        ``permitidos`` (imagen pre-#135): re-sumar ``rechazadas`` los doble-contaría. Un
+        gate oficial no se corre —ni se certifica— contra una imagen sin la H4."""
+        solapan = self._get_total({"limit": _LIMIT, "estado": ESTADO_PERMITIDOS,
+                                   "compliance_status": COMPLIANCE_REJECTED_SATURATED,
+                                   "from_date": _wire(self._desde),
+                                   "to_date": _wire(self._hasta)})
+        if solapan != 0:
+            raise ReconcileError(
+                f"el backend cuenta los rechazos por capacidad DENTRO de `permitidos` "
+                f"({solapan} fila(s) con estado=permitidos Y "
+                "compliance_status=rejected_saturated): es una imagen anterior al PR #135 "
+                "(sin la exclusión `rejected%` del filtro binario, H4). Re-sumar las filas "
+                "rechazadas las doble-contaría y el SLO (b) mentiría. Corré el gate contra "
+                "una imagen con #135 en main.")
 
     def _total(self, *, estado: Optional[str] = None,
                compliance_status: Optional[str] = None) -> int:

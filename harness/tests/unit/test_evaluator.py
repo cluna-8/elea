@@ -229,6 +229,39 @@ def test_trafico_no_auditable_invalida_instrumento():
     assert v.instrumento["valido"] is False
 
 
+def test_harness_errors_invalida_instrumento():
+    """A3: una iteración que no consigue autenticar hace `harness_errors.add(1); return`
+    ANTES de contar el evento auditable, así que la carga desaparece SIN romper la
+    reconciliación (bajan eventos y filas a la vez). Sin esta guarda, un run con el login
+    storm fallando en masa certificaría PASS habiendo entregado una fracción de la carga
+    programada, con dropped_iterations=0."""
+    k6 = _clean_k6_summary()
+    k6["harness_errors"] = 412
+    v = _evaluate(k6_summary=k6)
+    assert v.instrumento["valido"] is False
+    assert v.instrumento["harness_errors"] == 412
+    assert any("harness_errors" in r for r in v.instrumento["razones_invalidez"])
+    assert v.global_veredicto == "INVALID" and v.estado == "invalid"
+
+
+def test_harness_errors_en_cero_no_molesta():
+    k6 = _clean_k6_summary()
+    k6["harness_errors"] = 0
+    v = _evaluate(k6_summary=k6)
+    assert v.instrumento["valido"] is True
+    assert v.instrumento["harness_errors"] == 0
+
+
+def test_summary_sin_harness_errors_no_inventa_la_clave():
+    """El summary sintético del dry-run no trae el contador: la clave es CONDICIONAL para
+    que el verdict del dry-run oficial siga byte-idéntico."""
+    k6 = _clean_k6_summary()
+    k6.pop("harness_errors", None)
+    v = _evaluate(k6_summary=k6)
+    assert v.instrumento["valido"] is True
+    assert "harness_errors" not in v.instrumento
+
+
 # ── Overhead (FR-008) ─────────────────────────────────────────────────────────────────
 
 def test_overhead_medido_menos_programado():

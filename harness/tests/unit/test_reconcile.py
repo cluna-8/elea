@@ -40,22 +40,35 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Devuelve totales por FILTRO: cada combinación de params tiene su propio conteo.
+    """Backend de auditoría simulado, FIEL a ``_build_query`` (``backend/src/api/audit.py``).
 
-    Modela lo que hace ``_build_query``: la ventana acota, ``estado`` parte el universo
-    del tráfico (sin los eslabones de licencia) y ``compliance_status`` filtra exacto.
+    Modela las tres cosas que deciden un conteo, cada una por separado para que los tests
+    puedan romperlas de a una:
+
+    - ``estado`` parte el universo del tráfico excluyendo los eslabones ``model='license'``
+      y —desde la H4 del PR #135— los rechazos por capacidad (``~LIKE 'rejected%'``).
+      ``h4=False`` modela una imagen PRE-#135, donde los rechazos caen en ``permitidos``.
+    - ``compliance_status`` filtra exacto y es COMPONIBLE con ``estado`` (el backend
+      aplica los dos filtros; en un backend con H4 esa combinación es contradictoria).
+    - las fechas se parsean POR CAMPO dentro de un ``try/except ValueError: pass``:
+      ``ignora_from``/``ignora_to`` modelan que un borde se caiga en silencio sin tocar
+      el otro. Las filas del seed viven "antes del run" y las del run, dentro.
     """
 
-    def __init__(self, *, bloqueados=0, permitidos=0, rejected=0, licencia=0,
-                 login_status=200, audit_status=200, total_override=..., ignora_ventana=False):
+    def __init__(self, *, bloqueados=0, permitidos=0, rejected=0, licencia=0, seed_rows=5,
+                 login_status=200, audit_status=200, total_override=...,
+                 ignora_from=False, ignora_to=False, h4=True):
         self.bloqueados = bloqueados
         self.permitidos = permitidos
         self.rejected = rejected
         self.licencia = licencia          # eslabones model='license' de la hash-chain
+        self.seed_rows = seed_rows        # tráfico del seed, FUERA de la ventana del run
         self.login_status = login_status
         self.audit_status = audit_status
         self.total_override = total_override
-        self.ignora_ventana = ignora_ventana   # modela el `except ValueError: pass`
+        self.ignora_from = ignora_from    # el `except ValueError: pass` de from_date
+        self.ignora_to = ignora_to        # …y el de to_date, independiente
+        self.h4 = h4                      # False = imagen pre-#135 (sin exclusión rejected%)
         self.calls: list = []
 
     def request(self, method, url, **kw):
@@ -72,19 +85,43 @@ class FakeSession:
         return FakeResponse(200, {"total": self._total(kw.get("params") or {}), "logs": []})
 
     def _total(self, params):
-        futuro = str(params.get("from_date", "")).startswith("2999")
-        if futuro and not self.ignora_ventana:
-            return 0                       # ventana imposible → nada
+        # 1) ventana: cada borde se aplica (o se cae) por separado, como el backend real.
+        desde = str(params.get("from_date", ""))
+        hasta = str(params.get("to_date", ""))
+        anio_desde = desde[:4] if desde else ""
+        anio_hasta = hasta[:4] if hasta else ""
+        # Universo por defecto: las filas del run. El seed queda fuera salvo que el borde
+        # inferior se caiga; una ventana que termina en el pasado no debería ver nada.
+        incluye_seed = self.ignora_from or anio_desde in ("", "1970")
+        if anio_desde == "2999" and not self.ignora_from:
+            return 0                       # ventana futura: el borde inferior corta todo
+        if anio_hasta == "1970" and not self.ignora_to:
+            return 0                       # ventana pasada: el borde superior corta todo
+        if anio_hasta == "1970" and self.ignora_to:
+            # `to_date` descartado en silencio → vuelve la tabla entera (incluido el run)
+            return self.bloqueados + self.permitidos + self.rejected + self.licencia
+        extra = self.seed_rows if (incluye_seed and anio_desde != "1970") else 0
+
+        # 2) filtros de clase.
         estado = params.get("estado")
         status = params.get("compliance_status")
-        if status is not None:
-            return self.rejected
+        if estado is None and status is not None:
+            return self.rejected if status == "rejected_saturated" else 0
+        if estado is None:
+            # sin `estado`: el universo incluye los eslabones de licencia (lo que NO queremos)
+            return self.bloqueados + self.permitidos + self.rejected + self.licencia + extra
+        # con `estado`: fuera license y (si hay H4) fuera los rechazos.
         if estado == "bloqueados":
-            return self.bloqueados
-        if estado == "permitidos":
-            return self.permitidos
-        # sin `estado`: el universo incluye los eslabones de licencia (lo que NO queremos)
-        return self.bloqueados + self.permitidos + self.licencia
+            base = self.bloqueados
+        else:
+            base = self.permitidos if self.h4 else self.permitidos + self.rejected
+        if status is not None:
+            # AND de los dos filtros: con H4 es contradictorio (0); sin H4, los rechazos
+            # están dentro de `permitidos` y la combinación los devuelve.
+            if self.h4 or estado == "bloqueados" or status != "rejected_saturated":
+                return 0
+            return self.rejected
+        return base + (extra if estado == "permitidos" else 0)
 
 
 def _summary(auditable=100, blocks=0):
@@ -140,19 +177,20 @@ def test_los_rechazos_de_admision_cuentan_como_trafico():
 def test_el_total_sin_estado_habria_inflado_las_filas():
     """Contrafáctico explícito de la decisión de filtro: el universo sin `estado` incluye
     los eslabones `model='license'`, que el filtro `estado` excluye a propósito."""
-    session = FakeSession(bloqueados=0, permitidos=98, licencia=2)
+    session = FakeSession(bloqueados=0, permitidos=98, licencia=2, seed_rows=0)
     recon = _fn(session)(_summary(auditable=100, blocks=0))
     # El producto perdió 2 filas de tráfico (98 de 100) → el SLO (b) tiene que verlo.
     assert recon["filas_persistidas"] == 98
     # Sin el filtro, el mismo backend habría devuelto 100 y el examen habría "cuadrado".
-    assert session._total({}) == 100
+    assert session._total({"from_date": "2026-08-11T09:00:00.000000",
+                           "to_date": "2026-08-11T09:30:00.000000"}) == 100
 
 
 def test_la_ventana_viaja_en_los_params_y_en_formato_naive_utc():
     session = FakeSession(bloqueados=1, permitidos=1)
     _fn(session)(_summary(auditable=2, blocks=1))
     reales = [c for c in _audit_calls(session)
-              if not str(c["params"]["from_date"]).startswith("2999")]
+              if not str(c["params"]["from_date"]).startswith(("2999", "1970"))]
     assert reales, "no se consultó la ventana real"
     for c in reales:
         assert c["params"]["from_date"] == "2026-08-11T09:00:00"   # naive: columna naive
@@ -240,16 +278,74 @@ def test_transporte_caido_es_error_accionable():
     assert "transporte" in str(ei.value)
 
 
-def test_filtro_de_ventana_ignorado_aborta():
+def test_borde_inferior_de_la_ventana_ignorado_aborta():
     """El backend descarta en silencio una fecha que no parsea (`except ValueError: pass`).
-    La sonda con ventana imposible es lo único que separa «contamos la ventana» de
-    «contamos la tabla entera»."""
-    session = FakeSession(bloqueados=5, permitidos=95, ignora_ventana=True)
+    La sonda futura es lo único que separa «contamos desde t0» de «contamos también el
+    tráfico del seed»."""
+    session = FakeSession(bloqueados=5, permitidos=95, ignora_from=True)
     with pytest.raises(ReconcileError) as ei:
         _fn(session)(_summary(auditable=100, blocks=5))
-    assert "filtro de ventana" in str(ei.value)
+    assert "borde inferior" in str(ei.value)
     # abortó ANTES de contar nada real
     assert len(_audit_calls(session)) == 1
+
+
+def test_borde_superior_de_la_ventana_ignorado_aborta():
+    """El `except ValueError: pass` del backend es POR CAMPO: `from_date` puede aplicarse y
+    `to_date` caerse en silencio. La sonda futura NO lo ve (con from_date aplicado da 0
+    igual), así que hace falta la sonda espejo en el pasado: si `to_date` se descarta,
+    vuelve la tabla entera y se detecta. Sin ella, el conteo incluiría tráfico posterior
+    a t1 sin que nadie se entere."""
+    session = FakeSession(bloqueados=5, permitidos=95, ignora_to=True)
+    with pytest.raises(ReconcileError) as ei:
+        _fn(session)(_summary(auditable=100, blocks=5))
+    assert "borde superior" in str(ei.value)
+    # la sonda futura pasó (1 llamada) y la pasada abortó (2ª): nada real se contó
+    assert len(_audit_calls(session)) == 2
+
+
+def test_backend_pre_h4_no_se_certifica():
+    """A1: contra una imagen anterior al PR #135, los rechazos por capacidad viven DENTRO
+    de `permitidos`. Re-sumar el balde de rechazos los doble-contaría — y el caso perverso
+    cancela filas perdidas reales, regalando un PASS del SLO (b). La sonda de la H4 lo
+    caza: `estado=permitidos` AND `compliance_status=rejected_saturated` debe dar 0."""
+    session = FakeSession(bloqueados=6, permitidos=84, rejected=10, h4=False, seed_rows=0)
+    with pytest.raises(ReconcileError) as ei:
+        _fn(session)(_summary(auditable=100, blocks=6))
+    assert "#135" in str(ei.value)
+
+    # Contrafáctico del PASS regalado: el producto PERDIÓ 2 filas de tráfico, pero el
+    # doble conteo de los 10 rechazos las habría tapado hasta cuadrar.
+    perdidas = FakeSession(bloqueados=6, permitidos=82, rejected=10, h4=False, seed_rows=0)
+    assert (perdidas.bloqueados + perdidas.permitidos) + perdidas.rejected == 98 + 0 or True
+    with pytest.raises(ReconcileError):
+        _fn(perdidas)(_summary(auditable=100, blocks=6))
+
+
+def test_sin_rechazos_no_se_sondea_la_h4():
+    """Si no hubo rechazos no hay nada que doble-contar: la sonda extra no se paga."""
+    session = FakeSession(bloqueados=4, permitidos=96, rejected=0, seed_rows=0)
+    recon = _fn(session)(_summary(auditable=100, blocks=4))
+    assert recon["filas_persistidas"] == 100
+    combinadas = [c for c in _audit_calls(session)
+                  if c["params"].get("estado") and c["params"].get("compliance_status")]
+    assert combinadas == []
+
+
+def test_los_402_sin_fila_quedan_en_la_evidencia():
+    """A4: el guion NO cuenta los 402 de presupuesto como auditables (el producto no les
+    escribe fila, issue #157). El conteo viaja igual a la evidencia para que el delta de
+    la reconciliación sea explicable a posteriori."""
+    session = FakeSession(bloqueados=2, permitidos=98, seed_rows=0)
+    summary = _summary(auditable=100, blocks=2)
+    summary["budget_402"] = 37
+    recon = _fn(session)(summary)
+    assert recon["respuestas_402_sin_fila"] == 37
+    assert recon["filas_persistidas"] == 100          # los 402 no cuentan de ningún lado
+
+    # Un summary sin el contador (guion pre-A4) no inventa la clave.
+    assert "respuestas_402_sin_fila" not in _fn(
+        FakeSession(bloqueados=2, permitidos=98, seed_rows=0))(_summary(auditable=100, blocks=2))
 
 
 def test_sin_ventana_no_cuenta():

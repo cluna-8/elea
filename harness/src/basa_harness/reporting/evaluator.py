@@ -398,7 +398,17 @@ def eval_instrument(k6_summary: dict, stub_report: dict) -> dict:
     cpu = stub_report.get("cpu_pct")
     unauditable = (stub_report.get("trafico_no_auditable") or {}).get("count", 0)
     stub_valido = bool(stub_report.get("valido", False))
-    valido = (dropped == 0) and stub_valido and (unauditable == 0)
+    # `harness_errors` cuenta iteraciones que NO ejecutaron su superficie (sin token, sin
+    # basa_key): carga programada que desapareció del examen. Como bajan a la vez los
+    # eventos del guion y las filas del producto, la reconciliación sigue cuadrando y los
+    # 4 SLO saldrían PASS sobre una fracción de la carga — por eso invalida el run, igual
+    # que dropped_iterations. La clave es CONDICIONAL: buildSummary la emite SIEMPRE (0
+    # incluido) pero el summary sintético del dry-run no la trae, y el verdict del dry-run
+    # oficial está congelado byte a byte.
+    herrores = k6_summary.get("harness_errors")
+    tiene_herrores = _is_int(herrores)
+    valido = ((dropped == 0) and stub_valido and (unauditable == 0)
+              and (not tiene_herrores or herrores == 0))
     razones = []
     if dropped != 0:
         razones.append(f"dropped_iterations={dropped} (k6 no sostuvo la tasa: modelo "
@@ -408,7 +418,12 @@ def eval_instrument(k6_summary: dict, stub_report: dict) -> dict:
     if unauditable:
         razones.append(f"{unauditable} request(s) no auditable(s): punto ciego del "
                        "detector de canarios")
-    return {
+    if tiene_herrores and herrores != 0:
+        razones.append(f"harness_errors={herrores}: iteraciones que no ejecutaron su "
+                       "superficie (¿pool sin basa_key? ¿login storm contra población "
+                       "sin sembrar?) — carga programada que desapareció del examen; "
+                       "los SLO cuadrarían sobre una fracción de la carga")
+    out = {
         "dropped_iterations": dropped,
         "stub_drift_p99_ms": drift,
         "stub_cpu_pct": cpu,
@@ -416,6 +431,9 @@ def eval_instrument(k6_summary: dict, stub_report: dict) -> dict:
         "valido": valido,
         "razones_invalidez": razones,
     }
+    if tiene_herrores:
+        out["harness_errors"] = herrores
+    return out
 
 
 def _sum_surface_dropped(k6_summary: dict) -> int:
