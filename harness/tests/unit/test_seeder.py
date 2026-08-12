@@ -583,20 +583,36 @@ def test_verify_only_recupera_las_keys_del_pool_previo_y_las_valida():
     sembrado = seed(pop, client, seed=7)
     pool_previo = sembrado.credentials          # el pool que quedó en disco
 
+    client.whoami_calls.clear()                 # separar el apply del verify
     report = seed(pop, client, seed=7, verify_only=True, pool_previo=pool_previo)
     assert report.state == "verified"
     assert report.keys_sin_material == []
     creds = _creds_por_username(report)
     assert all(creds[c["username"]]["basa_key"] == c["basa_key"]
                for c in pool_previo if c.get("basa_key"))
-    # se validó una MUESTRA contra /gw/whoami, no las 119.
-    assert 0 < len(client.whoami_calls) <= 4
+    # se validan TODAS las keys del pool, no una muestra: una revocación PARCIAL (la
+    # mitad de las Connections caídas) pasaba desapercibida con [:4] y dejaba el examen
+    # midiendo superficies mudas.
+    con_material = [c for c in pool_previo if c.get("basa_key")]
+    assert len(client.whoami_calls) == len(con_material) > 4
+
+
+def test_apply_tambien_valida_que_las_keys_sirvan():
+    """M3: `_seal_key_material` sólo comprueba PRESENCIA. Sin esta validación, `apply`
+    emitía un pool con keys inservibles y EXIT 0, y extensión/coding fallaban en masa
+    durante el examen con `harness_errors` como único síntoma."""
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300)
+    report = seed(pop, client, seed=7)
+    con_material = [c for c in report.credentials if c.get("basa_key")]
+    assert len(client.whoami_calls) == len(con_material) > 0
 
 
 def test_verify_only_sin_pool_previo_marca_las_superficies_sin_material():
     pop = load_population_by_gate(125)
     client = FakeBackendClient(max_seats=300)
     seed(pop, client, seed=7)
+    client.whoami_calls.clear()                            # separar el apply del verify
     report = seed(pop, client, seed=7, verify_only=True)   # sin pool en disco
     assert report.keys_sin_material                        # no se puede correr el examen
     assert client.whoami_calls == []                       # no había nada que validar
@@ -660,3 +676,27 @@ def test_FIX8_emit_credentials_0600_incluso_si_ya_existia(tmp_path, monkeypatch)
     out.chmod(0o644)
     seedmod.main(["--gate", "125", "--seed", "7", "--emit-credentials", str(out)])
     assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
+def test_verify_only_con_pool_corrupto_no_lo_pisa(tmp_path):
+    """M5: el pool en disco es la ÚNICA fuente de las basa_key (el backend no las devuelve
+    dos veces). Ante un JSON corrupto el seeder seguía adelante SIN material y el paso
+    siguiente reescribía ese mismo archivo con basa_key: null — destruyendo material
+    irrecuperable y obligando a un `down -v`. Ahora aborta sin tocarlo."""
+    from basa_harness.seeder.seed import _read_pool
+
+    pool = tmp_path / "pool.json"
+    pool.write_text('{"esto": no es json', encoding="utf-8")
+    with pytest.raises(SeedError) as ei:
+        _read_pool(pool)
+    assert "no se puede leer" in str(ei.value)
+    assert pool.read_text(encoding="utf-8") == '{"esto": no es json'   # intacto
+
+    # Tampoco se pisa un archivo cuyo contenido no se entiende.
+    otro = tmp_path / "otro.json"
+    otro.write_text('{"credenciales": []}', encoding="utf-8")
+    with pytest.raises(SeedError):
+        _read_pool(otro)
+
+    # Que NO exista es otra cosa: primer run, se sigue sin material.
+    assert _read_pool(tmp_path / "no-existe.json") is None

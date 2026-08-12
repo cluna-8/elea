@@ -274,6 +274,11 @@ def _apply(pop: Population, client: SeedClient, members: list[Member],
             _create_or_converge_budget(client, m, ids[m.username], report)
 
     _seal_key_material(members, creds, report)
+    # El seal comprueba PRESENCIA del material; esto comprueba que SIRVE. Sin esta
+    # llamada, `apply` emitía un pool con keys inservibles y EXIT 0 (una Connection
+    # preexistente cuya key en claro ya no se recupera, o un stack re-creado): extensión y
+    # coding fallarían en masa y el summary sólo mostraría `harness_errors`.
+    _assert_keys_usable(client, report)
     return report
 
 
@@ -438,10 +443,14 @@ def _assert_keys_usable(client: SeedClient, report: SeedReport) -> None:
     Mismo criterio que ``_assert_seed_matches`` (FIX-7) y por la misma razón: un pool con
     keys que el backend ya no acepta (Connection revocada, stack re-creado, pool de otra
     instalación) haría fallar extensión y coding EN MASA por una causa imposible de
-    diagnosticar desde el summary de k6 — ahí sólo se ve `harness_errors`. Se paga sólo
-    una muestra."""
-    muestra = [c for c in report.credentials if c.get("basa_key")][:_CREDENTIAL_SAMPLE]
-    for c in muestra:
+    diagnosticar desde el summary de k6 — ahí sólo se ve `harness_errors`.
+
+    Se comprueban TODAS las identidades con material, no una muestra: sobre 119-500
+    cuentas son unos cientos de GET baratos contra el propio SUT (segundos), y una
+    revocación PARCIAL —la mitad de las Connections caídas— pasaba desapercibida con
+    `[:4]`. El costo de la muestra no compensa certificar un examen a medias."""
+    con_material = [c for c in report.credentials if c.get("basa_key")]
+    for c in con_material:
         if not client.verify_basa_key(c["basa_key"]):
             raise SeedError(
                 f"la basa_key de {c['username']!r} NO autentica contra /gw/whoami: el pool "
@@ -575,7 +584,11 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # verify-only: el material de llave sale del pool YA emitido (el backend no devuelve
     # la key en claro dos veces). Sin ese archivo no hay nada que validar.
-    pool_previo = _read_pool(args.emit_credentials) if args.verify_only else None
+    try:
+        pool_previo = _read_pool(args.emit_credentials) if args.verify_only else None
+    except SeedError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        return 2
 
     try:
         with BackendClient(args.backend_url, timeout=args.timeout) as client:
@@ -612,17 +625,30 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 
 def _read_pool(path: Optional[Path]) -> Optional[list]:
-    """Lee un pool ya emitido, si existe. Un archivo ilegible/corrupto NO se ignora en
-    silencio: se avisa y se sigue SIN material (el sello de `keys_sin_material` decide)."""
+    """Lee un pool ya emitido, si existe.
+
+    Un pool que EXISTE pero no se puede leer (JSON corrupto, contenido que no es una
+    lista) es fatal en ``verify-only``: la key en claro no se recupera del backend, así
+    que el único material del run es ese archivo — y el paso siguiente lo SOBRESCRIBIRÍA
+    con ``basa_key: null`` en todas las entradas, destruyendo material irrecuperable y
+    obligando a un ``down -v``. Se aborta con ``SeedError`` en vez de tocarlo. Que el
+    archivo no exista todavía es otra cosa (primer run): eso devuelve ``None``."""
     if path is None or not Path(path).exists():
         return None
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        print(f"⚠ pool previo ilegible ({path}): {e}. Se verifica SIN material de llave.",
-              file=sys.stderr)
-        return None
-    return data if isinstance(data, list) else None
+        raise SeedError(
+            f"el pool previo {path} existe pero no se puede leer ({e}). En verify-only ese "
+            "archivo es la ÚNICA fuente de las basa_key (el backend no las devuelve dos "
+            "veces) y el seeder lo reescribiría con material en null, destruyéndolo. "
+            "Restaurá el pool o recreá el stack (`down -v`) y re-seedeá desde cero.") from e
+    if not isinstance(data, list):
+        raise SeedError(
+            f"el pool previo {path} no es una lista de credenciales (es "
+            f"{type(data).__name__}): no se sobrescribe un archivo que no se entiende — "
+            "las basa_key que pudiera contener no son recuperables.")
+    return data
 
 
 if __name__ == "__main__":  # pragma: no cover
