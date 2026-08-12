@@ -12,7 +12,12 @@ Habla la API REST REAL del producto — el seed ES el primer mini-examen del pla
   alta de rol ``client`` (``backend/src/api/users.py:137`` → ``enforce_seat_gate``).
 - ``POST /api/v1/keys``            crea la Connection/APIKey por ``tool_type``; el seat =
   llave activa; 409 si el user ya tiene una activa para esa herramienta
-  (``backend/src/api/keys.py:124``).
+  (``backend/src/api/keys.py:124``). La respuesta (``KeyGeneratedResponse``) trae
+  ``plain_key`` — la key EN CLARO, devuelta UNA sola vez: la DB guarda ``key_hash`` +
+  ``key_preview`` y no hay endpoint que la recupere después.
+- ``GET  /api/v1/gw/whoami``       valida una key en claro → identidad, con el header
+  ``X-Basa-Key``; fail-closed 401 si no resuelve (``backend/src/api/inspect.py:174``).
+  Es el mismo camino que usan las superficies extensión/coding de k6.
 - ``POST /api/v1/budgets``         presupuesto por user XOR group
   (``backend/src/api/budgets.py:17``).
 
@@ -60,6 +65,7 @@ class SeedClient(Protocol):
 
     def bootstrap_admin(self, username: str, password: str) -> str: ...
     def verify_credential(self, username: str, password: str) -> bool: ...
+    def verify_basa_key(self, basa_key: str) -> bool: ...
     def license_health(self) -> dict: ...
     def list_users(self) -> list[dict]: ...
     def list_keys(self) -> list[dict]: ...
@@ -129,6 +135,21 @@ class BackendClient:
         if resp.status_code == 401:
             return False
         raise BackendError(resp.status_code, _extract_detail(resp), method="POST", url=url)
+
+    def verify_basa_key(self, basa_key: str) -> bool:
+        """``GET /gw/whoami`` con ``X-Basa-Key``: True si la key resuelve a una identidad.
+
+        Mismo camino que ``authHeaders`` de k6 para extensión/coding (common.js): si esto
+        da False, esas dos superficies del examen se quedan sin autenticar. Fail-closed
+        del producto = 401; cualquier otro status es un fallo real y sale como
+        ``BackendError`` (no se interpreta a favor)."""
+        url = f"{self.base_url}{API_PREFIX}/gw/whoami"
+        resp = self._http.request("GET", url, headers={"X-Basa-Key": basa_key})
+        if resp.status_code == 200:
+            return True
+        if resp.status_code == 401:
+            return False
+        raise BackendError(resp.status_code, _extract_detail(resp), method="GET", url=url)
 
     def license_health(self) -> dict:
         """``GET /health/license``: con la sesión admin trae ``max_seats``/``seats_used``."""

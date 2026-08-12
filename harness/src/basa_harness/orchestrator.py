@@ -21,6 +21,15 @@ a medias que parezca examen completo. Ante ``KeyboardInterrupt``, un fallo de pr
 PARCIAL marcado ``invalid``/``interrupted`` y se ABORTA antes de generar carga si la
 precondición falla (``k6`` no se lanza).
 
+**Corrida real** (T031): además del stack, pide dos insumos que no se pueden derivar
+offline. (1) ``--pool-file``: el pool 0600 que emitió el seeder, del que salen las
+``basa_key`` de las Connections —sin ellas las superficies extensión/coding no autentican
+(``scenarios/common.js`` ``authHeaders``)— y la credencial compliance del lector de
+auditoría. (2) ``--reconcile http``: el conteo de ``audit_logs`` del producto, acotado a
+la VENTANA del run (``t0`` antes de lanzar k6, ``t1`` al cerrarlo). El reloj de la ventana
+vive acá, en el orquestador; el ``timestamp`` del veredicto sigue INYECTADO — el evaluador
+no mira ningún reloj.
+
 DETERMINISMO: ``run_id`` y ``timestamp`` son inyectables; toda la data sintética deriva de
 la semilla. Sin ese pin, se usan reloj/fecha reales (una corrida real).
 """
@@ -29,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,6 +46,7 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 from .corpus import GENERATOR_VERSION, generate, generate_canaries
+from .reconcile import ReconcileError, build_http_reconcile, credential_from_pool
 from .reporting.evaluator import Verdict, evaluate
 from .reporting.fingerprint import Fingerprint, capture
 from .reporting.gate_loader import (Gate, load_gate, load_gate_by_number,
@@ -43,12 +54,17 @@ from .reporting.gate_loader import (Gate, load_gate, load_gate_by_number,
 from .reporting.report import render_report
 from .seeder.population import (Population, derive_password, load_population_by_gate,
                                 plan_members)
-from .seeder.seed import DEFAULT_SEED
+from .seeder.seed import DEFAULT_SEED, KEY_SURFACE_CLIENT_TYPES
 
 # Versiones PINEADAS del instrumento (research R1; van al fingerprint).
 K6_VERSION = "v1.8.0"
 XK6_SSE_VERSION = "v0.1.12"
 STUB_VERSION = "0.1.0"
+
+# Tolerancia de skew de reloj orquestador↔SUT (M1): el header Date tiene resolución de
+# 1 s y la sonda paga medio RTT; por encima de esto la ventana de reconciliación puede
+# contar tráfico ajeno al run (la dirección peligrosa: tapar filas perdidas).
+CLOCK_SKEW_MAX_S = 2.0
 
 # Superficies de carga y su función k6 (para el k6_config.json).
 SURFACE_EXEC = {"chat": "chat", "extension": "extension", "coding_sse": "coding",
@@ -86,7 +102,9 @@ class Orchestrator:
                  stub_client: Optional[object] = None,
                  k6_runner: Optional[Callable[[dict], dict]] = None,
                  reconcile_fn: Optional[Callable[[dict], dict]] = None,
+                 clock_probe_fn: Optional[Callable[[], Optional[datetime]]] = None,
                  observed_stack_config: Optional[dict] = None,
+                 pool_file: Optional[Union[str, Path]] = None,
                  population: Optional[Population] = None,
                  hardware: Optional[dict] = None, licencia: Optional[dict] = None,
                  producto: Optional[dict] = None, harness_commit: Optional[str] = None):
@@ -115,7 +133,15 @@ class Orchestrator:
         self._stub_client = stub_client
         self._k6_runner = k6_runner
         self._reconcile_fn = reconcile_fn
+        self._clock_probe_fn = clock_probe_fn
+        self.clock_skew_s: Optional[float] = None
         self.observed_stack_config = observed_stack_config
+        self.pool_file = Path(pool_file) if pool_file else None
+        self._pool_cache: Optional[list] = None
+        # Ventana del run (UTC): t0 ANTES de lanzar k6, t1 al cerrarlo. Es el rango sobre
+        # el que se cuentan las filas de auditoría del producto.
+        self.window_t0: Optional[datetime] = None
+        self.window_t1: Optional[datetime] = None
         # metadata para el fingerprint
         self._population = population
         self._hardware = hardware
@@ -139,7 +165,15 @@ class Orchestrator:
             self._write_k6_config(pool, corpus)
             self._configure_stub(corpus)
             health_initial = self._probe_health("inicial")
+            self._assert_clock_skew()
+            # Ventana del run: se abre ANTES de la primera request de carga y se cierra
+            # con la última. Sin margen a propósito — una fila de auditoría escrita fuera
+            # de la ventana se cuenta de menos (FAIL), nunca de más (que sería el camino
+            # por el que un run con filas perdidas podría cuadrar)… siempre que los
+            # relojes coincidan, que es lo que la guarda de arriba acaba de comprobar.
+            self.window_t0 = self._now()
             k6_summary = self._run_k6()
+            self.window_t1 = self._now()
             self._finalize_stub()
             stub_report = self._collect_stub_report()
             health_final = self._probe_health("final")
@@ -207,22 +241,75 @@ class Orchestrator:
 
     def _export_identities(self) -> list[dict]:
         """Pool de identidades para el ``SharedArray`` de k6, DERIVADO OFFLINE del plan de
-        población (usernames + passwords deterministas — sin tocar el backend). El material
-        de llave (``basa_key``) para las superficies extensión/coding NO se puede derivar
-        offline: si la corrida es real, se completa desde el emit del seeder; acá se deja el
-        campo en null y se documenta."""
+        población (usernames + passwords deterministas — sin tocar el backend).
+
+        El material de llave (``basa_key``) NO se puede derivar offline: la key en claro la
+        devuelve el backend UNA vez, al crear la Connection. En una corrida real llega por
+        ``--pool-file`` (el pool 0600 del seeder) y se INJERTA por username; sin ese
+        archivo el campo queda en null, que es lo que corresponde a un dry-run."""
         pop = self._population_obj()
         members = plan_members(pop, self.seed)
         admin_pwd = derive_password(self.seed, pop.admin_username)
+        material = self._key_material()
         pool = [{"username": pop.admin_username, "password": admin_pwd,
                  "role": "tenant_admin", "client_type": None, "tool_type": None,
                  "bootstrap": True, "basa_key": None}]
         for m in members:
             pool.append({"username": m.username, "password": m.password, "role": m.role,
                          "client_type": m.client_type, "tool_type": m.tool_type,
-                         "basa_key": None})
-        self._write_json("pool.json", pool)
+                         "basa_key": material.get(m.username)})
+        if self.pool_file is not None:
+            self._assert_key_material(members, material)
+        # 0600: el pool lleva passwords EN CLARO y —desde la corrida real— las keys de las
+        # Connections. Es material de RUN, no evidencia publicable (mismo criterio que
+        # ``seeder.seed._write_credentials``).
+        self._write_secret_json("pool.json", pool)
         return pool
+
+    def _read_pool_file(self) -> list:
+        """Lee el pool emitido por el seeder (``--emit-credentials``). Ilegible = abortar:
+        de ahí salen el material de llave y la credencial del lector de auditoría."""
+        if self._pool_cache is not None:
+            return self._pool_cache
+        assert self.pool_file is not None
+        try:
+            data = json.loads(self.pool_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise OrchestratorError(
+                f"pool de credenciales ilegible ({self.pool_file}): {exc}. Es el archivo "
+                "que emite `seeder.seed --emit-credentials`.") from exc
+        if not isinstance(data, list):
+            raise OrchestratorError(
+                f"el pool {self.pool_file} no es una lista de credenciales.")
+        self._pool_cache = data
+        return data
+
+    def _key_material(self) -> dict:
+        """``username → basa_key`` del pool del seeder (vacío si no hay ``--pool-file``)."""
+        if self.pool_file is None:
+            return {}
+        out = {}
+        for entry in self._read_pool_file():
+            if isinstance(entry, dict) and isinstance(entry.get("basa_key"), str) \
+                    and entry["basa_key"]:
+                out[entry.get("username")] = entry["basa_key"]
+        return out
+
+    def _assert_key_material(self, members: list, material: dict) -> None:
+        """Con pool en mano, toda identidad de extensión/coding tiene que traer su key.
+
+        ``authHeaders`` (common.js) devuelve null sin ella y la iteración se contabiliza
+        como ``harness_errors``: el run mediría 2 de 4 superficies y su veredicto NO sería
+        el del gate. Se aborta ANTES de generar carga."""
+        faltan = [m.username for m in members
+                  if m.client_type in KEY_SURFACE_CLIENT_TYPES
+                  and not material.get(m.username)]
+        if faltan:
+            raise OrchestratorError(
+                f"{len(faltan)} identidad(es) de extensión/coding sin basa_key en "
+                f"{self.pool_file} (p. ej. {', '.join(faltan[:5])}): k6 no puede autenticar "
+                "esas superficies y el examen mediría 2 de 4. Re-seedeá contra un stack "
+                "fresco (`down -v`) y volvé a emitir el pool.")
 
     def _export_corpus(self) -> dict:
         """Canarios únicos del run + documentos PII deterministas (para que k6 los siembre
@@ -359,6 +446,35 @@ class Orchestrator:
             self._write_json("summary.json", summary)
         return summary
 
+    def _assert_clock_skew(self) -> None:
+        """M1: la ventana la fija el reloj del ORQUESTADOR, pero los ``timestamp`` de
+        ``audit_logs`` los pone el ``utcnow()`` del BACKEND. Con el SUT adelantado,
+        tráfico escrito antes de t0 cae dentro de la ventana y puede TAPAR filas perdidas
+        reales (la promesa «se cuenta de menos, nunca de más» deja de valer). Se compara
+        el header ``Date`` del backend con el reloj propio; tolerancia ±2 s = resolución
+        de 1 s del header + margen de RTT. La sonda es un hook (``clock_probe_fn``) que
+        ``main()`` cablea SIEMPRE en un run real; en seco no hay backend que sondear."""
+        if self.dry_run or self._clock_probe_fn is None:
+            return
+        remoto = self._clock_probe_fn()
+        if remoto is None:
+            raise OrchestratorError(
+                "no se pudo leer el reloj del backend (header Date): sin esa comprobación "
+                "la ventana de la reconciliación no es confiable y el examen no arranca.")
+        if remoto.tzinfo is None:
+            remoto = remoto.replace(tzinfo=timezone.utc)
+        skew = (remoto - self._now()).total_seconds()
+        self.clock_skew_s = skew
+        self._write_json("clock_skew.json", {
+            "skew_s": round(skew, 3), "tolerancia_s": CLOCK_SKEW_MAX_S,
+            "fuente": "header Date del backend vs reloj del orquestador (t0)"})
+        if abs(skew) > CLOCK_SKEW_MAX_S:
+            raise OrchestratorError(
+                f"skew de reloj orquestador↔SUT de {skew:+.1f} s (tolerancia "
+                f"±{CLOCK_SKEW_MAX_S} s): la ventana de reconciliación contaría tráfico "
+                "fuera del run (o perdería filas del run). Sincronizá NTP en las dos "
+                "cajas y reintentá.")
+
     def _finalize_stub(self) -> None:
         client = self._stub()
         if client is not None:
@@ -382,7 +498,13 @@ class Orchestrator:
         deliberadamente NO es un bloqueo de política, así que no se mezcla con
         ``bloqueos_provocados``), o ``0`` si no hubo ninguna. Sin ese campo, el evaluador
         no puede afirmar durabilidad y la fila sale FAIL. La fuente de verdad del contrato
-        es ``contracts/run-report.md``, no este docstring."""
+        es ``contracts/run-report.md``, no este docstring.
+
+        La VENTANA del run se le pasa al hook si lo admite (``set_window``): el reloj es
+        del orquestador, no del evaluador ni del contador. OJO (B3): la guarda «sin
+        ventana no se cuenta» solo aplica a hooks que exponen ``set_window`` — el real
+        (``HttpReconcile``) siempre lo tiene; un fake simple de los tests corre sin
+        ventana y sin error, a sabiendas."""
         if self.dry_run:
             eventos = int(k6_summary.get("auditable_events", 0))
             recon = {"eventos_guion": eventos, "filas_persistidas": eventos,
@@ -390,12 +512,41 @@ class Orchestrator:
             if getattr(self.gate, "kind", "gate_oficial") == "drill":
                 # solo en drills: el dry-run del gate oficial no cambia ni un byte.
                 recon["filas_rejected_saturated"] = 0
+            self._persist_reconciliation(recon)
             return recon
         if self._reconcile_fn is None:
             raise OrchestratorError(
-                "reconciliación no configurada: pasá --reconcile_fn o corré con --dry-run. "
-                "El SLO de reconciliación necesita el conteo de audit_logs del producto.")
-        return self._reconcile_fn(k6_summary)
+                "reconciliación no configurada: pasá --reconcile http (con --pool-file) o "
+                "corré con --dry-run. El SLO de reconciliación necesita el conteo de "
+                "audit_logs del producto.")
+        set_window = getattr(self._reconcile_fn, "set_window", None)
+        if callable(set_window):
+            if self.window_t0 is None or self.window_t1 is None:
+                raise OrchestratorError(
+                    "la ventana del run no se capturó (t0/t1): sin ella el conteo de "
+                    "audit_logs mezclaría el tráfico del seed con el del examen.")
+            set_window(self.window_t0, self.window_t1)
+        recon = self._reconcile_fn(k6_summary)
+        self._persist_reconciliation(recon)
+        return recon
+
+    def _persist_reconciliation(self, recon: dict) -> None:
+        """Guarda el conteo como EVIDENCIA del run (el verdict sólo publica el delta).
+
+        Con esto, la cifra que decidió los SLO (b) y (d) queda auditable después: qué
+        ventana se consultó, cuántas filas de cada clase y de qué fuente."""
+        if not isinstance(recon, dict):
+            return
+        data = dict(recon)
+        data.setdefault("ventana", {
+            "desde": self.window_t0.isoformat() if self.window_t0 else None,
+            "hasta": self.window_t1.isoformat() if self.window_t1 else None,
+        })
+        # La evidencia puede persistirse desde un _reconcile suelto (tests lo hacen) sin
+        # que run() haya creado el directorio todavía; mkdir exist_ok no pisa nada — la
+        # guarda anti-sobrescritura es sobre verdict.json, al arrancar run().
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self._write_json("reconciliation.json", data)
 
     # ── fingerprint ────────────────────────────────────────────────────────────────────
 
@@ -474,13 +625,18 @@ class Orchestrator:
         return verdict
 
     def _evidence_refs(self) -> dict:
-        return {
+        refs = {
             "k6_summary": str(self.run_dir / "summary.json"),
             "pool": str(self.run_dir / "pool.json"),
             "corpus": str(self.run_dir / "corpus.json"),
             "k6_config": str(self.run_dir / "k6_config.json"),
-            "plataforma_r3": f"/srv/itv-runs/{self.run_id}/",
         }
+        # Sólo si se llegó a contar: un run abortado no debe listar evidencia que no existe.
+        recon = self.run_dir / "reconciliation.json"
+        if recon.exists():
+            refs["reconciliacion"] = str(recon)
+        refs["plataforma_r3"] = f"/srv/itv-runs/{self.run_id}/"
+        return refs
 
     # ── sondas sintéticas (dry-run) ────────────────────────────────────────────────────
 
@@ -558,6 +714,19 @@ class Orchestrator:
 
     def _write_json(self, name: str, data: object) -> Path:
         return self._write_text(name, json.dumps(data, ensure_ascii=False, indent=2))
+
+    def _write_secret_json(self, name: str, data: object) -> Path:
+        """Escribe con permisos 0600 desde el fd (nunca una ventana world-readable, ni
+        siquiera al sobrescribir un archivo previo de un run anterior)."""
+        path = self.run_dir / name
+        blob = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            os.write(fd, blob)
+        finally:
+            os.close(fd)
+        return path
 
     def _write_text(self, name: str, text: str) -> Path:
         path = self.run_dir / name
@@ -638,6 +807,32 @@ class _HttpStubClient:  # pragma: no cover — camino real (los tests inyectan u
 
 # ── CLI ────────────────────────────────────────────────────────────────────────────────
 
+def _default_clock_probe(backend_url: str) -> Callable[[], Optional[datetime]]:
+    """Sonda real del reloj del backend para la guarda de skew (M1): CUALQUIER respuesta
+    HTTP/1.1 trae ``Date`` (no hace falta un 200 ni credenciales)."""
+    def probe() -> Optional[datetime]:  # pragma: no cover — camino real
+        import httpx
+        from email.utils import parsedate_to_datetime
+        resp = httpx.get(f"{backend_url}/api/v1/health", timeout=10, follow_redirects=True)
+        date = resp.headers.get("date")
+        return parsedate_to_datetime(date) if date else None
+    return probe
+
+
+def _git_commit() -> str:
+    """Sha del harness que corre el examen, para el fingerprint. Si el árbol no es un repo
+    (el caso de la caja de examen, que recibe el código por tar), devuelve ``unknown`` en
+    vez de fallar: el operador puede fijarlo con ``--harness-commit``."""
+    import subprocess  # local: el import global no se paga en cada run
+    raiz = Path(__file__).resolve().parent.parent.parent.parent
+    try:
+        out = subprocess.run(["git", "-C", str(raiz), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    sha = out.stdout.strip()
+    return sha if out.returncode == 0 and sha else "unknown"
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(
         prog="python -m basa_harness.orchestrator",
@@ -659,6 +854,25 @@ def main(argv: Optional[list] = None) -> int:
     p.add_argument("--drill-admin-budget-ms", type=float, default=None,
                    help="drill de saturación: presupuesto p95 del panel admin (ms), "
                         "derivado del baseline del gate oficial del MISMO día")
+    p.add_argument("--pool-file", type=Path, default=None,
+                   help="pool 0600 emitido por `seeder.seed --emit-credentials`: aporta "
+                        "las basa_key de las Connections (extensión/coding) y la "
+                        "credencial compliance del reconcile")
+    p.add_argument("--reconcile", choices=("none", "http"), default="none",
+                   help="'http' cuenta las filas de audit_logs del producto en la ventana "
+                        "del run (obligatorio en un gate oficial); 'none' = sin conteo")
+    p.add_argument("--hardware-file", type=Path, default=None,
+                   help="JSON del output `fingerprint_hardware` de OpenTofu (provider, "
+                        "location, datacenter, tipos de caja). Sin él, un gate oficial se "
+                        "firma con hardware 'unknown' y su evidencia no es contrastable")
+    p.add_argument("--producto-file", type=Path, default=None,
+                   help="JSON del build del SUT: {commit, digests{servicio: sha256}} y, "
+                        "opcional, workers_procesos/limites_recursos. Es QUÉ se midió")
+    p.add_argument("--licencia-file", type=Path, default=None,
+                   help="JSON de la licencia del SUT: {lic_id, max_seats, seats_used}")
+    p.add_argument("--harness-commit", default=None,
+                   help="sha del harness que corre el examen (default: git rev-parse HEAD "
+                        "del repo; 'unknown' si no hay git)")
     args = p.parse_args(argv)
 
     # El presupuesto de admin es un UMBRAL vinculante: un valor no finito o <= 0 lo
@@ -680,10 +894,63 @@ def main(argv: Optional[list] = None) -> int:
         p.error(f"--drill-admin-budget-ms solo aplica a un gate kind: drill; este gate es "
                 f"{kind_efectivo!r} (¿querías --gate-file gates/drill-saturacion-125.yaml?)")
 
+    # La credencial del reconcile viaja SIEMPRE por el pool (archivo 0600), nunca por
+    # argv: un `ps` en la caja del examen no debe mostrar la password del lector de
+    # auditoría. Es además el mismo archivo que la semilla ya verificó contra la DB, así
+    # que no hay una segunda fuente de verdad que pueda divergir.
+    reconcile_fn = None
+    if args.reconcile == "http":
+        if args.dry_run:
+            p.error("--reconcile http no aplica a --dry-run: un run en seco no consulta el "
+                    "producto (sus datos son sintéticos y NUNCA oficiales)")
+        if args.pool_file is None:
+            p.error("--reconcile http necesita --pool-file: la credencial que lee "
+                    "/api/v1/audit-logs sale del pool 0600 del seeder (nunca por argv, "
+                    "que es visible en `ps`)")
+        try:
+            pool = json.loads(Path(args.pool_file).read_text(encoding="utf-8"))
+            usuario, clave = credential_from_pool(pool)
+            reconcile_fn = build_http_reconcile(args.backend_url, usuario, clave)
+        except (OSError, ValueError) as exc:
+            p.error(f"no se pudo leer el pool {args.pool_file}: {exc}")
+        except ReconcileError as exc:
+            p.error(str(exc))
+    elif not args.dry_run:
+        print("⚠ sin --reconcile http: los SLO (b) reconciliation_rows y (d) "
+              "blocked_rows_durable_100 no se pueden computar y el run abortará al "
+              "reconciliar. Un gate OFICIAL se corre con --reconcile http.", file=sys.stderr)
+
+    # Metadata del fingerprint: QUÉ se midió y sobre qué caja. Un JSON ilegible es error
+    # del CLI, no un `unknown` silencioso — el fingerprint es lo único que hace la
+    # evidencia contrastable después (y lo que separa un run legítimo de uno que no lo es).
+    def _leer_json(ruta, cual):
+        if ruta is None:
+            return None
+        try:
+            data = json.loads(Path(ruta).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            p.error(f"no se pudo leer {cual} {ruta}: {exc}")
+        if not isinstance(data, dict):
+            p.error(f"{cual} {ruta} debe ser un objeto JSON, no {type(data).__name__}")
+        return data
+
+    hardware = _leer_json(args.hardware_file, "--hardware-file")
+    producto = _leer_json(args.producto_file, "--producto-file")
+    licencia = _leer_json(args.licencia_file, "--licencia-file")
+    if not args.dry_run and (hardware is None or producto is None):
+        print("⚠ sin --hardware-file/--producto-file: el fingerprint se firma con "
+              "'unknown' y el run NO será contrastable contra otro (ni comparable por el "
+              "comparador de runs). Un gate OFICIAL los pasa.", file=sys.stderr)
+
     orch = Orchestrator(gate, run_id=args.run_id, backend_url=args.backend_url,
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
                         kind=args.kind, dry_run=args.dry_run,
-                        drill_admin_budget_ms=args.drill_admin_budget_ms)
+                        drill_admin_budget_ms=args.drill_admin_budget_ms,
+                        pool_file=args.pool_file, reconcile_fn=reconcile_fn,
+                        hardware=hardware, producto=producto, licencia=licencia,
+                        harness_commit=args.harness_commit or _git_commit(),
+                        clock_probe_fn=(None if args.dry_run else
+                                        _default_clock_probe(args.backend_url.rstrip("/"))))
     try:
         verdict = orch.run()
     except OrchestratorError as exc:

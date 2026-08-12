@@ -113,6 +113,10 @@ function buildMetrics() {
     provoked_blocks: new Counter('provoked_blocks'),
     observed_blocks: new Counter('observed_blocks'),
     saturated_rejections: new Counter('saturated_rejections'),
+    // 402 de presupuesto agotado: el producto responde SIN fila durable (issue #157),
+    // así que NO es evento auditable — contarlo como tal haría FAIL falso del SLO (b)
+    // con la cohorte 402 que el gate 125 siembra a propósito.
+    budget_402: new Counter('budget_402'),
     harness_errors: new Counter('harness_errors'),
   };
 }
@@ -279,6 +283,7 @@ export function buildSummary(data) {
     observed_blocks: counterVal(data, 'observed_blocks'),
     saturated_rejections: counterVal(data, 'saturated_rejections'),
     rejection_ms: pct(metricValues(data, 'lat_rejection')),
+    budget_402: counterVal(data, 'budget_402'),
     harness_errors: counterVal(data, 'harness_errors'),
   };
 }
