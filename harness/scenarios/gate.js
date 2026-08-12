@@ -37,6 +37,12 @@ function buildOptions() {
       preAllocatedVUs: sc.preAllocatedVUs || Math.max(10, sc.rate * 2),
       maxVUs: sc.maxVUs || Math.max(20, sc.rate * 6),
       startTime: sc.startTime || '0s',
+      // Sin esto k6 usa 30 s y CORTA las iteraciones en vuelo al terminar la fase: un
+      // stream más largo que ese margen deja al guion sin contar su evento mientras el
+      // producto ya escribió la fila, y la reconciliación reporta «sobran filas» sin que
+      // se haya perdido nada (visto en el drill del 12-ago: +15). El margen lo calcula el
+      // orquestador desde la duración máxima de stream del gate.
+      gracefulStop: sc.gracefulStop || '30s',
       tags: { surface: sc.surface, phase: sc.phase },
     };
     scenarios[name] = def;

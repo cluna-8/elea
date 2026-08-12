@@ -779,3 +779,27 @@ def test_dry_run_completo_del_drill(tmp_path):
     data = json.loads((orch.run_dir / "verdict.json").read_text(encoding="utf-8"))
     assert data["kind"] == "dry-run"
     assert "saturated_503_rows_durable" in {s["slo"] for s in data["slos"]}
+
+
+def test_el_graceful_stop_cubre_el_stream_mas_largo(tmp_path):
+    """Artefacto medido en 20260812-g125-drill-01 (+15 filas): con el gracefulStop por
+    defecto de k6 (30 s), un stream de 60-120 s del modo sede-lenta queda cortado al
+    terminar la fase; el guion no cuenta su evento y el producto ya escribió la fila, así
+    que la reconciliación reporta «sobran filas» sin que se haya perdido nada."""
+    orch = Orchestrator(load_gate(DRILL_FILE), run_id="gs", runs_dir=tmp_path, timestamp=TS,
+                        dry_run=True, n_canaries=4, n_corpus_docs=4)
+    orch.run()
+    cfg = json.loads((orch.run_dir / "k6_config.json").read_text())
+    # el drill sirve streams de hasta 120 s → margen de 135 s en TODOS los scenarios
+    assert cfg["scenarios"], "el gate no produjo scenarios"
+    assert all(s["gracefulStop"] == "135s" for s in cfg["scenarios"]), \
+        [s.get("gracefulStop") for s in cfg["scenarios"]]
+
+
+def test_el_gate_oficial_tiene_su_propio_margen(tmp_path):
+    """El margen sale del gate, no de una constante: el 125 sirve streams de hasta 60 s."""
+    orch = Orchestrator(125, run_id="gs2", runs_dir=tmp_path, timestamp=TS,
+                        dry_run=True, n_canaries=4, n_corpus_docs=4)
+    orch.run()
+    cfg = json.loads((orch.run_dir / "k6_config.json").read_text())
+    assert all(s["gracefulStop"] == "75s" for s in cfg["scenarios"])

@@ -21,9 +21,13 @@ export const CONFIG = JSON.parse(__ENV.GATE_CONFIG || '{}');
 export const BASE_URL = CONFIG.base_url || __ENV.BASE_URL || 'http://localhost:8000';
 export const API = BASE_URL + '/api/v1';
 
-// Nombres de modelo/alias que el perfil itv-examen mapea al stub (openai/<alias>).
-export const MODEL_CHAT = __ENV.MODEL_CHAT || 'chat';
-export const MODEL_CODING = __ENV.MODEL_CODING || 'coding';
+// Alias de modelo por superficie. El de CHAT tiene que existir en el `model_list` del
+// motor (config.yaml del perfil): el backend valida contra ese catálogo y un alias
+// desconocido devuelve 400 sin auditar nada. Por eso NO se hardcodea un nombre bonito:
+// lo pasa el orquestador (`--model-chat`, del perfil desplegado). El de CODING viaja por
+// /gw, donde la Connection resuelve el destino y el alias es nominal.
+export const MODEL_CHAT = __ENV.MODEL_CHAT || CONFIG.model_chat || 'chat';
+export const MODEL_CODING = __ENV.MODEL_CODING || CONFIG.model_coding || 'coding';
 
 // ── pool de identidades (SharedArray: una copia compartida entre todas las VUs) ────────
 export const identities = new SharedArray('identities', function () {
@@ -155,6 +159,46 @@ export function saturatedRejection(res) {
   const parts = v.split(',');
   for (let i = 0; i < parts.length; i++) {
     if (parts[i].trim().toLowerCase() === 'saturated') return true;
+  }
+  return false;
+}
+
+// ── bloqueo de política (SLO d) ─────────────────────────────────────────────────────────
+// El producto BLOQUEA con 400 y un `detail` en prosa: no hay marcador machine-readable
+// (a diferencia del rechazo de admisión C1, que tiene header propio). Ese mismo 400 lo
+// devuelve también un alias de modelo inexistente, que es un fallo NUESTRO — así que hay
+// que separarlos por el texto. Es frágil A SABIENDAS y está en UN solo lugar para que el
+// día que el core acuñe un marcador (issue pedido) se cambie acá y nada más.
+//
+// Vocabulario de bloqueo VERIFICADO en el producto, los tres emisores:
+//   1. guardian_service      → «Seguridad: Se bloqueó la petición debido a…»
+//   2. fail-closed del NLP   → «Petición bloqueada: el motor de detección…»
+//   3. guardrail del motor   → «La petición fue bloqueada por las políticas de seguridad…»
+// El (3) faltaba y lo encontró el gate ciego del core: un bloqueo LEGÍTIMO del motor caía
+// en harness_error e invalidaba el run. La frase común a los tres es «bloquead»/«bloqueó»
+// aplicada a «petición», así que se matchea por esa raíz en vez de por frases completas —
+// una coma de más en el producto ya no rompe la clasificación.
+// El 400 de catálogo («El modelo solicitado no está disponible») NO la contiene: sigue
+// cayendo del lado del fallo del instrumento, que es donde debe estar.
+const BLOCK_ROOTS = ['bloqueó la petición', 'petición bloqueada', 'petición fue bloqueada'];
+
+// Prefijo del plano /gw: `_anthropic_error` antepone «[Basa Gateway]» a TODO rechazo
+// propio del gateway (gateway.py). Es más robusto que la prosa y no depende del idioma.
+const GW_BLOCK_PREFIX = '[basa gateway]';
+
+export function policyBlock(res) {
+  if (!res || res.status !== 400) return false;
+  let detail = '';
+  try {
+    const b = res.json();
+    if (b && typeof b.detail === 'string') detail = b.detail;                 // chat
+    else if (b && b.error && typeof b.error.message === 'string') detail = b.error.message; // /gw
+  } catch (e) { detail = '' + (res.body || ''); }
+  if (!detail) detail = '' + (res.body || '');
+  const low = detail.toLowerCase();
+  if (low.indexOf(GW_BLOCK_PREFIX) !== -1) return true;
+  for (let i = 0; i < BLOCK_ROOTS.length; i++) {
+    if (low.indexOf(BLOCK_ROOTS[i]) !== -1) return true;
   }
   return false;
 }

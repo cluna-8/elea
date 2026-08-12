@@ -30,6 +30,28 @@ export function extension() {
   recordLatency('extension', phase, Date.now() - t0);
   metrics.auditable_events.add(1); // inspect empuja al monitor + audita
 
+  // `/gw/inspect` sí trae marcador limpio: `blocked` booleano en el cuerpo (200). Un
+  // bloqueo deja fila durable, así que cuenta para el SLO (d) — sin esto el producto
+  // bloqueaba y el guion no lo declaraba (el reconcile del 12-ago abortó por eso).
+  // El `catch` NO puede tragarse el error: un cuerpo ilegible significa que no sabemos si
+  // el producto bloqueó, y "no sé" jamás debe leerse como "no bloqueó" (el gate ciego del
+  // core cazó justo eso). Se cuenta como harness_error, que invalida el run.
+  let bloqueado = null;
+  try {
+    const v = ins.json('blocked');
+    if (v === true || v === false) bloqueado = v;
+  } catch (e) { bloqueado = null; }
+  if (bloqueado === null) {
+    metrics.harness_errors.add(1);
+  } else if (bloqueado) {
+    metrics.observed_blocks.add(1);
+    metrics.provoked_blocks.add(1);
+  }
+  // Los 4xx de inspect son fallo del instrumento (key inválida, cuerpo desalineado): el
+  // bloqueo de política viaja como 200 con `blocked: true`, no como 4xx.
+  if (ins.status >= 400 && ins.status < 500) { metrics.harness_errors.add(1); }
+  if (who.status >= 400 && who.status < 500) { metrics.harness_errors.add(1); }
+
   check(who, { 'whoami sin 5xx': function (r) { return r.status < 500; } });
   check(ins, { 'inspect sin 5xx': function (r) { return r.status < 500; } });
 }

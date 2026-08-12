@@ -46,8 +46,12 @@ class FakeStub:
 
 
 def _health(lost):
+    # El bloque `nlp` va SIEMPRE: el gate exige `fail_mode_efectivo` y el orquestador es
+    # fail-closed si no lo encuentra («no pude comparar» nunca es «coincide»). Un health
+    # sin él representa un stack que no publica sus precondiciones, no un stack sano.
     return {"status": "healthy", "service": "b", "version": "1.0.0",
-            "audit": {"mode": "block", "lost_events": lost, "last_failure_at": None}}
+            "audit": {"mode": "block", "lost_events": lost, "last_failure_at": None},
+            "nlp": {"configured": True, "status": "ok", "fail_mode_efectivo": "block"}}
 
 
 def _clean_summary():
@@ -441,7 +445,8 @@ def test_cli_reconcile_http_sin_lector_en_el_pool_es_error(tmp_path, capsys):
     pool.write_text(json.dumps([{"username": "cli", "password": "x", "role": "client"}]),
                     encoding="utf-8")
     with pytest.raises(SystemExit) as ei:
-        main(["--gate", "125", "--reconcile", "http", "--pool-file", str(pool),
+        main(["--gate", "125", "--reconcile", "http", "--model-chat", "itv-examen-local",
+              "--pool-file", str(pool),
               "--runs-dir", str(tmp_path)])
     assert ei.value.code == 2
     assert "admin-only" in capsys.readouterr().err
@@ -472,7 +477,7 @@ def test_cli_real_sin_reconcile_avisa(tmp_path, capsys, monkeypatch):
                            estado="completed", global_veredicto="PASS", slos=[])
 
     monkeypatch.setattr(orchmod, "Orchestrator", OrchFalso)
-    main(["--gate", "125", "--runs-dir", str(tmp_path)])
+    main(["--gate", "125", "--model-chat", "itv-examen-local", "--runs-dir", str(tmp_path)])
     assert "reconciliation_rows" in capsys.readouterr().err
 
 
@@ -567,3 +572,144 @@ def test_sonda_de_reloj_muda_aborta(tmp_path):
     verdict = orch.run()
     assert verdict.estado == "invalid"
     assert "Date" in (verdict.invalid_reason or "")
+
+
+# ── Alias de modelo de chat (hallazgo del examen 12-ago) ──────────────────────────────
+
+def test_el_alias_de_chat_viaja_a_k6(tmp_path):
+    """El backend valida `model` contra el catálogo del motor: si el guion inventa el
+    alias, la superficie más pesada del gate devuelve 400 sin auditar nada."""
+    orch = _orch(tmp_path, dry_run=True, model_chat="itv-examen-local")
+    orch.run()
+    cfg = json.loads((orch.run_dir / "k6_config.json").read_text())
+    assert cfg["model_chat"] == "itv-examen-local"
+    assert cfg["model_coding"] == "coding"
+
+
+def test_alias_de_chat_fuera_del_catalogo_aborta_antes_de_cargar(tmp_path):
+    """Precondición: con el catálogo publicado en el health, un alias que no está en él
+    aborta ANTES de k6. El 12-ago esto se descubrió a mano, mirando la pantalla de
+    auditoría a mitad del examen."""
+    observed = {"masking": {"default": "on"}, "nlp_fail_mode": "block",
+                "model_catalog": ["itv-examen-local", "itv-examen-premium"]}
+    called = {"k6": False}
+
+    def k6_runner(_cfg):
+        called["k6"] = True
+        return _clean_summary()
+
+    orch = _orch(tmp_path, dry_run=False, model_chat="chat",
+                 observed_stack_config=observed,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=k6_runner, reconcile_fn=lambda s: {})
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "catálogo" in (verdict.invalid_reason or "")
+    assert called["k6"] is False
+
+
+def test_alias_de_chat_en_el_catalogo_no_molesta(tmp_path):
+    observed = {"masking": {"default": "on"}, "nlp_fail_mode": "block",
+                "model_catalog": ["itv-examen-local"]}
+    orch = _orch(tmp_path, dry_run=False, model_chat="itv-examen-local",
+                 observed_stack_config=observed,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=lambda s: {})
+    verdict = orch.run()
+    assert "catálogo" not in (verdict.invalid_reason or "")
+
+
+# ── Prueba de humo por superficie (H1/H2 del gate ciego de #164) ──────────────────────
+
+def test_humo_fallido_aborta_antes_de_generar_carga(tmp_path):
+    """La respuesta de fondo al 12-ago: una superficie que no se sirve en seco no va a
+    medir nada en 30 minutos. Se aborta ANTES de abrir la ventana."""
+    called = {"k6": False}
+
+    def k6_runner(_cfg):
+        called["k6"] = True
+        return _clean_summary()
+
+    orch = _orch(tmp_path, dry_run=False,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=k6_runner, reconcile_fn=lambda s: {},
+                 smoke_fn=lambda pool: [("chat", "HTTP 400 con model='chat' → alias inexistente")])
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "humo" in (verdict.invalid_reason or "")
+    assert "chat" in (verdict.invalid_reason or "")
+    assert called["k6"] is False          # NO se pagó la carga
+
+
+def test_humo_limpio_deja_correr(tmp_path):
+    orch = _orch(tmp_path, dry_run=False,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=lambda s: {},
+                 smoke_fn=lambda pool: [])
+    verdict = orch.run()
+    assert "humo" not in (verdict.invalid_reason or "")
+    assert orch.k6_launched is True
+
+
+def test_el_humo_recibe_el_pool_del_run(tmp_path):
+    """La sonda necesita credenciales y basa_key reales: se le pasa el pool exportado."""
+    visto = {}
+    orch = _orch(tmp_path, dry_run=False,
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=lambda s: {},
+                 smoke_fn=lambda pool: visto.update(n=len(pool)) or [])
+    orch.run()
+    assert visto.get("n", 0) > 0
+
+
+def test_nlp_en_degrade_no_es_el_mismo_examen(tmp_path):
+    """Precondición que existía pero NUNCA corría en una corrida real (H2): el gate exige
+    fail_mode 'block' y un stack en 'degrade' enmascara con el regex de dev."""
+    health = _health(0)
+    health["nlp"] = {"configured": True, "status": "ok", "fail_mode_efectivo": "degrade"}
+    orch = _orch(tmp_path, dry_run=False,
+                 health_fn=lambda cual: health,
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=lambda s: {},
+                 smoke_fn=lambda pool: [])
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "nlp_fail_mode" in (verdict.invalid_reason or "")
+    assert orch.k6_launched is False
+
+
+def test_sin_fuente_observable_del_modo_nlp_no_se_corre(tmp_path):
+    """Semántica sellada con el core: «no pude comparar» JAMÁS puede leerse como
+    «coincide». Si el gate exige un modo y el health no lo publica, el run no arranca."""
+    health = _health(0)
+    health.pop("nlp")
+    orch = _orch(tmp_path, dry_run=False,
+                 health_fn=lambda cual: health,
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=lambda s: {},
+                 smoke_fn=lambda pool: [])
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "no publica" in (verdict.invalid_reason or "")
+    assert orch.k6_launched is False
+
+
+def test_la_latencia_de_chat_va_en_defaults_no_atada_al_alias(tmp_path):
+    """El stub programa por alias y el alias es del DESPLIEGUE, no del gate: el 12-ago el
+    gate decía `chat: 800` y el motor mandaba `local`, así que 1107 peticiones corrieron
+    con 0 ms programados y el overhead salió en -649 ms. En `defaults` la latencia aplica
+    a cualquier alias que el despliegue elija."""
+    stub = FakeStub(_clean_stub_report())
+    orch = _orch(tmp_path, dry_run=False, stub_client=stub,
+                 health_fn=lambda cual: _health(0),
+                 k6_runner=lambda cfg: _clean_summary(), reconcile_fn=lambda s: {},
+                 smoke_fn=lambda pool: [])
+    orch.run()
+    cfg = next(c[1] for c in stub.calls if isinstance(c, tuple) and c[0] == "config")
+    assert cfg["defaults"]["latency_ms"] == 800.0        # la del gate 125 para chat
+    assert cfg["aliases"]["coding"]["latency_ms"] == 600.0   # coding sigue explícito

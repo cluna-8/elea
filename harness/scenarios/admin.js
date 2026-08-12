@@ -20,7 +20,16 @@ export function admin() {
     const res = http.get(API + PANELS[i], {
       headers: headers, tags: { surface: 'admin', panel: PANELS[i], phase: phase },
     });
-    check(res, { 'panel sin 5xx': function (r) { return r.status < 500; } });
+    check(res, {
+      'panel sin 5xx': function (r) { return r.status < 500; },
+      'panel llegó a la lógica (no 4xx)': function (r) { return r.status < 400; },
+    });
+    // Mismo contrato que las otras tres superficies: un 4xx acá no es resultado del
+    // examen —los paneles son de solo-lectura, no hay política que los bloquee— sino
+    // ruta cambiada, permisos mal sembrados o token vencido. Cuenta como harness_error,
+    // que invalida el run: un panel que devuelve 403 en masa no está midiendo la
+    // competencia por Postgres que esta superficie existe para medir.
+    if (res.status >= 400 && res.status < 500) { metrics.harness_errors.add(1); }
     if (res.timings && res.timings.duration > worst) worst = res.timings.duration;
   }
   // la latencia de la "sesión de panel" = el peor panel de la ronda.

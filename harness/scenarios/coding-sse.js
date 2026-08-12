@@ -65,6 +65,27 @@ export function coding() {
     return;                    // sin TTFT: no hubo primer token, hubo un no rápido
   }
 
+  // Bloqueo del gateway. `/gw` escribe la fila durable ANTES de responder (gateway.py:
+  // «Registrar → bloquear», FR-001) y sale por `_anthropic_error` con 400. xk6-sse NO
+  // expone el cuerpo de la respuesta —sólo url/status/headers/error—, así que acá no se
+  // puede leer el «[Basa Gateway]» que sí distingue chat. Lo que hace defendible tratar
+  // ese 400 como bloqueo es la PRUEBA DE HUMO: el orquestador sirvió esta misma superficie
+  // con este mismo cuerpo antes de abrir la ventana, así que un 400 en régimen no es un
+  // pedido mal armado por nosotros. Sin el humo esto sería adivinar.
+  // Un bloqueo NO es corte de stream (nunca hubo stream) ni emite TTFT.
+  if (res && res.status === 400) {
+    metrics.observed_blocks.add(1);
+    metrics.provoked_blocks.add(1);
+    metrics.auditable_events.add(1);
+    return;
+  }
+  // El resto de los 4xx sí son fallo del instrumento: ruta cambiada, cuerpo desalineado,
+  // key inválida. Invalidan el run en vez de contarse como examen (contrato del 12-ago).
+  if (res && res.status >= 400 && res.status < 500) {
+    metrics.harness_errors.add(1);
+    return;
+  }
+
   // Recién acá se sabe que la respuesta fue servicio y no rechazo: el TTFT es legítimo.
   if (firstTokenAt) { recordTTFT(phase, firstTokenAt - t0); }
   recordLatency('coding', phase, elapsed);

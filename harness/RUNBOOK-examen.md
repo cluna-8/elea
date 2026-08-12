@@ -220,6 +220,7 @@ python -m basa_harness.orchestrator \
   --stub-url http://10.0.0.20:8080 \
   --pool-file /run/itv/pool-g125.json \
   --reconcile http \
+  --model-chat itv-examen-local \
   --hardware-file /tmp/itv-hardware.json \
   --producto-file /run/itv/producto.json \
   --licencia-file /run/itv/licencia.json \
@@ -230,10 +231,21 @@ python -m basa_harness.orchestrator \
 
 - `--pool-file` aporta las `basa_key` (extensión/coding) **y** la credencial
   `compliance_officer` que lee `audit_logs`. La password nunca va por argv: `ps` no la ve.
+- `--model-chat` es **obligatorio** en una corrida real y tiene que ser un alias del
+  `model_list` del motor desplegado (mirá `rendered/config.yaml` del perfil: para
+  `itv-examen` son `itv-examen-local/premium/economy`). No hay default plausible — el
+  alias es del despliegue, y uno inventado devuelve 400 **sin auditar**: el 12-ago eso
+  dejó el 60% de la carga del gate sin medir durante 30 minutos.
 - `--hardware-file` es el `/tmp/itv-hardware.json` del paso 1; `--producto-file` dice QUÉ
   build se midió y `--harness-commit` con qué instrumento. **Sin ellos el fingerprint se
   firma `unknown`** y el run no es contrastable (el CLI avisa por stderr). En la caja de
   examen el código llega por tar (sin `.git`), así que el sha del harness se pasa a mano.
+- Antes de abrir la ventana el orquestador corre una **prueba de humo**: una petición real
+  por superficie (chat, extensión, coding, admin) con texto inocuo. Si alguna no se sirve,
+  aborta ahí — cuesta un segundo y evita descubrir a los 30 minutos que una superficie no
+  estaba midiendo nada. También comprueba que el `nlp_fail_mode` efectivo del stack es el
+  que el gate exige (`block`): un stack en `degrade` enmascara con el regex de dev y **no
+  es el mismo examen**.
 - El orquestador comprueba el **skew de reloj** contra el SUT (header `Date`, tolerancia
   ±2 s) antes de abrir la ventana: si las cajas no están en hora (NTP), aborta sin cargar.
 - `--reconcile http` cuenta las filas de auditoría del producto en la ventana del run
@@ -254,6 +266,32 @@ producto: son «no se puede certificar»):
 | `el filtro de ventana NO se está aplicando` | el backend descartó las fechas y contaría la tabla entera | no certificar; abrir issue al core con la evidencia |
 | `el producto registró N fila(s) de bloqueo … el guion contó 0` | hubo bloqueos que el guion no ve (k6 no incrementa `observed_blocks`) | mirar las filas a mano (`GET /api/v1/audit-logs?estado=bloqueados`) antes de decidir |
 | `la credencial … no autentica` | el pool es de otra semilla/instalación | re-seedear contra stack fresco |
+| `prueba de humo fallida` | una superficie no se sirve en seco (wire, alias, key, ruta) | corregir y volver a lanzar — no se generó carga |
+| `precondición nlp_fail_mode … no publica` | el health no trae `fail_mode_efectivo` | no se certifica sin poder verificar la precondición |
+
+### Residuo declarado del instrumento (leer antes de interpretar un FAIL)
+
+Lo que el harness **todavía no verifica**, para que nadie lea como fallo del producto algo
+que es un hueco nuestro:
+
+- **Si reprueba el SLO (d) `blocked_rows_durable_100`, mirar PRIMERO los 400 de upstream.**
+  `/gw` emite 400 en dos casos que **no** dejan fila: validación del cuerpo, y el error del
+  proveedor proxeado verbatim (`upstream_error`). El guion los cuenta como bloqueo (lee
+  todo 400 de `/gw` como rechazo con fila durable, apoyado en la prueba de humo), así que
+  un pico de esos inflaría los bloqueos declarados sin filas que los respalden. Comprobar
+  a mano con `GET /api/v1/audit-logs?estado=bloqueados` sobre la ventana antes de acusar al
+  producto. El cierre real es el marcador machine-readable (issue #166).
+- **La paridad del SLO (d) compara dos agregados de fuentes distintas.** Dos ruidos de
+  signo opuesto pueden cancelarse y dar un PASS sin significado. Con #166 la paridad podrá
+  ser por-motivo y el ruido dejará de cancelarse.
+- **De `stack_config_required` sólo se verifica en vivo `nlp_fail_mode`** (contra el health).
+  `masking`, `nlp_analyzer`, `auto_router` y `producto_incluye` se registran en el
+  fingerprint pero **nadie los compara** contra el stack real: un drift ahí no aborta el
+  run. Si dos runs no cuadran y el fingerprint dice que son comparables, ése es el primer
+  lugar a mirar.
+- **Drills con streams largos**: k6 corta las iteraciones en vuelo al terminar la fase, y
+  el producto ya escribió su fila → la reconciliación puede dar «sobran filas» sin que se
+  haya perdido nada. Visto en `20260812-g125-drill-01` (+15).
 
 ## 7. Recolección de artefactos y destroy
 

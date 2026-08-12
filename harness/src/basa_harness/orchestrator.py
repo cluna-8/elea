@@ -96,6 +96,7 @@ class Orchestrator:
                  runs_dir: Optional[Union[str, Path]] = None,
                  seed: Union[int, str] = DEFAULT_SEED, kind: str = "gate_oficial",
                  dry_run: bool = False, drill_admin_budget_ms: Optional[float] = None,
+                 model_chat: str = "chat", model_coding: str = "coding",
                  n_canaries: int = 64, n_corpus_docs: int = 200,
                  timestamp: Optional[str] = None, now: Optional[Callable[[], datetime]] = None,
                  health_fn: Optional[Callable[[str], dict]] = None,
@@ -103,6 +104,7 @@ class Orchestrator:
                  k6_runner: Optional[Callable[[dict], dict]] = None,
                  reconcile_fn: Optional[Callable[[dict], dict]] = None,
                  clock_probe_fn: Optional[Callable[[], Optional[datetime]]] = None,
+                 smoke_fn: Optional[Callable[[list], list]] = None,
                  observed_stack_config: Optional[dict] = None,
                  pool_file: Optional[Union[str, Path]] = None,
                  population: Optional[Population] = None,
@@ -120,6 +122,8 @@ class Orchestrator:
                                                else kind)
         self.dry_run = dry_run
         self.drill_admin_budget_ms = drill_admin_budget_ms
+        self.model_chat = model_chat
+        self.model_coding = model_coding
         self.n_canaries = n_canaries
         self.n_corpus_docs = n_corpus_docs
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -134,6 +138,7 @@ class Orchestrator:
         self._k6_runner = k6_runner
         self._reconcile_fn = reconcile_fn
         self._clock_probe_fn = clock_probe_fn
+        self._smoke_fn = smoke_fn
         self.clock_skew_s: Optional[float] = None
         self.observed_stack_config = observed_stack_config
         self.pool_file = Path(pool_file) if pool_file else None
@@ -165,6 +170,7 @@ class Orchestrator:
             self._write_k6_config(pool, corpus)
             self._configure_stub(corpus)
             health_initial = self._probe_health("inicial")
+            self._assert_stack_ready(health_initial, pool)
             self._assert_clock_skew()
             # Ventana del run: se abre ANTES de la primera request de carga y se cierra
             # con la última. Sin margen a propósito — una fila de auditoría escrita fuera
@@ -231,6 +237,18 @@ class Orchestrator:
             raise OrchestratorError(
                 f"precondición nlp: el bloque nlp del health no está sano ({nlp.get('status')!r}); "
                 "un gate en 'degrade' no es el mismo examen que uno en 'block'.")
+        # El alias de chat se verifica contra el catálogo REAL del motor, pero no acá: esta
+        # ruta depende de una config observada que sólo existe si el llamador la inyecta.
+        # La comprobación viva vive en `_assert_stack_ready` (GET /chat/models, la misma
+        # fuente que consume la UI de Modelos) — ver la nota de H2 en ese método.
+        catalogo = observed.get("model_catalog") or observed.get("modelos")
+        if isinstance(catalogo, (list, tuple, set)) and catalogo:
+            if self.model_chat not in catalogo:
+                raise OrchestratorError(
+                    f"precondición de catálogo: el alias de chat {self.model_chat!r} no está "
+                    f"en el catálogo del motor ({sorted(catalogo)!r}). El backend lo "
+                    "rechazaría con 400 sin auditar y el 60% del gate no mediría nada. "
+                    "Pasá --model-chat con un alias del `model_list` del perfil desplegado.")
 
     # ── exportaciones deterministas (offline) ──────────────────────────────────────────
 
@@ -348,6 +366,11 @@ class Orchestrator:
         en la suma de las duraciones de las fases 0..i-1.
         """
         rates = surface_arrival_rates(self.gate)
+        # Ver la nota del `gracefulStop` más abajo: el margen sale del stream MÁS LARGO que
+        # el stub puede servir en este gate, más holgura para el cierre.
+        stub_cfg = self.gate.stub or {}
+        stream_rng = stub_cfg.get("stream_duration_s") or [1, 1]
+        graceful_stop_s = float(stream_rng[-1]) + 15.0
         scenarios = []
         offset_s = 0.0
         for phase in self.gate.phases:
@@ -363,6 +386,14 @@ class Orchestrator:
                     "rate": rate, "timeUnit": f"{ar.cadence_mean_s:g}s",
                     "duration": phase.duration, "startTime": start_time,
                     "preAllocatedVUs": max(10, rate * 2), "maxVUs": max(20, rate * 6),
+                    # El `gracefulStop` por defecto de k6 son 30 s: un stream del stub que
+                    # dura más queda CORTADO al terminar la fase, el guion nunca ejecuta el
+                    # cierre de su iteración (no cuenta el evento) y el producto ya escribió
+                    # su fila → la reconciliación reporta «sobran filas» sin que se haya
+                    # perdido nada. Medido en 20260812-g125-drill-01: +15 filas con streams
+                    # de 60-120 s del modo sede-lenta. Se le da margen para que las
+                    # iteraciones en vuelo terminen y los dos lados cuenten lo mismo.
+                    "gracefulStop": f"{graceful_stop_s:g}s",
                 })
             # login_storm / peak llevan su propio scenario si el gate lo declara.
             if phase.name == "login_storm":
@@ -386,6 +417,11 @@ class Orchestrator:
             "summary_file": "summary.json",
             "densities_per_mille": list(self.gate.pii_densities_per_mille or [0]),
             "scenarios": scenarios,
+            # Alias de modelo del DESPLIEGUE (no del gate): el backend valida `model`
+            # contra el `model_list` del motor y un alias desconocido devuelve 400 sin
+            # auditar. Viaja acá para que el guion no lo adivine.
+            "model_chat": self.model_chat,
+            "model_coding": self.model_coding,
         }
         self._write_json("k6_config.json", cfg)
         return cfg
@@ -401,12 +437,23 @@ class Orchestrator:
         lat = stub.get("latency_ms") or {}
         stream_rng = stub.get("stream_duration_s") or [1, 1]
         stream_mid = (float(stream_rng[0]) + float(stream_rng[-1])) / 2.0
+        # El stub programa la latencia POR ALIAS, y el alias que ve es el del DESPLIEGUE
+        # (el `model` que le reenvía el motor), no la clave genérica del gate. En el examen
+        # del 12-ago el gate declaraba `chat: 800` pero el motor mandaba `local`, así que el
+        # stub aplicó 0 ms a las 1107 peticiones de chat y el overhead de esa superficie
+        # salió en -649 ms: restaba una latencia que nunca se aplicó.
+        # La latencia de chat va en `defaults`, que es lo que el stub usa para cualquier
+        # alias no listado (`self.aliases.get(alias, self.defaults)`): así el nombre que
+        # elija el despliegue deja de importar. `coding` sigue explícito porque su latencia
+        # es distinta (primer token) y su alias SÍ es estable — viaja por /gw, donde la
+        # Connection resuelve el destino.
         cfg = {
             "run_id": self.run_id,
             "seed": self.seed if isinstance(self.seed, int) else 0,
             "masking_config": self.gate.stack_config_required.get("masking", {}),
             "defaults": {"token_rate": float(stub.get("token_rate_tps", 40)),
                          "stream_duration_s": stream_mid,
+                         "latency_ms": float(lat.get("chat", 0)),
                          "error_rate": float(stub.get("error_rate", 0.0))},
             "aliases": {
                 "chat": {"latency_ms": float(lat.get("chat", 0)),
@@ -445,6 +492,60 @@ class Orchestrator:
         if isinstance(summary, dict):
             self._write_json("summary.json", summary)
         return summary
+
+    def _assert_stack_ready(self, health: dict, pool: list) -> None:
+        """Prueba de HUMO antes de abrir la ventana: una petición REAL por superficie.
+
+        Es la respuesta de fondo al 12-ago, donde el examen corrió 30 minutos completos
+        con el 60% de la carga rebotando en 422 y nadie se enteró hasta que un humano miró
+        la pantalla de auditoría del producto. Las precondiciones declarativas no alcanzan:
+        el health no publica ni el catálogo de modelos ni la config de enmascarado, así que
+        la única forma honesta de saber si una superficie ejercita el producto es
+        **ejercitarla una vez**. Cuatro peticiones, un segundo, antes de gastar media hora.
+
+        Cubre de una sola vez toda la familia: cuerpo desalineado con el wire, alias de
+        modelo inexistente, material de llave inválido, ruta cambiada. Y deja el terreno
+        firme para clasificar lo que venga después: con el wire probado en t0, un 400 en
+        régimen sobre ``/gw`` es un rechazo del gateway (con su fila durable), no un
+        pedido mal armado por nosotros.
+
+        Además vuelve VIVA la precondición del modo NLP: el ``fail_mode_efectivo`` del
+        health se compara contra el que el gate exige. Hasta hoy esa comprobación existía
+        pero nunca corría en una corrida real (``observed_stack_config`` no se pasaba
+        nunca por CLI) — o sea que ningún run oficial verificó jamás sus precondiciones.
+        """
+        if self.dry_run:
+            return
+        # (1) modo NLP efectivo: el gate 125/250/500 exige `block`; un stack en `degrade`
+        # sirve con regex de dev y NO es el mismo examen. FAIL-CLOSED: si el gate exige un
+        # modo y la fuente observable no lo publica, el run NO arranca — «no pude
+        # comparar» jamás puede leerse como «coincide» (semántica sellada con el core).
+        exigido = (self.gate.stack_config_required or {}).get("nlp_fail_mode")
+        if exigido:
+            efectivo = (health.get("nlp") or {}).get("fail_mode_efectivo")
+            if not efectivo:
+                raise OrchestratorError(
+                    f"precondición nlp_fail_mode: el gate exige {exigido!r} pero el health "
+                    "no publica `nlp.fail_mode_efectivo`, así que no hay con qué "
+                    "compararlo. Un examen que no puede verificar sus propias "
+                    "precondiciones no se corre.")
+            if exigido != efectivo:
+                raise OrchestratorError(
+                    f"precondición nlp_fail_mode: el gate exige {exigido!r} y el stack corre "
+                    f"{efectivo!r}. Un run en 'degrade' enmascara con el regex de dev: no es "
+                    "el mismo examen y no puede marcarse oficial.")
+        # (2) humo por superficie. La sonda es un HOOK que ``main()`` cablea SIEMPRE en un
+        # run real (mismo patrón que la del reloj): el orquestador no la inventa, así que
+        # un llamador programático con hooks falsos no sale a la red sin pedirlo.
+        if self._smoke_fn is None:
+            return
+        fallos = self._smoke_fn(pool)
+        if fallos:
+            detalle = "; ".join(f"{s}: {d}" for s, d in fallos)
+            raise OrchestratorError(
+                f"prueba de humo fallida ANTES de generar carga — {detalle}. Una superficie "
+                "que no se sirve en seco no va a medir nada en 30 minutos de examen: se "
+                "aborta acá en vez de producir un veredicto sobre una fracción de la carga.")
 
     def _assert_clock_skew(self) -> None:
         """M1: la ventana la fija el reloj del ORQUESTADOR, pero los ``timestamp`` de
@@ -807,6 +908,122 @@ class _HttpStubClient:  # pragma: no cover — camino real (los tests inyectan u
 
 # ── CLI ────────────────────────────────────────────────────────────────────────────────
 
+def _default_smoke(backend_url: str, model_chat: str,
+                   model_coding: str = "coding") -> Callable[[list], list]:
+    """Sonda real de las 4 superficies. Devuelve la lista de ``(superficie, motivo)`` que
+    NO se sirvieron; vacía = todo el wire probado.
+
+    El texto de prueba es deliberadamente INOCUO (sin PII ni canarios): se comprueba que
+    la superficie responde, no la política. Un bloqueo acá sería un falso negativo."""
+    TEXTO = "Consulta administrativa de rutina sobre el horario de atención."
+
+    def smoke(pool: list) -> list:  # pragma: no cover — camino real (los tests inyectan)
+        import httpx
+        fallos = []
+        base = f"{backend_url}/api/v1"
+
+        def _cred(role):
+            for c in pool or []:
+                if isinstance(c, dict) and c.get("role") == role and c.get("password"):
+                    return c
+            return None
+
+        def _key(client_type):
+            for c in pool or []:
+                if isinstance(c, dict) and c.get("client_type") == client_type \
+                        and c.get("basa_key"):
+                    return c["basa_key"]
+            return None
+
+        with httpx.Client(timeout=60.0) as http:
+            cli = _cred("client")
+            if cli is None:
+                fallos.append(("chat", "el pool no trae ninguna credencial de rol client"))
+            else:
+                r = http.post(f"{base}/users/login",
+                              json={"username": cli["username"], "password": cli["password"]})
+                if r.status_code != 200:
+                    fallos.append(("chat", f"login {r.status_code}"))
+                else:
+                    tok = r.json().get("access_token")
+                    auth = {"Authorization": f"Bearer {tok}"}
+                    # Catálogo REAL del motor: `GET /chat/models` es lo que consume la UI
+                    # de Modelos y basta credencial autenticada. Fail-closed: si no se
+                    # puede leer, no se corre (no se asume que el alias existe).
+                    r = http.get(f"{base}/chat/models", headers=auth)
+                    if r.status_code != 200:
+                        fallos.append(("catálogo", f"GET /chat/models → HTTP "
+                                                   f"{r.status_code}: sin catálogo no se "
+                                                   "puede verificar el alias de chat"))
+                    else:
+                        nombres = {m.get("model_name") for m in (r.json() or [])
+                                   if isinstance(m, dict)}
+                        if model_chat not in nombres:
+                            fallos.append(("catálogo", f"el alias {model_chat!r} no está en "
+                                                       f"el catálogo del motor "
+                                                       f"({sorted(n for n in nombres if n)!r})"))
+                    r = http.post(f"{base}/chat/completions",
+                                  json={"model": model_chat, "message": TEXTO},
+                                  headers=auth)
+                    if r.status_code != 200:
+                        fallos.append(("chat", f"HTTP {r.status_code} con model="
+                                               f"{model_chat!r} → {r.text[:160]}"))
+
+            k_ext = _key("desktop")
+            if k_ext is None:
+                fallos.append(("extension", "el pool no trae basa_key de client_type=desktop"))
+            else:
+                r = http.post(f"{base}/gw/inspect", json={"text": TEXTO, "tool": "chatgpt"},
+                              headers={"X-Basa-Key": k_ext})
+                if r.status_code != 200:
+                    fallos.append(("extension", f"HTTP {r.status_code} → {r.text[:160]}"))
+
+            k_cod = _key("base_url")
+            if k_cod is None:
+                fallos.append(("coding", "el pool no trae basa_key de client_type=base_url"))
+            else:
+                # Con `stream: True` y el alias REAL: el guion de coding es SSE, y probar
+                # la rama no-streaming dejaría pasar un desalineado del wire en streaming
+                # justo en la superficie cuyo 400 leemos como bloqueo apoyándonos en este
+                # humo. Se verifica que abra y entregue el primer byte, no todo el stream.
+                try:
+                    with http.stream("POST", f"{base}/gw/v1/messages",
+                                     json={"model": model_coding, "max_tokens": 16,
+                                           "stream": True,
+                                           "messages": [{"role": "user", "content": TEXTO}]},
+                                     headers={"X-Basa-Key": k_cod,
+                                              "Accept": "text/event-stream"}) as r:
+                        if r.status_code != 200:
+                            r.read()
+                            fallos.append(("coding", f"HTTP {r.status_code} (stream) → "
+                                                     f"{r.text[:160]}"))
+                        else:
+                            primero = next(r.iter_bytes(), b"")
+                            if not primero:
+                                fallos.append(("coding", "el stream abrió con 200 pero no "
+                                                         "entregó un solo byte"))
+                except Exception as exc:  # noqa: BLE001 — transporte/stream roto
+                    fallos.append(("coding", f"{type(exc).__name__}: {exc}"))
+
+            cmp_ = _cred("compliance_officer") or _cred("tenant_admin")
+            if cmp_ is None:
+                fallos.append(("admin", "el pool no trae credencial compliance/admin"))
+            else:
+                r = http.post(f"{base}/users/login",
+                              json={"username": cmp_["username"], "password": cmp_["password"]})
+                if r.status_code != 200:
+                    fallos.append(("admin", f"login {r.status_code}"))
+                else:
+                    tok = r.json().get("access_token")
+                    r = http.get(f"{base}/audit-logs", params={"limit": 1},
+                                 headers={"Authorization": f"Bearer {tok}"})
+                    if r.status_code != 200:
+                        fallos.append(("admin", f"HTTP {r.status_code} → {r.text[:160]}"))
+        return fallos
+
+    return smoke
+
+
 def _default_clock_probe(backend_url: str) -> Callable[[], Optional[datetime]]:
     """Sonda real del reloj del backend para la guarda de skew (M1): CUALQUIER respuesta
     HTTP/1.1 trae ``Date`` (no hace falta un 200 ni credenciales)."""
@@ -861,6 +1078,15 @@ def main(argv: Optional[list] = None) -> int:
     p.add_argument("--reconcile", choices=("none", "http"), default="none",
                    help="'http' cuenta las filas de audit_logs del producto en la ventana "
                         "del run (obligatorio en un gate oficial); 'none' = sin conteo")
+    p.add_argument("--model-chat", default=None,
+                   help="alias de modelo de la superficie chat: DEBE existir en el "
+                        "`model_list` del motor desplegado (p. ej. itv-examen-local). "
+                        "OBLIGATORIO en una corrida real — no hay default plausible: el "
+                        "alias es del despliegue, y uno inventado devuelve 400 sin auditar "
+                        "(60%% del gate sin medir, el fallo del 12-ago)")
+    p.add_argument("--model-coding", default="coding",
+                   help="alias nominal de la superficie coding (viaja por /gw, donde la "
+                        "Connection resuelve el destino)")
     p.add_argument("--hardware-file", type=Path, default=None,
                    help="JSON del output `fingerprint_hardware` de OpenTofu (provider, "
                         "location, datacenter, tipos de caja). Sin él, un gate oficial se "
@@ -882,6 +1108,17 @@ def main(argv: Optional[list] = None) -> int:
     if budget is not None and (not math.isfinite(budget) or budget <= 0):
         p.error(f"--drill-admin-budget-ms debe ser un número FINITO > 0 (ms), es {budget!r}; "
                 "derivalo del p95 de admin del gate oficial del mismo día")
+
+    # El alias de chat no tiene default que sirva: es del DESPLIEGUE. En seco da igual
+    # (no se llama al producto); en una corrida real, inventarlo es exactamente el fallo
+    # que dejó el 60% del gate sin medir el 12-ago, así que se exige explícito.
+    if args.model_chat is None:
+        if not args.dry_run:
+            p.error("falta --model-chat: el alias de la superficie chat tiene que existir "
+                    "en el `model_list` del motor desplegado (mirá el config.yaml del "
+                    "perfil; p. ej. itv-examen-local). Un alias inventado devuelve 400 sin "
+                    "auditar y el 60% de la carga del gate no mide nada.")
+        args.model_chat = "chat"
 
     gate = load_gate(args.gate_file) if args.gate_file else load_gate_by_number(args.gate)
 
@@ -946,11 +1183,15 @@ def main(argv: Optional[list] = None) -> int:
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
                         kind=args.kind, dry_run=args.dry_run,
                         drill_admin_budget_ms=args.drill_admin_budget_ms,
+                        model_chat=args.model_chat, model_coding=args.model_coding,
                         pool_file=args.pool_file, reconcile_fn=reconcile_fn,
                         hardware=hardware, producto=producto, licencia=licencia,
                         harness_commit=args.harness_commit or _git_commit(),
                         clock_probe_fn=(None if args.dry_run else
-                                        _default_clock_probe(args.backend_url.rstrip("/"))))
+                                        _default_clock_probe(args.backend_url.rstrip("/"))),
+                        smoke_fn=(None if args.dry_run else
+                                  _default_smoke(args.backend_url.rstrip("/"),
+                                                 args.model_chat, args.model_coding)))
     try:
         verdict = orch.run()
     except OrchestratorError as exc:
