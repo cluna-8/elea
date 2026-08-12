@@ -208,6 +208,12 @@ ssh root@"$SUT_IP" 'docker images --format "{{.Repository}} {{.ID}}" | grep basa
   | python3 -c 'import json,sys; print(json.dumps({"commit": "'"$ITV_MAIN_SHA"'",
       "digests": dict(l.split() for l in sys.stdin)}))' > /run/itv/producto.json
 
+# la licencia REAL del SUT (la efímera del paso 4b, NO la expectativa del gate): sin este
+# flag el fingerprint firma max_seats=300 —el número del YAML del gate—, que es plausible
+# y FALSO. seats_used = los seats que reportó el seed (119 en el gate 125).
+printf '{"lic_id": "lic_itv_examen_130", "kid": "itv-examen-2026", "max_seats": 130, "seats_used": 119}\n' \
+  > /run/itv/licencia.json
+
 python -m basa_harness.orchestrator \
   --gate 125 \
   --backend-url http://10.0.0.10:8000 \
@@ -216,6 +222,7 @@ python -m basa_harness.orchestrator \
   --reconcile http \
   --hardware-file /tmp/itv-hardware.json \
   --producto-file /run/itv/producto.json \
+  --licencia-file /run/itv/licencia.json \
   --harness-commit "$ITV_HARNESS_SHA" \
   --seed "$ITV_SEED" \
   --run-id "$ITV_RUN_ID"
