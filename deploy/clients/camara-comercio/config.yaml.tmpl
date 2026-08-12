@@ -20,9 +20,27 @@ litellm_settings:
   drop_params: true
   set_verbose: false
 model_list:
+# `max_parallel_requests` (issue #151, decisión técnica del #134): el SEGUNDO candado del
+# nodo C1, del lado del motor. El primero es el tope de admisión del backend (8 en vuelo ×
+# 2 workers = 16 total); éste está para que la cola infinita no vuelva a existir NI AUNQUE
+# el backend falle en cortarla, porque el runtime local de la sede serializa las
+# generaciones y encola FIFO sin límite — ahí empezó el cuelgue del 30-jul, con el producto
+# entero mudo ~10 min por culpa de un chat lento. 20 = tope total del backend + margen, a
+# propósito POR ENCIMA: el que rechaza tiene que ser el backend, con su 503 honesto y
+# auditado, no el motor con un error opaco que nadie audita.
+#
+# `num_retries: 0` (issue #151, decisión #134-② sellada por JF el 12-ago): el candado más
+# barato de los tres. El `num_retries: 2` de `router_settings` es sano contra un proveedor
+# cloud, pero contra el runtime local —que serializa y encola FIFO— es amplificación pura:
+# cada generación que expira vuelve a la MISMA cola dos veces más (×3 trabajo por pedido)
+# justo cuando el sistema ya no da abasto. Parte del diagnóstico del 30-jul. El valor por
+# deployment pisa al global SÓLO para este upstream; el cloud que se dé de alta por el panel
+# conserva sus 2 reintentos. Y no apaga los fallbacks: son otra capa (ver ADR-0003).
 - litellm_params:
     api_base: http://${CLIENT_OLLAMA_HOST}:11434
+    max_parallel_requests: 20
     model: ollama_chat/${CLIENT_OLLAMA_MODEL}
+    num_retries: 0
   model_name: ${TENANT_SLUG}-local
 # ^ El ALIAS es estable (las rutas del auto-router y la UI lo referencian); el modelo
 #   REAL de Ollama debajo es CLIENT_OLLAMA_MODEL en client.env — si la sede tiene otro

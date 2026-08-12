@@ -30,9 +30,31 @@ services:
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
       LITELLM_API_BASE: "http://litellm:4000"
+      # ── Admisión hacia el motor (nodo C1, issue #151 / nota N3 del gate de #135) ──
+      # Sin estas líneas el tope queda CLAVADO en los defaults del código: una instalación
+      # no puede girar nada, y el ajuste que piden los gates 250/500 —y la sede, con su
+      # modelo local lento— exigiría una imagen nueva. Los defaults de acá son los del
+      # código (engine_gate.py) salvo donde este perfil ya decidía distinto, y el rango de
+      # cada perilla lo sigue imponiendo el código: un valor absurdo se ignora con warning,
+      # nunca reinstala la cola infinita ni tumba el arranque del worker.
+      #
+      # Pedidos en vuelo hacia el motor POR PROCESO (1..64). El total de la instalación es
+      # este valor × WEB_CONCURRENCY: con los defaults, 8 × 2 = 16 en vuelo.
+      BASA_ENGINE_MAX_CONCURRENCY: "${BASA_ENGINE_MAX_CONCURRENCY:-8}"
+      # Espera de turno antes del 503 honesto (0 < v <= 60). Corto a propósito: la promesa
+      # es «te digo que no rápido». El `Retry-After` del rechazo se deriva de este valor.
+      BASA_ENGINE_QUEUE_TIMEOUT_SECONDS: "${BASA_ENGINE_QUEUE_TIMEOUT_SECONDS:-5}"
       # Timeout del backend hacia el motor (030/T018): debe superar al del router del
       # motor (120s con modelos locales lentos) o corta él primero a mitad de un fallback.
+      # Por eso este perfil sube el default del código (60) a 150 — el chat de la consola
+      # con modelo local es justamente el caso que aquellos 60 s cortaban.
       BASA_ENGINE_TIMEOUT_SECONDS: "${BASA_ENGINE_TIMEOUT_SECONDS:-150}"
+      # Timeouts del byok de `/gw` (coding tools), INDEPENDIENTES de los del chat (H3 del
+      # gate de #135): total de la llamada no-stream y espera entre chunks del stream. Los
+      # dos por encima de los 120 s del router — el que espera aguanta más que el que
+      # trabaja, o una respuesta lenta pero buena se convierte en un error nuestro.
+      BASA_GW_BYOK_TIMEOUT_SECONDS: "${BASA_GW_BYOK_TIMEOUT_SECONDS:-150}"
+      BASA_GW_BYOK_READ_TIMEOUT_SECONDS: "${BASA_GW_BYOK_READ_TIMEOUT_SECONDS:-150}"
       # Política de fallo de auditoría (031, contrato §Config): `open` (default) sirve el
       # tráfico y deja la pérdida CONTADA y visible; `closed` rechaza con 503 honesto
       # mientras la fila durable no se pueda escribir. El default vive acá y en el helper

@@ -122,6 +122,16 @@ services:
       - REDIS_PORT=6379
       - LITELLM_API_BASE=http://litellm:4000
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}
+      # ── Admisión hacia el motor (nodo C1, issue #151) ──────────────────────────
+      # Passthrough con los MISMOS defaults del código: en dev no cambia nada de
+      # comportamiento, pero las perillas del .env.example dejan de ser decorativas
+      # (sin estas líneas, ponerlas en el `.env` no llega al contenedor y el operador
+      # cree que giró algo). El rango lo sigue imponiendo engine_gate.py.
+      - BASA_ENGINE_MAX_CONCURRENCY=${BASA_ENGINE_MAX_CONCURRENCY:-8}
+      - BASA_ENGINE_QUEUE_TIMEOUT_SECONDS=${BASA_ENGINE_QUEUE_TIMEOUT_SECONDS:-5}
+      - BASA_ENGINE_TIMEOUT_SECONDS=${BASA_ENGINE_TIMEOUT_SECONDS:-60}
+      - BASA_GW_BYOK_TIMEOUT_SECONDS=${BASA_GW_BYOK_TIMEOUT_SECONDS:-150}
+      - BASA_GW_BYOK_READ_TIMEOUT_SECONDS=${BASA_GW_BYOK_READ_TIMEOUT_SECONDS:-150}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}
