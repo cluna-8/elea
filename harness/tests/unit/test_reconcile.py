@@ -116,7 +116,25 @@ def test_cuenta_trafico_como_bloqueados_mas_permitidos():
     assert recon["con_fila"] == 6
     assert recon["bloqueos_provocados"] == 6
     assert recon["filas_rejected_saturated"] == 0
-    assert recon["desglose"] == {"filas_bloqueadas": 6, "filas_permitidas": 94}
+    assert recon["desglose"] == {"filas_bloqueadas": 6, "filas_permitidas": 94,
+                                 "filas_rechazadas": 0}
+
+
+def test_los_rechazos_de_admision_cuentan_como_trafico():
+    """Post-H4 (#135): la rama `estado` excluye `rejected%` de AMBOS baldes, pero el guion
+    cuenta cada 503 saturado como evento auditable (fila durable del contrato C1). Si el
+    total no re-sumara el balde de rechazos, un run con N rechazos reportaría «faltan N
+    filas» que el producto SÍ escribió — falso FAIL del SLO (b)."""
+    session = FakeSession(bloqueados=6, permitidos=84, rejected=10, licencia=2)
+    recon = _fn(session)(_summary(auditable=100, blocks=6))
+
+    assert recon["filas_persistidas"] == 100          # 6 + 84 + 10, sin los 2 de licencia
+    assert recon["filas_rejected_saturated"] == 10
+    assert recon["con_fila"] == 6                     # SLO (d) sigue siendo SOLO política
+    assert recon["desglose"] == {"filas_bloqueadas": 6, "filas_permitidas": 84,
+                                 "filas_rechazadas": 10}
+    # Contrafáctico: solo bloqueados+permitidos habría dado 90 → «faltan 10 filas».
+    assert session.bloqueados + session.permitidos == 90
 
 
 def test_el_total_sin_estado_habria_inflado_las_filas():

@@ -10,16 +10,20 @@ REGLA DE ORO — el conteo alimenta un veredicto, así que ante CUALQUIER ambig�
 la lectura que NO pueda regalar un PASS. En concreto:
 
 1. **Qué es "fila de tráfico"** (``filas_persistidas``). El endpoint no tiene un filtro
-   «todo el tráfico»: el único lugar donde ``_build_query`` excluye los eslabones de
-   licencia es la rama ``estado`` (``AuditLog.model != 'license'``, ``backend/src/api/
-   audit.py:94``). Así que el total se arma como ``estado=bloqueados`` +
-   ``estado=permitidos``, que por construcción son complementarios sobre el MISMO universo
-   —el propio comentario del backend lo dice: «sin filas que se caigan entre ambos ni que
-   aparezcan en los dos»—. La alternativa (pedir el total SIN ``estado``) contaría además
-   los eslabones ``model='license'`` de la hash-chain (021), que se escriben DURANTE el run
-   y no son tráfico: inflarían ``filas_persistidas`` y podrían TAPAR filas de tráfico
-   perdidas hasta cuadrar con los eventos del guion. Es decir, regalarían un PASS del SLO
-   (b). Por eso se excluyen.
+   «todo el tráfico»: la rama ``estado`` de ``_build_query`` excluye los eslabones de
+   licencia (``AuditLog.model != 'license'``) **y, desde el PR #135 (decisión H4), también
+   los rechazos por capacidad** (``~LIKE 'rejected%'``, ``backend/src/api/audit.py``): un
+   rechazo no es ni permitido ni bloqueado por política, así que no vive en ningún balde
+   del filtro binario. Pero para la reconciliación SÍ es tráfico: el contrato C1 exige una
+   fila durable por rechazo y el guion cuenta cada 503 saturado como evento auditable
+   (``chat.js``/``coding-sse.js``). Por eso el total se arma como ``estado=bloqueados`` +
+   ``estado=permitidos`` + el conteo exacto de ``compliance_status=rejected_saturated`` —
+   sin ese tercer balde, un run con N rechazos reportaría «faltan N filas» que el producto
+   sí escribió (falso FAIL del SLO (b)). La alternativa (pedir el total SIN ``estado``)
+   contaría además los eslabones ``model='license'`` de la hash-chain (021), que se
+   escriben DURANTE el run y no son tráfico: inflarían ``filas_persistidas`` y podrían
+   TAPAR filas de tráfico perdidas hasta cuadrar con los eventos del guion. Es decir,
+   regalarían un PASS del SLO (b). Por eso se excluyen.
 
 2. **El filtro tiene que haberse aplicado.** ``_build_query`` parsea las fechas con
    ``datetime.fromisoformat`` dentro de un ``try/except ValueError: pass``
@@ -143,16 +147,20 @@ class HttpReconcile:
 
         return {
             "eventos_guion": eventos,
-            "filas_persistidas": bloqueadas + permitidas,
+            # Los rechazos se re-suman: el filtro `estado` los excluye de ambos baldes
+            # (H4, #135) pero son filas de tráfico que el guion contó como auditables.
+            "filas_persistidas": bloqueadas + permitidas + rechazadas,
             "bloqueos_provocados": bloqueos,
             "con_fila": bloqueadas,
             "filas_rejected_saturated": rechazadas,
             # Evidencia del conteo (el evaluador ignora las claves que no conoce; esto va al
             # reconciliation.json del run para que la cifra sea auditable después).
             "ventana": {"desde": self._desde.isoformat(), "hasta": self._hasta.isoformat()},
-            "desglose": {"filas_bloqueadas": bloqueadas, "filas_permitidas": permitidas},
-            "fuente": (f"GET {AUDIT_PATH} (estado=bloqueados + estado=permitidos; excluye "
-                       "model='license', que no es tráfico)"),
+            "desglose": {"filas_bloqueadas": bloqueadas, "filas_permitidas": permitidas,
+                         "filas_rechazadas": rechazadas},
+            "fuente": (f"GET {AUDIT_PATH} (estado=bloqueados + estado=permitidos + "
+                       "compliance_status=rejected_saturated; excluye model='license', "
+                       "que no es tráfico)"),
         }
 
     # ── HTTP ───────────────────────────────────────────────────────────────────────────
