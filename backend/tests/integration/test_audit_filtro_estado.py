@@ -49,10 +49,16 @@ EXPORT = "/api/v1/audit-logs/export"
 # import haría pasar el test aunque la constante cambiara de las dos puntas a la vez.
 SATURADO = "rejected_saturated"
 
+# Un `rejected_*` que hoy NO existe en el código: clava que el contrato de exclusión es de
+# PREFIJO, no de valor exacto. Si `RECHAZADO_LIKE` se degradara al literal, el próximo
+# rechazo con nombre propio caería callado en «permitidos» — exactamente la mentira que H4
+# vino a cerrar, reabierta para el status siguiente (mutante sobreviviente del re-check).
+RECHAZO_FUTURO = "rejected_timeout"
+
 # (modelo, compliance_status, capa que bloqueó). Cubre los dos motivos de bloqueo que ya
 # escribía el passthrough, uno nuevo del plano chat, tráfico permitido, un rechazo por
-# capacidad (que no es ni una cosa ni la otra) y —el caso feo— un eslabón de licencia que
-# TAMBIÉN empieza con `blocked`.
+# capacidad (que no es ni una cosa ni la otra), un segundo rechazo hipotético que clava el
+# prefijo y —el caso feo— un eslabón de licencia que TAMBIÉN empieza con `blocked`.
 SEMILLA = [
     ("claude-3-5-sonnet-20241022", "blocked_secret", "secret_detection"),
     ("claude-3-5-sonnet-20241022", "blocked_prohibited", "ai_act_evaluation"),
@@ -60,6 +66,7 @@ SEMILLA = [
     ("claude-3-5-sonnet-20241022", "passed", None),
     ("ollama-qwen3-4b", "flagged_high_risk", None),
     ("ollama-qwen3-4b", SATURADO, None),
+    ("claude-3-5-sonnet-20241022", RECHAZO_FUTURO, None),
     ("license", "blocked_by_policy", None),
 ]
 
@@ -148,6 +155,7 @@ def test_el_rechazo_por_capacidad_no_se_cuenta_como_permitido(harness):
     client, _ = harness
     payload = client.get(LOGS, params={"estado": "permitidos"}).json()
     assert SATURADO not in estados(payload)
+    assert RECHAZO_FUTURO not in estados(payload)
     assert payload["total"] == 2
 
 
@@ -158,6 +166,7 @@ def test_el_rechazo_por_capacidad_tampoco_es_un_bloqueo(harness):
     client, _ = harness
     payload = client.get(LOGS, params={"estado": "bloqueados"}).json()
     assert SATURADO not in estados(payload)
+    assert RECHAZO_FUTURO not in estados(payload)
     assert payload["total"] == 3
 
 
@@ -167,6 +176,7 @@ def test_sin_filtro_el_rechazo_por_capacidad_sigue_visible(harness):
     client, _ = harness
     payload = client.get(LOGS).json()
     assert SATURADO in estados(payload)
+    assert RECHAZO_FUTURO in estados(payload)
 
 
 def test_el_export_tampoco_vende_el_rechazo_como_permitido(harness):
@@ -175,6 +185,7 @@ def test_el_export_tampoco_vende_el_rechazo_como_permitido(harness):
     client, _ = harness
     cuerpo = client.get(EXPORT, params={"estado": "permitidos"}).text
     assert SATURADO not in cuerpo
+    assert RECHAZO_FUTURO not in cuerpo
     assert "passed" in cuerpo and "flagged_high_risk" in cuerpo
 
 

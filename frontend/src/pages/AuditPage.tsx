@@ -53,6 +53,10 @@ const ETIQUETAS_ESTADO = new Map<string, [FamiliaEstado, string]>([
   ["blocked_by_policy", ["bloqueado", "Bloqueado (política)"]],
   ["blocked_residency", ["bloqueado", "Bloqueado (residencia)"]],
   ["blocked_entity", ["bloqueado", "Bloqueado (dato personal)"]],
+  // Rechazo por capacidad (tope de admisión del motor, #135): no lo impidió una política
+  // —por eso no es familia «bloqueado»— pero el officer tiene que poder explicar por qué el
+  // pedido no salió sin leer el literal interno. Mismo evento y texto que en la vitrina.
+  ["rejected_saturated", ["error", "Rechazado por capacidad"]],
   ["upstream_error", ["error", "Error del proveedor"]],
 ]);
 
@@ -75,6 +79,8 @@ export const estadoDeCumplimiento = (
     ? (["bloqueado", `Bloqueado (${raw})`] as [FamiliaEstado, string])
     : raw.startsWith("flagged")
     ? (["riesgo", raw] as [FamiliaEstado, string])
+    : raw.startsWith("rejected")
+    ? (["error", raw] as [FamiliaEstado, string])
     : raw.includes("error")
     ? (["error", raw] as [FamiliaEstado, string])
     : (["desconocido", raw || "sin estado"] as [FamiliaEstado, string]);
