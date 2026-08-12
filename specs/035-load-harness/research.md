@@ -388,3 +388,48 @@ documental hasta que haya branch protection (plan free).
   duro.** El requisito real de la spec es CPU fija dedicada x86_64 + hardware
   registrado en fingerprint + jamás el VPS de prod — CCX lo cumple mejor. Confirmado a
   DevOps por el canal cross-session el 08-ago. Coste total real: 15-25 €/mes.
+
+## Addendum 12-ago — métricas nativas del stack y benchmarks publicados (research post-examen, pedido JF)
+
+Pregunta de JF tras el examen: «¿reinventamos métricas que las librerías ya traen?
+¿Hay rangos publicados que nos ahorren escalar 125/250/500?». Research verificado
+contra el código de cada tag y fuentes primarias; consolidado operativo en #168.
+
+- **LiteLLM 1.92.0 (la del motor) trae Prometheus `/metrics` completo y es 100% OSS
+  en nuestra versión — lo tenemos apagado por config, no por licencia.** Por request:
+  latencia total, latencia del proveedor, **overhead del proxy separado**, TTFT,
+  tokens in/out, spend por key/team, presupuesto restante. Historia verificada tag
+  por tag: enterprise-gated de sept-2024 (discussion BerriAI#5163) a nov-2025; desde
+  ~v1.80.5 sin gate premium (confirmado en 1.92.0: métricas incondicionales,
+  `_mount_metrics_endpoint()` sin check). **Decisión para el gate 250**: encender
+  `prometheus` en callbacks del perfil `deploy/clients/itv-examen` + scrape job en la
+  sonda existente. ⚠️ `/metrics` va SIN auth por default y las labels llevan key
+  aliases (BerriAI#24530): scrape solo por red privada y/o `PrometheusAuthMiddleware`
+  (existe en 1.92.0). **Refina R3 sin cambiar su regla: el veredicto sigue saliendo
+  SOLO de k6 + producto + stub — `/metrics` del motor es observabilidad, jamás fuente
+  del veredicto.**
+- **El backend no tiene ningún middleware de métricas** (solo CORS en `main.py`): la
+  latencia server-side por endpoint no la mide nadie. `prometheus-fastapi-instrumentator`
+  son ~3 líneas, pero es decisión de producto → recomendación al core en #168
+  (frontera: mide, no parchea).
+- **Benchmarks publicados como cota, no como sustituto** (gates: 125 ≈ 6-10 req/s
+  pico; 500 ≈ 24-40): LiteLLM publica ~293 RPS/instancia en 4 vCPU/8 GB con overhead
+  2 ms mediana (docs.litellm.ai/docs/benchmarks) = 7-12× nuestro gate 500 con una
+  instancia; FastAPI está a órdenes de magnitud (TechEmpower R22). **Presidio NO
+  bracketea**: ~10-25 ms/análisis publicados (microsoft/presidio discussion #1097;
+  spaCy ~10k palabras/s CPU) con spaCy MONOPROCESO (nuestro Dockerfile no pasa
+  `--workers`) → techo efectivo ~15-40 req/s de chat = exactamente la zona del gate
+  500. Consecuencia de diseño: **los gates 250/500 se justifican por el sidecar NLP +
+  las escrituras durables de auditoría, no por el plumbing HTTP** — coincide con el
+  candidato nº 1 que el core señaló el 08-ago. El bracketing publicado entra a los
+  reportes como CONTEXTO; el número oficial sigue siendo el del gate.
+- **Ninguna librería del stack cubre los 4 SLOs de oro** (paridad de auditoría,
+  canarios PII crudos, bloqueos durables): confirmado — ahí el harness no reinventa,
+  inventa lo único que nadie más mide. Valida el diseño R3.
+- **Pregunta abierta de validez (prioridad ciclo 250)**: el camino instantáneo de chat
+  — en el gate oficial Y el drill, chat volvió en ~88 ms con 800 ms programados en el
+  stub mientras coding pagó su piso de 600 ms en los mismos runs; la rampa sí lo pagó
+  (901/977 ms = firma piso+producto). Hasta reproducirlo en local (compose + 10
+  requests, sin infra), la pata de chat de `zero_raw_canaries` del PASS lleva
+  asterisco (atenuante: la rampa atravesó el stub con canarios y dio 0 fugas).
+  Triangulación completa con tabla en #168.
