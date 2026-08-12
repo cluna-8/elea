@@ -45,6 +45,17 @@ BLOQUEADO_LIKE = "blocked%"
 # hash-chain no se toca: sólo se la deja fuera de un filtro de tráfico (FR-010).
 MODELO_LICENCIA = "license"
 
+# Los rechazos por capacidad (`rejected_saturated`, `services/engine_gate.py`: el tope de
+# admisión devolvió 503 porque no había turno hacia el motor) NO empiezan con `blocked` a
+# propósito —capacidad no es política, ninguna capa impidió nada—, y justamente por eso
+# caerían en el `else` de este filtro y se contarían como PERMITIDOS. Eso es una mentira
+# estadística en la pantalla que el officer le enseña al cliente: el pedido nunca se sirvió, y
+# el motivo fue NUESTRO. Hasta que tengan balde propio («Rechazados», ciclo 2) quedan fuera de
+# los dos, con el mismo criterio que los eslabones de licencia. Sin filtro `estado` siguen
+# visibles en el listado: son auditoría durable y el officer los tiene que poder ver.
+# Ref: gate adversarial del PR #135 (H4), decisión JF 12-ago-2026.
+RECHAZADO_LIKE = "rejected%"
+
 
 class EstadoFiltro(str, enum.Enum):
     BLOQUEADOS = "bloqueados"
@@ -88,10 +99,12 @@ def _build_query(db, pii_detected, compliance_status, from_date, to_date, estado
     if compliance_status is not None:
         query = query.filter(AuditLog.compliance_status == compliance_status)
     if estado is not None:
-        # Los dos valores son complementarios sobre el MISMO universo (tráfico, sin los
-        # eslabones de licencia): `bloqueados` + `permitidos` = todo lo que el filtro
-        # considera, sin filas que se caigan entre ambos ni que aparezcan en los dos.
+        # Los dos valores son complementarios sobre el MISMO universo (tráfico que el firewall
+        # llegó a resolver, sin los eslabones de licencia ni los rechazos por capacidad):
+        # `bloqueados` + `permitidos` = todo lo que el filtro considera, sin filas que se
+        # caigan entre ambos ni que aparezcan en los dos.
         query = query.filter(AuditLog.model != MODELO_LICENCIA)
+        query = query.filter(~AuditLog.compliance_status.like(RECHAZADO_LIKE))
         if estado == EstadoFiltro.BLOQUEADOS:
             query = query.filter(AuditLog.compliance_status.like(BLOQUEADO_LIKE))
         else:
@@ -111,7 +124,9 @@ def _build_query(db, pii_detected, compliance_status, from_date, to_date, estado
 
 _ESTADO_DESC = ("Aísla el resultado del pedido: `bloqueados` = intentos impedidos "
                 "(compliance_status con prefijo `blocked_`), `permitidos` = el resto. "
-                "Excluye los eslabones de licencia (model='license'), que no son tráfico.")
+                "Excluye los eslabones de licencia (model='license'), que no son tráfico, y "
+                "los rechazos por capacidad (prefijo `rejected_`), que no se sirvieron ni los "
+                "impidió una política. Sin `estado` siguen apareciendo en el listado.")
 
 
 @router.get("", response_model=AuditLogListResponseSchema)
