@@ -1,6 +1,6 @@
 # Tech Tree Guardian — Fase 0 → 1 → 2
 
-**Departamento**: Guardian App Ecosystem (JF) · **Fecha**: 2026-08-05 · **Estado**: propuesta para la reunión de departamentos (betting del ciclo 1)
+**Departamento**: Guardian App Ecosystem (JF) · **Fecha**: 2026-08-12 · **Estado**: vigente — actualizado con los resultados del **examen 125** (gate PASS) y el re-corte de ciclos al 5-SEP sellado por JF
 **Presentación**: artifact «Tech Tree Guardian» (mismo contenido que este archivo; este markdown es la fuente de verdad).
 **Companion de**: `specs/ROADMAP-guardian.md` (estado por spec) · ArquitectOverview (mapa técnico, **HISTÓRICO** pre-mudanza — el vigente es EcosystemOverview) · ManosALaObra v4 (metodología).
 
@@ -22,8 +22,9 @@ La razón por la que un cliente paga: «controlo los costos, veo todo lo que hac
 
 ### 🛡️ Rama: Compliance & auditoría
 
-- ✅ **Registro durable de todo** — cada petición y cada bloqueo queda en base de datos: quién, qué modelo, qué capa bloqueó y por qué; sobrevive reinicios. *(spec 031)*
-- 🔨 **Masking que avisa cuando se degrada** — hoy, si el analizador NLP se cae, el sistema pasa a regex EN SILENCIO, y el regex etiqueta mal (un IBAN troceado sale como "teléfono"); el cliente cree que tiene NLP y nadie se entera. Avisar en voz alta + arreglar etiquetas. *(#63, #64 — P1 seguridad, encargo Cristian)*
+- ✅ **Registro durable de todo** — cada petición y cada bloqueo queda en base de datos: quién, qué modelo, qué capa bloqueó y por qué; sobrevive reinicios. **Verificado bajo carga real el 12-ago**: 30 min sostenidos, paridad exacta 1506 eventos = 1506 filas, Δ pérdida = 0. *(spec 031 · evidencia `tech-team/examenes/20260812/`)*
+- ✅ **Masking que avisa cuando se degrada** — hecho y endurecido: paridad NLP en `/gw` + `nlp_fail_mode` gobernable (#63, PR #97) + paracaídas regex honesto con etiquetas correctas (#64, PR #111) + cadena de hardening #98/#104/#105/#106/#119/#124. **Verificado bajo carga**: 0 canarios PII crudos al proveedor sobre corpus de 64 en el gate 125. *(constitución 2.2.0, D10)*
+- 🔧 **Políticas por cliente/país (036)** — módulo de Cristian en PRs (#141 spec → #137 region por tenant → #143 content filter → #147 API+pantalla+docs); freeze del examen levantado, pasan por gate adversarial en orden. Decisiones de superficie ya selladas por JF (12-ago): superficie aprobada tal cual, solo admins aprueban políticas, en paralelo best-effort.
 - 🔨 **Export de datos RGPD (DSAR)** — «dame todo lo que tienen sobre mí» (Art. 15/20); el botón existe pero devuelve error 500 a todos los roles. *(#62)*
 - 🔨 **Retención que borra de verdad** — hoy se puede configurar «guardar 90 días»… y nada borra al día 91; la purga tiene que existir para que la promesa RGPD sea cierta. *(spec 018)*
 - ⚖️ **¿Qué hace el firewall si NO puede auditar?** — hoy el default es fail-open (`BASA_AUDIT_FAIL`). **Dirección acordada en el weekly 05-ago: política por nivel de riesgo/rol del usuario** (alta prioridad corta, baja prioridad sirve) — falta especificarla (spec corta, encaja con las capas de la 027). Pendiente conexo: ¿se auditan también los errores?
@@ -49,24 +50,32 @@ La razón por la que un cliente paga: «controlo los costos, veo todo lo que hac
 
 ### 💪 Rama: Aguanta gente
 
-- 🔨 **El instrumento de medir (harness)** — banco de pruebas de carga que simula usuarios reales (chat + extensión + coding tools) contra el stack de producción; diseño en papel (k6+xk6-sse), hay que construirlo. Complemento acordado en el weekly: validación con modelos básicos reales vía **API keys de OpenRouter** además del stub. Sin esto, los gates son opiniones. *(spec nueva vía speckit)*
-- 🔨 **Fix del pool que se cuelga** — en la sede, un puñado de peticiones largas simultáneas colgó el producto ~10 min (incidente 30-jul); falta tope de concurrencia + timeout anti-inanición.
-- 🔨 **Streams largos que no se cortan** — si el modelo local "piensa" >60 s sin emitir texto, la respuesta corta con error, justo cuando hay carga (gap read 60s < router 120s). Conexo del weekly: **política de aviso al usuario** cuando un mensaje muere por demora excesiva (la define Cristian; el mecanismo es nuestro).
+- ✅ **El instrumento de medir (harness)** — construido, en `main` y **estrenado en examen real** (spec 035, PR #122 + corridas reales #163/#164): k6 + stub proveedor con detector de canarios, población sembrada por las APIs del producto, reconcile fail-closed, fingerprint firmado, prueba de humo pre-carga. Se invalidó a sí mismo dos veces el 12-ago antes que certificar en falso — el estándar funcionando. Deuda propia del instrumento consolidada en #168 (ciclo 250).
+- ✅ **Fix del pool que se cuelga** — tope de concurrencia + queue-timeout → 503 rápido auditado (`X-Basa-Rejected`, PR #135) + perillas cabladas en compose/bundle + límites del deployment ollama (`max_parallel_requests: 20`, `num_retries: 0`, PR #159, ADR-0003). **Verificado bajo overload real** (rampa 12-ago): 193 rechazos ordenados, sin cuelgue, el incidente 30-jul no se repitió ni a 50× la carga de sede. Refinamiento a C2: rechaza lento (p50 6 s hasta el 503, espera toda la cola) — evaluar load shedding temprano (#169).
+- 🔧 **Streams largos que no se cortan** — gap read 60s<router 120s cerrado en #135/#159 (`BASA_GW_BYOK_READ_TIMEOUT_SECONDS`); queda la fuga de turno en cancelación temprana + acloses (**PR #162, ronda final de fixes en curso, equipo Jeff**; cerrar ANTES de gates 250/500 — #150). El gate 125 midió 0 cortes de stream sobre 112 streams. Conexo: política de aviso al usuario (Cristian) sigue pendiente.
 - 🆕 **Panel de rendimiento** — tablero de métricas de rendimiento del sistema y medias de los modelos locales (latencias, throughput); se alimenta de lo que el harness ya mide. *(weekly 05-ago, sin spec)*
-- 🔨 **Perillas de escala** — hoy todo es instancia única dimensionada para 10-15 usuarios: 1 proceso NLP, 1 motor, 2 workers backend, sin límites de recursos. Réplicas/workers/backpressure/límites, ajustados con datos del harness. *(dossier de capacidad 04-ago)*
+- 🔨 **Perillas de escala** — las de **admisión** ya están cabladas y medidas (#135/#159); quedan réplicas NLP/motor/workers + límites de recursos. **El examen bajó el riesgo**: la rodilla de una ccx33 está entre 10× y 25× la carga de sede — 250/500 caen holgados; el dimensionamiento fino puede BAJAR de instancia (encargo a La ITV: instancia por tier, sellado por JF 12-ago). *(dossier 04-ago + rampa `20260812-rampa-03-diagnostico`)*
 - 🔨 **Colas de la gobernanza (027)** — la gobernanza configurable funciona; quedan T024/T025 (plano motor), T034 (quickstart e2e) y T036 para cerrarla sin asteriscos.
+- 🩺 **Hallazgos del examen sobre esta rama** (con evidencia de run): #167 fail-closed del NLP bloquea tráfico legítimo en **arranque-en-frío + ráfaga de logins** (el "lunes 9am" post-despliegue; confirmar mecanismo ANTES del gate 250, equipo Jeff) · #157 el 402 de presupuesto responde sin fila durable (en curso, equipo Jeff) · #165/#166 rastro y marcador machine-readable de bloqueos (C2).
 
-### 🎓 El examen de la Fase 0 — gates de carga
+### 🎓 El examen de la Fase 0 — gates de carga · **1/3 ✅**
 
-La Fase 0 **no se declara lista sin pasar los tres**. Hoy no pasaríamos ni el primero — saberlo con un número es el primer entregable.
+La Fase 0 **no se declara lista sin pasar los tres**. Canon sellado (08-ago): correr el examen ≠ Fase 0 concluida — los gates son el pilar de ESCALA del DoD, necesarios no suficientes.
 
-| Gate | Qué prueba |
-|---|---|
-| **125** | Paridad con la sede real (~125 beta testers Cámara): 30 min sostenido, mezcla realista, corpus PII en español. |
-| **250** | + login storm «lunes 9:00»: todos entran en una ventana de 10 minutos. |
-| **500** | + 1 hora sostenida, pico del doble, recuperación. **El número del MVP.** |
+| Gate | Qué prueba | Estado |
+|---|---|---|
+| **125** | Paridad con la sede real (~125 beta testers Cámara): 30 min sostenido, mezcla realista, corpus PII en español. | ✅ **PASS 12-ago** (run `20260812-g125-02`, main `52e694b`): 4/4 SLOs de oro · chat p95 **151 ms** punta a punta · coding TTFT 650 ms (overhead ~50 ms), 0 cortes · evidencia firmada en `tech-team/examenes/20260812/` |
+| **250** | + login storm «lunes 9:00»: todos entran en una ventana de 10 minutos. | 🔓 C2 — **des-riesgado** (2× cae en zona sana de la rodilla medida); corre sobre instancia right-sized + #167 confirmado antes |
+| **500** | + 1 hora sostenida, pico del doble, recuperación. **El número del MVP.** | 🔓 C2 — des-riesgado (4× ídem) |
 
-**SLO de oro en los tres**: Δ pérdida de auditoría = 0 (contador 031 en `/health`) · reconciliación de filas · 0 entidades PII crudas al proveedor · 100% de bloqueos con su fila durable. *Un producto de compliance que pierde registros a 400 usuarios no está degradado — está mintiendo.*
+**SLO de oro en los tres**: Δ pérdida de auditoría = 0 (contador 031 en `/health`) · reconciliación de filas · 0 entidades PII crudas al proveedor · 100% de bloqueos con su fila durable. *Un producto de compliance que pierde registros a 400 usuarios no está degradado — está mintiendo.* **Los cuatro se midieron por primera vez el 12-ago y los cuatro dieron verde.**
+
+**Lo que el examen enseñó** (12-ago, tres runs + rampa diagnóstica, costo total <3€ en infra efímera destruida y verificada):
+- **Capacidad**: rodilla de la ccx33 entre **10× y 25×** la carga de sede; saturación plena a 50×. El drill de saturación cerró INVALID *a propósito* (la carga ×3 no inmutó al SUT: 0 rechazos) — la guarda que se niega a certificar sin ejercitar la defensa. **Encargo sellado por JF**: La ITV deriva la instancia por tier del baseline medido y provisiona acorde al test; espejo de sede solo como validación. Es además entregable de producto: "qué hardware para N usuarios", medido.
+- **La defensa de admisión C1 funciona bajo fuego real** (rechazos ordenados, sin cuelgue) pero rechaza lento → #169 (load shedding temprano, C2).
+- **Hallazgos de producto con evidencia de run**: #167 (NLP frío+ráfaga) · #157 (402 sin fila) · #165 (422 sin rastro) · #166 (marcador machine-readable de bloqueo).
+- **Lo que el examen NO midió a propósito** → #170 (roadmapear en C2): presupuestos en DINERO real, compresor de tokens bajo carga, routing/fallback con caída forzada de proveedor (prerrequisito: #160, hoy un fallback sustituye en silencio).
+- **Deuda del propio instrumento** → #168 (ciclo 250; incluye archivar métricas de recursos del SUT en el paquete de evidencia).
 
 ---
 
@@ -87,16 +96,17 @@ Qué ES cada módulo (stack, soporte, frontera con Factory) está en `tech-team/
 
 ---
 
-## Los 3 ciclos — validados en el weekly 05-ago (se recorta alcance, nunca la fecha)
+## Los ciclos — RE-CORTE SELLADO por JF el 12-ago: **TODO Fase 0 listo el 5-SEP** («por las dudas», decisión 09-ago; las fechas de C3 del plan original quedan obsoletas)
 
-| Ciclo | Fechas | Apuestas |
-|---|---|---|
-| **1** | 11–21 ago | «El masking no miente» (#63/#64, + reglas regex por región del incidente VPN) · «El examen existe» (harness + fix del pool + gates 125 y 250 **medidos**, pasen o no) |
-| **2** | 24 ago–4 sep | «Opera solo» (033 + botón restart UI + streams sin cortes + colas 027) · «Aguanta 250→500» (perillas con datos del gate 125) · DSAR #62 |
-| **3** | 7–18 sep | «Roles y puertas» (034 + rol Lectura + SSO Microsoft/Google) · «RGPD completo» (018 — verificar purga real al día 91) · **gate 500 verde** + margen |
+| Ciclo | Fechas | Apuestas | Estado |
+|---|---|---|---|
+| **1** | 11–21 ago | «El masking no miente» (#63/#64) · «El examen existe» (harness + fix del pool + **gate 125 medido**) | ✅ **Alcance cerrado el 12-ago** (día 2 de 9): todo en `main` y el gate 125 PASS. Los días restantes absorben el arranque de C2. |
+| **1→2** | 13–21 ago | Colchón ganado: cola técnica de Jeff (#162 streams → #157 402-durable → #167 NLP-frío) · gates del stack 036 de Cristian · **specs de identidad y retención** (017 SSO + 034+Lectura + 018 + DSAR #62, por SDD) para que C2 construya con planos | 🔄 en curso |
+| **2** | 24 ago–4 sep | «Opera solo» (033 + botón restart UI + colas 027) · «Roles y puertas» (034 + rol Lectura + SSO Microsoft/Google) · «RGPD completo» (018 purga real + DSAR #62) · **gates 250 y 500 verdes** sobre instancia right-sized · refinamientos del examen (#169, #166, #165) · examen de features #170 | absorbe TODO el alcance del viejo C3 |
 
 Nodos de Fase 1/2 solo entran a un ciclo si los gates van verdes por delante de plan.
-**Modo de ejecución**: JF de vacaciones desde el 06-ago — el ciclo 1 lo ejecuta Claude (Fable 5) en autonomía sobre este roadmap, con JF monitoreando y aprobando desde el móvil. El trabajo no para.
+**Camino crítico al 5-SEP** (lectura del 12-ago): la capacidad dejó de ser el riesgo (medida y sobrada) — el riesgo es que **identidad y ciclo de vida del dato (SSO, roles, 018, DSAR) tienen 0 líneas escritas** y deben caber enteros en C2. Por eso las specs se escriben YA, en el colchón de C1.
+**Modo de ejecución**: JF dirige (decisiones selladas al día, cola vacía al 12-ago); el manager (Fable 5) orquesta equipos — Jeff (código de producto), La ITV (examen/capacidad), Cristian (seguridad/036), DevOps (plataformas) — bajo la política de merge del tren autónomo (CI verde por-job + gate adversarial APTO + decisiones de producto selladas ⇒ merge).
 
 ## Decisiones del weekly 05-ago (cerradas)
 
@@ -110,7 +120,7 @@ Nodos de Fase 1/2 solo entran a un ciclo si los gates van verdes por delante de 
 
 - **La frontera de los Dockerfiles prod** (audit 07-ago): viven en `deploy/` (Falime) pero hornean código Guardian con contexto en la raíz del repo (`deploy/docker/backend.prod.Dockerfile` COPY backend/src…). Antes de la mudanza hay que decidir: (a) Guardian publica imágenes versionadas y Factory solo consume tags, o (b) Factory consume un artefacto de release con fuentes. Decisión JF+Falime, documentar en `deploy/ROADMAP-factory.md`.
 
-1. **Licencia de test de 500 seats** para el harness (la de Cámara es de 300): emisión Falime, gate Cristian si toca custodia.
+1. ~~**Licencia de test de 500 seats** para el harness~~ — **RESUELTO (11-ago)**: keypair descartable generado al provisionar el SUT + licencia efímera propia (muere con la infra); la privada `basa-dev-2026b` queda SOLO para installs de cliente. Verificado en el examen 125 (fingerprint firmado con licencia real de test de 130 seats).
 2. **Costura secrets.env**: los secretos del stack viajan en claro en el bundle; el fix (generarlos en sede) toca bundle (Falime) y puede necesitar código de producto — coordinar.
 3. **Especificación de la política de auditoría por riesgo/rol** (la dirección ya está decidida): dónde vive — ¿capa de la 027 o spec propia? + ¿se auditan errores?
 
