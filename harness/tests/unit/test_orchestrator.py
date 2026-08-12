@@ -523,3 +523,47 @@ def test_metadata_que_no_es_objeto_tampoco_pasa(tmp_path):
     with pytest.raises(SystemExit):
         main(["--gate", "125", "--dry-run", "--runs-dir", str(tmp_path),
               "--run-id", "fp-lista", "--producto-file", str(lista)])
+
+
+# ── Skew de reloj orquestador↔SUT (M1 del gate) ───────────────────────────────────────
+
+def _run_real_con_reloj(tmp_path, probe):
+    """Run real mínimo con hooks falsos + la sonda de reloj bajo prueba."""
+    return _orch(tmp_path, run_id="skew",
+                 health_fn=lambda cual: _health(0),
+                 stub_client=FakeStub(_clean_stub_report()),
+                 k6_runner=lambda cfg: _clean_summary(),
+                 reconcile_fn=lambda s: {},
+                 clock_probe_fn=probe)
+
+
+def test_skew_grande_invalida_el_run_antes_de_cargar(tmp_path):
+    """M1: con el SUT adelantado, tráfico escrito ANTES de t0 cae dentro de la ventana y
+    puede tapar filas perdidas reales — la promesa «se cuenta de menos, nunca de más»
+    deja de valer. Se aborta antes de generar carga."""
+    adelantado = lambda: datetime.fromisoformat(TS) + timedelta(seconds=30)
+    orch = _run_real_con_reloj(tmp_path, adelantado)
+    orch._now = lambda: datetime.fromisoformat(TS)
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "skew" in (verdict.invalid_reason or "")
+    assert orch.k6_launched is False                      # nunca se pagó la carga
+    skew = json.loads((orch.run_dir / "clock_skew.json").read_text())
+    assert skew["skew_s"] == 30.0
+
+
+def test_skew_chico_no_molesta_y_queda_en_la_evidencia(tmp_path):
+    casi = lambda: datetime.fromisoformat(TS) + timedelta(seconds=1)
+    orch = _run_real_con_reloj(tmp_path, casi)
+    orch._now = lambda: datetime.fromisoformat(TS)
+    verdict = orch.run()
+    assert verdict.estado != "invalid" or "skew" not in (verdict.invalid_reason or "")
+    assert json.loads((orch.run_dir / "clock_skew.json").read_text())["skew_s"] == 1.0
+
+
+def test_sonda_de_reloj_muda_aborta(tmp_path):
+    orch = _run_real_con_reloj(tmp_path, lambda: None)
+    orch._now = lambda: datetime.fromisoformat(TS)
+    verdict = orch.run()
+    assert verdict.estado == "invalid"
+    assert "Date" in (verdict.invalid_reason or "")

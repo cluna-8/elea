@@ -61,6 +61,11 @@ K6_VERSION = "v1.8.0"
 XK6_SSE_VERSION = "v0.1.12"
 STUB_VERSION = "0.1.0"
 
+# Tolerancia de skew de reloj orquestador↔SUT (M1): el header Date tiene resolución de
+# 1 s y la sonda paga medio RTT; por encima de esto la ventana de reconciliación puede
+# contar tráfico ajeno al run (la dirección peligrosa: tapar filas perdidas).
+CLOCK_SKEW_MAX_S = 2.0
+
 # Superficies de carga y su función k6 (para el k6_config.json).
 SURFACE_EXEC = {"chat": "chat", "extension": "extension", "coding_sse": "coding",
                 "admin": "admin"}
@@ -97,6 +102,7 @@ class Orchestrator:
                  stub_client: Optional[object] = None,
                  k6_runner: Optional[Callable[[dict], dict]] = None,
                  reconcile_fn: Optional[Callable[[dict], dict]] = None,
+                 clock_probe_fn: Optional[Callable[[], Optional[datetime]]] = None,
                  observed_stack_config: Optional[dict] = None,
                  pool_file: Optional[Union[str, Path]] = None,
                  population: Optional[Population] = None,
@@ -127,6 +133,8 @@ class Orchestrator:
         self._stub_client = stub_client
         self._k6_runner = k6_runner
         self._reconcile_fn = reconcile_fn
+        self._clock_probe_fn = clock_probe_fn
+        self.clock_skew_s: Optional[float] = None
         self.observed_stack_config = observed_stack_config
         self.pool_file = Path(pool_file) if pool_file else None
         self._pool_cache: Optional[list] = None
@@ -157,10 +165,12 @@ class Orchestrator:
             self._write_k6_config(pool, corpus)
             self._configure_stub(corpus)
             health_initial = self._probe_health("inicial")
+            self._assert_clock_skew()
             # Ventana del run: se abre ANTES de la primera request de carga y se cierra
             # con la última. Sin margen a propósito — una fila de auditoría escrita fuera
             # de la ventana se cuenta de menos (FAIL), nunca de más (que sería el camino
-            # por el que un run con filas perdidas podría cuadrar).
+            # por el que un run con filas perdidas podría cuadrar)… siempre que los
+            # relojes coincidan, que es lo que la guarda de arriba acaba de comprobar.
             self.window_t0 = self._now()
             k6_summary = self._run_k6()
             self.window_t1 = self._now()
@@ -435,6 +445,35 @@ class Orchestrator:
         if isinstance(summary, dict):
             self._write_json("summary.json", summary)
         return summary
+
+    def _assert_clock_skew(self) -> None:
+        """M1: la ventana la fija el reloj del ORQUESTADOR, pero los ``timestamp`` de
+        ``audit_logs`` los pone el ``utcnow()`` del BACKEND. Con el SUT adelantado,
+        tráfico escrito antes de t0 cae dentro de la ventana y puede TAPAR filas perdidas
+        reales (la promesa «se cuenta de menos, nunca de más» deja de valer). Se compara
+        el header ``Date`` del backend con el reloj propio; tolerancia ±2 s = resolución
+        de 1 s del header + margen de RTT. La sonda es un hook (``clock_probe_fn``) que
+        ``main()`` cablea SIEMPRE en un run real; en seco no hay backend que sondear."""
+        if self.dry_run or self._clock_probe_fn is None:
+            return
+        remoto = self._clock_probe_fn()
+        if remoto is None:
+            raise OrchestratorError(
+                "no se pudo leer el reloj del backend (header Date): sin esa comprobación "
+                "la ventana de la reconciliación no es confiable y el examen no arranca.")
+        if remoto.tzinfo is None:
+            remoto = remoto.replace(tzinfo=timezone.utc)
+        skew = (remoto - self._now()).total_seconds()
+        self.clock_skew_s = skew
+        self._write_json("clock_skew.json", {
+            "skew_s": round(skew, 3), "tolerancia_s": CLOCK_SKEW_MAX_S,
+            "fuente": "header Date del backend vs reloj del orquestador (t0)"})
+        if abs(skew) > CLOCK_SKEW_MAX_S:
+            raise OrchestratorError(
+                f"skew de reloj orquestador↔SUT de {skew:+.1f} s (tolerancia "
+                f"±{CLOCK_SKEW_MAX_S} s): la ventana de reconciliación contaría tráfico "
+                "fuera del run (o perdería filas del run). Sincronizá NTP en las dos "
+                "cajas y reintentá.")
 
     def _finalize_stub(self) -> None:
         client = self._stub()
@@ -766,6 +805,18 @@ class _HttpStubClient:  # pragma: no cover — camino real (los tests inyectan u
 
 # ── CLI ────────────────────────────────────────────────────────────────────────────────
 
+def _default_clock_probe(backend_url: str) -> Callable[[], Optional[datetime]]:
+    """Sonda real del reloj del backend para la guarda de skew (M1): CUALQUIER respuesta
+    HTTP/1.1 trae ``Date`` (no hace falta un 200 ni credenciales)."""
+    def probe() -> Optional[datetime]:  # pragma: no cover — camino real
+        import httpx
+        from email.utils import parsedate_to_datetime
+        resp = httpx.get(f"{backend_url}/api/v1/health", timeout=10, follow_redirects=True)
+        date = resp.headers.get("date")
+        return parsedate_to_datetime(date) if date else None
+    return probe
+
+
 def _git_commit() -> str:
     """Sha del harness que corre el examen, para el fingerprint. Si el árbol no es un repo
     (el caso de la caja de examen, que recibe el código por tar), devuelve ``unknown`` en
@@ -895,7 +946,9 @@ def main(argv: Optional[list] = None) -> int:
                         drill_admin_budget_ms=args.drill_admin_budget_ms,
                         pool_file=args.pool_file, reconcile_fn=reconcile_fn,
                         hardware=hardware, producto=producto, licencia=licencia,
-                        harness_commit=args.harness_commit or _git_commit())
+                        harness_commit=args.harness_commit or _git_commit(),
+                        clock_probe_fn=(None if args.dry_run else
+                                        _default_clock_probe(args.backend_url.rstrip("/"))))
     try:
         verdict = orch.run()
     except OrchestratorError as exc:
