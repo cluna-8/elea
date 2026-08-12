@@ -66,6 +66,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+import anyio
 import httpx
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -1159,6 +1160,100 @@ async def _rechazo_por_capacidad(request: Request, basa_key: Optional[str], mode
     )
 
 
+class _StreamConTurno(StreamingResponse):
+    """`StreamingResponse` DUEÑA del turno de admisión, y no sólo de su generador (issue #150).
+
+    El `finally` del generador (ver `gen()` en `_byok_proxy`) devuelve el turno cuando el
+    generador termina o se cierra, pero hay una ventana en la que ese `finally` NO EXISTE
+    todavía: entre el `return` de `_byok_proxy` —con el turno ya traspasado— y el primer
+    `__anext__`, que starlette recién pide DESPUÉS de mandar `http.response.start`. Si ese send
+    se queda esperando drain (write-backpressure: el cliente no lee y el buffer del socket está
+    lleno, o sea la coding tool que se quedó pensando) y justo ahí entra el `http.disconnect`,
+    starlette cancela el task group con el generador sin arrancar — y un generador asíncrono que
+    NUNCA arrancó no ejecuta su `finally` (PEP 525). Nadie llama a `liberar()` y el turno queda
+    tomado por un pedido que ya no existe: fuga PERMANENTE hasta reiniciar el worker. Con el
+    tope de la sede en 8, ocho desconexiones desafortunadas dejan el producto rechazando 503 con
+    el motor vacío. Misma ventana, segunda variante: hay servidores ASGI donde ese `send()`
+    posterior a la desconexión no espera sino que LEVANTA (uvicorn 0.30 —el nuestro— lo hace hoy
+    en el plano websocket, no en el HTTP, que hace `return` mudo; hypercorn/granian y cualquier
+    cambio futuro de ese camino pueden levantar acá). El `finally` de acá cubre las dos porque
+    envuelve al `__call__` entero. Por eso tampoco sirve un `BackgroundTask`: cuando la excepción
+    se escapa del task group, starlette nunca llega a la línea que lo corre —el
+    `await self.background()` está DESPUÉS del `async with create_task_group()`—.
+
+    El turno pasa a ser de la RESPUESTA (el objeto que starlette sí ejecuta siempre) y no del
+    generador (que puede no arrancar nunca). El `finally` del generador se deja igual: sirve
+    para soltar el turno TEMPRANO —apenas termina de drenar, sin esperar a que se desarme el
+    ASGI— y la doble liberación es inocua porque `TurnoDelMotor.liberar()` es idempotente. En el
+    camino feliz también se CIERRA dos veces (una en cada `finally`), y eso también es inocuo:
+    `Response.aclose()` de httpx está guardado por `if not self.is_closed` y
+    `AsyncClient.aclose()` por `if self._state != ClientState.CLOSED`, o sea que la segunda
+    vuelta es un no-op de verdad y no una excepción tragada. Ojo al leer los tests: el doble
+    `_RespuestaStream.aclose()` NO tiene ese guard, así que ahí el segundo cierre sí corre.
+
+    Residual ACEPTADO: si la cancelación cae entre el `return respuesta` y la entrada a este
+    `__call__`, no hay `finally` de nadie y el turno se filtra igual. Esa ventana es de la
+    máquina de estados de starlette, no nuestra, y la puede abrir cualquiera de las fuentes de
+    cancelación externa que se enumeran abajo (shutdown del worker, un middleware con timeout,
+    cualquier task group por encima). NO se puede afirmar que no sea acumulable: las dos últimas
+    no matan el proceso, así que un turno perdido ahí no vuelve. Estimación —no medición— de por
+    qué se acepta igual: la fuente más probable en este despliegue es el shutdown, que se lleva
+    el proceso y con él el semáforo. Si aparece un middleware con timeout o un task group
+    envolvente, este residual hay que volver a mirarlo.
+    """
+
+    def __init__(self, contenido, *, turno, cierres=(), **kw):
+        super().__init__(contenido, **kw)
+        self._turno = turno
+        self._cierres = cierres
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            # `liberar()` PRIMERO, igual que en el generador (H1 del gate de #135): es sync e
+            # infalible, mientras que los `aclose()` son `await`. Precisión sobre POR QUÉ: acá
+            # NO es para salvar el turno de la cancelación del cliente —cuando este `finally`
+            # corre, el task group de `StreamingResponse` ya la absorbió (ver el comentario del
+            # escudo, abajo)— ni de un cierre que revienta —cada `aclose()` va en su
+            # `try/except Exception`—. Es por lo que ese `except` NO atrapa: una `BaseException`
+            # dentro de un `aclose()` —un `CancelledError` crudo, p. ej. si el escudo de abajo
+            # se cae o si un bump de httpx cambia el comportamiento del cierre— se llevaría el
+            # turno para siempre, y un turno filtrado no vuelve hasta reiniciar el worker. El
+            # orden lo clava `test_cuando_corren_los_cierres_de_la_respuesta_el_turno_YA_volvio`
+            # (test_gw_engine_gate.py), que mira el semáforo DESDE ADENTRO del cierre.
+            self._turno.liberar()
+            # Y los cierres van ESCUDADOS (N2 del mismo gate). El escudo NO es por la
+            # cancelación del cliente —esa nace adentro del task group de `StreamingResponse` y
+            # el propio grupo la absorbe al salir del `async with`, así que este `finally` corre
+            # con el scope ya limpio—: es por la cancelación de AFUERA, un cancel scope que
+            # envuelva al pedido (shutdown del worker, un middleware con timeout, cualquier task
+            # group por encima). Ahí sí este `finally` corre DENTRO de un scope cancelado, anyio
+            # re-entrega la cancelación en cada punto de suspensión y sin escudo el primer
+            # `await` se la lleva: el socket contra el motor no lo cierra nadie hasta que lo
+            # junte el GC o venza un timeout. El turno volvería al semáforo pero el motor
+            # seguiría GENERANDO para un cliente que ya se fue — la mitad del incidente de la
+            # sede. El único test que muere si alguien saca el `shield` es
+            # `test_el_cierre_del_upstream_sobrevive_a_una_cancelacion_de_afuera`
+            # (test_gw_engine_gate.py); el de la cancelación del cliente NO lo custodia, por lo
+            # de arriba. El tope de 5 s es una válvula de seguridad DELIBERADA y sin test que la
+            # custodie: la intención es que un `aclose()` que no vuelve nunca no deje colgado el
+            # desarme de la respuesta, pero ese comportamiento no está verificado acá (un test
+            # honesto tendría que esperar los 5 s reales). Mutar el número o sacar el
+            # `move_on_after` dejando sólo el `CancelScope(shield=True)` no pone rojo a nadie:
+            # tenerlo presente antes de "limpiarlo".
+            with anyio.move_on_after(5, shield=True):
+                for cierre in self._cierres:
+                    try:
+                        await cierre.aclose()
+                    except Exception:  # noqa: BLE001
+                        # Cierre best-effort: acá el pedido YA terminó y el turno YA volvió, así
+                        # que reventar sólo cambiaría un socket colgado por un 500 en los logs.
+                        # OJO: este tragado va SÓLO acá. En el `finally` del generador las
+                        # excepciones de cierre tienen que seguir propagando.
+                        logger.debug("gateway byok: aclose del upstream falló", exc_info=True)
+
+
 async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool,
                       *, model: str = "unknown", start: Optional[float] = None):
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
@@ -1249,12 +1344,13 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
                 await up.aclose()
                 await client.aclose()
 
-        # El turno pasa a ser del generador: mientras drena, el motor sigue generando de verdad.
-        # Soltarlo acá haría que el tope acotara "pedidos hasta el primer byte" en vez de
-        # generaciones concurrentes — o sea, que no acotara nada.
-        respuesta = StreamingResponse(gen(), status_code=200,
-                                      media_type=up.headers.get("content-type",
-                                                                "text/event-stream"))
+        # El turno pasa a ser de la RESPUESTA: mientras drena, el motor sigue generando de
+        # verdad. Soltarlo acá haría que el tope acotara "pedidos hasta el primer byte" en vez de
+        # generaciones concurrentes — o sea, que no acotara nada. Y va en la respuesta y no en el
+        # generador porque el generador puede no arrancar nunca (ver `_StreamConTurno`).
+        respuesta = _StreamConTurno(gen(), turno=turno, cierres=(up, client), status_code=200,
+                                    media_type=up.headers.get("content-type",
+                                                              "text/event-stream"))
         turno_traspasado = True
         return respuesta
     finally:

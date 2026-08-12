@@ -5,6 +5,10 @@ psycopg2-binary==2.9.9
 pydantic==2.13.4
 pydantic-settings==2.3.3
 httpx==0.28.1
+# Explícito y no transitivo (vía starlette/httpx): el `finally` de `_StreamConTurno`
+# (src/api/gateway.py, issue #150) depende de la semántica de `move_on_after(shield=True)`
+# de anyio 4. Pineado a la versión que ya trae la imagen hoy.
+anyio==4.14.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9

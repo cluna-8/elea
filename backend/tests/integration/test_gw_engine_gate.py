@@ -28,6 +28,7 @@ import sys
 import time
 from pathlib import Path
 
+import anyio
 import pytest
 from starlette.requests import Request
 
@@ -72,8 +73,14 @@ class _RespuestaStream:
     def __init__(self, soltar):
         self._soltar = soltar
         self.cerrado = False
+        # Testigo de N1: se prende cuando el generador del gateway pide el PRIMER chunk. Hace
+        # falta porque un generador asíncrono que NUNCA arrancó no ejecuta su `finally` (PEP
+        # 525), así que "no arrancó" y "arrancó y se murió" fugan el turno igual pero por
+        # motivos distintos, y un test que no los distingue no prueba nada.
+        self.arranco = False
 
     async def aiter_raw(self):
+        self.arranco = True
         yield b"data: {}\n\n"
         await self._soltar.wait()
         yield b"data: [DONE]\n\n"
@@ -100,12 +107,19 @@ class _MotorLento:
         self.llamadas = []
         self.kwargs_cliente = []
         self.streams = []
+        # Los clientes creados, para poder afirmar que el `AsyncClient` TAMBIÉN se cierra y no
+        # sólo la respuesta: en la ventana N1 el `finally` de `_StreamConTurno` es el único que
+        # lo cierra, y un cliente que se filtra se lleva la conexión con el motor.
+        self.clientes = []
 
     def _nuevo_cliente(self, *_args, **kwargs):
         motor = self
         motor.kwargs_cliente.append(kwargs)
 
         class _Cliente:
+            def __init__(self):
+                self.cerrado = False
+
             async def __aenter__(self):
                 return self
 
@@ -130,8 +144,11 @@ class _MotorLento:
 
             async def aclose(self):
                 await asyncio.sleep(0)  # cerrar un cliente httpx real suspende; ver arriba
+                self.cerrado = True
 
-        return _Cliente()
+        cliente = _Cliente()
+        motor.clientes.append(cliente)
+        return cliente
 
     def modulo(self):
         import httpx as _httpx_real
@@ -211,6 +228,32 @@ async def _byok(stream=False):
     return await gateway._byok_proxy(
         _peticion(), json.dumps({**CUERPO, "stream": stream}).encode(), CLAVE, stream,
         model=MODELO, start=time.time())
+
+
+def _scope_asgi():
+    """`scope` HTTP mínimo para ejecutar la respuesta como ASGI DE VERDAD.
+
+    Los tests de cancelación no pueden simular el corte con `body_iterator.aclose()`: ese atajo
+    entra por `GeneratorExit`, y lo que rompe en producción es la cancelación del task group de
+    `StreamingResponse.__call__`. Son caminos distintos y sólo el segundo reproduce las fugas.
+    """
+    return {"type": "http", "http_version": "1.1", "method": "POST",
+            "path": "/gw/v1/messages", "headers": [], "query_string": b"",
+            "scheme": "http", "server": ("test", 80), "client": ("test", 1), "root_path": ""}
+
+
+def _aplanar(exc):
+    """Aplana `BaseExceptionGroup` recursivamente.
+
+    Los task groups de anyio 4 envuelven SIEMPRE lo que levanta una tarea hija, aunque sea una
+    sola excepción. Comparar el tipo de arriba sería atarle el test a esa decisión de anyio: lo
+    que se afirma es que la excepción del cliente llegó, no cómo la empaquetó la librería.
+    """
+    if isinstance(exc, BaseExceptionGroup):
+        for hijo in exc.exceptions:
+            yield from _aplanar(hijo)
+    else:
+        yield exc
 
 
 def filas(factory, estado):
@@ -471,6 +514,373 @@ async def test_el_turno_vuelve_aunque_el_cierre_del_upstream_reviente(
 
     assert (await _byok()).status_code == 200, (
         "tres cierres rotos y el semáforo tiene que estar entero")
+
+
+# ── N1/N2 del gate round 2 de #135 (issue #150): la ventana antes del primer chunk ─
+
+
+@pytest.mark.asyncio
+async def test_el_disconnect_antes_del_primer_chunk_no_se_come_el_turno(
+        harness, motor, gate_de_uno):
+    """N1: entre el traspaso del turno y el primer `__anext__` del generador no hay NADIE.
+
+    `_byok_proxy` marca `turno_traspasado = True` y devuelve el `StreamingResponse` confiando en
+    que el `finally` del generador va a soltar el turno. Pero el generador recién arranca
+    después de que `stream_response` mande `http.response.start`, y ESE send puede quedarse
+    esperando drain: es write-backpressure, o sea el cliente que no lee y el buffer del socket
+    lleno — el caso normal de una coding tool que se quedó pensando. Si el `http.disconnect`
+    entra en esa ventana, starlette cancela el task group con el generador todavía sin arrancar,
+    y un generador asíncrono que NUNCA arrancó no ejecuta su `finally` (PEP 525). Nadie llama a
+    `liberar()`: el turno queda tomado por un pedido que ya no existe, y no vuelve hasta que se
+    reinicia el worker. Con el tope de la sede en 8, ocho desconexiones desafortunadas dejan el
+    producto rechazando 503 con el motor vacío.
+
+    No hacen falta sockets para reproducirlo: la backpressure es un `send` colgado de un `Event`
+    que no se prende nunca, que es exactamente lo que hace un write que no drena.
+    """
+    respuesta = await _byok(stream=True)
+    assert respuesta.status_code == 200
+
+    semaforo = gate_de_uno._semaforo()
+    assert semaforo._value == 0, "cap=1: el stream ya devuelto tiene que tener el turno tomado"
+
+    enviados = []
+    primer_send = asyncio.Event()
+    el_socket_nunca_drena = asyncio.Event()  # se prende JAMÁS: ese es el escenario
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+        primer_send.set()
+        await el_socket_nunca_drena.wait()
+
+    async def receive():
+        await primer_send.wait()  # el cliente se va justo mientras esperamos el drain
+        return {"type": "http.disconnect"}
+
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+    await asyncio.sleep(0)
+
+    assert enviados == ["http.response.start"], (
+        "el escenario tiene que morir en el PRIMER send; si llegó un chunk esto ya no es N1")
+    assert motor.streams[0].arranco is False, (
+        "el generador arrancó: entonces esto prueba otra cosa y no la ventana de N1")
+    assert semaforo._value == 1, (
+        "el turno se fugó en la ventana previa al primer chunk: el generador nunca arrancó, su "
+        "`finally` no existe (PEP 525) y el tope quedó encogido para siempre")
+
+    motor.soltar.set()
+    assert (await _byok()).status_code == 200, "y el turno tiene que servir de verdad"
+
+
+@pytest.mark.asyncio
+async def test_el_send_que_levanta_por_desconexion_tampoco_se_come_el_turno(
+        harness, motor, gate_de_uno):
+    """La segunda variante de la MISMA ventana, por si la primera se tapa a medias.
+
+    Un servidor ASGI puede no colgarse en el `send()` posterior a la desconexión sino LEVANTAR.
+    Uvicorn 0.30 —el de esta imagen— lo hace hoy sólo en el plano websocket (`ClientDisconnected`
+    vive en `websockets_impl`/`wsproto_impl`; el camino HTTP de `h11_impl` hace `if
+    self.disconnected: return`, un no-op silencioso), pero hypercorn/granian y cualquier cambio
+    futuro de ese camino pueden levantar acá. Misma ventana, mismo generador sin arrancar, mismo
+    turno fugado, pero por un camino distinto — y esa diferencia es la que descarta arreglar esto
+    con un `BackgroundTask`: cuando la excepción se escapa del task group, starlette nunca llega
+    a la línea que lo corre (verificado en el fuente de `StreamingResponse.__call__`: el `await
+    self.background()` está DESPUÉS del `async with create_task_group()`). La liberación tiene
+    que estar en un `finally` que envuelva al `__call__` entero.
+
+    El doble es una excepción nuestra y no la de ningún servidor a propósito: lo que se prueba es
+    que CUALQUIER excepción del transporte devuelve el turno, no que sepamos importar una clase.
+    """
+    class _ClienteSeFue(Exception):
+        """Doble de `uvicorn.protocols.utils.ClientDisconnected`."""
+
+    respuesta = await _byok(stream=True)
+    semaforo = gate_de_uno._semaforo()
+    assert semaforo._value == 0
+
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+        raise _ClienteSeFue("el socket ya estaba cerrado cuando quisimos escribir")
+
+    async def receive():
+        await asyncio.Event().wait()  # no vuelve nunca: lo corta la cancelación del grupo
+
+    with pytest.raises((_ClienteSeFue, BaseExceptionGroup)) as capturado:
+        await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+    await asyncio.sleep(0)
+
+    assert any(isinstance(e, _ClienteSeFue) for e in _aplanar(capturado.value)), (
+        f"el test tenía que morir por la desconexión y murió por otra cosa: {capturado.value!r}")
+    assert enviados == ["http.response.start"], "la excepción va en el primer send o no es N1"
+    assert motor.streams[0].arranco is False
+    assert semaforo._value == 1, (
+        "el turno se fugó por la variante `ClientDisconnected`: la excepción se escapa del task "
+        "group, así que nada que cuelgue DESPUÉS del `__call__` —un `BackgroundTask`, por "
+        "ejemplo— alcanza a devolverlo")
+
+    motor.soltar.set()
+    assert (await _byok()).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_la_cancelacion_del_cliente_igual_tiene_que_cerrar_el_upstream(
+        harness, motor, gate_de_uno):
+    """N2: hoy el turno vuelve pero la conexión con el motor queda ABIERTA.
+
+    El `finally` del generador libera primero y cierra después (H1), y eso está bien; el costo
+    es que ese `finally` corre con el generador ya cancelado y sus `aclose()` no llegan a
+    completarse: el socket contra el motor no lo cierra nadie hasta que lo junte el GC o venza
+    un timeout. Cada cancelación deja una conexión colgando y el motor sigue GENERANDO para un
+    cliente que ya se fue — o sea que el turno vuelve al semáforo pero el trabajo real no baja,
+    que es la mitad del incidente de la sede. Lo que fija este test es que el cierre igual
+    ocurre, porque el `finally` de la RESPUESTA lo hace por su cuenta.
+
+    OJO con el alcance: este test NO custodia el `shield=True`. Acá la cancelación nace ADENTRO
+    del `StreamingResponse` y su propio task group se la come al salir del `async with`, así que
+    para cuando corre el `finally` de la respuesta ya no hay cancelación pendiente y los
+    `aclose()` andan con escudo o sin él (verificado: sacando el escudo este test sigue verde).
+    El que muere sin escudo es el hermano de abajo, con la cancelación viniendo de AFUERA.
+    """
+    respuesta = await _byok(stream=True)
+    assert respuesta.status_code == 200
+
+    primer_chunk = asyncio.Event()
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+        if mensaje["type"] == "http.response.body" and mensaje.get("body"):
+            primer_chunk.set()  # el cliente ya recibió tokens... y ahora se va
+
+    async def receive():
+        await primer_chunk.wait()
+        return {"type": "http.disconnect"}
+
+    # El upstream NUNCA se suelta: el generador queda suspendido esperando el chunk siguiente,
+    # que es exactamente donde lo agarra la cancelación.
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+    await asyncio.sleep(0)
+
+    assert "http.response.body" in enviados, "el escenario no llegó a mandar el primer chunk"
+    assert motor.streams[0].cerrado is True, (
+        "la cancelación del cliente dejó abierta la conexión con el motor: el semáforo miente, "
+        "porque el turno volvió pero la generación sigue consumiendo el motor de verdad")
+    assert motor.clientes[-1].cerrado is True, (
+        "cerraron la respuesta pero NO el `AsyncClient`: el pool de conexiones del cliente "
+        "queda vivo con el socket contra el motor, y ese cliente ya no lo cierra nadie")
+
+
+@pytest.mark.asyncio
+async def test_el_cierre_del_upstream_sobrevive_a_una_cancelacion_de_afuera(
+        harness, motor, gate_de_uno):
+    """El escudo de N2: acá el que corta NO es el cliente, es el que ejecuta la respuesta.
+
+    En el test hermano la cancelación nace ADENTRO del `StreamingResponse` y su propio task
+    group se la come, así que para cuando corre el `finally` de la respuesta el scope ya está
+    limpio y los `aclose()` andan con escudo o sin él. La que duele es la de afuera —un cancel
+    scope que envuelve al pedido: shutdown del worker, un middleware con timeout, cualquier
+    task group por encima—: ahí el `finally` corre DENTRO de un scope cancelado y anyio
+    re-entrega la cancelación en cada suspensión, así que el primer `await` del cierre se la
+    lleva y el socket contra el motor queda colgando con el modelo generando para nadie.
+
+    Por eso el cierre va en un `move_on_after(..., shield=True)` y no en un `try` pelado. Este
+    test es el único que muere si alguien saca el escudo. Razón de diseño de por qué el corte va
+    con un cancel scope de anyio y no con `Task.cancel()` crudo: por semántica de asyncio la
+    cancelación cruda se entrega una sola vez, así que el cierre zafaría y el escenario no
+    distinguiría el escudo puesto del sacado. Eso NO se midió acá; lo que sí está medido es que
+    con el task group de anyio, sacando el `shield`, este test se pone rojo.
+    """
+    respuesta = await _byok(stream=True)
+    assert respuesta.status_code == 200
+
+    primer_chunk = asyncio.Event()
+
+    async def send(mensaje):
+        if mensaje["type"] == "http.response.body" and mensaje.get("body"):
+            primer_chunk.set()
+
+    async def receive():
+        await asyncio.Event().wait()  # el cliente NO se va: el corte viene de arriba
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(respuesta, _scope_asgi(), receive, send)
+        await asyncio.wait_for(primer_chunk.wait(), timeout=10)
+        tg.cancel_scope.cancel()
+
+    assert motor.streams[0].cerrado is True, (
+        "la cancelación de afuera dejó abierta la conexión con el motor: sin `shield=True` los "
+        "`aclose()` del `finally` se comen la cancelación re-entregada y el motor sigue "
+        "generando para un pedido que ya no existe")
+    assert motor.clientes[-1].cerrado is True, (
+        "el `AsyncClient` quedó abierto: el escudo alcanzó para la respuesta pero el cliente "
+        "—que es el dueño del pool— se filtra igual")
+    assert gate_de_uno._semaforo()._value == 1, (
+        "los cierres corrieron pero el turno no volvió: con cap=1 el próximo pedido come 503 "
+        "con el motor vacío")
+
+
+@pytest.mark.asyncio
+async def test_cuando_corren_los_cierres_de_la_respuesta_el_turno_YA_volvio(
+        harness, motor, gate_de_uno):
+    """El ORDEN dentro del `finally` de la respuesta: `liberar()` va PRIMERO, cierres después.
+
+    Mismo criterio que en el generador (H1 del gate de #135): `liberar()` es sync e infalible y
+    los `aclose()` son I/O. Los cierres de acá van envueltos en un `try/except Exception`, así
+    que un cierre que revienta ya no saltea el `liberar()` — pero ese `except` NO atrapa
+    `BaseException`, y un `CancelledError` crudo cayendo dentro de un `aclose()` con el orden
+    invertido se llevaría el turno para siempre (un turno filtrado no vuelve hasta reiniciar el
+    worker). El orden es la garantía barata contra esa clase entera de fallas.
+
+    El ASSERT no depende de tiempos: el doble del upstream anota el valor del semáforo en el
+    momento exacto en que lo cierran, así que lo que se compara es un orden observado desde
+    adentro del `aclose()` y no una carrera. (El escenario sí usa un `wait_for` como red de
+    seguridad para que un cuelgue falle en vez de colgar la suite, pero el veredicto no sale
+    de ahí.)
+
+    Va por el camino de N1 (el generador NUNCA arranca) a propósito: es el único donde el
+    `finally` de la respuesta corre solo. En cualquier otro el del generador ya liberó antes y
+    el test no vería el orden que quiere fijar.
+    """
+    respuesta = await _byok(stream=True)
+    semaforo = gate_de_uno._semaforo()
+    assert semaforo._value == 0, "cap=1: el stream ya devuelto tiene que tener el turno tomado"
+
+    upstream = motor.streams[0]
+    visto = []
+
+    async def _aclose_que_mira_el_semaforo():
+        visto.append(semaforo._value)
+        await asyncio.sleep(0)  # cerrar de verdad suspende; ver `_RespuestaStream.aclose`
+        upstream.cerrado = True
+
+    upstream.aclose = _aclose_que_mira_el_semaforo
+
+    primer_send = asyncio.Event()
+    el_socket_nunca_drena = asyncio.Event()  # se prende JAMÁS: la ventana de N1
+
+    async def send(_mensaje):
+        primer_send.set()
+        await el_socket_nunca_drena.wait()
+
+    async def receive():
+        await primer_send.wait()
+        return {"type": "http.disconnect"}
+
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+
+    assert upstream.arranco is False, (
+        "el generador arrancó: su `finally` ya liberó por su cuenta y esto dejó de medir el "
+        "orden del `finally` de la respuesta")
+    assert visto == [1], (
+        f"el cierre del upstream corrió con el turno TODAVÍA tomado (semáforo en {visto}): con "
+        "ese orden, una `BaseException` dentro de un `aclose()` —la que el `except Exception` "
+        "no atrapa— se lleva el turno para siempre")
+
+
+@pytest.mark.asyncio
+async def test_un_cierre_que_revienta_en_la_respuesta_no_se_lleva_al_que_sigue(
+        harness, motor, gate_de_uno):
+    """El `try/except Exception` de cada cierre del `finally` de `_StreamConTurno`.
+
+    `cierres` es una TUPLA (la respuesta del upstream y el `AsyncClient` que la sostiene) y se
+    recorre en un `for`. Sin el `except`, la excepción del primer `aclose()` aborta el bucle y el
+    SEGUNDO cierre no corre nunca: el turno vuelve igual —`liberar()` va antes— pero el
+    `AsyncClient` queda vivo con el socket contra el motor, que es la otra mitad del incidente de
+    la sede. Además la excepción se escaparía del `__call__` hacia el servidor ASGI, y a esa
+    altura el pedido ya terminó: sólo cambiaría un socket colgado por un 500 en los logs.
+
+    Va por el camino de N1 (el generador NUNCA arranca) igual que el test del orden: es el único
+    donde el `finally` de la respuesta corre solo, sin que el del generador haya cerrado antes.
+
+    OJO con el alcance: esto NO contradice a
+    `test_el_turno_vuelve_aunque_el_cierre_del_upstream_reviente`. Ahí el que revienta es el
+    `finally` del GENERADOR, y ahí la excepción TIENE que seguir propagando. El tragado con log
+    va sólo en el `finally` de `__call__`.
+    """
+    class _CierreRoto(Exception):
+        pass
+
+    respuesta = await _byok(stream=True)
+    semaforo = gate_de_uno._semaforo()
+    assert semaforo._value == 0, "cap=1: el stream ya devuelto tiene que tener el turno tomado"
+
+    upstream = motor.streams[0]
+    cliente = motor.clientes[-1]
+    visto = []
+
+    async def _aclose_que_revienta():
+        visto.append(semaforo._value)
+        raise _CierreRoto("el socket del upstream ya estaba muerto")
+
+    upstream.aclose = _aclose_que_revienta
+
+    primer_send = asyncio.Event()
+    el_socket_nunca_drena = asyncio.Event()  # se prende JAMÁS: la ventana de N1
+
+    async def send(_mensaje):
+        primer_send.set()
+        await el_socket_nunca_drena.wait()
+
+    async def receive():
+        await primer_send.wait()
+        return {"type": "http.disconnect"}
+
+    # (c) la excepción NO se escapa del `__call__`: si se escapara, esto reventaría acá.
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+
+    assert upstream.arranco is False, (
+        "el generador arrancó: su `finally` ya cerró por su cuenta y esto dejó de medir el "
+        "`finally` de la respuesta")
+    assert visto == [1], (
+        f"el cierre roto no corrió, o corrió con el turno todavía tomado (semáforo en {visto})")
+    # (a) el segundo cierre corrió igual: el `except` no abortó el bucle.
+    assert cliente.cerrado is True, (
+        "el primer cierre reventó y se llevó puesto al segundo: el `AsyncClient` —dueño del "
+        "pool— quedó abierto con el socket contra el motor")
+    # (b) el turno ya había vuelto (`visto`) y sigue entero.
+    assert semaforo._value == 1
+    motor.soltar.set()  # el no-stream de abajo espera al motor; sin esto se cuelga
+    assert (await _byok()).status_code == 200, "y el turno tiene que servir de verdad"
+
+
+@pytest.mark.asyncio
+async def test_el_camino_feliz_libera_el_turno_dos_veces_sin_inflar_el_semaforo(
+        harness, motor, gate_de_uno):
+    """Guardia de la doble liberación: el `finally` del generador y el de la respuesta suman.
+
+    El fix de N1 no le saca el `finally` al generador —lo necesita para soltar el turno TEMPRANO
+    (apenas termina de drenar) y no recién cuando el ASGI se desarma—, así que en el camino
+    feliz `liberar()` corre DOS veces sobre el mismo turno. Eso es sano sólo mientras
+    `TurnoDelMotor.liberar()` sea idempotente: si alguien la simplifica a un `release()` pelado,
+    el `BoundedSemaphore` levanta `ValueError` en la segunda —y no se le come nada al tope, que
+    para eso está acotado y no es un `Semaphore` común—. Este test no se pone rojo por la fuga,
+    se pone rojo si el arreglo de la fuga rompe la contabilidad.
+    """
+    respuesta = await _byok(stream=True)
+    semaforo = gate_de_uno._semaforo()
+    assert semaforo._value == 0
+
+    motor.soltar.set()  # el upstream termina solo: camino feliz completo, sin cancelaciones
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+
+    async def receive():
+        await asyncio.Event().wait()  # el cliente aguanta hasta el final; lo corta starlette
+
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+
+    assert enviados[0] == "http.response.start"
+    assert enviados.count("http.response.body") == 3, (
+        f"dos chunks más el cierre del body; llegaron {enviados}")
+    assert motor.streams[0].cerrado is True, "el camino feliz cierra el upstream siempre"
+    assert semaforo._value == 1, (
+        "el turno no volvió entero: con cap=1 el semáforo tiene que quedar en 1, ni 0 (fuga) "
+        "ni 2 (permiso regalado)")
+    assert (await _byok()).status_code == 200
 
 
 # ── H2: el rechazo no puede congelar el worker ────────────────────────────────────
