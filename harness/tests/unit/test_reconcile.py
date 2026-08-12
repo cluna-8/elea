@@ -130,7 +130,7 @@ def _summary(auditable=100, blocks=0):
 
 
 def _fn(session, **kw):
-    fn = build_http_reconcile(BACKEND, "itv-g125-cmp-0000", "Itv-secreta", session=session,
+    fn = build_http_reconcile(BACKEND, "itv-g125-cmp-0000", "fake-test-password-itv", session=session,
                               **kw)
     fn.set_window(T0, T1)
     return fn
@@ -226,7 +226,7 @@ def test_login_una_sola_vez_y_con_la_credencial_del_pool():
     fn(_summary(auditable=1))
     logins = [c for c in session.calls if c["url"].endswith(LOGIN_PATH)]
     assert len(logins) == 1
-    assert logins[0]["json"] == {"username": "itv-g125-cmp-0000", "password": "Itv-secreta"}
+    assert logins[0]["json"] == {"username": "itv-g125-cmp-0000", "password": "fake-test-password-itv"}
 
 
 def test_login_fn_inyectable_evita_el_post():
