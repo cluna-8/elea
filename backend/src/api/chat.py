@@ -33,6 +33,15 @@ from ..services.audit_service import (
     audit_writable,
     record_audit_loss,
 )
+from ..services.engine_gate import (
+    ENGINE_TIMEOUT_SECONDS,
+    HEADER_REJECTED,
+    HEADER_REJECTED_SATURATED,
+    RETRY_AFTER_SATURATED,
+    STATUS_SATURATED,
+    EngineSaturatedError,
+    adquirir_turno,
+)
 from ..services.guardian_service import GuardianService
 from ..services.rate_limiter import check_rpm, check_tpm, RateLimitExceeded
 from ..services.governance_catalog import (
@@ -64,21 +73,15 @@ _ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
 _REVERSAL_GUARD = os.getenv("COMPRESSION_REVERSAL_GUARD", "true").lower() == "true"
 
 
-# Timeout (segundos) de la llamada al motor de IA. Configurable por env sin rebuild:
-# un modelo local/self-hosted (Ollama del cliente) puede tardar bastante más que un
-# proveedor cloud, así que el hardcode de 15s cortaba respuestas legítimas. Default
-# holgado (60s). Un valor no numérico o vacío cae al default.
-def _resolve_engine_timeout(default: float = 60.0) -> float:
-    raw = os.getenv("BASA_ENGINE_TIMEOUT_SECONDS", "").strip()
-    if not raw:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
-_ENGINE_TIMEOUT_SECONDS = _resolve_engine_timeout()
+# Timeout (segundos) de la llamada al motor de IA. Configurable por env sin rebuild
+# (`BASA_ENGINE_TIMEOUT_SECONDS`): un modelo local/self-hosted (Ollama del cliente) puede tardar
+# bastante más que un proveedor cloud, así que el hardcode de 15 s cortaba respuestas legítimas.
+#
+# El parser vive ahora en `engine_gate` y es COMPARTIDO con el byok de `/gw` (que tenía su propio
+# 120 s hardcodeado). El de acá —previo a #131— parseaba sin guardia de rango: un `1e9` pasaba
+# crudo y dejaba la llamada al motor efectivamente SIN timeout, que es el cuelgue que el nodo C1
+# vino a matar. Mismo nombre de env, ahora acotado (finito, 0 < v ≤ 600 s).
+_ENGINE_TIMEOUT_SECONDS = ENGINE_TIMEOUT_SECONDS
 
 _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama", "ollama_chat"}
 
@@ -464,7 +467,8 @@ def _entidades_de_fila(floor_entities, detected) -> list:
 async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id,
                              model: str, estado: str, prompt: str, entities, attribution,
                              start_time: float, routing: Optional[dict] = None,
-                             entidades_fila: Optional[list] = None) -> None:
+                             entidades_fila: Optional[list] = None,
+                             cabeceras_del_503: Optional[dict] = None) -> None:
     """**Registrar → bloquear**: fila DURABLE del bloqueo y, después, evento de vitrina.
 
     Es el pago del corte D6 de la 027 (spec 031 US1/FR-002): los 3 puntos de bloqueo de este
@@ -503,6 +507,14 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
 
     El parámetro se llama `estado` y no `status` porque en este módulo `status` es el enum
     de códigos HTTP de FastAPI: el shadowing dejaría al helper sin poder nombrar su 503.
+
+    `cabeceras_del_503` es para los llamadores cuyo rechazo tiene un CONTRATO DE WIRE propio
+    (H6 del gate de #135). Hoy sólo el rechazo por capacidad: La ITV acordó que
+    `X-Basa-Rejected: saturated` viaja en TODO 503 de saturación, y si la auditoría se cae
+    mientras se registra uno, el 503 que sale por esta puerta sigue siendo la respuesta a un
+    pedido saturado. Sin la cabecera, el harness de carga lo contaría como un 503 ajeno —de
+    Caddy, del proxy de la sede— y el drill mediría mal justo en el caso interesante. Los tres
+    puntos de bloqueo por política no la pasan: su 503 no tiene contrato de wire.
     """
     resumen = _summarize_entities(entities) if entidades_fila is None else entidades_fila
     fallo_closed: Optional[AuditUnavailableError] = None
@@ -542,6 +554,7 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_AUDIT_CLOSED_DETAIL,
+            headers=cabeceras_del_503,
         ) from fallo_closed
 
 
@@ -1214,8 +1227,21 @@ async def chat_completions(
             detail=_AUDIT_CLOSED_DETAIL,
         )
 
+    # ── Tope de ADMISIÓN hacia el motor (nodo C1) ─────────────────────────────────────
+    #
+    # UNA sola adquisición para todo el diálogo con el motor: la llamada normal y —si se
+    # dispara— el reintento de reversión, que vive dentro de este mismo `async with` porque es
+    # el MISMO pedido del usuario. Re-adquirir para el reintento lo pondría a hacer cola detrás
+    # de pedidos nuevos, o lo rechazaría a mitad de camino con la respuesta ya pagada.
+    #
+    # El turno se suelta en el `__aexit__`, o sea también si el motor timeoutea, si devuelve
+    # 4xx/5xx o si el cuerpo levanta: un turno que se filtrara por un camino de error bajaría el
+    # tope de forma permanente hasta reiniciar el worker, que es peor que no tener tope.
+    #
+    # `async with A, B` y no un bloque anidado a propósito: el alcance del turno tiene que ser
+    # EXACTAMENTE el de la conexión al motor, ni un statement más.
     try:
-        async with httpx.AsyncClient() as client:
+        async with adquirir_turno(), httpx.AsyncClient() as client:
             raw_request_json = {
                 "model": routed_model,
                 "messages": [{"role": "user", "content": optimized_prompt}],
@@ -1340,6 +1366,46 @@ async def chat_completions(
                 
     except HTTPException:
         raise
+    except EngineSaturatedError as exc:
+        # El motor está a capacidad y este pedido NO se encoló (nodo C1).
+        #
+        # Registrar → bloquear, la MISMA matriz que los tres puntos de bloqueo de política:
+        # fila durable primero (una sola por rechazo), vitrina después, respuesta al final —
+        # incluidos los modos `open`/`closed`, que `_registrar_bloqueo` ya resuelve y acá no se
+        # reimplementan. Un rechazo sin rastro sería justo el agujero que cerró la 031: el día
+        # que la sede pregunte «¿cuántos pedidos rebotamos el martes?», la respuesta tiene que
+        # estar en la base y no en el recuerdo de nadie.
+        #
+        # El estado NO es un `blocked_*`: ninguna capa bloqueó nada (ver `STATUS_SATURATED`).
+        logger.warning("engine_gate: pedido rechazado por capacidad (model=%s): %s",
+                       routed_model, exc)
+        # Contrato de wire de La ITV: la cabecera viaja en TODO 503 de saturación, incluido el
+        # que puede salir de `_registrar_bloqueo` si la auditoría está caída en modo `closed`
+        # (H6 del gate). Se arma una sola vez y se usa en los dos caminos para que no puedan
+        # divergir.
+        cabeceras_de_saturacion = {"Retry-After": RETRY_AFTER_SATURATED,
+                                   HEADER_REJECTED: HEADER_REJECTED_SATURATED}
+        await _registrar_bloqueo(
+            db=db, user=user, api_key_obj=api_key_obj, group=group, tenant_id=_tenant_id,
+            model=routed_model, estado=STATUS_SATURATED,
+            prompt=request.message, entities=_entities,
+            attribution=build_attribution(profile, verdicts, credentials=_credentials),
+            start_time=start_time, routing=_routing_decision,
+            entidades_fila=_entidades_de_fila(_floor_entities, _entities),
+            cabeceras_del_503=cabeceras_de_saturacion,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            # Detalle HONESTO: se dice lo que pasó y lo que se decidió, sin disfrazarlo de
+            # error del modelo. `code` es el mismo literal que va a la fila durable, para que
+            # el harness de carga (y cualquier cliente) distinga este rechazo sin parsear copy.
+            detail={
+                "code": STATUS_SATURATED,
+                "message": ("El modelo está a capacidad; el pedido no se encoló para no "
+                            "degradar el resto del producto. Reintentá en unos segundos."),
+            },
+            headers=cabeceras_de_saturacion,
+        ) from exc
     except Exception as e:
         # Check if we were able to reach the server. If yes, it's a model execution error.
         if "response" in locals() and response is not None:

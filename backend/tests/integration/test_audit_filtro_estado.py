@@ -5,7 +5,7 @@ valores de `compliance_status` (`blocked_prohibited`, `blocked_secret`, …) y l
 a uno, o que los dedujera de «0/0 tokens». Con la convención D1 (prefijo `blocked_`) el
 filtro canónico es uno solo: `LIKE 'blocked%'`.
 
-Los dos invariantes que se fijan acá:
+Los invariantes que se fijan acá:
 
 1. **`estado=bloqueados` devuelve TODOS los bloqueos y sólo bloqueos**, sin importar el
    motivo — el officer no tiene que conocer el vocabulario interno para encontrar lo que
@@ -16,6 +16,12 @@ Los dos invariantes que se fijan acá:
    por `model='license'`, la pantalla mezclaría «se venció la licencia del deployment» con
    «alguien intentó pegar el padrón de socios» — justo la confusión que el filtro existe
    para eliminar. La cadena no se toca: sólo se la deja fuera de un filtro de TRÁFICO.
+3. **Los rechazos por capacidad quedan fuera de los DOS baldes** (gate #135 H4, decisión JF
+   12-ago). `rejected_saturated` (`services/engine_gate.py`) no empieza con `blocked` a
+   propósito —capacidad no es política—, así que sin exclusión explícita caería en el `else`
+   y se contaría como PERMITIDO: un pedido que nunca se sirvió, por causa nuestra, informado
+   al cliente como servido. Su balde propio («Rechazados») llega en el ciclo 2; hasta
+   entonces, fuera de ambos pero VISIBLE sin filtro `estado` (es auditoría durable).
 """
 import sys
 import uuid
@@ -38,15 +44,29 @@ DB = "basa_test_audit_filtro_estado"
 LOGS = "/api/v1/audit-logs"
 EXPORT = "/api/v1/audit-logs/export"
 
+# `compliance_status` del rechazo por capacidad. Literal y no import de `engine_gate`: lo que
+# este archivo prueba es el CONTRATO de la pantalla contra el valor que se persiste, y un
+# import haría pasar el test aunque la constante cambiara de las dos puntas a la vez.
+SATURADO = "rejected_saturated"
+
+# Un `rejected_*` que hoy NO existe en el código: clava que el contrato de exclusión es de
+# PREFIJO, no de valor exacto. Si `RECHAZADO_LIKE` se degradara al literal, el próximo
+# rechazo con nombre propio caería callado en «permitidos» — exactamente la mentira que H4
+# vino a cerrar, reabierta para el status siguiente (mutante sobreviviente del re-check).
+RECHAZO_FUTURO = "rejected_timeout"
+
 # (modelo, compliance_status, capa que bloqueó). Cubre los dos motivos de bloqueo que ya
-# escribía el passthrough, uno nuevo del plano chat, tráfico permitido y —el caso feo— un
-# eslabón de licencia que TAMBIÉN empieza con `blocked`.
+# escribía el passthrough, uno nuevo del plano chat, tráfico permitido, un rechazo por
+# capacidad (que no es ni una cosa ni la otra), un segundo rechazo hipotético que clava el
+# prefijo y —el caso feo— un eslabón de licencia que TAMBIÉN empieza con `blocked`.
 SEMILLA = [
     ("claude-3-5-sonnet-20241022", "blocked_secret", "secret_detection"),
     ("claude-3-5-sonnet-20241022", "blocked_prohibited", "ai_act_evaluation"),
     ("ollama-qwen3-4b", "blocked_guardian", "pii_masking"),
     ("claude-3-5-sonnet-20241022", "passed", None),
     ("ollama-qwen3-4b", "flagged_high_risk", None),
+    ("ollama-qwen3-4b", SATURADO, None),
+    ("claude-3-5-sonnet-20241022", RECHAZO_FUTURO, None),
     ("license", "blocked_by_policy", None),
 ]
 
@@ -125,6 +145,48 @@ def test_permitidos_es_el_complemento_y_tampoco_trae_licencias(harness):
     payload = client.get(LOGS, params={"estado": "permitidos"}).json()
     assert estados(payload) == ["flagged_high_risk", "passed"]
     assert all(fila["model"] != "license" for fila in payload["logs"])
+
+
+def test_el_rechazo_por_capacidad_no_se_cuenta_como_permitido(harness):
+    """H4 del gate de #135. `rejected_saturated` no matchea `LIKE 'blocked%'` (capacidad ≠
+    política), así que sin exclusión explícita caería en el `else` y se informaría como
+    PERMITIDO. Ese pedido nunca se sirvió, y el motivo fue nuestro: contarlo entre los
+    permitidos le miente al cliente justo en el número que más mira."""
+    client, _ = harness
+    payload = client.get(LOGS, params={"estado": "permitidos"}).json()
+    assert SATURADO not in estados(payload)
+    assert RECHAZO_FUTURO not in estados(payload)
+    assert payload["total"] == 2
+
+
+def test_el_rechazo_por_capacidad_tampoco_es_un_bloqueo(harness):
+    """La otra mitad del mismo invariante: tampoco se lo infla como bloqueo. No lo impidió
+    ninguna capa, no hubo dato personal ni secreto ni práctica prohibida. Su balde propio
+    («Rechazados») llega en el ciclo 2; hasta entonces, fuera de los dos."""
+    client, _ = harness
+    payload = client.get(LOGS, params={"estado": "bloqueados"}).json()
+    assert SATURADO not in estados(payload)
+    assert RECHAZO_FUTURO not in estados(payload)
+    assert payload["total"] == 3
+
+
+def test_sin_filtro_el_rechazo_por_capacidad_sigue_visible(harness):
+    """Dejarlo fuera del filtro binario no es esconderlo: la fila es auditoría durable y el
+    officer tiene que poder verla para explicar por qué ese pedido no salió."""
+    client, _ = harness
+    payload = client.get(LOGS).json()
+    assert SATURADO in estados(payload)
+    assert RECHAZO_FUTURO in estados(payload)
+
+
+def test_el_export_tampoco_vende_el_rechazo_como_permitido(harness):
+    """El CSV sale del MISMO constructor de query: si la exclusión viviera sólo en el listado,
+    el reporte que se manda por mail seguiría mintiendo."""
+    client, _ = harness
+    cuerpo = client.get(EXPORT, params={"estado": "permitidos"}).text
+    assert SATURADO not in cuerpo
+    assert RECHAZO_FUTURO not in cuerpo
+    assert "passed" in cuerpo and "flagged_high_risk" in cuerpo
 
 
 def test_un_estado_desconocido_falla_fuerte_en_vez_de_ignorarse(harness):

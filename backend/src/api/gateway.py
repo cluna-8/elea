@@ -70,6 +70,7 @@ import httpx
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import or_
+from starlette.concurrency import run_in_threadpool
 
 from ..database import SessionLocal, tenant_context
 from ..licensing.degraded import require_not_hard_blocked
@@ -84,6 +85,20 @@ from ..services.audit_service import (
     audit_writable,
     record_audit_loss,
     record_nlp_degradation,
+)
+# Tope de admisión al motor (nodo C1): el camino byok de este plano comparte cola con el chat,
+# así que comparte el semáforo. Los TIMEOUTS no se comparten (H3 del gate de #135): cada plano
+# tiene el suyo acotado, porque una UI con una persona esperando y una coding tool que tolera
+# generaciones largas no aguantan lo mismo.
+from ..services.engine_gate import (
+    GW_BYOK_READ_TIMEOUT_SECONDS,
+    GW_BYOK_TIMEOUT_SECONDS,
+    HEADER_REJECTED,
+    HEADER_REJECTED_SATURATED,
+    RETRY_AFTER_SATURATED,
+    STATUS_SATURATED,
+    EngineSaturatedError,
+    adquirir_turno,
 )
 # Gobernanza (spec 027): SIEMPRE por la puerta del backend (governance_catalog), nunca
 # importando `extensions.basa_governance` a mano — un segundo camino de import carga el
@@ -260,10 +275,16 @@ async def _safe_preview(body: dict, nlp: Optional[dict] = None,
         return ""  # vitrina: nunca arriesgar mostrar el original si el masker falla
 
 
-def _anthropic_error(message: str, status_code: int = 400):
+def _anthropic_error(message: str, status_code: int = 400, headers: Optional[dict] = None):
+    """Error con la FORMA de Anthropic — el shape que parsean las coding tools.
+
+    ``headers`` es el canal para la metadata machine-readable que NO cabe en ese shape sin
+    romperlo (hoy: ``X-Basa-Rejected``). El body sigue siendo exactamente el que el cliente
+    espera; quien quiera distinguir el motivo mira la cabecera."""
     return JSONResponse(
         status_code=status_code,
         content={"type": "error", "error": {"type": "invalid_request_error", "message": message}},
+        headers=headers,
     )
 
 
@@ -1078,52 +1099,167 @@ def _resolve_auto_model(body: dict, raw: bytes) -> bytes:
     return json.dumps({**body, "model": default_model}).encode("utf-8")
 
 
-async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool):
+def _registrar_rechazo_por_capacidad(basa_key: Optional[str], model: str, tool: str,
+                                     latency: int) -> None:
+    """Parte SÍNCRONA (y bloqueante) del rechazo por capacidad: identidad + fila durable +
+    vitrina. Vive separada de la respuesta HTTP porque corre en un hilo, no en el event loop.
+
+    Las tres operaciones son I/O bloqueante: `_resolve_attribution` y `_audit` abren cada una
+    su propia sesión Postgres —este plano no tiene `get_db`, su identidad es el OAuth del
+    cliente— y `_publish_monitor` habla con Redis. Nada de eso es `await`-able: el `acquire`
+    del pool de SQLAlchemy es síncrono.
+    """
+    ident = _resolve_attribution(basa_key)
+    _audit(ident, model, 0, 0, STATUS_SATURATED, [], latency, attribution=None)
+    _publish_monitor(ident, tool, model, STATUS_SATURATED, [], "", attribution=None)
+
+
+async def _rechazo_por_capacidad(request: Request, basa_key: Optional[str], model: str,
+                                 start: float):
+    """503 AUDITADO del tope de admisión (nodo C1), para el camino byok de este plano.
+
+    Registrar → rechazar, la misma secuencia que el bloqueo por política: fila durable
+    primero, vitrina después, respuesta al final. Una fila por pedido rechazado — el día que
+    la sede pregunte cuántos pedidos rebotó el gateway, la respuesta tiene que estar escrita.
+
+    **El registro va a un HILO, no al event loop** (H2 del gate de #135). Esto no es una
+    optimización: es el mismo modo de fallo que el punto 3 del docstring de `engine_gate`, y
+    encima en el peor momento. Este camino corre JUSTO cuando hay saturación, o sea cuando el
+    pool de Postgres está más cargado; abrir dos sesiones nuevas desde el loop significa que
+    el `acquire` síncrono de SQLAlchemy —que al agotarse el pool espera `pool_timeout`— congela
+    el worker entero. Medido en el gate: pool agotado ⇒ el 503 "rápido" tardaba **120,9 s con
+    el event loop bloqueado 120,7 s**. Un rechazo cuyo propósito es no degradar el producto
+    tumbaba el producto. El chat no lo sufre porque reusa la sesión de su request.
+
+    La construcción de la respuesta queda en el loop: no toca nada bloqueante.
+
+    La identidad se resuelve **acá y no antes**: el camino byok no la necesita para servir (el
+    motor la resuelve por su cuenta con la virtual key), así que abrir esa sesión en el camino
+    feliz sería cobrarle una lectura por pedido a la ruta rápida para un caso raro. En el
+    rechazo sí hace falta: una fila sin atribución no le sirve a nadie.
+
+    ``attribution=None`` es LITERAL, no un descuido: en byok la política corre en el motor, así
+    que este plano no tiene capas propias que atribuir. Afirmar lo contrario sería inventar
+    evidencia de gobernanza. Y el preview va vacío: el body de byok no pasó por el enmascarado
+    de este plano, así que mandarlo a la vitrina sería la fuga que el contrato §10 prohíbe.
+    """
+    latency = int((time.time() - start) * 1000)
+    tool = policy.detect_tool(request.headers.get("user-agent"))
+    # `await` y no `create_task`: la fila durable se escribe ANTES de responder (registrar →
+    # rechazar). Lo que cambia es DÓNDE corre —un hilo— y no CUÁNDO. Diferir la fila para
+    # contestar antes es otra decisión, con semántica de pérdida propia, y es de JF.
+    await run_in_threadpool(_registrar_rechazo_por_capacidad, basa_key, model, tool, latency)
+    logger.warning("gateway byok: pedido rechazado por capacidad (tool=%s model=%s)", tool, model)
+    return _anthropic_error(
+        "[Basa Gateway] El modelo está a capacidad; el pedido no se encoló para no degradar "
+        "el resto del producto. Reintentá en unos segundos.",
+        503,
+        headers={"Retry-After": RETRY_AFTER_SATURATED,
+                 HEADER_REJECTED: HEADER_REJECTED_SATURATED},
+    )
+
+
+async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool,
+                      *, model: str = "unknown", start: Optional[float] = None):
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
     enmascara/bloquea/audita vía BasaGuardrail); el gateway NO aplica política acá para
     no duplicarla. Límite conocido (spike 019 batch 1, issue #27): en rutas bridged
     (modelos no-Claude) el unmask de respuesta del motor NO corre hoy — la respuesta
-    puede traer placeholders; fail-safe, fix-spec pendiente."""
+    puede traer placeholders; fail-safe, fix-spec pendiente.
+
+    **Tope de admisión (nodo C1):** este es el camino de este plano que va AL MOTOR, o sea el
+    que comparte cola con el chat y el que puede quedarse esperando una generación local de
+    minutos. Se gatea con el mismo semáforo por proceso. El passthrough de suscripción NO se
+    gatea (postura deliberada: su upstream es cloud, escala solo y no es el lento).
+    """
     # F2 fail-closed: byok EXIGE una virtual key. Sin ella no se cae al master key del
     # motor (sería un bypass a PROXY_ADMIN saltando custom_auth/budgets/atribución).
     if not basa_key:
         return _anthropic_error("[Basa Gateway] byok requiere una virtual key (sk-basa-…).", 401)
-    url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
-    headers = _byok_headers(request, basa_key)
+    if start is None:
+        start = time.time()
 
-    if not is_stream:
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                up = await client.post(url, headers=headers, content=raw)
-        except Exception as exc:  # noqa: BLE001
-            return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
-        return Response(content=up.content, status_code=up.status_code,
-                        media_type=up.headers.get("content-type", "application/json"))
-
-    client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0, read=60.0))
+    turno = adquirir_turno()
     try:
-        req = client.build_request("POST", url, headers=headers, content=raw)
-        up = await client.send(req, stream=True)
-    except Exception as exc:  # noqa: BLE001
-        await client.aclose()
-        return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
-    if up.status_code != 200:
-        err = await up.aread()
-        await up.aclose()
-        await client.aclose()
-        return Response(content=err, status_code=up.status_code,
-                        media_type=up.headers.get("content-type", "application/json"))
+        await turno.adquirir()
+    except EngineSaturatedError:
+        return await _rechazo_por_capacidad(request, basa_key, model, start)
 
-    async def gen():
+    # A partir de acá el turno YA está tomado, y todo lo que siga vive dentro de este `try`
+    # (H8 del gate de #135). Antes, la URL, los headers y la construcción del cliente corrían
+    # entre el `adquirir()` y el `try`: una ventana chica pero SIN guardia, y un turno que se
+    # filtre no se recupera hasta reiniciar el worker.
+    #
+    # `turno_traspasado` es quién es dueño del turno al salir: el no-stream lo devuelve siempre
+    # (cuando responde, el motor ya terminó), y el stream lo TRASPASA al generador —que lo va a
+    # soltar cuando termine de drenar—. Un flag y no un `liberar()` por rama porque las ramas de
+    # error son varias y olvidarse en una es exactamente el bug.
+    turno_traspasado = False
+    try:
+        url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
+        headers = _byok_headers(request, basa_key)
+
+        if not is_stream:
+            # Timeout PROPIO de este camino (`BASA_GW_BYOK_TIMEOUT_SECONDS`, 150 s de default) y
+            # no el del chat: una coding tool tolera —y necesita— generaciones largas, y el
+            # router del motor en prod ya espera 120 s. Ver H3 del gate de #135.
+            try:
+                async with httpx.AsyncClient(timeout=GW_BYOK_TIMEOUT_SECONDS) as client:
+                    up = await client.post(url, headers=headers, content=raw)
+            except Exception as exc:  # noqa: BLE001
+                return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
+            return Response(content=up.content, status_code=up.status_code,
+                            media_type=up.headers.get("content-type", "application/json"))
+
+        # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS. El
+        # read es el de `BASA_GW_BYOK_READ_TIMEOUT_SECONDS` y NO los 60 s del passthrough: aquel
+        # mide contra Anthropic, que manda `ping` SSE periódicos; el motor local no manda pings,
+        # así que entre chunk y chunk puede pasar lo que tarde el modelo en generar. Con 60 s,
+        # una generación local lenta se cortaba sola a mitad de respuesta.
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(None, connect=10.0, read=GW_BYOK_READ_TIMEOUT_SECONDS))
         try:
-            async for chunk in up.aiter_raw():
-                yield chunk
-        finally:
+            req = client.build_request("POST", url, headers=headers, content=raw)
+            up = await client.send(req, stream=True)
+        except Exception as exc:  # noqa: BLE001
+            await client.aclose()
+            return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
+        if up.status_code != 200:
+            err = await up.aread()
             await up.aclose()
             await client.aclose()
+            return Response(content=err, status_code=up.status_code,
+                            media_type=up.headers.get("content-type", "application/json"))
 
-    return StreamingResponse(gen(), status_code=200,
-                             media_type=up.headers.get("content-type", "text/event-stream"))
+        async def gen():
+            try:
+                async for chunk in up.aiter_raw():
+                    yield chunk
+            finally:
+                # `liberar()` PRIMERO y recién después los cierres (H1 del gate de #135). Es
+                # sync e infalible; los dos `aclose()` son `await`. Cuando el cliente corta,
+                # starlette cancela el task group del `StreamingResponse` y esa cancelación se
+                # RE-ENTREGA en cada punto de suspensión del scope: con los `await` delante, el
+                # primero de ellos levanta `CancelledError` y `liberar()` no se ejecuta nunca.
+                # Un turno filtrado por cancelación no se recupera hasta reiniciar el worker, y
+                # como cortar un stream a mitad es lo más normal del mundo en una coding tool
+                # (Ctrl-C), el tope se iría encogiendo solo hasta dejar el producto rechazando
+                # 503 en vacío. El orden de estas tres líneas ES el fix.
+                turno.liberar()
+                await up.aclose()
+                await client.aclose()
+
+        # El turno pasa a ser del generador: mientras drena, el motor sigue generando de verdad.
+        # Soltarlo acá haría que el tope acotara "pedidos hasta el primer byte" en vez de
+        # generaciones concurrentes — o sea, que no acotara nada.
+        respuesta = StreamingResponse(gen(), status_code=200,
+                                      media_type=up.headers.get("content-type",
+                                                                "text/event-stream"))
+        turno_traspasado = True
+        return respuesta
+    finally:
+        if not turno_traspasado:
+            turno.liberar()
 
 
 # ── endpoint principal ────────────────────────────────────────────────────────────
@@ -1172,7 +1308,23 @@ async def gw_messages(
             return _audit_no_disponible()
         # Único retoque del body en esta ruta: «auto» → default del router (T017/R9). Todo
         # lo demás sigue yendo verbatim al motor, que es quien aplica la política.
-        return await _byok_proxy(request, _resolve_auto_model(body, raw), x_basa_key, is_stream)
+        # `model`/`start` viajan porque el rechazo por capacidad (C1) tiene que auditar QUÉ se
+        # rechazó y CUÁNTO esperó; los dos ya están calculados acá, así que no cuestan nada.
+        enviado = _resolve_auto_model(body, raw)
+        # Modelo POST-router y no el literal del body (H7 del gate de #135): si el pedido decía
+        # «auto», la fila durable del rechazo tiene que decir a qué modelo IBA de verdad, igual
+        # que ya hace el chat (`routed_model`). Una fila con `model="auto"` deja al officer sin
+        # poder responder «¿qué modelo estábamos rebotando el martes?», que es justo la pregunta
+        # de capacidad. `is` y no `!=`: el fail-soft de `_resolve_auto_model` devuelve el MISMO
+        # objeto `raw` cuando no reescribe nada, y lo reescrito es JSON que generamos nosotros.
+        modelo_al_motor = model
+        if enviado is not raw:
+            try:
+                modelo_al_motor = json.loads(enviado).get("model") or model
+            except Exception:  # noqa: BLE001 — jamás por un nombre para la auditoría
+                pass
+        return await _byok_proxy(request, enviado, x_basa_key, is_stream,
+                                 model=modelo_al_motor, start=start)
 
     ident = _resolve_attribution(x_basa_key)
     tool = policy.detect_tool(request.headers.get("user-agent"))
