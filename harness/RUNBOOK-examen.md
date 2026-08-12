@@ -21,7 +21,10 @@ criterio vive en [`README.md`](README.md) y en
 
 ```bash
 export HCLOUD_TOKEN=…            # valor del token H_CLOUD_ITV (Vaultwarden), sólo en la shell
-export ITV_SEED=…                # semilla del run (secreto del run, fuera del repo)
+export ITV_SEED=…                # semilla del run: un ENTERO (--seed type=int en seeder y
+                                 # orquestador), secreto del run, fuera del repo
+export ITV_MAIN_SHA=…            # sha de main que corre el SUT (va al producto-file)
+export ITV_HARNESS_SHA=…         # sha del harness que corre el examen (va al fingerprint)
 export ITV_RUN_ID=20260811-g125-01
 ```
 
@@ -199,18 +202,33 @@ python -m basa_harness.seeder.seed --gate 125 --backend-url http://10.0.0.10:800
 
 ```bash
 cd harness
+
+# el build del SUT, para la firma del run (commit de main + digests de las imágenes):
+ssh root@"$SUT_IP" 'docker images --format "{{.Repository}} {{.ID}}" | grep basa' \
+  | python3 -c 'import json,sys; print(json.dumps({"commit": "'"$ITV_MAIN_SHA"'",
+      "digests": dict(l.split() for l in sys.stdin)}))' > /run/itv/producto.json
+
 python -m basa_harness.orchestrator \
   --gate 125 \
   --backend-url http://10.0.0.10:8000 \
   --stub-url http://10.0.0.20:8080 \
   --pool-file /run/itv/pool-g125.json \
   --reconcile http \
+  --hardware-file /tmp/itv-hardware.json \
+  --producto-file /run/itv/producto.json \
+  --harness-commit "$ITV_HARNESS_SHA" \
   --seed "$ITV_SEED" \
   --run-id "$ITV_RUN_ID"
 ```
 
 - `--pool-file` aporta las `basa_key` (extensión/coding) **y** la credencial
   `compliance_officer` que lee `audit_logs`. La password nunca va por argv: `ps` no la ve.
+- `--hardware-file` es el `/tmp/itv-hardware.json` del paso 1; `--producto-file` dice QUÉ
+  build se midió y `--harness-commit` con qué instrumento. **Sin ellos el fingerprint se
+  firma `unknown`** y el run no es contrastable (el CLI avisa por stderr). En la caja de
+  examen el código llega por tar (sin `.git`), así que el sha del harness se pasa a mano.
+- El orquestador comprueba el **skew de reloj** contra el SUT (header `Date`, tolerancia
+  ±2 s) antes de abrir la ventana: si las cajas no están en hora (NTP), aborta sin cargar.
 - `--reconcile http` cuenta las filas de auditoría del producto en la ventana del run
   (t0 = antes de k6, t1 = al cerrarlo). **Un gate oficial se corre siempre con esto**: sin
   él, los SLO (b) y (d) no se pueden computar y el run aborta al reconciliar.

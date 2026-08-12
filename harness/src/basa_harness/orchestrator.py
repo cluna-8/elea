@@ -501,8 +501,10 @@ class Orchestrator:
         es ``contracts/run-report.md``, no este docstring.
 
         La VENTANA del run se le pasa al hook si lo admite (``set_window``): el reloj es
-        del orquestador, no del evaluador ni del contador. Un hook simple (los fakes de los
-        tests) sigue funcionando sin enterarse."""
+        del orquestador, no del evaluador ni del contador. OJO (B3): la guarda «sin
+        ventana no se cuenta» solo aplica a hooks que exponen ``set_window`` — el real
+        (``HttpReconcile``) siempre lo tiene; un fake simple de los tests corre sin
+        ventana y sin error, a sabiendas."""
         if self.dry_run:
             eventos = int(k6_summary.get("auditable_events", 0))
             recon = {"eventos_guion": eventos, "filas_persistidas": eventos,

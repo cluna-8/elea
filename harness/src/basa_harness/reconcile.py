@@ -66,10 +66,14 @@ AUDIT_PATH = "/api/v1/audit-logs"
 ESTADO_BLOQUEADOS = "bloqueados"
 ESTADO_PERMITIDOS = "permitidos"
 
-# Estado LITERAL del rechazo de admisión C1 (contrato de wire sellado con el core). Hoy el
-# core todavía no lo escribe en main: el conteo vuelve 0 y el evaluador lo trata como
-# «no hubo rechazos». Se pide SIEMPRE porque el contrato lo exige ante cualquier rechazo y
-# cuesta una request.
+# Estado LITERAL del rechazo de admisión C1 (contrato de wire sellado con el core; en main
+# desde el PR #135). Se pide SIEMPRE porque el contrato lo exige ante cualquier rechazo y
+# cuesta una request. Dos huecos CONOCIDOS y aceptados de este balde (hallazgos B1/B2 del
+# gate): (1) va sin `estado`, así que no excluye `model='license'` — hoy imposible que
+# colisione: los eventos de licencia solo emiten passed/flagged_high_risk/blocked_by_policy;
+# (2) cualquier `rejected_*` FUTURO distinto de este literal quedaría fuera de los tres
+# baldes (el filtro `estado` excluye por prefijo, esto cuenta por match exacto) — el día
+# que el core acuñe otro literal (p. ej. rejected_budget), ampliar el conteo acá.
 COMPLIANCE_REJECTED_SATURATED = "rejected_saturated"
 
 # Ventanas imposibles para las sondas de "¿el filtro de fechas se está aplicando?"
