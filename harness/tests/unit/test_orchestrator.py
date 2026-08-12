@@ -483,3 +483,43 @@ def test_pool_del_run_no_es_world_readable(tmp_path):
     orch.run()
     modo = stat.S_IMODE((orch.run_dir / "pool.json").stat().st_mode)
     assert modo == 0o600, f"pool.json quedó {oct(modo)}"
+
+
+# ── Metadata del fingerprint en una corrida REAL (M2 del gate) ────────────────────────
+
+def test_el_fingerprint_toma_hardware_y_producto_del_cli(tmp_path):
+    """Sin estos flags, un gate oficial se firmaba con producto/hardware 'unknown' y su
+    evidencia no era contrastable: nadie podía demostrar QUÉ build se midió (ni descartar
+    el doble conteo pre-#135 a posteriori)."""
+    hw = tmp_path / "hw.json"
+    hw.write_text(json.dumps({"provider": "hetzner", "location": "hel1",
+                              "sut_server_type": "ccx33", "gen_server_type": "cpx42"}),
+                  encoding="utf-8")
+    prod = tmp_path / "prod.json"
+    prod.write_text(json.dumps({"commit": "52e694b", "digests": {"backend": "sha256:ab"}}),
+                    encoding="utf-8")
+
+    assert main(["--gate", "125", "--dry-run", "--runs-dir", str(tmp_path),
+                 "--run-id", "fp-real", "--hardware-file", str(hw),
+                 "--producto-file", str(prod), "--harness-commit", "cafe123"]) in (0, 1)
+
+    fp = json.loads((tmp_path / "fp-real" / "fingerprint.json").read_text())
+    assert fp["hardware"]["sut_server_type"] == "ccx33"
+    assert fp["producto"]["commit"] == "52e694b"
+    assert fp["versiones_instrumento"]["harness_commit"] == "cafe123"
+
+
+def test_metadata_ilegible_es_error_del_cli_no_un_unknown_silencioso(tmp_path):
+    roto = tmp_path / "roto.json"
+    roto.write_text("{no es json", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(["--gate", "125", "--dry-run", "--runs-dir", str(tmp_path),
+              "--run-id", "fp-roto", "--hardware-file", str(roto)])
+
+
+def test_metadata_que_no_es_objeto_tampoco_pasa(tmp_path):
+    lista = tmp_path / "lista.json"
+    lista.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        main(["--gate", "125", "--dry-run", "--runs-dir", str(tmp_path),
+              "--run-id", "fp-lista", "--producto-file", str(lista)])

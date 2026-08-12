@@ -766,6 +766,20 @@ class _HttpStubClient:  # pragma: no cover — camino real (los tests inyectan u
 
 # ── CLI ────────────────────────────────────────────────────────────────────────────────
 
+def _git_commit() -> str:
+    """Sha del harness que corre el examen, para el fingerprint. Si el árbol no es un repo
+    (el caso de la caja de examen, que recibe el código por tar), devuelve ``unknown`` en
+    vez de fallar: el operador puede fijarlo con ``--harness-commit``."""
+    import subprocess  # local: el import global no se paga en cada run
+    raiz = Path(__file__).resolve().parent.parent.parent.parent
+    try:
+        out = subprocess.run(["git", "-C", str(raiz), "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    sha = out.stdout.strip()
+    return sha if out.returncode == 0 and sha else "unknown"
+
 def main(argv: Optional[list] = None) -> int:
     p = argparse.ArgumentParser(
         prog="python -m basa_harness.orchestrator",
@@ -794,6 +808,18 @@ def main(argv: Optional[list] = None) -> int:
     p.add_argument("--reconcile", choices=("none", "http"), default="none",
                    help="'http' cuenta las filas de audit_logs del producto en la ventana "
                         "del run (obligatorio en un gate oficial); 'none' = sin conteo")
+    p.add_argument("--hardware-file", type=Path, default=None,
+                   help="JSON del output `fingerprint_hardware` de OpenTofu (provider, "
+                        "location, datacenter, tipos de caja). Sin él, un gate oficial se "
+                        "firma con hardware 'unknown' y su evidencia no es contrastable")
+    p.add_argument("--producto-file", type=Path, default=None,
+                   help="JSON del build del SUT: {commit, digests{servicio: sha256}} y, "
+                        "opcional, workers_procesos/limites_recursos. Es QUÉ se midió")
+    p.add_argument("--licencia-file", type=Path, default=None,
+                   help="JSON de la licencia del SUT: {lic_id, max_seats, seats_used}")
+    p.add_argument("--harness-commit", default=None,
+                   help="sha del harness que corre el examen (default: git rev-parse HEAD "
+                        "del repo; 'unknown' si no hay git)")
     args = p.parse_args(argv)
 
     # El presupuesto de admin es un UMBRAL vinculante: un valor no finito o <= 0 lo
@@ -841,11 +867,35 @@ def main(argv: Optional[list] = None) -> int:
               "blocked_rows_durable_100 no se pueden computar y el run abortará al "
               "reconciliar. Un gate OFICIAL se corre con --reconcile http.", file=sys.stderr)
 
+    # Metadata del fingerprint: QUÉ se midió y sobre qué caja. Un JSON ilegible es error
+    # del CLI, no un `unknown` silencioso — el fingerprint es lo único que hace la
+    # evidencia contrastable después (y lo que separa un run legítimo de uno que no lo es).
+    def _leer_json(ruta, cual):
+        if ruta is None:
+            return None
+        try:
+            data = json.loads(Path(ruta).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            p.error(f"no se pudo leer {cual} {ruta}: {exc}")
+        if not isinstance(data, dict):
+            p.error(f"{cual} {ruta} debe ser un objeto JSON, no {type(data).__name__}")
+        return data
+
+    hardware = _leer_json(args.hardware_file, "--hardware-file")
+    producto = _leer_json(args.producto_file, "--producto-file")
+    licencia = _leer_json(args.licencia_file, "--licencia-file")
+    if not args.dry_run and (hardware is None or producto is None):
+        print("⚠ sin --hardware-file/--producto-file: el fingerprint se firma con "
+              "'unknown' y el run NO será contrastable contra otro (ni comparable por el "
+              "comparador de runs). Un gate OFICIAL los pasa.", file=sys.stderr)
+
     orch = Orchestrator(gate, run_id=args.run_id, backend_url=args.backend_url,
                         stub_url=args.stub_url, runs_dir=args.runs_dir, seed=args.seed,
                         kind=args.kind, dry_run=args.dry_run,
                         drill_admin_budget_ms=args.drill_admin_budget_ms,
-                        pool_file=args.pool_file, reconcile_fn=reconcile_fn)
+                        pool_file=args.pool_file, reconcile_fn=reconcile_fn,
+                        hardware=hardware, producto=producto, licencia=licencia,
+                        harness_commit=args.harness_commit or _git_commit())
     try:
         verdict = orch.run()
     except OrchestratorError as exc:
