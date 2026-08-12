@@ -3134,7 +3134,7 @@
             }
           },
           {
-            "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+            "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico, y los rechazos por capacidad (prefijo `rejected_`), que no se sirvieron ni los impidió una política. Sin `estado` siguen apareciendo en el listado.",
             "in": "query",
             "name": "estado",
             "required": false,
@@ -3147,7 +3147,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+              "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico, y los rechazos por capacidad (prefijo `rejected_`), que no se sirvieron ni los impidió una política. Sin `estado` siguen apareciendo en el listado.",
               "title": "Estado"
             }
           },
@@ -3266,7 +3266,7 @@
             }
           },
           {
-            "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+            "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico, y los rechazos por capacidad (prefijo `rejected_`), que no se sirvieron ni los impidió una política. Sin `estado` siguen apareciendo en el listado.",
             "in": "query",
             "name": "estado",
             "required": false,
@@ -3279,7 +3279,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico.",
+              "description": "Aísla el resultado del pedido: `bloqueados` = intentos impedidos (compliance_status con prefijo `blocked_`), `permitidos` = el resto. Excluye los eslabones de licencia (model='license'), que no son tráfico, y los rechazos por capacidad (prefijo `rejected_`), que no se sirvieron ni los impidió una política. Sin `estado` siguen apareciendo en el listado.",
               "title": "Estado"
             }
           },
