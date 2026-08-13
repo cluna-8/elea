@@ -23,22 +23,33 @@ se enmascara antes de salir de la plataforma y se restaura al volver: esa es la 
 arquitectural. La **cobertura** de la detección depende del modo activo (ver
 [límites](#limites-conocidos)) — ningún detector garantiza un recall del 100 %.
 
-Cada request atraviesa cinco capas, siempre en el mismo orden:
+Cada request atraviesa las mismas capas, siempre en el mismo orden. **Cuatro aplican
+a todo el tráfico**; la optimización es la excepción y sólo corre en el plano de chat:
 
 ```mermaid
 flowchart LR
-    H[Herramienta cliente] --> M[1 Masking<br/>PII a placeholders]
-    M --> O[2 Optimización<br/>menos tokens]
-    O --> C[3 Compliance<br/>bloquea o registra]
-    C --> R[4 Routing<br/>identidad y límites]
+    H[Herramienta cliente<br/>o asistente web] --> M[Masking<br/>PII a placeholders]
+    M -.->|solo plano chat| O[Optimización<br/>menos tokens]
+    M --> C[Compliance<br/>bloquea o registra]
+    O -.-> C
+    C --> R[Routing<br/>identidad y límites]
     R --> LLM[Proveedor LLM<br/>solo ve placeholders]
-    LLM --> UM[5 Unmask<br/>valores reales]
+    LLM --> UM[Unmask<br/>valores reales]
     UM --> U[Usuario]
 ```
 
-El orden no es casual: el masking corre **primero** porque es la capa más fuerte; la optimización
-corre después porque los placeholders son tokens atómicos que la compresión jamás toca; y el
-unmask ocurre al final, dentro de la plataforma, con un mapa reversible que nunca la abandona.
+**Qué plano es cuál:** el **gateway** (`/api/v1/gw`) sirve a las herramientas que se
+conectan por `base_url` y a la extensión de navegador — masking, compliance, routing y
+unmask, sin compresión. El plano de **chat** (asistente web y playground) suma la
+optimización, y solo ahí. El ajuste `compression_mode` **hoy solo tiene efecto a nivel
+grupo**: la precedencia real es un override por request, después `compression_mode`
+del grupo, después el default de la política — a nivel tenant o llave individual el
+valor no participa en la decisión.
+
+El orden no es casual: el masking corre **primero** porque es la capa más fuerte; donde
+hay optimización, corre después, porque los placeholders son tokens atómicos que la
+compresión jamás toca; y el unmask ocurre al final, dentro de la plataforma, con un mapa
+reversible que nunca la abandona.
 
 ## Qué es el producto
 
@@ -161,20 +172,19 @@ graph TB
     IN --> ME[Motor del gateway]
     IN --> DOCS[Sitio de docs<br/>estático, cero egress]
     BE --> ME
+    BE --> NLP[Sidecar NLP<br/>detección de PII]
+    ME --> NLP
     ME --> LLM[Proveedores LLM externos<br/>o modelo local]
-    subgraph CLOUD[Variante cloud SaaS multi-tenant]
-        PGC[(PostgreSQL gestionado<br/>región EU por defecto)]
-        RDC[(Redis gestionado)]
-    end
-    subgraph PREM[Variante on-prem air-gap single-tenant]
-        PGP[(PostgreSQL en container<br/>volumen durable)]
-        RDP[(Redis en container)]
-    end
-    BE --> PGC
-    BE --> RDC
-    BE --> PGP
-    BE --> RDP
+    BE --> PG[(PostgreSQL)]
+    BE --> RD[(Redis)]
 ```
+
+El **sidecar NLP** lo consultan los dos planos: el backend y el motor del gateway. Viaja en
+todo compose de producción, piloto o no — no es un add-on que se activa después (tabla
+abajo). Lo que separa un despliegue de piloto de uno apto para PHI real no es la presencia
+del container sino si el detector de lenguaje natural está **configurado y activo** en la
+postura del guardián, en vez de quedar en el detector por patrones (ver
+[límites](#limites-conocidos)).
 
 El backend habla con los servicios de datos de la variante desplegada — gestionados en cloud, en
 containers propios on-prem:
@@ -185,6 +195,7 @@ containers propios on-prem:
 | **Motor del gateway** | Identidad fail-closed, guardrails, routing a proveedores LLM, límites rpm/tpm | Container | Container |
 | **Frontend** | Panel de administración, Playground, monitor en vivo | Container | Container |
 | **Sitio de docs** | Esta documentación — imagen estática por marca y versión, cero egress | Container | Container (viaja dentro del bundle) |
+| **Sidecar NLP** | Detección de PII/PHI con motor NLP — lo consultan el backend y el motor | Container | Container |
 | **PostgreSQL** | Estado: tenants, políticas, presupuestos, auditoría | Servicio gestionado (región EU por defecto) o container | Container con volumen durable |
 | **Redis** | Caché de optimización y contadores | Servicio gestionado o container | Container |
 
@@ -193,9 +204,9 @@ Puntos clave del modelo de despliegue:
 - **Un solo codebase, dos perfiles**: el perfil de desarrollo (bind-mounts, recarga en caliente,
   secretos de juguete) jamás sale a un cliente; lo único que se entrega son las **imágenes de
   producción** (código horneado, non-root, sin toolchain ni recarga).
-- **El compose de producción tiene dos formas**: **4 servicios** cuando los datos son gestionados
-  (backend, motor, frontend, docs) y **6 servicios** con `--profile selfhosted` (suma PostgreSQL y
-  Redis en containers con volumen durable).
+- **El compose de producción tiene dos formas**: **5 servicios** cuando los datos son gestionados
+  (backend, motor, frontend, docs, sidecar NLP) y **8 servicios** con `--profile selfhosted` (suma
+  ingress, PostgreSQL y Redis en containers con volumen durable).
 - **On-prem / air-gapped**: la instalación viaja como un **bundle** (tarball con las imágenes, el
   perfil del cliente y el branding). Se publica desde una máquina con red, se mueve al host por
   USB/SFTP, se cargan las imágenes y se levanta el compose de producción con el perfil

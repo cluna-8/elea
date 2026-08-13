@@ -63,13 +63,20 @@ flowchart TD
 ### 1.1 Contenedores
 
 ```bash
-docker compose --profile selfhosted ps   # en cloud (4 servicios): docker compose ps
+docker compose --profile selfhosted ps   # en cloud (5 servicios): docker compose ps
 ```
 
-En producción son **4 servicios** (backend, frontend, motor del gateway, docs). En **on-prem /
-self-hosted** el stack se levanta con `--profile selfhosted` (o exportando
-`COMPOSE_PROFILES=selfhosted`), que suma **db** y **redis** → **6 contenedores**. Todos deben estar
-`Up` / `healthy`. (El compose de desarrollo, con 5 servicios, es sólo para desarrollo.)
+En producción son **5 servicios** (backend, frontend, motor del gateway, docs, **sidecar NLP**).
+En **on-prem / self-hosted** el stack se levanta con `--profile selfhosted` (o exportando
+`COMPOSE_PROFILES=selfhosted`), que suma **ingress**, **db** y **redis** → **8 contenedores**.
+Todos deben estar `Up` / `healthy`. (El compose de desarrollo, con más servicios, es sólo para
+desarrollo.)
+
+El **sidecar NLP** (`nlp-analyzer`) viaja en todo compose de producción, piloto o no — no es
+un extra que se activa después. Lo consultan el backend y el motor del gateway para la
+detección de PII/PHI; si cae, la postura de degradación (`nlp_fail_mode`) decide si el
+tráfico sigue con el detector por patrones o se corta — ver
+[límites conocidos](../overview/index.md#limites-conocidos).
 
 !!! note "El motor puede reportarse `unhealthy` en el primer boot sin estar caído"
     En el primer arranque las migraciones internas del motor tardan varios minutos y el healthcheck

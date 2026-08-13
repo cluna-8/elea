@@ -26,9 +26,9 @@ oficial de IP del artefacto instalado. Complementa la [guía de instalación](in
 
 La licencia atraviesa tres estados con el **reloj local** del despliegue: `active` mientras
 no venció, `grace` durante el periodo de gracia posterior al vencimiento y `expired` cuando
-el grace se agota. El **bloqueo total** (hard block) es un estado *condicional*: solo existe
-si el operador activó el toggle correspondiente, y endurece `expired` (y `over_seat`, ver
-más abajo) cortando también las rutas de servicio del gateway.
+el grace se agota. El **bloqueo total** (hard block) no es un cuarto estado sino un *modo*
+que el operador activa por entorno: endurece `expired` y `over_seat` cortando también las
+rutas de servicio del gateway.
 
 ```mermaid
 stateDiagram-v2
@@ -37,25 +37,32 @@ stateDiagram-v2
     grace --> expired : se agota el periodo de grace
     grace --> active : renovación con token nuevo
     expired --> active : renovación con token nuevo
-    expired --> hard_block : toggle de bloqueo total activo
-    hard_block --> active : renovación con token nuevo
     note right of active
         Único estado que permite crear seats
         Rutas de servicio operando normal
     end note
     note right of grace
         Creación de seats bloqueada con 403
-        El tráfico existente NUNCA se corta
+        El tráfico NUNCA se corta, ni con el toggle
     end note
     note right of expired
         Creación de seats bloqueada con 403
-        El tráfico sigue si no hay bloqueo total
-    end note
-    note right of hard_block
-        Rutas de servicio del gateway cortadas con 403
-        El discovery queda abierto para diagnóstico
+        El tráfico sigue salvo bloqueo total
     end note
 ```
+
+El bloqueo total **no es un cuarto estado**: es el toggle de entorno
+`BASA_LICENSE_HARD_BLOCK`, que no cambia el estado de la licencia sino lo que ese
+estado *hace*. Y no aplica solo a `expired` — `over_seat`, que publica la
+reconciliación, recibe el mismo trato:
+
+| Condición | Toggle apagado (default) | Toggle encendido |
+|---|---|---|
+| `grace` | Altas bloqueadas (403) · tráfico sigue | Igual — el grace **jamás** corta tráfico |
+| `expired` | Altas bloqueadas (403) · tráfico sigue | Rutas de servicio del gateway cortadas (403) |
+| `over_seat` | Altas bloqueadas (403) · tráfico sigue | Rutas de servicio del gateway cortadas (403) |
+
+En los dos casos de corte, el *discovery* (`GET /gw`) queda abierto para diagnóstico.
 
 Puntos clave del ciclo, todos 🟢:
 

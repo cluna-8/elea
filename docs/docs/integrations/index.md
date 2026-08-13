@@ -397,6 +397,8 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
 
 ## Relacionado
 
+- [Códigos de error](../api-reference/errors.md) — qué status ve cada superficie, cuándo
+  reintentar y cuándo no.
 - [Gotchas verificados](gotchas.md) — los límites G1–G10 de estas superficies con su síntoma,
   causa y fix verificados en vivo.
 - [Operaciones & troubleshooting](../operations/index.md) — la tabla exprés síntoma → causa → fix

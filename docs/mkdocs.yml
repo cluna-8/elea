@@ -99,6 +99,7 @@ nav:
       - Gotchas verificados: integrations/gotchas.md
   - API reference:
       - API reference: api-reference/index.md
+      - Códigos de error: api-reference/errors.md
       - Configuración: api-reference/configuration.md
   - Compliance:
       - Compliance: compliance/index.md

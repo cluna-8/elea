@@ -57,6 +57,7 @@ check-images:
 # (descubierto 2026-07-21: el preview servía contenido sin las superficies nuevas
 # mientras el gate reportaba ✅).
 check-docs: build-docs
+	cd $(REPO_ROOT) && python3 docs/tools/test_drift_gate.py && python3 docs/tools/drift_gate.py
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_image.sh
 	$(REPO_ROOT)/deploy/release/checks/test_docs_strict_build.sh
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_content.sh
