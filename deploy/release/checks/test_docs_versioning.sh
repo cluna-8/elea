@@ -11,7 +11,21 @@ docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buil
 cname="basa-docs-ver-check-$$"
 trap 'docker rm -f "$cname" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$cname" --network none "$IMG" >/dev/null
-sleep 1
+
+# Esperar readiness explícito evita depender de un tiempo fijo de arranque
+# bajo condiciones variables del runner (issue #145): reintenta contra un
+# endpoint liviano ya usado por este check, con límite acotado — si nginx
+# nunca responde, falla con diagnóstico claro en vez de esperar indefinidamente.
+ready=0
+intentos=0
+while [ "$intentos" -lt 20 ]; do
+    docker exec "$cname" wget -qO /dev/null "http://127.0.0.1:8080/versions.json" 2>/dev/null \
+        && { ready=1; break; }
+    intentos=$((intentos + 1))
+    sleep 0.5
+done
+[ "$ready" = 1 ] || fail "el contenedor de docs no respondió tras 10s de espera (¿nginx no arrancó?)"
+
 w() { docker exec "$cname" wget -qO- "http://127.0.0.1:8080/$1"; }
 
 # FR-019: ≥2 versiones publicadas + alias latest en versions.json (la fuente del selector).
