@@ -1,0 +1,161 @@
+{
+  "schema": "basa-harness/k6-summary@1",
+  "gate": 125,
+  "version": "1.0.0",
+  "surfaces": {
+    "chat": {
+      "latency_ms": {
+        "p50": 1,
+        "p95": 2,
+        "p99": 4,
+        "max": 223,
+        "count": 1126
+      },
+      "requests": 1126,
+      "dropped_iterations": 0
+    },
+    "extension": {
+      "latency_ms": {
+        "p50": 46,
+        "p95": 4030,
+        "p99": 4033.42,
+        "max": 4048,
+        "count": 287
+      },
+      "requests": 287,
+      "dropped_iterations": 0
+    },
+    "coding": {
+      "latency_ms": {
+        "p50": 35633,
+        "p95": 35654,
+        "p99": 35668.01,
+        "max": 35673,
+        "count": 112
+      },
+      "requests": 112,
+      "dropped_iterations": 0,
+      "ttft_ms": {
+        "p50": 628,
+        "p95": 649.6,
+        "p99": 665.24,
+        "max": 669,
+        "count": 95
+      },
+      "stream_cuts": 17
+    },
+    "admin": {
+      "latency_ms": {
+        "p50": 41,
+        "p95": 52,
+        "p99": 54.92,
+        "max": 56,
+        "count": 28
+      },
+      "requests": 28,
+      "dropped_iterations": 0
+    },
+    "login": {
+      "latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "count": 0
+      },
+      "requests": 0,
+      "dropped_iterations": 0
+    }
+  },
+  "by_phase": {
+    "sustained": {
+      "surfaces": {
+        "chat": {
+          "latency_ms": {
+            "p50": 1,
+            "p95": 2,
+            "p99": 4,
+            "max": 223,
+            "count": 1126
+          },
+          "requests": 1126,
+          "dropped_iterations": 0
+        },
+        "extension": {
+          "latency_ms": {
+            "p50": 46,
+            "p95": 4030,
+            "p99": 4033.42,
+            "max": 4048,
+            "count": 287
+          },
+          "requests": 287,
+          "dropped_iterations": 0
+        },
+        "coding": {
+          "latency_ms": {
+            "p50": 35633,
+            "p95": 35654,
+            "p99": 35668.01,
+            "max": 35673,
+            "count": 112
+          },
+          "requests": 112,
+          "dropped_iterations": 0,
+          "ttft_ms": {
+            "p50": 628,
+            "p95": 649.6,
+            "p99": 665.24,
+            "max": 669,
+            "count": 95
+          },
+          "stream_cuts": 17
+        },
+        "admin": {
+          "latency_ms": {
+            "p50": 41,
+            "p95": 52,
+            "p99": 54.92,
+            "max": 56,
+            "count": 28
+          },
+          "requests": 28,
+          "dropped_iterations": 0
+        },
+        "login": {
+          "latency_ms": {
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0,
+            "count": 0
+          },
+          "requests": 0,
+          "dropped_iterations": 0
+        }
+      },
+      "dropped_iterations_total": 0,
+      "rejection_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "count": 0
+      }
+    }
+  },
+  "dropped_iterations_total": 0,
+  "auditable_events": 1525,
+  "provoked_blocks": 0,
+  "observed_blocks": 0,
+  "saturated_rejections": 0,
+  "rejection_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "max": 0,
+    "count": 0
+  },
+  "budget_402": 0,
+  "harness_errors": 0
+}

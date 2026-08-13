@@ -1,0 +1,18 @@
+{
+  "eventos_guion": 1506,
+  "filas_persistidas": 1506,
+  "bloqueos_provocados": 0,
+  "con_fila": 0,
+  "filas_rejected_saturated": 0,
+  "ventana": {
+    "desde": "2026-08-12T11:58:22.986241+00:00",
+    "hasta": "2026-08-12T12:28:52.335222+00:00"
+  },
+  "desglose": {
+    "filas_bloqueadas": 0,
+    "filas_permitidas": 1506,
+    "filas_rechazadas": 0
+  },
+  "fuente": "GET /api/v1/audit-logs (estado=bloqueados + estado=permitidos + compliance_status=rejected_saturated; excluye model='license', que no es tráfico)",
+  "respuestas_402_sin_fila": 18
+}

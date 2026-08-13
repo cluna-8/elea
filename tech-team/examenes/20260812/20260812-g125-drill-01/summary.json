@@ -1,0 +1,236 @@
+{
+  "schema": "basa-harness/k6-summary@1",
+  "gate": 125,
+  "version": "1.0.0",
+  "surfaces": {
+    "chat": {
+      "latency_ms": {
+        "p50": 88,
+        "p95": 150,
+        "p99": 157,
+        "max": 278,
+        "count": 921
+      },
+      "requests": 921,
+      "dropped_iterations": 0
+    },
+    "extension": {
+      "latency_ms": {
+        "p50": 47,
+        "p95": 87,
+        "p99": 100.65999999999991,
+        "max": 162,
+        "count": 240
+      },
+      "requests": 240,
+      "dropped_iterations": 0
+    },
+    "coding": {
+      "latency_ms": {
+        "p50": 90636,
+        "p95": 90663.1,
+        "p99": 90672.84,
+        "max": 90690,
+        "count": 79
+      },
+      "requests": 79,
+      "dropped_iterations": 0,
+      "ttft_ms": {
+        "p50": 630,
+        "p95": 655.1,
+        "p99": 665.5,
+        "max": 685,
+        "count": 79
+      },
+      "stream_cuts": 0
+    },
+    "admin": {
+      "latency_ms": {
+        "p50": 48,
+        "p95": 76.39999999999999,
+        "p99": 181.71999999999994,
+        "max": 213,
+        "count": 24
+      },
+      "requests": 24,
+      "dropped_iterations": 0
+    },
+    "login": {
+      "latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "count": 0
+      },
+      "requests": 0,
+      "dropped_iterations": 0
+    }
+  },
+  "by_phase": {
+    "sustained": {
+      "surfaces": {
+        "chat": {
+          "latency_ms": {
+            "p50": 88,
+            "p95": 151,
+            "p99": 156.32999999999998,
+            "max": 167,
+            "count": 368
+          },
+          "requests": 368,
+          "dropped_iterations": 0
+        },
+        "extension": {
+          "latency_ms": {
+            "p50": 45,
+            "p95": 87.5,
+            "p99": 97.29999999999998,
+            "max": 103,
+            "count": 96
+          },
+          "requests": 96,
+          "dropped_iterations": 0
+        },
+        "coding": {
+          "latency_ms": {
+            "p50": 90637.5,
+            "p95": 90661.05,
+            "p99": 90681.09,
+            "max": 90690,
+            "count": 34
+          },
+          "requests": 34,
+          "dropped_iterations": 0,
+          "ttft_ms": {
+            "p50": 633,
+            "p95": 656.4,
+            "p99": 676.4200000000001,
+            "max": 685,
+            "count": 34
+          },
+          "stream_cuts": 0
+        },
+        "admin": {
+          "latency_ms": {
+            "p50": 47.5,
+            "p95": 144.59999999999985,
+            "p99": 199.32000000000002,
+            "max": 213,
+            "count": 10
+          },
+          "requests": 10,
+          "dropped_iterations": 0
+        },
+        "login": {
+          "latency_ms": {
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0,
+            "count": 0
+          },
+          "requests": 0,
+          "dropped_iterations": 0
+        }
+      },
+      "dropped_iterations_total": 0,
+      "rejection_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "count": 0
+      }
+    },
+    "burst": {
+      "surfaces": {
+        "chat": {
+          "latency_ms": {
+            "p50": 88,
+            "p95": 150,
+            "p99": 158.92000000000007,
+            "max": 278,
+            "count": 553
+          },
+          "requests": 553,
+          "dropped_iterations": 0
+        },
+        "extension": {
+          "latency_ms": {
+            "p50": 47,
+            "p95": 84.85,
+            "p99": 100.69999999999993,
+            "max": 162,
+            "count": 144
+          },
+          "requests": 144,
+          "dropped_iterations": 0
+        },
+        "coding": {
+          "latency_ms": {
+            "p50": 90635,
+            "p95": 90662.6,
+            "p99": 90666.24,
+            "max": 90668,
+            "count": 45
+          },
+          "requests": 45,
+          "dropped_iterations": 0,
+          "ttft_ms": {
+            "p50": 630,
+            "p95": 651.8,
+            "p99": 658.24,
+            "max": 660,
+            "count": 45
+          },
+          "stream_cuts": 0
+        },
+        "admin": {
+          "latency_ms": {
+            "p50": 48,
+            "p95": 74.4,
+            "p99": 76.47999999999999,
+            "max": 77,
+            "count": 14
+          },
+          "requests": 14,
+          "dropped_iterations": 0
+        },
+        "login": {
+          "latency_ms": {
+            "p50": 0,
+            "p95": 0,
+            "p99": 0,
+            "max": 0,
+            "count": 0
+          },
+          "requests": 0,
+          "dropped_iterations": 0
+        }
+      },
+      "dropped_iterations_total": 0,
+      "rejection_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "count": 0
+      }
+    }
+  },
+  "dropped_iterations_total": 0,
+  "auditable_events": 1240,
+  "provoked_blocks": 0,
+  "observed_blocks": 0,
+  "saturated_rejections": 0,
+  "rejection_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "max": 0,
+    "count": 0
+  },
+  "budget_402": 18,
+  "harness_errors": 0
+}
