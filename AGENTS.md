@@ -1,8 +1,9 @@
 <!-- SPECKIT START -->
-Spec activa: 035 harness de carga «El examen existe» (La ITV, issue #95, rama
-035-load-harness). Plan vigente: specs/035-load-harness/plan.md (research sellado en
-specs/035-load-harness/research.md). Contexto de ciclo: specs/ROADMAP-pisos.md (tech
-tree, gates 125/250/500) y specs/ROADMAP-guardian.md (estado por spec).
+Specs activas de C2 (Fase 0): 018 retención con dientes (rama 018-retencion-tiers,
+plan vigente specs/018-retencion-tiers/plan.md, research sellado en su research.md)
+y 017 identidad con dientes (rama 017-auth-rbac-sso, spec sellada, plan pendiente).
+La 035 (La ITV) sigue viva como instrumento de gates. Contexto de ciclo:
+specs/ROADMAP-pisos.md (tech tree, gates 125/250/500) y specs/ROADMAP-guardian.md.
 <!-- SPECKIT END -->
 
 # Acuerdo de trabajo del equipo (humanos + agentes)
