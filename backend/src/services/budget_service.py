@@ -29,8 +29,9 @@ def cuantizar_usd(monto: Decimal) -> Decimal:
 # significa «el firewall impidió este pedido por política», y acá no lo impidió ninguna
 # capa — no hubo dato personal, ni secreto, ni práctica prohibida. Es un tope económico
 # NUESTRO. Por eso es un `rejected_*`: el prefijo ya está fuera de los dos baldes del
-# filtro binario de la vitrina de auditoría (`api/audit.py`, `RECHAZADO_LIKE = 'rejected%'`),
-# así que no se cuenta ni como bloqueo de política ni como pedido permitido.
+# filtro binario de la vitrina de auditoría (`services/retention/classifier.py`,
+# `es_rechazo()`; hasta la 018 la constante vivía en `api/audit.py`), así que no se cuenta ni
+# como bloqueo de política ni como pedido permitido.
 STATUS_BUDGET_EXHAUSTED = "rejected_budget"
 
 # Model pricing per 1,000,000 tokens (Input, Output) in USD

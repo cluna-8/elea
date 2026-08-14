@@ -13,7 +13,8 @@ mismo para el 402, y con la misma semántica de balde:
   es un tope económico nuestro), así que no puede contarse en `LIKE 'blocked%'`;
 * tampoco es un pedido **permitido** (nunca se sirvió), así que tampoco puede caer en el
   `else` del filtro binario del listado — la exclusión que hereda del prefijo `rejected%`
-  (`api/audit.py`, `RECHAZADO_LIKE`), la misma que se le dio a `rejected_saturated`;
+  (`services/retention/classifier.py`, `es_rechazo()`; hasta la 018 vivía en `api/audit.py`),
+  la misma que se le dio a `rejected_saturated`;
 * pero sí es auditoría durable: **visible sin filtro** de estado.
 
 El último bloque cubre el PRECIO de registrar primero: la respuesta del gate deja de ser

@@ -170,59 +170,87 @@ def run_once(session_factory=None, now: Optional[datetime] = None) -> Dict[str, 
     El entitlement vigente ancla qué tenant está licenciado (token.tenant_id
     + el alias DEFAULT de la deuda 013 — MISMO criterio que gate.py); el resto
     se evalúa fail-closed contra entitlement cero.
+
+    IDENTIDAD BAJO RLS (spec 018, FR-006 / Contrato 2). La corrida entera va dentro
+    de ``tenant_context(None, bypass=True)``: toca ``tenants``, ``api_keys`` (vía
+    ``count_active_seats``) y ``audit_logs``, las tres bajo ``FORCE ROW LEVEL
+    SECURITY``, y hasta la 018 abría la sesión PELADA. Andaba por la policy permisiva
+    ``tenant_isolation_bootstrap`` de la 010, que la 017 tiene mandato escrito de
+    eliminar — y el día que lo haga, este job es el peor caso de FR-006 del backend,
+    porque a diferencia del emisor de la cadena acá lo primero que se rompe es una
+    LECTURA: ``query(Tenant)`` no rebota, devuelve CERO filas. El bucle no entra,
+    ``_registry`` queda vacío, ``get_tenant_status()`` empieza a devolver ``None``
+    para todos y el gate de creación deja de degradar. O sea: el enforcement de
+    asientos se apaga sin una sola excepción que loguear, y los ``except``
+    best-effort de ``_check_clock``/``_emit_transition`` ni siquiera llegan a
+    activarse, porque tampoco hay transición que emitir. La corrida termina en hora
+    y en silencio, midiendo un sistema vacío. Bypass y no un tenant scopeado porque
+    el job es cross-tenant por definición: su trabajo es recorrer TODOS los tenants
+    para evaluar cada uno contra su propio entitlement (FR-017).
+
+    Y el ``with`` envuelve el ciclo de vida COMPLETO de la sesión —se abre y se
+    cierra acá adentro— porque el bypass no muere con el bloque sino con la
+    TRANSACCIÓN: el listener de ``database.py:44`` lo inyecta con
+    ``set_config(..., true)``, que es ``SET LOCAL``. Por lo mismo el ContextVar tiene
+    que cubrir todo el cuerpo y no sólo la primera query: una corrida commitea varias
+    veces (``_check_clock`` y cada ``emit_license_event``), y cada transacción nueva
+    necesita que el listener vuelva a inyectar el GUC. El patrón, con el
+    razonamiento completo, está escrito en ``audit_events.py::emit_state_event``.
     """
     global _registry
     now = now or datetime.now(timezone.utc)
     if session_factory is None:
         from ..database import SessionLocal
         session_factory = SessionLocal
+    from ..database import tenant_context
     from ..models.tenant import Tenant
 
-    db = session_factory()
-    try:
-        # Anti-rollback (US5/T033, FR-023): compara now vs la marca monotónica
-        # persistida ANTES de todo — el episodio degrada la creación (gate).
-        _check_clock(db, now)
-        # Tick del ciclo de vida (US4/T027-T029): el reloj local avanza ACÁ — un
-        # proceso vivo cruza expiry/grace sin reinicio y la transición se audita.
-        state = refresh(now=now, session_factory=session_factory)
-        token = state.token
-        licensed = {token.tenant_id, str(DEFAULT_TENANT_ID)} if token is not None else set()
-        # Orden determinista: si la corrida muere a mitad, el reintento repite
-        # la misma secuencia (y los tests pueden razonar sobre ella).
-        tenants = (db.query(Tenant).filter(Tenant.is_active.is_(True))
-                   .order_by(Tenant.id).all())
-        fresh: Dict[str, TenantSeatStatus] = {}
-        for tenant in tenants:
-            key = str(tenant.id)
-            seats_used = count_active_seats(db, tenant.id)
-            if key in licensed:
-                if state.status == STATUS_EXPIRED:
-                    status = RECON_EXPIRED  # FR-015: el lifecycle manda sobre el conteo
-                elif seats_used > token.max_seats:
-                    status = RECON_OVER_SEAT
+    with tenant_context(None, bypass=True):
+        db = session_factory()
+        try:
+            # Anti-rollback (US5/T033, FR-023): compara now vs la marca monotónica
+            # persistida ANTES de todo — el episodio degrada la creación (gate).
+            _check_clock(db, now)
+            # Tick del ciclo de vida (US4/T027-T029): el reloj local avanza ACÁ — un
+            # proceso vivo cruza expiry/grace sin reinicio y la transición se audita.
+            state = refresh(now=now, session_factory=session_factory)
+            token = state.token
+            licensed = {token.tenant_id, str(DEFAULT_TENANT_ID)} if token is not None else set()
+            # Orden determinista: si la corrida muere a mitad, el reintento repite
+            # la misma secuencia (y los tests pueden razonar sobre ella).
+            tenants = (db.query(Tenant).filter(Tenant.is_active.is_(True))
+                       .order_by(Tenant.id).all())
+            fresh: Dict[str, TenantSeatStatus] = {}
+            for tenant in tenants:
+                key = str(tenant.id)
+                seats_used = count_active_seats(db, tenant.id)
+                if key in licensed:
+                    if state.status == STATUS_EXPIRED:
+                        status = RECON_EXPIRED  # FR-015: el lifecycle manda sobre el conteo
+                    elif seats_used > token.max_seats:
+                        status = RECON_OVER_SEAT
+                    else:
+                        status = RECON_OK
+                    max_seats: Optional[int] = token.max_seats
                 else:
-                    status = RECON_OK
-                max_seats: Optional[int] = token.max_seats
-            else:
-                status = RECON_OVER_SEAT if seats_used > 0 else RECON_OK
-                max_seats = None
-            entry = TenantSeatStatus(status, seats_used, max_seats, now)
-            fresh[key] = entry
-            if entry.status != RECON_OK:
-                logger.warning("reconciliación: tenant %s en %s (seats %s / max %s)",
-                               key, entry.status, entry.seats_used, entry.max_seats)
-            _emit_transition(db, tenant.id, _registry.get(key), entry)
-            # Publicación INCREMENTAL (hardening post-review): el evento ya
-            # quedó commiteado, así que el estado se publica ya — si la corrida
-            # muere en el tenant siguiente, el reintento no re-emite esta
-            # transición. Merge atómico (swap de referencia, sin locks).
-            _registry = {**_registry, key: entry}
-        # Swap final: descarta tenants que desaparecieron entre corridas.
-        _registry = fresh
-        return fresh
-    finally:
-        db.close()
+                    status = RECON_OVER_SEAT if seats_used > 0 else RECON_OK
+                    max_seats = None
+                entry = TenantSeatStatus(status, seats_used, max_seats, now)
+                fresh[key] = entry
+                if entry.status != RECON_OK:
+                    logger.warning("reconciliación: tenant %s en %s (seats %s / max %s)",
+                                   key, entry.status, entry.seats_used, entry.max_seats)
+                _emit_transition(db, tenant.id, _registry.get(key), entry)
+                # Publicación INCREMENTAL (hardening post-review): el evento ya
+                # quedó commiteado, así que el estado se publica ya — si la corrida
+                # muere en el tenant siguiente, el reintento no re-emite esta
+                # transición. Merge atómico (swap de referencia, sin locks).
+                _registry = {**_registry, key: entry}
+            # Swap final: descarta tenants que desaparecieron entre corridas.
+            _registry = fresh
+            return fresh
+        finally:
+            db.close()
 
 
 def _interval_from_env() -> float:

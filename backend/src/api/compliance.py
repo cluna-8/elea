@@ -15,6 +15,10 @@ from ..models.compliance import (
 )
 from ..models.audit import AuditLog
 from ..auth.rbac import require_role
+# La vista lógica de `guardian_events` (spec 018). Se IMPORTA de la vitrina de auditoría en
+# vez de repetirse acá: el desarmado del sobre del upstream es uno solo para las tres
+# superficies que lo exponen, y el porqué largo está escrito una sola vez, en `api/audit.py`.
+from .audit import desenvolver_eventos_guardian
 
 router = APIRouter(prefix="/compliance", tags=["Compliance"])
 logger = logging.getLogger("basa-secure-gateway.compliance")
@@ -302,7 +306,11 @@ def list_pending_reviews(db: Session = Depends(get_db)):
                 "pii_detected": log.pii_detected if log else False,
                 "masked_entities": log.masked_entities if log else [],
                 "compliance_status": log.compliance_status if log else None,
-                "guardian_events": log.guardian_events if log else [],
+                # Desenvuelto, igual que el listado de auditoría: `CompliancePage.tsx:515`
+                # cuenta `ctx.guardian_events.length` para decirle al revisor cuántos
+                # guardianes se activaron en el pedido que tiene que revisar. Con el sobre
+                # crudo diría «1 evento guardián» en todas las revisiones pendientes.
+                "guardian_events": desenvolver_eventos_guardian(log.guardian_events) if log else [],
                 "ai_disclosure_delivered": log.ai_disclosure_delivered if log else False,
             } if log else None,
         })

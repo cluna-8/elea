@@ -11,6 +11,14 @@ onboarding en el PRIMER export; y la CONTINUIDAD entre exports sucesivos —
 contador no-decreciente y head previo ANCESTRO del nuevo. Eso es lo que vuelve
 detectable el truncado de cola que la verificación local no puede ver (T039):
 quien borra historial produce un export cuyo head previo ya no es ancestro.
+
+El lector de la cadena es UNO SOLO y vive en ``audit_events.chained_entries``: este módulo lo
+IMPORTA en vez de copiarlo. Tenía su propia copia (``_chained_entries``) y las dos hacían
+``"seq" in guardian_events[0]`` sin mirar el tipo — con ``in`` buscando subcadena sobre un
+string, una fila ``model='license'`` deforme tiraba abajo el export con ``TypeError`` (HALLAZGO
+2 del gate adversarial de la 018; la guarda y su porqué están allá). Que sea la MISMA que la de
+``verify_chain`` no es prolijidad: dos criterios distintos de «qué fila es un eslabón» harían
+que el papel firmado y la verificación local hablen de historiales distintos.
 """
 import base64
 import logging
@@ -20,7 +28,7 @@ from typing import Optional
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 
-from .audit_events import entry_hash, genesis_anchor
+from .audit_events import chained_entries, entry_hash, genesis_anchor
 from .entitlement import expected_tenant_id, get_state
 from .seat_counter import count_active_seats
 from .token import canonical_payload_bytes
@@ -34,14 +42,6 @@ KIND = "basa-trueup"
 
 class TrueUpError(Exception):
     pass
-
-
-def _chained_entries(db):
-    from ..models.audit import AuditLog
-    rows = db.query(AuditLog).filter(AuditLog.model == "license").all()
-    return sorted((r.guardian_events[0] for r in rows
-                   if r.guardian_events and "seq" in r.guardian_events[0]),
-                  key=lambda e: e["seq"])
 
 
 def build_payload(session_factory=None, now: Optional[datetime] = None) -> dict:
@@ -62,7 +62,7 @@ def build_payload(session_factory=None, now: Optional[datetime] = None) -> dict:
         # firmado → export auto-inconsistente (falso tamper). Lo que entre
         # después va al próximo export; la continuidad no se afecta.
         counter_snapshot = state.event_counter if state else 0
-        events = [e for e in _chained_entries(db) if e["seq"] <= counter_snapshot]
+        events = [e for e in chained_entries(db) if e["seq"] <= counter_snapshot]
         return {
             "schema": SCHEMA,
             "kind": KIND,

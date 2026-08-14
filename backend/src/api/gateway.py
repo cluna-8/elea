@@ -854,6 +854,82 @@ def _audit_precheck_ok() -> bool:
         db.close()
 
 
+# ── El literal `license` no se alquila: vocabulario cerrado para la columna `model` ──
+#
+# **Hallazgo del gate adversarial de la 018 (CRÍTICA): `model` es texto libre del cliente y
+# `license` es un literal RESERVADO de la auditoría.** El nombre del modelo llega en el body
+# (`gw_messages`) y se persiste en `audit_logs.model` antes de llamar a nadie; y `license` no
+# es un modelo: es la marca que el emisor de la hash-chain de licencias le pone a sus filas
+# (spec 021, `licensing/audit_events.py:266`, dentro de `_append_chained` —`:247`—). Un cliente
+# con una API key válida que mandara `{"model": "license"}` se llevaba tres cosas de una sola
+# línea de body:
+#
+#   1. **Fila INMORTAL** — *cerrado por otra vía el 14-ago; se deja escrito porque es el motivo
+#      por el que este saneo nació.* Cuando se cazó el hallazgo, los predicados de retención
+#      excluían la cadena por esta columna, así que el tráfico así bautizado —incluido un
+#      bloqueo real— no caía en ninguna clase y no moría nunca: Art. 5.1.e al revés, o sea
+#      exactamente lo que la 018 viene a cerrar. Hoy la purga ya NO mira `model` en ninguna
+#      forma —la exclusión la compra la forma de `guardian_events[0]`,
+#      `classifier.es_trafico_demostrable()`—, así que esta mitad del ataque está muerta por
+#      diseño del clasificador y no por este saneo. Lo que ese cambio NO alcanza son los
+#      spoofs ya escritos en la base de un cliente instalado: para ellos el saneo es lo que
+#      impide que se sumen nuevos mientras las corridas de purga extinguen los viejos.
+#   2. **Fila INVISIBLE** — *sigue vivo, y es lo que este saneo protege hoy.* La vitrina y los
+#      agregados de cobertura excluyen la cadena por la MISMA columna (`api/audit.py:271` vía
+#      `classifier.dice_licencia()`, `api/analytics.py:88,110`, `api/compliance.py:369,379`,
+#      `api/reports.py:139`), así que la fila no aparecía ni entre los bloqueados ni entre los
+#      permitidos: el pedido se escondía del reporte eligiendo cómo se llama. Que la vitrina
+#      excluya por el literal y la purga por la forma es deliberado (dictamen del manager,
+#      14-ago): «purga = por forma (irreversible → no confía en nadie); vitrina = por literal
+#      (reversible → y el literal ya es nuestro gracias a esta función)». El argumento entero
+#      está en el docstring de `classifier.dice_licencia()`.
+#   3. **Cadena ENVENENADA** — *mitigado en este mismo PR por el lado del lector; el saneo
+#      sigue siendo la primera barrera.* `verify_chain` (`licensing/audit_events.py:159`) y el
+#      export de true-up (`trueup_export.build_payload`, `:47`) leen la cadena por un lector
+#      ÚNICO, `chained_entries` (`audit_events.py:130`), y ese lector consulta TODAS las filas
+#      `model='license'` (`:150`). Una fila ajena, sin `seq` ni hash, podía hacer que la
+#      verificación acusara TAMPER y que el true-up del cliente fallara: el cliente le rompía
+#      al operador la evidencia con la que le factura, desde el body de un pedido. Desde el
+#      HALLAZGO 2 de la 018, `_is_chain_link` (`:87`) saltea la fila deforme en vez de reventar
+#      y sin sumarla a `issues`. Las dos capas se leen juntas: el lector aguanta lo que ya está
+#      escrito en una base instalada, este saneo impide que se sigan escribiendo.
+#
+# **El precedente de la casa es `api/inspect.py:88-137`**, donde el mismo bug se cazó y se
+# cerró para el campo `tool`: «un firewall cuyo reporte de cobertura lo escribe el
+# inspeccionado no es un reporte». Y la solución de allá —la que se copia acá— es SANEO con
+# vocabulario cerrado, no rechazo: el codominio de lo que se audita deja de contener el
+# literal reservado, pase lo que pase con el body.
+#
+# **Por qué saneo y no un 422 en el parseo.** Rechazar antes de escribir dejaría al atacante
+# irse SIN FILA, que es peor que la fila mal etiquetada: el intento desaparece del registro
+# entero en vez de quedar visible con otro nombre. FR-001 lo dice en positivo —«la fila
+# durable se escribe ANTES de devolver el rechazo»— y este plano ya lo cumple en el camino de
+# bloqueo. Por eso el orden no se negocia: **sanear → auditar → rechazar**.
+#
+# **Por qué el centinela `license__cliente` y no un genérico.** Dice la verdad ("acá el
+# cliente escribió el literal reservado") y es explícito: la fila vuelve a aparecer en la
+# vitrina, vuelve a contarse en los agregados y vuelve a morir con su clase de retención —las
+# tres propiedades que el ataque le sacaba— sin disfrazarse de tráfico normal. Que el
+# centinela no quede excluido por accidente está verificado: TODOS los lectores del literal en
+# el repo comparan por igualdad exacta (`== 'license'`, `!= "license"`, `<> :license_model`),
+# ninguno por prefijo ni por `LIKE`.
+#
+# La comparación normaliza caja y espacios porque `" License "` es el mismo intento con otra
+# ropa y no tiene un solo uso legítimo. Lo que se persiste, en cambio, es el string tal como
+# vino siempre que NO sea el literal reservado: esta función no le cambia el nombre a nadie
+# más, sólo desaloja al okupa.
+MODELO_CADENA_LICENCIAS = "license"
+MODELO_CADENA_USURPADA = "license__cliente"
+
+
+def sanear_modelo_declarado(declarado):
+    """El `model` que puede ir a la columna auditada. Devuelve el centinela si lo declarado es
+    el literal reservado de la cadena de licencias; cualquier otro valor pasa intacto."""
+    if isinstance(declarado, str) and declarado.strip().casefold() == MODELO_CADENA_LICENCIAS:
+        return MODELO_CADENA_USURPADA
+    return declarado
+
+
 def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
            masked_entities: list, latency_ms: int, attribution=None) -> bool:
     """AuditLog metadata-only en sesión fresca, scopeada al tenant resuelto (el GUC de
@@ -1389,7 +1465,12 @@ async def gw_messages(
     if body.get("messages") is not None and not isinstance(body.get("messages"), list):
         return _anthropic_error("Cuerpo inválido: 'messages' debe ser una lista.")
 
-    model = body.get("model", "unknown")
+    # El nombre del modelo lo escribe el cliente y termina en `audit_logs.model`, así que se
+    # sanea en la puerta y ANTES del ruteo: las dos ramas escriben filas con este valor —la de
+    # suscripción más abajo, la byok en el rechazo por capacidad de `_byok_proxy`— y ninguna
+    # puede quedar como la puerta trasera del literal reservado (ver `sanear_modelo_declarado`).
+    model = sanear_modelo_declarado(body.get("model", "unknown"))
+    modelo_usurpado = model == MODELO_CADENA_USURPADA
     is_stream = bool(body.get("stream"))
 
     # ── ruteo de puerta única (spec 019): byok → motor (política del motor), else
@@ -1413,10 +1494,14 @@ async def gw_messages(
         # poder responder «¿qué modelo estábamos rebotando el martes?», que es justo la pregunta
         # de capacidad. `is` y no `!=`: el fail-soft de `_resolve_auto_model` devuelve el MISMO
         # objeto `raw` cuando no reescribe nada, y lo reescrito es JSON que generamos nosotros.
+        # El saneo se reaplica sobre lo reescrito: acá el nombre vuelve a salir de un body y de
+        # una config de admin, y el codominio de lo que se audita no puede depender de qué rama
+        # lo calculó (`sanear_modelo_declarado`).
         modelo_al_motor = model
         if enviado is not raw:
             try:
-                modelo_al_motor = json.loads(enviado).get("model") or model
+                modelo_al_motor = sanear_modelo_declarado(
+                    json.loads(enviado).get("model") or model)
             except Exception:  # noqa: BLE001 — jamás por un nombre para la auditoría
                 pass
         return await _byok_proxy(request, enviado, x_basa_key, is_stream,
@@ -1462,6 +1547,37 @@ async def gw_messages(
             # contador + el health.
             return _audit_no_disponible()
         return _anthropic_error(f"[Basa Gateway] {block_reason}")
+
+    # ── Tercer paso del orden sanear → auditar → **rechazar** (ver `sanear_modelo_declarado`).
+    # El pedido llegó hasta acá recorriendo las capas como cualquier otro, así que su fila sale
+    # con el veredicto REAL (`status`/`attribution`) y con el centinela en `model`: queda
+    # visible, contable y mortal. Recién con la fila escrita se lo rechaza — al revés, un 422
+    # en el parseo le regalaría al atacante un intento sin rastro, que es peor que la fila
+    # inmortal que esta ronda vino a cerrar (FR-001).
+    #
+    # Si una capa YA lo había bloqueado, el 400 de arriba gana y no se llega acá: el veredicto
+    # sobre el contenido pesa más que el reproche por el nombre, y la fila durable —lo único
+    # que la 018 defiende— ya quedó escrita con el centinela igual.
+    #
+    # La rama byok tampoco pasa por acá, y es deliberado: su fila NO la escribe este plano sino
+    # el motor, por `/internal/audit`, donde el mismo saneo corre del otro lado. Cortar el
+    # pedido acá dejaría el intento sin ninguna fila — exactamente lo que este orden prohíbe.
+    if modelo_usurpado:
+        latency = int((time.time() - start) * 1000)
+        registrado = _audit(ident, model, 0, 0, status, masked_entities, latency, attribution)
+        _publish_monitor(ident, tool, model, status, masked_entities, preview,
+                         attribution=attribution)
+        logger.warning("gateway 422 modelo reservado: el cliente declaró el literal de la "
+                       "cadena de licencias como modelo (tenant=%s key=%s registrado=%s)",
+                       ident.get("tenant_id"), ident.get("api_key_id"), registrado)
+        if not registrado and audit_fail_mode() == AUDIT_FAIL_CLOSED:
+            # Mismo criterio que el bloqueo de arriba (US1 AC4): en `closed`, «se rechazó y no
+            # quedó nada» no puede salir con la cara del rechazo normal.
+            return _audit_no_disponible()
+        return _anthropic_error(
+            f"[Basa Gateway] '{MODELO_CADENA_LICENCIAS}' es un literal reservado de la "
+            "auditoría —marca los eslabones de la cadena de evidencia de licencias— y no "
+            "puede usarse como nombre de modelo. El intento quedó registrado.", 422)
 
     # Pedido permitido: en `closed`, confirmar que se va a poder registrar ANTES de gastar
     # dinero en el proveedor (FR-005, literal). En `open` no cuesta ni un SELECT.

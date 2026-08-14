@@ -48,6 +48,15 @@ os.environ.pop("NLP_ANALYZER_URL", None)
 # global. Los tests de US3 arrancan el scheduler con interval explícito.
 os.environ.setdefault("BASA_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
 
+# Purga de retención (spec 018 FR-001): scheduler APAGADO en la suite, por el MISMO motivo
+# que la reconciliación de arriba y con una consecuencia peor. El job corre contra
+# SessionLocal —la DB VIVA del compose, no la DB de test del override de get_db— y lo que
+# hace es BORRAR FILAS de audit_logs: un `TestClient(app)` que dispare el lifespan con la
+# purga encendida se lleva puesta la auditoría de la caja de desarrollo, en silencio y sin
+# forma obvia de atarlo a un test. Los tests de la purga la arrancan ELLOS, con
+# session_factory e intervalo explícitos.
+os.environ.setdefault("BASA_PURGE_ENABLED", "false")
+
 # Licencia dev de la suite (spec 021): el enforcement es fail-closed, así que
 # sin un entitlement válido TODA creación de Connection/Client devolvería
 # 402/403 y rompería los tests preexistentes. Se emite un token efímero para

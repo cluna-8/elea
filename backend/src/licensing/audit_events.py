@@ -79,19 +79,95 @@ def _locked_state(db, license_id: Optional[str]):
     return state
 
 
+# Las claves que los dos lectores leen SIN preguntar: `seq` (ordena, mide contigüidad y se
+# compara contra el contador persistido) y `prev_hash` (el eslabón propiamente dicho).
+_CHAIN_LINK_KEYS = ("seq", "prev_hash")
+
+
+def _is_chain_link(event) -> bool:
+    """¿Este primer ``guardian_event`` es un eslabón LEGIBLE de la cadena?
+
+    Guarda de TIPO, no de contenido: dice si la fila se puede LEER como eslabón, no si el
+    eslabón es honesto. Que uno bien formado mienta lo sigue decidiendo el hash.
+
+    Hasta acá el filtro era ``"seq" in r.guardian_events[0]``, y alcanzaba… mientras ese primer
+    evento fuera un objeto. Sobre un string es peor que inútil: ``in`` busca SUBCADENA, así que
+    ``["seq"]`` pasa el filtro —y ``["consequence"]`` también, sin ni siquiera nombrar la
+    clave— y el ``e["seq"]`` de dos líneas más abajo levanta ``TypeError: string indices must be
+    integers``. UNA sola fila ``model='license'`` deforme dejaba fuera de servicio la
+    verificación de la cadena Y el export de true-up: la evidencia con la que el operador le
+    factura al cliente, caída por una excepción sin capturar. Es el HALLAZGO 2 del gate
+    adversarial de la 018; la tabla con el efecto medido de cada forma está al pie de
+    ``tests/integration/test_retencion_dataset_abusivo.py``.
+
+    Por qué la guarda va acá y no alcanza con la capa B: ``gateway.sanear_modelo_declarado``
+    saca el literal reservado del codominio de lo auditable DESDE AHORA, pero no puede sanear
+    hacia atrás la base de un cliente ya instalado. Una fila vieja basta, y el que la sufre es
+    el lector.
+
+    Las DOS claves y no sólo ``seq`` porque ``verify_chain`` lee ``prev_hash`` sin ``get``
+    (``KeyError``). Y el ``seq`` entero porque es la clave de ordenamiento: con un ``seq``
+    string mezclado entre ints, el ``sorted`` de ``chained_entries`` revienta comparando ``str``
+    con ``int`` antes de que nadie llegue a mirar un hash. El ``bool`` queda afuera del ``int``
+    a propósito: para Python ``True`` es 1 y ningún emisor escribe eso.
+
+    Gemelo del predicado del clasificador de retención
+    (``services/retention/classifier.py::_trae_seq_de_cadena_en_memoria``), que ya pedía
+    ``isinstance(..., dict)`` por este mismo motivo. Queda una asimetría deliberada: acá se
+    exige ADEMÁS ``prev_hash`` y el tipo del ``seq``, o sea que este filtro es MÁS estricto. Es
+    el lado seguro de la asimetría —la cadena nunca deja de leer un eslabón que la purga sí
+    protege, que es el orden inverso al que causaría el incidente de FR-003— al precio de que
+    una fila deforme CON forma de objeto siga siendo inmortal para la retención.
+    """
+    if not isinstance(event, dict):
+        return False
+    if not all(key in event for key in _CHAIN_LINK_KEYS):
+        return False
+    seq = event["seq"]
+    return isinstance(seq, int) and not isinstance(seq, bool)
+
+
+def chained_entries(db) -> list:
+    """Los eslabones LEGIBLES de la cadena, ordenados por ``seq``.
+
+    Lector ÚNICO de las filas de la cadena: lo comparten ``verify_chain`` y el export de true-up
+    (``trueup_export.build_payload``). Compartido y no copiado porque los dos tienen que
+    considerar eslabón a las MISMAS filas — si uno adoptara una fila que el otro descarta, el
+    papel firmado y la verificación local hablarían de historiales distintos.
+
+    Una fila deforme se SALTEA en vez de reventar. No es indulgencia: no es un eslabón
+    verificable, así que no hay nada que verificar en ella, y el precio de la alternativa es que
+    la evidencia ENTERA deje de leerse. Tampoco entra a ``issues``: acusar manipulación por una
+    fila que el emisor de la 021 nunca escribió es el deployment acusándose solo, que es el
+    incidente de confianza que FR-003 vino a evitar. Si el salteo tiene que dejar rastro
+    (contador aparte en el reporte, o log), es una decisión de producto y no de esta guarda.
+
+    Y si la fila deforme fuese un eslabón LEGÍTIMO al que alguien le rompió el jsonb, saltearla
+    no lo tapa: deja un hueco de ``seq`` y ``verify_chain`` lo reporta igual que un borrado.
+    """
+    from ..models.audit import AuditLog
+
+    rows = db.query(AuditLog).filter(AuditLog.model == "license").all()
+    return sorted(
+        (r.guardian_events[0] for r in rows
+         if isinstance(r.guardian_events, list) and r.guardian_events
+         and _is_chain_link(r.guardian_events[0])),
+        key=lambda e: e["seq"],
+    )
+
+
 def verify_chain(db) -> dict:
     """Verificación LOCAL de la cadena: eslabones contiguos, hashes válidos y
     head/contador persistidos consistentes. Devuelve {ok, issues, checked}.
     Límite (contrato T039): el truncado de cola/wipe total NO es detectable
-    acá — lo ancla la continuidad entre true-up exports."""
-    from ..models.audit import AuditLog
+    acá — lo ancla la continuidad entre true-up exports.
+
+    ``checked`` cuenta eslabones LEGIBLES: las filas ``model='license'`` deformes no suman ni
+    rompen la verificación (el porqué, en ``chained_entries``)."""
     from ..models.license_state import LicenseRuntimeState
 
     state = db.query(LicenseRuntimeState).filter(LicenseRuntimeState.id == 1).one_or_none()
-    rows = db.query(AuditLog).filter(AuditLog.model == "license").all()
-    entries = sorted((r.guardian_events[0] for r in rows
-                      if r.guardian_events and "seq" in r.guardian_events[0]),
-                     key=lambda e: e["seq"])
+    entries = chained_entries(db)
     issues = []
     if state is None:
         if entries:
@@ -206,7 +282,43 @@ def emit_state_event(state, session_factory=None) -> None:
     transiciones en runtime del ciclo de vida (US4/T029, via
     ``entitlement.refresh``). El tenant de la fila es SIEMPRE el del deployment
     (existe por seed 013); si el token era de otro tenant, ese dato viaja en
-    ``reason`` (no como FK, que no existiría acá)."""
+    ``reason`` (no como FK, que no existiría acá).
+
+    IDENTIDAD BAJO RLS (spec 018, FR-006 / Contrato 2). Este emisor corre fuera de
+    todo request —el gate de arranque y el tick del scheduler de reconciliación— y
+    escribe en ``audit_logs``, que está bajo ``FORCE ROW LEVEL SECURITY``. Hasta la
+    018 abría la sesión PELADA, y funcionaba por un accidente: la policy permisiva
+    ``tenant_isolation_bootstrap`` de la 010 deja pasar cualquier fila mientras nadie
+    setee el GUC. La 017 tiene mandato escrito de eliminar esa policy; el día que lo
+    haga, este INSERT rebota contra el ``WITH CHECK`` y —porque el emisor es
+    fail-soft, ver el ``except`` de abajo— la cadena de licencias dejaría de crecer
+    EN SILENCIO. Una cadena que deja de crecer sin avisar es peor que una rota: el
+    true-up siguiente no acusa tamper, simplemente no tiene qué exportar.
+
+    Por eso el trabajo va dentro de ``tenant_context(None, bypass=True)``
+    (``database.py``). **Sin precedente: este PR estrena ``bypass=True`` en producción**
+    —antes no había ninguno en ``backend/src``, sólo el ejercicio de
+    ``tests/test_rls_isolation.py``—, así que el listón lo fija esta rama en vez de
+    heredarlo. (La letra original citaba ``api/gateway.py:901`` como precedente; ahí hay
+    ``with tenant_context(tid):``, tenant SCOPEADO y sin bypass: el opuesto semántico.
+    Corregido en el Contrato 2 del 14-ago.) El bypass, y no un tenant
+    scopeado, porque estas filas se escriben para el tenant del DEPLOYMENT mientras
+    el token puede ser de otro (``license_tenant_mismatch``) y ``verify_chain`` relee
+    la cadena ENTERA: el emisor de la cadena es, por definición, cross-tenant. Es
+    explícito y localizado —nunca queda de default de sesión: los ContextVar vuelven a
+    su valor de reposo al salir del ``with``, y hay test que lo muerde—, que es el
+    contrato para todo job batch de la 018.
+
+    Con una precisión que importa para quien copie este patrón: lo que NO muere con el
+    ``with`` es el GUC ya inyectado. El listener de ``database.py:44-61`` lo setea con
+    ``set_config(..., true)``, o sea ``SET LOCAL``, y eso vive hasta el fin de la
+    TRANSACCIÓN. Por eso la sesión se abre y se cierra ACÁ ADENTRO: una sesión creada
+    afuera que abriera su transacción dentro del bloque seguiría con el bypass puesto
+    después de salir. Es la regla que el purgador (018, T008) hereda escrita —recibe una
+    ``session_factory``, jamás una ``Session`` ya viva—, y el motivo por el que este
+    emisor toma ``session_factory`` y no ``db``.
+    """
+    from ..database import tenant_context
     from .entitlement import expected_tenant_id
 
     event_type = _EVENT_BY_STATUS.get(state.status, EVENT_INVALID)
@@ -214,19 +326,20 @@ def emit_state_event(state, session_factory=None) -> None:
     if session_factory is None:
         from ..database import SessionLocal
         session_factory = SessionLocal
-    db = session_factory()
-    try:
-        emit_license_event(
-            db,
-            event_type,
-            tenant_id=expected_tenant_id(),
-            license_id=token.license_id if token else None,
-            max_seats=token.max_seats if token else None,
-            reason=state.reason,
-            now=state.checked_at,  # el ts de la evidencia = el del tick evaluado
-        )
-    except Exception:  # noqa: BLE001 — fail-soft (criterio de AuditService)
-        db.rollback()
-        logger.exception("licencia: fallo al persistir el evento %s", event_type)
-    finally:
-        db.close()
+    with tenant_context(None, bypass=True):
+        db = session_factory()
+        try:
+            emit_license_event(
+                db,
+                event_type,
+                tenant_id=expected_tenant_id(),
+                license_id=token.license_id if token else None,
+                max_seats=token.max_seats if token else None,
+                reason=state.reason,
+                now=state.checked_at,  # el ts de la evidencia = el del tick evaluado
+            )
+        except Exception:  # noqa: BLE001 — fail-soft (criterio de AuditService)
+            db.rollback()
+            logger.exception("licencia: fallo al persistir el evento %s", event_type)
+        finally:
+            db.close()

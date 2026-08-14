@@ -33,6 +33,11 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models.tenant import DEFAULT_TENANT_ID
 from ..services.budget_service import BudgetService
+# Vocabulario cerrado de la columna `model` (018, capa B). Se REUSA la del gateway en vez de
+# copiar el literal: dos definiciones del mismo centinela son dos oportunidades de que una se
+# quede vieja, y este es un valor cuya igualdad exacta sostiene la exclusión de la cadena de
+# licencias en media docena de lectores. El porqué completo vive en su bloque de doctrina.
+from .gateway import MODELO_CADENA_USURPADA, sanear_modelo_declarado
 
 logger = logging.getLogger("basa-secure-gateway.internal")
 
@@ -83,12 +88,12 @@ LEFT JOIN tenants t ON t.id = k.tenant_id
 -- Playground sí frenaba. Se elige UNA fila —la misma que `BudgetService.update_budget`
 -- cargaría— y no las dos capas: el contrato del plano interno es un par escalar
 -- (max_budget_usd, spend_usd) y un par no puede expresar el OR dual-capa de
--- `has_sufficient_budget`. Orden: personal del dueño de la llave primero, el del grupo
--- como respaldo (idéntica precedencia que `get_applicable_budgets`, budget_service.py:74).
--- El grupo sale de la llave o, si la llave no lo fija, del User (mismo fallback que el
--- servicio). El desempate por created_at/id es determinismo puro: `get_personal_budget`
--- usa `.first()` sin ORDER BY, y con dos presupuestos del mismo dueño los dos planos
--- podrían elegir filas distintas.
+-- `has_sufficient_budget`. Orden: personal del dueño de la llave primero, el del grupo de
+-- respaldo — el mismo que arma `get_applicable_budgets` (budget_service.py:105), que apila
+-- el personal antes que el del grupo (budget_service.py:112-118). El grupo sale de la llave
+-- o, si la llave no lo fija, del User (mismo fallback que el servicio). El desempate por
+-- created_at/id es determinismo puro: `get_personal_budget` usa `.first()` sin ORDER BY, y
+-- con dos presupuestos del mismo dueño los dos planos podrían elegir filas distintas.
 -- ⚠️ ESTE BLOQUE ES ESPEJO del de litellm/extensions/custom_auth.py (_IDENTITY_SQL, camino
 -- de desarrollo con base compartida): los dos tienen que resolver el MISMO presupuesto o el
 -- corte de #76 dependería de qué env está cableada. Se cambian juntos.
@@ -150,7 +155,7 @@ def resolve_identity(key_hash: str = Query(min_length=64, max_length=64),
     datos["spend_usd"] = gasto if gasto is not None else 0.0
 
     # Las columnas NULL se ELIMINAN del JSON, no viajan como `null`. Es el MISMO filtro que
-    # hoy aplica el consumidor al recibir (custom_auth.py:151-152) y que existe porque todo
+    # hoy aplica el consumidor al recibir (custom_auth.py:238) y que existe porque todo
     # el motor lee con `identity.get(campo, DEFAULT)`: con la clave presente valiendo None,
     # `.get("redact_enabled", True)` devuelve None (falsy) y el motor deja de enmascarar
     # (verificado en vivo el 2026-07-27). Se aplica también acá, del lado del emisor, para
@@ -259,11 +264,29 @@ def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
 @router.post("/audit", dependencies=[Depends(_require_internal_secret)])
 def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     entidades = _entidades_saneadas(entry.masked_entities)
+    # El `model` que llega acá nació como texto del cliente al otro lado del motor, y `license`
+    # es el literal reservado de la cadena de licencias (021): quien lo escriba se vuelve
+    # inmortal para la retención, invisible para la vitrina y capaz de envenenar `verify_chain`.
+    # Misma defensa que en la puerta, misma función — el porqué completo, con los lectores y el
+    # precedente de `api/inspect.py`, está en `gateway.sanear_modelo_declarado`.
+    #
+    # Diferencia deliberada con `/gw`: acá se sanea y **nada más, nunca se rechaza**. Esta fila
+    # llega del motor DESPUÉS del hecho —el pedido ya se sirvió o ya se bloqueó, la política ya
+    # dictaminó—, así que un 4xx no impide nada: tira auditoría durable ya generada, que es
+    # justo el agujero que la 031 cerró acá mismo (`tenant_id` dejó de ser obligatorio para que
+    # un bloqueo sin identidad resoluble no desapareciera por un 422) y el que la 018 protege.
+    # El rechazo tiene sentido en la puerta, donde todavía hay un pedido que rechazar.
+    modelo = sanear_modelo_declarado(entry.model)
+    if modelo != entry.model:
+        logger.warning(
+            "[basa-internal] el emisor declaró el literal reservado de la cadena de licencias "
+            "como modelo; la fila se registra con el centinela %s (tenant=%s user=%s)",
+            MODELO_CADENA_USURPADA, entry.tenant_id, entry.user_id)
     db.execute(_INSERT_AUDIT_SQL, {
         "tenant_id": entry.tenant_id or str(DEFAULT_TENANT_ID),
         "user_id": entry.user_id,
         "api_key_id": entry.api_key_id,
-        "model": entry.model[:128],
+        "model": modelo[:128],
         "prompt_tokens": entry.prompt_tokens,
         "completion_tokens": entry.completion_tokens,
         "cost_usd": entry.cost_usd,

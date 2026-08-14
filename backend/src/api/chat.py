@@ -65,6 +65,11 @@ from ..auth.rbac import require_role, require_authenticated
 # un pase propio sobre mapa desechable + scrub de secretos. Dos implementaciones del mismo
 # preview es dos formas distintas de fugarlo. Mismo precedente que `inspect.py`.
 from . import gateway as _gw_plane
+# Tercer call-site del saneo del literal reservado (spec 018, capa B). Import NOMBRADO y no
+# `_gw_plane.sanear_modelo_declarado` a propósito: un `grep sanear_modelo_declarado` tiene que
+# devolver los TRES escritores de `audit_logs.model` —`/gw`, `/internal/audit` y este plano— o
+# la próxima ronda vuelve a contar dos.
+from .gateway import sanear_modelo_declarado
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
 logger = logging.getLogger("basa-secure-gateway.chat")
@@ -473,6 +478,107 @@ def _entidades_de_fila(floor_entities, detected) -> list:
     return _summarize_entities(detected) if floor_entities is None else floor_entities
 
 
+# ── El literal reservado de la cadena de licencias no lo elige el cliente ─────────────
+#
+# `ChatRequest.model` es un `str` LIBRE del body y termina en `audit_logs.model`, la misma
+# columna que escriben `/gw` y `/internal/audit`. `license` es la marca de los eslabones de la
+# hash-chain de licencias (021), así que quien se lo ponga a su propia fila se lleva premios
+# que no le tocan: la fila se sale de los agregados que todavía excluyen a mano por
+# `model <> 'license'` (`api/compliance.py`, `api/reports.py`, `api/analytics.py`) y queda a la
+# vista de `verify_chain`, que relee TODAS las filas con ese nombre.
+#
+# El daño de ESTE plano, reproducido sin privilegios contra la app real: un
+# `POST /chat/completions {"model": "license", "message": "<algo que dispare un guardián>"}`
+# con cualquier usuario autenticado deja un bloqueo REAL que después no aparece en el
+# dashboard de compliance ni en el informe ejecutivo (`total_logs = 0`, `total_transactions =
+# 0` medidos con esas filas en la tabla). O sea: el registro miente por omisión justo en el
+# pedido que el firewall impidió — un usuario del Playground se borra del resumen del DPO
+# eligiendo cómo se llama su propio pedido.
+#
+# Por qué NO se rechaza el pedido acá, a diferencia de `/gw`: el 422 de la puerta es un
+# contrato acordado de ese plano; estrenar un 4xx nuevo en el endpoint del Playground es una
+# decisión de producto que esta ronda no tomó, y no hace falta — con el nombre desalojado la
+# fila ya vuelve a ser mortal, contable y visible, que son las tres propiedades que el ataque
+# le sacaba. Mismo criterio que `/internal/audit`: sanear y nada más.
+def _modelo_auditable(declarado):
+    """El `model` que puede ir a la columna auditada. Reusa el saneo de `gateway`.
+
+    La función vive allá y no se reimplementa acá porque el vocabulario reservado tiene que
+    crecer en UN solo lugar: el porqué completo —los lectores que comparan por igualdad, el
+    precedente de `api/inspect.py`, por qué saneo y no rechazo, por qué el centinela dice la
+    verdad en vez de disfrazar la fila— está en `gateway.sanear_modelo_declarado`.
+
+    Lo único que este plano agrega es el `logger.warning`: en `/gw` el intento se le contesta
+    al cliente con un 422 y queda a la vista, acá el pedido sigue su curso normal, así que sin
+    esta línea el desalojo sería invisible para quien opera la instalación.
+    """
+    saneado = sanear_modelo_declarado(declarado)
+    if saneado != declarado:
+        logger.warning(
+            "[basa-chat] el pedido declaró el literal reservado de la cadena de licencias "
+            "como modelo; la fila durable se registra con el centinela %s", saneado)
+    return saneado
+
+
+# ── `guardian_events[0]` es NUESTRO, lo diga quien lo diga upstream ───────────────────
+#
+# **Quién lee esa posición.** El lector ÚNICO de la cadena de licencias —`chained_entries`
+# (`licensing/audit_events.py:130`), que consumen `verify_chain` (`:170`) y el export de
+# true-up (`trueup_export.build_payload`, `:65`, vía el import de `:31` que reemplazó la copia
+# local que ese módulo tenía)— y el portón de la purga de retención
+# (`services/retention/classifier.py`, `es_trafico_demostrable()`). Los dos agarran
+# `guardian_events[0]` y le miran las marcas que escribe el emisor de la cadena:
+# `chained_entries` pide `seq` **y** `prev_hash` (`_is_chain_link`, `:87`); el portón saca de
+# lo purgable a cualquier primer evento que traiga `seq`, `prev_hash` **o** `event_type`. Es
+# una lectura POSICIONAL y es deliberada —barrer la lista entera dejaría comprar la exclusión
+# metiendo la marca en la segunda posición, donde la cadena ni mira—, así que el índice 0 es
+# una superficie de ataque con nombre y apellido.
+#
+# **Qué se metía ahí.** La mitad de esta lista la escribe quien conteste upstream: es
+# `guardrail_info.guardrail_events` de la respuesta del motor, y esa forma no la fijamos
+# nosotros. Un `developer` puede registrar un modelo con `api_base` apuntando a un servidor
+# propio y devolver `[{"seq": 7, "prev_hash": "…", "event_type": "license_loaded"}]`; sin
+# triggers locales —el caso NORMAL, un pedido que no disparó ningún guardián— ese objeto ajeno
+# quedaba tal cual en el índice 0 de una fila de tráfico.
+#
+# **El arreglo es ANIDAR, no quitar claves**, y las dos razones son de fondo:
+#
+# * un strip de claves reservadas es una lista CERRADA que se pudre. El día que la cadena
+#   estrene una cuarta clave, el strip de tres queda viejo y nadie se entera —falla callado y
+#   del lado inseguro—. Anidar es allowlist por construcción: lo ajeno vive DENTRO de una
+#   clave nuestra, mire lo que mire el lector que se escriba mañana;
+# * a un blob que no es un objeto no se le pueden quitar claves, y ése es un caso vivo: con
+#   `["seq"]` el `"seq" in eventos[0]` de los lectores da True por SUBCADENA (`in` sobre un
+#   string busca subcadena) y el `e["seq"]` de la línea siguiente revienta con TypeError —el
+#   verificador de la evidencia con la que se factura, caído por una fila. Anidado, el índice 0
+#   es siempre un dict con una sola clave que no le dice nada a nadie.
+#
+# **Lo LOCAL no se toca.** `guardian_triggers` lo arma este backend (`GuardianService`), es lo
+# que la vitrina y el Debugger ya leen, y no hay nadie del otro lado que lo pueda dictar.
+#
+# **Alcance, dicho con todas las letras: desde el dictamen del 14-ago este anidado ES EL ÚNICO
+# CERROJO frente a la purga. No es defensa en profundidad. Si se saca, no hay nada detrás.**
+#
+# La exclusión de la purga dejó de mirar `model` en cualquier forma: la compra SÓLO la forma de
+# `guardian_events[0]` (`classifier.es_trafico_demostrable()`). O sea que el saneo de
+# `_modelo_auditable` (`:503`) ya no es «la otra mitad» de esta defensa — protege la VITRINA,
+# que sigue excluyendo por el literal (`api/audit.py:271`, `~dice_licencia()`), y nada más.
+# Lo único que hoy impide que quien conteste upstream se compre la inmortalidad frente a la
+# purga —devolviendo `[{"seq": 7, "prev_hash": "…", "event_type": "license_loaded"}]` y
+# quedándose con el índice 0 de una fila de tráfico— es que esta función ANIDE lo ajeno.
+#
+# Y no es una lectura del código, es una medición: al 14-ago
+# `grep -rn 'es_licencia' backend/src/ litellm/ --include='*.py'` devuelve la `def` del propio
+# `classifier.es_licencia` y prosa de comentarios, y CERO llamadores. No hay una segunda condición
+# esperando en ningún archivo. Quien mañana agregue un consumidor de `es_licencia()` —literal
+# **más** `seq`— está reintroduciendo `model` en una decisión de la que el dictamen lo sacó a
+# propósito: que lea antes el docstring de `classifier.dice_licencia()`, donde está el argumento
+# completo de por qué purga y vitrina no comparten criterio.
+def _eventos_de_la_fila(triggers, upstream) -> list:
+    """`guardian_events` de la fila durable: triggers locales tal cual, upstream anidado."""
+    return list(triggers or []) + ([{"upstream": upstream}] if upstream else [])
+
+
 async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id,
                              model: str, estado: str, prompt: str, entities, attribution,
                              start_time: float, routing: Optional[dict] = None,
@@ -550,6 +656,18 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
     otros CUATRO llamadores no la pasan: ni los tres bloqueos de política ni el rechazo por
     presupuesto tienen contrato de wire acordado para su respuesta.
     """
+    # Saneo del literal reservado (018 capa B) para los CINCO llamadores de una vez: los cinco
+    # escriben `audit_logs.model` por acá, y el `model` que traen sale —directo o vía el
+    # re-ruteo del guardián— del `str` libre de `ChatRequest.model`. Va en el HELPER y no en
+    # cada call-site por el mismo motivo por el que la fila durable vive acá: un saneo repetido
+    # cinco veces se olvida en el sexto rechazo que alguien agregue, y el que se olvide no falla
+    # ruidosamente — deja una fila que el DPO no ve. El porqué largo, arriba de
+    # `_modelo_auditable`.
+    #
+    # El valor saneado se usa TAMBIÉN para el evento de vitrina de más abajo: la fila durable y
+    # la vitrina tienen que nombrar el mismo pedido igual, o el operador que compara las dos
+    # pantallas durante un incidente ve dos pedidos donde hubo uno.
+    model = _modelo_auditable(model)
     resumen = _summarize_entities(entities) if entidades_fila is None else entidades_fila
     fallo_closed: Optional[AuditUnavailableError] = None
     try:
@@ -1262,7 +1380,10 @@ async def chat_completions(
     llm_raw_response = ""
     prompt_tokens = len(optimized_prompt) // 4  # Estimate
     completion_tokens = 0
-    guardian_events: list = []
+    # Se llama `eventos_del_upstream` y no `guardian_events` porque el nombre tiene que decir
+    # de QUIÉN es el dato: lo que caiga acá lo escribe quien conteste del otro lado, y por eso
+    # no entra verbatim a la fila (ver `_eventos_de_la_fila`).
+    eventos_del_upstream: list = []
 
     logger.info(f"Sending request to AI engine: model={routed_model}")
     actual_cost = None
@@ -1340,8 +1461,17 @@ async def chat_completions(
                 completion_tokens = res_data["usage"]["completion_tokens"]
                 raw_response_json = res_data
 
-                # Capture guardrail events returned by the engine (if any)
-                guardian_events = res_data.get("guardrail_info", {}).get("guardrail_events", []) or []
+                # Lo que el upstream dice sobre SUS guardrails. Se guarda crudo en una variable
+                # que declara de quién es y se anida recién al escribir la fila
+                # (`_eventos_de_la_fila`). El `isinstance` es del mismo asunto: `guardrail_info`
+                # tampoco tiene forma garantizada —la fija quien responda—, y un no-objeto
+                # levantaba un `AttributeError` que salía por el `except` ancho de más abajo
+                # como «error al ejecutar el modelo», o sea el diagnóstico apuntando al lado
+                # equivocado.
+                _info_upstream = res_data.get("guardrail_info")
+                eventos_del_upstream = (
+                    _info_upstream.get("guardrail_events")
+                    if isinstance(_info_upstream, dict) else None) or []
 
                 # Extract exact cost from engine headers
                 cost_str = response.headers.get("x-litellm-response-cost")
@@ -1634,6 +1764,19 @@ async def chat_completions(
     _pii_row_entities = _entidades_de_fila(_floor_entities, entities_detected)
     _pii_row_detected = bool(_pii_row_entities)
 
+    # SEXTO escritor de la columna, y el único que no pasa por `_registrar_bloqueo` (018 capa
+    # B). El camino feliz no está fuera de tiro: alcanza con que exista un modelo llamado
+    # `license` en el catálogo del motor —un `developer` lo registra— para que un pedido
+    # SERVIDO se escriba con el literal reservado y se borre de los mismos agregados. Se sanea
+    # acá, con la misma función, y el valor saneado es el que después va también al evento de
+    # vitrina del final: una sola variable para que la fila y la vitrina no puedan divergir.
+    #
+    # Lo que a propósito NO se sanea: `routed_model` —lo que se le mandó al motor, y el motor
+    # tiene que recibir el nombre que el cliente eligió o el pedido no se sirve— y
+    # `_billing_model`, que no toca ninguna columna durable (es el tarifario y el badge de
+    # honestidad del Playground). Renombrar ahí cambiaría un precio por un motivo de auditoría.
+    _modelo_de_la_fila = _modelo_auditable(request.model)
+
     # Save to Audit Log
     audit_log = AuditService.log_transaction(
         db=db,
@@ -1642,7 +1785,7 @@ async def chat_completions(
         # «auto» no es un modelo y una auditoría que lo registrara no podría responder
         # "¿a qué proveedor viajó este pedido?". Lo que el usuario pidió queda en
         # `routing_decision.requested`, que es donde se puede leer sin ambigüedad.
-        model=request.model,
+        model=_modelo_de_la_fila,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         cost_usd=float(cost),
@@ -1656,7 +1799,9 @@ async def chat_completions(
         compression_reversed=compression_reversed,    # spec 012 US6 — guardia de reversión
         user_id=user.id if user else None,
         api_key_id=api_key_obj.id if api_key_obj else None,
-        guardian_events=(guardian_triggers or []) + (guardian_events or []),
+        # Triggers locales + lo del upstream ANIDADO: el índice 0 nunca es un objeto ajeno
+        # (018 capa B — el porqué entero está arriba de `_eventos_de_la_fila`).
+        guardian_events=_eventos_de_la_fila(guardian_triggers, eventos_del_upstream),
         # Atribución 027. `guardian_events` sigue igual, congelado como legado (D6: la
         # hash-chain de licencias lo relee posicionalmente); las columnas nuevas viven al
         # lado y son las que el dashboard y el monitor pasan a consultar.
@@ -1718,7 +1863,7 @@ async def chat_completions(
     # ya viaja donde corresponde, en `masked_entities`, que es lo que la vitrina pinta como
     # `3× EMAIL_ADDRESS`.
     await _publish_chat_event(
-        db=db, user=user, tenant_id=_tenant_id, model=request.model,
+        db=db, user=user, tenant_id=_tenant_id, model=_modelo_de_la_fila,
         status=compliance_result["status"], prompt=request.message,
         entities=entities_detected, attribution=attribution,
         routing=_routing_decision,

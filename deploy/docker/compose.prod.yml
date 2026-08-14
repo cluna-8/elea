@@ -60,6 +60,30 @@ services:
       # mientras la fila durable no se pueda escribir. El default vive acá y en el helper
       # del backend — una instalación que quiera fail-closed lo declara en su perfil.
       BASA_AUDIT_FAIL: "${BASA_AUDIT_FAIL:-open}"
+      # ── Purga de retención (018, FR-001) ────────────────────────────────────────
+      # Sin estas líneas la retención de una instalación queda CLAVADA en los defaults
+      # del código: el DPO del cliente no podría mover la ventana ni el tamaño de lote
+      # sin una imagen nueva, y la ventana es justo lo que se ajusta cuando la purga
+      # empieza a rozar la hora punta de esa sede. Los rangos los sigue imponiendo el
+      # código: un valor absurdo se ignora con warning, no tumba el arranque.
+      # ⚠ Perillas declaradas; el purgador que las consume entra con 018 US1.
+      #
+      # Las dos primeras son la red del primer encendido y por eso NO traen el default
+      # del plan: apagado, y en simulacro cuando se encienda. Es el perfil que instala
+      # una sede, y una sede lleva meses de tráfico en `audit_logs` — la primera corrida
+      # real no purga «lo de ayer», se lleva el backlog entero, y lo borrado no vuelve.
+      # Este `.env` queda escrito HOY y la imagen con el purgador adentro llega después:
+      # si acá dijera `true`, ese pull encendería solo un DELETE retroactivo sobre datos
+      # del cliente sin que nadie hubiera decidido nada. El encendido es un paso del
+      # runbook, con reinicio del backend y con el conteo del simulacro ya firmado.
+      BASA_PURGE_ENABLED: "${BASA_PURGE_ENABLED:-false}"
+      BASA_PURGE_DRY_RUN: "${BASA_PURGE_DRY_RUN:-true}"
+      BASA_PURGE_INTERVAL_SECONDS: "${BASA_PURGE_INTERVAL_SECONDS:-3600}"
+      # Hora LOCAL de la instalación, no del contenedor (que corre en UTC).
+      BASA_PURGE_WINDOW: "${BASA_PURGE_WINDOW:-02:00-05:00}"
+      BASA_PURGE_WINDOW_TZ: "${BASA_PURGE_WINDOW_TZ:-Europe/Madrid}"
+      BASA_PURGE_BATCH_SIZE: "${BASA_PURGE_BATCH_SIZE:-5000}"
+      BASA_PURGE_BATCH_PAUSE_MS: "${BASA_PURGE_BATCH_PAUSE_MS:-200}"
       # El alta de usuarios crea la identidad en el motor con la master key.
       LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.

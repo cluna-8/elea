@@ -132,6 +132,24 @@ services:
       - BASA_ENGINE_TIMEOUT_SECONDS=${BASA_ENGINE_TIMEOUT_SECONDS:-60}
       - BASA_GW_BYOK_TIMEOUT_SECONDS=${BASA_GW_BYOK_TIMEOUT_SECONDS:-150}
       - BASA_GW_BYOK_READ_TIMEOUT_SECONDS=${BASA_GW_BYOK_READ_TIMEOUT_SECONDS:-150}
+      # ── Purga de retención (spec 018, FR-001) ──────────────────────────────────
+      # Mismo criterio que el bloque de admisión de arriba: passthrough con los
+      # defaults del plan para que las perillas del .env.example no sean decorativas
+      # (sin estas líneas, ponerlas en el `.env` no llega al contenedor y el operador
+      # cree que giró algo). El consumidor entra con 018 US1.
+      #
+      # Las dos primeras NO llevan el default del plan, llevan el seguro: apagado y
+      # en simulacro. Un job de DELETE retroactivo no se enciende con un pull de
+      # imagen — el día que el purgador exista, esto arranca sin borrar nada hasta
+      # que alguien lo pida por runbook. Hasta acá también llega el dev que corre
+      # `docker compose up` sobre su base con meses de tráfico de pruebas.
+      - BASA_PURGE_ENABLED=${BASA_PURGE_ENABLED:-false}
+      - BASA_PURGE_DRY_RUN=${BASA_PURGE_DRY_RUN:-true}
+      - BASA_PURGE_INTERVAL_SECONDS=${BASA_PURGE_INTERVAL_SECONDS:-3600}
+      - BASA_PURGE_WINDOW=${BASA_PURGE_WINDOW:-02:00-05:00}
+      - BASA_PURGE_WINDOW_TZ=${BASA_PURGE_WINDOW_TZ:-Europe/Madrid}
+      - BASA_PURGE_BATCH_SIZE=${BASA_PURGE_BATCH_SIZE:-5000}
+      - BASA_PURGE_BATCH_PAUSE_MS=${BASA_PURGE_BATCH_PAUSE_MS:-200}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}

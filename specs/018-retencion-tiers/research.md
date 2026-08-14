@@ -10,7 +10,8 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 
 ## D2 — Exclusión de la hash-chain: por diseño, no por configuración
 
-- **Decision**: el clasificador excluye `model='license'` de forma **estructural** (no existe camino de configuración que las purgue).
+- **Decision**: el clasificador excluye la cadena de forma **estructural** (no existe camino de configuración que la purgue).
+- **Enmienda 13-ago *(aprobada por el manager)*, tras el gate adversarial**: la exclusión ya NO es `model='license'` a secas — es `model='license'` **y** `seq` en `guardian_events[0]`. La columna `model` la escribe el inspeccionado (`api/gateway.py:1455`, sale del body del pedido), así que anclar ahí la exclusión regalaba tres cosas por una línea de body: fila inmortal (ningún predicado la levanta), fila invisible (la vitrina y los agregados sacan la cadena por esa misma columna) y cadena envenenada (`verify_chain`/`trueup_export` releen TODAS las `model='license'`). El `seq` lo escribe un único emisor (`audit_events.py::_append_chained`, firma en `:247`, `seq = state.event_counter + 1` en `:253`) dentro de la transacción que avanza el head bajo `SELECT … FOR UPDATE` — el `with_for_update()` vive en `_locked_state`, `audit_events.py:69` y `:78` — y es EL MISMO test de pertenencia que usan los dos lectores de la cadena — protegiendo lo mismo que ellos releen, la purga no puede borrar un eslabón que `verify_chain` espere. Precedente y doctrina: `api/inspect.py:88-137` (saneo con vocabulario cerrado, no rechazo).
 - **Rationale**: `verify_chain` relee toda la cadena y acusa «evento anterior editado/borrado» ante cualquier hueco (audit_events.py:82-116); el true-up exige historial completo. Purgar un eslabón = incidente de confianza del modelo comercial 021.
 - **Alternatives considered**: re-anclaje de cadena con checkpoint firmado (permitiría purgar eslabones viejos; mucho más caro, sin necesidad hoy — las filas license son pocas).
 
@@ -22,7 +23,7 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 
 ## D4 — Mecánica del purgador: scheduler existente + DELETE por lotes con ventana
 
-- **Decision**: thread daemon con intervalo por env (patrón `licensing/reconcile.py:240-281`, único scheduler del proceso), DELETE por lotes (`BASA_PURGE_BATCH_SIZE=5000`, pausa 200 ms) solo dentro de ventana horaria (`02:00-05:00` local), edad contra el reloj de la DB, idempotente por diseño (el predicado es «vencida al momento de la corrida» — retomar tras interrupción no duplica ni salta).
+- **Decision**: thread daemon con intervalo por env (patrón `licensing/reconcile.py::start_scheduler`, `:268-297`, con el `_loop` en `:285` — único scheduler del proceso), DELETE por lotes (`BASA_PURGE_BATCH_SIZE=5000`, pausa 200 ms) solo dentro de ventana horaria (`02:00-05:00` local), edad contra el reloj de la DB, idempotente por diseño (el predicado es «vencida al momento de la corrida» — retomar tras interrupción no duplica ni salta).
 - **Rationale**: la tabla no tiene particiones (DELETE puro), tiene 4 índices y lectores SQL calientes (costs/analytics/vitrina/export); C2 es el ciclo del gate 250 — un purgador glotón reprueba el examen (SC-003). Reusar el scheduler evita dependencia nueva en un producto air-gap.
 - **Alternatives considered**: pg_cron (dependencia de extensión en instalaciones que no controlamos); particionado por rango + DROP PARTITION (la solución definitiva a escala, diferida a spec de infraestructura propia — Out of scope).
 
@@ -34,7 +35,8 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 
 ## D6 — Identidad batch: tenant_context con bypass explícito, verificado post-017
 
-- **Decision**: purgador y emisor de la cadena de licencias (hoy `SessionLocal` pelado, audit_events.py:213-218) usan `tenant_context(bypass=True)` (mecanismo database.py:64-76, precedente gateway.py:901). Criterio verificable: la suite corre con `tenant_isolation_bootstrap` dropeada y rol NOSUPERUSER, y pasa.
+- **Decision**: purgador y emisor de la cadena de licencias (hoy `SessionLocal` pelado) usan `tenant_context(None, bypass=True)` (mecanismo database.py:65). Criterio verificable: la suite corre con `tenant_isolation_bootstrap` dropeada y rol NOSUPERUSER, y pasa.
+- **Enmienda 13-ago *(aprobada por el manager)*, tras el gate adversarial**: la decisión original citaba `gateway.py:901` como precedente y escribía `tenant_context(bypass=True)`. Las dos cosas eran falsas: en `gateway.py` hay `with tenant_context(tid):` (tenant scopeado, sin bypass, hoy línea 960) y la firma exige `tenant_id` posicional, así que el snippet no compilaba. Lo cierto es que **esta spec estrena `bypass=True` en producción** — antes no existía ninguno en `backend/src`, sólo el ejercicio de `tests/test_rls_isolation.py:196-210`. Y la regla que hace que el `with` alcance no es la que parece: el bypass se inyecta como `SET LOCAL` (`database.py:44-61`), o sea que **muere con la transacción, no con el bloque**; de ahí que los jobs reciban `session_factory` y nunca una `Session` ya viva (una sesión abierta afuera que consulte adentro se lleva el bypass puesto a todo lo que haga después, ya fuera del `with`, en el proceso que además hace `DELETE`).
 - **Rationale**: RLS FORCE + el mandato escrito de la 017 de eliminar la policy bootstrap → un job sin contexto pasaría de funcionar a NO VER FILAS: retención que aparenta enforced sin serlo, el peor modo de falla. Sellarlo ahora cuesta un párrafo; en el merge costaría días.
 - **Alternatives considered**: iterar por tenant con GUC por tenant (más «puro» multi-tenant; innecesario en single-tenant y más lento — se reevalúa cuando FR-010 despierte).
 
