@@ -12,7 +12,9 @@
 
 # ── Install & Factory ──
 deploy/ @FalimeJ
-cli/ @FalimeJ
+
+# ── Wizard-install: CLI basa-admin/signer (recambio weekly 13-ago, full ownership Cristian) ──
+cli/ @cluna-8
 
 # ── La ITV (harness de carga, spec 035 — label team:itv) ──
 harness/ @DrZuzzjen
