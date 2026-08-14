@@ -12,6 +12,7 @@
 
 # ── Install & Factory ──
 deploy/ @FalimeJ
+cli/ @FalimeJ
 
 # ── La ITV (harness de carga, spec 035 — label team:itv) ──
 harness/ @DrZuzzjen

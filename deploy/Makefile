@@ -8,7 +8,7 @@ DOCS_IMG ?= basa-docs:prod
 # Marca por defecto para el entregable de la extensión (028): el piloto Cámara.
 EXT_BRAND ?= camara-comercio
 
-.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-engine-admission check-engine-local-limits
+.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-engine-admission check-engine-local-limits cli-build-signer cli-build-admin cli-check
 
 build: build-backend build-frontend build-docs
 
@@ -112,3 +112,19 @@ check-trust-kit:
 
 check-tofu:
 	$(REPO_ROOT)/deploy/release/checks/test_tofu_validate.sh
+
+# 026 T005 — targets de basa-admin-signer/basa-admin, delegando a cli/Makefile.
+# cli-check NO esta en el `check` agregado de arriba todavia: sus sub-targets de
+# contract/offline/artifact-boundary/bundle-contents son placeholders hasta que
+# las fases 2-5 de la 026 los implementen (mismo criterio que el comentario de
+# check-docs: un gate no entra al agregado hasta que verifica algo real, para no
+# quedar "verde" sin haber probado nada). Se agrega a `check` cuando esos tests
+# existan (026, antes de armar el primer bundle real - FR-019/FR-020/FR-021).
+cli-build-signer:
+	$(MAKE) -C $(REPO_ROOT)/cli build-signer
+
+cli-build-admin:
+	$(MAKE) -C $(REPO_ROOT)/cli build-admin
+
+cli-check:
+	$(MAKE) -C $(REPO_ROOT)/cli test
