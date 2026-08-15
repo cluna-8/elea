@@ -1,6 +1,6 @@
 # Tech Tree Guardian — Fase 0 → 1 → 2
 
-**Departamento**: Guardian App Ecosystem (JF) · **Fecha**: 2026-08-12 · **Estado**: vigente — actualizado con los resultados del **examen 125** (gate PASS) y el re-corte de ciclos al 5-SEP sellado por JF
+**Departamento**: Guardian App Ecosystem (JF) · **Fecha**: 2026-08-15 · **Estado**: vigente — actualizado con los resultados del **examen 125** (gate PASS), el re-corte de ciclos al 5-SEP sellado por JF y los **2 nodos nuevos sellados el 12-ago** (región de compliance · compresión 023)
 **Presentación**: artifact «Tech Tree Guardian» (mismo contenido que este archivo; este markdown es la fuente de verdad).
 **Companion de**: `specs/ROADMAP-guardian.md` (estado por spec) · ArquitectOverview (mapa técnico, **HISTÓRICO** pre-mudanza — el vigente es EcosystemOverview) · ManosALaObra v4 (metodología).
 
@@ -20,6 +20,8 @@ Leyenda: ✅ hecho (funciona en `main`) · 🔨 por construir · 🆕 nuevo (sin
 
 La razón por la que un cliente paga: «controlo los costos, veo todo lo que hacen mis empleados con la IA, y cumplo RGPD — sin frenarlos». Alcance: **API/BYOK, sin extensión**. Cuatro ramas; la fase se completa cuando TODOS los nodos están en verde **y** los tres gates del examen pasaron.
 
+**Conteo del avance** (el denominador vivo lo lleva `tech-team/progress.html`): hoy **26 nodos + 3 gates = 29 unidades** (24→26 el 12-ago al entrar región de compliance y compresión 023, decisión JF). No todo bullet de este árbol suma al denominador: los 🩺 hallazgos remiten a nodos ya contados, y el módulo 036 computa a través de sus nodos (región #174/#137 · content filter #178).
+
 ### 🛡️ Rama: Compliance & auditoría
 
 - ✅ **Registro durable de todo** — cada petición y cada bloqueo queda en base de datos: quién, qué modelo, qué capa bloqueó y por qué; sobrevive reinicios. **Verificado bajo carga real el 12-ago**: 30 min sostenidos, paridad exacta 1506 eventos = 1506 filas, Δ pérdida = 0. *(spec 031 · evidencia `tech-team/examenes/20260812/`)*
@@ -35,6 +37,7 @@ La razón por la que un cliente paga: «controlo los costos, veo todo lo que hac
 - ✅ **Costo por petición y por usuario** — cada request registra su costo; el panel agrega por usuario/key/modelo; el modelo local computa 0. *(spec 030)*
 - 🔨 **Tarifario centralizado** — el alcance creció en el weekly: además de los precios que faltan (gpt-5.5, gpt-4.1-mini…), conectar una **fuente pública de precios de modelos** para actualización sin mantenimiento manual por proveedor + visualización en el panel. *(#73 ampliado)*
 - 🆕 **Presupuestos con alertas y flexibilidad** — niveles de alerta estilo AWS + presupuesto variable (hasta +10%) para roles de alto consumo, como política básica de control; prioridad del gasto personal antes que el grupal. *(weekly 05-ago, sin spec)*
+- 🔨 **Compresión de tokens en el plano real (023)** — la cascada `compression_mode` por fin consume en el plano firewall. **Entra a Fase 0 por decisión de JF (12-ago)**: se construye en C2 y se mide en el examen de features de La ITV (#170). *(spec 023 · #16)*
 
 ### 🧑‍💼 Rama: El partner configura TODO solo
 
@@ -46,6 +49,7 @@ La razón por la que un cliente paga: «controlo los costos, veo todo lo que hac
 - 🔨 **Login con Microsoft y Google (SSO escalón 1)** — para clientes que viven en Microsoft 365 / Google Workspace: entrar con la cuenta corporativa (OIDC). Hoy el SSO es vitrina mock. **Escalonado**: Entra + Google ahora; escalón 2 (post-Fase 0): SAML, otros IdP y **Active Directory + segmentación por roles/grupos** — consulta crítica de cliente identificada en el weekly. *(017 parcial)*
 - 🆕 **Carga masiva de usuarios + invitaciones** — alta por lotes (hoy es una por una, no escala a 125+) y envío de correos de activación de cuenta. *(weekly 05-ago, sin spec)*
 - 🆕 **Reinicio de contenedores desde la UI** — botón para reiniciar servicios sin scripts externos: alivio inmediato del dolor que la 033 elimina de raíz; se especifica junto a la 033. *(weekly 05-ago)*
+- 🔨 **Región de compliance elegida por el partner** — la región vive en el **TENANT** (canon de almacenamiento) y el wizard es la capa UX que la escribe al instalar; se activan solo los recognizers de esa región para que el NLP tenga menos ruido. **Nodo nuevo sellado por JF el 12-ago.** *(#174 + #137)*
 - 🔨 **Los huecos que revele Evidenze** — las preguntas de Cristian al wizard en el ensayo dicen qué configuración aún NO se puede hacer solo; cada hueco se vuelve nodo.
 
 ### 💪 Rama: Aguanta gente
