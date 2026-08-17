@@ -428,3 +428,40 @@ def test_custom_auth_propaga_la_postura_cruda_a_la_identidad(monkeypatch):
         custom_auth.user_api_key_auth(_Request(), "sk-basa-de-prueba"))
 
     assert auth.metadata["basa"]["nlp_fail_mode"] == "degrade"
+
+
+# ── 5) presidio_analyze no queda mudo ante un fallo (issue #167, sub-fix 1) ──────
+
+
+class _ClienteQueRevienta:
+    """Doble de httpx.AsyncClient cuyo `post` levanta la excepción real de httpx —
+    incluido el caso, real en prod, de un timeout SIN mensaje (`str(e) == ""`)."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url, json=None):
+        raise httpx.ReadTimeout("")  # str(e) vacío: así llega un timeout real de httpx
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_no_queda_mudo_ante_timeout_sin_mensaje(monkeypatch):
+    """Antes del fix: `str(httpx.ReadTimeout(""))` es `""`, y el except armaba el
+    `NlpUnavailableError` (y el WARNING) directo con eso — el operador veía un fallo
+    sin causa ni cuánto tardó. Ahora el tipo de excepción y el elapsed van SIEMPRE en
+    el mensaje, la tenga o no la excepción original."""
+    monkeypatch.setattr(httpx, "AsyncClient", _ClienteQueRevienta)
+
+    with pytest.raises(policy.NlpUnavailableError) as excinfo:
+        await policy.presidio_analyze("hola", ANALYZER, [])
+
+    mensaje = str(excinfo.value)
+    assert mensaje, "el mensaje no puede quedar vacío — eso es exactamente el bug mudo"
+    assert "ReadTimeout" in mensaje, "el tipo de excepción tiene que quedar en el mensaje"
+    assert ANALYZER in mensaje, "hay que saber CONTRA QUÉ analyzer falló"

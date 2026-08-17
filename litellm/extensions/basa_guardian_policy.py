@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from typing import Awaitable, Callable, Optional, Tuple
 
@@ -512,14 +513,24 @@ async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[
         "entities": None,
         "ad_hoc_recognizers": build_ad_hoc_recognizers(custom_names, region, custom_entities),
     }
+    t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(f"{analyzer_url.rstrip('/')}/analyze", json=payload)
             r.raise_for_status()
             raw = r.json()
     except Exception as e:
-        logger.warning("Presidio Analyzer no disponible (%s): %s", analyzer_url, e)
-        raise NlpUnavailableError(str(e)) from e
+        # `str(e)` puede salir VACÍO (p.ej. un httpx.ReadTimeout sin argumentos): el
+        # mensaje no puede depender de eso o el fallo queda mudo (ni causa ni cuánto
+        # tardó). El tipo + el elapsed SIEMPRE están, pase lo que pase con str(e).
+        elapsed = time.monotonic() - t0
+        msg = (f"{type(e).__name__} tras {elapsed:.3f}s contra {analyzer_url} "
+               f"(timeout={timeout}s)")
+        detalle = str(e)
+        if detalle:
+            msg = f"{msg}: {detalle}"
+        logger.warning("Presidio Analyzer no disponible: %s", msg)
+        raise NlpUnavailableError(msg) from e
 
     if not isinstance(raw, list):
         raise NlpUnavailableError(f"respuesta inesperada del Analyzer: {type(raw)!r}")
