@@ -14,7 +14,13 @@ from ..models.compliance import (
     ComplianceProject, DPARegistry, DataSubjectRequest, HumanReview, RetentionPolicy
 )
 from ..models.audit import AuditLog
+from ..models.tenant import DEFAULT_TENANT_ID
 from ..auth.rbac import require_role
+# Tier de enforcement (spec 018 FR-007/FR-008, D7): la capa `enforcement_tier_estricto` del
+# registry 027. La resolución vive en el camino existente por tenant —`resolve_tenant_profile`,
+# la misma cascada que consume el resto de la gobernanza—, NO en un mecanismo nuevo.
+from ..services.governance_resolution import resolve_tenant_profile
+from ..services.governance_catalog import map_effective_mode
 # La vista lógica de `guardian_events` (spec 018). Se IMPORTA de la vitrina de auditoría en
 # vez de repetirse acá: el desarmado del sobre del upstream es uno solo para las tres
 # superficies que lo exponen, y el porqué largo está escrito una sola vez, en `api/audit.py`.
@@ -319,6 +325,75 @@ def list_pending_reviews(db: Session = Depends(get_db)):
 
 # ── Retention Policies ────────────────────────────────────────────────────────
 
+# Capa de tier del registry 027 (spec 018 D7). `on` = estricto; `off`/ausente = estándar.
+_ENFORCEMENT_TIER_LAYER = "enforcement_tier_estricto"
+
+# Mínimos y topes de retención por clase y por tier (tabla D7, research.md). El índice de la
+# tupla es (estándar, estricto). `None` = ese borde no aplica a la clase.
+#
+# - Todas las clases tienen un MÍNIMO (por debajo → 422). En estricto los mínimos suben.
+# - Solo `prompt_content` tiene TOPE (por encima → 422): por privacidad, el contenido no
+#   puede retenerse MÁS de lo permitido, y en estricto el tope baja de 365 a 90 días.
+# - El piso legal vigente de `config_audit` (≥ 365 en estándar) se preserva exactamente.
+#
+# Esta validación se APILA encima del piso del purgador (`PLAZO_MINIMO_DIAS`, purger.py): el
+# endpoint valida para dar buen error, el purgador valida para no destruir. Ninguno reemplaza
+# al otro.
+_RETENTION_BOUNDS = {
+    #                    min (estándar, estricto)   tope (estándar, estricto)
+    "config_audit":    {"min": (365, 730), "max": (None, None)},
+    "security_events": {"min": (30, 365),  "max": (None, None)},
+    "usage_metadata":  {"min": (30, 365),  "max": (None, None)},
+    "prompt_content":  {"min": (1, 1),     "max": (365, 90)},
+}
+
+
+def _instalacion_en_tier_estricto(db: Session) -> bool:
+    """¿La instalación corre en tier `estricto`?
+
+    La retención hoy es global/single-tenant (`retention_policies.log_type` es UNIQUE global,
+    `models/compliance.py:93-95`) y este endpoint no recibe tenant, así que el tier que la
+    gobierna es el de la INSTALACIÓN: el `enforcement_tier_estricto` del tenant por defecto.
+    Se resuelve por el camino existente (`resolve_tenant_profile` → misma cascada de la 027);
+    sin fila explícita, cae al default de producto `off` = estándar (fail-open hacia el tier
+    menos restrictivo, que es la postura de fábrica documentada en data-model 018).
+
+    `mode` sale de `map_effective_mode(None)` = el modo sin contexto de ruteo (gateway-models):
+    da igual para una decisión de alcance `tenant_default`, que aplica en todos los modos, y es
+    el argumento honesto para una consulta que no nace de un pedido con ruteo.
+    """
+    profile = resolve_tenant_profile(db, DEFAULT_TENANT_ID, mode=map_effective_mode(None))
+    return profile.is_on(_ENFORCEMENT_TIER_LAYER)
+
+
+def _validar_plazo(log_type: str, retention_days: int, *, estricto: bool) -> None:
+    """Valida el plazo de una clase contra los mínimos/topes del tier vigente (FR-007).
+
+    Fuera de rango → HTTP 422 con el piso/tope concreto y la clase en el `detail`, en la línea
+    del `config_audit ≥ 365` que existía antes. Una clase sin cotas declaradas no se valida acá
+    (queda con la sola red del purgador).
+    """
+    bounds = _RETENTION_BOUNDS.get(log_type)
+    if not bounds:
+        return
+    idx = 1 if estricto else 0
+    tier = "estricto" if estricto else "estándar"
+    minimo = bounds["min"][idx]
+    tope = bounds["max"][idx]
+    if minimo is not None and retention_days < minimo:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"La retención de '{log_type}' no puede ser inferior a {minimo} días "
+                    f"(tier {tier})."),
+        )
+    if tope is not None and retention_days > tope:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"La retención de '{log_type}' no puede superar {tope} días "
+                    f"(tier {tier})."),
+        )
+
+
 @router.get("/retention", response_model=List[RetentionPolicyResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def get_retention(db: Session = Depends(get_db)):
     return db.query(RetentionPolicy).order_by(RetentionPolicy.log_type).all()
@@ -326,13 +401,15 @@ def get_retention(db: Session = Depends(get_db)):
 
 @router.put("/retention", response_model=List[RetentionPolicyResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def update_retention(policies: List[RetentionPolicySchema], db: Session = Depends(get_db)):
+    # El tier vigente de la instalación se resuelve UNA vez por request (FR-007/D7).
+    estricto = _instalacion_en_tier_estricto(db)
     updated = []
     for p in policies:
         row = db.query(RetentionPolicy).filter(RetentionPolicy.log_type == p.log_type).first()
         if not row:
             continue
-        if p.log_type == "config_audit" and p.retention_days < 365:
-            raise HTTPException(status_code=422, detail="La retención de logs de configuración no puede ser inferior a 365 días.")
+        # Valida ANTES de mutar la fila: fuera de rango aborta el request sin escribir nada.
+        _validar_plazo(p.log_type, p.retention_days, estricto=estricto)
         row.retention_days = p.retention_days
         row.justification = p.justification
         row.updated_by = p.updated_by

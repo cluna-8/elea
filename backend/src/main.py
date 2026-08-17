@@ -72,6 +72,7 @@ BRAND_NAME = os.getenv("BRAND_NAME", "Basa Secure AI Gateway")
 # keys/users), pero jamás mata el proceso (SC-013) — initialize() no levanta.
 from .licensing import entitlement as license_entitlement  # noqa: E402
 from .licensing import reconcile as license_reconcile  # noqa: E402
+from .services import retention_scheduler  # noqa: E402
 
 license_entitlement.initialize()
 
@@ -82,10 +83,15 @@ async def _lifespan(_app: FastAPI):
     # la app; 100% local, sin phone-home. Interval/off por
     # BASA_LICENSE_RECONCILE_INTERVAL_SECONDS.
     license_reconcile.start_scheduler()
+    # Purga de retención (spec 018 FR-001, T011): mismo patrón, al lado. Doble
+    # compuerta propia: queda APAGADA salvo BASA_PURGE_ENABLED=true, porque un job
+    # que hace DELETE retroactivo no se enciende con un pull de imagen.
+    retention_scheduler.start_scheduler()
     try:
         yield
     finally:
         license_reconcile.stop_scheduler()
+        retention_scheduler.stop_scheduler()
 
 
 app = FastAPI(
@@ -147,5 +153,10 @@ async def health_check():
     return {
         "status": "healthy",
         "service": os.getenv("BRAND_SERVICE_ID", "basa-secure-ai-gateway-backend"),
-        "version": "1.0.0"
+        "version": "1.0.0",
+        # Liveness del scheduler de purga (spec 018 FR-001, T011): booleano barato, sin I/O,
+        # así que va en el healthcheck del contenedor sin volverlo caro ni tocar `status`.
+        # Va acá —junto al wiring del lifespan— y no en `/api/v1/health`, cuyo tier anónimo
+        # está sellado en `{status, service, version}`.
+        "purge_scheduler_running": retention_scheduler.scheduler_running(),
     }

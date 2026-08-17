@@ -10,10 +10,12 @@ Qué vive acá:
 - `classifier.py` — LA única definición de «qué fila de `audit_logs` pertenece a qué clase
   de retención» (FR-002), consumida por el purgador Y por la vitrina de auditoría. Sin un
   solo lugar, purgador y vitrina cuentan cosas distintas sobre la misma tabla.
-- `purger.py` — **todavía no está: llega en el PR de US1.** Será la corrida: cutoff contra el
-  reloj de la DB, DELETE por lotes acotados dentro de la ventana horaria, muerte del único
-  texto real durable (`human_reviews.response_text`) y rastro auditable de cada corrida
-  (FR-001/004/005). Este paquete entrega hoy sólo la DEFINICIÓN; no borra nada.
+- `purger.py` — la corrida (US1): cutoff contra el reloj de la DB, DELETE por lotes acotados
+  dentro de la ventana horaria (T008), muerte del único texto real durable
+  (`human_reviews.response_text`, FR-004/T009) y rastro auditable de cada corrida
+  (`purge_log` por clase + fila resumen `config_audit`, FR-005/T010). Invocable a mano por CLI
+  (`python -m src.services.retention.purger --run-now`). Simulacro por default: no borra hasta
+  `BASA_PURGE_DRY_RUN=false`.
 
 Qué NO vive acá, a propósito:
 

@@ -164,8 +164,9 @@ def test_resumen_por_modo_sin_parametros(harness, monkeypatch):
     assert [b["mode"] for b in cuerpo["modes"]] == ["subscription", "gateway-models"]
     for bloque in cuerpo["modes"]:
         claves = [c["layer_key"] for c in bloque["layers"]]
-        assert len(claves) == len(set(claves)) == 10, "cada modo lista el catálogo completo"
-    assert len(cuerpo["layers"]) == 20, "layers = unión de los bloques por modo"
+        # spec 018 T016: el catálogo pasó de 10 a 11 capas (`enforcement_tier_estricto`).
+        assert len(claves) == len(set(claves)) == 11, "cada modo lista el catálogo completo"
+    assert len(cuerpo["layers"]) == 22, "layers = unión de los bloques por modo"
 
 
 def test_valores_fuera_de_enum_devuelven_422_nombrando_el_valor(harness, monkeypatch):

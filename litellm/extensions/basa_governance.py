@@ -307,6 +307,27 @@ _CATALOG: Tuple[GovernanceLayer, ...] = (
         guardian_types=("sensitive_routing",),
     ),
     GovernanceLayer(
+        layer_key="enforcement_tier_estricto",
+        tier=TIER_OPTIONAL,
+        # Capa consumida SOLO por el backend (spec 018 D7, §45): pisos de retención de
+        # FR-007, aserción de postura `BASA_AUDIT_FAIL` y consecuencias de capas con grado.
+        # El resolutor del motor la ignora por ser clave que no consume (data-model 018 §
+        # «Tier de enforcement»), así que vive en el plano `backend`, igual que
+        # `sensitive_routing`.
+        planes=frozenset({PLANE_BACKEND}),
+        # No es un guardián con proveedor: es una POSTURA de la instalación (on = estricto),
+        # sin credencial externa ni delegación upstream posible.
+        requires_credential=False,
+        delegable_to_upstream=False,
+        # Semántica D7: on = estricto; off/ausente = estándar (default de fábrica). Nace off
+        # como cualquier capa gobernable que agrega rigor solo cuando el admin la enciende.
+        default_decision=OFF,
+        # No ata a ningún guardián sembrado —es una perilla de gobernanza, no una
+        # protección con instancia—, igual que las capas de piso `interception_audit` /
+        # `ai_act_evaluation` que tampoco tienen fila en `guardians`.
+        guardian_types=(),
+    ),
+    GovernanceLayer(
         layer_key="content_moderation",
         tier=TIER_OPTIONAL,
         planes=frozenset({PLANE_ENGINE}),

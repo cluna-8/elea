@@ -139,6 +139,7 @@ LAYER_LABELS = {
     "prompt_injection": "Defensa anti-inyección de prompts",
     "content_safety": "Seguridad de contenido por severidad",
     "provider_guardrails": "Guardarraíles de plataforma en la nube",
+    "enforcement_tier_estricto": "Tier de enforcement estricto",
 }
 
 _faltantes = [k for k in LAYER_KEYS if k not in LAYER_LABELS]

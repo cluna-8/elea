@@ -6,21 +6,23 @@ Prerrequisitos: stack Docker Compose local (`docker compose -p <tuequipo> up`), 
 
 > **Siembra — pendiente (T013).** El seed sintético `tests/seeds/seed_retention_dataset.py` **todavía no existe** (el directorio `backend/tests/seeds/` no está creado): entra con el PR de US1, junto a T012. Tiene que sembrar 200 días con blocked%, rejected%, config_change_*, tráfico normal, `human_reviews` con `response_text` viejo y las TRES formas de fila `license` que el Contrato 1 distingue — eslabón US5+ (`seq`+`prev_hash`+`event_type`), licencia pre-US5 (`event_type` sin `seq`) y spoof (`model='license'` con `guardian_events=[]`). Las dos primeras tienen que sobrevivir a la purga; la tercera tiene que morir. Hasta que exista, este §1 se ensaya sobre los datos que ya tenga la instalación y el simulacro devuelve los conteos reales de esa base.
 
-> **Cómo se invoca la corrida.** `purger.py` **no tiene entrypoint de CLI** —no hay `__main__` ni `argparse`—, así que `python -m src.services.retention.purger --run-now` **no ejecuta nada**. El punto de entrada es `run_once(run_now=True)`, y `--run-now`/`run_now` dice CUÁNDO, no SI BORRA. El comando de abajo está verificado en vivo el 14-ago sobre el stack de compose. Si el PR de US1 le agrega el CLI, esta sección se actualiza con él.
+> **Cómo se invoca la corrida.** El PR de US1 agregó el entrypoint de CLI: `python -m src.services.retention.purger --run-now` ya **ejecuta una corrida** (`if __name__ == "__main__"` + `argparse` al pie de `purger.py`). `--run-now` dice CUÁNDO (saltea la ventana), no SI BORRA: eso lo decide `BASA_PURGE_DRY_RUN` (default `true` = simulacro), que el CLI NO toca. Bajo el capó el CLI llama a `run_once(run_now=True)`, así que el `python -c` de siempre sigue siendo equivalente.
 
-> ⚠️ **Estos comandos necesitan `purger.py`, que llega en el PR de US1.** En el árbol del PR
-> Foundational el módulo no existe todavía y la invocación falla con `ImportError`. La salida
-> que se transcribe abajo se midió sobre la rama de trabajo con T008 aplicado, no sobre `main`.
+> ⚠️ **Estos comandos necesitan `purger.py` con el CLI, que entra con el PR de US1.** En el árbol
+> del PR Foundational el módulo no existe todavía y la invocación falla con `ImportError`.
 
 ```bash
 # SIMULACRO — es el default (BASA_PURGE_DRY_RUN=true): cuenta lo que se iría y no borra nada.
 # Es el paso que el DPO firma antes de la corrida real.
-docker compose exec backend python -c \
-  "from src.services.retention import purger; print(purger.run_once(run_now=True))"
+docker compose exec backend python -m src.services.retention.purger --run-now
 
 # Recién después, la corrida REAL. El simulacro es el default, así que hay que pedir
 # explícitamente que borre — y en una instalación de cliente, además, encender el maestro:
-docker compose exec -e BASA_PURGE_DRY_RUN=false backend python -c \
+docker compose exec -e BASA_PURGE_DRY_RUN=false backend \
+  python -m src.services.retention.purger --run-now
+
+# Equivalente exacto sin el CLI (lo que el CLI llama por dentro):
+docker compose exec backend python -c \
   "from src.services.retention import purger; print(purger.run_once(run_now=True))"
 ```
 
@@ -70,7 +72,21 @@ Se usa `jsonb_exists(x, 'k')` y no el operador `x ? 'k'` a propósito: es la MIS
 
 `SELECT purge_log FROM retention_policies;` + filas `config_audit` de resumen — reconstruir qué se borró, cuándo y bajo qué política usando SOLO ese registro.
 
-> **No verificable todavía (T010).** El purgador **no escribe** hoy ni el `purge_log` ni la fila resumen: el rastro de una corrida es el `ResultadoCorrida` que devuelve `run_once` más la línea de log. La forma de la entrada ya está fijada por los dataclasses `ResultadoPurga` y `ResultadoCorrida` de `purger.py`, así que T010 no la reinventa — la persiste. Este §2 se ejecuta con el PR de US1.
+> **Verificable desde el PR de US1 (T010).** La corrida REAL persiste el rastro en las dos representaciones que fija `data-model.md` §«Corrida de purga», ambas metadata-only: (1) una entrada por clase en su `retention_policies.purge_log` (JSONB, capada a las últimas 50 corridas por clase), con los campos de `ResultadoPurga`; (2) UNA fila resumen por corrida en `audit_logs`, clase `config_audit` (`compliance_status='config_change_retention_purge'`, `model` no-`license`), con los campos de `ResultadoCorrida` —incluido `filas_no_clasificadas`— en `guardian_events`. El **simulacro no escribe**: en `dry_run` el rastro es sólo el `ResultadoCorrida` que devuelve `run_once` más el log.
+>
+> ```sql
+> -- La entrada de la última corrida en cada clase:
+> SELECT log_type, jsonb_array_length(purge_log) AS corridas,
+>        purge_log -> -1 AS ultima
+> FROM retention_policies;
+>
+> -- La fila resumen por corrida (una por run_id), y su clasificación (config_audit → 730 d):
+> SELECT timestamp, compliance_status, guardian_events -> 0 ->> 'run_id' AS run_id,
+>        guardian_events -> 0 -> 'filas_no_clasificadas' AS residuo
+> FROM audit_logs
+> WHERE compliance_status = 'config_change_retention_purge'
+> ORDER BY timestamp DESC;
+> ```
 
 ## 3 · SC-004: el mundo post-017
 

@@ -59,14 +59,16 @@ def _resolve(config=None, *, mode=gov.MODE_GATEWAY_MODELS, surface=None,
 # ── Registry ──────────────────────────────────────────────────────────────────────
 
 
-def test_catalogo_completo_10_capas_4_de_piso():
-    assert len(gov.GOVERNANCE_LAYERS) == 10
+def test_catalogo_completo_11_capas_4_de_piso():
+    # spec 018 T016: `enforcement_tier_estricto` se suma como 7ª capa opcional (backend-only).
+    assert len(gov.GOVERNANCE_LAYERS) == 11
     assert len(FLOOR_KEYS) == 4
-    assert len(OPTIONAL_KEYS) == 6
+    assert len(OPTIONAL_KEYS) == 7
     assert set(FLOOR_KEYS) == {"interception_audit", "pii_detection",
                                "secret_detection", "ai_act_evaluation"}
     assert set(OPTIONAL_KEYS) == {"pii_masking", "sensitive_routing", "content_moderation",
-                                  "prompt_injection", "content_safety", "provider_guardrails"}
+                                  "prompt_injection", "content_safety", "provider_guardrails",
+                                  "enforcement_tier_estricto"}
     # Orden canónico: piso primero (determinismo del orden de applied_layers).
     assert gov.LAYER_KEYS[:4] == FLOOR_KEYS
 
@@ -81,6 +83,23 @@ def test_defaults_de_producto_dan_postura_completa_sin_seed():
             assert gov.GOVERNANCE_LAYERS[key].default_decision == gov.OFF
     for key in FLOOR_KEYS:
         assert gov.GOVERNANCE_LAYERS[key].default_decision is None
+
+
+def test_enforcement_tier_estricto_es_capa_backend_only_gobernable():
+    """spec 018 T016 (D7): la capa de tier es OPCIONAL, backend-only, nace `off` (= estándar),
+    no ata a ningún guardián y no se delega ni admite override por Connection.
+
+    Es la clave que el backend consulta para los pisos de retención (FR-007), la aserción de
+    `BASA_AUDIT_FAIL` y las consecuencias de las capas con grado. El motor la ignora."""
+    layer = gov.GOVERNANCE_LAYERS["enforcement_tier_estricto"]
+    assert layer.tier == gov.TIER_OPTIONAL
+    assert layer.default_decision == gov.OFF          # off/ausente = estándar
+    assert layer.planes == frozenset({gov.PLANE_BACKEND})
+    assert layer.guardian_types == ()                 # posición de gobernanza, no guardián
+    assert layer.requires_credential is False
+    assert layer.delegable_to_upstream is False
+    assert layer.delegation_reason is None
+    assert layer.supports_connection_override is False
 
 
 def test_solo_pii_masking_admite_override_por_connection():
