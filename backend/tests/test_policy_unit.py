@@ -221,10 +221,16 @@ class _FakeAsyncClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def post(self, url, json=None):
+    async def post(self, url, json=None, timeout=None):
         if self._raise_exc:
             raise self._raise_exc
         return self._response
+
+
+# Reset del singleton de `presidio_analyze` entre tests: fixture GLOBAL autouse en
+# `conftest.py` (`_reset_presidio_http_client_singleton`) — necesita resetear DOS
+# entradas de sys.modules (import bare vs `extensions.`-prefixed), no sólo la que ve
+# este archivo, así que vive ahí y no acá.
 
 
 # ── resolve_overlaps (spec 016 FR-009) ─────────────────────────────────────────
@@ -418,6 +424,48 @@ async def test_presidio_analyze_empty_text_short_circuits(monkeypatch):
         raise AssertionError("no debería llamar a httpx con texto vacío")
     monkeypatch.setattr("httpx.AsyncClient", _boom)
     assert await policy.presidio_analyze("", "http://presidio:3000", []) == []
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_reusa_el_mismo_cliente_entre_llamadas(monkeypatch):
+    """#167: crear un `AsyncClient` nuevo por request agotaba sockets en TIME_WAIT (46
+    medidos en el issue). Dos llamadas seguidas tienen que construir el `AsyncClient`
+    UNA sola vez y reusar la misma instancia — no una por request."""
+    construcciones = []
+
+    def _construir(**kw):
+        cliente = _FakeAsyncClient(response=_FakeResponse(200, []))
+        construcciones.append(cliente)
+        return cliente
+
+    monkeypatch.setattr("httpx.AsyncClient", _construir)
+
+    await policy.presidio_analyze("Juan Pérez fue", "http://presidio:3000", [])
+    await policy.presidio_analyze("otra vez Juan Pérez", "http://presidio:3000", [])
+
+    assert len(construcciones) == 1, (
+        f"AsyncClient se construyó {len(construcciones)} veces — se esperaba 1 (reuso)")
+
+
+@pytest.mark.asyncio
+async def test_presidio_analyze_pasa_el_timeout_por_llamada(monkeypatch):
+    """El timeout ya no es config del cliente (que ahora se reusa) — tiene que viajar
+    por-llamada en el `.post()`, así dos requests con timeouts distintos no chocan."""
+    vistos = []
+
+    class _ClienteQueRegistraTimeout(_FakeAsyncClient):
+        async def post(self, url, json=None, timeout=None):
+            vistos.append(timeout)
+            return await super().post(url, json=json, timeout=timeout)
+
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda **kw: _ClienteQueRegistraTimeout(response=_FakeResponse(200, [])),
+    )
+
+    await policy.presidio_analyze("hola", "http://presidio:3000", [], timeout=7.5)
+
+    assert vistos == [7.5]
 
 
 def test_rewrite_sse_block_full_stream():

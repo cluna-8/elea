@@ -497,6 +497,27 @@ def build_ad_hoc_recognizers(custom_names: Optional[list] = None, region: str = 
     return recognizers
 
 
+_http_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """Cliente httpx módulo-level, reusado entre llamadas a `presidio_analyze` (#167):
+    instanciar un `AsyncClient` nuevo por request agotaba sockets en TIME_WAIT (46
+    medidos en el issue). Lazy-init en el PRIMER uso — nunca en import-time, donde no
+    hay loop corriendo (o es el equivocado) — así el cliente queda ligado al loop del
+    motor ya vivo. Sin `timeout` fijo acá: el timeout es SIEMPRE por-request (ver
+    `presidio_analyze`), dos llamadas pueden pedir valores distintos.
+
+    Sin `aclose()` en el camino normal, a propósito: es un singleton de proceso, vive
+    tanto como el motor. Los tests lo resetean a `None` entre corridas (fixture
+    `_reset_http_client_singleton` en test_policy_unit.py) para no dejarlo atado al
+    event loop de un test ya terminado."""
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient()
+    return _http_client
+
+
 async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[list] = None,
                            region: str = DEFAULT_REGION, timeout: float = 2.0,
                            custom_entities: Optional[list] = None) -> list:
@@ -515,10 +536,11 @@ async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[
     }
     t0 = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(f"{analyzer_url.rstrip('/')}/analyze", json=payload)
-            r.raise_for_status()
-            raw = r.json()
+        client = _get_http_client()
+        r = await client.post(f"{analyzer_url.rstrip('/')}/analyze", json=payload,
+                              timeout=timeout)
+        r.raise_for_status()
+        raw = r.json()
     except Exception as e:
         # `str(e)` puede salir VACÍO (p.ej. un httpx.ReadTimeout sin argumentos): el
         # mensaje no puede depender de eso o el fallo queda mudo (ni causa ni cuánto

@@ -8,6 +8,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 # Put backend/src on the path so `from src.services...` and package imports work.
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
@@ -65,3 +67,31 @@ os.environ.setdefault("BASA_PURGE_ENABLED", "false")
 from license_fixtures import install_default_test_license  # noqa: E402
 
 install_default_test_license()
+
+
+@pytest.fixture(autouse=True)
+def _reset_presidio_http_client_singleton():
+    """`presidio_analyze` reusa un `httpx.AsyncClient` módulo-level (#167). Sin
+    resetearlo, el PRIMER test que lo crea (con lo que sea que `httpx.AsyncClient`
+    esté monkeypatcheado en ESE momento) deja el objeto cacheado para TODOS los tests
+    que corran después en la sesión — aunque vuelvan a monkeypatchear `httpx.AsyncClient`
+    con su propio doble, `_get_http_client()` ve el singleton ya no-None y nunca
+    reconstruye.
+
+    Autouse GLOBAL (no por-archivo) a propósito: `basa_guardian_policy.py` se importa
+    por DOS caminos distintos en esta suite (`from extensions import
+    basa_guardian_policy` vs el `import basa_guardian_policy` a secas de
+    `basa_guardrail.py`, que se agrega su propio directorio a `sys.path`) — son DOS
+    entradas de `sys.modules` con globals INDEPENDIENTES. Un reset local a un solo
+    archivo de test sólo limpia UNA de las dos copias; cualquier test en OTRO archivo
+    que pase por el otro camino de import sigue viendo el singleton viejo. Se resetean
+    las dos, si están cargadas."""
+    for _modname in ("basa_guardian_policy", "extensions.basa_guardian_policy"):
+        _mod = sys.modules.get(_modname)
+        if _mod is not None:
+            _mod._http_client = None
+    yield
+    for _modname in ("basa_guardian_policy", "extensions.basa_guardian_policy"):
+        _mod = sys.modules.get(_modname)
+        if _mod is not None:
+            _mod._http_client = None

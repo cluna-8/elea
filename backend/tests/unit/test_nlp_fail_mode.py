@@ -446,7 +446,7 @@ class _ClienteQueRevienta:
     async def __aexit__(self, *args):
         return False
 
-    async def post(self, url, json=None):
+    async def post(self, url, json=None, timeout=None):
         raise httpx.ReadTimeout("")  # str(e) vacío: así llega un timeout real de httpx
 
 
