@@ -53,6 +53,13 @@ Orden de gates para todo PR del depto:
 3. **Review adversarial multi-agente** además del scan si toca área de riesgo: auth/RBAC, licensing, masking/PII, streaming, migraciones.
 4. **Área propia no exime**: aunque nadie más revise (regla de review cruzada del CONTRIBUTING), los gates 1-3 aplican igual. Auto-merge solo con todos los gates verdes.
 5. **Gate de Cristian** cuando el CONTRIBUTING lo manda (claves de firma, keyset, RBAC de firma, auth).
+6. **Gate de QA por personas (Bob)** — si el PR toca superficie visible (UI de panel/portal,
+   wizard, respuestas o mensajes que ve un usuario/partner/instalador): el veredicto de QA
+   (pasada por personas — admin · usuario final · officer · partner · instalador — con
+   evidencia) es **input requerido del gate del manager** antes del merge *(regla de JF,
+   17-ago-2026)*. Alcance proporcional: pasada completa para nodos nuevos con superficie,
+   dirigida para bugfixes chicos. Sin pasada posible → se anota **pendiente** en el PR,
+   nunca se da por pasado en silencio. PRs sin superficie visible y solo-docs: exentos.
 
 ## 6 · Modo autónomo (jefe de depto ausente)
 
@@ -60,7 +67,7 @@ Orden de gates para todo PR del depto:
 |---|---|
 | Features | NO se mergean sin OK explícito de JF (mensaje desde el móvil vale) |
 | Docs / chore con DoD verde | Merge con precedente de OK (establecido 05-ago) |
-| Evidencia en el PR | Comandos corridos con salida, resultado del codex-gate, capturas si hay UI |
+| Evidencia en el PR | Comandos corridos con salida, resultado del codex-gate, capturas si hay UI, veredicto QA por personas (Bob) si tocó superficie visible |
 | Bloqueos | Si un gate no se puede pasar (crédito, entorno), el PR queda abierto con el estado anotado — nunca se degrada el gate |
 
 ## 7 · CI
