@@ -441,6 +441,13 @@ EMISORES_VIGENTES: Dict[str, str] = {
     "flagged_high_risk": CLASE_USAGE_METADATA,  # compliance_service.py:55 (alto riesgo AI-Act, no bloqueo)
     "allowed": CLASE_USAGE_METADATA,            # legado: nadie lo emite hoy, analytics.py:212 lo sigue contando
     "upstream_error": CLASE_USAGE_METADATA,     # gateway.py — pasó las capas y falló el destino
+    # gateway.STATUS_PASSTHROUGH_CANCELADO (#158): el cliente cortó el stream del passthrough
+    # antes de que drenara entero (o antes de que arrancara). Pasó las capas —el firewall no
+    # impidió nada— y no es un rechazo NUESTRO: es metadata de un pedido que no se llegó a servir
+    # completo, así que vive con `usage_metadata` (365 d), igual que `upstream_error`. No es
+    # `blocked` (nadie lo bloqueó) ni `rejected` (no fue un tope nuestro), así que el reparto por
+    # prefijo ya lo mandaba acá; esta línea vuelve esa clasificación una decisión inventariada.
+    "passthrough_cancelled": CLASE_USAGE_METADATA,
     "degraded_nlp_regex": CLASE_USAGE_METADATA,  # policy.STATUS_NLP_DEGRADED — ver HALLAZGO abajo
     # Rechazos NUESTROS: el pedido no se sirvió y el motivo no fue del usuario.
     "rejected_saturated": CLASE_USAGE_METADATA,  # engine_gate.STATUS_SATURATED (#135)

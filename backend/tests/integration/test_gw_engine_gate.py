@@ -1021,3 +1021,323 @@ async def test_el_stream_byok_usa_el_read_timeout_propio_y_no_el_del_passthrough
     assert timeout.read == engine_gate.GW_BYOK_READ_TIMEOUT_SECONDS
     assert timeout.read > 60.0, "el default tiene que superar el techo viejo del passthrough"
     assert timeout.connect == 10.0, "el connect acotado no se toca"
+
+
+# ── #158: el passthrough de suscripción tiene la MISMA anatomía de fuga que el byok ──
+#
+# El passthrough NO gatea admisión (no hay turno, #134-③), así que acá NO se mira el semáforo.
+# Lo que se fija es la OTRA mitad del incidente: la conexión con el upstream y —promesa core,
+# "loguear TODO"— la fila de auditoría. En la ventana pre-primer-paso el `finally` del generador
+# no existe (PEP 525), así que sin el fix un passthrough cancelado deja el socket colgando Y no
+# escribe fila. Igual que el byok, la respuesta (`_StreamConTurno`) es la dueña del cierre; a
+# diferencia del byok, además es dueña de la auditoría diferida (el byok la audita en el motor).
+#
+# Se ejecuta la respuesta como ASGI DE VERDAD —`await respuesta(scope, receive, send)`— por lo
+# mismo que los tests del byok: el corte que rompe en producción es la cancelación del task group
+# de `StreamingResponse.__call__`, no un `body_iterator.aclose()` (que entra por `GeneratorExit`).
+
+
+def _peticion_passthrough():
+    """`Request` de passthrough de suscripción: sin virtual key (→ NO byok) y con el body
+    resoluble por `request.body()`. El `Authorization: Bearer` es el OAuth de la suscripción, que
+    no lleva `sk-basa-…`, así que `_detect_mode_and_key` resuelve subscription-passthrough."""
+    cuerpo = json.dumps({**CUERPO, "stream": True}).encode()
+
+    async def receive():
+        return {"type": "http.request", "body": cuerpo, "more_body": False}
+
+    return Request({
+        "type": "http", "http_version": "1.1", "method": "POST",
+        "path": "/gw/v1/messages", "raw_path": b"/gw/v1/messages", "query_string": b"",
+        "root_path": "", "scheme": "http", "server": ("test", 80), "client": ("test", 1),
+        "headers": [(b"user-agent", b"claude-cli/1.0"),
+                    (b"authorization", b"Bearer oauth-de-suscripcion")],
+    }, receive)
+
+
+async def _passthrough():
+    """Invoca el endpoint DIRECTO (no por HTTP) para poder tener el stream abierto y sin drenar:
+    el transporte ASGI de httpx bufferea la respuesta entera, así que por HTTP ese estado —el que
+    hay que cancelar— es imposible. Los `Header(...)` se pasan explícitos porque llamando la
+    función a mano el default es el objeto `Header`, no `None`."""
+    from src.api import gateway
+    return await gateway.gw_messages(
+        _peticion_passthrough(), x_basa_key=None, x_basa_redact=None, x_basa_upstream=None)
+
+
+@pytest.mark.asyncio
+async def test_el_passthrough_cancelado_antes_del_primer_chunk_cierra_upstream_y_deja_fila(
+        harness, motor, eventos_de_vitrina):
+    """La ventana de #158: el cliente corta ANTES del primer `__anext__` del generador.
+
+    El generador nunca arranca, así que su `finally` no corre (PEP 525) — exactamente donde el
+    código viejo hacía los `aclose()` y escribía la fila. El fix mueve las dos cosas al `finally`
+    de la RESPUESTA (que starlette ejecuta siempre), así que acá se afirma que (a) el upstream y el
+    `AsyncClient` se cerraron y (b) quedó UNA fila durable de `passthrough_cancelled`. Sin el fix
+    las dos fallan: socket colgado hasta el GC + hueco de auditoría."""
+    from src.api import gateway
+    _, factory = harness
+    borrar_filas(factory)
+
+    respuesta = await _passthrough()
+    assert respuesta.status_code == 200
+
+    enviados = []
+    primer_send = asyncio.Event()
+    el_socket_nunca_drena = asyncio.Event()  # se prende JAMÁS: la ventana pre-primer-paso
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+        primer_send.set()
+        await el_socket_nunca_drena.wait()
+
+    async def receive():
+        await primer_send.wait()  # el cliente se va justo mientras esperamos el drain del start
+        return {"type": "http.disconnect"}
+
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+    await asyncio.sleep(0)
+
+    assert enviados == ["http.response.start"], (
+        "el escenario tiene que morir en el PRIMER send; si llegó un chunk ya no es pre-primer-paso")
+    assert motor.streams[0].arranco is False, (
+        "el generador arrancó: entonces esto prueba otra cosa y no la ventana de #158")
+    # (a) los `aclose()` corrieron aunque el generador NUNCA arrancó — los hace la respuesta.
+    assert motor.streams[0].cerrado is True, (
+        "el upstream quedó abierto: la conexión con Anthropic se fuga hasta el GC (#158)")
+    assert motor.clientes[-1].cerrado is True, (
+        "el `AsyncClient` —dueño del pool— quedó abierto con el socket contra el upstream")
+    # (b) quedó fila durable de "cancelado": "loguear TODO" también para el pedido cortado.
+    canceladas = filas(factory, gateway.STATUS_PASSTHROUGH_CANCELADO)
+    assert len(canceladas) == 1, (
+        f"un passthrough cancelado deja UNA fila durable, quedaron {len(canceladas)} (#158)")
+    assert canceladas[0]["model"] == MODELO
+    assert canceladas[0]["prompt_tokens"] == 0 and canceladas[0]["completion_tokens"] == 0, (
+        "el generador nunca arrancó: no se vio ni un token, la fila tiene que decir 0/0")
+    assert [e["status"] for e in eventos_de_vitrina] == [gateway.STATUS_PASSTHROUGH_CANCELADO]
+
+
+@pytest.mark.asyncio
+async def test_la_auditoria_del_passthrough_cancelado_no_bloquea_el_event_loop(
+        harness, motor, eventos_de_vitrina, monkeypatch):
+    """H2 para el passthrough: la fila del cancelado se escribe en un HILO, no en el event loop.
+
+    `_audit` abre una sesión Postgres NUEVA (este plano no tiene `get_db`) y el `acquire` del pool
+    es SÍNCRONO: escribirla desde el loop congela el worker `pool_timeout` segundos bajo presión.
+    El test stubbea la escritura con un `time.sleep` (I/O bloqueante de laboratorio) y mide el
+    HUECO máximo entre latidos del loop mientras corre el `finally` de la respuesta cancelada. Si
+    la fila corre en el loop el latido se para medio segundo; si corre en un hilo, no lo nota."""
+    from src.api import gateway
+    _, factory = harness
+    borrar_filas(factory)
+
+    ESPERA_DE_LA_BASE = 0.5
+
+    def _audit_lento(*_a, **_k):
+        time.sleep(ESPERA_DE_LA_BASE)  # el `acquire` síncrono del pool, en miniatura
+        return True
+
+    monkeypatch.setattr(gateway, "_audit", _audit_lento)
+
+    hueco_maximo = 0.0
+    latiendo = True
+
+    async def latido():
+        nonlocal hueco_maximo
+        loop = asyncio.get_running_loop()
+        anterior = loop.time()
+        while latiendo:
+            await asyncio.sleep(0.005)
+            ahora = loop.time()
+            hueco_maximo = max(hueco_maximo, ahora - anterior)
+            anterior = ahora
+
+    respuesta = await _passthrough()
+    primer_send = asyncio.Event()
+    el_socket_nunca_drena = asyncio.Event()
+
+    async def send(_mensaje):
+        primer_send.set()
+        await el_socket_nunca_drena.wait()
+
+    async def receive():
+        await primer_send.wait()
+        return {"type": "http.disconnect"}
+
+    corazon = asyncio.create_task(latido())
+    await asyncio.sleep(0.05)  # unas cuantas iteraciones sanas de referencia
+    try:
+        await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+    finally:
+        latiendo = False
+        await corazon
+
+    # La fila SIGUE escribiéndose (el stub devolvió True y la vitrina capturó el evento): lo que
+    # cambia es DÓNDE corre, no si corre.
+    assert [e["status"] for e in eventos_de_vitrina] == [gateway.STATUS_PASSTHROUGH_CANCELADO]
+    assert hueco_maximo < 0.05, (
+        f"el event loop quedó bloqueado {hueco_maximo:.3f}s escribiendo la fila del passthrough "
+        "cancelado: con el pool bajo presión eso es el worker entero congelado (H2)")
+
+
+@pytest.mark.asyncio
+async def test_el_passthrough_que_drena_entero_audita_una_sola_vez_con_el_estado_de_politica(
+        harness, motor, eventos_de_vitrina):
+    """Regresión + idempotencia: el camino feliz sigue escribiendo UNA fila con el veredicto de
+    política (no `cancelled`), y la auditoría diferida no la duplica.
+
+    El `finally` de la respuesta corre la misma clausura de auditoría también acá; que quede UNA
+    sola fila y UN solo evento de vitrina es lo que fija la idempotencia por diseño (#158)."""
+    from src.api import gateway
+    _, factory = harness
+    borrar_filas(factory)
+
+    motor.soltar.set()  # el upstream cloud drena entero, sin cancelaciones
+    respuesta = await _passthrough()
+
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+
+    async def receive():
+        await asyncio.Event().wait()  # el cliente aguanta hasta el final; lo corta starlette
+
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+
+    assert enviados[0] == "http.response.start"
+    assert motor.streams[0].arranco is True and motor.streams[0].cerrado is True, (
+        "el camino feliz drena y cierra el upstream")
+    assert motor.clientes[-1].cerrado is True, "y también el `AsyncClient`"
+    # UNA sola escritura: un evento de vitrina, una fila, y el estado NO es `cancelled`.
+    assert len(eventos_de_vitrina) == 1, (
+        f"el camino feliz audita UNA sola vez, hubo {len(eventos_de_vitrina)} (¿fila duplicada?)")
+    estado_feliz = eventos_de_vitrina[0]["status"]
+    assert estado_feliz != gateway.STATUS_PASSTHROUGH_CANCELADO, (
+        "un passthrough que drenó entero se audita con el veredicto de política, no como cancelado")
+    assert len(filas(factory, estado_feliz)) == 1, "una fila durable por pedido"
+    assert len(filas(factory, gateway.STATUS_PASSTHROUGH_CANCELADO)) == 0, (
+        "el camino feliz no puede dejar una fila de cancelado")
+
+
+# ── gate #224 P2: distinguir «el destino falló» de «el cliente cortó» ──
+#
+# Los dos caminos incompletos (el generador no llega a `completo=True`) NO son el mismo evento:
+# si el cliente corta, la fila es `passthrough_cancelled`; si el UPSTREAM revienta a mitad de
+# stream, es `upstream_error`. La diferencia se decide por el TIPO de lo que sube por el
+# generador —la cancelación del cliente entra como BaseException (`CancelledError`/`GeneratorExit`,
+# absorbida por el scope de `StreamingResponse`), el fallo del destino como `Exception` de httpx—,
+# no por una heurística. Estos dos tests clavan cada rama (hallazgos 8 y 6 del gate).
+
+
+@pytest.mark.asyncio
+async def test_el_upstream_que_revienta_a_mitad_audita_upstream_error_y_no_cancelado(
+        harness, motor, eventos_de_vitrina):
+    """Hallazgo 8: un `ReadError` de `up.aiter_raw()` a mitad de stream = el destino falló, NO el
+    cliente. Antes la fila salía `passthrough_cancelled` («el cliente cortó») porque el generador
+    se interrumpía sin `completo=True` y el `finally` de la respuesta no sabía por qué. Fix: el
+    `except Exception` del generador —que NO atrapa la cancelación del cliente (BaseException)—
+    marca `upstream_error` y re-levanta; la fila sale `upstream_error` con los tokens vistos."""
+    import httpx
+    from src.api import gateway
+    _, factory = harness
+    borrar_filas(factory)
+
+    respuesta = await _passthrough()
+    assert respuesta.status_code == 200
+    up = motor.streams[0]
+
+    async def _revienta_a_mitad():
+        # Un frame de usage ANTES de reventar: la fila del fallo tiene que llevar los tokens que se
+        # alcanzaron a ver, no 0. `raise` de httpx = fallo del destino, no cancelación del cliente.
+        up.arranco = True
+        yield (b'event: message_start\n'
+               b'data: {"type":"message_start","message":{"usage":{"input_tokens":11}}}\n\n')
+        raise httpx.ReadError("el upstream cortó la conexión a mitad de stream")
+
+    up.aiter_raw = _revienta_a_mitad
+
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+
+    async def receive():
+        await asyncio.Event().wait()  # el cliente NO se va: el que rompe es el destino
+
+    # La excepción del upstream se PROPAGA (no es una cancelación que el scope absorba): el stream
+    # se corta igual que hoy. Lo único que cambia por el fix es la ETIQUETA de la fila.
+    with pytest.raises(BaseException) as ei:
+        await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+    assert any(isinstance(e, httpx.ReadError) for e in _aplanar(ei.value)), (
+        "la ReadError del upstream tiene que llegar arriba, no tragarse en silencio")
+
+    assert enviados[0] == "http.response.start"
+    assert up.arranco is True, "corte a MITAD (el generador arrancó), no pre-primer-paso"
+    # El cierre corre igual —lo hace el `finally` de la respuesta— aunque el generador reventara.
+    assert up.cerrado is True and motor.clientes[-1].cerrado is True, (
+        "el upstream y el `AsyncClient` se cierran aunque el stream reviente")
+    # La fila dice `upstream_error`, NO `passthrough_cancelled`, y con los tokens vistos.
+    errores = filas(factory, "upstream_error")
+    assert len(errores) == 1, (
+        f"un upstream que revienta deja UNA fila `upstream_error`, quedaron {len(errores)}")
+    assert errores[0]["prompt_tokens"] == 11 and errores[0]["completion_tokens"] == 0, (
+        "la fila del fallo lleva los tokens vistos hasta el corte")
+    assert len(filas(factory, gateway.STATUS_PASSTHROUGH_CANCELADO)) == 0, (
+        "un fallo del destino NO puede etiquetarse como cancelación del cliente (hallazgo 8)")
+    assert [e["status"] for e in eventos_de_vitrina] == ["upstream_error"]
+
+
+@pytest.mark.asyncio
+async def test_el_passthrough_cancelado_a_mitad_deja_una_fila_con_los_tokens_vistos(
+        harness, motor, eventos_de_vitrina):
+    """Hallazgo 6: el «bonus» del PR —cancelar a MITAD del stream, no antes del primer chunk—
+    quedó sin test que lo clavara. Se entregan dos frames de usage (in=11, out=7), el cliente se
+    desconecta con el stream aún abierto, y se afirma UNA fila `passthrough_cancelled` con esos
+    tokens (no 0/0 como el caso pre-primer-paso, y no `upstream_error`: acá cortó el cliente)."""
+    from src.api import gateway
+    _, factory = harness
+    borrar_filas(factory)
+
+    respuesta = await _passthrough()
+    up = motor.streams[0]
+    tokens_vistos = asyncio.Event()  # se prende cuando los dos frames ya se espejaron en la fila
+
+    async def _dos_frames_y_se_cuelga():
+        up.arranco = True
+        # Un solo chunk con los dos frames: el generador los procesa y espeja SIN puntos de
+        # suspensión entre medio, así que para cuando `tokens_vistos` se prende la fila ya tiene
+        # in=11/out=7 — la desconexión no puede colarse a mitad y volver el test flaky.
+        yield (b'event: message_start\n'
+               b'data: {"type":"message_start","message":{"usage":{"input_tokens":11}}}\n\n'
+               b'event: message_delta\n'
+               b'data: {"type":"message_delta","usage":{"output_tokens":7}}\n\n')
+        tokens_vistos.set()
+        await asyncio.Event().wait()  # el upstream sigue "generando"; el cliente corta acá
+
+    up.aiter_raw = _dos_frames_y_se_cuelga
+
+    enviados = []
+
+    async def send(mensaje):
+        enviados.append(mensaje["type"])
+
+    async def receive():
+        await tokens_vistos.wait()  # el cliente se va con los tokens YA vistos y el stream abierto
+        return {"type": "http.disconnect"}
+
+    await asyncio.wait_for(respuesta(_scope_asgi(), receive, send), timeout=10)
+
+    assert enviados[0] == "http.response.start"
+    assert up.arranco is True, "cancelación a MITAD: el generador tiene que haber arrancado"
+    assert up.cerrado is True and motor.clientes[-1].cerrado is True, (
+        "el upstream y el `AsyncClient` se cierran también cuando el cliente corta a mitad")
+    # UNA fila de cancelado, con los tokens vistos hasta el corte (no 0/0, no `upstream_error`).
+    canceladas = filas(factory, gateway.STATUS_PASSTHROUGH_CANCELADO)
+    assert len(canceladas) == 1, (
+        f"cortar a mitad deja UNA fila `passthrough_cancelled`, quedaron {len(canceladas)}")
+    assert canceladas[0]["prompt_tokens"] == 11 and canceladas[0]["completion_tokens"] == 7, (
+        "la fila del cancelado a mitad lleva los tokens vistos hasta el corte, no 0/0")
+    assert len(filas(factory, "upstream_error")) == 0, (
+        "cortó el cliente, no el destino: NO puede salir `upstream_error`")
+    assert [e["status"] for e in eventos_de_vitrina] == [gateway.STATUS_PASSTHROUGH_CANCELADO]

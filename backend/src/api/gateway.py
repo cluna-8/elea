@@ -159,6 +159,15 @@ _ROUTING_EVENT_KEYS = ("route", "score", "model_selected", "degraded")
 # Pseudo-modelo del plano chat: el motor NO lo conoce (research R9).
 _AUTO_MODEL = "auto"
 
+# `compliance_status` propio de un passthrough en streaming que el cliente cortó antes de que
+# el generador terminara de drenar —o antes de que arrancara siquiera (PEP 525)— (issue #158).
+# "loguear TODO" es promesa core: un pedido cancelado NO puede quedar sin fila. Se audita con lo
+# que se sepa hasta el corte —identidad, modelo, capas aplicadas, tokens vistos (0 si el
+# generador nunca arrancó)— y este estado distinguible del `passed` del camino feliz, para que un
+# incidente pueda contar cuántos passthroughs se cancelaron sin confundirlos con los que salieron
+# enteros.
+STATUS_PASSTHROUGH_CANCELADO = "passthrough_cancelled"
+
 # Headers que jamás se reenvían: hop-by-hop, largo/encoding (httpx los recomputa) y
 # los propios de control. TODO lo demás (Authorization OAuth, anthropic-beta,
 # user-agent, x-app…) viaja verbatim para no romper el path de la credencial.
@@ -1237,7 +1246,24 @@ async def _rechazo_por_capacidad(request: Request, basa_key: Optional[str], mode
 
 
 class _StreamConTurno(StreamingResponse):
-    """`StreamingResponse` DUEÑA del turno de admisión, y no sólo de su generador (issue #150).
+    """`StreamingResponse` DUEÑA del cierre de la respuesta —y opcionalmente del turno de
+    admisión— y no sólo de su generador (issue #150; passthrough reusa la pieza en #158).
+
+    Tres cosas de las que puede ser dueña, todas OPCIONALES y todas por la misma razón (el
+    generador puede no arrancar nunca, PEP 525, así que su `finally` no es un lugar confiable):
+
+    * el **turno** de admisión (`turno`): sólo el byok lo tiene; el passthrough pasa `turno=None`
+      (postura deliberada #134-③) y entonces NO se llama a `liberar()`. Con `turno` presente el
+      comportamiento es idéntico al de #150 —los tests de cancelación real del byok lo custodian—;
+    * los **cierres** (`cierres`): los `aclose()` del upstream + el `AsyncClient`, que corren en
+      el `finally` de la RESPUESTA (el objeto que starlette SIEMPRE ejecuta) aunque el generador
+      nunca arranque;
+    * la **auditoría diferida** (`auditoria`): una clausura sync e IDEMPOTENTE que escribe la fila
+      durable + el evento de vitrina. El byok no la usa (su fila la escribe el motor por
+      `/internal/audit`); el passthrough sí, para no dejar sin rastro un pedido cancelado — el
+      hueco de auditoría que denuncia el #158. Corre en `run_in_threadpool` (H2: `_audit` abre
+      Postgres y `_publish_monitor` habla con Redis, los dos bloqueantes) y ESCUDADA, por lo mismo
+      que los cierres (ver abajo).
 
     El `finally` del generador (ver `gen()` en `_byok_proxy`) devuelve el turno cuando el
     generador termina o se cierra, pero hay una ventana en la que ese `finally` NO EXISTE
@@ -1278,10 +1304,11 @@ class _StreamConTurno(StreamingResponse):
     envolvente, este residual hay que volver a mirarlo.
     """
 
-    def __init__(self, contenido, *, turno, cierres=(), **kw):
+    def __init__(self, contenido, *, turno=None, cierres=(), auditoria=None, **kw):
         super().__init__(contenido, **kw)
         self._turno = turno
         self._cierres = cierres
+        self._auditoria = auditoria
 
     async def __call__(self, scope, receive, send):
         try:
@@ -1298,7 +1325,12 @@ class _StreamConTurno(StreamingResponse):
             # turno para siempre, y un turno filtrado no vuelve hasta reiniciar el worker. El
             # orden lo clava `test_cuando_corren_los_cierres_de_la_respuesta_el_turno_YA_volvio`
             # (test_gw_engine_gate.py), que mira el semáforo DESDE ADENTRO del cierre.
-            self._turno.liberar()
+            #
+            # `turno` es OPCIONAL (#158): el passthrough de suscripción no gatea admisión
+            # (#134-③) y pasa `turno=None`, así que acá NO hay nada que liberar. Con `turno`
+            # presente —el byok— esta línea corre igual que en #150, sin cambio de comportamiento.
+            if self._turno is not None:
+                self._turno.liberar()
             # Y los cierres van ESCUDADOS (N2 del mismo gate). El escudo NO es por la
             # cancelación del cliente —esa nace adentro del task group de `StreamingResponse` y
             # el propio grupo la absorbe al salir del `async with`, así que este `finally` corre
@@ -1328,6 +1360,20 @@ class _StreamConTurno(StreamingResponse):
                         # OJO: este tragado va SÓLO acá. En el `finally` del generador las
                         # excepciones de cierre tienen que seguir propagando.
                         logger.debug("gateway byok: aclose del upstream falló", exc_info=True)
+            # Auditoría diferida del passthrough (#158): la fila durable + la vitrina que ANTES
+            # vivían en el `finally` del generador —y que se salteaban en la cancelación
+            # pre-primer-paso, porque un generador que nunca arrancó no corre su `finally` (PEP
+            # 525)— ahora corren acá, en el camino que starlette ejecuta SIEMPRE, así un
+            # passthrough cancelado DEJA rastro. En su PROPIO `move_on_after` y no dentro del de
+            # los cierres a propósito: un `aclose()` lento no puede comerse el presupuesto de la
+            # auditoría, que es la garantía más cara ("loguear TODO"). Escudo por lo mismo que los
+            # cierres (N2): si la cancelación viene de AFUERA (shutdown, middleware con timeout),
+            # sin escudo el `await` del threadpool se la lleva y la fila se pierde. `run_in_
+            # threadpool` porque `_audit`/`_publish_monitor` son I/O bloqueante (H2). La clausura
+            # es idempotente, así que si además se la invocara desde otro lado la fila es UNA sola.
+            if self._auditoria is not None:
+                with anyio.move_on_after(5, shield=True):
+                    await run_in_threadpool(self._auditoria)
 
 
 async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool,
@@ -1644,13 +1690,60 @@ async def gw_messages(
         return Response(content=err_body, status_code=up.status_code,
                         media_type=up.headers.get("content-type", "application/json"))
 
+    # Estado compartido entre el generador —que acumula los tokens vistos y marca cuándo drenó
+    # entero— y la auditoría diferida, que corre en el `finally` de la RESPUESTA y no en el del
+    # generador (#158). El passthrough NO tiene turno (#134-③), pero SÍ tiene la misma anatomía de
+    # fuga que el byok: si el cliente corta antes del primer paso del generador, su `finally`
+    # nunca corre (PEP 525) y se saltean los `aclose()` y —peor— la fila de auditoría. Por eso el
+    # cierre y la fila pasan a ser de la respuesta (`_StreamConTurno`), que starlette ejecuta
+    # siempre. `completo` arranca en False: si el generador nunca llega al final (cancelación
+    # temprana o a mitad de drenado), la fila sale con el estado `passthrough_cancelled` en vez
+    # del veredicto de política, con los tokens que se alcanzaron a ver (0 si nunca arrancó).
+    # `upstream_error` distingue el TERCER camino: el destino revienta a mitad de stream (un
+    # `ReadError` de `up.aiter_raw()`) NO es que el cliente cortó — la fila tiene que decir
+    # `upstream_error`, no `passthrough_cancelled` («el cliente cortó») (gate #224, hallazgo 8).
+    estado_stream = {"in_tok": 0, "out_tok": 0, "completo": False, "upstream_error": False}
+    _auditado = {"hecho": False}
+
+    def _auditar_passthrough():
+        """Fila durable + vitrina del passthrough en streaming. SÍNCRONA y bloqueante (`_audit`
+        abre Postgres, `_publish_monitor` habla con Redis): el caller la corre en un hilo (H2).
+        IDEMPOTENTE por diseño: aunque se la invoque más de una vez, la fila se escribe UNA sola
+        —así "puede correr en el flujo normal Y en el cierre" nunca se vuelve fila duplicada."""
+        if _auditado["hecho"]:
+            return
+        _auditado["hecho"] = True
+        completo = estado_stream["completo"]
+        in_tok, out_tok = estado_stream["in_tok"], estado_stream["out_tok"]
+        if completo:
+            fin_status = status
+        elif estado_stream["upstream_error"]:
+            # Tercer camino (gate #224, hallazgo 8): el destino reventó a mitad de stream, no lo
+            # cortó el cliente. `upstream_error` ya existe e inventariado en el clasificador de
+            # retención (usage_metadata/365 d) igual que las ramas no-stream de más arriba.
+            fin_status = "upstream_error"
+        else:
+            fin_status = STATUS_PASSTHROUGH_CANCELADO
+        latency = int((time.time() - start) * 1000)
+        _audit(ident, model, in_tok, out_tok, fin_status, masked_entities, latency, attribution)
+        _publish_monitor(ident, tool, model, fin_status, masked_entities, preview,
+                         attribution=attribution)
+        logger.info("gateway PROXY %s tool=%s model=%s in=%d out=%d masked=%d",
+                    "ok" if completo else fin_status, tool, model, in_tok, out_tok,
+                    len(masked_entities))
+
     async def gen():
         """Estrategia A′ (misma que el streaming hook del guardrail): decoder UTF-8
         incremental + buffer de frames + ``rewrite_sse_block`` (carry-split). Con
         ``ph_to_orig`` vacío no hay reemplazos (sólo se extraen tokens de usage), pero
         los frames delta SÍ se re-serializan y un ``[`` al final de un delta se difiere
         un frame (carry de ``[`` pelado, 024) — así no hace falta el regex
-        ``_IN_RE/_OUT_RE`` del demo (FR-030)."""
+        ``_IN_RE/_OUT_RE`` del demo (FR-030).
+
+        Sin `finally` propio a propósito (#158): el cierre del upstream+cliente y la fila de
+        auditoría son de la RESPUESTA (`_StreamConTurno`), no de este generador que puede no
+        arrancar nunca. Lo único que hace acá es ir dejando en `estado_stream` lo que la
+        auditoría necesita, para que la fila salga con los tokens vistos hasta el corte."""
         in_tok = out_tok = 0
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         buffer = ""
@@ -1669,6 +1762,9 @@ async def gw_messages(
                         in_tok = di
                     if do is not None:
                         out_tok = do
+                    # Espejo ANTES de ceder: si la cancelación cae en el `yield`, la fila ya tiene
+                    # los tokens de este bloque (el usage viaja en frames propios, no en el texto).
+                    estado_stream["in_tok"], estado_stream["out_tok"] = in_tok, out_tok
                     for ob in out_blocks:
                         yield (ob + "\n\n").encode("utf-8")
             buffer += decoder.decode(b"", final=True)
@@ -1679,23 +1775,34 @@ async def gw_messages(
                     in_tok = di
                 if do is not None:
                     out_tok = do
+                estado_stream["in_tok"], estado_stream["out_tok"] = in_tok, out_tok
                 for ob in out_blocks:
                     yield (ob + "\n\n").encode("utf-8")
             if carry:  # stream truncado: flush del carry (0 texto perdido, 0 placeholder crudo)
                 # Framed (review 024): crudo, el parser SSE del cliente lo descartaba.
                 yield policy.flush_carry_sse_block(carry, carry_field, ph_to_orig).encode("utf-8")
-        finally:
-            await up.aclose()
-            await client.aclose()
-            latency = int((time.time() - start) * 1000)
-            _audit(ident, model, in_tok, out_tok, status, masked_entities, latency, attribution)
-            _publish_monitor(ident, tool, model, status, masked_entities, preview,
-                             attribution=attribution)
-            logger.info("gateway PROXY ok tool=%s model=%s in=%d out=%d masked=%d",
-                        tool, model, in_tok, out_tok, len(masked_entities))
+            # Drenó entero: la fila va con el veredicto de política (`status`), no con `cancelado`.
+            estado_stream["completo"] = True
+        except Exception:  # noqa: BLE001
+            # El upstream reventó a MITAD de stream —un `ReadError`/`RemoteProtocolError` de httpx
+            # cuando el destino corta la conexión— y NO fue el cliente. La distinción está en el
+            # tipo, no en una heurística: la cancelación del cliente entra por `CancelledError`/
+            # `GeneratorExit` (BaseException) y NO cae en este `except Exception`; lo que cae acá
+            # es un fallo del destino. Se marca para que la fila diga `upstream_error` en vez de
+            # `passthrough_cancelled` («el cliente cortó») (gate #224, hallazgo 8). Se RE-LEVANTA:
+            # no se cambia lo que ve el cliente (el stream se corta igual que hoy), sólo se corrige
+            # la etiqueta; la fila la escribe igual el `finally` de la RESPUESTA (`_StreamConTurno`)
+            # con el estado ya correcto, arranque o no el generador (PEP 525).
+            estado_stream["upstream_error"] = True
+            raise
 
-    return StreamingResponse(gen(), status_code=200,
-                             media_type=up.headers.get("content-type", "text/event-stream"))
+    # El cierre (aclose de upstream+cliente) y la auditoría diferida son de la RESPUESTA y no del
+    # generador: `_StreamConTurno` los corre en su `finally`, que starlette ejecuta SIEMPRE —aun
+    # si el generador nunca arranca (PEP 525) o lo cancelan a mitad—. `turno=None`: el passthrough
+    # no gatea admisión (#134-③).
+    return _StreamConTurno(gen(), turno=None, cierres=(up, client),
+                           auditoria=_auditar_passthrough, status_code=200,
+                           media_type=up.headers.get("content-type", "text/event-stream"))
 
 
 # ── passthroughs finos que Claude Code también llama (verbatim, sin política) ─────
