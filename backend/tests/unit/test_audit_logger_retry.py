@@ -389,6 +389,35 @@ async def test_sin_destino_de_auditoria_la_perdida_es_ruidosa(monkeypatch, conta
     assert any("NO deja rastro durable" in m for m in logs)
 
 
+@pytest.mark.asyncio
+async def test_emitir_fila_durable_enruta_por_env(monkeypatch):
+    """Punto ÚNICO de emisión (#176): con `BASA_AUDIT_URL` la fila va al plano interno; sin
+    ella, al prisma de desarrollo. Cada rama ya está cubierta arriba; acá se ancla el ENRUTADO,
+    que es lo que reusa el rechazo por presupuesto del motor (`custom_auth`) para no duplicar la
+    lógica de emisión."""
+    llamadas = []
+
+    async def _fake_post(url, entry):
+        llamadas.append(("post", url))
+        return True
+
+    async def _fake_prisma(entry, masked, applied_layers=None, blocked_by_layer=None):
+        llamadas.append(("prisma", masked))
+
+    monkeypatch.setattr(logger_mod, "_postear_al_plano_interno", _fake_post)
+    monkeypatch.setattr(logger_mod.basa_audit_logger_instance, "_insertar_por_prisma", _fake_prisma)
+
+    entry = {"compliance_status": "rejected_budget", "tenant_id": FILA["tenant_id"]}
+
+    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    await logger_mod.emitir_fila_durable(entry, [])
+    assert llamadas[-1] == ("post", AUDIT_URL)
+
+    monkeypatch.delenv("BASA_AUDIT_URL", raising=False)
+    await logger_mod.emitir_fila_durable(entry, [])
+    assert llamadas[-1][0] == "prisma"
+
+
 # --------------------------------------------------------------------------- #
 # 5. Gate de la spec (T009/T015): cero `print(` en las extensiones del motor
 # --------------------------------------------------------------------------- #

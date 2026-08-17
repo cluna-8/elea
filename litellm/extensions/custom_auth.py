@@ -47,6 +47,14 @@ from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 
 logger = logging.getLogger("basa-custom-auth")
 
+# ESPEJO de ``budget_service.STATUS_BUDGET_EXHAUSTED`` (#157). No se importa del backend: el
+# motor sólo monta ``litellm/extensions/``, no el paquete del producto — el mismo motivo (y el
+# mismo riesgo de divergencia asumido) por el que ``basa_audit_logger`` duplica sus constantes
+# del otro lado del límite de proceso. Si cambia allá, cambia acá: los dos planos tienen que
+# contar el rechazo por presupuesto con el MISMO literal, o el filtro binario de la vitrina
+# (prefijo ``rejected%``) los trataría distinto (H4 del #135).
+_STATUS_BUDGET_EXHAUSTED = "rejected_budget"
+
 # Mapa UA→tool portado 1:1 del demo (_TOOL_UA): primer match gana; el ORDEN es
 # semántica observable (claude antes que curl, curl antes que httpx).
 TOOL_UA = [
@@ -249,6 +257,58 @@ async def _lookup_identity(key_hash: str) -> Optional[dict]:
     return row
 
 
+async def _emitir_fila_rechazo_presupuesto(row: dict) -> None:
+    """Fila durable del rechazo por presupuesto del plano MOTOR (#176), gemela de la que el
+    #157 escribe en el plano consola (``chat.py``).
+
+    El corte por tope vive en la AUTH (abajo), ANTES del guardrail y del post-call hook, así
+    que ``basa_audit_logger`` —que sólo corre en ``async_log_success_event``— NUNCA ve este
+    pedido: sin esto, el rechazo del tráfico de coding tools/byok no deja rastro durable, y un
+    officer que mire la auditoría después del #157 ve los 402 de la consola pero no los del
+    motor (peor que ninguno: parece completo y no lo está).
+
+    Reusa el MISMO emisor del logger del motor (``emitir_fila_durable``): mismo destino
+    (``/internal/audit`` o el prisma de desarrollo), mismo reintento acotado y mismo contador
+    de pérdidas — una fila de rechazo perdida es exactamente el agujero que este fix cierra, no
+    puede volver a ser un fallo mudo. La fila es 0/0/0 en tokens/costo: el receptor
+    (``internal._acumular_gasto``) no mueve presupuesto con eso, así que no se re-cobra sobre un
+    tope ya agotado. NUNCA propaga: corre en el camino de un 402 fail-closed y no puede
+    convertir un rechazo por presupuesto en un 401 (que mandaría a la herramienta a re-loguear).
+    """
+    entry = {
+        "tenant_id": row.get("tenant_id"),
+        "user_id": row.get("user_id"),
+        "api_key_id": row.get("key_id"),
+        # ``desconocido``: la auth corre antes de parsear el body; leer el modelo pedido acá
+        # exigiría consumir el stream del request dentro del hook de auth (frágil). Es el mismo
+        # default del receptor (``internal.AuditEntry.model``); el plano consola ya avisa que su
+        # ``request.model`` en este gate puede ser hasta «auto». El dato del rechazo es la
+        # identidad y el momento, no el modelo.
+        "model": "desconocido",
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "cost_usd": 0.0,
+        "pii_detected": False,
+        "masked_entities": [],
+        "compliance_status": _STATUS_BUDGET_EXHAUSTED,
+        "latency_ms": 0,
+        "user_group_id": row.get("group_id"),
+        # None ⇒ SQL NULL: el plano motor no produce atribución (T025 pendiente); ``[]`` mentiría
+        # «ninguna capa corrió».
+        "applied_layers": None,
+        "blocked_by_layer": None,
+    }
+    try:
+        # Import perezoso: ``basa_audit_logger`` arrastra litellm/redis al cargarse, y sólo lo
+        # necesitamos en el camino del rechazo (no en cada auth). Mismo directorio de extensiones.
+        import basa_audit_logger
+        await basa_audit_logger.emitir_fila_durable(entry, [])
+    except Exception:  # noqa: BLE001 — best-effort: el 402 fail-closed sale pase lo que pase.
+        logger.exception(
+            "no se pudo emitir la fila durable del rechazo por presupuesto (key_id=%s) — "
+            "el 402 se responde igual", row.get("key_id"))
+
+
 async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     """Firma confirmada contra litellm 1.92.0 (research T005). Excepción → 401."""
     # La key puede venir por Authorization (Bearer) o x-api-key (convención Anthropic)
@@ -289,6 +349,10 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             "gastado=%.8f tope=%.8f)",
             row.get("key_id"), row.get("username"), gastado, tope,
         )
+        # Registrar → responder (#157, misma matriz que el rechazo por capacidad): la fila
+        # durable sale ANTES del 402, para que negar servicio nunca preceda al rastro. El
+        # helper nunca propaga, así que esto no puede degradar el 402 a un 401.
+        await _emitir_fila_rechazo_presupuesto(row)
         raise HTTPException(
             status_code=402,
             detail=(

@@ -206,3 +206,100 @@ async def test_la_fila_con_presupuesto_se_cachea_menos_tiempo(identidad, monkeyp
     assert custom_auth._CACHE_TTL_BUDGET_S < custom_auth._CACHE_TTL_S
     # `None` (la key no existe) usa el TTL largo: es una respuesta estable, no un contador
     assert custom_auth._ttl_para(None) == custom_auth._CACHE_TTL_S
+
+
+# ── #176: la fila durable del rechazo por presupuesto del plano MOTOR ──────────────────
+# Gemela de la del #157 (plano consola). El corte por tope vive en la auth, ANTES del
+# guardrail y del post-call hook, así que `basa_audit_logger` (que sólo corre en el success
+# hook) nunca ve este pedido: sin la emisión de acá, el rechazo del tráfico de coding
+# tools/byok no dejaría rastro durable, y el officer vería los 402 de la consola pero no los
+# del motor — peor que ninguno, porque parece completo y no lo está.
+
+
+@pytest.fixture
+def emisor_espia(monkeypatch):
+    """Doble de `basa_audit_logger.emitir_fila_durable`: captura la entry sin motor ni red.
+    `custom_auth` lo importa PEREZOSO dentro del rechazo, así que basta sembrar el módulo en
+    `sys.modules` (el real arrastra litellm/redis, que no están instalados acá)."""
+    capturadas = []
+    mod = types.ModuleType("basa_audit_logger")
+
+    async def _fake_emitir(entry, masked, applied_layers=None, blocked_by_layer=None):
+        capturadas.append(entry)
+
+    mod.emitir_fila_durable = _fake_emitir
+    monkeypatch.setitem(sys.modules, "basa_audit_logger", mod)
+    return capturadas
+
+
+@pytest.mark.asyncio
+async def test_rechazo_presupuesto_emite_fila_durable_rejected_budget(identidad, emisor_espia):
+    """El 402 del plano motor deja UNA fila durable con el MISMO literal que el #157, la
+    identidad de la Connection y sin tokens/costo (no hubo consumo)."""
+    identidad(_identidad(key_id="k-176", tenant_id="t-176", user_id="u-176",
+                         group_id="g-176", max_budget_usd=5.0, spend_usd=5.0))
+
+    with pytest.raises(HTTPException) as exc:
+        await _auth()
+    assert exc.value.status_code == 402
+
+    assert len(emisor_espia) == 1, "una sola fila por rechazo"
+    fila = emisor_espia[0]
+    assert fila["compliance_status"] == "rejected_budget"
+    assert fila["api_key_id"] == "k-176"
+    assert fila["tenant_id"] == "t-176"
+    assert fila["user_id"] == "u-176"
+    assert fila["user_group_id"] == "g-176"
+    # 0/0/0: el receptor (`internal._acumular_gasto`) NO mueve presupuesto con esto — la fila
+    # es metadata del rechazo, no un consumo que cobrar dos veces sobre un tope ya agotado.
+    assert fila["prompt_tokens"] == 0 and fila["completion_tokens"] == 0
+    assert fila["cost_usd"] == 0.0
+    # Sin atribución del plano motor (T025): SQL NULL, no `[]` (que mentiría "ninguna capa corrió").
+    assert fila["applied_layers"] is None and fila["blocked_by_layer"] is None
+
+
+@pytest.mark.asyncio
+async def test_rechazo_presupuesto_registra_antes_de_responder(identidad, monkeypatch):
+    """Registrar → responder (#157): la fila se emite ANTES de que salga el 402, no después,
+    para que negar servicio nunca preceda al rastro."""
+    orden = []
+    mod = types.ModuleType("basa_audit_logger")
+
+    async def _fake_emitir(entry, masked, applied_layers=None, blocked_by_layer=None):
+        orden.append("fila")
+
+    mod.emitir_fila_durable = _fake_emitir
+    monkeypatch.setitem(sys.modules, "basa_audit_logger", mod)
+
+    identidad(_identidad(max_budget_usd=1.0, spend_usd=2.0))
+    with pytest.raises(HTTPException):
+        await _auth()
+    orden.append("402")
+    assert orden == ["fila", "402"]
+
+
+@pytest.mark.asyncio
+async def test_fila_perdida_no_convierte_el_402_en_401(identidad, monkeypatch):
+    """Fail-closed del rechazo: si el emisor revienta (import roto, un fallo que escape su
+    propio guardado), el cliente sigue viendo 402 — jamás 401, que lo mandaría a re-loguear.
+    La pérdida se traga acá; el conteo vive dentro del emisor real."""
+    mod = types.ModuleType("basa_audit_logger")
+
+    async def _emisor_que_revienta(entry, masked, applied_layers=None, blocked_by_layer=None):
+        raise RuntimeError("plano interno caído")
+
+    mod.emitir_fila_durable = _emisor_que_revienta
+    monkeypatch.setitem(sys.modules, "basa_audit_logger", mod)
+
+    identidad(_identidad(max_budget_usd=1.0, spend_usd=2.0))
+    with pytest.raises(HTTPException) as exc:
+        await _auth()
+    assert exc.value.status_code == 402
+
+
+@pytest.mark.asyncio
+async def test_con_credito_no_emite_fila(identidad, emisor_espia):
+    """Sin rechazo no hay fila: el camino feliz de la auth no toca la auditoría del rechazo."""
+    identidad(_identidad(max_budget_usd=10.0, spend_usd=1.0))
+    await _auth()
+    assert emisor_espia == []

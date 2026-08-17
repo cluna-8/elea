@@ -219,6 +219,25 @@ async def _postear_al_plano_interno(audit_url: str, entry: dict) -> bool:
     return False
 
 
+async def emitir_fila_durable(entry: dict, masked: list,
+                              applied_layers=None, blocked_by_layer=None) -> None:
+    """Punto ÚNICO de emisión de una fila a ``audit_logs``: por el plano interno del backend
+    si hay ``BASA_AUDIT_URL`` (producción), o por el prisma del motor en desarrollo.
+
+    Lo comparten el success hook de este logger (``_log``) y el rechazo por presupuesto del
+    plano MOTOR (``custom_auth``, #176): las dos filas salen por el MISMO camino, con el mismo
+    reintento acotado y el mismo contador de pérdidas. Una fila de rechazo que se pierda tiene
+    que verse en el health igual que una de éxito perdida — no puede ser un fallo mudo nuevo,
+    que es justo el agujero que la 031 cerró. El reintento y el contador viven adentro de cada
+    rama: acá no hay nada que tragar."""
+    audit_url = os.environ.get("BASA_AUDIT_URL", "").strip()
+    if audit_url:
+        await _postear_al_plano_interno(audit_url, entry)
+    else:
+        await basa_audit_logger_instance._insertar_por_prisma(
+            entry, masked, applied_layers, blocked_by_layer)
+
+
 def _scrub(metadata: dict) -> dict:
     """Devuelve metadata sin material sensible: pii_tokens (mapa reversible) y
     cualquier texto crudo NUNCA se auditan."""
@@ -362,12 +381,9 @@ class BasaAuditLogger(CustomLogger):
             "applied_layers": applied_layers,
             "blocked_by_layer": blocked_by_layer,
         }
-        audit_url = os.environ.get("BASA_AUDIT_URL", "").strip()
-        if audit_url:
-            # El reintento y el contador viven adentro: acá no hay nada que tragar.
-            await _postear_al_plano_interno(audit_url, entry)
-        else:
-            await self._insertar_por_prisma(entry, masked, applied_layers, blocked_by_layer)
+        # Emisión por el punto ÚNICO (reusado por el rechazo por presupuesto del motor, #176):
+        # el reintento y el contador de pérdidas viven adentro, acá no hay nada que tragar.
+        await emitir_fila_durable(entry, masked, applied_layers, blocked_by_layer)
 
         await self._publish_monitor_event(basa, masked, compliance, kwargs,
                                           applied_layers, blocked_by_layer)
