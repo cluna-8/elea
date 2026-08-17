@@ -209,6 +209,27 @@ API key del cliente envía. Para poder responder una DSR necesitas:
     Si usas pseudonimización, el mapeo `identificador → persona real` debe estar en un sistema
     separado bajo custodia del DPO, nunca en este gateway.
 
+### Exportar el expediente del sujeto (Art. 15 / 20) 🟢
+
+Para el derecho de **acceso** (Art. 15) y **portabilidad** (Art. 20), el sistema genera un CSV con
+los registros de auditoría del sujeto:
+
+`GET /api/v1/reports/dsar/{identificador_del_sujeto}` · rol **admin** o **compliance officer**
+
+- El identificador puede ser el **nombre de usuario** o el **ID interno** del sujeto.
+- Devuelve una fila por llamada auditada —fecha, modelo, tokens, coste, si se detectó PII y qué
+  entidades se enmascararon, estado de compliance, si se entregó el disclosure de IA, token de
+  revisión humana, propósito de tratamiento y latencia— **solo metadatos**, nunca el texto del
+  prompt ni de la respuesta.
+- Un sujeto sin registros devuelve un **CSV vacío (200)**, no un error.
+
+!!! warning "Límites vigentes — no prometer de más"
+    - **Tope de 1.000 registros** 🟡 — el export devuelve hasta los **1.000** registros de auditoría
+      más recientes del sujeto. Para un sujeto con más historial el CSV no es exhaustivo; si una
+      DSAR lo exige, complementá con una consulta directa a la base bajo control del DPO.
+    - **Sin acotado por tenant** 🔵 — hoy la búsqueda es **global** a la instalación (no filtra por
+      tenant). El acotado por tenant llega con **spec 017**.
+
 ---
 
 ## Políticas de Retención
@@ -218,20 +239,33 @@ API key del cliente envía. Para poder responder una DSR necesitas:
 El **Art. 5(1)(e) GDPR** prohíbe conservar datos personales más tiempo del necesario. Este módulo
 permite configurar por cuánto tiempo se guardan los distintos tipos de registros.
 
-### Tipos de registro y valores por defecto
+### Clases de retención y valores por defecto
 
-| Tipo | Por defecto | Justificación | Mínimo recomendado |
-|------|------------|--------------|-------------------|
-| **Metadatos de requests** (tipos de entidad detectados, scores, veredictos, timing) | 90 días | Soporte técnico e investigación de incidencias | 30 días |
-| **Metadatos de uso** (tokens, coste, modelo) | 365 días | Auditoría de costes y rendimiento | 90 días |
-| **Eventos de seguridad** (guardianes, bloqueos) | 365 días | Detección de patrones de ataque, ENS | **365 días (no reducir)** |
-| **Auditoría de configuración** | 730 días | Trazabilidad de decisiones administrativas | **365 días (mínimo bloqueado)** |
+La retención se configura por **clase de registro**. La clase de cada fila del audit log se
+deduce de su tipo con un mapeo determinista (no depende de quién la escribió); son cuatro:
 
-!!! note "El contenido de prompts y respuestas JAMÁS se persiste"
-    La auditoría del sistema es **solo de metadatos**: no existe columna ni registro que guarde
-    el texto de los prompts o de las respuestas, por lo que no hay retención que configurar para
-    ese contenido. Si en algún log apareciera contenido de prompts o respuestas, no es un
-    comportamiento configurable — es un hallazgo de seguridad que debe reportarse de inmediato.
+| Clase (`log_type`) | Por defecto | Qué agrupa |
+|---|---|---|
+| **`config_audit`** | 730 días | Cambios de configuración del sistema — trazabilidad de decisiones administrativas |
+| **`security_events`** | 365 días | Bloqueos de guardianes y alertas de seguridad — detección de patrones de ataque, ENS |
+| **`usage_metadata`** | 365 días | Metadatos de uso (tokens, coste, modelo, timestamp) y, como clase de resguardo, todo registro de tráfico que no sea configuración ni seguridad |
+| **`prompt_content`** | 90 días | Contenido de prompts/respuestas (ver la nota de abajo) |
+
+Los **mínimos y topes que se validan** al guardar —y cómo cambian en tier estricto— están en
+**[Rangos de retención por tier](#rangos-de-retencion-por-tier)**.
+
+!!! note "El audit log es solo de metadatos; el único texto durable es la respuesta en revisión humana"
+    La auditoría del sistema es **solo de metadatos**: ninguna fila del audit log guarda el texto
+    de los prompts ni de las respuestas — la clase `prompt_content` está **vacía** en el audit log,
+    y así debe seguir. Si en un log apareciera contenido de prompts o respuestas, no es
+    configurable — es un **hallazgo de seguridad** que debe reportarse de inmediato.
+
+    El **único contenido durable** de la caja es el campo `response_text` de una **revisión
+    humana**: cuando un proyecto exige revisión humana, la respuesta revisada se conserva para que
+    el revisor la pueda leer. Ese texto es lo que gobierna el plazo de `prompt_content` (90 días
+    por defecto): al purgar esa clase, el `response_text` de las revisiones vencidas se anula (la
+    fila de la revisión persiste como metadato). Si no se usa revisión humana, no hay contenido
+    durable que retener.
 
 ### Cómo ajustar la retención
 
@@ -243,10 +277,76 @@ permite configurar por cuánto tiempo se guardan los distintos tipos de registro
 Cada cambio guarda además **quién** lo hizo y **cuándo** — la configuración de retención es
 en sí misma evidencia auditada.
 
-!!! warning "Purga automática: 🔵 OBJETIVO"
-    El trabajo de purga automática (borrar registros vencidos) está en el roadmap del producto.
-    Hoy la retención se configura pero **la purga es manual**: el operador debe ejecutar el
-    borrado de registros vencidos como parte de su procedimiento operativo.
+### Purga automática de registros vencidos 🟢
+
+Desde **spec 018** la purga es real: un proceso en el backend elimina las filas vencidas de cada
+clase (edad medida contra el reloj de la base de datos). **Viene apagada de fábrica** y sólo se
+enciende como un acto explícito del operador — un borrado retroactivo no debe activarse solo con
+una actualización de producto.
+
+**Doble compuerta** (las dos deben estar en verde para que se borre):
+
+1. `BASA_PURGE_ENABLED=true` — interruptor maestro. Con `false` (el default) el proceso ni
+   arranca. Se lee **al arrancar el backend**, así que encenderlo pide reinicio.
+2. Un **intervalo** de despertar > 0 (`BASA_PURGE_INTERVAL_SECONDS`, 3600 s por defecto). El tick
+   no es la purga: sólo despierta al proceso a mirar si está dentro de la **ventana**
+   (`BASA_PURGE_WINDOW`, `02:00-05:00` en `BASA_PURGE_WINDOW_TZ`); fuera de ventana, se vuelve a
+   dormir.
+
+**Simulacro primero** (`BASA_PURGE_DRY_RUN`, `true` por defecto): aun con la purga encendida, la
+corrida hace todo **menos borrar** — resuelve la fecha de corte, **cuenta** las filas que caerían y
+deja el rastro marcado como simulacro. El DPO firma sobre un número real —«se van 412.000 filas de
+esta clase»— antes de pasar a borrado real. Pasar `BASA_PURGE_DRY_RUN=false` es el último cambio, y
+se hace una sola vez, con alguien mirando.
+
+**Qué borra, con red:**
+
+- **Filas vencidas de `audit_logs`** por clase, en **lotes** (`BASA_PURGE_BATCH_SIZE`) con una
+  **pausa** entre lotes (`BASA_PURGE_BATCH_PAUSE_MS`) para no bloquear la tabla más caliente del
+  producto.
+- Al purgar `prompt_content`, el `response_text` de las **revisiones humanas** vencidas pasa a
+  `NULL` (la fila de la revisión persiste como metadato).
+- **Los registros de licencia no se borran nunca:** los protege un sello interno, no el nombre de su
+  columna «modelo». Un pedido que se autodenomine `license` es tráfico normal y se purga por su
+  plazo.
+
+**Dos seguros más:**
+
+- **Piso de plazo:** un plazo por debajo del mínimo aborta **esa clase** (no la corrida entera):
+  queda en `error`, sin borrar ni una fila, y las otras clases siguen.
+- **Residuo fail-closed:** las filas que **ninguna clase reclama** y ya pasaron el corte más antiguo
+  se **cuentan y se reportan, pero no se borran** (`filas_no_clasificadas`). El officer ve el
+  residuo antes de apretar el botón; nada se elimina por no encajar en una clase.
+
+**Rastro auditable:** cada corrida real deja evidencia solo-metadatos — una entrada por clase en el
+registro de purga de la política (las últimas 50) y una fila resumen por corrida en el audit log
+(clase `config_audit`). El simulacro no escribe borrado, sólo su conteo.
+
+!!! note "Estado del scheduler en el health"
+    El endpoint de salud del backend expone `purge_scheduler_running` (booleano): indica si el hilo
+    de purga está vivo. Con la purga apagada (el default) es `false` — es lo esperado, no una avería.
+
+### Rangos de retención por tier 🟢
+
+Al guardar una política, el plazo de cada clase se valida contra un **mínimo** (y, para
+`prompt_content`, un **tope**) que dependen del **tier de enforcement** de la instalación. Fuera de
+rango, la API responde **HTTP 422** indicando la clase y el piso/tope concretos; **ninguna** política
+del lote se guarda.
+
+| Clase | Mínimo (estándar) | Mínimo (estricto) | Tope (estándar) | Tope (estricto) |
+|---|---|---|---|---|
+| `config_audit` | 365 días | 730 días | — | — |
+| `security_events` | 30 días | 365 días | — | — |
+| `usage_metadata` | 30 días | 365 días | — | — |
+| `prompt_content` | 1 día | 1 día | 365 días | 90 días |
+
+- **Tier estándar** es el default; **tier estricto** se activa con la capa de gobernanza
+  `enforcement_tier_estricto` y **sube los mínimos** (y baja el tope de `prompt_content` de 365 a 90
+  días — por privacidad, el contenido no puede retenerse más de lo permitido).
+- Sólo `prompt_content` tiene tope; el resto sólo tiene piso. El piso de `config_audit` (≥ 365 en
+  estándar) se preserva exactamente como antes.
+- Esta validación se **apila** sobre el piso del propio purgador: ningún plazo hace que se borre una
+  fila escrita el mismo día.
 
 ### Cómo documentar para la DPIA
 
@@ -351,7 +451,8 @@ admin** o **compliance officer**; la revisión humana admite además el perfil `
 | `GET/POST /api/v1/compliance/dsr` · `PUT .../dsr/{id}` | Registrar y actualizar solicitudes DSR |
 | `GET /api/v1/compliance/dsr/search?subject_id=...` | Búsqueda de evidencia por identificador del sujeto |
 | `GET /api/v1/compliance/review/pending` · `POST .../review/{token}` | Cola de revisiones humanas y envío del veredicto |
-| `GET/PUT /api/v1/compliance/retention` | Consultar y ajustar las políticas de retención |
+| `GET/PUT /api/v1/compliance/retention` | Consultar y ajustar las políticas de retención (el `PUT` valida rangos por tier → 422) |
+| `GET /api/v1/reports/dsar/{id}` | Export CSV del expediente del sujeto, Art. 15/20 (ver [Exportar el expediente del sujeto](#exportar-el-expediente-del-sujeto-art-15-20)) |
 | `GET /api/v1/compliance/dashboard` | Indicadores consolidados del panel DPO |
 
 ---
@@ -375,7 +476,7 @@ admin** o **compliance officer**; la revisión humana admite además el perfil `
 - [ ] Notificación IA activada (obligatoria EU AI Act Art. 50 desde agosto 2026)
 - [ ] Si se usan datos clínicos reales: `eu_region_required = true` y modelo `azure-*` o `bedrock-eu-*`
 - [ ] Motor NLP de enmascaramiento de PII activado (ver **Seguridad → Guardianes** en la consola de administración)
-- [ ] Retención de metadatos de requests configurada según DPIA (recomendado ≤90 días)
+- [ ] Políticas de retención por clase revisadas y configuradas según la DPIA (ver [Clases de retención](#clases-de-retencion-y-valores-por-defecto)); si se va a activar la purga, ensayada primero en simulacro
 - [ ] Verificado que ningún log contiene contenido de prompts o respuestas (si aparece, reportarlo como hallazgo de seguridad)
 
 ### Verificación post-despliegue
