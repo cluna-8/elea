@@ -4,6 +4,7 @@ import json
 from datetime import datetime, date
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import String, cast
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -86,7 +87,7 @@ def export_dsar(subject_identifier: str, db: Session = Depends(get_db)):
     Subject identifier is pseudonymized (username or user ID).
     """
     user = db.query(User).filter(
-        (User.username == subject_identifier) | (User.id.cast(str) == subject_identifier)
+        (User.username == subject_identifier) | (cast(User.id, String) == subject_identifier)
     ).first()
 
     rows = []

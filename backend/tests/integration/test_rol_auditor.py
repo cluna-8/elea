@@ -29,11 +29,13 @@ tiene acá su endpoint, y esa correspondencia es lo único que impide que el cop
 prometiéndole al administrador un alcance que el backend ya no tiene. Una entrada nueva en
 la ficha sin su entrada acá es la brecha que este archivo existe para cerrar.
 
-La ÚNICA pieza que no se fija, a propósito y con nombre: la exportación DSAR
-(``GET /reports/dsar/{id}``). No es cosa del rol —responde 500 a **cualquiera**, admin
-incluido, porque ``reports.py:89`` le pasa el ``str`` de Python a ``.cast()`` donde
-SQLAlchemy espera un tipo—; afirmarla acá pincharía la rotura en vez del permiso. Los otros
-tres reportes de la consola (RAT, ejecutivo y revisiones humanas) sí están fijados.
+El export DSAR (``GET /reports/dsar/{id}``) YA NO es la excepción: el 500 de nacimiento
+(``reports.py`` le pasaba el ``str`` de Python a ``.cast()`` donde SQLAlchemy espera un
+tipo) está arreglado con ``cast(User.id, String)`` (#193 / #62). Su cobertura de punta a
+punta —sujeto real por username y por id, e inexistente— vive en ``test_dsar_export.py``;
+acá se fija sólo que el Auditor (``compliance_officer``, que tiene el endpoint por rol)
+lo recibe 200 y no 500. Los otros tres reportes de la consola (RAT, ejecutivo y revisiones
+humanas) también están fijados.
 
 El motor se mockea (el alta provisiona, y el chat saldría a buscar proveedor): lo que se
 mide es el gate, no la disponibilidad del stack.
@@ -210,12 +212,13 @@ VE = [
     ("get", "/api/v1/compliance/dpas"),
     ("get", "/api/v1/compliance/dsr"),
     ("get", "/api/v1/security/policy"),
-    # «reportes»: los que la consola le ofrece a este rol (`api.ts`, sección Reports).
-    # Falta el cuarto, la exportación DSAR, y el motivo está en el docstring del módulo:
-    # está rota para todos los roles, así que no es una afirmación sobre el permiso.
+    # «reportes»: los cuatro que la consola le ofrece a este rol (`api.ts`, sección Reports).
+    # El DSAR se sumó al arreglar su 500 de nacimiento (#193 / #62): con un sujeto inexistente
+    # devuelve 200 con CSV vacío. La cobertura de contenido vive en `test_dsar_export.py`.
     ("get", "/api/v1/reports/rat"),
     ("get", "/api/v1/reports/executive"),
     ("get", "/api/v1/reports/human-review-log"),
+    ("get", "/api/v1/reports/dsar/sujeto-inexistente-para-el-gate-de-rol"),
     # «consumo»: la pantalla Costos, que el nav le da a este rol (`App.tsx`). El gate está
     # en el APIRouter de `costs.py`, así que estas dos lecturas son las que la pantalla
     # pide al abrir. Sin motor arriba el precio por token no se resuelve y la respuesta
