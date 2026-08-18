@@ -19,7 +19,9 @@ from ..auth.rbac import require_role
 router = APIRouter(
     prefix="/keys",
     tags=["Virtual Keys"],
-    dependencies=[Depends(require_role("admin", "developer"))],
+    # gestion_iam: el auditor (compliance_officer) LEE el inventario (GET enmascarados:
+    # key_preview, NUNCA la clave); los writes re-cierran a admin+developer por-endpoint.
+    dependencies=[Depends(require_role("admin", "compliance_officer", "developer"))],
 )
 
 
@@ -121,7 +123,7 @@ def list_keys(db: Session = Depends(get_db)):
             for llave in llaves]
 
 
-@router.post("", response_model=KeyGeneratedResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=KeyGeneratedResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin", "developer"))])
 async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
     # Gate de licencia (spec 021 US2, FR-008): seats activos vs max_seats, ANTES
     # de cualquier provisioning. Guarda independiente del 409 de duplicados
@@ -230,7 +232,7 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
     )
 
 
-@router.delete("/{key_id}")
+@router.delete("/{key_id}", dependencies=[Depends(require_role("admin", "developer"))])
 async def revoke_key(key_id: UUID, db: Session = Depends(get_db)):
     db_key = db.query(APIKey).filter(APIKey.id == key_id).first()
     if not db_key:

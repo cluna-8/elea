@@ -88,7 +88,7 @@ def get_active_consents(user_id: UUID, db: Session = Depends(get_db)):
     }
 
 
-@router.post("", response_model=ConsentResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ConsentResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin"))])
 def record_consent(body: ConsentCreate, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == body.user_id).first()
     if not user:
@@ -122,7 +122,7 @@ def record_consent(body: ConsentCreate, request: Request, db: Session = Depends(
     return _consent_resp(record)
 
 
-@router.delete("/{consent_id}")
+@router.delete("/{consent_id}", dependencies=[Depends(require_role("admin"))])
 def revoke_consent(consent_id: UUID, db: Session = Depends(get_db)):
     record = db.query(ConsentRecord).filter(ConsentRecord.id == consent_id).first()
     if not record:

@@ -140,7 +140,7 @@ def list_projects(db: Session = Depends(get_db)):
     return db.query(ComplianceProject).order_by(ComplianceProject.name).all()
 
 
-@router.post("/projects", response_model=ComplianceProjectResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.post("/projects", response_model=ComplianceProjectResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin"))])
 def create_project(payload: ComplianceProjectSchema, db: Session = Depends(get_db)):
     if payload.ai_act_risk_level in ("high_risk_annex3", "high_risk_annex1"):
         payload = payload.model_copy(update={"human_review_required": True})
@@ -152,7 +152,7 @@ def create_project(payload: ComplianceProjectSchema, db: Session = Depends(get_d
     return project
 
 
-@router.put("/projects/{project_id}", response_model=ComplianceProjectResponse, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.put("/projects/{project_id}", response_model=ComplianceProjectResponse, dependencies=[Depends(require_role("admin"))])
 def update_project(project_id: UUID, payload: ComplianceProjectSchema, db: Session = Depends(get_db)):
     project = db.query(ComplianceProject).filter(ComplianceProject.id == project_id).first()
     if not project:
@@ -167,7 +167,7 @@ def update_project(project_id: UUID, payload: ComplianceProjectSchema, db: Sessi
     return project
 
 
-@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role("admin"))])
 def delete_project(project_id: UUID, db: Session = Depends(get_db)):
     project = db.query(ComplianceProject).filter(ComplianceProject.id == project_id).first()
     if not project:
@@ -189,7 +189,7 @@ def list_dpas(db: Session = Depends(get_db)):
     return result
 
 
-@router.post("/dpas", response_model=DPAResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.post("/dpas", response_model=DPAResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin"))])
 def create_dpa(payload: DPASchema, db: Session = Depends(get_db)):
     dpa = DPARegistry(**payload.model_dump(), created_at=datetime.utcnow().isoformat())
     db.add(dpa)
@@ -200,7 +200,7 @@ def create_dpa(payload: DPASchema, db: Session = Depends(get_db)):
     return r
 
 
-@router.put("/dpas/{dpa_id}", response_model=DPAResponse, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.put("/dpas/{dpa_id}", response_model=DPAResponse, dependencies=[Depends(require_role("admin"))])
 def update_dpa(dpa_id: UUID, payload: DPASchema, db: Session = Depends(get_db)):
     dpa = db.query(DPARegistry).filter(DPARegistry.id == dpa_id).first()
     if not dpa:
@@ -214,7 +214,7 @@ def update_dpa(dpa_id: UUID, payload: DPASchema, db: Session = Depends(get_db)):
     return r
 
 
-@router.delete("/dpas/{dpa_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.delete("/dpas/{dpa_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role("admin"))])
 def delete_dpa(dpa_id: UUID, db: Session = Depends(get_db)):
     dpa = db.query(DPARegistry).filter(DPARegistry.id == dpa_id).first()
     if not dpa:
@@ -230,7 +230,7 @@ def list_dsrs(db: Session = Depends(get_db)):
     return db.query(DataSubjectRequest).order_by(DataSubjectRequest.date_received.desc()).all()
 
 
-@router.post("/dsr", response_model=DSRResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.post("/dsr", response_model=DSRResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin"))])
 def create_dsr(payload: DSRSchema, db: Session = Depends(get_db)):
     dsr = DataSubjectRequest(**payload.model_dump(), created_at=datetime.utcnow().isoformat())
     db.add(dsr)
@@ -239,7 +239,7 @@ def create_dsr(payload: DSRSchema, db: Session = Depends(get_db)):
     return dsr
 
 
-@router.put("/dsr/{dsr_id}", response_model=DSRResponse, dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.put("/dsr/{dsr_id}", response_model=DSRResponse, dependencies=[Depends(require_role("admin"))])
 def update_dsr(dsr_id: UUID, payload: DSRUpdateSchema, db: Session = Depends(get_db)):
     dsr = db.query(DataSubjectRequest).filter(DataSubjectRequest.id == dsr_id).first()
     if not dsr:
@@ -399,7 +399,7 @@ def get_retention(db: Session = Depends(get_db)):
     return db.query(RetentionPolicy).order_by(RetentionPolicy.log_type).all()
 
 
-@router.put("/retention", response_model=List[RetentionPolicyResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.put("/retention", response_model=List[RetentionPolicyResponse], dependencies=[Depends(require_role("admin"))])
 def update_retention(policies: List[RetentionPolicySchema], db: Session = Depends(get_db)):
     # El tier vigente de la instalación se resuelve UNA vez por request (FR-007/D7).
     estricto = _instalacion_en_tier_estricto(db)

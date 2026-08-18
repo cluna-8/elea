@@ -224,7 +224,7 @@ async def create_group(group_in: GroupCreate, db: Session = Depends(get_db)):
     return group
 
 
-@router.get("/groups", response_model=List[GroupResponse], dependencies=[Depends(require_role("admin"))])
+@router.get("/groups", response_model=List[GroupResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def list_groups(db: Session = Depends(get_db)):
     return db.query(Group).all()
 
@@ -289,12 +289,12 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     return user
 
 
-@router.get("", response_model=List[UserResponse], dependencies=[Depends(require_role("admin"))])
+@router.get("", response_model=List[UserResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def list_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
 
-@router.get("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_role("admin"))])
+@router.get("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def get_user(user_id: UUID, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -373,7 +373,7 @@ def reset_user_password(user_id: UUID, body: PasswordResetRequest, db: Session =
 
 # --- Spend Endpoints ---
 
-@router.get("/{user_id}/spend", dependencies=[Depends(require_role("admin"))])
+@router.get("/{user_id}/spend", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 async def get_user_spend(user_id: UUID, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -386,7 +386,7 @@ async def get_user_spend(user_id: UUID, db: Session = Depends(get_db)):
         return {"spend_usd": None, "max_budget": None, "remaining": None}
 
 
-@router.get("/groups/{group_id}/spend", dependencies=[Depends(require_role("admin"))])
+@router.get("/groups/{group_id}/spend", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 async def get_group_spend(group_id: UUID, db: Session = Depends(get_db)):
     group = db.query(Group).filter(Group.id == group_id).first()
     if not group:

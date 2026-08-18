@@ -226,6 +226,33 @@ def test_post_pii_masking_degrade_escribe_fila_durable(harness):
     assert filas[0]["model"] == f"{CONFIG_CHANGE}:block->degrade"
 
 
+def test_la_fila_de_cambio_de_postura_registra_el_actor(harness):
+    """FR-004 / #72 (T006): la fila durable del cambio de postura ya no registra sólo el HECHO
+    sino el AUTOR. El alta que mueve la postura la firma el `admin` de `admin_headers`; la fila
+    debe llevar su `user_id`. Antes: NULL — «la fila registra el hecho, no el autor».
+    Mutación: quitar el `user_id=actor.id` del helper de auditoría deja este test en rojo."""
+    from src.models.audit import AuditLog
+    from src.models.user import User
+    client, factory = harness
+    resp = client.post(GUARDIANS, headers=admin_headers(client), json={
+        "name": "PII", "guardian_type": "pii_masking", "is_active": True,
+        "config": {"nlp_fail_mode": "degrade"},
+    })
+    assert resp.status_code == 201, resp.text
+
+    db = factory()
+    try:
+        admin = db.query(User).filter(User.username == "admin").one()
+        filas = db.query(AuditLog).filter(AuditLog.compliance_status == CONFIG_CHANGE).all()
+        assert len(filas) == 1, f"esperaba una sola fila de cambio de postura: {filas}"
+        assert filas[0].user_id is not None, \
+            "la fila de cambio de postura no registró el actor (user_id NULL)"
+        assert filas[0].user_id == admin.id, \
+            f"el actor de la fila no es el admin que mutó: {filas[0].user_id} != {admin.id}"
+    finally:
+        db.close()
+
+
 def test_post_pii_masking_en_block_no_genera_ruido(harness):
     """Contracara: el alta en el default (`block`) no es un cambio de postura, así que no
     escribe fila. Sin esto, el fix (b) podría estar registrando TODA alta indiscriminadamente."""

@@ -296,7 +296,7 @@ class CostConfigUpdate(BaseModel):
     enabled: bool
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[Depends(require_role("admin"))])
 def update_cost_config(req: CostConfigUpdate, db: Session = Depends(get_db)):
     """Activa/desactiva la compresión globalmente."""
     policy = _active_policy(db)
@@ -335,7 +335,7 @@ def get_group_compression(group_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/groups/{group_id}/compression")
+@router.put("/groups/{group_id}/compression", dependencies=[Depends(require_role("admin"))])
 def update_group_compression(group_id: str, req: GroupCompressionConfig, db: Session = Depends(get_db)):
     g = db.query(Group).filter(Group.id == group_id).first()
     if not g:

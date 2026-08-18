@@ -15,14 +15,19 @@ Las tres afirmaciones, en el mismo orden en que las dice la UI:
 - **Ve**: auditoría (listado y exportación), los reportes de compliance, el tablero y las
   políticas de cumplimiento, el consumo (la pantalla Costos) y las conexiones en vivo (el
   feed del firewall), más el detalle de salud del producto.
-- **No puede**: usuarios, equipos, llaves —listarlas, generarlas y revocarlas—,
-  presupuestos, guardianes, gobernanza, modelos ni el auto-router. Todos 403 **por rol**
-  (se afirma el texto del rechazo, no sólo el código), ninguno 200 silencioso.
-- **Todavía NO es de solo lectura**: le siguen entrando escrituras sobre las políticas de
-  cumplimiento (alta, edición y baja de proyectos), sobre la política de protección de datos
-  (incluida su desactivación), sobre los plazos de conservación de los registros y sobre la
-  configuración de costos; y el chat interno no tiene gate de rol. Esto es lo que paga la
-  spec del rol de solo lectura canónico; hasta entonces, se dice en voz alta.
+- **VE el inventario en solo-lectura** (matriz 017, gestion_iam/config_producto = R): lista
+  usuarios, equipos, llaves (``key_preview`` ENMASCARADO, nunca el secreto), presupuestos,
+  guardianes y gobernanza. Ver ``VE_INVENTARIO``. (``/groups`` y el auto-router siguen
+  admin-only por ahora — follow-up fuera de las 13, documentado en ``NO_PUEDE``.)
+- **No administra**: generar/revocar llaves, alta de modelos, escribir presupuestos ni la
+  gobernanza. Todos 403 **por rol** (se afirma el texto del rechazo, no sólo el código).
+- **AHORA SÍ es de solo lectura** (spec 017, matriz sellada — antes NO lo era): el auditor
+  YA NO escribe las políticas de cumplimiento (alta/edición/baja de proyectos), NI la política
+  de protección de datos, NI los plazos de conservación, NI la configuración de costos — todas
+  esas superficies le dan 403 (compliance_officer pierde la W; conserva la R). La única
+  escritura que conserva es la nombrada de human_reviews (resolver revisiones). El copy de la
+  ``FichaDelAuditor`` por fin puede decir «solo lectura» sin mentir (Regla 5: este ancla y el
+  copy se dieron vuelta en el mismo recorte). El chat interno sigue sin gate de rol.
 
 **Cada ítem de la ficha del alta** (``FichaDelAuditor``, ``frontend/src/pages/UsersPage.tsx``)
 tiene acá su endpoint, y esa correspondencia es lo único que impide que el copy siga
@@ -258,18 +263,25 @@ def test_el_auditor_ve_el_detalle_de_salud(harness, auditor):
 # ruta devolvería 404 y el test lo cantaría.
 _LLAVE_INEXISTENTE = uuid.uuid4()
 
+# T006/017: el auditor (compliance_officer) YA LEE el inventario IAM y la config de producto
+# read-only (matriz: gestion_iam/config_producto = CO R). El GET de esas superficies migró de
+# NO_PUEDE a VE_INVENTARIO. (`/groups` y `/chat/router-config` todavía no abren a CO —
+# follow-up fuera de las 13; se documentan como aún-403 para no mentir sobre el estado real.)
+VE_INVENTARIO = [
+    ("get", "/api/v1/users"),                       # inventario de usuarios (RO)
+    ("get", "/api/v1/users/groups"),                # equipos (RO)
+    ("get", "/api/v1/keys"),                        # llaves: key_preview, NUNCA la clave (RO)
+    ("get", "/api/v1/budgets"),                     # presupuestos (RO)
+    ("get", "/api/v1/guardians"),                   # guardianes (RO)
+    ("get", "/api/v1/governance/status"),           # gobernanza (RO)
+    ("get", "/api/v1/governance/profile"),          # perfil de gobernanza (RO)
+]
+
 NO_PUEDE = [
-    ("get", "/api/v1/users"),                       # gestión de usuarios
-    ("get", "/api/v1/users/groups"),                # equipos
-    ("get", "/api/v1/keys"),                        # llaves virtuales
-    ("get", "/api/v1/budgets"),                     # presupuestos
-    ("get", "/api/v1/guardians"),                   # guardianes
-    ("get", "/api/v1/governance/status"),           # gobernanza
-    ("get", "/api/v1/governance/profile"),
-    ("put", "/api/v1/governance/profile"),          # …ni escribirla
-    ("get", "/api/v1/groups"),
+    ("put", "/api/v1/governance/profile"),          # ve la config, NO la escribe
+    ("get", "/api/v1/groups"),                      # follow-up: groups.py aún admin-only
     ("post", "/api/v1/chat/models"),                # alta de modelos
-    ("get", "/api/v1/chat/router-config"),          # auto-router
+    ("get", "/api/v1/chat/router-config"),          # follow-up: router_config aún admin/developer
     ("post", "/api/v1/keys"),                       # generar llaves
     ("delete", f"/api/v1/keys/{_LLAVE_INEXISTENTE}"),   # revocarlas
     ("post", "/api/v1/budgets"),
@@ -294,6 +306,17 @@ def test_el_auditor_no_administra(harness, auditor, metodo, ruta):
         f"{ruta} devolvió 403 pero NO por el rol: {resp.text[:200]}")
 
 
+@pytest.mark.parametrize("metodo,ruta", VE_INVENTARIO)
+def test_el_auditor_ve_el_inventario_read_only(harness, auditor, metodo, ruta):
+    """T006/017: el auditor de compliance VE el inventario IAM y la config de producto en
+    solo-lectura (matriz: gestion_iam/config_producto = compliance_officer R). 200, no 403:
+    la lectura le está permitida; la escritura de esas superficies sigue en NO_PUEDE. Para
+    llaves lo que ve es el inventario ENMASCARADO (`key_preview`), nunca el secreto."""
+    client, _ = harness
+    resp = getattr(client, metodo)(ruta, headers=auditor)
+    assert resp.status_code == 200, f"{ruta} → {resp.status_code}: {resp.text[:200]}"
+
+
 def test_el_auditor_no_ve_el_menu_de_modelos_porque_no_los_administra(harness, auditor):
     """Contraparte del cambio de navegación: el catálogo se LEE con cualquier sesión, pero
     administrarlo es admin o developer. Por eso la sección salió del menú de este rol y no
@@ -305,120 +328,77 @@ def test_el_auditor_no_ve_el_menu_de_modelos_porque_no_los_administra(harness, a
                        json={}).status_code == 403
 
 
-# ── Honestidad: lo que la UI NO puede callar ─────────────────────────────────────
+# ── El auditor ES read-only: VE la config de cumplimiento, ya NO la escribe ──────
+# (spec 017 FR-001/002, matriz sellada: compliance_officer pierde W en compliance_config,
+# artefactos_compliance y costs_config; conserva R. Regla 5: el ancla se dio vuelta con el
+# recorte, y el copy de la FichaDelAuditor por fin dice «solo lectura» sin mentir.)
 
 
-def test_el_auditor_todavia_puede_reescribir_la_politica_de_proteccion(harness, auditor):
-    """La frase «incluso desactivarla» del alta no es una precaución retórica: se ejecuta.
-
-    Mientras esto siga siendo verde, la consola tiene PROHIBIDO presentar el rol como de
-    solo lectura. Cuando la spec del rol canónico lo cierre, este test se da vuelta y el
-    copy del alta se corrige en el mismo commit.
-    """
+def test_el_auditor_ya_no_reescribe_la_politica_de_proteccion(harness, auditor):
+    """La matriz 017 le sacó la W de compliance_config: el auditor LEE la política de
+    protección (200) pero ya NO la reescribe (403). Antes podía «incluso desactivarla»; el
+    copy del alta se corrige en el mismo commit (Regla 5)."""
     client, _ = harness
     actual = client.get("/api/v1/security/policy", headers=auditor)
-    assert actual.status_code == 200, actual.text
+    assert actual.status_code == 200, actual.text  # sigue viendo la config (R)
     politica = actual.json()
 
     apagada = client.put("/api/v1/security/policy", headers=auditor, json={
-        "name": politica["name"],
-        "is_active": False,
-        "entity_configs": politica["entity_configs"],
-        "gdpr_mode": politica["gdpr_mode"],
-        "ai_act_mode": politica["ai_act_mode"],
-        "headroom_mode": politica["headroom_mode"],
+        "name": politica["name"], "is_active": False,
+        "entity_configs": politica["entity_configs"], "gdpr_mode": politica["gdpr_mode"],
+        "ai_act_mode": politica["ai_act_mode"], "headroom_mode": politica["headroom_mode"],
     })
-
-    assert apagada.status_code == 200, apagada.text
-    assert apagada.json()["is_active"] is False, "el rol apagó la política activa"
-
-    # Se restituye: el resto del módulo comparte la base.
-    vuelta = client.put("/api/v1/security/policy", headers=auditor, json={
-        "name": politica["name"],
-        "is_active": True,
-        "entity_configs": politica["entity_configs"],
-        "gdpr_mode": politica["gdpr_mode"],
-        "ai_act_mode": politica["ai_act_mode"],
-        "headroom_mode": politica["headroom_mode"],
-    })
-    assert vuelta.status_code == 200, vuelta.text
+    assert apagada.status_code == 403, \
+        f"el auditor ya no escribe la política: {apagada.status_code} {apagada.text[:150]}"
+    assert RECHAZO_POR_ROL in apagada.text, f"403 pero no por rol: {apagada.text[:150]}"
 
 
-def test_el_auditor_todavia_puede_tocar_la_conservacion_de_registros(harness, auditor):
-    """Los plazos de conservación son la vida útil de la evidencia que este rol audita.
-    Hoy los puede editar él mismo: la lista vacía prueba que el endpoint le abre (no 403)
-    sin tocar ninguna fila."""
+def test_el_auditor_ya_no_toca_la_conservacion_de_registros(harness, auditor):
+    """compliance_config W → admin. El auditor VE los plazos (GET, en la vitrina) pero el
+    PUT le da 403: es la evidencia que audita, ya no la edita él mismo."""
     client, _ = harness
     resp = client.put("/api/v1/compliance/retention", headers=auditor, json=[])
+    assert resp.status_code == 403, f"el auditor ya no edita retención: {resp.status_code}"
+    assert RECHAZO_POR_ROL in resp.text, f"403 pero no por rol: {resp.text[:150]}"
 
-    assert resp.status_code == 200, resp.text
 
-
-def test_el_auditor_todavia_puede_editar_las_politicas_de_cumplimiento(harness, auditor):
-    """«Editar las políticas de cumplimiento» del alta: alta, edición y baja de proyectos.
-
-    Son las fichas legales que deciden la base jurídica y el nivel de riesgo AI-Act con que
-    se procesa cada pedido: quien las escribe está moviendo el marco que después audita. Se
-    ejercita el ciclo entero —crear, modificar y borrar— porque el gate está por endpoint
-    (``compliance.py``), no en el router: cerrar sólo el POST dejaría el PUT abierto.
-
-    Los tres asserts son POSITIVOS (201/200/204), así que un cuerpo que dejara de validar
-    daría 422 y el test fallaría en vez de pasar por la razón equivocada.
-    """
+def test_el_auditor_ya_no_edita_las_politicas_de_cumplimiento(harness, auditor):
+    """artefactos_compliance W → admin. Alta, edición y baja de proyectos: los TRES dan 403.
+    El gate es por-endpoint (``compliance.py``), así que se prueba el ciclo entero — ninguno
+    le abre. El 403 viene del rol ANTES de tocar el handler, por eso los ids pueden ser fake."""
     client, _ = harness
     ficha = {
-        "name": f"auditor-{uuid.uuid4().hex[:8]}",
-        "legal_basis": "art_6_1_c",
-        "data_category": "standard",
-        "ai_act_risk_level": "limited",
-        "is_active": False,
+        "name": f"auditor-{uuid.uuid4().hex[:8]}", "legal_basis": "art_6_1_c",
+        "data_category": "standard", "ai_act_risk_level": "limited", "is_active": False,
     }
-
     creado = client.post("/api/v1/compliance/projects", headers=auditor, json=ficha)
-    assert creado.status_code == 201, creado.text
-    proyecto_id = creado.json()["id"]
+    assert creado.status_code == 403, f"alta de proyecto: {creado.status_code}"
+    assert RECHAZO_POR_ROL in creado.text, f"403 pero no por rol: {creado.text[:150]}"
 
-    editado = client.put(f"/api/v1/compliance/projects/{proyecto_id}", headers=auditor,
+    fake_id = uuid.uuid4()
+    editado = client.put(f"/api/v1/compliance/projects/{fake_id}", headers=auditor,
                          json={**ficha, "is_active": True, "legal_basis": "art_6_1_e"})
-    assert editado.status_code == 200, editado.text
-    assert editado.json()["legal_basis"] == "art_6_1_e", "el rol reescribió la base legal"
+    assert editado.status_code == 403, f"edición de proyecto: {editado.status_code}"
 
-    # Se borra lo que se creó: el resto del módulo comparte la base (y el borrado ES la
-    # tercera escritura que la ficha declara).
-    borrado = client.delete(f"/api/v1/compliance/projects/{proyecto_id}", headers=auditor)
-    assert borrado.status_code == 204, borrado.text
+    borrado = client.delete(f"/api/v1/compliance/projects/{fake_id}", headers=auditor)
+    assert borrado.status_code == 403, f"baja de proyecto: {borrado.status_code}"
 
 
-def test_el_auditor_todavia_puede_ajustar_la_configuracion_de_costos(harness, auditor):
-    """«Ajustar la configuración de costos» del alta: el interruptor global de compresión.
-
-    No es cosmético — apagarlo o encenderlo cambia qué se le manda al proveedor por cada
-    pedido de toda la organización. El gate vive en el APIRouter de ``costs.py``, el mismo
-    que le abre la pantalla Costos; el día que la spec del rol de solo lectura lo saque de
-    ahí, este test se da vuelta junto con la lectura de la ficha.
-
-    El GET de la política de protección va primero A PROPÓSITO: ``PUT /costs/config`` escribe
-    sobre la política activa y en una base recién migrada todavía no hay ninguna, así que sin
-    esto el test dependería del orden en que corrió el resto del módulo.
-    """
+def test_el_auditor_ya_no_ajusta_la_configuracion_de_costos(harness, auditor):
+    """costs_config W → admin. El auditor VE la config de costos (GET 200, la pantalla Costos)
+    pero el interruptor global de compresión (PUT) le da 403. Antes lo movía él mismo."""
     client, _ = harness
-    assert client.get("/api/v1/security/policy",
-                      headers=auditor).status_code == 200
-
     antes = client.get("/api/v1/costs/config", headers=auditor)
-    assert antes.status_code == 200, antes.text
+    assert antes.status_code == 200, antes.text  # sigue viendo Costos (R)
     original = antes.json()["enabled"]
 
     cambio = client.put("/api/v1/costs/config", headers=auditor,
                         json={"enabled": not original})
-    assert cambio.status_code == 200, cambio.text
-    # Se relee: el 200 solo probaría que el endpoint le abrió, no que el valor quedó escrito.
+    assert cambio.status_code == 403, f"el auditor ya no mueve el interruptor: {cambio.status_code}"
+    assert RECHAZO_POR_ROL in cambio.text, f"403 pero no por rol: {cambio.text[:150]}"
+    # No se movió nada: se releé y sigue en el original.
     despues = client.get("/api/v1/costs/config", headers=auditor)
-    assert despues.status_code == 200, despues.text
-    assert despues.json()["enabled"] is (not original), "el rol movió el interruptor global"
-
-    vuelta = client.put("/api/v1/costs/config", headers=auditor, json={"enabled": original})
-    assert vuelta.status_code == 200, vuelta.text
+    assert despues.json()["enabled"] is original, "el interruptor NO debió moverse"
 
 
 def test_el_auditor_todavia_puede_usar_el_chat(harness, auditor):

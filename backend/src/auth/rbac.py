@@ -6,32 +6,11 @@ from ..database import get_db
 from ..models.user import User
 from .session import get_current_user
 
-ROLE_HIERARCHY = {
-    "admin": 4,
-    "compliance_officer": 3,
-    "clinician": 2,
-    "developer": 1,
-}
-
-# Permissions matrix: action -> minimum role required
-PERMISSIONS = {
-    # User management
-    "create_user": {"admin"},
-    "delete_user": {"admin"},
-    # Key management
-    "create_key": {"admin", "developer"},
-    "revoke_key": {"admin", "developer"},
-    # Compliance management
-    "edit_compliance": {"admin", "compliance_officer"},
-    "view_compliance": {"admin", "compliance_officer"},
-    # Human review
-    "approve_review": {"admin", "compliance_officer", "clinician"},
-    # Audit logs
-    "view_audit": {"admin", "compliance_officer"},
-    "export_reports": {"admin", "compliance_officer"},
-    # Chat / inference (all roles)
-    "chat": {"admin", "compliance_officer", "clinician", "developer"},
-}
+# ── (T006, spec 017) `PERMISSIONS`/`ROLE_HIERARCHY` borrados: eran dead code ──
+# `require_role` nunca consultó `PERMISSIONS` (gatea con los literales que recibe) y
+# `ROLE_HIERARCHY` no tenía un solo lector fuera de este archivo (grep en todo backend/).
+# La fuente única de verdad rol×superficie es ahora `auth/matrix.py` (MATRIZ), verificada
+# endpoint-por-endpoint por el harness FR-005 (`tests/integration/test_role_matrix.py`).
 
 # ── Shim de compatibilidad post-013 (transicional hasta el refactor RBAC de 017) ──
 # La migración 010 reconcilió los roles ([D9]): admin→tenant_admin,
@@ -57,8 +36,14 @@ def effective_roles(user: User) -> set:
 
 def require_role(*roles: str) -> Callable:
     """
-    FastAPI dependency factory. Usage:
+    FastAPI dependency factory. Dos usos, MISMA puerta (ambos fail-closed):
+        # (1) puerta sola — no necesitás el actor:
         @router.post("/...", dependencies=[Depends(require_role("admin", "compliance_officer"))])
+        # (2) puerta + actor inyectado (FR-004 / #72 — auditar QUIÉN mutó):
+        async def endpoint(..., user: User = Depends(require_role("admin"))):
+    `_check` devuelve el `User` autenticado. En la forma (1) FastAPI descarta el retorno del
+    dependency, así que agregar el `return` es backward-compatible con los ~45 call sites
+    `dependencies=[...]` existentes; la forma (2) lo recibe para escribir el actor en la bitácora.
 
     Fail-closed: a valid session JWT resolving to an active user is REQUIRED. If no token is
     present (or it's invalid/expired), the request is rejected with 401. Virtual keys (sk-*)
@@ -81,6 +66,7 @@ def require_role(*roles: str) -> Callable:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Acción no permitida para el rol '{user.role}'. Se requiere uno de: {', '.join(sorted(allowed))}.",
             )
+        return user  # actor inyectable (FR-004); descartado en la forma dependencies=[...]
 
     return _check
 

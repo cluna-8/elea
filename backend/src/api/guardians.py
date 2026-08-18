@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..database import get_db
 from ..models.guardian import Guardian
+from ..models.user import User
 from ..models.tenant import DEFAULT_TENANT_ID
 from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
@@ -28,7 +29,10 @@ _log = logging.getLogger("basa-secure-gateway.guardians")
 router = APIRouter(
     prefix="/guardians",
     tags=["Security Guardians"],
-    dependencies=[Depends(require_role("admin"))],
+    # config_producto: el auditor (compliance_officer) LEE la config (GET guardianes /
+    # custom-entities). Los writes re-cierran a admin por-endpoint: create/update/delete ya
+    # inyectan `actor: User = Depends(require_role("admin"))`; custom-entities y test lo agregan.
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],
 )
 
 
@@ -202,7 +206,8 @@ async def list_guardians(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=GuardianResponseSchema, status_code=status.HTTP_201_CREATED)
-async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)):
+async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db),
+                          actor: User = Depends(require_role("admin"))):
     # El alta por API no puede fijar `engine_guardrail_name` (no está en el schema de
     # entrada), así que hoy este gate no puede disparar. Se llama igual para que el
     # invariante FR-007 valga para TODA puerta de activación y no dependa de que el schema
@@ -228,7 +233,7 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     # un `pii_masking` activo que se vuelve gobernante en `degrade` queda registrado; uno INACTIVO
     # (o que no llega a ser el más antiguo, o de otro tipo) no cambia nada ⇒ no genera ruido.
     _auditar_cambio_postura_tenant(db, guardian.tenant_id, postura_previa,
-                                   _postura_efectiva_tenant(db, guardian.tenant_id))
+                                   _postura_efectiva_tenant(db, guardian.tenant_id), actor)
     return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
@@ -250,7 +255,7 @@ class CustomEntityCreateRequest(BaseModel):
     ai_generated: bool = False
 
 
-@router.post("/custom-entities/draft", response_model=Dict[str, Any])
+@router.post("/custom-entities/draft", response_model=Dict[str, Any], dependencies=[Depends(require_role("admin"))])
 async def draft_custom_entity(payload: CustomEntityDraftRequest):
     """Le pide al motor de IA un borrador de patrón a partir de una descripción en
     lenguaje natural. NO persiste nada — el resultado incluye el resultado de
@@ -270,7 +275,7 @@ def list_custom_entities(db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/custom-entities", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
+@router.post("/custom-entities", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin"))])
 async def create_custom_entity(payload: CustomEntityCreateRequest, db: Session = Depends(get_db)):
     """Persiste un patrón ya revisado (aceptado o editado a mano tras el draft) —
     único punto donde algo se activa en el firewall real. Revalida seguridad
@@ -297,7 +302,7 @@ async def create_custom_entity(payload: CustomEntityCreateRequest, db: Session =
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.delete("/custom-entities/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/custom-entities/{entity_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role("admin"))])
 def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
     try:
         entity_catalog_service.delete_custom_entity(db, DEFAULT_TENANT_ID, entity_id)
@@ -323,14 +328,14 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
 # edición que NO cambia la postura efectiva (p.ej. un `pii_masking` INACTIVO en `degrade`) no
 # escribe nada: cero ruido.
 #
-# GAP CONOCIDO (para #72): este repo NO tiene hoy un mecanismo genérico de auditoría de
-# cambios de configuración — ningún endpoint de admin registra "quién cambió qué y cuándo".
-# Lo que se hace acá es el mínimo honesto para ESTE campo, no la solución del problema
-# general: una fila en `audit_logs` (la única bitácora durable que el compliance officer ya
-# consulta) con `compliance_status` propio y CERO tokens/coste, más el `logger.warning`. Falta
-# el actor: este endpoint depende de `require_role("admin")` y no recibe el `User`, así que la
-# fila registra el HECHO, no el autor. Cerrar eso —actor + cobertura de todos los campos— es
-# trabajo del issue #72, no de este fix.
+# ACTOR (FR-004 / #72, cableado en T006): los 3 handlers de mutación reciben el `User` vía
+# `Depends(require_role("admin"))` —require_role ahora DEVUELVE el actor— y lo propagan hasta
+# la fila `audit_logs` como `user_id`. La fila ya registra el HECHO **y el autor** (user_id →
+# FK a users, que lleva el rol). Lo que sigue abierto del #72 es la COBERTURA GENÉRICA (todo
+# endpoint de admin, todos los campos): el cambio de nlp_fail_mode queda cerrado acá; el resto
+# entra con el barrido de T006 sobre la matriz. El `require_role("admin")` del router sigue
+# siendo la puerta; el del handler es sólo para inyectar el actor (chequeo barato: el
+# `get_current_user` del que ambos dependen se cachea una vez por request).
 _COMPLIANCE_CAMBIO_NLP = "config_change_nlp_fail_mode"
 
 
@@ -353,7 +358,8 @@ def _postura_efectiva_tenant(db: Session, tenant_id) -> str:
     return policy.resolve_nlp_fail_mode((fila[0] if fila else None) or {})
 
 
-def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: str) -> None:
+def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: str,
+                                   actor: "User | None" = None) -> None:
     """Escribe la fila durable SI y sólo si la postura NLP EFECTIVA del tenant cambió. Nunca
     propaga: un fallo del registro no puede voltear una mutación ya commiteada.
 
@@ -376,6 +382,10 @@ def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: 
             compliance_status=_COMPLIANCE_CAMBIO_NLP, latency_ms=0,
             processing_purpose="administrative",
             tenant_id=tenant_id,
+            # FR-004 / #72: el actor de la mutación. La fila ya no registra sólo el HECHO
+            # sino el AUTOR (user_id → FK a users, que lleva el rol). `None` sólo en llamadas
+            # internas sin request (no hay ninguna hoy: los 3 handlers pasan el actor).
+            user_id=(actor.id if actor is not None else None),
         )
     except Exception as exc:  # noqa: BLE001
         _log.error("guardianes: el cambio de nlp_fail_mode EFECTIVO (%s → %s) NO quedó "
@@ -383,7 +393,8 @@ def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: 
 
 
 @router.put("/{guardian_id}", response_model=GuardianResponseSchema)
-async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Session = Depends(get_db)):
+async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Session = Depends(get_db),
+                          actor: User = Depends(require_role("admin"))):
     guardian = db.query(Guardian).filter(Guardian.id == guardian_id).first()
     if not guardian:
         raise HTTPException(status_code=404, detail="Guardian no encontrado.")
@@ -413,14 +424,14 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
 
     db.commit()
     _auditar_cambio_postura_tenant(db, tenant_id, postura_previa,
-                                   _postura_efectiva_tenant(db, tenant_id))
+                                   _postura_efectiva_tenant(db, tenant_id), actor)
     db.refresh(guardian)
     # Misma sonda (cacheada) que el GET: si el PUT devolviera la disponibilidad calculada
     # con otra fuente, la tarjeta cambiaría de forma al guardar y volvería sola al recargar.
     return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
-@router.post("/{guardian_id}/test", response_model=Dict[str, Any])
+@router.post("/{guardian_id}/test", response_model=Dict[str, Any], dependencies=[Depends(require_role("admin"))])
 async def test_guardian(guardian_id: UUID, payload: GuardianTestRequest, db: Session = Depends(get_db)):
     guardian = db.query(Guardian).filter(Guardian.id == guardian_id).first()
     if not guardian:
@@ -440,7 +451,8 @@ async def test_guardian(guardian_id: UUID, payload: GuardianTestRequest, db: Ses
 
 
 @router.delete("/{guardian_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_guardian(guardian_id: UUID, db: Session = Depends(get_db)):
+def delete_guardian(guardian_id: UUID, db: Session = Depends(get_db),
+                    actor: User = Depends(require_role("admin"))):
     guardian = db.query(Guardian).filter(Guardian.id == guardian_id).first()
     if not guardian:
         raise HTTPException(status_code=404, detail="Guardian no encontrado.")
@@ -453,5 +465,5 @@ def delete_guardian(guardian_id: UUID, db: Session = Depends(get_db)):
     db.delete(guardian)
     db.commit()
     _auditar_cambio_postura_tenant(db, tenant_id, postura_previa,
-                                   _postura_efectiva_tenant(db, tenant_id))
+                                   _postura_efectiva_tenant(db, tenant_id), actor)
     return None

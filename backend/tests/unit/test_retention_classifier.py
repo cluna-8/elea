@@ -161,6 +161,9 @@ _HOMONIMOS = {
     "flagged": "familia visual del monitor (monitor.py:318), no un estado",
     "allowed_tools": "clave de política de contexto/custom_auth",
     "allowed_models": "clave de política de contexto/custom_auth",
+    "compliance_officer": "valor del enum Rol (auth/matrix.py, spec 017 T003) — nombre de rol "
+                          "RBAC, NO un compliance_status de auditoría (los estados son passed/"
+                          "blocked/config_change_*, jamás un rol)",
 }
 
 # Módulos donde `STATUS_*` nombra OTRO vocabulario. Se excluyen de la red 3 (no de las otras):

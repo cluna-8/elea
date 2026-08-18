@@ -100,7 +100,7 @@ logger = logging.getLogger("basa-secure-gateway.governance")
 router = APIRouter(
     prefix="/governance",
     tags=["Governance"],
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],  # lectura de config; writes re-cierran a admin por-endpoint
 )
 
 
@@ -651,7 +651,7 @@ async def list_governance_profile(
     return ProfileListSchema(tenant_id=str(tenant), filas=[_row_schema(f) for f in filas])
 
 
-@router.put("/profile", response_model=ProfileWriteSchema)
+@router.put("/profile", response_model=ProfileWriteSchema, dependencies=[Depends(require_role("admin"))])
 async def upsert_governance_profile(
     body: ProfilePutBody = Body(...),
     db: Session = Depends(get_db),
@@ -759,7 +759,8 @@ def _upsert_row(db, tenant, *, scope_type: str, scope_value: str, layer_key: str
 
 
 @router.delete("/profile/{scope_type}/{scope_value}/{layer_key}",
-               status_code=status.HTTP_204_NO_CONTENT)
+               status_code=status.HTTP_204_NO_CONTENT,
+               dependencies=[Depends(require_role("admin"))])
 async def delete_governance_profile(
     scope_type: str = Path(..., description="Eje del alcance"),
     scope_value: str = Path(..., description="Valor del eje"),

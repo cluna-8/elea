@@ -73,7 +73,7 @@ def get_active_policy(db: Session = Depends(get_db)):
         policy = get_or_create_default_policy(db)
     return policy
 
-@router.put("/policy")
+@router.put("/policy", dependencies=[Depends(require_role("admin"))])
 def update_active_policy(policy_in: PolicyUpdateSchema, db: Session = Depends(get_db)):
     policy = db.query(SecurityPolicy).filter(SecurityPolicy.is_active == True).first()
     if not policy:
@@ -95,7 +95,7 @@ def list_policies(db: Session = Depends(get_db)):
     get_or_create_default_policy(db)
     return db.query(SecurityPolicy).order_by(SecurityPolicy.created_at.asc()).all()
 
-@router.post("/policies")
+@router.post("/policies", dependencies=[Depends(require_role("admin"))])
 def create_policy(policy_in: PolicyCreateSchema, db: Session = Depends(get_db)):
     if policy_in.is_active:
         db.query(SecurityPolicy).update({SecurityPolicy.is_active: False})
@@ -114,7 +114,7 @@ def create_policy(policy_in: PolicyCreateSchema, db: Session = Depends(get_db)):
     db.refresh(policy)
     return policy
 
-@router.put("/policies/{policy_id}")
+@router.put("/policies/{policy_id}", dependencies=[Depends(require_role("admin"))])
 def update_policy_by_id(policy_id: UUID, policy_in: PolicyUpdateSchema, db: Session = Depends(get_db)):
     policy = db.query(SecurityPolicy).filter(SecurityPolicy.id == policy_id).first()
     if not policy:
@@ -135,7 +135,7 @@ def update_policy_by_id(policy_id: UUID, policy_in: PolicyUpdateSchema, db: Sess
     db.refresh(policy)
     return policy
 
-@router.delete("/policies/{policy_id}")
+@router.delete("/policies/{policy_id}", dependencies=[Depends(require_role("admin"))])
 def delete_policy(policy_id: UUID, db: Session = Depends(get_db)):
     policy = db.query(SecurityPolicy).filter(SecurityPolicy.id == policy_id).first()
     if not policy:

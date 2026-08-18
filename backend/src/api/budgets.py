@@ -11,10 +11,10 @@ from ..auth.rbac import require_role
 router = APIRouter(
     prefix="/budgets",
     tags=["Budgets"],
-    dependencies=[Depends(require_role("admin"))],
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],  # lectura del grupo; writes re-cierran a admin por-endpoint
 )
 
-@router.post("", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=BudgetResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("admin"))])
 def create_budget(budget_in: BudgetCreate, db: Session = Depends(get_db)):
     # Validate user or group is provided
     if not budget_in.user_id and not budget_in.group_id:
@@ -56,7 +56,7 @@ def get_budget(budget_id: UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Budget not found")
     return budget
 
-@router.put("/{budget_id}", response_model=BudgetResponse)
+@router.put("/{budget_id}", response_model=BudgetResponse, dependencies=[Depends(require_role("admin"))])
 def update_budget(budget_id: UUID, budget_in: BudgetCreate, db: Session = Depends(get_db)):
     budget = db.query(Budget).filter(Budget.id == budget_id).first()
     if not budget:
@@ -70,7 +70,7 @@ def update_budget(budget_id: UUID, budget_in: BudgetCreate, db: Session = Depend
     return budget
 
 
-@router.delete("/{budget_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{budget_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_role("admin"))])
 def delete_budget(budget_id: UUID, db: Session = Depends(get_db)):
     budget = db.query(Budget).filter(Budget.id == budget_id).first()
     if not budget:
