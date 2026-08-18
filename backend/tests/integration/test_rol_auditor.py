@@ -275,13 +275,13 @@ VE_INVENTARIO = [
     ("get", "/api/v1/guardians"),                   # guardianes (RO)
     ("get", "/api/v1/governance/status"),           # gobernanza (RO)
     ("get", "/api/v1/governance/profile"),          # perfil de gobernanza (RO)
+    ("get", "/api/v1/groups"),                       # grupos (RO) — abierto a CO en #247
+    ("get", "/api/v1/chat/router-config"),           # config del auto-router (RO) — abierto a CO en #247
 ]
 
 NO_PUEDE = [
     ("put", "/api/v1/governance/profile"),          # ve la config, NO la escribe
-    ("get", "/api/v1/groups"),                      # follow-up: groups.py aún admin-only
-    ("post", "/api/v1/chat/models"),                # alta de modelos
-    ("get", "/api/v1/chat/router-config"),          # follow-up: router_config aún admin/developer
+    ("post", "/api/v1/chat/models"),                # alta de modelos (config_producto write; `developer` sigue ahí — follow-up fuera de #247, en chat.py)
     ("post", "/api/v1/keys"),                       # generar llaves
     ("delete", f"/api/v1/keys/{_LLAVE_INEXISTENTE}"),   # revocarlas
     ("post", "/api/v1/budgets"),

@@ -15,7 +15,9 @@ from ..auth.rbac import require_role
 router = APIRouter(
     prefix="/groups",
     tags=["Groups"],
-    dependencies=[Depends(require_role("admin"))],
+    # gestion_iam: el auditor (compliance_officer) LEE los grupos (R); los writes re-cierran
+    # a admin por-endpoint (#247, alinea a la matriz).
+    dependencies=[Depends(require_role("admin", "compliance_officer"))],
 )
 logger = logging.getLogger("basa-secure-gateway.groups")
 
@@ -86,7 +88,7 @@ def get_group(group_id: UUID, db: Session = Depends(get_db)):
     return _group_response(group, db)
 
 
-@router.put("/{group_id}/compliance", response_model=GroupComplianceResponse)
+@router.put("/{group_id}/compliance", response_model=GroupComplianceResponse, dependencies=[Depends(require_role("admin"))])
 def update_group_compliance(group_id: UUID, body: GroupComplianceUpdate, db: Session = Depends(get_db)):
     group = db.query(Group).filter(Group.id == group_id).first()
     if not group:
@@ -110,7 +112,7 @@ def update_group_compliance(group_id: UUID, body: GroupComplianceUpdate, db: Ses
     return _group_response(group, db)
 
 
-@router.delete("/{group_id}/compliance")
+@router.delete("/{group_id}/compliance", dependencies=[Depends(require_role("admin"))])
 def clear_group_compliance(group_id: UUID, db: Session = Depends(get_db)):
     group = db.query(Group).filter(Group.id == group_id).first()
     if not group:
@@ -134,7 +136,7 @@ def list_group_users(group_id: UUID, db: Session = Depends(get_db)):
     ]
 
 
-@router.put("/users/{user_id}/group")
+@router.put("/users/{user_id}/group", dependencies=[Depends(require_role("admin"))])
 def assign_user_group(user_id: UUID, body: UserGroupAssign, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:

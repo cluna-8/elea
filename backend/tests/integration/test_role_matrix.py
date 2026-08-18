@@ -82,12 +82,16 @@ CATALOG = [
     ("GET",    "/api/v1/keys",                       "gestion_iam",           "read"),
     ("PUT",    "/api/v1/users/{ID}",                 "gestion_iam",           "write"),
     ("DELETE", "/api/v1/keys/{ID}",                  "gestion_iam",           "write"),
+    ("GET",    "/api/v1/groups",                      "gestion_iam",           "read"),   # #247: CO lee grupos
+    ("PUT",    "/api/v1/groups/{ID}/compliance",      "gestion_iam",           "write"),  # #247: write admin-only
     # config_producto — guardians, policy, router_config, governance, budgets
     ("GET",    "/api/v1/guardians",                  "config_producto",       "read"),
     ("GET",    "/api/v1/governance/status",          "config_producto",       "read"),
     ("GET",    "/api/v1/budgets",                    "config_producto",       "read"),
     ("GET",    "/api/v1/security/policy",            "config_producto",       "read"),
     ("PUT",    "/api/v1/security/policy",            "config_producto",       "write"),
+    ("GET",    "/api/v1/chat/router-config",         "config_producto",       "read"),   # #247: CO lee auto-router
+    ("PUT",    "/api/v1/chat/router-config",         "config_producto",       "write"),  # #247: write admin-only, developer dropeado
     # compliance_config — retention, consent admin
     ("GET",    "/api/v1/compliance/retention",       "compliance_config",     "read"),
     ("PUT",    "/api/v1/compliance/retention",       "compliance_config",     "write"),
@@ -332,27 +336,25 @@ def test_rol_lectura_todavia_no_es_minteable(harness):
         db.close()
 
 
-# ── Fugas del shim por label sectorial legacy (divergencia conocida; honestidad, no las cierro) ──
-# El shim expande client+display_label a {client, <label>}; routers legacy que gatean por el
-# label dejan pasar permiso que la matriz colapsó en client=PROPIO. Se afirma la fuga VIVA: el
-# día que T006 la cierre, estos tests se dan vuelta y se mueven al RED de la matriz.
+# ── Fold de las variantes client+display_label a la matriz-ley (#247, cierra el punto ciego) ──
+# El shim expande client+label a {client, <label>}; el harness ahora chequea esas variantes
+# CONTRA LA MATRIZ del rol CANÓNICO (client: gestion_iam=PROPIO, human_reviews=NINGUNO), no solo
+# como tests de honestidad sueltos. Un router legacy que todavía gatee por el label sectorial
+# (keys/developer, human_reviews/clinician) ROJEA acá — que un over-permit de label futuro rojee
+# en la matriz-ley, y no quede en un test aparte, es la feature (cierra el punto ciego de #247).
+_LABELS_LEGACY = ["developer", "clinician"]
 
 
-def test_label_developer_todavia_filtra_escritura_de_keys(sesiones_label, harness):
-    """client(developer) escribe keys porque keys.py gatea (admin, developer). La matriz dice
-    gestion_iam client=PROPIO (sin escritura de grupo): fuga que T006 cierra."""
+@pytest.mark.parametrize("method,template,group,action", CATALOG,
+                         ids=[f"{m}:{t}" for m, t, _g, _a in CATALOG])
+@pytest.mark.parametrize("label", _LABELS_LEGACY)
+def test_la_matriz_es_ley_para_labels_legacy(sesiones_label, harness, label, method, template, group, action):
+    """La variante client+display_label cumple la matriz del rol CANÓNICO (client): el label
+    sectorial es display, NO da acceso de grupo. Rojo = un router legacy todavía gatea por el label."""
     client, _ = harness
-    resp = client.delete(f"/api/v1/keys/{uuid.uuid4()}", headers=sesiones_label["developer"])
-    assert resp.status_code != 403, (
-        f"Se esperaba la fuga viva (NO-403); si es 403, T006 ya la cerró → movela al RED de la "
-        f"matriz y actualizá DIVERGENCIAS. Obtuvo {resp.status_code}.")
-
-
-def test_label_clinician_todavia_resuelve_human_reviews(sesiones_label, harness):
-    """client(clinician) entra a human-reviews porque compliance.py gatea (…, clinician). La
-    matriz dice human_reviews client=NINGUNO: fuga que T006 cierra al sacar el literal legacy."""
-    client, _ = harness
-    resp = client.get("/api/v1/compliance/review/pending", headers=sesiones_label["clinician"])
-    assert resp.status_code != 403, (
-        f"Se esperaba la fuga viva (NO-403); si es 403, T006 ya la cerró → actualizá el harness. "
-        f"Obtuvo {resp.status_code}.")
+    resp = _hit(client, method, _build_path(template), sesiones_label[label])
+    permitido = _expected_allow(group, action, Rol.CLIENT)
+    assert _cumple(resp, permitido, Rol.CLIENT), (
+        f"Variante client({label}): {method} {template} grupo={group}/{action} — la matriz (client) "
+        f"espera {'NO-403' if permitido else '403-por-rol'}, obtuvo {resp.status_code}. Over-permit de "
+        f"label legacy → #247 lo cierra dropeando el literal del gate.")

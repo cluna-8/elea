@@ -278,7 +278,7 @@ def search_dsr(subject_id: str = Query(..., min_length=1), db: Session = Depends
 
 # ── Human Review ──────────────────────────────────────────────────────────────
 
-@router.post("/review/{review_token}", status_code=status.HTTP_200_OK, dependencies=[Depends(require_role("admin", "compliance_officer", "clinician"))])
+@router.post("/review/{review_token}", status_code=status.HTTP_200_OK, dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def submit_review(review_token: UUID, payload: HumanReviewSubmit, db: Session = Depends(get_db)):
     review = db.query(HumanReview).filter(HumanReview.review_token == review_token).first()
     if not review:
@@ -293,7 +293,7 @@ def submit_review(review_token: UUID, payload: HumanReviewSubmit, db: Session = 
     return {"status": "reviewed", "action": payload.action}
 
 
-@router.get("/review/pending", dependencies=[Depends(require_role("admin", "compliance_officer", "clinician"))])
+@router.get("/review/pending", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def list_pending_reviews(db: Session = Depends(get_db)):
     pending = db.query(HumanReview).filter(HumanReview.reviewed_at == None).order_by(HumanReview.created_at.desc()).all()
     result = []

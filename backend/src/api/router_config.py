@@ -59,11 +59,13 @@ from .chat import _default_local_model, _get_config_path as _engine_config_path
 router = APIRouter(prefix="/chat", tags=["Auto Router"])
 logger = logging.getLogger("basa-secure-gateway.router-config")
 
-# Mismo guard que el resto de endpoints de gestión del plano chat (register_model,
-# delete_model, PUT /fallbacks): sesión JWT válida y rol efectivo admin o developer.
 # Fail-closed: sin credencial 401, con rol insuficiente 403. Las virtual keys (sk-*) no
 # resuelven a usuario de sesión, así que tampoco llegan acá — por diseño.
-_SOLO_ADMIN = Depends(require_role("admin", "developer"))
+# #247: config_producto = admin RW, compliance_officer R. La ESCRITURA del auto-router es
+# admin-only (`developer` es display_label, no rol canónico → fuera del gate); la LECTURA la
+# comparte el auditor. (Los endpoints de modelos del plano chat quedan fuera de #247.)
+_SOLO_ADMIN = Depends(require_role("admin"))                            # writes del auto-router
+_LECTURA_CONFIG = Depends(require_role("admin", "compliance_officer"))  # GET config (auditor R)
 
 # Campos COMPUTADOS: sólo salen en el GET, jamás entran al fichero.
 _COMPUTADOS_RAIZ = ("default_model_ok", "embedding_model_ok", "config_error")
@@ -211,7 +213,7 @@ def _sin_computados(payload: dict) -> dict:
     return limpio
 
 
-@router.get("/router-config", dependencies=[_SOLO_ADMIN])
+@router.get("/router-config", dependencies=[_LECTURA_CONFIG])
 def get_router_config():
     """Config del router + computados. 200 siempre (contrato §GET)."""
     config, config_error = _leer_para_panel()
