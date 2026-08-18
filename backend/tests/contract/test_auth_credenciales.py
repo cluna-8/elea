@@ -20,8 +20,10 @@ necesita dos bases vivas a la vez —una virgen para los tests de bootstrap y ot
 para el resto— y el override de ``get_db`` es por app, así que con la app global compartida
 la segunda base le pisaría la sesión a la primera.
 """
+import asyncio
 import hashlib
 import sys
+import threading
 import uuid
 from pathlib import Path
 
@@ -40,6 +42,7 @@ for _dir in (_TESTS, _TESTS / "integration"):
 from migration_harness import (fresh_db, owner_engine, require_postgres,  # noqa: E402
                                run_alembic)
 from seat_gate_harness import mock_engine  # noqa: E402
+from src.auth.passwords import hash_password  # noqa: E402
 
 require_postgres()
 
@@ -454,3 +457,90 @@ def test_bootstrap_sobrevive_al_seed_de_clients(virgen):
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["user"]["role"] == "tenant_admin"
+
+
+# ── P1 del gate r2: el bootstrap no valida/hashea antes del dueño-gate ─────────────
+
+
+def test_admin_inexistente_con_dueno_password_corta_es_401_no_422(virgen):
+    """Con dueño y sin user 'admin', un login `admin` con password corta es un 401 normal —no
+    422—. El 422 (que devolvía el reorden del bootstrap de la r1) filtraba que el bootstrap ES
+    posible acá: oráculo de existencia de 'admin'. El pre-check `_es_sin_dueno` deja el
+    `validar_password` detrás del dueño-gate."""
+    client, factory = virgen
+    _sembrar(factory, _nombre("dueno"), _legacy(CLAVE_VALIDA), role="tenant_admin")
+
+    resp = _login(client, "admin", CORTA)
+
+    assert resp.status_code == 401, resp.text
+    assert resp.json()["detail"] == "Credenciales incorrectas."
+
+
+def test_admin_inexistente_con_dueno_no_quema_bcrypt(virgen, monkeypatch):
+    """Mitad DoS del P1: con dueño y sin user 'admin', el login `admin` NO invoca bcrypt. El
+    reorden hasheaba ~250 ms SIN autenticar en cada POST → ~16 req/s saturaban el executor
+    acotado con hashes anónimos. El pre-check corta ANTES de hashear."""
+    client, factory = virgen
+    _sembrar(factory, _nombre("dueno"), _legacy(CLAVE_VALIDA), role="tenant_admin")
+
+    from src.auth import passwords
+    hashes = {"n": 0}
+    real = passwords.hash_password
+
+    def _spy(raw):
+        hashes["n"] += 1
+        return real(raw)
+
+    monkeypatch.setattr(passwords, "hash_password", _spy)
+
+    assert _login(client, "admin", ADMIN_PASSWORD).status_code == 401
+    assert hashes["n"] == 0, "quemó bcrypt sin pasar el dueño-gate"
+
+
+# ── P2 del gate r2: clava el P1 de la r1 (conexión NO retenida durante el bcrypt) ──
+
+
+@pytest.mark.asyncio
+async def test_login_no_retiene_conexion_del_pool_durante_bcrypt(monkeypatch):
+    """Mientras el bcrypt del login corre en el executor, NINGUNA conexión del pool queda
+    retenida. Engine PROPIO (el override de la suite fija una sola conexión y no mide el pool).
+    Si una fase de DB dejara de correr en `run_in_threadpool` o retuviera la conexión a través
+    del await, `checkedout()` > 0 durante el bloqueo del verify → rojo. Es el test que faltaba:
+    nada rojeaba si mañana el fix de la r1 se revierte."""
+    dbname = "basa_test_auth_pool"
+    fresh_db(dbname)
+    run_alembic(dbname, "upgrade", "head")
+    engine = owner_engine(dbname)
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    _sembrar(factory, "u-pool", hash_password(CLAVE_VALIDA), role="client")
+
+    from src.api.users import LoginRequest, login
+    from src.auth import passwords
+
+    en_vuelo = threading.Event()
+    soltar = threading.Event()
+    capturado = {}
+
+    def _verify_bloqueante(raw, stored):
+        capturado["checkedout"] = engine.pool.checkedout()
+        en_vuelo.set()
+        soltar.wait(timeout=5)
+        return True
+
+    monkeypatch.setattr(passwords, "verify_password", _verify_bloqueante)
+
+    db = factory()
+    try:
+        tarea = asyncio.create_task(
+            login(LoginRequest(username="u-pool", password=CLAVE_VALIDA), db))
+        # esperar (sin bloquear el loop) a que el verify esté en vuelo dentro del executor
+        await asyncio.get_running_loop().run_in_executor(None, lambda: en_vuelo.wait(5))
+        assert capturado.get("checkedout") == 0, (
+            f"login retuvo {capturado.get('checkedout')} conexión(es) del pool durante el bcrypt")
+        soltar.set()
+        resp = await tarea
+        assert "access_token" in resp
+    finally:
+        soltar.set()
+        db.close()
+        engine.dispose()

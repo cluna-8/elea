@@ -18,10 +18,20 @@ INICIALIZAR su backend bcrypt contra la librería actual —al cargarlo sondea u
 histórico con un secreto de más de 72 bytes, y bcrypt 5.0 lanza ``ValueError`` en vez de
 truncar—, así que el primer hash sería un 500. ``bcrypt`` ya viene instalada: es el extra
 de ``passlib[bcrypt]==1.7.4``, no una dependencia nueva.
+
+El hash/verify de bcrypt son CPU-bound y lentos a propósito (factor de trabajo). Para el
+camino de RÁFAGA —el login— hay versiones async (``hash_password_async`` /
+``verify_password_async``) que offloadean el cómputo a un executor dedicado y acotado
+(``_BCRYPT_EXECUTOR``), fuera del threadpool anyio compartido, para que una tormenta de
+logins no le coma los hilos al gateway (#167). Los callers no-ráfaga (alta de usuario,
+cambio de contraseña) siguen usando la versión sync.
 """
+import asyncio
 import hashlib
 import hmac
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 import bcrypt
 
@@ -92,3 +102,59 @@ def validar_password(raw: str) -> None:
         raise ValueError(
             f"La contraseña debe tener al menos {MIN_PASSWORD_LEN} caracteres."
         )
+
+
+# ── Aislar bcrypt del threadpool anyio compartido (#167) ──────────────────────────────
+# hash/verify de bcrypt son CPU-bound y lentos a propósito (factor de trabajo). En un `def`
+# de FastAPI el cómputo corre en el threadpool anyio GENERAL (~40 hilos compartidos con TODO
+# el proceso, incluido el camino del gateway que audita/rechaza vía run_in_threadpool). Una
+# ráfaga de logins post-despliegue llenaba ese pool con hashes lentos y dejaba al gateway sin
+# hilos → fail-closed del NLP sobre tráfico legítimo (causa raíz #167, medida por La ITV en
+# gate 125). La cura: un executor DEDICADO y ACOTADO para bcrypt que el login (async) awaitea
+# —así el event loop no se bloquea en el hash y el threadpool compartido no se llena de bcrypt.
+# Mismo patrón que `_VALIDATION_EXECUTOR` del #106.
+
+
+def _bcrypt_workers() -> int:
+    """Hilos del executor de bcrypt: ``min(cpu, 4)`` por default, override por
+    ``BASA_BCRYPT_WORKERS``.
+
+    El cap es POR PROCESO (como el del #106): el total de la instalación es el valor ×
+    WEB_CONCURRENCY. bcrypt es CPU-bound, así que más hilos que CPUs sólo agrega contención;
+    el techo de 4 evita que una caja con muchos cores dispare un pool que vuelva a competir
+    por CPU con el resto del proceso. Un valor ausente, vacío, malformado o fuera de rango
+    cae al default en vez de tumbar el arranque: un typo en el env no debe voltear el login.
+    """
+    default = min(os.cpu_count() or 1, 4)
+    raw = os.environ.get("BASA_BCRYPT_WORKERS", "").strip()
+    if not raw:
+        return default
+    try:
+        n = int(raw)
+    except ValueError:
+        return default
+    return max(1, min(n, 4))
+
+
+BASA_BCRYPT_WORKERS = _bcrypt_workers()
+_BCRYPT_EXECUTOR = ThreadPoolExecutor(
+    max_workers=BASA_BCRYPT_WORKERS, thread_name_prefix="bcrypt"
+)
+
+
+async def hash_password_async(raw: str) -> str:
+    """``hash_password`` corrido en el executor dedicado de bcrypt (#167).
+
+    Para el camino de ráfaga (login): el hash NO corre en el event loop ni en el threadpool
+    anyio general, sino en ``_BCRYPT_EXECUTOR`` (acotado). Los callers no-ráfaga siguen con
+    la versión sync.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_BCRYPT_EXECUTOR, hash_password, raw)
+
+
+async def verify_password_async(raw: str, stored: str) -> bool:
+    """``verify_password`` corrido en el executor dedicado de bcrypt (#167). Ver
+    ``hash_password_async``."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_BCRYPT_EXECUTOR, verify_password, raw, stored)

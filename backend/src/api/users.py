@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, NamedTuple, Optional
 from uuid import UUID
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from ..database import get_db
 from ..licensing.gate import enforce_seat_gate
@@ -15,7 +16,8 @@ from ..services.ai_engine_client import AIEngineClientError
 from ..auth.session import create_session_token, get_current_user
 # hash_password vivía acá como sha256 sin sal; ahora es bcrypt y vive en auth.passwords.
 # Se sigue importando con el mismo nombre porque hay tests que lo toman de este módulo.
-from ..auth.passwords import hash_password, necesita_rehash, validar_password, verify_password
+from ..auth.passwords import (hash_password, hash_password_async, necesita_rehash,
+                              validar_password, verify_password, verify_password_async)
 from ..auth.rbac import require_role
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -51,49 +53,144 @@ def _sin_dueno(db: Session) -> bool:
     return db.query(User).filter(User.role.in_(ROLES_QUE_PRUEBAN_DUENO)).count() == 0
 
 
-@router.post("/login")
-def login(body: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == body.username).first()
+# ── Login sin retener conexión del pool a través de bcrypt (#167 ronda 2, P1 del gate) ──
+# Con `login` async y la conexión del pool RETENIDA a través del await de bcrypt (la Session
+# no cierra su transacción hasta commit/close), bajo ráfaga de logins el pool (30/proceso) se
+# agotaba y un `pool.get()` BLOQUEANTE corría en el event loop → los coroutines que esperaban
+# bcrypt no podían resumir ni devolver su conexión → freeze en cascada de ~30 s del proceso
+# ENTERO (gateway incluido), peor que el #167 original.
+# Regla: NINGUNA conexión retenida a través de un await del executor. Cada fase de DB corre en
+# `run_in_threadpool` (fuera del event loop) sobre la Session INYECTADA (`get_db`, para
+# respetar el override de los tests) y CIERRA su transacción antes de volver —rollback tras
+# leer, commit tras escribir— así la conexión vuelve al pool ANTES del bcrypt. Entre fases se
+# pasa un snapshot PLANO, desacoplado del ORM (nada de reloads perezosos sin transacción).
 
-    # Bootstrap del primer admin, SÓLO mientras la instalación no tenga dueño. Antes bastaba
-    # con que no existiera el usuario 'admin': en un despliegue con 124 clientes ya cargados,
-    # cualquiera que llegara al login se apropiaba del tenant creándose un tenant_admin con
-    # la contraseña que quisiera.
-    if not user and body.username == "admin" and _sin_dueno(db):
-        try:
-            validar_password(body.password)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
+
+class _LoginSnapshot(NamedTuple):
+    """Instantánea plana del usuario para el login, desacoplada del ORM: se arma con la
+    transacción abierta y se devuelve con la conexión ya liberada, para que el login awaitee
+    bcrypt sin retenerla."""
+    id: UUID
+    username: str
+    role: str
+    display_label: Optional[str]
+    email: str
+    password_hash: str
+    is_active: bool
+
+
+def _instantanea(user: Optional[User]) -> Optional[_LoginSnapshot]:
+    if user is None:
+        return None
+    return _LoginSnapshot(
+        id=user.id, username=user.username, role=user.role,
+        display_label=user.display_label, email=user.email,
+        password_hash=user.password_hash, is_active=user.is_active,
+    )
+
+
+def _cargar_usuario_para_login(db: Session, username: str) -> Optional[_LoginSnapshot]:
+    """Lee el usuario por username y LIBERA la conexión (rollback cierra la txn de lectura →
+    vuelve al pool) antes de volver, para que no quede retenida a través del await de bcrypt
+    (#167 ronda 2). Corre en `run_in_threadpool`, nunca en el event loop."""
+    try:
+        return _instantanea(db.query(User).filter(User.username == username).first())
+    finally:
+        db.rollback()
+
+
+def _bootstrap_admin_si_sin_dueno(db: Session, password_hash: str) -> Optional[_LoginSnapshot]:
+    """Crea el primer admin SÓLO si la instalación no tiene dueño. La contraseña llega ya
+    hasheada (el bcrypt ocurrió afuera, sin conexión retenida); el check + insert es atómico.
+    Si otro login ganó la carrera y ya existe `admin`, devuelve ese. Libera la conexión al
+    salir (el rollback del `finally` es no-op tras el commit del insert)."""
+    try:
+        existente = db.query(User).filter(User.username == "admin").first()
+        if existente is not None:
+            return _instantanea(existente)
+        if not _sin_dueno(db):
+            return None
         user = User(
             username="admin",
             email="admin@basa.com.ar",  # .local es TLD reservado: EmailStr del response lo rechaza (bug heredado)
-            password_hash=hash_password(body.password),
+            password_hash=password_hash,
             role="tenant_admin",  # canónico post-013 (equivale al legacy 'admin' vía shim RBAC)
             is_active=True,
         )
         db.add(user)
         db.commit()
         db.refresh(user)
+        return _instantanea(user)
+    finally:
+        db.rollback()
 
-    if not user or not user.is_active or not verify_password(body.password, user.password_hash):
+
+def _actualizar_hash_de_login(db: Session, user_id: UUID, nuevo_hash: str) -> None:
+    """Re-hash perezoso del formato legacy: persiste el hash nuevo (computado afuera del pool)
+    y libera la conexión al salir (#167 ronda 2)."""
+    try:
+        db.query(User).filter(User.id == user_id).update(
+            {User.password_hash: nuevo_hash}
+        )
+        db.commit()
+    finally:
+        db.rollback()
+
+
+def _es_sin_dueno(db: Session) -> bool:
+    """Pre-check del bootstrap en su propia fase de DB (conexión liberada al salir): sólo si la
+    instalación NO tiene dueño se valida/hashea la contraseña. Sin esto, cada POST con
+    username='admin' en una caja que YA tiene dueño quema ~250 ms de bcrypt SIN autenticar
+    (satura el executor acotado → DoS de logins legítimos) y una password corta filtra 422 vs
+    401 (oráculo de existencia de 'admin'). Restaura el gate viejo (`_sin_dueno` antes de todo,
+    P1 del gate r2). El check atómico dentro de `_bootstrap_admin_si_sin_dueno` sigue siendo la
+    AUTORIDAD: TOCTOU benigno — si un dueño aparece entre este pre-check y el insert, el insert
+    lo respeta (devuelve el admin existente)."""
+    try:
+        return _sin_dueno(db)
+    finally:
+        db.rollback()
+
+
+@router.post("/login")
+async def login(body: LoginRequest, db: Session = Depends(get_db)):
+    # Fase DB (en threadpool, conexión liberada al volver): buscar el usuario.
+    snap = await run_in_threadpool(_cargar_usuario_para_login, db, body.username)
+
+    # Bootstrap del primer admin, SÓLO si la instalación no tiene dueño (raro, controlado por
+    # runbook). El pre-check `_es_sin_dueno` va ANTES de validar/hashear: sin él, cada POST con
+    # username='admin' en una caja con dueño quemaría bcrypt sin autenticar (DoS del executor)
+    # y filtraría 422 vs 401 (P1 del gate r2). El hash se computa antes del insert; el check +
+    # insert atómico dentro de `_bootstrap_admin_si_sin_dueno` es la autoridad final.
+    if snap is None and body.username == "admin" and await run_in_threadpool(_es_sin_dueno, db):
+        try:
+            validar_password(body.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        hashed = await hash_password_async(body.password)
+        snap = await run_in_threadpool(_bootstrap_admin_si_sin_dueno, db, hashed)
+
+    if (snap is None or not snap.is_active
+            or not await verify_password_async(body.password, snap.password_hash)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciales incorrectas.")
 
-    # Migración perezosa del formato viejo (ver auth/passwords): este es el único momento en
-    # que existe la contraseña en claro, así que el re-hash se hace acá o no se hace nunca.
-    if necesita_rehash(user.password_hash):
-        user.password_hash = hash_password(body.password)
-        db.commit()
+    # Migración perezosa del formato viejo (ver auth/passwords): único momento con la
+    # contraseña en claro. El hash nuevo se computa fuera del pool y se persiste en una fase
+    # DB propia — nunca reteniendo la conexión a través del await del hash.
+    if necesita_rehash(snap.password_hash):
+        nuevo = await hash_password_async(body.password)
+        await run_in_threadpool(_actualizar_hash_de_login, db, snap.id, nuevo)
 
-    token = create_session_token(str(user.id), user.role, user.username)
+    token = create_session_token(str(snap.id), snap.role, snap.username)
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": {
-            "id": str(user.id),
-            "username": user.username,
-            "role": user.role,
-            "display_label": user.display_label,
-            "email": user.email,
+            "id": str(snap.id),
+            "username": snap.username,
+            "role": snap.role,
+            "display_label": snap.display_label,
+            "email": snap.email,
         },
     }
 
