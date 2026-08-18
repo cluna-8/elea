@@ -7,7 +7,7 @@ const GUARDIAN_DESCRIPTIONS: Record<string, string> = {
   pii_masking: "Enmascaramiento local por expresiones regulares. Detecta DNI, CUIL, emails, teléfonos y personas sin depender de servicios externos.",
   secret_detection: "Detecta claves de API o tokens de seguridad y los redacta antes de enviarlos al modelo.",
   sensitive_routing: "Enruta prompts con términos sensibles a un modelo local on-premise de forma transparente.",
-  presidio: "Detección de datos personales con modelos de lenguaje, no solo con patrones. Requiere los dos servicios del motor NLP (analyzer y anonymizer).",
+  presidio: "Detección de datos personales con modelos de lenguaje, no solo con patrones. Requiere el servicio Analyzer del motor NLP; el enmascarado reversible lo resuelve el gateway.",
   openai_moderation: "Filtro de contenido: detecta odio, acoso, autolesiones, violencia y contenido sexual.",
   lakera_prompt_injection: "Defensa en tiempo real contra ataques de jailbreak e inyecciones de prompts adversarias.",
   azure_content_safety: "Clasificación y mitigación de contenido inapropiado mediante filtros de seguridad en la nube.",

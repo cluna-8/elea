@@ -123,20 +123,3 @@ class PresidioService:
         if not isinstance(raw, list):
             raise NlpUnavailableError(f"respuesta inesperada del Analyzer: {type(raw)!r}")
         return policy.resolve_overlaps(raw)
-
-    @staticmethod
-    async def anonymize_text_http(
-        text: str,
-        anonymizer_url: str,
-        analyzer_results: List[Dict[str, Any]],
-    ) -> str:
-        """Call a Presidio Anonymizer HTTP service. Returns anonymized text."""
-        payload = {"text": text, "analyzer_results": analyzer_results}
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.post(f"{anonymizer_url.rstrip('/')}/anonymize", json=payload)
-                r.raise_for_status()
-                return r.json().get("text", text)
-        except Exception as e:
-            logger.warning("Presidio Anonymizer unreachable (%s): %s", anonymizer_url, e)
-            return text
