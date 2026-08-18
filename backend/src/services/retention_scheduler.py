@@ -1,7 +1,7 @@
 """Scheduler de la purga de retención (spec 018, FR-001 — T011).
 
-⚠ ESQUELETO (T001). La forma de abajo es el contrato; el cuerpo lo escribe T011. Nadie lo
-arranca todavía: el wiring en el startup del backend entra con esa tarea.
+Cuerpo de T011 escrito. El startup lo arranca: `main.py:89` llama
+`retention_scheduler.start_scheduler()` (y `:94` lo para en el shutdown).
 
 Por qué un thread daemon y no cron/celery: es el patrón que el producto ya tiene
 (`licensing/reconcile.py::start_scheduler`, `:268-297`, con el `_loop` en `:285` y el
@@ -145,11 +145,9 @@ def stop_scheduler() -> None:
 def scheduler_running() -> bool:
     """¿Hay un thread de purga vivo?
 
-    Hoy NO tiene ningún consumidor de producción: el health no lo mira (medido el 14-ago,
-    `grep -rn scheduler_running backend/src` sólo levanta esta definición y la homónima de
-    `licensing/reconcile.py:308`). El único llamador vivo es el test de esqueleto, que
-    comprueba que la función exista (`tests/unit/test_retention_skeleton.py:116`).
-    Exponerlo en el health es parte de T011, junto con el wiring del startup.
+    Consumidor de producción: `main.py:161` lo expone en `/health` como
+    `purge_scheduler_running` (booleano, sin I/O). El wiring del startup está en
+    `main.py:89` (`start_scheduler()`).
     """
     return _thread is not None and _thread.is_alive()
 

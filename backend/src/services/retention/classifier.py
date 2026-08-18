@@ -23,13 +23,10 @@ Spec 018, FR-002/FR-003 · Contrato 1 de `specs/018-retencion-tiers/contracts/`.
       purga   = por FORMA    (irreversible → no confía en nadie)
       vitrina = por LITERAL  (reversible   → y el literal ya es nuestro gracias a la Capa B)
 
-- **El purgador NO está en este PR, y por eso nada de acá lo nombra por `archivo:línea`.**
-  `purger.py` (T008) y `services/retention_scheduler.py` (T011) llegan en el PR de US1: este
-  módulo entrega la DEFINICIÓN de qué fila es de qué clase, y aquél la consumirá para el
-  `WHERE` de su `DELETE` por lotes vía `predicado()`, `clases()` y `clase_de()`. Mientras
-  tanto **este PR no enciende ninguna purga**: nada en `backend/src` llama a `predicado()`
-  para borrar. El único consumidor en producción hoy es la vitrina (T005, ver arriba), que
-  sólo lee.
+- **El purgador YA consume este módulo.** `purger.py` (`run_once`) arma el `WHERE` del
+  `DELETE` por lotes con `predicado()` y recorre `clases()`; el scheduler (T011) lo
+  dispara desde `main.py:89`. La vitrina (T005, ver arriba) sigue siendo consumidor de
+  sólo lectura.
 
 ## Por qué el mapeo vive en código y no en el esquema (research.md D1)
 
@@ -266,9 +263,9 @@ sin tocar nada es indistinguible de una purga rota. Si mañana alguien mete cont
    cliente escriba**: se purga lo que es demostrablemente tráfico, y nada más. Ningún predicado
    de clase devuelve una fila que no pasó el portón, y no existe parámetro para incluirla
    (FR-003). Desde el 14-ago la columna `model` no participa del portón en ninguna forma.
-3. **Consumidores**: el purgador (T008, `purger.py`, **llega en el PR de US1**) consumirá
-   `predicado()`/`clase_de()`/`clases()`; la vitrina (`api/audit.py:19`, T005) —hoy el único
-   consumidor en producción, y sólo de lectura— consume
+3. **Consumidores**: el purgador (T008, `purger.py`, `run_once`) YA consume
+   `predicado()`/`clases()` para el DELETE por lotes; la vitrina (`api/audit.py:19`, T005)
+   —consumidor de sólo lectura, ya no el único— consume
    `es_bloqueo()`, `es_rechazo()` y `dice_licencia()`.
    Purga y vitrina NO comparten el criterio de exclusión de la cadena, y eso es deliberado:
    ver «La VITRINA excluye por LITERAL» arriba.
@@ -805,8 +802,7 @@ def clases() -> List[str]:
 def predicado(clase: str) -> ColumnElement:
     """Predicado SQLAlchemy sobre `AuditLog` que selecciona las filas de `clase`.
 
-    Es lo que el purgador meterá en el `WHERE` de su DELETE por lotes cuando T008 entre, en el
-    PR de US1. Hoy nadie en `backend/src` lo llama para borrar: este PR no enciende purga.
+    Es lo que `purger.run_once` mete en el `WHERE` de su DELETE por lotes.
     Ojo con no leer de más: la VITRINA no llama a `predicado()`. Consume las primitivas sueltas
     (`es_bloqueo`, `es_rechazo`, `dice_licencia`), que es lo que FR-002 pide —una sola
     definición de «qué fila es qué», sin constantes duplicadas en la pantalla— y no «el mismo
