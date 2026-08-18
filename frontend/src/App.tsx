@@ -15,10 +15,11 @@ import { CostsPage } from "./pages/CostsPage";
 import { FirewallMonitorPage } from "./pages/FirewallMonitorPage";
 import { GovernancePage } from "./pages/GovernancePage";
 import { CambiarMiPasswordModal } from "./components/CambiarMiPasswordModal";
-// `ROLE_PERMISSIONS` se importaba y no se usaba desde antes de esta rama: el gating del nav
-// se resuelve con el campo `roles` de cada item (más abajo). Se saca el import muerto en vez
-// de silenciarlo — dejarlo sugería un mecanismo de permisos que este archivo no aplica.
 import { authStorage, SessionUser, ROLE_LABELS } from "./services/auth";
+// El gating del nav DERIVA de la matriz canónica (`roleMatrix.ts`, espejo del contrato), no de
+// una tabla de roles hardcodeada que vuelva a driftear (Regla 5 aplicada al front): cada item
+// declara el GRUPO DE SUPERFICIE que representa y se muestra si el rol puede VERLO (`canView`).
+import { canView, SurfaceGroup } from "./services/roleMatrix";
 
 // Agregar una sección son TRES ediciones sincronizadas en este archivo: este union, el item
 // de `navigation` y el render condicional de abajo. Si falta una, el usuario hace click y
@@ -34,35 +35,33 @@ export const App: React.FC = () => {
   // propio dueño.
   const [cambiarPassword, setCambiarPassword] = useState(false);
 
-  const navigation = [
-    { id: "dashboard", name: "Panel Principal", icon: LayoutDashboard, roles: null },
-    // El Playground SIGUE visible para el Auditor a propósito: el backend acepta el chat de
-    // cualquier sesión válida (`POST /chat/completions` no tiene gate de rol), así que
-    // esconderlo del menú daría a entender una restricción que no existe. El alta de
-    // usuarios lo dice con todas las letras. Quitarlo de verdad es trabajo del rol de solo
-    // lectura, que se cierra por su propia spec.
-    { id: "playground", name: "Playground", icon: FlaskConical, roles: null },
-    // Alta/baja/credenciales de modelos son admin o developer en el backend
-    // (`chat.py`, POST/PATCH/DELETE /chat/models). Con `roles: null` el Auditor entraba a
-    // una pantalla donde toda acción terminaba en 403.
-    { id: "models", name: "Modelos & Ollama", icon: Boxes, roles: ["admin", "developer"] },
-    { id: "costs", name: "Costos", icon: Wallet, roles: ["admin", "compliance_officer"] },
-    { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, roles: ["admin"] },
-    // OJO: este array usa el vocabulario LEGACY de roles — `visibleNav` compara contra el
-    // rol ya normalizado por `toLegacyRole` (services/auth.ts), que colapsa tenant_admin y
-    // super_admin en "admin". Escribir "tenant_admin" acá hace que el item no se muestre
-    // NUNCA, y falla en silencio. El gate real es admin-only en el router del backend.
-    { id: "governance", name: "Gobernanza", icon: Scale, roles: ["admin"] },
-    // El listado de guardianes (`/guardians`) y el estado de gobernanza son admin-only en el
-    // backend, y la pantalla los pide al cargar: un compliance_officer entraba por el menú y
-    // se comía un cartel de error en lugar de la pantalla. Se saca del menú de ese rol. OJO:
-    // esto NO le quita el permiso de escritura sobre la política de protección, que sigue
-    // aceptando su sesión por API — está documentado en el alta de usuarios.
-    { id: "security", name: "Seguridad y Guardianes", icon: ShieldCheck, roles: ["admin"] },
-    { id: "compliance", name: "Políticas de Cumplimiento", icon: ClipboardCheck, roles: ["admin", "compliance_officer"] },
-    { id: "audit", name: "Logs de Auditoría", icon: ScrollText, roles: ["admin", "compliance_officer"] },
-    { id: "firewall", name: "Conexiones en vivo", icon: Activity, roles: ["admin", "compliance_officer"] },
-    { id: "docs", name: "Documentación", icon: BookOpen, roles: null },
+  // Cada item declara el GRUPO DE SUPERFICIE de la matriz que representa; `surface: null` = sin
+  // superficie gateada (visible a toda sesión de consola). La visibilidad sale de `canView` sobre
+  // ese grupo — celda por celda contra `matriz-roles.md`. Reconciliación 017 vs el estado previo:
+  //   playground → chat_playground (lectura = 403 → deja de verlo; resto igual)
+  //   costs/audit/firewall → vitrinas_lectura (suman `lectura`)
+  //   users → gestion_iam · governance/security → config_producto (suman la R del auditor)
+  //   models → FUERA de la matriz 017 (gate explícito admin+developer vía `legacyRoles`, ver abajo)
+  // El "corte fino" (que la página esconda botones de escritura para el rol de solo lectura vía
+  // los helpers de `ROLE_PERMISSIONS`) es trabajo por-página posterior (US1) — acá se reconcilia
+  // la VISIBILIDAD del nav a la matriz; los helpers quedan listos para ese cableado. `legacyRoles`
+  // es la escotilla explícita para superficies que la matriz 017 todavía no nombra.
+  const navigation: { id: Page; name: string; icon: typeof LayoutDashboard; surface: SurfaceGroup | null; legacyRoles?: string[] }[] = [
+    { id: "dashboard", name: "Panel Principal", icon: LayoutDashboard, surface: null },
+    { id: "playground", name: "Playground", icon: FlaskConical, surface: "chat_playground" },
+    // `models` NO está en ningún grupo del contrato 017 (GET /models = require_authenticated;
+    // POST/PATCH/DELETE = require_role("admin","developer")). Mapearlo a config_producto le
+    // quitaba el nav a `developer`, que el backend SÍ deja gestionar = under-permit. Gate
+    // explícito = comportamiento previo, cero regresión. Pendiente decisión de contrato (follow-up).
+    { id: "models", name: "Modelos & Ollama", icon: Boxes, surface: null, legacyRoles: ["admin", "developer"] },
+    { id: "costs", name: "Costos", icon: Wallet, surface: "vitrinas_lectura" },
+    { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, surface: "gestion_iam" },
+    { id: "governance", name: "Gobernanza", icon: Scale, surface: "config_producto" },
+    { id: "security", name: "Seguridad y Guardianes", icon: ShieldCheck, surface: "config_producto" },
+    { id: "compliance", name: "Políticas de Cumplimiento", icon: ClipboardCheck, surface: "compliance_config" },
+    { id: "audit", name: "Logs de Auditoría", icon: ScrollText, surface: "vitrinas_lectura" },
+    { id: "firewall", name: "Conexiones en vivo", icon: Activity, surface: "vitrinas_lectura" },
+    { id: "docs", name: "Documentación", icon: BookOpen, surface: null },
   ];
 
   const handleLogin = (user: SessionUser) => {
@@ -83,13 +82,17 @@ export const App: React.FC = () => {
   // canónico post-013 ("client", users.py) y authStorage lo guarda pasado por toLegacyRole
   // (services/auth.ts), que deja "client" tal cual salvo cuando display_label es
   // "clinician"/"developer". Por eso el gate cubre "client" y "clinician" (el usuario final
-  // histórico); "developer" conserva la consola, igual que en el predecesor.
+  // histórico); "developer" conserva la consola, igual que en el predecesor. `lectura` NO va al
+  // portal: entra a la consola en modo solo-vitrinas (el nav lo deja ver únicamente las vitrinas
+  // de lectura — costos/auditoría/conexiones — vía `canView`).
   if (currentUser.role === "client" || currentUser.role === "clinician") {
     return <UserPortal user={currentUser} onLogout={handleLogout} />;
   }
 
   const visibleNav = navigation.filter(item =>
-    !item.roles || item.roles.includes(currentUser.role)
+    item.legacyRoles
+      ? item.legacyRoles.includes(currentUser.role)
+      : item.surface === null || canView(currentUser.role, item.surface)
   );
 
   return (

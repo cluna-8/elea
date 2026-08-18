@@ -1,3 +1,5 @@
+import { canWrite, canView } from "./roleMatrix";
+
 const TOKEN_KEY = "basa_session_token";
 const USER_KEY = "basa_current_user";
 
@@ -6,7 +8,7 @@ export interface SessionUser {
   username: string;
   role:
     | "admin" | "compliance_officer" | "clinician" | "developer" // legacy (pre-013)
-    | "super_admin" | "tenant_admin" | "client"; // canónicos post-013
+    | "super_admin" | "tenant_admin" | "client" | "lectura"; // canónicos post-013 (lectura: 017)
   display_label?: string | null;
   email: string;
 }
@@ -55,13 +57,29 @@ export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
   tenant_admin: "Administrador",
   client: "Cliente",
+  // `lectura` (017): rol de solo-vitrinas. Exercible cuando el backend emita `role=lectura`
+  // (T009, aún no en main); se deja el label listo — que no aparezca todavía es esperado.
+  lectura: "Solo Lectura",
 };
 
+// Permisos DERIVADOS de la matriz canónica (`roleMatrix.ts`, espejo del contrato) — no se
+// hardcodean acá. `role` es el rol ya normalizado por `toLegacyRole`; `roleMatrix` lo traduce al
+// canónico. Gestión = `canWrite` del grupo; lectura/inventario = `canView`. Reconciliación 017:
+//   canManageCompliance pierde compliance_officer (matriz le saca W) · canManageKeys deja de
+//   colgar del label `developer` (solo admin gestiona) · canApproveReviews = admin||compliance
+//   (antes dejaba aprobar a client/clinician) · canViewAudit suma `lectura` · + helpers de
+//   LECTURA nuevos para que el auditor VEA inventario (users/keys/config) sin botones de escritura.
 export const ROLE_PERMISSIONS = {
-  canManageUsers: (role: string) => role === "admin",
-  canManageCompliance: (role: string) => role === "admin" || role === "compliance_officer",
-  canExportReports: (role: string) => role === "admin" || role === "compliance_officer",
-  canApproveReviews: (role: string) => role !== "developer",
-  canManageKeys: (role: string) => role === "admin" || role === "developer",
-  canViewAudit: (role: string) => role === "admin" || role === "compliance_officer",
+  // Escritura / gestión (botones de mutación)
+  canManageUsers: (role: string) => canWrite(role, "gestion_iam"),
+  canManageKeys: (role: string) => canWrite(role, "gestion_iam"),
+  canManageCompliance: (role: string) => canWrite(role, "compliance_config"),
+  canManageConfig: (role: string) => canWrite(role, "config_producto"),
+  canApproveReviews: (role: string) => canWrite(role, "human_reviews_resolver"),
+  // Lectura / vitrinas / inventario
+  canViewAudit: (role: string) => canView(role, "vitrinas_lectura"),
+  canExportReports: (role: string) => canView(role, "vitrinas_lectura"),
+  canViewUsers: (role: string) => canView(role, "gestion_iam"),
+  canViewKeys: (role: string) => canView(role, "gestion_iam"),
+  canViewConfig: (role: string) => canView(role, "config_producto"),
 };
