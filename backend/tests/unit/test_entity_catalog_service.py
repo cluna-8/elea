@@ -47,39 +47,49 @@ def test_validate_pattern_safety_rejects_ambiguous_alternation_via_execution():
         svc.validate_pattern_safety(r"(a|aa)+$")
 
 
-# ── concurrencia: carrera de multiprocessing bajo hilos (#98) ──────────────────
+# ── concurrencia: carrera de multiprocessing bajo hilos (#98/#222) ─────────────
 
-def test_validate_pattern_safety_no_rechaza_patrones_sanos_entre_hilos():
+@pytest.mark.asyncio
+async def test_validate_pattern_safety_no_rechaza_patrones_sanos_bajo_offload_bounded():
     """Regresión #98: cada match corre en un subproceso, y `Process.start()` cosecha
     con `waitpid` a los hijos de OTROS hilos; en la ventana entre ese `waitpid` y la
     asignación del `returncode`, `is_alive()` reporta VIVO un proceso que ya terminó
     bien, y el validador lo lee como "no respondió a tiempo" → rechaza un regex SANO.
 
-    La concurrencia de acá es la de producción, no de laboratorio: `POST
-    /custom-entities` es un `def`, así que FastAPI lo corre en su threadpool y dos
-    altas simultáneas ya alcanzan. Se lanzan 120 subprocesos (8 hilos x 5 rondas x 3
-    inputs adversariales), el mismo volumen con el que se midió el bug: ~2-8 falsos
-    timeouts cada 120, y ~43% de fallo en el test de concurrencia del catálogo.
-    """
-    hilos_n, rondas = 8, 5
+    **#222 — alineado a la concurrencia REAL de producción.** Antes este test lanzaba
+    8 `threading.Thread` crudos llamando a `validate_pattern_safety` DIRECTO, saltando
+    el executor del #106 — más concurrencia de la que producción permite HOY (`POST
+    /custom-entities` es `async` + `_offload_bounded` desde el #106, cap
+    `REDOS_VALIDATION_CONCURRENCY`, no un `def` en el threadpool anyio general: ese
+    dato del docstring viejo ya no es cierto). En CI (runner de 2 vCPU) 8 spawns
+    simultáneos competían por el `REGEX_TIMEOUT_S` fijo y el boot de `spawn` solo
+    ya se comía el presupuesto — flake de RECURSOS, no de la carrera de #98 en sí
+    (medido por La ITV + Manager contra `7f210c2b`: ~2-8 falsos timeouts cada 120,
+    ~43% de fallo). La carrera de #98 no necesita 8-way: aparece con CUALQUIER
+    `Process.start()` concurrente, así que el cap de prod (3) la sigue ejerciendo —
+    y ahora el test corre por el MISMO camino (`_offload_bounded`) que corre en
+    producción, no un camino de laboratorio más agresivo que nunca se da en vivo.
+
+    Mismo volumen de subprocesos que antes (120 = 40 tareas × 3 inputs adversariales
+    c/u) para no perder poder estadístico contra la carrera — lo que cambia es CUÁNTOS
+    corren A LA VEZ (cap 3, como prod), no cuántos en total."""
+    n_tareas = 40
     errores = []
 
     def _validar(i):
-        for ronda in range(rondas):
-            try:
-                svc.validate_pattern_safety(rf"\bZZ{i}-\d{{4}}\b")  # sano, debe pasar
-            except Exception as e:
-                errores.append(f"hilo {i} ronda {ronda}: {e!r}")
+        try:
+            svc.validate_pattern_safety(rf"\bZZ{i}-\d{{4}}\b")  # sano, debe pasar
+        except Exception as e:
+            errores.append(f"tarea {i}: {e!r}")
 
-    hilos = [threading.Thread(target=_validar, args=(i,)) for i in range(hilos_n)]
-    for h in hilos:
-        h.start()
-    for h in hilos:
-        h.join(timeout=120)
+    # `wait_for` con techo generoso: si el cap-3 real dejara algo colgado, esto lo
+    # convierte en un fallo del test en vez de un CI colgado para siempre — mismo
+    # espíritu defensivo que el `join(timeout=120)` que reemplaza.
+    await asyncio.wait_for(
+        asyncio.gather(*[svc._offload_bounded(_validar, i) for i in range(n_tareas)]),
+        timeout=180,
+    )
 
-    # Un `join` con timeout que expira NO falla solo: sin este assert, un hilo colgado
-    # se leería como "no hubo errores" y el test pasaría en falso.
-    assert not [h for h in hilos if h.is_alive()], "quedaron hilos sin terminar"
     assert errores == [], f"patrones sanos rechazados (carrera #98): {errores}"
 
 
