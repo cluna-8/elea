@@ -20,6 +20,8 @@ jobs:
             echo "FERNET_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')"
             echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"
           } >> .env
+      - name: Render de container_name (STACK_PREFIX, #223)
+        run: scripts/check_stack_prefix.sh
       - name: Levantar Postgres + Redis
         run: docker compose up -d db redis
       - name: Migraciones (el CMD del contenedor las corre en runtime; pytest lo pisa)

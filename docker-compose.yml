@@ -1,9 +1,16 @@
 version: '3.8'
 
+# STACK_PREFIX aísla container_name entre worktrees en el mismo demonio Docker.
+# Default `basa` → los lectores (`docker exec basa-db`, `docker exec basa-litellm`)
+# siguen funcionando. En un worktree paralelo: STACK_PREFIX=jeff223 docker compose up.
+# `-p` NO basta: solo scopea red/volúmenes. Los puertos de host siguen globales
+# (5433/8091/8090/4010); si chocan, override local de `ports` (no de nombres).
+# Convención: CONTRIBUTING.md § Entorno local + tech-team/DevFlow-BasaGuardian.md § 8.
+
 services:
   db:
     image: postgres:16-alpine
-    container_name: basa-db
+    container_name: ${STACK_PREFIX:-basa}-db
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-basa_gateway}
       POSTGRES_USER: ${POSTGRES_USER:-basa_admin}
@@ -23,7 +30,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: basa-redis
+    container_name: ${STACK_PREFIX:-basa}-redis
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     networks:
       - basa-network
@@ -43,7 +50,7 @@ services:
     build:
       context: ./presidio-analyzer
       dockerfile: Dockerfile
-    container_name: basa-nlp-analyzer
+    container_name: ${STACK_PREFIX:-basa}-nlp-analyzer
     networks:
       - basa-network
     healthcheck:
@@ -58,7 +65,7 @@ services:
     # Proceso de bump: cambiar el digest -> correr la suite de contract tests
     # (tests/contract/) -> si pasa, commitear; NUNCA reescribir los hooks a ciegas.
     image: ghcr.io/berriai/litellm:main-latest@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
-    container_name: basa-litellm
+    container_name: ${STACK_PREFIX:-basa}-litellm
     ports:
       # 4010 en el host: 4000 lo ocupa el litellm del repo demo (gatelite)
       - "4010:4000"
@@ -108,7 +115,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: basa-backend
+    container_name: ${STACK_PREFIX:-basa}-backend
     ports:
       # 8091 en el host: 8081 lo ocupa el backend del repo demo (gatelite)
       - "8091:8000"
@@ -185,7 +192,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: basa-frontend
+    container_name: ${STACK_PREFIX:-basa}-frontend
     ports:
       # 8090 en el host: 8080 lo ocupa el frontend del repo demo (gatelite)
       - "8090:5173"

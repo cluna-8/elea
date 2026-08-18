@@ -74,6 +74,24 @@ Orden de gates para todo PR del depto:
 
 Pendiente (issue [#82](https://github.com/DrZuzzjen/basa-guardian/issues/82)): workflow de GitHub Actions que corra pytest + check-docs en cada PR. Hasta entonces, todos los gates se corren en local y se pega la evidencia en el PR.
 
+## 8 · Stacks paralelos (worktrees)
+
+Varios worktrees en la misma máquina no se aíslan con `docker compose -p <proyecto>`: ese flag solo scopea red y volúmenes. Los `container_name` del compose base van templados:
+
+```
+container_name: ${STACK_PREFIX:-basa}-<svc>
+```
+
+| Situación | Qué hacer |
+|---|---|
+| Stack raíz / lectores | `STACK_PREFIX` sin setear → `basa-db`, `basa-litellm`, … Los scripts `deploy/release/checks/test_profile_renders.sh` y `backend/tests/e2e/test_guardrail_behavior_e2e.py` siguen haciendo `docker exec basa-*` |
+| Worktree paralelo | `STACK_PREFIX=jeff223 docker compose up -d` (o `qa`, `grok223`, …). **No** quitar `container_name` del base: Compose nombraría `<proyecto>-<svc>-1` y rompe los lectores |
+| Choque de puertos de host | Siguen globales (5433/8091/8090/4010). Override **local no commiteado** solo de `ports` (`!reset []` si los tests corren dentro de la red). El override de `container_name` (`docker-compose.jeff018.yml`) queda obsoleto |
+
+Check automatizado: `scripts/check_stack_prefix.sh` (también en CI, job `backend-tests`, antes de `docker compose up`). Clava el render de `docker compose config`, no el texto fuente.
+
+Los `basa-backend:prod` en `deploy/` son tags de imagen, no nombres de contenedor.
+
 ---
 
 Dueño del documento: depto Guardian (JF). Cambios: PR con label `depto:guardian`. Creado 2026-08-07 (issue #81).

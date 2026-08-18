@@ -51,3 +51,14 @@ Trabajamos en ciclos de 2 semanas con fecha fija: se recorta alcance, no se muev
 ## Organización
 
 División de departamentos, router de responsabilidades y reglas de operación: `Structure/ManosALaObra-BasaGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto, JF) y `deploy/ROADMAP-factory.md` (Factory, Falime).
+
+## Entorno local (varios worktrees)
+
+`docker-compose.yml` fija `container_name: ${STACK_PREFIX:-basa}-<svc>`. El default `basa-*` deja intactos a los lectores (`deploy/release/checks/test_profile_renders.sh`, `backend/tests/e2e/test_guardrail_behavior_e2e.py`).
+
+- Un worktree paralelo: `STACK_PREFIX=<id> docker compose up …` (p. ej. `jeff223`, `qa`). **No quitar** `container_name`: Compose pasaría a `<proyecto>-<svc>-N` y rompe esos scripts.
+- `-p <proyecto>` solo aísla red y volúmenes. No despega nombres ni puertos de host.
+- Los puertos publicados (5433/8091/8090/4010) siguen globales. Si chocan, override **local no commiteado** de `ports` (`!reset []` o reasignar). Ya no hace falta override de `container_name` (el patrón `docker-compose.jeff018.yml`).
+- Los `basa-backend:prod` de `deploy/` son tags de imagen, no `container_name`.
+
+Detalle operativo: `tech-team/DevFlow-BasaGuardian.md` § 8. Check: `scripts/check_stack_prefix.sh` (CI lo corre antes de `docker compose up`).
