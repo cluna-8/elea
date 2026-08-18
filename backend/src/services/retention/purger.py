@@ -243,7 +243,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import DateTime, and_, cast, false, func, literal, or_, select
+from sqlalchemy import DateTime, and_, case, cast, false, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -383,6 +383,15 @@ class ResultadoCorrida:
 
     `cutoff_no_clasificadas` viaja al lado del número porque sin él el número no significa
     nada: es el umbral bajo el que se contó (ver §«El residuo» del módulo).
+
+    `revisiones_residuo_fr004` (#215) es el residuo GEMELO del lado `human_reviews`: filas cuyo
+    `created_at` es NULL o no es un timestamp válido (`pg_input_is_valid`, #232 — forma de
+    fecha NO alcanza, ver §«Residuo de FR-004»), así que el purgador de FR-004 nunca puede
+    decidir si su `response_text` venció. Mismo contrato `Optional[int]` que
+    `filas_no_clasificadas` (`None`="no se pudo contar", `0`="conté y no hay") pero SIN cutoff
+    propio — no depende de la edad, ver §«Residuo de FR-004» en el módulo — y, a propósito, NO
+    viaja en la fila resumen `config_audit`: esa forma la sella `data-model.md` con enmiendas
+    explícitas del manager y #215 no trae una (ver el mismo §).
     """
 
     run_id: str
@@ -392,6 +401,7 @@ class ResultadoCorrida:
     clases: Tuple[ResultadoPurga, ...]
     filas_no_clasificadas: Optional[int]
     cutoff_no_clasificadas: Optional[datetime]
+    revisiones_residuo_fr004: Optional[int]
 
 
 def _entero_de_env(nombre: str, default: int, minimo: int = 1) -> int:
@@ -748,13 +758,100 @@ def contar_no_clasificadas(db: "Session", cutoff: datetime) -> int:
 #   2. `reviewed_at` es NULLABLE (`models/compliance.py:82`): una revisión abierta que nunca se
 #      cerró tendría `reviewed_at IS NULL` y su texto viviría para siempre. Atar la muerte del
 #      contenido a que alguien haya apretado «revisado» es exactamente el modo de falla que la
-#      018 vino a cerrar. `created_at` tiene default y no es null (`:83`).
+#      018 vino a cerrar. **Corrección (#215):** `created_at` NO tiene garantía de no-null — el
+#      `default=lambda: datetime.utcnow().isoformat()` (`:83`) es del ORM, dispara sólo en el
+#      `insert()` de SQLAlchemy que no fija el valor a mano; la columna en sí es
+#      `Column(String, ...)` SIN `nullable=False`, o sea nullable en el DDL. Cualquier fila que
+#      no pase por ESE `insert()` — carga masiva, fixture, una migración vieja — puede llegar con
+#      `created_at=NULL` o con un string que no es fecha. Antes de #215 eso rompía el `cast` de
+#      abajo para TODA la corrida FR-004, no sólo para esa fila (ver §«Residuo de FR-004»).
 # El plazo sale de `retention_policies` (log_type=`prompt_content`, seed 004 = 90 d), por el
 # MISMO `_plazo_en_dias` que las demás clases: el piso `PLAZO_MINIMO_DIAS` también rige acá.
 #
 # `created_at` es un `String` ISO-8601 (naive UTC, `datetime.utcnow().isoformat()`), no un
 # `DateTime`: se castea a timestamp en SQL para compararlo con el cutoff (naive UTC del reloj de
 # la DB). Postgres parsea el separador `T`.
+#
+# ── Residuo de FR-004 (#215) ────────────────────────────────────────────────────────────
+#
+# `created_at=NULL` o basura son dos formas del MISMO problema que el residuo de `audit_logs`
+# (§«El residuo» arriba en este módulo): una fila que el purgador no puede leer no puede decidir
+# si venció, y el fail-closed del depto dice que ante esa duda no se borra — pero tampoco se
+# esconde. Dos consecuencias, cada una con su propio blindaje:
+#
+# 1. **El `cast` no puede reventar la corrida entera.** Un `AND` con el chequeo de casteabilidad
+#    primero NO alcanza: Postgres no garantiza el orden de evaluación de los operandos de
+#    `AND`/`OR` (doc oficial, Chapter 4 «Expression Evaluation Rules» — «do not write queries
+#    that depend on the order of evaluation of WHERE or HAVING»), así que un plan de query puede
+#    evaluar igual el `cast` sobre una fila que ese chequeo rechazaría, y revienta con basura real
+#    de todos modos. `CASE WHEN` SÍ es evaluación condicional garantizada (mismo capítulo: es el
+#    mecanismo que la propia doc recomienda para esto). Verificado empírico contra Postgres 16
+#    pineado antes de escribir esto (NULL/vacío/basura no revientan con `CASE`, sí revientan con
+#    `AND`-primero bajo cierto plan) — no por lectura de la doc sola.
+#    **Corrección #232 (gate del Manager, P1):** el chequeo de casteabilidad en sí era regex de
+#    FORMA (`^\d{4}-\d{2}-\d{2}`), no de VALIDEZ — basura con forma de fecha pero sin fecha real
+#    (`'0000-00-00'`, `'2024-02-30'`) pasaba la regex, entraba al `cast` de la rama `THEN`, y lo
+#    reventaba igual. Ahora es `pg_input_is_valid(created_at, 'timestamp')` (PG16, pineado):
+#    valida de verdad, sin reventar. El argumento de CASE-vs-AND de este punto no cambia — sigue
+#    aplicando a CUALQUIER chequeo de guarda, regex o función — lo que cambió es QUÉ se pone en la
+#    rama `WHEN`.
+# 2. **El residuo se cuenta y se loggea** (mismo espíritu que `filas_no_clasificadas`), pero es
+#    un contador MÁS SIMPLE: no depende de un cutoff. El de `audit_logs` cuenta «vencida pero
+#    indecidible» y por eso necesita un umbral (`cutoff_de_residuo`); acá la pregunta es sólo «¿se
+#    puede leer la columna?» — no hay forma de saber si una fila con `created_at` podrido está
+#    vencida o no, así que se cuenta SIEMPRE que exista, sin importar la edad. Vive en
+#    `ResultadoCorrida.revisiones_residuo_fr004` — NO en la fila resumen `config_audit`: esa forma
+#    la sella `data-model.md` §«Corrida de purga» con enmiendas explícitas del manager (`dry_run`
+#    13-ago, `filas_no_clasificadas` 14-ago) y #215 no trae una — el contador vive en el objeto y
+#    en el log, persistirlo es una decisión de spec que no es de este PR.
+
+
+# Corrección (#232, gate del Manager — P1): la primera versión de esto chequeaba FORMA
+# (`^\d{4}-\d{2}-\d{2}`), no VALIDEZ. Basura que PASA esa regex pero no es timestamp real
+# —`'0000-00-00'` (zero-date de MySQL), `'2024-02-30'` (30 de febrero)— matcheaba la forma,
+# entraba al `cast`, y lo reventaba igual (`InvalidDatetimeFormat`, aborta la corrida FR-004
+# ENTERA) — Y ADEMÁS no contaba como residuo (la negación de la regex daba `False`, no
+# `True`): tierra de nadie, ni se purga ni se cuenta. `pg_input_is_valid` (PG16, pineado acá)
+# es la forma canónica de testear casteabilidad SIN reventar — valida de verdad, no sólo la
+# forma. Verificado empírico contra Postgres 16 pineado: `'0000-00-00'` y `'2024-02-30'` dan
+# `false` acá (correctamente rechazadas), NULL/vacío/basura también, fechas reales con y sin
+# microsegundos dan `true` — antes de escribir el fix, no por lectura de la doc sola.
+#
+# Fixes de revisores externos, REFUTADOS y descartados (registro del PR): una regex más
+# estricta seguiría siendo chequeo de FORMA (cualquier regex de fecha deja pasar alguna
+# combinación año-mes-día inválida); `to_timestamp(..., formato)` + `NULLIF` NO es más seguro
+# — hace overflow SILENCIOSO (`'2024-02-30'` se convierte en 1-mar sin error), que es PEOR
+# que abortar: un dato mal escrito en vez de un fallo ruidoso.
+
+
+def _created_at_es_casteable() -> ColumnElement:
+    """`True` si `created_at` es un timestamp válido de verdad — no sólo con forma de fecha.
+    `pg_input_is_valid` corre el parser real de Postgres sin levantar excepción ante basura,
+    que es justo lo que un regex de forma no puede garantizar. `NULL` da `NULL` acá —ni
+    verdadero ni falso—, así que una fila con `created_at=NULL` no matchea ACÁ (y tampoco su
+    negación: `NOT NULL` también es `NULL`). El residuo (`_created_at_es_residuo_fr004`) por
+    eso necesita su propio `IS NULL` explícito, no alcanza con negar esta función."""
+    return func.pg_input_is_valid(HumanReview.created_at, "timestamp")
+
+
+def _created_at_casteado() -> ColumnElement:
+    """`cast(created_at AS timestamp)`, blindado con `CASE WHEN` (§«Residuo de FR-004» arriba:
+    un `AND` con el chequeo primero NO garantiza que Postgres no evalúe igual el `cast` sobre
+    una fila que ese chequeo rechaza). La rama `ELSE NULL` nunca corre el `cast`; una fila con
+    `created_at` NULL o inválida (NULL, vacía, basura, o con forma de fecha pero sin fecha
+    real) devuelve `NULL` acá, que en la comparación de abajo (`< cutoff`) es `NULL` — o sea
+    que ninguna fila indecidible entra jamás a `_revision_con_texto_vencido`."""
+    return case((_created_at_es_casteable(), cast(HumanReview.created_at, DateTime)),
+                else_=None)
+
+
+def _created_at_es_residuo_fr004() -> ColumnElement:
+    """NULL o no-casteable: lo que el purgador NUNCA puede decidir si venció. Complemento
+    EXACTO de `_created_at_es_casteable()` — casteable ↔ residuo particiona TODA fila sin
+    tierra de nadie (#232). A diferencia del residuo de `audit_logs` (`es_residuo()`), NO
+    depende de un cutoff — no es «vencida pero indecidible», es «no hay forma de saber su
+    edad» — así que no hace falta un umbral propio."""
+    return or_(HumanReview.created_at.is_(None), ~_created_at_es_casteable())
 
 
 def _revision_con_texto_vencido(cutoff: datetime) -> ColumnElement:
@@ -762,12 +859,30 @@ def _revision_con_texto_vencido(cutoff: datetime) -> ColumnElement:
 
     `response_text IS NOT NULL` no es sólo optimización: es lo que hace el barrido idempotente y
     por lotes —una fila ya anulada deja de matchear, así que el lote siguiente avanza solo, igual
-    que el `DELETE` de `audit_logs` no vuelve a levantar lo ya borrado—.
+    que el `DELETE` de `audit_logs` no vuelve a levantar lo ya borrado—. `_created_at_casteado()`
+    ya blinda el `cast`: una fila con `created_at` NULL/podrido da `NULL < cutoff` → `NULL` → no
+    matchea, sin que haga falta excluirla acá aparte (#215).
     """
     return and_(
-        cast(HumanReview.created_at, DateTime) < cutoff,
+        _created_at_casteado() < cutoff,
         HumanReview.response_text.isnot(None),
     )
+
+
+def _residuo_fr004_con_texto_vivo() -> ColumnElement:
+    """Residuo FR-004 que además importa: `response_text` todavía existe. Una fila ya anulada (o
+    que nunca tuvo texto) no tiene nada que «viva para siempre» — contarla sería ruido, no señal
+    (#215)."""
+    return and_(_created_at_es_residuo_fr004(), HumanReview.response_text.isnot(None))
+
+
+def contar_residuo_fr004(db: "Session") -> int:
+    """Revisiones cuyo `response_text` el purgador nunca va a poder anular porque su
+    `created_at` es NULL o no es un timestamp válido — no depende de cutoff (ver
+    `_created_at_es_residuo_fr004`). NO borra nada, ni acá ni en su llamador (#215)."""
+    return db.execute(
+        select(func.count(HumanReview.id)).where(_residuo_fr004_con_texto_vivo())
+    ).scalar_one()
 
 
 def _contar_texto_de_revisiones_vencido(db: "Session", cutoff: datetime) -> int:
@@ -1150,7 +1265,7 @@ def run_once(*, session_factory: Optional[FabricaDeSesiones] = None,
             return ResultadoCorrida(
                 run_id=run_id, started_at=iniciada, finished_at=datetime.utcnow(),
                 dry_run=dry_run, clases=(), filas_no_clasificadas=None,
-                cutoff_no_clasificadas=None,
+                cutoff_no_clasificadas=None, revisiones_residuo_fr004=None,
             )
 
     resultados: List[ResultadoPurga] = []
@@ -1178,6 +1293,20 @@ def run_once(*, session_factory: Optional[FabricaDeSesiones] = None,
         finally:
             db.close()
 
+    # #215: residuo GEMELO del lado `human_reviews` — misma disciplina (SIEMPRE se cuenta, en
+    # real y en simulacro; un fallo del contador GRITA pero no tumba la corrida) y misma sesión
+    # descartable propia, independiente de la de arriba porque son dos tablas y dos preguntas
+    # distintas (§«Residuo de FR-004» del módulo).
+    residuo_fr004: Optional[int] = None
+    with tenant_context(None, bypass=True):
+        db = fabrica()
+        try:
+            residuo_fr004 = contar_residuo_fr004(db)
+        except Exception:  # noqa: BLE001 — el contador no tumba la corrida, pero GRITA
+            logger.exception("purga %s: no se pudo contar el residuo FR-004", run_id)
+        finally:
+            db.close()
+
     borradas = sum(r.rows_deleted for r in resultados)
     if residuo:
         logger.warning(
@@ -1191,10 +1320,20 @@ def run_once(*, session_factory: Optional[FabricaDeSesiones] = None,
                     run_id, dry_run, borradas, len(resultados),
                     "0" if residuo == 0 else "SIN CONTAR")
 
+    if residuo_fr004:
+        logger.warning(
+            "purga %s (dry_run=%s): %s revisiones de human_reviews tienen created_at NULL/no "
+            "casteable — su response_text nunca se puede anular por FR-004 (edad indecidible)",
+            run_id, dry_run, residuo_fr004,
+        )
+    else:
+        logger.info("purga %s (dry_run=%s): residuo FR-004 (created_at podrido): %s",
+                    run_id, dry_run, "0" if residuo_fr004 == 0 else "SIN CONTAR")
+
     corrida = ResultadoCorrida(
         run_id=run_id, started_at=iniciada, finished_at=datetime.utcnow(), dry_run=dry_run,
         clases=tuple(resultados), filas_no_clasificadas=residuo,
-        cutoff_no_clasificadas=cutoff_residuo,
+        cutoff_no_clasificadas=cutoff_residuo, revisiones_residuo_fr004=residuo_fr004,
     )
 
     # FR-005/T010: el rastro auditable, SÓLO en corrida real. El simulacro no escribe (§Simulacro:

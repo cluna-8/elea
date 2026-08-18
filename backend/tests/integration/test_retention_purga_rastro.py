@@ -25,6 +25,15 @@ una entrada por clase en su `retention_policies.purge_log` (capada a 50) y UNA f
 corrida en `audit_logs` clase `config_audit`. El simulacro NO escribe (no toma locks de escritura).
 Security Constraint 1: el rastro JAMÁS reintroduce el contenido purgado — `test_la_fila_resumen_es_
 metadata_only` lo verdugo con un texto centinela.
+
+**#215 — `created_at` NULL/podrido no aborta ni se pierde en silencio.** El gate del #214 vio que
+`human_reviews.created_at` es nullable en el DDL (el `default` es del ORM, no una restricción de
+columna) y que el `cast` a timestamp de `_revision_con_texto_vencido` no estaba blindado: NULL
+nunca matcheaba (texto vivo para siempre, invisible) y un string podrido reventaba el `cast` para
+TODA la corrida FR-004, no sólo esa fila. Se mide: (a) NULL no se borra Y se cuenta como residuo;
+(b) basura no aborta el barrido — las revisiones SANAS y vencidas se purgan en la MISMA corrida;
+(c) el residuo no cuenta filas sin texto vivo; (d) el residuo queda en el log, `warning` con
+residuo.
 """
 import json
 import sys
@@ -235,6 +244,138 @@ def test_una_revision_abierta_y_vieja_igual_pierde_el_texto(factory, corrida_rea
     rv = leer_review(factory, rid)
     assert rv.response_text is None
     assert rv.reviewed_at is None, "sigue abierta; sólo murió el texto, la fila persiste"
+
+
+# ── #215 · `created_at` NULL/podrido: no aborta, no se pierde, se cuenta ──────────────
+
+
+def sembrar_review_created_at_crudo(factory, *, created_at, texto="contenido sensible del sujeto",
+                                    reviewer="dpo-1", accion="approved"):
+    """Como `sembrar_review`, pero con `created_at` puesto A MANO — para los casos que
+    `edad_dias` no puede expresar: NULL o basura (#215).
+
+    INSERT crudo, no `db.add(HumanReview(...))`: probado empírico que
+    `Column(String, default=lambda: ...)` dispara igual con `created_at=None` EXPLÍCITO —
+    SQLAlchemy no distingue «no se dio valor» de «se dio `None`» para un default de
+    columna Python-side, así que el ORM terminaría escribiendo el timestamp de ahora en
+    vez de NULL, y el test no probaría lo que dice probar. El SQL crudo además simula
+    más fiel el escenario real (#215): una fila que llegó por un camino que NO es el
+    `insert()` de SQLAlchemy."""
+    from sqlalchemy import text
+    from src.models.tenant import DEFAULT_TENANT_ID
+    db = factory()
+    try:
+        rid = uuid.uuid4()
+        db.execute(text("""
+            INSERT INTO human_reviews (id, tenant_id, review_token, reviewer_id, action,
+                                        reviewed_at, created_at, response_text)
+            VALUES (:id, :tenant_id, :token, :reviewer, :accion, NULL, :created_at, :texto)
+        """), {"id": rid, "tenant_id": DEFAULT_TENANT_ID, "token": uuid.uuid4(),
+               "reviewer": reviewer, "accion": accion, "created_at": created_at, "texto": texto})
+        db.commit()
+        return str(rid)
+    finally:
+        db.close()
+
+
+def test_created_at_null_no_se_borra_y_queda_contado_como_residuo(factory, corrida_real):
+    """`created_at=NULL`: `_created_at_casteado()` la excluye del `WHERE` (`NULL < cutoff` es
+    `NULL`, nunca `TRUE`) en vez de reventar la corrida. Su texto NO se borra —el purgador no
+    puede saber si venció— y queda contado en `ResultadoCorrida.revisiones_residuo_fr004`, no
+    silenciosamente perdido."""
+    from src.services.retention import purger
+
+    huerfana = sembrar_review_created_at_crudo(factory, created_at=None,
+                                               texto="nunca sabremos si venció")
+
+    corrida = purger.run_once(session_factory=factory, run_now=True)
+
+    rv = leer_review(factory, huerfana)
+    assert rv.response_text == "nunca sabremos si venció", (
+        "created_at NULL es indecidible: el fail-closed no lo borra")
+    assert corrida.revisiones_residuo_fr004 == 1
+    pc = por_clase(corrida)["prompt_content"]
+    assert pc.rows_deleted == 0, "la fila NULL no cuenta como purgada — es residuo, no purga"
+
+
+def test_created_at_podrido_no_aborta_el_barrido_de_las_sanas(factory, corrida_real):
+    """Antes de #215 un string no-fecha en UNA fila reventaba el `cast` para TODA la corrida
+    (Postgres aborta la sentencia entera). Ahora esa fila se excluye sola —blindada con
+    `CASE WHEN`, no con un `AND` que no garantiza el orden— y las revisiones SANAS y vencidas se
+    purgan igual, en la MISMA corrida."""
+    from src.services.retention import purger
+
+    podrida = sembrar_review_created_at_crudo(factory, created_at="no-es-una-fecha",
+                                              texto="indecidible")
+    sana_vencida = sembrar_review(factory, edad_dias=VIEJA, texto="esta sí muere")
+
+    corrida = purger.run_once(session_factory=factory, run_now=True)
+
+    assert leer_review(factory, podrida).response_text == "indecidible", (
+        "basura: indecidible, no se borra")
+    assert leer_review(factory, sana_vencida).response_text is None, (
+        "la fila SANA y vencida se purga en la MISMA corrida — la podrida no la tumbó")
+    assert corrida.revisiones_residuo_fr004 == 1
+    pc = por_clase(corrida)["prompt_content"]
+    assert pc.result == purger.RESULTADO_OK, "la clase entera NO cae en error por una fila podrida"
+    assert pc.rows_deleted == 1, "sólo la sana cuenta como purgada"
+
+
+@pytest.mark.parametrize("basura_con_forma", ["0000-00-00", "2024-02-30"], ids=["zero-date", "30-feb"])
+def test_created_at_con_forma_de_fecha_pero_invalido_no_aborta_ni_se_pierde(
+        factory, corrida_real, basura_con_forma):
+    """#232 (gate del Manager, P1): basura que PASA `^\\d{4}-\\d{2}-\\d{2}` (regex de FORMA) pero
+    no es una fecha real —zero-date de MySQL, 30 de febrero— revienta igual el `cast` (Postgres
+    SÍ valida el calendario) y, con el regex viejo, tampoco contaba como residuo (la negación de
+    un regex que matcheó da `False`): tierra de nadie. `pg_input_is_valid` valida de VERDAD, no
+    sólo la forma — la partición vuelve a ser exacta."""
+    from src.services.retention import purger
+
+    podrida = sembrar_review_created_at_crudo(factory, created_at=basura_con_forma,
+                                              texto="forma de fecha, no es fecha")
+    sana_vencida = sembrar_review(factory, edad_dias=VIEJA, texto="esta sí muere")
+
+    corrida = purger.run_once(session_factory=factory, run_now=True)
+
+    assert leer_review(factory, podrida).response_text == "forma de fecha, no es fecha", (
+        "con forma de fecha pero inválida: indecidible, no se borra")
+    assert leer_review(factory, sana_vencida).response_text is None, (
+        "la fila SANA y vencida se purga en la MISMA corrida — la inválida no la tumbó")
+    assert corrida.revisiones_residuo_fr004 == 1, "queda CONTADA, no en tierra de nadie"
+    pc = por_clase(corrida)["prompt_content"]
+    assert pc.result == purger.RESULTADO_OK, "la clase entera NO cae en error por una fila inválida"
+    assert pc.rows_deleted == 1, "sólo la sana cuenta como purgada"
+
+
+def test_residuo_fr004_no_cuenta_filas_sin_texto_vivo(factory, corrida_real):
+    """Una fila con `created_at` podrido pero SIN `response_text` (ya anulada, o nunca tuvo) no
+    aporta al residuo: no hay nada que «viva para siempre» ahí — contarla sería ruido, no señal."""
+    from src.services.retention import purger
+
+    sembrar_review_created_at_crudo(factory, created_at=None, texto=None)
+
+    corrida = purger.run_once(session_factory=factory, run_now=True)
+
+    assert corrida.revisiones_residuo_fr004 == 0
+
+
+def test_el_residuo_fr004_queda_en_el_log_de_la_corrida(factory, corrida_real, caplog):
+    """Mismo criterio que `filas_no_clasificadas` (`test_retention_purga_residuo.py`): con
+    residuo, `warning` y no `info` — el número existe para que alguien se entere."""
+    import logging
+
+    from src.services.retention import purger
+
+    sembrar_review_created_at_crudo(factory, created_at=None, texto="residuo logueado")
+
+    with caplog.at_level(logging.INFO, logger="src.services.retention.purger"):
+        corrida = purger.run_once(session_factory=factory, run_now=True)
+
+    avisos = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert avisos, "una corrida con residuo FR-004 tiene que dejar un warning"
+    texto = "\n".join(r.getMessage() for r in avisos)
+    assert str(corrida.revisiones_residuo_fr004) in texto
+    assert corrida.run_id in texto, "el número sin el id de corrida no se puede rastrear"
 
 
 def test_prompt_content_anula_por_lotes(factory, monkeypatch):
