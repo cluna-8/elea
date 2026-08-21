@@ -231,6 +231,7 @@ TENANT_TABLES = [
 # agrega acá el mismo día que su migración.**
 POST_010_TENANT_TABLES = [
     "governance_profiles",   # 027 — decide qué capas de seguridad corren por tenant
+    "sso_providers",         # 017 US2 (T013) — proveedores SSO por tenant
 ]
 
 # Universo COMPLETO bajo aislamiento por tenant: lo que debe tener ENABLE + FORCE RLS y las

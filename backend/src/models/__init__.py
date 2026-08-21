@@ -9,9 +9,10 @@ from .compliance import ComplianceProject, DPARegistry, DataSubjectRequest, Huma
 from .consent import ConsentRecord
 from .license_state import LicenseRuntimeState
 from .governance import GovernanceProfile
+from .sso_provider import SSOProvider
 
 __all__ = [
     "Base", "Tenant", "DEFAULT_TENANT_ID", "User", "Group", "Budget", "APIKey", "SecurityPolicy",
     "AuditLog", "Guardian", "ComplianceProject", "DPARegistry", "DataSubjectRequest", "HumanReview",
-    "RetentionPolicy", "ConsentRecord", "LicenseRuntimeState", "GovernanceProfile",
+    "RetentionPolicy", "ConsentRecord", "LicenseRuntimeState", "GovernanceProfile", "SSOProvider",
 ]
