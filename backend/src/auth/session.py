@@ -1,5 +1,6 @@
 import os
 import hashlib
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import jwt, JWTError
@@ -8,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models.user import User
+from ..models.tenant import DEFAULT_TENANT_ID
+
+logger = logging.getLogger("basa-secure-gateway.session")
 
 # Dedicated JWT secret — MUST be set in the environment (JWT_SECRET_KEY). We never fall back
 # to a hard-coded/predictable key (security: fail-closed). We also never reuse the Fernet
@@ -27,11 +31,15 @@ def _ensure_secret() -> str:
     return SECRET_KEY
 
 
-def create_session_token(user_id: str, role: str, username: str) -> str:
+def create_session_token(user_id: str, role: str, username: str, tenant_id: str) -> str:
+    """Issues a session JWT. ``tenant_id`` is REQUIRED (T005/FR-011): every session carries
+    its tenant so downstream (SSO issuance, per-request GUC) never has to guess. No silent
+    default at issuance — the caller supplies the authenticated user's tenant."""
     payload = {
         "sub": user_id,
         "role": role,
         "username": username,
+        "tenant": str(tenant_id),
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, _ensure_secret(), algorithm=ALGORITHM)
@@ -45,6 +53,22 @@ def decode_session_token(token: str) -> Optional[dict]:
     except RuntimeError:
         # No JWT secret configured — cannot validate any token.
         return None
+
+
+def session_tenant(payload: dict) -> str:
+    """Tenant of a decoded session payload. Tolerates pre-T005 tokens (issued without the
+    ``tenant`` claim) for the ≤24 h it takes them to expire: falls back to the default tenant
+    and LOGS the fallback so it is never silent. After the transitional window every live
+    token carries the claim and this never fires."""
+    tenant = payload.get("tenant")
+    if tenant:
+        return tenant
+    logger.info(
+        "session token without 'tenant' claim — defaulting to %s (pre-T005 token, "
+        "≤24h transitional)",
+        DEFAULT_TENANT_ID,
+    )
+    return str(DEFAULT_TENANT_ID)
 
 
 def get_current_user(

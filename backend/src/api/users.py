@@ -78,6 +78,7 @@ class _LoginSnapshot(NamedTuple):
     transacción abierta y se devuelve con la conexión ya liberada, para que el login awaitee
     bcrypt sin retenerla."""
     id: UUID
+    tenant_id: UUID
     username: str
     role: str
     display_label: Optional[str]
@@ -90,7 +91,7 @@ def _instantanea(user: Optional[User]) -> Optional[_LoginSnapshot]:
     if user is None:
         return None
     return _LoginSnapshot(
-        id=user.id, username=user.username, role=user.role,
+        id=user.id, tenant_id=user.tenant_id, username=user.username, role=user.role,
         display_label=user.display_label, email=user.email,
         password_hash=user.password_hash, is_active=user.is_active,
     )
@@ -196,7 +197,7 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
         nuevo = await hash_password_async(body.password)
         await run_in_threadpool(_actualizar_hash_de_login, db, snap.id, nuevo)
 
-    token = create_session_token(str(snap.id), snap.role, snap.username)
+    token = create_session_token(str(snap.id), snap.role, snap.username, str(snap.tenant_id))
     return {
         "access_token": token,
         "token_type": "bearer",

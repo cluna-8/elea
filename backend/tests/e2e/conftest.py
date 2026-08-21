@@ -198,7 +198,7 @@ def monitor_headers():
     db.commit()
     db.refresh(user)
     user_id = user.id
-    token = create_session_token(str(user.id), user.role, user.username)
+    token = create_session_token(str(user.id), user.role, user.username, str(user.tenant_id))
     try:
         yield {"Authorization": f"Bearer {token}"}
     finally:
