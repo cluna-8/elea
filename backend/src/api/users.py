@@ -13,6 +13,8 @@ from ..schemas.user import (UserCreate, UserResponse, GroupCreate, GroupResponse
                             PasswordChangeRequest, PasswordResetRequest)
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
+from ..services.auth_events import (emit_auth_event, AUTH_BOOTSTRAP_ADMIN,
+                                    AUTH_ROLE_CHANGED)
 from ..auth.session import create_session_token, get_current_user
 # hash_password vivía acá como sha256 sin sal; ahora es bcrypt y vive en auth.passwords.
 # Se sigue importando con el mismo nombre porque hay tests que lo toman de este módulo.
@@ -123,6 +125,14 @@ def _bootstrap_admin_si_sin_dueno(db: Session, password_hash: str) -> Optional[_
             is_active=True,
         )
         db.add(user)
+        # flush (no commit) asigna user.id (default uuid4) SIN cerrar la tx: el evento
+        # de bootstrap se emite ACÁ, en la fase de DB síncrona (run_in_threadpool) y en
+        # la MISMA tx que el insert — nunca en el handler async, para no retener la
+        # conexión a través de un await (#167/#238). Sólo se emite si este insert creó
+        # el admin (los caminos de carrera perdida ya retornaron arriba, sin emitir).
+        db.flush()
+        emit_auth_event(db, AUTH_BOOTSTRAP_ADMIN,
+                        target_user_id=str(user.id), tenant_id=DEFAULT_TENANT_ID)
         db.commit()
         db.refresh(user)
         return _instantanea(user)
@@ -307,12 +317,17 @@ def get_user(user_id: UUID, db: Session = Depends(get_db)):
     return user
 
 
-@router.put("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_role("admin"))])
-def update_user(user_id: UUID, user_in: UserBase, db: Session = Depends(get_db)):
+@router.put("/{user_id}", response_model=UserResponse)
+def update_user(user_id: UUID, user_in: UserBase,
+                actor: User = Depends(require_role("admin")),
+                db: Session = Depends(get_db)):
+    # Forma-2 de require_role (FR-004): inyecta el actor autenticado para auditar QUIÉN
+    # mutó, con la MISMA puerta admin-only que antes vivía en dependencies=[...].
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     data = user_in.dict(exclude_unset=True)
+    rol_anterior = user.role  # capturado ANTES del setattr, para auditar el cambio (FR-016)
     # Mismo puente que create_user: acepta roles legacy sin violar ck_users_role
     if "role" in data:
         try:
@@ -323,6 +338,16 @@ def update_user(user_id: UUID, user_in: UserBase, db: Session = Depends(get_db))
             data.setdefault("display_label", label)
     for field, value in data.items():
         setattr(user, field, value)
+    # Sólo si el rol efectivamente cambió (el normalizado != el anterior). El emit va ANTES
+    # del único commit para que el evento viaje en la MISMA tx que la mutación de rol (el
+    # contrato de auth_events, igual que el bootstrap): un solo commit atómico → o cambia el
+    # rol Y queda auditado, o ninguna de las dos; nunca un cambio de identidad sin registro.
+    # El handler es síncrono, así que corre sin await de por medio (sin la retención de
+    # conexión del #167/#238). El actor va como metadata-only (id, jamás la sesión ni PII).
+    if "role" in data and data["role"] != rol_anterior:
+        emit_auth_event(db, AUTH_ROLE_CHANGED, actor_user_id=str(actor.id),
+                        target_user_id=str(user.id), old_role=rol_anterior,
+                        new_role=data["role"])
     db.commit()
     db.refresh(user)
     return user
