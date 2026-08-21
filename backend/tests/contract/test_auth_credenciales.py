@@ -426,14 +426,16 @@ def test_bootstrap_exige_el_minimo_de_longitud(virgen):
     assert _hash_en_db(factory, "admin") is None, "no debía crear el admin"
 
 
-@pytest.mark.parametrize("role", ["tenant_admin", "super_admin", "compliance_officer"])
+@pytest.mark.parametrize("role", ["tenant_admin", "super_admin"])
 def test_bootstrap_no_se_dispara_si_la_instalacion_ya_tiene_dueno(virgen, role):
     """El agujero: bastaba con que no existiera el usuario 'admin'. En un despliegue con
     usuarios ya cargados, el primero que golpeaba el login se creaba un tenant_admin con la
     contraseña que quisiera y se quedaba con el tenant.
 
-    Los tres roles cuentan como dueño porque ninguno se puede crear sin una sesión admin: su
-    existencia prueba que la instalación ya tuvo administrador."""
+    Los dos roles administrativos cuentan como dueño porque ninguno se puede crear sin una
+    sesión admin: su existencia prueba que la instalación ya tuvo administrador. El
+    compliance_officer NO cuenta —quedó read-only en 017/US1—: ese caso lo cubre
+    test_bootstrap_se_dispara_aunque_exista_un_auditor."""
     client, factory = virgen
     _sembrar(factory, _nombre("dueno"), _legacy(CLAVE_VALIDA), role=role)
 
@@ -457,6 +459,22 @@ def test_bootstrap_sobrevive_al_seed_de_clients(virgen):
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["user"]["role"] == "tenant_admin"
+
+
+def test_bootstrap_se_dispara_aunque_exista_un_auditor(virgen):
+    """El compliance_officer quedó read-only en toda la matriz 017/US1 (T006, #246/#250): su
+    sola existencia ya no prueba que la instalación tuvo un admin. Si una sede se siembra sólo
+    con un auditor, el gate por dueño NO debe bloquear el bootstrap —``POST /users`` es
+    admin-only, así que sin bootstrap la instalación quedaría sin admin y sin vía de crear uno.
+    Un auditor read-only no es un dueño."""
+    client, factory = virgen
+    _sembrar(factory, _nombre("auditor"), _legacy(CLAVE_VALIDA), role="compliance_officer")
+
+    resp = _login(client, "admin", ADMIN_PASSWORD)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["user"]["role"] == "tenant_admin"
+    assert _hash_en_db(factory, "admin").startswith("$2")
 
 
 # ── P1 del gate r2: el bootstrap no valida/hashea antes del dueño-gate ─────────────

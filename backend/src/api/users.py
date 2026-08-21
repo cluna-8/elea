@@ -29,9 +29,14 @@ class LoginRequest(BaseModel):
 
 
 #: Roles cuya sola existencia PRUEBA que la instalación ya tuvo un administrador: ninguno de
-#: los tres se puede crear sin una sesión admin (``POST /users`` es admin-only). ``client``
-#: queda afuera a propósito: el seed del perfil los siembra por config, sin nadie logueado.
-ROLES_QUE_PRUEBAN_DUENO = ("tenant_admin", "super_admin", "compliance_officer")
+#: los dos roles administrativos se puede crear sin una sesión admin (``POST /users`` es
+#: admin-only), así que su presencia demuestra que hubo un dueño. El ``compliance_officer``
+#: quedó AFUERA en 017/US1 (T006, #246/#250): perdió toda escritura en la matriz —es un auditor
+#: solo-lectura—, así que su sola existencia ya no prueba que hubo un admin. Un auditor
+#: read-only no debe bloquear el bootstrap: una instalación sembrada sólo con él quedaría sin
+#: admin y sin vía de crear uno. ``client`` queda afuera por la misma razón: el seed del perfil
+#: los siembra por config, sin nadie logueado.
+ROLES_QUE_PRUEBAN_DUENO = ("tenant_admin", "super_admin")
 
 
 def _sin_dueno(db: Session) -> bool:
