@@ -33,11 +33,12 @@ Las divergencias vivas son TODAS de ``compliance_officer`` y de dos clases:
    ni administración"). El contrato (Regla 5) ya prevé que ese test ancla se actualiza en el
    MISMO PR del recorte; se deja anotado para que la decisión de darle esa lectura sea explícita.
 
-── lectura (nuevo en 017): NO minteable todavía ────────────────────────────────────────────
-``lectura`` no está en ``ck_users_role`` ni en ``VALID_ROLES`` (Regla 2: paquete acoplado de
-~5 ediciones que cierra T006). No se puede crear el usuario → sus filas de la matriz (vitrinas
-R, chat 403) NO son testeables en vivo. Se documentan como divergencia conocida y se prueba la
-no-minteabilidad en ``test_rol_lectura_todavia_no_es_minteable``.
+── lectura (nuevo en 017): minteable y en la matriz-ley (T009 + T010) ───────────────────────
+``lectura`` ya entró al vocabulario (``VALID_ROLES`` + ``ck_users_role`` vía migración 016,
+T009) y está en ``MINTABLES``: sus filas de la matriz se ejercen EN VIVO como cualquier otro
+rol. T009 cableó sus vitrinas (``vitrinas_lectura`` = R) y T010 cerró el ``chat_playground``
+(=NINGUNO → 403) en el camino JWT de ``chat_completions`` — recién con ese gate presente
+``lectura`` puede sumarse a ``MINTABLES`` sin volver roja la fila de chat.
 """
 import sys
 import uuid
@@ -60,15 +61,16 @@ require_postgres()
 DB = "basa_test_role_matrix"
 PASS = "matriz-rol-superficie-12345"  # respeta el mínimo del producto (validar_password)
 
-# Roles canónicos que SÍ se pueden mintear hoy (ck_users_role). ``lectura`` queda afuera a
-# propósito (ver docstring). En C2 super_admin ≡ tenant_admin: ambos expanden a `admin` vía el
-# shim; se prueban por separado igual, para que el harness hable el idioma de la matriz.
-MINTABLES = [Rol.SUPER_ADMIN, Rol.TENANT_ADMIN, Rol.COMPLIANCE_OFFICER, Rol.CLIENT]
+# Roles canónicos minteables (ck_users_role). `lectura` entra con T010: su gate de chat ya
+# existe, así que la fila `chat_playground`=NINGUNO (403) se asserta en vivo sin volver roja la
+# matriz. En C2 super_admin ≡ tenant_admin: ambos expanden a `admin` vía el shim; se prueban por
+# separado igual, para que el harness hable el idioma de la matriz.
+MINTABLES = [Rol.SUPER_ADMIN, Rol.TENANT_ADMIN, Rol.COMPLIANCE_OFFICER, Rol.CLIENT, Rol.LECTURA]
 
 # Traducción canónico→literal-legacy que hace `require_role` vía `effective_roles` (referencia;
 # el harness NO la aplica a mano — la ejerce el código real al loguear cada rol):
 #   super_admin/tenant_admin → admin ·  compliance_officer → compliance_officer
-#   client → client (+ label sectorial si lo tuviera) ·  lectura → lectura (aún no minteable)
+#   client → client (+ label sectorial si lo tuviera) ·  lectura → lectura (vitrinas=R, chat=403)
 
 
 # ── Catálogo endpoint→grupo (comentarios de MATRIZ + contrato + call-sites de require_role) ──
@@ -351,8 +353,11 @@ _LECTURA_VITRINAS = [
     ("GET", "/api/v1/reports/rat"),    # RAT (GDPR Art. 30, metadata organizativa — no PII)
 ]
 # "y nada más": una muestra por grupo NINGUNO para `lectura` — gestion_iam, config_producto,
-# artefactos, costs_config (write) y los costs NO-vitrina que T009 re-cierra endpoint-level.
-# NO se incluye `chat_playground`: su gate de rol lo agrega T010 (hoy no gatea → sería falso rojo).
+# artefactos, costs_config (write), los costs NO-vitrina que T009 re-cierra endpoint-level, y el
+# chat (`chat_playground`=NINGUNO → 403 vía el gate JWT de T010). Los que están en el CATALOG los
+# reafirma además `test_la_matriz_es_ley` ahora que `lectura` entró a MINTABLES; acá quedan
+# explícitos —incluidas las rutas no-CATALOG (gw/events, costs re-cerrados)— para contar la
+# historia completa del rol en un solo test.
 _LECTURA_DENEGADOS = [
     ("GET",  "/api/v1/users"),                 # gestion_iam read
     ("GET",  "/api/v1/guardians"),             # config_producto read
@@ -360,6 +365,8 @@ _LECTURA_DENEGADOS = [
     ("PUT",  "/api/v1/costs/config"),          # costs_config write (admin-only)
     ("GET",  "/api/v1/costs/config"),          # costs config read (re-cerrado admin+compliance)
     ("POST", "/api/v1/costs/calculator"),      # costs calculator (re-cerrado admin+compliance)
+    ("GET",  "/api/v1/costs/groups/{ID}/compression"),  # compresión por grupo (3ª ruta re-cerrada)
+    ("POST", "/api/v1/chat/completions"),      # chat_playground=NINGUNO → 403 (gate JWT de T010)
 ]
 
 

@@ -841,7 +841,43 @@ HUMAN_REVIEW_FLAG_ES = (
     "y está siendo revisada por un profesional sanitario. No aplique estas indicaciones hasta recibir confirmación."
 )
 
-@router.post("/completions")
+def _gate_rol_chat(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
+    """FR-003 (T010, spec 017): en el camino de SESIÓN (JWT) el rol gatea el chat. `lectura`
+    (chat_playground=NINGUNO en la matriz canónica) → 403; el resto de los roles de sesión
+    conservan RW. Va como **dependency** a propósito: corre ANTES de validar el body, así un rol
+    negado recibe el 403-por-rol y no un 422 de cuerpo (mismo orden que `require_role` en el resto
+    de la matriz-ley). NO toca las virtual keys (`sk-*`) —la vía de inferencia del cliente— ni la
+    ausencia de credencial: su auth y su fail-closed 401 siguen viviendo en el handler."""
+    if not (authorization and authorization.startswith("Bearer ")):
+        return
+    token = authorization.replace("Bearer ", "").strip()
+    if token.startswith("sk-"):
+        return
+    from ..auth.session import decode_session_token
+    from ..models.user import User as UserModel
+    from ..auth.matrix import Rol, puede_escribir
+    payload = decode_session_token(token)
+    if not payload:
+        return  # token inválido/expirado: el handler ya responde 401, no lo duplico acá
+    uid = payload.get("sub")
+    if not uid:
+        return
+    user = db.query(UserModel).filter(UserModel.id == uid, UserModel.is_active == True).first()
+    if user is None:
+        return
+    try:
+        permitido = puede_escribir(Rol(user.role), "chat_playground")
+    except ValueError:
+        permitido = False  # rol fuera de la matriz → fail-closed
+    if not permitido:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Acción no permitida para el rol '{user.role}'. "
+                   f"El chat interno no está disponible para tu rol.",
+        )
+
+
+@router.post("/completions", dependencies=[Depends(_gate_rol_chat)])
 async def chat_completions(
     request: ChatRequest,
     http_resp: Response,
