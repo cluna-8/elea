@@ -6,7 +6,7 @@ from datetime import datetime
 from ..database import Base
 from .tenant import DEFAULT_TENANT_ID
 
-VALID_ROLES = {"super_admin", "tenant_admin", "compliance_officer", "client"}
+VALID_ROLES = {"super_admin", "tenant_admin", "compliance_officer", "client", "lectura"}
 
 # Mapeo de roles legacy → (rol canónico, display_label), espejo del backfill de la
 # migración 010 (spec 013 US2, [D9]). Lo usan los bordes de la API para aceptar
@@ -82,7 +82,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     # Enum reconciliado (spec 013 US2, Constitución [D9]); CHECK en DB.
     # super_admin NO se autogenera por migración: se siembra aparte, solo cloud.
-    role = Column(String, nullable=False)  # super_admin | tenant_admin | compliance_officer | client
+    role = Column(String, nullable=False)  # super_admin | tenant_admin | compliance_officer | client | lectura
     # Labels sectoriales legacy (clinician/developer) degradados a etiqueta de display
     display_label = Column(String, nullable=True)
     # El "client" (Constitución IV) es User role='client' + client_type: describe CÓMO
@@ -111,7 +111,7 @@ class User(Base):
         Index("uq_users_tenant_username", "tenant_id", "username", unique=True),
         Index("uq_users_tenant_email", "tenant_id", "email", unique=True),
         CheckConstraint(
-            "role IN ('super_admin', 'tenant_admin', 'compliance_officer', 'client')",
+            "role IN ('super_admin', 'tenant_admin', 'compliance_officer', 'client', 'lectura')",
             name="ck_users_role",
         ),
         CheckConstraint(

@@ -21,7 +21,9 @@ from ..services.retention.classifier import dice_licencia, es_bloqueo, es_rechaz
 router = APIRouter(
     prefix="/audit-logs",
     tags=["Audit Logs"],
-    dependencies=[Depends(require_role("admin", "compliance_officer"))],
+    # vitrinas_lectura (matriz 017): `lectura` LEE la bitácora de auditoría (list + export).
+    # Endpoints homogéneos de sólo-lectura del rastro de auditoría; sin config ni mutación.
+    dependencies=[Depends(require_role("admin", "compliance_officer", "lectura"))],
 )
 logger = logging.getLogger("basa-secure-gateway.audit")
 

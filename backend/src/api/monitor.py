@@ -105,13 +105,16 @@ from ..services.redis_client import get_redis
 # Sesión exigida en TODO endpoint que devuelva datos del feed (hoy ``/events``; ver el punto 0
 # del docstring para por qué no está en el ``APIRouter``, que es el patrón normal del repo).
 #
-# Los dos roles son los que el nav ya le da a la página "Firewall en vivo" (``App.tsx:29``), y
-# ``compliance_officer`` está a propósito: mirar qué se bloqueó y por qué **es** su trabajo, y
-# dejarlo afuera lo empujaría a pedir una cuenta admin —peor para la seguridad real que el
-# permiso que se le negó—. No se usa ``require_authenticated()`` (el patrón de
-# ``analytics.py:31``) porque el feed es **un ring compartido, sin filtro por tenant**: hasta
-# que eso se scopee, cualquier sesión leería tráfico de organizaciones ajenas.
-_SESION = [Depends(require_role("admin", "compliance_officer"))]
+# Los roles son los que el nav le da a la página "Conexiones en vivo" (``App.tsx``): admin,
+# ``compliance_officer`` y ``lectura`` (017, vitrinas_lectura=R). ``compliance_officer`` está a
+# propósito: mirar qué se bloqueó y por qué **es** su trabajo, y dejarlo afuera lo empujaría a
+# pedir una cuenta admin —peor para la seguridad real que el permiso que se le negó—. ``lectura``
+# es la vitrina de solo-lectura sellada por el nav de T012 (#244): si no lee acá, ve el ítem del
+# nav y choca 403 (página muerta). No se usa ``require_authenticated()`` (el patrón de
+# ``analytics.py:31``) porque el feed es **un ring compartido, sin filtro por tenant**: hasta que
+# eso se scopee, cualquier sesión leería tráfico de organizaciones ajenas — vale para los tres
+# roles por igual (C2 es mono-tenant; el scoping cross-tenant es el mismo follow-up para todos).
+_SESION = [Depends(require_role("admin", "compliance_officer", "lectura"))]
 
 router = APIRouter(prefix="/gw", tags=["Monitor"])
 

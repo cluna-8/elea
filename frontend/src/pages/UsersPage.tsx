@@ -57,6 +57,10 @@ const textareaClass = cn(inputBaseClass, "h-auto py-2 resize-none");
 /** Rol que la consola muestra como «Auditor». El valor es el que guarda la base. */
 const ROL_AUDITOR = "compliance_officer";
 
+/** Rol «Solo Lectura» (017): valor canónico que guarda la base. A diferencia del Auditor,
+ *  este SÍ es de solo-lectura — ve las vitrinas y no escribe en ninguna superficie. */
+const ROL_LECTURA = "lectura";
+
 /**
  * Lo que de verdad puede y no puede hacer hoy un Auditor, junto a la opción que lo crea.
  *
@@ -91,6 +95,33 @@ const FichaDelAuditor: React.FC = () => (
       cumplimiento y la política de protección de datos, incluso desactivar la que está
       activa, cambiar los plazos de conservación de los registros, ajustar la configuración
       de costos y usar el chat interno.
+    </p>
+  </div>
+);
+
+/**
+ * El rol «Solo Lectura» (017, `lectura`): la vitrina de verdad. Ve los tableros de
+ * monitoreo y NO escribe en ninguna superficie. Cada afirmación de acá está fijada por
+ * `backend/tests/integration/test_role_matrix.py::test_rol_lectura_lee_vitrinas_y_nada_mas`
+ * (las cuatro vitrinas que lee, endpoint por endpoint, y las superficies que niega): si un
+ * gate cambia, ese test falla y este copy se corrige con él.
+ */
+const FichaDeLectura: React.FC = () => (
+  <div className="rounded-md border border-border bg-surface-2 p-3 space-y-2 text-[11px] leading-relaxed">
+    <p className="font-semibold text-text-primary">Qué puede hacer un usuario de Solo Lectura</p>
+    <p className="text-text-secondary">
+      <span className="font-semibold text-text-primary">Ve:</span> Logs de Auditoría,
+      Conexiones en vivo, resumen de Costes y el RAT (registro de actividades de tratamiento).
+    </p>
+    <p className="text-text-secondary">
+      <span className="font-semibold text-text-primary">No puede:</span> crear usuarios,
+      generar ni revocar llaves, tocar configuración, gobernanza, seguridad ni compliance,
+      ni usar el chat interno.
+    </p>
+    <p className="rounded border border-border bg-surface-1 p-2 text-text-secondary">
+      Es un rol de <span className="font-semibold text-text-primary">solo lectura</span>: no
+      escribe en ninguna superficie. Para quien tiene que mirar los tableros sin poder cambiar
+      nada.
     </p>
   </div>
 );
@@ -1377,10 +1408,14 @@ export const UsersPage: React.FC = () => {
                     pone el nombre con el que lo pide el cliente. No se inventa un rol
                     nuevo ni se cambia ningún permiso. */}
                 <option value={ROL_AUDITOR}>Auditor</option>
+                {/* `lectura` (017): rol de SOLO-vitrinas — ve auditoría/monitor/costes/RAT y
+                    nada más (ni gestión, ni config, ni chat). Valor canónico que guarda la base. */}
+                <option value={ROL_LECTURA}>Solo Lectura</option>
                 <option value="admin">Administrador</option>
               </select>
             </Field>
             {role === ROL_AUDITOR && <FichaDelAuditor />}
+            {role === ROL_LECTURA && <FichaDeLectura />}
             <Field label="Asociar a Equipo (Opcional)">
               <select
                 value={groupId}

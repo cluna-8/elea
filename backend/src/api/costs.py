@@ -30,7 +30,12 @@ logger = logging.getLogger("basa-secure-gateway.costs")
 router = APIRouter(
     prefix="/costs",
     tags=["Costs"],
-    dependencies=[Depends(require_role("admin", "compliance_officer"))],
+    # vitrinas_lectura (matriz 017): `lectura` LEE sólo el resumen de costes (`GET /summary`).
+    # Se abre a nivel router y se RE-CIERRA endpoint-por-endpoint en lo que NO es vitrina de
+    # lectura (calculator, config GET, compresión por grupo GET, y los PUT ya admin-only): el
+    # dep de router y el de endpoint son AND, así que agregar el gate estrecho vuelve a excluir
+    # `lectura` sin tocar admin/compliance_officer. Mismo patrón que los PUT admin-only de acá.
+    dependencies=[Depends(require_role("admin", "compliance_officer", "lectura"))],
 )
 
 _ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
@@ -237,7 +242,7 @@ class CalculatorRequest(BaseModel):
                           description="deterministic (prosa, local) o headroom (módulo local SmartCrusher para contenido estructurado)")
 
 
-@router.post("/calculator")
+@router.post("/calculator", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def calculate_compression(req: CalculatorRequest):
     threshold = (
         req.threshold if req.threshold is not None else OptimizationService.DEFAULT_THRESHOLD
@@ -279,7 +284,7 @@ def _active_policy(db: Session) -> SecurityPolicy:
         db.query(SecurityPolicy).first()
 
 
-@router.get("/config")
+@router.get("/config", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def get_cost_config(db: Session = Depends(get_db)):
     """Config global de compresión (Ahorro de Costes IA)."""
     policy = _active_policy(db)
@@ -319,7 +324,7 @@ class GroupCompressionConfig(BaseModel):
     cache_enabled: bool = False
 
 
-@router.get("/groups/{group_id}/compression")
+@router.get("/groups/{group_id}/compression", dependencies=[Depends(require_role("admin", "compliance_officer"))])
 def get_group_compression(group_id: str, db: Session = Depends(get_db)):
     g = db.query(Group).filter(Group.id == group_id).first()
     if not g:

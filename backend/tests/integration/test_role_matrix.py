@@ -306,34 +306,83 @@ def test_las_divergencias_rojas_son_exactamente_las_documentadas(sesiones, harne
         f"  detalle de las vivas (status observado): {vivas}")
 
 
-# ── lectura: aún no minteable (Regla 2) → sus filas son divergencia no-testeable ────────────
+# ── lectura: ya minteable (T009, Regla 2) → vocabulario y no-mint flipeados ──────────────────
+# T009 (spec 017 FR-003) cerró el paquete acoplado: `lectura` entra al vocabulario canónico
+# (VALID_ROLES + ck_users_role vía migración 016 + shim de vitrinas + frontend). Sus filas de
+# `vitrinas_lectura` (R) se ejercen en `test_rol_lectura_lee_vitrinas_y_nada_mas`; el 403 del
+# chat (chat_playground = NINGUNO) lo asserta T010 cuando suma el gate JWT y mete LECTURA en
+# MINTABLES. Estos dos tests eran los guards RED-first previos a T009 (ahora flipeados).
 
 
-def test_vocabulario_de_rol_todavia_no_incluye_lectura():
+def test_vocabulario_de_rol_incluye_lectura():
     from src.models.user import VALID_ROLES
-    assert "lectura" not in VALID_ROLES, (
-        "T006 agrega 'lectura' al vocabulario (VALID_ROLES + ck_users_role + normalize + shim + "
-        "frontend, Regla 2). Hasta entonces sus filas de la matriz no se testean en vivo.")
+    assert "lectura" in VALID_ROLES, (
+        "T009 agrega 'lectura' al vocabulario canónico (VALID_ROLES + ck_users_role + shim + "
+        "frontend, Regla 2).")
 
 
-def test_rol_lectura_todavia_no_es_minteable(harness):
-    """El CHECK ck_users_role rechaza 'lectura': prueba en vivo por qué las vitrinas no lo gatean
-    todavía (no existe el usuario). T006 lo habilita como paquete acoplado."""
-    from sqlalchemy.exc import IntegrityError
+def test_rol_lectura_es_minteable(harness):
+    """El CHECK ck_users_role (migración 016) ya admite 'lectura': el usuario se crea sin
+    IntegrityError. Contracara viva del RED-first previo a T009."""
     from src.auth.passwords import hash_password
     from src.models.user import User
 
     _, factory = harness
     db = factory()
     try:
-        db.add(User(username=f"lectura-probe-{uuid.uuid4().hex[:8]}",
+        fila = User(username=f"lectura-probe-{uuid.uuid4().hex[:8]}",
                     email="lectura-probe@basa.com.ar", password_hash=hash_password(PASS),
-                    role="lectura", is_active=True))
-        with pytest.raises(IntegrityError):
-            db.commit()
+                    role="lectura", is_active=True)
+        db.add(fila)
+        db.commit()  # sin IntegrityError: el CHECK ya lo admite
+        db.refresh(fila)
+        assert fila.role == "lectura"
     finally:
         db.rollback()
         db.close()
+
+
+# Las superficies del grupo `vitrinas_lectura` que `lectura` SÍ lee (R) — las tres vitrinas que
+# el nav de T012 (#244) le muestra (costos/auditoría/conexiones) + el RAT exportable (Art. 30).
+_LECTURA_VITRINAS = [
+    ("GET", "/api/v1/audit-logs"),     # rastro de auditoría (nav: Logs de Auditoría)
+    ("GET", "/api/v1/gw/events"),      # monitor en vivo (nav: Conexiones en vivo) — ring compartido
+    ("GET", "/api/v1/costs/summary"),  # resumen de costes (nav: Costos)
+    ("GET", "/api/v1/reports/rat"),    # RAT (GDPR Art. 30, metadata organizativa — no PII)
+]
+# "y nada más": una muestra por grupo NINGUNO para `lectura` — gestion_iam, config_producto,
+# artefactos, costs_config (write) y los costs NO-vitrina que T009 re-cierra endpoint-level.
+# NO se incluye `chat_playground`: su gate de rol lo agrega T010 (hoy no gatea → sería falso rojo).
+_LECTURA_DENEGADOS = [
+    ("GET",  "/api/v1/users"),                 # gestion_iam read
+    ("GET",  "/api/v1/guardians"),             # config_producto read
+    ("POST", "/api/v1/compliance/projects"),   # artefactos write
+    ("PUT",  "/api/v1/costs/config"),          # costs_config write (admin-only)
+    ("GET",  "/api/v1/costs/config"),          # costs config read (re-cerrado admin+compliance)
+    ("POST", "/api/v1/costs/calculator"),      # costs calculator (re-cerrado admin+compliance)
+]
+
+
+def test_rol_lectura_lee_vitrinas_y_nada_mas(harness):
+    """`lectura` (ya minteable, T009) LEE las vitrinas del grupo `vitrinas_lectura` y NADA MÁS:
+    403-por-rol en gestion_iam / config_producto / artefactos / costs_config y en los costs
+    no-vitrina re-cerrados. Ejerce el shim real (`effective_roles`) minteando y logueando el rol.
+    El 403 del chat (chat_playground=NINGUNO) lo asserta T010 con el gate JWT; acá no se toca
+    porque ese gate aún no existe (sería falso rojo). Contracara viva del RED-first previo a T009."""
+    client, factory = harness
+    headers = _headers_for_role(client, factory, Rol.LECTURA)
+
+    for method, path in _LECTURA_VITRINAS:
+        resp = _hit(client, method, _build_path(path), headers)
+        assert _cumple(resp, True, Rol.LECTURA), (
+            f"lectura debe LEER la vitrina {method} {path} (vitrinas_lectura=R); "
+            f"obtuvo {resp.status_code}: {resp.text[:160]}")
+
+    for method, path in _LECTURA_DENEGADOS:
+        resp = _hit(client, method, _build_path(path), headers)
+        assert _cumple(resp, False, Rol.LECTURA), (
+            f"lectura NO debe acceder {method} {path} (matriz=NINGUNO); "
+            f"esperaba 403-por-rol, obtuvo {resp.status_code}: {resp.text[:160]}")
 
 
 # ── Fold de las variantes client+display_label a la matriz-ley (#247, cierra el punto ciego) ──

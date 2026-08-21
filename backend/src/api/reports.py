@@ -51,7 +51,14 @@ def _csv_response(rows: list[dict], filename: str) -> StreamingResponse:
     )
 
 
-@router.get("/rat", dependencies=[Depends(require_role("admin", "compliance_officer"))])
+@router.get(
+    "/rat",
+    # vitrinas_lectura (matriz 017): `lectura` LEE el RAT (registro de actividades de
+    # tratamiento — metadata organizativa GDPR Art. 30, no PII de un titular). DSAR /
+    # human-review-log / executive quedan admin+compliance_officer (no enumerados en la
+    # matriz; DSAR trae PII de titular → decisión de producto, no se abre acá).
+    dependencies=[Depends(require_role("admin", "compliance_officer", "lectura"))],
+)
 def export_rat(db: Session = Depends(get_db)):
     """
     Registro de Actividades de Tratamiento — GDPR Art. 30.
