@@ -9,6 +9,7 @@ que hay que blindar.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -17,6 +18,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import drift_gate as dg  # noqa: E402
+
+# `VAR=` al principio de la línea, con o sin `#` delante. A propósito NO es la
+# expresión del gate: si el test reusara su parser, comprobaría que la función
+# coincide consigo misma.
+_ASIGNACION = re.compile(r"^\s*(#\s*)?([A-Z][A-Z0-9_]*)=")
 
 
 def test_normaliza_quita_montaje_y_unifica_parametros():
@@ -281,12 +287,40 @@ def test_una_variable_comentada_no_cuenta_como_declarada():
         declaradas = dg.env_declaradas()
     assert declaradas == {"REAL"}, declaradas
 
-    # Y sobre el archivo real: las 5 de licencia están comentadas hoy y el gate
-    # ya no las da por declaradas — aparecen como HUECOS, que es lo que son.
-    del_archivo_real = dg.env_declaradas()
-    for var in ("BASA_ALLOW_DEV_LICENSE", "BASA_LICENSE_TOKEN_FILE",
-                "BASA_LICENSE_PUBLIC_KEYS_FILE", "BASA_DEPLOYMENT_TENANT_ID"):
-        assert var not in del_archivo_real, f"{var} está comentada en .env.example y el gate la da por declarada"
+
+def test_en_el_archivo_real_ninguna_variable_solo_comentada_cuenta_como_declarada():
+    """El mismo invariante sobre el `.env.example` REAL, pero DERIVADO del archivo.
+
+    La versión anterior de este caso fijaba los cuatro nombres que estaban comentados
+    el día que se escribió. Eso es un ancla de CONTENIDO: el día que se decida
+    documentar una de esas variables —una decisión de producto, perfectamente
+    legítima— el test se pone rojo por una razón que no es la suya, y encima no
+    cubre a la variable comentada que aparezca mañana. Acá el conjunto sale del
+    archivo, así que el test sigue al archivo en vez de pedirle que no cambie.
+
+    Ojo con el caso mixto: una variable puede aparecer comentada en un bloque de
+    ejemplo Y declarada de verdad más abajo. Sólo las que están ÚNICAMENTE
+    comentadas tienen que estar ausentes.
+    """
+    comentadas, sin_comentar = set(), set()
+    for linea in dg.ENV_EXAMPLE.read_text(encoding="utf-8").splitlines():
+        if (m := _ASIGNACION.match(linea)):
+            (comentadas if m.group(1) else sin_comentar).add(m.group(2))
+    solo_comentadas = comentadas - sin_comentar
+
+    # Sin esto el test se volvería vacuo en silencio si algún día no quedara
+    # ninguna comentada: seguiría verde sin ejercitar nada.
+    assert solo_comentadas, (
+        ".env.example ya no tiene ninguna variable sólo comentada: este caso dejó "
+        "de cubrir algo sobre el archivo real y hay que replantearlo"
+    )
+
+    coladas = solo_comentadas & dg.env_declaradas()
+    assert not coladas, (
+        f"{sorted(coladas)} están sólo comentadas en .env.example y el gate las da "
+        "por declaradas — así es como una variable se pierde de la referencia que "
+        "se le muestra al cliente sin que nadie se entere"
+    )
 
 
 def test_prosa_que_empieza_con_una_asignacion_no_cuenta_como_declarada():
