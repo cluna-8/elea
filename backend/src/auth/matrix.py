@@ -63,7 +63,7 @@ MATRIZ: "dict[str, dict[Rol, Acceso]]" = {
         Rol.SUPER_ADMIN: Acceso.RW, Rol.TENANT_ADMIN: Acceso.RW,
         Rol.COMPLIANCE_OFFICER: Acceso.R, Rol.CLIENT: Acceso.NINGUNO, Rol.LECTURA: Acceso.NINGUNO,
     },
-    "chat_playground": {  # POST /chat/completions camino JWT (FR-003: el JWT gatea rol; hoy no)
+    "chat_playground": {  # POST /chat/completions camino JWT (FR-003: el JWT gatea rol — activo desde T010)
         Rol.SUPER_ADMIN: Acceso.RW, Rol.TENANT_ADMIN: Acceso.RW,
         Rol.COMPLIANCE_OFFICER: Acceso.RW, Rol.CLIENT: Acceso.RW, Rol.LECTURA: Acceso.NINGUNO,  # 403
     },

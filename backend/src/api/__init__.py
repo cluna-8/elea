@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from .users import router as users_router
 from .budgets import router as budgets_router
 from .policy import router as policy_router
@@ -17,6 +17,7 @@ from .monitor import router as monitor_router
 from .gateway import router as gateway_router
 from .inspect import router as inspect_router
 from .health import router as health_router
+from ..sso.api import router as sso_router, require_sso_enabled
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(users_router)
@@ -39,3 +40,9 @@ api_router.include_router(monitor_router)
 api_router.include_router(gateway_router)
 api_router.include_router(inspect_router)
 api_router.include_router(health_router)
+# SSO (spec 017 US2): el gate de licencia se aplica ACÁ, al montar el router — no
+# dentro de cada handler. Como dependency corre ANTES de la validación de request,
+# así que con el flag apagado la respuesta es 403 (veredicto de licencia) y nunca un
+# 422 de query params que lo tape. Inline correría después y filtraría la forma de la
+# superficie antes de decidir si existe.
+api_router.include_router(sso_router, dependencies=[Depends(require_sso_enabled)])
