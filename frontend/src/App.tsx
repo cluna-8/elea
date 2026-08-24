@@ -9,6 +9,7 @@ import { AuditPage } from "./pages/AuditPage";
 import { PlaygroundPage } from "./pages/PlaygroundPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SsoCallbackPage } from "./pages/SsoCallbackPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { UserPortal } from "./pages/UserPortal";
 import { CostsPage } from "./pages/CostsPage";
@@ -64,6 +65,16 @@ export const App: React.FC = () => {
     { id: "docs", name: "Documentación", icon: BookOpen, surface: null },
   ];
 
+  // Pantalla de retorno del IdP (spec 017 US2). Esta SPA no usa un router de URLs — todo
+  // el resto navega por `currentPage` en memoria, no por la barra de direcciones — así que
+  // no hay un <Route> donde colgar esto: se detecta el pathname UNA vez al montar y se
+  // vuelve a "/" (`history.replaceState`) apenas el callback resuelve, éxito o error. El
+  // Caddy del frontend sirve la SPA para cualquier ruta (`try_files {path} /index.html`,
+  // deploy/docker/Caddyfile.frontend), así que la navegación completa que hace Microsoft de
+  // vuelta acá carga igual este bundle.
+  const [route, setRoute] = useState<string>(() => window.location.pathname);
+  const [ssoLoginError, setSsoLoginError] = useState<string | undefined>(undefined);
+
   const handleLogin = (user: SessionUser) => {
     setCurrentUser(user);
     setCurrentPage("dashboard");
@@ -74,8 +85,27 @@ export const App: React.FC = () => {
     setCurrentUser(null);
   };
 
+  const volverARaiz = () => {
+    window.history.replaceState(null, "", "/");
+    setRoute("/");
+  };
+
+  const handleSsoCallbackSuccess = (user: SessionUser) => {
+    volverARaiz();
+    handleLogin(user);
+  };
+
+  const handleSsoCallbackError = (message: string) => {
+    setSsoLoginError(message);
+    volverARaiz();
+  };
+
+  if (route === "/sso/callback") {
+    return <SsoCallbackPage onSuccess={handleSsoCallbackSuccess} onError={handleSsoCallbackError} />;
+  }
+
   if (!currentUser) {
-    return <LoginPage onLoginSuccess={handleLogin} />;
+    return <LoginPage onLoginSuccess={handleLogin} initialError={ssoLoginError} />;
   }
 
   // Usuario final → portal, JAMÁS la consola de administración. El login devuelve el rol

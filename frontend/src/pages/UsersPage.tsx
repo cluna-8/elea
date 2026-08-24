@@ -234,6 +234,15 @@ export const UsersPage: React.FC = () => {
   const [complianceForm, setComplianceForm] = useState({ default_legal_basis: "", default_risk_level: "", compliance_project_id: "" });
   const [complianceMsg, setComplianceMsg] = useState("");
 
+  // Tab «Autenticación & SSO» (spec 017 US2): la tarjeta de Entra sale de «Próximamente»
+  // SÓLO cuando el backend confirma `enabled:true` para este tenant. `getSsoAvailable`
+  // nunca lanza (fail-closed, contrato FR-010) — sin try/catch acá, y por defecto la
+  // tarjeta se queda en «Próximamente» hasta que se sepa lo contrario.
+  const [ssoAvailable, setSsoAvailable] = useState<{ enabled: boolean; provider_type: string | null }>({
+    enabled: false,
+    provider_type: null,
+  });
+
   const fetchComplianceData = async () => {
     try {
       const [cGroups, cProjects] = await Promise.all([
@@ -293,6 +302,7 @@ export const UsersPage: React.FC = () => {
   useEffect(() => {
     fetchData();
     fetchComplianceData();
+    api.getSsoAvailable().then(setSsoAvailable);
   }, []);
 
   // Cerrar el alta descarta la contraseña tipeada: una credencial no tiene por qué seguir
@@ -1045,9 +1055,17 @@ export const UsersPage: React.FC = () => {
                   name: "Azure AD / Microsoft Entra ID",
                   type: "OIDC / OAuth 2.0",
                   target: "Enterprise",
-                  description: "Integración con el directorio corporativo de Microsoft. Ideal para hospitales y grandes organizaciones con licencias Microsoft 365.",
-                  badge: "Próximamente",
-                  badgeTone: "warn" as BadgeTone,
+                  // `enabled:true` = el tenant tiene la config de Entra cargada Y la licencia
+                  // la habilita (contrato proveedor-sso.md): sólo entonces la tarjeta deja de
+                  // ser una promesa. `enabled:false` cubre TANTO "licenciado pero sin
+                  // configurar" COMO "la licencia no lo habilita" — el 403 del endpoint
+                  // colapsa al mismo `enabled:false` (fail-closed, `getSsoAvailable`), así que
+                  // acá no se puede ni se debe distinguir el motivo.
+                  description: ssoAvailable.enabled
+                    ? "Integración con el directorio corporativo de Microsoft activa para este tenant. Los usuarios pueden ingresar con «Entrar con Microsoft» desde la pantalla de login."
+                    : "Integración con el directorio corporativo de Microsoft. Ideal para hospitales y grandes organizaciones con licencias Microsoft 365.",
+                  badge: ssoAvailable.enabled ? "Activo" : "Próximamente",
+                  badgeTone: (ssoAvailable.enabled ? "ok" : "warn") as BadgeTone,
                   icon: "🔷",
                 },
                 {

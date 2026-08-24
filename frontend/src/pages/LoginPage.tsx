@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Lock, User, AlertCircle, Sparkles } from "lucide-react";
 import { getBrand } from "../services/branding";
 import { api } from "../services/api";
@@ -7,13 +7,46 @@ import { Card, Button, cn, inputBaseClass } from "../components/ui";
 
 interface LoginPageProps {
   onLoginSuccess: (user: SessionUser) => void;
+  /** Error de un intento SSO previo (pantalla de retorno del IdP que falló, `SsoCallbackPage`).
+   *  Es sólo el valor inicial del banner de error: el login local lo pisa en su próximo submit,
+   *  como cualquier otro error de este formulario (FR-009: el fallback nunca queda bloqueado). */
+  initialError?: string;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+/** Cuatro cuadrados de Microsoft — el asset que Microsoft documenta para botones «Sign in
+ *  with Microsoft». Inline y sin red: no hay CDN de logos en esta build air-gap. */
+const MicrosoftLogo: React.FC = () => (
+  <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+    <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+    <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+    <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+    <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+  </svg>
+);
+
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialError }) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(initialError || "");
   const [loading, setLoading] = useState(false);
+  // Fail-closed por defecto (FR-010): hasta que `/available` conteste `enabled:true`, el
+  // botón está AUSENTE, no deshabilitado. `getSsoAvailable` nunca lanza (colapsa cualquier
+  // error a "no mostrar"), así que esto NUNCA bloquea ni retrasa el formulario local — no
+  // hay spinner de carga tapando la pantalla mientras se resuelve.
+  const [ssoAvailable, setSsoAvailable] = useState<{ enabled: boolean; provider_type: string | null }>({
+    enabled: false,
+    provider_type: null,
+  });
+
+  useEffect(() => {
+    let vigente = true;
+    api.getSsoAvailable().then((res) => {
+      if (vigente) setSsoAvailable(res);
+    });
+    return () => {
+      vigente = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +142,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               {loading ? "Ingresando..." : "Ingresar al Panel"}
             </Button>
           </form>
+
+          {/* Ausente por defecto (FR-010): sólo se monta cuando `/available` confirmó
+              `enabled:true`. No es un botón deshabilitado ni con tooltip — la superficie
+              directamente no existe hasta que el backend la confirma. */}
+          {ssoAvailable.enabled && (
+            <div className="mt-5 pt-5 border-t border-border">
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                className="w-full"
+                onClick={() => api.startSsoLogin()}
+                leftIcon={<MicrosoftLogo />}
+              >
+                Entrar con Microsoft
+              </Button>
+            </div>
+          )}
 
           <div className="mt-8 pt-6 border-t border-border text-center">
             <p className="text-xs text-text-tertiary">

@@ -622,6 +622,56 @@ export const api = {
     return res.json();
   },
 
+  // --- SSO (spec 017 US2, contrato specs/017-auth-rbac-sso/contracts/proveedor-sso.md) ---
+
+  /** ¿Mostrar «Entrar con Microsoft»? Fail-closed por contrato (FR-010): 200 con
+   *  `enabled:true` es el ÚNICO caso que muestra el botón. Un 403 (licencia sin SSO), un
+   *  200 con `enabled:false` (tenant sin configurar), cualquier otro status, o un fallo de
+   *  red colapsan al mismo resultado — "no mostrar". Nunca lanza: el llamador (LoginPage)
+   *  no puede tener un `catch` que bloquee el formulario local por esto. */
+  getSsoAvailable: async (): Promise<{ enabled: boolean; provider_type: string | null }> => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/sso/available`);
+      if (!res.ok) return { enabled: false, provider_type: null };
+      const data = await res.json().catch(() => ({}));
+      return {
+        enabled: data?.enabled === true,
+        provider_type: typeof data?.provider_type === "string" ? data.provider_type : null,
+      };
+    } catch {
+      return { enabled: false, provider_type: null };
+    }
+  },
+
+  /** Arranca el flujo SSO con una navegación REAL del navegador, no un `fetch`: el backend
+   *  responde 302 al IdP y deja una cookie de state en el mismo origen — un `fetch` seguiría
+   *  ese redirect por XHR y moriría en CORS contra Microsoft (contrato, paso 2). */
+  startSsoLogin: (): void => {
+    window.location.assign(`${API_BASE}/auth/sso/login`);
+  },
+
+  /** Callback del IdP: cambia `code`+`state` por la sesión. Mismo cuerpo que
+   *  `POST /users/login` (contrato): `{access_token, token_type, user}`. El `detail` de los
+   *  4xx (400 state inválido/ausente, 401 identidad no verificada, 403 usuario dado de baja)
+   *  se propaga tal cual — es el texto que la pantalla de retorno muestra. */
+  exchangeSsoCallback: async (code: string, state: string): Promise<{ access_token: string; token_type: string; user: any }> => {
+    let res: Response;
+    try {
+      const qs = new URLSearchParams({ code, state });
+      res = await fetch(`${API_BASE}/auth/sso/callback?${qs.toString()}`);
+    } catch {
+      throw new ApiError("No se pudo contactar al servidor.", 0);
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(
+        detailToMessage(err.detail, "No se pudo completar el inicio de sesión con Microsoft."),
+        res.status
+      );
+    }
+    return res.json();
+  },
+
   // --- Users & Groups ---
   getUsers: async (): Promise<User[]> => {
     const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
