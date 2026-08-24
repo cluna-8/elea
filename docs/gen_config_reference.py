@@ -15,6 +15,17 @@ SRC = REPO / ".env.example"
 DEST = REPO / "docs" / "docs" / "api-reference" / "configuration.md"
 
 
+# Una VARIABLE comentada (`# VAR=valor`, con o sin comentario al final) no es
+# prosa: no describe a nadie y no puede terminar como texto de la página.
+#
+# El borde que obliga a ser preciso acá (#271): `.env.example:93` es una línea de
+# PROSA que empieza con `BASA_PURGE_ENABLED=false (el default) el scheduler ni
+# arranca...`. Clasificarla como variable comentada le comería media frase al
+# banner de la sección de purga. Lo que las separa es que una asignación real
+# termina en el valor o en un comentario inline `#`; la prosa sigue con palabras.
+_VAR_COMENTADA_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=(\S*)\s*(#.*)?$")
+
+
 def _split_banner_desc(lines):
     """Reparte líneas de comentario acumuladas en (banner_title, banner_body, desc).
 
@@ -55,10 +66,15 @@ def parse_env(lines):
     como BANNER de sección y NO se incluyen en la descripción de la variable.
     """
     rows, pending_comment = [], []
+    solo_vars_comentadas = False
     for line in lines:
         s = line.strip()
         if s.startswith("#"):
-            pending_comment.append(s.lstrip("# ").rstrip())
+            contenido = s.lstrip("# ").rstrip()
+            if _VAR_COMENTADA_RE.match(contenido):
+                solo_vars_comentadas = True
+                continue
+            pending_comment.append(contenido)
         elif m := re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$", s):
             var, default = m.group(1), m.group(2)
             _title, _body, desc = _split_banner_desc(pending_comment)
@@ -66,16 +82,26 @@ def parse_env(lines):
             shown = "*(secreto — generado por instalación)*" if secretish and default else (f"`{default}`" if default else "—")
             rows.append((var, shown, desc.replace("|", "\\|")))
             pending_comment = []
+            solo_vars_comentadas = False
         elif not s:
             # Línea en blanco: la registra como separador dentro del bloque
             # acumulado para que _split_banner_desc pueda distinguir el banner
             # (antes del blank) de la descripción (después del blank).  No
             # purga: #211 garantiza que un header separado por una vacía siga
             # llegando a la página — ahora como banner, no como descripción.
-            if pending_comment:
+            #
+            # La excepción (#271): si el bloque que termina acá sólo tuvo
+            # variables COMENTADAS, no va a emitir ninguna fila, así que su
+            # banner quedó huérfano. Arrastrarlo lo funde con el banner de la
+            # sección siguiente.
+            if solo_vars_comentadas:
+                pending_comment = []
+                solo_vars_comentadas = False
+            elif pending_comment:
                 pending_comment.append("")
         else:
             pending_comment = []
+            solo_vars_comentadas = False
     return rows
 
 
@@ -97,6 +123,7 @@ def parse_env_sections(lines):
     current_rows = []
     last_had_blank = False
     section_has_banner = False
+    solo_vars_comentadas = False
 
     def _flush_section():
         nonlocal current_title, current_body, current_rows, section_has_banner
@@ -108,7 +135,12 @@ def parse_env_sections(lines):
     for line in lines:
         s = line.strip()
         if s.startswith("#"):
-            pending_comment.append(s.lstrip("# ").rstrip())
+            contenido = s.lstrip("# ").rstrip()
+            if _VAR_COMENTADA_RE.match(contenido):
+                # Variable comentada: no emite fila y no es prosa (#271).
+                solo_vars_comentadas = True
+                continue
+            pending_comment.append(contenido)
         elif m := re.match(r"^([A-Z][A-Z0-9_]*)=(.*)$", s):
             var, default = m.group(1), m.group(2)
             title, body, desc = _split_banner_desc(pending_comment)
@@ -133,13 +165,22 @@ def parse_env_sections(lines):
             current_rows.append(row)
             pending_comment = []
             last_had_blank = False
+            solo_vars_comentadas = False
         elif not s:
-            if pending_comment:
+            # Un bloque cuyas variables están TODAS comentadas no emite filas: su
+            # banner no tiene a quién titular y arrastrarlo lo funde con el de la
+            # sección siguiente, que termina archivando variables ajenas bajo un
+            # `###` que no es el suyo (#271).
+            if solo_vars_comentadas:
+                pending_comment = []
+                solo_vars_comentadas = False
+            elif pending_comment:
                 pending_comment.append("")
             last_had_blank = True
         else:
             pending_comment = []
             last_had_blank = False
+            solo_vars_comentadas = False
 
     _flush_section()
     return sections

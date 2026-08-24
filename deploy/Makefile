@@ -56,8 +56,14 @@ check-images:
 # imagen buildeada (potencialmente stale) y el gate quedaba verde con docs viejas
 # (descubierto 2026-07-21: el preview servía contenido sin las superficies nuevas
 # mientras el gate reportaba ✅).
+# Los tests del GENERADOR de la referencia entran acá por #271: hasta entonces
+# `docs/test_gen_config_reference.py` no lo corría ningún job (pytest corre
+# `backend/tests/` y `harness/tests/`, ninguno mira `docs/`), así que los tests
+# que protegen el parser de `.env.example` —el que produce la página de
+# configuración que se le muestra al cliente— eran decoración. Stdlib pura, sin
+# Docker: cuesta menos de un segundo.
 check-docs: build-docs
-	cd $(REPO_ROOT) && python3 docs/tools/test_drift_gate.py && python3 docs/tools/drift_gate.py
+	cd $(REPO_ROOT) && python3 docs/test_gen_config_reference.py && python3 docs/tools/test_drift_gate.py && python3 docs/tools/drift_gate.py
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_image.sh
 	$(REPO_ROOT)/deploy/release/checks/test_docs_strict_build.sh
 	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_content.sh

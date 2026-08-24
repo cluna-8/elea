@@ -173,10 +173,67 @@ def _punteado(node: ast.AST) -> str:
 
 
 # ── eje A · rutas ────────────────────────────────────────────────────────────────
+# Los dos lugares donde se monta un router. De acá sale la lista de fuentes a escanear:
+# lo que no está montado no sirve tráfico y no debería contar como ruta del código.
+PUNTOS_DE_MONTAJE = ("backend/src/api/__init__.py", "backend/src/main.py")
+
+
+def _resolver_import_relativo(origen: Path, modulo: str | None, level: int) -> Path | None:
+    """`from ..sso.api import router` en `backend/src/api/__init__.py` → `backend/src/sso/api.py`.
+
+    `origen.parent` ya es el directorio del paquete actual en los dos casos que nos
+    importan: para un `__init__.py` es su propio paquete, y para un módulo suelto como
+    `main.py` es el paquete que lo contiene. Cada nivel extra sube uno.
+    """
+    paquete = origen.parent
+    for _ in range(level - 1):
+        paquete = paquete.parent
+    destino = paquete.joinpath(*modulo.split(".")) if modulo else paquete
+    for candidato in (destino.with_suffix(".py"), destino / "__init__.py"):
+        if candidato.is_file():
+            return candidato.resolve()
+    return None
+
+
+def modulos_con_rutas() -> list[Path]:
+    """Fuentes que declaran endpoints: las de `api/` MÁS los routers montados desde
+    fuera de ese paquete.
+
+    `API_DIR.glob("*.py")` no es recursivo, así que un router en un paquete nuevo era
+    invisible para este eje mientras el OpenAPI —que sale de la app VIVA— sí lo veía.
+    Resultado: el gate reportaba las rutas reales de `sso/api.py` como MENTIRA del
+    openapi (#266). El modelo per-archivo de prefijos ya servía; el agujero era el glob.
+
+    Se deriva de los `from … import router` de los puntos de montaje en vez de ensanchar
+    el glob a `**/*.py`, por dos razones: un router declarado y NUNCA montado no sirve
+    tráfico (contarlo inventaría deriva al revés), y así el próximo paquete nuevo entra
+    solo, sin que nadie se acuerde de tocar el gate.
+    """
+    modulos = {p.resolve() for p in API_DIR.glob("*.py")}
+    for relativo in PUNTOS_DE_MONTAJE:
+        entrada = REPO / relativo
+        if not entrada.is_file():
+            continue
+        try:
+            arbol = ast.parse(entrada.read_text(encoding="utf-8"), filename=str(entrada))
+        except SyntaxError as exc:
+            print(f"⚠  no parsea {relativo}: {exc}", file=sys.stderr)
+            continue
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.ImportFrom) or not nodo.level:
+                continue
+            if not any(alias.name == "router" for alias in nodo.names):
+                continue
+            destino = _resolver_import_relativo(entrada, nodo.module, nodo.level)
+            if destino is not None:
+                modulos.add(destino)
+    return sorted(modulos)
+
+
 def rutas_del_codigo() -> dict[str, set[str]]:
     """{ruta normalizada: {verbos}} leídas de los decoradores del backend."""
     rutas: dict[str, set[str]] = {}
-    for py in sorted(API_DIR.glob("*.py")):
+    for py in modulos_con_rutas():
         try:
             arbol = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
         except SyntaxError as exc:  # un fuente roto es un hallazgo, no un crash
@@ -327,12 +384,32 @@ def env_del_codigo() -> dict[str, str]:
 
 
 def env_declaradas() -> set[str]:
+    """Variables REALMENTE declaradas en .env.example — la misma definición que usa
+    el generador de la referencia (`gen_config_reference.py`), a propósito (#271).
+
+    Antes esta función aceptaba `# VAR=`, y el generador no. En el hueco entre las
+    dos definiciones cabían variables que el gate daba por documentadas y que la
+    referencia que se le muestra al cliente no mencionaba jamás — entre ellas
+    `BASA_ALLOW_DEV_LICENSE`, la que habilita claves de licencia de desarrollo. El
+    gate se callaba sobre exactamente la clase de cosa que dice vigilar.
+
+    La pregunta que responde el eje de config es «¿el que instala puede enterarse
+    de esto leyendo la referencia?», y una variable comentada NO llega a la página.
+    Aceptar `#` también convertía en «declarada» cualquier línea de PROSA que
+    empezara con `VAR=` (`.env.example:93` es una frase que arranca con
+    `BASA_PURGE_ENABLED=false`).
+
+    Estrechar este conjunto no puede romper CI: las MENTIRAS son
+    `declaradas - código`, así que quitar elementos de `declaradas` sólo puede
+    sacar mentiras, nunca agregarlas. Lo que sí crece son los HUECOS, que es
+    justo el trabajo pendiente que estaba oculto.
+    """
     if not ENV_EXAMPLE.exists():
         raise InsumoAusenteError(f"falta {ENV_EXAMPLE.relative_to(REPO)} — el eje de config no puede comparar")
     return {
         m.group(1)
         for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
-        if (m := re.match(r"^\s*#?\s*([A-Z][A-Z0-9_]*)=", line))
+        if (m := re.match(r"^([A-Z][A-Z0-9_]*)=", line.strip()))
     }
 
 

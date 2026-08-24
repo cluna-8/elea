@@ -133,6 +133,102 @@ def test_blank_separated_vars_without_banner_start_new_section():
     assert sections[1][2][0][0] == "BAR"
 
 
+# ── #271: un bloque de variables comentadas no se lleva puesta la sección siguiente ─
+
+def test_bloque_de_vars_comentadas_no_funde_su_banner_con_la_seccion_siguiente():
+    """El bug de #271, con la forma exacta que tiene en `.env.example`.
+
+    Un bloque cuyas variables están TODAS comentadas no emite filas, así que su
+    banner nunca se purgaba: se arrastraba y se fundía con el banner de la
+    sección siguiente. Resultado en la página que se vende: un `###` cortado a
+    mitad de frase, las asignaciones crudas como prosa, y —lo peor— las
+    variables de la sección nueva archivadas bajo el título de la vieja.
+
+    Es markdown perfectamente válido, así que ni `mkdocs --strict` ni el linter
+    de estructura ni el drift gate lo marcan. Sólo se ve regenerando.
+    """
+    sections = g.parse_env_sections(
+        [
+            "# Licencia offline: enforcement FAIL-CLOSED",
+            "# el compose apunta a la licencia dev del repo.",
+            "# BASA_LICENSE_TOKEN_FILE=/app/config/licenses/dev-demo.lic",
+            "# BASA_ALLOW_DEV_LICENSE=true    # opt-in a claves dev; SOLO dev/demo",
+            "",
+            "# SSO: entrar con la identidad corporativa del cliente",
+            "",
+            "BASA_SSO_REDIRECT_URI=",
+        ]
+    )
+    assert len(sections) == 1
+    title, body, rows = sections[0]
+    # La variable nueva va bajo SU título, no bajo el de la licencia.
+    assert title == "SSO: entrar con la identidad corporativa del cliente"
+    assert [r[0] for r in rows] == ["BASA_SSO_REDIRECT_URI"]
+    # Y nada del bloque comentado se filtra como prosa a la página.
+    texto = f"{title} {body} {rows[0][2]}"
+    assert "Licencia offline" not in texto
+    assert "BASA_ALLOW_DEV_LICENSE" not in texto
+    assert "BASA_LICENSE_TOKEN_FILE" not in texto
+
+
+def test_prosa_que_empieza_con_una_asignacion_sigue_siendo_prosa():
+    """El borde que hace difícil el fix de #271, y que salió midiendo, no imaginando.
+
+    `.env.example:93` es una línea de PROSA que arranca con
+    `BASA_PURGE_ENABLED=false (el default) el scheduler ni arranca...` — es la
+    continuación de un párrafo del banner de la purga. Un clasificador ingenuo
+    («el comentario empieza con VAR=» ⇒ variable comentada) le come media frase
+    al banner de una sección real. Lo que la separa de una asignación comentada
+    es que la asignación termina en el valor o en un `#` inline; la prosa sigue
+    con palabras.
+    """
+    sections = g.parse_env_sections(
+        [
+            "# Banner de la purga",
+            "# BASA_PURGE_ENABLED=false (el default) el scheduler ni arranca,",
+            "# así que la caja sale configurada pero inerte.",
+            "",
+            "BASA_PURGE_WINDOW=02:00-04:00",
+        ]
+    )
+    assert len(sections) == 1
+    title, body, _rows = sections[0]
+    assert title == "Banner de la purga"
+    assert "el scheduler ni arranca" in (body or ""), "la frase de prosa se perdió"
+    assert "inerte" in (body or "")
+
+
+def test_var_comentada_no_llega_como_prosa_a_la_descripcion():
+    """Una asignación comentada no describe a nadie: no puede aparecer como texto."""
+    rows = g.parse_env(
+        [
+            "# BASA_LICENSE_TOKEN=            # alternativa: el .lic inline (JSON)",
+            "OTRA=1",
+        ]
+    )
+    assert len(rows) == 1
+    assert rows[0][0] == "OTRA"
+    assert "BASA_LICENSE_TOKEN" not in rows[0][2]
+
+
+def test_var_comentada_no_borra_el_banner_de_una_var_real_del_mismo_bloque():
+    """Bloque MIXTO: si tras la variable comentada viene una real sin línea en
+    blanco de por medio, el bloque sí emite fila y su banner tiene a quién
+    titular — purgarlo ahí sería la regresión simétrica del fix."""
+    sections = g.parse_env_sections(
+        [
+            "# Banner del bloque mixto",
+            "",
+            "# OPCIONAL_COMENTADA=x",
+            "REAL=1",
+        ]
+    )
+    assert len(sections) == 1
+    title, _body, rows = sections[0]
+    assert title == "Banner del bloque mixto"
+    assert [r[0] for r in rows] == ["REAL"]
+
+
 # ── #211: comportamiento base que no se rompe ────────────────────────────────────
 
 def test_consecutive_vars_without_comment_stay_dash():
@@ -165,6 +261,10 @@ if __name__ == "__main__":
         test_blank_separated_vars_without_banner_start_new_section,
         test_consecutive_vars_without_comment_stay_dash,
         test_non_blank_junk_still_purges,
+        test_bloque_de_vars_comentadas_no_funde_su_banner_con_la_seccion_siguiente,
+        test_prosa_que_empieza_con_una_asignacion_sigue_siendo_prosa,
+        test_var_comentada_no_llega_como_prosa_a_la_descripcion,
+        test_var_comentada_no_borra_el_banner_de_una_var_real_del_mismo_bloque,
     ]
     for t in tests:
         t()
