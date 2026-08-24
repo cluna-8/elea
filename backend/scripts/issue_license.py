@@ -29,6 +29,20 @@ Uso (reemitir el piloto de la Cámara con más asientos):
       --max-seats 300 --expiry 2026-10-21T00:00:00Z \
       --out backend/scripts/license_out/camara-comercio-300.lic
 
+Habilitar una feature (el SSO del E2E de la 017 US2):
+
+    python backend/scripts/issue_license.py \
+      --key <privada del kid> --kid basa-dev-2026b \
+      --lic-id lic_dev_sso_0001 \
+      --tenant-id 00000000-0000-0000-0000-000000000001 \
+      --distributor-id d_basa --pool-id pool_basa_dev \
+      --max-seats 50 --expiry 2099-01-01T00:00:00Z \
+      --feature-flags sso \
+      --out backend/scripts/license_out/dev-sso.lic
+
+Sin `--feature-flags` la licencia sale con la lista VACÍA, y una feature ausente es
+OFF fail-closed: el router de SSO devuelve 403 aunque el código esté en `main`.
+
 Notas de operación aprendidas del piloto:
   - Reusar un kid que YA está en el keyset embebido. Un kid nuevo exige rebuild de la imagen,
     porque el keyset se lee del path horneado (el compose no setea
@@ -44,6 +58,7 @@ import argparse
 import base64
 import json
 import pathlib
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -58,6 +73,42 @@ from licensing import token as token_mod  # noqa: E402
 from licensing import verifier as verifier_mod  # noqa: E402
 
 DEFAULT_KEYSET = pathlib.Path(__file__).resolve().parents[1] / "src" / "keys" / "basa_public_keys.pem"
+
+# Forma de un flag consultable por el producto: los consumidores usan literales en
+# minúscula y el chequeo es por igualdad exacta.
+_FLAG_RE = re.compile(r"[a-z0-9_-]+")
+
+
+def parse_feature_flags(values) -> list:
+    """`--feature-flags sso,monitor` (repetible) → `["sso", "monitor"]`.
+
+    `LicenseToken.feature_enabled` compara por igualdad EXACTA (`flag in
+    feature_flags`, token.py), y todos los consumidores del código consultan
+    literales en minúscula (`SSO_FLAG = "sso"`). Un flag con mayúsculas, espacio
+    interior o acento produce una licencia que se emite, firma y VERIFICA bien, y
+    que sin embargo deja la feature apagada para siempre — un no-op silencioso que
+    sólo se descubre en el cliente. Por eso esto rechaza en vez de normalizar: no
+    adivina qué quiso escribir el operador, le dice que lo escriba bien.
+
+    No hay allowlist de flags a propósito: la lista de features vive en quien las
+    consulta, y hornearla acá haría que un flag nuevo exija tocar el emisor.
+    """
+    flags = []
+    for value in values or []:
+        for bruto in value.split(","):
+            flag = bruto.strip()
+            if not flag:
+                continue
+            if not _FLAG_RE.fullmatch(flag):
+                sys.exit(
+                    f"❌ --feature-flags: {flag!r} no es un flag válido.\n"
+                    "   Se admite [a-z0-9_-]+ (minúsculas). El chequeo del producto es por\n"
+                    "   igualdad exacta, así que 'SSO' o 'sso ' emitirían una licencia\n"
+                    "   válida con la feature APAGADA."
+                )
+            if flag not in flags:      # idempotente: repetir un flag no lo duplica
+                flags.append(flag)
+    return flags
 
 
 def _iso(value: str, field: str) -> str:
@@ -84,6 +135,10 @@ def main() -> int:
     p.add_argument("--not-before", default=None,
                    help="ISO 8601 con Z (default: ahora - 1h, por si el reloj del cliente atrasa)")
     p.add_argument("--grace-days", type=int, default=14)
+    p.add_argument("--feature-flags", action="append", default=[], metavar="FLAG[,FLAG...]",
+                   help="features que habilita la licencia (repetible o separado por comas). "
+                        "Sin esto la licencia sale SIN features: el SSO, por ejemplo, "
+                        "fail-closea con 403 aunque el código esté en main.")
     p.add_argument("--keyset", default=str(DEFAULT_KEYSET),
                    help="keyset público contra el que se VERIFICA antes de escribir")
     p.add_argument("--out", required=True)
@@ -101,6 +156,8 @@ def main() -> int:
         datetime.now(timezone.utc) - timedelta(hours=1)
     ).isoformat().replace("+00:00", "Z")
 
+    feature_flags = parse_feature_flags(a.feature_flags)
+
     payload = {
         "schema": token_mod.SUPPORTED_SCHEMA,
         "lic_id": a.lic_id,
@@ -112,7 +169,7 @@ def main() -> int:
         "not_before": not_before,
         "expiry": _iso(a.expiry, "expiry"),
         "grace_days": a.grace_days,
-        "feature_flags": [],
+        "feature_flags": feature_flags,
         "issued_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
@@ -142,6 +199,9 @@ def main() -> int:
           f"max_seats={verified.max_seats}")
     print(f"   not_before={payload['not_before']} expiry={payload['expiry']} "
           f"grace_days={a.grace_days}")
+    # Del token VERIFICADO, no de los argumentos: es la única lectura que prueba que los
+    # flags sobrevivieron la firma y el re-parseo tal como el producto los va a consultar.
+    print(f"   feature_flags={list(verified.feature_flags) or '[] (ninguna feature habilitada)'}")
     print("   El keyset público NO se tocó.")
     return 0
 
