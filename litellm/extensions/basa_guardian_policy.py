@@ -510,7 +510,7 @@ def _get_http_client() -> httpx.AsyncClient:
 
     Sin `aclose()` en el camino normal, a propósito: es un singleton de proceso, vive
     tanto como el motor. Los tests lo resetean a `None` entre corridas (fixture
-    `_reset_http_client_singleton` en test_policy_unit.py) para no dejarlo atado al
+    `_reset_presidio_http_client_singleton` en conftest.py) para no dejarlo atado al
     event loop de un test ya terminado."""
     global _http_client
     if _http_client is None:
