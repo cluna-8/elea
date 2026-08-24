@@ -55,6 +55,52 @@ def admin_headers(client):
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+#: Contraseña de los usuarios minteados por `headers_for_role` (respeta el mínimo del
+#: producto, que `validar_password` exige incluso en el bootstrap).
+ROLE_PASS = "matriz-rol-superficie-12345"
+
+
+def headers_for_role(client, factory, rol, *, display_label=None, sufijo="", prefijo="rol"):
+    """Mintéa un usuario del rol canónico por DB directa (bypass del gate de seats de POST
+    /users: lo que probamos es el rol, no la licencia) con hash real, y devuelve su sesión.
+
+    Vive acá y no en un módulo de tests porque ya la usan dos superficies (la matriz-ley de
+    `test_role_matrix.py` y la config SSO de `test_sso_config_api.py`) y era la tercera copia
+    del mismo minteo — `test_router_config_api.py:_headers_no_admin` es la segunda.
+
+    Ojo con el orden respecto de `admin_headers`: el bootstrap del primer admin sólo corre si
+    la instalación no tiene dueño, y `ROLES_QUE_PRUEBAN_DUENO` (`api/users.py`) son SÓLO
+    `tenant_admin`/`super_admin`. Mintear un `compliance_officer`, `client` o `lectura` antes
+    del bootstrap NO lo bloquea; mintear un admin, SÍ.
+    """
+    from src.auth.passwords import hash_password
+    from src.models.user import User
+
+    # @basa.com.ar (no .test): UserResponse.email es EmailStr y rechaza el TLD reservado .test,
+    # con lo que GET /users —que serializa a todos— explotaría al listar estos usuarios.
+    nombre = f"{prefijo}-{rol.value}{sufijo}-{uuid.uuid4().hex[:8]}"
+    db = factory()
+    try:
+        db.add(User(
+            username=nombre, email=f"{nombre}@basa.com.ar",
+            password_hash=hash_password(ROLE_PASS), role=rol.value,
+            display_label=display_label, is_active=True,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    login = client.post("/api/v1/users/login", json={"username": nombre, "password": ROLE_PASS})
+    assert login.status_code == 200, f"login {rol.value}: {login.text}"
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+def rechazo_por_rol(rol):
+    """El texto propio de `rbac.require_role` — lo que distingue un 403-por-ROL de cualquier
+    otro 403 de la misma superficie (el de licencia, sin ir más lejos)."""
+    return f"Acción no permitida para el rol '{rol.value}'"
+
+
 def set_license(monkeypatch, tmp_path, **payload_overrides):
     """Emite un token efímero, apunta el env ahí y recarga el entitlement."""
     from src.licensing import entitlement

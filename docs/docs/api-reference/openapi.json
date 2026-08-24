@@ -2629,6 +2629,73 @@
         "title": "ScopeSchema",
         "type": "object"
       },
+      "SsoConfigIn": {
+        "properties": {
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "secreto del IdP. Omitirlo en una edición CONSERVA el guardado; nunca se devuelve en ninguna respuesta.",
+            "title": "Client Secret"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "datos NO secretos del IdP: tenant_id, client_id, authority… ACÁ NO VAN SECRETOS: este dict se guarda EN CLARO y se devuelve entero en el GET, que el auditor también puede leer. El secreto va en `client_secret`, que se cifra y no sale nunca.",
+            "title": "Config",
+            "type": "object"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "provider_type": {
+            "description": "tipo registrado en el build (hoy: 'entra')",
+            "title": "Provider Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_type"
+        ],
+        "title": "SsoConfigIn",
+        "type": "object"
+      },
+      "SsoConfigOut": {
+        "description": "Sin `client_secret`: no es un olvido, es el contrato (decisión 1 del módulo).",
+        "properties": {
+          "client_secret_configurado": {
+            "title": "Client Secret Configurado",
+            "type": "boolean"
+          },
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "provider_type": {
+            "title": "Provider Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_type",
+          "config",
+          "enabled",
+          "client_secret_configurado"
+        ],
+        "title": "SsoConfigOut",
+        "type": "object"
+      },
       "UserBase": {
         "properties": {
           "compliance_project_id": {
@@ -3427,6 +3494,114 @@
         "summary": "Sso Callback",
         "tags": [
           "sso"
+        ]
+      }
+    },
+    "/api/v1/auth/sso/config": {
+      "get": {
+        "description": "Config SSO del tenant del deployment. 404 si todavía no se cargó ninguna.",
+        "operationId": "sso_config_get_api_v1_auth_sso_config_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SsoConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sso Config Get",
+        "tags": [
+          "sso-admin"
+        ]
+      },
+      "put": {
+        "description": "Alta o edición de la config del tenant (upsert por tenant).",
+        "operationId": "sso_config_put_api_v1_auth_sso_config_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsoConfigIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SsoConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sso Config Put",
+        "tags": [
+          "sso-admin"
         ]
       }
     },

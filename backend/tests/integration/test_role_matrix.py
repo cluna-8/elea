@@ -52,14 +52,15 @@ for _dir in (_TESTS, _TESTS / "integration"):
         sys.path.insert(0, str(_dir))
 
 from migration_harness import require_postgres  # noqa: E402
-from seat_gate_harness import build_app_client, mock_engine  # noqa: E402
+from seat_gate_harness import (  # noqa: E402
+    ROLE_PASS, build_app_client, headers_for_role, mock_engine, rechazo_por_rol,
+)
 
 from src.auth.matrix import Rol, roles_con_escritura, roles_con_lectura  # noqa: E402
 
 require_postgres()
 
 DB = "basa_test_role_matrix"
-PASS = "matriz-rol-superficie-12345"  # respeta el mínimo del producto (validar_password)
 
 # Roles canónicos minteables (ck_users_role). `lectura` entra con T010: su gate de chat ya
 # existe, así que la fila `chat_playground`=NINGUNO (403) se asserta en vivo sin volver roja la
@@ -116,6 +117,19 @@ CATALOG = [
     ("POST",   "/api/v1/budgets",                    "costs_config",          "write"),
     # chat_playground — POST /chat/completions (camino JWT; FR-003 aún NO gatea rol → ver nota)
     ("POST",   "/api/v1/chat/completions",           "chat_playground",       "write"),
+    # config_producto — SSO: `GET/PUT /api/v1/auth/sso/config` NO entran a este catálogo, y no
+    # es un olvido. Ese router va detrás del gate de LICENCIA (`require_sso_enabled`) además del
+    # de rol, y la licencia de la suite trae `["monitor"]` sin `sso`: acá todos los roles darían
+    # 403 de licencia, que este harness no distingue del 403-por-rol (`_rechazo_por_rol` mira el
+    # texto). Meterlos daría rojo para los cinco roles y por el motivo equivocado.
+    # Su reparto —admin RW · compliance_officer R · client/lectura ninguno, o sea
+    # `config_producto`— se ejerce en `test_sso_config_api.py`, en estos tres tests NOMBRADOS
+    # (para que el próximo pueda verificar esta nota sin creerme):
+    #   test_el_auditor_LEE_la_config · test_el_auditor_NO_escribe_la_config ·
+    #   test_los_roles_sin_config_producto_ni_leen_ni_escriben[client|lectura]
+    # Allá el 403-de-rol SÍ se distingue del de licencia: montan la licencia CON `sso`, así que
+    # cada caso afirma el texto de `require_role` y la AUSENCIA de `sso_no_licenciado`.
+    # Si algún día la licencia de la suite trae `sso`, estas dos filas entran acá.
 ]
 
 
@@ -173,29 +187,10 @@ DIVERGENCIAS_CONOCIDAS_PRE_T006 = {}
 
 
 def _headers_for_role(client, factory, rol, *, display_label=None, sufijo=""):
-    """Mintéa un usuario del rol canónico por DB directa (bypass del gate de seats de POST
-    /users: lo que probamos es el rol, no la licencia) con hash real, y devuelve su sesión.
-    Mismo patrón que test_router_config_api.py."""
-    from src.auth.passwords import hash_password
-    from src.models.user import User
-
-    # @basa.com.ar (no .test): UserResponse.email es EmailStr y rechaza el TLD reservado .test,
-    # con lo que GET /users —que serializa a todos— explotaría al listar estos usuarios.
-    nombre = f"matriz-{rol.value}{sufijo}-{uuid.uuid4().hex[:8]}"
-    db = factory()
-    try:
-        db.add(User(
-            username=nombre, email=f"{nombre}@basa.com.ar",
-            password_hash=hash_password(PASS), role=rol.value,
-            display_label=display_label, is_active=True,
-        ))
-        db.commit()
-    finally:
-        db.close()
-
-    login = client.post("/api/v1/users/login", json={"username": nombre, "password": PASS})
-    assert login.status_code == 200, f"login {rol.value}: {login.text}"
-    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+    """Mintea la sesión del rol canónico. El minteo vive en `seat_gate_harness` desde que lo
+    comparte `test_sso_config_api.py`; acá queda el `prefijo` histórico de este harness."""
+    return headers_for_role(client, factory, rol, display_label=display_label,
+                            sufijo=sufijo, prefijo="matriz")
 
 
 def _build_path(template):
@@ -214,14 +209,10 @@ def _expected_allow(group, action, rol):
     return rol in permitidos
 
 
-def _rechazo_por_rol(rol):
-    return f"Acción no permitida para el rol '{rol.value}'"
-
-
 def _cumple(resp, permitido, rol):
     if permitido:
         return resp.status_code not in (401, 403)
-    return resp.status_code == 403 and _rechazo_por_rol(rol) in resp.text
+    return resp.status_code == 403 and rechazo_por_rol(rol) in resp.text
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────────────────────
@@ -333,7 +324,7 @@ def test_rol_lectura_es_minteable(harness):
     db = factory()
     try:
         fila = User(username=f"lectura-probe-{uuid.uuid4().hex[:8]}",
-                    email="lectura-probe@basa.com.ar", password_hash=hash_password(PASS),
+                    email="lectura-probe@basa.com.ar", password_hash=hash_password(ROLE_PASS),
                     role="lectura", is_active=True)
         db.add(fila)
         db.commit()  # sin IntegrityError: el CHECK ya lo admite

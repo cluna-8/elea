@@ -18,6 +18,7 @@ from .gateway import router as gateway_router
 from .inspect import router as inspect_router
 from .health import router as health_router
 from ..sso.api import router as sso_router, require_sso_enabled
+from ..sso.admin_api import router as sso_admin_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(users_router)
@@ -46,3 +47,8 @@ api_router.include_router(health_router)
 # 422 de query params que lo tape. Inline correría después y filtraría la forma de la
 # superficie antes de decidir si existe.
 api_router.include_router(sso_router, dependencies=[Depends(require_sso_enabled)])
+# La config del SSO va detrás del MISMO gate de licencia que el flujo: configurar una
+# feature que la licencia no habilita sólo puede terminar en una pantalla que promete
+# algo que después fail-closea. El rol lo gatea cada endpoint (lectura al auditor,
+# escritura al admin).
+api_router.include_router(sso_admin_router, dependencies=[Depends(require_sso_enabled)])
