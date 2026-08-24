@@ -278,6 +278,17 @@ export class ApiError extends Error {
   get isIndeterminate(): boolean { return !this.isDeterminate; }
 }
 
+// Aplana el `detail` de un error de la API: string → tal cual; objeto estructurado
+// (p.ej. el 503 de saturación {code, message}) → su `.message`; ausente → fallback.
+// Sin esto, un `detail` objeto se interpola como `[object Object]` en el Error (#185).
+function detailToMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && typeof (detail as any).message === "string") {
+    return (detail as any).message;
+  }
+  return fallback;
+}
+
 function asLayers(value: any): GovernanceLayerStatus[] {
   // Solo entra lo que tiene identidad de capa: un envoltorio inesperado produce lista
   // vacía (y la UI lo dice), nunca objetos a medio formar renderizados como capas.
@@ -607,7 +618,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Credenciales incorrectas."); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Credenciales incorrectas.")); }
     return res.json();
   },
 
@@ -832,7 +843,7 @@ export const api = {
     handleExpiredSession(res);
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.detail || "Failed to send chat message");
+      throw new Error(detailToMessage(errData.detail, "Failed to send chat message"));
     }
     return res.json();
   },
@@ -1054,7 +1065,7 @@ export const api = {
       // el 409 de FR-007 explica que el guardián es del catálogo incoming, y tragarlo detrás
       // de un "Failed to update guardian" dejaba el rechazo honesto sin destinatario.
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "No se pudo guardar el guardián.");
+      throw new Error(detailToMessage(err.detail, "No se pudo guardar el guardián."));
     }
     return res.json();
   },
@@ -1067,7 +1078,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Error al ejecutar el test del guardián.");
+      throw new Error(detailToMessage(err.detail, "Error al ejecutar el test del guardián."));
     }
     return res.json();
   },
@@ -1098,7 +1109,7 @@ export const api = {
       // El `detail` del backend es el mensaje que la UI muestra (patrón de testGuardian):
       // el catálogo cerrado de motivos vive allá, no acá.
       const err = await res.json().catch(() => ({}));
-      throw new ApiError(err.detail || "No se pudo obtener el estado de gobernanza.", res.status);
+      throw new ApiError(detailToMessage(err.detail, "No se pudo obtener el estado de gobernanza."), res.status);
     }
     return normalizeGovernanceStatus(await res.json());
   },
@@ -1246,7 +1257,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/projects`, {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(project),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al crear proyecto"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al crear proyecto")); }
     return res.json();
   },
 
@@ -1254,7 +1265,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/projects/${id}`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify(project),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar proyecto"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al actualizar proyecto")); }
     return res.json();
   },
 
@@ -1272,7 +1283,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/dpas`, {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(dpa),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al registrar DPA"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al registrar DPA")); }
     return res.json();
   },
 
@@ -1280,7 +1291,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/dpas/${id}`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify(dpa),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar DPA"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al actualizar DPA")); }
     return res.json();
   },
 
@@ -1298,7 +1309,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/dsr`, {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(dsr),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al crear solicitud"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al crear solicitud")); }
     return res.json();
   },
 
@@ -1306,7 +1317,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/dsr/${id}`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify(update),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar solicitud"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al actualizar solicitud")); }
     return res.json();
   },
 
@@ -1326,7 +1337,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/retention`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify(policies),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al guardar retención"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al guardar retención")); }
     return res.json();
   },
 
@@ -1347,7 +1358,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/groups/${groupId}/compliance`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify(data),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al actualizar perfil de compliance"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al actualizar perfil de compliance")); }
     return res.json();
   },
 
@@ -1355,7 +1366,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/groups/users/${userId}/group`, {
       method: "PUT", headers: jsonHeaders(), body: JSON.stringify({ group_id: groupId }),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al asignar grupo"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al asignar grupo")); }
     return res.json();
   },
 
@@ -1370,13 +1381,13 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/consent`, {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(data),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al registrar consentimiento"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al registrar consentimiento")); }
     return res.json();
   },
 
   revokeConsent: async (consentId: string): Promise<any> => {
     const res = await fetch(`${API_BASE}/compliance/consent/${consentId}`, { method: "DELETE", headers: authHeaders() });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al revocar consentimiento"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al revocar consentimiento")); }
     return res.json();
   },
 
@@ -1443,7 +1454,7 @@ export const api = {
     const res = await fetch(`${API_BASE}/compliance/review/${token}`, {
       method: "POST", headers: jsonHeaders(), body: JSON.stringify(data),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Error al procesar la revisión"); }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(detailToMessage(e.detail, "Error al procesar la revisión")); }
     return res.json();
   },
 
