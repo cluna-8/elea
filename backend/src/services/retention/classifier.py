@@ -463,6 +463,11 @@ EMISORES_VIGENTES: Dict[str, str] = {
     "blocked_nlp_unavailable": CLASE_SECURITY_EVENTS,  # policy.STATUS_NLP_BLOCKED (D10 fail-closed)
     # Configuración.
     "config_change_nlp_fail_mode": CLASE_CONFIG_AUDIT,  # guardians.py:334
+    # H4 del gate de #137: MISMA clase que `config_change_nlp_fail_mode` — es la misma
+    # convención `config_change…` (línea 412), el mismo emisor (`_escribir_fila_compliance`,
+    # guardians.py) y la misma pregunta de auditor dos años después («¿quién cambió la
+    # región de compliance de este tenant, y cuándo?»).
+    "config_change_region": CLASE_CONFIG_AUDIT,  # guardians.py (_auditar_cambio_postura_tenant)
 }
 
 # HALLAZGO abierto, anotado acá para que no se pierda entre el código: `degraded_nlp_regex` es

@@ -47,6 +47,8 @@ HEALTH = "/api/v1/health"
 
 # Estado de compliance de la fila durable del cambio de postura (guardians.py).
 CONFIG_CHANGE = "config_change_nlp_fail_mode"
+# H4 del gate de #137: MISMA disciplina para el cambio de región efectiva.
+CONFIG_CHANGE_REGION = "config_change_region"
 
 # Dos instantes bien separados: "la más antigua" es inequívoca y el desempate por `id` no entra
 # en juego (los timestamps ya difieren). El más NUEVO lleva `degrade`, el más VIEJO `block`.
@@ -82,7 +84,9 @@ def limpiar(harness):
     db = factory()
     try:
         db.query(Guardian).delete()
-        db.query(AuditLog).filter(AuditLog.compliance_status == CONFIG_CHANGE).delete()
+        db.query(AuditLog).filter(
+            AuditLog.compliance_status.in_((CONFIG_CHANGE, CONFIG_CHANGE_REGION))).delete(
+            synchronize_session=False)
         db.commit()
     finally:
         db.close()
@@ -388,3 +392,135 @@ def test_post_pii_masking_inactivo_en_degrade_no_genera_ruido(harness):
     assert r.status_code == 201, r.text
     assert _postura_del_tenant(factory) == "block"  # el inactivo no gobierna
     assert filas_config_change(factory) == []
+
+
+# ── H4 (gate de #137): la MISMA disciplina para el cambio de REGIÓN efectiva ───────
+#
+# `region` decide qué identificadores de qué país se detectan — una decisión de compliance
+# tan real como `nlp_fail_mode`, y hasta este PR era la única de las dos sin fila durable
+# (el ADR-0003 original lo justificaba citando el #72, que en realidad es sobre el ACTOR de
+# la fila de `nlp_fail_mode`, no sobre si esa fila existe — cita corregida en el ADR).
+#
+# Estos tests son el mismo molde de arriba (a/b/c + round 2), aplicado a la región en vez del
+# fail_mode: `_region_efectiva_tenant` es el mismo desempate (#104/#119) que
+# `_postura_efectiva_tenant`, `gateway._nlp_context` y los dos `_IDENTITY_SQL`; el registro es
+# el mismo `_escribir_fila_compliance` que ya defiende `nlp_fail_mode`, ahora con
+# `compliance_status=config_change_region`.
+
+
+def filas_region_change(factory):
+    from src.models.audit import AuditLog
+    db = factory()
+    try:
+        return [{"model": f.model, "compliance_status": f.compliance_status}
+                for f in db.query(AuditLog)
+                .filter(AuditLog.compliance_status == CONFIG_CHANGE_REGION).all()]
+    finally:
+        db.close()
+
+
+def _region_del_tenant(factory):
+    """Región EFECTIVA que hoy gobierna el tráfico del tenant por defecto — mismo lector que
+    usa la auditoría (`guardians._region_efectiva_tenant`)."""
+    from src.api import guardians as guardians_api
+    from src.models.tenant import DEFAULT_TENANT_ID
+    db = factory()
+    try:
+        return guardians_api._region_efectiva_tenant(db, DEFAULT_TENANT_ID)
+    finally:
+        db.close()
+
+
+def test_post_pii_masking_region_no_default_escribe_fila_durable(harness, monkeypatch):
+    """El alta con una región != default (de instalación) deja fila durable, igual que
+    `nlp_fail_mode`. Sin `BASA_ENTITY_REGION`, el default de instalación es `eu`."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    client, factory = harness
+    resp = client.post(GUARDIANS, headers=admin_headers(client), json={
+        "name": "PII", "guardian_type": "pii_masking", "is_active": True,
+        "config": {"region": "latam_ar"},
+    })
+
+    assert resp.status_code == 201, resp.text
+    filas = filas_region_change(factory)
+    assert len(filas) == 1, f"el alta con región no-default no dejó fila durable: {filas}"
+    assert filas[0]["model"] == f"{CONFIG_CHANGE_REGION}:eu->latam_ar"
+    # Y la fila de nlp_fail_mode NO se contaminó — cada decisión, su propia fila.
+    assert filas_config_change(factory) == []
+
+
+def test_post_pii_masking_region_default_no_genera_ruido(harness, monkeypatch):
+    """Contracara: dar de alta con la región QUE YA GOBIERNA (el default de instalación) no es
+    un cambio ⇒ cero ruido. Sin esto, el fix podría estar registrando toda alta a ciegas."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    client, factory = harness
+    resp = client.post(GUARDIANS, headers=admin_headers(client), json={
+        "name": "PII", "guardian_type": "pii_masking", "is_active": True,
+        "config": {"region": "eu"},
+    })
+
+    assert resp.status_code == 201, resp.text
+    assert filas_region_change(factory) == []
+
+
+def test_la_fila_de_cambio_de_region_registra_el_actor(harness, monkeypatch):
+    """FR-004/#72: la fila de región también lleva el actor — mismo criterio que
+    `nlp_fail_mode`, no una excepción para esta decisión."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    from src.models.audit import AuditLog
+    from src.models.user import User
+    client, factory = harness
+    resp = client.post(GUARDIANS, headers=admin_headers(client), json={
+        "name": "PII", "guardian_type": "pii_masking", "is_active": True,
+        "config": {"region": "latam_ar"},
+    })
+    assert resp.status_code == 201, resp.text
+
+    db = factory()
+    try:
+        admin = db.query(User).filter(User.username == "admin").one()
+        filas = db.query(AuditLog).filter(AuditLog.compliance_status == CONFIG_CHANGE_REGION).all()
+        assert len(filas) == 1, f"esperaba una sola fila de cambio de región: {filas}"
+        assert filas[0].user_id == admin.id, \
+            f"el actor de la fila de región no es el admin que mutó: {filas[0].user_id} != {admin.id}"
+    finally:
+        db.close()
+
+
+def test_desactivar_la_gobernante_promueve_la_region_y_deja_fila(harness, monkeypatch):
+    """Repro del round 2, aplicado a región: A (más antigua, `eu`, activa) gobierna; B (más
+    nueva, `latam_ar`, activa) espera detrás. `PUT A is_active=false` promueve a B ⇒ la región
+    EFECTIVA del tenant pasa `eu→latam_ar` sin que ninguna fila "cambie" su propia región."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    client, factory = harness
+    gid_a = sembrar_pii(factory, config={"region": "eu"}, created_at=VIEJO, name="A")
+    sembrar_pii(factory, config={"region": "latam_ar"}, created_at=NUEVO, name="B")
+    assert _region_del_tenant(factory) == "eu"  # A gobierna
+
+    r = client.put(f"{GUARDIANS}/{gid_a}", headers=admin_headers(client),
+                   json=_payload_de({"region": "eu"}, is_active=False, name="A"))
+    assert r.status_code == 200, r.text
+
+    assert _region_del_tenant(factory) == "latam_ar"  # B promovida
+    filas = filas_region_change(factory)
+    assert any(f["model"].endswith("eu->latam_ar") for f in filas), (
+        f"promover B al desactivar A movió la región sin rastro: {filas}")
+
+
+def test_cambio_de_nlp_y_region_a_la_vez_deja_dos_filas_separadas(harness, monkeypatch):
+    """Un PUT que mueve LAS DOS posturas a la vez dejar DOS filas, no una combinada — cada
+    decisión de compliance, filtrable por separado (`compliance_status` distinto)."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    client, factory = harness
+    gid = sembrar_pii(factory, config={"nlp_fail_mode": "block", "region": "eu"},
+                      created_at=VIEJO, name="PII")
+
+    r = client.put(f"{GUARDIANS}/{gid}", headers=admin_headers(client),
+                   json=_payload_de({"nlp_fail_mode": "degrade", "region": "latam_ar"}))
+    assert r.status_code == 200, r.text
+
+    nlp_filas = filas_config_change(factory)
+    region_filas = filas_region_change(factory)
+    assert any(f["model"].endswith("block->degrade") for f in nlp_filas), nlp_filas
+    assert any(f["model"].endswith("eu->latam_ar") for f in region_filas), region_filas
+    assert len(nlp_filas) == 1 and len(region_filas) == 1

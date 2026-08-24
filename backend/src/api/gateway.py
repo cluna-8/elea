@@ -328,16 +328,27 @@ def _build_analyze(nlp: Optional[dict]):
 
     ``nlp`` es el contexto que resolvió `_resolve_attribution` (una sola lectura por pedido,
     en la sesión que ese helper ya abría). ``None`` ⇒ se usa el sidecar igual, pero sin
-    listas personalizadas: no tener la config del guardián no puede degradar el detector."""
+    listas personalizadas: no tener la config del guardián no puede degradar el detector.
+
+    **Región por TENANT (H1 del gate de #137)**: mismo mecanismo que `custom_names`/
+    `custom_entities` — clave `region` en `Guardian.config` del guardián `pii_masking`,
+    con `BASA_ENTITY_REGION` (default DE LA INSTALACIÓN) como fallback retrocompatible.
+    Se resuelve UNA sola vez acá y se usa en los DOS caminos de abajo (con y sin sidecar):
+    antes de este fix, el camino sin sidecar volvía `policy.default_analyze` a secas —
+    congelado en `DEFAULT_REGION` (eu) sin importar la región del tenant o de la
+    instalación— así que este plano podía detectar entidades distintas según si el
+    analyzer estaba sano o caído. Es la misma clase de falla silenciosa que un degrade
+    sin región (ver `basa_guardrail._analyze_regex`)."""
+    cfg = nlp or {}
+    region = policy.resolve_region(
+        cfg, default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
     url = nlp_analyzer_url()
     if not url:
-        return policy.default_analyze, False
-    cfg = nlp or {}
+        async def _analyze_regex(text: str) -> list:
+            return await policy.default_analyze(text, region=region)
+        return _analyze_regex, False
     custom_names = cfg.get("custom_names") or []
     custom_entities = cfg.get("custom_entities") or []
-    # Misma env y mismo default que el motor (spec 016): la región no puede diferir entre
-    # planos o el mismo texto detectaría entidades distintas según por dónde entró.
-    region = os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)
 
     async def _analyze(text: str) -> list:
         return await policy.presidio_analyze(text, url, custom_names, region,
@@ -476,7 +487,18 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
             # jamás propaga, así que el pedido degradado se sirve igual pase lo que pase con la
             # marca.
             await asyncio.to_thread(record_nlp_degradation, reason="gateway/mask_body")
-            _, ph_to_orig = await policy.mask_body(body, policy.default_analyze, pmap)
+            # H1 del gate de #137: el regex de dev del degrade también resuelve la región
+            # de ESTE tenant (mismo mecanismo que `_build_analyze`, arriba) — sin esto, un
+            # pedido degradado se enmascaraba SIEMPRE con `DEFAULT_REGION` (eu), aunque el
+            # tenant hubiera elegido otra región. Un degrade que pierde la región es la
+            # falla silenciosa clásica, justo cuando el sistema ya está en problemas.
+            region_degradado = policy.resolve_region(
+                nlp, default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+
+            async def _analyze_regex_degradado(text: str) -> list:
+                return await policy.default_analyze(text, region=region_degradado)
+
+            _, ph_to_orig = await policy.mask_body(body, _analyze_regex_degradado, pmap)
             # El estado de degradación PISA `passed`/`flagged_high_risk`: entre "salió sin
             # novedad" y "salió con media protección", lo segundo es lo que el officer tiene
             # que ver en la columna. El flag de AI-Act no se pierde — sigue en
@@ -650,6 +672,14 @@ def _nlp_context(db, tenant_id, atribuible: bool = False) -> dict:
             # donde la barrera de la 027 obliga al valor más protector.
             policy.NLP_FAIL_MODE_KEY: (cfg.get(policy.NLP_FAIL_MODE_KEY) if atribuible
                                        else policy.NLP_FAIL_BLOCK),
+            # Región de STRUCTURED_ID_PATTERNS_BY_REGION del tenant (H1 del gate de #137).
+            # Crudo, sin la barrera de `atribuible`: `region` no es un eje de laxo/estricto
+            # como `nlp_fail_mode` (degrade sirve tráfico con MENOS protección; una región
+            # distinta sirve tráfico con OTRO set de reconocedores, no con menos) — mismo
+            # criterio que `custom_names`/`custom_entities`, y el mismo que ya usa el motor
+            # (`basa_guardrail.py`, sin barrera sobre `identity.get("region")`). Quien decide
+            # es `policy.resolve_region`, con el default de instalación armado por el caller.
+            "region": cfg.get("region"),
         }
     except Exception as exc:  # noqa: BLE001
         logger.warning("gateway: config de detección NLP no legible (%s); defaults "

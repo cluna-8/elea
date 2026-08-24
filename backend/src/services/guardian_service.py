@@ -308,7 +308,16 @@ class GuardianService:
             entities_to_scan = pii_guardian.config.get("entities", ["PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER"]) if pii_guardian else ["PERSON", "DNI", "CUIL", "EMAIL_ADDRESS", "PHONE_NUMBER"]
             action = pii_guardian.config.get("action", "MASK") if pii_guardian else "MASK"
             custom_names = pii_guardian.config.get("custom_names", []) if pii_guardian else []
-            
+            # Región de STRUCTURED_ID_PATTERNS_BY_REGION de ESTE tenant (H1 del gate de
+            # #137): antes el Playground nunca la resolvía — `analyze_text_http` hardcodeaba
+            # `"eu"` y `analyze_text` (el fallback regex) ni tenía el parámetro. Mismo
+            # mecanismo que `resolve_nlp_fail_mode`: clave `region` en el `config` del
+            # guardián `pii_masking` activo, con el default DE LA INSTALACIÓN
+            # (`BASA_ENTITY_REGION`) como fallback retrocompatible.
+            region = policy.resolve_region(
+                pii_guardian.config if pii_guardian else None,
+                default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+
             # Mask custom names
             for idx, name in enumerate(custom_names):
                 if not name.strip():
@@ -361,7 +370,8 @@ class GuardianService:
             if presidio_url:
                 try:
                     raw_entities = await PresidioService.analyze_text_http(
-                        processed_prompt, presidio_url, custom_names=custom_names)
+                        processed_prompt, presidio_url, custom_names=custom_names,
+                        region=region)
                 except NlpUnavailableError:
                     triggers.append({
                         "guardian": pii_guardian.name if pii_guardian else "PII Guard",
@@ -375,7 +385,8 @@ class GuardianService:
                     # el estado media hora después no tiene forma de saber que el detector
                     # real estuvo caído. La marca es durable y la publica `GET /health`.
                     record_nlp_degradation(reason="playground/process_prompt")
-                    raw_entities = await PresidioService.analyze_text(processed_prompt)
+                    raw_entities = await PresidioService.analyze_text(
+                        processed_prompt, region=region)
             else:
                 # issue #63: sin `NLP_ANALYZER_URL` el playground SIEMPRE corrió con el regex
                 # de dev, y hasta acá no lo decía en ningún lado — la pantalla mostraba un
@@ -391,7 +402,7 @@ class GuardianService:
                               "detección local por patrones (modo desarrollo, cobertura "
                               "menor). No usar con datos reales de pacientes.",
                 })
-                raw_entities = await PresidioService.analyze_text(processed_prompt)
+                raw_entities = await PresidioService.analyze_text(processed_prompt, region=region)
             filtered_entities = [e for e in raw_entities if e["entity_type"] in entities_to_scan]
             
             if filtered_entities:

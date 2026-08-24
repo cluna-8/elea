@@ -684,3 +684,90 @@ def test_sin_basa_entity_region_el_analyzer_de_gw_cae_al_default_del_codigo(
 
     assert client.post(GW, json=_cuerpo()).status_code == 200
     assert capturada.get("region") == gateway.policy.DEFAULT_REGION
+
+
+# ── 9) La región PROPIA del tenant pisa el default de instalación en /gw (H1, PR2 #137) ──
+#
+# Los dos tests de arriba (nº8) cubren el default DE LA INSTALACIÓN (env sin config de
+# tenant) — eso es lo que PR1 de la adopción cableó (el compose). Este test cubre lo que
+# agrega PR2: `gateway._nlp_context` ahora también lee `region` del `Guardian.config` del
+# tenant, y esa lectura tiene que PISAR el default de instalación — mismo mecanismo que
+# `custom_names`/`custom_entities`/`nlp_fail_mode`, que ya viajan por el mismo canal.
+
+
+def test_region_propia_del_tenant_pisa_el_default_de_instalacion_en_gw(
+        harness, proveedor, guardian_pii, monkeypatch):
+    from src.api import gateway
+
+    monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
+    # Instalación en `eu`, tenant con su PROPIA región `latam_ar` — tienen que divergir
+    # para que el test demuestre que gana el tenant, no la instalación.
+    monkeypatch.setenv("BASA_ENTITY_REGION", "eu")
+    guardian_pii(nlp_fail_mode="block", region="latam_ar")
+
+    capturada = {}
+
+    async def _analyze(text, analyzer_url, custom_names, region, **kwargs):
+        capturada["region"] = region
+        return []
+
+    monkeypatch.setattr(gateway.policy, "presidio_analyze", _analyze)
+    client, _factory = harness
+
+    assert client.post(GW, json=_cuerpo()).status_code == 200
+    assert capturada.get("region") == "latam_ar", (
+        "el tenant fijó su propia región (latam_ar) y /gw se quedó resolviendo el default "
+        "de la instalación (eu) — la región del tenant no está pisando el default")
+
+
+# ── 10) El camino DEGRADE de /gw también resuelve la región del tenant (H1, PR2 #137) ──
+#
+# Hueco encontrado por el manager en la 1ª línea de #268: el degrade del MOTOR
+# (`basa_guardrail.py`, defendido en `test_region_por_tenant.py`) estaba pineado por un
+# test; el degrade de `/gw` (`gateway.evaluate_request_policy`, línea del
+# `_analyze_regex_degradado` que pasa `region=region_degradado` a `policy.default_analyze`)
+# NO lo estaba — el código era correcto, pero nada rompía si alguien le comía el `region=`
+# en un refactor futuro. Es la falla silenciosa DENTRO de la falla silenciosa: el degrade
+# corre justo cuando el analyzer NLP ya está caído, así que perder la región ahí significa
+# enmascarar con los recognizers de la región equivocada en el peor momento posible.
+
+
+def test_degrade_de_gw_resuelve_la_region_del_tenant_no_el_default_de_instalacion(
+        harness, proveedor, nlp_configurado, guardian_pii, redis_falso, key_atribuible,
+        monkeypatch):
+    """Espejo exacto, en el plano `/gw`, de
+    `test_region_por_tenant.py::test_degrade_resuelve_la_region_del_tenant_no_el_default_de_instalacion`
+    (el mismo hallazgo, en el otro plano). Con el analyzer real CAÍDO y la instalación en
+    `degrade`, `policy.default_analyze` (el regex de dev) tiene que recibir la región del
+    TENANT, no el default de la instalación.
+
+    Se espía `default_analyze` en vez de afirmar sobre qué detectó (`FALLBACK_STRUCTURED_
+    BY_REGION` hoy sólo tiene datos para `eu` — hueco de datos documentado en el ADR-0003,
+    fuera de alcance de este PR): lo que este test defiende es que la región LLEGA al
+    detector de degrade, no si ya hay reconocedores cargados para ella.
+
+    MUTACIÓN verificada (igual que el molde del motor): sacar el `region=region_degradado`
+    de `gateway.py` (dejar `policy.default_analyze(text)` a secas) tiene que dejar este
+    test en rojo — lo confirmé con el experimento antes de subir este commit."""
+    from src.api import gateway
+
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    guardian_pii(nlp_fail_mode="degrade", region="latam_ar")
+    nlp_configurado(caido=True)
+
+    capturada = {}
+    original_default_analyze = gateway.policy.default_analyze
+
+    async def _default_analyze_espia(text, region=gateway.policy.DEFAULT_REGION):
+        capturada["region"] = region
+        return await original_default_analyze(text, region=region)
+
+    monkeypatch.setattr(gateway.policy, "default_analyze", _default_analyze_espia)
+    client, _factory = harness
+
+    respuesta = client.post(GW, json=_cuerpo(), headers=key_atribuible)
+
+    assert respuesta.status_code == 200, respuesta.text
+    assert capturada.get("region") == "latam_ar", (
+        "el camino degrade de /gw se quedó en el default de la instalación — perdió la "
+        "región del tenant justo cuando el sistema ya estaba en problemas")

@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any
 
 import httpx
 
@@ -31,11 +31,17 @@ class NlpUnavailableError(Exception):
 
 class PresidioService:
     @staticmethod
-    async def analyze_text(text: str, language: str = "es") -> List[Dict[str, Any]]:
+    async def analyze_text(text: str, language: str = "es",
+                           region: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fallback de dev/demo (regex) — delega en `basa_guardian_policy.default_analyze`,
         la MISMA fuente que usa el camino de producción (spec 016 SC-006). Nunca es el
-        detector primario con PHI real (Constraint SC-2) — ver `analyze_text_http`."""
-        return await policy.default_analyze(text)
+        detector primario con PHI real (Constraint SC-2) — ver `analyze_text_http`.
+
+        `region` (H1 del gate de #137): `None` ⇒ `policy.DEFAULT_REGION`, nunca un literal
+        propio — una segunda constante desconectada de `policy.DEFAULT_REGION` es
+        exactamente la clase de bug que H3 corrigió del lado del seed. El caller
+        (`guardian_service.process_prompt`) resuelve la región del tenant y la pasa."""
+        return await policy.default_analyze(text, region=(region or policy.DEFAULT_REGION))
 
     @staticmethod
     def mask_text(text: str, entities: List[Dict[str, Any]]) -> Tuple[str, Dict[str, str], List[Dict[str, Any]]]:
@@ -96,7 +102,7 @@ class PresidioService:
         language: str = "es",
         entities: List[str] | None = None,
         custom_names: List[str] | None = None,
-        region: str = "eu",
+        region: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Llama al mismo sidecar Presidio Analyzer que usa el firewall real, con los
         mismos `ad_hoc_recognizers` (spec 016 SC-006 — antes este método no aceptaba
@@ -107,10 +113,16 @@ class PresidioService:
         Ahora levanta `NlpUnavailableError`; el caller (`guardian_service.py`) decide
         cómo degradar de forma VISIBLE para el camino de panel/playground (Assumptions
         de la spec: uso interno, no tráfico de producción hacia herramientas — puede
-        degradar visible, nunca en silencio)."""
+        degradar visible, nunca en silencio).
+
+        `region` (H1 del gate de #137): antes era `"eu"` LITERAL — el Playground SIEMPRE
+        detectaba con los patrones de España, sin importar la región del tenant ni la de
+        la instalación. `None` ⇒ `policy.DEFAULT_REGION` (mismo criterio que
+        `analyze_text`); el caller resuelve la región real y la pasa explícita."""
         payload: dict = {
             "text": text, "language": language, "entities": entities,
-            "ad_hoc_recognizers": policy.build_ad_hoc_recognizers(custom_names, region),
+            "ad_hoc_recognizers": policy.build_ad_hoc_recognizers(
+                custom_names, region or policy.DEFAULT_REGION),
         }
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:

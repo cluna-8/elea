@@ -523,6 +523,15 @@ class BasaGuardrail(CustomGuardrail):
             region = policy.resolve_region(
                 identity, default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
 
+            async def _analyze_regex(texto: str) -> list:
+                """`default_analyze` con la región de ESTE tenant ya resuelta (H1 del gate
+                de #137): sin este binding, cualquier camino que caiga al regex de dev —sin
+                sidecar configurado, o degradado por el sidecar caído, más abajo— se
+                congelaba en `DEFAULT_REGION` (eu) aunque el NLP real ya resolviera por
+                tenant. Un degrade que pierde la región es la falla silenciosa clásica,
+                justo cuando el sistema ya está en problemas."""
+                return await policy.default_analyze(texto, region=region)
+
             if _PRESIDIO_URL:
                 async def _analyze(text: str) -> list:
                     return await policy.presidio_analyze(
@@ -532,7 +541,7 @@ class BasaGuardrail(CustomGuardrail):
                     "NLP_ANALYZER_URL no configurada — usando detección regex de "
                     "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
                 )
-                _analyze = policy.default_analyze
+                _analyze = _analyze_regex
 
             # Postura ante el analyzer CAÍDO (issue #63). Viaja con la identidad de la
             # Connection (`custom_auth` la trae del `Guardian.config` del guardián
@@ -560,8 +569,8 @@ class BasaGuardrail(CustomGuardrail):
                     "reason": "nlp_unavailable_degraded_regex",
                 }
                 if es_body:
-                    return await policy.mask_body(texto_o_body, policy.default_analyze, pmap)
-                return await policy.default_analyze(texto_o_body)
+                    return await policy.mask_body(texto_o_body, _analyze_regex, pmap)
+                return await policy.default_analyze(texto_o_body, region=region)
 
             # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
             # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
@@ -579,7 +588,7 @@ class BasaGuardrail(CustomGuardrail):
                 # canales. El resto del hook (BLOCK por tipo, mask) corre igual sobre estas
                 # entidades — degradar no puede además saltearse la política por tipo.
                 preview_entities = await _degradar_a_regex(inspect_text, es_body=False)
-                _analyze = policy.default_analyze
+                _analyze = _analyze_regex
 
             blocked_types = sorted({
                 e["entity_type"] for e in preview_entities

@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -250,6 +251,7 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     # issue #104: postura efectiva del tenant ANTES del alta. El alta cae en DEFAULT_TENANT_ID
     # (el schema de entrada no trae tenant), que es donde la resolverá el bloque de abajo.
     postura_previa = _postura_efectiva_tenant(db, DEFAULT_TENANT_ID)
+    region_previa = _region_efectiva_tenant(db, DEFAULT_TENANT_ID)  # H4 del gate de #137
     guardian = Guardian(
         name=payload.name,
         guardian_type=payload.guardian_type,
@@ -266,8 +268,11 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     # con `degrade` sin fila durable. Se audita SI el alta movió la postura EFECTIVA del tenant:
     # un `pii_masking` activo que se vuelve gobernante en `degrade` queda registrado; uno INACTIVO
     # (o que no llega a ser el más antiguo, o de otro tipo) no cambia nada ⇒ no genera ruido.
-    _auditar_cambio_postura_tenant(db, guardian.tenant_id, postura_previa,
-                                   _postura_efectiva_tenant(db, guardian.tenant_id), actor)
+    _auditar_cambio_postura_tenant(
+        db, guardian.tenant_id, postura_previa,
+        _postura_efectiva_tenant(db, guardian.tenant_id), actor,
+        region_previo=region_previa,
+        region_actual=_region_efectiva_tenant(db, guardian.tenant_id))
     return _to_response(guardian, await ai_engine_client.probe_loaded_guardrails())
 
 
@@ -345,11 +350,12 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
     return None
 
 
-# ── Registro durable del cambio de postura NLP EFECTIVA del tenant (issue #63/#104) ─
+# ── Registro durable del cambio de postura EFECTIVA del tenant (issue #63/#104 + H4 de #137) ─
 #
 # `nlp_fail_mode` decide si, con el detector real caído, el tráfico se RECHAZA o se sirve con
-# media protección. Es una decisión de seguridad, y una decisión de seguridad que nadie puede
-# reconstruir después no es auditable.
+# media protección. `region` (H4 del gate de #137) decide qué identificadores de qué país se
+# detectan. Las dos son decisiones de compliance, y una decisión de compliance que nadie puede
+# reconstruir después no es auditable — antes de este PR sólo `nlp_fail_mode` dejaba fila.
 #
 # Lo que se audita es la postura EFECTIVA del tenant —la del `pii_masking` ACTIVO más antiguo,
 # exactamente la fila que eligen los cuatro lectores del #104—, NO la de la fila aislada que se
@@ -360,17 +366,21 @@ def delete_custom_entity(entity_id: str, db: Session = Depends(get_db)):
 # DESPUÉS de cada mutación, un solo criterio cubre: cambio de config, toggle de is_active,
 # cambio de tipo, alta que se vuelve gobernante, y DELETE que promueve. Como bonus, un alta o
 # edición que NO cambia la postura efectiva (p.ej. un `pii_masking` INACTIVO en `degrade`) no
-# escribe nada: cero ruido.
+# escribe nada: cero ruido. `region` sigue el MISMO criterio (`_region_efectiva_tenant`) y
+# escribe su fila APARTE — un cambio que mueve las dos posturas a la vez deja DOS filas, una
+# por decisión, no una combinada.
 #
 # ACTOR (FR-004 / #72, cableado en T006): los 3 handlers de mutación reciben el `User` vía
 # `Depends(require_role("admin"))` —require_role ahora DEVUELVE el actor— y lo propagan hasta
 # la fila `audit_logs` como `user_id`. La fila ya registra el HECHO **y el autor** (user_id →
 # FK a users, que lleva el rol). Lo que sigue abierto del #72 es la COBERTURA GENÉRICA (todo
-# endpoint de admin, todos los campos): el cambio de nlp_fail_mode queda cerrado acá; el resto
-# entra con el barrido de T006 sobre la matriz. El `require_role("admin")` del router sigue
-# siendo la puerta; el del handler es sólo para inyectar el actor (chequeo barato: el
-# `get_current_user` del que ambos dependen se cachea una vez por request).
+# endpoint de admin, todos los campos): el cambio de nlp_fail_mode y el de region quedan
+# cerrados acá; el resto entra con el barrido de T006 sobre la matriz. El
+# `require_role("admin")` del router sigue siendo la puerta; el del handler es sólo para
+# inyectar el actor (chequeo barato: el `get_current_user` del que ambos dependen se cachea
+# una vez por request).
 _COMPLIANCE_CAMBIO_NLP = "config_change_nlp_fail_mode"
+_COMPLIANCE_CAMBIO_REGION = "config_change_region"
 
 
 def _postura_efectiva_tenant(db: Session, tenant_id) -> str:
@@ -392,28 +402,47 @@ def _postura_efectiva_tenant(db: Session, tenant_id) -> str:
     return policy.resolve_nlp_fail_mode((fila[0] if fila else None) or {})
 
 
-def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: str,
-                                   actor: "User | None" = None) -> None:
-    """Escribe la fila durable SI y sólo si la postura NLP EFECTIVA del tenant cambió. Nunca
-    propaga: un fallo del registro no puede voltear una mutación ya commiteada.
+def _region_efectiva_tenant(db: Session, tenant_id) -> str:
+    """Región EFECTIVA del tenant: la de `pii_masking` ACTIVO más antiguo — MISMO desempate
+    del #104/#119 que `_postura_efectiva_tenant`, `gateway._nlp_context` y los dos
+    `_IDENTITY_SQL` (H4 del gate de #137: la región es una decisión de compliance —qué
+    identificadores de qué país se detectan— y tiene que ser tan auditable como
+    `nlp_fail_mode`).
 
-    `previo` y `actual` los computa el handler con `_postura_efectiva_tenant` antes y después de
-    la mutación (y de su commit). Comparar la postura efectiva —no la de la fila tocada— es lo
-    que cierra la evasión por promoción del round 2 y, de paso, evita el ruido de altas/ediciones
-    que no cambian lo que de verdad gobierna."""
-    if actual == previo:
-        return
-    _log.warning("guardianes: nlp_fail_mode EFECTIVO del tenant cambió de %s a %s (tenant=%s)",
-                 previo, actual, tenant_id)
+    El default sin fila (o sin `region` en ninguna) NO es un literal propio: es
+    `BASA_ENTITY_REGION` de ESTE proceso — el MISMO default que `policy.resolve_region`
+    usa en cada plano de tráfico. Auditar contra un default distinto al que gobierna el
+    tráfico real dejaría que "lo que se auditó" y "lo que se sirve" pudieran divergir."""
+    fila = (db.query(Guardian.config)
+            .filter(Guardian.tenant_id == tenant_id,
+                    Guardian.guardian_type == "pii_masking",
+                    Guardian.is_active.is_(True))
+            .order_by(Guardian.created_at, Guardian.id)
+            .first())
+    return policy.resolve_region(
+        (fila[0] if fila else None) or {},
+        default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+
+
+def _escribir_fila_compliance(db: Session, tenant_id, compliance_status: str, campo: str,
+                              previo: str, actual: str, actor: "User | None" = None) -> None:
+    """Fila durable de UN cambio de postura EFECTIVA. Extraído del cuerpo original de
+    `_auditar_cambio_postura_tenant` (H4 del gate de #137) para que `nlp_fail_mode` y
+    `region` compartan la MISMA disciplina —nunca propaga (un fallo del registro no puede
+    voltear una mutación ya commiteada), mismo vocabulario cerrado y mismo actor
+    (FR-004/#72)— sin duplicar el cuerpo. `campo` sólo alimenta el texto del log; el
+    vocabulario auditable es `compliance_status`."""
+    _log.warning("guardianes: %s EFECTIVO del tenant cambió de %s a %s (tenant=%s)",
+                 campo, previo, actual, tenant_id)
     try:
         AuditService.log_transaction(
             db=db,
             # Metadata-only: el "modelo" de esta fila es el código del cambio, no un LLM.
             # Ni tokens ni coste — no hubo tráfico, hubo una decisión de configuración.
-            model=f"{_COMPLIANCE_CAMBIO_NLP}:{previo}->{actual}",
+            model=f"{compliance_status}:{previo}->{actual}",
             prompt_tokens=0, completion_tokens=0, cost_usd=0.0,
             pii_detected=False, masked_entities=[],
-            compliance_status=_COMPLIANCE_CAMBIO_NLP, latency_ms=0,
+            compliance_status=compliance_status, latency_ms=0,
             processing_purpose="administrative",
             tenant_id=tenant_id,
             # FR-004 / #72: el actor de la mutación. La fila ya no registra sólo el HECHO
@@ -422,8 +451,35 @@ def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: 
             user_id=(actor.id if actor is not None else None),
         )
     except Exception as exc:  # noqa: BLE001
-        _log.error("guardianes: el cambio de nlp_fail_mode EFECTIVO (%s → %s) NO quedó "
-                   "registrado: %s", previo, actual, exc)
+        _log.error("guardianes: el cambio de %s EFECTIVO (%s → %s) NO quedó "
+                   "registrado: %s", campo, previo, actual, exc)
+
+
+def _auditar_cambio_postura_tenant(db: Session, tenant_id, previo: str, actual: str,
+                                   actor: "User | None" = None, *,
+                                   region_previo: Optional[str] = None,
+                                   region_actual: Optional[str] = None) -> None:
+    """Escribe la(s) fila(s) durable(s) SI Y SÓLO SI la postura EFECTIVA del tenant cambió.
+    Nunca propaga: un fallo del registro no puede voltear una mutación ya commiteada.
+
+    `previo`/`actual` (nlp_fail_mode) los computa el handler con `_postura_efectiva_tenant`
+    antes y después de la mutación (y de su commit). Comparar la postura efectiva —no la de
+    la fila tocada— es lo que cierra la evasión por promoción del round 2 y, de paso, evita
+    el ruido de altas/ediciones que no cambian lo que de verdad gobierna.
+
+    `region_previo`/`region_actual` (H4 del gate de #137) son la MISMA disciplina para la
+    región efectiva (`_region_efectiva_tenant`) — keyword-only y `None` por default: un
+    caller que sólo audita `nlp_fail_mode` (los tests directos de esta función, de antes de
+    este PR) sigue funcionando idéntico. Cuando el handler SÍ los pasa y difieren, se escribe
+    una fila `config_change_region` APARTE de la de `nlp_fail_mode` —no una combinada— para
+    que cada decisión de compliance quede en su propia fila, filtrable por separado."""
+    if actual != previo:
+        _escribir_fila_compliance(db, tenant_id, _COMPLIANCE_CAMBIO_NLP,
+                                  "nlp_fail_mode", previo, actual, actor)
+    if (region_previo is not None and region_actual is not None
+            and region_actual != region_previo):
+        _escribir_fila_compliance(db, tenant_id, _COMPLIANCE_CAMBIO_REGION,
+                                  "region", region_previo, region_actual, actor)
 
 
 @router.put("/{guardian_id}", response_model=GuardianResponseSchema)
@@ -447,6 +503,7 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     # al desactivar la gobernante— queda registrado; lo que no la mueve, no.
     tenant_id = guardian.tenant_id
     postura_previa = _postura_efectiva_tenant(db, tenant_id)
+    region_previa = _region_efectiva_tenant(db, tenant_id)  # H4 del gate de #137
 
     guardian.name = payload.name
     guardian.guardian_type = payload.guardian_type
@@ -459,8 +516,9 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
         guardian.service_api_key_encrypted = encrypt(payload.service_api_key) if payload.service_api_key else None
 
     db.commit()
-    _auditar_cambio_postura_tenant(db, tenant_id, postura_previa,
-                                   _postura_efectiva_tenant(db, tenant_id), actor)
+    _auditar_cambio_postura_tenant(
+        db, tenant_id, postura_previa, _postura_efectiva_tenant(db, tenant_id), actor,
+        region_previo=region_previa, region_actual=_region_efectiva_tenant(db, tenant_id))
     db.refresh(guardian)
     # Misma sonda (cacheada) que el GET: si el PUT devolviera la disponibilidad calculada
     # con otra fuente, la tarjeta cambiaría de forma al guardar y volvería sola al recargar.
@@ -498,8 +556,10 @@ def delete_guardian(guardian_id: UUID, db: Session = Depends(get_db),
     # se captura ANTES del delete (después la instancia queda desprendida).
     tenant_id = guardian.tenant_id
     postura_previa = _postura_efectiva_tenant(db, tenant_id)
+    region_previa = _region_efectiva_tenant(db, tenant_id)  # H4 del gate de #137
     db.delete(guardian)
     db.commit()
-    _auditar_cambio_postura_tenant(db, tenant_id, postura_previa,
-                                   _postura_efectiva_tenant(db, tenant_id), actor)
+    _auditar_cambio_postura_tenant(
+        db, tenant_id, postura_previa, _postura_efectiva_tenant(db, tenant_id), actor,
+        region_previo=region_previa, region_actual=_region_efectiva_tenant(db, tenant_id))
     return None

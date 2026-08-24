@@ -289,3 +289,93 @@ def test_otro_tipo_de_guardian_no_avisa(caplog):
         guardians_api._advertir_region_no_reconocida(TENANT, "secret_detection", {"region": "mars"})
 
     assert caplog.records == []
+
+
+# ── H1 del gate de #137: el Playground resuelve la región del tenant (no "eu" hardcodeado) ──
+
+
+@pytest.mark.asyncio
+async def test_playground_usa_la_region_del_tenant_no_el_literal_eu(monkeypatch):
+    """Antes: `analyze_text_http` hardcodeaba `region="eu"` — el Playground SIEMPRE
+    detectaba con los patrones de España, sin importar la región del tenant ni la de la
+    instalación. Mutación que este test mata: volver a `region: str = "eu"` en la firma de
+    `PresidioService.analyze_text_http` (o no leer `pii_guardian.config.get('region')` en
+    `process_prompt`) lo deja en rojo."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    guardianes = [_GuardianFalso("pii_masking", {"entities": ["EMAIL_ADDRESS", "PERSON"],
+                                                 "action": "MASK", "custom_names": [],
+                                                 "region": "latam_ar"})]
+    monkeypatch.setattr(GuardianService, "get_or_create_default_guardians",
+                        staticmethod(lambda db: guardianes))
+    monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
+
+    capturada = {}
+
+    async def _analyze_http(text, analyzer_url, language="es", entities=None,
+                            custom_names=None, region=None):
+        capturada["region"] = region
+        return []
+
+    monkeypatch.setattr(guardian_service.PresidioService, "analyze_text_http", _analyze_http)
+
+    await GuardianService.process_prompt(None, PROMPT, "modelo-x")
+
+    assert capturada.get("region") == "latam_ar", (
+        "el Playground no propagó la región del tenant al analyzer HTTP")
+
+
+@pytest.mark.asyncio
+async def test_playground_degradado_tambien_resuelve_la_region_del_tenant(monkeypatch, marcas):
+    """Mismo hallazgo que arriba pero en el camino degrade (analyzer configurado, caído):
+    `PresidioService.analyze_text` (el fallback regex) tampoco tenía el parámetro `region` —
+    se congelaba en `policy.DEFAULT_REGION` sin importar el tenant."""
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    guardianes = [_GuardianFalso("pii_masking", {"entities": ["EMAIL_ADDRESS", "PERSON"],
+                                                 "action": "MASK", "custom_names": [],
+                                                 "region": "latam_ar"})]
+    monkeypatch.setattr(GuardianService, "get_or_create_default_guardians",
+                        staticmethod(lambda db: guardianes))
+    monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
+
+    async def _caido(*_a, **_k):
+        raise NlpUnavailableError("connection refused")
+
+    monkeypatch.setattr(guardian_service.PresidioService, "analyze_text_http", _caido)
+
+    capturada = {}
+    original = guardian_service.policy.default_analyze
+
+    async def _default_analyze_espia(text, region=guardian_service.policy.DEFAULT_REGION):
+        capturada["region"] = region
+        return await original(text, region=region)
+
+    monkeypatch.setattr(guardian_service.policy, "default_analyze", _default_analyze_espia)
+
+    await GuardianService.process_prompt(None, PROMPT, "modelo-x")
+
+    assert capturada.get("region") == "latam_ar"
+
+
+@pytest.mark.asyncio
+async def test_playground_sin_region_propia_cae_al_default_de_instalacion(monkeypatch):
+    """Retrocompatibilidad: un `pii_masking` sin `region` en su config (instalación de
+    antes de este PR) sigue resolviendo `BASA_ENTITY_REGION`/`DEFAULT_REGION`."""
+    monkeypatch.setenv("BASA_ENTITY_REGION", "latam_ar")
+    guardianes = [_GuardianFalso("pii_masking", {"entities": ["EMAIL_ADDRESS", "PERSON"],
+                                                 "action": "MASK", "custom_names": []})]
+    monkeypatch.setattr(GuardianService, "get_or_create_default_guardians",
+                        staticmethod(lambda db: guardianes))
+    monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
+
+    capturada = {}
+
+    async def _analyze_http(text, analyzer_url, language="es", entities=None,
+                            custom_names=None, region=None):
+        capturada["region"] = region
+        return []
+
+    monkeypatch.setattr(guardian_service.PresidioService, "analyze_text_http", _analyze_http)
+
+    await GuardianService.process_prompt(None, PROMPT, "modelo-x")
+
+    assert capturada.get("region") == "latam_ar"
