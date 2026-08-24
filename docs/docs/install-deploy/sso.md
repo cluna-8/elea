@@ -208,54 +208,105 @@ Notas de operación:
 
 ## 3. Cargar los tres datos del cliente
 
-!!! warning "🟡 Hoy la carga es un paso asistido, no autoservicio"
-    En la versión actual **la consola muestra el estado del proveedor pero no tiene un
-    formulario para darlo de alta**, y tampoco hay endpoint público de administración para
-    escribirlo: la fila de configuración se inserta en la instalación durante el
-    onboarding. La pestaña **Autenticación & SSO** del panel pasa de «Próximamente» a
-    «Activo» sola, en cuanto la configuración existe y la licencia la habilita —
-    ese es hoy el mecanismo de verificación de este paso, no el de carga. 🔵 El alta
-    autoservicio desde el panel es roadmap.
+Se cargan por la **API de administración**, con una sesión de administrador de la
+instalación: `PUT /api/v1/auth/sso/config`. La instalación **cifra el secreto al
+recibirlo** — el operador no manipula valores cifrados ni escribe en la base de datos. 🟢
 
-La configuración es **una fila por tenant y por tipo de proveedor**, con:
+!!! warning "Primero la licencia, después la configuración"
+    Esta superficie está detrás del **mismo flag `sso`** que el flujo de acceso: configurar
+    una función que la licencia no habilita sólo puede terminar en una pantalla que promete
+    algo que después no opera. Con el flag ausente, el `PUT` responde **403
+    `sso_no_licenciado`** — que se lee como un problema de permisos del usuario y **no lo
+    es**. Si aparece ese error, el paso pendiente es la licencia, no la contraseña: el
+    comando del paso 4.1 lo distingue en una línea.
 
-- `provider_type` — `entra` en esta versión.
-- `config` — el Directory (tenant) ID y el Application (client) ID del cliente.
-- `client_secret_encrypted` — el secreto **cifrado**, nunca el valor original.
-- `enabled` — el interruptor operativo del tenant.
+Lo que se manda:
 
-!!! warning "La fila tiene que pertenecer al tenant del despliegue"
-    La instalación busca la configuración con el tenant declarado en
-    `BASA_DEPLOYMENT_TENANT_ID` —el mismo que ancla la licencia, ver
-    [Licenciamiento](licensing.md)— y busca a las personas por correo **dentro de ese
-    mismo tenant**. Una fila cargada contra otro tenant no se encuentra: el flujo responde
-    «este tenant no tiene un proveedor SSO habilitado» aunque la configuración exista y
-    esté bien.
-
-El cifrado usa la misma clave del despliegue (`FERNET_SECRET_KEY`) que protege el resto de
-los secretos en reposo, así que el valor cifrado se obtiene desde la propia instalación:
+| Campo | Qué lleva |
+|---|---|
+| `provider_type` | `entra` en esta versión. Se valida contra los proveedores que el producto implementa: uno desconocido se rechaza **antes** de escribir, para que no quede una configuración habilitada que falle en el acceso. |
+| `config` | Los datos **no secretos** del directorio: `tenant_id` (Directory ID) y `client_id` (Application ID). |
+| `client_secret` | El secreto del directorio. **Entra y no vuelve a salir** por ninguna respuesta. |
+| `enabled` | El interruptor operativo del tenant. |
 
 ```bash
-docker compose exec -it backend python -c \
-  "import getpass; from src.services.encryption_service import encrypt; \
-   print(encrypt(getpass.getpass('client secret: ')))"
+# 1) Sesión de administrador de la instalación.
+TOKEN=$(curl -s https://<origen-de-la-consola>/api/v1/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"<admin>","password":"<clave>"}' \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+# 2) El secreto se TIPEA, no se pasa como argumento: un secreto en la línea de comandos
+#    queda en el historial del intérprete y en la lista de procesos de la máquina.
+read -rs -p 'Client secret del directorio: ' SECRETO; echo
+
+# 3) Alta de la configuración. El cifrado lo hace la instalación al recibirla.
+curl -s -X PUT https://<origen-de-la-consola>/api/v1/auth/sso/config \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  --data-binary @- <<JSON
+{"provider_type": "entra",
+ "config": {"tenant_id": "<directory-tenant-id>", "client_id": "<application-client-id>"},
+ "client_secret": "$SECRETO",
+ "enabled": true}
+JSON
+unset SECRETO
 ```
 
-El secreto se tipea, **no se pasa como argumento**: un secreto en la línea de comandos
-queda en el historial del intérprete y en la lista de procesos de la máquina. Lo que
-imprime el comando es el valor cifrado, que es lo único que se guarda.
+!!! note "Si el secreto trae comillas, barras invertidas o `$`"
+    El bloque de arriba inserta el valor **literal** dentro de un JSON escrito a mano, así
+    que un secreto con `"`, `\` o `$` lo rompe (el intérprete o el JSON, según cuál sea).
+    Los secretos que emite Entra normalmente no los llevan, pero si el que le tocó al
+    cliente sí: generar otro en el portal, o cargarlo con un cliente HTTP que escape el
+    cuerpo por su cuenta. **No** conviene «arreglarlo» escapando a mano.
 
-!!! danger "Sin clave de cifrado, el SSO falla en el último paso y el motivo no se ve"
-    Si `FERNET_SECRET_KEY` no está configurada, el comando de arriba **imprime `None`** en
-    vez de un valor cifrado — ese es el aviso temprano. Si aun así se carga la
-    configuración, el descifrado también devuelve vacío y el flujo se corta **del lado de
-    la instalación**, por credencial incompleta, con el mensaje genérico de identidad no
-    verificada. Al directorio no llega nunca: perseguir el problema en el portal del
-    cliente es tiempo perdido. **Verificar la clave antes de cargar la configuración.**
+Reglas de la carga que evitan los errores frecuentes:
+
+- **El tenant no se elige: es el del despliegue.** La API escribe siempre contra el tenant
+  declarado en `BASA_DEPLOYMENT_TENANT_ID` —el mismo que ancla la licencia, ver
+  [Licenciamiento](licensing.md)— y el acceso busca a las personas por correo dentro de ese
+  mismo tenant. Por esta vía **no se puede** cargar la configuración contra otro tenant por
+  error, que era el modo de fallo silencioso de la carga manual: la configuración existía,
+  estaba bien, y el flujo igual respondía «este tenant no tiene un proveedor SSO
+  habilitado».
+- **Editar sin volver a tipear el secreto**: omitir `client_secret` **conserva** el que ya
+  está guardado. Mandarlo **en blanco no es una forma de borrarlo** — se rechaza con `400
+  sso_secreto_vacio`.
+- **No se puede habilitar sin secreto**: `enabled: true` sin un secreto cargado se rechaza
+  con `400 sso_habilitado_sin_secreto`, porque el canje del código fallaría recién en el
+  acceso del primer usuario.
+- **El secreto no vuelve.** El `GET` devuelve `client_secret_configurado: true|false`, no el
+  valor. Si se perdió, se genera uno nuevo en el portal del cliente y se vuelve a cargar.
+- **Quién puede**: escribir es del **administrador**; el **oficial de cumplimiento** puede
+  **leer** la configuración (qué directorio está cableado es material de auditoría) pero no
+  modificarla. Los demás roles no acceden por ningún verbo.
+
+!!! danger "En `config` NO van secretos"
+    `config` es un diccionario libre que se guarda **en claro** y se devuelve **entero** en
+    el `GET` —que el oficial de cumplimiento también puede leer—. Un secreto tipeado ahí
+    adentro por error, en vez de en `client_secret`, esquiva el cifrado y queda visible. Ahí
+    van el Directory ID y el Application ID, nada más. La validación por proveedor que
+    cerraría esto por construcción es roadmap.
+
+!!! danger "Sin clave de cifrado, la carga se rechaza — y eso es lo que se quiere"
+    Si `FERNET_SECRET_KEY` no está configurada, el `PUT` responde **503
+    `sso_cifrado_no_disponible`** y **no guarda nada**: la configuración queda como estaba.
+    Es deliberado. Persistir la fila con el secreto vacío daría un `200` al operador y
+    rompería el acceso mucho más tarde y mucho más lejos —en el navegador del primer
+    usuario, con el mensaje genérico de identidad no verificada— y el síntoma no señalaría
+    a esta llamada. Al directorio no llega nunca: perseguir el problema en el portal del
+    cliente sería tiempo perdido. **Configurar la clave y repetir el `PUT`.**
+
+!!! info "🔵 El formulario en la consola es roadmap"
+    La pestaña **Autenticación & SSO** del panel **muestra el estado** del proveedor —Entra
+    pasa de «Próximamente» a «Activo» cuando la licencia y la configuración están— pero
+    todavía **no tiene formulario de alta**: la carga es por la API de arriba. El
+    autoservicio desde el panel, y el asistente de onboarding que dispara este mismo `PUT`,
+    son roadmap.
 
 ## 4. Verificar la instalación
 
-Tres comprobaciones, en orden. Cada una aísla una capa distinta.
+Cuatro comprobaciones, en orden. Cada una aísla una capa distinta, y en ese orden el primer
+error que aparece es el que hay que arreglar.
 
 1. **La licencia habilita el flag.** Sin sesión, contra la instalación:
 
@@ -272,10 +323,33 @@ Tres comprobaciones, en orden. Cada una aísla una capa distinta.
    client ID ni el directory ID: es una ruta que se consulta sin sesión y esos son datos
    del cliente.
 
-3. **El botón aparece y el flujo cierra.** Con `enabled: true`, la pantalla de acceso
+3. **Lo que quedó guardado es lo que se quiso guardar.** Con la sesión de administrador
+   del paso 3:
+
+    ```bash
+    curl -s https://<origen-de-la-consola>/api/v1/auth/sso/config \
+      -H "Authorization: Bearer $TOKEN"
+    # {"provider_type":"entra","config":{...},"enabled":true,"client_secret_configurado":true}
+    ```
+
+    `client_secret_configurado: false` con `enabled: false` es el **alta a medias**: los
+    identificadores puestos y el secreto todavía no. El acceso no opera hasta completarlo.
+
+    `false` con `enabled: true` **la API no lo deja crear** —lo rechaza con
+    `sso_habilitado_sin_secreto`—, así que si aparece, esa fila **no** se cargó por esta
+    vía: viene de una carga manual en la base de una instalación anterior. El acceso va a
+    fallar en el canje. Se arregla mandando el `PUT` completo, que la reescribe.
+
+4. **El botón aparece y el flujo cierra.** Con `enabled: true`, la pantalla de acceso
    muestra **«Entrar con Microsoft»**; con `403` el botón **no existe en la página** (no
    está escondido: no se dibuja). Completar un acceso real con un usuario piloto del
    directorio y confirmar que entra al panel.
+
+!!! tip "El botón es la consecuencia, no la barrera"
+    Que el botón no se dibuje es lo que **ve** el usuario, no lo que lo **detiene**: la
+    superficie la cierra el `403` de las rutas, no la pantalla. Por eso las cuatro
+    comprobaciones empiezan por `curl` y terminan en el navegador, y no al revés — un
+    checklist que sólo mirara la pantalla daría por cerrada una superficie abierta.
 
 ## El acceso con usuario y contraseña no se apaga nunca
 
@@ -359,8 +433,13 @@ el veredicto, no la causa. Para diagnosticar, mirar los registros del backend. V
   verificación de firma contra las claves del directorio con algoritmo fijado por lista
   blanca, protección del flujo contra falsificación de petición, aprovisionamiento
   automático y acceso local como respaldo permanente.
-- 🟡 **La carga de la configuración es asistida**, no autoservicio: la consola muestra el
-  estado del proveedor pero no lo da de alta (ver el paso 3).
+- 🟢 **La configuración se carga por la API de administración** (`PUT /auth/sso/config`),
+  con el secreto cifrado por la instalación al recibirlo. 🟡 La consola **muestra** el
+  estado del proveedor pero todavía **no** tiene formulario de alta, así que este paso hoy
+  es de operador con `curl`, no de administrador con el panel (ver el paso 3).
+- 🟡 **`config` no está tipado por proveedor**: es un diccionario libre que se guarda en
+  claro y lo lee también el oficial de cumplimiento. La guía advierte que ahí no van
+  secretos; que el producto **lo impida** por construcción es roadmap.
 - 🟡 **Un proveedor habilitado por tenant, y el tenant es el del despliegue.** La
   instalación resuelve la configuración contra `BASA_DEPLOYMENT_TENANT_ID`; en los
   despliegues de una sola organización —que es lo que se entrega hoy— eso es exactamente

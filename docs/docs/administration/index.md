@@ -248,10 +248,11 @@ de dejar la instancia accesible *solo* por el directorio. Cualquier fallo del ca
 camino; el formulario local no se entera. En una instalación aislada de red el SSO
 sencillamente no está. 🟢
 
-🟡 **La carga de la configuración del proveedor es asistida**: la pestaña «Autenticación &
-SSO» del panel muestra el estado —Entra pasa de «Próximamente» a «Activo» cuando la
-licencia y la configuración están— pero **no** tiene formulario de alta; la fila se carga
-en el onboarding.
+🟡 **La configuración del proveedor se carga por API, no por el panel**: la pestaña
+«Autenticación & SSO» muestra el estado —Entra pasa de «Próximamente» a «Activo» cuando la
+licencia y la configuración están— pero **no** tiene formulario de alta. El alta la hace el
+operador con `PUT /api/v1/auth/sso/config`, que cifra el secreto al recibirlo; ver
+[Instalación de SSO](../install-deploy/sso.md). 🔵 El formulario en el panel es roadmap.
 
 🔵 **Google Workspace, Okta, Auth0, Keycloak y SAML 2.0 genérico** siguen siendo roadmap,
 igual que el mapeo de grupos del directorio a roles y el aprovisionamiento SCIM. La vista

@@ -16,7 +16,9 @@ Crear una key como admin → la fila de auditoría del alta trae actor (id + rol
 
 ## 3 · SSO Entra (SC-003)
 
-Con flag `sso` en la licencia de dev y config del tenant sembrada: `GET /api/v1/auth/sso/login` → flujo Entra → callback → sesión idéntica a la local (mismo formato de JWT, tenant claim presente). Con licencia SIN flag: superficie inaccesible, botón ausente, login local intacto. Con el IdP caído: login local sigue; el fallo SSO queda auditado.
+Con flag `sso` en la licencia de dev y la config del tenant sembrada por `PUT /api/v1/auth/sso/config`: `GET /api/v1/auth/sso/login` → flujo Entra → callback → sesión idéntica a la local (mismo formato de JWT, tenant claim presente). Con licencia SIN flag: superficie inaccesible, botón ausente, login local intacto. Con el IdP caído: login local sigue; el fallo SSO queda auditado.
+
+El procedimiento completo contra el tenant Entra real, con captura por paso, está en **[RUNBOOK-e2e-sso.md](RUNBOOK-e2e-sso.md)** (instrumento: `frontend/e2e/017-sso-e2e.mjs`). Estado al 24-ago: los cuatro brazos automáticos en verde; el login humano completo, bloqueado por el client secret y el usuario piloto — **SC-003 medido a medias hasta que esa fase corra**.
 
 ## 4 · El mundo post-flip (SC-004)
 
