@@ -60,3 +60,12 @@ Estas dos perillas son del DESPLIEGUE. Los tres datos del CLIENTE (Directory ID,
 | `BASA_SSO_REDIRECT_URI` | — | URI de retorno del SSO. Apunta a la ruta de la CONSOLA, no a un endpoint de la API: el directorio redirige un NAVEGADOR, y es la consola la que canjea el código por la sesión con una llamada aparte, para que la sesión nunca viaje en la URL. Es OBLIGATORIA y EXPLÍCITA: sin valor el camino SSO corta con sso_redirect_uri_no_configurado y el login local sigue andando. Deducirla de la petición entrante la haría manipulable por cabecera. Tiene que ser la misma que se registró en el directorio del cliente, byte a byte —la barra final cuenta—, porque el mismo valor se usa al pedir el código y al canjearlo. |
 | `BASA_SSO_COOKIE_INSECURE` | — | SOLO desarrollo sobre HTTP plano: en 1, true o yes la cookie del flujo SSO viaja sin el atributo Secure. Vacía o ausente —el default— la cookie es Secure: en duda, no viaja en texto claro. En producción se deja vacía. |
 
+### ── Licencia offline (spec 021) ──────────────────────────────────────────────────────
+
+Enforcement FAIL-CLOSED: sin token válido no se crean Connections/Clients nuevos (el tráfico existente sigue). En dev/demo el compose apunta por default a la licencia dev del repo; en un deploy real la 020 inyecta el .lic del cliente.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `BASA_LICENSE_TOKEN_FILE` | — | Ruta al .lic DENTRO del contenedor. El bundle de producción ya la fija (/app/config/licenses/client.lic) y el compose de dev/demo trae su propio default, así que esta variable es para despliegues que arman su propio compose. Vacía = el default del compose. |
+| `BASA_LICENSE_TOKEN` | — | Alternativa a la anterior: el contenido del .lic inline (JSON). Cuando trae contenido el backend la prefiere sobre BASA_LICENSE_TOKEN_FILE. Ninguno de los dos composes que se shipean la pasa al contenedor: es para despliegues que inyectan el env por su cuenta. |
+
