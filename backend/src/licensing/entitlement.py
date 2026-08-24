@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..models.tenant import DEFAULT_TENANT_ID
+from .env import env_or_default
 from .token import LicenseError, LicenseToken
 from .verifier import (
     BasaPublicKeySet,
@@ -71,7 +72,7 @@ _read_failures = 0  # ticks consecutivos de I/O fallido (histéresis de refresh)
 def expected_tenant_id() -> str:
     """Tenant del deployment (013/020): la 020 lo inyecta; default = tenant
     seed de la 013 para dev/demo de caja única."""
-    return os.getenv("BASA_DEPLOYMENT_TENANT_ID", str(DEFAULT_TENANT_ID))
+    return env_or_default("BASA_DEPLOYMENT_TENANT_ID", str(DEFAULT_TENANT_ID))
 
 
 def _read_blob() -> Optional[str]:
@@ -81,7 +82,7 @@ def _read_blob() -> Optional[str]:
     if inline and inline.strip():
         return inline
     path = os.getenv("BASA_LICENSE_TOKEN_FILE")
-    if path:
+    if path and path.strip():
         try:
             return Path(path).read_text(encoding="utf-8")
         except OSError as exc:
@@ -90,7 +91,7 @@ def _read_blob() -> Optional[str]:
 
 
 def _load_keyset() -> BasaPublicKeySet:
-    path = os.getenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(DEFAULT_KEYSET_PATH))
+    path = env_or_default("BASA_LICENSE_PUBLIC_KEYS_FILE", str(DEFAULT_KEYSET_PATH))
     try:
         return BasaPublicKeySet.from_pem_file(path)
     except OSError as exc:

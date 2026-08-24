@@ -7,12 +7,13 @@ Basa). Firma SOLO evidencia (true-up export) — nunca licencias (la clave de
 firma de licencias es de Basa y no toca la caja, Constraint C5).
 """
 import logging
-import os
 import stat
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from .env import env_or_default
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class DeploymentKeyError(Exception):
 
 
 def key_path() -> Path:
-    return Path(os.getenv(DEPLOYMENT_KEY_ENV, DEFAULT_KEY_PATH))
+    return Path(env_or_default(DEPLOYMENT_KEY_ENV, DEFAULT_KEY_PATH))
 
 
 def ensure_deployment_key() -> Ed25519PrivateKey:
