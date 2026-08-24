@@ -4,7 +4,8 @@
 
 **Input**: spec.md con **D1 sellada por JF el 24-ago** (`D1 = a`, botón solo-motor; constancia en
 PR #242, comment 5392294627). La evidencia de código de la spec fue re-verificada contra
-`origin/main@f6a5f30` al escribir este plan; donde una línea derivó, acá va la vigente.
+`origin/main@5fae89a` (re-ancladas el 24-ago tras la entrega de los 9 PRs: #267 insertó el
+bloque de región y corrió `compose.prod.yml` +7 líneas); donde una línea derivó, acá va la vigente.
 
 ## Summary
 
@@ -35,15 +36,15 @@ motor caído (el proceso viejo sigue sirviendo) · **principio wizardable (JF 24
 superficie nueva es API-first — el botón es un `POST` que el wizard podrá disparar sin UI, y las
 perillas viven en el env del cliente que el wizard escribe al instalar.
 
-## Puntos de anclaje medidos (origin/main@f6a5f30, 24-ago)
+## Puntos de anclaje medidos (origin/main@5fae89a, 24-ago)
 
 | Qué | Dónde |
 |---|---|
 | Dolor del instalador (paso manual en rojo) | `deploy/release/INSTALL-CAMARA.md:115` (restart tras cada alta) + fila de troubleshooting `:207` |
 | GOTCHA en código | `backend/src/api/chat.py:2154` («el motor lee config.yaml al arrancar») |
 | Escritores del config — ya atómicos (`1151b1e`) | `escribir_atomico` (`backend/src/services/atomic_file.py`), importado por `chat.py:23` y `auto_router_service.py:39` |
-| Mounts | backend `litellm_config` **rw** (`compose.prod.yml:112-116`) · motor `litellm_config:/app/config`**`:ro`** (`:213`) · entrypoint directo `litellm --config …` (`:218`) |
-| Imagen del motor | stock pinneada (`LITELLM_IMAGE`, `:157`) — NO hay Dockerfile custom del motor: el supervisor viaja en el **bundle** (mismo canal templado que `litellm/extensions/`), no en imagen nueva |
+| Mounts | backend `litellm_config` **rw** (`compose.prod.yml:119-123`) · motor `litellm_config:/app/config`**`:ro`** (`:220`) · entrypoint directo `litellm --config …` (`:225`) |
+| Imagen del motor | stock pinneada (`LITELLM_IMAGE`, `:164`) — NO hay Dockerfile custom del motor: el supervisor viaja en el **bundle** (mismo canal templado que `litellm/extensions/`), no en imagen nueva |
 | Namespace `BASA_ENGINE_*` YA EXISTE | admisión al motor, env del **backend** (`compose.prod.yml:43-51`, `test_engine_admission_wiring.sh`) — mismo componente («engine» = motor), proceso distinto: las perillas nuevas las lee el **supervisor** en el container del motor. Documentar el deslinde donde se documenten |
 | Deslinde de liveness | `GET /analytics/engine-status` (`backend/src/api/analytics.py:289`) = vivo/muerto vía `/health/readiness` del motor; el endpoint nuevo dice **qué está haciendo** |
 | UI | `frontend/src/pages/ModelsPage.tsx` |
@@ -102,7 +103,7 @@ specs/033-engine-reload-restart-ui/
 
 ```text
 litellm/supervisor.py                      # FR-001: watch + coalescencia + validación + drenaje
-deploy/docker/compose.prod.yml             # entrypoint :218 → supervisor · volumen engine_status · knobs
+deploy/docker/compose.prod.yml             # entrypoint :225 → supervisor · volumen engine_status · knobs
 backend/src/api/router_config.py           # GET /models/status + POST /models/apply (gating config_producto)
 backend/src/auth/matrix.py                 # filas nuevas (harness FR-005 las exige)
 frontend/src/pages/ModelsPage.tsx          # banner + error + botón (D1=a)

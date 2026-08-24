@@ -1,6 +1,6 @@
 # Tasks: El motor aplica los cambios solo — reload supervisado + estado en la UI
 
-**Input**: spec.md (D1=a sellada 24-ago) + plan.md (anclas medidas @f6a5f30)
+**Input**: spec.md (D1=a sellada 24-ago) + plan.md (anclas medidas @5fae89a)
 
 **Ejecuta**: equipo de Jeff. Regla de siempre: brief cerrado + worktree propio + tests RED→verde
 en el MISMO PR + 1ª línea merged-green de Jeff antes del gate del manager.
@@ -25,7 +25,7 @@ en el MISMO PR + 1ª línea merged-green de Jeff antes del gate del manager.
       1 relanzamiento · inválido ⇒ 0 relanzamientos + error publicado · ráfaga de N cambios ⇒
       1 relanzamiento (SC-003 a nivel unit) · el drain espera la ventana. La mutación
       «valida DESPUÉS de matar» debe romper los tests.
-- [ ] T002 **Compose + bundle**: entrypoint del motor (`compose.prod.yml:218`) pasa al
+- [ ] T002 **Compose + bundle**: entrypoint del motor (`compose.prod.yml:225`) pasa al
       supervisor · volumen nuevo `engine_status` (motor **rw** / backend **ro**) · knobs FR-005
       documentadas en el bloque del MOTOR con deslinde explícito de la familia de admisión
       `BASA_ENGINE_*` del backend (`:43-51`). **SC-005 por diff**: cero `docker.sock`, cero

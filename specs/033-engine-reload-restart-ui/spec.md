@@ -6,6 +6,8 @@
 
 **Status**: Sellada — D1 = a (JF, 24-ago-2026; constancia en PR #242, comment 5392294627) · plan.md + tasks.md en este directorio
 
+**Anclas**: las citas `archivo:línea` de este documento están medidas contra `origin/main@5fae89a`. Una cita sin su árbol es ambigua: `compose.prod.yml` ya corrió +7 líneas una vez (#267). Ante «esa línea dice otra cosa», comparar contra ESTE árbol antes de dudar del diseño.
+
 **Input**: research del 30-jul sellado en el issue [#50](https://github.com/DrZuzzjen/basa-guardian/issues/50)
 (veredicto: wrapper-supervisor; socket-proxy DESCARTADO por seguridad) + issue
 [#70](https://github.com/DrZuzzjen/basa-guardian/issues/70) (botón de reinicio, puente a la 033) +
@@ -21,7 +23,7 @@ prerrequisito de escritura atómica YA PAGO (`1151b1e`, en `main`) + dolor docum
    `docker restart camara-litellm-1`»* (`INSTALL-CAMARA.md:112-116`) y su tabla de troubleshooting
    dedica una fila al síntoma (*«Playground "no hace nada" tras alta de modelo»*). El propio código
    lo llama **GOTCHA OPERATIVO** (`backend/src/api/chat.py:2118-2119`) y el compose lo documenta:
-   *«la UI escribe acá y el motor lo toma en su próximo restart»* (`deploy/docker/compose.prod.yml:111-116`).
+   *«la UI escribe acá y el motor lo toma en su próximo restart»* (`deploy/docker/compose.prod.yml:118-123`).
 2. **El restart manual exige SSH al host del cliente** — rompe la promesa de Fase 0 «el partner
    configura todo solo» en su caso más frecuente: dar de alta un modelo. Es el dolor #1 nombrado
    del onboarding del piloto (paquete 033/034, `ROADMAP-guardian.md`).
@@ -31,7 +33,7 @@ prerrequisito de escritura atómica YA PAGO (`1151b1e`, en `main`) + dolor docum
 4. **Lo que ya está pago y lo que hay hoy**: los 4 escritores del config escriben ATÓMICO desde
    `1151b1e` (`backend/src/services/atomic_file.py`: temporal en el mismo dir + fsync + `os.replace`) —
    sin eso, un reload podía leer YAML cortado. El motor monta el config **`:ro`**
-   (`compose.prod.yml:213`) y arranca con entrypoint directo `litellm --config …` (`compose.prod.yml:218`).
+   (`compose.prod.yml:220`) y arranca con entrypoint directo `litellm --config …` (`compose.prod.yml:225`).
    `docker.sock` no aparece en `backend/` ni `deploy/` (grep = 0). `GET /models/status` no existe
    en ningún plano (grep = 0).
 5. **Restricción heredada, dura**: montar `docker.sock` al backend — aun detrás de un proxy acotado —
@@ -101,13 +103,13 @@ nada» (un 400 que la UI no muestra, `INSTALL-CAMARA.md` troubleshooting).
   (default 30 s) → relanzamiento. Config inválido ⇒ NO relanza y publica el error. Cero privilegios
   nuevos sobre el host; `docker.sock` prohibido (restricción #50).
 - **FR-002 — Estado observable sin hablar con Docker**: volumen chico nuevo `engine_status`
-  (motor **rw** / backend **ro** — el config conserva su `:ro` deliberado de `compose.prod.yml:213`).
+  (motor **rw** / backend **ro** — el config conserva su `:ro` deliberado de `compose.prod.yml:220`).
   El supervisor escribe `status.json` (`state`, `ts`, `last_error`, `config_hash`); el backend lo
   expone en `GET /api/v1/models/status` con el mismo gating de rol que la página Modelos. Deslinde:
   `GET /analytics/engine-status` sigue siendo el vivo/muerto; el endpoint nuevo dice **qué está
   haciendo**.
 - **FR-003 — Disparo a demanda por el mismo canal de datos**: el backend escribe un sentinel
-  (`apply.trigger`) en el volumen `litellm_config` que ya monta **rw** (`compose.prod.yml:116`); el
+  (`apply.trigger`) en el volumen `litellm_config` que ya monta **rw** (`compose.prod.yml:123`); el
   supervisor lo consume desde su lado `:ro`. El botón de la UI llama `POST /api/v1/models/apply` →
   sentinel. Jamás backend→Docker.
 - **FR-004 — UI**: banner «Aplicando cambios…» + error real en Modelos & Ollama, derivado de
