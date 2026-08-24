@@ -9,7 +9,8 @@ Alcance: solo depto Guardian. Factory (Falime) tiene su propia operativa.
 | Rol | Quién | Qué hace |
 |---|---|---|
 | Orquestación | Fable 5 (sesión principal) | Planifica, parte el trabajo, decide, verifica resultados, redacta PRs |
-| Coding | Agentes Opus 5 | Implementación de tareas acotadas (una tarea = un agente con brief cerrado) |
+| Coding | **Coders del equipo de Jeff — Sonnet 5** (ruteo sellado por JF el 17-ago) | Implementación de tareas acotadas (una tarea = un agente con brief cerrado + worktree propio). Es el único equipo que codea producto con agentes: ITV mide, DevRel documenta, el wizard 037 lo lleva Cristian |
+| Superficies calientes | **El líder del equipo (Jeff)**, no un coder | Auth, streaming, borrado y persistencia las escribe el líder, no se reparten. Corre sobre el tope real del runtime de agentes: **Opus 4.8** (Claude Code 2.1.217; un picker más nuevo puede ofrecer otra cosa, lo que ejecuta es esto) |
 | Review adversarial | Workflow multi-agente (find → verify) | Cambios de riesgo: hallazgos independientes + verificación cruzada antes de dar por bueno |
 | Aprobación | Jefe de depto (JF) | Última palabra en merges de features; en modo autónomo, OK explícito por móvil |
 
@@ -72,7 +73,9 @@ Orden de gates para todo PR del depto:
 
 ## 7 · CI
 
-Pendiente (issue [#82](https://github.com/DrZuzzjen/basa-guardian/issues/82)): workflow de GitHub Actions que corra pytest + check-docs en cada PR. Hasta entonces, todos los gates se corren en local y se pega la evidencia en el PR.
+**Existe y gatea** — el issue [#82](https://github.com/DrZuzzjen/basa-guardian/issues/82) está CERRADO. `.github/workflows/ci.yml` corre en cada PR: `pytest` de la suite completa contra Postgres real · `check-docs` (build + linter del sitio que se vende) · `pytest` del harness · `tsc --noEmit`. Sumado a GitGuardian, son **5 checks** por PR.
+
+Lo que sigue valiendo del criterio viejo: la evidencia se pega igual en el PR, y **lo que el CI no corre se corre en local y se dice cuál fue** (ejemplo: `make -C deploy build-docs` necesita el daemon de Docker; si está caído, el `mkdocs --strict` se hace en venv y se aclara). El CI no reemplaza la verificación de primera línea — la cubre por abajo.
 
 ## 8 · Stacks paralelos (worktrees)
 
