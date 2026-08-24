@@ -217,7 +217,8 @@ curl -s http://localhost:8091/api/v1/gw/whoami \
 
 - **Usar modo Ask**, no Agent/Edit (ver [G1](gotchas.md)).
 - El gateway lee la key de la URL como fallback → auto-byok + atribución. La key en la URL es un
-  **atajo para entornos de prueba**; en producción va por input seguro/SSO.
+  **atajo para entornos de prueba**; en producción va por el campo de credencial seguro de la
+  herramienta.
 - Los modelos disponibles son los `model_name` que el operador tenga configurados en el
   motor (con sus credenciales BYOK); la lista viva se consulta en
   `GET /api/v1/gw/v1/models` con la virtual key.

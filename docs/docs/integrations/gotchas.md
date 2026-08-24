@@ -56,8 +56,8 @@ flowchart TD
 - **Causa:** Copilot manda `x-api-key` **vacío** e **ignora** el `apiKey` del
   `chatLanguageModels.json`; tampoco deja mandar headers custom.
 - **Fix:** meter la key **en la URL** (`…/api/v1/gw/v1/messages?k=sk-basa-…`). El gateway la levanta con
-  el fallback de key-en-URL. Es un atajo para entornos de prueba; en producción la key va por
-  input seguro/SSO.
+  el fallback de key-en-URL. Es un atajo para entornos de prueba; en producción la key va por el
+  campo de credencial seguro de la herramienta.
 
 ## G3 · Fuga de título en Claude.ai
 

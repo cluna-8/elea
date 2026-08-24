@@ -88,6 +88,7 @@ nav:
       - Install / Deploy: install-deploy/index.md
       - Infraestructura: install-deploy/infrastructure.md
       - Licenciamiento: install-deploy/licensing.md
+      - Inicio de sesión con el directorio (SSO): install-deploy/sso.md
       - Partner enablement: install-deploy/partner-enablement.md
   - White-label & branding: white-label/index.md
   - Administración:

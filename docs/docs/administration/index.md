@@ -237,14 +237,29 @@ y grupo).
 
 ## SSO
 
-**Estado honesto: 🔵 OBJETIVO.** La autenticación de la instancia es hoy con **cuentas
-locales** (usuario y contraseña, administradas por el tenant admin) y sesiones JWT. 🟢
+**Microsoft Entra ID por OpenID Connect: 🟢 HOY.** La instancia acepta el inicio de sesión
+con las cuentas del directorio corporativo del cliente, si la licencia trae el flag `sso`
+y el tenant tiene el proveedor configurado. La sesión que emite es **la misma** que la del
+acceso local: aguas abajo nada distingue una de otra.
 
-El panel muestra una vista de "Autenticación & SSO" con los métodos disponibles y los
-planificados, para que el operador pueda planificar la integración — pero la federación
-real de identidad (OIDC / SAML, p. ej. Azure AD o Google Workspace) **no está
-implementada**: es roadmap explícito. No la comprometas en un despliegue como si
-existiera.
+**El acceso con usuario y contraseña sigue siendo el respaldo permanente** — no hay forma
+de dejar la instancia accesible *solo* por el directorio. Cualquier fallo del camino SSO
+(licencia sin el flag, tenant sin configurar, directorio caído) degrada **únicamente** ese
+camino; el formulario local no se entera. En una instalación aislada de red el SSO
+sencillamente no está. 🟢
+
+🟡 **La carga de la configuración del proveedor es asistida**: la pestaña «Autenticación &
+SSO» del panel muestra el estado —Entra pasa de «Próximamente» a «Activo» cuando la
+licencia y la configuración están— pero **no** tiene formulario de alta; la fila se carga
+en el onboarding.
+
+🔵 **Google Workspace, Okta, Auth0, Keycloak y SAML 2.0 genérico** siguen siendo roadmap,
+igual que el mapeo de grupos del directorio a roles y el aprovisionamiento SCIM. La vista
+los lista como «Próximamente»: no los comprometas en un despliegue como si existieran.
+
+La operatoria completa de instalación —los datos que aporta el cliente, el registro de la
+URI de retorno en su directorio y los errores frecuentes— está en
+[Inicio de sesión con el directorio (SSO)](../install-deploy/sso.md).
 
 ---
 

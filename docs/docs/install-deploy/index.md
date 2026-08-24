@@ -468,6 +468,7 @@ La imagen del motor se **fija por tag+digest**. Para actualizar el motor:
 
 - [Infraestructura](infrastructure.md) — la topología objetivo detrás del módulo IaC: red, datos gestionados, secretos, TLS/DNS y el camino on-prem.
 - [Licenciamiento](licensing.md) — cómo funciona el enforcement fail-closed de seats, los estados de licencia y la cadena de auditoría cuya génesis se registra en la instalación.
+- [Inicio de sesión con el directorio (SSO)](sso.md) — la operatoria de instalación del acceso con Microsoft Entra ID: los datos que aporta el cliente, el registro de la URI de retorno en su directorio y el acceso local como respaldo permanente.
 - [White-label & branding](../white-label/index.md) — el branding pack del perfil y la marca como configuración en runtime, sin recompilar.
 - [Operaciones](../operations/index.md) — el runbook día-2 para operar la instalación una vez desplegada.
 - [Integraciones](../integrations/index.md) — cómo apuntar las herramientas de los usuarios finales al gateway tras el smoke test.
