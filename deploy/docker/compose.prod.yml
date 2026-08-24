@@ -103,6 +103,13 @@ services:
       # T028/T029): sin esta variable escanea con las regex de dev y ni siquiera
       # registra el degradado — la rama `else` de guardian_service no deja trigger.
       NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
+      # Región de patrones estructurados, default DE LA INSTALACIÓN (spec 016 + extensión
+      # países reales, #137/#141). Mismo hallazgo que en el compose de dev: el backend
+      # hostea `/gw`, `/gw/inspect` (navegador) y el Playground, y hasta este fix no
+      # recibía esta env (sólo `litellm`, abajo) — esos tres planos SIEMPRE resolvían al
+      # default del código (eu) sin importar la región de la instalación. Mismo valor que
+      # `litellm`: los dos servicios tienen que resolver la MISMA región.
+      BASA_ENTITY_REGION: "${BASA_ENTITY_REGION:-eu}"
       BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
       BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"

@@ -76,6 +76,13 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        (SELECT gd.config->>'nlp_fail_mode' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
            AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS nlp_fail_mode,
+       -- Región de STRUCTURED_ID_PATTERNS_BY_REGION por TENANT (extensión de spec 016
+       -- para países reales, ver litellm/extensions/basa_guardian_policy.resolve_region).
+       -- ⚠️ ESPEJO de litellm/extensions/custom_auth.py (_IDENTITY_SQL) — misma columna,
+       -- mismo ORDER BY del #104, cambian juntos.
+       (SELECT gd.config->>'region' FROM guardians gd
+         WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
+           AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS region,
        bud.max_spend_usd AS max_budget_usd,
        bud.current_spend_usd AS spend_usd
 FROM api_keys k

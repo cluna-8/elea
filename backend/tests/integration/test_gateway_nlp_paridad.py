@@ -623,3 +623,64 @@ def test_con_analyzer_caido_el_preview_del_monitor_va_vacio(harness, nlp_configu
     assert client.post(GW, json=_cuerpo(), headers=key_atribuible).status_code == 200
     assert eventos and eventos[-1] == "", (
         "la vitrina no puede ser la superficie menos protegida del producto")
+
+
+# ── 8) BASA_ENTITY_REGION (default de instalación) llega al analyzer de /gw (#137/#141) ──
+#
+# `_build_analyze` lee `os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)` desde
+# antes de este PR — el código consumidor siempre estuvo bien. Lo que faltaba (hallazgo del
+# gate de #137, verificado por el manager) era que el backend RECIBIERA esa env: ni
+# `docker-compose.yml` ni `deploy/docker/compose.prod.yml` la declaraban en el bloque
+# `backend` (sólo en `litellm`), así que en una instalación real este plano siempre resolvía
+# al default del código (eu), sin importar la región elegida. Ese lado de la ENTREGA lo fija
+# `harness/tests/test_compose_entity_region_wiring.py` (falla si se borra la línea
+# de compose); este test fija el lado del CONSUMO: con la env puesta a una región NO-default,
+# el analyzer tiene que recibir ESA región, no el default del código.
+def test_region_de_instalacion_llega_al_analyzer_de_gw(harness, proveedor, guardian_pii,
+                                                        monkeypatch):
+    from src.api import gateway
+
+    monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
+    monkeypatch.setenv("BASA_ENTITY_REGION", "latam_ar")
+    # Sin `region` propia en el guardián: el tenant hereda el default DE LA INSTALACIÓN
+    # (lo que este PR arregla). El wiring por-tenant es alcance del PR siguiente (#137/#141).
+    guardian_pii(nlp_fail_mode="block")
+
+    capturada = {}
+
+    async def _analyze(text, analyzer_url, custom_names, region, **kwargs):
+        capturada["region"] = region
+        return []
+
+    monkeypatch.setattr(gateway.policy, "presidio_analyze", _analyze)
+    client, _factory = harness
+
+    assert client.post(GW, json=_cuerpo()).status_code == 200
+    assert capturada.get("region") == "latam_ar", (
+        "el plano /gw no propagó BASA_ENTITY_REGION al analyzer — la instalación eligió "
+        "latam_ar y el motor de detección se quedó resolviendo el default eu")
+
+
+def test_sin_basa_entity_region_el_analyzer_de_gw_cae_al_default_del_codigo(
+        harness, proveedor, guardian_pii, monkeypatch):
+    """Contracara del test anterior: sin la env (instalación vieja, o el compose sin la
+    línea), `/gw` sigue funcionando — cae al `DEFAULT_REGION` del código (`eu`), el mismo
+    comportamiento retrocompatible de siempre. Sin esta contracara, el test de arriba podría
+    estar pasando porque CUALQUIER string llega, no porque el valor de la env llegó."""
+    from src.api import gateway
+
+    monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
+    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    guardian_pii(nlp_fail_mode="block")
+
+    capturada = {}
+
+    async def _analyze(text, analyzer_url, custom_names, region, **kwargs):
+        capturada["region"] = region
+        return []
+
+    monkeypatch.setattr(gateway.policy, "presidio_analyze", _analyze)
+    client, _factory = harness
+
+    assert client.post(GW, json=_cuerpo()).status_code == 200
+    assert capturada.get("region") == gateway.policy.DEFAULT_REGION

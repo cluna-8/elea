@@ -406,6 +406,42 @@ def resolve_nlp_fail_mode(config: Optional[dict]) -> str:
     return raw if raw in NLP_FAIL_MODES else NLP_FAIL_BLOCK
 
 
+# ── Región de patrones estructurados por tenant (extensión de spec 016) ─────────────
+#
+# Hasta acá `region` se leía SOLO de `BASA_ENTITY_REGION` (env var fija por contenedor,
+# ver git blame de basa_guardrail.py): correcto mientras el único despliegue era Europa
+# (YAGNI declarado en el propio comentario). Con países/clientes reales entrando por
+# perfil de configuración (ADR-0001, `deploy/clients/`), la región deja de ser una
+# propiedad de LA INSTALACIÓN y pasa a ser una propiedad de CADA TENANT dentro de ella
+# (un partner puede alojar clientes de más de un país). Mismo mecanismo que
+# `nlp_fail_mode`: clave en `Guardian.config` del guardián `pii_masking`, viaja por el
+# mismo `identity` que ya carga `entity_configs`/`custom_names`/`custom_entities`.
+REGION_KEY = "region"
+
+
+def resolve_region(config: Optional[dict], default: str = DEFAULT_REGION) -> str:
+    """Región de `STRUCTURED_ID_PATTERNS_BY_REGION` activa para este tenant.
+
+    Lee `config["region"]`; `config` es el mismo dict de identidad que ya transporta
+    `nlp_fail_mode` (Guardian.config del guardián `pii_masking`, o el dict de identidad
+    que lo espeja). Ausente, vacía o no reconocida ⇒ `default` — mismo patrón defensivo
+    que `resolve_nlp_fail_mode`: una config incompleta o mal tipeada NUNCA puede
+    resolver una región arbitraria (un typo no puede activar/desactivar reconocedores
+    de otro país por accidente).
+
+    `default` es de responsabilidad del CALLER, no de esta función: el motor lo arma
+    como `BASA_ENTITY_REGION` (la región de LA INSTALACIÓN, retrocompatible con
+    despliegues existentes que no configuraron `region` en ningún tenant) o
+    `DEFAULT_REGION` si esa env var tampoco está. Así una instalación ya en producción
+    con `BASA_ENTITY_REGION=latam_ar` no cambia de comportamiento el día que este campo
+    se agrega: sigue resolviendo `latam_ar` para todo tenant que no fije su propio valor.
+    """
+    raw = (config or {}).get(REGION_KEY)
+    if isinstance(raw, str):
+        raw = raw.strip().lower()
+    return raw if raw in STRUCTURED_ID_PATTERNS_BY_REGION else default
+
+
 def resolve_overlaps(entities: list) -> list:
     """Resuelve entidades detectadas cuyos rangos [start, end) se solapan (FR-009).
 

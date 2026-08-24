@@ -110,6 +110,12 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        (SELECT gd.config->>'nlp_fail_mode' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
            AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS nlp_fail_mode,
+       -- Región de STRUCTURED_ID_PATTERNS_BY_REGION por TENANT (extensión de spec 016
+       -- para países reales, ver basa_guardian_policy.resolve_region). Mismo desempate
+       -- del #104 y misma advertencia de espejo que `nlp_fail_mode` de arriba.
+       (SELECT gd.config->>'region' FROM guardians gd
+         WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
+           AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS region,
        -- #76: presupuesto de NUESTRA tabla `budgets` (no el del motor: en selfhosted su
        -- provisionador de keys no existe y `max_budget` es siempre NULL). Nombres EXACTOS
        -- del contrato del plano interno: max_budget_usd (float|None), spend_usd (float).
@@ -394,6 +400,10 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         # `policy.resolve_nlp_fail_mode`, que tiene el default fail-closed en UN solo lugar —
         # normalizar acá duplicaría esa decisión en un plano que no es su dueño.
         "nlp_fail_mode": row.get("nlp_fail_mode"),
+        # Mismo criterio: CRUDO (incluido None/ausente). Quien decide es
+        # `policy.resolve_region`, con el default de instalación (`BASA_ENTITY_REGION`)
+        # que arma el guardrail — no acá.
+        "region": row.get("region"),
     }
 
     return UserAPIKeyAuth(

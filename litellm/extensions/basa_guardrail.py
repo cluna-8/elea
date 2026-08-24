@@ -514,12 +514,14 @@ class BasaGuardrail(CustomGuardrail):
             custom_names = identity.get("custom_names") or []
             custom_entities = identity.get("custom_entities") or []
 
-            # Región de patrones estructurados (spec 016, corrección post-review: el
-            # despliegue objetivo es Europa, con LATAM como roadmap posterior — ver
-            # STRUCTURED_ID_PATTERNS_BY_REGION). Hardcodeado por ahora; llevarlo a un
-            # campo por tenant es extensión natural cuando haya despliegues multi-región
-            # reales (no antes — YAGNI mientras solo exista Europa).
-            region = os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)
+            # Región de patrones estructurados, por TENANT (spec 016 + extensión países
+            # reales, ADR pendiente). `BASA_ENTITY_REGION` sigue siendo el default DE LA
+            # INSTALACIÓN (retrocompatible: una instalación existente que ya la fija
+            # sigue igual para todo tenant sin `region` propia); `identity.get("region")`
+            # la sobreescribe cuando el tenant tiene un país propio configurado — mismo
+            # mecanismo que `nlp_fail_mode` un poco más abajo.
+            region = policy.resolve_region(
+                identity, default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
 
             if _PRESIDIO_URL:
                 async def _analyze(text: str) -> list:

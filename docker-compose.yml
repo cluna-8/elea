@@ -174,6 +174,17 @@ services:
       # del fail-closed). Una imagen prod jamás la setea.
       - BASA_ALLOW_DEV_LICENSE=${BASA_ALLOW_DEV_LICENSE:-true}
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
+      # Región de patrones estructurados, default DE LA INSTALACIÓN (spec 016 + extensión
+      # países reales, #137/#141). El backend hostea `/gw`, `/gw/inspect` (navegador) y el
+      # Playground —los otros tres planos además del byok que resuelve litellm— y hasta
+      # este fix no la recibía: `gateway.py` lee `os.environ.get("BASA_ENTITY_REGION", …)`
+      # contra un env que nunca le llegaba, así que esos tres planos SIEMPRE resolvían al
+      # default del código (eu), sin importar la región que eligiera la instalación —
+      # un tenant `latam_ar` enmascaraba DNI/CUIL por byok y NO por los otros tres planos.
+      # Mismo valor que `litellm` arriba: los dos servicios tienen que resolver la MISMA
+      # región de instalación o el mismo texto detecta entidades distintas según el plano
+      # por el que entró.
+      - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
       # Política de fallo de auditoría (spec 031): `open` en dev — el fallo se cuenta y
       # se ve, pero no corta. Para ejercitar el 503 honesto: BASA_AUDIT_FAIL=closed.
       - BASA_AUDIT_FAIL=${BASA_AUDIT_FAIL:-open}

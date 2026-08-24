@@ -141,6 +141,38 @@ async def _gate_activacion(guardian_like, *, quiere_activar: bool, ya_activo: bo
     )
 
 
+# ── H6 del gate de #137: aviso ante región no reconocida en escritura ──────────────
+#
+# `resolve_region` (litellm/extensions/basa_guardian_policy.py) cae al default en
+# SILENCIO ante un typo o una región inexistente ("latam-ar", "ar", "Mars"…) — es la
+# postura CORRECTA en LECTURA (Principio I regla (d): un typo no puede activar o
+# desactivar reconocedores de otro país por accidente, patrón #131 de guardia
+# ruidosa). Pero eso deja a un admin que escribe mal el código de región sin ninguna
+# señal de que su cambio NO tuvo efecto — la pantalla sigue mostrando el valor que
+# tipeó, mientras el motor sigue resolviendo el default de la instalación.
+#
+# NO se rechaza el write (422): `config` es `Dict[str, Any]` libre y `nlp_fail_mode`
+# —la misma clase de campo— tampoco valida en escritura; endurecer sólo `region`
+# introduciría una asimetría nueva entre dos campos que hoy comparten disciplina.
+# El punto medio es hacer RUIDOSA la degradación silenciosa: WARNING con el tenant y
+# el valor rechazado, mismo criterio que `_redact_header_override`/
+# `record_nlp_degradation` usan para otras relajaciones que el sistema ignora en vez
+# de aplicar.
+def _advertir_region_no_reconocida(tenant_id, guardian_type: Optional[str],
+                                   config: Optional[Dict[str, Any]]) -> None:
+    if guardian_type != "pii_masking":
+        return
+    raw = (config or {}).get("region")
+    if not isinstance(raw, str) or not raw.strip():
+        return
+    if raw.strip().lower() not in policy.STRUCTURED_ID_PATTERNS_BY_REGION:
+        _log.warning(
+            "guardianes: region=%r en pii_masking.config no es una región reconocida "
+            "(tenant=%s) — resolve_region() la IGNORA y cae al default de la "
+            "instalación; el admin que la escribió no tiene otra señal de que su "
+            "cambio no tuvo efecto.", raw, tenant_id)
+
+
 class GuardianSchema(BaseModel):
     name: str
     guardian_type: str
@@ -213,6 +245,8 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     # invariante FR-007 valga para TODA puerta de activación y no dependa de que el schema
     # siga sin ese campo mañana.
     await _gate_activacion(payload, quiere_activar=bool(payload.is_active), ya_activo=False)
+    # H6 del gate de #137: aviso (no rechazo) si `config.region` no es reconocida.
+    _advertir_region_no_reconocida(DEFAULT_TENANT_ID, payload.guardian_type, payload.config)
     # issue #104: postura efectiva del tenant ANTES del alta. El alta cae en DEFAULT_TENANT_ID
     # (el schema de entrada no trae tenant), que es donde la resolverá el bloque de abajo.
     postura_previa = _postura_efectiva_tenant(db, DEFAULT_TENANT_ID)
@@ -404,6 +438,8 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     # trae: el nombre de motor no es editable por API, Constitución VII).
     await _gate_activacion(guardian, quiere_activar=bool(payload.is_active),
                            ya_activo=bool(guardian.is_active))
+    # H6 del gate de #137: aviso (no rechazo) si `config.region` no es reconocida.
+    _advertir_region_no_reconocida(guardian.tenant_id, payload.guardian_type, payload.config)
 
     # issue #63/#104: se captura la postura EFECTIVA del tenant ANTES de tocar nada (sobre la DB
     # sin mutar) y se vuelve a leer DESPUÉS del commit. Cualquier cambio de config, de is_active

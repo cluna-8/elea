@@ -353,6 +353,29 @@ def test_build_ad_hoc_recognizers_unknown_region_is_empty():
     assert policy.build_ad_hoc_recognizers([], region="mars") == []
 
 
+# ── resolve_region (extensión de spec 016, mismo patrón que resolve_nlp_fail_mode) ──
+
+def test_resolve_region_ausente_usa_el_default_del_caller():
+    assert policy.resolve_region(None) == policy.DEFAULT_REGION
+    assert policy.resolve_region({}) == policy.DEFAULT_REGION
+    assert policy.resolve_region({}, default="latam_ar") == "latam_ar"
+
+
+def test_resolve_region_tenant_propio_pisa_el_default():
+    assert policy.resolve_region({"region": "latam_ar"}, default="eu") == "latam_ar"
+
+
+def test_resolve_region_valor_no_reconocido_no_pisa_el_default():
+    # Un typo/región inexistente NUNCA activa/desactiva reconocedores de otro país por
+    # accidente — cae al default del caller, igual que resolve_nlp_fail_mode con `block`.
+    assert policy.resolve_region({"region": "mars"}, default="eu") == "eu"
+    assert policy.resolve_region({"region": ""}, default="latam_ar") == "latam_ar"
+
+
+def test_resolve_region_es_case_insensitive_y_recorta_espacios():
+    assert policy.resolve_region({"region": " LATAM_AR "}, default="eu") == "latam_ar"
+
+
 def test_build_ad_hoc_recognizers_includes_active_custom_entities():
     custom_entities = [
         {"entity_type": "HISTORIA_CLINICA_ES", "regex": r"\bHC-\d{6}\b",

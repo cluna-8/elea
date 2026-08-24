@@ -234,3 +234,58 @@ async def test_analyzer_sano_no_marca_ni_avisa(monkeypatch, marcas):
     assert _degradados(resultado) == []
     assert marcas == []
     assert "maria.lopez@camara.es" not in resultado["prompt"]
+
+
+# ── H6 del gate de #137: aviso ante región no reconocida en escritura ──────────────
+#
+# `resolve_region` cae al default en SILENCIO en LECTURA (correcto, patrón #131 de
+# guardia ruidosa: un typo no puede activar/desactivar reconocedores de otro país por
+# accidente). Pero eso deja al admin que tipeó mal el código de región sin ninguna señal
+# de que su cambio no tuvo efecto. No se rechaza el write —mismo criterio que
+# `nlp_fail_mode`, que tampoco valida en escritura ("config" es libre)— pero la
+# degradación silenciosa se vuelve RUIDOSA con un WARNING.
+
+def test_region_no_reconocida_en_escritura_avisa_por_log(caplog):
+    from src.api import guardians as guardians_api
+
+    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+        guardians_api._advertir_region_no_reconocida(
+            TENANT, "pii_masking", {"region": "latam-ar"})  # typo: guión, no guión bajo
+
+    assert any("latam-ar" in r.message and TENANT in r.message for r in caplog.records), (
+        "el admin que tipeó mal la región no tiene otra señal de que resolve_region() "
+        "la va a ignorar")
+
+
+def test_region_reconocida_no_avisa(caplog):
+    from src.api import guardians as guardians_api
+
+    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+        guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", {"region": "latam_ar"})
+
+    assert caplog.records == []
+
+
+def test_region_ausente_o_vacia_no_avisa(caplog):
+    """Ausente/vacía es retrocompatible (cae al default de instalación) — no es un typo,
+    no merece el mismo aviso que un valor mal tipeado."""
+    from src.api import guardians as guardians_api
+
+    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+        guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", {})
+        guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", {"region": ""})
+        guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", None)
+
+    assert caplog.records == []
+
+
+def test_otro_tipo_de_guardian_no_avisa(caplog):
+    """`region` sólo tiene significado en `pii_masking` — otro tipo de guardián con esa
+    clave en su config (coincidencia, o un campo propio del tipo) no es asunto de este
+    aviso."""
+    from src.api import guardians as guardians_api
+
+    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+        guardians_api._advertir_region_no_reconocida(TENANT, "secret_detection", {"region": "mars"})
+
+    assert caplog.records == []

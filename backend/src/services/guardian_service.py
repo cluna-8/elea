@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from ..models.guardian import Guardian
 from .audit_service import record_nlp_degradation
-from .presidio_service import PresidioService, NlpUnavailableError
+from .presidio_service import PresidioService, NlpUnavailableError, policy
 
 logger = logging.getLogger("basa-secure-gateway.guardian")
 
@@ -77,6 +77,21 @@ class GuardianService:
                     # instalación existente la clave ausente resuelve `block` igual, y
                     # escribirla sería pisar la config de un cliente que quizá ya la editó.
                     "nlp_fail_mode": "block",
+                    # Región de STRUCTURED_ID_PATTERNS_BY_REGION de ESTE tenant (extensión
+                    # de spec 016 para países reales). H3 del gate de #137: acá el criterio
+                    # «igual que nlp_fail_mode» NO transfiere tal cual — `nlp_fail_mode`
+                    # siembra una CONSTANTE porque no hay env equivalente (sembrarla es
+                    # no-op); `region` SÍ tiene un default de instalación (`BASA_ENTITY_
+                    # REGION`), así que sembrar el literal `"eu"` a ciegas ANULABA ese
+                    # default en cualquier instalación no-EU desde el primer `GET
+                    # /guardians`. Se siembra el valor RESUELTO de la instalación en este
+                    # instante (visible en pantalla, mismo espíritu que `nlp_fail_mode`),
+                    # no un literal — instalaciones nuevas con `BASA_ENTITY_REGION=latam_ar`
+                    # nacen con `latam_ar`, no con `eu`. Sin migración-on-read para
+                    # instalaciones existentes (mismo criterio que `nlp_fail_mode`): la
+                    # clave ausente sigue resolviendo por `BASA_ENTITY_REGION` hasta que un
+                    # admin fije el país de este tenant explícitamente.
+                    "region": os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION),
                 }
             )
             g2 = Guardian(
