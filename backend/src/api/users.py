@@ -247,6 +247,113 @@ def list_groups(db: Session = Depends(get_db)):
 
 # --- User Endpoints ---
 
+# ── El alta tampoco retiene conexión a través de sus awaits (#239) ────────────────────
+# `create_user` es `async` y hasheaba con el `hash_password` SYNC: ~100-300 ms de bcrypt
+# BLOQUEANDO el event loop en cada alta. El swap de una línea por `await
+# hash_password_async` cierra ese bug y REABRE el P1 de la ronda 2 del #167 descrito en el
+# comentario de arriba: el handler ya tiene la conexión RETENIDA cuando llega al hash (la
+# toma el query de unicidad de username y la Session no la suelta hasta commit/close), así
+# que awaitear ahí la retiene a través del executor. Medido sobre PG16 vivo con
+# `engine.pool.checkedout()`: 0 al abrir la Session, **1 tras el query de unicidad**.
+# La cura es la MISMA partición en fases que `login`, y por eso cubre de una sola vez los
+# DOS awaits del handler: el bcrypt y la llamada de red al motor. Ese segundo hold es
+# PRE-EXISTENTE, no del delta —`db.refresh()` re-adquiere después del commit y el
+# `ai_engine_client.create_user` de abajo se awaitea con esa conexión tomada—, y una red que
+# cuelga retiene mucho más que los ~250 ms del bcrypt. Escribir las fases para el bcrypt y
+# dejar el otro await con la conexión tomada era más código para preservar un hold conocido.
+# Detalle que hace que este caso se LEA como seguro sin serlo: `commit()` suelta la
+# conexión, pero un `refresh()` posterior la vuelve a tomar.
+
+
+def _validar_alta(db: Session, user_in: UserCreate) -> tuple:
+    """Fase DB del pre-check del alta: unicidad de username, existencia del grupo y gate de
+    licencia. Devuelve `(role, display_label)` y LIBERA la conexión al salir, para que no
+    quede retenida a través del bcrypt (#239). Corre en `run_in_threadpool`.
+
+    Va ANTES del hash por la misma razón que `_es_sin_dueno` en el login: un alta que va a
+    ser rechazada no debe quemar ~250 ms del executor acotado de bcrypt.
+
+    `normalize_legacy_role` es CPU pura y no necesita la conexión, pero se resuelve ACÁ
+    ADENTRO a propósito: su 422 va entre el 404 del grupo y el gate de licencia, y sacarlo
+    de esta fase le cambiaría la precedencia a los errores (un rol inválido con username
+    duplicado devolvería 422 donde hoy devuelve 400).
+    """
+    try:
+        if db.query(User).filter(User.username == user_in.username).first():
+            raise HTTPException(status_code=400, detail="Username already registered")
+
+        if user_in.group_id:
+            if not db.query(Group).filter(Group.id == user_in.group_id).first():
+                raise HTTPException(status_code=404, detail="Group not found")
+
+        # Acepta nombres legacy del frontend heredado (admin/clinician/developer) y los
+        # normaliza al enum canonico post-013 (ck_users_role) conservando la etiqueta.
+        try:
+            role, display_label = normalize_legacy_role(user_in.role)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if role == "client":
+            # Gate de licencia (spec 021 US2, FR-009): sólo los Clients son seats;
+            # los roles administrativos no consumen licencia. ANTES de crear el
+            # User local y de provisionar en el motor.
+            enforce_seat_gate(db, tenant_id=DEFAULT_TENANT_ID)
+        return role, display_label
+    finally:
+        db.rollback()
+
+
+def _insertar_usuario(db: Session, user_in: UserCreate, role: str,
+                      display_label: Optional[str], password_hash: str) -> UserResponse:
+    """Fase DB del insert. La contraseña llega YA hasheada (el bcrypt ocurrió afuera, sin
+    conexión retenida). Devuelve la instantánea PLANA ya validada contra el response_model,
+    armada con la transacción todavía abierta: devolver el objeto ORM obligaría a
+    serializarlo con la conexión suelta y la instancia expirada, o sea un reload perezoso en
+    el event loop —justo lo que esta partición evita."""
+    try:
+        user = User(
+            username=user_in.username,
+            email=user_in.email,
+            password_hash=password_hash,
+            role=role,
+            display_label=display_label,
+            group_id=user_in.group_id,
+            is_active=user_in.is_active,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return UserResponse.model_validate(user)
+    finally:
+        db.rollback()
+
+
+def _persistir_engine_user_id(db: Session, user_id: UUID, engine_user_id: str) -> UserResponse:
+    """Fase DB que persiste el id del motor tras el provisioning, con la conexión liberada al
+    salir. `.one()` a propósito: la fila la acabamos de commitear nosotros, así que su
+    ausencia es una violación de invariante y no un camino esperado que convenga tapar."""
+    try:
+        user = db.query(User).filter(User.id == user_id).one()
+        user.engine_user_id = engine_user_id
+        db.commit()
+        db.refresh(user)
+        return UserResponse.model_validate(user)
+    finally:
+        db.rollback()
+
+
+def _borrar_usuario(db: Session, user_id: UUID) -> None:
+    """Compensación del alta cuando el motor no pudo provisionar: borra el User local que ya
+    habíamos commiteado. `db.delete()` sobre la instancia (y no un `query.delete()` masivo)
+    para respetar los cascades del ORM, igual que antes de la partición."""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is not None:
+            db.delete(user)
+            db.commit()
+    finally:
+        db.rollback()
+
+
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
              dependencies=[Depends(require_role("admin"))])
 async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
@@ -258,51 +365,26 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    if db.query(User).filter(User.username == user_in.username).first():
-        raise HTTPException(status_code=400, detail="Username already registered")
+    # Fase DB (threadpool, conexión liberada al volver): unicidad, grupo, rol y licencia.
+    role, display_label = await run_in_threadpool(_validar_alta, db, user_in)
 
-    if user_in.group_id:
-        if not db.query(Group).filter(Group.id == user_in.group_id).first():
-            raise HTTPException(status_code=404, detail="Group not found")
+    # El bcrypt, en el executor dedicado y SIN conexión retenida (#239 + P1 de la r2 del #167).
+    password_hash = await hash_password_async(user_in.password)
 
-    # Acepta nombres legacy del frontend heredado (admin/clinician/developer) y los
-    # normaliza al enum canonico post-013 (ck_users_role) conservando la etiqueta.
-    try:
-        role, display_label = normalize_legacy_role(user_in.role)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    if role == "client":
-        # Gate de licencia (spec 021 US2, FR-009): sólo los Clients son seats;
-        # los roles administrativos no consumen licencia. ANTES de crear el
-        # User local y de provisionar en el motor.
-        enforce_seat_gate(db, tenant_id=DEFAULT_TENANT_ID)
-    user = User(
-        username=user_in.username,
-        email=user_in.email,
-        password_hash=hash_password(user_in.password),
-        role=role,
-        display_label=display_label,
-        group_id=user_in.group_id,
-        is_active=user_in.is_active,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    snap = await run_in_threadpool(_insertar_usuario, db, user_in, role, display_label,
+                                   password_hash)
 
     try:
+        # Red al motor: el otro await del handler, también sin conexión retenida.
         engine_user_id = await ai_engine_client.create_user(user_id=user_in.email)
-        user.engine_user_id = engine_user_id
-        db.commit()
-        db.refresh(user)
     except AIEngineClientError:
-        db.delete(user)
-        db.commit()
+        await run_in_threadpool(_borrar_usuario, db, snap.id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The AI engine is unavailable. The user was not created. Please try again.",
         )
 
-    return user
+    return await run_in_threadpool(_persistir_engine_user_id, db, snap.id, engine_user_id)
 
 
 @router.get("", response_model=List[UserResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])

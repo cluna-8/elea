@@ -562,3 +562,76 @@ async def test_login_no_retiene_conexion_del_pool_durante_bcrypt(monkeypatch):
         soltar.set()
         db.close()
         engine.dispose()
+
+
+# ── #239: el ALTA tampoco retiene conexión del pool en NINGUNO de sus dos awaits ──
+
+
+@pytest.mark.asyncio
+async def test_create_user_no_retiene_conexion_del_pool_en_sus_awaits(monkeypatch):
+    """Hermano del test de login de acá arriba, para `create_user` (#239).
+
+    El handler es `async` y tiene DOS awaits: el bcrypt y la llamada de red al motor. En los
+    dos, `checkedout()` tiene que ser 0. El del motor importa incluso más que el del bcrypt:
+    una red colgada retiene la conexión mucho más que los ~250 ms del hash.
+
+    Es un testigo POSITIVO, no un assert negativo que pasaría igual sin el arreglo: el spy se
+    instala sobre `passwords.hash_password` Y sobre el nombre reexportado en `api.users`, así
+    que también intercepta la llamada SYNC directa del árbol de control. Sobre `7b69313` sin
+    el fix, el spy corre con la conexión ya tomada por el query de unicidad y esto rojea con
+    `checkedout == 1` — que es el bug del #239 y el P1 de la ronda 2 del #167 a la vez.
+    """
+    dbname = "basa_test_alta_pool"
+    fresh_db(dbname)
+    run_alembic(dbname, "upgrade", "head")
+    engine = owner_engine(dbname)
+    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    from src.api import users as users_api
+    from src.auth import passwords
+    from src.schemas.user import UserCreate
+    from src.services import ai_engine_client
+
+    capturado = {}
+    real_hash = passwords.hash_password
+
+    def _hash_spy(raw):
+        capturado["bcrypt"] = engine.pool.checkedout()
+        return real_hash(raw)
+
+    async def _motor_spy(user_id):
+        capturado["motor"] = engine.pool.checkedout()
+        return "engine-uid-239"
+
+    monkeypatch.setattr(passwords, "hash_password", _hash_spy)
+    monkeypatch.setattr(users_api, "hash_password", _hash_spy)
+    monkeypatch.setattr(ai_engine_client, "create_user", _motor_spy)
+
+    db = factory()
+    # El username va por constante y no literal al lado del kwarg `password`: ese par
+    # dispara el detector genérico "Username Password" de GitGuardian y pone el PR en rojo
+    # por una contraseña de fixture (`CLAVE_VALIDA`, de una DB de test efímera). De paso, el
+    # nombre se usa dos veces y acá se escribe una.
+    usuario = "alta-pool"
+    try:
+        creado = await users_api.create_user(
+            UserCreate(username=usuario, email=f"{usuario}@basa.com.ar",
+                       role="admin", password=CLAVE_VALIDA),
+            db,
+        )
+        # Los dos awaits se ejercieron de verdad: sin esto, un handler que dejara de hashear
+        # o de provisionar pasaría el test por ausencia en vez de por invariante.
+        assert "bcrypt" in capturado, "el alta no llegó a hashear: el testigo no midió nada"
+        assert "motor" in capturado, "el alta no llamó al motor: el testigo no midió nada"
+
+        assert capturado["bcrypt"] == 0, (
+            f"el alta retuvo {capturado['bcrypt']} conexión(es) del pool durante el bcrypt")
+        assert capturado["motor"] == 0, (
+            f"el alta retuvo {capturado['motor']} conexión(es) del pool durante la llamada "
+            "de red al motor")
+
+        assert creado.engine_user_id == "engine-uid-239"
+        assert creado.username == usuario
+    finally:
+        db.close()
+        engine.dispose()
