@@ -492,6 +492,9 @@ admin** o **compliance officer**; la revisión humana admite además el perfil `
 
 - [Compliance](index.md) — marco legal, niveles de riesgo del EU AI Act con lo que el
   producto hace en cada uno, y configuración de Proyectos de Compliance.
+- [Purga de retención](../administration/purga-retencion.md) — cómo se enciende y se
+  ensaya el proceso que ejecuta estos plazos: las 7 perillas, el CLI `--run-now` y el
+  procedimiento de encendido seguro.
 - [Administración](../administration/index.md) — roles que gestionan compliance, políticas
   de seguridad con modos GDPR / AI Act y auditoría metadata-only.
 - [Operaciones](../operations/index.md) — runbook del operador: chequeos de salud del

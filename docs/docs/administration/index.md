@@ -428,6 +428,9 @@ intelectual del artefacto): [Licenciamiento offline](../install-deploy/licensing
 - [Install / Deploy](../install-deploy/index.md) — el flujo de instalación de punta a
   punta: bloque de configuración de licencia, bootstrap del primer admin y seed de
   clients.
+- [Purga de retención](purga-retencion.md) — cómo se enciende y se ensaya el proceso
+  que elimina las filas vencidas del registro de auditoría: las 7 perillas, el CLI
+  `--run-now` y el procedimiento de encendido seguro.
 - [Operaciones & troubleshooting](../operations/index.md) — chequeos de salud del stack
   (incluido el probe de licencia) y gotchas operativos verificados en despliegues reales.
 - [Compliance](../compliance/index.md) — el marco legal (GDPR / EU AI Act) que los modos
