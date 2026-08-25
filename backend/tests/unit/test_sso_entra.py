@@ -164,6 +164,8 @@ def _proveedor_mockeado(
     jwks_status: int = 200,
     token_status: int = 200,
     discovery_overrides: dict | None = None,
+    token_error_json: dict | None = None,
+    token_error_text: str | None = None,
 ) -> EntraProvider:
     discovery_doc = {
         "issuer": AUTHORITY,
@@ -186,7 +188,17 @@ def _proveedor_mockeado(
             return httpx.Response(200, json=jwks)
         if path.endswith("/token"):
             if token_status != 200:
-                return httpx.Response(token_status, json={"error": "token_endpoint_down"})
+                # #294: los tests de esta sección necesitan el documento de error TAL CUAL lo
+                # manda Entra (o algo que no sea JSON); el default de siempre se mantiene para
+                # no tocar los tests que ya existían.
+                if token_error_text is not None:
+                    return httpx.Response(
+                        token_status, text=token_error_text,
+                        headers={"content-type": "text/html; charset=utf-8"},
+                    )
+                return httpx.Response(
+                    token_status, json=token_error_json or {"error": "token_endpoint_down"}
+                )
             return httpx.Response(200, json={
                 "token_type": "Bearer",
                 "access_token": "access-token-no-usado-por-el-contrato",
@@ -441,3 +453,227 @@ def test_invariante_6c_alg_rs512_fuera_de_la_allowlist_se_rechaza():
 
     with pytest.raises(SsoTokenExchangeError):
         _exchange(proveedor)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════
+# (d) #294: la causa del fallo tiene que sobrevivir hasta el log de la sede
+#
+# Los dos cuerpos de error de esta sección NO son inventados: son los que devolvió el tenant
+# Entra real (`d37d0dde-…`) el 25-ago-2026, sondeado con un `client_secret` deliberadamente
+# inválido — el secreto real nunca entró en la sonda. Sólo se les cambiaron los identificadores
+# (trace/correlation) por literales que los tests puedan buscar:
+#
+#   grant_type=client_credentials  → 401 {"error":"invalid_client","error_codes":[7000215],
+#                                         "error_description":"AADSTS7000215: Invalid client
+#                                         secret provided…"}
+#   grant_type=authorization_code  → 400 {"error":"invalid_grant","error_codes":[9002313],
+#                                         "error_description":"AADSTS9002313: Invalid request.
+#                                         Request is malformed or invalid…"}
+#
+# De paso quedó medido algo que importa para diagnosticar: Entra valida la FORMA del `code`
+# ANTES que el secreto — con un code inventado contesta `invalid_grant` sea cual sea el secreto,
+# incluido uno inválido. O sea que **el canje real es el único camino que ejercita el secreto**,
+# justo el que este bloque hace legible. (Un `code` bien formado pero ya canjeado da otro AADSTS
+# de la misma familia `invalid_grant`; ése no se pudo medir sin un login real y no se afirma.)
+# ═══════════════════════════════════════════════════════════════════════════════════
+
+
+def _error_entra(codigo: str, aadsts: int, descripcion: str) -> dict:
+    """Documento de error con TODOS los campos que manda Entra, no sólo los dos que se usan —
+    los que NO se transcriben tienen que estar presentes para que los tests puedan buscarlos."""
+    return {
+        "error": codigo,
+        "error_codes": [aadsts],
+        "error_description": descripcion,
+        "error_uri": "https://login.microsoftonline.com/error?code=" + str(aadsts),
+        "correlation_id": "c0rr3l4t-1d-del-tenant-0001",
+        "trace_id": "tr4c3-1d-del-tenant-0001",
+        "timestamp": "2026-08-25 11:20:33Z",
+    }
+
+
+_SECRETO_VENCIDO = _error_entra(
+    "invalid_client", 7000215,
+    "AADSTS7000215: Invalid client secret provided. Ensure the secret being sent in the "
+    "request is the client secret value. Trace ID: tr4c3-1d-del-tenant-0001 "
+    "Correlation ID: c0rr3l4t-1d-del-tenant-0001",
+)
+_CODE_INVALIDO = _error_entra(
+    "invalid_grant", 9002313,
+    "AADSTS9002313: Invalid request. Request is malformed or invalid. Trace ID: "
+    "tr4c3-1d-del-tenant-0001 Correlation ID: c0rr3l4t-1d-del-tenant-0001",
+)
+
+
+def _mensaje_del_canje(cuerpo: dict | None, status: int, *, texto: str | None = None) -> str:
+    pem_privado, jwks = _generar_par_rsa_y_jwks()
+    id_token = _firmar_id_token(pem_privado, KID, _claims_validos())
+    proveedor = _proveedor_mockeado(
+        jwks=jwks, id_token=id_token, token_status=status,
+        token_error_json=cuerpo, token_error_text=texto,
+    )
+    with pytest.raises(SsoTokenExchangeError) as excinfo:
+        _exchange(proveedor)
+    return str(excinfo.value)
+
+
+def test_294_el_secreto_vencido_deja_su_codigo_y_su_AADSTS_en_el_mensaje():
+    """El caso que le cuesta un día a la sede: el `client_secret` venció (los de Entra vencen a
+    los 6/12/24 meses) y el SSO se cae para todo el mundo a la vez. `AADSTS7000215` es lo que
+    convierte el log en una instrucción: rotar el secreto."""
+    mensaje = _mensaje_del_canje(_SECRETO_VENCIDO, 401)
+
+    assert "401" in mensaje
+    assert "invalid_client" in mensaje
+    assert "7000215" in mensaje
+
+
+def test_294_el_code_rechazado_deja_el_suyo():
+    mensaje = _mensaje_del_canje(_CODE_INVALIDO, 400)
+
+    assert "400" in mensaje
+    assert "invalid_grant" in mensaje
+    assert "9002313" in mensaje
+
+
+def test_294_los_dos_fallos_dejan_mensajes_DISTINTOS():
+    """EL test de este issue. Los dos casos de arriba tienen dueños distintos —uno se arregla
+    rotando el secreto, el otro no se arregla porque no está roto— y hasta este fix dejaban la
+    MISMA línea en el log (`…falló con el IdP (HTTPStatusError)`), porque lo único que se
+    conservaba era el tipo de la excepción y los dos llegan como `HTTPStatusError`."""
+    por_secreto = _mensaje_del_canje(_SECRETO_VENCIDO, 401)
+    por_code = _mensaje_del_canje(_CODE_INVALIDO, 400)
+
+    assert por_secreto != por_code
+
+
+def test_294_la_descripcion_y_los_identificadores_del_tenant_NO_se_transcriben():
+    """`error_description` la redacta el IdP en texto libre y viene con Trace ID y Correlation
+    ID adentro (medido contra el tenant real). Al log va el código, no el párrafo."""
+    mensaje = _mensaje_del_canje(_SECRETO_VENCIDO, 401)
+
+    assert "Trace ID" not in mensaje
+    assert "tr4c3-1d-del-tenant-0001" not in mensaje
+    assert "c0rr3l4t-1d-del-tenant-0001" not in mensaje
+    assert "Ensure the secret being sent" not in mensaje
+
+
+def test_294_un_error_con_salto_de_linea_no_puede_partir_la_linea_del_log():
+    """El valor lo redacta quien contesta del otro lado de la red. Si `error` entrara crudo, un
+    `\\n` adentro escribe una segunda línea en el log de la sede con contenido de un tercero."""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error"] = "invalid_client\nERROR [auth] sesion administrativa concedida a atacante"
+
+    mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert "\n" not in mensaje
+    assert "sesion administrativa" not in mensaje
+    assert "401" in mensaje  # el status es nuestro y se conserva igual
+
+
+def test_294_ni_siquiera_un_salto_de_linea_AL_FINAL_del_codigo_pasa():
+    """El borde exacto que se me coló al escribir el guard: en Python `$` matchea también JUSTO
+    ANTES de un `\\n` final, así que `^[a-z_]{1,40}$` deja pasar `"invalid_client\\n"` y el salto
+    termina igual en el log. Este test rompe con `match`+`$` y pasa con `fullmatch` — es la
+    única diferencia observable entre los dos, y el test de arriba (payload DESPUÉS del salto)
+    no la ve porque ahí `$` tampoco matchea."""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error"] = "invalid_client\n"
+
+    mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert "\n" not in mensaje
+
+
+def test_294_los_AADSTS_que_no_son_numeros_no_entran():
+    """La otra puerta por la que entra texto de un tercero: `error_codes` es una lista de
+    enteros para Entra, pero quien contesta puede poner adentro lo que quiera."""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error_codes"] = ["7000215\nERROR [auth] linea falsa", 7000215]
+
+    mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert "\n" not in mensaje
+    assert "linea falsa" not in mensaje
+    assert "7000215" in mensaje  # el entero legítimo de la misma lista sí sobrevive
+
+
+def test_294_un_AADSTS_gigante_no_puede_elegir_el_largo_de_la_linea_de_log():
+    """Acotar la CANTIDAD de códigos no acota el LARGO: un entero JSON de miles de dígitos es
+    válido y `str()` lo escribe entero. Medido sobre el primer commit de este PR: un solo código
+    de 4200 dígitos daba una línea de log de 4255 caracteres, y con cinco serían ~21 KB. Lo
+    único que lo frenaba era `sys.get_int_max_str_digits()`, que es un tope del intérprete y no
+    del producto. (Hallado por revisión independiente.)"""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error_codes"] = [int("9" * 4200), 7000215]
+
+    mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert len(mensaje) < 200
+    assert "999999999" not in mensaje
+    assert "7000215" in mensaje  # el código legítimo de la misma lista sí sobrevive
+
+
+def test_294_los_booleanos_no_se_cuelan_como_codigos():
+    """`bool` es subclase de `int`: `isinstance(True, int)` es `True`, así que un filtro escrito
+    con `isinstance` pintaría `AADSTS=True`. Por eso el filtro es `type(c) is int`."""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error_codes"] = [True, False, 7000215]
+
+    mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert "True" not in mensaje and "False" not in mensaje
+    assert "AADSTS=7000215" in mensaje
+
+
+def test_294_un_cuerpo_JSON_que_no_es_un_objeto_no_rompe_el_manejo_del_error():
+    """JSON válido pero lista, no objeto: sin el guard de forma, el `.get` de abajo revienta
+    DENTRO del `except` y el fallo del IdP se convierte en un `AttributeError` que ya no es
+    `SsoTokenExchangeError` — el callback pasaría de 401 a 500."""
+    mensaje = _mensaje_del_canje(None, 500, texto='["no", "soy", "un", "objeto"]')
+
+    assert "500" in mensaje
+
+
+def test_294_un_idp_que_devolviera_el_secreto_en_el_cuerpo_no_lo_filtra_al_log(caplog):
+    """Invariante 5 sostenido en el camino nuevo: el `client_secret` viaja en el FORM del pedido
+    y Entra no lo echoea, pero el cuerpo de la respuesta lo redacta un tercero. Ninguno de los
+    campos que se transcriben puede cargarlo."""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error_description"] = f"AADSTS7000215: el secreto {CLIENT_SECRET} no es válido"
+    cuerpo["client_secret"] = CLIENT_SECRET
+
+    with caplog.at_level(logging.DEBUG):
+        mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert CLIENT_SECRET not in mensaje
+    assert CLIENT_SECRET not in caplog.text
+
+
+def test_294_un_cuerpo_que_no_es_JSON_conserva_el_status_y_no_transcribe_la_pagina():
+    """Un proxy en el medio contesta HTML. El status —que es nuestro, no lo redacta nadie— tiene
+    que sobrevivir igual, y la página no entra al log."""
+    mensaje = _mensaje_del_canje(
+        None, 502, texto="<html><body>502 Bad Gateway — corporate proxy</body></html>"
+    )
+
+    assert "502" in mensaje
+    assert "Bad Gateway" not in mensaje
+    assert "<html>" not in mensaje
+
+
+def test_294_discovery_y_jwks_tambien_conservan_el_status():
+    """Los otros dos sitios que colapsaban la causa en `type(exc).__name__`. Acá no hay secreto
+    en juego, pero sí la diferencia entre «el IdP está caído» y «la authority está mal armada»."""
+    pem_privado, jwks = _generar_par_rsa_y_jwks()
+
+    proveedor = _proveedor_mockeado(jwks=jwks, id_token=None, discovery_status=503)
+    with pytest.raises(SsoDiscoveryError) as discovery:
+        proveedor.authorize_url(_config(), "s", nonce="n", redirect_uri=REDIRECT_URI)
+    assert "503" in str(discovery.value)
+
+    id_token = _firmar_id_token(pem_privado, KID, _claims_validos())
+    proveedor = _proveedor_mockeado(jwks=jwks, id_token=id_token, jwks_status=500)
+    with pytest.raises(SsoDiscoveryError) as jwks_error:
+        _exchange(proveedor)
+    assert "500" in str(jwks_error.value)

@@ -427,6 +427,32 @@ servidor —pueden citar configuración— y **nunca** viajan al navegador: al u
 el veredicto, no la causa. Para diagnosticar, mirar los registros del backend. Ver
 [Operaciones](../operations/index.md).
 
+### Separar las causas de «El proveedor no devolvió una identidad válida»
+
+Esa fila junta varias causas con dueños distintos, y la más cara es la que **nadie ve venir**:
+los secretos de cliente del directorio **vencen** (6, 12 o 24 meses según cómo se emitan), y el
+día que vencen el acceso por directorio se cae para toda la organización a la vez, sin que
+nadie haya tocado nada.
+
+Cuando el rechazo viene del directorio, el registro del servidor trae el **estado HTTP**, el
+**código de error del protocolo** y, con Entra, el **código `AADSTS`**:
+
+```
+sso callback: intercambio rechazado (tenant=…): intercambio code→token falló con el IdP
+(HTTPStatusError HTTP 401 invalid_client AADSTS=7000215)
+```
+
+| Lo que dice el registro | Qué pasó | Quién lo arregla |
+|---|---|---|
+| `HTTP 401 invalid_client AADSTS=7000215` | El secreto de cliente está mal cargado o **venció** | El administrador de la instalación: emitir un secreto nuevo en el directorio y volver a cargarlo (paso 3) |
+| `HTTP 400 invalid_grant` | El código de autorización no sirve: venció, ya se usó, o el retorno llegó dos veces | Nadie: que la persona reintente el acceso |
+| Sin código de protocolo, sólo el estado | El directorio contestó algo que no es una respuesta de error del protocolo (proxy corporativo en el medio, portal cautivo) | Red de salida hacia el directorio |
+
+La **descripción larga** que emite el directorio no se registra a propósito: la redacta el
+directorio en texto libre y suele traer identificadores de la organización y de la persona
+adentro. Al registro va el código, que es lo que dice qué hacer. El secreto de cliente no
+aparece nunca: viaja en el pedido, no en la respuesta.
+
 ## Límites conocidos
 
 - 🟢 **El flujo completo con Entra ID** está implementado: descubrimiento automático,

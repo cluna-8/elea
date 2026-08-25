@@ -260,8 +260,11 @@ def _cifrar_credencial_de_servicio(valor: Optional[str]) -> Optional[str]:
         # RUIDOSO, en el momento exacto: el único rastro que había era un warning emitido
         # UNA vez en el arranque del proceso, posiblemente días antes y sin relación visible
         # con la petición que perdió la credencial.
+        # El texto NO puede hablar de «la anterior»: el helper lo comparten el alta y la
+        # edición, y en el alta no hay credencial previa de la que hablar (P3 de Gemini en el
+        # gate de #295). Lo que vale en los dos caminos es que la fila no se tocó.
         _log.error("guardianes: FERNET_SECRET_KEY ausente o inválida — la credencial de "
-                   "servicio NO se guardó y la anterior quedó intacta")
+                   "servicio NO se guardó y el guardián quedó sin tocar")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="guardian_cifrado_no_disponible: el servicio de cifrado no está "

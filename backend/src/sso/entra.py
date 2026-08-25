@@ -38,6 +38,7 @@ levanta ``SsoTokenExchangeError``, nunca acepta el token.
 """
 from __future__ import annotations
 
+import re
 import time
 from urllib.parse import urlencode
 
@@ -49,6 +50,29 @@ from . import registry
 
 DISCOVERY_CACHE_TTL_SECONDS = 3600.0
 _CAMPOS_DISCOVERY_REQUERIDOS = ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri")
+
+# Forma admitida para el campo `error` del documento de error de OAuth2 (RFC 6749 §5.2) antes
+# de dejarlo entrar a un mensaje que termina en el log del servidor. Es una ALLOWLIST de forma,
+# no un saneado: lo que no matchea no se recorta, se descarta. Cubre dos cosas de una:
+#   - inyección en el log — el valor lo redacta el IdP y viaja por la red; un `\n` adentro
+#     parte la línea en dos y la segunda mitad la escribe un tercero;
+#   - eco del secreto — un IdP roto (o suplantado) que devolviera el `client_secret` dentro de
+#     `error` no puede pasar este filtro salvo que el secreto tenga forma de código OAuth2.
+# Los códigos reales son snake_case corto (`invalid_client`, `invalid_grant`, `invalid_scope`).
+# Se aplica con `fullmatch`, NO con `match` + `$`: en Python `$` matchea también JUSTO ANTES de
+# un `\n` final, así que `"invalid_client\n"` pasaría un `^…$` y metería igual un salto de línea
+# en el log. `fullmatch` ancla de verdad en los dos extremos.
+_FORMA_CODIGO_ERROR_OAUTH2 = re.compile(r"[A-Za-z0-9_.-]{1,40}")
+
+# Topes de `error_codes`, en CANTIDAD y en VALOR. Los dos hacen falta para que el largo de la
+# línea de log no lo elija el IdP, y el segundo no es teórico: acotar sólo la cantidad deja
+# pasar enteros JSON de miles de dígitos (`str(10**4200)` son 4201 caracteres), o sea ~21 KB de
+# línea con cinco. Lo único que hoy los frena es `sys.get_int_max_str_digits()`, que es un tope
+# del INTÉRPRETE —desactivable con `PYTHONINTMAXSTRDIGITS=0`— y no una decisión del producto.
+# Los AADSTS reales tienen 5-7 dígitos; el tope de abajo deja 9 y sigue siendo holgado.
+# (Hallado por revisión independiente sobre el primer commit de este PR.)
+_MAX_ERROR_CODES = 5
+_MAX_VALOR_ERROR_CODE = 10 ** 9
 
 # Allowlist EXPLÍCITA de algoritmos — Entra firma RS256. El objeto de módulo `authlib.jose.jwt`
 # NO tiene allowlist (su `_algorithms` es `None` = "todos los registrados", `none` incluido) y
@@ -73,6 +97,76 @@ class SsoTokenExchangeError(Exception):
     """El intercambio code→token, o la validación del id_token resultante (firma / iss / aud /
     nonce / expiración), falló. El mensaje NUNCA lleva el client_secret ni el id_token crudo —
     sólo el tipo de fallo (invariante 5)."""
+
+
+def _causa(exc: Exception) -> str:
+    """Describe un fallo contra el IdP **con lo suficiente para saber quién lo arregla** (#294).
+
+    Antes acá sólo iba `type(exc).__name__`, y eso hace indistinguibles dos fallos con dueños
+    distintos: el token endpoint contesta con HTTP de error en los dos casos, así que los dos
+    llegan como `HTTPStatusError` y dejaban esta única línea en el log de la sede::
+
+        sso callback: intercambio rechazado (tenant=…): intercambio code→token falló con el IdP
+        (HTTPStatusError)
+
+    +------------------------------+--------------------------+--------------------------------+
+    | qué pasó de verdad           | qué contesta Entra       | quién lo arregla               |
+    +==============================+==========================+================================+
+    | el `code` venció o ya se usó | 400 `invalid_grant`      | nadie: que reintente el usuario|
+    +------------------------------+--------------------------+--------------------------------+
+    | el `client_secret` venció    | 401 `invalid_client`     | el admin de la sede: rotarlo   |
+    | o está mal                   | AADSTS **7000215**       | (los secretos de Entra vencen) |
+    +------------------------------+--------------------------+--------------------------------+
+
+    La segunda fila no es hipotética: los client secrets de Entra vencen a los 6/12/24 meses,
+    y el día que pasa, el SSO se cae para toda la sede a la vez. Con `type(exc).__name__` como
+    único rastro, el operador no tiene de dónde agarrarse.
+
+    Qué se conserva y qué NO:
+
+    - **status HTTP**: es nuestro, no lo redacta nadie.
+    - **`error`** del cuerpo, sólo si pasa `_FORMA_CODIGO_ERROR_OAUTH2`.
+    - **`error_codes`** (AADSTS), sólo los enteros — son numéricos y no llevan identificadores.
+    - **`error_description` NO**: lo redacta el IdP en texto libre y puede traer identificadores
+      del tenant/usuario (medido contra el tenant real: trae Trace ID y Correlation ID). El
+      `error_uri`, `trace_id`, `correlation_id` y `timestamp` tampoco, por lo mismo.
+    - **el `client_secret` jamás** (invariante 5): viaja en el FORM del pedido, no en la
+      respuesta, y de la respuesta sólo salen los tres campos de arriba.
+
+    Cualquier fallo que no sea HTTP (timeout, JSON roto, DNS) sigue dando `type(exc).__name__`.
+    """
+    detalle = type(exc).__name__
+    response = getattr(exc, "response", None)
+    if response is None:
+        return detalle
+
+    detalle = f"{detalle} HTTP {response.status_code}"
+    try:
+        cuerpo = response.json()
+    except Exception:
+        # El IdP contestó algo que no es JSON (una página de error de un proxy en el medio, por
+        # ejemplo). El status ya se conservó arriba, que es lo que importa; el cuerpo crudo NO
+        # se transcribe: largo y forma los elige un tercero.
+        return detalle
+    if not isinstance(cuerpo, dict):
+        return detalle
+
+    codigo = cuerpo.get("error")
+    if isinstance(codigo, str) and _FORMA_CODIGO_ERROR_OAUTH2.fullmatch(codigo):
+        detalle = f"{detalle} {codigo}"
+
+    crudos = cuerpo.get("error_codes")
+    if isinstance(crudos, list):
+        # Sólo enteros —`bool` es subclase de `int` en Python y no es un código AADSTS— y sólo
+        # dentro del rango de un código real: ver `_MAX_VALOR_ERROR_CODE`.
+        codigos = [
+            str(c) for c in crudos
+            if type(c) is int and 0 <= c < _MAX_VALOR_ERROR_CODE
+        ][:_MAX_ERROR_CODES]
+        if codigos:
+            detalle = f"{detalle} AADSTS={','.join(codigos)}"
+
+    return detalle
 
 
 class EntraProvider:
@@ -109,7 +203,7 @@ class EntraProvider:
             raise
         except Exception as exc:  # httpx.HTTPError, json.JSONDecodeError, lo que sea
             raise SsoDiscoveryError(
-                f"discovery OIDC falló contra el IdP ({type(exc).__name__})"
+                f"discovery OIDC falló contra el IdP ({_causa(exc)})"
             ) from exc
 
         faltantes = [campo for campo in _CAMPOS_DISCOVERY_REQUERIDOS if campo not in doc]
@@ -129,7 +223,7 @@ class EntraProvider:
             return JsonWebKey.import_key_set(raw)
         except Exception as exc:
             raise SsoDiscoveryError(
-                f"no se pudo obtener/parsear el JWKS del IdP ({type(exc).__name__})"
+                f"no se pudo obtener/parsear el JWKS del IdP ({_causa(exc)})"
             ) from exc
 
     # -- contrato SsoProvider ------------------------------------------------------------
@@ -178,8 +272,10 @@ class EntraProvider:
         except Exception as exc:
             # httpx encadena la excepción original en __cause__/__context__, pero su __str__
             # (método + URL + status) no lleva el body del POST — el secreto no viaja acá.
+            # `_causa` agrega status + código OAuth2 + AADSTS: es el único punto del producto
+            # donde se puede separar «el code venció» de «el secreto de la sede venció» (#294).
             raise SsoTokenExchangeError(
-                f"intercambio code→token falló con el IdP ({type(exc).__name__})"
+                f"intercambio code→token falló con el IdP ({_causa(exc)})"
             ) from exc
 
         id_token = token_response.get("id_token")
