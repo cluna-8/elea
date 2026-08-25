@@ -20,7 +20,7 @@ prerrequisito de escritura atómica YA PAGO (`1151b1e`, en `main`) + dolor docum
 
 1. **El alta de modelo por UI escribe un config que el motor no relee**: el instalador tiene la
    instrucción en rojo *«🔴 CLAVE — tras CADA alta de modelo por la UI, reiniciar el motor:
-   `docker restart camara-litellm-1`»* (`INSTALL-CAMARA.md:112-116`) y su tabla de troubleshooting
+   `docker restart camara-litellm-1`»* (`INSTALL-CAMARA.md`, paso eliminado por T008 — PR #311) y su tabla de troubleshooting
    dedica una fila al síntoma (*«Playground "no hace nada" tras alta de modelo»*). El propio código
    lo llama **GOTCHA OPERATIVO** (`backend/src/api/chat.py:2118-2119`) y el compose lo documenta:
    *«la UI escribe acá y el motor lo toma en su próximo restart»* (`deploy/docker/compose.prod.yml:118-123`).

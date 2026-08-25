@@ -40,7 +40,7 @@ perillas viven en el env del cliente que el wizard escribe al instalar.
 
 | Qué | Dónde |
 |---|---|
-| Dolor del instalador (paso manual en rojo) | `deploy/release/INSTALL-CAMARA.md:115` (restart tras cada alta) + fila de troubleshooting `:207` |
+| Dolor del instalador (paso manual en rojo) | `deploy/release/INSTALL-CAMARA.md` exigía `docker restart camara-litellm-1` tras cada alta — eliminado por T008 (PR #311) + fila *«Playground "no hace nada" tras alta de modelo»* de la tabla **Troubleshooting exprés** |
 | GOTCHA en código | `backend/src/api/chat.py:2154` («el motor lee config.yaml al arrancar») |
 | Escritores del config — ya atómicos (`1151b1e`) | `escribir_atomico` (`backend/src/services/atomic_file.py`), importado por `chat.py:23` y `auto_router_service.py:39` |
 | Mounts | backend `litellm_config` **rw** (`compose.prod.yml:119-123`) · motor `litellm_config:/app/config`**`:ro`** (`:220`) · entrypoint directo `litellm --config …` (`:225`) |
