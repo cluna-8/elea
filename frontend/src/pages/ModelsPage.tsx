@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api } from "../services/api";
-import type { RouterConfig, RouterRoute } from "../services/api";
+import type { RouterConfig, RouterRoute, EngineApplyStatus } from "../services/api";
+import { authStorage } from "../services/auth";
 import {
   Button,
   Card,
@@ -176,6 +177,17 @@ export const ModelsPage: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
+  // ── Motor IA: estado del supervisor + botón «Aplicar cambios» (spec 033) ──
+  const [engineStatus, setEngineStatus] = useState<EngineApplyStatus | null>(null);
+  const [engineStatusLoading, setEngineStatusLoading] = useState(true);
+  // Mensaje del GET de estado (p.ej. 403 de rol): se muestra tal cual, no se traga.
+  const [engineStatusError, setEngineStatusError] = useState("");
+  const [applyingEngine, setApplyingEngine] = useState(false);
+  const [applyEngineError, setApplyEngineError] = useState("");
+  // Timer del polling: vive fuera del estado porque un `setTimeout` en una var de estado
+  // dispararía un re-render de más; sólo hace falta para poder cancelarlo en el cleanup.
+  const engineStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Catalog modal
   const [showCatalog, setShowCatalog] = useState(false);
   const [catalogFilter, setCatalogFilter] = useState<CatalogFilter>("all");
@@ -280,6 +292,62 @@ export const ModelsPage: React.FC = () => {
   };
 
   useEffect(() => { load(); loadRouter(); }, []);
+
+  /** Carga TERCERA y aparte: el estado del motor no depende del catálogo ni del ruteo, y un
+   *  403 acá (rol sin permiso — ver `getEngineApplyStatus`) no puede tumbar las otras dos.
+   *  Mientras el supervisor esté `applying`, se re-encola sola cada 3s: el POST de abajo no
+   *  devuelve el resultado del ciclo, sólo lo dispara, así que este es el único lugar que se
+   *  entera de si terminó bien (`idle`) o mal (`error`). */
+  const cargarEstadoMotor = async () => {
+    try {
+      const estado = await api.getEngineApplyStatus();
+      setEngineStatus(estado);
+      setEngineStatusError("");
+      if (estado.state === "applying") {
+        engineStatusTimer.current = setTimeout(cargarEstadoMotor, 3000);
+      }
+    } catch (err: any) {
+      setEngineStatus(null);
+      setEngineStatusError(err?.message || "No se pudo consultar el estado del motor IA.");
+    } finally {
+      setEngineStatusLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarEstadoMotor();
+    // Cleanup: si el admin cambia de página con un ciclo en curso, el polling no debe seguir
+    // escribiendo estado de un componente ya desmontado.
+    return () => {
+      if (engineStatusTimer.current) clearTimeout(engineStatusTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Dispara un ciclo nuevo (gate: sólo `admin`, ver botón condicionado abajo) y fuerza un
+   *  re-chequeo inmediato en vez de esperar los 3s del polling — el admin que acaba de
+   *  clickear quiere ver "Aplicando..." ya, no en la próxima vuelta del timer. */
+  const handleApplyEngine = async () => {
+    setApplyingEngine(true);
+    setApplyEngineError("");
+    try {
+      await api.applyEngineChanges();
+      if (engineStatusTimer.current) clearTimeout(engineStatusTimer.current);
+      await cargarEstadoMotor();
+    } catch (err: any) {
+      setApplyEngineError(err?.message || "No se pudo disparar la aplicación de cambios del motor IA.");
+    } finally {
+      setApplyingEngine(false);
+    }
+  };
+
+  const formatTs = (ts: number | null): string | null => (ts ? new Date(ts * 1000).toLocaleString() : null);
+
+  // Esconder el botón para quien el backend igual rechazaría es UX, no el gate: la autoridad
+  // es el `require_role("admin")` del propio POST. Si el rol quedó stale (sesión vieja) y de
+  // toda forma llega un 403, `applyEngineError` lo muestra tal cual — no es una precondición
+  // inventada, es sólo no ofrecer un botón que sabemos que el backend va a rechazar.
+  const puedeAplicarMotor = authStorage.getUser()?.role === "admin";
 
   const mutarRouter = (fn: (cfg: RouterConfig) => RouterConfig) => {
     setRouterCfg((prev) => (prev ? fn(prev) : prev));
@@ -514,6 +582,82 @@ export const ModelsPage: React.FC = () => {
       {successMsg && (
         <div className="rounded-md border border-ok/30 bg-ok-bg px-4 py-2.5 text-xs text-ok">{successMsg}</div>
       )}
+
+      {/* ─── Motor IA: estado del supervisor + aplicar cambios (spec 033) ─── */}
+      <Card title="Motor IA — aplicar cambios">
+        {engineStatusLoading ? (
+          <div className="flex justify-center py-6 font-mono text-xs text-text-secondary">
+            Consultando estado del motor...
+          </div>
+        ) : engineStatusError ? (
+          // 403 de rol (p.ej. `developer`, que ve el nav pero no este endpoint) o corte de
+          // red: se muestra el texto real, no una pantalla en blanco ni un estado inventado.
+          <div className="rounded-md border border-warn/30 bg-warn-bg px-4 py-2.5 text-xs leading-relaxed text-warn">
+            No se pudo consultar el estado del motor IA: {engineStatusError}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {engineStatus?.state === "applying" && (
+              <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary-tint px-4 py-2.5 text-xs text-primary">
+                <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-primary/40 border-t-primary" />
+                Aplicando cambios del motor…
+              </div>
+            )}
+
+            {engineStatus?.state === "error" && (
+              <div className="rounded-md border border-danger/30 bg-danger-bg px-4 py-2.5 text-xs leading-relaxed text-danger">
+                <p className="font-semibold">
+                  El último ciclo de aplicación falló
+                  {formatTs(engineStatus.ts) ? ` (${formatTs(engineStatus.ts)})` : ""}.
+                </p>
+                {/* `last_error` real del supervisor, sin maquillar (contrato T004): es
+                    justamente lo que esta pantalla existe para mostrar. */}
+                <p className="mt-1 font-mono text-[11px]">
+                  {engineStatus.last_error || "El motor no reportó un motivo."}
+                </p>
+              </div>
+            )}
+
+            {engineStatus?.state === "unknown" && (
+              <div className="rounded-md border border-border bg-surface-2 px-4 py-2.5 text-xs leading-relaxed text-text-secondary">
+                Estado del motor no disponible
+                {engineStatus.last_error ? `: ${engineStatus.last_error}` : "."}
+              </div>
+            )}
+
+            {engineStatus?.state === "idle" && (
+              <p className="text-[11px] text-text-secondary">
+                Motor al día
+                {formatTs(engineStatus.ts) ? ` · último ciclo aplicado ${formatTs(engineStatus.ts)}` : ""}
+                {engineStatus.config_hash ? ` · config ${engineStatus.config_hash.slice(0, 8)}` : ""}.
+              </p>
+            )}
+
+            {applyEngineError && (
+              <div className="rounded-md border border-danger/30 bg-danger-bg px-4 py-2.5 text-xs text-danger">
+                {applyEngineError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              {puedeAplicarMotor ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleApplyEngine}
+                  disabled={applyingEngine || engineStatus?.state === "applying"}
+                >
+                  {applyingEngine ? "Disparando..." : "Aplicar cambios del motor"}
+                </Button>
+              ) : (
+                <p className="text-[11px] text-text-tertiary">
+                  Tu rol puede ver el estado del motor pero no aplicar cambios.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
 
       {/* Active Models Table */}
       <Card title="Modelos Activos en la Pasarela">

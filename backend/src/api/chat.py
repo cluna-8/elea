@@ -2153,7 +2153,10 @@ async def register_model(model_in: ModelCreateSchema):
     # escritores, no solo documentada).
     #
     # GOTCHA OPERATIVO: el motor lee `config.yaml` al arrancar, así que el respaldo entra en
-    # vigor con el MISMO restart que el alta del modelo ya exige (documentado en INSTALL).
+    # vigor recién con el próximo ciclo del supervisor (spec 033) — el admin lo dispara con
+    # «Aplicar cambios del motor» (T006, `GET/POST /models/status` y `/models/apply` acá
+    # arriba). Ya NO hace falta el `docker restart camara-litellm-1` manual que pedía
+    # INSTALL-CAMARA.md antes de T006/T008; el paso quedó reemplazado por ese botón.
     fallback_local = None
     if not _is_local_entry(new_model_entry):
         fallback_local = _default_local_model(config_data)

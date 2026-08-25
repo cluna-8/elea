@@ -90,7 +90,8 @@ máquina del cliente. Si tienen otro (o prefieren usar uno suyo), dos caminos:
   `client.env` del perfil y re-renderizar/re-bundlear — una línea.
 - **En la sede, por UI** (sin tocar ficheros): panel admin → **Modelos & Ollama →
   + Agregar Modelo → + Modelo personalizado** → proveedor «Ollama (Local)», modelo exacto
-  de `ollama list`, api base `http://IP-DEL-Z2:11434`, sin key → reiniciar el motor → y en
+  de `ollama list`, api base `http://IP-DEL-Z2:11434`, sin key → **Aplicar cambios del
+  motor** → y en
   **Ruteo inteligente** repuntar el «modelo por defecto» y la ruta local al modelo nuevo
   (2 clics, aplica al instante). Las rutas del auto-router apuntan a nombres del catálogo,
   no al modelo de Ollama — por eso este cambio no rompe nada, y si una ruta queda
@@ -109,13 +110,13 @@ registrado como «ruteo degradado» en el Debugger y la auditoría — no rompe 
 El switch, las rutas y el modelo por defecto se gestionan en **Modelos & Ollama →
 Ruteo inteligente** (aplican al instante, sin reiniciar el motor).
 
-🔴 **CLAVE — tras CADA alta de modelo por la UI, reiniciar el motor:**
+🔴 **CLAVE — tras CADA alta de modelo por la UI, aplicar los cambios del motor:** panel
+**Modelos & Ollama → «Aplicar cambios del motor»** (spec 033; sólo rol admin). El supervisor
+releé `config.yaml` y relanza el motor sin bajar el contenedor — el propio panel muestra el
+progreso (`Aplicando cambios…`) y, si falla, el motivo real del supervisor, no un mensaje
+genérico. Ya **no** hace falta `docker restart camara-litellm-1` a mano.
 
-```bash
-docker restart camara-litellm-1
-```
-
-Si no: el Playground "no hace nada" (es un 400 que la UI no muestra). Orden siempre: **alta → restart → probar**.
+Si no: el Playground "no hace nada" (es un 400 que la UI no muestra). Orden siempre: **alta → Aplicar cambios del motor → probar**.
 
 ## 6 · Usuarios
 
@@ -204,7 +205,7 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 
 | Síntoma | Causa |
 |---|---|
-| Playground «no hace nada» tras alta de modelo | Falta `docker restart camara-litellm-1` |
+| Playground «no hace nada» tras alta de modelo | Falta apretar «Aplicar cambios del motor» en Modelos & Ollama |
 | `Cannot connect to host host.docker.internal:11434` | Ollama sin `OLLAMA_HOST=0.0.0.0`, o stack en otra máquina → alta por UI con IP |
 | 401 en todo con clave válida | Motor sin `BASA_IDENTITY_URL` |
 | «Sitio no seguro» tras instalar el .crt con doble-click | Fue al almacén del USUARIO, no al de la máquina → `install-ca.bat` del trust-kit |

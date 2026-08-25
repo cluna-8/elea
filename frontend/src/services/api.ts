@@ -75,6 +75,16 @@ export interface ModelPricing {
   max_input_tokens?: number | null;
 }
 
+/** Estado del supervisor del motor (spec 033, `GET /chat/models/status`). Contrato
+ *  200-nunca-500: `state` puede ser `"unknown"` con `ts`/`config_hash` en `null` — no son
+ *  opcionales por descuido de tipado, son un valor real que la UI tiene que sobrevivir. */
+export interface EngineApplyStatus {
+  state: "idle" | "applying" | "error" | "unknown";
+  ts: number | null;
+  last_error: string | null;
+  config_hash: string | null;
+}
+
 export interface CostModelBreakdown {
   model: string;
   cost_usd: number;
@@ -949,6 +959,55 @@ export const api = {
   getModelsPricing: async (): Promise<any[]> => {
     const res = await fetch(`${API_BASE}/chat/models/pricing`, { headers: authHeaders() });
     if (!res.ok) return [];
+    return res.json();
+  },
+
+  // --- Motor IA: estado del supervisor + botón "Aplicar cambios" (spec 033) ---
+
+  /** Gate del backend: `admin` + `compliance_officer` (NO `developer`, aunque el nav de
+   *  `models` sea admin+developer — mismatch abierto en #245). Un rol sin permiso da 403 acá
+   *  y la página tiene que mostrarlo tal cual, no romperse: por eso se propaga con `ApiError`
+   *  como el resto del panel, en vez de devolver un estado sintético. */
+  getEngineApplyStatus: async (): Promise<EngineApplyStatus> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/chat/models/status`, { headers: authHeaders() });
+    } catch {
+      throw new ApiError("No se pudo contactar al servidor.", 0);
+    }
+    handleExpiredSession(res);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(
+        detailMessage(err, "No se pudo consultar el estado del motor IA."),
+        res.status
+      );
+    }
+    return res.json();
+  },
+
+  /** Dispara un ciclo nuevo de aplicación (gate: sólo `admin`). El resultado no viaja en la
+   *  respuesta — se consulta con `getEngineApplyStatus`, por eso el llamador arranca el
+   *  polling apenas esto resuelve. */
+  applyEngineChanges: async (reason?: string): Promise<{ status: string; ts: number }> => {
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/chat/models/apply`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(reason?.trim() ? { reason: reason.trim() } : {}),
+      });
+    } catch {
+      throw new ApiError("No se pudo contactar al servidor.", 0);
+    }
+    handleExpiredSession(res);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(
+        detailMessage(err, "No se pudo disparar la aplicación de cambios del motor IA."),
+        res.status
+      );
+    }
     return res.json();
   },
 
