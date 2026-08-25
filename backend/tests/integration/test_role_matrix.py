@@ -95,6 +95,8 @@ CATALOG = [
     ("PUT",    "/api/v1/security/policy",            "config_producto",       "write"),
     ("GET",    "/api/v1/chat/router-config",         "config_producto",       "read"),   # #247: CO lee auto-router
     ("PUT",    "/api/v1/chat/router-config",         "config_producto",       "write"),  # #247: write admin-only, developer dropeado
+    ("GET",    "/api/v1/chat/models/status",         "config_producto",       "read"),   # spec 033 T004
+    ("POST",   "/api/v1/chat/models/apply",          "config_producto",       "write"),  # spec 033 T005, developer dropeado
     # compliance_config — retention, consent admin
     ("GET",    "/api/v1/compliance/retention",       "compliance_config",     "read"),
     ("PUT",    "/api/v1/compliance/retention",       "compliance_config",     "write"),
@@ -229,6 +231,18 @@ def harness():
 def motor(monkeypatch):
     """Motor mockeado por si algún handler alcanzado lo toca; el gate corre antes igual."""
     return mock_engine(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _sentinel_aislado(monkeypatch, tmp_path):
+    """`POST /chat/models/apply` (spec 033, T005) ESCRIBE de verdad cuando el rol lo permite:
+    a diferencia del resto de los writes de `CATALOG`, su body `{}` es válido (sin campos
+    obligatorios), así que sin este aislamiento cada corrida de esta suite tocaría el
+    `litellm/apply.trigger` real del checkout (mismo motivo que `config_temporal` en
+    `test_router_config_api.py` — la suite no escribe en el repo)."""
+    from src.api import chat
+    monkeypatch.setattr(chat, "_get_engine_sentinel_path",
+                        lambda: str(tmp_path / "apply.trigger"))
 
 
 @pytest.fixture(scope="module")

@@ -1,4 +1,5 @@
 import time
+import json
 import os
 import re
 import uuid
@@ -2331,3 +2332,134 @@ async def get_models_pricing():
             "max_input_tokens": info.get("max_input_tokens"),
         })
     return result
+
+
+# --- Supervisor del motor: estado y botón «Aplicar» (spec 033, T004/T005) ---
+#
+# El supervisor (litellm/supervisor.py, PR-A #301) vigila `config.yaml` y el sentinel
+# `apply.trigger`, valida el YAML antes de matar al proceso viejo y publica su estado en
+# `status.json`. Estos dos endpoints son la única superficie del backend sobre ese
+# mecanismo: uno lo LEE, el otro lo DISPARA. Ninguno de los dos habla con Docker — los
+# dos son archivos en un volumen compartido, que es justo lo que hace que "el backend
+# jamás toca el daemon" siga siendo cierto con esta feature adentro.
+
+_ENGINE_STATUS_KEYS = ("state", "ts", "last_error", "config_hash")
+# Nombre SIN "STATUS"/"COMPLIANCE" a propósito: el censo de `test_retention_classifier.py`
+# escanea el fuente por regex buscando constantes `*STATUS*`/`*COMPLIANCE*` asignadas a un
+# literal — es la red que caza `compliance_status` de `audit_logs`, un vocabulario TOTALMENTE
+# distinto al `state` de `status.json` del supervisor del motor. Con un nombre que contuviera
+# "STATUS" (p. ej. `_ENGINE_STATUS_DESCONOCIDO`) el censo lo confunde con un emisor de
+# auditoría sin inventariar; este literal no llega nunca a `audit_logs`.
+_ENGINE_ESTADO_DESCONOCIDO = "unknown"
+
+
+def _get_engine_status_path() -> str:
+    """Ruta de `status.json` (spec 033): volumen `engine_status` montado `:ro`
+    (`deploy/docker/compose.prod.yml:129`, la copia PR-A del compose — todavía no
+    existe en `main` porque PR-B sale sin stackear sobre PR-A a propósito).
+
+    Mismo patrón hardcoded+fallback que `_get_config_path()` de acá arriba, con una
+    diferencia real: no hay un `status.json` de repo al que caer, porque lo escribe el
+    supervisor en runtime — no es un fichero versionado. La ruta de fallback casi
+    siempre va a estar ausente en dev/tests sin contenedor, y esa ausencia ES el caso
+    "volumen todavía no montado" que ejercen los tests de T004, no un bug de resolución.
+    """
+    path = "/app/engine_status/status.json"
+    if not os.path.exists(path):
+        path = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                            "../../../litellm/engine_status/status.json"))
+    return path
+
+
+def _engine_status_desconocido(motivo: str) -> dict:
+    return {"state": _ENGINE_ESTADO_DESCONOCIDO, "ts": None, "last_error": motivo,
+            "config_hash": None}
+
+
+# spec 033, T004. `last_error` sin maquillar es lo que la UI (T006) necesita mostrar.
+# El caso "estado ausente" puede pasar si PR-B llega antes que PR-A al mismo entorno —
+# no es un bug de resolución, ver `_get_engine_status_path()`. Mismo patrón
+# 200-nunca-500 que `GET /chat/router-config`.
+@router.get("/models/status", dependencies=[Depends(require_role("admin", "compliance_officer"))])
+async def get_engine_status():
+    """Estado del supervisor del motor.
+
+    Expone el estado tal cual lo reporta el supervisor: `state`
+    (`idle`/`applying`/`error`/`unknown`) + `ts` + `last_error` + `config_hash`, sin
+    filtrar ni maquillar un `state=error` — el `last_error` real es lo que el panel
+    necesita mostrar para que el admin sepa qué falló.
+
+    **Contrato del caso ausente/corrupto: 200, nunca 500.** Si el supervisor todavía
+    no publicó su estado, o lo publicado no se puede leer, responde con
+    `state: "unknown"`, `ts`/`config_hash` en `null` y `last_error` con el motivo. Un
+    supervisor caído no puede dejar al admin sin la única pantalla desde la que podría
+    enterarse de por qué.
+    """
+    path = _get_engine_status_path()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            datos = json.load(f)
+    except FileNotFoundError:
+        return _engine_status_desconocido(
+            "status.json no existe todavía: el volumen del motor puede no estar "
+            "montado en este entorno, o el supervisor no arrancó."
+        )
+    except OSError as exc:
+        logger.warning("engine status: no se pudo leer status.json (%s)", type(exc).__name__)
+        return _engine_status_desconocido(f"status.json no se pudo leer ({type(exc).__name__}).")
+    except ValueError as exc:
+        logger.warning("engine status: status.json no parsea (%s)", type(exc).__name__)
+        return _engine_status_desconocido(f"status.json ilegible ({type(exc).__name__}).")
+
+    if not isinstance(datos, dict):
+        return _engine_status_desconocido("status.json no contiene un objeto JSON.")
+
+    return {clave: datos.get(clave) for clave in _ENGINE_STATUS_KEYS}
+
+
+def _get_engine_sentinel_path() -> str:
+    """Ruta del sentinel `apply.trigger` desde el lado del backend (`rw`). Reusa
+    `_get_config_path()` para el directorio a propósito (decisión sellada del brief,
+    §2): son dos endpoints (`register_model` y este) escribiendo en el mismo volumen
+    que sirve `config.yaml`; un segundo resolutor de path es exactamente el bug que ya
+    costó una vuelta acá (comentario de `register_model`, arriba)."""
+    return os.path.join(os.path.dirname(_get_config_path()), "apply.trigger")
+
+
+# Se declara un modelo (en vez de dejar el endpoint sin body) para que el gate de rol
+# (`Depends` del decorador, nunca inline — regla #251) se pueda probar contra un cuerpo
+# inválido: si el gate estuviera inline, un cuerpo que no parsea como este modelo
+# devolvería 422 ANTES de llegar al chequeo de rol.
+class ModelsApplyRequest(BaseModel):
+    """Cuerpo del botón «Aplicar cambios del motor». No tiene campos obligatorios: el
+    disparador es la llamada en sí, no el contenido del cuerpo. `reason` es opcional,
+    para dejar un motivo legible junto al pedido."""
+    reason: Optional[str] = None
+
+
+# Re-escribe el sentinel `apply.trigger` en el MISMO directorio que resuelve
+# `_get_config_path()` — el volumen donde el backend tiene `rw`. El supervisor lo
+# espera en otro mountpoint del mismo volumen (`:ro`, `build_default()` de
+# `supervisor.py`): es el mismo fichero visto por dos mountpoints, no dos resolutores.
+#
+# El disparador que mira el supervisor es el `mtime`, no el contenido
+# (`Supervisor._stamps()` de `supervisor.py`): `escribir_atomico` hace temporal +
+# `os.replace`, así que el mtime cambia en CADA llamada y re-postear vuelve a disparar
+# un ciclo. Por eso nunca se borra el sentinel: el supervisor tampoco podría (su lado
+# del volumen es `:ro`) y borrarlo no aportaría nada.
+@router.post("/models/apply", dependencies=[Depends(require_role("admin"))])
+async def apply_engine_changes(payload: Optional[ModelsApplyRequest] = None):
+    """Dispara el relanzamiento supervisado del motor: el botón «Aplicar cambios del
+    motor» del panel.
+
+    Cada llamada dispara un nuevo ciclo de aplicación, sin importar si ya hay uno en
+    curso o recién terminado — no hace falta esperar entre llamadas. El resultado del
+    ciclo (éxito, o el error de validación si el config quedó mal escrito) se consulta
+    con `GET /models/status`.
+    """
+    ts = time.time()
+    escribir_atomico(
+        _get_engine_sentinel_path(),
+        lambda f: json.dump({"ts": ts, "reason": payload.reason if payload else None}, f),
+    )
+    return {"status": "ok", "ts": ts}

@@ -2227,6 +2227,24 @@
         "title": "ModelCredentialSchema",
         "type": "object"
       },
+      "ModelsApplyRequest": {
+        "description": "Cuerpo del botón «Aplicar cambios del motor». No tiene campos obligatorios: el\ndisparador es la llamada en sí, no el contenido del cuerpo. `reason` es opcional,\npara dejar un motivo legible junto al pedido.",
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ModelsApplyRequest",
+        "type": "object"
+      },
       "PasswordChangeRequest": {
         "description": "Cambio de la contraseña propia: exige la actual porque el token de sesión sigue\nsiendo válido en un equipo ajeno y no alcanza como prueba de identidad.",
         "properties": {
@@ -4202,6 +4220,71 @@
         ]
       }
     },
+    "/api/v1/chat/models/apply": {
+      "post": {
+        "description": "Dispara el relanzamiento supervisado del motor: el botón «Aplicar cambios del\nmotor» del panel.\n\nCada llamada dispara un nuevo ciclo de aplicación, sin importar si ya hay uno en\ncurso o recién terminado — no hace falta esperar entre llamadas. El resultado del\nciclo (éxito, o el error de validación si el config quedó mal escrito) se consulta\ncon `GET /models/status`.",
+        "operationId": "apply_engine_changes_api_v1_chat_models_apply_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ModelsApplyRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Engine Changes",
+        "tags": [
+          "Playground Chat"
+        ]
+      }
+    },
     "/api/v1/chat/models/pricing": {
       "get": {
         "operationId": "get_models_pricing_api_v1_chat_models_pricing_get",
@@ -4244,6 +4327,54 @@
           }
         },
         "summary": "Get Models Pricing",
+        "tags": [
+          "Playground Chat"
+        ]
+      }
+    },
+    "/api/v1/chat/models/status": {
+      "get": {
+        "description": "Estado del supervisor del motor.\n\nExpone el estado tal cual lo reporta el supervisor: `state`\n(`idle`/`applying`/`error`/`unknown`) + `ts` + `last_error` + `config_hash`, sin\nfiltrar ni maquillar un `state=error` — el `last_error` real es lo que el panel\nnecesita mostrar para que el admin sepa qué falló.\n\n**Contrato del caso ausente/corrupto: 200, nunca 500.** Si el supervisor todavía\nno publicó su estado, o lo publicado no se puede leer, responde con\n`state: \"unknown\"`, `ts`/`config_hash` en `null` y `last_error` con el motivo. Un\nsupervisor caído no puede dejar al admin sin la única pantalla desde la que podría\nenterarse de por qué.",
+        "operationId": "get_engine_status_api_v1_chat_models_status_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Engine Status",
         "tags": [
           "Playground Chat"
         ]
