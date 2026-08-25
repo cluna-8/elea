@@ -6,7 +6,10 @@
 
 site_name: Basa Secure AI Gateway
 site_description: Documentación de producto para distribuidores y operadores
-site_url: !ENV [DOCS_SITE_URL, "http://localhost:8092/"]
+# site_url removido (issue #288): el plugin privacy horneaba URLs absolutas
+# a http://localhost:8092/ (puerto que nadie sirve en producción) para assets
+# vendorizados como mermaid.min.js. Sin site_url, mkdocs resuelve con rutas
+# relativas al origen real, sin acoplar la imagen al puerto ni al dominio.
 
 docs_dir: docs
 site_dir: site
