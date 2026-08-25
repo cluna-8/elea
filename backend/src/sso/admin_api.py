@@ -19,8 +19,9 @@ Tres decisiones que este módulo sostiene:
    `client_secret_configurado: bool`, nunca el valor.
 
 2. **Si el cifrado no está disponible, esto corta — no persiste.** `encryption_service`
-   se inicializa en el import con `FERNET_SECRET_KEY`; si falta o es inválida,
-   `encrypt()` devuelve `None` **sin levantar**. Guardar esa fila daría un 200 al
+   se inicializa en el import con `FERNET_SECRET_KEY`; si falta o es inválida, `encrypt()`
+   levanta `CifradoNoDisponible` (#283 — antes devolvía `None` sin levantar, y este módulo
+   era el único de los tres callers que miraba ese `None`). Guardar esa fila daría un 200 al
    operador, un `client_secret_encrypted` NULL en la base y un canje de código contra
    el IdP con secreto vacío: el flujo se rompe lejos, en el navegador del cliente, y el
    síntoma no señala a esta llamada. Es la clase de defecto que sólo aparece en la sede.
@@ -51,7 +52,7 @@ from ..licensing.entitlement import expected_tenant_id
 from ..models.sso_provider import SSOProvider
 from ..models.user import User
 from ..services.auth_events import emit_auth_event
-from ..services.encryption_service import encrypt
+from ..services.encryption_service import CifradoNoDisponible, encrypt
 from .registry import get_provider
 
 logger = logging.getLogger("basa-secure-gateway.sso.admin")
@@ -138,11 +139,12 @@ def escribir_config(payload: SsoConfigIn, db: Session = Depends(get_db),
     # secreto en NULL sería exactamente el estado que estos dos guards existen para
     # impedir. Con este orden, la pregunta no se puede llegar a hacer.
     if payload.client_secret is not None:
-        # `encrypt()` colapsa DOS causas en el mismo `None`: no hay Fernet, o el valor es
-        # vacío (`encryption_service.py:18` — `not _fernet or not value`). Sin separarlas, un
-        # admin que manda el campo en blanco recibe «el servicio de cifrado no está
-        # configurado» y se va a debuggear una infra que está sana. Pasa en la sede del
-        # cliente, donde no hay nadie para aclarárselo.
+        # El valor vacío se ataja ACÁ y no más abajo: `encrypt()` lo trata como «no hay nada
+        # que cifrar» y devuelve `None` sin levantar, así que sin este guard un campo en
+        # blanco caería en el 503 y mandaría al admin a debuggear una infra que está sana.
+        # Pasa en la sede del cliente, donde no hay nadie para aclarárselo. (Cuando este
+        # guard se escribió, `encrypt()` además colapsaba el vacío con el sin-Fernet en el
+        # mismo `None`; el #283 separó las dos causas en la raíz y este orden quedó igual.)
         if not payload.client_secret:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -150,8 +152,9 @@ def escribir_config(payload: SsoConfigIn, db: Session = Depends(get_db),
                        "Para conservar el guardado, OMITÍ el campo; mandarlo en blanco no es "
                        "una forma de borrarlo.",
             )
-        secreto_cifrado = encrypt(payload.client_secret)
-        if not secreto_cifrado:
+        try:
+            secreto_cifrado = encrypt(payload.client_secret)
+        except CifradoNoDisponible:
             # Fail-closed y RUIDOSO: ver decisión 2 del módulo. Un 200 acá deja el
             # secreto en la nada y el síntoma aparece en el navegador del cliente.
             logger.error("sso: FERNET_SECRET_KEY ausente o inválida — no se persiste el secreto")

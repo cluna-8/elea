@@ -15,7 +15,7 @@ from ..services.audit_service import AuditService
 from ..services.guardian_service import GuardianService
 from ..services import ai_engine_client
 from ..services import entity_catalog_service
-from ..services.encryption_service import encrypt, decrypt
+from ..services.encryption_service import CifradoNoDisponible, encrypt, decrypt
 # Vocabulario del issue #63 desde la librería PURA compartida (ver el comentario del import
 # equivalente en `health.py`): quién decide qué significa `nlp_fail_mode` es UNA función.
 from ..services.presidio_service import policy
@@ -229,6 +229,47 @@ def _to_response(guardian: Guardian, probe=None) -> GuardianResponseSchema:
     )
 
 
+def _cifrar_credencial_de_servicio(valor: Optional[str]) -> Optional[str]:
+    """Cifra la credencial de servicio del guardián, o corta con **503 sin escribir** (#283).
+
+    Los dos handlers la llaman ANTES de tocar la fila. Ése es el punto: mientras el cifrado
+    se hacía en el mismo renglón que la asignación, un `encrypt()` que fallaba dejaba la
+    columna en NULL — en el alta se perdía la credencial recién cargada, y en la edición se
+    **destruía una que estaba funcionando**, sin recuperación posible porque el texto en
+    claro no se guarda en ningún lado. Levantando acá, la asignación no llega a ocurrir.
+
+    503 y no 500: el servicio de cifrado no está disponible, la petición es correcta y
+    reintentarla después de arreglar el despliegue es exactamente lo que corresponde.
+
+    Un valor vacío devuelve `None` sin levantar, que es el contrato que ya tenían los dos
+    handlers: en el alta significa «este guardián no lleva credencial» y en la edición es
+    la forma explícita de borrarla. Eso no cambia — lo que cambia es que ahora el `None` de
+    borrado deliberado y el de cifrado roto dejaron de ser el mismo valor.
+
+    ⚠ El `if not valor` de abajo es REDUNDANTE y está medido como tal: `encrypt()` ya mira
+    primero si hay algo que cifrar, así que quitarlo deja los 30 tests en verde (mutación
+    corrida). Se queda para que el contrato de este helper no dependa del orden INTERNO de
+    `encrypt()` — orden que sí está pineado, pero en `test_encryption_service.py`, no acá.
+    Quien lo borre no va a ver un rojo; que lo lea acá es lo único que lo va a frenar.
+    """
+    if not valor:
+        return None
+    try:
+        return encrypt(valor)
+    except CifradoNoDisponible:
+        # RUIDOSO, en el momento exacto: el único rastro que había era un warning emitido
+        # UNA vez en el arranque del proceso, posiblemente días antes y sin relación visible
+        # con la petición que perdió la credencial.
+        _log.error("guardianes: FERNET_SECRET_KEY ausente o inválida — la credencial de "
+                   "servicio NO se guardó y la anterior quedó intacta")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="guardian_cifrado_no_disponible: el servicio de cifrado no está "
+                   "configurado (FERNET_SECRET_KEY), así que la credencial NO se guardó. "
+                   "El guardián quedó sin tocar.",
+        )
+
+
 @router.get("", response_model=List[GuardianResponseSchema])
 async def list_guardians(db: Session = Depends(get_db)):
     guardians = GuardianService.get_or_create_default_guardians(db)
@@ -252,6 +293,9 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
     # (el schema de entrada no trae tenant), que es donde la resolverá el bloque de abajo.
     postura_previa = _postura_efectiva_tenant(db, DEFAULT_TENANT_ID)
     region_previa = _region_efectiva_tenant(db, DEFAULT_TENANT_ID)  # H4 del gate de #137
+    # #283: se cifra ANTES de construir la fila. Si el cifrado no está disponible esto
+    # levanta 503 y no se llega a `db.add`, en vez del 201 con la credencial en la nada.
+    clave_cifrada = _cifrar_credencial_de_servicio(payload.service_api_key)
     guardian = Guardian(
         name=payload.name,
         guardian_type=payload.guardian_type,
@@ -259,7 +303,7 @@ async def create_guardian(payload: GuardianSchema, db: Session = Depends(get_db)
         config=payload.config,
         fail_mode=payload.fail_mode,
         apply_on=payload.apply_on,
-        service_api_key_encrypted=encrypt(payload.service_api_key) if payload.service_api_key else None,
+        service_api_key_encrypted=clave_cifrada,
     )
     db.add(guardian)
     db.commit()
@@ -505,6 +549,15 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     postura_previa = _postura_efectiva_tenant(db, tenant_id)
     region_previa = _region_efectiva_tenant(db, tenant_id)  # H4 del gate de #137
 
+    # #283 — el invariante de esta edición: **nunca pisar una credencial sana con el
+    # resultado de un cifrado fallido**. Por eso el cifrado se hace ACÁ, antes de tocar un
+    # solo atributo de la fila, y no en el renglón de la asignación como estaba: si levanta,
+    # el handler sale por el 503 sin haber mutado nada y la credencial anterior sigue en su
+    # lugar. Mismo orden validar-todo-antes-de-escribir que `sso/admin_api`.
+    rota_la_credencial = payload.service_api_key is not None
+    clave_cifrada = (_cifrar_credencial_de_servicio(payload.service_api_key)
+                     if rota_la_credencial else None)
+
     guardian.name = payload.name
     guardian.guardian_type = payload.guardian_type
     guardian.is_active = payload.is_active
@@ -512,8 +565,11 @@ async def update_guardian(guardian_id: UUID, payload: GuardianSchema, db: Sessio
     guardian.fail_mode = payload.fail_mode
     guardian.apply_on = payload.apply_on
 
-    if payload.service_api_key is not None:
-        guardian.service_api_key_encrypted = encrypt(payload.service_api_key) if payload.service_api_key else None
+    # Omitir el campo CONSERVA la credencial guardada; mandarlo vacío la borra a propósito.
+    # Ese contrato no cambia: lo que cambia es que el NULL de borrado deliberado ya no
+    # comparte camino con el de cifrado roto.
+    if rota_la_credencial:
+        guardian.service_api_key_encrypted = clave_cifrada
 
     db.commit()
     _auditar_cambio_postura_tenant(

@@ -157,11 +157,26 @@ def test_en_la_base_el_secreto_esta_CIFRADO(entorno, sso_licenciado, cifrado_dis
 
 # ── Sin cifrado disponible: corta y NO persiste ───────────────────────────────────
 
-def test_sin_fernet_corta_con_503_y_no_escribe_nada(entorno, sso_licenciado, monkeypatch):
-    """`encrypt()` devuelve None en silencio si falta FERNET_SECRET_KEY. Persistir eso
-    sería un 200 con el secreto en la nada y el síntoma a kilómetros de la causa."""
+@pytest.fixture
+def cifrado_caido(monkeypatch):
+    """El despliegue con `FERNET_SECRET_KEY` ausente, vacía o **inválida**, sin doblar nada.
+
+    Se apaga el `_fernet` del módulo y se deja correr el `encrypt()` REAL, que desde el #283
+    levanta `CifradoNoDisponible`. Antes estos dos tests doblaban `encrypt` con un
+    `lambda _v: None`; el doble medía el guard, pero dejaba de coincidir con la función
+    real en el momento en que la función real cambiara — que es exactamente lo que acaba de
+    pasar. Con el `_fernet` apagado no hay doble que se pueda desincronizar: el test recorre
+    el mismo camino que un cliente con la clave mal generada.
+    """
+    from src.services import encryption_service
+    monkeypatch.setattr(encryption_service, "_fernet", None)
+    yield
+
+
+def test_sin_fernet_corta_con_503_y_no_escribe_nada(entorno, sso_licenciado, cifrado_caido):
+    """Sin cifrado disponible, `encrypt()` levanta. Persistir igual sería un 200 con el
+    secreto en la nada y el síntoma a kilómetros de la causa."""
     client, factory = entorno
-    monkeypatch.setattr("src.sso.admin_api.encrypt", lambda _v: None)
     resp = client.put(CONFIG, json=_cuerpo(), headers=admin_headers(client))
     assert resp.status_code == 503, resp.text
     assert "sso_cifrado_no_disponible" in resp.text
@@ -170,10 +185,11 @@ def test_sin_fernet_corta_con_503_y_no_escribe_nada(entorno, sso_licenciado, mon
 
 def test_un_secreto_VACIO_no_se_hace_pasar_por_el_cifrado_caido(entorno, sso_licenciado,
                                                                 cifrado_disponible):
-    """`encrypt()` devuelve `None` por DOS causas distintas —sin Fernet, o valor vacío— y el
-    503 sólo es cierto para la primera. Con el cifrado sano, mandar el campo en blanco tiene
-    que dar 400 del cuerpo: un 503 «FERNET_SECRET_KEY no configurada» manda al admin a
-    debuggear una infra que anda, y encima invita a reintentar algo que nunca va a andar."""
+    """Sin Fernet y valor vacío son DOS causas distintas, y el 503 sólo es cierto para la
+    primera. Con el cifrado sano, mandar el campo en blanco tiene que dar 400 del cuerpo: un
+    503 «FERNET_SECRET_KEY no configurada» manda al admin a debuggear una infra que anda, y
+    encima invita a reintentar algo que nunca va a andar. (El #283 llevó esa separación a la
+    raíz: `encrypt()` devuelve `None` sólo por el vacío, y levanta por el sin-Fernet.)"""
     client, factory = entorno
     resp = client.put(CONFIG, json=_cuerpo(client_secret=""), headers=admin_headers(client))
     assert resp.status_code == 400, resp.text
@@ -189,7 +205,10 @@ def test_sin_fernet_una_config_YA_guardada_queda_intacta(entorno, sso_licenciado
     client.put(CONFIG, json=_cuerpo(), headers=h)
     antes = _fila(factory).client_secret_encrypted
 
-    monkeypatch.setattr("src.sso.admin_api.encrypt", lambda _v: None)
+    # Se apaga el Fernet DESPUÉS de sembrar: es el despliegue que funcionaba y dejó de
+    # funcionar (rotación de la clave a un valor mal generado), no uno que nunca anduvo.
+    from src.services import encryption_service
+    monkeypatch.setattr(encryption_service, "_fernet", None)
     resp = client.put(CONFIG, json=_cuerpo(client_secret="otro"), headers=h)
     assert resp.status_code == 503
     assert _fila(factory).client_secret_encrypted == antes
