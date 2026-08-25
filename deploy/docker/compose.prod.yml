@@ -121,6 +121,12 @@ services:
       # sub-path 'mounted' anterior dejaba al backend ciego al catálogo
       # (hallazgo del ensayo — la UI mostraba 'no hay modelos').
       - litellm_config:/app/litellm_config
+      # Estado del supervisor del motor (spec 033), SOLO LECTURA: el backend lo
+      # sirve por GET /models/status y no tiene por qué poder escribirlo — el
+      # único escritor es el supervisor, en el contenedor del motor. El `:ro` es
+      # el que hace que «el backend jamás habla con Docker» siga siendo cierto:
+      # observa estado por un archivo, no por el daemon.
+      - engine_status:/app/engine_status:ro
     depends_on:
       litellm:
         condition: service_started
@@ -216,13 +222,32 @@ services:
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # ── Recarga supervisada del motor (spec 033, FR-005) ───────────────────────
+      # ⚠ DESLINDE DE NAMESPACE: `BASA_ENGINE_*` ya existía arriba (`:43-51`), pero
+      # ESA es la familia de ADMISIÓN hacia el motor y la lee el **backend** en SU
+      # contenedor (MAX_CONCURRENCY / QUEUE_TIMEOUT / TIMEOUT, `engine_gate.py`).
+      # Estas tres son otra cosa: mismo componente («engine» = motor), PROCESO
+      # DISTINTO — las lee el **supervisor** acá adentro. No se pisan y no se
+      # comparten: poner una de éstas en el env del backend no hace nada, y
+      # viceversa. Documentado igual en client.env.example (T007).
+      BASA_ENGINE_AUTORELOAD: "${BASA_ENGINE_AUTORELOAD:-on}"
+      BASA_ENGINE_APPLY_DEBOUNCE_SECONDS: "${BASA_ENGINE_APPLY_DEBOUNCE_SECONDS:-5}"
+      BASA_ENGINE_DRAIN_SECONDS: "${BASA_ENGINE_DRAIN_SECONDS:-30}"
     volumes:
       - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
-    # SIN esto el motor arranca con config default: cero modelos y CERO
-    # guardrails/extensiones (hallazgo del ensayo — el volumen montado no
-    # basta, hay que decirle al motor que lo use). Las extensiones resuelven
-    # relativo al config: /app/config/extensions (populate_volumes las copia).
-    entrypoint: ["litellm", "--config", "/app/config/config.yaml"]
+      # Estado observable del supervisor. ÚNICO volumen donde el motor escribe:
+      # su lado de `litellm_config` sigue siendo `:ro` a propósito, así que el
+      # supervisor no puede tocar el config ni borrar el sentinel (lo borra el
+      # backend). El backend lo monta `:ro` para servir GET /models/status.
+      - engine_status:/app/status
+    # El entrypoint pasa a ser el SUPERVISOR (spec 033): valida el YAML y recién
+    # entonces relanza litellm con drenaje, así un config roto jamás deja el motor
+    # caído. Viaja por el mismo canal templado que las extensiones —el volumen
+    # `litellm_config`—, no por imagen nueva: la del motor sigue siendo la stock
+    # pinneada de arriba. El supervisor lanza `litellm --config …` él mismo.
+    # Sin `docker.sock` y sin capabilities nuevas: relanza un proceso HIJO dentro
+    # de este contenedor, jamás habla con el daemon (restricción dura de #50, SC-005).
+    entrypoint: ["python", "/app/config/supervisor.py"]
     # host-gateway: modelos locales del cliente (runtime en el host de la VM).
     # En Docker Desktop es implícito; en la VM Linux del cliente NO — sin esta
     # línea el modelo local sería inalcanzable en el install real.
@@ -273,5 +298,7 @@ volumes:
   redisdata:
   licenses:
   litellm_config:
+  # Estado del supervisor del motor (spec 033): motor rw, backend ro.
+  engine_status:
   branding:
   caddy_data:

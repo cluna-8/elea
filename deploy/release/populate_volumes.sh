@@ -44,7 +44,15 @@ docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$RENDERED:/src:ro" \
 # Las extensiones del motor (guardrail/auth/logger) viajan junto al config:
 docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$REPO_ROOT/litellm/extensions:/ext:ro" \
     alpine:3 sh -c "mkdir -p /vol/extensions && cp /ext/*.py /vol/extensions/"
-echo "✅ litellm_config ← config.yaml + extensiones"
+# El supervisor del motor (spec 033) viaja por el MISMO canal templado, no por imagen
+# nueva: la del motor es la stock pinneada. Va en la raíz del volumen porque el
+# entrypoint de compose.prod.yml lo invoca como /app/config/supervisor.py — el `cp`
+# de extensiones de arriba es un glob sobre /ext, así que NO alcanza a este fichero.
+# Sin esta línea el motor arranca contra un entrypoint inexistente y no levanta.
+# Queda de root a propósito: el motor monta este volumen `:ro` y sólo necesita leerlo.
+docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$REPO_ROOT/litellm:/sup:ro" \
+    alpine:3 sh -c "cp /sup/supervisor.py /vol/supervisor.py && chmod 644 /vol/supervisor.py"
+echo "✅ litellm_config ← config.yaml + extensiones + supervisor.py"
 
 # 2b) Rutas del auto-router (spec 030) → MISMO volumen: el backend lo lee en cada
 #     decisión de ruteo (/app/litellm_config/auto_router.json) y lo REESCRIBE desde el
