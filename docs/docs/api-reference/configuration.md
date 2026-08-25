@@ -12,6 +12,17 @@
 | `POSTGRES_DB` | `basa_gateway` | Database Configuration |
 | `POSTGRES_USER` | `basa_admin` | — |
 | `POSTGRES_PASSWORD` | *(secreto — generado por instalación)* | — |
+
+### ── Conexión a la base de datos y Redis (producción) ─────────────────────────────────
+
+En producción la base y el Redis son gestionados/externos: el compose de prod NO los levanta — los alcanza por red. Por eso el host es un dato que el operador TIENE que dar, no un default que se puede dejar vacío. El compose de prod lo declara con `:?` (sin default): si falta, el stack no levanta y lo dice — no arranca contra un host inventado. El puerto SÍ tiene default (5432), pero se declara explícito porque entra en el DATABASE_URL que arma el motor del gateway: los dos planos tienen que resolver el mismo endpoint.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `POSTGRES_HOST` | — | Host de la base de datos (Postgres). OBLIGATORIO en producción: el compose de prod lo pasa con `:?`, sin default — si la variable no llega, el stack no arranca. En dev la levanta el compose (servicio `db`), así que no hace falta declararla; en prod es el host de la instancia gestionada por el cliente. |
+| `POSTGRES_PORT` | `5432` | Puerto de la base de datos. Default `5432` (el compose de prod lo declara con `:-5432`). Se declara explícito porque el motor del gateway arma su `DATABASE_URL` con este valor: si el backend y el motor no resuelven el mismo puerto, uno conecta y el otro no. |
+| `REDIS_HOST` | — | Host de Redis. OBLIGATORIO en producción: el compose de prod lo pasa con `:?`, sin default. Lo usan DOS servicios (backend y motor del gateway) — los dos escriben y leen las mismas claves (`basa:audit:*`, `basa:nlp:*`); apuntar a instancias distintas hace que el health cuente cero mientras el otro plano registra. En dev lo levanta el compose; en prod es el host de la instancia gestionada por el cliente. |
+| `REDIS_PORT` | `6379` | Puerto de Redis. Default `6379` (el compose de prod lo declara con `:-6379`). Se declara explícito por la misma razón que POSTGRES_PORT: backend y motor tienen que resolver el MISMO endpoint. |
 | `JWT_SECRET_KEY` | — | Backend secrets (OBLIGATORIOS - generar valores propios, no dejar vacíos) JWT_SECRET_KEY:    python3 -c "import secrets; print(secrets.token_urlsafe(48))" FERNET_SECRET_KEY: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
 | `FERNET_SECRET_KEY` | — | — |
 | `BASA_BCRYPT_WORKERS` | — | Hilos del executor dedicado de bcrypt del LOGIN (#167). bcrypt es CPU-bound y lento a propósito; una ráfaga de logins corriendo en el threadpool anyio compartido le comía los hilos al gateway (auditoría/rechazo por run_in_threadpool) y disparaba el fail-closed del NLP sobre tráfico legítimo. Este executor ACOTADO y SEPARADO lo evita. Es POR PROCESO: el total de la instalación es el valor por WEB_CONCURRENCY. Vacío = default min(cpu, 4) (bcrypt libera el GIL, pero más hilos que CPUs sólo agrega contención; el techo es 4). Un valor ausente/vacío/malformado/fuera de rango cae al default — un typo no debe voltear el login. |
