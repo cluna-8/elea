@@ -2,16 +2,37 @@ name: CI
 
 # CI mínimo (#82): corre en cada PR y en main EXACTAMENTE los comandos del gate
 # documentado (AGENTS.md / README) — nada de réplicas con pip que deriven.
+#
+# Optimización de facturación (auditoría 24-ago, BASA DevOps): Actions factura
+# CADA JOB redondeado al minuto entero superior. Con 4 jobs cortos pagábamos
+# ~9 min por corrida sobre ~7 min de cómputo real, y construíamos DOS VECES la
+# misma imagen backend (~55 s cada vez). Los comandos del gate no cambian: se
+# agrupan para pagar 2 redondeos en vez de 4 y un solo build.
 on:
   pull_request:
   push:
     branches: [main]
 
+# Red de seguridad barata: dos pushes seguidos al mismo PR → cancela el viejo.
+# (Medido en agosto: casi no ocurre — ahorro ~0.2% — pero no cuesta nada.)
+#
+# En push agrupamos por `github.sha`, NO por `github.ref`: `cancel-in-progress:
+# false` sólo protege el run EN CURSO — Actions cancela igual cualquier run
+# PENDING del mismo grupo. Con `github.ref`, tres merges seguidos a main dejan
+# al del medio pending → cancelado → ese árbol mergeado nunca corre CI (que es
+# justo el invariante que este workflow existe para sostener). Un grupo por SHA
+# hace que cada merge tenga el suyo y no pueda encolarse detrás del siguiente.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # id `backend-tests` conservado: lo citan tech-team/DevFlow-BasaGuardian.md y
+  # specs/035. El id `docs-check` se absorbe acá y `harness-tests` en el de abajo.
   backend-tests:
-    name: pytest (suite completa, Postgres real)
+    name: pytest (suite completa, Postgres real) + check-docs
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Secretos efímeros del stack de test
@@ -25,14 +46,37 @@ jobs:
       - name: Levantar Postgres + Redis
         run: docker compose up -d db redis
       - name: Migraciones (el CMD del contenedor las corre en runtime; pytest lo pisa)
+        id: migraciones
         run: docker compose run --rm --no-deps backend alembic upgrade head
       - name: Suite completa
         run: docker compose run --rm --no-deps backend pytest tests/ -q
+      # Warm-up: el primer `docker compose run` de una máquina fresca mete el
+      # progreso del build en stdout y corrompe el export que captura el check
+      # de apiref (visto en CI 07-ago; hardening del script → issue de Factory).
+      # Acá la imagen ya se construyó arriba → este build sale 100% CACHED (~2 s).
+      - name: Build previo de la imagen backend
+        if: ${{ !cancelled() && steps.migraciones.conclusion == 'success' }}
+        run: docker compose build backend
+      # La condición hace DOS cosas:
+      #   1. `!cancelled()` conserva la señal separada: si la SUITE falla, docs corre
+      #      igual y ves los dos resultados en la misma corrida (no perdemos ciclo).
+      #   2. exigir migraciones OK evita el único riesgo que introduce agrupar: con la
+      #      base atrasada, `export_openapi.py` dispara el auto-upgrade de alembic al
+      #      importar la app (backend/src/main.py:61) y si una migración escribiera a
+      #      stdout, el apiref se corrompe y el check reporta "openapi.json
+      #      DESACTUALIZADO" — un diagnóstico FALSO que manda a regenerar algo sano.
+      #      Con db caída eso hoy no pasa (falla el import y salta al except); con db
+      #      levantada, sí. Preferimos no correr docs a correrlo sobre base sucia.
+      - name: check-docs (build + linter del sitio que se vende)
+        if: ${{ !cancelled() && steps.migraciones.conclusion == 'success' }}
+        run: make -C deploy check-docs
 
-  frontend-tsc:
-    name: tsc --noEmit (gate frontend vigente, DevFlow §3)
+  # id `harness-tests` conservado (lo citan el ADR 0002, specs/035 y dos tests del
+  # propio harness): absorbe el gate de tsc, que no lo citaba nadie. Ver `name:`.
+  harness-tests:
+    name: tsc --noEmit + pytest harness
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,34 +86,19 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
-      - run: npx tsc --noEmit
+      - name: tsc --noEmit (gate frontend vigente, DevFlow §3)
+        if: ${{ !cancelled() }}
+        run: npx tsc --noEmit
         working-directory: frontend
-
-  harness-tests:
-    name: pytest harness (instrumento La ITV, sin stack)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        if: ${{ !cancelled() }}
         with:
           python-version: "3.12"
       - name: Instalar el harness (deps + dev)
+        if: ${{ !cancelled() }}
         run: pip install -e ".[dev]"
         working-directory: harness
-      - name: Tests del instrumento
+      - name: Tests del instrumento (La ITV, sin stack)
+        if: ${{ !cancelled() }}
         run: pytest tests/ -q
         working-directory: harness
-
-  docs-check:
-    name: check-docs (build + linter del sitio que se vende)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      # Warm-up: el primer `docker compose run` de una máquina fresca mete el
-      # progreso del build en stdout y corrompe el export que captura el check
-      # de apiref (visto en CI 07-ago; hardening del script → issue de Factory).
-      - name: Build previo de la imagen backend
-        run: docker compose build backend
-      - run: make -C deploy check-docs

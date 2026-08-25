@@ -36,8 +36,10 @@ código Python en `src/`, tests del instrumento en `tests/`.
 
 - El corpus PII etiquetado es un artefacto compartido del departamento (issue #107): lo
   produce el harness, lo consume también el gate de calidad de detección del core.
-- Los tests del instrumento entran a un job de CI propio (`harness-tests`, pytest sin
-  stack); los gates NO corren en CI (necesitan el entorno de examen dedicado).
+- Los tests del instrumento entran a un job de CI sin stack (`harness-tests`, pytest sin
+  Docker; desde #289 ese job comparte runner con `tsc --noEmit` para no pagar dos
+  redondeos al minuto — la decisión de este ADR no cambia, sólo el empaquetado);
+  los gates NO corren en CI (necesitan el entorno de examen dedicado).
 - Agregar una superficie o un gate = editar data versionada + código del módulo, sin
   tocar el producto. El módulo no entra en artefactos que se venden (no aplica
   white-label ni check-docs).
