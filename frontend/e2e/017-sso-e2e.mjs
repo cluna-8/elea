@@ -14,6 +14,7 @@
 //   licenciado-sin-config licencia CON `sso`      → available:false + botón ausente
 //   sembrado              + fila del tenant       → botón presente + 302 al IdP real, verificado
 //   degradacion           idem                    → el IdP rechaza el canje y SÓLO cae el SSO (FR-009)
+//   motivo-idp            cualquiera (sólo consola)→ el retorno CON error dice qué hacer, no un genérico
 //   login-real            + credenciales piloto   → el humano teclea; se mide la sesión que sale
 //
 // Las 3 primeras son automáticas. `login-real` NO lo es a propósito: el segundo factor del
@@ -32,7 +33,7 @@ import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const FASES = ['sin-licencia', 'licenciado-sin-config', 'sembrado', 'degradacion', 'login-real'];
+const FASES = ['sin-licencia', 'licenciado-sin-config', 'sembrado', 'degradacion', 'motivo-idp', 'login-real'];
 
 const base = (process.argv[2] || 'http://localhost:8090').replace(/\/$/, '');
 const outDir = process.argv[3] || join(process.cwd(), 'shots-017-sso');
@@ -296,6 +297,70 @@ async function faseDegradacion(ctx, page) {
     `tenant=${claims?.tenant ?? '—'}`, captura);
 }
 
+/** #294 — el retorno del directorio SIN código. Es el camino que se comió el diagnóstico de la
+ *  corrida del 25-ago: el navegador volvió a `/sso/callback`, el directorio había mandado
+ *  `error=consent_required`, y la consola mostró un genérico que no dice qué hacer. Como esta
+ *  pantalla NO llama al backend en ese camino, el motivo tampoco quedaba en los registros del
+ *  servidor: si no se lee acá, se pierde del todo.
+ *
+ *  Se mide contra la consola sola — no hace falta backend sembrado ni licencia, porque el
+ *  cortocircuito ocurre antes de cualquier fetch. Por eso corre en cualquier estado. */
+async function faseMotivoIdP(ctx, page) {
+  // TESTIGO primero, misma regla que `medirBoton`: sin esto, un bundle roto o un puerto
+  // equivocado darían "el banner no dice X" y la fase pasaría en verde midiendo la nada.
+  await page.goto(base, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(600);
+  const hayPantalla = await page.getByRole('button', { name: /Ingresar al Panel/i }).count();
+  registrar('la pantalla de acceso se dibujó (testigo)', hayPantalla === 1, `botón local=${hayPantalla}`);
+
+  /** Vuelve del directorio con los parámetros dados y devuelve el texto del banner. */
+  async function volverConError(qs) {
+    await page.goto(`${base}/sso/callback?${qs}`, { waitUntil: 'domcontentloaded' });
+    const banner = page.getByRole('alert').first();
+    await banner.waitFor({ timeout: 10000 }).catch(() => {});
+    return (await banner.textContent().catch(() => '')) || '';
+  }
+
+  // La descripción es la REAL de Entra para este caso, con los identificadores que trae puestos:
+  // el punto del paso es que el AADSTS sobreviva y el Trace/Correlation ID NO.
+  const desc = 'AADSTS65004: User declined to consent to access the app. ' +
+    'Trace ID: 9bff984d-385b-4c1d-b0a5-21948e7a9f00 Correlation ID: c0rr-3l4t-10n-1d';
+  const consent = await volverConError(
+    `error=consent_required&error_description=${encodeURIComponent(desc)}`);
+  const capturaConsent = await capturar(page, 'consent-required-dice-que-hacer');
+  registrar('consentimiento: el banner nombra al administrador y NO manda a reintentar solo',
+    /administrador/i.test(consent) && /reintentar no alcanza/i.test(consent),
+    `banner="${consent.slice(0, 120)}"`, capturaConsent);
+  registrar('consentimiento: el AADSTS sobrevive para pasárselo a quien administra',
+    consent.includes('AADSTS65004') && consent.includes('consent_required'), consent.slice(0, 90));
+  // El `consent.length > 0` NO es decorativo: sin él este paso es un assert puramente negativo
+  // y **un banner vacío lo hace pasar**. Medido — contra la consola de `main`, sin el fix, este
+  // mismo paso daba ✅ con `banner=""` mientras los otros cuatro daban ❌. Un negativo sin
+  // testigo certifica la nada.
+  registrar('consentimiento: los identificadores de la descripción NO se pintan',
+    consent.length > 0 && !/Trace ID|Correlation ID|9bff984d|c0rr-3l4t/i.test(consent),
+    `largo=${consent.length} banner="${consent.slice(0, 90)}"`);
+  registrar('consentimiento: se nombra el fallback local (FR-009)',
+    /usuario y contrase/i.test(consent), consent.slice(0, 90));
+
+  // Contracara: un código que el mapa NO conoce no puede quedar mudo ni pintar basura.
+  const raro = await volverConError('error=' + encodeURIComponent('X'.repeat(300)));
+  const capturaRaro = await capturar(page, 'codigo-fuera-de-forma-no-rompe-el-banner');
+  registrar('un código fuera de forma no se pinta, y el banner sigue diciendo qué hacer',
+    !raro.includes('XXXXXXXXXX') && /usuario y contrase/i.test(raro),
+    `largo=${raro.length} banner="${raro.slice(0, 90)}"`, capturaRaro);
+
+  // Y el genérico de siempre sigue existiendo para el retorno de verdad malformado.
+  const sinNada = await volverConError('state=solo-state-sin-code-ni-error');
+  registrar('un retorno sin código y sin error sigue cayendo en el genérico',
+    /no se recibi/i.test(sinNada), sinNada.slice(0, 90));
+
+  // FR-009 medido donde se usa: el formulario local sigue entero después de todo esto.
+  const hayFormulario = await page.getByRole('button', { name: /Ingresar al Panel/i }).count();
+  registrar('el login local sigue en pie después del fallo del directorio', hayFormulario === 1,
+    `botón local=${hayFormulario}`);
+}
+
 async function faseLoginReal(ctx, page) {
   await faseSembrado(ctx, page);
 
@@ -345,6 +410,7 @@ try {
   else if (fase === 'licenciado-sin-config') await faseLicenciadoSinConfig(ctx, page);
   else if (fase === 'sembrado') await faseSembrado(ctx, page);
   else if (fase === 'degradacion') await faseDegradacion(ctx, page);
+  else if (fase === 'motivo-idp') await faseMotivoIdP(ctx, page);
   else await faseLoginReal(ctx, page);
 } catch (e) {
   explosion = String(e?.stack || e);

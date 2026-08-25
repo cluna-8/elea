@@ -412,6 +412,7 @@ disponible.
 |---|---|---|
 | El botón no aparece en la pantalla de acceso | La licencia no trae el flag `sso`, o el tenant no tiene proveedor habilitado | Licencia (fabricante) o configuración del tenant |
 | `AADSTS50011` en la pantalla del directorio | La URI de retorno del pedido no coincide con ninguna registrada — barra final, mayúsculas, esquema o puerto | Igualar los tres valores: directorio, variable de entorno, origen de la consola |
+| Un mensaje que dice que **un administrador del directorio tiene que autorizar la aplicación**, con un código entre paréntesis | El directorio devolvió a la consola **sin emitir un código de autorización**, y explicó por qué: consentimiento pendiente, segundo factor sin registrar, o un registro de aplicación mal configurado. El texto exacto depende del código | Según el código: aprobar la aplicación en el directorio (una vez, y lo hace un administrador), completar el registro del usuario, o revisar el registro de la aplicación |
 | «Falta la URI de retorno del SSO» | `BASA_SSO_REDIRECT_URI` sin configurar | Configuración del despliegue |
 | «Este tenant no tiene un proveedor SSO habilitado» | No hay fila de configuración, o está deshabilitada | Configuración del tenant |
 | «No se pudo iniciar el flujo con el proveedor» | No se llegó al directorio, o su descubrimiento está caído o mal apuntado | Red / salida hacia el directorio, o el Directory ID |

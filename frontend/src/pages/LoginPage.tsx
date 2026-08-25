@@ -81,7 +81,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, initialErr
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="bg-danger-bg text-danger px-4 py-3 rounded-md flex items-center gap-3 text-sm">
+              // `role="alert"` para que un lector de pantalla anuncie el fallo del acceso sin
+              // que la persona tenga que ir a buscarlo — y, de paso, es el gancho estable con
+              // el que el harness E2E lee este banner (fase `motivo-idp`, #294).
+              <div
+                role="alert"
+                className="bg-danger-bg text-danger px-4 py-3 rounded-md flex items-center gap-3 text-sm"
+              >
                 <AlertCircle className="w-5 h-5 shrink-0" />
                 <span>{error}</span>
               </div>
