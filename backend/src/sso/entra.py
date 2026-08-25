@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import re
 import time
+from itertools import islice
 from urllib.parse import urlencode
 
 import httpx
@@ -73,6 +74,12 @@ _FORMA_CODIGO_ERROR_OAUTH2 = re.compile(r"[A-Za-z0-9_.-]{1,40}")
 # (Hallado por revisión independiente sobre el primer commit de este PR.)
 _MAX_ERROR_CODES = 5
 _MAX_VALOR_ERROR_CODE = 10 ** 9
+# Y un tope de CUÁNTO SE MIRA. Los dos de arriba acotan lo que sale, no lo que se recorre:
+# medido, una lista de 2.000.000 de códigos legítimos daba un mensaje correcto de 86 caracteres
+# **después de 159 ms** dentro del `except`. Con este tope no se miran más de 50 elementos.
+# El precio, dicho: un código válido escondido detrás de 50 inválidos se pierde. Entra manda
+# uno. (P3 del gate de #296.)
+_MAX_ESCANEO_ERROR_CODES = 50
 
 # Allowlist EXPLÍCITA de algoritmos — Entra firma RS256. El objeto de módulo `authlib.jose.jwt`
 # NO tiene allowlist (su `_algorithms` es `None` = "todos los registrados", `none` incluido) y
@@ -159,10 +166,14 @@ def _causa(exc: Exception) -> str:
     if isinstance(crudos, list):
         # Sólo enteros —`bool` es subclase de `int` en Python y no es un código AADSTS— y sólo
         # dentro del rango de un código real: ver `_MAX_VALOR_ERROR_CODE`.
-        codigos = [
-            str(c) for c in crudos
+        # Perezoso a propósito: el `islice` de afuera corta apenas junta los que necesita, y el
+        # de adentro acota cuánto se recorre. Con una lista por comprensión, el `[:5]` recortaba
+        # DESPUÉS de haber construido la lista entera.
+        validos = (
+            str(c) for c in islice(crudos, _MAX_ESCANEO_ERROR_CODES)
             if type(c) is int and 0 <= c < _MAX_VALOR_ERROR_CODE
-        ][:_MAX_ERROR_CODES]
+        )
+        codigos = list(islice(validos, _MAX_ERROR_CODES))
         if codigos:
             detalle = f"{detalle} AADSTS={','.join(codigos)}"
 

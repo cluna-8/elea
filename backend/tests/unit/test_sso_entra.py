@@ -614,6 +614,21 @@ def test_294_un_AADSTS_gigante_no_puede_elegir_el_largo_de_la_linea_de_log():
     assert "7000215" in mensaje  # el código legítimo de la misma lista sí sobrevive
 
 
+def test_294_la_lista_de_codigos_se_recorre_acotada_y_el_precio_esta_escrito():
+    """Los topes de cantidad y de valor acotan lo que SALE, no lo que se RECORRE: medido, una
+    lista de 2.000.000 de códigos legítimos daba el mensaje correcto **después de 159 ms**
+    dentro del `except`. El precio del tope de escaneo es explícito y se pinea acá: un código
+    válido escondido detrás de más de 50 entradas se pierde. Entra manda uno."""
+    cuerpo = dict(_SECRETO_VENCIDO)
+    cuerpo["error_codes"] = ["basura"] * 60 + [7000215]
+
+    mensaje = _mensaje_del_canje(cuerpo, 401)
+
+    assert "7000215" not in mensaje       # quedó fuera del escaneo, a propósito
+    assert "401" in mensaje               # y el resto del mensaje no se degrada
+    assert "invalid_client" in mensaje
+
+
 def test_294_los_booleanos_no_se_cuelan_como_codigos():
     """`bool` es subclase de `int`: `isinstance(True, int)` es `True`, así que un filtro escrito
     con `isinstance` pintaría `AADSTS=True`. Por eso el filtro es `type(c) is int`."""

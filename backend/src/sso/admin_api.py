@@ -160,9 +160,12 @@ def escribir_config(payload: SsoConfigIn, db: Session = Depends(get_db),
             logger.error("sso: FERNET_SECRET_KEY ausente o inválida — no se persiste el secreto")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                # Mismo cuidado que en `api/guardians.py`: este PUT es un UPSERT, así que
+                # «la config quedó sin tocar» es falso cuando todavía no hay fila. Lo cierto
+                # en los dos caminos es que no se escribió nada.
                 detail="sso_cifrado_no_disponible: el servicio de cifrado no está "
                        "configurado (FERNET_SECRET_KEY), así que el secreto NO se guardó. "
-                       "La config quedó sin tocar.",
+                       "La petición se rechazó sin escribir nada.",
             )
     else:
         # Omitir el secreto en una edición CONSERVA el guardado; en un alta, queda sin él
