@@ -29,7 +29,7 @@ la lectura que NO pueda regalar un PASS. En concreto:
 
 2. **El filtro tiene que haberse aplicado.** ``_build_query`` parsea las fechas con
    ``datetime.fromisoformat`` dentro de un ``try/except ValueError: pass``
-   (``audit.py:99-108``): una fecha que no parsea NO es un error, es un filtro que
+   (``_build_query`` de ``api/audit.py``): una fecha que no parsea NO es un error, es un filtro que
    desaparece en silencio y un total que cuenta la tabla entera. Antes de contar nada se
    dispara una sonda con una ventana IMPOSIBLE (año 2999): si vuelve algo distinto de 0,
    el backend está ignorando el filtro y se aborta. Barato (una request) y cierra el único
@@ -76,7 +76,7 @@ from typing import Callable, Optional, Union
 LOGIN_PATH = "/api/v1/users/login"
 AUDIT_PATH = "/api/v1/audit-logs"
 
-# Valores del enum ``EstadoFiltro`` (audit.py:49). Complementarios sobre el tráfico.
+# Valores del enum ``EstadoFiltro`` (``EstadoFiltro`` de ``api/audit.py``). Complementarios sobre el tráfico.
 ESTADO_BLOQUEADOS = "bloqueados"
 ESTADO_PERMITIDOS = "permitidos"
 

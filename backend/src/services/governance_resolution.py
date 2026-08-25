@@ -10,7 +10,7 @@ Por qué importa que la lectura esté en UN solo lugar: la única query de este 
 **filtra siempre por ``tenant_id``**. El antipatrón que no se replica tiene nombre y
 línea: ``get_or_create_default_policy`` lee la postura con
 ``db.query(SecurityPolicy).first()`` —sin filtrar tenant ni ``is_active``
-(policy.py:34, repetido en :59, :66, :141 y clonado en costs.py:277-279)—, así que la
+(``get_or_create_default_policy`` de ``api/policy.py``, repetido en ``get_active_policy``/``update_active_policy``/``delete_policy`` y clonado en ``_active_policy`` de ``api/costs.py``)—, así que la
 política de un tenant puede resolverse con datos de otro. Colgar gobernanza de una
 lectura así heredaría el bug (D2), y acá el dato que se lee decide **qué capas de
 seguridad corren**. Constitución III: toda query de este archivo lleva el filtro de

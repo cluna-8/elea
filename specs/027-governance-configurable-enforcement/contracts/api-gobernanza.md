@@ -135,7 +135,7 @@ bloqueos** y necesita un contrato estable:
 
 - **La respuesta de bloqueo DEBE disparar la rama fail-closed de las extensiones ya
   desplegadas**: la MV3 actual solo bloquea con `!res.ok`
-  (`extension/basa-guard.js:115-118`) — un bloqueo con `ok: true` + `replacements: []` haría
+  (el fail-closed del hook de `window.fetch` en `extension/guardia-main.js`) — un bloqueo con `ok: true` + `replacements: []` haría
   que una extensión vieja **envíe el texto original en claro** al proveedor (skew de
   versiones = fail-open). Por eso el bloqueo responde `ok: false` **más** los campos nuevos:
   `{"ok": false, "blocked": true, "blocked_by_layer": "<layer_key>", "motivo": "<copy del

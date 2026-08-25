@@ -10,7 +10,7 @@ Qué agrega:
 * ``audit_logs.routing_decision`` (JSONB) — el objeto decisión completo de data-model §2:
   ``{requested, route, score, model_selected, degraded, reason}``. **Metadata-only**: la
   ruta es una etiqueta de config y el score un número; JAMÁS entra texto del prompt (mismo
-  contrato de no-fuga que rige ``applied_layers``, audit.py:34-40).
+  contrato de no-fuga que rige ``applied_layers``, ``AuditLog.applied_layers`` de ``models/audit.py``).
 
 Qué NO hace, tan importante como lo que hace:
 * **Nullable, sin default y sin backfill**: las filas históricas no tuvieron ruteo y NULL

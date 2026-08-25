@@ -748,7 +748,7 @@ def contar_no_clasificadas(db: "Session", cutoff: datetime) -> int:
 # `models/compliance.py:77`) — no se persigue (Edge Case de spec.md).
 #
 # CRITERIO DE EDAD — decisión documentada (ambigüedad de spec, resuelta por el lado conservador
-# para privacidad). Ni `spec.md` FR-004 (scenario 4) ni `data-model.md:53` fijan sin ambigüedad
+# para privacidad). Ni `spec.md` FR-004 (scenario 4) ni `data-model.md` de `specs/018-retencion-tiers` (tabla «Mutaciones sobre datos existentes», fila `human_reviews.response_text`) fijan sin ambigüedad
 # QUÉ timestamp de `human_reviews` decide «vencida»: la columna es «el texto superó el plazo de
 # `prompt_content`», sin nombrar `created_at` ni `reviewed_at`. Se elige `created_at`, por dos
 # razones que apuntan al mismo lado:

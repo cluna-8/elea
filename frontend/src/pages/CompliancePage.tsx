@@ -789,7 +789,7 @@ export const CompliancePage: React.FC = () => {
           {/*
             Estado REAL de la retención (spec 031 FR-008 / US3).
 
-            `retention_days` se persiste (`compliance.py:314-334`) pero HOY ningún proceso lo
+            `retention_days` se persiste (`update_retention` de `api/compliance.py`) pero HOY ningún proceso lo
             lee para borrar: `purge_log` no tiene escritores y el único scheduler del proceso
             es el de licencias. La purga automática es trabajo de la 018 y queda explícitamente
             FUERA de esta spec (FR-009).

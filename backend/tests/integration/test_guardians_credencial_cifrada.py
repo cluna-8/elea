@@ -3,7 +3,7 @@
 Antes de este módulo, **ningún test del repo mandaba `service_api_key` por la API**. Los
 cuatro que tocaban el campo escribían `service_api_key_encrypted="cifrada"` directo en el
 modelo, salteando `encrypt()` por completo: el camino de escritura tenía cobertura CERO. Y
-como la suite corre con el cifrado apagado (`conftest.py:29`, `FERNET_SECRET_KEY=""`), un
+como la suite corre con el cifrado apagado (`conftest.py` de `backend/tests/`, `FERNET_SECRET_KEY=""`), un
 test escrito sin la fixture de abajo mediría el camino roto y lo llamaría verde.
 
 Los dos estados que se ejercitan son estados de DESPLIEGUE, no de la petición:

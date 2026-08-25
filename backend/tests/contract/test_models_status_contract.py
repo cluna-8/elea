@@ -93,7 +93,7 @@ def test_estado_error_propaga_el_last_error_tal_cual(harness, status_path):
 
 def test_archivo_ausente_responde_honesto_no_500(harness, status_path):
     """``status_path`` crea el PATH pero no el fichero: el volumen todavía no montado
-    (o el supervisor sin arrancar) es el caso explícito de la spec (tasks.md:54-55) —
+    (o el supervisor sin arrancar) es el caso explícito de la spec (T004 de `specs/033-engine-reload-restart-ui/tasks.md`) —
     nunca puede ser un 500."""
     client, factory = harness
     headers = headers_for_role(client, factory, Rol.COMPLIANCE_OFFICER, sufijo="-ausente")

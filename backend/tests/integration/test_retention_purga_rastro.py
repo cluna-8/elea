@@ -13,7 +13,7 @@ la DB; (b) el no vencido no se tocó; (c) la fila de review sigue con su metadat
 NO anula pero SÍ cuenta; (e) los lotes.
 
 **Criterio de edad — decisión documentada (ambigüedad de spec).** Ni `spec.md` FR-004 (scenario 4)
-ni `data-model.md:53` nombran `created_at` vs `reviewed_at`. Se eligió `created_at` por el lado
+ni `data-model.md` de `specs/018-retencion-tiers` (tabla «Mutaciones sobre datos existentes», fila `human_reviews.response_text`) nombran `created_at` vs `reviewed_at`. Se eligió `created_at` por el lado
 conservador para privacidad: es el timestamp más TEMPRANO (`created_at <= reviewed_at`), así que el
 contenido muere antes, y no es nullable —`reviewed_at` sí—, así que una revisión abierta que nunca
 se cerró igual pierde su texto en vez de vivir para siempre. `test_la_edad_sale_de_created_at…` y

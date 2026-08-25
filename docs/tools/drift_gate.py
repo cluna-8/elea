@@ -121,7 +121,7 @@ CONTRACT_RE = re.compile(r"^(rejected|blocked)_[a-z0-9_]+$")
 
 # Coinciden con CONTRACT_RE por forma pero NO son un `compliance_status` que un
 # integrador vea — son otra cosa que se llama parecido:
-#   blocked_by_layer  — nombre de COLUMNA/campo (`audit.py:45`); guarda CUÁL capa
+#   blocked_by_layer  — nombre de COLUMNA/campo (``AuditLog.blocked_by_layer`` de ``models/audit.py``); guarda CUÁL capa
 #                        bloqueó, su valor es un id de capa, nunca el string
 #                        "blocked_by_layer" en sí.
 #   blocked_topics    — clave de config de un Guardian SEED con `is_active=False`

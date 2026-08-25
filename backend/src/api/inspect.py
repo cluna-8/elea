@@ -25,7 +25,7 @@ atribución (``applied_layers``/``blocked_by_layer``).
 **Consecuencia de contrato**: la extensión **empieza a recibir bloqueos**, y el bloqueo
 responde ``ok: false`` (más ``blocked``/``blocked_by_layer``/``motivo``). El ``ok:false``
 es **load-bearing, no cosmética**: la MV3 ya desplegada solo tiene fail-closed sobre
-``!res.ok`` (``extension/basa-guard.js:115-118``); un bloqueo con ``ok:true`` y
+``!res.ok`` (el fail-closed del hook de ``window.fetch`` en ``extension/guardia-main.js``); un bloqueo con ``ok:true`` y
 ``replacements: []`` haría que una extensión vieja mandara el texto ORIGINAL en claro al
 proveedor — fail-open por skew de versiones, exactamente lo que un firewall no puede
 permitirse. Con ``ok:false`` las extensiones viejas bloquean por su propio fail-closed

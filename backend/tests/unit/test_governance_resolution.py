@@ -7,7 +7,7 @@ filas**. Tres cosas que, si se rompen, rompen criterios de éxito enteros:
   producto necesita datos sembrados para estar protegido, y un dato sembrado es un dato
   borrable.
 - **Constitución III**: la query filtra por ``tenant_id``. El bug vivo de
-  ``get_or_create_default_policy`` (``.first()`` sin filtrar tenant, policy.py:34) es
+  ``get_or_create_default_policy`` (``.first()`` sin filtrar tenant, ``get_or_create_default_policy`` de ``api/policy.py``) es
   exactamente lo que acá se testea que NO pasa — con filas de dos tenants en la misma
   tabla, no con un mock que dice que sí.
 - **La lectura nunca relaja**: sin filas legibles la postura cae a los defaults de

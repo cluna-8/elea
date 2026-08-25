@@ -19,8 +19,8 @@ class GovernanceProfile(Base):
 
     **Por qué no cuelga de ``SecurityPolicy``** (D2): esa tabla no es multi-tenant en la
     práctica pese a tener ``tenant_id`` —su lector real es ``db.query(SecurityPolicy).first()``
-    sin filtrar tenant (policy.py:34 y repeticiones)—, mantiene el invariante de **un solo
-    activo global** apagando el resto en cada escritura (policy.py:88-90), y su eje es "qué
+    sin filtrar tenant (``get_or_create_default_policy`` de ``api/policy.py`` y repeticiones)—, mantiene el invariante de **un solo
+    activo global** apagando el resto en cada escritura (``create_policy``/``update_policy_by_id`` de ``api/policy.py``), y su eje es "qué
     entidades PII y con qué acción", no "qué capas corren para este alcance". El eje
     modo×superficie exige N filas activas a la vez. El precedente de forma que sí se copia es
     ``ComplianceProject`` (compliance.py:13-34): entidad por tenant, referenciada por clave,

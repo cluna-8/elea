@@ -16,7 +16,7 @@ from src.services.encryption_service import CifradoNoDisponible, decrypt, encryp
 
 @pytest.fixture
 def fernet_sano(monkeypatch):
-    """La suite corre con el cifrado apagado (`conftest.py:29`), así que el camino feliz
+    """La suite corre con el cifrado apagado (`conftest.py` de `backend/tests/`), así que el camino feliz
     hay que prenderlo. Se parchea el `_fernet` del módulo y no el env: `encryption_service`
     lee `FERNET_SECRET_KEY` UNA vez en el import y setear la variable acá no haría nada."""
     from cryptography.fernet import Fernet
