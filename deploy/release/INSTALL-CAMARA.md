@@ -116,6 +116,17 @@ releé `config.yaml` y relanza el motor sin bajar el contenedor — el propio pa
 progreso (`Aplicando cambios…`) y, si falla, el motivo real del supervisor, no un mensaje
 genérico. Ya **no** hace falta `docker restart camara-litellm-1` a mano.
 
+> ⚠️ **En cajas instaladas ANTES del bundle con supervisor**, ese botón no tiene quién lo
+> atienda: el panel va a mostrar **«Estado del motor no disponible»** y apretarlo no cambia
+> nada. Ahí, y sólo ahí, el paso sigue siendo el de siempre:
+> ```bash
+> docker restart camara-litellm-1
+> ```
+> Cómo saber en cuál estás, sin adivinar: abrí **Modelos & Ollama** y mirá el recuadro
+> «Motor IA — aplicar cambios». Si dice **«Motor al día»** o **«Aplicando cambios…»**, tu caja
+> tiene supervisor y el botón es el camino. Si dice **«Estado del motor no disponible»**, usá
+> el `docker restart`.
+
 Si no: el Playground "no hace nada" (es un 400 que la UI no muestra). Orden siempre: **alta → Aplicar cambios del motor → probar**.
 
 ## 6 · Usuarios
@@ -206,6 +217,7 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | Síntoma | Causa |
 |---|---|
 | Playground «no hace nada» tras alta de modelo | Falta apretar «Aplicar cambios del motor» en Modelos & Ollama |
+| Apreté «Aplicar cambios del motor» y no pasa nada / dice «Estado del motor no disponible» | Caja anterior al bundle con supervisor → `docker restart camara-litellm-1` |
 | `Cannot connect to host host.docker.internal:11434` | Ollama sin `OLLAMA_HOST=0.0.0.0`, o stack en otra máquina → alta por UI con IP |
 | 401 en todo con clave válida | Motor sin `BASA_IDENTITY_URL` |
 | «Sitio no seguro» tras instalar el .crt con doble-click | Fue al almacén del USUARIO, no al de la máquina → `install-ca.bat` del trust-kit |
