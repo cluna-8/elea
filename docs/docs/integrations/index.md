@@ -147,7 +147,7 @@ Los caminos con **patrones** (suscripción y navegador) protegen identificadores
 estructurados por diseño: son planos de latencia crítica (herramientas agénticas, miles de
 tokens por petición) y su modelo de amenaza son las credenciales y los identificadores — el
 `whoami` de cada Connection lo declara. La política de fallo de auditoría es configurable
-por instalación (`BASA_AUDIT_FAIL=open|closed`, ver Operación).
+por instalación (`BASA_AUDIT_FAIL=open|closed|policy`, ver Operación).
 
 ---
 

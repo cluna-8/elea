@@ -13,22 +13,40 @@ from .redis_client import get_redis
 logger = logging.getLogger("basa-secure-gateway.audit")
 
 
-# ── Política de fallo de auditoría (spec 031, D4/D5 + contrato §Config) ───────────
+# ── Política de fallo de auditoría (spec 031 D4/D5 + spec 038 D1/D2, contrato §Config) ──
 #
 # `BASA_AUDIT_FAIL` decide qué pasa cuando la fila durable NO se puede escribir:
 #
-#   * `open`   (DEFAULT, y el del piloto): el tráfico se sigue sirviendo, pero el fallo
+#   * `open`   override global explícito: el tráfico se sigue sirviendo siempre, el fallo
 #              deja de ser invisible — se reintenta acotado, se cuenta en Redis y se
 #              loguea con nivel error. Nunca un `print`, nunca un `return None` mudo.
-#   * `closed` instalaciones que exigen «sin auditoría no hay servicio»: la escritura
-#              agotada propaga `AuditUnavailableError`, que los planos convierten en 503
-#              honesto (mismo patrón que el fail-closed de licencias, 021).
+#   * `closed` override global explícito para instalaciones que exigen «sin auditoría no
+#              hay servicio»: la escritura agotada propaga `AuditUnavailableError`, que los
+#              planos convierten en 503 honesto (mismo patrón que el fail-closed de
+#              licencias, 021).
+#   * `policy` (DEFAULT — spec 038 D1: ausente/ilegible ⇒ `policy`, ya no `open`) la
+#              decisión servir/cortar se toma POR PEDIDO según `applied_risk_level`
+#              (`audit_fail_decision()`, matriz D2 más abajo). Los seis call-sites vivos
+#              del backend sólo preguntan `== AUDIT_FAIL_CLOSED` / `!= AUDIT_FAIL_CLOSED`,
+#              así que `policy` viaja por la misma rama que `open` hasta que Phase 2 (T006-
+#              T008) los conecte a `audit_fail_decision()` — cero cambio de comportamiento
+#              en este PR, es sólo el parser y la matriz sin consumidores nuevos.
 #
 # Es el ÚNICO lector de la env en el backend (T001: helper único): chat, gateway y health
-# preguntan por acá, así que un typo o un valor raro degrada a `open` en un solo lugar.
+# preguntan por acá, así que un typo o un valor raro degrada a `policy` en un solo lugar.
 AUDIT_FAIL_OPEN = "open"
 AUDIT_FAIL_CLOSED = "closed"
+AUDIT_FAIL_POLICY = "policy"
 AUDIT_FAIL_ENV = "BASA_AUDIT_FAIL"
+
+# ── Matriz D2 (spec 038, FR-002) — el ÚNICO lugar donde vive ──────────────────────────
+#
+# El riesgo ya compone persona/grupo/tenant vía la cascada 013 (`context_resolution.py`);
+# el rol NO participa acá (D2-a). Si un plano la reimplementa aunque sea «igualita», es
+# NO_APTO en el gate (nota de tasks.md) — todos los planos llaman a `audit_fail_decision()`.
+# Sólo se enumera el lado que SIRVE: todo lo demás (annex1/annex3, `None`, desconocido)
+# corta — fail-closed hacia lo reversible, no hace falta una segunda lista para eso.
+_RISK_LEVELS_SIRVE = frozenset({"minimal", "limited"})
 
 # Contador de pérdidas (contrato §Contador de pérdidas). Sin TTL a propósito: es
 # CONSTANCIA de que hubo eventos sin registrar, no una métrica que se auto-borra.
@@ -57,16 +75,42 @@ class AuditUnavailableError(RuntimeError):
 
 
 def audit_fail_mode() -> str:
-    """`open` | `closed` leído de `BASA_AUDIT_FAIL` (contrato §Config).
+    """`open` | `closed` | `policy` leído de `BASA_AUDIT_FAIL` (contrato §Config).
 
-    Default `open` si la env falta, viene vacía o trae cualquier otra cosa: una env mal
-    tipeada NO puede convertirse en un corte de servicio silencioso — el fail-closed es
-    una decisión explícita de la instalación, no un accidente de configuración.
+    Default `policy` (spec 038 D1) si la env falta, viene vacía o trae cualquier otra
+    cosa: una env mal tipeada NO puede convertirse en un corte de servicio silencioso ni
+    en un default a ciegas — la instalación que no setea nada pasa a decidir por riesgo,
+    que es la opción reversible (antes: `open`, que servía TODO sin fila). `open` y
+    `closed` explícitos siguen siendo overrides globales sin cambio de semántica (FR-003).
     Se lee por llamada (no se cachea en un módulo) para que un `docker compose up -d` con
     la env cambiada surta efecto sin rebuild y para que los tests la puedan monkeypatchear.
     """
     raw = os.getenv(AUDIT_FAIL_ENV, "").strip().lower()
-    return AUDIT_FAIL_CLOSED if raw == AUDIT_FAIL_CLOSED else AUDIT_FAIL_OPEN
+    if raw == AUDIT_FAIL_OPEN:
+        return AUDIT_FAIL_OPEN
+    if raw == AUDIT_FAIL_CLOSED:
+        return AUDIT_FAIL_CLOSED
+    return AUDIT_FAIL_POLICY
+
+
+def audit_fail_decision(risk_level: Optional[str]) -> bool:
+    """`True` = sirve sin fila · `False` = corta (503) — matriz D2, ÚNICO lugar (FR-002).
+
+    `applied_risk_level` ya resolvió la cascada User > Group > Tenant (spec 013 US4) antes
+    de llegar acá: esta función no conoce persona, grupo ni tenant, sólo el nivel final.
+
+      * `minimal` / `limited`               → sirve (``True``): riesgo bajo, la pérdida de
+        una fila es tolerable frente al costo de cortar tráfico normal.
+      * `high_risk_annex1` / `high_risk_annex3` → corta (``False``): la instalación no
+        sirve tráfico de alto riesgo que no puede registrar.
+      * `None` o cualquier string desconocido    → corta (``False``): fail-closed hacia lo
+        reversible (nota de tasks.md) — un pedido sin riesgo resuelto no demostró ser de
+        bajo riesgo, así que el default ante la duda es el mismo que annex1/annex3.
+
+    La clase `config_audit` (acciones de configuración, no tráfico) NO entra en esta
+    política (FR-002): sus call-sites simplemente no llaman a esta función.
+    """
+    return risk_level in _RISK_LEVELS_SIRVE
 
 
 def _wait(seconds: float) -> None:

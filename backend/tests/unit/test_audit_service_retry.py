@@ -22,6 +22,7 @@ from src.services.audit_service import (
     AuditUnavailableError,
     REDIS_KEY_AUDIT_LAST_FAIL,
     REDIS_KEY_AUDIT_LOST,
+    audit_fail_decision,
     audit_fail_mode,
     audit_writable,
 )
@@ -136,8 +137,9 @@ def logs_de_auditoria():
 
 
 @pytest.fixture(autouse=True)
-def modo_open_por_defecto(monkeypatch):
-    """La env es global al proceso: cada test parte de un estado conocido."""
+def modo_default_sin_env(monkeypatch):
+    """La env es global al proceso: cada test parte de un estado conocido (spec 038 D1:
+    sin la env seteada el modo default ya no es `open`, es `policy`)."""
     monkeypatch.delenv(audit_service.AUDIT_FAIL_ENV, raising=False)
 
 
@@ -283,16 +285,27 @@ def test_closed_no_afecta_el_camino_feliz(monkeypatch, redis_falso, esperas):
 
 
 def test_open_es_compatible_con_los_callers_previos(redis_falso, esperas):
-    """Regresión de contrato: en `open` (default) el fallo sigue devolviendo None y NO
-    lanza — ni chat.py ni gateway.py cambian de comportamiento por esta spec."""
+    """Regresión de contrato: fuera de `closed` el fallo sigue devolviendo None y NO
+    lanza — ni chat.py ni gateway.py cambian de comportamiento por esta spec. Se prueba
+    acá con el default nuevo (spec 038 D1, `policy`): `policy != closed` toma la misma
+    rama que antes tomaba `open`, así que el contrato previo a la 038 no se mueve."""
     db = _FakeSession(fallos=99)
     assert _escribir(db) is None
 
 
 # --------------------------------------------------------------------------- #
-# 5. Helper único de lectura de la env (T001)
+# 5. Helper único de lectura de la env (T001, T003 spec 038)
 # --------------------------------------------------------------------------- #
-def test_modo_default_es_open_sin_env():
+def test_modo_default_es_policy_sin_env():
+    """Spec 038 D1: ausente ⇒ `policy`, ya no `open` — la instalación que no setea nada
+    pasa a decidir por riesgo en vez de servir todo sin fila."""
+    assert audit_fail_mode() == "policy"
+
+
+def test_modo_open_explicito(monkeypatch):
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "open")
+    assert audit_fail_mode() == "open"
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "  OPEN  ")
     assert audit_fail_mode() == "open"
 
 
@@ -303,11 +316,50 @@ def test_modo_closed_explicito(monkeypatch):
     assert audit_fail_mode() == "closed"
 
 
+def test_modo_policy_explicito(monkeypatch):
+    """`policy` explícito (no sólo por default) es un valor válido de la env (FR-003)."""
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "policy")
+    assert audit_fail_mode() == "policy"
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "  POLICY  ")
+    assert audit_fail_mode() == "policy"
+
+
 @pytest.mark.parametrize("valor", ["", "   ", "cerrado", "true", "openn"])
-def test_valor_ilegible_degrada_a_open(monkeypatch, valor):
-    """Un typo en la env JAMÁS puede convertirse en un corte de servicio silencioso."""
+def test_valor_ilegible_degrada_a_policy(monkeypatch, valor):
+    """Un typo en la env JAMÁS puede convertirse en un corte de servicio silencioso NI en
+    un default a ciegas — degrada a `policy` (spec 038 D1), la opción reversible."""
     monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, valor)
-    assert audit_fail_mode() == "open"
+    assert audit_fail_mode() == "policy"
+
+
+# --------------------------------------------------------------------------- #
+# 5b. Matriz D2 (spec 038, T004) — ÚNICO lugar: minimal/limited sirve,
+#     annex1/annex3/None/desconocido corta (fail-closed hacia lo reversible)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("nivel", ["minimal", "limited"])
+def test_riesgo_bajo_sirve(nivel):
+    assert audit_fail_decision(nivel) is True
+
+
+@pytest.mark.parametrize("nivel", ["high_risk_annex1", "high_risk_annex3"])
+def test_riesgo_alto_corta(nivel):
+    assert audit_fail_decision(nivel) is False
+
+
+def test_riesgo_ausente_corta():
+    """`None` (riesgo no resuelto) corta: no demostró ser de bajo riesgo — fail-closed
+    hacia lo reversible, mismo criterio que un nivel desconocido."""
+    assert audit_fail_decision(None) is False
+
+
+@pytest.mark.parametrize("nivel", ["", "MINIMAL", "unknown", "config_audit", "high"])
+def test_riesgo_desconocido_corta(nivel):
+    """Mayúsculas, vacío, `config_audit` (clase que ni siquiera debería llegar acá, FR-002)
+    y cualquier string que no sea exactamente uno de los cuatro niveles: corta. Sin
+    normalización de mayúsculas a propósito — el caller pasa `applied_risk_level` tal cual
+    lo resolvió la cascada 013, que ya es canónico; inventarle tolerancia acá sería un
+    segundo lugar de la matriz disfrazado de comodidad."""
+    assert audit_fail_decision(nivel) is False
 
 
 # --------------------------------------------------------------------------- #

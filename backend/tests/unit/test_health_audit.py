@@ -96,8 +96,9 @@ def redis_falso(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def modo_open_por_defecto(monkeypatch):
-    """La env es global al proceso: cada test parte de un estado conocido."""
+def modo_default_sin_env(monkeypatch):
+    """La env es global al proceso: cada test parte de un estado conocido (spec 038 D1:
+    sin la env seteada el modo default ya no es `open`, es `policy`)."""
     monkeypatch.delenv(AUDIT_FAIL_ENV, raising=False)
 
 
@@ -129,12 +130,14 @@ def test_rol_sin_permiso_de_auditoria_tampoco_ve_los_numeros(redis_falso):
 # 2. Tier de operación: el bloque del contrato, con la semántica de cada valor
 # --------------------------------------------------------------------------- #
 def test_contador_sembrado_se_publica_tal_cual(redis_falso):
+    """Spec 038 D1: sin `BASA_AUDIT_FAIL` seteada el `/health` ahora publica `policy`, no
+    `open` — consecuencia directa del default nuevo, no un bug de este test."""
     redis_falso({REDIS_KEY_AUDIT_LOST: "5", REDIS_KEY_AUDIT_LAST_FAIL: ISO})
 
     body = _app(_FakeSession(), usuario=_admin()).get(RUTA).json()
 
-    assert body["audit"] == {"mode": "open", "lost_events": 5, "last_failure_at": ISO}
-    assert body["status"] == "healthy", "en `open` una pérdida NO degrada: el tráfico se sirve"
+    assert body["audit"] == {"mode": "policy", "lost_events": 5, "last_failure_at": ISO}
+    assert body["status"] == "healthy", "fuera de `closed` una pérdida NO degrada: el tráfico se sirve"
 
 
 def test_sin_perdidas_es_cero_y_no_null(redis_falso):
@@ -147,13 +150,14 @@ def test_sin_perdidas_es_cero_y_no_null(redis_falso):
 
 
 def test_redis_caido_devuelve_null_y_no_rompe(redis_falso):
-    """`null` ≠ `0`: no se pudo mirar el contador, y decirlo es el punto de la spec."""
+    """`null` ≠ `0`: no se pudo mirar el contador, y decirlo es el punto de la spec.
+    `mode` es `policy` (spec 038 D1, default sin la env seteada)."""
     redis_falso(ausente=True)
 
     resp = _app(_FakeSession(), usuario=_admin()).get(RUTA)
 
     assert resp.status_code == 200
-    assert resp.json()["audit"] == {"mode": "open", "lost_events": None,
+    assert resp.json()["audit"] == {"mode": "policy", "lost_events": None,
                                     "last_failure_at": None}
 
 
@@ -219,15 +223,16 @@ def test_anonimo_tambien_ve_el_degradado(monkeypatch, redis_falso):
     assert "reason" not in body
 
 
-def test_open_no_paga_el_probe_de_escribibilidad(redis_falso):
-    """En `open` la caída de la auditoría no degrada el servicio, así que no hay razón
-    para gastar un `SELECT 1` por cada probe (este endpoint es público)."""
+def test_fuera_de_closed_no_paga_el_probe_de_escribibilidad(redis_falso):
+    """Fuera de `closed` (acá: el default nuevo, `policy`) la caída de la auditoría no
+    degrada el servicio, así que no hay razón para gastar un `SELECT 1` por cada probe
+    (este endpoint es público)."""
     db = _FakeSession(caida=True)
 
     body = _app(db, usuario=_admin()).get(RUTA).json()
 
     assert body["status"] == "healthy"
-    assert db.sentencias == [], "ni una consulta a la base en el camino `open`"
+    assert db.sentencias == [], "ni una consulta a la base fuera del camino `closed`"
 
 
 # --------------------------------------------------------------------------- #
