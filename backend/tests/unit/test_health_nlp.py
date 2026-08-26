@@ -47,8 +47,10 @@ class _FakeSession:
         self.configs_por_tenant = configs_por_tenant
         self.consultas = 0
         self.filtros = []
+        self.sentencias = 0          # `execute` = el SELECT 1 de escribibilidad
 
     def execute(self, _sentencia):
+        self.sentencias += 1
         return None
 
     def get_bind(self):
@@ -250,15 +252,35 @@ def test_el_anonimo_ve_degraded_pero_no_el_bloque_nlp(redis_falso, sidecar):
     assert "reason" not in body
 
 
-def test_el_tier_anonimo_no_consulta_la_base_por_el_fail_mode(redis_falso, sidecar):
-    """Este endpoint es público: redactar un motivo que no va a viajar no puede costar una
-    consulta a `guardians` en cada probe."""
+def test_el_tier_anonimo_no_paga_una_consulta_POR_PROBE(redis_falso, sidecar):
+    """El endpoint es público y martillable: el costo se acota AMORTIZADO, no a cero.
+
+    Rationale original (issue #63): «redactar un motivo que no va a viajar no puede costar
+    una consulta a `guardians` en cada probe». Sigue vigente — lo que cambió es que ahora SÍ
+    hay un motivo que puede viajar: con el tier de enforcement en estricto, un
+    `BASA_AUDIT_FAIL` que no sea `closed` es una incoherencia y `status: degraded` **sí** se
+    publica al anónimo (spec 038 D3; opción A sellada por el manager el 26-ago — se descartó
+    dársela sólo al admin porque quienes pollean `/health` anónimo, k8s y uptime checks, son
+    exactamente los consumidores de esa señal).
+
+    El pin nuevo es el amortizado: **≤1 resolución de tier por ventana de TTL, sin importar
+    la tasa de probes**. Doce probes seguidos no pueden costar doce queries.
+    """
     sidecar(vivo=False)
     db = _FakeSession({"nlp_fail_mode": "degrade"})
+    cliente = _app(db)
 
-    _app(db).get(RUTA)
+    for _ in range(12):
+        cliente.get(RUTA)
 
-    assert db.consultas == 0
+    assert db.consultas <= 1, (
+        f"12 probes dentro del TTL costaron {db.consultas} queries de tier: el cache no está "
+        "absorbiendo el martilleo y la superficie pública queda expuesta"
+    )
+    assert db.sentencias == 0, (
+        "el probe de escribibilidad (SELECT 1) sigue en CERO fuera de `closed`: sólo el tier "
+        "ganó su ≤1/TTL. Un assert genérico sobre 'la base' dejaría colar este SELECT 1"
+    )
 
 
 def test_un_rol_sin_permiso_de_auditoria_tampoco_ve_el_bloque(redis_falso, sidecar):

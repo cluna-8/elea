@@ -243,3 +243,177 @@ def test_el_health_de_licencia_no_cambio_de_ruta(redis_falso):
 
     assert resp.status_code == 200
     assert "status" in resp.json()
+
+
+# --------------------------------------------------------------------------- #
+# Coherencia tier × política de auditoría (spec 038 D3 / FR-006, T005)
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def tier_espiado(monkeypatch):
+    """Fija el tier y CUENTA cuántas veces se resolvió.
+
+    Se parchea el nombre en `health_api`, no en el módulo de servicios: `health.py` hizo
+    `from ..services.governance_resolution import instalacion_en_tier_estricto`, así que la
+    referencia que ejecuta vive acá. Parchear el origen dejaría el espía sin usar y los
+    tests pasarían por la razón equivocada.
+    """
+    llamadas = []
+
+    def _instalar(estricto: bool):
+        def _fake(db):
+            llamadas.append(db)
+            return estricto
+        monkeypatch.setattr(health_api, "instalacion_en_tier_estricto", _fake)
+        return llamadas
+
+    # El cache vive en el módulo: sin esto, un test hereda el valor del anterior.
+    health_api._tier_cache["vencimiento"] = 0.0
+    return _instalar
+
+
+def test_tier_estricto_con_open_explicito_degrada(redis_falso, monkeypatch, tier_espiado):
+    """`open` + tier estricto = la instalación se contradice: exige registro y no lo garantiza."""
+    tier_espiado(True)
+    monkeypatch.setenv(AUDIT_FAIL_ENV, "open")
+
+    body = _app(_FakeSession(), usuario=_admin()).get(RUTA).json()
+
+    assert body["status"] == "degraded"
+    assert "tier de enforcement es estricto" in body["reason"]
+    assert "BASA_AUDIT_FAIL=open" in body["reason"]
+
+
+def test_tier_estricto_con_policy_default_degrada(redis_falso, tier_espiado):
+    """Sin env seteada el modo es `policy` (D1) — la incoherencia con el tier es la misma."""
+    tier_espiado(True)
+
+    body = _app(_FakeSession(), usuario=_admin()).get(RUTA).json()
+
+    assert body["status"] == "degraded"
+    assert "BASA_AUDIT_FAIL=policy" in body["reason"]
+
+
+def test_tier_estandar_no_degrada(redis_falso, tier_espiado):
+    """El tier estándar no asevera ninguna postura: `policy` no contradice nada."""
+    tier_espiado(False)
+
+    body = _app(_FakeSession(), usuario=_admin()).get(RUTA).json()
+
+    assert body["status"] == "healthy"
+    assert "reason" not in body or not body.get("reason")
+
+
+def test_closed_no_paga_resolucion_de_gobernanza(redis_falso, monkeypatch, tier_espiado):
+    """`closed` es coherente con CUALQUIER tier, así que el probe no consulta gobernanza.
+
+    No es una micro-optimización: es la condición sellada para no meterle una query de
+    governance a cada golpe de un orquestador.
+    """
+    llamadas = tier_espiado(True)
+    monkeypatch.setenv(AUDIT_FAIL_ENV, "closed")
+
+    body = _app(_FakeSession(), usuario=_admin()).get(RUTA).json()
+
+    assert body["status"] == "healthy", "closed con auditoría escribible no degrada"
+    assert llamadas == [], (
+        "en `closed` no hay incoherencia posible: resolver el tier sería pagar una query "
+        f"de gobernanza por probe sin ninguna decisión que tomar (se resolvió {len(llamadas)}x)"
+    )
+
+
+def test_el_cache_VENCE_y_el_cambio_de_tier_viaja(redis_falso, monkeypatch, tier_espiado):
+    """Pasado el TTL se re-consulta Y el valor nuevo se refleja.
+
+    El par del anti-martilleo: aquél prueba que el cache **absorbe**, éste que **vence**.
+    Sin este pin, un bug que congele `vencimiento` deja el tier clavado para siempre —un
+    admin activa el tier estricto y el health no degrada nunca, o al revés, una degradación
+    fantasma que no se va— y toda la suite sigue verde. El «drift acotado al TTL» que se
+    selló es una promesa de frescura, y una promesa sin testigo no es un invariante.
+
+    Se manipula el RELOJ, no el cache: forzar `vencimiento` a mano haría pasar el test
+    aunque el TTL fuera absurdo, que es justamente el bug que tiene que cazar.
+    """
+    reloj = {"t": 1_000.0}
+    monkeypatch.setattr(health_api.time, "monotonic", lambda: reloj["t"])
+
+    llamadas = tier_espiado(False)          # la instalación arranca en tier estándar
+    cliente = _app(_FakeSession(), usuario=_admin())
+    assert cliente.get(RUTA).json()["status"] == "healthy"
+
+    tier_espiado(True)                      # un admin enciende el tier estricto
+    reloj["t"] += health_api._TIER_CACHE_TTL_SEGUNDOS + 1
+
+    body = cliente.get(RUTA).json()
+
+    assert len(llamadas) == 2, (
+        f"vencido el TTL hay que re-consultar; se resolvió {len(llamadas)} vez/veces"
+    )
+    assert body["status"] == "degraded", (
+        "re-consultar no alcanza: el valor nuevo tiene que llegar al body, si no el cache "
+        "vence pero sirve lo viejo igual"
+    )
+
+
+def test_el_TTL_esta_en_un_rango_sano(redis_falso):
+    """Cota explícita sobre la constante: la frescura prometida tiene que ser creíble.
+
+    El test de vencimiento avanza el reloj usando la propia constante, así que sobrevive a
+    un cambio legítimo de TTL — pero por eso mismo no cazaría un valor absurdo. Este pin lo
+    cubre: un TTL enorme es un cache que en la práctica no vence nunca, y uno de 0 es no
+    cachear (el invariante amortizado se cae).
+    """
+    ttl = health_api._TIER_CACHE_TTL_SEGUNDOS
+
+    assert 0 < ttl <= 300, (
+        f"TTL={ttl}: fuera de rango la promesa de «drift acotado» deja de ser cierta — "
+        "un valor enorme no vence nunca y uno nulo no absorbe el martilleo"
+    )
+
+
+def test_gobernanza_que_explota_no_rompe_el_health(redis_falso, monkeypatch, tier_espiado):
+    """Si la query de gobernanza falla, el health responde igual y no degrada por tier.
+
+    Un `/health` que devuelve 500 es peor que uno que no reporta la incoherencia: es LA
+    superficie que mira ops justo cuando algo anda mal. Este caso lo encontraron los tests
+    existentes del archivo, no el diseño: agregar la resolución de gobernanza metió una
+    dependencia nueva en un camino que antes no tenía ninguna.
+    """
+    tier_espiado(True)
+
+    def _explota(db):
+        raise RuntimeError("governance_profiles no responde")
+
+    monkeypatch.setattr(health_api, "instalacion_en_tier_estricto", _explota)
+
+    resp = _app(_FakeSession(), usuario=_admin()).get(RUTA)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "healthy", (
+        "no sabemos si hay incoherencia, así que no se inventa una degradación"
+    )
+
+
+def test_el_cache_de_tier_aguanta_el_MARTILLEO(redis_falso, tier_espiado):
+    """N probes dentro del TTL ⇒ EXACTAMENTE una resolución, sin importar la tasa.
+
+    Que el TTL absorba el *segundo* probe es la mitad del invariante; lo que protege una
+    superficie pública es que absorba el duodécimo. El costo del health queda acotado por
+    ventana de tiempo, no por número de callers (opción A sellada, 26-ago: el pin pasó de
+    «cero queries» a «≤1 por ventana», conservando la intención original de #63 — que
+    martillar el endpoint no se traduzca en carga proporcional sobre `guardians`).
+    """
+    llamadas = tier_espiado(True)
+    db = _FakeSession()
+    cliente = _app(db, usuario=_admin())
+
+    for _ in range(12):
+        cliente.get(RUTA)
+
+    assert len(llamadas) == 1, (
+        f"12 probes en la misma ventana costaron {len(llamadas)} resoluciones de tier: el "
+        "cache no está acotando el costo y la superficie pública queda expuesta"
+    )
+    assert db.sentencias == [], (
+        "el probe de escribibilidad (SELECT 1) sigue en CERO fuera de `closed`: sólo el "
+        "tier ganó su ≤1/TTL, y los dos costos se cuentan por separado a propósito"
+    )

@@ -95,3 +95,24 @@ def _reset_presidio_http_client_singleton():
         _mod = sys.modules.get(_modname)
         if _mod is not None:
             _mod._http_client = None
+
+
+@pytest.fixture(autouse=True)
+def _resetear_cache_de_tier():
+    """Invalida el cache en proceso del tier de enforcement entre tests (spec 038 T005).
+
+    `health._tier_cache` es estado de MÓDULO: en producción es justamente el punto (un probe
+    cada pocos segundos no paga una query de gobernanza cada vez), pero en la suite convierte
+    a un test en dependiente del que corrió antes. Se detectó así: los tests de
+    `test_health_nlp.py` pasaban aislados y fallaban en la suite completa, heredando el tier
+    que había fijado `test_health_audit.py`. El import es diferido para no cargar el módulo de
+    API en tests que no lo tocan.
+    """
+    try:
+        from src.api import health
+    except Exception:  # el módulo no está disponible en este contexto: nada que resetear
+        yield
+        return
+    health._tier_cache["vencimiento"] = 0.0
+    health._tier_cache["valor"] = False
+    yield

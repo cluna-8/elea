@@ -32,8 +32,12 @@ import logging
 import uuid
 from typing import Iterable, Mapping, Optional, Sequence, Tuple
 
+from sqlalchemy.orm import Session
+
 from ..models.governance import GovernanceProfile
-from .governance_catalog import OFF, ON, Profile, resolve_profile, row_get
+from ..models.tenant import DEFAULT_TENANT_ID
+from .governance_catalog import (OFF, ON, Profile, map_effective_mode,
+                                 resolve_profile, row_get)
 
 logger = logging.getLogger("basa-secure-gateway.governance")
 
@@ -159,3 +163,25 @@ def resolve_tenant_profile(db, tenant_id, *, mode, surface=None,
     return resolve_profile(mode, surface, rows,
                            surface_trusted=surface_trusted,
                            connection_overrides=connection_overrides)
+
+
+# Capa de tier del registry 027 (spec 018 D7). `on` = estricto; `off`/ausente = estándar.
+ENFORCEMENT_TIER_LAYER = "enforcement_tier_estricto"
+
+
+def instalacion_en_tier_estricto(db: Session) -> bool:
+    """¿La instalación corre en tier `estricto`?
+
+    La retención hoy es global/single-tenant (`retention_policies.log_type` es UNIQUE global,
+    `models/compliance.py:93-95`) y este endpoint no recibe tenant, así que el tier que la
+    gobierna es el de la INSTALACIÓN: el `enforcement_tier_estricto` del tenant por defecto.
+    Se resuelve por el camino existente (`resolve_tenant_profile` → misma cascada de la 027);
+    sin fila explícita, cae al default de producto `off` = estándar (fail-open hacia el tier
+    menos restrictivo, que es la postura de fábrica documentada en data-model 018).
+
+    `mode` sale de `map_effective_mode(None)` = el modo sin contexto de ruteo (gateway-models):
+    da igual para una decisión de alcance `tenant_default`, que aplica en todos los modos, y es
+    el argumento honesto para una consulta que no nace de un pedido con ruteo.
+    """
+    profile = resolve_tenant_profile(db, DEFAULT_TENANT_ID, mode=map_effective_mode(None))
+    return profile.is_on(ENFORCEMENT_TIER_LAYER)

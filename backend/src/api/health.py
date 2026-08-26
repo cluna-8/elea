@@ -19,7 +19,7 @@ import logging
 import os
 import threading
 import time
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -39,6 +39,7 @@ from ..services import audit_service
 # vocabulario del issue #63 (`resolve_nlp_fail_mode`, `NLP_FAIL_DEGRADE`), que es la MISMA
 # función que deciden los dos planos de tráfico — el health no puede tener su propio criterio.
 from ..services.presidio_service import policy
+from ..services.governance_resolution import instalacion_en_tier_estricto
 from ..services.redis_client import get_redis
 
 logger = logging.getLogger("basa-secure-gateway.health")
@@ -139,6 +140,40 @@ def _leer_contadores_de_perdida() -> Tuple[Optional[int], Optional[str]]:
     return perdidos, ultimo
 
 
+# ── Coherencia tier × política de auditoría (spec 038 D3) ────────────────────────────
+#
+# El tier sale de `resolve_tenant_profile` = UNA query + la cascada de la 027. Un probe de
+# health puede llegar cada pocos segundos desde varios orquestadores, así que se cachea en
+# proceso con TTL corto: un drift acotado al TTL es aceptable para una señal de degradación,
+# que es eventual por naturaleza (sellado por el manager). Se cachea el TIER —postura de la
+# instalación, que cambia por acción de un admin—, nunca una decisión por pedido.
+_TIER_CACHE_TTL_SEGUNDOS = 30.0
+_tier_cache: Dict[str, Any] = {"vencimiento": 0.0, "valor": False}
+
+
+def _tier_estricto_cacheado(db: Session) -> bool:
+    """`enforcement_tier_estricto` de la instalación, cacheado por `_TIER_CACHE_TTL_SEGUNDOS`.
+
+    `time.monotonic()` y no `time()`: un ajuste de reloj del host no puede congelar el cache
+    ni vencerlo antes de tiempo.
+    """
+    ahora = time.monotonic()
+    if ahora >= _tier_cache["vencimiento"]:
+        try:
+            _tier_cache["valor"] = instalacion_en_tier_estricto(db)
+        except Exception as exc:  # noqa: BLE001 — cualquier fallo de la query de gobernanza
+            # Un `/health` que revienta es peor que uno que no reporta la incoherencia:
+            # es LA superficie que mira ops justo cuando algo anda mal. Si la gobernanza no
+            # se puede leer, no se degrada por tier (no sabemos que haya incoherencia) y
+            # queda la traza. Se cachea igual el fallo: sin eso, cada probe reintentaría la
+            # query contra una base que ya sabemos que no responde.
+            logger.warning("health: no se pudo resolver el tier de enforcement (%s); "
+                           "no se evalúa la coherencia con BASA_AUDIT_FAIL", exc)
+            _tier_cache["valor"] = False
+        _tier_cache["vencimiento"] = ahora + _TIER_CACHE_TTL_SEGUNDOS
+    return _tier_cache["valor"]
+
+
 def _estado_de_auditoria(db: Session) -> Tuple[str, Optional[str]]:
     """`(modo, motivo_degradado)`.
 
@@ -148,12 +183,21 @@ def _estado_de_auditoria(db: Session) -> Tuple[str, Optional[str]]:
     contador + el banner, así que no hay razón para pagar un `SELECT 1` por cada probe.
     """
     modo = audit_service.audit_fail_mode()
-    if modo != audit_service.AUDIT_FAIL_CLOSED:
-        return modo, None
-    if audit_service.audit_writable(db):
-        return modo, None
-    return modo, ("auditoría no escribible y la instalación exige registro "
-                  "(audit_fail=closed): el tráfico nuevo se rechaza con 503")
+    if modo == audit_service.AUDIT_FAIL_CLOSED:
+        # `closed` es coherente con cualquier tier POR DEFINICIÓN (es la postura más
+        # estricta), así que acá no se paga ninguna resolución de gobernanza.
+        if audit_service.audit_writable(db):
+            return modo, None
+        return modo, ("auditoría no escribible y la instalación exige registro "
+                      "(audit_fail=closed): el tráfico nuevo se rechaza con 503")
+    # `open` / `policy` (spec 038 D3 / FR-006): con el tier de enforcement en estricto la
+    # instalación YA aseveró que sin registro no hay servicio. Un `BASA_AUDIT_FAIL` que no
+    # sea `closed` contradice esa postura: se DEGRADA el health, no se corta el boot — un
+    # arranque abortado deja al operador sin la superficie donde leer el porqué.
+    if _tier_estricto_cacheado(db):
+        return modo, (f"el tier de enforcement es estricto y BASA_AUDIT_FAIL={modo}: la "
+                      "instalación exige registro pero la política no lo garantiza (038 D3)")
+    return modo, None
 
 
 # ── Estado de la detección NLP (issue #63) ───────────────────────────────────────────
