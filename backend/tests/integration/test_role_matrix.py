@@ -101,6 +101,12 @@ CATALOG = [
     ("GET",    "/api/v1/compliance/retention",       "compliance_config",     "read"),
     ("PUT",    "/api/v1/compliance/retention",       "compliance_config",     "write"),
     ("POST",   "/api/v1/compliance/consent",         "compliance_config",     "write"),
+    # Políticas de contenido (spec 036 US2) — misma superficie que la pestaña "Contenido" de
+    # Políticas de Cumplimiento: el CO las LEE, sólo admin las muta.
+    ("GET",    "/api/v1/content-policies",           "compliance_config",     "read"),
+    ("POST",   "/api/v1/content-policies",           "compliance_config",     "write"),
+    ("PUT",    "/api/v1/content-policies/{ID}",      "compliance_config",     "write"),
+    ("DELETE", "/api/v1/content-policies/{ID}",      "compliance_config",     "write"),
     # artefactos_compliance — projects, DPAs, DSRs
     ("GET",    "/api/v1/compliance/projects",        "artefactos_compliance", "read"),
     ("POST",   "/api/v1/compliance/projects",        "artefactos_compliance", "write"),
@@ -231,6 +237,60 @@ def harness():
 def motor(monkeypatch):
     """Motor mockeado por si algún handler alcanzado lo toca; el gate corre antes igual."""
     return mock_engine(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def _content_policies_mockeadas(monkeypatch):
+    """GET y DELETE de content-policies pegan la red real — NO sólo GET (corrección de
+    Jeff, 26-ago-2026, medida con canario que hace explotar `_get`): `mock_engine`
+    (arriba) sólo patchea `generate_key`/`create_user`/`delete_key`, nada de
+    `list_content_policies`/`create_content_policy`/`update_content_policy`/
+    `delete_content_policy`. GET nunca tiene body que Pydantic pueda rechazar, así que
+    para los roles con lectura SIEMPRE llega al handler y llama `list_content_policies`.
+    DELETE tampoco tiene body/schema (el ENDPOINT `delete_content_policy(policy_id: str)`
+    de este router — no el del cliente en `ai_engine_client`, que recibe `guardrail_id` —
+    no tiene `payload`) — para los roles con escritura SIEMPRE llega también, con o sin
+    el guard de abajo. Antes del fix del bloqueante #315, PUT se sumaba (el guard "al
+    menos una regla" no corría con el body vacío) — canario con el bug presente: 7/28
+    celdas tocan `_get` (GET×3 + PUT×2 + DELETE×2, por los roles que tienen ese acceso).
+    Con el fix, PUT vuelve a cortar en 422 antes del handler: quedan 5/28 celdas del
+    CATALOG (GET×3 + DELETE×2) — pero **6 tests en total** (Jeff, medido con canario,
+    26-ago-2026): `test_las_divergencias_rojas_son_exactamente_las_documentadas`
+    recorre el mismo CATALOG × MINTABLES A MANO (loop propio, no vía
+    `@pytest.mark.parametrize`) para comparar las divergencias vivas contra
+    `DIVERGENCIAS_CONOCIDAS_PRE_T006`, así que también pega GET/DELETE de
+    content-policies sin figurar en el conteo de celdas parametrizadas. Sin este
+    aislamiento cada una de esas celdas/tests dispara un `httpx` real
+    contra `http://litellm:4000/v2/guardrails/list` o `/guardrails/{id}`
+    (`_TIMEOUT = 10.0`) — el gate de rol cumple igual (502 no es 401/403), pero es red
+    viva que este harness no necesita para probar rol; la lógica del glue la cubre
+    `test_content_policy_service.py` mockeando `_post`/`_get`/`_delete_by_id`. Local a
+    este archivo (no en `seat_gate_harness.mock_engine`, que comparten otros módulos que
+    no tocan content-policies), mismo patrón que `_sentinel_aislado` de abajo.
+
+    ⚠ Si algún día se te ocurre achicar este fixture a "sólo mockeo lo que el bug de
+    turno necesita": los 4 `setattr` son necesarios TODOS — sacar uno reintroduce una
+    llamada viva que el gate de rol no va a detectar (pasa igual con 502)."""
+    from src.services import ai_engine_client
+
+    async def _list(*a, **kw):
+        return []
+
+    async def _crear(*a, **kw):
+        return {"policy_id": "mock", "guardrail_id": "mock-id", "name": "basa-policy-mock",
+                "description": "", "blocked_words": [], "categories": [], "active": False}
+
+    async def _actualizar(*a, **kw):
+        return {"policy_id": "mock", "guardrail_id": "mock-id", "name": "basa-policy-mock",
+                "description": "", "blocked_words": [], "categories": [], "active": False}
+
+    async def _borrar(*a, **kw):
+        return None
+
+    monkeypatch.setattr(ai_engine_client, "list_content_policies", _list)
+    monkeypatch.setattr(ai_engine_client, "create_content_policy", _crear)
+    monkeypatch.setattr(ai_engine_client, "update_content_policy", _actualizar)
+    monkeypatch.setattr(ai_engine_client, "delete_content_policy", _borrar)
 
 
 @pytest.fixture(autouse=True)
@@ -395,6 +455,29 @@ def test_rol_lectura_lee_vitrinas_y_nada_mas(harness):
         assert _cumple(resp, False, Rol.LECTURA), (
             f"lectura NO debe acceder {method} {path} (matriz=NINGUNO); "
             f"esperaba 403-por-rol, obtuvo {resp.status_code}: {resp.text[:160]}")
+
+
+def test_put_content_policy_sin_reglas_da_422_no_borra_en_silencio(sesiones, harness):
+    """Bloqueante #315 (Jeff, 26-ago-2026): `_al_menos_una_regla` era un
+    `@field_validator("categories")`, y en Pydantic 2 un field validator NO corre cuando el
+    campo viene AUSENTE y toma su default — sólo disparaba con `categories: []` EXPLÍCITO, la
+    forma que ningún cliente manda. Como `update_content_policy` es borra+crea (hallazgo del
+    11-ago), un `PUT {"description": "..."}` —la llamada más normal del mundo— pasaba el
+    guard y borraba las reglas de la política EN SILENCIO. Fix: `@model_validator(mode="after")`,
+    que sí ve el default.
+
+    Testigo: corrido contra el CONTROL (revert del fix en content_policies.py, mismo test) da
+    ROJO acá — 200/404, no 422. Un test que pasa en los dos árboles no prueba nada."""
+    client, _ = harness
+    resp = client.put(
+        "/api/v1/content-policies/una-politica-cualquiera",
+        json={"description": "actualización de texto, sin tocar reglas"},
+        headers=sesiones[Rol.SUPER_ADMIN],
+    )
+    assert resp.status_code == 422, (
+        f"PUT sin blocked_words ni categories debe cortar en 422 ANTES de tocar el motor "
+        f"(así nunca llega a borrar+crear con la lista de reglas vacía); obtuvo "
+        f"{resp.status_code}: {resp.text[:200]}")
 
 
 # ── Fold de las variantes client+display_label a la matriz-ley (#247, cierra el punto ciego) ──

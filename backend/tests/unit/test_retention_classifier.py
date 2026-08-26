@@ -158,6 +158,9 @@ _HOMONIMOS = {
     "blocked": "decisión del registry 027 y clave del veredicto de guardián, no un estado",
     "blocked_by_layer": "nombre de columna de audit_logs (el layer_key que bloqueó)",
     "blocked_topics": "clave de configuración de un guardián (guardian_service.py:159)",
+    "blocked_words": "clave del payload de una política de contenido (spec 036 US2: la LISTA "
+                     "de palabras a bloquear que viaja a litellm_content_filter), no un estado "
+                     "de auditoría — mismo caso que `blocked_topics`",
     "flagged": "familia visual del monitor (monitor.py:318), no un estado",
     "allowed_tools": "clave de política de contexto/custom_auth",
     "allowed_models": "clave de política de contexto/custom_auth",

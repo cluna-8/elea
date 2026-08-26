@@ -145,6 +145,41 @@
         "title": "AuditLogResponseSchema",
         "type": "object"
       },
+      "BlockedWordSchema": {
+        "properties": {
+          "action": {
+            "default": "BLOCK",
+            "enum": [
+              "BLOCK",
+              "MASK"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "keyword": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Keyword",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyword"
+        ],
+        "title": "BlockedWordSchema",
+        "type": "object"
+      },
       "BudgetCreate": {
         "properties": {
           "group_id": {
@@ -332,6 +367,41 @@
           "prompt"
         ],
         "title": "CalculatorRequest",
+        "type": "object"
+      },
+      "CategoryRefSchema": {
+        "properties": {
+          "action": {
+            "default": "BLOCK",
+            "enum": [
+              "BLOCK",
+              "MASK"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "category": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Category",
+            "type": "string"
+          },
+          "category_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category File"
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "title": "CategoryRefSchema",
         "type": "object"
       },
       "ChatRequest": {
@@ -762,6 +832,77 @@
           "is_active"
         ],
         "title": "ConsentResponse",
+        "type": "object"
+      },
+      "ContentPolicyCreateSchema": {
+        "properties": {
+          "active": {
+            "default": false,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "blocked_words": {
+            "items": {
+              "$ref": "#/components/schemas/BlockedWordSchema"
+            },
+            "title": "Blocked Words",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryRefSchema"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "policy_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Policy Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_id"
+        ],
+        "title": "ContentPolicyCreateSchema",
+        "type": "object"
+      },
+      "ContentPolicyUpdateSchema": {
+        "properties": {
+          "active": {
+            "default": false,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "blocked_words": {
+            "items": {
+              "$ref": "#/components/schemas/BlockedWordSchema"
+            },
+            "title": "Blocked Words",
+            "type": "array"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryRefSchema"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "title": "ContentPolicyUpdateSchema",
         "type": "object"
       },
       "CostConfigUpdate": {
@@ -5918,6 +6059,227 @@
         "summary": "Submit Review",
         "tags": [
           "Compliance"
+        ]
+      }
+    },
+    "/api/v1/content-policies": {
+      "get": {
+        "description": "Las políticas de contenido que existen hoy, con su estado real (activa o no).",
+        "operationId": "list_content_policies_api_v1_content_policies_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Content Policies",
+        "tags": [
+          "Content Policies"
+        ]
+      },
+      "post": {
+        "description": "Crea una política nueva. Aplica al siguiente pedido si `active=true`, sin reiniciar\nnada. (Las categorías que se cargan por fichero en el motor sí requieren un reinicio;\néstas no.)",
+        "operationId": "create_content_policy_api_v1_content_policies_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContentPolicyCreateSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Content Policy",
+        "tags": [
+          "Content Policies"
+        ]
+      }
+    },
+    "/api/v1/content-policies/{policy_id}": {
+      "delete": {
+        "description": "Borra una política. El filtro deja de aplicarse desde el siguiente pedido, sin\nreiniciar nada. La acción no se puede deshacer: para desactivarla temporalmente\nconservando sus reglas, usá el `PUT` con `active=false`.",
+        "operationId": "delete_content_policy_api_v1_content_policies__policy_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Content Policy",
+        "tags": [
+          "Content Policies"
+        ]
+      },
+      "put": {
+        "description": "Actualiza (agregar/quitar palabras, activar/desactivar) una política existente.",
+        "operationId": "update_content_policy_api_v1_content_policies__policy_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContentPolicyUpdateSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Content Policy",
+        "tags": [
+          "Content Policies"
         ]
       }
     },

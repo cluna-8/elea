@@ -67,6 +67,21 @@ async def _delete(path: str, payload: dict) -> dict:
             raise AIEngineClientError("AI engine is unavailable") from e
 
 
+async def _delete_by_id(path: str) -> dict:
+    """DELETE HTTP real, sin body — para `/guardrails/{id}`."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        try:
+            r = await client.delete(f"{_BASE_URL}{path}", headers=_headers())
+            r.raise_for_status()
+            return r.json()
+        except httpx.HTTPStatusError as e:
+            logger.error("AI engine %s returned %s: %s", path, e.response.status_code, e.response.text)
+            raise AIEngineClientError(f"AI engine error on {path}: {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            logger.error("AI engine unreachable at %s: %s", path, e)
+            raise AIEngineClientError("AI engine is unavailable") from e
+
+
 # --- Teams ---
 
 async def create_team(name: str, max_budget: Optional[float] = None, budget_duration: str = "30d") -> str:
@@ -193,6 +208,189 @@ async def get_active_guardrail_names(db) -> list[str]:
         Guardian.engine_guardrail_name.isnot(None)
     ).all()
     return [g.engine_guardrail_name for g in guardians]
+
+
+# --- Políticas de contenido (spec 036 US1/US2, sesión 11-ago-2026) ---
+#
+# El motor (LiteLLM) ya trae un guardrail nativo para esto (`litellm_content_filter`,
+# decisión de adoptarlo — ver specs/036-plantillas-politicas-cliente/spec.md). Acá
+# NO se reimplementa el motor de reglas: se envuelve su API de guardrails (creada
+# con `general_settings.store_model_in_db: true` en litellm/config.yaml) para que el
+# resto de Basa hable en un contrato simple — nombre, descripción, palabras a
+# bloquear, activo/inactivo — sin conocer el shape completo de `litellm_params`.
+#
+# `blocked_words` (no `categories`/`category_file`) a propósito: es el camino que NO
+# necesita un archivo en disco ni un restart del contenedor — probado en vivo el
+# 11-ago-2026 (crear → aplica en el siguiente pedido). El camino de archivo
+# (`litellm/policy_categories/`, PR #143) sigue existiendo para categorías más
+# elaboradas (excepciones, severidad por keyword) que este contrato simple no cubre
+# todavía; las dos formas conviven en el mismo guardrail nativo.
+_CONTENT_POLICY_PROVIDER = "litellm_content_filter"
+# Prefijo para distinguir, al listar, las políticas que creó Basa de cualquier otro
+# guardrail (el propio `basa-guardian`, o el `basa-content-filter` de ejemplo del
+# config.yaml) sin depender de un campo aparte que LiteLLM no tiene.
+_CONTENT_POLICY_NAME_PREFIX = "basa-policy-"
+
+
+class ContentPolicyError(AIEngineClientError):
+    """Error específico de las políticas de contenido — mismo contrato que
+    `AIEngineClientError`, nombre propio para que el caller lo distinga si hace falta."""
+
+
+class ContentPolicyLostError(ContentPolicyError):
+    """El borrado del `update` YA se aplicó y la recreación falló: en el motor NO queda
+    ninguna política con este nombre.
+
+    Existe para que el caller pueda **compensar**, y existe SEPARADA de
+    `ContentPolicyError` porque las dos fases del borra+crea dejan el sistema en estados
+    OPUESTOS y el caller no las puede distinguir de otra forma:
+
+    - falla el `_delete_by_id` → la política sigue **INTACTA** ⇒ no hay nada que reponer.
+    - falla el `_post` posterior → la política está **BORRADA** ⇒ hay que reponerla.
+
+    Antes las dos levantaban `ContentPolicyError` y llegaban al endpoint indistinguibles, así
+    que una compensación no podía saber cuál de los dos estados tenía delante.
+
+    **Qué pasa si igual se compensa a ciegas (medido contra LiteLLM real el 26-ago-2026, no
+    razonado):** el motor tiene UNIQUE sobre `guardrail_name` — un segundo `POST /guardrails`
+    con el mismo nombre devuelve HTTP 500 `Unique constraint failed on the fields:
+    (guardrail_name)` y el listado sigue con UNA sola. O sea el motor NO queda con un
+    duplicado: la reposición ciega es un round-trip condenado cuyo fallo se traga el `except`,
+    y el admin recibe el mismo 502 genérico en las dos ramas sin enterarse nunca de si su
+    política sobrevivió. El daño es de INFORMACIÓN, no de integridad — que es exactamente lo
+    que este tipo arregla.
+
+    Quien atrape esto tiene que ordenar los `except` de más específico a más general:
+    `ContentPolicyLostError` ANTES que `ContentPolicyError`/`AIEngineClientError`, o
+    nunca entra."""
+
+
+def _content_policy_guardrail_name(policy_id: str) -> str:
+    return f"{_CONTENT_POLICY_NAME_PREFIX}{policy_id}"
+
+
+def _content_policy_payload(name: str, description: str, blocked_words: list[dict],
+                            categories: list[dict], active: bool) -> dict:
+    """Arma el body que espera `POST/PUT /guardrails` de LiteLLM a partir del
+    contrato simple de Basa. `blocked_words`: `[{"keyword": ..., "action": "BLOCK"|"MASK"}]`
+    para palabras propias; `categories`: `[{"category": ..., "action": "BLOCK"|"MASK"}]` para
+    activar una plantilla YA ARMADA de `litellm_content_filter` (EU AI Act, Singapur, EAU,
+    etc. — PR #143, docs-referencia.md) por nombre, sin archivo propio. Las dos listas
+    conviven en el mismo guardrail — un cliente puede tener palabras propias Y una plantilla
+    regulatoria activas a la vez. Validado por el schema Pydantic del endpoint
+    (backend/src/api/content_policies.py), acá se asume ya válido."""
+    litellm_params: dict = {
+        "guardrail": _CONTENT_POLICY_PROVIDER,
+        "mode": "pre_call",
+        "default_on": active,
+    }
+    if blocked_words:
+        litellm_params["blocked_words"] = blocked_words
+    if categories:
+        litellm_params["categories"] = categories
+    return {
+        "guardrail": {
+            "guardrail_name": name,
+            "litellm_params": litellm_params,
+            "guardrail_info": {"description": description},
+        }
+    }
+
+
+async def create_content_policy(policy_id: str, description: str, blocked_words: list[dict],
+                                 categories: list[dict], active: bool) -> dict:
+    """Crea una política de contenido nueva en el motor. `policy_id` es un slug corto
+    y estable (el admin lo elige) — se usa como parte del `guardrail_name`, así que
+    debe ser único; el motor no lo valida por nosotros."""
+    name = _content_policy_guardrail_name(policy_id)
+    payload = _content_policy_payload(name, description, blocked_words, categories, active)
+    data = await _post("/guardrails", payload)
+    return {
+        "policy_id": policy_id,
+        "guardrail_id": data.get("guardrail_id"),
+        "name": name,
+        "description": description,
+        "blocked_words": blocked_words,
+        "categories": categories,
+        "active": active,
+    }
+
+
+async def update_content_policy(guardrail_id: str, policy_id: str, description: str,
+                                 blocked_words: list[dict], categories: list[dict],
+                                 active: bool) -> dict:
+    """Actualiza una política existente. LiteLLM exige el objeto COMPLETO en el PUT
+    (no hay PATCH parcial) — por eso el caller tiene que mandar `blocked_words`/
+    `categories` enteros, no solo lo que cambió.
+
+    BORRAR + CREAR, no `PUT /guardrails/{id}` — hallazgo real en vivo (11-ago-2026, con
+    Cristian): el PUT de LiteLLM guarda bien en su base, pero cuando la política tiene
+    `categories` con `category_file`, la sincronización en memoria del proceso falla
+    (`vars() argument must have __dict__ attribute`, log de LiteLLM) — la política queda
+    guardada pero la versión que de verdad corre sobre el tráfico se queda vieja, sin
+    error visible para el usuario. `POST /guardrails` (crear) no tiene ese problema,
+    confirmado con curl directo. El `guardrail_id` cambia — no se persiste en ningún
+    lado del lado de Basa (se resuelve siempre por nombre vía `list_content_policies`),
+    así que no rompe nada."""
+    name = _content_policy_guardrail_name(policy_id)
+    try:
+        await _delete_by_id(f"/guardrails/{guardrail_id}")
+    except AIEngineClientError as e:
+        raise ContentPolicyError(str(e)) from e
+    payload = _content_policy_payload(name, description, blocked_words, categories, active)
+    try:
+        data = await _post("/guardrails", payload)
+    except AIEngineClientError as e:
+        # El delete de arriba YA se aplicó: en el motor no queda ninguna política con este
+        # nombre. Tipo propio para que el endpoint pueda reponerla — con
+        # `ContentPolicyError` a secas era indistinguible del fallo del delete, donde
+        # reponer DUPLICA. Ver `ContentPolicyLostError`.
+        raise ContentPolicyLostError(str(e)) from e
+    guardrail_id = data.get("guardrail_id")
+    return {
+        "policy_id": policy_id,
+        "guardrail_id": guardrail_id,
+        "name": name,
+        "description": description,
+        "blocked_words": blocked_words,
+        "categories": categories,
+        "active": active,
+    }
+
+
+async def list_content_policies() -> list[dict]:
+    """Políticas de contenido creadas por Basa — filtra del listado completo de
+    LiteLLM (que también trae `basa-guardian` y el `basa-content-filter` de
+    config.yaml) por el prefijo de nombre y el proveedor, y devuelve el contrato
+    simple, no el `litellm_params` completo del motor."""
+    data = await _get("/v2/guardrails/list", {})
+    resultado = []
+    for g in data.get("guardrails", []):
+        name = g.get("guardrail_name") or ""
+        if not name.startswith(_CONTENT_POLICY_NAME_PREFIX):
+            continue
+        params = g.get("litellm_params") or {}
+        if params.get("guardrail") != _CONTENT_POLICY_PROVIDER:
+            continue
+        info = g.get("guardrail_info") or {}
+        resultado.append({
+            "policy_id": name[len(_CONTENT_POLICY_NAME_PREFIX):],
+            "guardrail_id": g.get("guardrail_id"),
+            "name": name,
+            "description": info.get("description", ""),
+            "blocked_words": params.get("blocked_words") or [],
+            "categories": params.get("categories") or [],
+            "active": bool(params.get("default_on")),
+        })
+    return resultado
+
+
+async def delete_content_policy(guardrail_id: str) -> None:
+    """Borra una política de contenido."""
+    try:
+        await _delete_by_id(f"/guardrails/{guardrail_id}")
+    except AIEngineClientError as e:
+        raise ContentPolicyError(str(e)) from e
 
 
 # --- Sonda de capas cargadas en el motor (spec 027, T012 — fuente B de data-model §4) ---
