@@ -82,7 +82,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 
 - [ ] **T015** [P] [US4] Contract test `backend/tests/contract/test_whoami_proteccion.py`: `whoami` devuelve `proteccion.deteccion=="patrones"`, `detalle.endswith(_PISO_SIGUE)`, sin nombres de motor. (Escribir primero, debe fallar.)
 - [ ] **T016** [US4] `backend/src/api/inspect.py` `gw_whoami`: agregar bloque `proteccion` (regla plano gateway + `pii_detection.requires_service is None` ⇒ "patrones"; copy desde `governance_status`; `capas_delegadas` de las delegables en suscripción). Ver [contracts/whoami-proteccion.md](./contracts/whoami-proteccion.md).
-- [ ] **T017** [US4] Extensión (`popup.js` + panel de `basa-guard.js`): render del chip **ámbar** desde `whoami.proteccion`; **fallback "patrones"** si el campo falta; nunca hardcodear el `detalle`.
+- [ ] **T017** [US4] Extensión (`popup.js` + panel de `guardia-main.js`): render del chip **ámbar** desde `whoami.proteccion`; **fallback "patrones"** si el campo falta; nunca hardcodear el `detalle`.
 
 **Checkpoint**: honestidad-por-plano en la superficie navegador.
 
@@ -94,7 +94,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 
 **Independent Test**: disparar un bloqueo (AI-Act/secreto) y ver el motivo; un fallo sin `blocked` muestra "servicio no disponible".
 
-- [ ] **T018** [US5] `extension/basa-guard.js`: ante la respuesta de `/inspect`, distinguir `{ok:false, blocked:true, motivo}` (mostrar `motivo` del server) de `ok:false` sin `blocked` (mostrar "servicio no disponible"); **nunca** renderizar `blocked_by_layer` crudo; conservar el fail-closed actual (`basa-guard.js:115-118`) para respuestas viejas.
+- [ ] **T018** [US5] `extension/guardia-main.js`: ante la respuesta de `/inspect`, distinguir `{ok:false, blocked:true, motivo}` (mostrar `motivo` del server) de `ok:false` sin `blocked` (mostrar "servicio no disponible"); **nunca** renderizar `blocked_by_layer` crudo; conservar el fail-closed actual (`basa-guard.js:115-118`) para respuestas viejas.
 - [ ] **T019** [P] [US5] Verificación e2e viva: los dos caminos (bloqueo con motivo vs servicio caído) contra el `camara-ensayo` con 027 activa.
 
 **Checkpoint**: la ventana de mentira 027↔extensión queda cerrada (se instalan juntas).

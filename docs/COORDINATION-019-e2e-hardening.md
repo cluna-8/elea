@@ -133,7 +133,7 @@ Set combinado (Codex 2 P1 + adversarial 7 confirmados, dedup). Scope disjunto:
 | Minion | Findings | Files (ownership TOTAL) |
 |---|---|---|
 | **FIX-GW** (backend Python) | F1 key-format, F2 master-key, F3 inspect-truncation, F5 audit-count, F7 inspect-nonstr | `backend/src/api/gateway.py`, `backend/src/api/inspect.py`, `backend/src/services/ai_engine_client.py`, `backend/src/api/keys.py`, `backend/src/services/audit_service.py`, `backend/tests/integration/test_surface_routing.py`, `backend/tests/integration/test_gw_inspect.py`, `backend/tests/unit/test_key_format.py` (nuevo) |
-| **FIX-EXT** (extensión JS) | F4 non-string body fail-open, F6 catch fail-open, F-ext-1 postMessage forgeable | `extension/basa-guard.js`, `extension/bridge.js`, `extension/README.md` |
+| **FIX-EXT** (extensión JS) | F4 non-string body fail-open, F6 catch fail-open, F-ext-1 postMessage forgeable | `extension/guardia-main.js`, `extension/bridge.js`, `extension/README.md` |
 
 Findings:
 - **F1 [HIGH]** `ai_engine_client.generate_key` emite keys LiteLLM `sk-<token>`, no `sk-basa-` → byok con key online **misrutea a passthrough** (doble-mask + engine key fugada a Anthropic). Fix: emitir `sk-basa-…` explícito.

@@ -60,7 +60,7 @@ credenciales fuera de config en claro (Constraint C5); GDPR-routing N/A en base_
 acotada del Principio II); key-in-URL **sólo** como atajo de demo (prod = input seguro/SSO).
 
 **Scale/Scope**: portar el ruteo de superficies (backend) + la extensión MV3 (4 archivos:
-`manifest.json`, `basa-guard.js`, `bridge.js`, `background.js` + `popup.*`) + los endpoints
+`manifest.json`, `guardia-main.js`, `bridge.js`, `background.js` + `popup.*`) + los endpoints
 `/gw/whoami` y `/gw/inspect` + la matriz de compatibilidad. Sin schema nuevo propio (todo viene de 013/014).
 
 ## Constitution Check
@@ -98,7 +98,7 @@ Traducción fiel de la evidencia del demo (`gatelite-salud-eu/backend/src/api/ga
 | `_resolve_identity` (X-Basa-Key → sha256 → user/group) | identidad/atribución, no credencial (FR-006/FR-007) | REUSA gateway |
 | `_TOOL_UA`/`_detect_tool` (UA → tool_type) | detección de herramienta (FR-004) | REUSA gateway |
 | `manifest.json` (MAIN + ISOLATED, host_permissions, all_frames:false) | extensión MV3 base (US3) | PROPIO (a portar) |
-| `basa-guard.js` (hook `window.fetch`, mask vía `/gw/inspect`, unmask DOM, unmaskTitle) | content script MAIN (FR-013/14/16) | PROPIO |
+| `guardia-main.js` (hook `window.fetch`, mask vía `/gw/inspect`, unmask DOM, unmaskTitle) | content script MAIN (FR-013/14/16) | PROPIO |
 | adapters `chatgpt` (`/backend-api/f/conversation`, parts[]) y `claude` (`/completion` + `/title`) | adapters por web app (FR-018) | PROPIO |
 | `bridge.js` (ISOLATED) + `background.js` (service worker con la key) | aislamiento de la key del mundo MAIN (FR-017) | PROPIO |
 | `GET /gw/whoami` (valida key → user/team) | login/fail-closed del popup (FR-015) | REUSA gateway |
@@ -132,7 +132,7 @@ backend/src/
 
 extension/                             # extensión MV3 (a portar de basa-browser-dlp/)
 ├── manifest.json                      # content scripts MAIN + ISOLATED; host_permissions; all_frames:false
-├── basa-guard.js                      # PROPIO (MAIN): hook window.fetch, mask vía /gw/inspect, unmask DOM + unmaskTitle, adapters
+├── guardia-main.js                      # PROPIO (MAIN): hook window.fetch, mask vía /gw/inspect, unmask DOM + unmaskTitle, adapters
 ├── bridge.js                          # PROPIO (ISOLATED): puente content-script ↔ service worker
 ├── background.js                      # PROPIO (service worker): guarda la key; el MAIN nunca la ve
 └── popup.html / popup.js              # PROPIO: login del popup (valida contra /gw/whoami)

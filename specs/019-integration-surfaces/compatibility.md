@@ -88,7 +88,7 @@ Sumar Gemini es **aditivo** (no un mecanismo nuevo) y **viable**, con dos gaps c
 
 1. **Host match** en `extension/manifest.json` → agregar `https://gemini.google.com/*` a `matches`
    (hoy sólo chatgpt/openai/claude).
-2. **Adapter** en `extension/basa-guard.js` → `{ id:"gemini", vendor:"Google", match, read, write }`.
+2. **Adapter** en `extension/guardia-main.js` → `{ id:"gemini", vendor:"Google", match, read, write }`.
 
 Recomendación (research): el endpoint es `StreamGenerate` (POST `batchexecute`, **no** WebSocket →
 fetch-interceptable) pero el prompt va enterrado en `f.req` (JSON anidado ofuscado). Por eso conviene

@@ -72,7 +72,7 @@ parsear `batchexecute`. **Recomendación**: prototipar el **DOM-hook primero** (
 **fetch-hook** (más frágil por la ofuscación de `f.req`).
 
 **Veredicto**: **NO hoy / roadmap VIABLE**; requiere un **spike** en vivo para validar el DOM-hook (host
-en `manifest.matches` + adapter `{ id:"gemini", match, read, write }` en `basa-guard.js`).
+en `manifest.matches` + adapter `{ id:"gemini", match, read, write }` en `guardia-main.js`).
 
 **Fuentes**:
 - https://anonym.legal/blog/browser-dlp-chatgpt-claude-gemini-2026

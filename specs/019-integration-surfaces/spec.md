@@ -27,7 +27,7 @@ esta spec describe **ya existen y se probaron en vivo** en el repo **DEMO** `gat
   default), la **detección de herramienta por User-Agent** (`_TOOL_UA`/`_detect_tool`), y los endpoints
   de la extensión (`GET /gw/whoami`, `POST /gw/inspect`, monitor `surface="browser"`).
 - **`basa-browser-dlp/`** — la extensión MV3 (superficie 2) validada en vivo sobre ChatGPT y Claude.ai:
-  `manifest.json` (content scripts MAIN + ISOLATED, `all_frames:false`), `basa-guard.js` (hook de
+  `manifest.json` (content scripts MAIN + ISOLATED, `all_frames:false`), `guardia-main.js` (hook de
   `window.fetch`, mask vía `/gw/inspect`, unmask en DOM con `MutationObserver`, `unmask` + `unmaskTitle`),
   `bridge.js` (mundo ISOLATED) y `background.js` (service worker que guarda la key; el MAIN nunca la ve).
 
@@ -247,7 +247,7 @@ US1–US3.
 
 El equipo quiere extender la extensión MV3 a **Gemini web**. Hoy **NO** funciona, pero es **viable**:
 faltan dos cosas concretas — el **host match** en el `manifest.json` (los content scripts sólo matchean
-`chatgpt.com`, `chat.openai.com` y `claude.ai`) y el **adapter** en `basa-guard.js` (dónde vive el texto
+`chatgpt.com`, `chat.openai.com` y `claude.ai`) y el **adapter** en `guardia-main.js` (dónde vive el texto
 del usuario en el request de Gemini y cómo leerlo/escribirlo). El endpoint de Gemini es `StreamGenerate`
 (POST `batchexecute`, **no** WebSocket → fetch-interceptable) con el prompt enterrado en el parámetro
 `f.req` (JSON anidado ofuscado, no documentado); por eso la recomendación es prototipar un **DOM-hook**
@@ -262,12 +262,12 @@ mecanismo nuevo). La spec lo fija como roadmap para no venderlo como hecho (hone
 
 **Independent Test**: Verificar que la spec documenta el patrón de extensión (nuevo adapter + host match)
 y lo marca explícitamente como **NO implementado / roadmap**, con los dos gaps concretos nombrados (host
-en `manifest.matches`, adapter en `basa-guard.js`). NO se exige código de Gemini en esta feature.
+en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gemini en esta feature.
 
 **Acceptance Scenarios**:
 
 1. **Given** la spec, **When** se busca Gemini web, **Then** figura como **NO (roadmap)** con los dos gaps
-   concretos: falta el host en `manifest.matches` y falta el adapter en `basa-guard.js`.
+   concretos: falta el host en `manifest.matches` y falta el adapter en `guardia-main.js`.
 2. **Given** el patrón de adapters existente (`chatgpt`, `claude`), **When** se documenta sumar Gemini,
    **Then** se describe como aditivo: un nuevo adapter `{ id:"gemini", match, read, write }` + el host
    añadido a `manifest.matches`, sin tocar el mecanismo de mask/unmask.
@@ -359,7 +359,7 @@ en `manifest.matches`, adapter en `basa-guard.js`). NO se exige código de Gemin
 
 **Extensión de navegador MV3 (US3)**
 - **FR-013**: El sistema MUST proveer una extensión MV3 cuyo content script en el mundo **MAIN** hookea
-  `window.fetch` para interceptar el body del request de las web apps soportadas (porta `basa-guard.js`).
+  `window.fetch` para interceptar el body del request de las web apps soportadas (porta `guardia-main.js`).
 - **FR-014**: La extensión MUST enmascarar el texto del usuario vía `POST /gw/inspect` y **reescribir** el
   body del request con los `replacements` devueltos, de modo que el modelo reciba **placeholders**
   (`[PERSON_0]`), no la PII.
@@ -388,7 +388,7 @@ en `manifest.matches`, adapter en `basa-guard.js`). NO se exige código de Gemin
 
 **Gemini web futuro (US5)**
 - **FR-022**: El sistema MUST documentar el patrón para sumar **Gemini web** como aditivo — un nuevo
-  adapter `{ id:"gemini", match, read, write }` en `basa-guard.js` + el host en `manifest.matches` — y
+  adapter `{ id:"gemini", match, read, write }` en `guardia-main.js` + el host en `manifest.matches` — y
   marcarlo explícitamente como **roadmap / NO implementado**.
 
 **Transversal (onboarding + transparencia)**
@@ -411,7 +411,7 @@ en `manifest.matches`, adapter en `basa-guard.js`). NO se exige código de Gemin
 - **Tool detection (`_TOOL_UA`/`_detect_tool`)** — *REUSA gateway*. Mapea User-Agent → `tool_type`
   (claude→Claude Code, copilot→GitHub Copilot, vscode→VS Code, cursor→Cursor, …); default "Desconocido".
 - **Basa Guard extension (MV3)** — *código PROPIO (a portar de `basa-browser-dlp/`)*. `manifest.json`
-  (content scripts MAIN + ISOLATED, host_permissions, `all_frames:false`), `basa-guard.js` (hook
+  (content scripts MAIN + ISOLATED, host_permissions, `all_frames:false`), `guardia-main.js` (hook
   `window.fetch` + mask vía `/gw/inspect` + unmask DOM), `bridge.js` (ISOLATED), `background.js` (service
   worker con la key).
 - **Adapter (por web app)** — *código PROPIO*. `{ id, vendor, match(url), read, write }`: `chatgpt`
@@ -432,7 +432,7 @@ en `manifest.matches`, adapter en `basa-guard.js`). NO se exige código de Gemin
 | **VS Code / GitHub Copilot** | base_url | **PARCIAL** | byok por **auto-byok** (`sk-basa-…`) + **key-in-URL** (`?k=…`); `x-api-key` vacío | Sólo **modo Ask**. En **Agent** loopea: modelos no-Claude rompen tool-calling y VS Code rechaza input UUID → 400. |
 | **ChatGPT (web)** | browser | **FUNCIONA** | Extensión MV3, adapter `chatgpt` (`/backend-api/f/conversation`) | Body no firmado → acepta reescritura enmascarada. |
 | **Claude (web)** | browser | **FUNCIONA** | Extensión MV3, adapter `claude` (`/completion` **y** `/title`) | Cubre la **fuga de título** (`unmaskTitle`). Respuesta por WebSocket → unmask en DOM. |
-| **Gemini (web)** | browser | **NO (roadmap, viable)** | — | **Viable** vía **DOM-hook** (editor Quill `.ql-editor`); requiere **spike** en vivo. Endpoint `StreamGenerate` (POST `batchexecute`, **no** WebSocket → fetch-interceptable) con el prompt enterrado en `f.req` (JSON anidado ofuscado). Faltan **host match** (`manifest.matches`) + **adapter** en `basa-guard.js`; DOM-hook antes que fetch-hook (menor riesgo). Aditivo (US5). |
+| **Gemini (web)** | browser | **NO (roadmap, viable)** | — | **Viable** vía **DOM-hook** (editor Quill `.ql-editor`); requiere **spike** en vivo. Endpoint `StreamGenerate` (POST `batchexecute`, **no** WebSocket → fetch-interceptable) con el prompt enterrado en `f.req` (JSON anidado ofuscado). Faltan **host match** (`manifest.matches`) + **adapter** en `guardia-main.js`; DOM-hook antes que fetch-hook (menor riesgo). Aditivo (US5). |
 | **Cursor** | base_url | **PARCIAL** | **Override OpenAI Base URL** (Settings→Models) → gateway; honrado **sólo** en el panel **chat/plan** (Cmd+L) | Misma casilla que Copilot Ask: gobernable **sólo** en el modo sin-tools. El **agente** (Composer), inline edit y autocomplete están **clavados al backend de Cursor** y NO rutean por el endpoint custom; el "Override Anthropic Base URL" se auto-activa y rompe con **422** (no hay override Anthropic standalone usable). |
 | **Claude Desktop** | desktop | **MCP-ONLY** | Servidor MCP (**tool-plane**) | Sin `ANTHROPIC_BASE_URL` ni hook interceptable. El MCP server sólo ve **args de tool-calls y results**, nunca el chat: gobierna el **tool-plane** (DLP/redaction sobre results con Presidio, audit de tool calls, elicitation, sampling), **no** el prompt del usuario ni las respuestas de Claude. Masking del chat = **gap conocido no cubrible hoy**. |
 

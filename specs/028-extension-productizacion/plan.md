@@ -53,7 +53,7 @@ extension/                          # canónica única (superficie navegador)
 ├── manifest.json                   # optional_host_permissions (US2); key para ID estable (US1)
 ├── background.js                   # SW: request de permiso de host, revalidación (US2/US6), dueño de sesión
 ├── bridge.js                       # relay MAIN↔SW (no tocar el hardening #45)
-├── basa-guard.js                   # MAIN: parsear blocked/motivo (US5), chip proteccion (US4)
+├── guardia-main.js                   # MAIN: parsear blocked/motivo (US5), chip proteccion (US4)
 ├── popup.html / popup.js           # inputs URL+key, estados de sesión (US2/US6), chip (US4)
 └── config.js                       # default de URL editable (no fija)
 

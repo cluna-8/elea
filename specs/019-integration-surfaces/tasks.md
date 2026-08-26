@@ -36,7 +36,7 @@ tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR pri
 **Purpose**: Estructura del paquete de la extensión y del ruteo de superficies en el backend.
 
 - [ ] T001 [SETUP] Crear el directorio `extension/` en `basa-guardian` y copiar la base de la extensión MV3
-      desde `basa-browser-dlp/` (`manifest.json`, `basa-guard.js`, `bridge.js`, `background.js`,
+      desde `basa-browser-dlp/` (`manifest.json`, `guardia-main.js`, `bridge.js`, `background.js`,
       `popup.html`, `popup.js`) como punto de partida del port.
 - [ ] T002 [P] [SETUP] Configurar linting/formato para `extension/` (JS) y `tests/` (reusar la config del
       repo); documentar cómo cargar la extensión sin empaquetar (dev unpacked).
@@ -158,12 +158,12 @@ en Claude.ai el título también se des-enmascara.
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] Portar `extension/basa-guard.js` (mundo MAIN): hook de `window.fetch`, mask vía
+- [ ] T021 [US3] Portar `extension/guardia-main.js` (mundo MAIN): hook de `window.fetch`, mask vía
       `/gw/inspect`, reescritura del body con `replacements`, unmask del DOM con `MutationObserver`
       (`unmask` + `unmaskTitle`). *(FR-013, FR-014, FR-016)*
 - [ ] T022 [US3] Portar `extension/bridge.js` (ISOLATED) + `extension/background.js` (service worker): la
       key vive **sólo** en el service worker; el mundo MAIN nunca la ve. *(FR-017, SC-005)*
-- [ ] T023 [US3] Portar los **adapters** (`chatgpt` + `claude`) en `basa-guard.js`, con el `claude` cubriendo
+- [ ] T023 [US3] Portar los **adapters** (`chatgpt` + `claude`) en `guardia-main.js`, con el `claude` cubriendo
       `/completion` **y** `/title` para cerrar la fuga de título. *(FR-018)*
 - [ ] T024 [US3] Portar/verificar los endpoints en `backend/src/api/inspect.py`: `GET /gw/whoami` (valida
       key → user/team, fail-closed) y `POST /gw/inspect` (mask + `surface="browser"` + `_log_tx`
@@ -204,12 +204,12 @@ MCP-ONLY tiene razón concreta; FUNCIONA/PARCIAL coinciden con US1–US3.
 **Goal**: Documentar el patrón para sumar Gemini (adapter + host match) como aditivo/roadmap, sin entregarlo.
 
 **Independent Test**: La spec/`compatibility.md` documenta los dos gaps concretos (host en
-`manifest.matches`, adapter en `basa-guard.js`) y marca Gemini como NO/roadmap.
+`manifest.matches`, adapter en `guardia-main.js`) y marca Gemini como NO/roadmap.
 
 ### Tests / Implementation for User Story 5
 
 - [ ] T029 [US5] Documentar en `compatibility.md` el patrón de extensión para **Gemini web**: nuevo adapter
-      `{ id:"gemini", vendor, match, read, write }` en `basa-guard.js` + el host añadido a
+      `{ id:"gemini", vendor, match, read, write }` en `guardia-main.js` + el host añadido a
       `manifest.matches`; marcarlo explícitamente como **NO implementado / roadmap** con los dos gaps.
       *(FR-022, SC-006)*
 

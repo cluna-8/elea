@@ -33,7 +33,7 @@ El grueso del lado servidor de bloqueos (US5) **ya lo trajo la 027** (`gw_inspec
 
 ## Architecture summary
 
-`basa-guard.js` (MAIN, hookea fetch, enmascara/desenmascara el DOM) → `postMessage` → `bridge.js` (ISOLATED, relay con nonce) → `chrome.runtime` → `background.js` (service worker, **único que fetchea el gateway** → host_permissions → sin CORS). `config.js` tiene el default de URL. `popup.html/js` = login (URL + key). Backend: `/gw/whoami` (login) y `/gw/inspect` (masking + bloqueo), ambos con `_resolve_attribution` (fail-closed).
+`guardia-main.js` (MAIN, hookea fetch, enmascara/desenmascara el DOM) → `postMessage` → `bridge.js` (ISOLATED, relay con nonce) → `chrome.runtime` → `background.js` (service worker, **único que fetchea el gateway** → host_permissions → sin CORS). `config.js` tiene el default de URL. `popup.html/js` = login (URL + key). Backend: `/gw/whoami` (login) y `/gw/inspect` (masking + bloqueo), ambos con `_resolve_attribution` (fail-closed).
 
 ---
 
@@ -42,7 +42,7 @@ El grueso del lado servidor de bloqueos (US5) **ya lo trajo la 027** (`gw_inspec
 | Minion | Track | Archivos que POSEE | Rama |
 |--------|-------|--------------------|------|
 | **A — Backend** | US4 server + US8a | `backend/src/api/inspect.py`, `backend/src/api/gateway.py`, `backend/tests/contract/test_whoami_proteccion.py` (NUEVO), `backend/tests/unit/test_api_key_expiry.py` (NUEVO) | `028-backend` |
-| **B — Extensión** | US2+US3(fuente)+US4(chip)+US5+US6 | **todo `extension/`**: `manifest.json`, `background.js`, `basa-guard.js`, `popup.js`, `popup.html`, `config.js`, `README.md` (NO `bridge.js` salvo lo indicado) | `028-extension` |
+| **B — Extensión** | US2+US3(fuente)+US4(chip)+US5+US6 | **todo `extension/`**: `manifest.json`, `background.js`, `guardia-main.js`, `popup.js`, `popup.html`, `config.js`, `README.md` (NO `bridge.js` salvo lo indicado) | `028-extension` |
 | **C — Deploy** | US1+US3(render)+US7 | `deploy/release/render_extension_brand.sh` (NUEVO), `deploy/release/bundle.sh`, `deploy/release/checks/test_extension_whitelabel.sh` (NUEVO), `deploy/release/checks/test_airgapped_bundle.sh`, `deploy/release/checks/prohibited_brand.txt` (NUEVO), `deploy/Makefile`, `deploy/clients/camara-comercio/brand.extension.json` (NUEVO) | `028-deploy` |
 
 **Verificación de cero solape**: A=solo `backend/`, B=solo `extension/`, C=solo `deploy/`. Ningún archivo compartido. ✅
@@ -59,11 +59,11 @@ El zip del partner lo **arma Minion C** sustituyendo marca en una COPIA de `exte
 
 ### Qué debe neutralizar B en el SOURCE (porque el render NO los toca y viajan en el zip)
 1. **`config.js`**: el default de URL **NO puede ser `http://localhost:8091/...`** (el gate prohíbe `localhost`). Dejar `GATEWAY_URL: ""` (vacío, editable) o un placeholder `https://` neutro. Pre-cargable con la URL de Cámara vía brand, pero por defecto vacío.
-2. **`*.js` (basa-guard.js, background.js, popup.js)**: quitar el literal **"Basa Guard"** de `console.log`/comentarios visibles → usar un string neutro (p.ej. `"[guardia]"`) o leerlo de `chrome.runtime.getManifest().name`. Los **identificadores internos** (`__BASA_GUARD__`, `BASA_CONFIG`, `basa_key`, `basa_gateway`, `basa_connected`, `X-Basa-Key`, prefijos `__basa_*`) **se conservan** — no son texto visible; van en la allowlist del gate (como `litellm_params`/`presidio` en el gate de la UI).
+2. **`*.js` (guardia-main.js, background.js, popup.js)**: quitar el literal **"Basa Guard"** de `console.log`/comentarios visibles → usar un string neutro (p.ej. `"[guardia]"`) o leerlo de `chrome.runtime.getManifest().name`. Los **identificadores internos** (`__BASA_GUARD__`, `BASA_CONFIG`, `basa_key`, `basa_gateway`, `basa_connected`, `X-Basa-Key`, prefijos `__basa_*`) **se conservan** — no son texto visible; van en la allowlist del gate (como `litellm_params`/`presidio` en el gate de la UI).
 3. **`README.md`**: **NO viaja en el zip** (C lo excluye). B lo neutraliza igual por higiene de repo, pero no es un bloqueante del gate.
 
 ### Qué NO ship-ea el render de C en el zip
-Solo runtime: `manifest.json`, `background.js`, `bridge.js`, `basa-guard.js`, `popup.html`, `popup.js`, `config.js`, `icons/`. **NO** `README.md` ni nada de dev.
+Solo runtime: `manifest.json`, `background.js`, `bridge.js`, `guardia-main.js`, `popup.html`, `popup.js`, `config.js`, `icons/`. **NO** `README.md` ni nada de dev.
 
 ### Allowlist del gate (C la implementa siguiendo el patrón de `test_no_engine_name.sh`)
 Denylist fabricante: `basa`, `basa guard`, `poc`, `localhost`, + `prohibited_names.txt` (motor). Allowlist de identificadores internos (word-exact): `__BASA_GUARD__`, `BASA_CONFIG`, `basa_key`, `basa_gateway`, `basa_connected`, `basa_user`, `basa_team`, `X-Basa-Key`, `__basa`, `__basa_nonce`.
@@ -128,16 +128,16 @@ Leé **Cross-minion contract** arriba: sos responsable de neutralizar `config.js
 ### US4 — Chip de honestidad (FR-013..FR-017)
 - El SW ya recibe `whoami`; pasar el bloque `proteccion` de la respuesta al popup y al panel.
 - **`popup.js`/`popup.html`**: mostrar un chip **ámbar** (no verde) con `proteccion.titulo` + " · cobertura parcial" y `proteccion.detalle` (texto del server). **Nunca** la palabra "protegido" en verde.
-- **`basa-guard.js`**: el panel flotante debe reflejar el mismo chip ámbar desde `proteccion` (viaja en el `state` por el bridge, o pedirlo). **Fallback**: si `proteccion` falta (backend viejo) → asumir `"patrones"` con un `detalle` mínimo genérico, **nunca** "linguistico"/verde. **No hardcodear** el `detalle` (debe venir del server cuando está).
+- **`guardia-main.js`**: el panel flotante debe reflejar el mismo chip ámbar desde `proteccion` (viaja en el `state` por el bridge, o pedirlo). **Fallback**: si `proteccion` falta (backend viejo) → asumir `"patrones"` con un `detalle` mínimo genérico, **nunca** "linguistico"/verde. **No hardcodear** el `detalle` (debe venir del server cuando está).
 - Coordinación con Minion A: el shape lo define [contracts/whoami-proteccion.md](../specs/028-extension-productizacion/contracts/whoami-proteccion.md). Programá contra ese contrato + fallback.
 
 ### US5 — Motivo real de bloqueo (FR-018..FR-020)
-- **`basa-guard.js`**, en el hook de fetch tras `callBridge("inspect", …)`: hoy trata cualquier `!res.ok` como "gateway no disponible" (línea 125-128). Distinguir:
+- **`guardia-main.js`**, en el hook de fetch tras `callBridge("inspect", …)`: hoy trata cualquier `!res.ok` como "gateway no disponible" (línea 125-128). Distinguir:
   - `res.blocked === true` (con `res.motivo`) → frenar el envío y mostrar **`res.motivo`** (texto del server) en el overlay/mensaje de bloqueo.
   - `res.ok === false` **sin** `blocked` → mostrar "servicio no disponible" (comportamiento actual).
   - **Nunca** renderizar `res.blocked_by_layer` crudo.
   - Conservar el fail-closed actual para respuestas viejas (un `ok:false` sin `blocked` sigue bloqueando).
-- El SW (`background.js`) hoy en `inspect` solo devuelve `{ok, masked, replacements, entities, user, team}` (línea 42-46): **propagá también `blocked`, `blocked_by_layer`, `motivo`** de la respuesta del gateway hacia el content script, para que `basa-guard.js` pueda distinguir. (Sin esto, el MAIN nunca ve el motivo.)
+- El SW (`background.js`) hoy en `inspect` solo devuelve `{ok, masked, replacements, entities, user, team}` (línea 42-46): **propagá también `blocked`, `blocked_by_layer`, `motivo`** de la respuesta del gateway hacia el content script, para que `guardia-main.js` pueda distinguir. (Sin esto, el MAIN nunca ve el motivo.)
 
 ### US6 — Sesión (FR-021..FR-025)
 - **`background.js`** dueño único del estado. Tres estados:
@@ -239,7 +239,7 @@ command -v shellcheck >/dev/null && shellcheck deploy/release/render_extension_b
 
 ## Verificación de integración (orquestador, 2026-07-24)
 
-- **Merge**: A→B→C limpio en la rama feature; + fix de integración `460ac91` (renombre `basa-guard.js`→`guardia-main.js`, última fuga white-label del zip).
+- **Merge**: A→B→C limpio en la rama feature; + fix de integración `460ac91` (renombre `guardia-main.js`→`guardia-main.js`, última fuga white-label del zip).
 - **Gate white-label**: VERDE sobre el zip integrado (`name='cc-guardian'`, `manifest.key` presente, sin fuga fabricante/motor, allowlist interna respetada).
 - **Backend pytest (integrado, contenedor one-off)**: 17 passed, 2 skipped (skips = sondas de motor vivo). Cubre whoami `proteccion`, `expires_at` indistinguible, `gw_inspect` (shape de bloqueo 027), contrato governance_status.
 - **Playwright vivo en Chrome (headed, extensión renderizada)** — `extension/e2e/`:
