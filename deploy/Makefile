@@ -8,7 +8,7 @@ DOCS_IMG ?= basa-docs:prod
 # Marca por defecto para el entregable de la extensión (028): el piloto Cámara.
 EXT_BRAND ?= camara-comercio
 
-.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-engine-admission check-engine-local-limits cli-build-signer cli-build-admin cli-check
+.PHONY: build build-backend build-frontend build-docs build-docs-brand build-extension-brand docs-refs check check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-engine-admission check-engine-local-limits check-policy-files cli-build-signer cli-build-admin cli-check
 
 build: build-backend build-frontend build-docs
 
@@ -39,7 +39,7 @@ build-extension-brand:
 	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(BRAND) \
 		$(REPO_ROOT)/deploy/clients/$(BRAND)/brand.extension.json
 
-check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-redis-wiring check-engine-admission check-engine-local-limits
+check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-redis-wiring check-engine-admission check-engine-local-limits check-policy-files
 
 # Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
 docs-refs:
@@ -118,6 +118,14 @@ check-trust-kit:
 
 check-tofu:
 	$(REPO_ROOT)/deploy/release/checks/test_tofu_validate.sh
+
+# Invariante category_file (#143): un guardrail cuyo archivo de categorías no
+# existe NO falla — deja pasar el tráfico sin filtrar (fail-open, medido). Este
+# check es la red que impide que llegue a un cliente. Lee los planos que declaran
+# guardrails (dev + perfiles de cliente) y verifica que cada category_file
+# declarado exista en el repo y que el canal de entrega esté cableado.
+check-policy-files:
+	$(REPO_ROOT)/deploy/release/checks/test_content_policy_files.sh
 
 # 026 T005 — targets de basa-admin-signer/basa-admin, delegando a cli/Makefile.
 # cli-check NO esta en el `check` agregado de arriba todavia: sus sub-targets de

@@ -70,6 +70,9 @@ jobs:
       - name: check-docs (build + linter del sitio que se vende)
         if: ${{ !cancelled() && steps.migraciones.conclusion == 'success' }}
         run: make -C deploy check-docs
+      - name: check-policy-files (invariante category_file, #143)
+        if: ${{ !cancelled() }}
+        run: make -C deploy check-policy-files
 
   # id `harness-tests` conservado (lo citan el ADR 0002, specs/035 y dos tests del
   # propio harness): absorbe el gate de tsc, que no lo citaba nadie. Ver `name:`.
