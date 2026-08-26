@@ -261,7 +261,7 @@ def test_el_auditor_ve_el_detalle_de_salud(harness, auditor):
 # UUID inventado a propósito: el gate de `keys.py` vive en el APIRouter, así que corre ANTES
 # del handler y la llave no necesita existir. Si algún día el gate bajara al handler, esta
 # ruta devolvería 404 y el test lo cantaría.
-_LLAVE_INEXISTENTE = uuid.uuid4()
+_LLAVE_INEXISTENTE = uuid.UUID("c5a611ad-63ca-45f8-b896-08108ccb06b3")
 
 # T006/017: el auditor (compliance_officer) YA LEE el inventario IAM y la config de producto
 # read-only (matriz: gestion_iam/config_producto = CO R). El GET de esas superficies migró de
