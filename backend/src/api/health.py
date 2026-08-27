@@ -174,6 +174,60 @@ def _tier_estricto_cacheado(db: Session) -> bool:
     return _tier_cache["valor"]
 
 
+# ── Sonda de riesgo sin poblar (spec 038 D2, señal de configuración) ─────────────────
+#
+# El agujero que cierra: con `policy` —el DEFAULT desde D1— la decisión servir/cortar sale
+# de `applied_risk_level`, y ese dato es NULLABLE SIN DEFAULT en las tres columnas de la
+# cascada. Una instalación NUEVA (base fresca, sin el backfill de la migración 005 que le
+# puso `limited` a los grupos preexistentes) resuelve `None` para todo su tráfico, y `None`
+# corta. O sea: la instalación se comporta como `closed` sin que nadie haya pedido `closed`,
+# y se entera el día que la auditoría se caiga y corte TODO.
+#
+# La sonda es CONFIG-level a propósito, no de tráfico: pregunta por el padrón de usuarios,
+# así que caza el fresh-install en el PRIMER `/health` —antes de que llegue un solo pedido—
+# y cuesta CERO en el camino caliente (ni chat ni `/gw` la consultan). Lo que NO ve, y por
+# eso queda declarado en el body del PR y en docs: el tráfico anónimo de `/gw` (sin
+# `X-Basa-Key`), que resuelve `None` por construcción y no tiene fila de usuario que contar.
+_RIESGO_CACHE_TTL_SEGUNDOS = 30.0
+_riesgo_cache: Dict[str, Any] = {"vencimiento": 0.0, "valor": 0}
+
+
+def _usuarios_sin_riesgo_cacheado(db: Session) -> int:
+    """Cuántos usuarios ACTIVOS resolverían `applied_risk_level = None` hoy.
+
+    Espeja la cascada viva de `chat.py::_riesgo_aplicado` (Key > User > Group) por el lado
+    que se puede contar: el eslabón Key no participa —la columna no existe en el modelo, el
+    propio código lo dice— así que un usuario cuenta cuando no tiene `risk_level` propio Y
+    (no tiene grupo O su grupo no tiene `default_risk_level`).
+
+    Mismo patrón de cache que `_tier_estricto_cacheado`, incluido **cachear el fallo**: sin
+    eso, cada probe reintentaría la query contra una base que ya sabemos que no responde, y
+    `/health` es justo la superficie que se martillea cuando algo anda mal. La consecuencia
+    asumida es la misma que allá: la señal puede tardar hasta un TTL en aparecer o irse.
+    """
+    ahora = time.monotonic()
+    if ahora >= _riesgo_cache["vencimiento"]:
+        try:
+            from ..models.user import Group
+            _riesgo_cache["valor"] = (
+                db.query(User)
+                .outerjoin(Group, Group.id == User.group_id)
+                .filter(User.is_active.is_(True))
+                .filter(User.risk_level.is_(None))
+                .filter((User.group_id.is_(None)) | (Group.default_risk_level.is_(None)))
+                .count()
+            )
+        except Exception as exc:  # noqa: BLE001 — cualquier fallo de la query del padrón
+            # Mismo criterio que el tier: un `/health` que revienta es peor que uno que no
+            # reporta la señal. Si el padrón no se puede leer, NO se afirma que haya riesgo
+            # sin poblar (no lo sabemos) y queda la traza.
+            logger.warning("health: no se pudo contar el padrón de riesgo (%s); no se "
+                           "evalúa la señal de riesgo sin poblar", exc)
+            _riesgo_cache["valor"] = 0
+        _riesgo_cache["vencimiento"] = ahora + _RIESGO_CACHE_TTL_SEGUNDOS
+    return _riesgo_cache["valor"]
+
+
 def _estado_de_auditoria(db: Session) -> Tuple[str, Optional[str]]:
     """`(modo, motivo_degradado)`.
 
@@ -197,6 +251,18 @@ def _estado_de_auditoria(db: Session) -> Tuple[str, Optional[str]]:
     if _tier_estricto_cacheado(db):
         return modo, (f"el tier de enforcement es estricto y BASA_AUDIT_FAIL={modo}: la "
                       "instalación exige registro pero la política no lo garantiza (038 D3)")
+    # Señal de riesgo sin poblar (038 D2). Va DESPUÉS del tier a propósito: cuando las dos
+    # aplican, la del tier es la que el operador tiene que atender primero (contradice una
+    # postura que él aseveró; ésta describe un padrón incompleto). Y sólo en `policy`: en
+    # `open` la matriz no se consulta, así que un riesgo sin poblar no cambia nada.
+    if modo == audit_service.AUDIT_FAIL_POLICY:
+        sin_riesgo = _usuarios_sin_riesgo_cacheado(db)
+        if sin_riesgo:
+            return modo, (
+                f"BASA_AUDIT_FAIL=policy y {sin_riesgo} usuario(s) activo(s) no resuelven "
+                "nivel de riesgo: sus pedidos se CORTAN con 503 si la auditoría se cae "
+                "(038 D2, `None` corta). Poblá `default_risk_level` en sus grupos "
+                "(PUT /api/v1/groups/{id}/compliance) o el riesgo del usuario")
     return modo, None
 
 

@@ -129,13 +129,19 @@ def presupuesto_agotado(harness):
 
 @pytest.fixture
 def modo_open_por_defecto(monkeypatch):
-    """La env de `audit_fail` es global al proceso: cada test parte del default explícito.
+    """`BASA_AUDIT_FAIL=open` EXPLÍCITO — la env es global al proceso y sin esto un test que
+    corriera después de uno que setea `closed` heredaría el modo y afirmaría sobre un
+    escenario que no es el que dice su nombre.
 
-    Sin esto, un test que corriera después de uno que setea `closed` heredaría el modo y
-    afirmaría sobre un escenario que no es el que dice su nombre.
+    Hasta la spec 038 esto era un `delenv`: el default era `open`, así que borrar la env y
+    pedir `open` eran lo mismo. Desde D1 **ya no**: la env ausente resuelve a `policy`, y
+    `policy` con un usuario que no resuelve riesgo corta el pedido (matriz D2). El único
+    test que pide esta fixture se llama `test_open_…` y mide la semántica de `open`, así que
+    lo que tiene que fijar es el override explícito, no el default de turno. El nombre se
+    conserva porque sigue describiendo lo que hace.
     """
     from src.services import audit_service
-    monkeypatch.delenv(audit_service.AUDIT_FAIL_ENV, raising=False)
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "open")
 
 
 @pytest.fixture

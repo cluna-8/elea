@@ -32,17 +32,17 @@ la regla de siempre: brief cerrado + worktree propio + tests RED→verde en el M
 
 **Purpose**: el parser y la matriz existen, testeados, sin que ningún plano los use aún.
 
-- [ ] T003 [P] Parser de modo en `backend/src/services/audit_service.py`:
+- [x] T003 [P] Parser de modo en `backend/src/services/audit_service.py`:
       `BASA_AUDIT_FAIL ∈ {open, closed, policy}`, ausente/ilegible ⇒ `policy` (D1).
       `audit_fail_mode()` conserva nombre y contrato string. Tests unit RED→verde en
       `backend/tests/unit/`: los 3 valores + ausente + basura (`"POLICY "`, `"abierto"`,
       vacío) ⇒ `policy`.
-- [ ] T004 [P] `audit_fail_decision(risk_level) -> bool` en el mismo módulo — ÚNICO lugar
+- [x] T004 [P] `audit_fail_decision(risk_level) -> bool` en el mismo módulo — ÚNICO lugar
       de la matriz D2: `minimal`/`limited` sirve · `annex1`/`annex3` corta ·
       `None`/desconocido corta (fail-closed hacia lo reversible) · clase `config_audit`
       no entra (FR-002). Tests unit: los 4 niveles + None + string desconocido + la
       mutación «matriz invertida» debe romper los tests.
-- [ ] T005 Aserción del tier (D3) en `backend/src/services/basa_governance.py`: con
+- [x] T005 Aserción del tier (D3) en `backend/src/services/basa_governance.py`: con
       `enforcement_tier_estricto=on`, `policy` es incoherencia igual que `open` (degrada
       health, no corta boot). Test integration sobre el camino existente de la 018.
 
@@ -59,11 +59,37 @@ comportamiento (suite completa verde lo demuestra).
 **Independent Test**: SC-001 contra stack real (base de auditoría tumbada a mano).
 
 - [ ] T006 [US1] Plano **chat**: en `backend/src/api/chat.py` (donde hoy consulta
-      `audit_fail_mode()`, contexto `_applied_risk_level` ya resuelto en `:1319`), modo
-      `policy` ⇒ `audit_fail_decision(...)`; servir sin fila ⇒ `INCR basa:audit:lost`
-      (camino existente). Integration tests: ambos niveles × auditoría caída.
-- [ ] T007 [US1] Plano **`/gw`**: ídem en `backend/src/api/gateway.py`. Integration tests
-      espejo de T006.
+      `audit_fail_mode()`; el contexto es `_applied_risk_level`, **citado por símbolo y no
+      por línea a propósito** — la cita `:1319` del plan ya estaba vencida al arrancar
+      Phase 2), modo `policy` ⇒ `audit_fail_decision(...)`; servir sin fila ⇒
+      `INCR basa:audit:lost` (camino existente). Integration tests: ambos niveles ×
+      auditoría caída.
+      **Alcance ampliado en implementación, con su razón**: el camino feliz de
+      `chat_completions` era el ÚNICO call-site de `log_transaction` de un plano de tráfico
+      sin `except` (medido con AST sobre los 5) ⇒ en `closed` devolvía **500** con la
+      respuesta del proveedor ya pagada. Preexistente de la 031, pero `policy` es el default
+      y también corta, así que este cambio lo vuelve alcanzable para cualquier instalación:
+      se paga acá. Y `log_transaction` recibe la DECISIÓN (`exige_registro`), no el riesgo,
+      con default `None` = comportamiento pre-038, **por FR-002**: `guardians.py` y
+      `retention/purger.py` son clase `config_audit` y quedan bit-a-bit idénticos.
+      **Nota de método, que costó una fila falsa en la primera versión de esta tabla**: un
+      barrido AST de «¿hay `try` en esta función?» es ASIMÉTRICO. Que lo HAYA prueba
+      protección; que NO lo haya **no** prueba desprotección — hay que subir por los
+      llamadores. `purger._escribir_fila_resumen` no tiene `try` propio y está igualmente
+      protegido: su ÚNICO llamador (`_persistir_rastro`) lo envuelve en `except Exception`.
+      La pregunta es por CALL-PATH, no por función.
+- [ ] T007 [US1] Plano **`/gw`**: en `backend/src/api/gateway.py`. Integration tests espejo
+      de T006. **Corrección de premisa (medida al arrancar Phase 2, 27-ago): NO es «ídem»**
+      — `gateway.py` no resuelve riesgo, cero hits de `risk_level` en todo el archivo
+      (control positivo: el mismo instrumento sobre `backend/src/` lista 12 archivos, con
+      `chat.py` entre ellos). En chat el dato ya está resuelto; en `/gw` **hay que
+      producirlo**: la identidad la arma `_resolve_attribution` desde `X-Basa-Key`, que es
+      **opcional** ⇒ el tráfico anónimo resuelve `None` **por construcción**, no por
+      configuración faltante, y por lo tanto corta. Eso queda como DISEÑO declarado (body
+      del PR + docs), no como bug. Para producir el dato: reusar el helper compartido de la
+      cascada viva, **jamás copiarla por tercera vez** (`context_resolution.py` es la
+      prueba de qué pasa con las copias: implementa la cascada completa y no tiene un solo
+      consumidor de producción).
 - [ ] T008 [US1] Plano **motor byok**: el probe `/api/v1/internal/audit/probe` gana
       contexto de credencial y responde la DECISIÓN ya tomada (la matriz no se duplica en
       el motor). `litellm/extensions/basa_guardrail.py` (`_audit_fail_mode():164`, cache
@@ -71,6 +97,15 @@ comportamiento (suite completa verde lo demuestra).
       **los DOS lectores** consumen el resultado nuevo. Regla de cache: en modo `policy`
       jamás cachear la decisión de un pedido para otro (cachear modo, no decisión).
       Contract test del probe + integration del plano motor.
+      **El flip del pin `${BASA_AUDIT_FAIL:-open}` → `:-policy` viaja EN ESTE PR** (sellado
+      27-ago): son **4 pines** medidos en `179ad0f9` — `deploy/docker/compose.prod.yml:62`
+      y `:214` + `docker-compose.yml:91` y `:190`. Si no viajan con el primer consumidor del
+      motor, D1 queda letra muerta en prod: el compose pisa el default del parser con `open`
+      y ninguna instalación llega nunca a modo `policy`.
+      **Además, dos docstrings del motor que shippean falso y se corrigen acá**:
+      `basa_guardrail.py::_audit_fail_mode` se declara «espejo exacto» de
+      `audit_service.audit_fail_mode()` y ya no lo es (no conoce `policy`), y su default
+      documentado es `open` cuando el del backend pasó a `policy` en T003.
 - [ ] T009 [US1] **SC-001 E2E real**: stack levantado, Postgres de auditoría tumbado a
       mano, `policy` activo: pedido `minimal` → 200 + contador incrementa; pedido
       `annex3` → 503. Evidencia (comandos + salida) al PR — capa 4 del merge autónomo.

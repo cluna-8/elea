@@ -273,9 +273,16 @@ def test_el_tier_anonimo_no_paga_una_consulta_POR_PROBE(redis_falso, sidecar):
     for _ in range(12):
         cliente.get(RUTA)
 
-    assert db.consultas <= 1, (
-        f"12 probes dentro del TTL costaron {db.consultas} queries de tier: el cache no está "
-        "absorbiendo el martilleo y la superficie pública queda expuesta"
+    # El pin subió de 1 a 2 con la spec 038 T006: la sonda de riesgo sin poblar es una
+    # SEGUNDA señal pública (misma razón que el tier — quien pollea `/health` anónimo es el
+    # consumidor de estas señales), con su propio cache de la misma forma. Lo que este test
+    # defiende no es la constante sino el **amortizado**: doce probes no pueden costar doce
+    # queries. Si mañana un tercer motivo suma una tercera, el número sube de nuevo; lo que
+    # nunca puede pasar es que el conteo escale con la tasa de probes.
+    assert db.consultas <= 2, (
+        f"12 probes dentro del TTL costaron {db.consultas} queries: hay ≤1 por señal "
+        "cacheada (tier + padrón de riesgo). Más que eso = un cache no está absorbiendo el "
+        "martilleo y la superficie pública queda expuesta"
     )
     assert db.sentencias == 0, (
         "el probe de escribibilidad (SELECT 1) sigue en CERO fuera de `closed`: sólo el tier "

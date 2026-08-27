@@ -488,11 +488,35 @@ def test_sin_url_el_health_reporta_not_configured(harness, monkeypatch):
     client, _factory = harness
     from seat_gate_harness import admin_headers
 
+    # Spec 038 T006: este test afirma `status == "healthy"`, o sea que NINGÚN motivo degrada
+    # — y desde la sonda de riesgo sin poblar hay un motivo más que puede aparecer. Se puebla
+    # el riesgo para que el escenario sea el de una instalación CONFIGURADA, que es lo que el
+    # test siempre quiso decir; aflojar el assert a "no mires el status" perdería justo lo que
+    # este test cuida (que `not_configured` no degrada). Lo que se agrega es el escenario, no
+    # una excepción: el assert de abajo no se tocó.
+    #
+    # Por HTTP y no por sesión ORM directa: este harness corre con RLS (`rls_owner`) y un
+    # `factory()` crudo, sin el tenant de la app, no ve las filas — el UPDATE «pasaba» sin
+    # tocar ninguna y la sonda seguía contando. El `PUT /users/{id}` es además la única vía
+    # por-usuario que persiste `risk_level` hoy (el alta lo descarta — issue #332).
+    _cab = admin_headers(client)
+    _usuarios = client.get("/api/v1/users", headers=_cab).json()
+    _activos = [u for u in _usuarios if u.get("is_active")]
+    assert _activos, "sin usuarios activos el escenario no se dio y el test no probaría nada"
+    for _u in _activos:
+        _r = client.put(f"/api/v1/users/{_u['id']}", headers=_cab, json={
+            "username": _u["username"], "email": _u["email"], "role": _u["role"],
+            "is_active": True, "risk_level": "limited"})
+        assert _r.status_code == 200, _r.text
+
     body = client.get("/api/v1/health", headers=admin_headers(client)).json()
 
     assert body["nlp"]["configured"] is False
     assert body["nlp"]["status"] == "not_configured"
-    assert body["status"] == "healthy"
+    # El `body` en el mensaje no afloja el assert: lo hace diagnosticable. `status` es una
+    # AGREGACIÓN de motivos, así que un fallo sin el `reason` obliga a instrumentar a mano
+    # para saber CUÁL de ellos degradó.
+    assert body["status"] == "healthy", body
 
 
 # ── El preview del monitor jamás cae al regex (Constraint C1) ─────────────────────

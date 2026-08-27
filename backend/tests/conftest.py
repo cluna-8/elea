@@ -98,8 +98,13 @@ def _reset_presidio_http_client_singleton():
 
 
 @pytest.fixture(autouse=True)
-def _resetear_cache_de_tier():
-    """Invalida el cache en proceso del tier de enforcement entre tests (spec 038 T005).
+def _resetear_caches_de_health():
+    """Invalida los caches en proceso de `/health` entre tests (spec 038 T005 y T006).
+
+    Son DOS y se resetean juntos por la misma razón —`_tier_cache` (T005) y `_riesgo_cache`
+    (T006, señal de riesgo sin poblar)—: los dos son estado de MÓDULO con el mismo patrón,
+    así que el próximo cache de health que aparezca se suma acá y no en una tercera fixture
+    que alguien se olvide de escribir.
 
     `health._tier_cache` es estado de MÓDULO: en producción es justamente el punto (un probe
     cada pocos segundos no paga una query de gobernanza cada vez), pero en la suite convierte
@@ -115,4 +120,6 @@ def _resetear_cache_de_tier():
         return
     health._tier_cache["vencimiento"] = 0.0
     health._tier_cache["valor"] = False
+    health._riesgo_cache["vencimiento"] = 0.0
+    health._riesgo_cache["valor"] = 0
     yield

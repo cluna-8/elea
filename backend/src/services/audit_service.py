@@ -96,8 +96,16 @@ def audit_fail_mode() -> str:
 def audit_fail_decision(risk_level: Optional[str]) -> bool:
     """`True` = sirve sin fila · `False` = corta (503) — matriz D2, ÚNICO lugar (FR-002).
 
-    `applied_risk_level` ya resolvió la cascada User > Group > Tenant (spec 013 US4) antes
-    de llegar acá: esta función no conoce persona, grupo ni tenant, sólo el nivel final.
+    `applied_risk_level` ya viene resuelto: esta función no conoce persona, grupo ni tenant,
+    sólo el nivel final.
+
+    Ojo con lo que decía esta línea hasta la 038 —«la cascada User > Group > Tenant (spec
+    013 US4)»—: la cascada que corre de verdad (`chat.py::_riesgo_aplicado`) es
+    **Key > User > Group**, SIN el eslabón tenant. La función que sí lo implementa
+    (`context_resolution.resolve_context_defaults`) no tiene un solo consumidor de
+    producción, y `tenants.default_risk_level` no es escribible por ninguna vía de API. Se
+    corrige acá porque este docstring es lo que lee el próximo que implemente un plano y
+    dé por hecho un eslabón que no existe. Issue de drift abierto para decidirlo.
 
       * `minimal` / `limited`               → sirve (``True``): riesgo bajo, la pérdida de
         una fila es tolerable frente al costo de cortar tráfico normal.
@@ -111,6 +119,32 @@ def audit_fail_decision(risk_level: Optional[str]) -> bool:
     política (FR-002): sus call-sites simplemente no llaman a esta función.
     """
     return risk_level in _RISK_LEVELS_SIRVE
+
+
+def audit_exige_registro(risk_level: Optional[str]) -> bool:
+    """¿Este pedido NO se puede servir sin fila? — composición modo × matriz, punto ÚNICO.
+
+    Es la pregunta que hacen los planos, y la razón de que exista acá y no en cada uno:
+    `audit_fail_decision()` es la matriz D2 y `audit_fail_mode()` es la postura de la
+    instalación, pero **combinarlas es en sí una regla** (`policy` invierte el sentido de la
+    respuesta de la matriz) y tres planos combinándola por su cuenta es la duplicación que
+    `tasks.md` declara NO_APTO, aunque cada copia sea «igualita».
+
+      * `closed` → siempre ``True``: override global, la instalación ya decidió (FR-003).
+      * `open`   → siempre ``False``: override global, se sirve y se cuenta (FR-003).
+      * `policy` → lo decide el riesgo del pedido: ``not audit_fail_decision(risk_level)``.
+
+    El orden de las guardas importa: los dos overrides explícitos se resuelven ANTES de
+    mirar el riesgo, así SC-002 («`open`/`closed` bit-a-bit idénticos a hoy») no depende de
+    qué resuelva la cascada. Y en `open` el riesgo ni se lee: una instalación que eligió
+    continuidad no paga ni la resolución.
+    """
+    modo = audit_fail_mode()
+    if modo == AUDIT_FAIL_CLOSED:
+        return True
+    if modo == AUDIT_FAIL_OPEN:
+        return False
+    return not audit_fail_decision(risk_level)
 
 
 def _wait(seconds: float) -> None:
@@ -320,6 +354,7 @@ class AuditService:
         # dict suelto al final es indistinguible de cualquier otro si se pasa por posición.
         *,
         routing_decision: Optional[Dict[str, Any]] = None,
+        exige_registro: Optional[bool] = None,
     ) -> Optional[AuditLog]:
         """
         Creates a secure audit log entry for a transaction.
@@ -360,9 +395,28 @@ class AuditService:
           y 0.5 s) — absorbe el fallo transitorio sin pérdida ni ruido;
         * **al agotar**: ``logger.error`` + ``INCR basa:audit:lost`` + ``SET
           basa:audit:last_fail`` (tolerante a Redis caído);
-        * en ``BASA_AUDIT_FAIL=open`` (default) devuelve ``None`` como siempre — los
-          callers previos a la 031 no cambian de comportamiento, sólo dejan rastro;
+        * en ``BASA_AUDIT_FAIL=open`` devuelve ``None`` como siempre — los callers previos
+          a la 031 no cambian de comportamiento, sólo dejan rastro;
         * en ``closed`` propaga ``AuditUnavailableError`` para que el plano responda 503.
+
+        ``exige_registro`` (spec 038, T006-T008) es la decisión YA TOMADA por el plano —no
+        el riesgo, no el modo—: este escritor no conoce el `applied_risk_level` del pedido
+        y no tiene por qué, la matriz D2 vive en `audit_fail_decision()` y su composición
+        con el modo en `audit_exige_registro()`.
+
+        El default ``None`` significa **"decidí vos por modo, como antes de la 038"**, y es
+        load-bearing, no comodidad: los call-sites de la clase ``config_audit``
+        (`guardians.py`, `retention/purger.py`) NO entran en esta política por FR-002, así
+        que siguen llamando sin el parámetro y su comportamiento queda **bit-a-bit
+        idéntico** — que es justo lo que se quiere de una superficie que este cambio no
+        tiene por qué tocar.
+
+        Lo que este default NO evita, y conviene dejar dicho para que nadie lo re-descubra
+        al revés: los dos sobrevivirían igual a un default más agresivo, porque los dos
+        capturan por `Exception` un frame más arriba (`guardians._escribir_fila_compliance`
+        en su propio `try`; `purger._escribir_fila_resumen` dentro del `try` de
+        `_persistir_rastro`, su ÚNICO llamador). La razón de este default es FR-002, no un
+        aborto que no podía ocurrir.
         """
         # Masked entities parameter format: [{"type": "PERSON", "count": 2}]
         # We summarize the counts from the list of masked entities. Se calcula UNA vez,
@@ -461,13 +515,25 @@ class AuditService:
             "audit: EVENTO NO REGISTRADO tras %d intentos (modo=%s, compliance=%s, model=%s): %s",
             total_attempts, mode, compliance_status, model, last_error, exc_info=last_error,
         )
-        # Se cuenta en los DOS modos: en `closed` la petición se rechaza, pero el intento
-        # de escritura que no llegó a la base sigue siendo un agujero del registro y el
-        # health tiene que poder mostrarlo.
+        # Se cuenta en TODOS los modos: en `closed` (y en el `policy` que corta) la petición
+        # se rechaza, pero el intento de escritura que no llegó a la base sigue siendo un
+        # agujero del registro y el health tiene que poder mostrarlo. En el `policy` que
+        # SIRVE es además el contador de FR-004: «servido sin fila» no puede ser silencioso.
         record_audit_loss(reason=f"log_transaction/{compliance_status}")
 
-        if mode == AUDIT_FAIL_CLOSED:
+        # `None` = decidí por modo (pre-038): es el camino de `config_audit`, ver el
+        # docstring. Un plano de tráfico SIEMPRE pasa el booleano ya resuelto.
+        corta = exige_registro if exige_registro is not None else (mode == AUDIT_FAIL_CLOSED)
+        if corta:
+            # El texto de `closed` se conserva CARÁCTER POR CARÁCTER (SC-002: bit-a-bit
+            # idéntico a hoy). El de `policy` es otro porque el hecho es otro: no es que la
+            # instalación exija registro para todo, es que ESTE pedido no se sirve sin fila
+            # por su nivel de riesgo. Decirle «audit_fail=closed» al operador de una
+            # instalación que no seteó `closed` lo manda a buscar una env que no existe.
             raise AuditUnavailableError(
                 "auditoría no disponible — la instalación exige registro (audit_fail=closed)"
+                if mode == AUDIT_FAIL_CLOSED else
+                "auditoría no disponible — este pedido no se sirve sin registro por su nivel "
+                "de riesgo (audit_fail=policy)"
             ) from last_error
         return None

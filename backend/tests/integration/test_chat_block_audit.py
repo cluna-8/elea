@@ -123,7 +123,16 @@ def motor(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def modo_open_por_defecto(monkeypatch):
-    """La env es global al proceso: cada test parte del default (`open`) explícitamente."""
+    """La env es global al proceso: cada test parte de la env AUSENTE, explícitamente.
+
+    El nombre quedó de antes de la 038 y se conserva a propósito — lo usan ~13 tests de
+    este archivo y renombrarlo es puro churn de merge sin ganancia —, pero desde la spec 038
+    D1 la env ausente YA NO resuelve a `open`: resuelve a `policy` (el nuevo default). Este
+    fixture deja el modo efectivo en `policy` para todo test que no pida `open`/`closed`
+    explícito con su propio `monkeypatch.setenv`. Los tests de este archivo que necesitan
+    `open` de verdad (no `policy`) lo fijan ellos mismos — ver
+    `test_open_no_hace_pre_check_de_escribibilidad`.
+    """
     from src.services import audit_service
     monkeypatch.delenv(audit_service.AUDIT_FAIL_ENV, raising=False)
 
@@ -475,10 +484,19 @@ def test_el_evento_efimero_se_conserva_junto_a_la_fila(harness, eventos_de_vitri
 
 
 def test_open_con_el_escritor_caido_mantiene_el_4xx_y_cuenta_la_perdida(
-        harness, escritor_caido):
-    """`open` (default del piloto): que la auditoría esté caída NO puede convertir un
-    bloqueo en un error distinto para el usuario. Pero la pérdida deja de ser silenciosa."""
+        harness, monkeypatch, escritor_caido):
+    """`open` EXPLÍCITO: que la auditoría esté caída NO puede convertir un bloqueo en un
+    error distinto para el usuario. Pero la pérdida deja de ser silenciosa.
+
+    El `setenv` es de la spec 038 (SC-002) y va ANTES del calentamiento: la env ausente ya
+    no resuelve a `open` sino a `policy`, y con `escritor_caido` activo el pedido de
+    calentamiento —que es tráfico normal— corta con 503 porque el admin del harness no
+    resuelve riesgo (`None` ⇒ corta, matriz D2). Sin el override explícito este test medía
+    el default, no `open`; los asserts de abajo no se tocaron.
+    """
     client, _ = harness
+    from src.services import audit_service
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "open")
     calentar_catalogo(client)
 
     respuesta = pedir(client, PROHIBIDO)
@@ -492,6 +510,15 @@ def test_open_no_hace_pre_check_de_escribibilidad(harness, monkeypatch):
     """En `open` la instalación no paga NI un `SELECT 1` extra por request (D4)."""
     client, _ = harness
     calentar_catalogo(client)
+
+    # `open` EXPLÍCITO (spec 038 SC-002), no el default del fixture del módulo: desde D1 la
+    # env ausente resuelve a `policy`, y `policy` SÍ paga el pre-check cuando el pedido no
+    # resuelve un riesgo bajo (el admin de este harness no tiene `risk_level` ni grupo con
+    # `default_risk_level`, así que la matriz D2 lo trata como `None` ⇒ corta). Sin este
+    # `setenv` el `llamadas == []` de abajo mediría el corte por `None`, no la exención de
+    # `open` que el nombre del test declara.
+    from src.services import audit_service
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "open")
 
     from src.api import chat
     llamadas = []
@@ -543,9 +570,14 @@ def test_closed_con_la_fila_del_bloqueo_perdida_responde_503(
     bloqueo ocurrió, y el operador lo necesita ver mientras diagnostica la caída.
     """
     client, _ = harness
+    from src.services import audit_service
+    # El CALENTAMIENTO no es lo que este test mide, y con `escritor_caido` activo tiene que
+    # poder pasar: en la env ausente (=`policy` desde D1) un pedido normal del admin —que no
+    # resuelve riesgo— corta con 503, así que se calienta en `open` explícito y recién
+    # después se pone el `closed` que el test SÍ mide. Los asserts no cambiaron.
+    monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "open")
     calentar_catalogo(client)
 
-    from src.services import audit_service
     monkeypatch.setenv(audit_service.AUDIT_FAIL_ENV, "closed")
 
     respuesta = pedir(client, PROHIBIDO)

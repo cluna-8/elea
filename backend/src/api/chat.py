@@ -34,6 +34,7 @@ from ..services.audit_service import (
     AUDIT_FAIL_CLOSED,
     AuditService,
     AuditUnavailableError,
+    audit_exige_registro,
     audit_fail_mode,
     audit_writable,
     record_audit_loss,
@@ -103,6 +104,46 @@ _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama",
 _AUDIT_CLOSED_DETAIL = (
     "auditoría no disponible — la instalación exige registro (audit_fail=closed)"
 )
+
+# Copy del 503 de `audit_fail=policy` (spec 038 D2). Es OTRO texto y no una variante del de
+# arriba a propósito: el hecho que comunica es distinto. En `closed` la instalación decidió
+# que sin registro no hay servicio para NADIE; en `policy` el servicio sigue en pie y es
+# ESTE pedido el que no se sirve, por su nivel de riesgo. Un operador que lea
+# «audit_fail=closed» en una instalación que nunca seteó `closed` va a buscar una env que no
+# está — el peor final para un mensaje de error honesto.
+_AUDIT_POLICY_DETAIL = (
+    "auditoría no disponible — este pedido no se sirve sin registro por su nivel de riesgo "
+    "(audit_fail=policy)"
+)
+
+
+def _detalle_503_audit() -> str:
+    """El copy del 503 que corresponde al modo VIGENTE (se lee por llamada, igual que el
+    modo: una env cambiada con `compose up -d` no puede dejar el texto viejo pegado)."""
+    return (_AUDIT_CLOSED_DETAIL if audit_fail_mode() == AUDIT_FAIL_CLOSED
+            else _AUDIT_POLICY_DETAIL)
+
+
+def _riesgo_aplicado(api_key_obj, user, group) -> Optional[str]:
+    """`applied_risk_level` del pedido — cascada Key > User > Group (spec 013 US4).
+
+    Extraída a helper porque desde la 038 tiene DOS lectores y no pueden divergir: la fila
+    de auditoría del camino feliz (que la reporta como `applied_risk_level`) y la decisión
+    servir/cortar de `audit_exige_registro()`. Que la compuerta y lo que el DPO lee en la
+    columna salgan de la MISMA expresión no es prolijidad: si divergieran, el registro
+    diría que se sirvió un pedido `limited` que en realidad se cortó como `None`.
+
+    Lo que esta cascada NO tiene, y la 038 declara: el eslabón **tenant**
+    (`tenant.default_risk_level`). `context_resolution.resolve_context_defaults()` sí lo
+    implementa, pero hoy esa función no tiene un solo consumidor de producción y la columna
+    del tenant no es escribible por ninguna vía de API — sumarla acá sería un cambio de
+    comportamiento sin perilla que lo respalde. Queda como issue, no como deuda escondida.
+    """
+    return (
+        getattr(api_key_obj, "risk_level", None) or  # not stored on key, but future-proof
+        (getattr(user, "risk_level", None) if user else None) or
+        (getattr(group, "default_risk_level", None) if group else None)
+    )
 
 
 # ── Gobernanza del plano chat (spec 027 US2, T027) ────────────────────────────────
@@ -674,6 +715,15 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
     try:
         AuditService.log_transaction(
             db=db,
+            # Spec 038 T006: la decisión servir/cortar del pedido, resuelta ACÁ y no
+            # recibida del llamador. Tres de los cinco llamadores de este helper corren
+            # ANTES del punto donde el endpoint calcula `_applied_risk_level` (gate de
+            # presupuesto, residencia y capacidad), así que exigirles el dato obligaría a
+            # subir la resolución del riesgo por encima de ellos —un movimiento de código
+            # en el camino caliente— o a que cada uno la copiara. Este helper ya recibe
+            # `api_key_obj`/`user`/`group`, que es todo lo que la cascada necesita.
+            exige_registro=audit_exige_registro(
+                _riesgo_aplicado(api_key_obj, user, group)),
             # Modelo del pedido, tal como lo conoce el llamador. En los llamadores que
             # corren DESPUÉS del auto-router es el modelo efectivo (con «auto»,
             # `request.model` ya es el destino que eligió el router, y lo pedido viaja
@@ -710,7 +760,7 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
     if fallo_closed is not None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_AUDIT_CLOSED_DETAIL,
+            detail=_detalle_503_audit(),
             headers=cabeceras_del_503,
         ) from fallo_closed
 
@@ -1353,11 +1403,7 @@ async def chat_completions(
     active_projects = [resolved_project] if resolved_project else []
 
     _applied_project_name = resolved_project.name if resolved_project else None
-    _applied_risk_level = (
-        getattr(api_key_obj, "risk_level", None) or  # not stored on key, but future-proof
-        (getattr(user, "risk_level", None) if user else None) or
-        (getattr(group, "default_risk_level", None) if group else None)
-    )
+    _applied_risk_level = _riesgo_aplicado(api_key_obj, user, group)
     _applied_legal_basis = (
         (getattr(user, "legal_basis", None) if user else None) or
         (getattr(group, "default_legal_basis", None) if group else None)
@@ -1441,8 +1487,11 @@ async def chat_completions(
     # se pagó y ya no se puede des-servir (el caso streaming queda documentado en la spec:
     # la petición aceptada se completa, el corte aplica a las siguientes).
     #
-    # En `open` (default, y el del piloto) NO se ejecuta NADA de esto: ni un `SELECT 1` ni
-    # una lectura extra. La instalación que no pidió fail-closed no paga su latencia.
+    # En `open` NO se ejecuta NADA de esto: ni un `SELECT 1` ni una lectura extra. La
+    # instalación que pidió continuidad explícita no paga su latencia. En `policy` (spec
+    # 038, el default desde D1) lo paga SÓLO el pedido que no se puede servir sin fila —el
+    # `and` corta antes del `audit_writable` cuando la matriz dice servir—, así que el
+    # tráfico `minimal`/`limited` sigue sin pagar un solo SELECT.
     #
     # `audit_writable` cierra su propia transacción con `rollback` —obligado, porque deja un
     # `statement_timeout` de sentencia que si no moriría pegado al resto del request—, así
@@ -1450,12 +1499,14 @@ async def chat_completions(
     # bloqueos ya salieron por `raise` y el `review_entry` todavía no se agregó. Los objetos
     # ORM ya cargados quedan expirados y se refrescan solos al leerlos; es un par de SELECT
     # extra que sólo paga el modo `closed` durante una caída de la auditoría.
-    if audit_fail_mode() == AUDIT_FAIL_CLOSED and not audit_writable(db):
-        logger.error("audit: modo closed y la base de auditoría no responde — se rechaza el "
-                     "pedido ANTES de llamar al proveedor (model=%s)", routed_model)
+    _exige_registro = audit_exige_registro(_applied_risk_level)
+    if _exige_registro and not audit_writable(db):
+        logger.error("audit: el pedido exige registro (modo=%s riesgo=%s) y la base de "
+                     "auditoría no responde — se rechaza ANTES de llamar al proveedor "
+                     "(model=%s)", audit_fail_mode(), _applied_risk_level, routed_model)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_AUDIT_CLOSED_DETAIL,
+            detail=_detalle_503_audit(),
         )
 
     # ── Tope de ADMISIÓN hacia el motor (nodo C1) ─────────────────────────────────────
@@ -1815,50 +1866,82 @@ async def chat_completions(
     _modelo_de_la_fila = _modelo_auditable(request.model)
 
     # Save to Audit Log
-    audit_log = AuditService.log_transaction(
-        db=db,
-        # Modelo EFECTIVO: con «auto», `request.model` ya es el destino que el router
-        # eligió (se reasignó al principio del endpoint). La fila jamás dice «auto» —
-        # «auto» no es un modelo y una auditoría que lo registrara no podría responder
-        # "¿a qué proveedor viajó este pedido?". Lo que el usuario pidió queda en
-        # `routing_decision.requested`, que es donde se puede leer sin ambigüedad.
-        model=_modelo_de_la_fila,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-        cost_usd=float(cost),
-        pii_detected=_pii_row_detected,
-        masked_entities=_pii_row_entities,
-        compliance_status=compliance_result["status"],
-        latency_ms=latency_ms,
-        tokens_saved_by_optimization=tokens_saved,
-        cost_saved_usd=float(cost_saved_usd),
-        compression_strategy=strategy_applied,        # spec 012 US6 — telemetría por estrategia
-        compression_reversed=compression_reversed,    # spec 012 US6 — guardia de reversión
-        user_id=user.id if user else None,
-        api_key_id=api_key_obj.id if api_key_obj else None,
-        # Triggers locales + lo del upstream ANIDADO: el índice 0 nunca es un objeto ajeno
-        # (018 capa B — el porqué entero está arriba de `_eventos_de_la_fila`).
-        guardian_events=_eventos_de_la_fila(guardian_triggers, eventos_del_upstream),
-        # Atribución 027. `guardian_events` sigue igual, congelado como legado (D6: la
-        # hash-chain de licencias lo relee posicionalmente); las columnas nuevas viven al
-        # lado y son las que el dashboard y el monitor pasan a consultar.
-        applied_layers=attribution.applied_layers,
-        blocked_by_layer=attribution.blocked_by_layer,
-        # Copia DURABLE de la decisión de ruteo (spec 030 FR-006, data-model §2-§3).
-        # `None` en todo pedido no-«auto», y `None` significa exactamente "este pedido no
-        # pasó por el auto-router" — no "el router no decidió". Columna propia: meterlo en
-        # `guardian_events` rompería la hash-chain de licencias, que lo relee por posición.
-        routing_decision=_routing_decision,
-        review_token=_review_token_val,
-        ai_disclosure_delivered=_deliver_disclosure,
-        processing_purpose=x_processing_purpose,
-        user_group_id=_user_group_id,
-        # La atribución 027 se scopea al tenant que HIZO el pedido (el mismo `_tenant_id` con
-        # que se resolvió el perfil), no al DEFAULT: sin esto la evidencia de gobernanza de un
-        # tenant no-default queda contabilizada contra otro. `log_transaction` solo lo aplica
-        # si no es None, así que en el deploy de tenant único no cambia nada.
-        tenant_id=_tenant_id,
-    )
+    #
+    # ── Por qué esta llamada está envuelta y antes no lo estaba ──────────────────────
+    #
+    # `log_transaction` propaga `AuditUnavailableError` cuando el pedido exige registro y la
+    # escritura se agotó. Medido con AST sobre `main@179ad0f9`: de los CINCO call-sites del
+    # escritor, éste era el ÚNICO de un plano de tráfico sin `except` alguno —
+    # `_registrar_bloqueo` y `gateway._audit` la capturan por tipo. O sea que en `closed`,
+    # con el pre-check ya pasado (la base contestó el `SELECT 1`) y el INSERT final
+    # agotándose después, el usuario recibía un **500** con la respuesta del proveedor ya
+    # pagada y tirada. Defecto preexistente de la 031, angosto porque sólo lo alcanzaba una
+    # instalación en `closed` explícito.
+    #
+    # La 038 lo ENSANCHA —`policy` es el default y también corta—, así que se paga acá y no
+    # como issue aparte: este PR es el que lo vuelve alcanzable para cualquier instalación.
+    # El 503 es la respuesta honesta y la que el contrato ya define; el 500 no dice nada y
+    # además invita a reintentar contra un backend que está sano.
+    try:
+        audit_log = AuditService.log_transaction(
+            db=db,
+            exige_registro=_exige_registro,
+            # Modelo EFECTIVO: con «auto», `request.model` ya es el destino que el router
+            # eligió (se reasignó al principio del endpoint). La fila jamás dice «auto» —
+            # «auto» no es un modelo y una auditoría que lo registrara no podría responder
+            # "¿a qué proveedor viajó este pedido?". Lo que el usuario pidió queda en
+            # `routing_decision.requested`, que es donde se puede leer sin ambigüedad.
+            model=_modelo_de_la_fila,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=float(cost),
+            pii_detected=_pii_row_detected,
+            masked_entities=_pii_row_entities,
+            compliance_status=compliance_result["status"],
+            latency_ms=latency_ms,
+            tokens_saved_by_optimization=tokens_saved,
+            cost_saved_usd=float(cost_saved_usd),
+            compression_strategy=strategy_applied,        # spec 012 US6 — telemetría por estrategia
+            compression_reversed=compression_reversed,    # spec 012 US6 — guardia de reversión
+            user_id=user.id if user else None,
+            api_key_id=api_key_obj.id if api_key_obj else None,
+            # Triggers locales + lo del upstream ANIDADO: el índice 0 nunca es un objeto ajeno
+            # (018 capa B — el porqué entero está arriba de `_eventos_de_la_fila`).
+            guardian_events=_eventos_de_la_fila(guardian_triggers, eventos_del_upstream),
+            # Atribución 027. `guardian_events` sigue igual, congelado como legado (D6: la
+            # hash-chain de licencias lo relee posicionalmente); las columnas nuevas viven al
+            # lado y son las que el dashboard y el monitor pasan a consultar.
+            applied_layers=attribution.applied_layers,
+            blocked_by_layer=attribution.blocked_by_layer,
+            # Copia DURABLE de la decisión de ruteo (spec 030 FR-006, data-model §2-§3).
+            # `None` en todo pedido no-«auto», y `None` significa exactamente "este pedido no
+            # pasó por el auto-router" — no "el router no decidió". Columna propia: meterlo en
+            # `guardian_events` rompería la hash-chain de licencias, que lo relee por posición.
+            routing_decision=_routing_decision,
+            review_token=_review_token_val,
+            ai_disclosure_delivered=_deliver_disclosure,
+            processing_purpose=x_processing_purpose,
+            user_group_id=_user_group_id,
+            # La atribución 027 se scopea al tenant que HIZO el pedido (el mismo `_tenant_id` con
+            # que se resolvió el perfil), no al DEFAULT: sin esto la evidencia de gobernanza de un
+            # tenant no-default queda contabilizada contra otro. `log_transaction` solo lo aplica
+            # si no es None, así que en el deploy de tenant único no cambia nada.
+            tenant_id=_tenant_id,
+        )
+    except AuditUnavailableError as exc:
+        # La respuesta del proveedor YA se pagó y acá se descarta a propósito: servirla
+        # sería exactamente lo que el modo prohíbe —tráfico sin fila—, y el contrato de la
+        # 031 ya define el 503 como la forma honesta de decirlo. El `record_audit_loss` no
+        # se repite acá: lo hizo el escritor antes de propagar (audit_service, presupuesto
+        # agotado), y contarlo dos veces inflaría `basa:audit:lost`, que es CONSTANCIA de
+        # eventos perdidos y no una métrica de reintentos.
+        logger.error("audit: la fila del pedido SERVIDO no se pudo escribir y el pedido "
+                     "exige registro (modo=%s riesgo=%s) — 503 en vez del 200 (model=%s)",
+                     audit_fail_mode(), _applied_risk_level, _modelo_de_la_fila)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_detalle_503_audit(),
+        ) from exc
 
     # Link review record to audit log
     if _review_token_val and audit_log:
