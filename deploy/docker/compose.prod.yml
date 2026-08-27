@@ -29,7 +29,7 @@ services:
       REDIS_PORT: "${REDIS_PORT:-6379}"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
-      LITELLM_API_BASE: "http://litellm:4000"
+      BASA_ENGINE_API_BASE: "http://engine:4000"
       # ── Admisión hacia el motor (nodo C1, issue #151 / nota N3 del gate de #135) ──
       # Sin estas líneas el tope queda CLAVADO en los defaults del código: una instalación
       # no puede girar nada, y el ajuste que piden los gates 250/500 —y la sede, con su
@@ -85,7 +85,7 @@ services:
       BASA_PURGE_BATCH_SIZE: "${BASA_PURGE_BATCH_SIZE:-5000}"
       BASA_PURGE_BATCH_PAUSE_MS: "${BASA_PURGE_BATCH_PAUSE_MS:-200}"
       # El alta de usuarios crea la identidad en el motor con la master key.
-      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
+      BASA_ENGINE_MASTER_KEY: "${BASA_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
       BASA_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
       # Solo pilotos/demos con licencia dev (kid basa-dev-*): opt-in explícito.
@@ -106,9 +106,9 @@ services:
       # Región de patrones estructurados, default DE LA INSTALACIÓN (spec 016 + extensión
       # países reales, #137/#141). Mismo hallazgo que en el compose de dev: el backend
       # hostea `/gw`, `/gw/inspect` (navegador) y el Playground, y hasta este fix no
-      # recibía esta env (sólo `litellm`, abajo) — esos tres planos SIEMPRE resolvían al
+      # recibía esta env (sólo `engine`, abajo) — esos tres planos SIEMPRE resolvían al
       # default del código (eu) sin importar la región de la instalación. Mismo valor que
-      # `litellm`: los dos servicios tienen que resolver la MISMA región.
+      # `engine`: los dos servicios tienen que resolver la MISMA región.
       BASA_ENTITY_REGION: "${BASA_ENTITY_REGION:-eu}"
       BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
       BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
@@ -128,7 +128,7 @@ services:
       # observa estado por un archivo, no por el daemon.
       - engine_status:/app/engine_status:ro
     depends_on:
-      litellm:
+      engine:
         condition: service_started
       nlp-analyzer:
         condition: service_healthy
@@ -166,14 +166,24 @@ services:
       retries: 10
       start_period: 30s
 
-  litellm:
-    image: "${LITELLM_IMAGE:?imagen LiteLLM pinneada (014)}"
+  engine:
+    image: "${BASA_ENGINE_IMAGE:?imagen LiteLLM pinneada (014)}"
     restart: unless-stopped
     depends_on:
       nlp-analyzer:
         condition: service_healthy
     environment:
-      LITELLM_MASTER_KEY: "${LITELLM_MASTER_KEY:?generado por instalación (US5)}"
+      # ALIAS deliberado (#302): el operador escribe BASA_ENGINE_MASTER_KEY en su `.env`
+      # (gen_secrets.sh lo genera con ese nombre); DENTRO de ESTE contenedor la variable
+      # conserva el nombre de upstream. NO renombrar: la imagen del motor la lee del env
+      # LITERAL (`proxy_server.py`, red del arranque si falla la carga del config), el
+      # `config.yaml` templado la resuelve con `os.environ/LITELLM_MASTER_KEY` y las tres
+      # extensiones de `litellm/extensions/` la leen literal. Con el nombre nuevo acá,
+      # master_key queda None y el motor degrada a INTERNAL_USER en silencio.
+      # El backend recibe el MISMO valor bajo BASA_ENGINE_MASTER_KEY: los dos lados del
+      # plano interno tienen que compartir secreto o `/internal/audit` rechaza al motor
+      # y la auditoría durable del tráfico byok se pierde sin ruido.
+      LITELLM_MASTER_KEY: "${BASA_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
       # Detección NLP real (016): nombre de servicio compose + puerto interno del
       # sidecar. Sin esta línea el motor enmascara con regex y el cliente no se entera.
       NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
@@ -200,7 +210,7 @@ services:
       # byok devuelve 401 (detectado 2026-07-27; el ensayo no lo veía porque nunca
       # ejercitó byok). Se pregunta por HTTP y no por SQL porque la imagen upstream del
       # motor no trae driver de Postgres ni instalador (ni pip ni uv) — httpx sí viene.
-      # Se autentica con LITELLM_MASTER_KEY, que ambos servicios ya comparten.
+      # Se autentica con BASA_ENGINE_MASTER_KEY, que ambos servicios ya comparten.
       BASA_IDENTITY_URL: "http://backend:8000/api/v1/internal/identity"
       # Auditoría DURABLE del tráfico que atiende el motor (byok): audit_logs vive en la
       # base del backend, así que la fila se emite al plano interno. Sin esta línea el

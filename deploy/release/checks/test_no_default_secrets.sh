@@ -22,7 +22,7 @@ for secret in "${DEFAULTS[@]}"; do
     fi
 done
 # Patrón ${VAR:-default} sobre variables SENSIBLES en artefactos prod:
-hits=$(grep -rEn '\$\{(POSTGRES_PASSWORD|LITELLM_MASTER_KEY|JWT_SECRET_KEY|FERNET_SECRET_KEY):-' \
+hits=$(grep -rEn '\$\{(POSTGRES_PASSWORD|BASA_ENGINE_MASTER_KEY|JWT_SECRET_KEY|FERNET_SECRET_KEY):-' \
     "$REPO_ROOT/deploy" 2>/dev/null || true)
 if [ -n "$hits" ]; then
     echo "❌ fallback default sobre secreto en camino prod:"; echo "$hits"; fail=1

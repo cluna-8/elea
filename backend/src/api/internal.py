@@ -15,7 +15,7 @@ el backend es el dueño de estas tablas, el motor sólo necesita el resultado.
 
 Seguridad: el ingress niega /api/v1/internal/* con 404 (Caddyfile.ingress), así que esto
 sólo se alcanza por la red de compose. Encima se exige el secreto compartido que ambos
-servicios YA tienen (`LITELLM_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
+servicios YA tienen (`BASA_ENGINE_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
 """
 import hmac
 import json
@@ -119,7 +119,7 @@ WHERE k.key_hash = :key_hash
 def _require_internal_secret(x_basa_internal: str = Header(default="")) -> None:
     """Fail-closed: si el secreto no está configurado en el backend, NADIE pasa. Un
     default vacío que aceptara la cabecera vacía convertiría esto en un endpoint abierto."""
-    expected = os.environ.get("LITELLM_MASTER_KEY", "")
+    expected = os.environ.get("BASA_ENGINE_MASTER_KEY", "")
     if not expected or not hmac.compare_digest(x_basa_internal, expected):
         # Mismo 404 que emite el ingress: desde fuera, este endpoint no existe.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")

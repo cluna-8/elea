@@ -174,6 +174,9 @@ async def test_gasto_ausente_con_tope_configurado_pasa(identidad):
 async def test_la_master_key_no_pasa_por_el_presupuesto(identidad, monkeypatch):
     """La master key es ops del proxy (y el camino por el que el Playground llama al motor):
     frenarla por presupuesto cortaría la administración del sistema junto con el tráfico."""
+    # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
+    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-master-de-prueba")
     identidad(_identidad(max_budget_usd=1.0, spend_usd=999.0))
 

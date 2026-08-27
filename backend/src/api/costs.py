@@ -38,8 +38,8 @@ router = APIRouter(
     dependencies=[Depends(require_role("admin", "compliance_officer", "lectura"))],
 )
 
-_ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
-_ENGINE_KEY = os.getenv("LITELLM_MASTER_KEY", "")
+_ENGINE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
+_ENGINE_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "")
 
 # Ratio mínimo de ahorro para que el veredicto sea "conviene".
 _MIN_SAVINGS_RATIO = 0.10

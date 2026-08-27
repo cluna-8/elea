@@ -215,6 +215,18 @@ def _ttl_para(row: Optional[dict]) -> int:
 
 
 _IDENTITY_URL = os.environ.get("BASA_IDENTITY_URL", "").strip()
+# ── NO RENOMBRAR `LITELLM_MASTER_KEY` (#302). Vale para los 4 sitios de esta carpeta ──
+# El rename de marca del #302 es de la superficie del OPERADOR: él escribe
+# BASA_ENGINE_MASTER_KEY en su `.env` y el compose se la pasa a ESTE contenedor bajo el
+# nombre de upstream. Adentro el nombre es contrato de la imagen del motor y no lo
+# elegimos nosotros: `proxy_server.py` lee la variable del env LITERAL y ésa es la RED si
+# falla la carga del config.yaml; el camino que resuelve desde el config degrada a
+# INTERNAL_USER EN SILENCIO cuando queda None. Un rename acá no rojea ningún test de
+# arranque: se ve en producción como "el motor dejó de exigir key".
+# Además este valor es el secreto COMPARTIDO del plano interno: viaja como
+# `X-Basa-Internal` y el backend lo compara contra su BASA_ENGINE_MASTER_KEY. Si los dos
+# lados dejan de resolver al mismo valor, `/internal/audit` rechaza al motor y la
+# auditoría durable del tráfico byok se pierde sin ruido.
 _INTERNAL_SECRET = os.environ.get("LITELLM_MASTER_KEY", "")
 
 
@@ -321,6 +333,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     api_key = (api_key or "").strip() or (request.headers.get("x-api-key") or "").strip()
     ua_tool = detect_tool(request.headers.get("user-agent"))
 
+    # Nombre de upstream a propósito — ver el bloque de `_INTERNAL_SECRET` (#302).
     master_key = os.getenv("LITELLM_MASTER_KEY")
     if master_key and api_key == master_key:
         return UserAPIKeyAuth(

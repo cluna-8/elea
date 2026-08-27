@@ -152,6 +152,9 @@ def entorno(monkeypatch):
     El cache del probe y el backoff son globales del módulo: sin resetear, un test se
     llevaría puesto al siguiente (y el backoff real le sumaría 0,2 s a cada reintento)."""
     monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
+    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO)
     monkeypatch.delenv("BASA_AUDIT_FAIL", raising=False)
     monkeypatch.setattr(basa_guardrail, "_probe_cache", None, raising=False)

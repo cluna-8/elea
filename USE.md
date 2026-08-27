@@ -1119,7 +1119,7 @@ response = client.chat.completions.create(
 | Variable | Descripción |
 |----------|-------------|
 | `DATABASE_URL` | Conexión PostgreSQL |
-| `LITELLM_MASTER_KEY` | Clave maestra del motor de IA |
+| `BASA_ENGINE_MASTER_KEY` | Clave maestra del motor de IA |
 | `FERNET_SECRET_KEY` | Clave de cifrado de credenciales |
 | `SECRET_KEY` | Clave para firma de JWT |
 | `REDIS_HOST` | Host de Redis para rate limiting y caché |

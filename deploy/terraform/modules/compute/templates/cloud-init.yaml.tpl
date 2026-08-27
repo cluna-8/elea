@@ -22,12 +22,12 @@ write_files:
       POSTGRES_USER=${postgres_user}
       POSTGRES_PASSWORD=${postgres_password}
       REDIS_HOST=${redis_host}
-      LITELLM_MASTER_KEY=${litellm_master_key}
+      BASA_ENGINE_MASTER_KEY=${litellm_master_key}
       FERNET_SECRET_KEY=${fernet_secret_key}
       JWT_SECRET_KEY=${jwt_secret_key}
       BACKEND_IMAGE=${backend_image}
       FRONTEND_IMAGE=${frontend_image}
-      LITELLM_IMAGE=${litellm_image}
+      BASA_ENGINE_IMAGE=${litellm_image}
       NLP_ANALYZER_IMAGE=${nlp_analyzer_image}
   - path: /opt/basa/branding/brand.json
     permissions: "0644"

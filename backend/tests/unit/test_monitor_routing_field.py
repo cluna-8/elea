@@ -38,7 +38,7 @@ from src.api import gateway, monitor
 # al mismo sitio que el código.
 _ROUTER_MOD = gateway.__name__.rsplit(".", 2)[0] + ".services.auto_router_service"
 
-ENGINE = "http://litellm:4000"
+ENGINE = "http://engine:4000"
 
 # Objeto decisión COMPLETO (data-model §2). La vitrina sólo debe ver cuatro de sus claves.
 DECISION = {

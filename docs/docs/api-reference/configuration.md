@@ -26,7 +26,7 @@ En producción la base y el Redis son gestionados/externos: el compose de prod N
 | `JWT_SECRET_KEY` | — | Backend secrets (OBLIGATORIOS - generar valores propios, no dejar vacíos) JWT_SECRET_KEY:    python3 -c "import secrets; print(secrets.token_urlsafe(48))" FERNET_SECRET_KEY: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
 | `FERNET_SECRET_KEY` | — | — |
 | `BASA_BCRYPT_WORKERS` | — | Hilos del executor dedicado de bcrypt del LOGIN (#167). bcrypt es CPU-bound y lento a propósito; una ráfaga de logins corriendo en el threadpool anyio compartido le comía los hilos al gateway (auditoría/rechazo por run_in_threadpool) y disparaba el fail-closed del NLP sobre tráfico legítimo. Este executor ACOTADO y SEPARADO lo evita. Es POR PROCESO: el total de la instalación es el valor por WEB_CONCURRENCY. Vacío = default min(cpu, 4) (bcrypt libera el GIL, pero más hilos que CPUs sólo agrega contención; el techo es 4). Un valor ausente/vacío/malformado/fuera de rango cae al default — un typo no debe voltear el login. |
-| `LITELLM_MASTER_KEY` | *(secreto — generado por instalación)* | Configuración del motor del gateway |
+| `BASA_ENGINE_MASTER_KEY` | *(secreto — generado por instalación)* | Configuración del motor del gateway |
 
 ### ── Admisión hacia el motor de IA: el tope que protege al producto ENTERO (nodo C1) ──
 

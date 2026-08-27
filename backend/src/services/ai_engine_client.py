@@ -9,8 +9,8 @@ import httpx
 
 logger = logging.getLogger("basa-secure-gateway")
 
-_BASE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
-_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "")
+_BASE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
+_MASTER_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "")
 _TIMEOUT = 10.0
 
 

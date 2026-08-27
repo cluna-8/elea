@@ -3,7 +3,7 @@
 # las imágenes pinneadas + compose prod + perfil renderizado + checks. Se
 # instala con docker load en un host SIN registry (caso Elea / on-prem).
 #
-# Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... LITELLM_IMAGE=... DOCS_IMAGE=... \
+# Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... BASA_ENGINE_IMAGE=... DOCS_IMAGE=... \
 #      NLP_ANALYZER_IMAGE=... \
 #      CADDY_IMAGE=caddy:2-alpine POSTGRES_IMAGE=postgres:16 REDIS_IMAGE=redis:7-alpine \
 #      deploy/release/bundle.sh <client-slug> [outdir]
@@ -21,7 +21,7 @@ mkdir -p "$OUT"
 # TODAS las imágenes del release (edge case: una imagen fuera del tarball =
 # pull en runtime = install roto sin egress). Incluye las selfhosted on-prem.
 IMAGES=(
-  "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${LITELLM_IMAGE:?}" "${DOCS_IMAGE:?sitio de docs por marca (022)}"
+  "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${BASA_ENGINE_IMAGE:?}" "${DOCS_IMAGE:?sitio de docs por marca (022)}"
   "${NLP_ANALYZER_IMAGE:?analizador NLP (016) — sin él el motor enmascara con regex}"
   "${CADDY_IMAGE:-caddy:2-alpine}" "${POSTGRES_IMAGE:-postgres:16}" "${REDIS_IMAGE:-redis:7-alpine}"
 )
@@ -173,6 +173,9 @@ HELPER="$(awk '/^redis:/{print $1; exit}' "$HERE/MANIFEST")"
 
 echo "── 2/4 poblando volúmenes (licencia, config del motor, extensiones, branding)"
 vol() { docker volume create "${PROJECT}_$1" >/dev/null; }
+# Los nombres TIENEN que ser los de la sección `volumes:` de compose.prod.yml: lo que se
+# puebla acá con otro nombre queda huérfano y compose crea el suyo VACÍO — el motor
+# arranca sin config.yaml ni extensiones y ningún check del release lo mira.
 vol licenses; vol litellm_config; vol branding
 LIC_DIR="$(cd "$(dirname "$LIC")" && pwd)"; LIC_FILE="$(basename "$LIC")"
 docker run --rm --entrypoint sh \

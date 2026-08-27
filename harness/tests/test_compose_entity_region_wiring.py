@@ -4,7 +4,7 @@ Hallazgo del gate de #137 (verificado por el manager): `gateway.py` lee
 `os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)` desde antes de este PR
 — el código consumidor siempre estuvo bien. Lo que faltaba era la ENTREGA: ni
 `docker-compose.yml` ni `deploy/docker/compose.prod.yml` declaraban esta env en el
-bloque `backend` (sólo en `litellm`), así que en una instalación real `/gw`,
+bloque `backend` (sólo en `engine`), así que en una instalación real `/gw`,
 `/gw/inspect` (extensión de navegador) y el Playground SIEMPRE resolvían al default
 del código (`eu`), sin importar qué región eligiera la instalación — el motor (byok)
 sí la recibía y los otros tres planos no.
@@ -77,13 +77,13 @@ def test_backend_recibe_basa_entity_region_en_compose_prod():
     )
 
 
-def test_litellm_y_backend_apuntan_al_mismo_default_de_instalacion():
+def test_engine_y_backend_apuntan_al_mismo_default_de_instalacion():
     """Los dos servicios tienen que resolver la MISMA región de instalación — si uno
     trae un default distinto al otro, el mismo texto detecta entidades distintas según
     el plano por el que entró (byok vs /gw), justo lo que el ADR-0003 prohíbe."""
     for ruta in (_DEV_COMPOSE, _PROD_COMPOSE):
         compose = _cargar(ruta)
-        litellm_env = compose["services"]["litellm"]["environment"]
+        engine_env = compose["services"]["engine"]["environment"]
         backend_env = compose["services"]["backend"]["environment"]
-        assert _env_declara_region(litellm_env), f"{ruta.name}: litellm sin BASA_ENTITY_REGION"
+        assert _env_declara_region(engine_env), f"{ruta.name}: engine sin BASA_ENTITY_REGION"
         assert _env_declara_region(backend_env), f"{ruta.name}: backend sin BASA_ENTITY_REGION"

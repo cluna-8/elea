@@ -230,6 +230,9 @@ async def _hook(identidad, data, call_type="acompletion"):
 
 @pytest.fixture(autouse=True)
 def entorno(monkeypatch):
+    # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
+    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO)
     monkeypatch.setattr(basa_guardrail, "_probe_cache", None, raising=False)
     monkeypatch.setattr(basa_guardrail, "_PRESIDIO_URL", ANALYZER)

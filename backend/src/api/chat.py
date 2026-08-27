@@ -76,8 +76,13 @@ from .gateway import sanear_modelo_declarado
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
 logger = logging.getLogger("basa-secure-gateway.chat")
 
-_ENGINE_URL = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
-_ENGINE_MASTER_KEY = os.getenv("LITELLM_MASTER_KEY", "basa_master_key_9999")
+_ENGINE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
+# Lado BACKEND del secreto compartido del plano interno: acá SÍ va el nombre nuevo, porque
+# el compose se lo pasa a ESTE contenedor como BASA_ENGINE_MASTER_KEY (igual que
+# `internal.py`, `analytics.py`, `costs.py` y `ai_engine_client.py`). La asimetría con
+# `litellm/extensions/`, que sigue leyendo LITELLM_MASTER_KEY, es deliberada: adentro del
+# motor el nombre lo impone la imagen upstream. Los dos nombres resuelven al MISMO valor.
+_ENGINE_MASTER_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "basa_master_key_9999")
 
 # Guardia de calidad (spec 012 US6): reintenta con el prompt original si la respuesta
 # tras compresión es anómala (vacía/muy corta). Fail-open; raro (solo si se comprimió).

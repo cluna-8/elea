@@ -927,7 +927,7 @@ def escritores(harness, monkeypatch):
     _client, factory, _marcas, _cadena = harness
     monkeypatch.setattr(gateway, "SessionLocal", factory)
     monkeypatch.setattr(gateway, "httpx", _HttpxMudo())
-    monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO_INTERNO)
+    monkeypatch.setenv("BASA_ENGINE_MASTER_KEY", SECRETO_INTERNO)
     return harness
 
 

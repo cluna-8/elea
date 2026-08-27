@@ -144,7 +144,7 @@ _ANTHROPIC_UPSTREAM = os.getenv("BASA_GW_ANTHROPIC_BASE", "https://api.anthropic
 # Motor LiteLLM (ruta byok): el gateway es la PUERTA ÚNICA (spec 019). En byok NO aplica
 # política — sólo rutea al motor, que ya corre custom_auth + BasaGuardrail (014). Evita
 # el doble-masking que tendría el port literal del demo (cuyo motor no tenía guardrail).
-_LITELLM_UPSTREAM = os.getenv("LITELLM_API_BASE", "http://litellm:4000").rstrip("/")
+_LITELLM_UPSTREAM = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000").rstrip("/")
 _DEFAULT_MODE = os.getenv("BASA_GW_UPSTREAM_DEFAULT", "subscription-passthrough").lower()
 # Virtual key de Basa en cualquier header de auth (auto-byok, spec 019 US2).
 _BASA_KEY_RE = re.compile(r"sk-basa-[A-Za-z0-9._\-]+")

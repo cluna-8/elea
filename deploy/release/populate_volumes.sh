@@ -35,7 +35,7 @@ docker run --rm -v "${PROJECT}_licenses:/vol" -v "$(cd "$(dirname "$LIC")" && pw
     alpine:3 sh -c "cp /src/$(basename "$LIC") /vol/client.lic && chmod 644 /vol/client.lic"
 echo "✅ licenses ← $(basename "$LIC") (→ client.lic)"
 
-# 2) Config del motor → litellm_config:/ (el motor lee /app/config; el backend
+# Config del motor → litellm_config:/ (el motor lee /app/config; el backend
 #    /app/litellm_config — y ESCRIBE ahí en el alta de modelos de la UI, como
 #    usuario basa 10001:999: sin el chown el alta muere con permission denied).
 docker volume create "${PROJECT}_litellm_config" >/dev/null

@@ -108,15 +108,15 @@ class _HttpxEspia:
 
 @pytest.fixture(scope="module")
 def harness():
-    previo = os.environ.get("LITELLM_MASTER_KEY")
-    os.environ["LITELLM_MASTER_KEY"] = SECRETO_INTERNO
+    previo = os.environ.get("BASA_ENGINE_MASTER_KEY")
+    os.environ["BASA_ENGINE_MASTER_KEY"] = SECRETO_INTERNO
     client, factory, cleanup = build_app_client(DB)
     yield client, factory
     cleanup()
     if previo is None:
-        os.environ.pop("LITELLM_MASTER_KEY", None)
+        os.environ.pop("BASA_ENGINE_MASTER_KEY", None)
     else:
-        os.environ["LITELLM_MASTER_KEY"] = previo
+        os.environ["BASA_ENGINE_MASTER_KEY"] = previo
 
 
 @pytest.fixture(autouse=True)

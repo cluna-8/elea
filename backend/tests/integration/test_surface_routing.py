@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from src.api import gateway
 
-ENGINE = "http://litellm:4000"
+ENGINE = "http://engine:4000"
 ANTHROPIC = "https://api.anthropic.com"
 BENIGN = {"model": "claude-3-5-sonnet", "messages": [{"role": "user", "content": "hola mundo"}]}
 

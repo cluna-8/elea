@@ -40,7 +40,7 @@ POSTGRES_PASSWORD=$(rand_hex 24)
 REDIS_HOST=redis
 JWT_SECRET_KEY=$(rand_b64url 48)
 FERNET_SECRET_KEY=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-LITELLM_MASTER_KEY=sk-$(rand_hex 20)
+BASA_ENGINE_MASTER_KEY=sk-$(rand_hex 20)
 EOF
 
 echo "✅ secretos generados en $OUT (600)"

@@ -171,6 +171,9 @@ async def _postear_al_plano_interno(audit_url: str, entry: dict) -> bool:
         await _registrar_perdida("audit-logger/sin-httpx")
         return False
 
+    # Nombre de upstream a propósito — ver el bloque de `_INTERNAL_SECRET` en
+    # `custom_auth.py` (#302). El backend compara este valor contra su
+    # BASA_ENGINE_MASTER_KEY: renombrar acá manda "" y la fila se rechaza.
     headers = {"X-Basa-Internal": os.environ.get("LITELLM_MASTER_KEY", "")}
     intentos = len(_AUDIT_RETRY_BACKOFFS_SECONDS) + 1
     motivo = "desconocido"

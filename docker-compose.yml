@@ -1,7 +1,7 @@
 version: '3.8'
 
 # STACK_PREFIX aísla container_name entre worktrees en el mismo demonio Docker.
-# Default `basa` → los lectores (`docker exec basa-db`, `docker exec basa-litellm`)
+# Default `basa` → los lectores (`docker exec basa-db`, `docker exec basa-engine`)
 # siguen funcionando. En un worktree paralelo: STACK_PREFIX=jeff223 docker compose up.
 # `-p` NO basta: solo scopea red/volúmenes. Los puertos de host siguen globales
 # (5433/8091/8090/4010); si chocan, override local de `ports` (no de nombres).
@@ -42,7 +42,7 @@ services:
 
   nlp-analyzer:
     # Motor de detección NLP real (spec 016) — sidecar propio, español. Sin puerto
-    # publicado al host: solo lo consumen litellm/backend dentro de basa-network.
+    # publicado al host: solo lo consumen engine/backend dentro de basa-network.
     # Naming neutro (Principio VII): nombre de servicio/hostname sin marca de terceros
     # (el directorio de build sigue llamándose presidio-analyzer/ — detalle interno de
     # repo, no publicado; hallazgo del gate check-docs: el hostname SÍ se filtraba a
@@ -60,18 +60,26 @@ services:
       retries: 10
       start_period: 30s
 
-  litellm:
+  engine:
     # PIN por digest (spec 014 T004/FR-026, Principio VI): litellm 1.92.0.
     # Proceso de bump: cambiar el digest -> correr la suite de contract tests
     # (tests/contract/) -> si pasa, commitear; NUNCA reescribir los hooks a ciegas.
     image: ghcr.io/berriai/litellm:main-latest@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
-    container_name: ${STACK_PREFIX:-basa}-litellm
+    container_name: ${STACK_PREFIX:-basa}-engine
     ports:
       # 4010 en el host: 4000 lo ocupa el litellm del repo demo (gatelite)
       - "4010:4000"
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-basa_admin}:${POSTGRES_PASSWORD:-basasecurepass123}@db:5432/${POSTGRES_DB:-basa_gateway}
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}
+      # ALIAS deliberado (#302): el operador escribe BASA_ENGINE_MASTER_KEY en su `.env`;
+      # DENTRO de ESTE contenedor la variable conserva el nombre de upstream. NO renombrar:
+      # la imagen del motor la lee del env LITERAL (`proxy_server.py`, red del arranque si
+      # falla la carga del config), `config.yaml` la resuelve con `os.environ/LITELLM_MASTER_KEY`
+      # y las tres extensiones de `litellm/extensions/` la leen literal. Con el nombre nuevo
+      # acá, master_key queda None y el motor degrada a INTERNAL_USER en silencio.
+      # El backend recibe el MISMO valor bajo BASA_ENGINE_MASTER_KEY (abajo): los dos lados
+      # del plano interno tienen que compartir secreto o `/internal/audit` rechaza al motor.
+      - LITELLM_MASTER_KEY=${BASA_ENGINE_MASTER_KEY:-basa_master_key_9999}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}
@@ -127,8 +135,8 @@ services:
       - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - LITELLM_API_BASE=http://litellm:4000
-      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}
+      - BASA_ENGINE_API_BASE=http://engine:4000
+      - BASA_ENGINE_MASTER_KEY=${BASA_ENGINE_MASTER_KEY:-basa_master_key_9999}
       # ── Admisión hacia el motor (nodo C1, issue #151) ──────────────────────────
       # Passthrough con los MISMOS defaults del código: en dev no cambia nada de
       # comportamiento, pero las perillas del .env.example dejan de ser decorativas
@@ -176,12 +184,12 @@ services:
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
       # Región de patrones estructurados, default DE LA INSTALACIÓN (spec 016 + extensión
       # países reales, #137/#141). El backend hostea `/gw`, `/gw/inspect` (navegador) y el
-      # Playground —los otros tres planos además del byok que resuelve litellm— y hasta
+      # Playground —los otros tres planos además del byok que resuelve engine— y hasta
       # este fix no la recibía: `gateway.py` lee `os.environ.get("BASA_ENTITY_REGION", …)`
       # contra un env que nunca le llegaba, así que esos tres planos SIEMPRE resolvían al
       # default del código (eu), sin importar la región que eligiera la instalación —
       # un tenant `latam_ar` enmascaraba DNI/CUIL por byok y NO por los otros tres planos.
-      # Mismo valor que `litellm` arriba: los dos servicios tienen que resolver la MISMA
+      # Mismo valor que `engine` arriba: los dos servicios tienen que resolver la MISMA
       # región de instalación o el mismo texto detecta entidades distintas según el plano
       # por el que entró.
       - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
@@ -194,7 +202,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      litellm:
+      engine:
         condition: service_healthy
     networks:
       - basa-network

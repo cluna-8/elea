@@ -4,6 +4,8 @@
 # store de secretos de la instalación (US5), nunca de este archivo.
 # El bloque general/guardrails es EL MISMO de la 014 (paridad de política).
 general_settings:
+  # Nombre de upstream a propósito (#302): el operador escribe BASA_ENGINE_MASTER_KEY
+  # en su `.env` y el compose se lo pasa al motor bajo ESTE nombre. NO renombrar acá.
   master_key: os.environ/LITELLM_MASTER_KEY
   custom_auth: extensions.custom_auth.user_api_key_auth
   custom_auth_run_common_checks: true

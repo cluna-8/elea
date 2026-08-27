@@ -185,6 +185,9 @@ def _audit_url() -> str:
 
 
 def _internal_secret() -> str:
+    # Nombre de upstream a propósito — ver el bloque de `_INTERNAL_SECRET` en
+    # `custom_auth.py` (#302). El backend compara este valor contra su
+    # BASA_ENGINE_MASTER_KEY: renombrar acá manda "" y la fila se rechaza.
     return os.environ.get("LITELLM_MASTER_KEY", "")
 
 

@@ -63,15 +63,15 @@ NUEVO = datetime(2030, 1, 1, 0, 0, 0)
 def harness():
     """DB fresca migrada a head + app real. El secreto interno se inyecta en el env porque
     `_require_internal_secret` lo lee en cada request al plano interno."""
-    previo = os.environ.get("LITELLM_MASTER_KEY")
-    os.environ["LITELLM_MASTER_KEY"] = SECRETO
+    previo = os.environ.get("BASA_ENGINE_MASTER_KEY")
+    os.environ["BASA_ENGINE_MASTER_KEY"] = SECRETO
     client, factory, cleanup = build_app_client(DB)
     yield client, factory
     cleanup()
     if previo is None:
-        os.environ.pop("LITELLM_MASTER_KEY", None)
+        os.environ.pop("BASA_ENGINE_MASTER_KEY", None)
     else:
-        os.environ["LITELLM_MASTER_KEY"] = previo
+        os.environ["BASA_ENGINE_MASTER_KEY"] = previo
 
 
 @pytest.fixture(autouse=True)
