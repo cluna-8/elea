@@ -100,7 +100,7 @@ def audit_fail_decision(risk_level: Optional[str]) -> bool:
     sólo el nivel final.
 
     Ojo con lo que decía esta línea hasta la 038 —«la cascada User > Group > Tenant (spec
-    013 US4)»—: la cascada que corre de verdad (`chat.py::_riesgo_aplicado`) es
+    013 US4)»—: la cascada que corre de verdad (`riesgo_aplicado()`, en este mismo módulo) es
     **Key > User > Group**, SIN el eslabón tenant. La función que sí lo implementa
     (`context_resolution.resolve_context_defaults`) no tiene un solo consumidor de
     producción, y `tenants.default_risk_level` no es escribible por ninguna vía de API. Se
@@ -145,6 +145,72 @@ def audit_exige_registro(risk_level: Optional[str]) -> bool:
     if modo == AUDIT_FAIL_OPEN:
         return False
     return not audit_fail_decision(risk_level)
+
+
+# ── El copy del 503 y la cascada del riesgo: acá porque tienen MÁS DE UN plano ────
+#
+# Las dos cosas nacieron privadas en `chat.py` (T006) y suben a este módulo al llegar el
+# segundo plano (T007, `/gw`). El criterio no es prolijidad: los dos son **entradas de la
+# misma decisión que este módulo ya es dueño de tomar**, y una copia por plano es
+# exactamente lo que `tasks.md` declara NO_APTO para la matriz. La prueba de qué pasa con
+# las copias está en el repo: `context_resolution.resolve_context_defaults()` implementa la
+# cascada COMPLETA (con eslabón tenant) y no tiene un solo consumidor de producción, así que
+# hace años dice algo distinto de lo que el producto hace y nadie se entera.
+
+# Copy del 503 de `audit_fail=closed` (spec 031, contrato §Semántica closed). Se comparte
+# entre el pre-check del camino feliz y el fallo de escritura en un punto de bloqueo a
+# propósito: para el usuario los dos casos son el mismo hecho —"esta instalación no sirve
+# tráfico que no pueda registrar"— y dos textos distintos harían que el operador creyera que
+# son dos incidentes. **Carácter por carácter el de hoy (SC-002).**
+AUDIT_CLOSED_DETAIL = (
+    "auditoría no disponible — la instalación exige registro (audit_fail=closed)"
+)
+
+# Copy del 503 de `audit_fail=policy` (spec 038 D2). Es OTRO texto y no una variante del de
+# arriba a propósito: el hecho que comunica es distinto. En `closed` la instalación decidió
+# que sin registro no hay servicio para NADIE; en `policy` el servicio sigue en pie y es ESTE
+# pedido el que no se sirve, por su nivel de riesgo. Un operador que lea «audit_fail=closed»
+# en una instalación que nunca seteó `closed` va a buscar una env que no está — el peor final
+# para un mensaje de error honesto.
+AUDIT_POLICY_DETAIL = (
+    "auditoría no disponible — este pedido no se sirve sin registro por su nivel de riesgo "
+    "(audit_fail=policy)"
+)
+
+
+def detalle_503_audit() -> str:
+    """El copy del 503 que corresponde al modo VIGENTE (se lee por llamada, igual que el
+    modo: una env cambiada con `compose up -d` no puede dejar el texto viejo pegado)."""
+    return (AUDIT_CLOSED_DETAIL if audit_fail_mode() == AUDIT_FAIL_CLOSED
+            else AUDIT_POLICY_DETAIL)
+
+
+def riesgo_aplicado(api_key_obj, user, group) -> Optional[str]:
+    """`applied_risk_level` del pedido — cascada viva Key > User > Group (spec 013 US4).
+
+    Tiene TRES lectores desde la 038 y no pueden divergir: la fila de auditoría (que lo
+    reporta como `applied_risk_level`), la decisión servir/cortar de `audit_exige_registro()`
+    y —desde T007— el plano `/gw`, que a diferencia del chat tiene que PRODUCIR el dato en
+    vez de encontrarlo resuelto. Que la compuerta y lo que el DPO lee en la columna salgan de
+    la MISMA expresión no es prolijidad: si divergieran, el registro diría que se sirvió un
+    pedido `limited` que en realidad se cortó como `None`.
+
+    Duck-typing a propósito (`getattr` con default): los tres call-sites llegan con objetos
+    ORM de módulos distintos y uno de ellos —la key— **no tiene la columna**. Ver abajo.
+
+    Lo que esta cascada NO tiene, y la 038 declara: el eslabón **tenant**
+    (`tenant.default_risk_level`). `context_resolution.resolve_context_defaults()` sí lo
+    implementa, pero hoy esa función no tiene un solo consumidor de producción y la columna
+    del tenant no es escribible por ninguna vía de API — sumarla acá sería un cambio de
+    comportamiento sin perilla que lo respalde. Queda como issue (#333), no como deuda
+    escondida: es la perilla que le falta a `/gw`, donde el tráfico anónimo resuelve `None`
+    por construcción y hoy no hay UNA sola vía de darle un riesgo a esa instalación entera.
+    """
+    return (
+        getattr(api_key_obj, "risk_level", None) or  # not stored on key, but future-proof
+        (getattr(user, "risk_level", None) if user else None) or
+        (getattr(group, "default_risk_level", None) if group else None)
+    )
 
 
 def _wait(seconds: float) -> None:
@@ -522,7 +588,18 @@ class AuditService:
         record_audit_loss(reason=f"log_transaction/{compliance_status}")
 
         # `None` = decidí por modo (pre-038): es el camino de `config_audit`, ver el
-        # docstring. Un plano de tráfico SIEMPRE pasa el booleano ya resuelto.
+        # docstring.
+        #
+        # **Corrección de T007 a la línea que estaba acá** («un plano de tráfico SIEMPRE pasa
+        # el booleano»): lo que decide si un plano lo pasa no es que sea de tráfico, es **cómo
+        # se entera del fallo**. El chat necesita que este escritor LEVANTE —su camino feliz
+        # convierte la excepción en 503— así que pasa el booleano. El gateway no: su
+        # envoltorio `_audit` traduce todo a un booleano y el corte lo decide el endpoint
+        # ANTES de llamar al proveedor (tiene que hacerlo así: ese plano devuelve 2 respuestas
+        # de streaming y el chat 0 ⇒ un 503 post-generación no existe como respuesta allá).
+        # Pasarle el booleano al
+        # escritor desde ahí sería pedirle que levante una excepción que el mismo plano se
+        # traga dos frames después. Los dos son planos de tráfico y los dos son correctos.
         corta = exige_registro if exige_registro is not None else (mode == AUDIT_FAIL_CLOSED)
         if corta:
             # El texto de `closed` se conserva CARÁCTER POR CARÁCTER (SC-002: bit-a-bit
@@ -531,9 +608,6 @@ class AuditService:
             # por su nivel de riesgo. Decirle «audit_fail=closed» al operador de una
             # instalación que no seteó `closed` lo manda a buscar una env que no existe.
             raise AuditUnavailableError(
-                "auditoría no disponible — la instalación exige registro (audit_fail=closed)"
-                if mode == AUDIT_FAIL_CLOSED else
-                "auditoría no disponible — este pedido no se sirve sin registro por su nivel "
-                "de riesgo (audit_fail=policy)"
+                AUDIT_CLOSED_DETAIL if mode == AUDIT_FAIL_CLOSED else AUDIT_POLICY_DETAIL
             ) from last_error
         return None

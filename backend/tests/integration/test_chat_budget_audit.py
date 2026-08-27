@@ -57,7 +57,8 @@ SIN_PII = "Resumime en una línea qué hace este servicio."
 # constante se renombrara de las dos puntas a la vez.
 PRESUPUESTO = "rejected_budget"
 
-# Copy ÚNICO del 503 de `audit_fail=closed` (`chat.py`, `_AUDIT_CLOSED_DETAIL`). Literal por
+# Copy ÚNICO del 503 de `audit_fail=closed` (`audit_service.AUDIT_CLOSED_DETAIL`; vivía en
+# `chat.py` hasta que T007 lo subió al módulo que ya era dueño de la decisión). Literal por
 # el mismo motivo que arriba, y además porque es lo que distingue este 503 de cualquier otro:
 # si el test se conformara con «status_code == 503» pasaría con un 503 de otra causa.
 DETALLE_CLOSED = "auditoría no disponible — la instalación exige registro (audit_fail=closed)"

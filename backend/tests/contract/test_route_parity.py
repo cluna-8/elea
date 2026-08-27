@@ -217,7 +217,22 @@ def client(monkeypatch):
     _FakeAsyncClient.captured = {}
     _FakeAsyncClient.stream_split = False
     monkeypatch.setattr(gateway.httpx, "AsyncClient", _FakeAsyncClient)
-    monkeypatch.setattr(gateway, "_audit", lambda *a, **k: None)       # sin DB en este test
+    # `True` = «la fila quedó escrita», y el valor es LOAD-BEARING desde la 038 T007.
+    #
+    # Decía `None` con el comentario «sin DB en este test», y eso era una afirmación distinta
+    # de la que se quería hacer: `_audit` devuelve **si la fila es durable**, así que `None`
+    # dice «no hubo fila», no «acá no me importa la base». Bajo el guard viejo daba igual —
+    # `if not registrado and audit_fail_mode() == AUDIT_FAIL_CLOSED` se salvaba por el modo,
+    # que por default no es `closed`. Desde T007 el guard es `if not registrado and
+    # exige_registro`, y un pedido sin `X-Basa-Key` resuelve riesgo `None`, que en `policy`
+    # (el default) EXIGE registro ⇒ el doble hacía que un bloqueo respondiera 503 en vez de
+    # 400, y estos dos tests de contrato rojeaban por una mentira del doble, no del código.
+    #
+    # Este archivo fija PARIDAD DE RUTAS, no la política de auditoría: la afirmación correcta
+    # acá es «la auditoría no es el objeto de estudio y se comportó bien». Los caminos donde el
+    # booleano SÍ decide tienen sus propios testigos en `test_gateway_audit_policy.py`
+    # (bloqueo y literal reservado bajo `policy`, con riesgo alto y bajo).
+    monkeypatch.setattr(gateway, "_audit", lambda *a, **k: True)
     monkeypatch.setattr(gateway, "_publish_monitor", lambda *a, **k: None)
     app = FastAPI()
     app.include_router(gateway.router)

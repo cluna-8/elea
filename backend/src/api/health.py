@@ -195,7 +195,7 @@ _riesgo_cache: Dict[str, Any] = {"vencimiento": 0.0, "valor": 0}
 def _usuarios_sin_riesgo_cacheado(db: Session) -> int:
     """Cuántos usuarios ACTIVOS resolverían `applied_risk_level = None` hoy.
 
-    Espeja la cascada viva de `chat.py::_riesgo_aplicado` (Key > User > Group) por el lado
+    Espeja la cascada viva de `audit_service.riesgo_aplicado()` (Key > User > Group) por el lado
     que se puede contar: el eslabón Key no participa —la columna no existe en el modelo, el
     propio código lo dice— así que un usuario cuenta cuando no tiene `risk_level` propio Y
     (no tiene grupo O su grupo no tiene `default_risk_level`).

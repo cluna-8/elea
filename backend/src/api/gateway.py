@@ -82,10 +82,13 @@ from ..services.audit_service import (
     AUDIT_FAIL_CLOSED,
     AuditService,
     AuditUnavailableError,
+    audit_exige_registro,
     audit_fail_mode,
     audit_writable,
+    detalle_503_audit,
     record_audit_loss,
     record_nlp_degradation,
+    riesgo_aplicado,
 )
 # Tope de admisión al motor (nodo C1): el camino byok de este plano comparte cola con el chat,
 # así que comparte el semáforo. Los TIMEOUTS no se comparten (H3 del gate de #135): cada plano
@@ -568,6 +571,18 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         "api_key_id": None, "client_username": None, "tenant_slug": None,
         "group_name": None, "key_label": None,
         "tool_type": None, "redact_enabled": None, "oauth_credential_ref": None,
+        # `applied_risk_level` del pedido (spec 038 T007). Viaja acá por la MISMA razón que
+        # `governance_decisions` y `nlp`: la cascada viva es Key > User > Group y esta función
+        # ya tiene los tres objetos cargados en su sesión — resolverla afuera costaría una
+        # segunda sesión en el camino caliente para un dato que acá sale gratis.
+        #
+        # **El default `None` no es "falta configurar": es la forma NORMAL del tráfico anónimo
+        # de este plano.** `X-Basa-Key` es OPCIONAL acá (la credencial es el OAuth), así que un
+        # pedido sin header no tiene key, ni usuario, ni grupo de dónde sacar un riesgo. En
+        # `policy` eso lo vuelve un pedido que EXIGE registro (D2: sin riesgo resuelto no se
+        # demostró riesgo bajo) ⇒ con la auditoría caída, corta. Es la decisión ★A sellada el
+        # 27-ago, declarada y no descubierta: ver el body del PR y `docs/api-reference/errors.md`.
+        "applied_risk_level": None,
         # Decisiones de gobernanza del tenant (spec 027): viajan con la identidad para
         # NO abrir una segunda sesión por pedido — el perfil se resuelve después, en
         # memoria, con la cascada pura.
@@ -611,6 +626,11 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
                     key_label=key.name,
                     tool_type=key.tool_type, redact_enabled=key.redact_enabled,
                     oauth_credential_ref=key.oauth_credential_ref,
+                    # DENTRO del `try`, y no después: `key.user`/`key.group` son relaciones
+                    # lazy y el `finally` cierra la sesión. Resolverlo afuera daría
+                    # `DetachedInstanceError` —o, peor, lo tragaría el `except` de abajo y el
+                    # pedido seguiría con riesgo `None`, que en `policy` es cortar.
+                    applied_risk_level=riesgo_aplicado(key, key.user, key.group),
                 )
         # También para el tráfico anónimo: sin ``X-Basa-Key`` el pedido se audita contra
         # el tenant por defecto, y en una instalación de un solo tenant ESE es el tenant
@@ -620,7 +640,18 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         ident["nlp"] = _nlp_context(db, ident["tenant_id"],
                                     atribuible=_tenant_atribuible(ident))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("gateway: atribución best-effort falló (%s); sigo anónimo", exc)
+        # **«Sigo anónimo» dejó de ser sólo una pérdida de atribución en T007.** `ident.update()`
+        # es UNA llamada: si cualquier expresión suya revienta, no se setea NINGÚN campo, y
+        # entre ellos está `applied_risk_level` ⇒ el pedido pasa a resolver riesgo `None`, que
+        # en `policy` EXIGE registro. O sea que un fallo acá ya no degrada sólo el registro:
+        # puede cortar un pedido que con la cascada sana se habría servido gratis.
+        #
+        # Se deja así a propósito, por la misma regla que gobierna al anónimo (D2): un pedido
+        # cuyo riesgo no se pudo resolver **no demostró ser de riesgo bajo**, y el default ante
+        # la duda es el reversible. Lo que NO puede pasar es que sea invisible: por eso el log
+        # nombra las dos consecuencias, y no sólo la atribución.
+        logger.warning("gateway: atribución best-effort falló (%s); sigo anónimo — y con "
+                       "riesgo sin resolver, que en modo `policy` exige registro", exc)
     finally:
         db.close()
     return ident
@@ -853,41 +884,67 @@ def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
 
 # ── auditoría (metadata-only, C1) + feed del monitor (US3) ────────────────────────
 
-_AUDIT_503_DETAIL = ("auditoría no disponible — la instalación exige registro "
-                     "(audit_fail=closed)")
-
-
 def _audit_no_disponible():
     """503 honesto del contrato (§Semántica closed), con la FORMA de error de Anthropic.
 
     El cuerpo importa tanto como el código: las coding tools parsean ``error.message`` y un
     503 con otro shape lo muestran como "respuesta inesperada del proxy", que es justo la
     confusión que este modo intenta evitar. El motivo va explícito para que el operador sepa
-    que el corte es de auditoría y no del proveedor."""
-    return _anthropic_error(f"[Basa Gateway] {_AUDIT_503_DETAIL}", 503)
+    que el corte es de auditoría y no del proveedor.
+
+    Desde T007 el texto sale de ``detalle_503_audit()`` —el copy ÚNICO de los dos planos— en
+    vez de un literal local de `closed`. No es cosmética: en `policy` este plano ya puede
+    cortar, y decirle «audit_fail=closed» al operador de una instalación que nunca seteó esa
+    env lo manda a buscar una variable que no existe."""
+    return _anthropic_error(f"[Basa Gateway] {detalle_503_audit()}", 503)
 
 
-def _audit_precheck_ok() -> bool:
+def _exige_registro_byok() -> bool:
+    """La decisión del pre-check para la rama **byok**, que todavía NO resuelve riesgo.
+
+    Este plano corta byok en la puerta sólo bajo el override global `closed`. En `policy` la
+    decisión por riesgo del tráfico byok es de **T008**, donde el motor la pide por
+    `/internal/audit/probe` con contexto de credencial: la fila byok no la escribe este plano
+    sino el motor, y decidir acá con el riesgo que este plano puede ver (`None` para toda key
+    sin usuario) cortaría por un dato que no es el que gobierna esa fila.
+
+    Está como función con nombre y no como expresión inline para que sea greppable: es la
+    ÚNICA excepción viva a «el pre-check mira `audit_exige_registro`», y una excepción que no
+    se puede encontrar es la que sobrevive a la tarea que la iba a cerrar."""
+    return audit_fail_mode() == AUDIT_FAIL_CLOSED
+
+
+def _audit_precheck_ok(exige_registro: bool) -> bool:
     """¿Puede seguir este pedido? (contrato §Semántica closed, D4).
 
-    En ``open`` devuelve True SIN tocar la base: esa instalación eligió continuidad con
-    pérdida contada, así que cobrarle un ``SELECT 1`` por pedido sería pagar por una
-    pregunta cuya respuesta no cambia nada.
+    Recibe la **decisión ya tomada**, no el riesgo ni el modo — misma forma que el kwarg
+    ``exige_registro`` de ``AuditService.log_transaction``, y por la misma razón: la matriz
+    vive en UN lugar (`audit_exige_registro`) y los planos consumen su resultado.
 
-    En ``closed`` es el pre-check literal de FR-005 —«rechazar ANTES de llamar al
+    Si el pedido no exige registro devuelve True SIN tocar la base. Eso cubre `open` (esa
+    instalación eligió continuidad con pérdida contada) y **también el tráfico de riesgo bajo
+    en `policy`, que es el DEFAULT**: cobrarle un ``SELECT 1`` por pedido a tráfico que se va
+    a servir igual sería pagar por una pregunta cuya respuesta no cambia nada (D4). El
+    cortocircuito es el orden correcto y no una optimización: el riesgo ya está resuelto y es
+    gratis; la escribibilidad cuesta una consulta.
+
+    Cuando SÍ exige, es el pre-check literal de FR-005 —«rechazar ANTES de llamar al
     proveedor»—: si la base de auditoría no responde, el pedido no sale del gateway y no se
     gasta dinero en tráfico que después nadie va a poder registrar. Sesión propia y corta
     (este plano no tiene ``get_db``: su identidad es el OAuth del cliente, no una sesión de
     request), cerrada acá mismo para no retener conexión del pool durante una caída.
     """
-    if audit_fail_mode() != AUDIT_FAIL_CLOSED:
+    if not exige_registro:
         return True
     db = SessionLocal()
     try:
         return audit_writable(db)
     except Exception as exc:  # noqa: BLE001 — `audit_writable` ya no propaga; red de seguridad
-        logger.error("gateway: el pre-check de auditoría falló (%s) — pedido rechazado (closed)",
-                     exc)
+        # El modo se LOGUEA, no se asume: desde T007 este pre-check también corre en `policy`
+        # y un log que dice «closed» en una instalación que nunca seteó esa env es el mismo
+        # error que el copy del 503 evita del lado del cliente.
+        logger.error("gateway: el pre-check de auditoría falló (%s) — pedido rechazado "
+                     "(modo=%s)", exc, audit_fail_mode())
         return False
     finally:
         db.close()
@@ -993,11 +1050,30 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     * ``False`` → no hay fila, y la pérdida YA quedó contada (``basa:audit:lost``) y
       logueada con nivel error por el escritor.
 
+    **El eslabón que se lee al revés** (P1 del gate cross-familia de #340, refutado midiendo):
+    este plano NO le pasa ``exige_registro`` al escritor, así que en el camino donde el escritor
+    TRAGA el fallo no hay excepción que capturar. La traducción a ``False`` no la hace un
+    ``except``: la hace ``return fila is not None`` — el escritor devuelve ``None`` cuando traga
+    (``audit_service.py``, el ``return None`` del final de ``log_transaction``). Sin ese eslabón,
+    un lector concluye que acá se devuelve ``True`` y que los rechazos salen 400 en vez de 503;
+    con él, los dos caminos —excepción y tragado— llegan al mismo ``False``. Los testigos son las
+    mutaciones B y C del gate (revertir la guarda de cada rechazo mata un test distinto).
+
     Sigue sin propagar excepciones —romper el request es decisión del caller, no de la
     auditoría— pero el caller que necesita cortar (modo ``closed``, antes de responder)
     tiene con qué: mira el booleano. ``AuditUnavailableError`` se captura por tipo porque en
     ``closed`` el escritor la lanza DESPUÉS de contar la pérdida: re-contarla acá inflaría
     el contador del health al doble.
+
+    **Por qué este plano NO le pasa ``exige_registro`` al escritor (T007), a diferencia del
+    chat:** acá el corte se decide ANTES —``_audit_precheck_ok(exige_registro)``, antes del
+    primer byte— porque este archivo responde con ``StreamingResponse`` y un 503 posterior al
+    primer chunk no es una respuesta, es una conexión cortada a mitad con la generación ya
+    pagada. Todo lo que falle DESPUÉS se absorbe y se cuenta, que es exactamente lo que hacen
+    los dos ``except`` de abajo. Pasarle el booleano al escritor le pediría que levante una
+    excepción que este mismo frame se traga: cero efecto observable y un acoplamiento nuevo.
+    El chat sí se lo pasa porque ALLÁ la excepción es el mecanismo del 503 (su camino feliz
+    bufferiza entero: cero ``StreamingResponse`` en `chat.py`, medido).
     """
     db = SessionLocal()
     try:
@@ -1557,7 +1633,10 @@ async def gw_messages(
         # sesión de base. El motor hace su propio pre-check contra `/internal/audit/probe`,
         # pero eso ya es un salto de red después de haber aceptado el pedido acá; cortarlo
         # en la puerta es más barato y no depende de que la extensión del motor esté al día.
-        if not _audit_precheck_ok():
+        # Sigue siendo SÓLO `closed` y eso es deliberado — ver `_exige_registro_byok()`: la
+        # decisión por riesgo del byok es de T008, del lado del motor, que es quien escribe
+        # esa fila.
+        if not _audit_precheck_ok(_exige_registro_byok()):
             return _audit_no_disponible()
         # Único retoque del body en esta ruta: «auto» → default del router (T017/R9). Todo
         # lo demás sigue yendo verbatim al motor, que es quien aplica la política.
@@ -1584,6 +1663,13 @@ async def gw_messages(
                                  model=modelo_al_motor, start=start)
 
     ident = _resolve_attribution(x_basa_key)
+    # La decisión servir/cortar de ESTE pedido (spec 038 T007), resuelta UNA vez y leída por
+    # los tres puntos que la necesitan: el pre-check del camino feliz y los dos rechazos que
+    # ya escriben fila (bloqueo y literal reservado). Una sola llamada y no tres: en `policy`
+    # la matriz mira `applied_risk_level`, que es fijo dentro del pedido, y tres lecturas de
+    # la env abrirían la ventana de que un `compose up -d` a mitad de request haga que el
+    # mismo pedido se pre-checkee con un modo y se responda con otro.
+    exige_registro = audit_exige_registro(ident.get("applied_risk_level"))
     tool = policy.detect_tool(request.headers.get("user-agent"))
     # Postura de gobernanza del tenant para (modo efectivo, superficie) — spec 027 T026.
     profile = _resolve_governance_profile(ident, tool, x_basa_redact)
@@ -1616,11 +1702,13 @@ async def gw_messages(
                          attribution=attribution)
         logger.info("gateway BLOCK (%s) tool=%s model=%s layer=%s registrado=%s",
                     status, tool, model, attribution.blocked_by_layer, registrado)
-        if not registrado and audit_fail_mode() == AUDIT_FAIL_CLOSED:
-            # US1 AC4: «se bloqueó y no quedó nada» nunca en silencio. En `closed` el cliente
-            # se entera de que el registro falló (el bloqueo se mantiene: sigue sin llamarse
-            # al proveedor); en `open` recibe el rechazo de siempre y la pérdida queda en el
-            # contador + el health.
+        if not registrado and exige_registro:
+            # US1 AC4: «se bloqueó y no quedó nada» nunca en silencio. Cuando el pedido exige
+            # registro el cliente se entera de que el registro falló (el bloqueo se mantiene:
+            # sigue sin llamarse al proveedor); si no lo exige recibe el rechazo de siempre y
+            # la pérdida queda en el contador + el health. Desde T007 «lo exige» ya no es sólo
+            # `closed`: en `policy` un bloqueo de riesgo alto tampoco puede quedar sin fila y
+            # con cara de bloqueo normal.
             return _audit_no_disponible()
         return _anthropic_error(f"[Basa Gateway] {block_reason}")
 
@@ -1646,18 +1734,42 @@ async def gw_messages(
         logger.warning("gateway 422 modelo reservado: el cliente declaró el literal de la "
                        "cadena de licencias como modelo (tenant=%s key=%s registrado=%s)",
                        ident.get("tenant_id"), ident.get("api_key_id"), registrado)
-        if not registrado and audit_fail_mode() == AUDIT_FAIL_CLOSED:
-            # Mismo criterio que el bloqueo de arriba (US1 AC4): en `closed`, «se rechazó y no
-            # quedó nada» no puede salir con la cara del rechazo normal.
+        if not registrado and exige_registro:
+            # Mismo criterio que el bloqueo de arriba (US1 AC4): cuando el pedido exige
+            # registro, «se rechazó y no quedó nada» no puede salir con la cara del rechazo
+            # normal.
             return _audit_no_disponible()
         return _anthropic_error(
             f"[Basa Gateway] '{MODELO_CADENA_LICENCIAS}' es un literal reservado de la "
             "auditoría —marca los eslabones de la cadena de evidencia de licencias— y no "
             "puede usarse como nombre de modelo. El intento quedó registrado.", 422)
 
-    # Pedido permitido: en `closed`, confirmar que se va a poder registrar ANTES de gastar
-    # dinero en el proveedor (FR-005, literal). En `open` no cuesta ni un SELECT.
-    if not _audit_precheck_ok():
+    # Pedido permitido: si exige registro, confirmar que se va a poder registrar ANTES de
+    # gastar dinero en el proveedor (FR-005, literal). Si no lo exige —`open`, o `policy` con
+    # riesgo bajo, que es el caso NORMAL del default— no cuesta ni un SELECT.
+    #
+    # **Éste es además el punto donde se decide el streaming, y por eso está acá y no después
+    # (restricción del gate cross-familia de #334):** este plano DEVUELVE respuestas de
+    # streaming —**2**, las dos `_StreamConTurno` (subclase de `StreamingResponse`): la del
+    # passthrough y la del byok— y `chat.py` **0**, que bufferiza entero. Con la respuesta ya
+    # iniciada, un corte no puede rendir un 503: cortaría la conexión a mitad con la generación
+    # del proveedor ya pagada. La decisión se toma ANTES del primer byte; lo que falle DESPUÉS
+    # se absorbe y se cuenta (ver `_audit`), que es lo que este plano ya hacía sin cambios.
+    #
+    # El conteo es de RESPUESTAS CONSTRUIDAS, medido por AST. Mi primer número —«6»— era el de
+    # un `grep` de la palabra, que contaba el import, la línea de la clase y los comentarios
+    # que hablan de ella. La conclusión no cambiaba (2 ≠ 0 igual que 6 ≠ 0), pero un contador
+    # que cuenta prosa no es el contador de la cosa.
+    if not _audit_precheck_ok(exige_registro):
+        # Espejo del log del chat (`chat.py`, mismo corte): el operador tiene que poder
+        # contestar «¿por qué se cortó ESE pedido?», y en `policy` la respuesta es un NIVEL de
+        # riesgo. Sin esta línea el cliente se enteraba de más que el operador: el copy del 503
+        # dice `(audit_fail=policy)` y el log de este plano no decía ni el modo ni el nivel.
+        # Va el NIVEL y no `ident`: ahí adentro viven `key_label` y `client_username`, y un log
+        # de diagnóstico no es lugar para identidad de cliente.
+        logger.error("audit: el pedido exige registro (modo=%s riesgo=%s) y la base de "
+                     "auditoría no responde — se rechaza ANTES de llamar al proveedor "
+                     "(model=%s)", audit_fail_mode(), ident.get("applied_risk_level"), model)
         return _audit_no_disponible()
 
     send_raw = json.dumps(body).encode("utf-8") if ph_to_orig else raw

@@ -31,13 +31,14 @@ from ..services.presidio_service import PresidioService
 from ..services.optimization_service import OptimizationService
 from ..services.compliance_service import ComplianceService
 from ..services.audit_service import (
-    AUDIT_FAIL_CLOSED,
     AuditService,
     AuditUnavailableError,
     audit_exige_registro,
     audit_fail_mode,
     audit_writable,
+    detalle_503_audit,
     record_audit_loss,
+    riesgo_aplicado,
 )
 from ..services.engine_gate import (
     ENGINE_TIMEOUT_SECONDS,
@@ -101,54 +102,11 @@ _ENGINE_TIMEOUT_SECONDS = ENGINE_TIMEOUT_SECONDS
 
 _EU_COMPLIANT_PROVIDERS = {"bedrock", "vertex_ai", "azure", "watsonx", "ollama", "ollama_chat"}
 
-# Copy ÚNICO del 503 de `audit_fail=closed` (spec 031, contrato §Semántica closed). Se
-# comparte entre el pre-check del camino feliz y el fallo de escritura en un punto de
-# bloqueo a propósito: para el usuario los dos casos son el mismo hecho —"esta instalación
-# no sirve tráfico que no pueda registrar"— y dos textos distintos harían que el operador
-# creyera que son dos incidentes. Mismo tono honesto que el 402 de licencias (021).
-_AUDIT_CLOSED_DETAIL = (
-    "auditoría no disponible — la instalación exige registro (audit_fail=closed)"
-)
-
-# Copy del 503 de `audit_fail=policy` (spec 038 D2). Es OTRO texto y no una variante del de
-# arriba a propósito: el hecho que comunica es distinto. En `closed` la instalación decidió
-# que sin registro no hay servicio para NADIE; en `policy` el servicio sigue en pie y es
-# ESTE pedido el que no se sirve, por su nivel de riesgo. Un operador que lea
-# «audit_fail=closed» en una instalación que nunca seteó `closed` va a buscar una env que no
-# está — el peor final para un mensaje de error honesto.
-_AUDIT_POLICY_DETAIL = (
-    "auditoría no disponible — este pedido no se sirve sin registro por su nivel de riesgo "
-    "(audit_fail=policy)"
-)
-
-
-def _detalle_503_audit() -> str:
-    """El copy del 503 que corresponde al modo VIGENTE (se lee por llamada, igual que el
-    modo: una env cambiada con `compose up -d` no puede dejar el texto viejo pegado)."""
-    return (_AUDIT_CLOSED_DETAIL if audit_fail_mode() == AUDIT_FAIL_CLOSED
-            else _AUDIT_POLICY_DETAIL)
-
-
-def _riesgo_aplicado(api_key_obj, user, group) -> Optional[str]:
-    """`applied_risk_level` del pedido — cascada Key > User > Group (spec 013 US4).
-
-    Extraída a helper porque desde la 038 tiene DOS lectores y no pueden divergir: la fila
-    de auditoría del camino feliz (que la reporta como `applied_risk_level`) y la decisión
-    servir/cortar de `audit_exige_registro()`. Que la compuerta y lo que el DPO lee en la
-    columna salgan de la MISMA expresión no es prolijidad: si divergieran, el registro
-    diría que se sirvió un pedido `limited` que en realidad se cortó como `None`.
-
-    Lo que esta cascada NO tiene, y la 038 declara: el eslabón **tenant**
-    (`tenant.default_risk_level`). `context_resolution.resolve_context_defaults()` sí lo
-    implementa, pero hoy esa función no tiene un solo consumidor de producción y la columna
-    del tenant no es escribible por ninguna vía de API — sumarla acá sería un cambio de
-    comportamiento sin perilla que lo respalde. Queda como issue, no como deuda escondida.
-    """
-    return (
-        getattr(api_key_obj, "risk_level", None) or  # not stored on key, but future-proof
-        (getattr(user, "risk_level", None) if user else None) or
-        (getattr(group, "default_risk_level", None) if group else None)
-    )
+# El copy del 503 (`AUDIT_CLOSED_DETAIL`/`AUDIT_POLICY_DETAIL` + `detalle_503_audit()`) y la
+# cascada del riesgo (`riesgo_aplicado()`) nacieron acá en T006 y viven desde T007 en
+# `services/audit_service.py`, junto a la matriz que alimentan: el plano `/gw` es su segundo
+# consumidor y una copia por plano es lo que `tasks.md` declara NO_APTO. Se importan arriba;
+# el texto del 503 se conservó carácter por carácter en la mudanza (SC-002, medido).
 
 
 # ── Gobernanza del plano chat (spec 027 US2, T027) ────────────────────────────────
@@ -728,7 +686,7 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
             # en el camino caliente— o a que cada uno la copiara. Este helper ya recibe
             # `api_key_obj`/`user`/`group`, que es todo lo que la cascada necesita.
             exige_registro=audit_exige_registro(
-                _riesgo_aplicado(api_key_obj, user, group)),
+                riesgo_aplicado(api_key_obj, user, group)),
             # Modelo del pedido, tal como lo conoce el llamador. En los llamadores que
             # corren DESPUÉS del auto-router es el modelo efectivo (con «auto»,
             # `request.model` ya es el destino que eligió el router, y lo pedido viaja
@@ -765,7 +723,7 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
     if fallo_closed is not None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_detalle_503_audit(),
+            detail=detalle_503_audit(),
             headers=cabeceras_del_503,
         ) from fallo_closed
 
@@ -1408,7 +1366,7 @@ async def chat_completions(
     active_projects = [resolved_project] if resolved_project else []
 
     _applied_project_name = resolved_project.name if resolved_project else None
-    _applied_risk_level = _riesgo_aplicado(api_key_obj, user, group)
+    _applied_risk_level = riesgo_aplicado(api_key_obj, user, group)
     _applied_legal_basis = (
         (getattr(user, "legal_basis", None) if user else None) or
         (getattr(group, "default_legal_basis", None) if group else None)
@@ -1511,7 +1469,7 @@ async def chat_completions(
                      "(model=%s)", audit_fail_mode(), _applied_risk_level, routed_model)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_detalle_503_audit(),
+            detail=detalle_503_audit(),
         )
 
     # ── Tope de ADMISIÓN hacia el motor (nodo C1) ─────────────────────────────────────
@@ -1945,7 +1903,7 @@ async def chat_completions(
                      audit_fail_mode(), _applied_risk_level, _modelo_de_la_fila)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_detalle_503_audit(),
+            detail=detalle_503_audit(),
         ) from exc
 
     # Link review record to audit log

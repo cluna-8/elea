@@ -90,6 +90,48 @@ comportamiento (suite completa verde lo demuestra).
       cascada viva, **jamás copiarla por tercera vez** (`context_resolution.py` es la
       prueba de qué pasa con las copias: implementa la cascada completa y no tiene un solo
       consumidor de producción).
+      **Medido al implementar, y cambia el diseño respecto de lo que anticipaba el gate:**
+      - El P1 que el gate cross-familia de #334 anticipó para `/gw` («la `HTTPException`
+        post-generación corrompe el stream») **no requiere diseño nuevo: requiere CERO
+        cambio.** `_auditar_passthrough` no corre en el generador — se pasa como
+        `auditoria=` a `_StreamConTurno` y corre en el `finally` de su `__call__`, o sea
+        con los bytes ya entregados. Una `HTTPException` ahí no es fea, es
+        estructuralmente imposible: no hay respuesta que rendir. Y el escritor ya absorbe y
+        cuenta (`_audit`, dos `except` + `record_audit_loss`). El camino no-stream ignora
+        el booleano **a propósito** y lo dice en el fuente desde la 031. El corte va donde
+        ya estaba el pre-check: ANTES del primer byte.
+      - `_audit_precheck_ok()` pasa a recibir **la decisión ya tomada**, no el riesgo ni el
+        modo — misma forma que el kwarg `exige_registro` del escritor. El cortocircuito
+        «si no exige, ni tocar la base» es lo que conserva el punto de costo D4 ahora que
+        `policy` es el default: el riesgo ya está resuelto y es gratis, la escribibilidad
+        cuesta una consulta.
+      - **La rama byok sigue cortando SÓLO en `closed`, deliberado** (`_exige_registro_byok()`,
+        función con nombre para que sea greppable): esa fila la escribe el motor, no este
+        plano, y la decisión por riesgo del byok es T008 —con contexto de credencial, que
+        es el dato que gobierna esa fila—. Decidirla acá cortaría por un riesgo que este
+        plano ve como `None` para toda key sin usuario.
+      - Lo compartido subió a `audit_service.py` (`riesgo_aplicado`, `AUDIT_CLOSED_DETAIL`,
+        `AUDIT_POLICY_DETAIL`, `detalle_503_audit`): son entradas de la decisión que ese
+        módulo ya toma. De paso el `raise` de `log_transaction` deja de hornear su propia
+        copia de los dos literales — eran DOS copias antes de que `/gw` fuera la tercera.
+        Texto conservado carácter por carácter, **medido por AST contra `1616b2a5`** con
+        control negativo, no razonado (SC-002).
+      - **Corregida una frase falsa que este cambio volvía falsa**: el comentario de
+        `log_transaction` decía «un plano de tráfico SIEMPRE pasa el booleano». Lo que
+        decide no es ser plano de tráfico sino **cómo se entera del fallo**: el chat
+        necesita que el escritor LEVANTE (su camino feliz convierte la excepción en 503);
+        `/gw` traduce todo a booleano y corta antes. Los dos son de tráfico y los dos son
+        correctos.
+      - **Hallazgo NO arreglado acá, medido**: `api/inspect.py:247` (superficie browser,
+        US3) llama a `gateway._audit` **sin pre-check y descartando el booleano** ⇒ esa
+        superficie no corta ni siquiera en `closed`. Es preexistente de la 031 y este
+        cambio **no lo ensancha** (el call-site no cambia de comportamiento), así que por
+        el discriminador de #302/#334 no viaja con este PR: **issue #336**, con el encuadre
+        de «FR-005 no cubre la superficie de browser» y menú de producto, porque cortar ahí
+        tiene consecuencia de UX. Dato que baja el riesgo de ese menú, medido en el fuente
+        de la extensión: `background.js` y `guardia-main.js` **ya fallan cerrado** ante un
+        5xx de `/inspect` (frenan el envío y conservan la key) ⇒ un 503 ahí no pide cambios
+        de cliente.
 - [ ] T008 [US1] Plano **motor byok**: el probe `/api/v1/internal/audit/probe` gana
       contexto de credencial y responde la DECISIÓN ya tomada (la matriz no se duplica en
       el motor). `litellm/extensions/basa_guardrail.py` (`_audit_fail_mode():164`, cache
@@ -102,6 +144,19 @@ comportamiento (suite completa verde lo demuestra).
       y `:214` + `docker-compose.yml:91` y `:190`. Si no viajan con el primer consumidor del
       motor, D1 queda letra muerta en prod: el compose pisa el default del parser con `open`
       y ninguna instalación llega nunca a modo `policy`.
+      **T008 SE LLEVA TAMBIÉN LA DECISIÓN byok DEL PLANO `/gw`** (carve-out sellado por el
+      manager 27-ago, condición (b) de su gate de T007). T007 dejó `_audit_precheck_ok` de
+      `gateway.py` gobernado por la matriz **excepto** en la rama byok, que sigue cortando
+      sólo bajo el override global `closed` (`_exige_registro_byok()`). Las dos razones, la
+      segunda MEDIDA por el manager sobre el árbol de T007: (1) esa fila la escribe el motor
+      y la decisión necesita contexto de credencial, que es lo que este T008 construye; (2)
+      el pre-check byok corre y **retorna** ANTES de que `gw_messages` llame a
+      `_resolve_attribution`, así que decidirlo ahí no cuesta una línea sino **una sesión de
+      base nueva en el camino caliente del byok** — justo el costo que D4 protege. Los tres
+      —decisión byok, flip del pin y espejo del motor— se verifican JUNTOS en el gate de
+      T008: un carve-out que vive sólo en un docstring es el que sobrevive a la tarea que lo
+      iba a cerrar. Declarado también en `docs/docs/api-reference/errors.md` (condición (a)),
+      donde un integrador podría inferir uniformidad entre passthrough y byok.
       **Además, dos docstrings del motor que shippean falso y se corrigen acá**:
       `basa_guardrail.py::_audit_fail_mode` se declara «espejo exacto» de
       `audit_service.audit_fail_mode()` y ya no lo es (no conoce `policy`), y su default

@@ -18,8 +18,8 @@ code, seguí primero la tabla de decisión (§1); el resto son los detalles por 
 | **403** — bloqueado por política o licencia | No — corregí el pedido o la licencia | — |
 | **400** — bloqueado por AI Act, secreto detectado, o guardián de política | No con el mismo body | — |
 
-**El discriminador de los tres 503 es la cabecera, no el body.** Un 503 de saturación
-trae `X-Basa-Rejected: saturated` + `Retry-After`; los otros dos 503 no traen ninguna de
+**El discriminador de los cuatro 503 es la cabecera, no el body.** Un 503 de saturación
+trae `X-Basa-Rejected: saturated` + `Retry-After`; los otros tres 503 no traen ninguna de
 las dos. Mirá la cabecera antes de decidir si reintentar — el body por sí solo no alcanza,
 y en el camino `byok` de `/gw` la forma del error es la de Anthropic (sin espacio para un
 código propio en el body).
@@ -64,13 +64,13 @@ resolver identidad, así que no se filtra estado interno a quien no se autentic�
 Tope de `rpm`/`tpm` de la llave. Trae **`Retry-After`** con los segundos exactos —
 reintentá con ese valor, no con backoff propio.
 
-## 6 · 503 — los tres casos, uno por uno
+## 6 · 503 — los cuatro casos, uno por uno
 
 ### Saturación de capacidad (`rejected_saturated`)
 
 El motor no tuvo turno libre dentro del timeout de admisión. **Reintentable.**
 
-- Cabecera `X-Basa-Rejected: saturated` — el único de los tres 503 que la trae. Distingue
+- Cabecera `X-Basa-Rejected: saturated` — el único de los cuatro 503 que la trae. Distingue
   este rechazo de un 503 genérico de proxy o del propio motor.
 - Cabecera `Retry-After`.
 - Queda auditado igual que un bloqueo: la fila se escribe antes de responder.
@@ -88,6 +88,69 @@ registro falló. **No reintentable** hasta que la base de auditoría vuelva. Mis
 tanto si el fallo ocurrió en el camino feliz como en un bloqueo — para quien opera son el
 mismo hecho: *"esta instalación no sirve tráfico que no puede registrar"*. Sin cabecera
 especial.
+
+Texto exacto del `message`:
+
+> `[Basa Gateway] auditoría no disponible — la instalación exige registro (audit_fail=closed)`
+
+### Auditoría no disponible **para este pedido** en modo `policy`
+
+`policy` no es un override global: es una matriz por nivel de riesgo del pedido. Con la base
+de auditoría caída, un pedido de riesgo `minimal`/`limited` **se sirve igual** (la pérdida
+queda contada y visible en `/health`), y uno de riesgo `high_risk_annex1`/`high_risk_annex3`
+recibe este 503. **No reintentable** hasta que la base vuelva.
+
+!!! warning "El modo EFECTIVO lo fija el deployment, no esta página"
+
+    `policy` es el default del producto cuando `BASA_AUDIT_FAIL` **no llega seteada**. Pero un
+    `docker compose` puede pasarla igual con un valor por defecto propio, y en ese caso ese
+    valor gana — el backend sólo ve la variable que le llega. **Un deployment que pinea `open`
+    nunca alcanza este modo**, y ninguna prueba contra ese stack va a mostrar este 503.
+
+    Antes de concluir que la matriz «no funciona», comprobá el valor efectivo dentro del
+    contenedor del backend (`docker compose exec backend env | grep BASA_AUDIT_FAIL`) y
+    contrastalo con el `environment:` del servicio en tu compose. Es el mismo par de planos de
+    siempre: el código dice qué hace con lo que llega, el compose dice qué llega.
+
+El texto es distinto del de `closed` a propósito, y conviene distinguirlos al integrar: acá
+el servicio sigue en pie y es *este* pedido el que no se sirve.
+
+> `[Basa Gateway] auditoría no disponible — este pedido no se sirve sin registro por su nivel de riesgo (audit_fail=policy)`
+
+**Lo que hay que saber si integrás contra `/gw`, y es la consecuencia menos obvia de este
+modo:** el nivel de riesgo se resuelve desde la credencial del pedido, con la cascada
+`llave → usuario → equipo`. En `/gw` el header `X-Basa-Key` es **opcional** (la ruta se
+autentica con el OAuth), así que un pedido sin ese header **no tiene de dónde resolver un
+riesgo**, y un pedido sin riesgo resuelto no demostró ser de riesgo bajo: cuenta como alto.
+
+En consecuencia, en `policy` y con la auditoría caída, **todo el tráfico de `/gw` que no
+mande `X-Basa-Key` recibe este 503** — y ése es el camino habitual de las herramientas de
+código. No es un caso de borde: es el volumen normal de esa ruta. Es una decisión de
+diseño, no una condición transitoria.
+
+Las dos perillas del admin, en orden de preferencia:
+
+1. **Poblar el nivel de riesgo** de los equipos (`default_risk_level` en el equipo, o
+   `risk_level` en cada usuario) y hacer que las herramientas manden su `X-Basa-Key`. Es la
+   salida buena: el tráfico pasa a decidirse por su riesgo real en vez de por el default
+   conservador. `GET /health` avisa **antes** de la caída, con un `degraded` que cuenta los
+   usuarios activos que hoy resolverían "sin riesgo".
+2. **`BASA_AUDIT_FAIL=open` explícito**, si la instalación prefiere continuidad con pérdida
+   contada. Es un override global: desactiva la matriz para todo el tráfico, no sólo para el
+   anónimo.
+
+El contador de `/health` **no ve el tráfico anónimo de `/gw`**: cuenta usuarios en la base,
+y un pedido sin credencial no tiene fila de usuario que contar. O sea que un `/health`
+limpio no garantiza que este 503 no vaya a aparecer por esa vía.
+
+**El camino `byok` todavía no participa de la matriz, y conviene no inferir uniformidad.**
+Un pedido que llega con una virtual key `sk-basa-…` en el header de autorización o en la URL
+se enruta a byok, y ahí el registro lo escribe el motor, no la pasarela. Por eso hoy ese
+camino se corta **sólo bajo el override global `BASA_AUDIT_FAIL=closed`**: en `policy`, con
+la auditoría caída, un pedido byok de riesgo alto **no** recibe este 503 desde la pasarela.
+Hacer que la matriz gobierne también a byok requiere que la decisión viaje con el contexto
+de la credencial hasta el motor; está en el mismo plan que este modo y no es una omisión
+silenciosa.
 
 ## 6b · Lo que esta página NO cubre
 
