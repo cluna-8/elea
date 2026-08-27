@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import time
 import uuid
 from typing import Awaitable, Callable, Optional, Tuple
@@ -958,3 +959,37 @@ class StreamUnmasker:
         }
         self.carry, self.carry_field = "", None
         return [event]
+
+
+# ── Identidad del módulo ──────────────────────────────────────────────────────────
+# Este archivo entra por DOS caminos: el nombre PLANO (`import basa_guardian_policy`, que es
+# lo que hacen los cuatro consumidores de PRODUCCIÓN —`gateway.py`, `presidio_service.py`,
+# `basa_guardrail.py`, `basa_audit_logger.py`, cada uno agregándose la carpeta `extensions` a
+# `sys.path`) y el nombre PAQUETE (`from extensions import basa_guardian_policy`, que es lo
+# que usan los tests de policy y `contract_checks.py`, el check de RELEASE). Sin alias son
+# DOS objetos-módulo con globals INDEPENDIENTES: mismo `__file__` —o sea que no pueden
+# divergir en lógica— pero estado partido, que es lo que ya obligó al autouse
+# `_reset_presidio_http_client_singleton` de `backend/tests/conftest.py` (el `_http_client`
+# vivía duplicado y resetear una copia no alcanzaba).
+#
+# Importa ahora más que antes: la matriz D2 de la 038 vive acá para que el backend y el motor
+# evalúen EL MISMO objeto en vez de dos copias «igualitas» (`specs/038/tasks.md`: si un plano
+# la re-implementa, es NO_APTO). Con `setdefault` en ambos sentidos hay un solo objeto gane
+# quien gane la carrera de imports.
+#
+# Las TRES piezas, con la razón MEDIDA de cada una (módulo sintético de 2 piezas vs 3, tres
+# órdenes de import, en 3.9/3.12/3.14):
+#   1-2. los dos `setdefault` cubren `from extensions import X`, `from extensions.X import …`
+#        e `import extensions.X as x`, en los tres órdenes.
+#   3.   el `setattr` sobre el paquete cubre el ACCESO POR ATRIBUTO (`extensions.X`), que es
+#        la única forma que sin él tira `AttributeError`. Y de paso deja de apoyar el
+#        invariante en el fallback a `sys.modules` de `IMPORT_FROM` (CPython ≥3.7), que
+#        existe para soportar imports circulares y no para esto: nadie acá lo pinea.
+# Mismo bloque que `basa_governance.py`, que llegó primero por la vía de dos `Profile`
+# distintas y un `isinstance` que fallaba al cruzar planos.
+_THIS_MODULE = sys.modules[__name__]
+sys.modules.setdefault("basa_guardian_policy", _THIS_MODULE)
+sys.modules.setdefault("extensions.basa_guardian_policy", _THIS_MODULE)
+_EXT_PKG = sys.modules.get("extensions")
+if _EXT_PKG is not None and not hasattr(_EXT_PKG, "basa_guardian_policy"):
+    setattr(_EXT_PKG, "basa_guardian_policy", _THIS_MODULE)
