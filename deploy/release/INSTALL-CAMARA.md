@@ -127,14 +127,22 @@ genérico. Ya **no** hace falta `docker restart camara-litellm-1` a mano.
 
 > ⚠️ **En cajas instaladas ANTES del bundle con supervisor**, ese botón no tiene quién lo
 > atienda: el panel va a mostrar **«Estado del motor no disponible»** y apretarlo no cambia
-> nada. Ahí, y sólo ahí, el paso sigue siendo el de siempre:
+> nada. Ahí el paso sigue siendo el de siempre:
 > ```bash
 > docker restart camara-litellm-1
 > ```
-> Cómo saber en cuál estás, sin adivinar: abrí **Modelos & Ollama** y mirá el recuadro
-> «Motor IA — aplicar cambios». Si dice **«Motor al día»** o **«Aplicando cambios…»**, tu caja
-> tiene supervisor y el botón es el camino. Si dice **«Estado del motor no disponible»**, usá
-> el `docker restart`.
+> Cómo saber si tu caja tiene supervisor, sin adivinar: si el recuadro «Motor IA — aplicar
+> cambios» dice **«Motor al día»** o **«Aplicando cambios…»**, tu caja tiene supervisor
+> vivo — ninguno de los dos se pinta si no se pudo leer `status.json`.
+>
+> ⚠️ **«Estado del motor no disponible» no prueba lo contrario — no es exclusivo de la
+> caja vieja.** El endpoint que lo alimenta (`GET /api/v1/chat/models/status`) devuelve
+> `state: "unknown"` tanto si no hay supervisor como si lo hay y `status.json` todavía no
+> se publicó, quedó ilegible o corrupto — una caja NUEVA puede mostrar el mismo texto. No
+> lo diagnostiques por el mensaje solo: mirá el `last_error` que el panel pega debajo (es
+> el motivo por el que el panel no pudo leer el estado, no un reporte del supervisor) y
+> confirmá el nombre real del contenedor con `docker ps` (nota de dos generaciones en el
+> paso 2) antes de reiniciar — el nombre equivocado da `No such container`.
 
 Si no: el Playground "no hace nada" (es un 400 que la UI no muestra). Orden siempre: **alta → Aplicar cambios del motor → probar**.
 
@@ -226,7 +234,7 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | Síntoma | Causa |
 |---|---|
 | Playground «no hace nada» tras alta de modelo | Falta apretar «Aplicar cambios del motor» en Modelos & Ollama |
-| Apreté «Aplicar cambios del motor» y no pasa nada / dice «Estado del motor no disponible» | Caja anterior al bundle con supervisor → `docker restart camara-litellm-1` |
+| Apreté «Aplicar cambios del motor» y no pasa nada / dice «Estado del motor no disponible» | `state: "unknown"` — no implica caja vieja por sí solo. Mirá el `last_error` que el panel pega debajo y confirmá el contenedor real con `docker ps` (nota de dos generaciones en el paso 2) antes de `docker restart` |
 | `Cannot connect to host host.docker.internal:11434` | Ollama sin `OLLAMA_HOST=0.0.0.0`, o stack en otra máquina → alta por UI con IP |
 | 401 en todo con clave válida | Motor sin `BASA_IDENTITY_URL` |
 | «Sitio no seguro» tras instalar el .crt con doble-click | Fue al almacén del USUARIO, no al de la máquina → `install-ca.bat` del trust-kit |
