@@ -47,6 +47,29 @@ else
     ext_msg=" (sin extensión para este cliente)"
 fi
 
+# Aviso de atribución MIT (Slice 1 legal): el fichero tiene que viajar en el
+# bundle (la licencia MIT exige que el copyright + permission notice acompañe
+# a toda copia redistribuida), su sha256 tiene que coincidir con el MANIFEST,
+# y el contenido tiene que traer el permission notice — un fichero presente
+# pero vacío o truncado tiene que rojear.
+notices_path="$WORK/bundle/THIRD_PARTY_NOTICES.txt"
+[ -f "$notices_path" ] || fail "THIRD_PARTY_NOTICES.txt no viaja en el bundle (la licencia MIT exige que el aviso acompañe a la copia redistribuida)"
+notices_sha_line=$(grep -E '^THIRD_PARTY_NOTICES\.txt ' "$WORK/bundle/MANIFEST" || true)
+[ -n "$notices_sha_line" ] || fail "THIRD_PARTY_NOTICES.txt no está listado en el MANIFEST"
+notices_manifest_sha=$(printf '%s\n' "$notices_sha_line" | awk '{print $2}')
+if command -v sha256sum >/dev/null 2>&1; then
+    notices_actual_sha=$(sha256sum "$notices_path" | awk '{print $1}')
+else
+    notices_actual_sha=$(shasum -a 256 "$notices_path" | awk '{print $1}')
+fi
+[ "$notices_actual_sha" = "$notices_manifest_sha" ] \
+    || fail "sha256 de THIRD_PARTY_NOTICES.txt no coincide con el MANIFEST ($notices_actual_sha != $notices_manifest_sha)"
+grep -q 'The above copyright notice and this permission notice' "$notices_path" \
+    || fail "THIRD_PARTY_NOTICES.txt no contiene el permission notice de la licencia MIT (fichero truncado o vacío)"
+grep -q 'Copyright (c) 2023 Berri AI' "$notices_path" \
+    || fail "THIRD_PARTY_NOTICES.txt no contiene el copyright de Berri AI (fichero truncado o vacío)"
+notices_msg=" + THIRD_PARTY_NOTICES.txt (sha256 OK)"
+
 # Bind mounts relativos del compose: tienen que viajar en el tarball, y como FICHERO o
 # DIRECTORIO según corresponda. Si falta, Docker crea un directorio vacío en su lugar y
 # el fallo es o ruidoso (el ingress no arranca: sin puerta de entrada) o SILENCIOSO
@@ -64,4 +87,4 @@ for rel in $(grep -oE '\./[A-Za-z0-9_./-]+' "$WORK/bundle/compose.prod.yml" | so
     fi
 done
 
-echo "✅ bundle air-gapped OK: $loaded/$expected imágenes únicas restauradas por docker load, perfil incluido$ext_msg"
+echo "✅ bundle air-gapped OK: $loaded/$expected imágenes únicas restauradas por docker load, perfil incluido$ext_msg$notices_msg"

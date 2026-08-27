@@ -1,0 +1,64 @@
+BASA SECURE AI GATEWAY - AVISOS DE TERCEROS / THIRD-PARTY NOTICES
+=================================================================
+
+Este paquete incluye componentes de software de terceros. A continuacion se
+reproducen, tal como los publican sus autores, los avisos de copyright y las
+licencias que esos componentes exigen conservar en toda redistribucion.
+
+Este fichero es letra chica legal. No describe funcionalidad del producto ni
+sustituye a la documentacion de uso. Se redacta en ASCII a proposito, para que
+sea legible en cualquier host sin depender de la codificacion.
+
+Basa no esta afiliada a los autores de estos componentes ni respaldada por
+ellos; su mencion aqui es unicamente el cumplimiento de las licencias.
+
+
+Componentes cubiertos por este aviso
+------------------------------------
+
+  1. LiteLLM - motor de ruteo LLM
+     Copyright (c) 2023 Berri AI - Licencia MIT
+     Proyecto : https://github.com/BerriAI/litellm
+     Version  : build de la rama release/v1.92.0-dev.1
+     Revision : 88e03e548716a45284597edf2b7f47a7e6a66d5f
+     Imagen   : ghcr.io/berriai/litellm:main-latest
+                @sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
+     Se redistribuye como imagen de contenedor dentro de este paquete.
+     Texto reproducido de:
+       https://raw.githubusercontent.com/BerriAI/litellm/88e03e548716a45284597edf2b7f47a7e6a66d5f/LICENSE
+
+  La lista se amplia con el resto de los componentes redistribuidos; cada
+  identificador de licencia se verifica contra la imagen pinneada antes de
+  anadirse aqui.
+
+
+-------------------------------------------------------------------------------
+1. LiteLLM - texto integro de su fichero LICENSE, sin modificar
+-------------------------------------------------------------------------------
+
+Portions of this software are licensed as follows:
+
+* All content that resides under the "enterprise/" directory of this repository, if that directory exists, is licensed under the license defined in "enterprise/LICENSE".
+* Content outside of the above mentioned directories or restrictions above is available under the MIT license as defined below.
+---
+MIT License
+
+Copyright (c) 2023 Berri AI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

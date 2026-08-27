@@ -58,6 +58,9 @@ fi
 cp "$REPO_ROOT/deploy/docker/compose.prod.yml" "$OUT/"
 cp -R "$REPO_ROOT/deploy/clients/$SLUG/rendered" "$OUT/profile"
 cp -R "$REPO_ROOT/deploy/release/checks" "$OUT/checks"
+# Aviso de atribución MIT: la licencia exige que el copyright + permission notice
+# acompañe a toda copia redistribuida (viaja dentro del tarball, no en el repo).
+cp "$REPO_ROOT/deploy/release/THIRD_PARTY_NOTICES.txt" "$OUT/THIRD_PARTY_NOTICES.txt"
 
 # Bind mounts RELATIVOS que exige el compose (Caddyfile.ingress, initdb/...).
 # Descubierto en el ensayo del 2026-07-27, y era fatal en las dos direcciones:
@@ -237,10 +240,11 @@ sha256() {
   for img in "${IMAGES[@]}"; do
     echo "$img $(docker image inspect -f '{{.Id}}' "$img")"
   done
+  echo "# artifacts (sha256):"
   if [ "$EXT_INCLUDED" -eq 1 ]; then
-    echo "# artifacts (sha256):"
     echo "$EXT_ZIP_NAME $(sha256 "$OUT/$EXT_ZIP_NAME")"
   fi
+  echo "THIRD_PARTY_NOTICES.txt $(sha256 "$OUT/THIRD_PARTY_NOTICES.txt")"
 } > "$OUT/MANIFEST"
 
 # --no-xattrs: el tar de macOS mete xattrs de proveniencia que el tar de Linux escupe
