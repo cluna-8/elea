@@ -58,7 +58,7 @@ comportamiento (suite completa verde lo demuestra).
 
 **Independent Test**: SC-001 contra stack real (base de auditoría tumbada a mano).
 
-- [ ] T006 [US1] Plano **chat**: en `backend/src/api/chat.py` (donde hoy consulta
+- [x] T006 [US1] **MERGEADO** — PR #334, squash `1616b2a5`. Plano **chat**: en `backend/src/api/chat.py` (donde hoy consulta
       `audit_fail_mode()`; el contexto es `_applied_risk_level`, **citado por símbolo y no
       por línea a propósito** — la cita `:1319` del plan ya estaba vencida al arrancar
       Phase 2), modo `policy` ⇒ `audit_fail_decision(...)`; servir sin fila ⇒
@@ -78,7 +78,7 @@ comportamiento (suite completa verde lo demuestra).
       llamadores. `purger._escribir_fila_resumen` no tiene `try` propio y está igualmente
       protegido: su ÚNICO llamador (`_persistir_rastro`) lo envuelve en `except Exception`.
       La pregunta es por CALL-PATH, no por función.
-- [ ] T007 [US1] Plano **`/gw`**: en `backend/src/api/gateway.py`. Integration tests espejo
+- [x] T007 [US1] **MERGEADO** — PR #340, squash `c813b7cc`. Plano **`/gw`**: en `backend/src/api/gateway.py`. Integration tests espejo
       de T006. **Corrección de premisa (medida al arrancar Phase 2, 27-ago): NO es «ídem»**
       — `gateway.py` no resuelve riesgo, cero hits de `risk_level` en todo el archivo
       (control positivo: el mismo instrumento sobre `backend/src/` lista 12 archivos, con
@@ -134,16 +134,42 @@ comportamiento (suite completa verde lo demuestra).
         de cliente.
 - [ ] T008 [US1] Plano **motor byok**: el probe `/api/v1/internal/audit/probe` gana
       contexto de credencial y responde la DECISIÓN ya tomada (la matriz no se duplica en
-      el motor). `litellm/extensions/basa_guardrail.py` (`_audit_fail_mode():164`, cache
-      5 s `:280`) y `litellm/extensions/basa_audit_logger.py` (`audit_fail_mode():88`) —
-      **los DOS lectores** consumen el resultado nuevo. Regla de cache: en modo `policy`
-      jamás cachear la decisión de un pedido para otro (cachear modo, no decisión).
-      Contract test del probe + integration del plano motor.
+      el motor). `litellm/extensions/basa_guardrail.py` (`_audit_fail_mode`, cache 5 s en
+      `_auditoria_escribible`) y `litellm/extensions/basa_audit_logger.py`
+      (`audit_fail_mode`) — **los DOS lectores** consumen el resultado nuevo (citados por
+      SÍMBOLO: las líneas `:164`/`:280`/`:88` del texto original ya se corrieron una vez).
+      Regla de cache: en modo `policy` jamás cachear la decisión de un pedido para otro
+      (cachear modo, no decisión). Contract test del probe + integration del plano motor.
+      **Tres premisas re-medidas en `c813b7cc` al arrancar, que cambian el diseño:**
+      1. **`risk_level` YA significa otra cosa dentro del motor** — es el veredicto de
+         compliance (`low`/`high`/`prohibited`/`unknown`, `basa_guardrail.py` y el módulo
+         compartido `basa_guardian_policy.py`), no el nivel AI-Act del usuario;
+         `applied_risk_level` tiene **0 hits en todo `litellm/`**. Medido contra la matriz
+         real: `low` da **corta**, igual que `prohibited`. Cablear el nombre corto cortaría
+         el 100% del tráfico en `policy` con la auditoría caída **sin producir un solo 200
+         indebido** — el fail-closed vuelve el bug indistinguible del comportamiento
+         correcto. En el motor va el nombre COMPLETO, y un valor fuera del conjunto conocido
+         corta Y grita (con techo: una vez por valor distinto, no por pedido).
+      2. **El cache de 5 s NO es el riesgo**: guarda la escribibilidad de la BASE, que es
+         propiedad del sistema y es igual para todo pedido. El riesgo se CREA si el probe
+         pasa a contestar per-credencial. Corte sellado con el manager: el probe **no cambia
+         de forma**; lo per-request viaja por la fila de identidad, que ya está cacheada por
+         `key_hash`.
+      3. **El `_IDENTITY_SQL` está DUPLICADO y los dos caminos están vivos**
+         (`custom_auth.py` para el prisma del motor · `internal.py` para el plano HTTP; se
+         declaran ⚠️ ESPEJO uno del otro). Agregar el campo en uno solo deja al camino de
+         fallback devolviendo la fila SIN él ⇒ `None` ⇒ corta. Por eso **campo AUSENTE
+         significa contrato viejo ⇒ decidir por MODO** (pre-038), jamás riesgo `None`: eso
+         cubre a la vez el upgrade desparejo y el fallback de la misma versión.
       **El flip del pin `${BASA_AUDIT_FAIL:-open}` → `:-policy` viaja EN ESTE PR** (sellado
-      27-ago): son **4 pines** medidos en `179ad0f9` — `deploy/docker/compose.prod.yml:62`
-      y `:214` + `docker-compose.yml:91` y `:190`. Si no viajan con el primer consumidor del
-      motor, D1 queda letra muerta en prod: el compose pisa el default del parser con `open`
-      y ninguna instalación llega nunca a modo `policy`.
+      27-ago): son **4 pines**, RE-MEDIDOS en `c813b7cc` al arrancar T008 porque tres de las
+      cuatro citas ya no anclaban — `deploy/docker/compose.prod.yml:62` y **`:224`** (decía
+      `:214`) + `docker-compose.yml:` **`:99`** (decía `:91`) y **`:198`** (decía `:190`).
+      Son los 4 ÚNICOS que pinean (barrido de `BASA_AUDIT_FAIL:-` sobre todo el repo); el
+      único otro sitio que ASIGNA valor es `deploy/clients/itv-examen/client.env.example:45`
+      con `closed` explícito, y **ése no se toca** (SC-002). Si no viajan con el primer
+      consumidor del motor, D1 queda letra muerta en prod: el compose pisa el default del
+      parser con `open` y ninguna instalación llega nunca a modo `policy`.
       **T008 SE LLEVA TAMBIÉN LA DECISIÓN byok DEL PLANO `/gw`** (carve-out sellado por el
       manager 27-ago, condición (b) de su gate de T007). T007 dejó `_audit_precheck_ok` de
       `gateway.py` gobernado por la matriz **excepto** en la rama byok, que sigue cortando
@@ -173,11 +199,18 @@ comportamiento (suite completa verde lo demuestra).
 
 **Goal**: `open`/`closed` explícitos = bit-a-bit lo de hoy; el examen ITV pasa sin cambios.
 
-- [ ] T010 [US2] Tests de no-regresión: `open` explícito y `closed` explícito reproducen
-      la semántica actual EXACTA en los tres planos (los tests existentes de 031 siguen
-      verdes sin editar — si uno hubiera que editarlo, eso es una regresión, no un test
-      viejo). SC-002: la config de `deploy/clients/itv-examen/client.env.example:43-45`
-      corre tal cual — **ese archivo NO se toca**.
+- [~] T010 [US2] **A MITAD — dos de los tres planos ya están en `main`, y la casilla decía
+      `[ ]` como si no se hubiera empezado.** Tests de no-regresión: `open` explícito y
+      `closed` explícito reproducen la semántica actual EXACTA en los tres planos (los tests
+      existentes de 031 siguen verdes sin editar — si uno hubiera que editarlo, eso es una
+      regresión, no un test viejo). SC-002: la config de
+      `deploy/clients/itv-examen/client.env.example:43-45` corre tal cual — **ese archivo NO
+      se toca**.
+      **Estado medido en `c813b7cc`**: plano **chat** ✅ y plano **`/gw`** ✅ — los dos casos
+      (`open` explícito y `closed` explícito) viven en `test_chat_audit_policy.py` y
+      `test_gateway_audit_policy.py`, entraron con T006 y T007. Falta el **plano motor**, que
+      por construcción viaja con T008: el lector del motor recién aprende `policy` ahí, así
+      que su testigo de no-regresión no se puede escribir antes.
 
 ---
 
