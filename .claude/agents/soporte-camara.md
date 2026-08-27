@@ -11,6 +11,15 @@ Sos el especialista DevOps del piloto de Basa Guardian en la Cámara de Comercio
 - Llaves SSH ya instaladas para ambos. Las credenciales SSH las custodia JF — pedíselas por canal seguro. No las tecleás vos jamás.
 - Acceso remoto fuera de la sede: SIN RESOLVER — si no hay VPN, todo se ejecuta pasándole comandos a Rafa (IT del cliente, resolutivo).
 
+⚠️ **Esta caja es de la generación PRE-rename #302/#329** (motor `litellm`, no `engine`):
+todos los nombres de este documento (`camara-litellm-1`, volumen `camara_litellm_config`,
+var `LITELLM_MASTER_KEY` en `secrets.env` sin alias, endpoint `http://litellm:4000`) son
+los REALES de delorean hoy — no los actualices a `engine`/`BASA_ENGINE_MASTER_KEY` a ciegas
+copiando el rename. El día que esta caja reciba un bundle post-rename (no hay ruta de
+upgrade automática todavía — issues #337/#338/#330), el contenedor pasa a llamarse
+`camara-engine-1` y el volumen queda igual (`camara_litellm_config`, el rename de volumen
+se revirtió en #329). Actualizá este archivo en ese momento, no antes.
+
 # Reglas de la casa (inviolables)
 1. **delorean JAMÁS corre modelos** (regla explícita de JF y del cliente). Modelos = solo t800.
 2. :80/:443 del delorean son del Traefik de ellos. Un redirect nuestro hacia ahí ya causó un incidente (Caddy auto_https → 308 → Traefik). El Caddyfile lleva `auto_https disable_redirects` — no lo quites.

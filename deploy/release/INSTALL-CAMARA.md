@@ -56,7 +56,16 @@ Carga las imágenes, puebla volúmenes y levanta el stack. Con puertos ocupados:
 ```bash
 docker ps --format 'table {{.Names}}\t{{.Status}}'
 ```
-Tienen que quedar **8**: backend, frontend, docs, nlp-analyzer, litellm, ingress, db, redis.
+Tienen que quedar **8**: backend, frontend, docs, nlp-analyzer, engine, ingress, db, redis.
+
+> ⚠️ **Nota de dos generaciones (rename #302/#329, 27-ago-2026).** El motor pasó de
+> llamarse `litellm` a `engine` en el compose. Este documento describe una instalación
+> hecha con el bundle ACTUAL (nombre `engine`). Si estás en una caja instalada con un
+> bundle ANTERIOR a esa fecha, el contenedor real todavía se llama `camara-litellm-1`
+> — no hay hoy una ruta de upgrade que lo pase a `camara-engine-1` sola (issues #337,
+> #338, #330). **No lo adivines: lo que diga `docker ps` es la verdad de tu caja**,
+> no lo que diga este documento. El volumen de config (`camara_litellm_config`) NO
+> cambia de nombre en ninguna de las dos generaciones.
 
 ## 3 · Licencia y génesis (ANTES del primer login)
 
@@ -226,7 +235,9 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | Detecta emails pero no nombres | El sidecar NLP no está arriba |
 | 403 «rollback de reloj» al crear usuarios | Se cura solo en ≤5 min (corregido en este build) |
 
-Logs: `docker logs --tail 100 camara-backend-1` (ídem `camara-litellm-1`, `camara-nlp-analyzer-1`).
+Logs: `docker logs --tail 100 camara-backend-1` (ídem `camara-nlp-analyzer-1`, y el motor:
+`camara-engine-1` en caja nueva / `camara-litellm-1` en caja anterior al rename — ver
+nota de dos generaciones en el paso 2).
 
 ---
 
