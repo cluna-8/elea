@@ -92,3 +92,38 @@ y verificarlo en vivo contra `elea` + AnythingLLM levantados.
   = perfil `core` implícito, siempre arrancan).
 - [x] **T061** Documentado en el README raíz (tabla de perfiles + comando + RAM aprox.,
   sección Quickstart).
+
+## Fase 7 — Validación visual en vivo (31-ago, sesión posterior)
+
+Todo probado a mano en el navegador contra el stack real (`elea` + AnythingLLM), no solo
+por API. Hallazgos:
+
+- [x] **Panel de `elea` (:8090)** — dashboard, usuarios, llaves, presupuestos y modelos
+  muestran datos reales de nuestras pruebas (6→23 peticiones, usuarios/llaves creados por
+  API visibles con sus nombres reales).
+- [x] **Cliente RAG (:8095)** — login real (rechazo + éxito), presupuesto real, selector
+  real, workspace real, subida con enmascarado real, chat RAG citando fuente y modelo real.
+- [x] **BUG encontrado y arreglado en vivo**: `GET /api/v1/workspace/{slug}` de
+  AnythingLLM devuelve `{workspace: [...]}` (array), no objeto — a diferencia de
+  `/update-embeddings`. `selectWorkspace()` asumía objeto. Corregido (commit `6bf9d06`).
+- [x] **Auditoría cruzada**: cada llamada del cliente (masking, chat directo, chat RAG,
+  incluso los intentos fallidos contra `ollama-qwen3-4b`) aparece en Logs de Auditoría de
+  `elea` con costo/latencia/privacidad reales — sin caminos paralelos sin trazar.
+- [x] **Bloqueo de presupuesto (402)**: confirmado real — presupuesto agotado → el
+  cliente propaga el 402 tal cual, badge muestra `$0.00/$0.00`, mensaje real de `elea`
+  ("Presupuesto mensual agotado para la llave virtual o el usuario/equipo").
+- [ ] ⚠️ **HALLAZGO — el CBU no se enmascara en el perfil `latam_ar`**: confirmado
+  visualmente (`El CBU mencionado en el documento es 0170099220000012345678...` en texto
+  plano en la respuesta del RAG). Causa raíz: `STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]`
+  (`litellm/extensions/sentinel_guardian_policy.py:110`) **solo define `DNI` y `CUIL`** — el
+  patrón de CBU nunca se implementó, contrario a lo que decía la documentación previa
+  (memoria del proyecto, corregida). PERSON/LOCATION/PHONE_NUMBER/DATE_TIME sí se
+  detectan bien vía el modelo spaCy genérico. Prioridad alta — es un dato bancario real
+  que se filtra al modelo y a las citas del RAG.
+- [x] Falso positivo NER menor observado ("Nació" → LOCATION) — esperable de un modelo
+  chico (`es_core_news_md`), no requiere fix, es una característica de calidad a
+  monitorear, no un bug.
+- **Decisión del usuario (31-ago)**: el punto 4 original del cliente Elea (cruces exactos
+  CSV/Excel vía DB-GPT) queda **fuera de alcance por ahora** — se acepta que AnythingLLM
+  (búsqueda vectorial, sin cálculos exactos) alcanza para el piloto inicial. Revisar si
+  aparece como bloqueante cuando el cliente vea planillas grandes.
