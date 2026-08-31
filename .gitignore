@@ -22,6 +22,11 @@ build/
 .coverage
 htmlcov/
 
+# Cliente RAG (spec 040): los archivos subidos son temporales — se enmascaran y se borran
+# en el mismo request (server.js), nunca deberían llegar a versionarse.
+client/public/uploads/*
+!client/public/uploads/.gitkeep
+
 # Node / React
 node_modules/
 .pnp/

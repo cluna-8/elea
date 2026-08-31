@@ -45,6 +45,18 @@ cp .env.example .env      # completar JWT/Fernet y las API keys de los providers
 docker compose up -d --build
 ```
 
+**Perfiles** (spec 040 — pensado para máquinas con memoria limitada; no hace falta correr
+todo a la vez):
+
+| Perfil | Comando | Trae | RAM aprox. |
+|---|---|---|---|
+| `core` (default, sin flag) | `docker compose up -d` | `db`, `redis`, `nlp-analyzer`, `engine`, `backend` | ~2-3 GB |
+| `rag` | `docker compose --profile rag up -d` | + `anythingllm`, `client` (cliente RAG en `:8095`) | +~1.5 GB |
+| `full` | `docker compose --profile full up -d` | + `frontend` (panel admin en `:8090`) | +~0.3 GB |
+
+Apagar lo que no se esté usando: `docker compose stop frontend nlp-analyzer` cuando no se
+está probando el panel admin ni el enmascarado.
+
 > **Puertos** (desplazados para coexistir con el repo demo `gatelite`, que ocupa 5432/4000/8080/8081):
 
 | Servicio | URL / puerto |

@@ -319,22 +319,35 @@
       box-shadow: 0 4px 14px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s;
     }
     .toast-msg.show { opacity: 1; }
+
+    .help-text { font-size: 0.68rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
   </style>
 </head>
 <body>
 
-  <!-- LOGIN / LOCK OVERLAY -->
+  <!-- LOGIN / LOCK OVERLAY — credenciales reales de elea, sin lista de usuarios -->
   <div class="auth-overlay" id="auth-overlay">
     <div class="auth-card">
       <div style="display:flex; justify-content:center;">
         <div class="brand-logo" style="width:48px; height:48px; font-size:1.4rem;">E</div>
       </div>
       <div>
-        <div class="auth-title">ELEIA · Portal de Acceso</div>
+        <div class="auth-title">Elea RAG · Portal de Acceso</div>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Gobernanza IA y RAG Corporativo · Laboratorios ELEA</div>
       </div>
 
-      <div class="auth-user-pick" id="auth-user-list"></div>
+      <form id="login-form" style="display:flex; flex-direction:column; gap:10px; text-align:left;" onsubmit="return handleLogin(event)">
+        <div>
+          <label style="font-size:0.72rem; color:var(--text-muted); font-weight:700;">Usuario</label>
+          <input type="text" id="login-username" class="modal-input" autocomplete="username" required>
+        </div>
+        <div>
+          <label style="font-size:0.72rem; color:var(--text-muted); font-weight:700;">Contraseña</label>
+          <input type="password" id="login-password" class="modal-input" autocomplete="current-password" required>
+        </div>
+        <div id="login-error" style="color:var(--accent-red); font-size:0.75rem; display:none;"></div>
+        <button type="submit" class="send-action-btn" style="margin-top:4px;">Ingresar</button>
+      </form>
     </div>
   </div>
 
@@ -350,30 +363,25 @@
 
     <!-- CLIENT / TENANT BADGE -->
     <div class="client-tenant-badge" id="client-tenant-badge">
-      🏢 <span>Laboratorios ELEA</span> (Tarifa Farma Enterprise)
+      🏢 <span>Laboratorios ELEA</span>
     </div>
 
-    <!-- GUARDIAN MODEL SELECTOR -->
-    <div class="guardian-selector-container">
+    <!-- SELECTOR DE MODELO — catálogo real de elea (GET /chat/models), solo aplica al
+         chat directo (sin workspace RAG seleccionado). Nunca una lista inventada. -->
+    <div class="guardian-selector-container" title="Modelo para el chat directo (sin RAG). En un espacio RAG, el modelo lo decide el workspace.">
       <span>🛡️</span>
-      <select class="guardian-select" id="guardian-model-selector" onchange="handleModelChange(this.value)">
-        <option value="basa-auto-router">🛡️ Basa Auto-Router ($0.010/k)</option>
-        <option value="demo-gpt-4o">🧠 Demo GPT-4o ($0.025/k)</option>
-        <option value="azure-gpt-4o-mini">⚡ Azure GPT-4o-mini ($0.005/k)</option>
-        <option value="deepseek-r1-distill">🧪 DeepSeek-R1 ($0.008/k)</option>
-      </select>
+      <select class="guardian-select" id="guardian-model-selector"></select>
     </div>
 
-    <!-- User Profile & Budget Quota -->
+    <!-- Usuario real + presupuesto real -->
     <div class="user-profile-widget">
-      <div class="user-avatar-circle" id="user-avatar">AG</div>
-      <select class="user-select" id="user-selector" onchange="handleUserSwitch(this.value)"></select>
-      <div class="quota-badge" id="user-quota">💰 $14.50 / $150.00</div>
+      <div class="user-avatar-circle" id="user-avatar">U</div>
+      <span id="user-display-name" style="font-size:0.8rem; font-weight:600;"></span>
+      <div class="quota-badge" id="user-quota">💰 —</div>
     </div>
 
     <!-- Action Buttons -->
     <div style="display:flex; gap:6px;">
-      <button class="action-icon-btn" onclick="openConfigModal()" title="Configuración de Sistema">⚙️ Config</button>
       <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">🚪 Salir</button>
     </div>
   </div>
@@ -457,7 +465,7 @@
         <div style="font-weight:700; color:var(--accent-blue); margin-bottom:3px;">🎯 Motor RAG Activo:</div>
         <div style="color:var(--text-muted);" id="rag-mode-label">• Modo: <strong>RAG Estricto (Query)</strong></div>
         <div style="color:var(--text-muted); margin-top:2px;">• Vector Store: <strong>LanceDB Local</strong></div>
-        <div style="color:var(--text-muted); margin-top:2px;">• Gobernanza: <strong>Basa GuardIAn /v1</strong></div>
+        <div style="color:var(--text-muted); margin-top:2px;">• Gobernanza: <strong>Elea GuardIAn</strong></div>
       </div>
     </div>
 
@@ -477,75 +485,69 @@
     </div>
   </div>
 
-  <!-- MODAL: AJUSTES DE WORKSPACE (ANYTHINGLLM) -->
+  <!-- MODAL: AJUSTES DE WORKSPACE — las 7 opciones reales de AnythingLLM (spec 040 US3),
+       cada una con su texto de ayuda para que se entienda qué hace sin saber de AnythingLLM. -->
   <div class="modal-backdrop" id="modal-ws-settings">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-weight:800; font-size:1.1rem;">⚙️ Ajustes del Espacio (AnythingLLM RAG)</div>
+        <div style="font-weight:800; font-size:1.1rem;">⚙️ Ajustes del Espacio RAG</div>
         <button class="chip-btn" onclick="closeWsSettingsModal()">✕</button>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">Modo de Consulta RAG:</div>
-        <select id="ws-rag-mode" class="modal-input">
-          <option value="strict">🎯 RAG Estricto (Query Mode · Solo responde en base a documentos)</option>
-          <option value="conversational">💬 RAG Conversacional (Chat Mode · Combina docs + conocimiento)</option>
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Modo de conversación</div>
+        <select id="ws-chatMode" class="modal-input">
+          <option value="chat">💬 Conversacional</option>
+          <option value="query">🎯 Estricto</option>
         </select>
+        <div class="help-text">Conversacional: combina lo que sabe el modelo con tus documentos. Estricto: solo responde si está en los documentos — 0% de invención.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">Temperatura del Modelo:</div>
-        <input type="range" id="ws-temperature" min="0.0" max="1.0" step="0.1" value="0.1" style="width:100%;">
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Temperatura</div>
+        <input type="range" id="ws-openAiTemp" min="0.0" max="1.0" step="0.1" value="0.2" style="width:100%;">
         <div style="font-size:0.72rem; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
-          <span>0.0 (Precisión Máxima)</span>
-          <span id="temp-val">0.1</span>
-          <span>1.0 (Creatividad)</span>
+          <span>0.0</span><span id="temp-val">0.2</span><span>1.0</span>
         </div>
+        <div class="help-text">Más bajo = respuestas más literales y repetibles. Más alto = respuestas más variadas.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:4px;">System Prompt de este Espacio:</div>
-        <textarea id="ws-system-prompt" class="modal-input" rows="3" placeholder="Instrucciones para el modelo en este espacio..."></textarea>
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Ventana de historial</div>
+        <input type="number" id="ws-openAiHistory" class="modal-input" min="0" max="50" value="20">
+        <div class="help-text">Cuántas vueltas de la conversación tiene en cuenta antes de responder.</div>
+      </div>
+
+      <div>
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Instrucciones del espacio (system prompt)</div>
+        <textarea id="ws-openAiPrompt" class="modal-input" rows="3" placeholder="Reglas que aplican a TODAS las respuestas de este espacio (tono, formato, alcance)..."></textarea>
+        <div class="help-text">Reglas fijas para este espacio — se aplican a cada respuesta, no hace falta repetirlas en cada mensaje.</div>
+      </div>
+
+      <div>
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Umbral de similitud</div>
+        <input type="range" id="ws-similarityThreshold" min="0.0" max="1.0" step="0.05" value="0.25" style="width:100%;">
+        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
+          <span>0.0</span><span id="sim-val">0.25</span><span>1.0</span>
+        </div>
+        <div class="help-text">Más alto = solo usa fragmentos muy relevantes (más estricto, puede omitir contexto útil).</div>
+      </div>
+
+      <div>
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Fragmentos por consulta (Top-N)</div>
+        <input type="number" id="ws-topN" class="modal-input" min="1" max="20" value="4">
+        <div class="help-text">Cuántos trozos de documento se le pasan al modelo por pregunta.</div>
+      </div>
+
+      <div>
+        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Respuesta cuando no hay nada relevante</div>
+        <input type="text" id="ws-queryRefusalResponse" class="modal-input" placeholder="Solo aplica en modo Estricto — dejar vacío usa el default.">
+        <div class="help-text">El mensaje exacto que ve el usuario en modo Estricto cuando no hay nada relevante en los documentos.</div>
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:8px;">
         <button class="chip-btn" onclick="closeWsSettingsModal()">Cancelar</button>
         <button class="send-action-btn" onclick="saveWorkspaceSettings()">Guardar Ajustes</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL: CONFIGURACIÓN GENERAL -->
-  <div class="modal-backdrop" id="modal-config">
-    <div class="modal-box">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-weight:800; font-size:1.1rem;">⚙️ Configuración & Tarifas del Cliente</div>
-        <button class="chip-btn" onclick="closeConfigModal()">✕</button>
-      </div>
-
-      <div style="background:rgba(0,0,0,0.3); padding:0.9rem; border-radius:8px; border:1px solid var(--border-color);">
-        <div style="font-weight:700; color:var(--accent-amber); font-size:0.85rem; margin-bottom:4px;">🏢 Plan Tarifario Corporativo ELEA</div>
-        <div style="font-size:0.75rem; color:var(--text-muted); display:flex; justify-content:space-between;">
-          <span>Presupuesto Mensual Tenant:</span> <strong>$500.00 USD</strong>
-        </div>
-        <div style="font-size:0.75rem; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:3px;">
-          <span>Consumo Total Departamentos:</span> <strong id="cfg-tenant-used">$23.00 USD</strong>
-        </div>
-      </div>
-
-      <div style="background:rgba(0,0,0,0.3); padding:0.9rem; border-radius:8px; border:1px solid var(--border-color);">
-        <div style="font-weight:700; color:var(--accent-blue); font-size:0.85rem; margin-bottom:4px;">📁 AnythingLLM Service</div>
-        <input type="text" id="cfg-anything-url" class="modal-input" value="http://localhost:3001">
-      </div>
-
-      <div style="background:rgba(0,0,0,0.3); padding:0.9rem; border-radius:8px; border:1px solid var(--border-color);">
-        <div style="font-weight:700; color:var(--accent-purple); font-size:0.85rem; margin-bottom:4px;">🛡️ Basa GuardIAn Gateway (/v1)</div>
-        <input type="text" id="cfg-guardian-url" class="modal-input" value="http://localhost:4000/v1">
-      </div>
-
-      <div style="display:flex; justify-content:flex-end; gap:8px;">
-        <button class="chip-btn" onclick="closeConfigModal()">Cerrar</button>
-        <button class="send-action-btn" onclick="saveConfiguration()">Guardar Configuración</button>
       </div>
     </div>
   </div>
@@ -577,7 +579,15 @@
   <div class="toast-msg" id="toast-notification">Acción completada</div>
 
   <script>
-    let appState = null;
+    // Estado de la UI. `messages` es SOLO de esta pestaña (no se persiste ni se relee de
+    // AnythingLLM al recargar — limitación conocida, ver client/README.md).
+    let currentUser = null;
+    let currentBudget = null;
+    let models = [];
+    let workspaces = [];      // resumen (slug, name, chatMode, documentCount)
+    let currentWorkspace = null; // objeto completo (con documents[] y threads[])
+    let currentThreadSlug = null;
+    let messages = [];
 
     function showToast(text) {
       const toast = document.getElementById('toast-notification');
@@ -586,375 +596,335 @@
       setTimeout(() => toast.classList.remove('show'), 2500);
     }
 
-    async function loadUserState() {
-      try {
-        const res = await fetch('/api/user/current');
-        appState = await res.json();
-        
-        if (!appState.isAuthenticated) {
-          showAuthOverlay();
-        } else {
-          hideAuthOverlay();
-          renderUI();
-        }
-      } catch (err) {
-        console.error('Error al cargar estado:', err);
+    // ── Arranque / sesión ──────────────────────────────────────────────────────────────
+    async function boot() {
+      const res = await fetch('/api/user/current');
+      const state = await res.json();
+      if (!state.isAuthenticated) {
+        document.getElementById('auth-overlay').classList.add('active');
+        return;
       }
-    }
-
-    function showAuthOverlay() {
-      const overlay = document.getElementById('auth-overlay');
-      overlay.classList.add('active');
-      const list = document.getElementById('auth-user-list');
-      list.innerHTML = '';
-      if (appState && appState.availableUsers) {
-        appState.availableUsers.forEach(u => {
-          list.innerHTML += `
-            <div class="user-pick-btn" onclick="handleLogin('${u.id}')">
-              <div class="user-avatar-circle">${u.avatar || 'U'}</div>
-              <div style="flex:1;">
-                <div style="font-weight:700;">${u.name}</div>
-                <div style="font-size:0.72rem; color:var(--text-muted);">${u.role} · ${u.email}</div>
-              </div>
-              <span style="color:var(--accent-blue); font-size:0.8rem;">Entrar ➔</span>
-            </div>
-          `;
-        });
-      }
-    }
-
-    function hideAuthOverlay() {
       document.getElementById('auth-overlay').classList.remove('active');
+      currentUser = state.user;
+      currentBudget = state.budget;
+      renderUserHeader();
+      await Promise.all([loadModels(), loadWorkspaces()]);
     }
 
-    async function handleLogin(userId) {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
-      });
-      const data = await res.json();
-      if (data.success) {
-        hideAuthOverlay();
-        await loadUserState();
-        showToast(`Sesión iniciada como ${data.user.name}`);
+    async function handleLogin(event) {
+      event.preventDefault();
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+      const errBox = document.getElementById('login-error');
+      errBox.style.display = 'none';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errBox.innerText = data.error || 'No se pudo iniciar sesión.';
+          errBox.style.display = 'block';
+          return false;
+        }
+        document.getElementById('login-password').value = '';
+        await boot();
+        showToast(`Sesión iniciada como ${data.user.username}`);
+      } catch (err) {
+        errBox.innerText = 'No se pudo contactar al servidor.';
+        errBox.style.display = 'block';
       }
+      return false;
     }
 
     async function handleLogout() {
       await fetch('/api/auth/logout', { method: 'POST' });
-      await loadUserState();
+      currentUser = null; workspaces = []; currentWorkspace = null; messages = [];
+      document.getElementById('auth-overlay').classList.add('active');
     }
 
-    function renderUI() {
-      if (!appState) return;
-      const { user, client, workspaces, availableUsers, config } = appState;
+    function renderUserHeader() {
+      document.getElementById('user-avatar').innerText = (currentUser.username || 'U').slice(0, 2).toUpperCase();
+      document.getElementById('user-display-name').innerText = `${currentUser.username} · ${currentUser.role}`;
+      const quotaEl = document.getElementById('user-quota');
+      if (currentBudget && currentBudget.maxUsd != null) {
+        quotaEl.innerText = `💰 $${currentBudget.usedUsd.toFixed(2)} / $${currentBudget.maxUsd.toFixed(2)}`;
+      } else {
+        quotaEl.innerText = '💰 Sin presupuesto asignado';
+      }
+    }
 
-      const userSelect = document.getElementById('user-selector');
-      userSelect.innerHTML = '';
-      availableUsers.forEach(u => {
+    // ── Selector de modelo real (US2) ──────────────────────────────────────────────────
+    async function loadModels() {
+      const res = await fetch('/api/models');
+      if (!res.ok) return;
+      models = await res.json();
+      const sel = document.getElementById('guardian-model-selector');
+      sel.innerHTML = '';
+      models.forEach((m) => {
         const opt = document.createElement('option');
-        opt.value = u.id;
-        opt.innerText = `${u.name} (${u.role})`;
-        if (u.id === user.id) opt.selected = true;
-        userSelect.appendChild(opt);
+        opt.value = m.model_name;
+        opt.innerText = m.model_name === 'auto' ? '✨ Automático (elea decide)' : m.model_name;
+        sel.appendChild(opt);
       });
+    }
 
-      document.getElementById('user-avatar').innerText = user.avatar || 'U';
-      document.getElementById('user-quota').innerText = `💰 $${(user.usedUsd || 0).toFixed(2)} / $${(user.quotaUsd || 100).toFixed(2)}`;
-
-      if (client) {
-        document.getElementById('client-tenant-badge').innerHTML = `🏢 <span>${client.clientName}</span> (Tarifa ${client.tier})`;
-        const cfgTenantUsed = document.getElementById('cfg-tenant-used');
-        if (cfgTenantUsed) cfgTenantUsed.innerText = `$${client.totalUsedUsd.toFixed(2)} / $${client.totalBudgetUsd.toFixed(2)} USD`;
+    // ── Workspaces (US3) ────────────────────────────────────────────────────────────────
+    async function loadWorkspaces() {
+      const res = await fetch('/api/workspaces');
+      if (!res.ok) { workspaces = []; renderWorkspaceList(); return; }
+      const data = await res.json();
+      workspaces = data.workspaces || [];
+      renderWorkspaceList();
+      if (workspaces.length > 0 && !currentWorkspace) {
+        await selectWorkspace(workspaces[0].slug);
+      } else if (workspaces.length === 0) {
+        renderChatTopbar();
       }
+    }
 
-      if (config && config.selectedGuardianModel) {
-        document.getElementById('guardian-model-selector').value = config.selectedGuardianModel;
-      }
-
+    function renderWorkspaceList() {
       const wsContainer = document.getElementById('workspaces-container');
       wsContainer.innerHTML = '';
-      workspaces.forEach(ws => {
-        const activeClass = ws.id === user.currentWorkspaceId ? 'active' : '';
-        wsContainer.innerHTML += `
-          <div class="workspace-item ${activeClass}" onclick="selectWorkspace('${ws.id}')">
-            <span>📁</span> <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.name}</span>
-          </div>
-        `;
+      workspaces.forEach((ws) => {
+        const activeClass = currentWorkspace && currentWorkspace.slug === ws.slug ? 'active' : '';
+        const div = document.createElement('div');
+        div.className = `workspace-item ${activeClass}`;
+        div.onclick = () => selectWorkspace(ws.slug);
+        div.innerHTML = `<span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.name}</span>`;
+        wsContainer.appendChild(div);
       });
+    }
 
-      const currentWs = workspaces.find(w => w.id === user.currentWorkspaceId) || workspaces[0];
+    async function selectWorkspace(slug) {
+      const res = await fetch(`/api/workspaces/${slug}`);
+      if (!res.ok) { showToast('No se pudo abrir el espacio.'); return; }
+      const data = await res.json();
+      currentWorkspace = data.workspace;
+      currentThreadSlug = null;
+      messages = [];
+      renderWorkspaceList();
+      renderThreads();
+      renderDocuments();
+      renderChatTopbar();
+      renderMessages();
+    }
 
-      if (currentWs) {
-        document.getElementById('current-ws-badge').innerText = `📁 ${currentWs.name}`;
-        document.getElementById('doc-count-badge').innerText = `${currentWs.documents.length} archivos`;
-        document.getElementById('rag-mode-label').innerHTML = `• Modo: <strong>${currentWs.ragMode === 'strict' ? 'RAG Estricto (Query)' : 'RAG Conversacional (Chat)'}</strong>`;
+    function renderChatTopbar() {
+      document.getElementById('current-ws-badge').innerText = currentWorkspace ? `📁 ${currentWorkspace.name}` : '💬 Chat directo (sin RAG)';
+      document.getElementById('current-thread-title').innerText = currentThreadSlug
+        ? `🧵 ${(currentWorkspace.threads || []).find((t) => t.slug === currentThreadSlug)?.name || 'Hilo'}`
+        : (currentWorkspace ? '🧵 Hilo principal del espacio' : '');
+      document.getElementById('doc-count-badge').innerText = currentWorkspace ? `${(currentWorkspace.documents || []).length} archivos` : '0 archivos';
+      document.getElementById('rag-mode-label').innerHTML = currentWorkspace
+        ? `• Modo: <strong>${currentWorkspace.chatMode === 'query' ? 'Estricto' : 'Conversacional'}</strong>`
+        : '• Modo: <strong>Chat directo</strong>';
+    }
 
-        const threadsContainer = document.getElementById('threads-container');
-        threadsContainer.innerHTML = '';
-        currentWs.threads.forEach(th => {
-          const activeClass = th.id === user.currentThreadId ? 'active' : '';
-          threadsContainer.innerHTML += `
-            <div class="thread-item ${activeClass}" onclick="selectThread('${th.id}')">
-              <div>🧵 ${th.title}</div>
-              <span style="font-size:0.68rem; color:var(--text-muted);">${th.updated_at}</span>
+    function renderThreads() {
+      const threadsContainer = document.getElementById('threads-container');
+      threadsContainer.innerHTML = '';
+      if (!currentWorkspace) return;
+      (currentWorkspace.threads || []).forEach((th) => {
+        const activeClass = currentThreadSlug === th.slug ? 'active' : '';
+        const div = document.createElement('div');
+        div.className = `thread-item ${activeClass}`;
+        div.onclick = () => selectThread(th.slug);
+        div.innerHTML = `<div>🧵 ${th.name}</div>`;
+        threadsContainer.appendChild(div);
+      });
+    }
+
+    function selectThread(slug) {
+      currentThreadSlug = slug;
+      messages = [];
+      renderThreads();
+      renderChatTopbar();
+      renderMessages();
+    }
+
+    function renderDocuments() {
+      const docsContainer = document.getElementById('documents-container');
+      docsContainer.innerHTML = '';
+      if (!currentWorkspace) return;
+      (currentWorkspace.documents || []).forEach((doc) => {
+        const meta = JSON.parse(doc.metadata || '{}');
+        const div = document.createElement('div');
+        div.className = 'doc-card';
+        div.innerHTML = `
+          <div class="doc-card-title">📄 <span>${meta.title || doc.filename}</span></div>
+          <div class="doc-card-meta">
+            <span>${meta.wordCount || 0} palabras</span>
+            <div class="doc-card-actions">
+              <button class="tool-btn danger" title="Eliminar">🗑️</button>
             </div>
-          `;
-        });
-
-        const currentThread = currentWs.threads.find(t => t.id === user.currentThreadId) || currentWs.threads[0];
-        if (currentThread) {
-          document.getElementById('current-thread-title').innerText = `🧵 ${currentThread.title}`;
-          renderMessages(currentThread.messages);
-        }
-
-        const docsContainer = document.getElementById('documents-container');
-        docsContainer.innerHTML = '';
-        currentWs.documents.forEach(doc => {
-          const icon = doc.type === 'pdf' ? '📄' : (doc.type === 'xlsx' || doc.type === 'csv' ? '📊' : '📝');
-          docsContainer.innerHTML += `
-            <div class="doc-card">
-              <div class="doc-card-title">${icon} <span>${doc.name}</span></div>
-              <div class="doc-card-meta">
-                <span>${doc.pages ? `${doc.pages} págs` : `${doc.rows || 373} filas`} · ${doc.size}</span>
-                <div class="doc-card-actions">
-                  <button class="tool-btn" onclick="previewDocument('${doc.name}', event)" title="Previsualizar">👁️</button>
-                  <button class="tool-btn danger" onclick="deleteDocument('${doc.name}', event)" title="Eliminar">🗑️</button>
-                </div>
-              </div>
-            </div>
-          `;
-        });
-      }
-    }
-
-    function renderMessages(messages) {
-      const container = document.getElementById('chat-messages');
-      container.innerHTML = '';
-      messages.forEach((msg, idx) => {
-        appendMessage(msg.role, msg.content, msg.sources, msg.cost_usd, msg.engine, msg.timestamp, idx);
+          </div>`;
+        div.querySelector('.tool-btn.danger').onclick = (e) => deleteDocument(doc.docpath, e);
+        docsContainer.appendChild(div);
       });
-      container.scrollTop = container.scrollHeight;
     }
 
-    async function handleUserSwitch(userId) {
-      await fetch('/api/user/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
-      });
-      await loadUserState();
-    }
-
-    async function handleModelChange(modelId) {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedGuardianModel: modelId })
-      });
-      showToast(`Modelo cambiado a ${modelId.toUpperCase()}`);
-    }
-
-    async function selectWorkspace(workspaceId) {
-      await fetch('/api/session/select', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId })
-      });
-      await loadUserState();
-    }
-
-    async function selectThread(threadId) {
-      await fetch('/api/session/select', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadId })
-      });
-      await loadUserState();
-    }
-
+    // ── CRUD de espacios y hilos ─────────────────────────────────────────────────────
     function openNewWsModal() { document.getElementById('modal-new-ws').classList.add('active'); }
     function closeNewWsModal() { document.getElementById('modal-new-ws').classList.remove('active'); }
 
     async function submitNewWorkspace() {
       const name = document.getElementById('new-ws-name').value.trim();
       if (!name) return;
-      await fetch('/api/workspaces/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+      const res = await fetch('/api/workspaces/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
       });
+      if (!res.ok) { showToast('No se pudo crear el espacio.'); return; }
       closeNewWsModal();
       document.getElementById('new-ws-name').value = '';
-      await loadUserState();
+      await loadWorkspaces();
       showToast(`Espacio "${name}" creado.`);
     }
 
     async function deleteCurrentWorkspace() {
-      if (!confirm("¿Seguro que deseas eliminar este espacio de trabajo?")) return;
-      const res = await fetch('/api/workspaces/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId: appState.user.currentWorkspaceId })
+      if (!currentWorkspace) return;
+      if (!confirm('¿Seguro que deseas eliminar este espacio de trabajo?')) return;
+      await fetch('/api/workspaces/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: currentWorkspace.slug })
       });
-      if (res.ok) {
-        showToast("Espacio eliminado");
-        await loadUserState();
-      }
+      currentWorkspace = null;
+      showToast('Espacio eliminado');
+      await loadWorkspaces();
     }
 
     function openNewThreadModal() { document.getElementById('modal-new-thread').classList.add('active'); }
     function closeNewThreadModal() { document.getElementById('modal-new-thread').classList.remove('active'); }
 
     async function submitNewThread() {
-      const title = document.getElementById('new-thread-title').value.trim();
-      if (!title) return;
+      if (!currentWorkspace) { showToast('Elegí un espacio primero.'); return; }
+      const name = document.getElementById('new-thread-title').value.trim();
+      if (!name) return;
       await fetch('/api/threads/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: currentWorkspace.slug, name })
       });
       closeNewThreadModal();
       document.getElementById('new-thread-title').value = '';
-      await loadUserState();
-      showToast(`Hilo creado.`);
+      await selectWorkspace(currentWorkspace.slug);
+      showToast('Hilo creado.');
     }
 
     async function renameCurrentThread() {
-      const currentWs = appState.workspaces.find(w => w.id === appState.user.currentWorkspaceId);
-      const currentThread = currentWs.threads.find(t => t.id === appState.user.currentThreadId);
-      const newTitle = prompt("Nuevo título para el hilo:", currentThread ? currentThread.title : "");
-      if (newTitle && newTitle.trim()) {
-        await fetch('/api/threads/rename', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ threadId: appState.user.currentThreadId, title: newTitle.trim() })
-        });
-        await loadUserState();
-        showToast("Hilo renombrado.");
-      }
+      if (!currentThreadSlug) { showToast('Elegí un hilo primero.'); return; }
+      const newName = prompt('Nuevo título para el hilo:');
+      if (!newName || !newName.trim()) return;
+      await fetch('/api/threads/rename', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: currentWorkspace.slug, threadSlug: currentThreadSlug, name: newName.trim() })
+      });
+      await selectWorkspace(currentWorkspace.slug);
+      showToast('Hilo renombrado.');
     }
 
     async function clearCurrentChat() {
-      if (!confirm("¿Deseas limpiar todos los mensajes de este hilo?")) return;
-      await fetch('/api/threads/clear', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadId: appState.user.currentThreadId })
+      if (!currentThreadSlug) { messages = []; renderMessages(); return; }
+      if (!confirm('¿Deseas limpiar los mensajes de este hilo? Se recrea el hilo.')) return;
+      const res = await fetch('/api/threads/clear', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: currentWorkspace.slug, threadSlug: currentThreadSlug })
       });
-      await loadUserState();
-      showToast("Chat limpiado.");
+      const data = await res.json();
+      await selectWorkspace(currentWorkspace.slug);
+      if (data.thread) selectThread(data.thread.slug);
+      showToast('Hilo limpiado.');
     }
 
     async function deleteCurrentThread() {
-      if (!confirm("¿Deseas eliminar este hilo de conversación?")) return;
+      if (!currentThreadSlug) return;
+      if (!confirm('¿Deseas eliminar este hilo de conversación?')) return;
       await fetch('/api/threads/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ threadId: appState.user.currentThreadId })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: currentWorkspace.slug, threadSlug: currentThreadSlug })
       });
-      await loadUserState();
-      showToast("Hilo eliminado.");
+      await selectWorkspace(currentWorkspace.slug);
+      showToast('Hilo eliminado.');
     }
 
     function exportChatTranscript() {
-      const currentWs = appState.workspaces.find(w => w.id === appState.user.currentWorkspaceId);
-      const currentThread = currentWs.threads.find(t => t.id === appState.user.currentThreadId);
-      if (!currentThread) return;
-
-      let transcript = `# Transcripción ELEA RAG Hub\n**Espacio:** ${currentWs.name}\n**Hilo:** ${currentThread.title}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
-      currentThread.messages.forEach(m => {
-        transcript += `### ${m.role === 'user' ? '👤 Usuario' : '🤖 Asistente'}\n${m.content}\n\n`;
-      });
-
+      if (messages.length === 0) return;
+      let transcript = `# Transcripción Elea RAG\n**Espacio:** ${currentWorkspace ? currentWorkspace.name : 'Chat directo'}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
+      messages.forEach((m) => { transcript += `### ${m.role === 'user' ? '👤 Usuario' : '🤖 Asistente'}\n${m.content}\n\n`; });
       const blob = new Blob([transcript], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = `chat_${currentWs.name}_${currentThread.title}.md`;
-      a.click();
-      showToast("Transcripción descargada.");
+      a.href = url; a.download = 'transcripcion-elea-rag.md'; a.click();
+      showToast('Transcripción descargada.');
     }
 
-    async function deleteDocument(docName, e) {
+    // ── Documentos — enmascarado real antes de subir (US4) ─────────────────────────────
+    async function deleteDocument(location, e) {
       e.stopPropagation();
-      if (!confirm(`¿Eliminar documento "${docName}" del espacio?`)) return;
+      if (!confirm('¿Eliminar este documento del espacio?')) return;
       await fetch('/api/workspaces/documents/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentName: docName })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: currentWorkspace.slug, location })
       });
-      await loadUserState();
-      showToast("Documento eliminado");
-    }
-
-    function previewDocument(docName, e) {
-      e.stopPropagation();
-      const currentWs = appState.workspaces.find(w => w.id === appState.user.currentWorkspaceId);
-      const doc = currentWs.documents.find(d => d.name === docName);
-      if (!doc) return;
-
-      document.getElementById('preview-doc-name').innerText = `📄 Previsualización: ${doc.name}`;
-      const contentEl = document.getElementById('preview-doc-content');
-      contentEl.innerHTML = doc.extractedText ? (typeof marked !== 'undefined' ? marked.parse(doc.extractedText) : doc.extractedText) : '<em>No hay contenido extraído disponible.</em>';
-      document.getElementById('modal-doc-preview').classList.add('active');
-    }
-
-    function closeDocPreviewModal() { document.getElementById('modal-doc-preview').classList.remove('active'); }
-
-    function openWorkspaceSettingsModal() {
-      const currentWs = appState.workspaces.find(w => w.id === appState.user.currentWorkspaceId);
-      if (currentWs) {
-        document.getElementById('ws-rag-mode').value = currentWs.ragMode || 'strict';
-        document.getElementById('ws-temperature').value = currentWs.temperature || 0.1;
-        document.getElementById('temp-val').innerText = currentWs.temperature || 0.1;
-        document.getElementById('ws-system-prompt').value = currentWs.systemPrompt || '';
-      }
-      document.getElementById('modal-ws-settings').classList.add('active');
-    }
-
-    function closeWsSettingsModal() { document.getElementById('modal-ws-settings').classList.remove('active'); }
-
-    document.getElementById('ws-temperature').addEventListener('input', (e) => {
-      document.getElementById('temp-val').innerText = e.target.value;
-    });
-
-    async function saveWorkspaceSettings() {
-      const ragMode = document.getElementById('ws-rag-mode').value;
-      const temperature = parseFloat(document.getElementById('ws-temperature').value);
-      const systemPrompt = document.getElementById('ws-system-prompt').value;
-
-      await fetch('/api/workspaces/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspaceId: appState.user.currentWorkspaceId,
-          ragMode,
-          temperature,
-          systemPrompt
-        })
-      });
-      closeWsSettingsModal();
-      await loadUserState();
-      showToast("Ajustes del espacio guardados.");
+      await selectWorkspace(currentWorkspace.slug);
+      showToast('Documento eliminado');
     }
 
     async function handleWsFileUpload(event) {
       const file = event.target.files[0];
-      if (!file) return;
-
+      if (!file || !currentWorkspace) return;
       const formData = new FormData();
       formData.append('file', file);
-
+      formData.append('slug', currentWorkspace.slug);
+      showToast('Enmascarando y subiendo documento…');
       const res = await fetch('/api/workspaces/upload', { method: 'POST', body: formData });
       const data = await res.json();
-      if (data.success) {
-        await loadUserState();
-        showToast(`Documento "${data.document.name}" indexado.`);
-      }
+      event.target.value = '';
+      if (!res.ok) { showToast(data.error || 'No se pudo subir el documento.'); return; }
+      await selectWorkspace(currentWorkspace.slug);
+      showToast(data.message);
     }
 
+    // ── Ajustes de espacio — las 7 opciones reales de AnythingLLM (US3) ─────────────────
+    function openWorkspaceSettingsModal() {
+      if (!currentWorkspace) { showToast('Elegí un espacio primero.'); return; }
+      const w = currentWorkspace;
+      document.getElementById('ws-chatMode').value = w.chatMode === 'query' ? 'query' : 'chat';
+      document.getElementById('ws-openAiTemp').value = w.openAiTemp ?? 0.2;
+      document.getElementById('temp-val').innerText = w.openAiTemp ?? 0.2;
+      document.getElementById('ws-openAiHistory').value = w.openAiHistory ?? 20;
+      document.getElementById('ws-openAiPrompt').value = w.openAiPrompt || '';
+      document.getElementById('ws-similarityThreshold').value = w.similarityThreshold ?? 0.25;
+      document.getElementById('sim-val').innerText = w.similarityThreshold ?? 0.25;
+      document.getElementById('ws-topN').value = w.topN ?? 4;
+      document.getElementById('ws-queryRefusalResponse').value = w.queryRefusalResponse || '';
+      document.getElementById('modal-ws-settings').classList.add('active');
+    }
+    function closeWsSettingsModal() { document.getElementById('modal-ws-settings').classList.remove('active'); }
+
+    document.getElementById('ws-openAiTemp').addEventListener('input', (e) => { document.getElementById('temp-val').innerText = e.target.value; });
+    document.getElementById('ws-similarityThreshold').addEventListener('input', (e) => { document.getElementById('sim-val').innerText = e.target.value; });
+
+    async function saveWorkspaceSettings() {
+      const payload = {
+        slug: currentWorkspace.slug,
+        chatMode: document.getElementById('ws-chatMode').value,
+        openAiTemp: parseFloat(document.getElementById('ws-openAiTemp').value),
+        openAiHistory: parseInt(document.getElementById('ws-openAiHistory').value, 10),
+        openAiPrompt: document.getElementById('ws-openAiPrompt').value,
+        similarityThreshold: parseFloat(document.getElementById('ws-similarityThreshold').value),
+        topN: parseInt(document.getElementById('ws-topN').value, 10),
+        queryRefusalResponse: document.getElementById('ws-queryRefusalResponse').value || undefined
+      };
+      await fetch('/api/workspaces/settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      closeWsSettingsModal();
+      await selectWorkspace(currentWorkspace.slug);
+      showToast('Ajustes del espacio guardados.');
+    }
+
+    // ── Chat (US2 simple + US3 RAG) ──────────────────────────────────────────────────────
     function handleKeyPress(e) { if (e.key === 'Enter') sendMessage(); }
     function quickSend(text) { document.getElementById('chat-input').value = text; sendMessage(); }
 
@@ -962,88 +932,75 @@
       const inputEl = document.getElementById('chat-input');
       const text = inputEl.value.trim();
       if (!text) return;
-
       inputEl.value = '';
-      appendMessage('user', text, null, null, null, new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}));
+      messages.push({ role: 'user', content: text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+      renderMessages();
 
-      const selectedModel = document.getElementById('guardian-model-selector').value;
-
+      const model = document.getElementById('guardian-model-selector').value;
       try {
         const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, guardian_model: selectedModel })
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: text,
+            slug: currentWorkspace ? currentWorkspace.slug : undefined,
+            threadSlug: currentThreadSlug || undefined,
+            model
+          })
         });
         const data = await res.json();
-        appendMessage('assistant', data.content, data.sources, data.cost_usd, data.engine, data.timestamp);
-        await loadUserState();
+        if (!res.ok) {
+          messages.push({ role: 'assistant', content: `⚠️ ${data.error || 'Error al responder.'}` });
+        } else {
+          messages.push({
+            role: 'assistant', content: data.content, sources: data.sources,
+            modelUsed: data.model_used, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        }
+        renderMessages();
+        // El presupuesto puede haber cambiado — refrescar el badge.
+        boot();
       } catch (err) {
-        appendMessage('assistant', 'Error de conexión con el servicio del Chat.');
+        messages.push({ role: 'assistant', content: '⚠️ Error de conexión con el servicio del Chat.' });
+        renderMessages();
       }
     }
 
     function copyToClipboard(text) {
       navigator.clipboard.writeText(text);
-      showToast("Texto copiado al portapapeles");
+      showToast('Texto copiado al portapapeles');
     }
 
-    function appendMessage(role, text, sources, costUsd, engine, timestamp) {
+    function renderMessages() {
       const container = document.getElementById('chat-messages');
-      const msgDiv = document.createElement('div');
-      msgDiv.className = `msg ${role}`;
-
-      let parsedContent = role === 'assistant' && typeof marked !== 'undefined' ? marked.parse(text) : text;
-
-      let citationHtml = '';
-      if (sources && sources.length > 0) {
-        citationHtml = `<div class="citation-card">📄 <strong>Cita de Fuente (RAG):</strong> ${sources[0].document} (${sources[0].page})<br><em>${sources[0].section}</em></div>`;
-      }
-
-      let costHtml = costUsd ? `<span class="cost-pill">💰 Tarifa: $${costUsd.toFixed(4)} USD</span>` : '';
-      let engineHtml = engine ? `<span style="color:var(--text-muted);">${engine}</span>` : '';
-
-      msgDiv.innerHTML = `
-        <div class="msg-avatar">${role === 'user' ? 'U' : 'AI'}</div>
-        <div class="msg-body">
-          ${parsedContent}
-          ${citationHtml}
-          <div class="msg-footer">
-            <div>${engineHtml} ${costHtml}</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span>${timestamp || ''}</span>
-              <button class="copy-btn" onclick="copyToClipboard(\`${text.replace(/`/g, '\\`')}\`)" title="Copiar">📋 Copiar</button>
+      container.innerHTML = '';
+      messages.forEach((msg) => {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `msg ${msg.role}`;
+        const parsedContent = msg.role === 'assistant' && typeof marked !== 'undefined' ? marked.parse(msg.content) : msg.content;
+        let citationHtml = '';
+        if (msg.sources && msg.sources.length > 0) {
+          citationHtml = `<div class="citation-card">📄 <strong>Fuente (RAG):</strong> ${msg.sources[0].document}</div>`;
+        }
+        const modelHtml = msg.modelUsed ? `<span style="color:var(--text-muted);">Respondió: ${msg.modelUsed}</span>` : '';
+        msgDiv.innerHTML = `
+          <div class="msg-avatar">${msg.role === 'user' ? 'U' : 'AI'}</div>
+          <div class="msg-body">
+            ${parsedContent}
+            ${citationHtml}
+            <div class="msg-footer">
+              <div>${modelHtml}</div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span>${msg.timestamp || ''}</span>
+                <button class="copy-btn" onclick="copyToClipboard(\`${(msg.content || '').replace(/`/g, '\\`')}\`)" title="Copiar">📋 Copiar</button>
+              </div>
             </div>
-          </div>
-        </div>
-      `;
-
-      container.appendChild(msgDiv);
+          </div>`;
+        container.appendChild(msgDiv);
+      });
       container.scrollTop = container.scrollHeight;
     }
 
-    async function openConfigModal() { document.getElementById('modal-config').classList.add('active'); }
-    function closeConfigModal() { document.getElementById('modal-config').classList.remove('active'); }
-
-    async function saveConfiguration() {
-      const anythingUrl = document.getElementById('cfg-anything-url').value;
-      const guardianUrl = document.getElementById('cfg-guardian-url').value;
-
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          config: {
-            anythingLlmUrl: anythingUrl,
-            guardianGatewayUrl: guardianUrl
-          }
-        })
-      });
-      closeConfigModal();
-      await loadUserState();
-      showToast("Configuración guardada");
-    }
-
-    loadUserState();
+    boot();
   </script>
 </body>
 </html>

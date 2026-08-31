@@ -40,10 +40,29 @@ El des-enmascarado en la respuesta del chat sigue el mismo patrón que ya usa `e
 plano chat (`GuardianService`/`unmask_text`) — se aplica sobre la respuesta del workspace
 antes de mostrarla.
 
-**Confirmar en T001**: si `presidio_service.py` expone hoy un endpoint HTTP público
-reutilizable por un cliente externo, o si hace falta agregar uno delgado (`POST
-/api/v1/mask` scopeado a la key del cliente RAG) — no asumir, se verifica contra el código
-antes de codear.
+**T001 — confirmado contra el código (31-ago)**:
+- **Enmascarar**: ya existe, no hace falta agregar nada. `POST /api/v1/gw/inspect`
+  (header `X-Sentinel-Key: <virtual key>`, body `{"text": "...", "tool": "elea-rag-client"}`)
+  devuelve `{ok, blocked, masked, replacements: [{token, original}], entities}` —
+  exactamente el contrato que necesita el paso de ingesta. Usa la MISMA política que el
+  resto del producto (`evaluate_request_policy`), fail-closed sin key válida.
+- **Catálogo de modelos**: ya existe y es accesible con el JWT del propio usuario (no
+  hace falta credencial de servicio). `GET /api/v1/chat/models`
+  (`dependencies=[Depends(require_authenticated())]`) devuelve
+  `[{model_name, provider, model_id, is_configured, is_eu_compliant}, ...]` con `"auto"`
+  antepuesto si el router está activo — sin nombres de motor.
+- **Chat**: `POST /api/v1/chat/completions` (JWT o virtual key), body
+  `{message, model, override_pii_masking?, ...}`, respuesta
+  `{response, pipeline_metadata: {layer_llm: {model_used, ...}, ...}}` —
+  `layer_llm.model_used` es el campo de transparencia (US2 criterio 2), verificado en vivo.
+- **Presupuesto de autoservicio: NO existe**, confirmado. `GET /api/v1/budgets` exige
+  `require_role("admin", "compliance_officer")` a nivel de router (rechazo real: el bug de
+  fail-open del hallazgo de seguridad de agosto ya está resuelto —
+  `require_role` en `auth/rbac.py` ahora es fail-closed de verdad, 401 sin JWT y 403 con
+  rol que no matchea). **Se implementa la opción (b)**: el cliente Node mantiene su propia
+  sesión de servicio (usuario admin dedicado, credenciales en `.env`, JWT re-obtenido por
+  re-login cuando expira) para consultar `/api/v1/budgets` filtrando por el `user_id` de
+  quien está logueado — nunca esa sesión de servicio llega al navegador.
 
 ## 3. Contrato del cliente hacia `elea`
 

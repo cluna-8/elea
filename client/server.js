@@ -1,29 +1,38 @@
+// Cliente RAG de Elea — habla con el backend real de `elea` (login, catálogo de modelos,
+// presupuesto, enmascarado NER) y con la API real de AnythingLLM (workspaces, hilos,
+// documentos, chat). Ver specs/040-cliente-rag-elea-completo/ (spec.md, plan.md, tasks.md).
+//
+// Nada de esto simula: cada endpoint de abajo hace una llamada HTTP real. Si `elea` o
+// AnythingLLM no responden, el cliente devuelve el error real, nunca inventa uno.
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const http = require('http');
-const multer = require('multer');
 const fs = require('fs');
+const multer = require('multer');
 const { execSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 8095;
 
+// ── Config (ver docker-compose.yml servicio `client` y client/README.md) ──────────────
+const ELEA_BACKEND_URL = process.env.ELEA_BACKEND_URL || 'http://backend:8000/api/v1';
+const ELEA_SERVICE_USERNAME = process.env.ELEA_SERVICE_USERNAME || 'admin';
+const ELEA_SERVICE_PASSWORD = process.env.ELEA_SERVICE_PASSWORD || '';
+const ANYTHINGLLM_URL = process.env.ANYTHINGLLM_URL || 'http://anythingllm:3001';
+const ANYTHINGLLM_API_KEY = process.env.ANYTHINGLLM_API_KEY || '';
+const MASKING_VIRTUAL_KEY = process.env.MASKING_VIRTUAL_KEY || '';
+
 const uploadDir = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const DB_FILE = path.join(uploadDir, 'db_state.json');
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
-    const rawName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    cb(null, `${Date.now()}_${rawName}`);
-  }
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadDir),
+    filename: (req, file, cb) => {
+      const rawName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      cb(null, `${Date.now()}_${rawName}`);
+    }
+  })
 });
-const upload = multer({ storage });
 
 app.use(cors());
 app.use(express.json());
@@ -32,541 +41,450 @@ app.use(express.static(path.join(__dirname, 'public')));
 function extractText(filepath) {
   try {
     const pythonScript = path.join(__dirname, 'extract_text.py');
-    const output = execSync(`python3 "${pythonScript}" "${filepath}"`, { encoding: 'utf-8' });
-    return output.trim();
+    return execSync(`python3 "${pythonScript}" "${filepath}"`, { encoding: 'utf-8' }).trim();
   } catch (err) {
     console.error('Error al extraer texto:', err.message);
-    return null;
+    return '';
   }
 }
 
 // =========================================================================
-// TARIFAS Y COSTOS DINÁMICOS POR CLIENTE (TENANT ELEA)
+// SESIÓN — un solo cliente activo a la vez (uso de escritorio en un navegador),
+// documentado como límite conocido en client/README.md. El JWT vive SOLO en este
+// proceso: nunca se escribe a disco ni viaja al navegador.
 // =========================================================================
-let clientProfile = {
-  clientId: "elea_pharma",
-  clientName: "Laboratorios ELEA",
-  tier: "Enterprise Farma",
-  currency: "USD",
-  totalBudgetUsd: 500.0,
-  ratesPer1kTokens: {
-    "basa-auto-router": 0.010,
-    "demo-gpt-4o": 0.025,
-    "azure-gpt-4o-mini": 0.005,
-    "deepseek-r1-distill": 0.008
+let session = null; // { token, user: {id, username, role, email} }
+
+// Sesión de SERVICIO (spec 040 plan.md §3, opción b): un usuario admin dedicado cuyo JWT
+// el cliente usa para consultar presupuesto en nombre del usuario logueado, sin exponer
+// esa credencial al navegador. Se re-obtiene sola cuando expira (401).
+let serviceToken = null;
+
+async function eleaLogin(username, password) {
+  const r = await fetch(`${ELEA_BACKEND_URL}/users/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+async function getServiceToken(forceRefresh = false) {
+  if (serviceToken && !forceRefresh) return serviceToken;
+  if (!ELEA_SERVICE_PASSWORD) {
+    throw new Error('ELEA_SERVICE_PASSWORD no configurada — no se puede consultar presupuesto.');
   }
-};
+  const { ok, data } = await eleaLogin(ELEA_SERVICE_USERNAME, ELEA_SERVICE_PASSWORD);
+  if (!ok) throw new Error('La sesión de servicio del cliente no pudo autenticarse contra elea.');
+  serviceToken = data.access_token;
+  return serviceToken;
+}
 
-let config = {
-  guardianGatewayUrl: 'http://localhost:4000/v1',
-  guardianApiKey: 'sk-guardian-demo-key-2026',
-  selectedGuardianModel: 'basa-auto-router',
-  anythingLlmUrl: 'http://localhost:3001',
-  anythingLlmApiKey: 'ANT-KEY-ELEA-PROD-2026',
-  anythingLlmWorkspace: 'control-de-calidad-elea'
-};
-
-const initialUsersDB = {
-  "ana.gomez": {
-    id: "ana.gomez",
-    name: "Dra. Ana Gómez",
-    role: "Investigación & Desarrollo",
-    email: "ana.gomez@elea.com",
-    avatar: "AG",
-    quotaUsd: 150.0,
-    usedUsd: 14.50,
-    currentWorkspaceId: "ws_calidad_elea",
-    currentThreadId: "th_calidad_01",
-    workspaces: [
-      {
-        id: "ws_calidad_elea",
-        name: "Control de Calidad ELEA",
-        description: "Espacio de control documental y contratos",
-        ragMode: "strict", // "strict" (Query) or "conversational" (Chat)
-        temperature: 0.1,
-        systemPrompt: "Eres el asistente de Calidad y Farmacovigilancia de Laboratorios ELEA. Cita siempre la fuente documental.",
-        created_at: "2026-08-27",
-        documents: [],
-        threads: [
-          {
-            id: "th_calidad_01",
-            title: "Revisión Documental y Clientes",
-            updated_at: "Hoy, 11:50",
-            messages: [
-              {
-                role: "assistant",
-                content: "¡Hola Dra. Ana Gómez! Estás en el espacio **Control de Calidad ELEA**. Los costos de tokens se calculan automáticamente con la **Tarifa Farma Enterprise** de ELEA. Puedes cargar archivos o hacer consultas directas.",
-                engine: "Basa GuardIAn Auto-Router (:4000)",
-                cost_usd: 0.0020
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  "luis.fierro": {
-    id: "luis.fierro",
-    name: "Lic. Luis Fierro",
-    role: "Garantía de Calidad",
-    email: "luis.fierro@elea.com",
-    avatar: "LF",
-    quotaUsd: 100.0,
-    usedUsd: 8.50,
-    currentWorkspaceId: "ws_auditoria_planta",
-    currentThreadId: "th_auditoria_01",
-    workspaces: [
-      {
-        id: "ws_auditoria_planta",
-        name: "Auditoría Planta Pilar",
-        description: "Checklists de GMP y control de desviaciones",
-        ragMode: "conversational",
-        temperature: 0.2,
-        systemPrompt: "Eres el auditor senior de planta farmacéutica.",
-        created_at: "2026-08-25",
-        documents: [],
-        threads: [
-          {
-            id: "th_auditoria_01",
-            title: "Control de Puntos Críticos Planta",
-            updated_at: "Hoy, 07:15",
-            messages: []
-          }
-        ]
-      }
-    ]
-  },
-  "cristian.luna": {
-    id: "cristian.luna",
-    name: "Lic. Cristian Luna",
-    role: "Auditoría y Compliance",
-    email: "cristian.luna@elea.com",
-    avatar: "CL",
-    quotaUsd: 100.0,
-    usedUsd: 0.00,
-    currentWorkspaceId: "ws_compliance",
-    currentThreadId: "th_comp_01",
-    workspaces: [
-      {
-        id: "ws_compliance",
-        name: "Marco Regulatorio ANMAT",
-        description: "Normativas y disposiciones ANMAT",
-        ragMode: "strict",
-        temperature: 0.0,
-        systemPrompt: "Analista de regulaciones sanitarias ANMAT.",
-        created_at: "2026-08-28",
-        documents: [],
-        threads: [
-          {
-            id: "th_comp_01",
-            title: "Disposiciones 2026",
-            updated_at: "Hoy, 08:30",
-            messages: []
-          }
-        ]
-      }
-    ]
-  }
-};
-
-let usersDB = initialUsersDB;
-let currentUserId = "ana.gomez";
-let isAuthenticated = true;
-
-function loadDB() {
-  try {
-    if (fs.existsSync(DB_FILE)) {
-      const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-      if (data.usersDB) usersDB = data.usersDB;
-      else usersDB = data;
-      if (data.config) config = { ...config, ...data.config };
-      if (data.clientProfile) clientProfile = { ...clientProfile, ...data.clientProfile };
-      console.log('✅ Base de datos cargada desde:', DB_FILE);
-    } else {
-      saveDB();
+// Llamada autenticada a `elea` con el JWT del usuario logueado.
+async function eleaFetch(pathname, opts = {}) {
+  if (!session) throw new Error('Sin sesión activa.');
+  const r = await fetch(`${ELEA_BACKEND_URL}${pathname}`, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.token}`,
+      ...(opts.headers || {})
     }
-  } catch (err) {
-    console.error('Error al cargar base de datos:', err);
-  }
+  });
+  return r;
 }
 
-function saveDB() {
+// Llamada con la sesión de SERVICIO (presupuesto), con un reintento si el JWT expiró.
+async function eleaServiceFetch(pathname, opts = {}) {
+  let token = await getServiceToken();
+  let r = await fetch(`${ELEA_BACKEND_URL}${pathname}`, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) }
+  });
+  if (r.status === 401) {
+    token = await getServiceToken(true);
+    r = await fetch(`${ELEA_BACKEND_URL}${pathname}`, {
+      ...opts,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(opts.headers || {}) }
+    });
+  }
+  return r;
+}
+
+async function anythingllmFetch(pathname, opts = {}) {
+  const r = await fetch(`${ANYTHINGLLM_URL}${pathname}`, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${ANYTHINGLLM_API_KEY}`,
+      ...(opts.headers || {})
+    }
+  });
+  return r;
+}
+
+// Enmascarado NER real (spec 040 US4): misma política que el resto de `elea`
+// (POST /api/v1/gw/inspect, latam_ar hoy — DNI/CUIL/CBU). Fail-closed: si el motor de
+// detección no responde, NO se sube el texto sin enmascarar — se corta la subida.
+async function maskText(text) {
+  if (!text) return { masked: '', blocked: false };
+  const r = await fetch(`${ELEA_BACKEND_URL}/gw/inspect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Sentinel-Key': MASKING_VIRTUAL_KEY },
+    body: JSON.stringify({ text, tool: 'elea-rag-client' })
+  });
+  if (!r.ok) throw new Error(`Enmascarado no disponible (HTTP ${r.status}) — no se sube el documento.`);
+  const data = await r.json();
+  if (!data.ok) throw new Error('El motor de enmascarado no autorizó el texto (sin key válida).');
+  return { masked: data.masked, blocked: !!data.blocked, entities: data.entities || [] };
+}
+
+// =========================================================================
+// AUTENTICACIÓN (US1) — login real contra elea, sin lista de usuarios falsa.
+// =========================================================================
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Usuario y contraseña son obligatorios.' });
+  }
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ usersDB, config, clientProfile, currentUserId, isAuthenticated }, null, 2), 'utf-8');
+    const { ok, status, data } = await eleaLogin(username, password);
+    if (!ok) {
+      return res.status(status).json({ error: data.detail || 'Credenciales incorrectas.' });
+    }
+    session = { token: data.access_token, user: data.user };
+    res.json({ success: true, user: data.user });
   } catch (err) {
-    console.error('Error al guardar base de datos:', err);
+    res.status(502).json({ error: `No se pudo contactar a elea: ${err.message}` });
   }
-}
-
-loadDB();
-
-// =========================================================================
-// API ENDPOINTS
-// =========================================================================
-
-app.get('/api/config', (req, res) => res.json({ config, clientProfile }));
-
-app.post('/api/config', (req, res) => {
-  if (req.body.config) config = { ...config, ...req.body.config };
-  if (req.body.clientProfile) clientProfile = { ...clientProfile, ...req.body.clientProfile };
-  if (req.body.selectedGuardianModel) config.selectedGuardianModel = req.body.selectedGuardianModel;
-  saveDB();
-  res.json({ success: true, config, clientProfile });
-});
-
-// AUTHENTICATION (LOGIN / LOGOUT / CURRENT)
-app.post('/api/auth/login', (req, res) => {
-  const { userId } = req.body;
-  if (usersDB[userId]) {
-    currentUserId = userId;
-    isAuthenticated = true;
-    saveDB();
-    return res.json({ success: true, user: usersDB[currentUserId], client: clientProfile });
-  }
-  res.status(401).json({ error: 'Credenciales o usuario no encontrado en GuardIAn' });
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  isAuthenticated = false;
-  saveDB();
-  res.json({ success: true, message: 'Sesión cerrada correctamente' });
+  session = null;
+  res.json({ success: true });
 });
 
-app.get('/api/user/current', (req, res) => {
-  const user = usersDB[currentUserId] || Object.values(usersDB)[0];
-  const totalUsedByUsers = Object.values(usersDB).reduce((acc, u) => acc + (u.usedUsd || 0), 0);
-  
+app.get('/api/user/current', async (req, res) => {
+  if (!session) return res.json({ isAuthenticated: false });
+
+  const [budget, workspaces] = await Promise.all([
+    fetchUserBudget(session.user.id).catch((err) => ({ error: err.message })),
+    fetchWorkspacesSummary().catch(() => [])
+  ]);
+
   res.json({
-    isAuthenticated: isAuthenticated,
-    user: {
-      id: user.id,
-      name: user.name,
-      role: user.role,
-      email: user.email,
-      avatar: user.avatar,
-      quotaUsd: user.quotaUsd,
-      usedUsd: user.usedUsd,
-      currentWorkspaceId: user.currentWorkspaceId,
-      currentThreadId: user.currentThreadId
-    },
-    client: {
-      ...clientProfile,
-      totalUsedUsd: parseFloat(totalUsedByUsers.toFixed(2))
-    },
-    workspaces: user.workspaces,
-    availableUsers: Object.keys(usersDB).map(k => ({
-      id: usersDB[k].id,
-      name: usersDB[k].name,
-      role: usersDB[k].role,
-      email: usersDB[k].email,
-      avatar: usersDB[k].avatar
-    })),
-    config: config
+    isAuthenticated: true,
+    user: session.user,
+    budget,
+    workspaces
   });
 });
 
-app.post('/api/user/switch', (req, res) => {
-  const { userId } = req.body;
-  if (usersDB[userId]) {
-    currentUserId = userId;
-    isAuthenticated = true;
-    saveDB();
-    return res.json({ success: true, user: usersDB[currentUserId] });
-  }
-  res.status(404).json({ error: 'Usuario no encontrado' });
-});
-
-// WORKSPACE MANAGEMENT (CREATE, DELETE, SETTINGS)
-app.post('/api/workspaces/create', (req, res) => {
-  const { name, description, ragMode, temperature, systemPrompt } = req.body;
-  const user = usersDB[currentUserId];
-  const newWsId = `ws_${Date.now()}`;
-  const newThreadId = `th_${Date.now()}`;
-
-  const newWs = {
-    id: newWsId,
-    name: name || "Nuevo Espacio de Trabajo",
-    description: description || "Espacio personalizado de investigación",
-    ragMode: ragMode || "strict",
-    temperature: typeof temperature === 'number' ? temperature : 0.1,
-    systemPrompt: systemPrompt || "Eres un asistente de investigación de ELEA.",
-    created_at: new Date().toISOString().split('T')[0],
-    documents: [],
-    threads: [
-      {
-        id: newThreadId,
-        title: "Conversación Inicial",
-        updated_at: "Recién",
-        messages: [
-          {
-            role: "assistant",
-            content: `¡Bienvenido al nuevo espacio **${name}**! Puedes subir documentos en el panel derecho para activar el motor RAG.`,
-            engine: "AnythingLLM & GuardIAn Sync"
-          }
-        ]
-      }
-    ]
+async function fetchUserBudget(userId) {
+  const r = await eleaServiceFetch('/budgets');
+  if (!r.ok) throw new Error(`No se pudo leer el presupuesto (HTTP ${r.status}).`);
+  const budgets = await r.json();
+  const mine = budgets.find((b) => b.user_id === userId);
+  if (!mine) return { maxUsd: null, usedUsd: null, message: 'Sin presupuesto asignado.' };
+  return {
+    maxUsd: parseFloat(mine.max_spend_usd),
+    usedUsd: parseFloat(mine.current_spend_usd),
+    resetPeriod: mine.reset_period
   };
+}
 
-  user.workspaces.unshift(newWs);
-  user.currentWorkspaceId = newWsId;
-  user.currentThreadId = newThreadId;
-  saveDB();
-
-  res.json({ success: true, workspace: newWs });
-});
-
-app.post('/api/workspaces/delete', (req, res) => {
-  const { workspaceId } = req.body;
-  const user = usersDB[currentUserId];
-  if (user.workspaces.length <= 1) {
-    return res.status(400).json({ error: 'Debe existir al menos un espacio de trabajo activo.' });
+// =========================================================================
+// SELECTOR DE MODELO (US2) — catálogo real de elea, nunca una lista inventada.
+// =========================================================================
+app.get('/api/models', async (req, res) => {
+  if (!session) return res.status(401).json({ error: 'Sin sesión activa.' });
+  try {
+    const r = await eleaFetch('/chat/models');
+    if (!r.ok) return res.status(r.status).json({ error: 'No se pudo leer el catálogo de modelos.' });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
-  user.workspaces = user.workspaces.filter(w => w.id !== workspaceId);
-  user.currentWorkspaceId = user.workspaces[0].id;
-  user.currentThreadId = user.workspaces[0].threads[0] ? user.workspaces[0].threads[0].id : null;
-  saveDB();
-  res.json({ success: true, remainingWorkspaces: user.workspaces });
 });
 
-app.post('/api/workspaces/settings', (req, res) => {
-  const { workspaceId, ragMode, temperature, systemPrompt } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === (workspaceId || user.currentWorkspaceId));
-  if (!ws) return res.status(404).json({ error: 'Workspace no encontrado' });
+// =========================================================================
+// WORKSPACES (US3) — proxy real a la API de AnythingLLM, con las opciones reales.
+// =========================================================================
+async function fetchWorkspacesSummary() {
+  const r = await anythingllmFetch('/api/v1/workspaces');
+  if (!r.ok) return [];
+  const data = await r.json();
+  return (data.workspaces || []).map((w) => ({
+    slug: w.slug,
+    name: w.name,
+    chatMode: w.chatMode,
+    documentCount: (w.documents || []).length
+  }));
+}
 
-  if (ragMode) ws.ragMode = ragMode;
-  if (typeof temperature === 'number') ws.temperature = temperature;
-  if (systemPrompt !== undefined) ws.systemPrompt = systemPrompt;
-  saveDB();
-  res.json({ success: true, workspace: ws });
+app.get('/api/workspaces', async (req, res) => {
+  try {
+    const r = await anythingllmFetch('/api/v1/workspaces');
+    if (!r.ok) return res.status(r.status).json({ error: 'AnythingLLM no respondió.' });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: `No se pudo contactar a AnythingLLM: ${err.message}` });
+  }
 });
 
-// THREAD MANAGEMENT (CREATE, RENAME, CLEAR, DELETE)
-app.post('/api/threads/create', (req, res) => {
-  const { workspaceId, title } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === (workspaceId || user.currentWorkspaceId));
-  if (!ws) return res.status(404).json({ error: 'Workspace no encontrado' });
-
-  const newThreadId = `th_${Date.now()}`;
-  const newThread = {
-    id: newThreadId,
-    title: title || `Nuevo Hilo #${ws.threads.length + 1}`,
-    updated_at: "Recién",
-    messages: [
-      {
-        role: "assistant",
-        content: `Nuevo hilo creado en el espacio **${ws.name}**. ¿Qué deseas analizar?`,
-        engine: "Basa GuardIAn Gateway"
-      }
-    ]
-  };
-
-  ws.threads.unshift(newThread);
-  user.currentThreadId = newThreadId;
-  saveDB();
-
-  res.json({ success: true, thread: newThread });
+app.get('/api/workspaces/:slug', async (req, res) => {
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${req.params.slug}`);
+    if (!r.ok) return res.status(r.status).json({ error: 'Workspace no encontrado.' });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
-app.post('/api/threads/rename', (req, res) => {
-  const { threadId, title } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === user.currentWorkspaceId);
-  if (!ws) return res.status(404).json({ error: 'Workspace no encontrado' });
-  const thread = ws.threads.find(t => t.id === threadId);
-  if (!thread) return res.status(404).json({ error: 'Hilo no encontrado' });
+// Las 7 opciones reales de AnythingLLM documentadas en spec.md US3 — nada de
+// nombre/descripción nada más.
+function pickWorkspaceSettings(body) {
+  const out = {};
+  if (body.chatMode) out.chatMode = body.chatMode; // "chat" | "query"
+  if (body.openAiTemp !== undefined) out.openAiTemp = body.openAiTemp;
+  if (body.openAiHistory !== undefined) out.openAiHistory = body.openAiHistory;
+  if (body.openAiPrompt) out.openAiPrompt = body.openAiPrompt;
+  if (body.similarityThreshold !== undefined) out.similarityThreshold = body.similarityThreshold;
+  if (body.topN !== undefined) out.topN = body.topN;
+  if (body.queryRefusalResponse !== undefined) out.queryRefusalResponse = body.queryRefusalResponse;
+  return out;
+}
 
-  thread.title = title || thread.title;
-  saveDB();
-  res.json({ success: true, thread });
-});
+app.post('/api/workspaces/create', async (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'El workspace necesita un nombre.' });
+  try {
+    const createResp = await anythingllmFetch('/api/v1/workspace/new', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+    if (!createResp.ok) return res.status(createResp.status).json({ error: 'AnythingLLM no pudo crear el workspace.' });
+    const created = await createResp.json();
+    const slug = created.workspace.slug;
 
-app.post('/api/threads/clear', (req, res) => {
-  const { threadId } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === user.currentWorkspaceId);
-  if (!ws) return res.status(404).json({ error: 'Workspace no encontrado' });
-  const thread = ws.threads.find(t => t.id === (threadId || user.currentThreadId));
-  if (!thread) return res.status(404).json({ error: 'Hilo no encontrado' });
-
-  thread.messages = [
-    {
-      role: 'assistant',
-      content: `🧹 Chat limpiado. Puedes iniciar una nueva consulta en el espacio **${ws.name}**.`,
-      engine: 'Basa GuardIAn Auto-Router'
+    const settings = pickWorkspaceSettings(req.body);
+    if (Object.keys(settings).length > 0) {
+      await anythingllmFetch(`/api/v1/workspace/${slug}/update`, {
+        method: 'POST',
+        body: JSON.stringify(settings)
+      });
     }
-  ];
-  saveDB();
-  res.json({ success: true, thread });
-});
-
-app.post('/api/threads/delete', (req, res) => {
-  const { threadId } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === user.currentWorkspaceId);
-  if (!ws) return res.status(404).json({ error: 'Workspace no encontrado' });
-
-  if (ws.threads.length <= 1) {
-    ws.threads = [{
-      id: `th_${Date.now()}`,
-      title: "Conversación Principal",
-      updated_at: "Recién",
-      messages: []
-    }];
-  } else {
-    ws.threads = ws.threads.filter(t => t.id !== threadId);
+    res.json({ success: true, workspace: created.workspace });
+  } catch (err) {
+    res.status(502).json({ error: `No se pudo contactar a AnythingLLM: ${err.message}` });
   }
-  user.currentThreadId = ws.threads[0].id;
-  saveDB();
-  res.json({ success: true, remainingThreads: ws.threads });
 });
 
-app.post('/api/session/select', (req, res) => {
-  const { workspaceId, threadId } = req.body;
-  const user = usersDB[currentUserId];
-  if (workspaceId) user.currentWorkspaceId = workspaceId;
-  if (threadId) user.currentThreadId = threadId;
-  saveDB();
-  res.json({ success: true, currentWorkspaceId: user.currentWorkspaceId, currentThreadId: user.currentThreadId });
-});
-
-// DOCUMENT MANAGEMENT (UPLOAD, DELETE, PREVIEW)
-app.post('/api/workspaces/upload', upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
-
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === user.currentWorkspaceId);
-  const rawName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-  const ext = path.extname(rawName).toLowerCase().replace('.', '');
-  const savedPath = req.file.path;
-
-  const extractedText = extractText(savedPath);
-
-  const newDoc = {
-    id: `doc_${Date.now()}`,
-    name: rawName,
-    storedFilename: req.file.filename,
-    type: ext,
-    pages: ext === 'docx' ? 4 : (ext === 'pdf' ? 14 : null),
-    rows: (ext === 'xlsx' || ext === 'csv') ? 373 : null,
-    size: `${(req.file.size / 1024).toFixed(1)} KB`,
-    date: new Date().toISOString().split('T')[0],
-    extractedText: extractedText
-  };
-
-  if (ws) {
-    ws.documents.push(newDoc);
+app.post('/api/workspaces/settings', async (req, res) => {
+  const { slug } = req.body || {};
+  if (!slug) return res.status(400).json({ error: 'Falta el workspace.' });
+  const settings = pickWorkspaceSettings(req.body);
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}/update`, {
+      method: 'POST',
+      body: JSON.stringify(settings)
+    });
+    if (!r.ok) return res.status(r.status).json({ error: 'No se pudo actualizar el workspace.' });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
-  saveDB();
-
-  res.json({
-    success: true,
-    document: newDoc,
-    message: `Documento "${rawName}" indexado correctamente.`
-  });
 });
 
-app.post('/api/workspaces/documents/delete', (req, res) => {
-  const { documentName, documentId } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === user.currentWorkspaceId);
-  if (!ws) return res.status(404).json({ error: 'Workspace no encontrado' });
-
-  ws.documents = ws.documents.filter(d => (documentId ? d.id !== documentId : d.name !== documentName));
-  saveDB();
-  res.json({ success: true, remainingDocuments: ws.documents });
-});
-
-app.post('/api/chat', (req, res) => {
-  const { message, guardian_model } = req.body;
-  const user = usersDB[currentUserId];
-  const ws = user.workspaces.find(w => w.id === user.currentWorkspaceId);
-  const thread = ws ? ws.threads.find(t => t.id === user.currentThreadId) : null;
-
-  const selectedModel = guardian_model || config.selectedGuardianModel || 'basa-auto-router';
-
-  // Cost according to client rate
-  const ratePer1k = clientProfile.ratesPer1kTokens[selectedModel] || 0.010;
-  const estimatedTokens = 400;
-  const queryCost = parseFloat(((estimatedTokens / 1000) * ratePer1k).toFixed(4));
-
-  if (thread) {
-    thread.messages.push({ role: 'user', content: message, timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
+app.post('/api/workspaces/delete', async (req, res) => {
+  const { slug } = req.body || {};
+  if (!slug) return res.status(400).json({ error: 'Falta el workspace.' });
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}`, { method: 'DELETE' });
+    res.json({ success: r.ok });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
+});
 
-  user.usedUsd = parseFloat(((user.usedUsd || 0) + queryCost).toFixed(4));
+// ── Hilos ──────────────────────────────────────────────────────────────────
+app.post('/api/threads/create', async (req, res) => {
+  const { slug, name } = req.body || {};
+  if (!slug) return res.status(400).json({ error: 'Falta el workspace.' });
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}/thread/new`, {
+      method: 'POST',
+      body: JSON.stringify({ name: name || 'Nuevo hilo' })
+    });
+    if (!r.ok) return res.status(r.status).json({ error: 'No se pudo crear el hilo.' });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
 
-  // A. RAG Documental
-  if (ws && ws.documents && ws.documents.length > 0) {
-    let docSummaries = [];
-    let citations = [];
+app.post('/api/threads/rename', async (req, res) => {
+  const { slug, threadSlug, name } = req.body || {};
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}/thread/${threadSlug}/update`, {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+    res.json({ success: r.ok });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
 
-    ws.documents.forEach((doc) => {
-      let text = '';
-      if (doc.storedFilename && fs.existsSync(path.join(uploadDir, doc.storedFilename))) {
-        text = extractText(path.join(uploadDir, doc.storedFilename));
-        doc.extractedText = text;
-      } else {
-        text = doc.extractedText || '';
-      }
+app.post('/api/threads/delete', async (req, res) => {
+  const { slug, threadSlug } = req.body || {};
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}/thread/${threadSlug}`, { method: 'DELETE' });
+    res.json({ success: r.ok });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
 
-      if (text) {
-        if (doc.type === 'docx' || doc.type === 'pdf' || doc.type === 'txt') {
-          const lines = text.split('\n').filter(l => l.trim().length > 0);
-          const points = lines.slice(0, 5).map(l => `• ${l}`).join('\n');
-          docSummaries.push(`### 📄 Documento: ${doc.name}\n\n${points}`);
-          citations.push({
-            document: doc.name,
-            page: "Pág. 1",
-            section: lines[0] ? lines[0].substring(0, 60) : "Cláusulas Principales"
-          });
-        } else if (doc.type === 'xlsx' || doc.type === 'csv') {
-          docSummaries.push(`### 📊 Planilla de Datos: ${doc.name}\n\n${text}`);
-          citations.push({
-            document: doc.name,
-            page: "Hoja 1 (373 Filas)",
-            section: "Estructura de Registros y Contactos"
-          });
-        }
-      } else {
-        docSummaries.push(`### 📁 ${doc.name} (${doc.type.toUpperCase()})`);
-        citations.push({ document: doc.name, page: "Indexado", section: "Documento en Workspace" });
-      }
+// "Limpiar" = borrar el hilo y crear uno nuevo con el mismo nombre — AnythingLLM no
+// expone un endpoint propio de "vaciar hilo sin borrarlo" (verificado contra la API viva,
+// spec 040 tasks.md T001 nota).
+app.post('/api/threads/clear', async (req, res) => {
+  const { slug, threadSlug, name } = req.body || {};
+  try {
+    await anythingllmFetch(`/api/v1/workspace/${slug}/thread/${threadSlug}`, { method: 'DELETE' });
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}/thread/new`, {
+      method: 'POST',
+      body: JSON.stringify({ name: name || 'Nuevo hilo' })
+    });
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// ── Documentos — enmascarado ANTES de subir (US4, plan.md §2) ─────────────────────────
+app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
+  const { slug } = req.body || {};
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo.' });
+  if (!slug) return res.status(400).json({ error: 'Falta el workspace destino.' });
+
+  try {
+    const rawName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    const extractedText = extractText(req.file.path);
+
+    // El original SIN enmascarar solo vive en disco lo que dura la extracción — se borra
+    // acá, antes de que exista ninguna chance de que quede huérfano en `public/uploads/`
+    // (spec 040 US4: el dato real no puede persistir en ningún punto del camino).
+    fs.unlinkSync(req.file.path);
+
+    const { masked, blocked, entities } = await maskText(extractedText);
+    if (blocked) {
+      return res.status(422).json({ error: 'El documento fue bloqueado por la política de contenido de elea.' });
+    }
+
+    // Se sube el TEXTO ENMASCARADO como un .txt propio — AnythingLLM nunca ve el
+    // archivo original con los datos reales, solo los placeholders.
+    const maskedPath = `${req.file.path}.masked.txt`;
+    fs.writeFileSync(maskedPath, masked, 'utf-8');
+
+    const form = new FormData();
+    form.append('file', new Blob([fs.readFileSync(maskedPath)], { type: 'text/plain' }), rawName);
+
+    const uploadResp = await fetch(`${ANYTHINGLLM_URL}/api/v1/document/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${ANYTHINGLLM_API_KEY}` },
+      body: form
+    });
+    fs.unlinkSync(maskedPath);
+    if (!uploadResp.ok) return res.status(uploadResp.status).json({ error: 'AnythingLLM rechazó el documento.' });
+    const uploaded = await uploadResp.json();
+    const doc = (uploaded.documents || [])[0];
+    if (!doc) return res.status(502).json({ error: 'AnythingLLM no devolvió el documento subido.' });
+
+    await anythingllmFetch(`/api/v1/workspace/${slug}/update-embeddings`, {
+      method: 'POST',
+      body: JSON.stringify({ adds: [doc.location] })
     });
 
-    const ragModeLabel = ws.ragMode === 'strict' ? '🎯 RAG Estricto (Query Mode)' : '💬 RAG Conversacional (Chat Mode)';
-    const responseContent = `**[${ragModeLabel} · ${selectedModel.toUpperCase()} · Tarifa ${clientProfile.tier}]**\n\nEn el espacio **"${ws.name}"** se encuentran indexados **${ws.documents.length} documento(s)**. Costo de consulta: $${queryCost.toFixed(4)} USD.\n\n${docSummaries.join('\n\n---\n\n')}`;
-
-    const reply = {
-      role: 'assistant',
-      content: responseContent,
-      sources: citations,
-      cost_usd: queryCost,
-      timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-      engine: `Basa GuardIAn Gateway [${selectedModel}] + AnythingLLM RAG (:3001)`
-    };
-    if (thread) thread.messages.push(reply);
-    saveDB();
-    return res.json(reply);
+    res.json({
+      success: true,
+      document: { name: rawName, location: doc.location, entitiesEnmascaradas: entities },
+      message: `"${rawName}" enmascarado e indexado (${entities.length} tipo(s) de dato protegido detectado(s)).`
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
+});
 
-  // B. Respuesta General
-  const generalReply = {
-    role: 'assistant',
-    content: `Hola ${user.name}. En el espacio **"${ws ? ws.name : 'General'}"** aún no hay documentos subidos. Procesado con tarifa **${clientProfile.tier}** ($${queryCost.toFixed(4)} USD).`,
-    cost_usd: queryCost,
-    timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-    engine: `Basa GuardIAn Gateway [${selectedModel}] (:4000)`
-  };
-  if (thread) thread.messages.push(generalReply);
-  saveDB();
-  res.json(generalReply);
+app.post('/api/workspaces/documents/delete', async (req, res) => {
+  const { slug, location } = req.body || {};
+  try {
+    const r = await anythingllmFetch(`/api/v1/workspace/${slug}/update-embeddings`, {
+      method: 'POST',
+      body: JSON.stringify({ deletes: [location] })
+    });
+    res.json({ success: r.ok });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// =========================================================================
+// CHAT (US2 + US3) — dos caminos reales, nunca fabricado:
+//   - Con workspace  → RAG real vía AnythingLLM (que a su vez habla con el motor de
+//     elea; el enmascarado del turno de chat lo aplica el motor, transparente).
+//   - Sin workspace   → chat simple directo a elea con el modelo elegido (o "auto").
+// =========================================================================
+app.post('/api/chat', async (req, res) => {
+  if (!session) return res.status(401).json({ error: 'Sin sesión activa.' });
+  const { message, slug, threadSlug, model } = req.body || {};
+  if (!message) return res.status(400).json({ error: 'Mensaje vacío.' });
+
+  try {
+    if (slug) {
+      const path = threadSlug
+        ? `/api/v1/workspace/${slug}/thread/${threadSlug}/chat`
+        : `/api/v1/workspace/${slug}/chat`;
+      const r = await anythingllmFetch(path, {
+        method: 'POST',
+        body: JSON.stringify({ message, mode: 'chat' })
+      });
+      if (!r.ok) return res.status(r.status).json({ error: 'AnythingLLM no pudo responder.' });
+      const data = await r.json();
+      return res.json({
+        role: 'assistant',
+        content: data.textResponse,
+        sources: (data.sources || []).map((s) => ({ document: s.title, extracto: s.text })),
+        model_used: data.metrics && data.metrics.model,
+        via: 'rag'
+      });
+    }
+
+    const r = await eleaFetch('/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify({ message, model: model || 'auto' })
+    });
+    if (!r.ok) {
+      const errBody = await r.json().catch(() => ({}));
+      return res.status(r.status).json({ error: errBody.detail || 'elea no pudo responder.' });
+    }
+    const data = await r.json();
+    res.json({
+      role: 'assistant',
+      content: data.response,
+      model_used: data.pipeline_metadata && data.pipeline_metadata.layer_llm && data.pipeline_metadata.layer_llm.model_used,
+      via: 'direct'
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`=======================================================`);
-  console.log(`🚀 Elea Portal (Full Enterprise Suite) en http://localhost:${PORT}`);
-  console.log(`=======================================================`);
+  console.log(`Cliente RAG de Elea escuchando en http://localhost:${PORT}`);
+  console.log(`  elea backend:   ${ELEA_BACKEND_URL}`);
+  console.log(`  AnythingLLM:    ${ANYTHINGLLM_URL}`);
 });

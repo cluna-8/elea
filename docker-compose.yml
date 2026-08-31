@@ -208,6 +208,9 @@ services:
       - sentinel-network
 
   frontend:
+    # Perfil `full`: panel admin — no hace falta prendido para trabajar el cliente RAG
+    # (spec 040 plan.md §1, restricción de memoria de la máquina de desarrollo).
+    profiles: ["full"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -223,9 +226,56 @@ services:
     depends_on:
       - backend
 
+  anythingllm:
+    # Perfil `rag`: motor RAG open source (spec 040). Sin puerto host propio necesario
+    # salvo para administrar la instancia (crear la API key inicial, spec 040 T040) —
+    # se publica igual para ese uso puntual, no para tráfico de producto.
+    profiles: ["rag"]
+    image: mintplexlabs/anythingllm:latest
+    container_name: ${STACK_PREFIX:-sentinel}-anythingllm
+    ports:
+      - "3001:3001"
+    environment:
+      - SERVER_PORT=3001
+      - STORAGE_DIR=/app/server/storage
+      - DISABLE_TELEMETRY=true
+    volumes:
+      - anythingllm_data:/app/server/storage
+    networks:
+      - sentinel-network
+    restart: unless-stopped
+
+  client:
+    # Perfil `rag`: cliente Hub Chat (spec 040) — solo RAG documental vía AnythingLLM,
+    # login real contra `backend`, sin acceso directo al motor.
+    profiles: ["rag"]
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: ${STACK_PREFIX:-sentinel}-client
+    ports:
+      - "8095:8095"
+    environment:
+      - PORT=8095
+      - ELEA_BACKEND_URL=http://backend:8000/api/v1
+      - ELEA_SERVICE_USERNAME=${ELEA_SERVICE_USERNAME:-admin}
+      - ELEA_SERVICE_PASSWORD=${ELEA_SERVICE_PASSWORD}
+      - ANYTHINGLLM_URL=http://anythingllm:3001
+      - ANYTHINGLLM_API_KEY=${ANYTHINGLLM_API_KEY}
+      - MASKING_VIRTUAL_KEY=${MASKING_VIRTUAL_KEY}
+    volumes:
+      - ./client/public/uploads:/app/public/uploads
+    networks:
+      - sentinel-network
+    depends_on:
+      - backend
+      - anythingllm
+    restart: unless-stopped
+
 networks:
   sentinel-network:
     driver: bridge
 
 volumes:
   pgdata:
+  anythingllm_data:
