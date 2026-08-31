@@ -6,7 +6,7 @@ Alcance de esquema, deliberadamente chico (plan.md, Scale/Scope): **1 tabla nuev
 (`governance_profiles`), **2 columnas nuevas** en `audit_logs` (`applied_layers`,
 `blocked_by_layer`), **1 registry en código** (`GOVERNANCE_LAYERS`) y **1 estado calculado
 que jamás se persiste** (`estado_efectivo`). Todo el esquema vive en la base del backend
-(`basa_gateway`); **la base del motor (`basa_engine` en prod) no recibe esquema nuevo**.
+(`sentinel_gateway`); **la base del motor (`sentinel_engine` en prod) no recibe esquema nuevo**.
 `guardian_events` queda **congelado como legado** (D6): ni migración, ni productores nuevos,
 ni lectores nuevos.
 
@@ -120,7 +120,7 @@ resuelve por fallback a `connection_mode` → `tenant_default` (riesgo asumido e
   una capa opcional) es legal, pero el resolutor solo la aplica cuando la superficie del pedido
   proviene de un origen **confiable** — el `tool_type` de la Connection, dato provisionado por
   el admin. Cuando la superficie es derivada del User-Agent (spoofeable — tráfico del plano
-  gateway sin `X-Basa-Key`), las filas que relajan se tratan como *heredar* y solo aplican las
+  gateway sin `X-Sentinel-Key`), las filas que relajan se tratan como *heredar* y solo aplican las
   que **agregan**. Así el caso insignia de D8 (masking off para coding tools) es expresable sin
   abrir vector de evasión: spoofear el UA no consigue nada; cambiar el `tool_type` requiere al
   admin. El invariante vive en el resolutor — el único lugar que los 3 planos comparten.
@@ -165,12 +165,12 @@ de la tabla.
 
 El **catálogo de capas es una constante de código** (D1): si el piso no está en DB, no hay
 `UPDATE` que lo apague. Vive —junto al resolutor puro— en
-**`litellm/extensions/basa_governance.py`**, el paquete compartido que ambos planos montan;
+**`litellm/extensions/sentinel_governance.py`**, el paquete compartido que ambos planos montan;
 `backend/src/services/governance_catalog.py` es el **re-export delgado** que le da al backend
 su única puerta de entrada. Ver el ajuste de ubicación documentado en
 [contracts/resolutor-perfil.md](./contracts/resolutor-perfil.md): el registry no puede vivir en
 `backend/` porque el contenedor del motor no importa `backend/`, y no puede vivir dentro de
-`basa_guardian_policy.py` porque el PR #21 lo reescribe. Una sola fuente, sin espejo.
+`sentinel_guardian_policy.py` porque el PR #21 lo reescribe. Una sola fuente, sin espejo.
 
 ### 2.1 Estructura
 
@@ -238,7 +238,7 @@ de entrada en la cascada**: el toggle per-Connection es el nivel **más específ
 Connection es más fina que una superficie) — `Connection > superficie confiable > modo >
 tenant_default > producto` — y llega al resolutor como `connection_overrides` leído por el
 caller (el gateway ya resuelve `redact_enabled` en `ident`; el motor ya lo lleva en
-`metadata['basa']`). **Requisito tri-estado**: `connection_overrides` se propaga desde el valor
+`metadata['sentinel']`). **Requisito tri-estado**: `connection_overrides` se propaga desde el valor
 CRUDO de la columna (`None`/`on`/`off`) — `None` = sin override, la cascada sigue. Hoy
 `custom_auth` **colapsa** el NULL al armar el dict
 (`redact_enabled if redact_enabled is not None else True`,
@@ -343,7 +343,7 @@ analytics migra a `applied_layers` (hoy consulta una clave que nadie escribe,
 ### 3.4 Corte con la 018
 
 En los planos donde el bloqueo precede al registro — **motor** (`return reason` → 400 → el
-logger de éxito nunca dispara, [basa_guardrail.py:86](../../litellm/extensions/basa_guardrail.py#L86))
+logger de éxito nunca dispara, [sentinel_guardrail.py:86](../../litellm/extensions/sentinel_guardrail.py#L86))
 y **chat backend** (los `raise` preceden al `log_transaction`, research D6) — **no hay fila**.
 Esta spec **define los campos**, emite la atribución en el punto de bloqueo y la publica en el
 evento de monitor en los tres planos; **la fila durable del bloqueo en esos caminos es de la
@@ -398,7 +398,7 @@ stateDiagram-v2
 
 El estado se reporta **por (plano, superficie)**, nunca como escalar global (FR-010):
 `/v1/responses` corre con cero política
-([basa_guardrail.py:43](../../litellm/extensions/basa_guardrail.py#L43)) y debe reportarse
+([sentinel_guardrail.py:43](../../litellm/extensions/sentinel_guardrail.py#L43)) y debe reportarse
 "no gobernada" explícitamente (issue #28) — un estado global volvería a mentir, solo que
 más fino.
 
@@ -437,7 +437,7 @@ Estilo del repo: `op.execute` con `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF 
 - **No toca `guardian_events`** ni hace backfill de `applied_layers`: las filas históricas
   quedan `NULL` (semántica: "anterior a la atribución 027"). La contaminación histórica de
   `DELEGATED` fabricados se decide aparte (P3).
-- **No toca la base del motor**: `basa_engine` no recibe esquema; el motor consume el perfil
+- **No toca la base del motor**: `sentinel_engine` no recibe esquema; el motor consume el perfil
   resuelto vía `custom_auth` (D3), no leyendo estas tablas.
 
 **Downgrade** (simétrico del upgrade): `DROP INDEX` + `ALTER TABLE audit_logs DROP COLUMN`

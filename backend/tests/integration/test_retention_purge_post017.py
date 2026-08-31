@@ -48,13 +48,13 @@ require_postgres()
 def escenario(mundo_post017, monkeypatch_module):
     """Siembra ~200 días con el `session_factory` del mundo post-017 y corre UNA purga REAL.
 
-    La corrida REAL (`BASA_PURGE_DRY_RUN=false`, `run_now=True`) va contra el rol de app sin
+    La corrida REAL (`SENTINEL_PURGE_DRY_RUN=false`, `run_now=True`) va contra el rol de app sin
     BYPASSRLS: si el `tenant_context(None, bypass=True)` del purgador no funcionara por GUC, el
     `DELETE` no vería sus filas y nada moriría."""
     from src.services.retention import purger
 
-    monkeypatch_module.setenv("BASA_PURGE_DRY_RUN", "false")
-    monkeypatch_module.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch_module.setenv("SENTINEL_PURGE_DRY_RUN", "false")
+    monkeypatch_module.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
 
     ds = sembrar_dataset_retencion(mundo_post017.session_factory, dias=200, plazo=90)
     corrida = purger.run_once(session_factory=mundo_post017.session_factory, run_now=True)

@@ -57,11 +57,11 @@ sus bordes reales, no una lista aspiracional:
 - **El plano `litellm/extensions/*.py` (motor, Python) está fuera de los ejes B y C.**
   `env_del_codigo()` y `contratos_del_codigo()` recorren `backend/src/**`; la única
   cobertura del motor es la lectura de `litellm/config.yaml` (eje B, sintaxis
-  `os.environ/VAR`) — el código *Python* del motor (`basa_guardrail.py`,
-  `basa_guardian_policy.py`, `basa_audit_logger.py`…) no se escanea en ningún eje.
+  `os.environ/VAR`) — el código *Python* del motor (`sentinel_guardrail.py`,
+  `sentinel_guardian_policy.py`, `sentinel_audit_logger.py`…) no se escanea en ningún eje.
   Contratos que solo emite ese plano (p. ej. `blocked_entity_type`,
   `blocked_nlp_unavailable`) y variables que solo lee por `os.environ.get` desde ahí
-  (p. ej. `BASA_AUDIT_FAIL`, capturada hoy solo de rebote vía el compose y mal
+  (p. ej. `SENTINEL_AUDIT_FAIL`, capturada hoy solo de rebote vía el compose y mal
   etiquetada `orquestacion`) son invisibles al gate.
 - **El eje A compara PATHS, nunca verbos.** `rutas_del_codigo()`/`rutas_del_contrato()`
   calculan `{ruta: {verbos}}`, pero `construir_veredicto()` solo resta *claves* de los
@@ -318,7 +318,7 @@ def env_del_codigo() -> dict[str, str]:
     """Variables que el producto consume de verdad → `{VAR: origen}`.
 
     No basta con `os.getenv`: media docena de valores se leen por helpers tipados
-    (`_env_int("BASA_ENGINE_MAX_CONCURRENCY", 8, …)` en `services/engine_gate.py`),
+    (`_env_int("SENTINEL_ENGINE_MAX_CONCURRENCY", 8, …)` en `services/engine_gate.py`),
     y el motor ni siquiera es Python. Mirando sólo el patrón directo del backend,
     variables vivas se reportaban como muertas.
 
@@ -390,14 +390,14 @@ def env_declaradas() -> set[str]:
     Antes esta función aceptaba `# VAR=`, y el generador no. En el hueco entre las
     dos definiciones cabían variables que el gate daba por documentadas y que la
     referencia que se le muestra al cliente no mencionaba jamás — entre ellas
-    `BASA_ALLOW_DEV_LICENSE`, la que habilita claves de licencia de desarrollo. El
+    `SENTINEL_ALLOW_DEV_LICENSE`, la que habilita claves de licencia de desarrollo. El
     gate se callaba sobre exactamente la clase de cosa que dice vigilar.
 
     La pregunta que responde el eje de config es «¿el que instala puede enterarse
     de esto leyendo la referencia?», y una variable comentada NO llega a la página.
     Aceptar `#` también convertía en «declarada» cualquier línea de PROSA que
     empezara con `VAR=` (`.env.example:93` es una frase que arranca con
-    `BASA_PURGE_ENABLED=false`).
+    `SENTINEL_PURGE_ENABLED=false`).
 
     Estrechar este conjunto no puede romper CI: las MENTIRAS son
     `declaradas - código`, así que quitar elementos de `declaradas` sólo puede

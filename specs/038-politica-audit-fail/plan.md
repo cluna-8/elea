@@ -8,7 +8,7 @@ manager; constancia en PR #221). La evidencia de código de la spec fue re-verif
 
 ## Summary
 
-`BASA_AUDIT_FAIL` gana el valor `policy` y pasa a ser el **default** (D1). En modo policy,
+`SENTINEL_AUDIT_FAIL` gana el valor `policy` y pasa a ser el **default** (D1). En modo policy,
 la decisión servir/cortar ante auditoría no-disponible se toma **por pedido** según el
 `applied_risk_level` que la cascada 013 ya resuelve: `minimal`/`limited` sirve y cuenta,
 `high_risk_annex1`/`annex3` corta con el 503 honesto (D2). `open`/`closed` explícitos
@@ -23,7 +23,7 @@ servida sin fila (D5).
 
 **Primary Dependencies**: FastAPI, SQLAlchemy async, Redis (contadores), litellm (motor)
 
-**Storage**: Postgres (`audit_logs` — sin cambios de schema) · Redis (`basa:audit:lost`
+**Storage**: Postgres (`audit_logs` — sin cambios de schema) · Redis (`sentinel:audit:lost`
 existente + contador nuevo D4)
 
 **Testing**: `cd backend && pytest tests/ -q` (unit + contract + integration); SC-001/002/003
@@ -42,17 +42,17 @@ no vuelve) · overrides `open`/`closed` sin cambio de semántica (SC-002) · lec
 | Qué | Dónde |
 |---|---|
 | Lector único backend | `backend/src/services/audit_service.py:59` (`audit_fail_mode()`) |
-| Espejo motor — **son DOS lectores, no uno** | `litellm/extensions/basa_guardrail.py:164` (`_audit_fail_mode()`, pre-check closed vía probe cacheado 5 s `:280`) **y** `litellm/extensions/basa_audit_logger.py:88` (`audit_fail_mode()`, camino de escritura) |
+| Espejo motor — **son DOS lectores, no uno** | `litellm/extensions/sentinel_guardrail.py:164` (`_audit_fail_mode()`, pre-check closed vía probe cacheado 5 s `:280`) **y** `litellm/extensions/sentinel_audit_logger.py:88` (`audit_fail_mode()`, camino de escritura) |
 | Probe interno | `GET /api/v1/internal/audit/probe` (consumido por guardrail `:99`, tests `backend/tests/integration/test_internal_plane.py:43`) |
 | Cascada de riesgo (013) | `backend/src/services/context_resolution.py:66-70` → aplicada por pedido en `backend/src/api/chat.py:1319` (`_applied_risk_level`) |
-| Aserción de postura del tier (018 US2) | `backend/src/services/basa_governance.py` (§ hoy :309-329) |
-| Precedente marcador máquina | `X-Basa-Rejected` (#135) · `STATUS_SATURATED` en `gateway.py:1199` |
-| Contador existente | `basa:audit:lost` (`audit_service.py:35`, contrato 031 `/health`) |
-| Lectores de config/doc a barrer | `.env.example` (hoy NO documenta `BASA_AUDIT_FAIL` — hueco #190) · `docker-compose.yml:91,178-179` · `docs/docs/api-reference/errors.md:84-90` (+ referencia a `configuration.md`) · `specs/031-durable-audit/contracts/audit-durable.md:31-35` · **`frontend/src/services/api.ts`** (lector no listado en la spec, encontrado en el barrido del 18-ago) · `deploy/clients/itv-examen/client.env.example:43-45` (NO cambia — es el testigo de SC-002) |
+| Aserción de postura del tier (018 US2) | `backend/src/services/sentinel_governance.py` (§ hoy :309-329) |
+| Precedente marcador máquina | `X-Sentinel-Rejected` (#135) · `STATUS_SATURATED` en `gateway.py:1199` |
+| Contador existente | `sentinel:audit:lost` (`audit_service.py:35`, contrato 031 `/health`) |
+| Lectores de config/doc a barrer | `.env.example` (hoy NO documenta `SENTINEL_AUDIT_FAIL` — hueco #190) · `docker-compose.yml:91,178-179` · `docs/docs/api-reference/errors.md:84-90` (+ referencia a `configuration.md`) · `specs/031-durable-audit/contracts/audit-durable.md:31-35` · **`frontend/src/services/api.ts`** (lector no listado en la spec, encontrado en el barrido del 18-ago) · `deploy/clients/itv-examen/client.env.example:43-45` (NO cambia — es el testigo de SC-002) |
 
 ## Diseño del mecanismo
 
-1. **Parser de modo** (backend): `BASA_AUDIT_FAIL ∈ {open, closed, policy}`; ausente o
+1. **Parser de modo** (backend): `SENTINEL_AUDIT_FAIL ∈ {open, closed, policy}`; ausente o
    ilegible ⇒ `policy` (D1). `audit_fail_mode()` conserva nombre y contrato de string para
    los llamadores existentes.
 2. **Punto de decisión nuevo**: `audit_fail_decision(risk_level: str | None) -> bool`
@@ -67,11 +67,11 @@ no vuelve) · overrides `open`/`closed` sin cambio de semántica (SC-002) · lec
    cuando el modo es `policy` — a evaluar en implementación con el criterio: jamás cachear
    una decisión de riesgo de un pedido para otro).
 4. **Tier estricto** (D3): con `enforcement_tier_estricto=on`, la postura efectiva es
-   `closed` global; la aserción existente de `basa_governance` se extiende para tratar
+   `closed` global; la aserción existente de `sentinel_governance` se extiende para tratar
    `policy` como incoherencia igual que hoy trata `open` (degrada health, no corta boot).
-5. **Contadores y marcador**: servir sin fila ⇒ `INCR basa:audit:lost` (igual que hoy,
+5. **Contadores y marcador**: servir sin fila ⇒ `INCR sentinel:audit:lost` (igual que hoy,
    contrato 031 sin cambios) + en `/gw` header machine-readable (D5; nombre propuesto
-   `X-Basa-Audit-Lost: 1`, sellado a nivel spec como «marcador», nombre final es decisión
+   `X-Sentinel-Audit-Lost: 1`, sellado a nivel spec como «marcador», nombre final es decisión
    de implementación documentada en el contrato). Los 400/422 de validación previa ⇒
    contador estructurado por tenant/endpoint + log sin cuerpo, cero filas (D4).
 
@@ -107,12 +107,12 @@ re-medida acá; no hay entidades nuevas ni cambio de schema.)
 
 ```text
 backend/src/services/audit_service.py      # parser 3 valores + audit_fail_decision()
-backend/src/services/basa_governance.py    # aserción tier vs policy (D3)
+backend/src/services/sentinel_governance.py    # aserción tier vs policy (D3)
 backend/src/api/chat.py                    # plano chat: decisión por pedido
 backend/src/api/gateway.py                 # plano /gw: decisión + marcador D5 + contador D4
 backend/src/api/<internal probe>           # probe con contexto de credencial
-litellm/extensions/basa_guardrail.py       # pre-check por pedido vía probe (lector 1)
-litellm/extensions/basa_audit_logger.py    # camino de escritura (lector 2)
+litellm/extensions/sentinel_guardrail.py       # pre-check por pedido vía probe (lector 1)
+litellm/extensions/sentinel_audit_logger.py    # camino de escritura (lector 2)
 backend/tests/{unit,contract,integration}/ # RED→verde por fase (ver tasks.md)
 .env.example · docker-compose.yml · docs/docs/api-reference/errors.md ·
 specs/031-durable-audit/contracts/audit-durable.md · frontend/src/services/api.ts

@@ -3,7 +3,7 @@ import os
 import logging
 import redis
 
-logger = logging.getLogger("basa-secure-gateway.redis")
+logger = logging.getLogger("sentinel-secure-gateway.redis")
 
 _client: redis.Redis | None = None
 

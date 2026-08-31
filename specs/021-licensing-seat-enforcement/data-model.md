@@ -32,7 +32,7 @@ Fila **singleton** (`id=1`, CheckConstraint) por deployment:
 
 - `hash(entrada) = sha256(json canónico de la entrada completa)` — mismo esquema
   canónico que la firma del token (`token.canonical_payload_bytes`).
-- Génesis: `prev_hash` del seq 1 = `sha256("basa-genesis:<license_id>")`.
+- Génesis: `prev_hash` del seq 1 = `sha256("sentinel-genesis:<license_id>")`.
 - Vector de regresión fijo en `tests/contract/test_license_wire_formats.py`.
 
 ## Estado en memoria (no persistido)

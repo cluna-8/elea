@@ -177,7 +177,7 @@ const momentoLocal = (iso: string, ahora: Date): string | null => {
 
 /** Texto del aviso de eventos no registrados (spec 031, T010) o `null` si no hay nada que
  *  avisar. Se lee del bloque `audit` del health: `lost_events` es el contador
- *  `basa:audit:lost` de Redis, que sube cuando el escritor agota sus reintentos.
+ *  `sentinel:audit:lost` de Redis, que sube cuando el escritor agota sus reintentos.
  *
  *  Casos que NO muestran aviso: health ilegible (`null`), contador en cero, o un contador
  *  que no es un número. Un aviso es una afirmación fuerte —«su registro está incompleto»—

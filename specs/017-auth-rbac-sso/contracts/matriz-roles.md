@@ -17,7 +17,7 @@ En C2 `super_admin` sigue operativamente equivalente a `tenant_admin` (su semán
 | Vitrinas y lectura (audit, monitor, reports, costs-read, health detallado) | R | R | (lo suyo, como hoy) | **R** ✅ |
 | Costs config (budgets write, compression por grupo) | **RW** | **R** (pierde W) | — | — |
 | Chat / Playground (`POST /chat/completions`, camino JWT) | ✔ | ✔ | ✔ | **✖ 403** (FR-003: el camino JWT del dual-auth gatea rol — hoy no gatea, chat.py:744-782) |
-| Chat camino sk-basa (herramientas) | n/a — autentica la KEY, no el rol (sin cambios) | | | |
+| Chat camino sk-sentinel (herramientas) | n/a — autentica la KEY, no el rol (sin cambios) | | | |
 
 ## Reglas duras
 

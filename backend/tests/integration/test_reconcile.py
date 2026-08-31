@@ -26,7 +26,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_reconcile"
+DB = "sentinel_test_reconcile"
 
 
 @pytest.fixture(scope="module")
@@ -166,7 +166,7 @@ def test_scheduler_runs_periodically(harness, monkeypatch, tmp_path):
 
 def test_scheduler_disabled_by_env(monkeypatch):
     from src.licensing import reconcile
-    monkeypatch.setenv("BASA_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
     assert reconcile.start_scheduler() is None
     assert not reconcile.scheduler_running()
 

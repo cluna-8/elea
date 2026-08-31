@@ -37,7 +37,7 @@ Proveedores Cloud estándar (datos procesados en US por defecto):
 
 ## Mecanismo de fallback
 
-LiteLLM soporta `router_settings.fallbacks` en config.yaml nativamente. Cuando el modelo principal devuelve error (429, timeout, 500 del proveedor), el router reintenta automáticamente con el modelo de fallback antes de devolver error al cliente. Basa no necesita lógica adicional en Python — solo configurar el yaml.
+LiteLLM soporta `router_settings.fallbacks` en config.yaml nativamente. Cuando el modelo principal devuelve error (429, timeout, 500 del proveedor), el router reintenta automáticamente con el modelo de fallback antes de devolver error al cliente. Sentinel no necesita lógica adicional en Python — solo configurar el yaml.
 
 Ejemplo de configuración generada:
 ```yaml
@@ -66,7 +66,7 @@ Presidio corre como dos microservicios HTTP independientes (imágenes oficiales 
 - `mcr.microsoft.com/presidio-analyzer` — detecta entidades PII/PHI usando NLP (spaCy)
 - `mcr.microsoft.com/presidio-anonymizer` — anonimiza el texto según los resultados del analyzer
 
-Integración en Basa:
+Integración en Sentinel:
 - El guardián tipo `presidio` almacena `analyzer_url` y `anonymizer_url` en su config JSON
 - `presidio_service.py` expone `analyze_text_http` y `anonymize_text_http` que llaman las APIs REST
 - Si los servicios no están disponibles, el call falla silenciosamente y el regex de `pii_masking` actúa como fallback

@@ -87,7 +87,7 @@ histórico comparable entre ciclos (ago→sept).
 - **V. Cost Governance**: budgets del seed generosos por default + cohorte 402 dedicada
   — examina el enforcement sin contaminar el gate. ✅
 - **VI. LiteLLM-Native, No Patching**: el stub se cablea por `api_base` del model_list
-  y `BASA_GW_ANTHROPIC_BASE` — puntos de extensión de configuración, cero parches al
+  y `SENTINEL_GW_ANTHROPIC_BASE` — puntos de extensión de configuración, cero parches al
   motor. ✅
 - **VII. White-Label/config+seed**: el entorno de examen es un perfil de cliente más
   (`deploy/clients/itv-examen/`) — la misma maquinaria que se vende; harness = módulo

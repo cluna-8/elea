@@ -128,12 +128,12 @@ Sintaxis: `node --check` sobre `config.js`, `background.js`, `bridge.js`, `popup
 
 Con la extensión cargada y conectada, en la consola **de la página**:
 
-1. **El mapa reversible no es alcanzable:** `typeof window.__BASA` → `"undefined"`.
+1. **El mapa reversible no es alcanzable:** `typeof window.__SENTINEL` → `"undefined"`.
 2. **El bridge rechaza `kind` no permitidos:**
-   `window.postMessage({__basa:"req", id:999, kind:"whoami", key:"sk-otra"}, "*")` → el estado de
+   `window.postMessage({__sentinel:"req", id:999, kind:"whoami", key:"sk-otra"}, "*")` → el estado de
    sesión en `chrome.storage.local` **no** cambia.
 3. **El título no filtra:** tras un envío con PII, `document.title` no contiene ningún valor real.
-4. **Forja de estado:** `window.postMessage({__basa:"state", state:{connected:true}}, "*")` → el gate
+4. **Forja de estado:** `window.postMessage({__sentinel:"state", state:{connected:true}}, "*")` → el gate
    **no** se abre; el overlay de bloqueo sigue si no hay key real.
 5. **Fail-closed por match, no por body:** sin key válida, cualquier request a un endpoint de envío se
    bloquea, incluso con body no-texto. Un endpoint **no** matcheado pasa normal.

@@ -286,23 +286,23 @@ una actualización de producto.
 
 **Doble compuerta** (las dos deben estar en verde para que se borre):
 
-1. `BASA_PURGE_ENABLED=true` — interruptor maestro. Con `false` (el default) el proceso ni
+1. `SENTINEL_PURGE_ENABLED=true` — interruptor maestro. Con `false` (el default) el proceso ni
    arranca. Se lee **al arrancar el backend**, así que encenderlo pide reinicio.
-2. Un **intervalo** de despertar > 0 (`BASA_PURGE_INTERVAL_SECONDS`, 3600 s por defecto). El tick
+2. Un **intervalo** de despertar > 0 (`SENTINEL_PURGE_INTERVAL_SECONDS`, 3600 s por defecto). El tick
    no es la purga: sólo despierta al proceso a mirar si está dentro de la **ventana**
-   (`BASA_PURGE_WINDOW`, `02:00-05:00` en `BASA_PURGE_WINDOW_TZ`); fuera de ventana, se vuelve a
+   (`SENTINEL_PURGE_WINDOW`, `02:00-05:00` en `SENTINEL_PURGE_WINDOW_TZ`); fuera de ventana, se vuelve a
    dormir.
 
-**Simulacro primero** (`BASA_PURGE_DRY_RUN`, `true` por defecto): aun con la purga encendida, la
+**Simulacro primero** (`SENTINEL_PURGE_DRY_RUN`, `true` por defecto): aun con la purga encendida, la
 corrida hace todo **menos borrar** — resuelve la fecha de corte, **cuenta** las filas que caerían y
 deja el rastro marcado como simulacro. El DPO firma sobre un número real —«se van 412.000 filas de
-esta clase»— antes de pasar a borrado real. Pasar `BASA_PURGE_DRY_RUN=false` es el último cambio, y
+esta clase»— antes de pasar a borrado real. Pasar `SENTINEL_PURGE_DRY_RUN=false` es el último cambio, y
 se hace una sola vez, con alguien mirando.
 
 **Qué borra, con red:**
 
-- **Filas vencidas de `audit_logs`** por clase, en **lotes** (`BASA_PURGE_BATCH_SIZE`) con una
-  **pausa** entre lotes (`BASA_PURGE_BATCH_PAUSE_MS`) para no bloquear la tabla más caliente del
+- **Filas vencidas de `audit_logs`** por clase, en **lotes** (`SENTINEL_PURGE_BATCH_SIZE`) con una
+  **pausa** entre lotes (`SENTINEL_PURGE_BATCH_PAUSE_MS`) para no bloquear la tabla más caliente del
   producto.
 - Al purgar `prompt_content`, el `response_text` de las **revisiones humanas** vencidas pasa a
   `NULL` (la fila de la revisión persiste como metadato).

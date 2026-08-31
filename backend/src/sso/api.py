@@ -42,7 +42,7 @@ from ..services.encryption_service import decrypt
 from .jit import buscar_por_email, crear_jit, resolver_existente
 from .registry import get_provider
 
-logger = logging.getLogger("basa-secure-gateway.sso.api")
+logger = logging.getLogger("sentinel-secure-gateway.sso.api")
 
 router = APIRouter(prefix="/auth/sso", tags=["sso"])
 
@@ -55,7 +55,7 @@ AUTH_SSO_DENIED = "auth_sso_denied"
 # El state/nonce viaja en una cookie firmada de vida corta en vez de en memoria del
 # proceso: el callback puede caer en otro worker. 10 min cubre un login humano con
 # MFA de por medio sin dejar una ventana de replay ancha.
-_STATE_COOKIE = "basa_sso_state"
+_STATE_COOKIE = "sentinel_sso_state"
 _STATE_TTL_MIN = 10
 # Marca de propósito: este token NUNCA es una sesión. No lleva ``sub``, así que
 # ``get_current_user`` lo descarta (session.py:97-99) aunque se lo presente como
@@ -82,7 +82,7 @@ def require_sso_enabled() -> None:
 def _cookie_segura() -> bool:
     """``Secure`` en la cookie de state salvo que el deployment declare HTTP plano
     (dev). Default True: en duda, la cookie no viaja por texto claro."""
-    return os.getenv("BASA_SSO_COOKIE_INSECURE", "").lower() not in ("1", "true", "yes")
+    return os.getenv("SENTINEL_SSO_COOKIE_INSECURE", "").lower() not in ("1", "true", "yes")
 
 
 def _firmar_estado(state: str, nonce: str, provider_type: str) -> str:
@@ -140,10 +140,10 @@ def _redirect_uri(request: Request) -> str:
     aterriza en una página de JSON en producción. OIDC exige además que el valor sea
     IDÉNTICO en authorize y en el intercambio: por eso lo lee un solo lugar.
     """
-    override = os.getenv("BASA_SSO_REDIRECT_URI")
+    override = os.getenv("SENTINEL_SSO_REDIRECT_URI")
     if not override:
         logger.error(
-            "sso: BASA_SSO_REDIRECT_URI no está configurada — es la URI del frontend "
+            "sso: SENTINEL_SSO_REDIRECT_URI no está configurada — es la URI del frontend "
             "registrada en el IdP del cliente; sin ella el flujo no puede iniciarse."
         )
         raise HTTPException(

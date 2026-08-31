@@ -1,14 +1,14 @@
 """El scheduler de la purga (spec 018, FR-001 — T011).
 
 Espeja al ÚNICO scheduler que el producto ya tiene (`licensing/reconcile.py`) y suma la
-compuerta que reconcile no necesita: el master switch `BASA_PURGE_ENABLED`. Un job que hace
+compuerta que reconcile no necesita: el master switch `SENTINEL_PURGE_ENABLED`. Un job que hace
 DELETE retroactivo no se enciende con un pull de imagen, así que la purga arranca sólo si el
 operador dijo «sí» de forma explícita Y el intervalo es positivo.
 
 Todo lo que arranca un thread acá lo hace con `interval_seconds` y `session_factory`
 EXPLÍCITOS y con `run_once` doblado: ningún test del scheduler puede rozar la DB VIVA del
 compose (`SessionLocal`) — que es exactamente lo que este job borraría. La suite además lo
-deja apagado por default (`conftest.py` fuerza `BASA_PURGE_ENABLED=false`).
+deja apagado por default (`conftest.py` fuerza `SENTINEL_PURGE_ENABLED=false`).
 """
 import threading
 
@@ -31,7 +31,7 @@ def _run_once_inerte(*, session_factory=None):
 
 # ── Doble compuerta de apagado ───────────────────────────────────────────────────────
 def test_desactivado_por_enabled_false(monkeypatch):
-    monkeypatch.setenv("BASA_PURGE_ENABLED", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_ENABLED", "false")
 
     def _no_debe_correr(*, session_factory=None):  # pragma: no cover - no debe invocarse
         raise AssertionError("run_once no debe correr con el scheduler desactivado")
@@ -44,7 +44,7 @@ def test_desactivado_por_enabled_false(monkeypatch):
 
 def test_desactivado_por_intervalo_no_positivo(monkeypatch):
     # Encendido por env, pero el intervalo cierra la otra compuerta (igual que reconcile).
-    monkeypatch.setenv("BASA_PURGE_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_ENABLED", "true")
     monkeypatch.setattr(retention_scheduler, "run_once", _run_once_inerte)
 
     assert retention_scheduler.start_scheduler(interval_seconds=0, session_factory=object()) is None
@@ -54,7 +54,7 @@ def test_desactivado_por_intervalo_no_positivo(monkeypatch):
 
 # ── start / stop / running ───────────────────────────────────────────────────────────
 def test_start_stop_y_running(monkeypatch):
-    monkeypatch.setenv("BASA_PURGE_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_ENABLED", "true")
     monkeypatch.setattr(retention_scheduler, "run_once", _run_once_inerte)
 
     th = retention_scheduler.start_scheduler(interval_seconds=60, session_factory=object())
@@ -68,7 +68,7 @@ def test_start_stop_y_running(monkeypatch):
 
 def test_start_es_idempotente(monkeypatch):
     # Con N workers ya hay un purgador por proceso; dentro del proceso no se duplica.
-    monkeypatch.setenv("BASA_PURGE_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_ENABLED", "true")
     monkeypatch.setattr(retention_scheduler, "run_once", _run_once_inerte)
 
     th1 = retention_scheduler.start_scheduler(interval_seconds=60, session_factory=object())
@@ -82,7 +82,7 @@ def test_start_es_idempotente(monkeypatch):
 
 # ── El _loop corre run_once con la session_factory que se le pasó ─────────────────────
 def test_el_loop_invoca_run_once_con_la_session_factory(monkeypatch):
-    monkeypatch.setenv("BASA_PURGE_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_ENABLED", "true")
     llamada = threading.Event()
     recibido = {}
 
@@ -102,7 +102,7 @@ def test_el_loop_invoca_run_once_con_la_session_factory(monkeypatch):
 
 # ── Una corrida que explota NO mata el thread ────────────────────────────────────────
 def test_una_corrida_que_explota_no_mata_el_thread(monkeypatch):
-    monkeypatch.setenv("BASA_PURGE_ENABLED", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_ENABLED", "true")
     reintento = threading.Event()
     contador = {"n": 0}
 

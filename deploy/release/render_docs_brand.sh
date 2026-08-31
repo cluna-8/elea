@@ -68,5 +68,5 @@ css = [
 
 print(f"✅ brand '{slug}': overlay docs/mkdocs.{slug}.yml + docs/brand/{slug}/extra.css"
       + (f" + {logo}" if logo_dest else ""))
-print(f"   build: docker build --build-arg BRAND={slug} -t basa-docs:{slug}-<version> docs/")
+print(f"   build: docker build --build-arg BRAND={slug} -t sentinel-docs:{slug}-<version> docs/")
 EOF

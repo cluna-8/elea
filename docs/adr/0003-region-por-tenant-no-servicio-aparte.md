@@ -11,8 +11,8 @@ surgió la pregunta de dónde vive la política de compliance/entidades PII por 
 (`STRUCTURED_ID_PATTERNS_BY_REGION`), y si conviene un servicio Docker aparte para que
 empresas y países se puedan actualizar sin tocar el resto del stack.
 
-Hasta este ADR, `region` se leía SOLO de `BASA_ENTITY_REGION`, una env var fija por
-contenedor (`litellm/extensions/basa_guardrail.py`), con un comentario del propio JF
+Hasta este ADR, `region` se leía SOLO de `SENTINEL_ENTITY_REGION`, una env var fija por
+contenedor (`litellm/extensions/sentinel_guardrail.py`), con un comentario del propio JF
 marcándola como YAGNI deliberado "mientras solo exista Europa" — condición ya vencida.
 
 En paralelo, el equipo cerró la constitución D10 (`nlp_fail_mode`, issue #63/#104):
@@ -29,7 +29,7 @@ Dos modelos que en un primer momento parecían competir en realidad se **compone
 - **El wizard de instalación (issue #174, fuera de este PR) es la capa UX** que la
   escribe al tenant inicial al instalar. En el caso común —una caja = un cliente = un
   tenant— los dos modelos son lo mismo.
-- La env `BASA_ENTITY_REGION` queda como **default de arranque de la instalación**,
+- La env `SENTINEL_ENTITY_REGION` queda como **default de arranque de la instalación**,
   nunca como fuente canónica: un tenant que fija su propia región la pisa.
 
 ## Decisión
@@ -37,7 +37,7 @@ Dos modelos que en un primer momento parecían competir en realidad se **compone
 `region` se resuelve **por tenant**, con el mismo mecanismo que `nlp_fail_mode`:
 clave `region` en `Guardian.config` del guardián `pii_masking`, propagada por el
 `identity` que ya viaja en cada request (`internal.py` / `custom_auth.py` →
-`basa_guardrail.py`). El default de instalación (`BASA_ENTITY_REGION`) se conserva
+`sentinel_guardrail.py`). El default de instalación (`SENTINEL_ENTITY_REGION`) se conserva
 como fallback retrocompatible cuando el tenant no fija su propio valor.
 
 No se crea ningún servicio ni contenedor nuevo.
@@ -50,7 +50,7 @@ Cerrado así:
 
 | Plano | Resuelve por tenant vía |
 |---|---|
-| byok (motor) | `basa_guardrail.py` → `policy.resolve_region(identity, default=env)` |
+| byok (motor) | `sentinel_guardrail.py` → `policy.resolve_region(identity, default=env)` |
 | `/gw` (passthrough) | `gateway._nlp_context` + `gateway._build_analyze` |
 | navegador (`/gw/inspect`) | reusa `gateway._build_analyze` (mismo punto que `/gw`) |
 | Playground | `guardian_service.process_prompt` → `presidio_service.py` |
@@ -90,7 +90,7 @@ mecanismo por-instalación son observacionalmente el mismo, así que no bloquea 
   imágenes según `ROADMAP-factory.md`) sin resolver nada que el patrón per-tenant no
   resuelva ya; el precedente `presidio-analyzer` muestra que "ser servicio aparte" no
   garantiza hot-reload por sí solo.
-- **Dejarlo en `BASA_ENTITY_REGION` (env var por instalación)**: descartada — asume un
+- **Dejarlo en `SENTINEL_ENTITY_REGION` (env var por instalación)**: descartada — asume un
   país por instalación/VM; un partner con clientes de más de un país en la misma
   instancia no puede expresarlo.
 - **Policy pack como archivo versionado en git, sincronizado a DB**: no descartada,
@@ -106,7 +106,7 @@ mecanismo por-instalación son observacionalmente el mismo, así que no bloquea 
   espejados también en esta columna: cambian juntos, como ya exige el comentario
   ⚠️ ESPEJO existente para `nlp_fail_mode`.
 - Instalaciones existentes no cambian de comportamiento: sin `region` en ningún
-  tenant, siguen resolviendo `BASA_ENTITY_REGION`/`DEFAULT_REGION` igual que antes.
+  tenant, siguen resolviendo `SENTINEL_ENTITY_REGION`/`DEFAULT_REGION` igual que antes.
 - Pendiente, fuera de este alcance: UI de Admin para editar `region` por tenant (hoy
   solo editable vía `PUT /guardians/{id}`, sin pantalla dedicada — mismo estado en
   que nació `nlp_fail_mode` antes de su UI en Seguridad → Enmascaramiento de datos).
@@ -131,7 +131,7 @@ dos PRs de cierre sobre rama propia (`adopcion/137-region-por-tenant` →
 `adopcion/137-region-4-planos`), gate cross-familia por PR:
 
 - **PR 1** — el default de instalación llega a los 4 planos: `docker-compose.yml` +
-  `deploy/docker/compose.prod.yml` ahora pasan `BASA_ENTITY_REGION` también al servicio
+  `deploy/docker/compose.prod.yml` ahora pasan `SENTINEL_ENTITY_REGION` también al servicio
   `backend` (antes sólo lo recibía `litellm`); el seed fresco de guardianes deriva la
   región del env en vez de cablear `"eu"` literal; aviso (WARNING, no rechazo) si un
   admin escribe una región no reconocida.

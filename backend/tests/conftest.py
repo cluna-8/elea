@@ -1,4 +1,4 @@
-"""Pytest config for Basa Secure AI Gateway smoke tests (F0-7).
+"""Pytest config for Sentinel Secure AI Gateway smoke tests (F0-7).
 
 Makes ``src`` importable and ensures a JWT secret is present for unit tests that
 touch the session module. Live integration tests (against http://localhost:8081)
@@ -15,9 +15,9 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
 sys.path.insert(0, str(BACKEND_ROOT / "src"))
 
-# Librería compartida basa_guardian_policy (spec 014): vive en <repo>/litellm/extensions
+# Librería compartida sentinel_guardian_policy (spec 014): vive en <repo>/litellm/extensions
 # (montada como /app/litellm_config/extensions dentro del container backend). Se importa
-# como `from extensions import basa_guardian_policy` desde ambos hogares.
+# como `from extensions import sentinel_guardian_policy` desde ambos hogares.
 for _shared in (BACKEND_ROOT / "litellm_config", BACKEND_ROOT.parent / "litellm"):
     if (_shared / "extensions").is_dir():
         sys.path.insert(0, str(_shared))
@@ -48,7 +48,7 @@ os.environ.pop("NLP_ANALYZER_URL", None)
 # real correría contra SessionLocal (la DB VIVA del compose, no la DB de test
 # del override de get_db), commiteando audit ahí y contaminando el registry
 # global. Los tests de US3 arrancan el scheduler con interval explícito.
-os.environ.setdefault("BASA_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
+os.environ.setdefault("SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
 
 # Purga de retención (spec 018 FR-001): scheduler APAGADO en la suite, por el MISMO motivo
 # que la reconciliación de arriba y con una consecuencia peor. El job corre contra
@@ -57,7 +57,7 @@ os.environ.setdefault("BASA_LICENSE_RECONCILE_INTERVAL_SECONDS", "0")
 # purga encendida se lleva puesta la auditoría de la caja de desarrollo, en silencio y sin
 # forma obvia de atarlo a un test. Los tests de la purga la arrancan ELLOS, con
 # session_factory e intervalo explícitos.
-os.environ.setdefault("BASA_PURGE_ENABLED", "false")
+os.environ.setdefault("SENTINEL_PURGE_ENABLED", "false")
 
 # Licencia dev de la suite (spec 021): el enforcement es fail-closed, así que
 # sin un entitlement válido TODA creación de Connection/Client devolvería
@@ -78,20 +78,20 @@ def _reset_presidio_http_client_singleton():
     con su propio doble, `_get_http_client()` ve el singleton ya no-None y nunca
     reconstruye.
 
-    Autouse GLOBAL (no por-archivo) a propósito: `basa_guardian_policy.py` se importa
+    Autouse GLOBAL (no por-archivo) a propósito: `sentinel_guardian_policy.py` se importa
     por DOS caminos distintos en esta suite (`from extensions import
-    basa_guardian_policy` vs el `import basa_guardian_policy` a secas de
-    `basa_guardrail.py`, que se agrega su propio directorio a `sys.path`) — son DOS
+    sentinel_guardian_policy` vs el `import sentinel_guardian_policy` a secas de
+    `sentinel_guardrail.py`, que se agrega su propio directorio a `sys.path`) — son DOS
     entradas de `sys.modules` con globals INDEPENDIENTES. Un reset local a un solo
     archivo de test sólo limpia UNA de las dos copias; cualquier test en OTRO archivo
     que pase por el otro camino de import sigue viendo el singleton viejo. Se resetean
     las dos, si están cargadas."""
-    for _modname in ("basa_guardian_policy", "extensions.basa_guardian_policy"):
+    for _modname in ("sentinel_guardian_policy", "extensions.sentinel_guardian_policy"):
         _mod = sys.modules.get(_modname)
         if _mod is not None:
             _mod._http_client = None
     yield
-    for _modname in ("basa_guardian_policy", "extensions.basa_guardian_policy"):
+    for _modname in ("sentinel_guardian_policy", "extensions.sentinel_guardian_policy"):
         _mod = sys.modules.get(_modname)
         if _mod is not None:
             _mod._http_client = None

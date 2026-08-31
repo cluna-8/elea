@@ -27,7 +27,7 @@ from seat_gate_harness import admin_headers, build_app_client
 
 require_postgres()
 
-DB = "basa_test_keys_spend"
+DB = "sentinel_test_keys_spend"
 
 # Gasto con 8 decimales: el orden de magnitud real del tráfico byok barato.
 GASTO_FINO = Decimal("0.00001234")
@@ -61,7 +61,7 @@ def _sembrar(factory, *, con_presupuesto_personal=False, con_grupo=False):
 
         # role='client': el vocabulario que fija ck_users_role desde la 010
         usuario = User(tenant_id=DEFAULT_TENANT, username=f"cliente-{marca}",
-                       email=f"cliente-{marca}@basa.test", password_hash="x", role="client",
+                       email=f"cliente-{marca}@sentinel.test", password_hash="x", role="client",
                        group_id=grupo.id if grupo else None)
         db.add(usuario)
         db.flush()

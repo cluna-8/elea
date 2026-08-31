@@ -24,12 +24,12 @@ services:
       REDIS_HOST: "${REDIS_HOST:?}"
       # costura → Falime (Factory): el puerto viajaba sólo por default. Se declara explícito
       # para que backend y motor resuelvan el MISMO endpoint — los dos escriben y leen las
-      # mismas claves (`basa:audit:*`, `basa:nlp:*`) y apuntar a instancias distintas hace
+      # mismas claves (`sentinel:audit:*`, `sentinel:nlp:*`) y apuntar a instancias distintas hace
       # que el health cuente cero mientras el otro plano registra.
       REDIS_PORT: "${REDIS_PORT:-6379}"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:?generado por instalación (US5)}"
       FERNET_SECRET_KEY: "${FERNET_SECRET_KEY:?generado por instalación (US5)}"
-      BASA_ENGINE_API_BASE: "http://engine:4000"
+      SENTINEL_ENGINE_API_BASE: "http://engine:4000"
       # ── Admisión hacia el motor (nodo C1, issue #151 / nota N3 del gate de #135) ──
       # Sin estas líneas el tope queda CLAVADO en los defaults del código: una instalación
       # no puede girar nada, y el ajuste que piden los gates 250/500 —y la sede, con su
@@ -40,26 +40,26 @@ services:
       #
       # Pedidos en vuelo hacia el motor POR PROCESO (1..64). El total de la instalación es
       # este valor × WEB_CONCURRENCY: con los defaults, 8 × 2 = 16 en vuelo.
-      BASA_ENGINE_MAX_CONCURRENCY: "${BASA_ENGINE_MAX_CONCURRENCY:-8}"
+      SENTINEL_ENGINE_MAX_CONCURRENCY: "${SENTINEL_ENGINE_MAX_CONCURRENCY:-8}"
       # Espera de turno antes del 503 honesto (0 < v <= 60). Corto a propósito: la promesa
       # es «te digo que no rápido». El `Retry-After` del rechazo se deriva de este valor.
-      BASA_ENGINE_QUEUE_TIMEOUT_SECONDS: "${BASA_ENGINE_QUEUE_TIMEOUT_SECONDS:-5}"
+      SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS: "${SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS:-5}"
       # Timeout del backend hacia el motor (030/T018): debe superar al del router del
       # motor (120s con modelos locales lentos) o corta él primero a mitad de un fallback.
       # Por eso este perfil sube el default del código (60) a 150 — el chat de la consola
       # con modelo local es justamente el caso que aquellos 60 s cortaban.
-      BASA_ENGINE_TIMEOUT_SECONDS: "${BASA_ENGINE_TIMEOUT_SECONDS:-150}"
+      SENTINEL_ENGINE_TIMEOUT_SECONDS: "${SENTINEL_ENGINE_TIMEOUT_SECONDS:-150}"
       # Timeouts del byok de `/gw` (coding tools), INDEPENDIENTES de los del chat (H3 del
       # gate de #135): total de la llamada no-stream y espera entre chunks del stream. Los
       # dos por encima de los 120 s del router — el que espera aguanta más que el que
       # trabaja, o una respuesta lenta pero buena se convierte en un error nuestro.
-      BASA_GW_BYOK_TIMEOUT_SECONDS: "${BASA_GW_BYOK_TIMEOUT_SECONDS:-150}"
-      BASA_GW_BYOK_READ_TIMEOUT_SECONDS: "${BASA_GW_BYOK_READ_TIMEOUT_SECONDS:-150}"
+      SENTINEL_GW_BYOK_TIMEOUT_SECONDS: "${SENTINEL_GW_BYOK_TIMEOUT_SECONDS:-150}"
+      SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS: "${SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS:-150}"
       # Política de fallo de auditoría (031, contrato §Config): `open` (default) sirve el
       # tráfico y deja la pérdida CONTADA y visible; `closed` rechaza con 503 honesto
       # mientras la fila durable no se pueda escribir. El default vive acá y en el helper
       # del backend — una instalación que quiera fail-closed lo declara en su perfil.
-      BASA_AUDIT_FAIL: "${BASA_AUDIT_FAIL:-open}"
+      SENTINEL_AUDIT_FAIL: "${SENTINEL_AUDIT_FAIL:-open}"
       # ── Purga de retención (018, FR-001) ────────────────────────────────────────
       # Sin estas líneas la retención de una instalación queda CLAVADA en los defaults
       # del código: el DPO del cliente no podría mover la ventana ni el tamaño de lote
@@ -76,21 +76,21 @@ services:
       # si acá dijera `true`, ese pull encendería solo un DELETE retroactivo sobre datos
       # del cliente sin que nadie hubiera decidido nada. El encendido es un paso del
       # runbook, con reinicio del backend y con el conteo del simulacro ya firmado.
-      BASA_PURGE_ENABLED: "${BASA_PURGE_ENABLED:-false}"
-      BASA_PURGE_DRY_RUN: "${BASA_PURGE_DRY_RUN:-true}"
-      BASA_PURGE_INTERVAL_SECONDS: "${BASA_PURGE_INTERVAL_SECONDS:-3600}"
+      SENTINEL_PURGE_ENABLED: "${SENTINEL_PURGE_ENABLED:-false}"
+      SENTINEL_PURGE_DRY_RUN: "${SENTINEL_PURGE_DRY_RUN:-true}"
+      SENTINEL_PURGE_INTERVAL_SECONDS: "${SENTINEL_PURGE_INTERVAL_SECONDS:-3600}"
       # Hora LOCAL de la instalación, no del contenedor (que corre en UTC).
-      BASA_PURGE_WINDOW: "${BASA_PURGE_WINDOW:-02:00-05:00}"
-      BASA_PURGE_WINDOW_TZ: "${BASA_PURGE_WINDOW_TZ:-Europe/Madrid}"
-      BASA_PURGE_BATCH_SIZE: "${BASA_PURGE_BATCH_SIZE:-5000}"
-      BASA_PURGE_BATCH_PAUSE_MS: "${BASA_PURGE_BATCH_PAUSE_MS:-200}"
+      SENTINEL_PURGE_WINDOW: "${SENTINEL_PURGE_WINDOW:-02:00-05:00}"
+      SENTINEL_PURGE_WINDOW_TZ: "${SENTINEL_PURGE_WINDOW_TZ:-Europe/Madrid}"
+      SENTINEL_PURGE_BATCH_SIZE: "${SENTINEL_PURGE_BATCH_SIZE:-5000}"
+      SENTINEL_PURGE_BATCH_PAUSE_MS: "${SENTINEL_PURGE_BATCH_PAUSE_MS:-200}"
       # El alta de usuarios crea la identidad en el motor con la master key.
-      BASA_ENGINE_MASTER_KEY: "${BASA_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
+      SENTINEL_ENGINE_MASTER_KEY: "${SENTINEL_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
-      BASA_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
-      # Solo pilotos/demos con licencia dev (kid basa-dev-*): opt-in explícito.
+      SENTINEL_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
+      # Solo pilotos/demos con licencia dev (kid sentinel-dev-*): opt-in explícito.
       # Un cliente con licencia PROD jamás lo setea (default false).
-      BASA_ALLOW_DEV_LICENSE: "${BASA_ALLOW_DEV_LICENSE:-false}"
+      SENTINEL_ALLOW_DEV_LICENSE: "${SENTINEL_ALLOW_DEV_LICENSE:-false}"
       # Provider keys del cliente (opcionales): la UI de modelos marca
       # is_configured mirando el env del BACKEND — sin el passthrough todo
       # saldría "no configurado" aunque el motor funcione (gotcha del VPS).
@@ -109,9 +109,9 @@ services:
       # recibía esta env (sólo `engine`, abajo) — esos tres planos SIEMPRE resolvían al
       # default del código (eu) sin importar la región de la instalación. Mismo valor que
       # `engine`: los dos servicios tienen que resolver la MISMA región.
-      BASA_ENTITY_REGION: "${BASA_ENTITY_REGION:-eu}"
-      BASA_DEPLOYMENT_TENANT_ID: "${BASA_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
-      BASA_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
+      SENTINEL_ENTITY_REGION: "${SENTINEL_ENTITY_REGION:-eu}"
+      SENTINEL_DEPLOYMENT_TENANT_ID: "${SENTINEL_DEPLOYMENT_TENANT_ID:?tenant del deployment (perfil)}"
+      SENTINEL_DEPLOYMENT_KEY_FILE: "/app/config/licenses/deployment_key.pem"
       WEB_CONCURRENCY: "${WEB_CONCURRENCY:-2}"
     volumes:
       - licenses:/app/config/licenses          # .lic (perfil) + deployment key (021, persistente)
@@ -140,7 +140,7 @@ services:
       - branding:/srv/branding:ro              # marca como CONFIG en runtime (US2)
 
   # Sitio de documentación de producto (spec 022): estático, non-root, 0 egress.
-  # Una imagen POR MARCA (basa-docs:<brand>-<version>); el ingress la sirve bajo
+  # Una imagen POR MARCA (sentinel-docs:<brand>-<version>); el ingress la sirve bajo
   # /docs o docs.<dominio> — jamás escucha en 80/443 ni habla ACME (FR-023).
   docs:
     image: "${DOCS_IMAGE:?imagen del sitio de docs pinneada por marca (022)}"
@@ -167,23 +167,23 @@ services:
       start_period: 30s
 
   engine:
-    image: "${BASA_ENGINE_IMAGE:?imagen LiteLLM pinneada (014)}"
+    image: "${SENTINEL_ENGINE_IMAGE:?imagen LiteLLM pinneada (014)}"
     restart: unless-stopped
     depends_on:
       nlp-analyzer:
         condition: service_healthy
     environment:
-      # ALIAS deliberado (#302): el operador escribe BASA_ENGINE_MASTER_KEY en su `.env`
+      # ALIAS deliberado (#302): el operador escribe SENTINEL_ENGINE_MASTER_KEY en su `.env`
       # (gen_secrets.sh lo genera con ese nombre); DENTRO de ESTE contenedor la variable
       # conserva el nombre de upstream. NO renombrar: la imagen del motor la lee del env
       # LITERAL (`proxy_server.py`, red del arranque si falla la carga del config), el
       # `config.yaml` templado la resuelve con `os.environ/LITELLM_MASTER_KEY` y las tres
       # extensiones de `litellm/extensions/` la leen literal. Con el nombre nuevo acá,
       # master_key queda None y el motor degrada a INTERNAL_USER en silencio.
-      # El backend recibe el MISMO valor bajo BASA_ENGINE_MASTER_KEY: los dos lados del
+      # El backend recibe el MISMO valor bajo SENTINEL_ENGINE_MASTER_KEY: los dos lados del
       # plano interno tienen que compartir secreto o `/internal/audit` rechaza al motor
       # y la auditoría durable del tráfico byok se pierde sin ruido.
-      LITELLM_MASTER_KEY: "${BASA_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
+      LITELLM_MASTER_KEY: "${SENTINEL_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
       # Detección NLP real (016): nombre de servicio compose + puerto interno del
       # sidecar. Sin esta línea el motor enmascara con regex y el cliente no se entera.
       NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
@@ -198,30 +198,30 @@ services:
       REDIS_HOST: "${REDIS_HOST:?}"
       REDIS_PORT: "${REDIS_PORT:-6379}"
       # Región del catálogo de entidades por defecto (eu = España).
-      BASA_ENTITY_REGION: "${BASA_ENTITY_REGION:-eu}"
+      SENTINEL_ENTITY_REGION: "${SENTINEL_ENTITY_REGION:-eu}"
       # Base PROPIA del motor (jamás la del backend): su migrador Prisma aplica
       # un diff DB↔schema en el primer arranque que DROPea tablas ajenas como
       # "drift" — compartir base destruía el esquema del producto (ensayo
       # 2026-07-22). En selfhosted la crea initdb/01-engine-db.sql; en nube,
       # el módulo OpenTofu provisiona ambas bases.
-      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${ENGINE_DB:-basa_engine}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${ENGINE_DB:-sentinel_engine}"
       # Identidad de las Connections: vive en la base del BACKEND, no en la del motor.
-      # Sin esta línea `custom_auth` consulta basa_engine, no encuentra api_keys y TODO
+      # Sin esta línea `custom_auth` consulta sentinel_engine, no encuentra api_keys y TODO
       # byok devuelve 401 (detectado 2026-07-27; el ensayo no lo veía porque nunca
       # ejercitó byok). Se pregunta por HTTP y no por SQL porque la imagen upstream del
       # motor no trae driver de Postgres ni instalador (ni pip ni uv) — httpx sí viene.
-      # Se autentica con BASA_ENGINE_MASTER_KEY, que ambos servicios ya comparten.
-      BASA_IDENTITY_URL: "http://backend:8000/api/v1/internal/identity"
+      # Se autentica con SENTINEL_ENGINE_MASTER_KEY, que ambos servicios ya comparten.
+      SENTINEL_IDENTITY_URL: "http://backend:8000/api/v1/internal/identity"
       # Auditoría DURABLE del tráfico que atiende el motor (byok): audit_logs vive en la
       # base del backend, así que la fila se emite al plano interno. Sin esta línea el
       # tráfico de herramientas sólo deja la vitrina efímera de Redis — cero registro
       # durable, el gap más caro del core (detectado en el ensayo 2026-07-27).
-      BASA_AUDIT_URL: "http://backend:8000/api/v1/internal/audit"
+      SENTINEL_AUDIT_URL: "http://backend:8000/api/v1/internal/audit"
       # Misma política de fallo de auditoría que el backend (031 D4): el motor la
       # necesita para su propio camino (ola 2 — guardrail y logger de auditoría), y el
       # valor TIENE que ser el mismo en ambos contenedores: una instalación fail-closed
       # con el motor en `open` seguiría sirviendo byok inauditable por la puerta de atrás.
-      BASA_AUDIT_FAIL: "${BASA_AUDIT_FAIL:-open}"
+      SENTINEL_AUDIT_FAIL: "${SENTINEL_AUDIT_FAIL:-open}"
       # Provider keys DEL CLIENTE (opcionales; viven en secrets.env de la
       # instalación). El alta de modelos referencia os.environ/<VAR> — sin el
       # passthrough el modelo queda dado de alta pero el motor no lo puede usar.
@@ -233,16 +233,16 @@ services:
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       # ── Recarga supervisada del motor (spec 033, FR-005) ───────────────────────
-      # ⚠ DESLINDE DE NAMESPACE: `BASA_ENGINE_*` ya existía arriba (`:43-51`), pero
+      # ⚠ DESLINDE DE NAMESPACE: `SENTINEL_ENGINE_*` ya existía arriba (`:43-51`), pero
       # ESA es la familia de ADMISIÓN hacia el motor y la lee el **backend** en SU
       # contenedor (MAX_CONCURRENCY / QUEUE_TIMEOUT / TIMEOUT, `engine_gate.py`).
       # Estas tres son otra cosa: mismo componente («engine» = motor), PROCESO
       # DISTINTO — las lee el **supervisor** acá adentro. No se pisan y no se
       # comparten: poner una de éstas en el env del backend no hace nada, y
       # viceversa. Documentado igual en client.env.example (T007).
-      BASA_ENGINE_AUTORELOAD: "${BASA_ENGINE_AUTORELOAD:-on}"
-      BASA_ENGINE_APPLY_DEBOUNCE_SECONDS: "${BASA_ENGINE_APPLY_DEBOUNCE_SECONDS:-5}"
-      BASA_ENGINE_DRAIN_SECONDS: "${BASA_ENGINE_DRAIN_SECONDS:-30}"
+      SENTINEL_ENGINE_AUTORELOAD: "${SENTINEL_ENGINE_AUTORELOAD:-on}"
+      SENTINEL_ENGINE_APPLY_DEBOUNCE_SECONDS: "${SENTINEL_ENGINE_APPLY_DEBOUNCE_SECONDS:-5}"
+      SENTINEL_ENGINE_DRAIN_SECONDS: "${SENTINEL_ENGINE_DRAIN_SECONDS:-30}"
     volumes:
       - litellm_config:/app/config:ro          # config.yaml templado + extensions (perfil US3)
       # Estado observable del supervisor. ÚNICO volumen donde el motor escribe:

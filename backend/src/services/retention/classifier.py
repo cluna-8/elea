@@ -425,7 +425,7 @@ PREFIJO_CONFIG = "config_change"
 # después, cuando un auditor la haga.
 #
 # Los literales van a mano y no importados de sus módulos a propósito: importar
-# `engine_gate`/`budget_service`/`basa_guardian_policy` desde acá ataría el clasificador —que
+# `engine_gate`/`budget_service`/`sentinel_guardian_policy` desde acá ataría el clasificador —que
 # corre en un job batch— a media app, y un rename igual clasificaría bien (el prefijo no
 # cambia). Lo que se busca acá es el INVENTARIO, no el acoplamiento.
 #
@@ -453,9 +453,9 @@ EMISORES_VIGENTES: Dict[str, str] = {
     "blocked_prohibited": CLASE_SECURITY_EVENTS,       # chat.py · compliance_service.py:45 · motor
     "blocked_by_policy": CLASE_SECURITY_EVENTS,        # chat.py (guardián de postura)
     "blocked_residency": CLASE_SECURITY_EVENTS,        # chat.py (residencia de datos)
-    "blocked_secret": CLASE_SECURITY_EVENTS,           # gateway.py · basa_guardrail.py:500
+    "blocked_secret": CLASE_SECURITY_EVENTS,           # gateway.py · sentinel_guardrail.py:500
     # Sólo del plano MOTOR: entidad cuyo tipo tiene acción BLOCK en la política del tenant
-    # (`basa_guardrail.py:594` → `_auditar_bloqueo(compliance_status=…)` → `/internal/audit-logs`).
+    # (`sentinel_guardrail.py:594` → `_auditar_bloqueo(compliance_status=…)` → `/internal/audit-logs`).
     # Faltaba en este inventario y lo cazó el censo del fuente de T004 — que es exactamente para
     # lo que existen los dos: el literal ya clasificaba bien por prefijo, pero nadie había
     # decidido su plazo por escrito.

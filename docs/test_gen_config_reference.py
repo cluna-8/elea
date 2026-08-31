@@ -151,31 +151,31 @@ def test_bloque_de_vars_comentadas_no_funde_su_banner_con_la_seccion_siguiente()
         [
             "# Licencia offline: enforcement FAIL-CLOSED",
             "# el compose apunta a la licencia dev del repo.",
-            "# BASA_LICENSE_TOKEN_FILE=/app/config/licenses/dev-demo.lic",
-            "# BASA_ALLOW_DEV_LICENSE=true    # opt-in a claves dev; SOLO dev/demo",
+            "# SENTINEL_LICENSE_TOKEN_FILE=/app/config/licenses/dev-demo.lic",
+            "# SENTINEL_ALLOW_DEV_LICENSE=true    # opt-in a claves dev; SOLO dev/demo",
             "",
             "# SSO: entrar con la identidad corporativa del cliente",
             "",
-            "BASA_SSO_REDIRECT_URI=",
+            "SENTINEL_SSO_REDIRECT_URI=",
         ]
     )
     assert len(sections) == 1
     title, body, rows = sections[0]
     # La variable nueva va bajo SU título, no bajo el de la licencia.
     assert title == "SSO: entrar con la identidad corporativa del cliente"
-    assert [r[0] for r in rows] == ["BASA_SSO_REDIRECT_URI"]
+    assert [r[0] for r in rows] == ["SENTINEL_SSO_REDIRECT_URI"]
     # Y nada del bloque comentado se filtra como prosa a la página.
     texto = f"{title} {body} {rows[0][2]}"
     assert "Licencia offline" not in texto
-    assert "BASA_ALLOW_DEV_LICENSE" not in texto
-    assert "BASA_LICENSE_TOKEN_FILE" not in texto
+    assert "SENTINEL_ALLOW_DEV_LICENSE" not in texto
+    assert "SENTINEL_LICENSE_TOKEN_FILE" not in texto
 
 
 def test_prosa_que_empieza_con_una_asignacion_sigue_siendo_prosa():
     """El borde que hace difícil el fix de #271, y que salió midiendo, no imaginando.
 
     `.env.example:93` es una línea de PROSA que arranca con
-    `BASA_PURGE_ENABLED=false (el default) el scheduler ni arranca...` — es la
+    `SENTINEL_PURGE_ENABLED=false (el default) el scheduler ni arranca...` — es la
     continuación de un párrafo del banner de la purga. Un clasificador ingenuo
     («el comentario empieza con VAR=» ⇒ variable comentada) le come media frase
     al banner de una sección real. Lo que la separa de una asignación comentada
@@ -185,10 +185,10 @@ def test_prosa_que_empieza_con_una_asignacion_sigue_siendo_prosa():
     sections = g.parse_env_sections(
         [
             "# Banner de la purga",
-            "# BASA_PURGE_ENABLED=false (el default) el scheduler ni arranca,",
+            "# SENTINEL_PURGE_ENABLED=false (el default) el scheduler ni arranca,",
             "# así que la caja sale configurada pero inerte.",
             "",
-            "BASA_PURGE_WINDOW=02:00-04:00",
+            "SENTINEL_PURGE_WINDOW=02:00-04:00",
         ]
     )
     assert len(sections) == 1
@@ -202,13 +202,13 @@ def test_var_comentada_no_llega_como_prosa_a_la_descripcion():
     """Una asignación comentada no describe a nadie: no puede aparecer como texto."""
     rows = g.parse_env(
         [
-            "# BASA_LICENSE_TOKEN=            # alternativa: el .lic inline (JSON)",
+            "# SENTINEL_LICENSE_TOKEN=            # alternativa: el .lic inline (JSON)",
             "OTRA=1",
         ]
     )
     assert len(rows) == 1
     assert rows[0][0] == "OTRA"
-    assert "BASA_LICENSE_TOKEN" not in rows[0][2]
+    assert "SENTINEL_LICENSE_TOKEN" not in rows[0][2]
 
 
 def test_var_comentada_no_borra_el_banner_de_una_var_real_del_mismo_bloque():

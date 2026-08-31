@@ -6,7 +6,7 @@
 
 **Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
-**Input**: User description: "Modelo comercial 'install + X licencias' vendido a un distribuidor marca-blanca. El cliente CORRE el software (Basa no controla la caja) → el enforcement de licencias debe ser OFFLINE y anti-tamper, sin phone-home (on-prem/VPN puede no tener egress). Falta hoy TODO el enforcement (cero max_seats/license_key/entitlement); es greenfield sobre plomería sólida (Connection=APIKey, custom_auth fail-closed, audit inmutable). Complementa la 020 (deploy)."
+**Input**: User description: "Modelo comercial 'install + X licencias' vendido a un distribuidor marca-blanca. El cliente CORRE el software (Sentinel no controla la caja) → el enforcement de licencias debe ser OFFLINE y anti-tamper, sin phone-home (on-prem/VPN puede no tener egress). Falta hoy TODO el enforcement (cero max_seats/license_key/entitlement); es greenfield sobre plomería sólida (Connection=APIKey, custom_auth fail-closed, audit inmutable). Complementa la 020 (deploy)."
 
 ---
 
@@ -52,8 +52,8 @@ ejes ortogonales; esta spec cuenta **asientos**, no tokens ni dólares.
 packaging del contenedor (eso es la **020**, que esta spec **complementa**: la licencia se **inyecta**
 en el artefacto de deploy de la 020); no implementa un portal de emisión/venta de licencias del lado del
 distribuidor (fuera de scope — sólo se define el **formato** del token y la **clave pública** que el
-producto embebe). El **firmante** (clave privada) vive del lado de **Basa** (central, KMS/HSM); el
-distribuidor NUNCA posee clave de firma — mintea vía el portal de emisión de Basa dentro de su cupo
+producto embebe). El **firmante** (clave privada) vive del lado de **Sentinel** (central, KMS/HSM); el
+distribuidor NUNCA posee clave de firma — mintea vía el portal de emisión de Sentinel dentro de su cupo
 (FR-030, research addendum).
 
 ---
@@ -62,11 +62,11 @@ distribuidor NUNCA posee clave de firma — mintea vía el portal de emisión de
 
 ### User Story 1 - Artefacto de licencia firmado Ed25519 + verificación offline al arranque (Priority: P1)
 
-Basa emite (firma **central**; el distribuidor la solicita vía el portal de emisión dentro de su cupo,
+Sentinel emite (firma **central**; el distribuidor la solicita vía el portal de emisión dentro de su cupo,
 FR-030) un **token de licencia firmado con Ed25519** que contiene `license_id`, `tenant_id`,
 `distributor_id`, `pool_id`, `max_seats`, `expiry`, `feature_flags` y `grace_days` (lista completa en
 FR-001).
-El producto (contenedor) embebe **sólo la clave PÚBLICA** de Basa. Al **arranque**, el backend lee el
+El producto (contenedor) embebe **sólo la clave PÚBLICA** de Sentinel. Al **arranque**, el backend lee el
 token (de un env var / secret / fichero montado por la 020), **verifica la firma Ed25519 contra la clave
 pública embebida**, valida que no esté expirado más allá del grace, y **carga el entitlement en memoria**.
 Si la firma es inválida, el `tenant_id` no coincide con el deployment, o el token está ausente/corrupto,
@@ -74,7 +74,7 @@ el sistema **arranca en modo degradado fail-closed** (no crea seats nuevos) y **
 Todo **sin ninguna llamada de red** — funciona en una caja on-prem sin egress.
 
 **Why this priority**: Es el cimiento de toda la spec. Sin un artefacto verificable **offline** no hay
-enforcement posible en el modelo distribuidor (Basa no controla la caja, y on-prem/VPN puede no tener
+enforcement posible en el modelo distribuidor (Sentinel no controla la caja, y on-prem/VPN puede no tener
 egress → **phone-home no es una opción**). Materializa el Principio VII (White-Label: la licencia es
 **config firmada**, no un fork ni un binario custom por cliente) y habilita el gate de US2/US3.
 
@@ -222,7 +222,7 @@ seat-limit-exceeded (US2), over-seat detectado (US3), grace, expired, y **sospec
 van **encadenados por hash** (cada evento incluye el hash del anterior), de modo que borrar o editar
 cualquier eslabón **rompe la cadena de forma detectable**. Además, el operador puede generar un **export
 de true-up** (resumen de seats usados + historial de estados de licencia) que el sistema **firma**, para
-entregarlo al distribuidor/Basa en la **renovación** (modelo de reconciliación de GitLab). Un auditor
+entregarlo al distribuidor/Sentinel en la **renovación** (modelo de reconciliación de GitLab). Un auditor
 puede así reconstruir si el cliente corrió over-seat, expirado, o con un token inválido — y detectar si el
 historial fue manipulado. NO se inventa un canal nuevo: se **reusa** la infraestructura de audit
 inmutable, endurecida con la cadena de hashes.
@@ -273,10 +273,10 @@ registró (incl. hash-head + contador); alterar un byte del export → la firma 
    verificación local y se detecta en la renovación — ver honestidad arriba y FR-028).
 6. **Given** una renovación de licencia en curso, **When** el operador genera el **export de true-up**,
    **Then** el sistema produce un artefacto **firmado con la clave de deployment** (par Ed25519 generado
-   en el install; la pública se registra del lado Basa/distribuidor en el onboarding — la caja NO puede
-   firmar con la clave de Basa, solo tiene su pública) que contiene `{tenant_id, distributor_id, pool_id,
+   en el install; la pública se registra del lado Sentinel/distribuidor en el onboarding — la caja NO puede
+   firmar con la clave de Sentinel, solo tiene su pública) que contiene `{tenant_id, distributor_id, pool_id,
    seats_used, max_seats, historial de estados, hash-head + contador de eventos, rango de fechas}` —
-   metadata-only, sin PII ni el token crudo. Basa verifica: firma vs la deployment key registrada +
+   metadata-only, sin PII ni el token crudo. Sentinel verifica: firma vs la deployment key registrada +
    consistencia interna de la cadena + **continuidad con el export anterior** (head-ancestro, contador
    no-decreciente) + anclaje al `license_id`.
 
@@ -307,7 +307,7 @@ registró (incl. hash-head + contador); alterar un byte del export → la firma 
 - **Colisión con `rpm_limit`/`max_budget` (007)**: NO confundir gobernanza de uso con conteo de seats. Un
   seat puede existir (cuenta para la licencia) aunque esté rate-limited a 0 rpm por gobernanza. Ejes
   ortogonales; un test lo fija.
-- **Rotación de la clave pública embebida**: si Basa rota su par de claves, los deployments viejos con la
+- **Rotación de la clave pública embebida**: si Sentinel rota su par de claves, los deployments viejos con la
   clave pública anterior deben seguir validando tokens firmados con la privada anterior hasta migrar. Se
   soporta un **conjunto** de claves públicas embebidas (key-id en el token) para rotación sin romper cajas
   desplegadas.
@@ -322,14 +322,14 @@ registró (incl. hash-head + contador); alterar un byte del export → la firma 
   grace_days, feature_flags, key_id}` (con `issued_at` **opcional** ≈ `not_before` si se omite, como en
   el esbozo `.lic` del research). `distributor_id`/`pool_id` identifican el **canal** que
   giró la licencia (atribución para audit/true-up; la validación del cupo del pool vive en el portal de
-  emisión de Basa, fuera del scope de la caja — ver addendum). Para **emisión directa de Basa sin canal**
-  (demos, pilotos, cajas propias): sentinel `distributor_id: "d_basa"` + pool interno — semántica "canal
+  emisión de Sentinel, fuera del scope de la caja — ver addendum). Para **emisión directa de Sentinel sin canal**
+  (demos, pilotos, cajas propias): sentinel `distributor_id: "d_sentinel"` + pool interno — semántica "canal
   directo" fijada desde el día 1 para no cambiar el formato wire después. El formato wire `.lic` (JSON canónico +
   firma detached; nombres compactos `lic_id`/`kid`) y el veredicto build-vs-buy (DIY Ed25519, emisión
-  CENTRAL de Basa por cupo — nunca clave de firma delegada al distribuidor) están fijados en
+  CENTRAL de Sentinel por cupo — nunca clave de firma delegada al distribuidor) están fijados en
   [`research.md`](./research.md).
-- **FR-002**: El producto MUST embeber **sólo la(s) clave(s) PÚBLICA(s)** de Basa; la clave privada de
-  firma de licencias NUNCA vive en el contenedor ni en la caja del cliente (vive del lado de **Basa**, en
+- **FR-002**: El producto MUST embeber **sólo la(s) clave(s) PÚBLICA(s)** de Sentinel; la clave privada de
+  firma de licencias NUNCA vive en el contenedor ni en la caja del cliente (vive del lado de **Sentinel**, en
   KMS/HSM — el distribuidor no firma, addendum). Nota: la **deployment key** (FR-029) es un par DISTINTO
   que sí vive en la caja — firma **evidencia**, no licencias, y no tiene poder de emisión.
 - **FR-003**: Al **arranque**, el sistema MUST verificar la firma Ed25519 del token contra la clave
@@ -398,16 +398,16 @@ registró (incl. hash-head + contador); alterar un byte del export → la firma 
   (FR-023) el **hash-head vigente** y un **contador monotónico de eventos**. Alcance honesto: la cadena
   local detecta **edición/borrado intermedio**; NO detecta por sí sola el **truncado de cola** ni el
   **truncado total + re-génesis** (el cliente controla el Postgres y conoce su `license_id`). Esos dos
-  ataques se detectan **en la renovación** vía FR-029: Basa verifica **continuidad entre exports
+  ataques se detectan **en la renovación** vía FR-029: Sentinel verifica **continuidad entre exports
   sucesivos** (el head del export N debe ser ancestro del head del export N+1; el contador nunca
   decrece). En una renovación (nuevo `license_id`), la nueva génesis MUST encadenarse al head de la
   cadena anterior (continuidad entre licencias). **Primer export (sin export anterior)**: el hash-head de
   la génesis MUST registrarse en el **onboarding** (mismo canal que la pública del deployment, FR-029) y
   servir de baseline — sin ese registro, un truncado total + re-génesis ANTES de la primera renovación
-  sería indetectable incluso para Basa.
+  sería indetectable incluso para Sentinel.
 - **FR-029**: El sistema MUST poder generar un **export de true-up** firmado con la **clave de
   deployment** (par Ed25519 generado en el install; la privada nunca sale de la caja, la pública se
-  registra del lado Basa/distribuidor en el onboarding) con `{tenant_id, distributor_id, pool_id,
+  registra del lado Sentinel/distribuidor en el onboarding) con `{tenant_id, distributor_id, pool_id,
   seats_used, max_seats, historial de estados, hash-head + contador de eventos de la cadena, rango de
   fechas}`, metadata-only. Es el artefacto de **reconciliación en la renovación** (modelo GitLab true-up);
   su generación es local y offline (el operador lo entrega por el canal que sea — email/USB). Honestidad:
@@ -430,7 +430,7 @@ vive en la sección transversal de abajo.)*
 - **FR-030**: El enforcement del **cupo del distribuidor** (`sum(max_seats de las hojas VIGENTES) ≤
   max_total_seats` del pool — una **re-emisión para el mismo `tenant_id` SUPERSEDE a la anterior**, de
   modo que expansiones y renovaciones NO consumen cupo doble) vive en el **portal/API de emisión de
-  Basa** (lado firmante, online), NO en la caja: la caja sólo valida su propia hoja `.lic`. La spec del
+  Sentinel** (lado firmante, online), NO en la caja: la caja sólo valida su propia hoja `.lic`. La spec del
   portal queda fuera de scope; este FR fija el contrato (la caja nunca asume responsabilidad por el techo
   global del pool).
 
@@ -439,22 +439,22 @@ vive en la sección transversal de abajo.)*
 - **LicenseToken (artefacto firmado)** — *NUEVO, código PROPIO*. Payload firmado Ed25519 con
   `{schema, license_id, tenant_id, distributor_id, pool_id, max_seats, not_before, expiry, grace_days,
   feature_flags, key_id}` (+ `issued_at` opcional) + firma (esbozo `.lic` completo en
-  [`research.md`](./research.md); wire `lic_id`/`kid`). Emitido SIEMPRE por Basa (firma central; el distribuidor mintea vía portal dentro
+  [`research.md`](./research.md); wire `lic_id`/`kid`). Emitido SIEMPRE por Sentinel (firma central; el distribuidor mintea vía portal dentro
   de su cupo — addendum). Se **inyecta como config** (020), se verifica offline al arranque. NO se
   persiste crudo en audit.
 - **DeploymentKey (par de claves del deployment)** — *NUEVO, código PROPIO*. Par Ed25519 generado en el
   **install** de la caja; la privada nunca sale de la caja, la pública se registra del lado
-  Basa/distribuidor en el onboarding. Firma el TrueUpExport (FR-029). Distinta de las claves de Basa
-  (BasaPublicKeySet): Basa firma licencias, el deployment firma evidencia.
+  Sentinel/distribuidor en el onboarding. Firma el TrueUpExport (FR-029). Distinta de las claves de Sentinel
+  (SentinelPublicKeySet): Sentinel firma licencias, el deployment firma evidencia.
 - **TrueUpExport (artefacto de reconciliación)** — *NUEVO, código PROPIO*. Export metadata-only firmado
   con la DeploymentKey: `{tenant_id, distributor_id, pool_id, seats_used, max_seats, historial de
   estados, hash-head de la cadena, rango de fechas}`. Generado local/offline por el operador; entregado
-  en la renovación (modelo GitLab true-up). Basa lo verifica contra la deployment key registrada + la
+  en la renovación (modelo GitLab true-up). Sentinel lo verifica contra la deployment key registrada + la
   consistencia de la cadena (FR-028).
 - **Entitlement (estado en memoria)** — *NUEVO, código PROPIO*. Resultado de verificar el token: el
   entitlement cargado + el estado computado `{active|grace|expired|invalid|over_seat}` + `seats_used`.
   Consultado por el gate (US2), la reconciliación (US3) y el health (FR-027).
-- **BasaPublicKeySet (claves embebidas)** — *NUEVO, config del producto*. Conjunto de claves públicas
+- **SentinelPublicKeySet (claves embebidas)** — *NUEVO, config del producto*. Conjunto de claves públicas
   Ed25519 indexadas por `key_id` para verificar firmas y soportar rotación (FR-007). Sólo públicas.
 - **APIKey (= Connection, modelo DB de la 013)** — *REUSA sin cambios de schema*. Es la **unidad de seat**.
   El conteo = `COUNT(APIKey activas)` por tenant, con la misma definición de "activa" que el índice
@@ -508,12 +508,12 @@ vive en la sección transversal de abajo.)*
   reportado como evidencia). El **truncado de cola** y el **truncado total + re-génesis** quedan
   explícitamente FUERA del alcance de la verificación local (limitación estructural de una cadena que
   vive en la DB del cliente): se detectan en la **renovación**, por la continuidad head/contador entre
-  TrueUpExports sucesivos (FR-028/FR-029, verificada del lado Basa; baseline del PRIMER export = la
+  TrueUpExports sucesivos (FR-028/FR-029, verificada del lado Sentinel; baseline del PRIMER export = la
   génesis registrada en el onboarding).
 - **SC-012 (true-up verificable)**: El export de true-up generado offline valida al 100% contra la
   deployment key registrada y refleja **lo que la caja registró** (no puede probar más que eso — la
   deployment key es legible por quien controla la caja, ver Assumptions); cualquier alteración de un byte
-  invalida la firma; incluye hash-head + contador para la verificación de continuidad del lado Basa. La
+  invalida la firma; incluye hash-head + contador para la verificación de continuidad del lado Sentinel. La
   generación no requiere egress.
 - **SC-013 (expiry degrada, nunca mata)**: Con licencia válida-pero-vencida (dentro y fuera de grace) y
   **la política default** (read-only-para-creación), el proceso arranca y el tráfico de las Connections
@@ -536,8 +536,8 @@ vive en la sección transversal de abajo.)*
   LemonSqueezy) ≠ enforcement (validan por HTTP → mueren sin egress); Keygen respeta el air-gap pero su
   parte útil = firmar/verificar un blob (~40 LOC con PyNaCl), el resto asume una topología que no usamos
   porque el conteo de seats vive en NUESTRO Postgres (013).
-- **El firmante de licencias es Basa, central**: la clave privada Ed25519 de firma de licencias NUNCA se
-  despliega en la caja del cliente ni se entrega al distribuidor (custodia en KMS/HSM del lado Basa;
+- **El firmante de licencias es Sentinel, central**: la clave privada Ed25519 de firma de licencias NUNCA se
+  despliega en la caja del cliente ni se entrega al distribuidor (custodia en KMS/HSM del lado Sentinel;
   el distribuidor mintea vía portal dentro de su cupo — addendum). El producto sólo **verifica**
   licencias; no las firma (sí firma **evidencia** con su deployment key FR-029 — un par distinto, sin
   poder de emisión, legible por quien controla la caja → evidencia best-effort).
@@ -553,12 +553,12 @@ vive en la sección transversal de abajo.)*
   cuya manipulación se detecta. El **ancla de enforcement real es contractual**: el true-up en la
   renovación + la cláusula de audit-rights del EULA (precondición comercial — verificar que exista).
   Esto es explícito, no una carencia oculta (validado contra el mercado en el research addendum).
-- **Modelo de 3 partes / emisión central por cupo (addendum)**: Basa (autoridad de firma, privada en KMS)
-  → distribuidor/hyperscaler (mintea `.lic` vía portal de Basa dentro de su cupo; único cliente comercial
-  de Basa) → cliente final (corre la caja air-gapped). El per-seat se captura **en la emisión** + true-up
+- **Modelo de 3 partes / emisión central por cupo (addendum)**: Sentinel (autoridad de firma, privada en KMS)
+  → distribuidor/hyperscaler (mintea `.lic` vía portal de Sentinel dentro de su cupo; único cliente comercial
+  de Sentinel) → cliente final (corre la caja air-gapped). El per-seat se captura **en la emisión** + true-up
   en renovación — nunca metering vivo (imposible sin egress; el metering de marketplace sólo aplica al
   draw-down del cupo del distribuidor en el portal). La **firma delegada al distribuidor NO se construye**;
-  trigger documentado: contrato que exija emisión con cero egress a Basa.
+  trigger documentado: contrato que exija emisión con cero egress a Sentinel.
 - **Anti-rollback de reloj es best-effort**: la marca monotónica (FR-023) detecta retrocesos de reloj pero
   no los previene por completo (sin time-server externo, por diseño offline). Se documenta como mitigación
   detectable-y-auditable, no como garantía dura.

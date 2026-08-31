@@ -2,7 +2,7 @@
 
 **Versión del contrato**: 1.0.0-draft (a review del core en #107) · **Consumidores**:
 (1) harness ITV — mezclas de tráfico de los gates; (2) runner de precision/recall del
-core (#107) contra la imagen real de basa-nlp. Los **canarios de carga NO viven aquí**
+core (#107) contra la imagen real de sentinel-nlp. Los **canarios de carga NO viven aquí**
 (runtime-only por run, capa aparte — FR-004).
 
 ## Formato de archivo
@@ -33,11 +33,11 @@ JSONL, UTF-8 **sin BOM**, texto normalizado **NFC**, una doc por línea:
    `EMAIL_ADDRESS`, `PHONE_NUMBER`, `IBAN_CODE`, `CREDIT_CARD`, `ES_NIF`, `ES_NIE`,
    `PASSPORT`, `LOCATION`, `DATE_TIME`. **Tipo desconocido = ERROR de validación**, no
    advertencia. *Aclaración 08-ago (verificado en el código, señalado al core en #107)*:
-   los `BASA_*` que mencionó el core son `BASA_CUSTOM_NAMES` / `BASA_CUSTOM_<tipo>`
-   (`basa_guardian_policy.py:259,268`) — entidades **custom por instalación**
+   los `SENTINEL_*` que mencionó el core son `SENTINEL_CUSTOM_NAMES` / `SENTINEL_CUSTOM_<tipo>`
+   (`sentinel_guardian_policy.py:259,268`) — entidades **custom por instalación**
    (`custom_names`/`custom_entities`), que el baseline excluye por definición (regla 6).
    No van en el dataset baseline; si se cubren deny-lists custom, es la sección opcional
-   aparte y ESE enum se amplía con los `BASA_CUSTOM_*` correspondientes.
+   aparte y ESE enum se amplía con los `SENTINEL_CUSTOM_*` correspondientes.
 2. **Spans**: offsets de **caracteres Unicode (codepoints)** sobre el `text` NFC, end
    **exclusivo** `[start, end)`, **ajustados** (sin espacios ni puntuación colgantes —
    el scoring exact-span no debe regalar slack). Jamás bytes.
@@ -72,7 +72,7 @@ JSONL, UTF-8 **sin BOM**, texto normalizado **NFC**, una doc por línea:
    `entity_type`/`source`/`difficulty`). El reporte del runner del core y el
    fingerprint de los runs ITV citan `version + sha256 + seed` — un número de
    precision/recall sin corpus pinneado no es comparable.
-8. **Validador** (`harness/src/basa_harness/corpus/validate.py`, corre en pytest y en el
+8. **Validador** (`harness/src/sentinel_harness/corpus/validate.py`, corre en pytest y en el
    job `harness-tests`): enum de tipos, spans dentro de rango y sin duplicados exactos,
    checksum de `value`, normalización NFC verificada, docs limpios presentes,
    regresiones del #63 presentes. El dataset no se versiona sin validador en verde.

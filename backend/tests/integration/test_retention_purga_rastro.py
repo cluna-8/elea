@@ -53,7 +53,7 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_retencion_rastro"
+DB = "sentinel_test_retencion_rastro"
 
 # Plazos del seed 004 (a mano, con el mismo criterio del resto de la suite: si el seed cambia,
 # esto se pone rojo y lo explica en vez de seguirlo en silencio).
@@ -96,10 +96,10 @@ def caja_en_cero(factory):
 
 @pytest.fixture
 def corrida_real(monkeypatch):
-    """Corrida que BORRA/ANULA/ESCRIBE: `BASA_PURGE_DRY_RUN=false` explícito (el default es el
+    """Corrida que BORRA/ANULA/ESCRIBE: `SENTINEL_PURGE_DRY_RUN=false` explícito (el default es el
     simulacro)."""
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
-    monkeypatch.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
 
 
 def sembrar_audit(factory, filas):
@@ -198,7 +198,7 @@ def test_el_simulacro_no_anula_ningun_texto_pero_lo_cuenta(factory, monkeypatch)
     """El ensayo que el DPO firma: reporta cuántas se anularían y NO anula ninguna."""
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "true")
     vieja = sembrar_review(factory, edad_dias=VIEJA, texto="secreto que sobrevive al ensayo")
 
     corrida = purger.run_once(session_factory=factory, run_now=True)
@@ -382,9 +382,9 @@ def test_prompt_content_anula_por_lotes(factory, monkeypatch):
     """Mismos lotes que el DELETE de audit_logs: 5 revisiones vencidas en lotes de 2 → 3 lotes."""
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
-    monkeypatch.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
-    monkeypatch.setenv("BASA_PURGE_BATCH_SIZE", "2")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_SIZE", "2")
 
     ids = [sembrar_review(factory, edad_dias=VIEJA, texto=f"t{i}") for i in range(5)]
 
@@ -467,7 +467,7 @@ def test_el_simulacro_no_deja_rastro_en_tabla(factory, monkeypatch):
     from src.models.compliance import RetentionPolicy
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "true")
     sembrar_audit(factory, [USO_VIEJA])
     sembrar_review(factory, edad_dias=VIEJA, texto="x")
 

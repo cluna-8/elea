@@ -8,19 +8,19 @@
 # Bloque general/guardrails = EL MISMO de la 014 (paridad de política: el examen mide el
 # stack de producción tal cual, con masking + auditoría + guardrails encendidos).
 general_settings:
-  # Nombre de upstream a propósito (#302): el operador escribe BASA_ENGINE_MASTER_KEY
+  # Nombre de upstream a propósito (#302): el operador escribe SENTINEL_ENGINE_MASTER_KEY
   # en su `.env` y el compose se lo pasa al motor bajo ESTE nombre. NO renombrar acá.
   master_key: os.environ/LITELLM_MASTER_KEY
   custom_auth: extensions.custom_auth.user_api_key_auth
   custom_auth_run_common_checks: true
 guardrails:
-- guardrail_name: basa-guardian
+- guardrail_name: sentinel-guardian
   litellm_params:
-    guardrail: extensions.basa_guardrail.BasaGuardrail
+    guardrail: extensions.sentinel_guardrail.SentinelGuardrail
     mode: [pre_call, post_call]
     default_on: true
 litellm_settings:
-  callbacks: extensions.basa_audit_logger.basa_audit_logger_instance
+  callbacks: extensions.sentinel_audit_logger.sentinel_audit_logger_instance
   cache: false          # examen: cache OFF (incompatible con masking reversible, issue #30)
   drop_params: true
   set_verbose: false

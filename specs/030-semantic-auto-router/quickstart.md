@@ -13,7 +13,7 @@
 >   `ollama_chat/qwen3:4b` (modelo REAL), coste 0, **17,4 s** (el grueso es la generación
 >   con thinking del qwen; el spec decía ≤15 s — aceptado con nota).
 > - Hallazgo T018: el timeout 30 s del router del motor cortaba generaciones locales
->   largas → subido a **120 s** (template + volumen) y `BASA_ENGINE_TIMEOUT_SECONDS`
+>   largas → subido a **120 s** (template + volumen) y `SENTINEL_ENGINE_TIMEOUT_SECONDS`
 >   parametrizado en compose (default 150 el backend, para no cortar él primero).
 > - Nota vitrina: un prompt de resumen REAL (con el texto pegado) diluye la similitud y
 >   puede caer al default local — comportamiento correcto (barato y honesto), pero para

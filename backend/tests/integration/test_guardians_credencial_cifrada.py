@@ -24,7 +24,7 @@ from seat_gate_harness import admin_headers, build_app_client
 
 require_postgres()
 
-DB = "basa_test_guardians_credencial_cifrada"
+DB = "sentinel_test_guardians_credencial_cifrada"
 
 SECRETO = "sk-la-credencial-del-servicio-del-cliente"
 

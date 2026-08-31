@@ -6,7 +6,7 @@ secret) — sin RLS, un UPSERT/DELETE por PK del CRUD admin con un id ajeno pisa
 SSO de OTRO tenant.
 
 Corre contra el Postgres de Docker Compose conectado como ``rls_owner`` (rol NOSUPERUSER dueño
-de las tablas): con ``basa_admin`` —superuser— la RLS se bypasea SIEMPRE, incluso con FORCE, y
+de las tablas): con ``sentinel_admin`` —superuser— la RLS se bypasea SIEMPRE, incluso con FORCE, y
 estos tests pasarían en verde sin probar nada. Self-skip si Postgres no está.
 """
 import json
@@ -22,7 +22,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_migration_017"
+DB = "sentinel_test_migration_017"
 
 TENANT_B = uuid.UUID("bbbbbbbb-0000-0000-0000-0000000000dd")
 

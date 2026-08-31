@@ -5,14 +5,14 @@ Tres invariantes, uno por hallazgo, sin DB ni HTTP (las piezas son puras: la pos
 llega leída en ``ident``):
 
 1. **De qué tenant se aplica la postura no lo elige el cliente.** ``/gw/v1/messages`` se
-   autentica con el OAuth de suscripción; ``X-Basa-Key`` es OPCIONAL y hasta la 027 solo
+   autentica con el OAuth de suscripción; ``X-Sentinel-Key`` es OPCIONAL y hasta la 027 solo
    decidía a nombre de quién se auditaba ([D-014]). Al pasar a decidir también las
    ``governance_decisions``, omitir el header equivalía a elegirse la postura del tenant por
    defecto — potencialmente más laxa que la del admin propio. Sin tenant atribuible las
    relajaciones se descartan y sobreviven solo las decisiones que AGREGAN.
 2. **Ausencia de atribución = ``null``, jamás lista vacía** (contrato evento §8): ``[]``
    afirmaría "no corrió ninguna capa", que es mentira porque el piso corre siempre.
-3. **El ``X-Basa-Redact: off`` ignorado deja rastro**: contador consultable, para que la
+3. **El ``X-Sentinel-Redact: off`` ignorado deja rastro**: contador consultable, para que la
    degradación no dependa de que alguien estuviera mirando los logs.
 """
 import uuid
@@ -40,7 +40,7 @@ def _ident(*, api_key_id=None, decisions=()) -> dict:
 
 def test_sin_atribucion_la_relajacion_del_tenant_no_aplica():
     # Escenario del hallazgo: el tenant por defecto tiene el enmascarado apagado y el
-    # cliente simplemente NO manda X-Basa-Key. Antes se resolvía con esa postura laxa.
+    # cliente simplemente NO manda X-Sentinel-Key. Antes se resolvía con esa postura laxa.
     profile = gateway._resolve_governance_profile(
         _ident(decisions=[_row("pii_masking", "off")]), "Claude Code", None)
     assert profile.is_on("pii_masking"), "sin tenant atribuible no puede relajarse el piso móvil"

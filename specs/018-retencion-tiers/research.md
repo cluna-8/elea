@@ -23,7 +23,7 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 
 ## D4 — Mecánica del purgador: scheduler existente + DELETE por lotes con ventana
 
-- **Decision**: thread daemon con intervalo por env (patrón `licensing/reconcile.py::start_scheduler`, `:268-297`, con el `_loop` en `:285` — único scheduler del proceso), DELETE por lotes (`BASA_PURGE_BATCH_SIZE=5000`, pausa 200 ms) solo dentro de ventana horaria (`02:00-05:00` local), edad contra el reloj de la DB, idempotente por diseño (el predicado es «vencida al momento de la corrida» — retomar tras interrupción no duplica ni salta).
+- **Decision**: thread daemon con intervalo por env (patrón `licensing/reconcile.py::start_scheduler`, `:268-297`, con el `_loop` en `:285` — único scheduler del proceso), DELETE por lotes (`SENTINEL_PURGE_BATCH_SIZE=5000`, pausa 200 ms) solo dentro de ventana horaria (`02:00-05:00` local), edad contra el reloj de la DB, idempotente por diseño (el predicado es «vencida al momento de la corrida» — retomar tras interrupción no duplica ni salta).
 - **Rationale**: la tabla no tiene particiones (DELETE puro), tiene 4 índices y lectores SQL calientes (costs/analytics/vitrina/export); C2 es el ciclo del gate 250 — un purgador glotón reprueba el examen (SC-003). Reusar el scheduler evita dependencia nueva en un producto air-gap.
 - **Alternatives considered**: pg_cron (dependencia de extensión en instalaciones que no controlamos); particionado por rango + DROP PARTITION (la solución definitiva a escala, diferida a spec de infraestructura propia — Out of scope).
 
@@ -42,7 +42,7 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 
 ## D7 — Tier de enforcement: capa booleana sobre el registry 027
 
-- **Decision**: `enforcement_tier_estricto` como capa booleana del registry 027 (on = estricto; off/ausente = estándar). Alta de la clave en el registry puro compartido (`basa_governance.py`) — cambio solo-código; el resolutor del motor ignora claves que no consume. Consumidores (backend): pisos de retención en FR-007, aserción de postura `BASA_AUDIT_FAIL` (incoherencia → health degradado + evento auditado, SIN reescribir el env ni tocar el espejo triple), consecuencias de capas con grado. La capa de piso AI-Act se evalúa SIEMPRE (invariante 027, basa_governance.py:272-283).
+- **Decision**: `enforcement_tier_estricto` como capa booleana del registry 027 (on = estricto; off/ausente = estándar). Alta de la clave en el registry puro compartido (`sentinel_governance.py`) — cambio solo-código; el resolutor del motor ignora claves que no consume. Consumidores (backend): pisos de retención en FR-007, aserción de postura `SENTINEL_AUDIT_FAIL` (incoherencia → health degradado + evento auditado, SIN reescribir el env ni tocar el espejo triple), consecuencias de capas con grado. La capa de piso AI-Act se evalúa SIEMPRE (invariante 027, sentinel_governance.py:272-283).
 - **Rationale**: `governance_profiles.decision` tiene CHECK `on/off` y `layer_key` va sin FK/CHECK a propósito — capa nueva sin migración (≈1 semana menos que migrar el CHECK a vocabulario no binario y renegociar el contrato serializado entre planos). Es la opción sellada por JF (13-ago).
 - **Alternatives considered**: migrar el CHECK a vocabulario de tiers (caro, toca librería compartida entre planos); tabla/dominio propio (más aún); env var (no auditable ni gobernable por UI).
 

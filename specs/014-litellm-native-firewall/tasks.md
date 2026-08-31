@@ -56,10 +56,10 @@ tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR pri
       `async_post_call_streaming_iterator_hook`/`user_api_key_auth`, (b) que los guardrails se ejecutan
       sobre `/v1/messages`, (c) forma de `ModelResponseStream` en la Messages API. Decidir la estrategia
       de unmask streaming (A objetos parseados, preferida; B rewrite SSE, fallback).
-- [X] T006 ⚠️ [P] [FOUND] Unit tests de `basa_guardian_policy` en `tests/unit/test_policy.py`: mask
+- [X] T006 ⚠️ [P] [FOUND] Unit tests de `sentinel_guardian_policy` en `tests/unit/test_policy.py`: mask
       reversible con nonce, colisión de placeholder con literal del usuario, carry-split (placeholder
       partido vs `[` suelto de código), round-trip text/thinking/tool_use. DEBEN FALLAR primero.
-- [X] T007 [FOUND] Implementar `litellm/extensions/basa_guardian_policy.py` (librería PURA): portar
+- [X] T007 [FOUND] Implementar `litellm/extensions/sentinel_guardian_policy.py` (librería PURA): portar
       `_redact_body` (mask_reversible con nonce por request), `_unmask`/`_unmask_deep` (unmask texto y
       objetos), `_safe_split`/`_PH_TYPE_RE`/`_PH_TAIL_RE` (carry-split), detect AI-Act / detect secrets
       (delegando en los servicios). Importable desde el motor Y el backend. *(FR-022)*
@@ -101,7 +101,7 @@ correctos; request sin key válida → rechazo (no admin).
 
 ## Phase 4: User Story 1 - Firewall nativo sobre `/v1/messages` (Priority: P1) 🎯 MVP
 
-**Goal**: Política Basa como `CustomGuardrail` (pre/post/streaming) con block + mask reversible + unmask.
+**Goal**: Política Sentinel como `CustomGuardrail` (pre/post/streaming) con block + mask reversible + unmask.
 
 **⚠️ GATE — T005 ANTES de codear US1**: Ninguna tarea de implementación de US1 (T018–T021) arranca hasta
 cerrar **T005** (Phase-0 research sobre la imagen pinneada). El research confirma la premisa (hooks +
@@ -129,18 +129,18 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ### Implementation for User Story 1
 
-- [X] T018 [US1] Implementar `litellm/extensions/basa_guardrail.py::BasaGuardrail.async_pre_call_hook`:
+- [X] T018 [US1] Implementar `litellm/extensions/sentinel_guardrail.py::SentinelGuardrail.async_pre_call_hook`:
       AI-Act Art.5→400 (`ComplianceService.evaluate_prompt`), secretos→block
-      (`GuardianService.process_prompt`), mask PII reversible (`basa_guardian_policy` +
+      (`GuardianService.process_prompt`), mask PII reversible (`sentinel_guardian_policy` +
       `PresidioService`), mapa en `data["metadata"]["pii_tokens"]`. *(FR-001, FR-002, FR-003, FR-004, FR-005)*
 - [X] T019 [US1] Implementar `async_post_call_success_hook`: unmask no-streaming leyendo
       `metadata.pii_tokens`. *(FR-006)*
 - [X] T020 [US1] Implementar `async_post_call_streaming_iterator_hook` con la estrategia que fijó T005:
       **Estrategia A** (sobre `ModelResponseStream`, preferida) → unmask + carry-split de
-      `basa_guardian_policy`, NO reimplementar framing SSE/decoder/usage; **o Estrategia B** (rewrite SSE)
+      `sentinel_guardian_policy`, NO reimplementar framing SSE/decoder/usage; **o Estrategia B** (rewrite SSE)
       SÓLO si T005 demostró que el hook parseado no cubre `/v1/messages` (excepción acotada documentada).
       *(FR-007, FR-008)*
-- [X] T021 [US1] Registrar `BasaGuardrail` en el bloque `guardrails:` de `litellm/config.yaml` con modes
+- [X] T021 [US1] Registrar `SentinelGuardrail` en el bloque `guardrails:` de `litellm/config.yaml` con modes
       `pre_call`, `post_call`, `post_call_streaming`; conservar `model_list` + `router_settings.fallbacks`.
       *(FR-001, FR-023)*
 
@@ -150,7 +150,7 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ## Phase 5: User Story 3 - Audit metadata-only + monitor en vivo (Priority: P2)
 
-**Goal**: `BasaAuditLogger` metadata-only con scrub de `pii_tokens` + feed en memoria para el monitor.
+**Goal**: `SentinelAuditLogger` metadata-only con scrub de `pii_tokens` + feed en memoria para el monitor.
 
 **Independent Test**: Request con PII → AuditLog con verdicto/tipos/timing y CERO texto/`pii_tokens`;
 `/monitor` muestra before/after real.
@@ -165,14 +165,14 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ### Implementation for User Story 3
 
-- [X] T024 [US3] Implementar `litellm/extensions/basa_audit_logger.py::BasaAuditLogger.async_log_success_event`:
+- [X] T024 [US3] Implementar `litellm/extensions/sentinel_audit_logger.py::SentinelAuditLogger.async_log_success_event`:
       metadata-only vía `AuditService.log_transaction`; **scrub** de `metadata.pii_tokens` + cualquier
       texto antes de persistir. *(FR-014, FR-015)*
 - [X] T025 [US3] Alimentar un ring en memoria (acotado) desde el logger con el before/after real por capa
       (mask→compliance→routing→unmask). *(FR-016)*
 - [X] T026 [US3] Implementar la vista de monitor en `backend/src/api/monitor.py` (portar `_MONITOR_HTML` +
       feed `/events`), consumiendo el ring; animación cosmética, datos reales, sin persistir PII. *(FR-017)*
-- [X] T027 [US3] Registrar `BasaAuditLogger` en `litellm_settings.callbacks` de `litellm/config.yaml`.
+- [X] T027 [US3] Registrar `SentinelAuditLogger` en `litellm_settings.callbacks` de `litellm/config.yaml`.
       *(FR-023)*
 
 **Checkpoint**: Auditoría verde (scrub verificado) + monitor demostrable.
@@ -181,7 +181,7 @@ placeholders, caller ve valores reales (no-streaming y streaming).
 
 ## Phase 6: User Story 4 - Excepción: passthrough OAuth de suscripción (Priority: P2)
 
-**Goal**: Adelgazar `gateway.py` a SÓLO el passthrough OAuth, reescrito sobre `basa_guardian_policy`;
+**Goal**: Adelgazar `gateway.py` a SÓLO el passthrough OAuth, reescrito sobre `sentinel_guardian_policy`;
 GDPR-routing N/A.
 
 **Independent Test**: Request OAuth `upstream_mode`=`subscription-passthrough` (013; "anthropic" en el
@@ -191,15 +191,15 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
 
 - [ ] T028 ⚠️ [P] [US4] Integration test en `tests/integration/test_oauth_passthrough.py`: OAuth
       reenviado verbatim; práctica prohibida bloqueada; PII enmascarada/des-enmascarada vía
-      `basa_guardian_policy`; GDPR-routing N/A (no fuerza endpoint EU). *(FR-018, FR-019, FR-020)*
+      `sentinel_guardian_policy`; GDPR-routing N/A (no fuerza endpoint EU). *(FR-018, FR-019, FR-020)*
 
 ### Implementation for User Story 4
 
 - [X] T029 [US4] Escribir (NUEVO en este repo) `backend/src/api/gateway.py` con SÓLO el passthrough OAuth
       de suscripción (`upstream_mode`=`subscription-passthrough`), reenviando `Authorization`/OAuth
-      verbatim a `api.anthropic.com`, e invocando `basa_guardian_policy` (block AI-Act/secretos +
+      verbatim a `api.anthropic.com`, e invocando `sentinel_guardian_policy` (block AI-Act/secretos +
       mask/unmask reversible, incl. carry-split streaming vía `rewrite_sse_block`); identidad **[D-014]**
-      (NO fail-closed acá; `X-Basa-Key` = atribución opcional). *(FR-018, FR-019)* — 2026-07-10.
+      (NO fail-closed acá; `X-Sentinel-Key` = atribución opcional). *(FR-018, FR-019)* — 2026-07-10.
 - [X] T030 [US4] El port NO recrea lo hand-rolled del demo: el `byok` migró a LiteLLM nativo (US1-3), y
       `_rewrite_sse_event`/`_redact_body`/`_detect_tool`/`_IN_RE`/`_OUT_RE` viven ahora en la librería
       compartida (`rewrite_sse_block`/`mask_body`/`detect_tool`; tokens de usage salen de
@@ -226,7 +226,7 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
       reescribir". *(FR-027, FR-028, SC-006)*
 - [X] T033 [US5] Contract test de **paridad de rutas** en `tests/contract/test_route_parity.py` (13 tests):
       nivel 1 (puro) — verdicto de bloqueo + tipos enmascarados del passthrough == librería compartida (lo
-      que hace `BasaGuardrail`); nivel 2 (E2E con upstream mockeado) — block→400, mask sale al upstream y
+      que hace `SentinelGuardrail`); nivel 2 (E2E con upstream mockeado) — block→400, mask sale al upstream y
       unmask vuelve al caller (no-streaming + streaming, incl. frame partido), OAuth reenviado verbatim,
       preview de la vitrina sin PII ni secretos. *(FR-029, SC-005)* — 2026-07-10.
 
@@ -259,7 +259,7 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
   unmask streaming (A preferida / B excepción acotada).
 - **US3 (Phase 5)**: depende de Foundational; se integra con US1 (lee `pii_tokens` para scrubbear) y US2
   (identidad en la auditoría).
-- **US4 (Phase 6)**: depende de Foundational (importa `basa_guardian_policy`); independiente del motor.
+- **US4 (Phase 6)**: depende de Foundational (importa `sentinel_guardian_policy`); independiente del motor.
 - **US5 (Phase 7)**: depende de US1–US4 existiendo (cubre sus firmas y la paridad).
 - **Polish (Phase N)**: depende de los user stories deseados.
 
@@ -268,7 +268,7 @@ demo) → header verbatim a `api.anthropic.com`; block/mask con el MISMO resulta
 - **US2 (P1)**: tras Foundational. Sin dependencias de otros stories.
 - **US1 (P1)**: tras Foundational + US2 (metadata de identidad para los hooks).
 - **US3 (P2)**: tras Foundational; integra con US1/US2 pero testeable independiente.
-- **US4 (P2)**: tras Foundational; comparte `basa_guardian_policy` con US1 pero corre en otro hogar.
+- **US4 (P2)**: tras Foundational; comparte `sentinel_guardian_policy` con US1 pero corre en otro hogar.
 - **US5 (P3)**: tras US1–US4.
 
 ### Within Each User Story
@@ -330,7 +330,7 @@ Tras Foundational: Dev A → US2+US1 (motor); Dev B → US4 (backend passthrough
 - [Story] mapea cada tarea a su user story para trazabilidad.
 - Verificar que los tests ⚠️ fallan antes de implementar.
 - Commit tras cada tarea o grupo lógico; verificación local con Docker Compose antes de mergear.
-- **Reuso vs propio**: sólo `basa_guardian_policy` + los 3 wrappers de extensión + el passthrough OAuth
+- **Reuso vs propio**: sólo `sentinel_guardian_policy` + los 3 wrappers de extensión + el passthrough OAuth
   son código propio; framing SSE/decoder/usage/routing/fallbacks/cost-ceiling son del motor (Principio VI).
 - **Excepción única**: el passthrough OAuth de suscripción es el único proxy propio permitido; importa la
   policy compartida, no la reimplementa.

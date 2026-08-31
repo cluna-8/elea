@@ -58,7 +58,7 @@
       "detalle": {
         "rechazos_guion": 0,
         "filas_rejected_saturated": 0,
-        "fuente": "503 con X-Basa-Rejected: saturated (guion) vs audit_logs con estado 'rejected_saturated' (producto)",
+        "fuente": "503 con X-Sentinel-Rejected: saturated (guion) vs audit_logs con estado 'rejected_saturated' (producto)",
         "nota": "no hubo rechazos por saturación en este run (100% trivial)"
       }
     },

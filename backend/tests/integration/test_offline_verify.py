@@ -16,7 +16,7 @@ from migration_harness import PG_HOST, fresh_db, owner_engine, require_postgres,
 
 require_postgres()
 
-DB = "basa_test_license_offline"
+DB = "sentinel_test_license_offline"
 
 
 @pytest.fixture(scope="module")
@@ -68,9 +68,9 @@ def egress_guard(monkeypatch):
 def test_valid_token_verifies_with_zero_egress(monkeypatch, factory, tmp_path, egress_guard):
     from src.licensing import entitlement
     keyset_path, lic_path, _ = issue_files(tmp_path)
-    monkeypatch.delenv("BASA_LICENSE_TOKEN", raising=False)
-    monkeypatch.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    monkeypatch.delenv("SENTINEL_LICENSE_TOKEN", raising=False)
+    monkeypatch.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
 
     state = entitlement.initialize(force=True, session_factory=factory)
 

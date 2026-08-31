@@ -14,16 +14,16 @@ stays green in CI environments without the Docker stack running.
 La contraseña del admin ya NO tiene default: el producto exige un mínimo de 12
 caracteres y no existe ninguna credencial de fábrica (antes esto asumía
 ``admin``/``admin``, que era justamente el agujero). Los tests que necesitan sesión
-se saltan solos si no se exporta ``BASA_ADMIN_PASS``.
+se saltan solos si no se exporta ``SENTINEL_ADMIN_PASS``.
 """
 import os
 
 import httpx
 import pytest
 
-BASE = os.getenv("BASA_BACKEND_URL", "http://localhost:8081/api/v1")
-ADMIN_USER = os.getenv("BASA_ADMIN_USER", "admin")
-ADMIN_PASS = os.getenv("BASA_ADMIN_PASS", "")
+BASE = os.getenv("SENTINEL_BACKEND_URL", "http://localhost:8081/api/v1")
+ADMIN_USER = os.getenv("SENTINEL_ADMIN_USER", "admin")
+ADMIN_PASS = os.getenv("SENTINEL_ADMIN_PASS", "")
 
 
 def _backend_reachable() -> bool:
@@ -41,7 +41,7 @@ pytestmark = pytest.mark.skipif(
 
 requiere_credencial = pytest.mark.skipif(
     not ADMIN_PASS,
-    reason="exportar BASA_ADMIN_PASS con la contraseña del admin de esta instalación "
+    reason="exportar SENTINEL_ADMIN_PASS con la contraseña del admin de esta instalación "
            "(mínimo 12 caracteres; el producto no trae ninguna por defecto)",
 )
 

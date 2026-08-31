@@ -37,7 +37,7 @@ Decisiones de alcance tomadas con el owner antes de escribir, que cierran las tr
 
 1. **AI-Act / prácticas prohibidas** → NO se redefine en esta spec; su tratamiento (gate duro vs evidencia) es alcance de la **018**. Registrado en Assumptions y Out of Scope.
 2. **Granularidad** → solo **modo de conexión + superficie/herramienta**. El per-grupo/per-cliente se apoyará en la cascada de la **015** cuando exista; esta spec no la reimplementa.
-3. **Capas de protección** → esta feature construye el **marco** (declarar, configurar, aplicar, reportar con honestidad); **la implementación de cada capa pertenece al módulo de seguridad y guardianes** (Cristian). Se retiró la user story que prometía cablearlas, para no invadir ese módulo — que además tiene trabajo en vuelo ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21)).
+3. **Capas de protección** → esta feature construye el **marco** (declarar, configurar, aplicar, reportar con honestidad); **la implementación de cada capa pertenece al módulo de seguridad y guardianes** (Cristian). Se retiró la user story que prometía cablearlas, para no invadir ese módulo — que además tiene trabajo en vuelo ([PR #21](https://github.com/DrZuzzjen/sentinel-guardian/pull/21)).
 
 **Sobre "no implementation details"**: la sección *Contexto del problema* describe el estado actual del sistema (qué capas corren y cuáles no) porque es la justificación de la feature; no introduce decisiones de implementación en los requisitos. Los FR y SC se mantienen agnósticos de tecnología.
 

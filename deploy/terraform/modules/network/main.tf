@@ -82,7 +82,7 @@ resource "aws_route_table_association" "private" {
 # origen — el tráfico interno viaja por referencia de SG, no por CIDR.
 resource "aws_security_group" "app" {
   name        = "${var.prefix}-app"
-  description = "Basa app VM: 443-only in; egress a proveedores via NAT"
+  description = "Sentinel app VM: 443-only in; egress a proveedores via NAT"
   vpc_id      = aws_vpc.this.id
 
   ingress {

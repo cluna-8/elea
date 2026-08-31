@@ -27,10 +27,10 @@ TypeScript/React (frontend)
 
 **Primary Dependencies**: SQLAlchemy (audit_logs existente), Redis (contador de pérdidas +
 vitrina intacta), httpx (extensión motor → plano interno), extensiones LiteLLM ya montadas
-(`litellm/extensions/basa_guardrail.py`, `basa_audit_logger.py`)
+(`litellm/extensions/sentinel_guardrail.py`, `sentinel_audit_logger.py`)
 
 **Storage**: `audit_logs` existente (cero columnas nuevas — ver Constitution Check II);
-Redis: `basa:audit:lost` (contador) + `basa:audit:last_fail` (timestamp) compartidos por
+Redis: `sentinel:audit:lost` (contador) + `sentinel:audit:last_fail` (timestamp) compartidos por
 los productores (el motor ya escribe en Redis: es productor de la vitrina)
 
 **Testing**: pytest (harness `build_app_client` + fake httpx namespace; suite 021
@@ -102,9 +102,9 @@ backend/src/
 └── api/audit.py                    # FR-006: filtro estado=bloqueado de primera clase
 
 litellm/extensions/
-├── basa_guardrail.py               # US1: registrar→bloquear (POST interno con identidad
+├── sentinel_guardrail.py               # US1: registrar→bloquear (POST interno con identidad
 │                                   #   de la Connection) en sus puntos de bloqueo
-└── basa_audit_logger.py            # US2: prints→logging, retry acotado, contador Redis
+└── sentinel_audit_logger.py            # US2: prints→logging, retry acotado, contador Redis
 
 frontend/src/pages/
 ├── AuditPage.tsx                   # US1/US2: filtro «Bloqueados» + badge rojo + banner
@@ -114,7 +114,7 @@ frontend/src/pages/
 
 deploy/
 ├── clients/camara-comercio/…      # audit_fail=open explícito en el perfil (seed)
-└── docker/compose.prod.yml        # env BASA_AUDIT_FAIL cableada al backend y al motor
+└── docker/compose.prod.yml        # env SENTINEL_AUDIT_FAIL cableada al backend y al motor
 ```
 
 **Structure Decision**: cero módulos nuevos de backend — la spec endurece caminos

@@ -11,11 +11,11 @@
 
 // El default de URL y la validación viven en config.js — una sola fuente.
 importScripts("config.js");
-const DEFAULT_GW = self.BASA_CONFIG.GATEWAY_URL;
+const DEFAULT_GW = self.SENTINEL_CONFIG.GATEWAY_URL;
 
 async function cfg() {
-  const s = await chrome.storage.local.get(["basa_key", "basa_gateway"]);
-  return { key: s.basa_key || "", gw: s.basa_gateway || DEFAULT_GW };
+  const s = await chrome.storage.local.get(["sentinel_key", "sentinel_gateway"]);
+  return { key: s.sentinel_key || "", gw: s.sentinel_gateway || DEFAULT_GW };
 }
 
 // ── Transiciones de estado (el SW es el ÚNICO que las escribe) ──────────────────
@@ -23,21 +23,21 @@ async function setConectado(j, keyToPersist) {
   const patch = {
     sesion_estado: "conectado",
     sesion_motivo: null,
-    basa_connected: true,
-    basa_user: j.user || null,
-    basa_team: j.team || null,
+    sentinel_connected: true,
+    sentinel_user: j.user || null,
+    sentinel_team: j.team || null,
     // proteccion: bloque del server para el chip de honestidad (US4). null si el
     // backend es viejo → la extensión asume la promesa más chica ("patrones").
     proteccion: j.proteccion || null,
   };
   // La key se persiste SÓLO tras validar (hardening #45: nunca antes). Cuando el
   // whoami usó una key provista por el popup y validó, este es el momento correcto.
-  if (keyToPersist) patch.basa_key = keyToPersist;
+  if (keyToPersist) patch.sentinel_key = keyToPersist;
   await chrome.storage.local.set(patch);
 }
 
 async function setNoVerificado() {
-  // Corte de red: NO tocar basa_connected (una sesión ya válida sigue usable; los
+  // Corte de red: NO tocar sentinel_connected (una sesión ya válida sigue usable; los
   // envíos igual fail-closan si el gateway no responde) y NO borrar la key (FR-023).
   await chrome.storage.local.set({ sesion_estado: "no_verificado" });
 }
@@ -47,12 +47,12 @@ async function setDesconectado(motivo) {
   await chrome.storage.local.set({
     sesion_estado: "desconectado",
     sesion_motivo: motivo,              // "key_invalida" | "plaza_revocada"
-    basa_connected: false,
-    basa_user: null,
-    basa_team: null,
+    sentinel_connected: false,
+    sentinel_user: null,
+    sentinel_team: null,
     proteccion: null,
   });
-  await chrome.storage.local.remove("basa_key");
+  await chrome.storage.local.remove("sentinel_key");
 }
 
 // ── Permiso de host en runtime (US2/FR-009/FR-011) ──────────────────────────────
@@ -78,7 +78,7 @@ async function doWhoami(testKey, persistKey) {
   const { gw } = await cfg();
   if (!testKey) return { ok: false, error: "sin API key" };
 
-  const v = self.BASA_CONFIG.validarGatewayUrl(gw);
+  const v = self.SENTINEL_CONFIG.validarGatewayUrl(gw);
   if (!v.ok) return { ok: false, error: "gateway_invalido", detalle: v.error };
 
   const granted = await ensureHostPermission(v.origin);
@@ -86,7 +86,7 @@ async function doWhoami(testKey, persistKey) {
 
   let r;
   try {
-    r = await fetch(v.url + "/whoami", { headers: { "X-Basa-Key": testKey } });
+    r = await fetch(v.url + "/whoami", { headers: { "X-Sentinel-Key": testKey } });
   } catch (_netErr) {
     await setNoVerificado();            // corte de red → conserva key, reintenta solo
     return { ok: false, error: "sin conexión con el gateway", session: "no_verificado", key_conservada: true };
@@ -148,14 +148,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.kind === "inspect") {
         const { key, gw } = await cfg();
         if (!key) return sendResponse({ ok: false, error: "sin API key" });
-        const v = self.BASA_CONFIG.validarGatewayUrl(gw);
+        const v = self.SENTINEL_CONFIG.validarGatewayUrl(gw);
         if (!v.ok) return sendResponse({ ok: false, error: "gateway_invalido" });
 
         let r;
         try {
           r = await fetch(v.url + "/inspect", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Basa-Key": key },
+            headers: { "Content-Type": "application/json", "X-Sentinel-Key": key },
             body: JSON.stringify({ text: msg.text, tool: msg.tool }),
           });
         } catch (_netErr) {

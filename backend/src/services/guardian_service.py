@@ -7,7 +7,7 @@ from ..models.guardian import Guardian
 from .audit_service import record_nlp_degradation
 from .presidio_service import PresidioService, NlpUnavailableError, policy
 
-logger = logging.getLogger("basa-secure-gateway.guardian")
+logger = logging.getLogger("sentinel-secure-gateway.guardian")
 
 class GuardianService:
     @staticmethod
@@ -81,17 +81,17 @@ class GuardianService:
                     # de spec 016 para países reales). H3 del gate de #137: acá el criterio
                     # «igual que nlp_fail_mode» NO transfiere tal cual — `nlp_fail_mode`
                     # siembra una CONSTANTE porque no hay env equivalente (sembrarla es
-                    # no-op); `region` SÍ tiene un default de instalación (`BASA_ENTITY_
+                    # no-op); `region` SÍ tiene un default de instalación (`SENTINEL_ENTITY_
                     # REGION`), así que sembrar el literal `"eu"` a ciegas ANULABA ese
                     # default en cualquier instalación no-EU desde el primer `GET
                     # /guardians`. Se siembra el valor RESUELTO de la instalación en este
                     # instante (visible en pantalla, mismo espíritu que `nlp_fail_mode`),
-                    # no un literal — instalaciones nuevas con `BASA_ENTITY_REGION=latam_ar`
+                    # no un literal — instalaciones nuevas con `SENTINEL_ENTITY_REGION=latam_ar`
                     # nacen con `latam_ar`, no con `eu`. Sin migración-on-read para
                     # instalaciones existentes (mismo criterio que `nlp_fail_mode`): la
-                    # clave ausente sigue resolviendo por `BASA_ENTITY_REGION` hasta que un
+                    # clave ausente sigue resolviendo por `SENTINEL_ENTITY_REGION` hasta que un
                     # admin fije el país de este tenant explícitamente.
-                    "region": os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION),
+                    "region": os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION),
                 }
             )
             g2 = Guardian(
@@ -313,10 +313,10 @@ class GuardianService:
             # `"eu"` y `analyze_text` (el fallback regex) ni tenía el parámetro. Mismo
             # mecanismo que `resolve_nlp_fail_mode`: clave `region` en el `config` del
             # guardián `pii_masking` activo, con el default DE LA INSTALACIÓN
-            # (`BASA_ENTITY_REGION`) como fallback retrocompatible.
+            # (`SENTINEL_ENTITY_REGION`) como fallback retrocompatible.
             region = policy.resolve_region(
                 pii_guardian.config if pii_guardian else None,
-                default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+                default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
 
             # Mask custom names
             for idx, name in enumerate(custom_names):

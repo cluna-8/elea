@@ -1,0 +1,1200 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArquitectOverview &#8212; Sentinel Guardian</title>
+<meta name="description" content="ArquitectOverview de Sentinel Guardian.">
+<style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; min-height: 100vh; }
+    img, svg, video { max-width: 100%; }
+    table { border-collapse: collapse; }
+    :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+    .theme-toggle { position: fixed; top: 14px; right: 14px; z-index: 99;
+      font: 600 12px/1 var(--font-display, system-ui);
+      background: var(--surface); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 999px; padding: 9px 15px; cursor: pointer; }
+    .theme-toggle:hover { border-color: var(--sentinel); }
+    @media print { .theme-toggle { display: none; } }
+</style>
+</head>
+<body>
+<div style="background:#7c2d12;color:#fff7ed;padding:10px 18px;font:600 14px/1.5 system-ui;text-align:center">📜 HISTÓRICO (31-jul, pre-mudanza) — dev-fran ya fue absorbida por main (FF 78637e6 + tag checkpoint-camara-2026-08, 04-ago): lo que este doc dice de ramas y de «main sin auditoría» ya NO aplica. Mapa vigente por departamentos: EcosystemOverview · plan vigente: TechTree / specs/ROADMAP-pisos.md</div>
+<button class="theme-toggle" type="button">Tema</button>
+<style>
+  :root {
+    --sentinel: #0891B2;
+    --sentinel-soft: rgba(8, 145, 178, 0.10);
+    --partner: #059669;
+    --partner-soft: rgba(5, 150, 105, 0.10);
+    --caja: #164E63;
+    --caja-soft: rgba(22, 78, 99, 0.08);
+    --dev: #7C3AED;
+    --dev-soft: rgba(124, 58, 237, 0.10);
+    --danger: #DC2626;
+    --amber: #B45309;
+    --amber-soft: rgba(180, 83, 9, 0.10);
+    --bg: #F4FAFC;
+    --surface: #FFFFFF;
+    --surface-2: #EAF4F7;
+    --ink: #0E3A4A;
+    --ink-soft: #4A6B78;
+    --line: #CFE3EA;
+    --chip-bg: #0E3A4A;
+    --chip-fg: #A5F3FC;
+    --font-display: "Avenir Next", "Avenir", "Seravek", "Segoe UI", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --sentinel: #38BDD8; --sentinel-soft: rgba(56,189,216,0.12);
+      --partner: #34C99A; --partner-soft: rgba(52,201,154,0.12);
+      --caja: #9CC8D8; --caja-soft: rgba(156,200,216,0.10);
+      --dev: #A78BFA; --dev-soft: rgba(167,139,250,0.12);
+      --danger: #F07171;
+      --amber: #E0A458; --amber-soft: rgba(224,164,88,0.12);
+      --bg: #0A1D25; --surface: #102833; --surface-2: #16323F;
+      --ink: #D9EEF4; --ink-soft: #8FB2BE; --line: #23414E;
+      --chip-bg: #06141A; --chip-fg: #7DE3F4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --sentinel: #38BDD8; --sentinel-soft: rgba(56,189,216,0.12);
+    --partner: #34C99A; --partner-soft: rgba(52,201,154,0.12);
+    --caja: #9CC8D8; --caja-soft: rgba(156,200,216,0.10);
+    --dev: #A78BFA; --dev-soft: rgba(167,139,250,0.12);
+    --danger: #F07171;
+    --amber: #E0A458; --amber-soft: rgba(224,164,88,0.12);
+    --bg: #0A1D25; --surface: #102833; --surface-2: #16323F;
+    --ink: #D9EEF4; --ink-soft: #8FB2BE; --line: #23414E;
+    --chip-bg: #06141A; --chip-fg: #7DE3F4;
+  }
+  :root[data-theme="light"] {
+    --sentinel: #0891B2; --sentinel-soft: rgba(8,145,178,0.10);
+    --partner: #059669; --partner-soft: rgba(5,150,105,0.10);
+    --caja: #164E63; --caja-soft: rgba(22,78,99,0.08);
+    --dev: #7C3AED; --dev-soft: rgba(124,58,237,0.10);
+    --danger: #DC2626;
+    --amber: #B45309; --amber-soft: rgba(180,83,9,0.10);
+    --bg: #F4FAFC; --surface: #FFFFFF; --surface-2: #EAF4F7;
+    --ink: #0E3A4A; --ink-soft: #4A6B78; --line: #CFE3EA;
+    --chip-bg: #0E3A4A; --chip-fg: #A5F3FC;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--sentinel); margin: 0 0 10px; }
+  h1 { font-size: clamp(30px, 5vw, 42px); font-weight: 700; line-height: 1.12; margin: 0 0 14px; text-wrap: balance; }
+  .lede { font-size: 18px; color: var(--ink-soft); max-width: 64ch; margin: 0; text-wrap: pretty; }
+  .lede strong { color: var(--ink); }
+  .thesis {
+    margin-top: 22px; border: 1.5px solid var(--sentinel); border-radius: 10px;
+    background: var(--sentinel-soft); padding: 16px 20px;
+    font-size: 15.5px; max-width: 74ch; text-wrap: pretty;
+  }
+  .thesis strong { color: var(--sentinel); }
+
+  section { margin-top: 68px; }
+  .kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin: 0 0 6px; }
+  h2 { font-size: 24px; font-weight: 700; margin: 0 0 6px; text-wrap: balance; }
+  .sub { color: var(--ink-soft); max-width: 68ch; margin: 0 0 26px; text-wrap: pretty; }
+  .sub strong { color: var(--ink); }
+
+  .fchip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11.5px; background: var(--chip-bg); color: var(--chip-fg); border-radius: 4px; padding: 3px 8px; white-space: nowrap; }
+  .pill { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; padding: 2.5px 8px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+  .p-dev { background: var(--dev-soft); color: var(--dev); }
+  .p-sentinel { background: var(--sentinel-soft); color: var(--sentinel); }
+  .p-partner { background: var(--partner-soft); color: var(--partner); }
+  .p-caja { background: var(--caja-soft); color: var(--caja); }
+  .p-amber { background: var(--amber-soft); color: var(--amber); }
+
+  /* ---------- protagonistas ---------- */
+  .actors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .actor { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 13px 15px; }
+  .actor .at { font-weight: 700; font-size: 14px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .actor p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+
+  /* ---------- pipeline ---------- */
+  .pipe { display: flex; flex-direction: column; }
+  .stage { display: grid; grid-template-columns: 52px 1fr; gap: 18px; }
+  .stage .rail { display: flex; flex-direction: column; align-items: center; }
+  .stage .num {
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+    border: 1.5px solid; background: var(--surface);
+  }
+  .num.c-dev { color: var(--dev); border-color: var(--dev); }
+  .num.c-sentinel { color: var(--sentinel); border-color: var(--sentinel); }
+  .num.c-partner { color: var(--partner); border-color: var(--partner); }
+  .num.c-caja { color: var(--caja); border-color: var(--caja); }
+  .stage .cord { width: 1.5px; flex: 1; background: var(--line); margin: 4px 0; }
+  .stage:last-child .cord { display: none; }
+  .stage .body { padding-bottom: 10px; min-width: 0; }
+
+  .scard { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 16px 20px; }
+  .scard .sh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+  .scard h3 { margin: 0; font-size: 17px; }
+  .scard .where { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin-left: auto; }
+  .scard p { margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); max-width: 70ch; text-wrap: pretty; }
+  .scard p strong { color: var(--ink); }
+  .scard .io { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; align-items: center; }
+  .scard .io .lbl { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-right: 2px; }
+
+  .flow-note {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft);
+    padding: 10px 0 16px 0;
+  }
+  .flow-note .arr { color: var(--sentinel); font-size: 14px; }
+
+  .loopback {
+    margin-top: 6px; border: 1px dashed var(--line); border-radius: 10px;
+    background: var(--surface-2); padding: 14px 20px;
+    font-size: 13.5px; color: var(--ink-soft); max-width: none; text-wrap: pretty;
+  }
+  .loopback strong { color: var(--ink); }
+
+  /* ---------- tabla d\F3nde ---------- */
+  .twrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; background: var(--surface); font-size: 13.5px; }
+  th { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); text-align: left; padding: 11px 16px; border-bottom: 1.5px solid var(--line); background: var(--surface-2); }
+  td { padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td .mono { font-family: var(--font-mono); font-size: 12px; }
+  td.never { color: var(--danger); font-weight: 600; }
+
+  /* ---------- ediciones ---------- */
+  .ed { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  .edcard { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 16px 20px; }
+  .edcard h3 { margin: 0 0 8px; font-size: 15.5px; }
+  .edcard p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-soft); text-wrap: pretty; }
+  .edcard p strong { color: var(--ink); }
+  .stackv { display: flex; flex-direction: column; gap: 7px; }
+  .layer { border: 1px solid var(--line); border-radius: 7px; padding: 9px 13px; font-size: 12.5px; display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--surface); }
+  .layer .ln { font-weight: 600; }
+  .layer .ld { color: var(--ink-soft); font-size: 11.5px; text-align: right; }
+  .layer.base { border-style: solid; border-color: var(--sentinel); background: var(--sentinel-soft); }
+
+  /* ---------- planos de arquitectura ---------- */
+  .planos { display: flex; flex-direction: column; gap: 30px; }
+  .plano { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 18px 20px 20px; }
+  .plano-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .plano-h h3 { margin: 0; font-size: 17px; }
+  .plano-h .where { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); margin-left: auto; }
+  .region { border: 1.5px dashed; border-radius: 10px; padding: 13px 15px; }
+  .rg-caja { border-color: var(--caja); background: var(--caja-soft); }
+  .rg-sentinel { border-color: var(--sentinel); background: var(--sentinel-soft); }
+  .rg-partner { border-color: var(--partner); background: var(--partner-soft); }
+  .region-lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 11px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .rg-caja > .region-lbl { color: var(--caja); }
+  .rg-sentinel > .region-lbl { color: var(--sentinel); }
+  .rg-partner > .region-lbl { color: var(--partner); }
+  .machine { border: 1px solid var(--line); border-radius: 9px; background: var(--surface); padding: 12px 14px; }
+  .mh { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 13.5px; flex-wrap: wrap; }
+  .mh .sub2 { font-size: 11px; color: var(--ink-soft); font-weight: 400; }
+  .dband { border: 1.5px solid #2496ED; border-radius: 8px; padding: 10px 12px; margin-top: 10px; background: rgba(36, 150, 237, 0.06); }
+  .dband .dh { display: flex; gap: 8px; align-items: center; font-size: 12.5px; font-weight: 600; margin-bottom: 9px; }
+  .svcgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .svc { border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; min-width: 0; }
+  .svc .sn { font-size: 11.5px; font-weight: 600; line-height: 1.25; }
+  .svc .sd { font-size: 9.5px; color: var(--ink-soft); font-family: var(--font-mono); }
+  .ic { width: 22px; height: 22px; flex: none; display: block; }
+  .ic-lg { width: 28px; height: 28px; }
+  .mic { width: 22px; height: 22px; flex: none; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 8px; font-weight: 700; color: var(--ink-soft); letter-spacing: 0; }
+  .volstrip, .flowio { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; align-items: center; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+  .stackg { display: flex; flex-direction: column; gap: 10px; }
+  .toolrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .tool { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 6px 10px; font-size: 12px; font-weight: 600; }
+  .tool .td { font-size: 10px; color: var(--ink-soft); font-weight: 400; font-family: var(--font-mono); }
+  .pnote { font-size: 12.5px; color: var(--ink-soft); margin: 10px 0 0; max-width: 78ch; text-wrap: pretty; }
+  .pnote strong { color: var(--ink); }
+
+  .foot { margin-top: 72px; border-top: 1px solid var(--line); padding-top: 18px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft); line-height: 1.8; }
+  .foot a { color: var(--sentinel); }
+
+  @media (max-width: 780px) {
+    .actors { grid-template-columns: 1fr; }
+    .ed { grid-template-columns: 1fr; }
+    .scard .where { margin-left: 0; width: 100%; }
+    .svcgrid { grid-template-columns: repeat(2, 1fr); }
+    .cols2 { grid-template-columns: 1fr; }
+    .plano-h .where { margin-left: 0; width: 100%; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .scard, .actor, .edcard { transition: border-color 0.15s ease; }
+    .scard:hover, .actor:hover, .edcard:hover { border-color: var(--sentinel); }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Sentinel Guardian &#183; ArquitectOverview &#183; 31-jul-2026</p>
+    <h1>ArquitectOverview: la f&#225;brica, el portal y el producto</h1>
+    <p class="lede">El mapa completo del proyecto en un solo documento: el Guardian en un vistazo (01), c&#243;mo lo fabricamos y entregamos (02-07), el Vendor Portal que lo orquesta (08), y el producto por dentro &#8212; canales, m&#243;dulos y niveles (09-11). Qu&#233; existe, qu&#233; es fase 2 y qu&#233; falta, marcado sin maquillaje.</p>
+    <div class="thesis">La regla que responde a "&#191;d&#243;nde se genera?": <strong>el c&#243;digo se compila UNA vez por release, en la CI de Sentinel.</strong> Aguas abajo nadie compila nada &#8212; el portal <strong>firma y personaliza</strong> (segundos, MBs) y la CLI del partner <strong>compone e instala</strong> archivos ya hechos. La Mac del partner mueve piezas; no las fabrica.</div>
+  </header>
+
+  <!-- ================= EL GUARDIAN EN UN VISTAZO ================= -->
+  <section>
+    <p class="kicker">01 &#183; El producto</p>
+    <h2>El Guardian en un vistazo: clientes, canales y la caja</h2>
+    <p class="sub">Tres superficies que convergen en <strong>una puerta &#250;nica</strong>. Leyenda de estados (la del sitio de docs): <span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">&#128994; verificado en vivo</span> <span class="pill p-amber">&#128993; parcial, l&#237;mites documentados</span> <span class="pill p-sentinel">&#128309; roadmap &#8212; no se vende</span>. Rama de referencia: <strong>dev-fran</strong> (el producto del piloto).</p>
+
+    <div style="overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:10px 6px">
+      <svg viewBox="0 0 1240 740" style="min-width:900px; width:100%; height:auto; display:block; font-family:var(--font-display)" role="img" aria-label="Mapa del ecosistema Guardian">
+        <defs>
+          <marker id="ah-sentinel" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--sentinel)"/></marker>
+          <marker id="ah-partner" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--partner)"/></marker>
+          <marker id="ah-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--amber)"/></marker>
+          <marker id="ah-gray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" style="fill:var(--ink-soft)"/></marker>
+        </defs>
+
+        <!-- regiones -->
+        <rect x="8" y="26" width="880" height="666" rx="12" style="fill:var(--caja-soft); stroke:var(--caja); stroke-dasharray:7 5; stroke-width:1.4"/>
+        <rect x="930" y="26" width="302" height="666" rx="12" style="fill:var(--sentinel-soft); stroke:var(--sentinel); stroke-dasharray:7 5; stroke-width:1.4"/>
+        <text x="24" y="682" style="font-family:var(--font-mono); font-size:10.5px; letter-spacing:2px; fill:var(--caja)">RED DEL CLIENTE &#8212; LAN + SEDE</text>
+        <text x="946" y="682" style="font-family:var(--font-mono); font-size:10.5px; letter-spacing:2px; fill:var(--sentinel)">INTERNET &#8212; EGRESS CONTROLADO</text>
+
+        <!-- ===== usuarios (izquierda) ===== -->
+        <rect x="28" y="70" width="240" height="150" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="44" y="94" style="font-size:13px; font-weight:700; fill:var(--ink)">Empleados &#183; navegador</text>
+        <g style="color:var(--ink)"><use href="#i-openai" x="44" y="104" width="20" height="20"/></g>
+        <use href="#i-claude" x="72" y="104" width="20" height="20"/>
+        <use href="#i-gemini" x="100" y="104" width="20" height="20"/>
+        <text x="128" y="119" style="font-size:11px; fill:var(--ink-soft)">webs de IA</text>
+        <rect x="44" y="136" width="208" height="26" rx="5" style="fill:var(--chip-bg)"/>
+        <text x="52" y="153" style="font-family:var(--font-mono); font-size:10.5px; fill:var(--chip-fg)">extensi&#243;n sentinel &#183; content-script</text>
+        <text x="44" y="182" style="font-size:10.5px; fill:var(--ink-soft)">hook de window.fetch &#8212; enmascara al salir</text>
+        <text x="44" y="197" style="font-size:10.5px; fill:var(--ink-soft)">unmask en el DOM por tokens</text>
+
+        <rect x="28" y="260" width="240" height="140" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="44" y="284" style="font-size:13px; font-weight:700; fill:var(--ink)">Developers &#183; coding tools</text>
+        <text x="44" y="306" style="font-size:11px; fill:var(--ink)">&#128994; Claude Code &#8212; suscripci&#243;n o byok</text>
+        <text x="44" y="324" style="font-size:11px; fill:var(--ink)">&#128994; Aider (byok) &#183; &#129433; modelo propio</text>
+        <text x="44" y="342" style="font-size:11px; fill:var(--ink)">&#128993; Copilot solo Ask &#183; &#128993; Cursor solo chat</text>
+        <text x="44" y="363" style="font-size:10.5px; fill:var(--ink-soft)">base_url &#8594; el gateway &#183; &#10005; Codex (#28)</text>
+
+        <rect x="28" y="440" width="240" height="64" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="44" y="464" style="font-size:12.5px; font-weight:700; fill:var(--ink)">Apps internas &#183; API directa</text>
+        <text x="44" y="482" style="font-size:10.5px; fill:var(--ink-soft)">SDK / curl con sk-sentinel</text>
+
+        <rect x="28" y="544" width="240" height="64" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="44" y="568" style="font-size:12.5px; font-weight:700; fill:var(--ink)">Admin &amp; officer &#183; panel UI</text>
+        <text x="44" y="586" style="font-size:10.5px; fill:var(--ink-soft)">https &#183; roles (&#9888; 017 pendiente)</text>
+
+        <!-- ===== LA CAJA ===== -->
+        <rect x="330" y="70" width="530" height="560" rx="12" style="fill:var(--surface); stroke:var(--caja); stroke-width:1.8"/>
+        <text x="346" y="94" style="font-size:13.5px; font-weight:700; fill:var(--ink)">LA CAJA GUARDIAN</text>
+        <text x="490" y="94" style="font-size:11px; fill:var(--ink-soft)">servidor Linux &#183; Docker Compose</text>
+
+        <rect x="346" y="110" width="46" height="470" rx="8" style="fill:var(--sentinel-soft); stroke:var(--sentinel)"/>
+        <text transform="rotate(-90 369 345)" x="369" y="349" text-anchor="middle" style="font-family:var(--font-mono); font-size:10.5px; letter-spacing:1.5px; fill:var(--sentinel)">INGRESS CADDY &#183; TLS</text>
+
+        <rect x="412" y="130" width="210" height="140" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="428" y="154" style="font-size:12.5px; font-weight:700; fill:var(--ink)">Backend &#8212; gateway</text>
+        <text x="428" y="171" style="font-family:var(--font-mono); font-size:10.5px; fill:var(--ink-soft)">/api/v1/gw</text>
+        <text x="428" y="192" style="font-size:11px; fill:var(--ink)">auto-detecci&#243;n de canal:</text>
+        <text x="428" y="209" style="font-size:11px; fill:var(--ink)">sk-sentinel &#8594; BYOK (al motor)</text>
+        <text x="428" y="226" style="font-size:11px; fill:var(--ink)">OAuth &#8594; passthrough</text>
+        <text x="428" y="247" style="font-size:10.5px; fill:var(--ink-soft)">/inspect &#183; /whoami &#8212; extensi&#243;n</text>
+
+        <rect x="412" y="300" width="150" height="48" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="428" y="320" style="font-size:12px; font-weight:700; fill:var(--ink)">UI panel (029)</text>
+        <text x="428" y="337" style="font-size:10px; fill:var(--ink-soft)">cliente fino de la API</text>
+
+        <rect x="650" y="130" width="190" height="170" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="666" y="154" style="font-size:12.5px; font-weight:700; fill:var(--ink)">Motor firewall</text>
+        <text x="666" y="171" style="font-size:10.5px; fill:var(--ink-soft)">motor de inferencia + hooks sentinel</text>
+        <text x="666" y="192" style="font-size:11px; fill:var(--ink)">custom_auth &#183; identidad + 402</text>
+        <text x="666" y="209" style="font-size:11px; fill:var(--ink)">SentinelGuardrail &#183; AI-Act &#8594;</text>
+        <text x="666" y="224" style="font-size:11px; fill:var(--ink)">secretos &#8594; PII (mask/block)</text>
+        <text x="666" y="243" style="font-size:11px; fill:var(--ink)">AuditLogger &#183; fila durable</text>
+        <text x="666" y="264" style="font-size:10.5px; fill:var(--ink-soft)">9 capas: 4 piso + opcionales</text>
+        <text x="666" y="280" style="font-size:10.5px; fill:var(--ink-soft)">(5 cloud: incoming, no corren)</text>
+
+        <rect x="650" y="330" width="190" height="50" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="666" y="350" style="font-size:12px; font-weight:700; fill:var(--ink)">Sidecar NLP Presidio</text>
+        <text x="666" y="367" style="font-size:10.5px; fill:var(--ink-soft)">NER real &#183; fail-closed (byok)</text>
+
+        <rect x="650" y="410" width="190" height="50" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="666" y="430" style="font-size:12px; font-weight:700; fill:var(--ink)">&#129433; Ollama &#8212; en el host</text>
+        <text x="666" y="447" style="font-size:10.5px; fill:var(--ink-soft)">modelos locales &#183; cero egress</text>
+
+        <rect x="412" y="500" width="428" height="80" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="428" y="521" style="font-size:12px; font-weight:700; fill:var(--ink)">Estado &amp; evidencia</text>
+        <text x="428" y="540" style="font-size:10.5px; fill:var(--ink)">PostgreSQL &#8212; auditor&#237;a durable (031) + presupuestos &#183; escriben gateway y motor</text>
+        <text x="428" y="556" style="font-size:10.5px; fill:var(--ink)">Redis &#8212; monitor vitrina (TTL 300 s; NO es el registro de compliance)</text>
+        <text x="428" y="572" style="font-size:10.5px; fill:var(--ink)">.lic + deployment_key &#8212; gate de licencias fail-closed (021)</text>
+
+        <!-- flechas internas -->
+        <line x1="392" y1="200" x2="410" y2="200" style="stroke:var(--ink-soft); stroke-width:1.6" marker-end="url(#ah-gray)"/>
+        <line x1="622" y1="215" x2="648" y2="215" style="stroke:var(--partner); stroke-width:2" marker-end="url(#ah-partner)"/>
+        <line x1="745" y1="300" x2="745" y2="328" style="stroke:var(--ink-soft); stroke-width:1.5" marker-end="url(#ah-gray)"/>
+        <path d="M840,270 L851,270 L851,435 L843,435" fill="none" style="stroke:var(--ink-soft); stroke-width:1.5" marker-end="url(#ah-gray)"/>
+        <line x1="392" y1="324" x2="410" y2="324" style="stroke:var(--ink-soft); stroke-width:1.4" marker-end="url(#ah-gray)"/>
+
+        <!-- flechas de clientes al ingress -->
+        <line x1="268" y1="146" x2="343" y2="146" style="stroke:var(--amber); stroke-width:2; stroke-dasharray:5 4" marker-end="url(#ah-amber)"/>
+        <text x="306" y="138" text-anchor="middle" style="font-family:var(--font-mono); font-size:9.5px; fill:var(--amber)">/inspect</text>
+        <line x1="268" y1="300" x2="343" y2="300" style="stroke:var(--sentinel); stroke-width:2" marker-end="url(#ah-sentinel)"/>
+        <text x="306" y="292" text-anchor="middle" style="font-family:var(--font-mono); font-size:9.5px; fill:var(--sentinel)">OAuth</text>
+        <line x1="268" y1="334" x2="343" y2="334" style="stroke:var(--partner); stroke-width:2" marker-end="url(#ah-partner)"/>
+        <text x="306" y="352" text-anchor="middle" style="font-family:var(--font-mono); font-size:9.5px; fill:var(--partner)">sk-sentinel</text>
+        <line x1="268" y1="472" x2="343" y2="472" style="stroke:var(--partner); stroke-width:1.6" marker-end="url(#ah-partner)"/>
+        <line x1="268" y1="576" x2="343" y2="576" style="stroke:var(--ink-soft); stroke-width:1.5" marker-end="url(#ah-gray)"/>
+
+        <!-- browser: el body enmascarado va DIRECTO a la web de IA -->
+        <path d="M268,88 C520,18 800,18 946,218" fill="none" style="stroke:var(--amber); stroke-width:2.2" marker-end="url(#ah-amber)"/>
+        <text x="600" y="34" text-anchor="middle" style="font-size:11px; font-weight:600; fill:var(--amber)">el body viaja YA enmascarado, directo a la web de IA</text>
+        <text x="600" y="49" text-anchor="middle" style="font-size:10px; fill:var(--amber)">la key sk-sentinel jam&#225;s sale hacia el proveedor</text>
+
+        <!-- passthrough suscripci&#243;n -->
+        <path d="M622,148 C700,92 830,82 946,96" fill="none" style="stroke:var(--sentinel); stroke-width:2.2" marker-end="url(#ah-sentinel)"/>
+        <text x="775" y="62" text-anchor="middle" style="font-size:10.5px; font-weight:600; fill:var(--sentinel)">passthrough &#8212; OAuth verbatim &#183; pol&#237;tica (regex) en el gateway</text>
+
+        <!-- byok motor a proveedores -->
+        <path d="M840,232 C900,244 922,300 946,352" fill="none" style="stroke:var(--partner); stroke-width:2.2" marker-end="url(#ah-partner)"/>
+        <text x="940" y="300" text-anchor="end" style="font-size:10.5px; font-weight:600; fill:var(--partner)">keys del cliente</text>
+
+        <!-- ===== upstreams (derecha) ===== -->
+        <rect x="948" y="64" width="266" height="64" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <use href="#i-claude" x="962" y="80" width="20" height="20"/>
+        <text x="990" y="89" style="font-size:12.5px; font-weight:700; fill:var(--ink)">api.anthropic.com</text>
+        <text x="990" y="106" style="font-size:10.5px; fill:var(--ink-soft)">la suscripci&#243;n del usuario</text>
+
+        <rect x="948" y="190" width="266" height="76" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <g style="color:var(--ink)"><use href="#i-openai" x="962" y="204" width="20" height="20"/></g>
+        <use href="#i-claude" x="990" y="204" width="20" height="20"/>
+        <text x="1020" y="219" style="font-size:12.5px; font-weight:700; fill:var(--ink)">Webs de IA</text>
+        <text x="962" y="248" style="font-size:10.5px; fill:var(--ink-soft)">chatgpt.com &#183; claude.ai (Gemini &#128309;)</text>
+
+        <rect x="948" y="320" width="266" height="90" rx="8" style="fill:var(--surface); stroke:var(--line)"/>
+        <text x="964" y="344" style="font-size:12.5px; font-weight:700; fill:var(--ink)">APIs de proveedores &#8212; BYOK</text>
+        <g style="color:var(--ink)"><use href="#i-openai" x="964" y="356" width="20" height="20"/></g>
+        <use href="#i-claude" x="992" y="356" width="20" height="20"/>
+        <use href="#i-gemini" x="1020" y="356" width="20" height="20"/>
+        <text x="964" y="398" style="font-size:10.5px; fill:var(--ink-soft)">con las keys del cliente &#183; solo desde el motor</text>
+
+        <rect x="948" y="450" width="266" height="58" rx="8" style="fill:none; stroke:var(--line); stroke-dasharray:5 4"/>
+        <text x="964" y="474" style="font-size:11px; font-weight:600; fill:var(--ink)">Modo air-gap puro: nada de esto</text>
+        <text x="964" y="491" style="font-size:10.5px; fill:var(--ink-soft)">cero egress &#8212; el modelo es Ollama en la caja</text>
+
+        <!-- leyenda -->
+        <line x1="28" y1="712" x2="58" y2="712" style="stroke:var(--sentinel); stroke-width:2.5"/>
+        <text x="64" y="716" style="font-size:10.5px; fill:var(--ink-soft)">canal suscripci&#243;n (OAuth)</text>
+        <line x1="240" y1="712" x2="270" y2="712" style="stroke:var(--partner); stroke-width:2.5"/>
+        <text x="276" y="716" style="font-size:10.5px; fill:var(--ink-soft)">canal BYOK (sk-sentinel)</text>
+        <line x1="440" y1="712" x2="470" y2="712" style="stroke:var(--amber); stroke-width:2.5; stroke-dasharray:5 4"/>
+        <text x="476" y="716" style="font-size:10.5px; fill:var(--ink-soft)">superficie browser (extensi&#243;n)</text>
+        <line x1="680" y1="712" x2="710" y2="712" style="stroke:var(--ink-soft); stroke-width:2"/>
+        <text x="716" y="716" style="font-size:10.5px; fill:var(--ink-soft)">interno / plano de datos</text>
+      </svg>
+    </div>
+
+    <div class="toolrow" style="margin-top:14px">
+      <span class="tool"><span class="mic">GW</span> Endpoints <span class="td" style="font-family:var(--font-mono)">POST /api/v1/gw/v1/messages &#183; /inspect &#183; /whoami &#183; /monitor</span></span>
+      <span class="tool" style="border-color:var(--danger)">&#9888; Riesgo browser <span class="td">si el proveedor cambia su ruta interna de API, el tr&#225;fico pasa CRUDO en silencio (telemetr&#237;a US10 sin implementar)</span></span>
+      <span class="tool" style="border-color:var(--danger)">&#10005; Codex no-ofrecer <span class="td">familia Responses sin pol&#237;tica (#28)</span></span>
+    </div>
+  </section>
+
+  <!-- ================= PROTAGONISTAS ================= -->
+  <section>
+    <p class="kicker">02 &#183; Los protagonistas</p>
+    <h2>Seis actores, cuatro colores</h2>
+    <p class="sub">Cada color marca d&#243;nde corre cada cosa a lo largo de toda la p&#225;gina: <span class="pill p-dev">desarrollo</span> <span class="pill p-sentinel">sentinel-dev online</span> <span class="pill p-partner">partner</span> <span class="pill p-caja">sede del cliente</span></p>
+    <div class="actors">
+      <div class="actor"><div class="at">Equipo Sentinel <span class="pill p-dev">dev</span></div><p>JF, Cristian, Falime + agentes de coding. Features por spec (SDD), ramas, review, merge.</p></div>
+      <div class="actor"><div class="at">CI / build farm <span class="pill p-sentinel">sentinel-dev</span></div><p>Compila cada release una vez por arquitectura. La &#250;nica f&#225;brica de im&#225;genes del sistema.</p></div>
+      <div class="actor"><div class="at">Vendor Portal <span class="pill p-sentinel">sentinel-dev</span></div><p>Cat&#225;logo de releases, cupos, emisi&#243;n de licencias, registro central. Firma, no compila.</p></div>
+      <div class="actor"><div class="at">Partner + su agente <span class="pill p-partner">partner</span></div><p>Humano o agente con skills sobre la CLI. Personaliza, descarga, compone, lleva, instala. <strong>Decidido (JF, 31-jul): el agente del partner se entrega s&#237; o s&#237;</strong> &#8212; prompts + skills sobre sentinel-admin, como parte del enablement.</p></div>
+      <div class="actor"><div class="at">CLI sentinel-admin <span class="pill p-partner">partner</span></div><p>El "instalador de toda la vida", como .pyz. Compone base + overlay, verifica e instala. Agent-first por dise&#241;o.</p></div>
+      <div class="actor"><div class="at">La caja <span class="pill p-caja">sede</span></div><p>El producto corriendo air-gapped en la VPC/servidor del cliente. Verifica su licencia sola, sin red.</p></div>
+    </div>
+  </section>
+
+  <!-- ================= PIPELINE ================= -->
+  <section>
+    <p class="kicker">03 &#183; El ciclo, de punta a punta</p>
+    <h2>La cadena de montaje</h2>
+    <p class="sub">Siete estaciones. F&#237;jate en qu&#233; viaja entre una y otra &#8212; siempre son <strong>artefactos con nombre</strong>, nunca "acceso" ni conexiones.</p>
+
+    <div class="pipe">
+
+      <div class="stage">
+        <div class="rail"><span class="num c-dev">1</span><span class="cord"></span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>Desarrollamos la feature</h3><span class="pill p-dev">equipo + agentes</span><span class="where">repo sentinel-guardian</span></div>
+            <p>Spec cuando lo amerita (SDD), rama, implementaci&#243;n, review. La integraci&#243;n vive en <strong>dev-fran</strong> y lo estable se mergea a <strong>main</strong>. Los gates del repo (suite completa, checks de white-label, air-gap y docs) son la primera aduana: lo que no pasa, no sigue.</p>
+            <div class="io"><span class="lbl">sale</span><span class="fchip">merge a main</span></div>
+          </div>
+          <div class="flow-note"><span class="arr">&#8595;</span> main en verde dispara un release cuando decidimos cortar versi&#243;n</div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><span class="num c-sentinel">2</span><span class="cord"></span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>La CI corta el release</h3><span class="pill p-sentinel">build farm</span><span class="where">una vez por versi&#243;n &#215; arch</span></div>
+            <p>Aqu&#237; &#8212; y <strong>solo</strong> aqu&#237; &#8212; se compila: las 8 im&#225;genes Docker pinneadas por digest, la imagen de docs, la CLI <span class="fchip">sentinel-admin.pyz</span>, para <strong>amd64 y arm64 expl&#237;citos</strong> (la lecci&#243;n del showstopper: la arquitectura se declara, nunca se hereda del laptop que buildea). Todo firmado, con SBOM, y probado E2E contra un install air-gapped de verdad.</p>
+            <div class="io"><span class="lbl">sale</span><span class="fchip">bundle base v2.4 &#183; amd64 (~3 GB)</span><span class="fchip">bundle base v2.4 &#183; arm64</span><span class="fchip">MANIFEST firmado</span></div>
+          </div>
+          <div class="flow-note"><span class="arr">&#8595;</span> los bundles base se almacenan; son id&#233;nticos para TODOS los clientes de esa versi&#243;n</div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><span class="num c-sentinel">3</span><span class="cord"></span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>Publicamos al cat&#225;logo</h3><span class="pill p-sentinel">portal &#183; vista Sentinel</span><span class="where">sentinel-dev.com</span></div>
+            <p>Antes de que un partner la vea, la versi&#243;n pasa por nuestros entornos: dev &#8594; la demo VPS &#8594; piloto. Al promoverla, el cat&#225;logo define <strong>qu&#233; partners ven qu&#233; versiones y qu&#233; features pueden contratar</strong>. Aqu&#237; no hay build: es una decisi&#243;n de canal sobre artefactos que ya existen.</p>
+            <div class="io"><span class="lbl">sale</span><span class="fchip">v2.4 disponible para Grupo Salud Norte</span></div>
+          </div>
+          <div class="flow-note"><span class="arr">&#8595;</span> el partner la ve en su portal: "v2.4 estable disponible"</div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><span class="num c-partner">4</span><span class="cord"></span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>El partner personaliza para su cliente</h3><span class="pill p-partner">portal &#183; vista partner</span><span class="where">/new-installation &#183; segundos</span></div>
+            <p>Wizard: cliente, versi&#243;n, marca, licencia del pool. El portal genera el <strong>overlay del cliente</strong> &#8212; perfil de configuraci&#243;n, brand-pack, la <span class="fchip">.lic</span> firmada por el firmante central (descontando cupo), extensi&#243;n brandeada, docs de cliente. <strong>Son MBs, no GBs</strong>: la personalizaci&#243;n es configuraci&#243;n-como-datos, jam&#225;s una imagen nueva.</p>
+            <div class="io"><span class="lbl">sale</span><span class="fchip">overlay-hospital-manolo.tar (~MBs)</span><span class="fchip">hospital-manolo.lic</span></div>
+          </div>
+          <div class="flow-note"><span class="arr">&#8595;</span> descarga: el base UNA vez por versi&#243;n (le sirve para todos sus clientes) + el overlay por cliente</div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><span class="num c-partner">5</span><span class="cord"></span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>La CLI compone el instalador</h3><span class="pill p-partner">sentinel-admin &#183; laptop del partner</span><span class="where">offline si hace falta</span></div>
+            <p><span class="fchip">sentinel-admin install bundle</span> junta base + overlay, verifica cada sha256 contra el MANIFEST y deja el instalador final listo para viajar. <strong>No compila nada</strong>: compone, verifica, empaqueta. Y como es CLI con contrato formal, tu plan del agente encaja directo &#8212; un agente con skills la maneja igual o mejor que un humano.</p>
+            <div class="io"><span class="lbl">sale</span><span class="fchip">bundle-hospital-manolo.tar.gz</span><span class="fchip">runbook</span></div>
+          </div>
+          <div class="flow-note"><span class="arr">&#8595;</span> pendrive &#183; aqu&#237; se cruza la brecha de aire &#8212; a partir de esta l&#237;nea ya no hay internet</div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><span class="num c-caja">6</span><span class="cord"></span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>Instalaci&#243;n en la sede</h3><span class="pill p-caja">servidor Linux del cliente</span><span class="where">VPC / on-prem &#183; air-gap</span></div>
+            <p><span class="fchip">sentinel-admin install up</span> en el servidor de destino: <span class="mono">docker load</span> de las im&#225;genes, secretos <strong>generados ah&#237; mismo</strong> (nunca viajan en el bundle), licencia instalada y verificada offline, seed del perfil, alta del admin, smoke test. La caja genera su <strong>deployment key</strong> propia y su <strong>g&#233;nesis</strong>, que el partner anota para registrarlos en el portal a la vuelta.</p>
+            <div class="io"><span class="lbl">sale</span><span class="fchip">stack corriendo + verificado</span><span class="fchip">genesis_license_id &#8594; portal</span></div>
+          </div>
+          <div class="flow-note"><span class="arr">&#8595;</span> el cliente opera; el partner da soporte; nosotros no vemos ni tocamos nada</div>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="rail"><span class="num c-caja">7</span></div>
+        <div class="body">
+          <div class="scard">
+            <div class="sh"><h3>D&#237;a 2: upgrades y renovaci&#243;n</h3><span class="pill p-caja">sede</span><span class="pill p-partner">partner</span><span class="where">el ciclo vuelve a empezar</span></div>
+            <p><strong>Upgrade</strong>: mismo viaje con el bundle base de la versi&#243;n nueva &#8212; la licencia no se toca (no sabe de versiones; las features nuevas quedan OFF hasta re-emitirla). <strong>Renovaci&#243;n anual</strong>: la caja exporta su true-up firmado, el partner lo sube al portal, el portal verifica y emite la <span class="fchip">.lic</span> que supersede a la anterior.</p>
+            <div class="io"><span class="lbl">hoy</span><span class="fchip">sin comando upgrade &#8212; reinstalaci&#243;n o runbook manual con el IT local &#183; ver secci&#243;n 07</span></div>
+            <div class="io"><span class="lbl">vuelve</span><span class="fchip">trueup-export.json &#8594; portal</span><span class="fchip">feedback &#8594; nueva feature (paso 1)</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="loopback"><strong>El bucle se cierra dos veces:</strong> el true-up vuelve al portal (renovaci&#243;n, facturaci&#243;n al partner) y el feedback de campo vuelve al paso 1 como issue o spec nueva. La f&#225;brica es un anillo, no una l&#237;nea.</div>
+  </section>
+
+  <!-- ================= ICONOS ================= -->
+  <svg style="display:none" aria-hidden="true">
+    <symbol id="i-docker" viewBox="0 0 24 24">
+      <g fill="#2496ED">
+        <rect x="5" y="7.6" width="2.9" height="2.7" rx="0.4"/>
+        <rect x="8.4" y="7.6" width="2.9" height="2.7" rx="0.4"/>
+        <rect x="11.8" y="7.6" width="2.9" height="2.7" rx="0.4"/>
+        <rect x="8.4" y="4.4" width="2.9" height="2.7" rx="0.4"/>
+        <rect x="11.8" y="4.4" width="2.9" height="2.7" rx="0.4"/>
+        <path d="M2.2 11.6h17.2c1.1 0 2-.5 2.4-1 .3.8.2 2.7-1 4.3-1.6 2.3-4.6 4.5-9.2 4.5-4.9 0-8.3-2.6-9.4-7.8z"/>
+      </g>
+    </symbol>
+    <symbol id="i-k8s" viewBox="0 0 24 24">
+      <polygon fill="#326CE5" points="12,1.6 20.1,5.5 22.1,14.3 16.5,21.4 7.5,21.4 1.9,14.3 3.9,5.5"/>
+      <g stroke="#fff" stroke-width="1.3" fill="none">
+        <circle cx="12" cy="11.8" r="5.4"/>
+        <path d="M12 6.4v10.8M6.9 8.9l10.2 5.8M6.9 14.7l10.2-5.8"/>
+      </g>
+      <circle cx="12" cy="11.8" r="1.5" fill="#fff"/>
+    </symbol>
+    <symbol id="i-aws" viewBox="0 0 24 24">
+      <rect x="1" y="3" width="22" height="18" rx="3" fill="#232F3E"/>
+      <text x="12" y="12.4" text-anchor="middle" font-family="inherit" font-size="7.6" font-weight="700" font-style="italic" fill="#fff">aws</text>
+      <path d="M5 15.2c4.6 2.6 9.6 2.6 14-.4" stroke="#FF9900" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <path d="M19.2 13.2l.6 1.7-1.8.2" stroke="#FF9900" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-azure" viewBox="0 0 24 24">
+      <path fill="#0078D4" d="M13.6 3.5L7 17.8H2.3L10 3.5h3.6zM15 7.6l6.7 12.9H8.2l7.5-2.2-3.7-4.4L15 7.6z"/>
+    </symbol>
+    <symbol id="i-hetzner" viewBox="0 0 24 24">
+      <rect x="2" y="2" width="20" height="20" rx="2.5" fill="#D50C2D"/>
+      <path d="M8 6.5v11M16 6.5v11M8 12h8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-cloudflare" viewBox="0 0 24 24">
+      <path fill="#F6821F" d="M18.6 16.8H6.4a3.9 3.9 0 1 1 .6-7.7 5.6 5.6 0 0 1 10.8 1.2 3.3 3.3 0 0 1 .8 6.5z"/>
+    </symbol>
+    <symbol id="i-github" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10.2" fill="currentColor" opacity="0.92"/>
+      <g stroke="var(--surface, #fff)" stroke-width="1.5" fill="none">
+        <circle cx="8.6" cy="7.4" r="1.8"/>
+        <circle cx="8.6" cy="16.8" r="1.8"/>
+        <circle cx="15.8" cy="9.6" r="1.8"/>
+        <path d="M8.6 9.2v5.8M15.8 11.4c0 3.4-4 2.6-6.2 4"/>
+      </g>
+    </symbol>
+    <symbol id="i-python" viewBox="0 0 24 24">
+      <path fill="#3776AB" d="M11.9 2.2c-3.4 0-4.4 1.5-4.4 3v2.2h4.6v.9H5.3c-1.9 0-3.2 1.4-3.2 3.6 0 2.1 1.3 3.6 3.2 3.6h1.6v-2.3c0-1.7 1.4-3 3.1-3h4.1c1.4 0 2.4-1 2.4-2.4V5.2c0-1.6-1.2-3-4.6-3z"/>
+      <path fill="#FFD43B" d="M12.1 21.8c3.4 0 4.4-1.5 4.4-3v-2.2h-4.6v-.9h6.8c1.9 0 3.2-1.4 3.2-3.6 0-2.1-1.3-3.6-3.2-3.6h-1.6v2.3c0 1.7-1.4 3-3.1 3h-4.1c-1.4 0-2.4 1-2.4 2.4v2.6c0 1.6 1.2 3 4.6 3z"/>
+      <circle cx="9.6" cy="4.6" r="0.9" fill="#fff"/>
+      <circle cx="14.4" cy="19.4" r="0.9" fill="#fff"/>
+    </symbol>
+    <symbol id="i-postgres" viewBox="0 0 24 24">
+      <g fill="none" stroke="#336791" stroke-width="1.6">
+        <ellipse cx="12" cy="5.5" rx="8" ry="3"/>
+        <path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/>
+        <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+      </g>
+    </symbol>
+    <symbol id="i-redis" viewBox="0 0 24 24">
+      <g fill="#DC382D">
+        <path d="M12 2.8l9 3.4-9 3.4-9-3.4z"/>
+        <path d="M3 10.5l9 3.4 9-3.4v3l-9 3.4-9-3.4z" opacity="0.8"/>
+        <path d="M3 15.6l9 3.4 9-3.4v2.6l-9 3.4-9-3.4z" opacity="0.6"/>
+      </g>
+    </symbol>
+    <symbol id="i-ubuntu" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" fill="#E95420"/>
+      <g fill="#fff">
+        <circle cx="12" cy="12" r="4.6" fill="none" stroke="#fff" stroke-width="1.7"/>
+        <circle cx="4.9" cy="12" r="2"/>
+        <circle cx="15.6" cy="5.9" r="2"/>
+        <circle cx="15.6" cy="18.1" r="2"/>
+      </g>
+    </symbol>
+    <symbol id="i-caddy" viewBox="0 0 24 24">
+      <rect x="5" y="10.5" width="14" height="10" rx="2" fill="#22B638"/>
+      <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" stroke="#22B638" stroke-width="2" fill="none"/>
+      <circle cx="12" cy="15.5" r="1.6" fill="#fff"/>
+    </symbol>
+    <symbol id="i-cli" viewBox="0 0 24 24">
+      <rect x="2" y="4" width="20" height="16" rx="2.5" fill="currentColor" opacity="0.92"/>
+      <path d="M6.5 9l3.5 3-3.5 3M12.5 15.5h5" stroke="var(--surface, #fff)" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-kms" viewBox="0 0 24 24">
+      <path d="M12 2.4l7.5 2.7v5.2c0 5-3.2 8.3-7.5 10.3-4.3-2-7.5-5.3-7.5-10.3V5.1z" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="10.4" cy="10.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M12.4 12.3l3.6 3.4M14.3 14.1l1.4-1.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-bucket" viewBox="0 0 24 24">
+      <path d="M4 5h16l-2.2 15.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8z" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <ellipse cx="12" cy="5" rx="8" ry="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+    </symbol>
+    <symbol id="i-registry" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="1.6">
+        <rect x="3" y="3.5" width="8" height="8" rx="1"/>
+        <rect x="13" y="3.5" width="8" height="8" rx="1"/>
+        <rect x="3" y="13.5" width="8" height="8" rx="1"/>
+        <rect x="13" y="13.5" width="8" height="8" rx="1" stroke-dasharray="2.5 2"/>
+      </g>
+    </symbol>
+    <symbol id="i-browser" viewBox="0 0 24 24">
+      <rect x="2.5" y="4" width="19" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M2.5 8.5h19" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="5.5" cy="6.3" r="0.8" fill="currentColor"/>
+      <circle cx="8" cy="6.3" r="0.8" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24">
+      <rect x="8.5" y="10" width="7" height="11.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="10" y="3.5" width="4" height="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M11.2 5.5v2M12.8 5.5v2" stroke="currentColor" stroke-width="1.3"/>
+    </symbol>
+    <symbol id="i-agent" viewBox="0 0 24 24">
+      <rect x="4" y="7" width="16" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <circle cx="9.5" cy="12.5" r="1.4" fill="currentColor"/>
+      <circle cx="14.5" cy="12.5" r="1.4" fill="currentColor"/>
+      <path d="M12 7V4M12 4h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-openai" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="1.6">
+        <ellipse cx="12" cy="12" rx="9" ry="4.2"/>
+        <ellipse cx="12" cy="12" rx="9" ry="4.2" transform="rotate(60 12 12)"/>
+        <ellipse cx="12" cy="12" rx="9" ry="4.2" transform="rotate(120 12 12)"/>
+      </g>
+    </symbol>
+    <symbol id="i-claude" viewBox="0 0 24 24">
+      <g stroke="#D97757" stroke-width="2.1" stroke-linecap="round">
+        <path d="M12 3.2v4.2M12 16.6v4.2M3.2 12h4.2M16.6 12h4.2"/>
+        <path d="M5.8 5.8l3 3M15.2 15.2l3 3M18.2 5.8l-3 3M8.8 15.2l-3 3"/>
+      </g>
+    </symbol>
+    <symbol id="i-gemini" viewBox="0 0 24 24">
+      <path fill="#4E86F5" d="M12 1.8c.9 5.6 4.6 9.3 10.2 10.2C16.6 12.9 12.9 16.6 12 22.2 11.1 16.6 7.4 12.9 1.8 12 7.4 11.1 11.1 7.4 12 1.8z"/>
+    </symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="1.6">
+        <circle cx="12" cy="12" r="9.2"/>
+        <ellipse cx="12" cy="12" rx="4.2" ry="9.2"/>
+        <path d="M2.8 12h18.4M4.2 7h15.6M4.2 17h15.6"/>
+      </g>
+    </symbol>
+  </svg>
+
+  <!-- ================= PLANOS DE ARQUITECTURA ================= -->
+  <section>
+    <p class="kicker">04 &#183; Planos de arquitectura</p>
+    <h2>Las cuatro l&#225;minas, con nombres y apellidos</h2>
+    <p class="sub">Estilo l&#225;mina de presentaci&#243;n: cajas anidadas = d&#243;nde corre cada cosa de verdad. Todo lo que ves aqu&#237; existe hoy en el repo salvo lo marcado <span class="pill p-amber">objetivo</span> o <span class="pill p-off" style="background:var(--caja-soft);color:var(--caja)">fase 2</span>.</p>
+
+    <div class="planos">
+
+      <!-- PLANO A: LA CAJA -->
+      <div class="plano">
+        <div class="plano-h"><h3>Plano A &#8212; La caja en la sede del cliente</h3><span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">real hoy &#183; piloto C&#225;mara en verde</span><span class="where">deploy/docker/compose.prod.yml</span></div>
+        <div class="region rg-caja">
+          <div class="region-lbl">Red del cliente (hospital / empresa) &#183; SIN salida a internet &#183; air-gap</div>
+          <div class="stackg">
+            <div class="cols2">
+              <div class="machine">
+                <div class="mh"><svg class="ic"><use href="#i-browser"/></svg> Puestos de los empleados <span class="sub2">LAN interna</span></div>
+                <div class="toolrow">
+                  <span class="tool"><svg class="ic"><use href="#i-browser"/></svg> Navegador &#8594; UI del gateway</span>
+                  <span class="tool"><span class="mic">EXT</span> Extensi&#243;n brandeada <span class="td">apunta al ingress</span></span>
+                </div>
+              </div>
+              <div class="machine">
+                <div class="mh"><svg class="ic"><use href="#i-usb"/></svg> Entrada &#250;nica de artefactos <span class="sub2">el &#250;ltimo metro</span></div>
+                <div class="toolrow">
+                  <span class="tool">Pendrive <span class="td">install Y parches &#8212; bundle &#183; parche &#183; .lic &#183; runbook</span></span>
+                  <span class="tool"><svg class="ic"><use href="#i-cli"/></svg> sentinel-admin <span class="td">install hoy &#183; upgrade = secci&#243;n 07</span></span>
+                </div>
+              </div>
+            </div>
+            <div class="machine">
+              <div class="mh"><svg class="ic"><use href="#i-ubuntu"/></svg> Servidor Linux x86_64 <span class="sub2">VM en su nube privada (<svg class="ic" style="width:15px;height:15px;vertical-align:-3px"><use href="#i-aws"/></svg> AWS / <svg class="ic" style="width:15px;height:15px;vertical-align:-3px"><use href="#i-azure"/></svg> Azure / vSphere) o fierro on-prem &#8212; da igual: es una VM con Docker</span></div>
+              <div class="dband">
+                <div class="dh"><svg class="ic"><use href="#i-docker"/></svg> Docker Engine + Compose <span class="sub2" style="font-weight:400">&#183; im&#225;genes por <code style="font-family:var(--font-mono)">docker load</code>, cero pulls</span></div>
+                <div class="svcgrid">
+                  <div class="svc"><svg class="ic"><use href="#i-caddy"/></svg><span class="sn">Ingress Caddy</span><span class="sd">TLS &#183; puerta &#250;nica</span></div>
+                  <div class="svc"><span class="mic">UI</span><span class="sn">Frontend</span><span class="sd">panel admin/cliente</span></div>
+                  <div class="svc"><svg class="ic"><use href="#i-python"/></svg><span class="sn">Backend API</span><span class="sd">FastAPI &#183; licencia &#183; audit</span></div>
+                  <div class="svc"><span class="mic">FW</span><span class="sn">Motor firewall</span><span class="sd">LiteLLM + hooks sentinel</span></div>
+                  <div class="svc"><span class="mic">NLP</span><span class="sn">Analizador NLP</span><span class="sd">Presidio &#183; PII real</span></div>
+                  <div class="svc"><svg class="ic"><use href="#i-postgres"/></svg><span class="sn">PostgreSQL 16</span><span class="sd">datos + audit chain</span></div>
+                  <div class="svc"><svg class="ic"><use href="#i-redis"/></svg><span class="sn">Redis 7</span><span class="sd">colas &#183; rate limit</span></div>
+                  <div class="svc"><span class="mic">DOC</span><span class="sn">Docs offline</span><span class="sd">mkdocs del cliente</span></div>
+                </div>
+              </div>
+              <div class="toolrow">
+                <span class="tool"><span class="mic">&#129433;</span> Ollama en el host <span class="td">systemd &#183; modelos locales &#183; host.docker.internal</span></span>
+              </div>
+              <div class="volstrip">vol&#250;menes: <span class="fchip">licenses (.lic + deployment_key)</span> <span class="fchip">litellm_config</span> <span class="fchip">branding</span> <span class="fchip">pgdata</span> <span class="fchip">caddy_data</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="pnote"><strong>Lo que NO hay en esta l&#225;mina:</strong> registry, license-server, telemetr&#237;a, VPN a Sentinel. La caja se lo trae todo en el bundle y verifica su licencia sola.</p>
+      </div>
+
+      <!-- PLANO B: F&#193;BRICA + PORTAL -->
+      <div class="plano">
+        <div class="plano-h"><h3>Plano B &#8212; La f&#225;brica y el portal (lado Sentinel)</h3><span class="where">sentinel-dev &#183; online</span></div>
+        <div class="region rg-sentinel">
+          <div class="region-lbl">Infraestructura de Sentinel &#183; con internet</div>
+          <div class="cols2">
+            <div class="machine">
+              <div class="mh"><svg class="ic" style="color:var(--ink)"><use href="#i-github"/></svg> F&#225;brica de releases <span class="pill p-amber">CI = objetivo &#183; hoy make en laptop</span></div>
+              <div class="toolrow">
+                <span class="tool"><svg class="ic" style="color:var(--ink)"><use href="#i-github"/></svg> GitHub <span class="td">repo + Actions</span></span>
+                <span class="tool"><svg class="ic"><use href="#i-docker"/></svg> buildx multi-arch <span class="td">amd64 + arm64 expl&#237;citos</span></span>
+              </div>
+              <div class="toolrow">
+                <span class="tool"><svg class="ic" style="color:var(--sentinel)"><use href="#i-registry"/></svg> Registry privado <span class="td">im&#225;genes pinneadas</span></span>
+                <span class="tool"><svg class="ic" style="color:var(--sentinel)"><use href="#i-bucket"/></svg> Object storage <span class="td">bundles base ~3 GB</span></span>
+              </div>
+              <div class="volstrip">sale: <span class="fchip">bundle base vX.Y por arch</span> <span class="fchip">sentinel-admin.pyz</span></div>
+            </div>
+            <div class="machine">
+              <div class="mh"><svg class="ic"><use href="#i-cloudflare"/></svg> Vendor Portal <span class="pill p-off" style="background:var(--caja-soft);color:var(--caja)">fase 2 &#183; #33</span></div>
+              <div class="toolrow">
+                <span class="tool"><svg class="ic"><use href="#i-cloudflare"/></svg> Cloudflare <span class="td">DNS + TLS frontal</span></span>
+                <span class="tool"><svg class="ic"><use href="#i-hetzner"/></svg> VM cloud <span class="td">patr&#243;n demo: Hetzner + Caddy</span></span>
+              </div>
+              <div class="dband" style="margin-top:10px">
+                <div class="dh"><svg class="ic"><use href="#i-docker"/></svg> Compose del portal</div>
+                <div class="svcgrid" style="grid-template-columns:repeat(3,1fr)">
+                  <div class="svc"><span class="mic">WEB</span><span class="sn">Portal web</span><span class="sd">vistas Sentinel + partner</span></div>
+                  <div class="svc"><svg class="ic"><use href="#i-postgres"/></svg><span class="sn">Registro central</span><span class="sd">pools &#183; g&#233;nesis &#183; true-ups</span></div>
+                  <div class="svc"><svg class="ic"><use href="#i-caddy"/></svg><span class="sn">Caddy</span><span class="sd">TLS</span></div>
+                </div>
+              </div>
+              <div class="toolrow">
+                <span class="tool"><svg class="ic" style="color:var(--sentinel)"><use href="#i-kms"/></svg> Firmante Ed25519 <span class="td">KMS/HSM &#183; AISLADO del proceso web</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="toolrow" style="margin-top:12px">
+            <span class="tool"><span class="mic">TOFU</span> OpenTofu <span class="td">IaC entregable &#183; m&#243;dulos AWS de referencia (nunca Terraform: BSL)</span></span>
+            <span class="tool"><svg class="ic"><use href="#i-hetzner"/></svg> guardian.sentinel-dev.com <span class="td">demo VPS real hoy &#8212; mismo patr&#243;n compose+Caddy</span></span>
+          </div>
+        </div>
+        <p class="pnote"><strong>La lecci&#243;n de la l&#225;mina:</strong> el portal y la f&#225;brica comparten patr&#243;n con la caja (VM + Docker + Caddy) &#8212; no hay un tercer mundo que aprender. La &#250;nica pieza sagrada es el firmante: nunca dentro del contenedor web.</p>
+      </div>
+
+      <!-- PLANO C: PARTNER -->
+      <div class="plano">
+        <div class="plano-h"><h3>Plano C &#8212; El puesto del partner</h3><span class="where">su laptop &#183; macOS o Linux</span></div>
+        <div class="region rg-partner">
+          <div class="region-lbl">M&#225;quina del partner &#183; internet normal &#183; SIN Docker, SIN builds</div>
+          <div class="cols2">
+            <div class="machine">
+              <div class="mh">Herramientas</div>
+              <div class="toolrow">
+                <span class="tool"><svg class="ic"><use href="#i-browser"/></svg> Navegador <span class="td">portal &#183; wizard &#183; descargas</span></span>
+                <span class="tool"><svg class="ic" style="color:var(--ink)"><use href="#i-cli"/></svg> sentinel-admin.pyz <span class="td"><svg class="ic" style="width:13px;height:13px;vertical-align:-2px"><use href="#i-python"/></svg> Python 3.11 &#183; spec 026</span></span>
+              </div>
+              <div class="toolrow">
+                <span class="tool"><svg class="ic" style="color:var(--partner)"><use href="#i-agent"/></svg> Agente IA + skills <span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">decidido</span><span class="td">maneja la CLI por el humano &#183; se entrega con el enablement</span></span>
+                <span class="tool"><svg class="ic" style="color:var(--partner)"><use href="#i-usb"/></svg> Pendrive <span class="td">hacia la sede &#8594;</span></span>
+              </div>
+            </div>
+            <div class="machine">
+              <div class="mh">Lo que hace aqu&#237;</div>
+              <div class="volstrip" style="margin-top:6px; text-transform:none; letter-spacing:0; font-size:12px; flex-direction:column; align-items:flex-start; gap:7px">
+                <span>1 &#183; Baja el <span class="fchip">bundle base</span> una vez por versi&#243;n</span>
+                <span>2 &#183; Baja el <span class="fchip">overlay + .lic</span> por cliente (MBs)</span>
+                <span>3 &#183; <span class="fchip">sentinel-admin install bundle</span> &#8212; compone y verifica sha256</span>
+                <span>4 &#183; Copia al pendrive y va a la sede (Plano A)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="pnote"><strong>Por qu&#233; no necesita ni Docker ni potencia:</strong> componer es concatenar y verificar archivos ya construidos. El build pesado qued&#243; en el Plano B, una sola vez por release.</p>
+      </div>
+
+      <!-- PLANO D: HOY VS V2 -->
+      <div class="plano">
+        <div class="plano-h"><h3>Plano D &#8212; El sustrato de la caja: hoy y a d&#243;nde escala</h3><span class="where">research 020 &#183; decidido</span></div>
+        <div class="cols2">
+          <div class="machine">
+            <div class="mh"><svg class="ic"><use href="#i-docker"/></svg> v1 &#8212; VM + Docker Compose <span class="pill p-ok" style="background:var(--partner-soft);color:var(--partner)">lo real hoy</span></div>
+            <p class="pnote" style="margin-top:8px">Una VM Linux, compose, tarball por <code style="font-family:var(--font-mono)">docker save/load</code>. Simple, auditable, probado en sede. Alcanza para instalaciones de un servidor.</p>
+          </div>
+          <div class="machine">
+            <div class="mh"><svg class="ic"><use href="#i-k8s"/></svg> v2 &#8212; k3s + Helm + Zarf <span class="pill p-amber">roadmap</span></div>
+            <p class="pnote" style="margin-top:8px">Cuando haga falta HA o multi-nodo: k3s (el mismo Kubernetes en nube, on-prem y air-gap), charts Helm, y Zarf como bundle air-gap nativo con SBOM + firma cosign. Mismo modelo de bundle, otro motor debajo. ECS/Fargate descartado: no corre air-gapped.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= QU&#201; SE GENERA D&#211;NDE ================= -->
+  <section>
+    <p class="kicker">05 &#183; La pregunta clave</p>
+    <h2>Qu&#233; se genera d&#243;nde (y qu&#233; no se genera nunca)</h2>
+    <p class="sub">Esta tabla es la respuesta directa a "&#191;se genera en la Mac del partner?".</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>Pieza</th><th>Qui&#233;n la genera</th><th>D&#243;nde</th><th>Cu&#225;ndo &#183; peso</th></tr></thead>
+        <tbody>
+          <tr><td><span class="mono">im&#225;genes Docker</span> (el producto)</td><td><span class="pill p-sentinel">CI de Sentinel</span></td><td>build farm</td><td>1 vez por release &#215; arch &#183; ~3 GB</td></tr>
+          <tr><td><span class="mono">sentinel-admin.pyz</span> (la CLI)</td><td><span class="pill p-sentinel">CI de Sentinel</span></td><td>build farm</td><td>1 vez por release &#183; MBs</td></tr>
+          <tr><td>overlay del cliente (perfil + marca + docs)</td><td><span class="pill p-sentinel">portal</span></td><td>sentinel-dev.com</td><td>por cliente &#183; MBs &#183; segundos</td></tr>
+          <tr><td><span class="mono">.lic</span> (licencia firmada)</td><td><span class="pill p-sentinel">firmante central</span></td><td>detr&#225;s del portal (KMS)</td><td>por cliente y renovaci&#243;n &#183; KBs</td></tr>
+          <tr><td>instalador final (base + overlay)</td><td><span class="pill p-partner">CLI del partner</span></td><td>su laptop &#8212; <strong>compone, no compila</strong></td><td>por instalaci&#243;n &#183; minutos</td></tr>
+          <tr><td>secretos del deployment</td><td><span class="pill p-caja">el instalador, en sede</span></td><td>servidor del cliente</td><td>en el install &#183; jam&#225;s viajan</td></tr>
+          <tr><td>deployment key + g&#233;nesis</td><td><span class="pill p-caja">la caja misma</span></td><td>primer arranque</td><td>1 vez por instalaci&#243;n</td></tr>
+          <tr><td>una imagen "especial" por partner o cliente</td><td class="never" colspan="3">NUNCA &#8212; la personalizaci&#243;n es siempre configuraci&#243;n + licencia, jam&#225;s un build distinto</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= VERSIONES Y EDICIONES ================= -->
+  <section>
+    <p class="kicker">06 &#183; Versioning y "ediciones"</p>
+    <h2>Un solo producto; la edici&#243;n es una capa, no un fork</h2>
+    <p class="sub">Tu ejemplo &#8212; "uno m&#225;s especializado al sector m&#233;dico" &#8212; <strong>no es otra build</strong>. Es el mismo release con dos capas encima: la licencia enciende m&#243;dulos y el perfil configura el dominio. Exactamente el modelo GitLab (una imagen, la licencia desbloquea el tier) m&#225;s el canal de Replicated (el portal decide qui&#233;n ve qu&#233;).</p>
+
+    <div class="ed">
+      <div class="edcard">
+        <h3>C&#243;mo se compone una "edici&#243;n salud"</h3>
+        <div class="stackv">
+          <div class="layer base"><span class="ln">Release v2.4</span><span class="ld">la misma imagen para todos &#183; CI</span></div>
+          <div class="layer"><span class="ln">feature_flags en la .lic</span><span class="ld">enciende m&#243;dulos: NLP cl&#237;nico, auditor&#237;a extendida&#8230;</span></div>
+          <div class="layer"><span class="ln">Perfil del cliente</span><span class="ld">recognizers sanitarios, pol&#237;ticas GDPR/AI-Act, modelos permitidos</span></div>
+          <div class="layer"><span class="ln">Brand-pack</span><span class="ld">la marca del partner o del cliente</span></div>
+        </div>
+        <p style="margin-top:10px;">Edici&#243;n legal, financiera o industrial = mismas cuatro capas con otro contenido. <strong>Cero forks, cero builds especiales, cero deriva.</strong></p>
+      </div>
+      <div class="edcard">
+        <h3>Por qu&#233; as&#237; y no con builds por sector</h3>
+        <p><strong>Una versi&#243;n, N configuraciones</strong> significa: un solo pipeline de CI que mantener, un solo E2E air-gap que ejercitar, upgrades id&#233;nticos para todo el parque, y el cat&#225;logo del portal como &#250;nica matriz de "qui&#233;n tiene qu&#233;".</p>
+        <p>Un build por sector duplicar&#237;a la f&#225;brica entera por cada vertical &#8212; y la 020 ya lo prohibi&#243; para el branding ("config-as-data, never fork") por exactamente esta raz&#243;n. La especializaci&#243;n vive en <strong>datos versionables</strong> (perfiles, pol&#237;ticas, packs de compliance), que adem&#225;s podemos actualizar sin recompilar el producto.</p>
+        <p style="margin-bottom:0;"><span class="pill p-amber">roadmap</span> Los packs de compliance por vertical como artefacto propio del cat&#225;logo &#8212; el "stream de valor" que hace inasumible una copia pirata congelada.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PARCHES A ESCALA ================= -->
+  <section>
+    <p class="kicker">07 &#183; Parches a escala</p>
+    <h2>El d&#237;a del zero-day (y con 1000 clientes)</h2>
+    <p class="sub">La pregunta que ordena esta l&#225;mina: <strong>&#191;qui&#233;n paga cu&#225;nto por cada parche?</strong> El reparto de responsabilidades ya est&#225; bien dise&#241;ado &#8212; lo que falta es el mecanismo que hace barato el lado del partner. Estado real marcado en cada pieza.</p>
+
+    <div class="actors" style="margin-bottom:26px">
+      <div class="actor"><div class="at">Sentinel &#183; O(1) por CVE <span class="pill p-sentinel">f&#225;brica</span></div><p>Un build en la CI, un canal. El coste del parche NO crece con el n&#250;mero de clientes del parque. Este dise&#241;o ya est&#225;.</p></div>
+      <div class="actor"><div class="at">Partner &#183; O(N) su parque <span class="pill p-partner">distribuye</span></div><p>Su negocio y su SLA con cada cliente. Para que 1000 cajas no sean 1000 ma&#241;anas, necesita saber a qui&#233;n parchear (flota) y llevar poco peso (deltas).</p></div>
+      <div class="actor"><div class="at">IT del cliente &#183; O(1) por caja <span class="pill p-caja">aplica</span></div><p>Un comando con runbook &#8212; el patr&#243;n ya probado en el piloto (el partner manda el artefacto, las manos locales lo aplican). El air-gap hace imposible &#8212;a prop&#243;sito&#8212; parchear por control remoto.</p></div>
+    </div>
+
+    <div class="road">
+      <div class="rstep"><span class="st pill p-amber">no existe</span><div><div class="rt">1 &#183; <span style="font-family:var(--font-mono);font-size:13px">sentinel-admin install upgrade</span></div><div class="rd">Cargar im&#225;genes nuevas, levantar, health check, rollback. Las migraciones ya corren solas al arranque y la licencia sobrevive (no sabe de versiones) &#8212; falta solo el comando. Hoy: reinstalaci&#243;n fresca o runbook manual. Hogar natural: fase 2 &#171;ops d&#237;a-2&#187; de la 026.</div></div></div>
+      <div class="rstep"><span class="st pill p-amber">no existe</span><div><div class="rt">2 &#183; Bundle-parche (delta)</div><div class="rd">Hoy cualquier cambio viaja como bundle completo de ~3 GB. Un zero-day del backend deber&#237;a viajar como bundle de 1-2 im&#225;genes (cientos de MB), mismo MANIFEST, mismo install. Prior art: Replicated update bundles; Zarf lo trae nativo en la v2.</div></div></div>
+      <div class="rstep"><span class="st pill p-off" style="background:var(--caja-soft);color:var(--caja)">fase 2 &#183; portal</span><div><div class="rt">3 &#183; Flota + SBOM en el portal</div><div class="rd">Registro central de versiones por instalaci&#243;n + SBOM por release = &#171;37 de tus cajas corren una versi&#243;n afectada por CVE-X; aqu&#237; est&#225; el parche&#187;. Es lo que convierte "gestionar mis versiones" de c&#243;modo a cr&#237;tico.</div></div></div>
+      <div class="rstep"><span class="st pill p-off" style="background:var(--caja-soft);color:var(--caja)">watch-item v2</span><div><div class="rt">4 &#183; Canal r&#225;pido para conectados</div><div class="rd">Registry privado autenticado para clientes con egress controlado: parche el mismo d&#237;a &#8212; siempre como canal, jam&#225;s enforcement. Los air-gap puros van a pendrive + ventana de patching en el SLA: es el precio del air-gap que el cliente eligi&#243;, y as&#237; opera toda la industria.</div></div></div>
+    </div>
+
+    <p class="pnote"><strong>El &#225;ngulo comercial:</strong> los parches SON el moat (postura de IP de la 020) &#8212; una copia pirata es un producto de compliance congelado, sin parches, inasumible para un DPO. Parchear r&#225;pido es seguridad Y el argumento de renovaci&#243;n anual.</p>
+    <p class="pnote"><strong>Estado en el repo (31-jul):</strong> ninguna spec cubre updates &#8212; el paquete onboarding v2 (032 cert modes &#183; 033 engine reload &#183; 034 rol auditor) va de otra cosa. Candidata a spec propia, por delante del portal de bundles: sin el comando upgrade, ni el piloto se parchea limpio.</p>
+  </section>
+
+  <!-- ================= VENDOR PORTAL ================= -->
+  <section>
+    <p class="kicker">08 &#183; El Vendor Portal</p>
+    <h2>El plano online que orquesta la f&#225;brica</h2>
+    <p class="sub">Una sola aplicaci&#243;n web con dos vistas, viviendo SIEMPRE del lado online (Plano B). La caja del cliente jam&#225;s la contacta: todo cruza como archivo firmado. Detalle completo con wireframes en la <a href="https://claude.ai/code/artifact/e5fa25a8-d6de-411b-98e6-aa4da3ab669b" style="color:var(--sentinel)">l&#225;mina dedicada del portal</a>.</p>
+
+    <div class="actors" style="grid-template-columns:1fr 1fr; margin-bottom:22px">
+      <div class="actor"><div class="at">Vista Sentinel <span class="pill p-sentinel">admin fabricante</span></div><p>Alta de partners y cupos (<span class="fchip" style="padding:1px 6px;font-size:10.5px">max_total_seats</span> por pool) &#183; cat&#225;logo de versiones y features contratables &#183; registro central (emisiones, g&#233;nesis, deployment keys, true-ups, versiones de flota) &#183; docs de partner.</p></div>
+      <div class="actor"><div class="at">Vista Partner <span class="pill p-partner">/partners-login</span></div><p>Su cupo con draw-down &#183; sus instalaciones y versiones (la base de la l&#225;mina 07: a qui&#233;n parchear) &#183; wizard /new-installation &#183; renovaciones: sube true-up, descarga la .lic nueva.</p></div>
+    </div>
+
+    <div class="cols2">
+      <div class="machine">
+        <div class="mh">El wizard /new-installation <span class="sub2">5 decisiones, MBs de salida</span></div>
+        <div class="volstrip" style="text-transform:none; letter-spacing:0; font-size:12.5px; flex-direction:column; align-items:flex-start; gap:7px; margin-top:8px">
+          <span>1 &#183; Cliente y marca &#8594; perfil config-as-data</span>
+          <span>2 &#183; Versi&#243;n y features &#8594; release pinneado + <span class="fchip">feature_flags</span></span>
+          <span>3 &#183; Licencia del pool &#8594; <strong>aqu&#237; vive el enforcement del cupo (FR-030)</strong></span>
+          <span>4 &#183; Generar &#8594; overlay + <span class="fchip">.lic</span> firmada central</span>
+          <span>5 &#183; Descargar &#8594; la CLI compone (Plano C) y a la sede</span>
+        </div>
+      </div>
+      <div class="machine">
+        <div class="mh">Renovaci&#243;n / true-up <span class="sub2">el bucle que cobra</span></div>
+        <div class="volstrip" style="text-transform:none; letter-spacing:0; font-size:12.5px; flex-direction:column; align-items:flex-start; gap:7px; margin-top:8px">
+          <span>1 &#183; La caja exporta uso firmado (deployment key) &#8212; cero egress</span>
+          <span>2 &#183; El partner lo sube al portal</span>
+          <span>3 &#183; El portal verifica firma + g&#233;nesis + cadena anti-truncado</span>
+          <span>4 &#183; Emite la <span class="fchip">.lic</span> nueva (supersede por tenant) &#8594; pendrive &#8594; caja</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="road" style="margin-top:22px">
+      <div class="rstep"><span class="st pill p-warn">reglas duras</span><div><div class="rt">Lo que el portal NUNCA hace</div><div class="rd">Contactar la caja (cero phone-home/telemetr&#237;a/metering vivo) &#183; delegar la clave de firma al partner (firma SIEMPRE central + cupo &#8212; patr&#243;n de toda la industria) &#183; usar la entrega como enforcement (el gate de pago es la licencia en runtime) &#183; dar cuenta al cliente final &#183; mostrar econom&#237;a interna de Sentinel (FR-007) &#183; exponer emisi&#243;n sin custodia KMS + RBAC.</div></div></div>
+      <div class="rstep"><span class="st pill p-ok" style="background:var(--partner-soft);color:var(--partner)">secuencia</span><div><div class="rt">C&#243;mo se construye (orden de dependencia)</div><div class="rd">&#9312; CLI 026 &#171;pre-portal&#187; (spec aprobada, 0 c&#243;digo &#8212; su l&#243;gica de emisi&#243;n ES la del portal) &#8594; &#9313; custodia real de la firma (KMS/HSM) &#8594; &#9314; identidad/RBAC de partners (frontera 017, con Cristian) &#8594; &#9315; fase A: portal de emisi&#243;n (la &#171;forma completa del #33&#187;) &#8594; &#9316; fase B: generaci&#243;n de instaladores + flota/parches (l&#225;mina 07). <strong>Novedad del roadmap (31-jul): la 032 (ingress cert modes, P1) es el primer ladrillo real &#8212; su modo <span style="font-family:var(--font-mono);font-size:12px">managed</span> usa el mismo plano de control que el firmante central.</strong></div></div></div>
+    </div>
+  </section>
+
+  <!-- ================= GUARDIAN: SUPERFICIES ================= -->
+  <section>
+    <p class="kicker">09 &#183; Superficies: el detalle por canal</p>
+    <h2>Qu&#233; protege cada canal</h2>
+    <p class="sub">El mapa del ecosistema est&#225; arriba, en la secci&#243;n 01. Aqu&#237;, el detalle honesto de qu&#233; protege cada canal de verdad.</p>
+
+    <p class="sub" style="margin-top:26px; margin-bottom:12px"><strong>La tabla que evita vender "protecci&#243;n uniforme"</strong> &#8212; qu&#233; protege cada canal de verdad:</p>
+    <div class="twrap">
+      <table>
+        <thead><tr><th>Capacidad</th><th>Suscripci&#243;n (OAuth)</th><th>BYOK (sk-sentinel &#8594; motor)</th><th>Browser (extensi&#243;n)</th></tr></thead>
+        <tbody>
+          <tr><td>Detecci&#243;n PII</td><td>regex patrones (sin NER)</td><td><strong>NLP Presidio fail-closed</strong> (dev-fran; sin env = regex con warning)</td><td>patrones (server, /inspect)</td></tr>
+          <tr><td>Masking reversible</td><td>&#10004; turnos user</td><td>&#10004; + unmask en rutas bridged (024)</td><td>&#10004; + unmask en DOM por tokens</td></tr>
+          <tr><td>Presupuestos (402)</td><td>&#8212; por dise&#241;o (sin llave; el coste ES la suscripci&#243;n fija)</td><td>&#10004; en dev-fran (#76): 402 pre-proveedor, presupuesto escalar, ventana cache 10s. <strong>En main: sin l&#237;mite</strong></td><td>&#8212; (no lo consume)</td></tr>
+          <tr><td>Rate limit rpm/tpm</td><td>&#8212;</td><td>delegado al limiter del motor &#8212; sin verificaci&#243;n propia</td><td>&#8212; (US11 COULD)</td></tr>
+          <tr><td>Auditor&#237;a durable (031)</td><td>&#10004; dev-fran</td><td>&#10004; dev-fran; &#233;xitos sin atribuci&#243;n de capas (T025)</td><td>audita como el tool_type de la Connection o "desconocido" (US9 diferida)</td></tr>
+          <tr><td>Hueco transversal</td><td colspan="3"><span class="mono">/v1/responses</span> corre SIN pol&#237;tica (solo identidad) &#8212; bloquea toda la familia OpenAI/Responses hasta el issue #28</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= GUARDIAN: M&#211;DULOS ================= -->
+  <section>
+    <p class="kicker">10 &#183; El producto por dentro</p>
+    <h2>M&#243;dulos y costuras &#8212; el mapa para repartir ownership</h2>
+    <p class="sub">Los deployables de la caja y sus &#225;reas de c&#243;digo, con las costuras donde dos personas van a pisarse si no se coordinan. <strong>No asignamos due&#241;os aqu&#237;</strong> &#8212; la columna final es el estado de hecho, insumo para esa conversaci&#243;n.</p>
+
+    <div class="stackg">
+      <div class="cols2">
+        <div class="machine">
+          <div class="mh"><svg class="ic"><use href="#i-python"/></svg> Backend FastAPI <span class="sub2">backend/src</span></div>
+          <div class="volstrip" style="text-transform:none; letter-spacing:0; font-size:12px; flex-direction:column; align-items:flex-start; gap:6px; margin-top:8px">
+            <span><span class="fchip">api/gateway.py</span> puerta &#250;nica + passthrough suscripci&#243;n</span>
+            <span><span class="fchip">api/internal.py</span> &#9888; frontera motor&#8596;backend &#8212; punto de coordinaci&#243;n n&#186; 1 (identidad, presupuesto, audit)</span>
+            <span><span class="fchip">auth/</span> &#9888; SC-3: fallback a admin sin token sigue vivo; la 017 que lo paga no tiene ni carpeta</span>
+            <span><span class="fchip">licensing/ + keys/</span> verificaci&#243;n, seats, true-up &#8212; frontera con CLI 026 y custodia 017</span>
+            <span><span class="fchip">services/</span> guardian_service, presidio_service, ai_engine_client, encryption&#8230;</span>
+            <span><span class="fchip">alembic/</span> &#9888; deuda A1: upgrade sin verificar sobre DB con datos</span>
+          </div>
+        </div>
+        <div class="machine">
+          <div class="mh"><span class="mic">FW</span> Motor firewall <span class="sub2">litellm/extensions &#8212; 3 hooks nativos + lib pura</span></div>
+          <div class="volstrip" style="text-transform:none; letter-spacing:0; font-size:12px; flex-direction:column; align-items:flex-start; gap:6px; margin-top:8px">
+            <span><span class="fchip">custom_auth</span> identidad + presupuesto 402 pre-proveedor</span>
+            <span><span class="fchip">SentinelGuardrail</span> AI-Act &#8594; secretos &#8594; PII; audita el bloqueo ANTES de rechazar (031)</span>
+            <span><span class="fchip">SentinelAuditLogger</span> fila durable + vitrina Redis (TTL 300s &#8212; NO es el registro)</span>
+            <span><span class="fchip">sentinel_governance</span> registry de 9 capas: 4 piso inapagables + opcionales; 5 cloud = incoming, NO ejecutan</span>
+            <span><span class="fchip">sentinel_guardian_policy</span> lib pura compartida (regex vs presidio_analyze inyectable)</span>
+            <span>&#9888; 3 contratos-espejo con el backend (Redis keys, _IDENTITY_SQL, layer_keys) &#8212; se cambian JUNTOS</span>
+          </div>
+        </div>
+      </div>
+      <div class="cols2">
+        <div class="machine">
+          <div class="mh"><span class="mic">NLP</span> Sidecar Presidio <span class="sub2">presidio-analyzer/ &#183; imagen propia del bundle</span></div>
+          <p class="pnote" style="margin-top:6px">NER real + recognizers ES ad-hoc (el patr&#243;n del m&#243;vil nacional sin +34 lo pusimos nosotros). Gotcha: <span class="fchip">NLP_ANALYZER_URL</span> la leen 2 planos con degradaci&#243;n distinta &#8212; el motor fail-closed, el backend degrada con trigger visible.</p>
+        </div>
+        <div class="machine">
+          <div class="mh"><span class="mic">UI</span> Frontend + extensi&#243;n + docs</div>
+          <p class="pnote" style="margin-top:6px">UI = cliente fino (~97 m&#233;todos api.ts, sin router) &#8212; coherente con "somos middleware"; la UI clara (029) vive SOLO en dev-fran. La extensi&#243;n es una <strong>superficie con empaquetado propio</strong>, no un producto aparte: su pol&#237;tica vive en el gateway. Docs (022) = producto con gate 9/9.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="twrap" style="margin-top:22px">
+      <table>
+        <thead><tr><th>&#193;rea</th><th>Estado</th><th>Due&#241;o de hecho hoy</th></tr></thead>
+        <tbody>
+          <tr><td>Seguridad: auth/RBAC (017) &#183; retenci&#243;n/purga (018) &#183; rol auditor (034)</td><td>roadmap sin carpeta / sin enforce</td><td>Cristian (declarado en roadmap)</td></tr>
+          <tr><td>Costes: compresi&#243;n firewall (023 / #16)</td><td>solo spec, sin implementar</td><td>Falime (declarado)</td></tr>
+          <tr><td>Clientes, installs, deploy/release, licencias operativa</td><td>funcionando (con foot-guns 026)</td><td>JF (de hecho)</td></tr>
+          <tr><td>Motor firewall + pin LiteLLM &#183; sidecar NLP &#183; frontend/UI &#183; extensi&#243;n &#183; DB/migraciones &#183; release eng. &#183; CI (no existe)</td><td>ver l&#225;minas &#8212; cada una con deudas nombradas</td><td class="never">SIN DUE&#209;O declarado</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= GUARDIAN: NIVELES ================= -->
+  <section>
+    <p class="kicker">11 &#183; Niveles del producto</p>
+    <h2>Qu&#233; es nivel 0, qu&#233; es capa superior &#8212; y el estado real de cada cosa</h2>
+    <p class="sub">Se lee de abajo hacia arriba: el <strong>nivel 0 es el cimiento</strong> &#8212; si falla, no hay producto. El color de cada pieza dice <strong>d&#243;nde vive el c&#243;digo hoy</strong>, que es la diferencia entre lo que se demuestra y lo que se instala. <strong>Aviso de taxonom&#237;a:</strong> esta escalera es NUEVA &#8212; "los cinco aros/pilares" no est&#225;n escritos en ning&#250;n archivo del repo (verificado); lo &#250;nico numerado es la constituci&#243;n (principios I-VIII).</p>
+
+    <div style="overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:12px 8px">
+      <svg viewBox="0 0 1240 799" style="min-width:900px; width:100%; height:auto; display:block; font-family:var(--font-display)" role="img" aria-label="Niveles del producto Guardian">
+        <rect x="96" y="58" width="800" height="159" rx="10" style="fill:var(--surface-2); stroke:var(--line)"/>
+        <rect x="96" y="58" width="46" height="159" rx="10" style="fill:var(--sentinel); opacity:0.14"/>
+        <rect x="96" y="58" width="4" height="159" style="fill:var(--sentinel)"/>
+        <text x="121" y="131" text-anchor="middle" style="font-family:var(--font-mono); font-size:9.5px; letter-spacing:1px; fill:var(--sentinel)">NIVEL</text>
+        <text x="121" y="155" text-anchor="middle" style="font-size:22px; font-weight:700; fill:var(--sentinel)">2</text>
+        <text x="158" y="85" style="font-size:13.5px; font-weight:700; fill:var(--ink)">Capa superior &#8212; diferenciadores, no condici&#243;n de compra</text>
+        <text x="158" y="102" style="font-size:10.5px; fill:var(--ink-soft)">vende mejor, pero nadie deja de comprar por no tenerlo</text>
+        <rect x="158" y="112" width="302" height="25" rx="6" style="fill:var(--surface); stroke:var(--amber); stroke-width:1.2"/>
+        <circle cx="171" cy="125" r="3.6" style="fill:var(--amber)"/>
+        <text x="182" y="128" style="font-size:11.0px; fill:var(--ink)">Auto-router sem&#225;ntico (030) &#183; solo plano chat</text>
+        <rect x="467" y="112" width="242" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="480" cy="125" r="3.6" style="fill:var(--partner)"/>
+        <text x="491" y="128" style="font-size:11.0px; fill:var(--ink)">Compresi&#243;n (012) &#183; solo chat legacy</text>
+        <rect x="158" y="145" width="254" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="171" cy="158" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="182" y="161" style="font-size:11.0px; fill:var(--ink)">Ahorro de costes en el firewall (023)</text>
+        <rect x="419" y="145" width="242" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="432" cy="158" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="443" y="161" style="font-size:11.0px; fill:var(--ink)">Guardianes cloud &#183; 5 capas incoming</text>
+        <rect x="668" y="145" width="207" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="681" cy="158" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="692" y="161" style="font-size:11.0px; fill:var(--ink)">SSO OIDC/SAML (010) &#183; vitrina</text>
+        <rect x="158" y="178" width="94" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="171" cy="191" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="182" y="194" style="font-size:11.0px; fill:var(--ink)">Gemini web</text>
+        <rect x="259" y="178" width="236" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="272" cy="191" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="283" y="194" style="font-size:11.0px; fill:var(--ink)">MCP tool-plane &#183; sin spec ni owner</text>
+        <rect x="96" y="233" width="800" height="225" rx="10" style="fill:var(--surface-2); stroke:var(--line)"/>
+        <rect x="96" y="233" width="46" height="225" rx="10" style="fill:var(--partner); opacity:0.14"/>
+        <rect x="96" y="233" width="4" height="225" style="fill:var(--partner)"/>
+        <text x="121" y="339" text-anchor="middle" style="font-family:var(--font-mono); font-size:9.5px; letter-spacing:1px; fill:var(--partner)">NIVEL</text>
+        <text x="121" y="363" text-anchor="middle" style="font-size:22px; font-weight:700; fill:var(--partner)">1</text>
+        <text x="158" y="260" style="font-size:13.5px; font-weight:700; fill:var(--ink)">Donde se gana el cliente &#8212; superficies e instalabilidad</text>
+        <text x="158" y="277" style="font-size:10.5px; fill:var(--ink-soft)">&#128994; verificado en vivo &#183; &#128993; parcial con l&#237;mites documentados</text>
+        <rect x="158" y="287" width="206" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="171" cy="300" r="3.6" style="fill:var(--partner)"/>
+        <text x="182" y="303" style="font-size:11.0px; fill:var(--ink)">Claude Code &#183; suscripci&#243;n &#128994;</text>
+        <rect x="371" y="287" width="218" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="384" cy="300" r="3.6" style="fill:var(--partner)"/>
+        <text x="395" y="303" style="font-size:11.0px; fill:var(--ink)">Claude Code &#8594; modelo propio &#128994;</text>
+        <rect x="596" y="287" width="87" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="609" cy="300" r="3.6" style="fill:var(--partner)"/>
+        <text x="620" y="303" style="font-size:11.0px; fill:var(--ink)">Aider &#128994;</text>
+        <rect x="690" y="287" width="146" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="703" cy="300" r="3.6" style="fill:var(--partner)"/>
+        <text x="714" y="303" style="font-size:11.0px; fill:var(--ink)">Ollama upstream &#128994;</text>
+        <rect x="158" y="320" width="164" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="171" cy="333" r="3.6" style="fill:var(--partner)"/>
+        <text x="182" y="336" style="font-size:11.0px; fill:var(--ink)">Copilot &#183; solo Ask &#128993;</text>
+        <rect x="329" y="320" width="194" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="342" cy="333" r="3.6" style="fill:var(--partner)"/>
+        <text x="353" y="336" style="font-size:11.0px; fill:var(--ink)">Cursor &#183; solo chat/plan &#128993;</text>
+        <rect x="530" y="320" width="230" height="25" rx="6" style="fill:var(--surface); stroke:var(--amber); stroke-width:1.2"/>
+        <circle cx="543" cy="333" r="3.6" style="fill:var(--amber)"/>
+        <text x="554" y="336" style="font-size:11.0px; fill:var(--ink)">Extensi&#243;n ChatGPT + Claude.ai &#128994;</text>
+        <rect x="158" y="353" width="207" height="25" rx="6" style="fill:var(--surface); stroke:var(--amber); stroke-width:1.2"/>
+        <circle cx="171" cy="366" r="3.6" style="fill:var(--amber)"/>
+        <text x="182" y="369" style="font-size:11.0px; fill:var(--ink)">Gobernanza configurable (027)</text>
+        <rect x="372" y="353" width="260" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="385" cy="366" r="3.6" style="fill:var(--danger)"/>
+        <text x="396" y="369" style="font-size:11.0px; fill:var(--ink)">Atribuci&#243;n por capa en el motor (T025)</text>
+        <rect x="639" y="353" width="224" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="652" cy="366" r="3.6" style="fill:var(--danger)"/>
+        <text x="663" y="369" style="font-size:11.0px; fill:var(--ink)">/v1/responses sin pol&#237;tica (#28)</text>
+        <rect x="158" y="386" width="236" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="171" cy="399" r="3.6" style="fill:var(--danger)"/>
+        <text x="182" y="402" style="font-size:11.0px; fill:var(--ink)">Trust-kit TLS &#183; PR #55 sin mergear</text>
+        <rect x="401" y="386" width="224" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="414" cy="399" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="425" y="402" style="font-size:11.0px; fill:var(--ink)">Alta de modelo sin restart (033)</text>
+        <rect x="632" y="386" width="201" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="645" cy="399" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="656" y="402" style="font-size:11.0px; fill:var(--ink)">Cert modes managed|byo (032)</text>
+        <rect x="158" y="419" width="153" height="25" rx="6" style="fill:var(--surface); stroke:var(--sentinel); stroke-width:1.2"/>
+        <circle cx="171" cy="432" r="3.6" style="fill:var(--sentinel)"/>
+        <text x="182" y="435" style="font-size:11.0px; fill:var(--ink)">CLI sentinel-admin (026)</text>
+        <rect x="96" y="474" width="800" height="225" rx="10" style="fill:var(--surface-2); stroke:var(--line)"/>
+        <rect x="96" y="474" width="46" height="225" rx="10" style="fill:var(--caja); opacity:0.14"/>
+        <rect x="96" y="474" width="4" height="225" style="fill:var(--caja)"/>
+        <text x="121" y="580" text-anchor="middle" style="font-family:var(--font-mono); font-size:9.5px; letter-spacing:1px; fill:var(--caja)">NIVEL</text>
+        <text x="121" y="604" text-anchor="middle" style="font-size:22px; font-weight:700; fill:var(--caja)">0</text>
+        <text x="158" y="501" style="font-size:13.5px; font-weight:700; fill:var(--ink)">No negociable &#8212; lo que todo cliente compra</text>
+        <text x="158" y="518" style="font-size:10.5px; fill:var(--ink-soft)">compliance &#183; costos &#183; masking &#183; la puerta &#250;nica</text>
+        <rect x="158" y="528" width="207" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="171" cy="541" r="3.6" style="fill:var(--partner)"/>
+        <text x="182" y="544" style="font-size:11.0px; fill:var(--ink)">Puerta &#250;nica /api/v1/gw (014)</text>
+        <rect x="372" y="528" width="141" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="385" cy="541" r="3.6" style="fill:var(--partner)"/>
+        <text x="396" y="544" style="font-size:11.0px; fill:var(--ink)">Multi-tenant (013)</text>
+        <rect x="520" y="528" width="218" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="533" cy="541" r="3.6" style="fill:var(--partner)"/>
+        <text x="544" y="544" style="font-size:11.0px; fill:var(--ink)">Licencias offline Ed25519 (021)</text>
+        <rect x="158" y="561" width="183" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="171" cy="574" r="3.6" style="fill:var(--partner)"/>
+        <text x="182" y="577" style="font-size:11.0px; fill:var(--ink)">White-label air-gap (020)</text>
+        <rect x="348" y="561" width="165" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="361" cy="574" r="3.6" style="fill:var(--partner)"/>
+        <text x="372" y="577" style="font-size:11.0px; fill:var(--ink)">Docs de producto (022)</text>
+        <rect x="520" y="561" width="177" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="533" cy="574" r="3.6" style="fill:var(--partner)"/>
+        <text x="544" y="577" style="font-size:11.0px; fill:var(--ink)">Masking reversible regex</text>
+        <rect x="704" y="561" width="177" height="25" rx="6" style="fill:var(--surface); stroke:var(--partner); stroke-width:1.2"/>
+        <circle cx="717" cy="574" r="3.6" style="fill:var(--partner)"/>
+        <text x="728" y="577" style="font-size:11.0px; fill:var(--ink)">Export GDPR Art.30 (008)</text>
+        <rect x="158" y="594" width="171" height="25" rx="6" style="fill:var(--surface); stroke:var(--amber); stroke-width:1.2"/>
+        <circle cx="171" cy="607" r="3.6" style="fill:var(--amber)"/>
+        <text x="182" y="610" style="font-size:11.0px; fill:var(--ink)">NLP Presidio real (016)</text>
+        <rect x="336" y="594" width="236" height="25" rx="6" style="fill:var(--surface); stroke:var(--amber); stroke-width:1.2"/>
+        <circle cx="349" cy="607" r="3.6" style="fill:var(--amber)"/>
+        <text x="360" y="610" style="font-size:11.0px; fill:var(--ink)">Auditor&#237;a durable + bloqueos (031)</text>
+        <rect x="579" y="594" width="189" height="25" rx="6" style="fill:var(--surface); stroke:var(--amber); stroke-width:1.2"/>
+        <circle cx="592" cy="607" r="3.6" style="fill:var(--amber)"/>
+        <text x="603" y="610" style="font-size:11.0px; fill:var(--ink)">Presupuesto byok 402 (#76)</text>
+        <rect x="158" y="627" width="177" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="171" cy="640" r="3.6" style="fill:var(--danger)"/>
+        <text x="182" y="643" style="font-size:11.0px; fill:var(--ink)">Purga de retenci&#243;n (018)</text>
+        <rect x="342" y="627" width="189" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="355" cy="640" r="3.6" style="fill:var(--danger)"/>
+        <text x="366" y="643" style="font-size:11.0px; fill:var(--ink)">Borrado Art.17 / DSR (005)</text>
+        <rect x="538" y="627" width="236" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="551" cy="640" r="3.6" style="fill:var(--danger)"/>
+        <text x="562" y="643" style="font-size:11.0px; fill:var(--ink)">Tamper-evidence del log de tr&#225;fico</text>
+        <rect x="158" y="660" width="230" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="171" cy="673" r="3.6" style="fill:var(--danger)"/>
+        <text x="182" y="676" style="font-size:11.0px; fill:var(--ink)">Auth del panel sin fallback (017)</text>
+        <rect x="395" y="660" width="195" height="25" rx="6" style="fill:var(--surface); stroke:var(--danger); stroke-width:1.2"/>
+        <circle cx="408" cy="673" r="3.6" style="fill:var(--danger)"/>
+        <text x="419" y="676" style="font-size:11.0px; fill:var(--ink)">Rol auditor read-only (034)</text>
+        <rect x="96" y="705" width="800" height="7" rx="3" style="fill:var(--caja); opacity:0.55"/>
+        <text x="496" y="731" text-anchor="middle" style="font-family:var(--font-mono); font-size:10px; letter-spacing:2px; fill:var(--ink-soft)">CIMIENTO &#8212; SI ESTO FALLA, NO HAY PRODUCTO</text>
+        <line x1="52" y1="699" x2="52" y2="64" style="stroke:var(--ink-soft); stroke-width:1.5" marker-end="url(#ah-gray)"/>
+        <text transform="rotate(-90 30 378)" x="30" y="378" text-anchor="middle" style="font-family:var(--font-mono); font-size:10px; letter-spacing:1.6px; fill:var(--ink-soft)">CONDICI&#211;N DE COMPRA  &#8594;  DIFERENCIADOR</text>
+        <rect x="916" y="58" width="314" height="273" rx="10" style="fill:var(--surface); stroke:var(--amber); stroke-dasharray:6 4"/>
+        <text x="934" y="85" style="font-size:13px; font-weight:700; fill:var(--ink)">Extensi&#243;n &#183; sub-niveles propios</text>
+        <text x="934" y="102" style="font-size:10.5px; fill:var(--ink-soft)">superficie con empaquetado propio</text>
+        <circle cx="940" cy="116" r="3.4" style="fill:var(--amber)"/>
+        <text x="952" y="120" style="font-size:10.8px; fill:var(--ink)">Core mask/unmask fail-closed</text>
+        <circle cx="940" cy="139" r="3.4" style="fill:var(--amber)"/>
+        <text x="952" y="143" style="font-size:10.8px; fill:var(--ink)">ID estable &#183; manifest.key RSA</text>
+        <circle cx="940" cy="162" r="3.4" style="fill:var(--amber)"/>
+        <text x="952" y="166" style="font-size:10.8px; fill:var(--ink)">White-label + gate de marca</text>
+        <circle cx="940" cy="185" r="3.4" style="fill:var(--amber)"/>
+        <text x="952" y="189" style="font-size:10.8px; fill:var(--ink)">Toggle eliminado a prop&#243;sito</text>
+        <circle cx="940" cy="208" r="3.4" style="fill:var(--danger)"/>
+        <text x="952" y="212" style="font-size:10.8px; fill:var(--ink)">Distribuci&#243;n y updates: MANUAL</text>
+        <circle cx="940" cy="231" r="3.4" style="fill:var(--danger)"/>
+        <text x="952" y="235" style="font-size:10.8px; fill:var(--ink)">Telemetr&#237;a de ruta rota (US10)</text>
+        <circle cx="940" cy="254" r="3.4" style="fill:var(--danger)"/>
+        <text x="952" y="258" style="font-size:10.8px; fill:var(--ink)">Superficie can&#243;nica en el enum (US9)</text>
+        <circle cx="940" cy="277" r="3.4" style="fill:var(--danger)"/>
+        <text x="952" y="281" style="font-size:10.8px; fill:var(--ink)">Solo 3 hosts &#183; sin XHR/WebSocket</text>
+        <circle cx="940" cy="300" r="3.4" style="fill:var(--sentinel)"/>
+        <text x="952" y="304" style="font-size:10.8px; fill:var(--ink)">Publicaci&#243;n CWS unlisted</text>
+        <text x="934" y="355" style="font-size:10.5px; fill:var(--ink-soft)">NO es un producto aparte: su pol&#237;tica</text>
+        <text x="934" y="371" style="font-size:10.5px; fill:var(--ink-soft)">vive en el gateway (/inspect, /whoami).</text>
+        <text x="934" y="403" style="font-size:10.5px; fill:var(--ink-soft)">El TLS no es problema suyo: es del</text>
+        <text x="934" y="419" style="font-size:10.5px; fill:var(--ink-soft)">appliance &#8212; ella solo lo destapa antes.</text>
+        <circle cx="102" cy="745" r="4" style="fill:var(--partner)"/>
+        <text x="114" y="749" style="font-size:10.5px; fill:var(--ink-soft)">en main &#8212; se instala hoy</text>
+        <circle cx="295" cy="745" r="4" style="fill:var(--amber)"/>
+        <text x="307" y="749" style="font-size:10.5px; fill:var(--ink-soft)">solo en dev-fran &#8212; se demuestra, no se instala</text>
+        <circle cx="619" cy="745" r="4" style="fill:var(--danger)"/>
+        <text x="631" y="749" style="font-size:10.5px; fill:var(--ink-soft)">hueco declarado &#8212; no existe</text>
+        <circle cx="830" cy="745" r="4" style="fill:var(--sentinel)"/>
+        <text x="842" y="749" style="font-size:10.5px; fill:var(--ink-soft)">roadmap / incoming por dise&#241;o</text>
+        <text x="96" y="771" style="font-size:10.5px; fill:var(--ink-soft)">El color dice D&#211;NDE VIVE el c&#243;digo &#183; &#128994;/&#128993; dicen cu&#225;nta cobertura tiene esa superficie &#183; prioridad de roadmap &#8800; nivel de producto</text>
+      </svg>
+    </div>
+
+    <div class="loopback" style="margin-top:22px"><strong>Lo que este doc NO permite decir (todav&#237;a):</strong> &#171;auditor&#237;a inmutable/perfecta&#187; (hash-chain solo licencias) &#183; &#171;guardamos todo, siempre&#187; (main sin 031; default fail=open) &#183; &#171;retenci&#243;n aplicada&#187; (la purga no existe) &#183; &#171;costos impecables en todos los canales&#187; (suscripci&#243;n sin presupuesto POR DISE&#209;O; byok limitado solo en dev-fran) &#183; &#171;Cursor y Copilot soportados&#187; sin el matiz parcial &#183; &#171;9 capas corriendo&#187; (5 no ejecutan) &#183; &#171;SSO disponible&#187; &#183; &#171;la extensi&#243;n siempre protege&#187; (rutas cambiadas = crudo en silencio) &#183; y la madre de todas: <strong>&#171;lo que se demuestra es lo que se instala&#187;</strong> &#8212; todo lo presentable vive en dev-fran; main (rama default) instala el producto SIN auditor&#237;a de bloqueos, SIN l&#237;mite de gasto byok y con la UI vieja.</div>
+  </section>
+
+  <p class="foot">
+    ArquitectOverview v1 &#183; 31-jul-2026 &#183; rama de referencia: dev-fran (main = default pero pre-016/027/029/030/031). Compa&#241;era de <a href="https://claude.ai/code/artifact/e5fa25a8-d6de-411b-98e6-aa4da3ab669b">Vendor Portal &#8212; Sentinel Guardian</a> (wireframes y reglas air-gap en detalle).<br>
+    Fuentes en el repo: specs 013-034 + ROADMAP-guardian.md &#183; matriz de compatibilidad 019 (&#250;nica fuente de estado de superficies) &#183; compose.prod.yml &#183; litellm/extensions &#183; extension/ &#183; deploy/release. Verificado por 14 agentes de lectura + 4 jueces adversariales (30/31-jul).<br>
+    Prior-art: GitLab EE (imagen &#250;nica + licencia por tier) &#183; Replicated (vendor portal + canal por partner) &#183; Harbor (installer offline) &#183; Zarf (air-gap k8s) &#183; patr&#243;n config-as-data de la 020.
+  </p>
+
+</div>
+
+<script>
+(function () {
+  const root = document.documentElement, btn = document.querySelector('.theme-toggle');
+  const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  const label = () => { btn.textContent = isDark() ? 'Tema claro' : 'Tema oscuro'; };
+  btn.addEventListener('click', () => { root.dataset.theme = isDark() ? 'light' : 'dark'; label(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (!root.dataset.theme) label(); });
+  label();
+})();
+</script>
+</body>
+</html>

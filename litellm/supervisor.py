@@ -226,16 +226,16 @@ class Supervisor:
 
 
 def build_default() -> Supervisor:
-    config = Path(os.getenv("BASA_ENGINE_CONFIG_PATH", "/app/config/config.yaml"))
+    config = Path(os.getenv("SENTINEL_ENGINE_CONFIG_PATH", "/app/config/config.yaml"))
     argv = ["litellm", "--config", str(config)]
     return Supervisor(
         config_path=config,
-        sentinel_path=Path(os.getenv("BASA_ENGINE_SENTINEL_PATH", "/app/config/apply.trigger")),
-        status_dir=Path(os.getenv("BASA_ENGINE_STATUS_DIR", "/app/status")),
+        sentinel_path=Path(os.getenv("SENTINEL_ENGINE_SENTINEL_PATH", "/app/config/apply.trigger")),
+        status_dir=Path(os.getenv("SENTINEL_ENGINE_STATUS_DIR", "/app/status")),
         launch=lambda: subprocess.Popen(argv),
-        debounce=_env_float("BASA_ENGINE_APPLY_DEBOUNCE_SECONDS", 5.0),
-        drain=_env_float("BASA_ENGINE_DRAIN_SECONDS", 30.0),
-        autoreload=os.getenv("BASA_ENGINE_AUTORELOAD", "on").strip().lower() != "off",
+        debounce=_env_float("SENTINEL_ENGINE_APPLY_DEBOUNCE_SECONDS", 5.0),
+        drain=_env_float("SENTINEL_ENGINE_DRAIN_SECONDS", 30.0),
+        autoreload=os.getenv("SENTINEL_ENGINE_AUTORELOAD", "on").strip().lower() != "off",
     )
 
 

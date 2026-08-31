@@ -1,7 +1,7 @@
-"""Contract test del compose: el backend RECIBE `BASA_ENTITY_REGION` (#137/#141).
+"""Contract test del compose: el backend RECIBE `SENTINEL_ENTITY_REGION` (#137/#141).
 
 Hallazgo del gate de #137 (verificado por el manager): `gateway.py` lee
-`os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)` desde antes de este PR
+`os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION)` desde antes de este PR
 — el código consumidor siempre estuvo bien. Lo que faltaba era la ENTREGA: ni
 `docker-compose.yml` ni `deploy/docker/compose.prod.yml` declaraban esta env en el
 bloque `backend` (sólo en `engine`), así que en una instalación real `/gw`,
@@ -48,32 +48,32 @@ def _env_declara_region(servicio_environment) -> bool:
     """`environment` de un servicio compose puede ser lista (`KEY=value`, dev) o
     dict (`KEY: value`, prod) — los dos estilos conviven en este repo."""
     if isinstance(servicio_environment, dict):
-        return "BASA_ENTITY_REGION" in servicio_environment
+        return "SENTINEL_ENTITY_REGION" in servicio_environment
     if isinstance(servicio_environment, list):
         return any(
-            isinstance(item, str) and item.split("=", 1)[0] == "BASA_ENTITY_REGION"
+            isinstance(item, str) and item.split("=", 1)[0] == "SENTINEL_ENTITY_REGION"
             for item in servicio_environment
         )
     return False
 
 
-def test_backend_recibe_basa_entity_region_en_compose_dev():
+def test_backend_recibe_sentinel_entity_region_en_compose_dev():
     compose = _cargar(_DEV_COMPOSE)
     backend_env = compose["services"]["backend"]["environment"]
     assert _env_declara_region(backend_env), (
-        "docker-compose.yml: el bloque `backend` no declara BASA_ENTITY_REGION — "
+        "docker-compose.yml: el bloque `backend` no declara SENTINEL_ENTITY_REGION — "
         "`/gw`, la extensión de navegador y el Playground van a resolver siempre "
         "el default del código (eu), sin importar la región de la instalación "
         "(#137/#141, hallazgo H1)."
     )
 
 
-def test_backend_recibe_basa_entity_region_en_compose_prod():
+def test_backend_recibe_sentinel_entity_region_en_compose_prod():
     compose = _cargar(_PROD_COMPOSE)
     backend_env = compose["services"]["backend"]["environment"]
     assert _env_declara_region(backend_env), (
         "deploy/docker/compose.prod.yml: el bloque `backend` no declara "
-        "BASA_ENTITY_REGION — mismo hallazgo que en el compose de dev (#137/#141)."
+        "SENTINEL_ENTITY_REGION — mismo hallazgo que en el compose de dev (#137/#141)."
     )
 
 
@@ -85,5 +85,5 @@ def test_engine_y_backend_apuntan_al_mismo_default_de_instalacion():
         compose = _cargar(ruta)
         engine_env = compose["services"]["engine"]["environment"]
         backend_env = compose["services"]["backend"]["environment"]
-        assert _env_declara_region(engine_env), f"{ruta.name}: engine sin BASA_ENTITY_REGION"
-        assert _env_declara_region(backend_env), f"{ruta.name}: backend sin BASA_ENTITY_REGION"
+        assert _env_declara_region(engine_env), f"{ruta.name}: engine sin SENTINEL_ENTITY_REGION"
+        assert _env_declara_region(backend_env), f"{ruta.name}: backend sin SENTINEL_ENTITY_REGION"

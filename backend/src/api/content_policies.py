@@ -3,16 +3,16 @@
 Contrato SIMPLE de propósito: nombre corto (`policy_id`), descripción, lista de
 palabras/frases a bloquear, activo/inactivo. Todo lo demás (el motor de reglas en
 sí, `litellm_content_filter`, la persistencia) vive en LiteLLM — este router es la
-puerta de Basa hacia esa capacidad, no una reimplementación (ver
+puerta de Sentinel hacia esa capacidad, no una reimplementación (ver
 `services/ai_engine_client.py`, sección "Políticas de contenido", y
 `specs/036-plantillas-politicas-cliente/spec.md`).
 
-Deliberadamente SIN modelo propio en la base de Basa: LiteLLM ya persiste cada
+Deliberadamente SIN modelo propio en la base de Sentinel: LiteLLM ya persiste cada
 política (su propia base, tabla de guardrails) y expone list/create/update/delete;
 duplicar eso acá en una tabla espejo abriría la puerta a que las dos copias
 diverjan (el mismo problema que ya resolvieron `region`/`nlp_fail_mode` para otro
 caso: una sola fuente de verdad). Si más adelante hace falta auditoría propia de
-"quién creó qué política y cuándo" del lado de Basa, es una ampliación de este
+"quién creó qué política y cuándo" del lado de Sentinel, es una ampliación de este
 router, no un rediseño.
 """
 import re

@@ -174,9 +174,9 @@ async def test_las_wrappers_async_no_cambian_el_resultado():
 
 @pytest.mark.parametrize("valor,esperado", [("1", 1), ("2", 2), ("99", 4)])
 def test_bcrypt_workers_respeta_y_clampea_el_override(monkeypatch, valor, esperado):
-    """``BASA_BCRYPT_WORKERS`` overridea el default, topeado a 4 (bcrypt es CPU-bound: más de 4
+    """``SENTINEL_BCRYPT_WORKERS`` overridea el default, topeado a 4 (bcrypt es CPU-bound: más de 4
     hilos sólo agrega contención)."""
-    monkeypatch.setenv("BASA_BCRYPT_WORKERS", valor)
+    monkeypatch.setenv("SENTINEL_BCRYPT_WORKERS", valor)
     assert passwords._bcrypt_workers() == esperado
 
 
@@ -184,7 +184,7 @@ def test_bcrypt_workers_respeta_y_clampea_el_override(monkeypatch, valor, espera
 def test_bcrypt_workers_cae_al_default_sin_reventar(monkeypatch, basura):
     """Un valor ausente/vacío/malformado/fuera de rango NO tumba el arranque: cae a un valor
     seguro en [1, 4]. Un typo en el env no debe voltear el login."""
-    monkeypatch.setenv("BASA_BCRYPT_WORKERS", basura)
+    monkeypatch.setenv("SENTINEL_BCRYPT_WORKERS", basura)
     n = passwords._bcrypt_workers()
     assert 1 <= n <= 4
 

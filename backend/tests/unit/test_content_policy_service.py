@@ -2,7 +2,7 @@
 
 No pegan por red: monkeypatchean los helpers `_post`/`_get`/`_delete_by_id` del
 propio módulo, igual que el resto del proyecto testea sobre `ai_engine_client` (ver
-`test_auto_router_service.py`). Lo que se prueba es la lógica de Basa (armado del
+`test_auto_router_service.py`). Lo que se prueba es la lógica de Sentinel (armado del
 payload, filtro del listado, contrato de retorno) — el motor de LiteLLM en sí ya
 se probó en vivo (specs/036-plantillas-politicas-cliente/quickstart.md).
 """
@@ -32,7 +32,7 @@ async def test_create_content_policy_arma_el_payload_correcto(monkeypatch):
 
     assert capturado["path"] == "/guardrails"
     g = capturado["payload"]["guardrail"]
-    assert g["guardrail_name"] == "basa-policy-banco-xyz-sin-credito"
+    assert g["guardrail_name"] == "sentinel-policy-banco-xyz-sin-credito"
     assert g["litellm_params"]["guardrail"] == "litellm_content_filter"
     assert g["litellm_params"]["default_on"] is True
     assert g["litellm_params"]["blocked_words"] == [
@@ -108,25 +108,25 @@ async def test_create_content_policy_con_category_file_propio(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_content_policies_filtra_lo_que_no_es_de_basa(monkeypatch):
-    """El listado de LiteLLM trae de todo (basa-guardian, el ejemplo estático de
+async def test_list_content_policies_filtra_lo_que_no_es_de_sentinel(monkeypatch):
+    """El listado de LiteLLM trae de todo (sentinel-guardian, el ejemplo estático de
     config.yaml, guardrails de otros proveedores) — solo deben sobrevivir las
     creadas por este módulo (prefijo + proveedor)."""
     async def _get_doble(path, params):
         assert path == "/v2/guardrails/list"
         return {"guardrails": [
             {
-                "guardrail_name": "basa-guardian",
-                "litellm_params": {"guardrail": "extensions.basa_guardrail.BasaGuardrail"},
+                "guardrail_name": "sentinel-guardian",
+                "litellm_params": {"guardrail": "extensions.sentinel_guardrail.SentinelGuardrail"},
                 "guardrail_info": {},
             },
             {
-                "guardrail_name": "basa-content-filter",  # el estático de config.yaml, no una política
+                "guardrail_name": "sentinel-content-filter",  # el estático de config.yaml, no una política
                 "litellm_params": {"guardrail": "litellm_content_filter", "default_on": False},
                 "guardrail_info": {},
             },
             {
-                "guardrail_name": "basa-policy-banco-xyz-sin-credito",
+                "guardrail_name": "sentinel-policy-banco-xyz-sin-credito",
                 "guardrail_id": "abc-123",
                 "litellm_params": {
                     "guardrail": "litellm_content_filter",
@@ -194,7 +194,7 @@ async def test_update_content_policy_borra_y_crea_de_nuevo(monkeypatch):
     g = capturado["payload"]["guardrail"]
     assert g["litellm_params"]["default_on"] is False
     assert len(g["litellm_params"]["blocked_words"]) == 2
-    assert resultado["guardrail_id"] == "nuevo-id-456"  # cambia — no se persiste en Basa
+    assert resultado["guardrail_id"] == "nuevo-id-456"  # cambia — no se persiste en Sentinel
 
 
 @pytest.mark.asyncio

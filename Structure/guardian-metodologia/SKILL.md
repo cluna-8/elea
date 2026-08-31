@@ -1,16 +1,16 @@
 ---
 name: guardian-metodologia
-description: Metodología de desarrollo y coordinación del proyecto Basa Guardian (GuardIAn-secure). Usar SIEMPRE que se pida organizar trabajo del equipo (Cristian, Fran/JF, Falime), armar el brief de un ciclo, revisar o redactar un PR, decidir si algo va como módulo/rama/repo/perfil de país, escribir un ADR, clasificar un issue por departamento, redactar mensajes de coordinación al equipo (Slack), o planificar releases, demos e instalaciones de clientes. También ante menciones de "metodología", "cómo lo organizamos", "quién hace qué", o nombres como Fran, Falime, Evidenze, Cámara, guardian-factory.
+description: Metodología de desarrollo y coordinación del proyecto Sentinel Guardian (GuardIAn-secure). Usar SIEMPRE que se pida organizar trabajo del equipo (Cristian, Fran/JF, Falime), armar el brief de un ciclo, revisar o redactar un PR, decidir si algo va como módulo/rama/repo/perfil de país, escribir un ADR, clasificar un issue por departamento, redactar mensajes de coordinación al equipo (Slack), o planificar releases, demos e instalaciones de clientes. También ante menciones de "metodología", "cómo lo organizamos", "quién hace qué", o nombres como Fran, Falime, Evidenze, Cámara, guardian-factory.
 ---
 
-# Metodología Basa Guardian
+# Metodología Sentinel Guardian
 
-Guía operativa para coordinar el desarrollo de Basa Guardian: 2 departamentos con jefe técnico cada uno, Cristian como gate de seguridad y dueño del "cómo". El objetivo permanente: `main` siempre instalable, producción en septiembre 2026, y decisiones escritas una sola vez.
+Guía operativa para coordinar el desarrollo de Sentinel Guardian: 2 departamentos con jefe técnico cada uno, Cristian como gate de seguridad y dueño del "cómo". El objetivo permanente: `main` siempre instalable, producción en septiembre 2026, y decisiones escritas una sola vez.
 
 ## Estructura del equipo
 
 - **Fran (JF) — Guardian App Ecosystem**: producto. Gateway/API, motor firewall, PII/NLP, extensión (la app), integraciones 3rd-party, UI panel, auditoría, gobernanza, multi-tenant, lib licensing, contenido de docs. Roadmap: `specs/ROADMAP-guardian.md`.
-- **Falime — Install & Factory**: distribución. `deploy/` entero: bundles white-label, instalaciones, updates/parches, emisión de licencias, CLI `basa-admin`, CI/CD, TLS, perfiles de clientes, distribución de extensión. Roadmap: `deploy/ROADMAP-factory.md`.
+- **Falime — Install & Factory**: distribución. `deploy/` entero: bundles white-label, instalaciones, updates/parches, emisión de licencias, CLI `sentinel-admin`, CI/CD, TLS, perfiles de clientes, distribución de extensión. Roadmap: `deploy/ROADMAP-factory.md`.
 - **Cristian — gate, no departamento**: review obligatorio en custodia/rotación de claves de firma, RBAC de firma y auth. Define el "cómo" (esta metodología) y prioriza los ciclos.
 
 Las 5 costuras que requieren a ambos: extensión (JF app / Falime distribución), release (JF contenido / Falime empaqueta), zero-day (JF parche / Falime despliegue), docs (JF contenido / Falime entrega brandeada), bugs (JF triage / installs a Falime).

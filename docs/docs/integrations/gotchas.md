@@ -10,7 +10,7 @@ verificados en vivo sobre el producto — nada teórico. La configuración de ca
 - Acceso al monitor en vivo (`GET /api/v1/gw/monitor`) y al feed efímero de eventos
   (`GET /api/v1/gw/events`) para reproducir y observar el síntoma.
 - Una virtual key válida para verificar identidad:
-  `curl …/api/v1/gw/whoami -H "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>"`.
+  `curl …/api/v1/gw/whoami -H "X-Sentinel-Key: sk-sentinel-<usuario>-<herramienta>-<año>"`.
 - Para la superficie `browser`: poder recargar la extensión (botón **↻**) y, si hace falta,
   editar su `config.js` (URL del gateway) y el `host_permissions` de su `manifest.json`.
 - Base de los ejemplos: `http://localhost:8091/api/v1/gw` en desarrollo; en producción,
@@ -55,7 +55,7 @@ flowchart TD
 - **Síntoma:** Copilot no autentica; el gateway no ve virtual key.
 - **Causa:** Copilot manda `x-api-key` **vacío** e **ignora** el `apiKey` del
   `chatLanguageModels.json`; tampoco deja mandar headers custom.
-- **Fix:** meter la key **en la URL** (`…/api/v1/gw/v1/messages?k=sk-basa-…`). El gateway la levanta con
+- **Fix:** meter la key **en la URL** (`…/api/v1/gw/v1/messages?k=sk-sentinel-…`). El gateway la levanta con
   el fallback de key-en-URL. Es un atajo para entornos de prueba; en producción la key va por el
   campo de credencial seguro de la herramienta.
 
@@ -108,17 +108,17 @@ flowchart TD
 - **Fix:** la inspección toma la **cola** del último turno + la cabeza del system. Ahora los
   secretos se bloquean en Copilot y Claude Code.
 
-## G8 · La exclusión `x-basa-*` es load-bearing
+## G8 · La exclusión `x-sentinel-*` es load-bearing
 
-- **Hecho:** el auto-byok escanea **todos** los headers buscando una virtual key `sk-basa-…`,
-  **pero excluye** los headers `x-basa-*`.
-- **Por qué importa:** si no se excluyeran, la `X-Basa-Key` de **atribución** de Claude Code
+- **Hecho:** el auto-byok escanea **todos** los headers buscando una virtual key `sk-sentinel-…`,
+  **pero excluye** los headers `x-sentinel-*`.
+- **Por qué importa:** si no se excluyeran, la `X-Sentinel-Key` de **atribución** de Claude Code
   dispararía el auto-byok y **desviaría al motor** una sesión que debe ir por **passthrough de
-  suscripción**. La exclusión mantiene: `X-Basa-Key` = identidad; cualquier `sk-basa-…` en
+  suscripción**. La exclusión mantiene: `X-Sentinel-Key` = identidad; cualquier `sk-sentinel-…` en
   `x-api-key`/`Authorization` = credencial → byok.
-- **Regla de soporte:** **no** metas la virtual key en un header `x-basa-*` esperando que enrute
+- **Regla de soporte:** **no** metas la virtual key en un header `x-sentinel-*` esperando que enrute
   a byok; para byok va en `x-api-key`/`Authorization`/URL. Para atribución sin desviar, va en
-  `X-Basa-Key`.
+  `X-Sentinel-Key`.
 
 ## G9 · Placeholders en respuestas byok con modelos del motor — **CORREGIDO**
 

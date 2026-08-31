@@ -5,7 +5,7 @@ La extensión MV3 llama ``GET /gw/whoami`` (login del popup, fail-closed) y ``PO
 des-enmascarar el DOM). Cada inspect empuja al MISMO feed del monitor con
 ``surface="browser"`` y audita metadata-only (Constraint C1: la vitrina jamás muestra
 PII cruda). Nada mockeado: la key se seedea en la base y el masking corre sobre la
-librería ``basa_guardian_policy`` real. Ver COORDINATION-019 (asserts T5–T7).
+librería ``sentinel_guardian_policy`` real. Ver COORDINATION-019 (asserts T5–T7).
 """
 import json
 
@@ -19,9 +19,9 @@ def test_t5_whoami_fail_closed(gw, seeded_byok_key):
     """T5 (whoami fail-closed, SC-005): sin key → 401; key inválida → 401; key seedeada
     → 200 con ``ok=True``. La resolución es real contra la base compartida."""
     assert gw.get("/whoami").status_code == 401
-    assert gw.get("/whoami", headers={"X-Basa-Key": "sk-basa-bad"}).status_code == 401
+    assert gw.get("/whoami", headers={"X-Sentinel-Key": "sk-sentinel-bad"}).status_code == 401
 
-    ok = gw.get("/whoami", headers={"X-Basa-Key": seeded_byok_key})
+    ok = gw.get("/whoami", headers={"X-Sentinel-Key": seeded_byok_key})
     assert ok.status_code == 200, ok.text
     body = ok.json()
     assert body["ok"] is True, body
@@ -33,7 +33,7 @@ def test_t6_inspect_masking_round_trip(gw, seeded_byok_key):
     que la extensión reconstruye el texto. Masking real vía la política compartida."""
     resp = gw.post(
         "/inspect",
-        headers={"X-Basa-Key": seeded_byok_key},
+        headers={"X-Sentinel-Key": seeded_byok_key},
         json={"text": f"Contactá a {EMAIL}, DNI {DNI}"},
     )
     assert resp.status_code == 200, resp.text
@@ -78,7 +78,7 @@ def test_t7_monitor_surface_browser_no_raw_pii(gw, seeded_byok_key, monitor_head
     # Generar tráfico browser determinístico (no depender del orden de otros tests):
     ins = gw.post(
         "/inspect",
-        headers={"X-Basa-Key": seeded_byok_key},
+        headers={"X-Sentinel-Key": seeded_byok_key},
         json={"text": f"Contactá a {EMAIL}, DNI {DNI}"},
     )
     assert ins.status_code == 200, ins.text

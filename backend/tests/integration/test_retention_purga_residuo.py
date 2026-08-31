@@ -87,7 +87,7 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_retencion_purga_residuo"
+DB = "sentinel_test_retencion_purga_residuo"
 
 # Plazos del seed 004 (`alembic/versions/004_compliance_tables.py:100-109`). Van a mano y NO
 # importados: si alguien cambia el seed, este archivo tiene que ponerse rojo y explicar por qué,
@@ -207,14 +207,14 @@ def caja_en_cero(factory, politicas_del_seed):
 
 @pytest.fixture
 def corrida_real(monkeypatch):
-    """Corrida que BORRA: `BASA_PURGE_DRY_RUN=false` explícito.
+    """Corrida que BORRA: `SENTINEL_PURGE_DRY_RUN=false` explícito.
 
     El default del producto es el simulacro (`DEFAULT_DRY_RUN=True`, mitad de la red de H7), así
     que un test que quiera medir borrado tiene que pedirlo — que es exactamente la disciplina
     que la perilla busca imponerle al operador.
     """
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
-    monkeypatch.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
 
 
 def sembrar(factory, filas):
@@ -360,7 +360,7 @@ def test_el_simulacro_reporta_el_mismo_residuo_y_no_borra_nada(factory, monkeypa
     """
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "true")
     marcas = sembrar(factory, TODAS)
     sembrar_eslabon_viejo(factory)
     antes = total_filas(factory)
@@ -480,7 +480,7 @@ def test_lo_que_una_clase_reclama_deja_de_ser_residuo(factory, monkeypatch):
 
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "true")
     sembrar(factory, RESIDUO_VENCIDO)
     assert purger.run_once(session_factory=factory,
                            run_now=True).filas_no_clasificadas == len(RESIDUO_VENCIDO)
@@ -522,12 +522,12 @@ def test_fuera_de_ventana_no_se_cuenta_y_se_dice_que_no_se_conto(factory, monkey
     """
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
     # Ventana de un minuto en un huso donde no estamos: cerrada seguro, sin depender de la hora
     # a la que corra la suite. `en_ventana` compara en la TZ configurada, así que la ventana y
     # la zona se eligen juntas: 00:00-00:01 en UTC sólo está abierta un minuto por día.
-    monkeypatch.setenv("BASA_PURGE_WINDOW", "00:00-00:01")
-    monkeypatch.setenv("BASA_PURGE_WINDOW_TZ", "UTC")
+    monkeypatch.setenv("SENTINEL_PURGE_WINDOW", "00:00-00:01")
+    monkeypatch.setenv("SENTINEL_PURGE_WINDOW_TZ", "UTC")
     if purger.en_ventana(datetime.utcnow(), "00:00-00:01", "UTC"):
         pytest.skip("la suite corrió justo en el minuto de la ventana de prueba")
 
@@ -584,17 +584,17 @@ def test_la_corrida_recorre_la_clase_en_lotes(factory, monkeypatch):
     """
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_BATCH_SIZE", "2")
-    monkeypatch.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_SIZE", "2")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
     cinco = [(f"vieja_{i}", "ollama-qwen3-4b", "passed", [], VIEJA) for i in range(5)]
     marcas = sembrar(factory, cinco)
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "true")
     ensayo = purger.purgar_clase("usage_metadata", session_factory=factory, run_now=True)
     assert (ensayo.rows_deleted, ensayo.batches) == (5, 3)   # 2 + 2 + 1
     assert set(marcas.values()) <= ids_vivos(factory), "el ensayo no borra"
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
     real = purger.purgar_clase("usage_metadata", session_factory=factory, run_now=True)
     assert (real.rows_deleted, real.batches) == (5, 3), "la corrida real confirma el ensayo"
     assert not (set(marcas.values()) & ids_vivos(factory))
@@ -611,9 +611,9 @@ def test_si_la_ventana_se_cierra_a_mitad_la_clase_queda_partial(factory, monkeyp
     """
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_BATCH_SIZE", "2")
-    monkeypatch.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_SIZE", "2")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
     marcas = sembrar(factory, [(f"vieja_{i}", "ollama-qwen3-4b", "passed", [], VIEJA)
                                for i in range(5)])
 
@@ -637,7 +637,7 @@ def test_ventana_cerrada_sobre_una_clase_al_dia_no_es_partial(factory, monkeypat
     """
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
     sembrar(factory, CON_CLASE_VIVAS)   # nada vencido
     monkeypatch.setattr(purger, "en_ventana", lambda *a, **k: False)
 

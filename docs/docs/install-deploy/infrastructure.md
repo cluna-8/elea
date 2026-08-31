@@ -268,7 +268,7 @@ graph TB
 ```
 
 - **Artefacto**: tarball con todas las imágenes pinneadas por digest (incluido el sitio de
-  documentación, `basa-docs:<brand>-<version>`) + checksums, que se mueve al host destino
+  documentación, `sentinel-docs:<brand>-<version>`) + checksums, que se mueve al host destino
   (USB/SFTP) y se carga con `docker load`. 🔵
 - **Stack**: el compose de producción con `--profile selfhosted` levanta los **6**
   servicios (backend, frontend, motor, docs, db y redis). 🟢

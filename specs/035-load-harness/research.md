@@ -80,7 +80,7 @@ parches al producto)**:
 1. Perfil de cliente de examen nuevo (`deploy/clients/itv-examen/config.yaml.tmpl`,
    mismo mecanismo que camara-comercio): TODAS las entradas de `model_list` como
    `openai/<alias>` con `api_base` → stub; fallbacks solo entre aliases stub-backed.
-2. Env del backend: `BASA_GW_ANTHROPIC_BASE` → stub (existe solo en `gateway.py:125`,
+2. Env del backend: `SENTINEL_GW_ANTHROPIC_BASE` → stub (existe solo en `gateway.py:125`,
    default api.anthropic.com; NO está en ningún compose — agregarla al overlay).
 3. Provider keys VACÍAS en el secrets.env del examen — un alias mal apuntado falla
    ruidoso en vez de gastar o fugar.
@@ -219,8 +219,8 @@ credenciales de registry para pull de imágenes desde la VPC; disponibilidad c6i
 `backend/scripts/issue_license.py`** (herramienta canónica, NO destructiva, verifica
 contra el keyset antes de escribir).
 - **Licencias**: emitir DOS para ITV — 300 seats (paridad Cámara, gates 125/250) y 500
-  (gate 500); kid ya horneado (`basa-dev-2026b`); montar como
-  `/app/config/licenses/client.lic` + `BASA_ALLOW_DEV_LICENSE=true` en el overlay de
+  (gate 500); kid ya horneado (`sentinel-dev-2026b`); montar como
+  `/app/config/licenses/client.lic` + `SENTINEL_ALLOW_DEV_LICENSE=true` en el overlay de
   examen. **NUNCA** `issue_dev_license.py` sobre stack vivo (regenera el keyset —
   footgun documentado). Instalar la licencia definitiva ANTES de seedear (ampliar en
   caliente ≈5 min de 402 intermitentes).
@@ -248,10 +248,10 @@ posteriores, paneles rotos, sin login storm); el pre-check que la spec pide ya e
 como endpoint; la aritmética hace innecesario cualquier atajo.
 
 **Alternatives**: `apply_profile_seed.py`/SQL (fallback solo-keys; sin login) ·
-CLI basa-admin 026 (no implementada — no crear dependencia; migrar la emisión cuando
+CLI sentinel-admin 026 (no implementada — no crear dependencia; migrar la emisión cuando
 exista) · UI/Playwright (lento y frágil; descartado).
 
-**Open questions**: **custodia de la privada de `basa-dev-2026b`** — license_out/ está
+**Open questions**: **custodia de la privada de `sentinel-dev-2026b`** — license_out/ está
 gitignored y NO existe en este worktree: confirmar con JF que la tiene (si se perdió:
 kid nuevo = rebuild de imagen); medir latencia real de /user/new y /key/generate en el
 primer run del seeder; tool_type canónico de la extensión (¿chatgpt/copilot/
@@ -290,7 +290,7 @@ harness/
   pide ADR para decisiones estructurales).
 - **Corpus**: se genera de cero (NO existe corpus reutilizable en el repo — verificado),
   pero anclado a los reconocedores REALES del producto como espec y oráculo de tests:
-  `basa_guardian_policy.py` STRUCTURED_ID_PATTERNS + BY_REGION["ES"], built-ins Presidio
+  `sentinel_guardian_policy.py` STRUCTURED_ID_PATTERNS + BY_REGION["ES"], built-ins Presidio
   ES_NIF/ES_NIE con checksum, `presidio-analyzer/conf/es.yaml` (nombres españoles
   verosímiles detectables por NER). Un corpus que el NLP no detectaría produciría falsos
   «0 fugas». Candidatos: Faker es_ES + python-stdnum (verificar en plan).
@@ -351,7 +351,7 @@ documental hasta que haya branch protection (plan free).
   artefacto del departamento — dataset etiquetado versionado (spans por entidad) +
   generador determinista; consumidores: harness (mezclas/canarios runtime-only) y gate
   de calidad de detección del core (precision/recall por entidad contra la imagen real
-  de basa-nlp). Semilla: regresiones del #63. Refuerza R6 (generador ya anclado a los
+  de sentinel-nlp). Semilla: regresiones del #63. Refuerza R6 (generador ya anclado a los
   reconocedores reales como oráculo).
 - **Radar**: PR #99 (carrera multiprocessing → 422 espurios en altas concurrentes de
   entidades) y #106 (DoS de threadpool del guard ReDoS) — restricciones de guion

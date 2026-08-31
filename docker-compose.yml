@@ -1,39 +1,39 @@
 version: '3.8'
 
 # STACK_PREFIX aísla container_name entre worktrees en el mismo demonio Docker.
-# Default `basa` → los lectores (`docker exec basa-db`, `docker exec basa-engine`)
+# Default `sentinel` → los lectores (`docker exec sentinel-db`, `docker exec sentinel-engine`)
 # siguen funcionando. En un worktree paralelo: STACK_PREFIX=jeff223 docker compose up.
 # `-p` NO basta: solo scopea red/volúmenes. Los puertos de host siguen globales
 # (5433/8091/8090/4010); si chocan, override local de `ports` (no de nombres).
-# Convención: CONTRIBUTING.md § Entorno local + tech-team/DevFlow-BasaGuardian.md § 8.
+# Convención: CONTRIBUTING.md § Entorno local + tech-team/DevFlow-SentinelGuardian.md § 8.
 
 services:
   db:
     image: postgres:16-alpine
-    container_name: ${STACK_PREFIX:-basa}-db
+    container_name: ${STACK_PREFIX:-sentinel}-db
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-basa_gateway}
-      POSTGRES_USER: ${POSTGRES_USER:-basa_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-basasecurepass123}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel_gateway}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinelsecurepass123}
     ports:
       # 5433 en el host: 5432 lo ocupa el repo demo (gatelite) que debe seguir corriendo en paralelo
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
-      - basa-network
+      - sentinel-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-basa_admin} -d ${POSTGRES_DB:-basa_gateway}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentinel_admin} -d ${POSTGRES_DB:-sentinel_gateway}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: ${STACK_PREFIX:-basa}-redis
+    container_name: ${STACK_PREFIX:-sentinel}-redis
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     networks:
-      - basa-network
+      - sentinel-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -42,7 +42,7 @@ services:
 
   nlp-analyzer:
     # Motor de detección NLP real (spec 016) — sidecar propio, español. Sin puerto
-    # publicado al host: solo lo consumen engine/backend dentro de basa-network.
+    # publicado al host: solo lo consumen engine/backend dentro de sentinel-network.
     # Naming neutro (Principio VII): nombre de servicio/hostname sin marca de terceros
     # (el directorio de build sigue llamándose presidio-analyzer/ — detalle interno de
     # repo, no publicado; hallazgo del gate check-docs: el hostname SÍ se filtraba a
@@ -50,9 +50,9 @@ services:
     build:
       context: ./presidio-analyzer
       dockerfile: Dockerfile
-    container_name: ${STACK_PREFIX:-basa}-nlp-analyzer
+    container_name: ${STACK_PREFIX:-sentinel}-nlp-analyzer
     networks:
-      - basa-network
+      - sentinel-network
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health\")' || exit 1"]
       interval: 10s
@@ -65,21 +65,21 @@ services:
     # Proceso de bump: cambiar el digest -> correr la suite de contract tests
     # (tests/contract/) -> si pasa, commitear; NUNCA reescribir los hooks a ciegas.
     image: ghcr.io/berriai/litellm:main-latest@sha256:80ea654c506da9083503d00c1b323b2fecddf17af6add9bf01b2603938e17bd2
-    container_name: ${STACK_PREFIX:-basa}-engine
+    container_name: ${STACK_PREFIX:-sentinel}-engine
     ports:
       # 4010 en el host: 4000 lo ocupa el litellm del repo demo (gatelite)
       - "4010:4000"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-basa_admin}:${POSTGRES_PASSWORD:-basasecurepass123}@db:5432/${POSTGRES_DB:-basa_gateway}
-      # ALIAS deliberado (#302): el operador escribe BASA_ENGINE_MASTER_KEY en su `.env`;
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sentinel_admin}:${POSTGRES_PASSWORD:-sentinelsecurepass123}@db:5432/${POSTGRES_DB:-sentinel_gateway}
+      # ALIAS deliberado (#302): el operador escribe SENTINEL_ENGINE_MASTER_KEY en su `.env`;
       # DENTRO de ESTE contenedor la variable conserva el nombre de upstream. NO renombrar:
       # la imagen del motor la lee del env LITERAL (`proxy_server.py`, red del arranque si
       # falla la carga del config), `config.yaml` la resuelve con `os.environ/LITELLM_MASTER_KEY`
       # y las tres extensiones de `litellm/extensions/` la leen literal. Con el nombre nuevo
       # acá, master_key queda None y el motor degrada a INTERNAL_USER en silencio.
-      # El backend recibe el MISMO valor bajo BASA_ENGINE_MASTER_KEY (abajo): los dos lados
+      # El backend recibe el MISMO valor bajo SENTINEL_ENGINE_MASTER_KEY (abajo): los dos lados
       # del plano interno tienen que compartir secreto o `/internal/audit` rechaza al motor.
-      - LITELLM_MASTER_KEY=${BASA_ENGINE_MASTER_KEY:-basa_master_key_9999}
+      - LITELLM_MASTER_KEY=${SENTINEL_ENGINE_MASTER_KEY:-sentinel_master_key_9999}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}
@@ -92,14 +92,14 @@ services:
       - LITELLM_LOG=INFO
       # Motor NLP real (spec 016) — nombre de servicio compose, puerto interno del app.py
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
-      - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
+      - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-eu}
       # Política de fallo de auditoría (spec 031, contrato §Config). Misma env y mismo
       # valor que el backend: si una instalación exige `closed`, el motor no puede
       # quedarse en `open` y seguir sirviendo byok inauditable.
-      - BASA_AUDIT_FAIL=${BASA_AUDIT_FAIL:-open}
+      - SENTINEL_AUDIT_FAIL=${SENTINEL_AUDIT_FAIL:-open}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
-      # Extensiones Basa (spec 014): custom_auth se resuelve relativo al config.yaml
+      # Extensiones Sentinel (spec 014): custom_auth se resuelve relativo al config.yaml
       - ./litellm/extensions:/app/extensions
     entrypoint: ["litellm", "--config", "/app/config.yaml"]
     extra_hosts:
@@ -112,7 +112,7 @@ services:
       nlp-analyzer:
         condition: service_healthy
     networks:
-      - basa-network
+      - sentinel-network
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health/readiness\")' || exit 1"]
       interval: 5s
@@ -123,30 +123,30 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: ${STACK_PREFIX:-basa}-backend
+    container_name: ${STACK_PREFIX:-sentinel}-backend
     ports:
       # 8091 en el host: 8081 lo ocupa el backend del repo demo (gatelite)
       - "8091:8000"
     environment:
-      - POSTGRES_DB=${POSTGRES_DB:-basa_gateway}
-      - POSTGRES_USER=${POSTGRES_USER:-basa_admin}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-basasecurepass123}
+      - POSTGRES_DB=${POSTGRES_DB:-sentinel_gateway}
+      - POSTGRES_USER=${POSTGRES_USER:-sentinel_admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sentinelsecurepass123}
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - BASA_ENGINE_API_BASE=http://engine:4000
-      - BASA_ENGINE_MASTER_KEY=${BASA_ENGINE_MASTER_KEY:-basa_master_key_9999}
+      - SENTINEL_ENGINE_API_BASE=http://engine:4000
+      - SENTINEL_ENGINE_MASTER_KEY=${SENTINEL_ENGINE_MASTER_KEY:-sentinel_master_key_9999}
       # ── Admisión hacia el motor (nodo C1, issue #151) ──────────────────────────
       # Passthrough con los MISMOS defaults del código: en dev no cambia nada de
       # comportamiento, pero las perillas del .env.example dejan de ser decorativas
       # (sin estas líneas, ponerlas en el `.env` no llega al contenedor y el operador
       # cree que giró algo). El rango lo sigue imponiendo engine_gate.py.
-      - BASA_ENGINE_MAX_CONCURRENCY=${BASA_ENGINE_MAX_CONCURRENCY:-8}
-      - BASA_ENGINE_QUEUE_TIMEOUT_SECONDS=${BASA_ENGINE_QUEUE_TIMEOUT_SECONDS:-5}
-      - BASA_ENGINE_TIMEOUT_SECONDS=${BASA_ENGINE_TIMEOUT_SECONDS:-60}
-      - BASA_GW_BYOK_TIMEOUT_SECONDS=${BASA_GW_BYOK_TIMEOUT_SECONDS:-150}
-      - BASA_GW_BYOK_READ_TIMEOUT_SECONDS=${BASA_GW_BYOK_READ_TIMEOUT_SECONDS:-150}
+      - SENTINEL_ENGINE_MAX_CONCURRENCY=${SENTINEL_ENGINE_MAX_CONCURRENCY:-8}
+      - SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS=${SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS:-5}
+      - SENTINEL_ENGINE_TIMEOUT_SECONDS=${SENTINEL_ENGINE_TIMEOUT_SECONDS:-60}
+      - SENTINEL_GW_BYOK_TIMEOUT_SECONDS=${SENTINEL_GW_BYOK_TIMEOUT_SECONDS:-150}
+      - SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS=${SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS:-150}
       # ── Purga de retención (spec 018, FR-001) ──────────────────────────────────
       # Mismo criterio que el bloque de admisión de arriba: passthrough con los
       # defaults del plan para que las perillas del .env.example no sean decorativas
@@ -158,13 +158,13 @@ services:
       # imagen — el día que el purgador exista, esto arranca sin borrar nada hasta
       # que alguien lo pida por runbook. Hasta acá también llega el dev que corre
       # `docker compose up` sobre su base con meses de tráfico de pruebas.
-      - BASA_PURGE_ENABLED=${BASA_PURGE_ENABLED:-false}
-      - BASA_PURGE_DRY_RUN=${BASA_PURGE_DRY_RUN:-true}
-      - BASA_PURGE_INTERVAL_SECONDS=${BASA_PURGE_INTERVAL_SECONDS:-3600}
-      - BASA_PURGE_WINDOW=${BASA_PURGE_WINDOW:-02:00-05:00}
-      - BASA_PURGE_WINDOW_TZ=${BASA_PURGE_WINDOW_TZ:-Europe/Madrid}
-      - BASA_PURGE_BATCH_SIZE=${BASA_PURGE_BATCH_SIZE:-5000}
-      - BASA_PURGE_BATCH_PAUSE_MS=${BASA_PURGE_BATCH_PAUSE_MS:-200}
+      - SENTINEL_PURGE_ENABLED=${SENTINEL_PURGE_ENABLED:-false}
+      - SENTINEL_PURGE_DRY_RUN=${SENTINEL_PURGE_DRY_RUN:-true}
+      - SENTINEL_PURGE_INTERVAL_SECONDS=${SENTINEL_PURGE_INTERVAL_SECONDS:-3600}
+      - SENTINEL_PURGE_WINDOW=${SENTINEL_PURGE_WINDOW:-02:00-05:00}
+      - SENTINEL_PURGE_WINDOW_TZ=${SENTINEL_PURGE_WINDOW_TZ:-Europe/Madrid}
+      - SENTINEL_PURGE_BATCH_SIZE=${SENTINEL_PURGE_BATCH_SIZE:-5000}
+      - SENTINEL_PURGE_BATCH_PAUSE_MS=${SENTINEL_PURGE_BATCH_PAUSE_MS:-200}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - AZURE_API_KEY=${AZURE_OPENAI_API_KEY}
@@ -175,27 +175,27 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       # spec 021: licencia OFFLINE (fail-closed). En dev/demo apunta a la
       # licencia dev del repo; en un deploy real la 020 inyecta el .lic del
-      # cliente (y BASA_DEPLOYMENT_TENANT_ID) como secret — nunca este default.
-      - BASA_LICENSE_TOKEN_FILE=${BASA_LICENSE_TOKEN_FILE:-/app/config/licenses/dev-demo.lic}
-      # Opt-in EXPLÍCITO a claves dev (kid basa-dev-*): sin esta variable, el
+      # cliente (y SENTINEL_DEPLOYMENT_TENANT_ID) como secret — nunca este default.
+      - SENTINEL_LICENSE_TOKEN_FILE=${SENTINEL_LICENSE_TOKEN_FILE:-/app/config/licenses/dev-demo.lic}
+      # Opt-in EXPLÍCITO a claves dev (kid sentinel-dev-*): sin esta variable, el
       # producto rechaza la licencia dev pública del repo (guard anti-neutralización
       # del fail-closed). Una imagen prod jamás la setea.
-      - BASA_ALLOW_DEV_LICENSE=${BASA_ALLOW_DEV_LICENSE:-true}
+      - SENTINEL_ALLOW_DEV_LICENSE=${SENTINEL_ALLOW_DEV_LICENSE:-true}
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
       # Región de patrones estructurados, default DE LA INSTALACIÓN (spec 016 + extensión
       # países reales, #137/#141). El backend hostea `/gw`, `/gw/inspect` (navegador) y el
       # Playground —los otros tres planos además del byok que resuelve engine— y hasta
-      # este fix no la recibía: `gateway.py` lee `os.environ.get("BASA_ENTITY_REGION", …)`
+      # este fix no la recibía: `gateway.py` lee `os.environ.get("SENTINEL_ENTITY_REGION", …)`
       # contra un env que nunca le llegaba, así que esos tres planos SIEMPRE resolvían al
       # default del código (eu), sin importar la región que eligiera la instalación —
       # un tenant `latam_ar` enmascaraba DNI/CUIL por byok y NO por los otros tres planos.
       # Mismo valor que `engine` arriba: los dos servicios tienen que resolver la MISMA
       # región de instalación o el mismo texto detecta entidades distintas según el plano
       # por el que entró.
-      - BASA_ENTITY_REGION=${BASA_ENTITY_REGION:-eu}
+      - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-eu}
       # Política de fallo de auditoría (spec 031): `open` en dev — el fallo se cuenta y
-      # se ve, pero no corta. Para ejercitar el 503 honesto: BASA_AUDIT_FAIL=closed.
-      - BASA_AUDIT_FAIL=${BASA_AUDIT_FAIL:-open}
+      # se ve, pero no corta. Para ejercitar el 503 honesto: SENTINEL_AUDIT_FAIL=closed.
+      - SENTINEL_AUDIT_FAIL=${SENTINEL_AUDIT_FAIL:-open}
     volumes:
       - ./backend:/app
       - ./litellm:/app/litellm_config
@@ -205,13 +205,13 @@ services:
       engine:
         condition: service_healthy
     networks:
-      - basa-network
+      - sentinel-network
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: ${STACK_PREFIX:-basa}-frontend
+    container_name: ${STACK_PREFIX:-sentinel}-frontend
     ports:
       # 8090 en el host: 8080 lo ocupa el frontend del repo demo (gatelite)
       - "8090:5173"
@@ -219,12 +219,12 @@ services:
       - ./frontend:/app
       - /app/node_modules
     networks:
-      - basa-network
+      - sentinel-network
     depends_on:
       - backend
 
 networks:
-  basa-network:
+  sentinel-network:
     driver: bridge
 
 volumes:

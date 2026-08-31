@@ -12,7 +12,7 @@ CONTRATO (limitación documentada, FR-028): el truncado de COLA (borrar los
 TOTAL de la cadena NO es detectable localmente — quien controla el runtime
 controla la DB. Su detección es la CONTINUIDAD ENTRE EXPORTS de true-up
 (T040): un export firmado previo ancla head+contador fuera de la caja, y el
-verificador lado-Basa rechaza un export posterior cuyo contador retrocede o
+verificador lado-Sentinel rechaza un export posterior cuyo contador retrocede o
 cuyo head previo no es ancestro. El ancla final es contractual (EULA).
 """
 import pytest
@@ -26,7 +26,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_hash_chain"
+DB = "sentinel_test_hash_chain"
 
 
 @pytest.fixture(scope="module")

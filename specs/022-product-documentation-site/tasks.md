@@ -8,7 +8,7 @@ description: "Task list for feature 022 — Product Documentation Site (Distribu
 
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md (framework decidido:
 MkDocs+Material primario, Starlight+Pagefind plan B). **GREENFIELD**: no hay sitio previo; la **semilla** es el
-corpus `basa-guardian/docs/*.md` (`whitelabel-deployment.md`, `integration-surfaces.md`,
+corpus `sentinel-guardian/docs/*.md` (`whitelabel-deployment.md`, `integration-surfaces.md`,
 `compliance-policies.md`) y el **OpenAPI** del backend FastAPI (para el API reference). Depende, en enganche de
 deploy, del empaquetado de la **020** (compose v1 / k3s+Zarf v2).
 
@@ -32,7 +32,7 @@ implementación y deben FALLAR primero.
 - Overlays de marca: `docs/mkdocs.<brand>.yml`
 - Compose: `deploy/docker/compose.prod.yml` (servicio `docs` — el entregable) + `docker-compose.yml` (dev)
 - Legacy a deprecar: `frontend/src/pages/DocsPage.tsx`
-- Semilla: `basa-guardian/docs/*.md`
+- Semilla: `sentinel-guardian/docs/*.md`
 - Tests/checks: `deploy/release/checks/` (runner real del repo: `make -C deploy check`)
 
 ## Delta post-020/021 (speckit-analyze 2026-07-20 — los artefactos eran del 14-jul, pre-implementación de 020/021)
@@ -59,8 +59,8 @@ implementación y deben FALLAR primero.
   proveedor). Resolución alineada a la constitución VII (el principio es no exponer el MOTOR): prohibido
   absoluto en el HTML publicado = internals del pipeline (`litellm`/`berriai`/`presidio` + crédito del
   tema); nombres de herramientas/proveedores permitidos SOLO como superficies de integración o BYOK del
-  usuario. En prosa la marca es neutra ("el producto"/"el gateway"); los identificadores wire (`x-basa-*`,
-  `BASA_*`, `/gw/*`) se conservan literales.
+  usuario. En prosa la marca es neutra ("el producto"/"el gateway"); los identificadores wire (`x-sentinel-*`,
+  `SENTINEL_*`, `/gw/*`) se conservan literales.
 
 ---
 
@@ -121,7 +121,7 @@ verificar 0 requests externos y que el servicio levanta en el compose detrás de
 - [X] T009 [US1] Crear `docs/nginx.conf`: sirve estáticos; **sin ACME/auto-HTTPS** (TLS lo termina el proxy del
       deploy; air-gap sin egress a Let's Encrypt). *(FR-023)*
 - [X] T010 [US1] Añadir el servicio **`docs`** a `deploy/docker/compose.prod.yml` (imagen
-      `basa-docs:<brand>-<version>`, perfiles normal+selfhosted) detrás del proxy/TLS del deploy, sin exponer
+      `sentinel-docs:<brand>-<version>`, perfiles normal+selfhosted) detrás del proxy/TLS del deploy, sin exponer
       egress nuevo (Principio VII); opcional: servicio de preview en el compose dev. *(FR-004, SC-002 — delta F1)*
 - [X] T011 [US1] Documentar el enganche **k3s+Helm+Zarf v2** (020): la imagen del sitio entra en el bundle Zarf
       (SBOM + firma) igual que el resto de imágenes pinneadas. *(FR-004)*
@@ -148,11 +148,11 @@ secciones sin perder 🟢/🟡/🔵; la doc de producto ya no vive en el fronten
 
 ### Implementation for User Story 2
 
-- [X] T014 [P] [US2] Migrar `basa-guardian/docs/whitelabel-deployment.md` → `docs/docs/install-deploy/**` +
+- [X] T014 [P] [US2] Migrar `sentinel-guardian/docs/whitelabel-deployment.md` → `docs/docs/install-deploy/**` +
       `docs/docs/white-label/**` (deploy: OpenTofu/secretos/estado; branding pack). *(FR-006, relación 020)*
-- [X] T015 [P] [US2] Migrar `basa-guardian/docs/integration-surfaces.md` → `docs/docs/integrations/**`
+- [X] T015 [P] [US2] Migrar `sentinel-guardian/docs/integration-surfaces.md` → `docs/docs/integrations/**`
       (superficies base_url/browser/mcp + matriz + gotchas). *(FR-006, relación 019)*
-- [X] T016 [P] [US2] Migrar `basa-guardian/docs/compliance-policies.md` → `docs/docs/compliance/**`
+- [X] T016 [P] [US2] Migrar `sentinel-guardian/docs/compliance-policies.md` → `docs/docs/compliance/**`
       (GDPR/AI-Act, DPA, DSR, retención, panel DPO). *(FR-006, relación 005/008, Principio II)*
 - [X] T017 [US2] Redactar **Overview & arquitectura** (`docs/docs/overview/**`): qué es el producto, stack en
       containers, pipeline (masking→…→unmask) — marca-neutro. *(FR-005)*
@@ -173,7 +173,7 @@ secciones sin perder 🟢/🟡/🔵; la doc de producto ya no vive en el fronten
 por marca, 0 mención de motor/proveedor.
 
 **Independent Test**: Construir con 2 marcas cambiando **sólo** tokens de branding; 0 líneas de contenido/tema
-difieren; cada build produce `basa-docs:<brand>-<version>`; 0 menciones de motor en el HTML.
+difieren; cada build produce `sentinel-docs:<brand>-<version>`; 0 menciones de motor en el HTML.
 
 ### Tests for User Story 3 ⚠️
 
@@ -190,7 +190,7 @@ difieren; cada build produce `basa-docs:<brand>-<version>`; 0 menciones de motor
       `docs/mkdocs.<brand>.yml` (overlay **`INHERIT`** sobre `docs/mkdocs.yml`), **derivado del brand-pack de
       la 020** (`deploy/branding/brand*.json` + `clients/<slug>/branding.env`) — una sola fuente de marca por
       cliente; assets por defecto marca-neutros en `docs/brand/`. *(FR-010, FR-011 — delta F3)*
-- [X] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `basa-docs:<brand>-<version>` (una
+- [X] T024 [US3] Parametrizar el tag de imagen **por marca** en el build: `sentinel-docs:<brand>-<version>` (una
       marca por instancia, config-as-data). *(FR-012)*
 - [X] T025 [US3] Verificar que el contenido markdown se mantiene **marca-neutro** por defecto (sin nombres de
       producto hardcodeados en el corpus migrado). *(FR-011, FR-013)*
@@ -299,7 +299,7 @@ traducción EN degrada con fallback, no 404.
 
 - [X] T040 [P] [POLISH] Generar `quickstart.md`: build local (`mkdocs serve`), `mkdocs build --strict`, test de
       0 egress, construir + publicar una marca, cambiar versión/idioma.
-- [X] T041 [POLISH] Verificación end-to-end (Principio VII): build `--strict` → imagen `basa-docs:<brand>-…` →
+- [X] T041 [POLISH] Verificación end-to-end (Principio VII): build `--strict` → imagen `sentinel-docs:<brand>-…` →
       **0 egress** con red bloqueada → **2 marcas** desde config → selectores de versión/idioma → naming neutro.
       *(SC-001..SC-007)*
 - [X] T042 [P] [POLISH] Confirmar **decisión de framework** documentada (`research.md`): MkDocs primario /
@@ -395,12 +395,12 @@ termine su rama primero. US7 lo documenta quien cierra la IA.
 - [P] = archivos distintos, sin dependencias.
 - [Story] mapea cada tarea a su user story para trazabilidad.
 - Verificar que los tests ⚠️ fallan antes de implementar (0 egress, white-label, naming, deriva API, búsqueda).
-- **Semilla del contenido**: `basa-guardian/docs/whitelabel-deployment.md`, `.../integration-surfaces.md`,
+- **Semilla del contenido**: `sentinel-guardian/docs/whitelabel-deployment.md`, `.../integration-surfaces.md`,
   `.../compliance-policies.md`; el **API reference** sale del **OpenAPI** del backend FastAPI (no a mano).
 - **Honestidad SDD**: GREENFIELD; el docset end-user (clínico) y el plan B (Starlight+Pagefind) son **roadmap
   documentado**, no entregables de v1. El framework decidido es **MkDocs + Material** (air-gap de primera clase
   + cero toolchain nueva), con el contra de estar en **modo mantenimiento** declarado.
 - **Never fork**: el white-label es config-as-data (overlay `INHERIT`/`envsubst`); el contenido markdown es
-  marca-neutro; una imagen por marca (`basa-docs:<brand>-<version>`).
+  marca-neutro; una imagen por marca (`sentinel-docs:<brand>-<version>`).
 - **Prohibiciones load-bearing**: 0 buscador SaaS (Algolia), 0 derivación de las specs de Spec Kit, 0 ACME en
   air-gap (nginx/`auto_https off`).

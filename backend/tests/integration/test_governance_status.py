@@ -26,7 +26,7 @@ from seat_gate_harness import admin_headers, build_app_client
 
 require_postgres()
 
-DB = "basa_test_governance_status_integration"
+DB = "sentinel_test_governance_status_integration"
 
 # Términos que JAMÁS pueden aparecer en una respuesta del producto (Constitución VII:
 # ningún nombre de proveedor externo en API, errores, logs ni UI) más los marcadores
@@ -45,7 +45,7 @@ class _Probe:
         return bool(self.confirmed and name and name in self.names)
 
 
-MOTOR_ARRIBA = _Probe(True, {"basa-guardian"})
+MOTOR_ARRIBA = _Probe(True, {"sentinel-guardian"})
 MOTOR_CAIDO = _Probe(False)
 
 
@@ -234,8 +234,8 @@ def test_requires_service_sin_confirmar_jamas_es_aplicandose():
                            requires_credential=False, delegable_to_upstream=False,
                            default_decision="on", guardian_types=(),
                            requires_service="nlp-sidecar")
-    probe = _Probe(True, {"basa-guardian"})
-    inputs = StatusInputs(engine_names={"pii_masking": frozenset({"basa-guardian"})})
+    probe = _Probe(True, {"sentinel-guardian"})
+    inputs = StatusInputs(engine_names={"pii_masking": frozenset({"sentinel-guardian"})})
 
     estado, motivo = compute_layer_state(capa, desired=True, mode="gateway-models",
                                          probe=probe, inputs=inputs)
@@ -289,7 +289,7 @@ def test_rol_no_admin_da_403(harness, monkeypatch):
     db = factory_de(harness)
     usuario = f"dev-{uuid.uuid4().hex[:8]}"
     try:
-        db.add(User(username=usuario, email=f"{usuario}@basa.com.ar",
+        db.add(User(username=usuario, email=f"{usuario}@sentinel.com.ar",
                     password_hash=hashlib.sha256(b"secreta").hexdigest(),
                     role="client", display_label="developer", is_active=True))
         db.commit()

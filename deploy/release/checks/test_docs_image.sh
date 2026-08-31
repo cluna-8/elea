@@ -2,7 +2,7 @@
 # 022 T006 (US1, SC-001/SC-002): la imagen del sitio de docs es estática, non-root,
 # y funciona COMPLETA con la red bloqueada (0 egress en runtime).
 set -euo pipefail
-IMG="${DOCS_IMG:-basa-docs:prod}"
+IMG="${DOCS_IMG:-sentinel-docs:prod}"
 
 fail() { echo "❌ $1"; exit 1; }
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-docs)"
@@ -15,7 +15,7 @@ docker run --rm --entrypoint sh "$IMG" -c 'command -v python3 || command -v mkdo
     && fail "la capa final contiene la toolchain de build (python/mkdocs)" || true
 
 # ── 0 egress runtime: contenedor con --network none; se navega DESDE ADENTRO (loopback). ──
-cname="basa-docs-airgap-check-$$"
+cname="sentinel-docs-airgap-check-$$"
 trap 'docker rm -f "$cname" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$cname" --network none "$IMG" >/dev/null
 sleep 2

@@ -5,7 +5,7 @@ to measure tokens accurately instead of the old chars//4 estimate.
 """
 import logging
 
-logger = logging.getLogger("basa-secure-gateway.token_counter")
+logger = logging.getLogger("sentinel-secure-gateway.token_counter")
 
 try:
     import tiktoken

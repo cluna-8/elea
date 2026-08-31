@@ -12,4 +12,4 @@
 -- se creaba nunca: el motor no arrancaba (connection refused) mientras su contenedor
 -- se reportaba "Up". Omitir OWNER da exactamente lo que se buscaba — el dueño pasa a
 -- ser el rol que ejecuta este script, que es POSTGRES_USER — y es válido.
-CREATE DATABASE basa_engine;
+CREATE DATABASE sentinel_engine;

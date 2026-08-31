@@ -48,11 +48,11 @@ if (!FASES.includes(fase)) {
   process.exit(2);
 }
 
-const USUARIO = flags.usuario || process.env.BASA_E2E_USUARIO || 'admin';
-const CLAVE = flags.clave || process.env.BASA_E2E_CLAVE || '';
-const TENANT_IDP = flags['tenant-id'] || process.env.BASA_E2E_IDP_TENANT_ID || '';
-const CLIENT_ID = flags['client-id'] || process.env.BASA_E2E_IDP_CLIENT_ID || '';
-const REDIRECT_URI = flags['redirect-uri'] || process.env.BASA_SSO_REDIRECT_URI || `${base}/sso/callback`;
+const USUARIO = flags.usuario || process.env.SENTINEL_E2E_USUARIO || 'admin';
+const CLAVE = flags.clave || process.env.SENTINEL_E2E_CLAVE || '';
+const TENANT_IDP = flags['tenant-id'] || process.env.SENTINEL_E2E_IDP_TENANT_ID || '';
+const CLIENT_ID = flags['client-id'] || process.env.SENTINEL_E2E_IDP_CLIENT_ID || '';
+const REDIRECT_URI = flags['redirect-uri'] || process.env.SENTINEL_SSO_REDIRECT_URI || `${base}/sso/callback`;
 // Cuánto se le da al humano para resolver credenciales + segundo factor.
 const ESPERA_HUMANA_MS = Number(flags['espera-humana'] || 300) * 1000;
 
@@ -114,12 +114,12 @@ async function loginLocalPorPantalla(page) {
   await page.locator('input[type="password"]').first().fill(CLAVE);
   await page.getByRole('button', { name: /Ingresar al Panel/i }).click();
   // El panel se pinta cuando App.tsx pasa a currentPage="dashboard".
-  await page.waitForFunction(() => !!localStorage.getItem('basa_session_token'), null, { timeout: 15000 });
+  await page.waitForFunction(() => !!localStorage.getItem('sentinel_session_token'), null, { timeout: 15000 });
   await page.waitForTimeout(800);
 }
 
 async function tokenEnNavegador(page) {
-  return page.evaluate(() => localStorage.getItem('basa_session_token'));
+  return page.evaluate(() => localStorage.getItem('sentinel_session_token'));
 }
 
 // ── aserciones compartidas ────────────────────────────────────────────────────────────
@@ -237,7 +237,7 @@ async function faseSembrado(ctx, page) {
     `state=${q?.get('state') ? 'sí' : 'no'} nonce=${q?.get('nonce') ? 'sí' : 'no'}`);
   const cookies = String(redir.headers()['set-cookie'] || '');
   registrar('el 302 siembra la cookie de flujo (HttpOnly)',
-    cookies.includes('basa_sso_state') && /httponly/i.test(cookies),
+    cookies.includes('sentinel_sso_state') && /httponly/i.test(cookies),
     cookies.split(';').slice(0, 2).join(';'));
 
   await medirBoton(page, true);
@@ -383,7 +383,7 @@ async function faseLoginReal(ctx, page) {
     `status=${respuesta?.status() ?? '—'}`);
 
   const entro = await page.waitForFunction(
-    () => !!localStorage.getItem('basa_session_token'), null, { timeout: 30000 },
+    () => !!localStorage.getItem('sentinel_session_token'), null, { timeout: 30000 },
   ).then(() => true).catch(() => false);
   await page.waitForTimeout(1200);
   const capturaPanel = await capturar(page, 'panel-por-sso');

@@ -10,7 +10,7 @@
 - `backend/src/services/rate_limiter.py` — `check_rpm(key_id, rpm_limit)` y `check_tpm(key_id, tpm_limit, tokens_used)`; patrón INCR + EXPIRE 60s; lanza `RateLimitExceeded` con `retry_after`
 - `backend/src/api/chat.py` — verifica RPM antes de llamar al motor; verifica TPM después con tokens reales; headers `X-RateLimit-Remaining-Requests` y `X-RateLimit-Remaining-Tokens` en cada respuesta; renamed param `response → http_resp` para evitar colisión con variable httpx
 - `backend/src/api/keys.py` — campos `rpm_limit` y `tpm_limit` en `KeyCreateSchema`, `KeyResponseSchema` y persistencia en DB
-- `docker-compose.yml` — servicio `basa-redis` con healthcheck; variables `REDIS_HOST` y `REDIS_PORT` en entorno de litellm
+- `docker-compose.yml` — servicio `sentinel-redis` con healthcheck; variables `REDIS_HOST` y `REDIS_PORT` en entorno de litellm
 
 **Frontend**
 - `frontend/src/pages/UsersPage.tsx` — columna "Límites RPM/TPM" en tabla de llaves; inputs `rpm_limit` y `tpm_limit` en modal de nueva llave (defaults: 60 RPM, 100 000 TPM)

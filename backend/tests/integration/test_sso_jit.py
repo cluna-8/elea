@@ -35,7 +35,7 @@ from seat_gate_harness import (  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_sso_jit"
+DB = "sentinel_test_sso_jit"
 
 SENTINEL = "!seeded-client-no-login"
 
@@ -126,7 +126,7 @@ def _resolver(factory, email, display_name="Nombre Del IdP", tenant_id=None):
 
 def test_centinela_se_activa_sin_duplicar(entorno):
     _, factory = entorno
-    email = "centinela-activa@basa.test"
+    email = "centinela-activa@sentinel.test"
     uid = _sembrar(factory, email=email, is_active=False, password_hash=SENTINEL)
 
     snap = _resolver(factory, email)
@@ -140,7 +140,7 @@ def test_centinela_activado_sigue_sin_poder_loguear_con_password(entorno):
     """Activar NO le da una credencial local: la identidad la custodia el IdP."""
     from src.auth.passwords import verify_password
     _, factory = entorno
-    email = "centinela-sin-password@basa.test"
+    email = "centinela-sin-password@sentinel.test"
     uid = _sembrar(factory, email=email, is_active=False, password_hash=SENTINEL)
 
     _resolver(factory, email)
@@ -154,7 +154,7 @@ def test_centinela_no_consume_seat_aunque_la_licencia_este_agotada(entorno, monk
     """«No consume seat por existir» (FR-008) medido contra el gate REAL: con la
     licencia en su tope, el alta nueva sería 402 — el centinela pasa igual."""
     _, factory = entorno
-    email = "centinela-sin-seat@basa.test"
+    email = "centinela-sin-seat@sentinel.test"
     uid = _sembrar(factory, email=email, is_active=False, password_hash=SENTINEL)
 
     seed_active_seats(factory, 2, prefix="jit-cent")
@@ -170,7 +170,7 @@ def test_centinela_no_consume_seat_aunque_la_licencia_este_agotada(entorno, monk
 
 def test_identidad_nueva_se_crea_como_client(entorno):
     _, factory = entorno
-    email = "nuevo-jit@basa.test"
+    email = "nuevo-jit@sentinel.test"
 
     snap = _resolver(factory, email, display_name="Persona Nueva")
 
@@ -185,7 +185,7 @@ def test_identidad_nueva_nace_sin_password_util(entorno):
     from src.auth.passwords import verify_password
     from src.sso.jit import SSO_PASSWORD_SENTINEL
     _, factory = entorno
-    email = "nuevo-sin-password@basa.test"
+    email = "nuevo-sin-password@sentinel.test"
 
     snap = _resolver(factory, email)
 
@@ -199,7 +199,7 @@ def test_alta_nueva_pasa_por_el_seat_gate(entorno, monkeypatch, tmp_path):
     """Con la licencia en su tope, la identidad NUEVA se rechaza y NO deja fila."""
     from fastapi import HTTPException
     _, factory = entorno
-    email = "nuevo-sin-licencia@basa.test"
+    email = "nuevo-sin-licencia@sentinel.test"
 
     seed_active_seats(factory, 2, prefix="jit-tope")
     set_license(monkeypatch, tmp_path, max_seats=1)
@@ -215,7 +215,7 @@ def test_alta_nueva_pasa_por_el_seat_gate(entorno, monkeypatch, tmp_path):
 
 def test_usuario_activo_solo_loguea(entorno):
     _, factory = entorno
-    email = "ya-activo@basa.test"
+    email = "ya-activo@sentinel.test"
     uid = _sembrar(factory, email=email, role="tenant_admin", is_active=True,
                    password_hash="$2b$12$abcdefghijklmnopqrstuv")
     antes = _leer(factory, uid)
@@ -232,7 +232,7 @@ def test_inactivo_no_centinela_es_rechazado(entorno):
     """Una baja administrativa NO se revierte entrando por el IdP."""
     from fastapi import HTTPException
     _, factory = entorno
-    email = "dado-de-baja@basa.test"
+    email = "dado-de-baja@sentinel.test"
     uid = _sembrar(factory, email=email, is_active=False,
                    password_hash="$2b$12$abcdefghijklmnopqrstuv")
 
@@ -253,7 +253,7 @@ def test_jamas_reasigna_rol(entorno, rol_local):
     IdP (o el default ``client``) podría degradar o promover a alguien existente.
     """
     _, factory = entorno
-    email = f"rol-{rol_local}@basa.test"
+    email = f"rol-{rol_local}@sentinel.test"
     uid = _sembrar(factory, email=email, role=rol_local, is_active=True,
                    password_hash="$2b$12$abcdefghijklmnopqrstuv")
 
@@ -265,7 +265,7 @@ def test_jamas_reasigna_rol(entorno, rol_local):
 def test_centinela_conserva_su_rol_al_activarse(entorno):
     """Ni siquiera el camino que SÍ escribe (activación) toca el rol."""
     _, factory = entorno
-    email = "centinela-officer@basa.test"
+    email = "centinela-officer@sentinel.test"
     uid = _sembrar(factory, email=email, role="compliance_officer", is_active=False,
                    password_hash=SENTINEL)
 
@@ -282,7 +282,7 @@ def test_matching_por_email_es_por_tenant(entorno):
     from src.sso.jit import buscar_por_email
     from src.models.tenant import Tenant
     _, factory = entorno
-    email = "mismo-email@basa.test"
+    email = "mismo-email@sentinel.test"
 
     db = factory()
     try:

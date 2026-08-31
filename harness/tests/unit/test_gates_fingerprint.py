@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from basa_harness.reporting import (
+from sentinel_harness.reporting import (
     CANONICAL_SLOS,
     Fingerprint,
     GateError,
@@ -25,7 +25,7 @@ from basa_harness.reporting import (
     surface_populations,
     validate_gate,
 )
-from basa_harness.reporting.gate_loader import GATES_DIR
+from sentinel_harness.reporting.gate_loader import GATES_DIR
 
 GATE_FILES = {n: GATES_DIR / f"gate-{n}.yaml" for n in (125, 250, 500)}
 

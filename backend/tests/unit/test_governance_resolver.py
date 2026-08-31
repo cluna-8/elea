@@ -26,8 +26,8 @@ import pytest
 # Camino de import CANÓNICO: en sys.path va la carpeta CONTENEDORA (<repo>/litellm en
 # local, /app/litellm_config en el contenedor), nunca la carpeta `extensions`. El backend
 # entra por `src/services/governance_catalog.py`, que llega al MISMO objeto-módulo gracias
-# al alias de sys.modules del final de basa_governance (ver test de identidad más abajo).
-from extensions import basa_governance as gov
+# al alias de sys.modules del final de sentinel_governance (ver test de identidad más abajo).
+from extensions import sentinel_governance as gov
 
 
 FLOOR_KEYS = tuple(layer.layer_key for layer in gov.floor_layers())
@@ -90,7 +90,7 @@ def test_enforcement_tier_estricto_es_capa_backend_only_gobernable():
     no ata a ningún guardián y no se delega ni admite override por Connection.
 
     Es la clave que el backend consulta para los pisos de retención (FR-007), la aserción de
-    `BASA_AUDIT_FAIL` y las consecuencias de las capas con grado. El motor la ignora."""
+    `SENTINEL_AUDIT_FAIL` y las consecuencias de las capas con grado. El motor la ignora."""
     layer = gov.GOVERNANCE_LAYERS["enforcement_tier_estricto"]
     assert layer.tier == gov.TIER_OPTIONAL
     assert layer.default_decision == gov.OFF          # off/ausente = estándar
@@ -253,7 +253,7 @@ def test_el_profile_cubre_el_catalogo_entero():
 
 
 def test_perfil_inyectado_no_puede_relajar_ninguna_capa():
-    """Hallazgo A2. El perfil cruza al motor por ``metadata['basa']``, o sea dentro de un
+    """Hallazgo A2. El perfil cruza al motor por ``metadata['sentinel']``, o sea dentro de un
     body que el CLIENTE controla, y el motor es alcanzable directo (D3). Proteger solo el
     piso no alcanzaba: cualquier key válida apagaba el enmascarado (Principio I) y la
     atribución lo reportaba con ``origin='connection'``, como si lo hubiera decidido el
@@ -863,7 +863,7 @@ def test_hay_un_solo_objeto_modulo_pase_quien_pase():
     """Con dos objetos-módulo (uno por camino de import) hay dos clases ``Profile``
     distintas, y un ``isinstance(profile, Profile)`` empieza a fallar al cruzar planos sin
     motivo aparente. El alias de ``sys.modules`` lo hace imposible."""
-    import basa_governance as plano   # el nombre por el que entra la puerta del backend
+    import sentinel_governance as plano   # el nombre por el que entra la puerta del backend
 
     assert plano is gov
     assert plano.Profile is gov.Profile

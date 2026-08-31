@@ -37,7 +37,7 @@ Y tres más que sostienen el CRUD del perfil (US2, contrato ``PUT /profile``):
    contrabandeada por SQL directo es inerte (data-model §1.4)—.
 
    **Dónde NO se registra, y por qué** (hallazgo A1 de la verificación adversarial de US2):
-   la primera versión publicaba estos eventos en ``basa:gw:events``, el feed que sirve
+   la primera versión publicaba estos eventos en ``sentinel:gw:events``, el feed que sirve
    ``/gw/events``. Ese feed no exigía sesión, así que la configuración de gobernanza
    —``layer_key``, alcance, ``updated_by`` y ``tenant``— salía por un endpoint abierto: la
    misma información que este router protege con ``require_role("admin")`` (invariante #1 del
@@ -95,7 +95,7 @@ from ..services.governance_status import (
 )
 from ..services.redis_client import get_redis
 
-logger = logging.getLogger("basa-secure-gateway.governance")
+logger = logging.getLogger("sentinel-secure-gateway.governance")
 
 router = APIRouter(
     prefix="/governance",
@@ -404,7 +404,7 @@ def _registrar_evento_de_gobernanza(evento: str, *, tenant, layer_key: str, scop
     aceptado, y son valores **cerrados** (enum validado / entero), no texto: acá no entra ni
     el body crudo, ni un mensaje de excepción, ni nada que haya escrito un usuario final (C1).
 
-    **Por qué esto NO se publica en el feed del monitor** (hallazgo A1): ``basa:gw:events`` lo
+    **Por qué esto NO se publica en el feed del monitor** (hallazgo A1): ``sentinel:gw:events`` lo
     sirve ``/gw/events``, que hasta este fix no exigía sesión —y aun exigiéndola ahora, es la
     vitrina del **tráfico**, no de la configuración—. Publicar acá un evento con ``layer_key``,
     alcance, ``updated_by`` y ``tenant`` era sacar por un canal más laxo exactamente lo que
@@ -434,7 +434,7 @@ def _registrar_evento_de_gobernanza(evento: str, *, tenant, layer_key: str, scop
 # Señal de invalidación: un contador monótono por tenant. El consumidor previsto compara su
 # epoch cacheada contra ésta y descarta la entrada si cambió — el patrón barato que no
 # necesita ni pub/sub ni una entrada por key.
-_EPOCH_KEY_PREFIX = "basa:governance:epoch:"
+_EPOCH_KEY_PREFIX = "sentinel:governance:epoch:"
 # TTL del cache de identidad del motor (custom_auth.py:65). Es el tamaño REAL de la ventana
 # en la que el tráfico en curso puede seguir resolviéndose con la postura anterior.
 _ENGINE_IDENTITY_TTL_S = 60
@@ -453,7 +453,7 @@ MOTIVO_PROPAGACION_PENDIENTE = (
 def _signal_engine_identity_invalidation(tenant) -> PropagacionSchema:
     """Emite la señal de invalidación del cache de identidad del motor. **Hook, no garantía.**
 
-    Qué hace hoy, exactamente: incrementa ``basa:governance:epoch:<tenant>`` en el Redis
+    Qué hace hoy, exactamente: incrementa ``sentinel:governance:epoch:<tenant>`` en el Redis
     compartido, antes de responder. Eso es todo lo que este lado del sistema puede hacer.
 
     **Qué falta, con precisión** (y por qué esta función devuelve ``confirmada=False``):
@@ -465,7 +465,7 @@ def _signal_engine_identity_invalidation(tenant) -> PropagacionSchema:
       ``custom_auth`` **no lee Redis en ninguna línea**: hoy no existe ningún camino por el
       que el backend alcance ese dict.
     - Lo que falta es del lado del motor y son ~3 líneas en ``custom_auth``: leer
-      ``basa:governance:epoch:<tenant>`` (o recibirla por otro canal) y descartar la entrada
+      ``sentinel:governance:epoch:<tenant>`` (o recibirla por otro canal) y descartar la entrada
       cacheada cuando la epoch difiere de la que se guardó con ella. Ese archivo está
       **congelado** para esta entrega (lo reescribe el PR #21), así que el consumidor no se
       escribe acá.

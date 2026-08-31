@@ -2,7 +2,7 @@
 
 `029-screens.mjs`: carga las 6 páginas del piloto (+ Security) en Chrome real, saca screenshots,
 y verifica **0 requests a Google Fonts** (air-gap) y **0 errores JS reales** (filtra los 500 por
-backend ausente en dev). Siembra sesión admin en localStorage (`basa_session_token`/`basa_current_user`);
+backend ausente en dev). Siembra sesión admin en localStorage (`sentinel_session_token`/`sentinel_current_user`);
 la app es un router por estado (App.tsx), navega clickeando la sidebar.
 
 ## Correr

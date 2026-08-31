@@ -5,7 +5,7 @@
 # streams largos y lentos (token_rate bajo + stream_duration alto) llenan el tope de
 # concurrencia al motor durante el sostenido, y DESPUÉS la ráfaga global (×3 sobre TODAS
 # las superficies, dominada por chat por la mezcla 60/25/10/5) encuentra la cola llena. Ahí
-# el backend debe contestar 503 RÁPIDO con `X-Basa-Rejected: saturated` y fila durable
+# el backend debe contestar 503 RÁPIDO con `X-Sentinel-Rejected: saturated` y fila durable
 # (`estado='rejected_saturated'`) escrita ANTES de responder.
 #
 # Las fases son SECUENCIALES (el orquestador escalona el `startTime` de los scenarios k6):
@@ -48,9 +48,9 @@ stack_config_required:
   producto_incluye: ["PR #97", "PR #177"]
   auto_router: "off"
   # H6 (aviso del core, informativo para el runbook de lectura, NO es criterio): con
-  # `BASA_AUDIT_FAIL=closed` —el perfil de este examen— y la auditoría caída, el producto
+  # `SENTINEL_AUDIT_FAIL=closed` —el perfil de este examen— y la auditoría caída, el producto
   # falla ANTES de responder, así que los 402 de la cohorte de presupuesto salen como 503
-  # SIN `X-Basa-Rejected`. Es pre-existente en política (fail-closed hace exactamente lo
+  # SIN `X-Sentinel-Rejected`. Es pre-existente en política (fail-closed hace exactamente lo
   # que promete), pero ahora alcanza tráfico que el drill genera A PROPÓSITO.
   # Qué hace HOY el guion con ese 503: nada especial — chat.js no tiene rama para el
   # 5xx-sin-header, así que cae en el `else` final y lo cuenta como request servida:

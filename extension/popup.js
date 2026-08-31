@@ -5,12 +5,12 @@
  * enmascarado no es desactivable por el usuario.
  *
  * DUEÑO ÚNICO del estado = el service worker (US6/FR-025). Este popup NO escribe
- * `basa_connected` ni la key: sólo OBSERVA storage (chrome.storage.onChanged) y le
- * pide al SW conectar/desconectar. El único write propio es `basa_gateway` (config,
+ * `sentinel_connected` ni la key: sólo OBSERVA storage (chrome.storage.onChanged) y le
+ * pide al SW conectar/desconectar. El único write propio es `sentinel_gateway` (config,
  * no estado de sesión), y lo hace en el gesto de guardar.
  */
 const $ = (id) => document.getElementById(id);
-const DEFAULT_GW = window.BASA_CONFIG.GATEWAY_URL;
+const DEFAULT_GW = window.SENTINEL_CONFIG.GATEWAY_URL;
 const esc = (s) => String(s).replace(/</g, "&lt;");
 
 let cfg = {};   // último snapshot de storage
@@ -19,22 +19,22 @@ function setStatus(cls, text) { const st = $("status"); st.className = "status "
 
 function render(s) {
   cfg = s;
-  const estado = s.sesion_estado || (s.basa_connected && s.basa_key ? "conectado" : "desconectado");
-  const conectado = estado === "conectado" && !!s.basa_key;
+  const estado = s.sesion_estado || (s.sentinel_connected && s.sentinel_key ? "conectado" : "desconectado");
+  const conectado = estado === "conectado" && !!s.sentinel_key;
   const st = $("status");
   if (conectado) {
     st.className = "status on";
-    st.innerHTML = "Conectado como <b>" + esc(s.basa_user || "—") + "</b> · equipo <b>" + esc(s.basa_team || "—") + "</b>";
+    st.innerHTML = "Conectado como <b>" + esc(s.sentinel_user || "—") + "</b> · equipo <b>" + esc(s.sentinel_team || "—") + "</b>";
   } else {
     if (estado === "no_verificado") {
       setStatus("warn", "Sin conexión con el gateway — se reintenta solo. Tu key se conserva.");
     } else { // desconectado
       if (s.sesion_motivo === "plaza_revocada") setStatus("off", "Tu plaza ya no está activa. Consulta con tu administrador.");
       else if (s.sesion_motivo === "key_invalida") setStatus("off", "Tu API key no es válida. Configura una nueva.");
-      else setStatus("off", s.basa_key ? "Desconectado — verifica tu conexión con el gateway." : "Desconectado — configura tu API key para usar la IA.");
+      else setStatus("off", s.sentinel_key ? "Desconectado — verifica tu conexión con el gateway." : "Desconectado — configura tu API key para usar la IA.");
     }
   }
-  $("disconnect").disabled = !s.basa_key;
+  $("disconnect").disabled = !s.sentinel_key;
   $("connect").disabled = conectado;
 }
 
@@ -48,15 +48,15 @@ function mostrarConfig(mostrar, aviso) {
     // La key NUNCA se re-inyecta en el input: si ya hay una guardada, el placeholder lo
     // dice y escribir una nueva es lo único que la reemplaza (hardening #45).
     $("key").value = "";
-    $("key").placeholder = cfg.basa_key ? "•••••••••• (guardada — escribe una nueva para cambiarla)" : "Pega tu API key";
-    $("gw").value = cfg.basa_gateway || DEFAULT_GW;
+    $("key").placeholder = cfg.sentinel_key ? "•••••••••• (guardada — escribe una nueva para cambiarla)" : "Pega tu API key";
+    $("gw").value = cfg.sentinel_gateway || DEFAULT_GW;
     if (aviso) setStatus("off", aviso);
   }
 }
 
 async function load() {
   const s = await chrome.storage.local.get(
-    ["basa_key", "basa_gateway", "basa_connected", "basa_user", "basa_team",
+    ["sentinel_key", "sentinel_gateway", "sentinel_connected", "sentinel_user", "sentinel_team",
      "sesion_estado", "sesion_motivo", "proteccion"]);
   render(s);
 }
@@ -91,8 +91,8 @@ async function pedirPermiso(v) {
 
 // Conectar = revalidar con la key ya guardada. Sin key configurada, manda a config.
 $("connect").addEventListener("click", async () => {
-  if (!cfg.basa_key) return mostrarConfig(true, "Configura tu API key para conectarte.");
-  const v = window.BASA_CONFIG.validarGatewayUrl(cfg.basa_gateway || DEFAULT_GW);
+  if (!cfg.sentinel_key) return mostrarConfig(true, "Configura tu API key para conectarte.");
+  const v = window.SENTINEL_CONFIG.validarGatewayUrl(cfg.sentinel_gateway || DEFAULT_GW);
   if (!v.ok) return mostrarConfig(true, "✗ " + v.error);
   const granted = await pedirPermiso(v);
   if (!granted) return setStatus("off", "Necesitas conceder el permiso al host del gateway para conectar.");
@@ -109,18 +109,18 @@ $("cancel").addEventListener("click", () => { mostrarConfig(false); load(); });
 
 $("save").addEventListener("click", async () => {
   const escrita = $("key").value.trim();
-  const key = escrita || cfg.basa_key;           // sin escribir nada, se reusa la guardada
+  const key = escrita || cfg.sentinel_key;           // sin escribir nada, se reusa la guardada
   const gwRaw = $("gw").value.trim() || DEFAULT_GW;
   if (!key) return setStatus("off", "Ingresa tu API key.");
   // Validación https/local (FR-010) ANTES de tocar permisos o red.
-  const v = window.BASA_CONFIG.validarGatewayUrl(gwRaw);
+  const v = window.SENTINEL_CONFIG.validarGatewayUrl(gwRaw);
   if (!v.ok) return setStatus("off", "✗ " + v.error);
   // Permiso de host en el gesto (primer await). Denegado → mensaje claro (FR-011).
   const granted = await pedirPermiso(v);
   if (!granted) return setStatus("off", "Necesitas conceder el permiso al host del gateway para conectar.");
   // El gateway sí se persiste (config, no estado de sesión); el SW lo lee para el whoami.
   // La KEY NO se persiste acá: viaja en el mensaje y la persiste el SW SÓLO si valida.
-  await chrome.storage.local.set({ basa_gateway: v.url });
+  await chrome.storage.local.set({ sentinel_gateway: v.url });
   validar(key, () => { mostrarConfig(false); load(); });
   // si falla, la vista de config sigue abierta y no queda key inválida en disco
 });

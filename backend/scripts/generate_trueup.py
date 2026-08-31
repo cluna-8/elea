@@ -2,7 +2,7 @@
 
 100% LOCAL (sin egress): lee la DB del deployment, arma el export con el
 historial encadenado y lo firma con la deployment key. El operador lo envía a
-Basa fuera de banda (renovación/true-up).
+Sentinel fuera de banda (renovación/true-up).
 
 Uso (dentro del container backend, o con DATABASE_URL apuntando al deployment):
 

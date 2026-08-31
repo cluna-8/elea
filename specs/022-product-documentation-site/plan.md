@@ -9,7 +9,7 @@
 Convertir la doc de producto (hoy una **página React hardcodeada**, `frontend/src/pages/DocsPage.tsx`, ~460
 líneas, compliance-only, ES-only, que **no escala**) en un **sitio de documentación** propio: un **servicio
 `docs`** más del stack — **estático y air-gap-first** — para las audiencias que **instalan, marca-blanquean,
-administran e integran** Basa Guardian (**DISTRIBUIDOR + OPERADOR**). El sitio **no** es la doc interna de
+administran e integran** Sentinel Guardian (**DISTRIBUIDOR + OPERADOR**). El sitio **no** es la doc interna de
 Spec Kit (001–021): es contenido de producto, sembrado del **corpus markdown ya existente** en `docs/`
 (`whitelabel-deployment.md`, `integration-surfaces.md`, `compliance-policies.md`).
 
@@ -20,7 +20,7 @@ La decisión de framework está **tomada** (ver `research.md`, build-vs-buy): **
 
 1. **Contenedor estático air-gapped** (US1): imagen **multi-stage** (build MkDocs → **nginx** estático), 0
    egress verificado por test; se enchufa al **docker-compose v1** y, como roadmap, al **k3s+Helm+Zarf v2** de
-   la 020 (Zarf empaqueta la imagen `basa-docs:<brand>-<version>`).
+   la 020 (Zarf empaqueta la imagen `sentinel-docs:<brand>-<version>`).
 2. **Contenido sembrado** (US2): 9 secciones técnicas, tres con **semilla fuerte** en `docs/`, conservando la
    leyenda de estado 🟢/🟡/🔵 (honestidad SDD).
 3. **White-label por config, never fork** (US3): tokens de marca por overlay `INHERIT` / `envsubst`; contenido
@@ -46,7 +46,7 @@ lunr offline), **`privacy`** (embebe assets remotos → 0 egress), **`mike`** (v
 (semilla). Empaquetado: Docker (multi-stage, `docker save`/tarball; **Zarf** en v2, 020).
 
 **Storage**: ninguno propio — el sitio es **estático** (sin DB, sin estado en runtime). Los artefactos
-(imagen `basa-docs:<brand>-<version>`, índice de búsqueda precomputado, versiones `mike`) viven **dentro de la
+(imagen `sentinel-docs:<brand>-<version>`, índice de búsqueda precomputado, versiones `mike`) viven **dentro de la
 imagen**. La única "fuente de verdad" externa es el **OpenAPI** (API reference) y `.env.example` (config
 reference), leídos **en build-time**, no en runtime.
 
@@ -79,7 +79,7 @@ nuevo (no toca backend/frontend salvo retirar/redirigir `DocsPage.tsx`).
 
 | Principio / Constraint | Cómo lo cumple esta feature | Veredicto |
 |---|---|---|
-| **VII. Containerized & White-Label (config+seed, never fork)** | El sitio es un **container separado** (`basa-docs:<brand>-<version>`); el branding se aplica **sólo por config** (overlay `INHERIT`/`envsubst`, contenido marca-neutro); ningún motor/proveedor se nombra en el sitio publicado. | PASS by-design / a verificar (check de naming) |
+| **VII. Containerized & White-Label (config+seed, never fork)** | El sitio es un **container separado** (`sentinel-docs:<brand>-<version>`); el branding se aplica **sólo por config** (overlay `INHERIT`/`envsubst`, contenido marca-neutro); ningún motor/proveedor se nombra en el sitio publicado. | PASS by-design / a verificar (check de naming) |
 | **VIII. Pipeline Transparency & Explainability** | El sitio **es** el artefacto de explicabilidad del producto: documenta el pipeline (masking→…→unmask), guardrails, integraciones y compliance para distribuidor/operador/auditor. Extiende la transparencia observable (VIII) al plano de producto. | PASS by-design |
 | **II. Compliance & Governance FIRST** | El docset de compliance (GDPR Art.5/28/30, EU AI Act Art.50, retención, DPA, DSR) es contenido de primera clase, sembrado de `compliance-policies.md`; 0-egress es coherente con la postura de residencia/soberanía. | PASS by-design (relación de contenido) |
 | **IV. Client Onboarding as Data** *(por analogía)* | White-labelear la doc es **config + seed** (tokens de marca), igual que onboardear un cliente; sumar una marca es config, no fork. | PASS by-design |
@@ -135,7 +135,7 @@ docs/                                  # sitio de documentación (servicio `docs
 ├── nginx.conf                         # sirve estáticos; sin ACME (TLS lo termina el proxy del deploy)
 ├── requirements-docs.txt              # MkDocs + Material + plugins (offline/privacy/mike/i18n/openapi) pinneados
 ├── brand/                             # assets de marca por defecto (logo, favicon, extra.css) — marca-neutros
-└── docs/                              # contenido markdown (sembrado de basa-guardian/docs/*.md)
+└── docs/                              # contenido markdown (sembrado de sentinel-guardian/docs/*.md)
     ├── overview/                       # Overview & arquitectura (NUEVO)
     ├── install-deploy/                 # Install/Deploy (semilla: whitelabel-deployment.md)
     ├── white-label/                    # White-label & branding (semilla)
@@ -146,13 +146,13 @@ docs/                                  # sitio de documentación (servicio `docs
     ├── operations/                     # Operaciones & troubleshooting (NUEVO)
     └── release-notes/                  # Release notes (por mike)
 
-docker-compose.yml                     # + servicio `docs` (basa-docs:<brand>-<version>) detrás del proxy
+docker-compose.yml                     # + servicio `docs` (sentinel-docs:<brand>-<version>) detrás del proxy
 frontend/src/pages/DocsPage.tsx        # DEPRECAR: redirección/enlace al sitio o retiro (FR-009)
 ```
 
 **Structure Decision**: sitio estático en un container separado (Principio VII). El sitio vive bajo `docs/`
 (raíz del repo) para separarlo del bundle de la app (`frontend/`). El contenido markdown (`docs/docs/**`) se
-**siembra** del corpus `basa-guardian/docs/*.md`, el API reference se **auto-genera** del OpenAPI, y el
+**siembra** del corpus `sentinel-guardian/docs/*.md`, el API reference se **auto-genera** del OpenAPI, y el
 branding es **config** (`mkdocs.yml` base + `mkdocs.<brand>.yml` overlay). No se crea código de producto:
 backend/frontend sólo se tocan para **retirar/redirigir** `DocsPage.tsx`.
 
@@ -167,7 +167,7 @@ backend/frontend sólo se tocan para **retirar/redirigir** `DocsPage.tsx`.
    `compliance-policies.md` a sus secciones + redactar las nuevas (overview/administration/operations/release);
    retirar/redirigir `DocsPage.tsx`. Es el **valor** del sitio.
 4. **US3 White-label por config (P1).** Tokens de marca por overlay `INHERIT` + assets marca-neutros; check de
-   naming neutro; imagen por marca. Va con US1 (imagen `basa-docs:<brand>-…`).
+   naming neutro; imagen por marca. Va con US1 (imagen `sentinel-docs:<brand>-…`).
 5. **US4 Búsqueda offline (P2).** Activar lunr `offline`; verificar 0-egress de la búsqueda; prohibir Algolia.
 6. **US5 API reference single-source (P2).** Generar el API reference desde el OpenAPI en el build + config
    reference desde `.env.example`; test de deriva. Prohibir derivar las specs.

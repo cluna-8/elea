@@ -14,7 +14,7 @@ requisitos están en la spec y no cambian salvo donde se indica explícitamente 
 |---|---|---|
 | D1 | Catálogo de capas | **En código** (registry inmutable), no en DB |
 | D2 | Dónde vive la configuración | **Entidad nueva** `GovernanceProfile`, fila por decisión |
-| D3 | Cómo se resuelve el perfil | **Resolutor puro compartido** en `basa_guardian_policy`, un solo lugar para los 3 planos |
+| D3 | Cómo se resuelve el perfil | **Resolutor puro compartido** en `sentinel_guardian_policy`, un solo lugar para los 3 planos |
 | D4 | Cómo se computa el estado real | **Declarativo + sonda al motor + evidencia por pedido**, fail-closed, nunca persistido |
 | D5 | Ejes de alcance | Modo con **función de mapeo explícita**; superficie anclada en `tool_type`, jamás en User-Agent; relajar solo con **superficie confiable** |
 | D6 | Atribución por pedido | Campos **nuevos** `applied_layers` + `blocked_by_layer`; `guardian_events` congelado |
@@ -107,9 +107,9 @@ apropiarse del mecanismo que la 015 debe definir. Queda documentado como punto d
 ## D3 — Un solo resolutor, en la librería que los planos ya comparten
 
 **Decisión**: `resolve_profile(mode, surface, config) -> Profile` + `apply_layers(profile, …)` como
-**funciones puras** en `litellm/extensions/basa_guardian_policy.py` — el único archivo que los dos
+**funciones puras** en `litellm/extensions/sentinel_guardian_policy.py` — el único archivo que los dos
 planos ya importan ([gateway.py:76](../../backend/src/api/gateway.py#L76),
-[basa_guardrail.py:40](../../litellm/extensions/basa_guardrail.py#L40)). El piso se **construye
+[sentinel_guardrail.py:40](../../litellm/extensions/sentinel_guardrail.py#L40)). El piso se **construye
 dentro del `Profile`** y no es representable como apagado.
 
 **Precedencia determinista** (FR-006), de mayor a menor:
@@ -127,7 +127,7 @@ insertando dos niveles más en la **misma** lista, sin cambiar el contrato.
 
 **Por qué ahí y no en un servicio del backend**: hay **tres** planos que aplican política y hoy no
 comparten resolución — el guardrail del motor
-([basa_guardrail.py:74-101](../../litellm/extensions/basa_guardrail.py#L74)), el proxy propio `/gw`
+([sentinel_guardrail.py:74-101](../../litellm/extensions/sentinel_guardrail.py#L74)), el proxy propio `/gw`
 ([gateway.py:479-482](../../backend/src/api/gateway.py#L479)) y el chat UI vía
 `GuardianService.process_prompt` ([guardian_service.py:149-357](../../backend/src/services/guardian_service.py#L149)).
 Si el resolutor no es único, **027 se implementa tres veces y SC-003 se vuelve infalsificable**.
@@ -140,7 +140,7 @@ Es el mismo mecanismo con el que la 014 garantizó paridad, con su contract test
   Suscripción; y todo lo que llega al motor es Modelo propio.
 - La superficie ya está resuelta en el call-site: `tool` en
   [gateway.py:478](../../backend/src/api/gateway.py#L478) y `ident['tool_type']` en :246; y en el
-  motor viene en `metadata['basa']` ([custom_auth.py:146-147](../../litellm/extensions/custom_auth.py#L146)).
+  motor viene en `metadata['sentinel']` ([custom_auth.py:146-147](../../litellm/extensions/custom_auth.py#L146)).
 
 Falta **propagar un argumento**, no información.
 
@@ -151,7 +151,7 @@ Falta **propagar un argumento**, no información.
   acopla el marco al catálogo, que es de otro módulo.
 - *Resolver dentro del propio hook*: metería I/O de DB en el camino caliente por request.
 
-**Consumo en el motor**: se agrega el perfil resuelto al SQL de identidad y al dict `basa` de
+**Consumo en el motor**: se agrega el perfil resuelto al SQL de identidad y al dict `sentinel` de
 `custom_auth` ([custom_auth.py:49-62, 137-157](../../litellm/extensions/custom_auth.py#L137)),
 aprovechando el cache existente. **Gotcha**: ese cache es de 60 s por `key_hash`
 ([custom_auth.py:64-66](../../litellm/extensions/custom_auth.py#L64)) → un cambio de gobernanza
@@ -185,8 +185,8 @@ NO_DISPONIBLE            (default)
 
 `is_active` deja de ser "estado" y pasa a llamarse explícitamente **"deseado"**.
 
-**Verificado en vivo** contra el contenedor `basa-litellm`: `GET /guardrails/list` con la master key
-devuelve **una sola** entrada, `basa-guardian`. Los 5 nombres de proveedor del seed no existen.
+**Verificado en vivo** contra el contenedor `sentinel-litellm`: `GET /guardrails/list` con la master key
+devuelve **una sola** entrada, `sentinel-guardian`. Los 5 nombres de proveedor del seed no existen.
 
 **El hallazgo que justifica el default inseguro**: LiteLLM **ignora en silencio** los nombres de
 guardrail desconocidos — no hay validación en `move_guardrails_to_metadata`, y cada guardrail decide
@@ -229,7 +229,7 @@ un no-op silencioso.
   capas**, explícitamente Out of Scope (módulo de seguridad).
 
 **El estado se reporta por (plano, superficie), no global** (FR-010): `/v1/responses` está excluido
-por `_TEXT_CALL_TYPES` ([basa_guardrail.py:43](../../litellm/extensions/basa_guardrail.py#L43)) y
+por `_TEXT_CALL_TYPES` ([sentinel_guardrail.py:43](../../litellm/extensions/sentinel_guardrail.py#L43)) y
 corre con **cero** política — debe reportarse "no gobernada" explícitamente (issue #28). Un estado
 global escalar volvería a mentir, solo que más fino.
 
@@ -240,7 +240,7 @@ global escalar volvería a mentir, solo que más fino.
 **Modo de conexión ≠ `upstream_mode` crudo.** La columna existe con CHECK
 (`subscription-passthrough|byok`, [budget.py:92-95](../../backend/src/models/budget.py#L92)) pero:
 - Es la **intención declarada** de la Connection, mientras el ruteo real lo decide la presencia de
-  una `sk-basa-…` en el header de auth ([gateway.py:356-366](../../backend/src/api/gateway.py#L356)).
+  una `sk-sentinel-…` en el header de auth ([gateway.py:356-366](../../backend/src/api/gateway.py#L356)).
   Una Connection marcada `subscription-passthrough` puede rutearse byok.
 - `_normalize_mode` colapsa cualquier valor no-byok a subscription
   ([gateway.py:343-345](../../backend/src/api/gateway.py#L343)).
@@ -260,13 +260,13 @@ sino **de dónde viene la superficie**. Una decisión que RELAJA (p.ej. `pii_mas
 `claude-code` — el caso insignia de D8) solo se aplica cuando la superficie del pedido proviene de
 un origen **confiable**: el `tool_type` de la Connection, dato provisionado por el admin que el
 cliente no puede alterar sin otra key. Cuando la superficie es **derivada del User-Agent**
-(spoofeable — p.ej. tráfico del plano gateway sin `X-Basa-Key`), las decisiones que relajan se
+(spoofeable — p.ej. tráfico del plano gateway sin `X-Sentinel-Key`), las decisiones que relajan se
 ignoran (heredar) y solo aplican las que **agregan** capas. Así el caso de coding tools es
 expresable sin abrir ningún vector de evasión: spoofear el UA no consigue nada, y cambiar el
 `tool_type` requiere al admin. Las capas de piso no se relajan en ningún alcance (422).
 
 La misma regla cierra un bypass preexistente que la ronda 2 de verificación destapó: el header
-`X-Basa-Redact` ([gateway.py:256-262](../../backend/src/api/gateway.py#L256)) es un override
+`X-Sentinel-Redact` ([gateway.py:256-262](../../backend/src/api/gateway.py#L256)) es un override
 **por request, controlado por el cliente**, que hoy apaga el masking por encima del toggle de la
 Connection — exactamente el vector que esta regla prohíbe. Decisión: el header queda **solo en
 sentido restrictivo** (puede forzar masking ON por request; jamás OFF). La relajación vive
@@ -323,7 +323,7 @@ dashboard seguirá mintiendo (SC-001) si no se toca.
 ### Corte explícito con la 018 — para que SC-005 no quede falsamente verde
 
 SC-005 dice *"todo bloqueo es atribuible"*. En el plano motor eso es **inalcanzable dentro de 027**:
-un bloqueo hace `return reason` ([basa_guardrail.py:86, :91-92](../../litellm/extensions/basa_guardrail.py#L86))
+un bloqueo hace `return reason` ([sentinel_guardrail.py:86, :91-92](../../litellm/extensions/sentinel_guardrail.py#L86))
 → LiteLLM levanta 400 → `async_log_success_event` **nunca se dispara** → ni fila de auditoría ni evento
 de monitor. Lo mismo en el backend: los `raise HTTPException` de
 [chat.py:187, :207, :306](../../backend/src/api/chat.py#L187) preceden al
@@ -382,7 +382,7 @@ separada, no scope creep.
 
 **El conflicto**: FR-002 pone *"enmascarar datos personales"* en el piso no-negociable. Pero
 `redact_enabled=False` **hoy apaga el enmascarado** en los dos planos
-([basa_guardrail.py:95](../../litellm/extensions/basa_guardrail.py#L95),
+([sentinel_guardrail.py:95](../../litellm/extensions/sentinel_guardrail.py#L95),
 [gateway.py:479-482](../../backend/src/api/gateway.py#L479)), y esa semántica es **FR-014 de la spec
 013** ([context_resolution.py:34-38](../../backend/src/services/context_resolution.py#L34)). Tomado
 al pie de la letra, FR-002 deroga un requisito ya entregado de otra spec.
@@ -415,12 +415,12 @@ decisión de una capa dentro del mismo modelo — un mecanismo menos, no uno má
 
 ### P1 — ⚠️ En el perfil prod, el motor no puede leer la identidad (bloqueante para el plano motor)
 
-`compose.prod.yml:79` apunta el motor a `ENGINE_DB:-basa_engine` — base **propia**, creada por
+`compose.prod.yml:79` apunta el motor a `ENGINE_DB:-sentinel_engine` — base **propia**, creada por
 `initdb/01-engine-db.sql`, correctamente separada para que el migrador Prisma no dropee las tablas del
 backend (hallazgo del ensayo del piloto). Pero `custom_auth._lookup_identity` consulta
 `api_keys/users/groups/tenants` con `_IDENTITY_SQL` **contra el prisma del motor**
 ([custom_auth.py:100-104](../../litellm/extensions/custom_auth.py#L100)) — tablas que en
-`basa_engine` **no existen**. En dev comparten `basa_gateway` (`docker-compose.yml:46`) y funciona.
+`sentinel_engine` **no existen**. En dev comparten `sentinel_gateway` (`docker-compose.yml:46`) y funciona.
 
 **Consecuencia esperada en prod**: `query_raw` lanza → `user_api_key_auth` levanta excepción → **401**.
 Es decir, **byok / herramientas de código estarían caídas en el perfil prod**, fail-closed (seguro,
@@ -461,7 +461,7 @@ antes de publicar el estado honesto.
 > **parcialmente y por plano** — motor/byok: NLP real fail-closed ✔; chat UI: NLP con degradación
 > visible ✔; gateway passthrough: sigue regex ✘; perfil prod: sin sidecar ni env → regex ✘ (bloqueante
 > reportado en el review). Consecuencias para 027: (1) **orden de merge: 016 primero** — 027 aún no
-> tiene código y comparte `guardian_service.py`/`basa_guardrail.py`/`custom_auth.py`/`guardians.py`;
+> tiene código y comparte `guardian_service.py`/`sentinel_guardrail.py`/`custom_auth.py`/`guardians.py`;
 > (2) el registry absorbe de la 016 una dependencia nueva **`requires_service`** (sidecar +
 > `NLP_ANALYZER_URL` + healthcheck — distinta de `requires_credential`) y el trigger `DEGRADED`
 > como evidencia per-request (fuente C de D4); (3) el estado honesto de la capa NLP es **por

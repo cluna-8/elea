@@ -40,7 +40,7 @@ Conjunto reproducible que el seeder aprovisiona vía API real (R5).
   semilla**: mismo (semilla, versión de corpus) → mismo corpus (US3 comparabilidad).
 - Valores PII sintéticos que MATCHEAN los reconocedores reales del producto (DNI con
   letra válida, IBAN ES con checksum, +34 6XX, nombres detectables por NER es) —
-  oráculo compartido con `basa_guardian_policy.py` (R6).
+  oráculo compartido con `sentinel_guardian_policy.py` (R6).
 - Densidades configurables por escenario, incluida 0 (tráfico limpio).
 
 ## Canario

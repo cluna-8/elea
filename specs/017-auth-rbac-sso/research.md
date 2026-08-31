@@ -43,7 +43,7 @@ Fuente: mapa as-is verificado en fuente (workflow 6 agentes, 13-ago, ~876k token
 
 ## D8 — El flip queda listo, no activo
 
-- **Decision**: migración `016_rls_strict` env-gated (`BASA_RLS_STRICT=true`): DROP `tenant_isolation_bootstrap` + rol de conexión NOSUPERUSER. Apagada por default; se activa el release siguiente coordinado con Factory (toca compose/perfiles; la sede no tiene acceso remoto). El harness post-flip (fixture compartida con la 018) prueba ese mundo YA.
+- **Decision**: migración `016_rls_strict` env-gated (`SENTINEL_RLS_STRICT=true`): DROP `tenant_isolation_bootstrap` + rol de conexión NOSUPERUSER. Apagada por default; se activa el release siguiente coordinado con Factory (toca compose/perfiles; la sede no tiene acceso remoto). El harness post-flip (fixture compartida con la 018) prueba ese mundo YA.
 - **Rationale**: recorte sellado #3; activar sin ventana de coordinación rompería la instalación viva.
 
 ## D9 — Lockout y auth events
@@ -58,7 +58,7 @@ Fuente: mapa as-is verificado en fuente (workflow 6 agentes, 13-ago, ~876k token
 
 ## D11 — Fronteras y precondiciones
 
-- **#137 (Cristian, región por tenant)**: toca `custom_auth._IDENTITY_SQL`. Precondición de la tarea de expires_at-motor: orden de merge sellado ANTES del 24-ago (esta rama se rebasa sobre él, o él sobre esta — decidido, no descubierto).
+- **#137 (Cristian, región por tenant)**: toca `custom_auth._IDENTITY_SQL`. Precondición de la tarea de expires_at-motor: orden de merge sellado ANTES del 24-ago (esta rama se resentinel sobre él, o él sobre esta — decidido, no descubierto).
 - **#147 (Cristian, router content_policies)**: nace con `require_role` legacy — al recablear la matriz, su router entra al harness como uno más (el shim lo traduce; cero cambios en su código).
 - **018**: fixture post-flip compartida; auth events consumen su clasificador; FR-009 de la 018 (retención escribe tenant_admin) lo ejecuta esta matriz.
 - **DevOps**: tenant Entra de prueba antes del 24-ago; credenciales a custodia estándar (jamás por chat); a la spec solo llegan dominio/directory-ID/emails de test. Hasta que llegue: IdP falso local (respuestas OIDC simuladas) — la construcción no se bloquea.

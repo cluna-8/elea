@@ -62,7 +62,7 @@ def _instalar_dobles_litellm():
 
 _instalar_dobles_litellm()
 
-from extensions import basa_audit_logger, basa_guardrail  # noqa: E402
+from extensions import sentinel_audit_logger, sentinel_guardrail  # noqa: E402
 from src.services import audit_service, redis_client  # noqa: E402
 
 
@@ -132,7 +132,7 @@ async def test_marcar_nlp_degradado_del_motor_construye_redis_con_timeouts(monke
 
     monkeypatch.setattr(redis_lib, "Redis", _RedisDoble)
 
-    await basa_guardrail._marcar_nlp_degradado()
+    await sentinel_guardrail._marcar_nlp_degradado()
 
     assert _es_timeout_acotado(capturado.get("socket_timeout")), capturado
     assert _es_timeout_acotado(capturado.get("socket_connect_timeout")), capturado
@@ -167,7 +167,7 @@ async def test_contar_perdida_del_motor_construye_redis_con_timeouts(monkeypatch
 
     monkeypatch.setattr(redis_lib, "Redis", _RedisDoble)
 
-    await basa_guardrail._contar_perdida("motivo-de-prueba")
+    await sentinel_guardrail._contar_perdida("motivo-de-prueba")
 
     assert _es_timeout_acotado(capturado.get("socket_timeout")), capturado
     assert _es_timeout_acotado(capturado.get("socket_connect_timeout")), capturado
@@ -181,7 +181,7 @@ async def test_contar_perdida_del_motor_construye_redis_con_timeouts(monkeypatch
 def test_record_nlp_degradation_backend_con_timeout_no_propaga_y_cuenta_perdida(monkeypatch):
     """La marca contra un Redis que timeoutea NO puede tumbar el request degradado: se traga
     la excepción (el piso es el `logger.error`) y la pérdida se cuenta REUTILIZANDO
-    `record_audit_loss` (`basa:audit:lost` + /health), no un contador nuevo."""
+    `record_audit_loss` (`sentinel:audit:lost` + /health), no un contador nuevo."""
 
     class _RedisColgado:
         def set(self, *a, **k):
@@ -240,7 +240,7 @@ def test_record_nlp_degradation_backend_camino_sano_no_cuenta_perdida(monkeypatc
 @pytest.mark.asyncio
 async def test_marcar_nlp_degradado_motor_con_timeout_no_propaga_y_cuenta_perdida(monkeypatch):
     """Espejo del anterior en el plano motor: una marca que timeoutea no tumba el request y la
-    pérdida se cuenta reutilizando `_contar_perdida` (mismo `basa:audit:lost`)."""
+    pérdida se cuenta reutilizando `_contar_perdida` (mismo `sentinel:audit:lost`)."""
     import redis.asyncio as redis_lib
 
     class _Pipe:
@@ -270,10 +270,10 @@ async def test_marcar_nlp_degradado_motor_con_timeout_no_propaga_y_cuenta_perdid
     async def _spy(motivo):
         perdidas.append(motivo)
 
-    monkeypatch.setattr(basa_guardrail, "_contar_perdida", _spy)
+    monkeypatch.setattr(sentinel_guardrail, "_contar_perdida", _spy)
 
     # No propaga.
-    await basa_guardrail._marcar_nlp_degradado()
+    await sentinel_guardrail._marcar_nlp_degradado()
 
     assert perdidas == ["nlp_degrade_mark"], (
         "la marca que no responde tiene que contarse reutilizando el contador de pérdidas")
@@ -328,7 +328,7 @@ async def test_la_marca_de_degradacion_no_bloquea_el_event_loop(monkeypatch):
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════
-# Round 2 (a) — los OTROS 2 clientes async del motor (basa_audit_logger) también con timeouts
+# Round 2 (a) — los OTROS 2 clientes async del motor (sentinel_audit_logger) también con timeouts
 # ══════════════════════════════════════════════════════════════════════════════════════
 # El contador de pérdidas de la fila DURABLE y el feed de la vitrina abrían `redis.asyncio`
 # SIN timeouts. El feed corre en CADA request exitosa (incluidas las degradadas), así que el
@@ -361,7 +361,7 @@ async def test_registrar_perdida_del_logger_construye_redis_con_timeouts(monkeyp
     monkeypatch.setattr(redis_lib, "Redis",
                         lambda **kw: capturado.update(kw) or _RedisCapturaKwargs(**kw))
 
-    await basa_audit_logger._registrar_perdida("motivo-de-prueba")
+    await sentinel_audit_logger._registrar_perdida("motivo-de-prueba")
 
     assert _es_timeout_acotado(capturado.get("socket_timeout")), capturado
     assert _es_timeout_acotado(capturado.get("socket_connect_timeout")), capturado
@@ -374,7 +374,7 @@ async def test_publish_monitor_event_del_logger_construye_redis_con_timeouts(mon
     monkeypatch.setattr(redis_lib, "Redis",
                         lambda **kw: capturado.update(kw) or _RedisCapturaKwargs(**kw))
 
-    await basa_audit_logger.basa_audit_logger_instance._publish_monitor_event(
+    await sentinel_audit_logger.sentinel_audit_logger_instance._publish_monitor_event(
         {}, [], "passed", {"messages": [{"role": "user", "content": "hola"}], "model": "m"})
 
     assert _es_timeout_acotado(capturado.get("socket_timeout")), capturado
@@ -421,9 +421,9 @@ async def test_marcar_nlp_degradado_cierra_el_cliente_aunque_execute_timeoutee(m
     async def _noop(_motivo):
         pass
 
-    monkeypatch.setattr(basa_guardrail, "_contar_perdida", _noop)
+    monkeypatch.setattr(sentinel_guardrail, "_contar_perdida", _noop)
 
-    await basa_guardrail._marcar_nlp_degradado()
+    await sentinel_guardrail._marcar_nlp_degradado()
 
     assert cerrado["n"] == 1, (
         "el cliente tiene que cerrarse en `finally` aunque `pipe.execute()` timeoutee — si no, "
@@ -436,7 +436,7 @@ async def test_contar_perdida_cierra_el_cliente_aunque_execute_timeoutee(monkeyp
     cerrado = {"n": 0}
     monkeypatch.setattr(redis_lib, "Redis", lambda **kw: _RedisTimeoutEnExecute(cerrado, **kw))
 
-    await basa_guardrail._contar_perdida("motivo-de-prueba")
+    await sentinel_guardrail._contar_perdida("motivo-de-prueba")
 
     assert cerrado["n"] == 1, "no leak: `aclose()` en `finally` aunque el execute timeoutee (#8)"
 
@@ -449,7 +449,7 @@ async def test_publish_monitor_event_cierra_el_cliente_aunque_execute_timeoutee(
     cerrado = {"n": 0}
     monkeypatch.setattr(redis_lib, "Redis", lambda **kw: _RedisTimeoutEnExecute(cerrado, **kw))
 
-    await basa_audit_logger.basa_audit_logger_instance._publish_monitor_event(
+    await sentinel_audit_logger.sentinel_audit_logger_instance._publish_monitor_event(
         {}, [], "passed", {"messages": [{"role": "user", "content": "hola"}], "model": "m"})
 
     assert cerrado["n"] == 1, (
@@ -457,11 +457,11 @@ async def test_publish_monitor_event_cierra_el_cliente_aunque_execute_timeoutee(
         "timeoutee — si no, filtra una conexión por cada request exitosa bajo Redis lento (#8)")
 
 
-@pytest.mark.parametrize("modname", ["src.services.redis_client", "basa_engine_redis"])
+@pytest.mark.parametrize("modname", ["src.services.redis_client", "sentinel_engine_redis"])
 def test_env_float_robusto_no_revienta_por_env_vacio_o_malformado(monkeypatch, modname):
     # #124: un env vacío (`- VAR=` en compose) o malformado NO puede reventar el import del plano
     # (float("") → ValueError tumbaría todo). `_env_float` cae al default. Mismo criterio en los
-    # dos sitios (backend `redis_client` + motor `basa_engine_redis`).
+    # dos sitios (backend `redis_client` + motor `sentinel_engine_redis`).
     import importlib
     _env_float = importlib.import_module(modname)._env_float
     monkeypatch.delenv("X_TIMEOUT_TEST_124", raising=False)
@@ -488,7 +488,7 @@ def test_env_float_robusto_no_revienta_por_env_vacio_o_malformado(monkeypatch, m
 @pytest.mark.parametrize("modname,constantes", [
     ("src.services.redis_client",
      ("REDIS_CONNECT_TIMEOUT_SECONDS", "REDIS_SOCKET_TIMEOUT_SECONDS")),
-    ("basa_engine_redis",
+    ("sentinel_engine_redis",
      ("ENGINE_REDIS_CONNECT_TIMEOUT_SECONDS", "ENGINE_REDIS_SOCKET_TIMEOUT_SECONDS")),
 ])
 @pytest.mark.parametrize("valor_env", ["", "1e9"], ids=["vacio", "fuera-de-rango"])
@@ -502,7 +502,7 @@ def test_las_constantes_de_timeout_estan_cableadas_a_env_float(
     timeout) la GUARDIA DE RANGO se aplica sobre las constantes — un wiring "simplificado" tipo
     `float(os.getenv(...) or 1.0)` sobrevive el caso vacío pero deja pasar el 1e9 crudo.
 
-    El módulo del motor se importa por su nombre PELADO (`basa_engine_redis`), que es como lo
+    El módulo del motor se importa por su nombre PELADO (`sentinel_engine_redis`), que es como lo
     importan las extensiones en producción."""
     import importlib
     modulo = importlib.import_module(modname)

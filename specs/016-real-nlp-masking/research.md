@@ -9,7 +9,7 @@ de producto/seguridad (alcance vs 015, fail-mode del NLP) ya se resolvieron con 
 **Decision**: Presidio Analyzer (Microsoft, open-source) como servicio HTTP sidecar, con un **modelo
 spaCy en español** (`es_core_news_md`), construido en una **imagen propia** (no la imagen oficial
 default, que trae inglés). Se usa **solo el Analyzer** (`/analyze`), no el Anonymizer — el reemplazo
-reversible lo sigue haciendo `PlaceholderMap`/`mask_text` de `basa_guardian_policy.py` (el Anonymizer
+reversible lo sigue haciendo `PlaceholderMap`/`mask_text` de `sentinel_guardian_policy.py` (el Anonymizer
 de Presidio hace sustitución irreversible, no sirve al moat de des-enmascarar).
 
 **Rationale**:
@@ -38,7 +38,7 @@ de Presidio hace sustitución irreversible, no sirve al moat de des-enmascarar).
 
 ## 2. Topología de despliegue
 
-**Decision**: nuevo servicio `nlp-analyzer` en `docker-compose.yml` (imagen propia construida desde `presidio-analyzer/`), en `basa-network`, sin puerto
+**Decision**: nuevo servicio `nlp-analyzer` en `docker-compose.yml` (imagen propia construida desde `presidio-analyzer/`), en `sentinel-network`, sin puerto
 expuesto al host (solo alcanzable desde `backend` y `litellm`). URL inyectada por env var
 (`NLP_ANALYZER_URL`), consistente con el patrón de Constraint C5 (credenciales/endpoints fuera de
 `config.yaml` en claro).
@@ -55,9 +55,9 @@ rompería el pin-by-digest y el principio de no tocar la imagen del motor.
 **Decision**: los patrones estructurados **que Presidio no cubre ya con un reconocedor propio validado
 para el idioma activo**, más la deny-list de nombres personalizados (hoy `Guardian.config.custom_names`,
 editable desde el panel), se envían como `ad_hoc_recognizers` en cada llamada a `/analyze`, construidos
-desde **una sola función Python** (`build_ad_hoc_recognizers`, en `basa_guardian_policy.py`, la librería
+desde **una sola función Python** (`build_ad_hoc_recognizers`, en `sentinel_guardian_policy.py`, la librería
 PURA que ya comparten ambos caminos — panel y firewall) parametrizada por **región** (`STRUCTURED_ID_PATTERNS_BY_REGION`).
-Se eliminan los dos diccionarios `PII_PATTERNS` duplicados (`presidio_service.py` y `basa_guardian_policy.py`).
+Se eliminan los dos diccionarios `PII_PATTERNS` duplicados (`presidio_service.py` y `sentinel_guardian_policy.py`).
 
 **Corrección post-review (despliegue objetivo confirmado: Europa, España primero — no Argentina)**: el
 set inicial de este documento asumía DNI/CUIL argentinos como ejemplo de "lo que hay que inyectar ad-hoc".
@@ -66,7 +66,7 @@ como reconocedores **built-in con validación de checksum** para `supported_lang
 que cualquier regex propio, así que se usan tal cual (cero código nuestro). El único `ad_hoc_recognizer`
 real de la región `"eu"` es `PASSPORT` (sin formato único a nivel UE, patrón genérico + palabras de
 contexto). DNI/CUIL argentinos quedan documentados como región `"latam_ar"`, preparada pero **inactiva**
-hasta que haya un despliegue en esa región (`BASA_ENTITY_REGION`).
+hasta que haya un despliegue en esa región (`SENTINEL_ENTITY_REGION`).
 
 **Rationale**: cierra literalmente el comentario "espejo de PresidioService.PATTERNS" que hoy documenta
 la duplicación como deuda conocida — Y evita reinventar con regex algo que el motor NLP ya resuelve mejor
@@ -99,7 +99,7 @@ del nuevo prompt.
 
 ## 5. Resolución de coincidencias solapadas (FR-009)
 
-**Decision**: función pura `resolve_overlaps(entities) -> entities` en `basa_guardian_policy.py`,
+**Decision**: función pura `resolve_overlaps(entities) -> entities` en `sentinel_guardian_policy.py`,
 aplicada ANTES del reemplazo en `mask_text`. Regla determinística: se ordenan las entidades por
 `(start, -length)`; una entidad que queda completamente contenida dentro del rango de otra ya aceptada
 se descarta (gana la coincidencia más larga/específica); a igual rango, gana el score más alto, y a
@@ -124,7 +124,7 @@ reproducible.
 **Decision**: extender la consulta SQL de identidad ya existente en `litellm/extensions/custom_auth.py`
 (`_IDENTITY_SQL`) para además traer la `SecurityPolicy` activa (`entity_configs` JSONB) — hoy esa
 consulta ya resuelve tenant/user/group/tool en una sola query contra la misma base. `entity_configs`
-viaja en la identidad (`metadata.basa`) que ya llega al guardrail. `BasaGuardrail.async_pre_call_hook`
+viaja en la identidad (`metadata.sentinel`) que ya llega al guardrail. `SentinelGuardrail.async_pre_call_hook`
 resuelve la acción de cada entidad detectada vía `resolve_entity_action(entity_type, entity_configs)`
 ANTES de tocar el body: si alguna resuelve a `BLOCK`, la request se rechaza entera (mismo path que
 AI-Act/secretos, un solo preview de detección — no se enmascara nada primero para bloquear después);

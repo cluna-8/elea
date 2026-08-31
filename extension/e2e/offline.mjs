@@ -1,7 +1,7 @@
 // 028 e2e gateway INALCANZABLE (FR-019 servicio caído + FR-023 corte de red) — el camino real
 // del piloto de la Cámara de Comercio (30-jul-2026): el usuario se llevó la laptop a casa y el
 // gateway, que vive en una IP de la LAN de la sede, dejó de ser alcanzable. Lo que debe pasar:
-//   · la sesión NO se cierra: la key se conserva y `basa_connected` sigue true (estado
+//   · la sesión NO se cierra: la key se conserva y `sentinel_connected` sigue true (estado
 //     "no_verificado"), así que el popup muestra el banner ámbar y no manda a reconfigurar;
 //   · la página del proveedor carga normal (nada de overlay de "acceso restringido");
 //   · el bloqueo ocurre AL ENVIAR: el fetch interceptado aborta con el tag [guardia] y sale el
@@ -26,7 +26,7 @@ const renderedDir = process.argv[2];
 if (!renderedDir) { console.error('uso: node offline.mjs <rendered-ext-dir>'); process.exit(2); }
 
 const GW = 8797, PAGE = 8798;   // puertos propios: no chocan con connected.mjs (8777) ni block.mjs (8787/8788)
-const KEY = 'sk-basa-e2e-offline';
+const KEY = 'sk-sentinel-e2e-offline';
 const PROTECCION = {
   deteccion: 'patrones', titulo: 'Detección por patrones',
   detalle: 'Detección por patrones conocidos. El piso no negociable se aplica siempre.',
@@ -44,7 +44,7 @@ function crearGateway() {
   const sockets = new Set();
   const srv = http.createServer((req, res) => {
     let b = ''; req.on('data', c => b += c); req.on('end', () => {
-      const key = req.headers['x-basa-key'] || '';
+      const key = req.headers['x-sentinel-key'] || '';
       const send = (c, o) => { res.writeHead(c, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
       if (req.url.endsWith('/whoami')) return key.startsWith('sk-')
         ? send(200, { ok: true, user: 'dev.browser', team: 'Equipo Web', key_label: 'k', proteccion: PROTECCION })
@@ -189,8 +189,8 @@ try {
   const conectado = await popup.$eval('#status', el => el.classList.contains('on')).catch(() => false);
   await popup.close();
   const st0 = await leerStorage(ctx, extId);
-  check('precondición: sesión conectada (basa_connected = true)',
-    conectado && st0.basa_connected === true, `sesion_estado=${st0.sesion_estado}`);
+  check('precondición: sesión conectada (sentinel_connected = true)',
+    conectado && st0.sentinel_connected === true, `sesion_estado=${st0.sesion_estado}`);
 
   // 2) La laptop sale de la LAN: el gateway se vuelve INALCANZABLE.
   const cerrado = await apagarGateway(gw);
@@ -220,9 +220,9 @@ try {
 
   // (c) FR-023: corte de red conserva sesión y key; sólo marca "no_verificado".
   const st1 = await leerStorage(ctx, extId);
-  check('(c) basa_connected sigue true', st1.basa_connected === true, String(st1.basa_connected));
+  check('(c) sentinel_connected sigue true', st1.sentinel_connected === true, String(st1.sentinel_connected));
   check('(c) la key se CONSERVA (no se borró por un fallo de red)',
-    typeof st1.basa_key === 'string' && st1.basa_key.length > 0, st1.basa_key ? 'presente' : 'BORRADA');
+    typeof st1.sentinel_key === 'string' && st1.sentinel_key.length > 0, st1.sentinel_key ? 'presente' : 'BORRADA');
   check('(c) sesion_estado = "no_verificado"', st1.sesion_estado === 'no_verificado', String(st1.sesion_estado));
 
   // (d) El prompt nunca salió del navegador.

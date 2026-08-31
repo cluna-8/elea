@@ -14,7 +14,7 @@ Sólo queda **Polish** (T034-T037, opcional) — ver "Qué queda". La feature 01
   nativo + rewrite SSE de la policy compartida dentro del hook (el motor sigue dueño
   del transporte; no se reimplementa framing, viola nada del Principio VI).
 - **Pin** del motor por tag+digest (litellm 1.92.0) en `docker-compose.yml`.
-- **`litellm/extensions/basa_guardian_policy.py`** (librería PURA, compartida entre el
+- **`litellm/extensions/sentinel_guardian_policy.py`** (librería PURA, compartida entre el
   motor y el backend): mask reversible con nonce, unmask texto/estructuras, carry-split
   (`safe_split`, `rewrite_sse_block`, `StreamUnmasker`), y los detectores portados de
   los servicios heredados (PII regex, AI-Act Art.5, secretos) inyectables. 10 unit
@@ -23,22 +23,22 @@ Sólo queda **Polish** (T034-T037, opcional) — ver "Qué queda". La feature 01
   toggles` contra la `APIKey` de la 013, vía el prisma client del motor (reuse, la
   imagen no trae otro driver). **Fail-closed**: sin key válida → 401; solo la master
   key del motor es admin. UA→tool portado 1:1 del demo.
-- **`basa_guardrail.py`** (US1): `BasaGuardrail(CustomGuardrail)` con los 3 hooks —
+- **`sentinel_guardrail.py`** (US1): `SentinelGuardrail(CustomGuardrail)` con los 3 hooks —
   pre_call (AI-Act 400 / secretos block / mask reversible → `litellm_metadata.pii_tokens`),
   post_call_success (unmask no-streaming, Anthropic y OpenAI-like), y streaming (A′:
   decoder UTF-8 incremental + buffer de frames + carry-split, re-emite bytes).
-- **`basa_audit_logger.py`** (US3): `CustomLogger` metadata-only con **scrub explícito
-  de `pii_tokens`** (C1) + feed efímero a Redis (`basa:gw:events`, TTL 300s, preview
+- **`sentinel_audit_logger.py`** (US3): `CustomLogger` metadata-only con **scrub explícito
+  de `pii_tokens`** (C1) + feed efímero a Redis (`sentinel:gw:events`, TTL 300s, preview
   YA enmascarado).
 - **`backend/src/api/monitor.py`** (US3, vitrina): `GET /gw/monitor` (HTML autocontenido
   que refresca) + `GET /gw/events` (JSON del ring). Datos reales, cero PII cruda.
 - **`backend/src/api/gateway.py`** (US4, T029-T031): el thin reverse-proxy de
   **suscripción OAuth** — la ÚNICA excepción de proxy propio (Principio VI). Reenvía el
   `Authorization`/OAuth del cliente **verbatim** a `api.anthropic.com` (la suscripción
-  paga) e invoca la MISMA `basa_guardian_policy` que el guardrail: bloqueo AI-Act/
+  paga) e invoca la MISMA `sentinel_guardian_policy` que el guardrail: bloqueo AI-Act/
   secretos, mask/unmask reversible no-streaming y streaming (Estrategia A′ vía
   `rewrite_sse_block`). Identidad **[D-014]**: NO fail-closed acá (la credencial es el
-  OAuth); `X-Basa-Key` = atribución opcional → tenant/client reales para auditoría;
+  OAuth); `X-Sentinel-Key` = atribución opcional → tenant/client reales para auditoría;
   ausente → tenant por defecto anónimo, igual auditado. Feed del monitor con el MISMO
   esquema que el logger del motor (la vitrina renderiza ambas rutas). Passthroughs finos
   `count_tokens`/`models` (verbatim, sin política). Montado en `/api/v1/gw`.
@@ -50,7 +50,7 @@ Sólo queda **Polish** (T034-T037, opcional) — ver "Qué queda". La feature 01
   mockeado (block→400, mask→upstream/unmask→caller no-streaming y streaming incl. frame
   partido, OAuth verbatim, preview sin PII ni secretos, bodies malformados → 400 honesto).
 - Registro en `litellm/config.yaml`: `custom_auth` + `custom_auth_run_common_checks` +
-  bloque `guardrails` (`BasaGuardrail`, modes pre_call/post_call) + `callbacks`
+  bloque `guardrails` (`SentinelGuardrail`, modes pre_call/post_call) + `callbacks`
   (audit logger). Mount `./litellm/extensions:/app/extensions`.
 
 ## Verificación end-to-end (proxy real, `http://localhost:4010/v1/messages`)
@@ -69,7 +69,7 @@ Sólo queda **Polish** (T034-T037, opcional) — ver "Qué queda". La feature 01
 
 | Caso | Resultado |
 |---|---|
-| AI-Act Art.5 (`social scoring`) | **400** `[Basa Gateway] … Ley de IA` (no toca upstream) |
+| AI-Act Art.5 (`social scoring`) | **400** `[Sentinel Gateway] … Ley de IA` (no toca upstream) |
 | Secreto (`sk-…`) | **400**, bloqueado antes del upstream |
 | Prompt benigno + `Authorization: Bearer …` | reenviado **verbatim** a `api.anthropic.com` → **401 `Invalid bearer token`** con `request_id` real de Anthropic (prueba que el OAuth llega intacto; con token válido, pasa) |
 | Feed `/gw/monitor` | renderiza los eventos del passthrough (mismo esquema que el motor) |
@@ -103,9 +103,9 @@ connect=10, read=60)`; (2) body JSON no-objeto → 500 → 400; (3) `messages` e
   relativo al config.yaml (mount al lado del config).
 - **[D-014] identidad en suscripción — RESUELTO (US4)**: fail-closed duro solo en `byok`
   (motor, custom_auth); en `subscription-passthrough` la credencial es el OAuth y
-  `X-Basa-Key` es atribución opcional (tenant-default anónimo auditado si falta).
+  `X-Sentinel-Key` es atribución opcional (tenant-default anónimo auditado si falta).
   Implementado en `_resolve_attribution` + `_upstream_headers` (cliente verbatim, o
-  `oauth_credential_ref` Fernet gestionado por Basa).
+  `oauth_credential_ref` Fernet gestionado por Sentinel).
 - **Montaje del gateway**: bajo `/api/v1/gw` (junto al monitor de US3, sin tocar
   `main.py`). El `ANTHROPIC_BASE_URL` de la coding tool apunta a `…/api/v1/gw`.
 
@@ -119,6 +119,6 @@ connect=10, read=60)`; (2) body JSON no-objeto → 500 → 400; (3) `messages` e
   caso normal —cliente manda su propio OAuth verbatim— sí está verificado contra Anthropic.
 - Sincronizar el `custom_auth` con el registro de keys en el motor: hoy `seed_client`/
   `/keys` no crean la virtual key en LiteLLM; `custom_auth` resuelve directo por
-  `key_hash` contra la `APIKey` de Basa (preferido, sin doble fuente de verdad), pero
+  `key_hash` contra la `APIKey` de Sentinel (preferido, sin doble fuente de verdad), pero
   el enforcement de budget/rpm del motor necesita la key registrada — reconciliación
   pendiente (nota del plan, FR-013).

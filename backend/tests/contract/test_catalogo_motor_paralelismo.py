@@ -15,7 +15,7 @@ alcanza:
 Y fija la RELACIÓN entre los dos topes, que es la parte que se rompe sola en cuanto alguien
 gira una perilla: el techo del motor tiene que quedar **por encima** del total del backend.
 Al revés —motor más bajo que backend— el que empieza a rechazar es el motor, con un error
-opaco que no lleva `X-Basa-Rejected`, no deja fila `rejected_saturated` y no lo ve ni el
+opaco que no lleva `X-Sentinel-Rejected`, no deja fila `rejected_saturated` y no lo ve ni el
 harness ni el officer que audita. El rechazo tiene que seguir siendo NUESTRO.
 
 El tercer candado es `num_retries: 0` en el mismo deployment: el `num_retries: 2` global del
@@ -93,7 +93,7 @@ def _default_del_codigo(constante: str):
     es la relación entre los valores que se EMBARCAN.
     """
     with pytest.MonkeyPatch.context() as m:
-        for env in ("BASA_ENGINE_MAX_CONCURRENCY", "BASA_ENGINE_QUEUE_TIMEOUT_SECONDS"):
+        for env in ("SENTINEL_ENGINE_MAX_CONCURRENCY", "SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS"):
             m.delenv(env, raising=False)
         spec = importlib.util.spec_from_file_location(
             "engine_gate_copia_contrato_paralelismo", Path(engine_gate.__file__))
@@ -162,7 +162,7 @@ def test_el_techo_del_motor_queda_por_encima_del_tope_total_del_backend():
 
     Total que el backend puede tener en vuelo = tope por proceso × workers del perfil prod.
     El techo del motor tiene que superarlo: así el primero en decir que no es SIEMPRE el
-    backend, que rechaza con el 503 honesto, con `X-Basa-Rejected: saturated` y con fila
+    backend, que rechaza con el 503 honesto, con `X-Sentinel-Rejected: saturated` y con fila
     durable `rejected_saturated`. Si el motor quedara por debajo, el rechazo lo daría él —un
     error opaco, sin cabecera, sin auditoría y sin nadie que lo cuente— y el producto perdería
     justo la propiedad que el nodo C1 vino a comprar: que saturar se VEA.

@@ -43,7 +43,7 @@ Idempotencia: el predicado es «vencida al momento de la corrida» contra el rel
 - Capa nueva **solo en código**: `enforcement_tier_estricto`, decision `on`/`off` (CHECK existente respetado; `layer_key` sin FK/CHECK por diseño 027).
 - `on` = tier `estricto` · `off`/ausente = `estándar` (default de fábrica).
 - Cambio de tier = cambio de configuración auditado (SC-006), con valor anterior y nuevo.
-- Consumidores: solo backend (validación FR-007, aserción `BASA_AUDIT_FAIL`, consecuencias con grado). El resolutor del motor la ignora (capa desconocida para él, comportamiento 027 verificado).
+- Consumidores: solo backend (validación FR-007, aserción `SENTINEL_AUDIT_FAIL`, consecuencias con grado). El resolutor del motor la ignora (capa desconocida para él, comportamiento 027 verificado).
 
 ## Mutaciones sobre datos existentes
 

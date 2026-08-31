@@ -4,7 +4,7 @@ from uuid import UUID
 
 from .redis_client import get_redis
 
-logger = logging.getLogger("basa-secure-gateway.rate_limiter")
+logger = logging.getLogger("sentinel-secure-gateway.rate_limiter")
 
 WINDOW_SECONDS = 60
 

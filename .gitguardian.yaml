@@ -1,10 +1,10 @@
 # GitGuardian config.
 #
-# Los valores `sk-basa-…` que aparecen en los tests son FIXTURES (keys inventadas),
+# Los valores `sk-sentinel-…` que aparecen en los tests son FIXTURES (keys inventadas),
 # NO credenciales reales — no resuelven a nada en ninguna base. Y no se pueden
 # "des-secretizar" cambiando el prefijo: los tests de ruteo (spec 019) VERIFICAN
-# justamente que una virtual key con prefijo `sk-basa-` enrute a byok y que la
-# exclusión `x-basa-*` la proteja, así que el prefijo es parte del contrato bajo test.
+# justamente que una virtual key con prefijo `sk-sentinel-` enrute a byok y que la
+# exclusión `x-sentinel-*` la proteja, así que el prefijo es parte del contrato bajo test.
 #
 # Por eso se ignora el árbol de tests. Las credenciales reales (JWT/Fernet/provider
 # keys) viven en `.env` (gitignoreado) y NUNCA se commitean — eso NO se ignora acá.

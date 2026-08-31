@@ -15,7 +15,7 @@ Lo que se fija acá es el CONTRATO, no la implementación:
 - tokens 0/0 y coste 0: no se consumió proveedor;
 - la durabilidad **no depende de la vitrina**: con el Redis del monitor caído la fila igual
   se escribe (son dos registros distintos, uno efímero y uno durable);
-- `BASA_AUDIT_FAIL=closed` ⇒ 503 honesto y **cero llamadas al proveedor** (FR-005 es
+- `SENTINEL_AUDIT_FAIL=closed` ⇒ 503 honesto y **cero llamadas al proveedor** (FR-005 es
   literal: no se gasta dinero en tráfico que no se va a poder registrar);
 - `open` (default) ⇒ un fallo de la escritura NO cambia el 4xx que ve el usuario, pero la
   pérdida se cuenta (nunca silencio).
@@ -40,7 +40,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_chat_block_audit"
+DB = "sentinel_test_chat_block_audit"
 
 CHAT = "/api/v1/chat/completions"
 MODELO = "ollama-qwen3-4b"

@@ -1,10 +1,10 @@
 # Roadmap — Guardian App Ecosystem
 
 **Última actualización**: 2026-08-13 — **arranca Fase 0 + recambio de tareas**: specs **017 y 018 EN MAIN**
-con plan+tasks y las 6 decisiones de producto selladas por JF (PRs [#192](https://github.com/DrZuzzjen/basa-guardian/pull/192)/[#194](https://github.com/DrZuzzjen/basa-guardian/pull/194));
-implementación de la 018 **en curso** (equipo Jeff, [#11](https://github.com/DrZuzzjen/basa-guardian/issues/11)); recambio del weekly: Falime→instalaciones,
+con plan+tasks y las 6 decisiones de producto selladas por JF (PRs [#192](https://github.com/DrZuzzjen/sentinel-guardian/pull/192)/[#194](https://github.com/DrZuzzjen/sentinel-guardian/pull/194));
+implementación de la 018 **en curso** (equipo Jeff, [#11](https://github.com/DrZuzzjen/sentinel-guardian/issues/11)); recambio del weekly: Falime→instalaciones,
 Cristian→wizard 037 full ownership (**Fase 0 + wizard = v1.0**, ver sección Departamentos); DevRel
-estrenada y parkeada (norma+drift gate en main, [PR #188](https://github.com/DrZuzzjen/basa-guardian/pull/188)). Actualización anterior (2026-08-12) — **el examen**: el **gate 125 PASÓ** (primer número oficial: run
+estrenada y parkeada (norma+drift gate en main, [PR #188](https://github.com/DrZuzzjen/sentinel-guardian/pull/188)). Actualización anterior (2026-08-12) — **el examen**: el **gate 125 PASÓ** (primer número oficial: run
 `20260812-g125-02` sobre main `52e694b`, 4/4 SLOs de oro, chat p95 151 ms; evidencia firmada en
 `tech-team/examenes/20260812/`), la deuda #63/#64 de la 016 quedó **CERRADA** (PRs #97/#111 + hardening),
 la **035** (harness) está en `main` y estrenada en examen real, el fix del pool está mergeado y **verificado
@@ -12,11 +12,11 @@ bajo overload** (#135/#159, rodilla medida 10–25× la carga de sede), y el re-
 quedó sellado por JF (ver ciclos en ROADMAP-pisos). Actualización anterior (2026-08-04, la mudanza):
 `main` promovido por FF de `dev-fran` (`78637e6`, tag **`checkpoint-camara-2026-08`**); las filas de
 Install & Factory viven en [`deploy/ROADMAP-factory.md`](../deploy/ROADMAP-factory.md).
-**Base**: forkeado de gatelite "Basa Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
+**Base**: forkeado de gatelite "Sentinel Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.2.0 (enmienda D10: `nlp_fail_mode`).
 **Tech tree y ciclos**: [`ROADMAP-pisos.md`](./ROADMAP-pisos.md) — fases 0–2, gates 125/250/500 (**125 ✅ PASS 12-ago**) y apuestas por ciclo.
 
-Este roadmap encadena el producto-core de **Basa Guardian** a partir del spec **013**, respetando las
+Este roadmap encadena el producto-core de **Sentinel Guardian** a partir del spec **013**, respetando las
 specs 001-012 heredadas. Convierte el giro demo→prod (multi-tenant, client-as-data, firewall LiteLLM-native)
 en una secuencia SDD, y **absorbe** items pendientes de Cris que ahora son parte del core (C2 Presidio, C3-C5
 SSO, D5 env vars).
@@ -44,7 +44,7 @@ disolverlo:**
   Hetzner). Sigue siendo el dueño de `deploy/` como operador; el desarrollo que tenía en curso se
   redistribuye.
 - **Cristian toma el wizard de onboarding (spec 037) con full ownership**, dentro del Guardian
-  ecosystem — hereda de Falime el esqueleto CLI ([PR #103](https://github.com/DrZuzzjen/basa-guardian/pull/103))
+  ecosystem — hereda de Falime el esqueleto CLI ([PR #103](https://github.com/DrZuzzjen/sentinel-guardian/pull/103))
   y el encargo del schema del perfil (validador + bloques reservados `sso`/`compliance_tier`,
   contrato en `specs/037-wizard-onboarding/`). Mantiene además su gate de review.
 - **Guardian (equipos Claude, manager + Jeff) = delivery de Fase 0** (017/018 en implementación).
@@ -63,27 +63,27 @@ artefacto versionado, el otro lo consume pinneado. El doc canónico es «Manos a
 | **013** | **Multi-Tenant Foundation & Client Model** | — (core) | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
 | **014** | **LiteLLM-Native Firewall (base_url clients)** | — (core) | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
 | 015 | Scoped SecurityPolicy (per-group/per-client) | JF | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
-| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | JF | P2 | **Implementada en `main`** ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21) absorbido por el FF 2026-08-04). ✅ Deuda #63/#64 **CERRADA** (2026-08-12): paridad NLP en `/gw` + `nlp_fail_mode` gobernable ([PR #97](https://github.com/DrZuzzjen/basa-guardian/pull/97), D10 constitución 2.2.0) + paracaídas regex honesto ([PR #111](https://github.com/DrZuzzjen/basa-guardian/pull/111)) + hardening #98/#104/#105/#106/#119/#124. Verificado bajo carga: 0 canarios crudos en el gate 125. ⚠️ Deuda nueva con evidencia de run: [#167](https://github.com/DrZuzzjen/basa-guardian/issues/167) — fail-closed bloquea tráfico legítimo en arranque-en-frío + ráfaga de logins (confirmar mecanismo ANTES del gate 250) | I, SC-2 | **C2** |
-| 017 | Auth hardening & Multi-Tenant RBAC + SSO | JF (gate: Cristian) | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** ([PR #194](https://github.com/DrZuzzjen/basa-guardian/pull/194), 13-ago) con recorte sellado por JF: matriz sobre el shim + auditor read-only (absorbe 034) + rol `lectura` + SSO **solo Entra** por contrato de proveedor gateado por licencia (Google→C3) + RLS partida + hardening cerrado de 4. **Implementación en cola tras el MVP de la 018** (equipo Jeff). Precondiciones 24-ago: merge-order [#137](https://github.com/DrZuzzjen/basa-guardian/pull/137) con Cristian + tenant Entra de prueba (DevOps) | III, SC-3 | **C3, C4, C5**, D5, absorbe **034** |
-| 018 | Compliance Enforcement Tiers + retention purge | JF | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** ([PR #192](https://github.com/DrZuzzjen/basa-guardian/pull/192), 13-ago; gate de producto sellado: DSAR fuera → spec propia C3 en Guardian, tiers `estricto`/`estándar` sobre el registry 027) — **implementación EN CURSO, equipo Jeff** ([#11](https://github.com/DrZuzzjen/basa-guardian/issues/11)): Foundational → MVP purga (gate manager) → tiers. ⚠️ El gate 250 lo destraba la **implementación**, no la spec | II [D3] | A4 |
-| 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados ([PR #29](https://github.com/DrZuzzjen/basa-guardian/pull/29)) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
-| 021 | Licensing & Seat Enforcement (offline Ed25519) — **lib runtime** | JF (gate: Cristian) | P2 | **Implementada** (US1-US5, 2026-07-20, stack [PR #18](https://github.com/DrZuzzjen/basa-guardian/pull/18)→#19→#20→[#22](https://github.com/DrZuzzjen/basa-guardian/pull/22)). **Mixta**: acá vive solo la lib (`backend/src/licensing`, fuente única); la operativa de emisión/cupos/true-up es de Factory ([roadmap](../deploy/ROADMAP-factory.md)) | VII, III, II | — |
-| 022 | Product Documentation Site — **contenido** | JF | P2 | **Implementada** (US1-US7, 2026-07-20, [PR #25](https://github.com/DrZuzzjen/basa-guardian/pull/25) + [#26](https://github.com/DrZuzzjen/basa-guardian/pull/26) docs-en-DoD). **Mixta**: contenido acá; build+entrega brandeada = Factory. Contrato: `openapi.json` single-source | VII, VIII, II | — |
-| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | JF (herencia 03-ago) | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
-| 024 | Unmask + atribución en respuestas byok (rutas bridged) | JF | P2 | **Implementada** (2026-07-21, [PR #31](https://github.com/DrZuzzjen/basa-guardian/pull/31), cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
-| 027 | Gobernanza configurable + enforcement honesto del firewall | JF | **P1** | **Implementada en `main`** (Foundational+US1+US2; [PR #43](https://github.com/DrZuzzjen/basa-guardian/pull/43) absorbido por el fast-forward 2026-08-04). `tasks.md` declara **parciales por diseño** SC-003/SC-005/SC-006; restan T024/T025 (plano motor — **desbloqueadas**: la 016 ya está en `main`), T034 (quickstart e2e) y T036 (P3). **T037 CERRADA**: enmienda D8 sellada el 2026-08-04 — constitución **2.1.0** | I [D8], II, VI, VIII | — |
-| 028 | Productización de la extensión de navegador — **features** | JF | P1 | **Implementada en `main`** (US1-US8; fast-forward 2026-08-04, incl. hardening [#44](https://github.com/DrZuzzjen/basa-guardian/issues/44)/[PR #45](https://github.com/DrZuzzjen/basa-guardian/pull/45) integrado). **Mixta**: features acá; white-label/zip/distribución = Factory. Contratos: `contracts/whoami-proteccion.md` + checksum en MANIFEST. Siguiente: Firefox ([#65](https://github.com/DrZuzzjen/basa-guardian/issues/65), nivel 2) | VII, I, C1 | — |
+| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | JF | P2 | **Implementada en `main`** ([PR #21](https://github.com/DrZuzzjen/sentinel-guardian/pull/21) absorbido por el FF 2026-08-04). ✅ Deuda #63/#64 **CERRADA** (2026-08-12): paridad NLP en `/gw` + `nlp_fail_mode` gobernable ([PR #97](https://github.com/DrZuzzjen/sentinel-guardian/pull/97), D10 constitución 2.2.0) + paracaídas regex honesto ([PR #111](https://github.com/DrZuzzjen/sentinel-guardian/pull/111)) + hardening #98/#104/#105/#106/#119/#124. Verificado bajo carga: 0 canarios crudos en el gate 125. ⚠️ Deuda nueva con evidencia de run: [#167](https://github.com/DrZuzzjen/sentinel-guardian/issues/167) — fail-closed bloquea tráfico legítimo en arranque-en-frío + ráfaga de logins (confirmar mecanismo ANTES del gate 250) | I, SC-2 | **C2** |
+| 017 | Auth hardening & Multi-Tenant RBAC + SSO | JF (gate: Cristian) | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** ([PR #194](https://github.com/DrZuzzjen/sentinel-guardian/pull/194), 13-ago) con recorte sellado por JF: matriz sobre el shim + auditor read-only (absorbe 034) + rol `lectura` + SSO **solo Entra** por contrato de proveedor gateado por licencia (Google→C3) + RLS partida + hardening cerrado de 4. **Implementación en cola tras el MVP de la 018** (equipo Jeff). Precondiciones 24-ago: merge-order [#137](https://github.com/DrZuzzjen/sentinel-guardian/pull/137) con Cristian + tenant Entra de prueba (DevOps) | III, SC-3 | **C3, C4, C5**, D5, absorbe **034** |
+| 018 | Compliance Enforcement Tiers + retention purge | JF | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** ([PR #192](https://github.com/DrZuzzjen/sentinel-guardian/pull/192), 13-ago; gate de producto sellado: DSAR fuera → spec propia C3 en Guardian, tiers `estricto`/`estándar` sobre el registry 027) — **implementación EN CURSO, equipo Jeff** ([#11](https://github.com/DrZuzzjen/sentinel-guardian/issues/11)): Foundational → MVP purga (gate manager) → tiers. ⚠️ El gate 250 lo destraba la **implementación**, no la spec | II [D3] | A4 |
+| 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados ([PR #29](https://github.com/DrZuzzjen/sentinel-guardian/pull/29)) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
+| 021 | Licensing & Seat Enforcement (offline Ed25519) — **lib runtime** | JF (gate: Cristian) | P2 | **Implementada** (US1-US5, 2026-07-20, stack [PR #18](https://github.com/DrZuzzjen/sentinel-guardian/pull/18)→#19→#20→[#22](https://github.com/DrZuzzjen/sentinel-guardian/pull/22)). **Mixta**: acá vive solo la lib (`backend/src/licensing`, fuente única); la operativa de emisión/cupos/true-up es de Factory ([roadmap](../deploy/ROADMAP-factory.md)) | VII, III, II | — |
+| 022 | Product Documentation Site — **contenido** | JF | P2 | **Implementada** (US1-US7, 2026-07-20, [PR #25](https://github.com/DrZuzzjen/sentinel-guardian/pull/25) + [#26](https://github.com/DrZuzzjen/sentinel-guardian/pull/26) docs-en-DoD). **Mixta**: contenido acá; build+entrega brandeada = Factory. Contrato: `openapi.json` single-source | VII, VIII, II | — |
+| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | JF (herencia 03-ago) | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/sentinel-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
+| 024 | Unmask + atribución en respuestas byok (rutas bridged) | JF | P2 | **Implementada** (2026-07-21, [PR #31](https://github.com/DrZuzzjen/sentinel-guardian/pull/31), cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
+| 027 | Gobernanza configurable + enforcement honesto del firewall | JF | **P1** | **Implementada en `main`** (Foundational+US1+US2; [PR #43](https://github.com/DrZuzzjen/sentinel-guardian/pull/43) absorbido por el fast-forward 2026-08-04). `tasks.md` declara **parciales por diseño** SC-003/SC-005/SC-006; restan T024/T025 (plano motor — **desbloqueadas**: la 016 ya está en `main`), T034 (quickstart e2e) y T036 (P3). **T037 CERRADA**: enmienda D8 sellada el 2026-08-04 — constitución **2.1.0** | I [D8], II, VI, VIII | — |
+| 028 | Productización de la extensión de navegador — **features** | JF | P1 | **Implementada en `main`** (US1-US8; fast-forward 2026-08-04, incl. hardening [#44](https://github.com/DrZuzzjen/sentinel-guardian/issues/44)/[PR #45](https://github.com/DrZuzzjen/sentinel-guardian/pull/45) integrado). **Mixta**: features acá; white-label/zip/distribución = Factory. Contratos: `contracts/whoami-proteccion.md` + checksum en MANIFEST. Siguiente: Firefox ([#65](https://github.com/DrZuzzjen/sentinel-guardian/issues/65), nivel 2) | VII, I, C1 | — |
 | 029 | Rediseño de la UI del panel — estilo Azure Foundry (claro, lean) | JF | P2 | **Implementada en `main`** (US1-US4; fast-forward 2026-08-04); 6 páginas del piloto + shell | VII, VIII | — |
 | 030 | Auto-router semántico + rediseño «Modelos & Ollama» | JF | **P1** | **Implementada en `main`** (US1-US3, 20/20 tareas; fast-forward 2026-08-04); verificada en vivo sobre el stack del piloto (SC-001 = **9/9** contra el seed) | II, V, VI, VIII | — |
 | 031 | Auditoría durable de bloqueos (motor/chat/gateway) + UI honesta | JF | **P1** | **Implementada en `main`** (US1-US3, 15/15 tareas; fast-forward 2026-08-04); paga el corte D6 que la 027 había diferido "a la 018"; la **purga de retención sigue en la 018** | II, VIII, I, VI | — |
-| 033 | Engine reload sin restart manual + feedback en UI | JF | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#50](https://github.com/DrZuzzjen/basa-guardian/issues/50)). Prerrequisito de escritura atómica **ya pago** (`1151b1e`, en `main`). Est. ~2-2.5 d con retest E2E del bundle amd64 (retest = costura con Factory) | VI, VIII, VII | — |
-| 034 | Rol `auditor` canónico read-only | JF | P2 | **ABSORBIDA por la 017** (13-ago): la matriz canónica de [PR #194](https://github.com/DrZuzzjen/basa-guardian/pull/194) define `compliance_officer` read-only con única excepción (resolver human reviews) y sin probar «dueño» — no lleva spec propia; se entrega con la implementación de la 017 | III, SC-3, II | absorbida por **017** |
-| **035** | Load harness + gates de carga 125/250/500 — instrumento de La ITV | JF (ejecuta La ITV) | **P1** | **Implementada en `main`** (spec+plan por speckit; consolidada [PR #122](https://github.com/DrZuzzjen/basa-guardian/pull/122), corridas reales [PR #163](https://github.com/DrZuzzjen/basa-guardian/pull/163)+[#164](https://github.com/DrZuzzjen/basa-guardian/pull/164) con doble gate adversarial). **Estrenada el 12-ago: gate 125 PASS** (4/4 SLOs de oro; evidencia firmada `tech-team/examenes/20260812/`) + rodilla de capacidad medida (10–25× sede en ccx33). Deuda del instrumento consolidada: [#168](https://github.com/DrZuzzjen/basa-guardian/issues/168) (ciclo 250). Encargo de dimensionamiento **PAUSADO 13-ago** (JF): el sizing envejece igual que el gate (compresor/NLP cambian el perfil de recursos) — corre en el mismo batch que el **gate 250**, cuyo disparador sellado es contenido, no fecha: implementación 018 + [#178](https://github.com/DrZuzzjen/basa-guardian/issues/178)/[#147](https://github.com/DrZuzzjen/basa-guardian/pull/147) + compresor [#16](https://github.com/DrZuzzjen/basa-guardian/issues/16) en main | II, VIII, I | los gates son el pilar de ESCALA del DoD de Fase 0 |
-| **036** | Políticas de compliance por cliente/país (region-aware) | Cristian @cluna-8 (gate: manager) | P2 | **En PRs** (stack [#141](https://github.com/DrZuzzjen/basa-guardian/pull/141) spec → [#137](https://github.com/DrZuzzjen/basa-guardian/pull/137) region por tenant → [#143](https://github.com/DrZuzzjen/basa-guardian/pull/143) content filter → [#147](https://github.com/DrZuzzjen/basa-guardian/pull/147) API+pantalla+docs). Freeze del examen levantado 12-ago: gates adversariales en ese orden, CI rojos (#143/#147) son tarea de Cristian. Decisiones de producto selladas por JF 12-ago: superficie tal cual · solo admins aprueban · paralelo best-effort | II, III, VII | — |
+| 033 | Engine reload sin restart manual + feedback en UI | JF | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#50](https://github.com/DrZuzzjen/sentinel-guardian/issues/50)). Prerrequisito de escritura atómica **ya pago** (`1151b1e`, en `main`). Est. ~2-2.5 d con retest E2E del bundle amd64 (retest = costura con Factory) | VI, VIII, VII | — |
+| 034 | Rol `auditor` canónico read-only | JF | P2 | **ABSORBIDA por la 017** (13-ago): la matriz canónica de [PR #194](https://github.com/DrZuzzjen/sentinel-guardian/pull/194) define `compliance_officer` read-only con única excepción (resolver human reviews) y sin probar «dueño» — no lleva spec propia; se entrega con la implementación de la 017 | III, SC-3, II | absorbida por **017** |
+| **035** | Load harness + gates de carga 125/250/500 — instrumento de La ITV | JF (ejecuta La ITV) | **P1** | **Implementada en `main`** (spec+plan por speckit; consolidada [PR #122](https://github.com/DrZuzzjen/sentinel-guardian/pull/122), corridas reales [PR #163](https://github.com/DrZuzzjen/sentinel-guardian/pull/163)+[#164](https://github.com/DrZuzzjen/sentinel-guardian/pull/164) con doble gate adversarial). **Estrenada el 12-ago: gate 125 PASS** (4/4 SLOs de oro; evidencia firmada `tech-team/examenes/20260812/`) + rodilla de capacidad medida (10–25× sede en ccx33). Deuda del instrumento consolidada: [#168](https://github.com/DrZuzzjen/sentinel-guardian/issues/168) (ciclo 250). Encargo de dimensionamiento **PAUSADO 13-ago** (JF): el sizing envejece igual que el gate (compresor/NLP cambian el perfil de recursos) — corre en el mismo batch que el **gate 250**, cuyo disparador sellado es contenido, no fecha: implementación 018 + [#178](https://github.com/DrZuzzjen/sentinel-guardian/issues/178)/[#147](https://github.com/DrZuzzjen/sentinel-guardian/pull/147) + compresor [#16](https://github.com/DrZuzzjen/sentinel-guardian/issues/16) en main | II, VIII, I | los gates son el pilar de ESCALA del DoD de Fase 0 |
+| **036** | Políticas de compliance por cliente/país (region-aware) | Cristian @cluna-8 (gate: manager) | P2 | **En PRs** (stack [#141](https://github.com/DrZuzzjen/sentinel-guardian/pull/141) spec → [#137](https://github.com/DrZuzzjen/sentinel-guardian/pull/137) region por tenant → [#143](https://github.com/DrZuzzjen/sentinel-guardian/pull/143) content filter → [#147](https://github.com/DrZuzzjen/sentinel-guardian/pull/147) API+pantalla+docs). Freeze del examen levantado 12-ago: gates adversariales en ese orden, CI rojos (#143/#147) son tarea de Cristian. Decisiones de producto selladas por JF 12-ago: superficie tal cual · solo admins aprueban · paralelo best-effort | II, III, VII | — |
 
 ### 033/034 — Paquete «onboarding v2», lado producto (post-instalación Cámara, sin arrancar)
 Salen del **research del 2026-07-30** (4 minions + síntesis) sobre el feedback en vivo de Rafa y Javi
-durante la instalación del piloto — issues [#49](https://github.com/DrZuzzjen/basa-guardian/issues/49)–[#52](https://github.com/DrZuzzjen/basa-guardian/issues/52).
+durante la instalación del piloto — issues [#49](https://github.com/DrZuzzjen/sentinel-guardian/issues/49)–[#52](https://github.com/DrZuzzjen/sentinel-guardian/issues/52).
 Diagnóstico de JF: «el onboarding **es** cargar modelos; urge que tenga sentido o parece amateur».
 La tercera pata del paquete —**032 ingress cert modes**— es de Install & Factory y vive en
 [su roadmap](../deploy/ROADMAP-factory.md).
@@ -94,7 +94,7 @@ La tercera pata del paquete —**032 ingress cert modes**— es de Install & Fac
   código de la imagen pinneada: LiteLLM NO tiene reload sin DB**, así que «que lo haga el motor» no existe
   como opción. Su prerrequisito —escritura atómica del `config.yaml`— **ya está pago** (commit `1151b1e`).
 - **034 — Rol `auditor` canónico read-only**: migración del CHECK + gates + deny explícito de chat +
-  navegación reducida. El quick-win ([PR #54](https://github.com/DrZuzzjen/basa-guardian/pull/54), mergeado)
+  navegación reducida. El quick-win ([PR #54](https://github.com/DrZuzzjen/sentinel-guardian/pull/54), mergeado)
   sólo hizo creable el `compliance_officer` existente y **declara honestamente que no es read-only**: hoy ese
   rol puede desactivar la política de protección activa y acortar la retención de los registros que audita.
   No consume seats (argumento comercial) y la futura **017** lo absorbe en su matriz definitiva.
@@ -135,10 +135,10 @@ Decidir/implementar qué "evidencia" pasa a "gate duro" (consent/retención). Jo
 
 ### 019 — Integration Surfaces & Client Compatibility (P2)
 Portar y formalizar el **lado cliente** del firewall (probado en gatelite-demo): Claude Code (passthrough de
-suscripción + identidad `X-Basa-Key`), VS Code/Copilot (auto-byok, key-in-URL, modo Ask), extensión browser MV3
+suscripción + identidad `X-Sentinel-Key`), VS Code/Copilot (auto-byok, key-in-URL, modo Ask), extensión browser MV3
 (mask/unmask en ChatGPT/Claude web). Matriz de compatibilidad: Cursor=parcial (solo chat/plan, como Copilot Ask),
 Gemini web=vía DOM-hook (spike), Claude Desktop=MCP tool-plane only. Research: no hay "LiteLLM del browser-DLP";
-el approach de Basa es el patrón dominante — **moat: des-enmascarar en vez de bloquear** (mantiene UX). Docs de
+el approach de Sentinel es el patrón dominante — **moat: des-enmascarar en vez de bloquear** (mantiene UX). Docs de
 training/soporte en `docs/integration-surfaces.md`.
 
 ### 021 — Licensing & Seat Enforcement (P2)
@@ -147,7 +147,7 @@ Research build-vs-buy: **DIY Ed25519** — no hay producto que aplique por el ai
 contada en Postgres. Licencia firmada `.lic` (tenant_id, distributor_id, pool_id, max_seats, expiry, `kid`)
 verificada en 2 gates fail-closed (arranque + creación de Connection); anti-tamper vía **cadena de hashes +
 export de true-up firmado** (deployment key). **Addendum 2026-07-14** (prior-art validado: GitLab/Grafana/
-Directus/Replicated): tier distribuidor = **firma CENTRAL de Basa + cupo de emisión** (nunca clave delegada);
+Directus/Replicated): tier distribuidor = **firma CENTRAL de Sentinel + cupo de emisión** (nunca clave delegada);
 per-seat capturado en emisión + true-up en renovación; expiry **degrada** (grace → read-only-creación), nunca
 mata el box; seat-gate etiquetado best-effort honor-system (ancla real = contrato). Complementa la 020.
 
@@ -165,7 +165,7 @@ al **plano byok del firewall**, donde pasa el tráfico real: la cascada `compres
 tenant) ya se resuelve en la identidad del motor pero **nada la consume**. Perfiles de optimización por
 scope (default developer: coding tools intocables), ahorro medible en presupuesto + audit metadata-only,
 y **ruteo coste-consciente** opt-in por reglas de equivalencia con guardia de calidad (nunca sustitución
-silenciosa). Plano passthrough fuera de alcance (coste de suscripción fijo). Spec: [PR #6](https://github.com/DrZuzzjen/basa-guardian/pull/6).
+silenciosa). Plano passthrough fuera de alcance (coste de suscripción fijo). Spec: [PR #6](https://github.com/DrZuzzjen/sentinel-guardian/pull/6).
 
 ### 024 — Unmask + atribución en respuestas byok, rutas bridged (P2, fix-spec de #27)
 Cerrar el round-trip mask→unmask en el camino byok del **motor** para modelos no-Claude (local vía Ollama
@@ -187,7 +187,7 @@ sin que el motor tuviera ninguna habilitada. La 027 entrega el **marco**: regist
 siempre activo, y atribución de bloqueo por pedido. **Decisiones selladas**: **D8** — el piso es
 *detectar/evaluar/registrar* siempre, el *transformar* (enmascarar) se gobierna absorbiendo `redact_enabled`
 de la 013 (confirmada por el owner el 2026-07-22; es el CRITICAL de T037 porque exige enmienda formal de la
-constitución 2.0.0→2.1.0); **X-Basa-Redact solo-restrictivo** (la superficie confiable nunca puede aflojar el
+constitución 2.0.0→2.1.0); **X-Sentinel-Redact solo-restrictivo** (la superficie confiable nunca puede aflojar el
 perfil, solo endurecerlo); **orden de aplicación 016→027** (las tareas 🔀 tocan archivos que el PR #21
 reescribe). El cableado real de los guardrails de proveedor **salió del alcance** — pertenece al módulo de
 seguridad; el marco lo toma sin cambios de diseño cuando llegue. **Hallazgo abierto** (verificado en vivo
@@ -201,10 +201,10 @@ usuario, lo que la hace agnóstica al despliegue), el paquete **viaja dentro del
 con su checksum en el manifiesto, la extensión **declara su nivel real de protección** y **explica el motivo
 real** de un bloqueo reusando el catálogo cerrado de la 027, y la sesión **distingue "sin red" de "sin
 permiso"** revalidándose sola. Gate de release que verifica el white-label (US7) y rechazo de keys vencidas o
-de otra superficie en el backend (US8). Brief de handoff en [#46](https://github.com/DrZuzzjen/basa-guardian/issues/46);
-NEXT en `extension/NEXT-028.md`. **Canónica única**: `basa-guardian/extension/` (las copias divergentes se
-borraron). Precedida por el hardening [#44](https://github.com/DrZuzzjen/basa-guardian/issues/44) /
-[PR #45](https://github.com/DrZuzzjen/basa-guardian/pull/45), que sacó el mapa reversible token→PII del alcance
+de otra superficie en el backend (US8). Brief de handoff en [#46](https://github.com/DrZuzzjen/sentinel-guardian/issues/46);
+NEXT en `extension/NEXT-028.md`. **Canónica única**: `sentinel-guardian/extension/` (las copias divergentes se
+borraron). Precedida por el hardening [#44](https://github.com/DrZuzzjen/sentinel-guardian/issues/44) /
+[PR #45](https://github.com/DrZuzzjen/sentinel-guardian/pull/45), que sacó el mapa reversible token→PII del alcance
 del proveedor y cerró el bridge que aceptaba mensajes de la página: la 028 **preserva ese hardening, no lo regresa**.
 
 ### 029 — Rediseño de la UI del panel, estilo Azure Foundry (P2)
@@ -239,7 +239,7 @@ capas** (4xx/5xx/timeout tragados con un `print`), agujero que ya causó pérdid
 ensayo del piloto. La 031 cierra los **tres planos** (motor/guardrail, chat del backend, `/gw` passthrough)
 con la convención `compliance_status` `blocked_*` **sin columnas nuevas**, hace la escritura **ruidosa**
 (reintento acotado + contador de pérdidas en Redis expuesto en `GET /api/v1/health` autenticado y visible en
-la UI de Logs), agrega `BASA_AUDIT_FAIL=open|closed` como config de instalación (en `closed` se rechaza
+la UI de Logs), agrega `SENTINEL_AUDIT_FAIL=open|closed` como config de instalación (en `closed` se rechaza
 **antes** de llamar al proveedor: no se gasta dinero en tráfico inauditable), suma el filtro **«Solo
 bloqueados»** y vuelve honesto el catálogo de guardianes y la pestaña de retención. **Paga el corte D6 que la
 027 había diferido "a la 018"**; la **purga automática de retención sigue siendo de la 018** (Cristian) y se

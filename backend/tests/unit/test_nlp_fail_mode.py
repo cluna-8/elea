@@ -43,7 +43,7 @@ def _instalar_doble_litellm():
 
 
 def _instalar_doble_custom_logger():
-    """`basa_audit_logger` hereda de OTRA base del SDK (`custom_logger`). Se dobla aparte
+    """`sentinel_audit_logger` hereda de OTRA base del SDK (`custom_logger`). Se dobla aparte
     para no cargarla en los tests que sólo necesitan el guardrail."""
     if "litellm.integrations.custom_logger" in sys.modules:
         return
@@ -60,15 +60,15 @@ def _instalar_doble_custom_logger():
 
 _instalar_doble_litellm()
 
-from extensions import basa_guardrail  # noqa: E402
+from extensions import sentinel_guardrail  # noqa: E402
 
 # La librería compartida se toma DEL GUARDRAIL, no con un `from extensions import
-# basa_guardian_policy` propio. Los dos caminos de import producen objetos-módulo DISTINTOS
-# (`basa_guardian_policy` vs `extensions.basa_guardian_policy`, según qué entrada de
+# sentinel_guardian_policy` propio. Los dos caminos de import producen objetos-módulo DISTINTOS
+# (`sentinel_guardian_policy` vs `extensions.sentinel_guardian_policy`, según qué entrada de
 # `sys.path` los resolvió), y con dos copias la `NlpUnavailableError` que levantaría el doble
 # no es la misma clase que el guardrail captura: el test fallaría por plomería y no por el
 # comportamiento. Es la misma referencia que ya usa `test_guardrail_block_audit.py`.
-policy = basa_guardrail.policy
+policy = sentinel_guardrail.policy
 
 AUDIT_URL = "http://backend:8000/api/v1/internal/audit"
 SECRETO = "master-key-de-prueba"
@@ -159,19 +159,19 @@ class _PlanoInterno:
 
 
 class _Identidad:
-    def __init__(self, **basa):
-        self.metadata = {"basa": basa}
+    def __init__(self, **sentinel):
+        self.metadata = {"sentinel": sentinel}
 
 
 def _connection(**extra):
-    basa = {
+    sentinel = {
         "identity": "connection",
         "key_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "33333333-3333-3333-3333-333333333333",
         "redact_enabled": True,
     }
-    basa.update(extra)
-    return _Identidad(**basa)
+    sentinel.update(extra)
+    return _Identidad(**sentinel)
 
 
 def _body(prompt: str = PROMPT) -> dict:
@@ -179,21 +179,21 @@ def _body(prompt: str = PROMPT) -> dict:
 
 
 async def _hook(identidad, data, call_type="acompletion"):
-    return await basa_guardrail.BasaGuardrail().async_pre_call_hook(
+    return await sentinel_guardrail.SentinelGuardrail().async_pre_call_hook(
         identidad, None, data, call_type)
 
 
 @pytest.fixture(autouse=True)
 def entorno(monkeypatch):
-    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
     # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
-    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # del motor. El operador ve SENTINEL_ENGINE_MASTER_KEY y el compose se la pasa bajo
     # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO)
-    monkeypatch.delenv("BASA_AUDIT_FAIL", raising=False)
-    monkeypatch.setattr(basa_guardrail, "_probe_cache", None, raising=False)
-    monkeypatch.setattr(basa_guardrail, "_AUDIT_RETRY_BACKOFF_S", 0)
-    monkeypatch.setattr(basa_guardrail, "_PRESIDIO_URL", ANALYZER)
+    monkeypatch.delenv("SENTINEL_AUDIT_FAIL", raising=False)
+    monkeypatch.setattr(sentinel_guardrail, "_probe_cache", None, raising=False)
+    monkeypatch.setattr(sentinel_guardrail, "_AUDIT_RETRY_BACKOFF_S", 0)
+    monkeypatch.setattr(sentinel_guardrail, "_PRESIDIO_URL", ANALYZER)
 
 
 @pytest.fixture
@@ -204,7 +204,7 @@ def marcas(monkeypatch):
     async def _fake():
         registro.append("degradado")
 
-    monkeypatch.setattr(basa_guardrail, "_marcar_nlp_degradado", _fake)
+    monkeypatch.setattr(sentinel_guardrail, "_marcar_nlp_degradado", _fake)
     return registro
 
 
@@ -213,7 +213,7 @@ def analyzer_caido(monkeypatch):
     async def _caido(*args, **kwargs):
         raise policy.NlpUnavailableError("connection refused")
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _caido)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _caido)
 
 
 # ── 2) El motor obedece la política ───────────────────────────────────────────────
@@ -253,7 +253,7 @@ async def test_motor_con_degrade_sirve_con_regex_y_lo_marca(monkeypatch, marcas,
     # El regex sí caza el email: degradar protege lo que puede, no baja los brazos.
     assert "maria.lopez@camara.es" not in str(salida["messages"])
     home = salida.get("metadata") or salida.get("litellm_metadata") or {}
-    assert home["basa_compliance"]["status"] == "degraded_nlp_regex", (
+    assert home["sentinel_compliance"]["status"] == "degraded_nlp_regex", (
         "sin este estado, el emisor de éxito escribiría la fila como una transacción normal "
         "y la degradación sería invisible en la auditoría — que es el issue #63")
     assert home["pii_tokens"], "el mapa reversible tiene que existir para poder des-enmascarar"
@@ -294,7 +294,7 @@ async def test_degrade_que_cae_a_mitad_del_masking_conserva_un_solo_mapa(monkeyp
         return [] if i < 0 else [{"start": i, "end": i + len("Ana Torres"),
                                   "entity_type": "PERSON", "score": 0.9}]
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _muere_despues_del_preview)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _muere_despues_del_preview)
     data = {"model": "gpt-4o-mini", "messages": [
         {"role": "user", "content": "primero: Ana Torres"},
         {"role": "user", "content": "segundo: a@b.es"},
@@ -324,7 +324,7 @@ async def test_con_analyzer_sano_no_hay_marca_de_degradacion(monkeypatch, marcas
     async def _sano(text, *_a, **_k):
         return []
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _sano)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _sano)
 
     salida = await _hook(_connection(nlp_fail_mode="degrade"), _body())
 
@@ -378,7 +378,7 @@ def test_las_dos_copias_del_sql_de_identidad_traen_nlp_fail_mode():
 
 
 def test_el_default_de_redis_del_motor_coincide_con_el_del_backend():
-    """Las marcas del #63 (`basa:nlp:*`) y el contador de la 031 (`basa:audit:*`) los ESCRIBE
+    """Las marcas del #63 (`sentinel:nlp:*`) y el contador de la 031 (`sentinel:audit:*`) los ESCRIBE
     el motor y los LEE el backend. Compartir las claves no sirve de nada si cada plano las
     escribe en un host distinto: el health contaría cero con el sidecar caído, que es
     exactamente la promesa que el issue viene a cumplir. El default del motor decía `redis`
@@ -392,15 +392,15 @@ def test_el_default_de_redis_del_motor_coincide_con_el_del_backend():
 
     # El logger de auditoría necesita SU propia base del SDK (otro módulo de litellm).
     _instalar_doble_custom_logger()
-    from extensions import basa_audit_logger
+    from extensions import sentinel_audit_logger
     from src.services import redis_client
 
     fuente = _inspect.getsource(redis_client.get_redis)
-    assert f'"{basa_guardrail._REDIS_HOST_DEFAULT}"' in fuente, (
-        f"el motor default-ea a {basa_guardrail._REDIS_HOST_DEFAULT!r} y el backend a otra "
+    assert f'"{sentinel_guardrail._REDIS_HOST_DEFAULT}"' in fuente, (
+        f"el motor default-ea a {sentinel_guardrail._REDIS_HOST_DEFAULT!r} y el backend a otra "
         "cosa: escribirían y leerían en instancias distintas")
     # Y los dos emisores del motor comparten el mismo valor entre sí.
-    assert basa_audit_logger._REDIS_HOST_DEFAULT == basa_guardrail._REDIS_HOST_DEFAULT
+    assert sentinel_audit_logger._REDIS_HOST_DEFAULT == sentinel_guardrail._REDIS_HOST_DEFAULT
 
 
 def test_custom_auth_propaga_la_postura_cruda_a_la_identidad(monkeypatch):
@@ -428,9 +428,9 @@ def test_custom_auth_propaga_la_postura_cruda_a_la_identidad(monkeypatch):
 
     import asyncio
     auth = asyncio.get_event_loop().run_until_complete(
-        custom_auth.user_api_key_auth(_Request(), "sk-basa-de-prueba"))
+        custom_auth.user_api_key_auth(_Request(), "sk-sentinel-de-prueba"))
 
-    assert auth.metadata["basa"]["nlp_fail_mode"] == "degrade"
+    assert auth.metadata["sentinel"]["nlp_fail_mode"] == "degrade"
 
 
 # ── 5) presidio_analyze no queda mudo ante un fallo (issue #167, sub-fix 1) ──────

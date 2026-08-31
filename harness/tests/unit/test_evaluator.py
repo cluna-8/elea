@@ -12,8 +12,8 @@ import copy
 
 import pytest
 
-from basa_harness.reporting import load_gate_by_number, render_report
-from basa_harness.reporting.evaluator import eval_audit, evaluate
+from sentinel_harness.reporting import load_gate_by_number, render_report
+from sentinel_harness.reporting.evaluator import eval_audit, evaluate
 
 GATE = load_gate_by_number(125)
 TS = "2026-08-12T00:00:00Z"
@@ -40,7 +40,7 @@ def _clean_k6_summary() -> dict:
     coding["ttft_ms"] = {"p50": 612, "p95": 640, "p99": 700, "max": 780, "count": 100}
     coding["stream_cuts"] = 0
     surfaces["coding"] = coding
-    return {"schema": "basa-harness/k6-summary@1", "gate": 125, "surfaces": surfaces,
+    return {"schema": "sentinel-harness/k6-summary@1", "gate": 125, "surfaces": surfaces,
             "dropped_iterations_total": 0, "auditable_events": 2250}
 
 

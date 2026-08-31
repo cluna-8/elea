@@ -6,7 +6,7 @@ en la UI real o verificado por API. No inventar nada que no esté aquí o en las
 ## Producto (como lo ve el cliente)
 
 - Título de la instalación: **Cámara de Comercio — AI Gateway** (brand pack del bundle).
-  Tagline: "Uso seguro y auditado de IA". Soporte: soporte@basa-dev.com.
+  Tagline: "Uso seguro y auditado de IA". Soporte: soporte@sentinel-dev.com.
 - Login: campos Usuario / Contraseña, botón **"Ingresar al Panel"**.
 - El PRIMER login de `admin` en una instalación nueva CREA al admin con la contraseña
   que se escriba (mínimo 12 caracteres). No hay contraseña de fábrica. Los logins
@@ -38,7 +38,7 @@ Pestañas: Resumen · Usuarios & Equipos · Llaves Virtuales · Presupuestos · 
   (Diario/Semanal/Mensual/Anual), Límite RPM (default 60), Límite TPM (default 100000),
   Proyecto de compliance opcional. Al generar aparece modal
   **"¡Llave Virtual Generada!"**: "Copie la clave ahora. Por motivos de seguridad, no se
-  volverá a mostrar." La llave tiene formato `sk-basa-...`. En la tabla queda solo el
+  volverá a mostrar." La llave tiene formato `sk-sentinel-...`. En la tabla queda solo el
   preview (`sk-...XXXX`), con acciones Revocar.
 - **Presupuestos**: "Límites de Consumo" — botón "Asignar Límite" → modal: Equipo o
   Usuario Individual, Límite Máximo (USD), Límite Máximo (Tokens), Período de Reinicio.
@@ -56,7 +56,7 @@ Pestañas: Resumen · Usuarios & Equipos · Llaves Virtuales · Presupuestos · 
 - GOTCHA verificado en el ensayo del piloto: tras dar de alta un modelo nuevo el motor
   puede tardar/necesitar un reinicio del servicio para servirlo. Redactar como: si el
   modelo nuevo no responde a los pocos minutos, contacte a su soporte técnico
-  (soporte@basa-dev.com). NO dar instrucciones de docker al cliente.
+  (soporte@sentinel-dev.com). NO dar instrucciones de docker al cliente.
 
 ## Playground (título: "Playground Seguro")
 
@@ -91,7 +91,7 @@ Pestañas: Resumen · Usuarios & Equipos · Llaves Virtuales · Presupuestos · 
 ## API para conectar herramientas (verificado por curl contra la instancia)
 
 - Endpoint chat: `POST <URL-de-su-instalación>/api/v1/chat/completions`
-  con `Authorization: Bearer sk-basa-...` (llave virtual) y body JSON:
+  con `Authorization: Bearer sk-sentinel-...` (llave virtual) y body JSON:
   `{"message": "…", "model": "camara-comercio-local"}`.
   La respuesta incluye `response` y `pipeline_metadata` (capas aplicadas, PII
   enmascarada, costo). El campo es `message` (string), NO `messages` estilo OpenAI.

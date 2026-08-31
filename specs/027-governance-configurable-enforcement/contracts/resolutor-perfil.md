@@ -1,16 +1,16 @@
-# Contrato — Resolutor puro de perfil (`basa_governance`)
+# Contrato — Resolutor puro de perfil (`sentinel_governance`)
 
 Contrato del registry + `resolve_profile` + `apply_layers` en
-**`litellm/extensions/basa_governance.py`** — módulo **nuevo**, hermano de
-`basa_guardian_policy.py` en el mismo paquete compartido. Un resolutor, tres call-sites
+**`litellm/extensions/sentinel_governance.py`** — módulo **nuevo**, hermano de
+`sentinel_guardian_policy.py` en el mismo paquete compartido. Un resolutor, tres call-sites
 (gateway passthrough, guardrail del motor, chat UI); si esto no es único, 027 se
 implementa tres veces y SC-003 se vuelve infalsificable (research D3).
 
 > **Ajuste de ubicación (implementación, 2026-07-22)**: los artefactos de Fase 1 situaban el
 > registry en `backend/src/services/governance_catalog.py` y el resolutor dentro de
-> `basa_guardian_policy.py`, con un espejo verificado por contract test. Se movieron ambos a
-> `basa_governance.py` por dos razones duras: (a) el PR #21 (spec 016) **reescribe**
-> `basa_guardian_policy.py` entero — conflicto garantizado; (b) el contenedor del motor **no
+> `sentinel_guardian_policy.py`, con un espejo verificado por contract test. Se movieron ambos a
+> `sentinel_governance.py` por dos razones duras: (a) el PR #21 (spec 016) **reescribe**
+> `sentinel_guardian_policy.py` entero — conflicto garantizado; (b) el contenedor del motor **no
 > puede importar** `backend/`, así que un registry que viviera en el backend obligaba a un
 > espejo duplicado. El paquete `litellm/extensions` está montado en los dos planos
 > (`docker-compose.yml:114`; `gateway.py:68-76` ya importa de ahí), de modo que la decisión
@@ -19,13 +19,13 @@ implementa tres veces y SC-003 se vuelve infalsificable (research D3).
 >
 > Consecuencia sobre las tareas: **T004 cambia de naturaleza.** Ya no hay "espejo sincronizado"
 > que verificar; el contract test que lo reemplaza asserta que el backend importa **el mismo
-> objeto-módulo** (`governance_catalog.GOVERNANCE_LAYERS is basa_governance.GOVERNANCE_LAYERS`
-> y un único `basa_governance` en `sys.modules`), que es lo que de verdad preserva el invariante.
+> objeto-módulo** (`governance_catalog.GOVERNANCE_LAYERS is sentinel_governance.GOVERNANCE_LAYERS`
+> y un único `sentinel_governance` en `sys.modules`), que es lo que de verdad preserva el invariante.
 
 ## Pureza y firma
 
 1. **PURA = sin DB, sin servicios, sin I/O** — el mismo estándar que el módulo ya declara
-   (`basa_guardian_policy.py:13-15`). Las decisiones del tenant (`config`) llegan ya
+   (`sentinel_guardian_policy.py:13-15`). Las decisiones del tenant (`config`) llegan ya
    leídas por el caller, donde ya hay sesión/SQL: `_resolve_attribution` en el gateway y
    el SQL de identidad + cache de `custom_auth` en el motor. Cero I/O nuevo en el camino
    caliente.
@@ -72,14 +72,14 @@ implementa tres veces y SC-003 se vuelve infalsificable (research D3).
    no consigue relajación alguna. Las capas de piso no se relajan en ningún caso — no son
    representables como apagadas (#3).
 
-   **Cierre del bypass `X-Basa-Redact`** (hallazgo ronda 2): el header por-request del
+   **Cierre del bypass `X-Sentinel-Redact`** (hallazgo ronda 2): el header por-request del
    gateway (`_resolve_redact`, `gateway.py:256-262`) hoy apaga el masking por encima del
    toggle de la Connection — un override controlado por el cliente, exactamente lo que esta
    regla prohíbe. Con 027 el header queda **solo en sentido restrictivo**: puede forzar
    `pii_masking=on` para ese request (agregar protección es siempre legal para señal no
    confiable); el valor "off" se **ignora** con telemetría. Ningún input por-request entra a
    la cascada como relajación. Cambio de comportamiento observable: se actualiza la entrada
-   `X-Basa-Redact` del discovery (`gateway.py:666`) y se declara en el changelog del gateway.
+   `X-Sentinel-Redact` del discovery (`gateway.py:666`) y se declara en el changelog del gateway.
 
 ## Los ejes: cómo entran, no cómo se adivinan
 
@@ -90,8 +90,8 @@ implementa tres veces y SC-003 se vuelve infalsificable (research D3).
    efectiva no mapeada ⇒ `gateway-models` — el modo sin protección upstream: se degrada
    hacia **más** capas, nunca hacia menos.
 7. **Superficie y su procedencia**: la superficie de enforcement es el `tool_type` de la
-   Connection (`ident['tool_type']` en el gateway con `X-Basa-Key`;
-   `metadata['basa']['tool_type']` en el motor, `custom_auth.py:146-147`) →
+   Connection (`ident['tool_type']` en el gateway con `X-Sentinel-Key`;
+   `metadata['sentinel']['tool_type']` en el motor, `custom_auth.py:146-147`) →
    `surface_trusted=True`. Sin Connection resuelta, la señal de UA (`detect_tool`) puede
    usarse **solo** con `surface_trusted=False` (relajaciones inertes, #5). Superficie fuera
    del enum (Responses #28, extensión browser) ⇒ `None` → cae a la cascada desde
@@ -108,7 +108,7 @@ implementa tres veces y SC-003 se vuelve infalsificable (research D3).
                    applied_layers, blocked_by_layer)
    ```
 
-   Orden de aplicación canónico (el del guardrail hoy, `basa_guardrail.py:74-101`):
+   Orden de aplicación canónico (el del guardrail hoy, `sentinel_guardrail.py:74-101`):
    evaluación AI-Act → bloqueo de secretos → detección PII → enmascarado **solo si** la
    capa `pii_masking` está `on` en el perfil.
 9. **D8 codificado en atribución, no en texto**: con `pii_masking=off`, la detección corre

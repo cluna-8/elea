@@ -7,7 +7,7 @@
 ## Summary
 
 Convertir el estado actual (todo **dev-mode**, **cero IaC**) en un **producto de marca blanca que el
-DISTRIBUIDOR levanta donde quiera con OpenTofu**. El modelo de negocio manda el shape: Basa **cobra INSTALL + X
+DISTRIBUIDOR levanta donde quiera con OpenTofu**. El modelo de negocio manda el shape: Sentinel **cobra INSTALL + X
 licencias y NO instala ni opera servidores** — entrega imágenes/bundle + un **módulo OpenTofu portable** + un
 **perfil por cliente**. La arquitectura se estructura en **cuatro artefactos** encadenados:
 
@@ -108,13 +108,13 @@ REUSA (bedrock 013/014) vs NUEVO (esta spec).
 | `docker-compose.yml` con bind-mounts de código (`./backend:/app`, `./frontend:/app`) | imágenes prod self-contained (código horneado); compose de dev conservado sólo para local | NUEVO (+ conserva dev) |
 | `pgdata` en volumen docker efímero | Postgres gestionado (RDS/CloudSQL) por swap `POSTGRES_*` | NUEVO (OpenTofu `database`) |
 | Redis in-container (`redis:7-alpine`) | Redis gestionado (ElastiCache/MemoryStore) por swap `REDIS_*` | NUEVO (OpenTofu `cache`) |
-| Secretos default en compose (`basasecurepass123`, `basa_master_key_9999`) | secretos **generados por instalación** y cifrados con SOPS+age (v1) / OpenBao (v2); admin bootstrap rotado | NUEVO (US5) |
+| Secretos default en compose (`sentinelsecurepass123`, `sentinel_master_key_9999`) | secretos **generados por instalación** y cifrados con SOPS+age (v1) / OpenBao (v2); admin bootstrap rotado | NUEVO (US5) |
 | Sin TLS | TLS/ingress (Caddy auto-HTTPS v1 / Traefik v2) + DNS por `tenant.slug` | NUEVO (OpenTofu `ingress`) |
 | Imagen LiteLLM pinneada por digest (014) | reusada tal cual en el release (registry o tarball) | REUSA (014) |
 | `litellm/config.yaml` montado como volumen (014) | **templado por cliente** (model_list/proveedores/keys/región), montado, no horneado | REUSA (014) + templado NUEVO |
 | `seed_gateway_demo` → `seed_client` idempotente (013) | seed del **perfil de cliente** (onboarding-as-data) | REUSA (013) |
 | `tenant.slug` (013) | deriva dominio/DNS + nombre de workspace | REUSA (013) |
-| Branding hardcodeado en el frontend | branding pack como **config-as-data en runtime** (env + assets montados, una marca por instancia), default Basa-neutro + override distribuidor | NUEVO (US2) |
+| Branding hardcodeado en el frontend | branding pack como **config-as-data en runtime** (env + assets montados, una marca por instancia), default Sentinel-neutro + override distribuidor | NUEVO (US2) |
 | Deploy manual `git clone` + `docker compose up` (DEPLOY_VPN.md) | módulo OpenTofu portable (v1) + camino air-gapped/tarball (on-prem sin egress) | NUEVO (US4/US6) |
 | — (no existe) | hueco de entrada de license key (sin enforcement) | NUEVO placeholder → **spec 021** |
 
@@ -141,7 +141,7 @@ deploy/                                    # NUEVO — artefactos de empaquetado
 │   ├── frontend.prod.Dockerfile           # NUEVO: vite build -> estáticos por Caddy/nginx, non-root
 │   └── entrypoint/                         # NUEVO: entrypoints prod (migraciones + arranque sin --reload)
 ├── branding/                              # NUEVO — branding pack como CONFIG (never fork)
-│   ├── branding.default.env               # Basa-neutro (fallback)
+│   ├── branding.default.env               # Sentinel-neutro (fallback)
 │   ├── branding.example.env               # ejemplo de distribuidor
 │   └── assets/                             # logos/colores placeholder (montados en runtime, no baked)
 ├── clients/                               # NUEVO — perfiles por cliente (artefactos; secretos NO aquí)
@@ -187,7 +187,7 @@ schema nuevo (013) ni lógica de firewall nueva (014): esta spec **empaqueta y d
    `frontend.prod.Dockerfile` (vite build → estáticos). Publicación pinneada + esqueleto del tarball. Base de
    todo el resto (OpenTofu monta sobre estas imágenes).
 3. **US2 branding pack (P1).** Branding como **config-as-data en runtime** (env + assets montados, una marca por
-   instancia; no build-time), default Basa-neutro + override; check de que el motor no se nombra. Independiente
+   instancia; no build-time), default Sentinel-neutro + override; check de que el motor no se nombra. Independiente
    de OpenTofu.
 4. **US3 perfil por cliente (P1).** Estructura del perfil-artefacto (env + seed `seed_client` 013 + branding +
    `config.yaml.tmpl`), atado a `tenant.slug`. Pegamento entre producto (US1/US2) y deploy (US4).

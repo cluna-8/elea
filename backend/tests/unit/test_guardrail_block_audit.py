@@ -1,6 +1,6 @@
 """Auditoría durable de los bloqueos del plano MOTOR (spec 031 T005, D3/D4/D5).
 
-Qué se protege acá: hasta la 031, los cuatro puntos de bloqueo de `BasaGuardrail.
+Qué se protege acá: hasta la 031, los cuatro puntos de bloqueo de `SentinelGuardrail.
 async_pre_call_hook` devolvían el rechazo y NO dejaban fila — el logger de auditoría solo
 implementa el hook de ÉXITO, así que TODO el tráfico byok de herramientas (la superficie
 principal del producto) podía ser bloqueado sin dejar rastro durable. Un producto de
@@ -15,7 +15,7 @@ en una demo de compliance, así que estos tests son el contrato de esa garantía
 4. el probe se cachea 5 s (riesgo R2 del research: el pre-check no puede volverse el
    costo dominante del pedido durante una caída).
 
-La extensión se importa como la importa el motor (`from extensions import basa_guardrail`,
+La extensión se importa como la importa el motor (`from extensions import sentinel_guardrail`,
 vía el `sys.path` que arma conftest) con un doble de `litellm.integrations.
 custom_guardrail` en `sys.modules`: litellm NO está instalado en el backend y no hace
 falta que lo esté — lo que se prueba es NUESTRA lógica de registro, no el SDK del motor.
@@ -49,7 +49,7 @@ def _instalar_doble_litellm():
 
 _instalar_doble_litellm()
 
-from extensions import basa_guardrail  # noqa: E402
+from extensions import sentinel_guardrail  # noqa: E402
 
 AUDIT_URL = "http://backend:8000/api/v1/internal/audit"
 SECRETO = "master-key-de-prueba"
@@ -114,14 +114,14 @@ class _PlanoInterno:
 
 
 class _Identidad:
-    """Lo único que el guardrail lee del `UserAPIKeyAuth` es `.metadata['basa']`."""
+    """Lo único que el guardrail lee del `UserAPIKeyAuth` es `.metadata['sentinel']`."""
 
-    def __init__(self, **basa):
-        self.metadata = {"basa": basa} if basa else {}
+    def __init__(self, **sentinel):
+        self.metadata = {"sentinel": sentinel} if sentinel else {}
 
 
 def _connection(**extra):
-    basa = {
+    sentinel = {
         "identity": "connection",
         "key_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "33333333-3333-3333-3333-333333333333",
@@ -130,8 +130,8 @@ def _connection(**extra):
         "tool_type": "claude-code",
         "redact_enabled": True,
     }
-    basa.update(extra)
-    return _Identidad(**basa)
+    sentinel.update(extra)
+    return _Identidad(**sentinel)
 
 
 def _body(prompt: str, model: str = "gpt-4o-mini") -> dict:
@@ -139,7 +139,7 @@ def _body(prompt: str, model: str = "gpt-4o-mini") -> dict:
 
 
 async def _hook(identidad, data, call_type="acompletion"):
-    return await basa_guardrail.BasaGuardrail().async_pre_call_hook(
+    return await sentinel_guardrail.SentinelGuardrail().async_pre_call_hook(
         identidad, None, data, call_type)
 
 
@@ -151,17 +151,17 @@ def entorno(monkeypatch):
 
     El cache del probe y el backoff son globales del módulo: sin resetear, un test se
     llevaría puesto al siguiente (y el backoff real le sumaría 0,2 s a cada reintento)."""
-    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
     # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
-    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # del motor. El operador ve SENTINEL_ENGINE_MASTER_KEY y el compose se la pasa bajo
     # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO)
-    monkeypatch.delenv("BASA_AUDIT_FAIL", raising=False)
-    monkeypatch.setattr(basa_guardrail, "_probe_cache", None, raising=False)
-    monkeypatch.setattr(basa_guardrail, "_AUDIT_RETRY_BACKOFF_S", 0)
+    monkeypatch.delenv("SENTINEL_AUDIT_FAIL", raising=False)
+    monkeypatch.setattr(sentinel_guardrail, "_probe_cache", None, raising=False)
+    monkeypatch.setattr(sentinel_guardrail, "_AUDIT_RETRY_BACKOFF_S", 0)
     # Sin NLP configurada el guardrail usa el analyzer regex de dev — determinista y sin
     # red, que es justo lo que un unit test necesita.
-    monkeypatch.setattr(basa_guardrail, "_PRESIDIO_URL", None)
+    monkeypatch.setattr(sentinel_guardrail, "_PRESIDIO_URL", None)
 
 
 @pytest.fixture
@@ -172,7 +172,7 @@ def perdidas(monkeypatch):
     async def _fake(motivo):
         registro.append(motivo)
 
-    monkeypatch.setattr(basa_guardrail, "_contar_perdida", _fake)
+    monkeypatch.setattr(sentinel_guardrail, "_contar_perdida", _fake)
     return registro
 
 
@@ -189,7 +189,7 @@ async def test_bloqueo_ai_act_registra_la_fila_antes_de_rechazar(monkeypatch, pe
     assert len(plano.posts) == 1, "el bloqueo tiene que dejar exactamente UNA fila"
     envio = plano.posts[0]
     assert envio["url"] == AUDIT_URL
-    assert envio["headers"]["X-Basa-Internal"] == SECRETO, "el plano interno exige el secreto"
+    assert envio["headers"]["X-Sentinel-Internal"] == SECRETO, "el plano interno exige el secreto"
 
     fila = envio["json"]
     assert fila["compliance_status"] == "blocked_prohibited"
@@ -249,12 +249,12 @@ async def test_bloqueo_por_nlp_caido_registra_fila(monkeypatch, perdidas):
     """El fail-closed de la 016 también es un bloqueo: hoy era el más invisible de todos
     (se rechaza el pedido porque no hay garantía de detección… y no queda constancia)."""
     plano = _PlanoInterno().instalar(monkeypatch)
-    monkeypatch.setattr(basa_guardrail, "_PRESIDIO_URL", "http://nlp-analyzer:3000")
+    monkeypatch.setattr(sentinel_guardrail, "_PRESIDIO_URL", "http://nlp-analyzer:3000")
 
     async def _caido(*args, **kwargs):
-        raise basa_guardrail.policy.NlpUnavailableError("timeout")
+        raise sentinel_guardrail.policy.NlpUnavailableError("timeout")
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _caido)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _caido)
 
     salida = await _hook(_connection(), _body(PROMPT_CON_EMAIL))
 
@@ -337,10 +337,10 @@ async def test_un_4xx_no_se_reintenta(monkeypatch, perdidas):
 
 @pytest.mark.asyncio
 async def test_sin_url_del_plano_interno_la_perdida_se_cuenta(monkeypatch, perdidas):
-    """Motor sin `BASA_AUDIT_URL` = motor sin forma de registrar. Eso es una pérdida
+    """Motor sin `SENTINEL_AUDIT_URL` = motor sin forma de registrar. Eso es una pérdida
     ruidosa, no un "no hacía falta auditar"."""
     plano = _PlanoInterno().instalar(monkeypatch)
-    monkeypatch.delenv("BASA_AUDIT_URL", raising=False)
+    monkeypatch.delenv("SENTINEL_AUDIT_URL", raising=False)
 
     salida = await _hook(_connection(), _body(PROMPT_PROHIBIDO))
 
@@ -382,8 +382,8 @@ async def test_el_contador_usa_las_claves_canonicas_de_redis(monkeypatch):
 
     await _hook(_connection(), _body(PROMPT_PROHIBIDO))
 
-    assert ("incr", "basa:audit:lost") in comandos
-    assert [c for c in comandos if c[0] == "set" and c[1] == "basa:audit:last_fail"]
+    assert ("incr", "sentinel:audit:lost") in comandos
+    assert [c for c in comandos if c[0] == "set" and c[1] == "sentinel:audit:last_fail"]
 
 
 @pytest.mark.asyncio
@@ -410,26 +410,26 @@ async def test_redis_caido_no_rompe_el_bloqueo(monkeypatch):
 async def test_closed_con_probe_503_rechaza_sin_evaluar_ni_llamar_al_proveedor(
         monkeypatch, perdidas):
     plano = _PlanoInterno(get=[503]).instalar(monkeypatch)
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
 
     def _no_deberia_correr(*args, **kwargs):
         raise AssertionError("el corte va ANTES de la política y del proveedor")
 
-    monkeypatch.setattr(basa_guardrail.policy, "evaluate_ai_act", _no_deberia_correr)
+    monkeypatch.setattr(sentinel_guardrail.policy, "evaluate_ai_act", _no_deberia_correr)
 
     salida = await _hook(_connection(), _body(PROMPT_SANO))
 
     assert isinstance(salida, str), "un str corta el pedido: el proveedor nunca se llama"
     assert "auditoría no disponible" in salida and "audit_fail=closed" in salida
     assert plano.gets[0]["url"] == AUDIT_URL + "/probe"
-    assert plano.gets[0]["headers"]["X-Basa-Internal"] == SECRETO
+    assert plano.gets[0]["headers"]["X-Sentinel-Internal"] == SECRETO
     assert plano.posts == [], "no hay fila que escribir: la auditoría es justo lo que no anda"
 
 
 @pytest.mark.asyncio
 async def test_closed_con_probe_ok_deja_pasar_el_trafico(monkeypatch, perdidas):
     plano = _PlanoInterno(get=[200]).instalar(monkeypatch)
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
 
     salida = await _hook(_connection(), _body(PROMPT_SANO))
 
@@ -441,8 +441,8 @@ async def test_closed_con_probe_ok_deja_pasar_el_trafico(monkeypatch, perdidas):
 async def test_closed_sin_url_del_plano_interno_rechaza(monkeypatch, perdidas):
     """Fail-closed de verdad: sin forma de preguntar, la respuesta es no."""
     plano = _PlanoInterno().instalar(monkeypatch)
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
-    monkeypatch.delenv("BASA_AUDIT_URL", raising=False)
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
+    monkeypatch.delenv("SENTINEL_AUDIT_URL", raising=False)
 
     salida = await _hook(_connection(), _body(PROMPT_SANO))
 
@@ -467,7 +467,7 @@ async def test_valor_ilegible_de_la_env_degrada_a_open(monkeypatch, perdidas):
     """Un typo en la configuración NUNCA puede convertirse en un corte de servicio: el
     fail-closed es una decisión explícita de la instalación."""
     plano = _PlanoInterno(get=[503]).instalar(monkeypatch)
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "Closedd")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "Closedd")
 
     assert isinstance(await _hook(_connection(), _body(PROMPT_SANO)), dict)
     assert plano.gets == []
@@ -482,7 +482,7 @@ async def test_closed_con_la_escritura_caida_devuelve_el_bloqueo_no_el_503(
     protege— y decirle "auditoría caída" a quien intentó filtrar un secreto sería peor
     información. La pérdida queda contada y logueada."""
     _PlanoInterno(get=[200], post=[500]).instalar(monkeypatch)
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
 
     salida = await _hook(_connection(), _body(PROMPT_CON_SECRETO))
 
@@ -495,7 +495,7 @@ async def test_el_probe_se_cachea_5s_y_expira(monkeypatch, perdidas):
     """Riesgo R2 del research: el probe corre en el pre-call de CADA pedido del plano
     agentic; sin cache, una caída se paga con un round-trip extra por pedido."""
     plano = _PlanoInterno(get=[200]).instalar(monkeypatch)
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
 
     # Se reemplaza la REFERENCIA al módulo `time` dentro de la extensión, no
     # `time.monotonic` global: congelarle el reloj al proceso entero le mueve el piso al
@@ -507,12 +507,12 @@ async def test_el_probe_se_cachea_5s_y_expira(monkeypatch, perdidas):
         def monotonic():
             return reloj["t"]
 
-    monkeypatch.setattr(basa_guardrail, "time", _RelojFalso())
+    monkeypatch.setattr(sentinel_guardrail, "time", _RelojFalso())
 
     await _hook(_connection(), _body(PROMPT_SANO))
     await _hook(_connection(), _body(PROMPT_SANO))
     assert len(plano.gets) == 1, "dentro de la ventana el probe se responde de cache"
 
-    reloj["t"] += basa_guardrail._AUDIT_PROBE_CACHE_TTL_S + 0.1
+    reloj["t"] += sentinel_guardrail._AUDIT_PROBE_CACHE_TTL_S + 0.1
     await _hook(_connection(), _body(PROMPT_SANO))
     assert len(plano.gets) == 2, "vencida la ventana se vuelve a preguntar"

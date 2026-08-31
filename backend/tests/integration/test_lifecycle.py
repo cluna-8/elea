@@ -3,7 +3,7 @@
 
 `active → grace → expired` computado con reloj local (offline): en grace la
 creación se bloquea pero el tráfico existente sigue; en expired el default es
-read-only-para-creación; el toggle `BASA_LICENSE_HARD_BLOCK=true` endurece
+read-only-para-creación; el toggle `SENTINEL_LICENSE_HARD_BLOCK=true` endurece
 expired/over_seat a bloqueo total del tráfico /gw (grace JAMÁS corta tráfico,
 FR-019). Cada transición deja UN evento de audit (idempotente por estado).
 """
@@ -26,7 +26,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_lifecycle"
+DB = "sentinel_test_lifecycle"
 
 EXPIRY = "2027-01-01T00:00:00Z"
 GRACE_DAYS = 7
@@ -129,7 +129,7 @@ def test_hard_block_toggle_cuts_gw_traffic(harness, monkeypatch, tmp_path):
     entitlement.refresh(now=T_EXPIRED, session_factory=factory)
     assert degraded.hard_block_reason() is None
 
-    monkeypatch.setenv("BASA_LICENSE_HARD_BLOCK", "true")
+    monkeypatch.setenv("SENTINEL_LICENSE_HARD_BLOCK", "true")
     # Grace no corta tráfico ni con el toggle activo (FR-019).
     entitlement.refresh(now=T_GRACE, session_factory=factory)
     assert degraded.hard_block_reason() is None
@@ -161,7 +161,7 @@ def test_hard_block_on_over_seat_with_generic_message(harness, monkeypatch, tmp_
     base = current_seats(factory)
     set_license(monkeypatch, tmp_path, max_seats=base)
     seed_active_seats(factory, 1, prefix="hard")  # drift: base+1 > base
-    monkeypatch.setenv("BASA_LICENSE_HARD_BLOCK", "true")
+    monkeypatch.setenv("SENTINEL_LICENSE_HARD_BLOCK", "true")
 
     assert degraded.hard_block_reason() is None  # sin reconciliar aún, no corta
     reconcile.run_once(session_factory=factory)
@@ -186,7 +186,7 @@ def test_transient_read_blip_keeps_valid_state(harness, monkeypatch, tmp_path):
     assert entitlement.get_state().status == entitlement.STATUS_ACTIVE
     events_before = len(license_audit_events(factory))
 
-    lic_path = _os.environ["BASA_LICENSE_TOKEN_FILE"]
+    lic_path = _os.environ["SENTINEL_LICENSE_TOKEN_FILE"]
     _os.rename(lic_path, lic_path + ".mv")  # el fichero desaparece durante el tick
     try:
         statuses = reconcile.run_once(session_factory=factory, now=T_ACTIVE)
@@ -212,7 +212,7 @@ def test_persistent_read_failure_degrades_fail_closed(harness, monkeypatch, tmp_
     _client, factory, _headers = harness
     set_license(monkeypatch, tmp_path, expiry=EXPIRY, grace_days=GRACE_DAYS)
 
-    lic_path = _os.environ["BASA_LICENSE_TOKEN_FILE"]
+    lic_path = _os.environ["SENTINEL_LICENSE_TOKEN_FILE"]
     _os.rename(lic_path, lic_path + ".mv")
     try:
         for _ in range(entitlement.READ_FAILURE_TOLERANCE):

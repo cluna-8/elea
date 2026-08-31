@@ -54,7 +54,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_chat_cadena_reservada"
+DB = "sentinel_test_chat_cadena_reservada"
 CHAT = "/api/v1/chat/completions"
 DASHBOARD = "/api/v1/compliance/dashboard"
 

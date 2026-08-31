@@ -7,21 +7,21 @@ de la extensión** en ChatGPT/Claude.ai (requiere el navegador del usuario — v
 ## Qué se entregó
 
 - **Foundational (T004/T005)**: research contra las fuentes reales (demo gateway 1162 líneas con
-  auto-byok/key-in-URL/inspect/whoami; `basa-browser-dlp/` extensión). Criterios de estado de la
+  auto-byok/key-in-URL/inspect/whoami; `sentinel-browser-dlp/` extensión). Criterios de estado de la
   matriz en [compatibility.md](./compatibility.md).
 - **Reconciliación 014↔019 (clave)**: la 019 pide un gateway de **puerta única**. Mi 014 lo hizo
   passthrough-only. La resolución: el gateway ahora auto-rutea — `subscription-passthrough` (política
   del gateway + Anthropic) vs `byok` (**router fino al motor**, sin política, porque el motor ya corre
-  custom_auth + BasaGuardrail). Esto evita el **doble-masking** del port literal del demo (cuyo motor
+  custom_auth + SentinelGuardrail). Esto evita el **doble-masking** del port literal del demo (cuyo motor
   no tenía guardrail) y mantiene el Principio VI: el gateway rutea, el motor gobierna byok.
-- **US1 Claude Code passthrough** (T006-T011): ya estaba en 014; se agregó `X-Basa-Upstream` +
+- **US1 Claude Code passthrough** (T006-T011): ya estaba en 014; se agregó `X-Sentinel-Upstream` +
   detección por UA (copilot/vscode sumados al `TOOL_UA` compartido). Verificado live (OAuth verbatim →
   401 real de Anthropic).
-- **US2 Copilot auto-byok** (T012-T018): `_BASA_KEY_RE` scan **excluyendo `x-basa-*`** (load-bearing),
+- **US2 Copilot auto-byok** (T012-T018): `_SENTINEL_KEY_RE` scan **excluyendo `x-sentinel-*`** (load-bearing),
   key-in-URL (`?k=…`), branch byok→motor. `count_tokens`/`models` honran auto-byok. Verificado live
   (byok → 401 de mi custom_auth = llegó al motor).
 - **US3 extensión + endpoints browser** (T019-T025): `backend/src/api/inspect.py` (`GET /gw/whoami`
-  fail-closed, `POST /gw/inspect` con `basa_guardian_policy` → `replacements`, `surface="browser"`,
+  fail-closed, `POST /gw/inspect` con `sentinel_guardian_policy` → `replacements`, `surface="browser"`,
   audit metadata-only). Extensión portada a `extension/` (6 archivos), base path ajustado a
   `/api/v1/gw`. El shape de `/inspect` coincide exacto con el `background.js` de la extensión.
 - **US4 matriz** (T026-T028) + **US5 Gemini roadmap** (T029): [compatibility.md](./compatibility.md).
@@ -31,7 +31,7 @@ de la extensión** en ChatGPT/Claude.ai (requiere el navegador del usuario — v
 
 | Caso | Resultado |
 |---|---|
-| Tests base_url (`test_surface_routing.py`) | passthrough→Anthropic, auto-byok→motor, exclusión `x-basa-*`, key-in-URL, X-Basa-Upstream, models auto-byok |
+| Tests base_url (`test_surface_routing.py`) | passthrough→Anthropic, auto-byok→motor, exclusión `x-sentinel-*`, key-in-URL, X-Sentinel-Upstream, models auto-byok |
 | Tests browser (`test_gw_inspect.py`) | whoami fail-closed, inspect mask + `replacements` reversibles, entities, empty-text |
 | Unit (`test_tool_detection.py`) | UA→tool (claude/copilot/vscode/cursor), degradación honesta |
 | Suite completa | **134 passed / 3 skip** (contra Postgres real) |
@@ -48,7 +48,7 @@ de la extensión** en ChatGPT/Claude.ai (requiere el navegador del usuario — v
 
 - **byok NO enmascara en el gateway** (el motor lo hace) — la diferencia clave con el port literal del
   demo. Documentado arriba y en el docstring de `gateway.py`.
-- **`/gw/inspect` usa `basa_guardian_policy` (regex)**, no `PresidioService` (que acá es scaffolding).
+- **`/gw/inspect` usa `sentinel_guardian_policy` (regex)**, no `PresidioService` (que acá es scaffolding).
   Presidio real = spec 016; el shape del endpoint no cambia.
 - **`surface="browser"`** se agregó como campo opcional del evento de monitor (aditivo).
 - **key-in-URL** marcada como atajo de demo (prod = SSO), igual que el demo.
@@ -56,11 +56,11 @@ de la extensión** en ChatGPT/Claude.ai (requiere el navegador del usuario — v
 ## Qué queda
 
 - ~~**E2E vivo de la extensión**~~ **VERIFICADO en vivo** (2026-07-14, Brave real vía MCP): con la
-  extensión `basa-guardian/extension/` cargada unpacked (host_permissions `:8091`) + Connection de
+  extensión `sentinel-guardian/extension/` cargada unpacked (host_permissions `:8091`) + Connection de
   prueba, un prompt con PII en ChatGPT → ChatGPT recibió `[EMAIL_ADDRESS_0_b045]`/`[DNI_0_b045]` (nunca
   la PII), el DOM se des-enmascaró (mensaje + respuesta con valores reales), y el monitor registró el
   evento `surface="browser"` con entidades y **0 PII cruda** (C1). Fail-closed confirmado (overlay sin
-  key). **Hallazgo en vivo**: la extensión del demo (`basa-browser-dlp`) tiene `host_permissions`
+  key). **Hallazgo en vivo**: la extensión del demo (`sentinel-browser-dlp`) tiene `host_permissions`
   clavado a `:8081` → confirma el finding **P2-2** (deferido a 020); el port a `:8091` lo resuelve.
 - **Gemini web** (US5) = roadmap documentado (adapter + host + spike DOM-hook). No entregable de 019.
 - **Secret-blocking en `/gw/inspect`**: hoy sólo enmascara PII (como el demo); bloquear secretos en la

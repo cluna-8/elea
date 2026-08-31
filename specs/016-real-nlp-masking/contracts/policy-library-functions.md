@@ -1,4 +1,4 @@
-# Contract: funciones nuevas/modificadas en `basa_guardian_policy.py` (librería PURA)
+# Contract: funciones nuevas/modificadas en `sentinel_guardian_policy.py` (librería PURA)
 
 Interfaz interna compartida por el guardrail del motor y el backend (mismo hogar dual que el resto de
 la librería — spec 014). Sin DB, sin I/O directo (el I/O del Analyzer lo hace el `AnalyzeFn` inyectado,
@@ -43,15 +43,15 @@ no esta librería).
   fallback documentado solo para dev/demo sin Presidio levantado — nunca en el camino fail-closed real).
 - **Post en éxito**: lista de `DetectedEntity` normalizada, ya pasada por `resolve_overlaps`.
 - **Post en falla** (timeout/error, `contracts/presidio-analyzer-http.md`): **levanta una excepción**
-  dedicada (p.ej. `NlpUnavailableError`) — NO devuelve `[]`. El caller (`BasaGuardrail.async_pre_call_hook`)
+  dedicada (p.ej. `NlpUnavailableError`) — NO devuelve `[]`. El caller (`SentinelGuardrail.async_pre_call_hook`)
   atrapa esa excepción puntual y la traduce al motivo de bloqueo `nlp_unavailable`; cualquier otra
   excepción no capturada sigue propagando (no se ensancha el `except` para tragarse bugs no relacionados).
 
-## Cambio de comportamiento en `async_pre_call_hook` (`litellm/extensions/basa_guardrail.py`)
+## Cambio de comportamiento en `async_pre_call_hook` (`litellm/extensions/sentinel_guardrail.py`)
 
 Contrato del hook (firma) **no cambia** (sigue pinneado por `contract_checks.py` contra la versión de
 LiteLLM). Lo que cambia es el cuerpo:
-1. Resuelve `entity_configs` desde la identidad (ya presente en `metadata.basa`, research §6).
+1. Resuelve `entity_configs` desde la identidad (ya presente en `metadata.sentinel`, research §6).
 2. Llama a `presidio_analyze` (o `default_analyze` si no hay `NLP_ANALYZER_URL` configurada — modo
   dev explícito, documentado, nunca el default de producción).
 3. Ante `NlpUnavailableError` → retorna el motivo de bloqueo (mismo contrato `str` → 400/503 que ya usan

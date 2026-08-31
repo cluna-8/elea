@@ -24,7 +24,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_audit_tamper"
+DB = "sentinel_test_audit_tamper"
 
 ENTRY_KEYS = {"event_type", "license_id", "seats_used", "max_seats", "reason",
               "ts", "prev_hash", "seq"}
@@ -74,7 +74,7 @@ def test_every_transition_leaves_chained_metadata_only_evidence(harness, monkeyp
     lic_state = set_license(monkeypatch, tmp_path, max_seats=current_seats(factory))
     raw_blob = None
     import os
-    with open(os.environ["BASA_LICENSE_TOKEN_FILE"], encoding="utf-8") as fh:
+    with open(os.environ["SENTINEL_LICENSE_TOKEN_FILE"], encoding="utf-8") as fh:
         raw_blob = fh.read()
     resp = client.post("/api/v1/keys", headers=headers, json={"name": "tope"})
     assert resp.status_code == 402

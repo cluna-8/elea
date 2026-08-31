@@ -1,6 +1,6 @@
 # Organización: router, reglas y runbooks
 
-Fuente: `Structure/ManosALaObra-BasaGuardian.html` v4 (05-ago-2026) + estado real del repo.
+Fuente: `Structure/ManosALaObra-SentinelGuardian.html` v4 (05-ago-2026) + estado real del repo.
 
 ## Router de responsabilidades
 
@@ -51,7 +51,7 @@ Orden fijo (ejemplo real: demo Evidenze):
 Objetivo: el partner instalando a todos los clientes posibles.
 
 1. ~~JF rama instalable~~ — cumplido 04-ago (tag `checkpoint-camara-2026-08`; `dev-fran` jubilada).
-2. Falime: CLI `basa-admin` MVP (install + license); custodia PKCS8 cifrada, traspaso de firma con review de Cristian. Spec 026 completa, implementación en cero.
+2. Falime: CLI `sentinel-admin` MVP (install + license); custodia PKCS8 cifrada, traspaso de firma con review de Cristian. Spec 026 completa, implementación en cero.
 3. Falime: Trust-kit TLS (PR #55 mergeado); pendiente pasada en VM Windows real.
 4. Falime: camino de update v0 (bundle-parche + procedimiento; hoy solo reinstalación fresca).
 5. Ambos: kit del partner (bundle base amd64, overlay por cliente, docs cliente final, agente con skills sobre la CLI, certificación 025).

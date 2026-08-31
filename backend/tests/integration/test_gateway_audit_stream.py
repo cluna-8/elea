@@ -50,9 +50,9 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_gateway_audit_stream"
+DB = "sentinel_test_gateway_audit_stream"
 
-CLAVE = "sk-basa-test-038-t007-stream"
+CLAVE = "sk-sentinel-test-038-t007-stream"
 CUERPO = {"model": "claude-3-5-sonnet-20241022",
           "messages": [{"role": "user", "content": "resumime esto en una línea"}]}
 
@@ -233,7 +233,7 @@ def identidad(harness):
     """Connection + usuario con `risk_level`, en la base del harness.
 
     `upstream_mode="byok"` sólo para ATRIBUIR: el ruteo lo decide `_detect_mode_and_key`
-    mirando headers y URL, y `X-Basa-Key` está **excluido de ese scan a propósito**
+    mirando headers y URL, y `X-Sentinel-Key` está **excluido de ese scan a propósito**
     (`gateway.py`, docstring de esa función), así que el pedido sigue yendo por passthrough —
     que es el único camino de este plano con `StreamingResponse`. Una fila
     `subscription-passthrough` exigiría `oauth_credential_ref` (CHECK
@@ -264,7 +264,7 @@ def identidad(harness):
             db.commit()
             db.refresh(usuario)
             db.add(APIKey(tenant_id=DEFAULT_TENANT_ID, key_hash=hash_key(CLAVE),
-                          key_preview="sk-basa-…t007", name="conexión 038 T007",
+                          key_preview="sk-sentinel-…t007", name="conexión 038 T007",
                           is_active=True, tool_type="claude-code", upstream_mode="byok",
                           user_id=usuario.id))
             db.commit()
@@ -283,9 +283,9 @@ def identidad(harness):
 
 
 def _peticion_stream():
-    """`Request` de passthrough de suscripción CON `X-Basa-Key` y `stream: true`.
+    """`Request` de passthrough de suscripción CON `X-Sentinel-Key` y `stream: true`.
 
-    El `Authorization: Bearer` es el OAuth de la suscripción (no lleva `sk-basa-…`), así que
+    El `Authorization: Bearer` es el OAuth de la suscripción (no lleva `sk-sentinel-…`), así que
     `_detect_mode_and_key` resuelve subscription-passthrough y no byok."""
     cuerpo = json.dumps({**CUERPO, "stream": True}).encode()
 
@@ -307,7 +307,7 @@ async def _pedido_stream():
     es exactamente lo que este archivo mide."""
     from src.api import gateway
     return await gateway.gw_messages(
-        _peticion_stream(), x_basa_key=CLAVE, x_basa_redact=None, x_basa_upstream=None)
+        _peticion_stream(), x_sentinel_key=CLAVE, x_sentinel_redact=None, x_sentinel_upstream=None)
 
 
 def _scope_asgi():

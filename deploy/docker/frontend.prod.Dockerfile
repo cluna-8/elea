@@ -18,14 +18,14 @@ RUN npx vite build
 FROM caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
 
 # Non-root: puerto >1024 y dirs de estado de Caddy escribibles por el usuario.
-RUN addgroup -S basa && adduser -S -G basa -u 10001 basa \
+RUN addgroup -S sentinel && adduser -S -G sentinel -u 10001 sentinel \
     && mkdir -p /srv /data /config \
-    && chown -R basa:basa /srv /data /config
+    && chown -R sentinel:sentinel /srv /data /config
 
 COPY --from=builder /build/dist /srv
 COPY deploy/docker/Caddyfile.frontend /etc/caddy/Caddyfile
-RUN chown basa:basa /etc/caddy/Caddyfile
+RUN chown sentinel:sentinel /etc/caddy/Caddyfile
 
-USER basa
+USER sentinel
 EXPOSE 8080
 CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]

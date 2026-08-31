@@ -126,7 +126,7 @@ cambiar el dominio de un despliegue **no requiere recompilar** el frontend.
 ### Documentación por marca 🟢
 
 El sitio de documentación de producto (este sitio) también es un artefacto de marca blanca,
-pero por la vía **build-time**: se publica **una imagen por marca** (`basa-docs:<brand>-<version>`),
+pero por la vía **build-time**: se publica **una imagen por marca** (`sentinel-docs:<brand>-<version>`),
 100% estática y 0-egress, que viaja dentro del bundle air-gapped junto al resto de imágenes
 pinneadas.
 

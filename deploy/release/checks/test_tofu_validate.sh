@@ -4,7 +4,7 @@
 # credenciales sandbox — ese paso es manual/CI con secrets (documentado).
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-CACHE="${TF_PLUGIN_CACHE_DIR:-/tmp/basa-tofu-cache}"
+CACHE="${TF_PLUGIN_CACHE_DIR:-/tmp/sentinel-tofu-cache}"
 mkdir -p "$CACHE"
 
 if command -v tofu >/dev/null 2>&1; then

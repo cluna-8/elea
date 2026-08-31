@@ -2,7 +2,7 @@
 
 **Fecha**: 2026-07-10 · **Método**: inspección del **código real** de la imagen pinneada
 (`ghcr.io/berriai/litellm@sha256:80ea654c…` = litellm **1.92.0** + litellm_enterprise 0.1.45,
-corriendo en el container `basa-litellm`), NO de la documentación. 5 investigadores paralelos,
+corriendo en el container `sentinel-litellm`), NO de la documentación. 5 investigadores paralelos,
 ~156 lecturas de código. Rutas relativas a `/app/.venv/lib/python3.13/site-packages/litellm/`.
 Detalle completo por pregunta: journal del workflow `wf_8e57ead4-5b7`.
 
@@ -67,11 +67,11 @@ proxy no los re-parsea después del hook.
   reintroduciría framing/transporte propio (viola Principio VI).
 - **Resolución A′**: usamos el punto de extensión **nativo** (`async_post_call_streaming_iterator_hook`
   — sin parchear nada, el motor sigue siendo dueño del transporte HTTP/SSE, auth, usage, retries)
-  y DENTRO del hook aplicamos `basa_guardian_policy.rewrite_sse_block` (carry-split + unmask sobre
+  y DENTRO del hook aplicamos `sentinel_guardian_policy.rewrite_sse_block` (carry-split + unmask sobre
   el frame SSE). El parsing SSE dentro del hook es acotado, puro y **compartido con el passthrough
   OAuth del backend** (US4), que necesita el nivel-bytes sí o sí — un solo motor de carry para las
   dos rutas (FR-029, paridad garantizada por librería única, ya implementada y testeada:
-  `litellm/extensions/basa_guardian_policy.py`, 10/10 unit tests).
+  `litellm/extensions/sentinel_guardian_policy.py`, 10/10 unit tests).
 - Impacto en tasks.md: T020 se implementa con A′; el contract test T014 (guardrails sobre
   `/v1/messages`) queda confirmado por research y se blinda igualmente como test ejecutable.
 

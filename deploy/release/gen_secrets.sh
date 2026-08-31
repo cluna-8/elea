@@ -34,15 +34,15 @@ cat > "$OUT" <<EOF
 # Secretos de la instalación '$SLUG' — generados $(date -u +%FT%TZ).
 # chmod 600. JAMÁS commitear ni reutilizar entre instalaciones.
 POSTGRES_HOST=db
-POSTGRES_DB=basa_guardian
-POSTGRES_USER=basa
+POSTGRES_DB=sentinel_guardian
+POSTGRES_USER=sentinel
 POSTGRES_PASSWORD=$(rand_hex 24)
 REDIS_HOST=redis
 JWT_SECRET_KEY=$(rand_b64url 48)
 FERNET_SECRET_KEY=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-BASA_ENGINE_MASTER_KEY=sk-$(rand_hex 20)
+SENTINEL_ENGINE_MASTER_KEY=sk-$(rand_hex 20)
 EOF
 
 echo "✅ secretos generados en $OUT (600)"
-echo "   Falta del lado del perfil: *_IMAGE (release), BASA_DEPLOYMENT_TENANT_ID,"
+echo "   Falta del lado del perfil: *_IMAGE (release), SENTINEL_DEPLOYMENT_TENANT_ID,"
 echo "   y las API keys de los proveedores LLM del cliente (se añaden a este archivo)."

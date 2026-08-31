@@ -11,7 +11,7 @@ description: "Task list for feature 019 — Integration Surfaces & Client Compat
 del **port 014** (el gateway/firewall al que apuntan estos clientes).
 
 **Tests**: SÍ incluidos. El ruteo de superficies (passthrough vs auto-byok vs key-in-URL, exclusión
-`x-basa-*`) y el mask/unmask de la extensión llevan tests; la matriz se valida como documentación. Los
+`x-sentinel-*`) y el mask/unmask de la extensión llevan tests; la matriz se valida como documentación. Los
 tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR primero.
 
 **Organization**: Tareas agrupadas por user story para implementación y test independientes.
@@ -25,7 +25,7 @@ tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR pri
 ## Path Conventions
 
 - Backend: `backend/src/api/` (gateway/ruteo + endpoints de la extensión), `backend/src/services/` (reusados)
-- Extensión MV3: `extension/` (a portar de `basa-browser-dlp/`)
+- Extensión MV3: `extension/` (a portar de `sentinel-browser-dlp/`)
 - Config/models: `backend/src/models/` (de la 013)
 - Tests: `tests/integration/`, `tests/unit/`
 
@@ -35,8 +35,8 @@ tests marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR pri
 
 **Purpose**: Estructura del paquete de la extensión y del ruteo de superficies en el backend.
 
-- [ ] T001 [SETUP] Crear el directorio `extension/` en `basa-guardian` y copiar la base de la extensión MV3
-      desde `basa-browser-dlp/` (`manifest.json`, `guardia-main.js`, `bridge.js`, `background.js`,
+- [ ] T001 [SETUP] Crear el directorio `extension/` en `sentinel-guardian` y copiar la base de la extensión MV3
+      desde `sentinel-browser-dlp/` (`manifest.json`, `guardia-main.js`, `bridge.js`, `background.js`,
       `popup.html`, `popup.js`) como punto de partida del port.
 - [ ] T002 [P] [SETUP] Configurar linting/formato para `extension/` (JS) y `tests/` (reusar la config del
       repo); documentar cómo cargar la extensión sin empaquetar (dev unpacked).
@@ -69,7 +69,7 @@ cerrar sus claims.
 ## Phase 3: User Story 1 - Claude Code passthrough de suscripción + identidad (Priority: P1) 🎯 MVP
 
 **Goal**: Verificar/portar el modo `subscription-passthrough` (OAuth verbatim → suscripción paga) +
-detección por UA + identidad por `X-Basa-Key` (atribución, no credencial).
+detección por UA + identidad por `X-Sentinel-Key` (atribución, no credencial).
 
 **Independent Test**: Apuntar `ANTHROPIC_BASE_URL` de Claude Code al gateway en modo `anthropic`; verificar
 OAuth verbatim a `api.anthropic.com`, `tool_type`="Claude Code", PII enmascarada→des-enmascarada, y ciclo
@@ -89,9 +89,9 @@ Agent (tool_use) intacto.
 ### Implementation for User Story 1
 
 - [ ] T009 [US1] Portar/verificar en `backend/src/api/gateway.py` el ruteo `subscription-passthrough`:
-      reenvío OAuth verbatim + `_passthrough_headers`; selección de modo por `X-Basa-Upstream` /
-      `BASA_GW_UPSTREAM_DEFAULT`. *(FR-001, FR-002, FR-003)*
-- [ ] T010 [US1] Portar la resolución de identidad por `X-Basa-Key` (`_resolve_identity`: sha256 →
+      reenvío OAuth verbatim + `_passthrough_headers`; selección de modo por `X-Sentinel-Upstream` /
+      `SENTINEL_GW_UPSTREAM_DEFAULT`. *(FR-001, FR-002, FR-003)*
+- [ ] T010 [US1] Portar la resolución de identidad por `X-Sentinel-Key` (`_resolve_identity`: sha256 →
       tenant/cliente/equipo) tratándola como **atribución, no credencial** (no viaja al upstream). *(FR-006, FR-007)*
 - [ ] T011 [US1] Documentar/verificar que Claude Code aguanta **modo Agent** (tool_use round-trip intacto
       con modelos Claude); dejarlo asentado como estado FUNCIONA para la matriz (US4). *(FR-005)*
@@ -102,36 +102,36 @@ Agent (tool_use) intacto.
 
 ## Phase 4: User Story 2 - VS Code / Copilot auto-byok + key-in-URL + Ask (Priority: P1)
 
-**Goal**: Auto-byok por virtual key (`_BASA_KEY_RE`) **con la exclusión load-bearing de `x-basa-*`** +
+**Goal**: Auto-byok por virtual key (`_SENTINEL_KEY_RE`) **con la exclusión load-bearing de `x-sentinel-*`** +
 key-in-URL; documentar Ask (soportado) vs Agent (no soportado, no-Claude).
 
-**Independent Test**: Copilot **sin** header de control, key `sk-basa-…` en la URL → enruta a byok +
+**Independent Test**: Copilot **sin** header de control, key `sk-sentinel-…` en la URL → enruta a byok +
 atribuye identidad; Ask completa mask/unmask; Agent no-Claude falla (documentado).
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T012 ⚠️ [P] [US2] Integration test en `tests/integration/test_auto_byok.py`: virtual key `sk-basa-…`
-      en `x-api-key`/`authorization` (sin `X-Basa-Upstream`) → enruta a **byok** + atribuye identidad.
+- [ ] T012 ⚠️ [P] [US2] Integration test en `tests/integration/test_auto_byok.py`: virtual key `sk-sentinel-…`
+      en `x-api-key`/`authorization` (sin `X-Sentinel-Upstream`) → enruta a **byok** + atribuye identidad.
       *(FR-008, SC-003)*
-- [ ] T013 ⚠️ [P] [US2] Integration test (coexistencia) en `tests/integration/test_xbasa_exclusion.py`:
-      Claude Code con `X-Basa-Key` que contiene `sk-basa-…` (atribución) **permanece** en passthrough (el
-      scan excluye `x-basa-*`); test **negativo**: sin la exclusión, se desviaría a byok. *(FR-009, SC-002)*
+- [ ] T013 ⚠️ [P] [US2] Integration test (coexistencia) en `tests/integration/test_xsentinel_exclusion.py`:
+      Claude Code con `X-Sentinel-Key` que contiene `sk-sentinel-…` (atribución) **permanece** en passthrough (el
+      scan excluye `x-sentinel-*`); test **negativo**: sin la exclusión, se desviaría a byok. *(FR-009, SC-002)*
 - [ ] T014 ⚠️ [P] [US2] Integration test en `tests/integration/test_key_in_url.py`: Copilot con `x-api-key`
-      vacío + `?k=sk-basa-…` en la URL → enruta a byok por fallback. *(FR-010, SC-003)*
+      vacío + `?k=sk-sentinel-…` en la URL → enruta a byok por fallback. *(FR-010, SC-003)*
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Portar el **auto-byok** en `gateway.py`: scan de headers de auth por `_BASA_KEY_RE`
-      **excluyendo** `x-basa-*` (load-bearing); enrutar a byok + atribuir identidad sin header de control.
+- [ ] T015 [US2] Portar el **auto-byok** en `gateway.py`: scan de headers de auth por `_SENTINEL_KEY_RE`
+      **excluyendo** `x-sentinel-*` (load-bearing); enrutar a byok + atribuir identidad sin header de control.
       *(FR-008, FR-009)*
-- [ ] T016 [US2] Portar el **key-in-URL** (`?k=sk-basa-…`, sobre `request.url`) como fallback de Copilot;
+- [ ] T016 [US2] Portar el **key-in-URL** (`?k=sk-sentinel-…`, sobre `request.url`) como fallback de Copilot;
       marcar en código/doc que es **atajo de demo** (prod = input seguro/SSO). *(FR-010, Constraint C5)*
-- [ ] T017 [US2] Verificar que en **byok** se enruta al motor LiteLLM con la key de Basa (cost tracking +
+- [ ] T017 [US2] Verificar que en **byok** se enruta al motor LiteLLM con la key de Sentinel (cost tracking +
       budgets) — reusa el ruteo de la 014. *(FR-011)*
 - [ ] T018 [US2] Documentar VS Code/Copilot como **PARCIAL**: Ask soportado; Agent no-Claude falla
       (tool_use_failed / 400 por input UUID). Asentar para la matriz (US4). *(FR-012)*
 
-**Checkpoint**: Auto-byok + exclusión `x-basa-*` + key-in-URL verificados; coexistencia passthrough/byok
+**Checkpoint**: Auto-byok + exclusión `x-sentinel-*` + key-in-URL verificados; coexistencia passthrough/byok
 protegida por test.
 
 ---
@@ -235,7 +235,7 @@ MCP-ONLY tiene razón concreta; FUNCIONA/PARCIAL coinciden con US1–US3.
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: sin dependencias (más allá de tener el demo `basa-browser-dlp/` como fuente).
+- **Setup (Phase 1)**: sin dependencias (más allá de tener el demo `sentinel-browser-dlp/` como fuente).
 - **Foundational (Phase 2)**: depende de Setup. Verifica los hechos de compatibilidad y los criterios de la
   matriz; bloquea las claims de US1/US2/US4.
 - **US1 (Phase 3)**: depende de Foundational + del gateway de la 014. Superficie titular.
@@ -249,7 +249,7 @@ MCP-ONLY tiene razón concreta; FUNCIONA/PARCIAL coinciden con US1–US3.
 ### User Story Dependencies
 
 - **US1 (P1)**: tras Foundational. Superficie base_url titular.
-- **US2 (P1)**: tras Foundational + US1 (la exclusión `x-basa-*` protege la coexistencia con US1).
+- **US2 (P1)**: tras Foundational + US1 (la exclusión `x-sentinel-*` protege la coexistencia con US1).
 - **US3 (P1)**: tras Foundational; superficie browser, testeable independiente.
 - **US4 (P2)**: tras US1–US3 (+ US5 para la entrada Gemini).
 - **US5 (P3)**: tras US3; aditivo/roadmap.
@@ -274,7 +274,7 @@ MCP-ONLY tiene razón concreta; FUNCIONA/PARCIAL coinciden con US1–US3.
 ```bash
 # Tests de US2 juntos (distintos archivos):
 Task: "Integration auto-byok por virtual key en tests/integration/test_auto_byok.py"
-Task: "Integration exclusión x-basa-* / coexistencia en tests/integration/test_xbasa_exclusion.py"
+Task: "Integration exclusión x-sentinel-* / coexistencia en tests/integration/test_xsentinel_exclusion.py"
 Task: "Integration key-in-URL de Copilot en tests/integration/test_key_in_url.py"
 ```
 
@@ -312,7 +312,7 @@ Tras Foundational: Dev A → US1+US2 (base_url en el backend); Dev B → US3 (ex
 - [Story] mapea cada tarea a su user story para trazabilidad.
 - Verificar que los tests ⚠️ fallan antes de implementar.
 - **Evidencia del demo**: `gatelite-salud-eu/backend/src/api/gateway.py` (ruteo, auto-byok, identidad,
-  detección por UA, `/gw/whoami`, `/gw/inspect`) y `basa-browser-dlp/` (extensión MV3). Esta feature
+  detección por UA, `/gw/whoami`, `/gw/inspect`) y `sentinel-browser-dlp/` (extensión MV3). Esta feature
   **porta** ese comportamiento; no inventa superficies nuevas.
 - **Excepción única ya acotada**: el passthrough de suscripción (proxy propio) lo autorizó la 014; esta
   spec lo consume desde el cliente sin abrir proxy propio nuevo.

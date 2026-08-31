@@ -19,7 +19,7 @@ code, seguí primero la tabla de decisión (§1); el resto son los detalles por 
 | **400** — bloqueado por AI Act, secreto detectado, o guardián de política | No con el mismo body | — |
 
 **El discriminador de los cuatro 503 es la cabecera, no el body.** Un 503 de saturación
-trae `X-Basa-Rejected: saturated` + `Retry-After`; los otros tres 503 no traen ninguna de
+trae `X-Sentinel-Rejected: saturated` + `Retry-After`; los otros tres 503 no traen ninguna de
 las dos. Mirá la cabecera antes de decidir si reintentar — el body por sí solo no alcanza,
 y en el camino `byok` de `/gw` la forma del error es la de Anthropic (sin espacio para un
 código propio en el body).
@@ -53,7 +53,7 @@ del status code.
 | `detail` (prefijo) | Motivo |
 |---|---|
 | `license_creation_blocked` | La licencia está degradada, ausente o es de otro tenant — no se puede crear el recurso |
-| — | Bloqueo total (`BASA_LICENSE_HARD_BLOCK=true`) con la licencia en `expired` u `over_seat`: corta también las rutas de servicio, no solo las altas — ver [licenciamiento](../install-deploy/licensing.md) |
+| — | Bloqueo total (`SENTINEL_LICENSE_HARD_BLOCK=true`) con la licencia en `expired` u `over_seat`: corta también las rutas de servicio, no solo las altas — ver [licenciamiento](../install-deploy/licensing.md) |
 
 El mensaje al cliente en el bloqueo total es genérico a propósito (`license_degraded:
 acceso bloqueado por el estado de la licencia del deployment`): el corte corre antes de
@@ -70,7 +70,7 @@ reintentá con ese valor, no con backoff propio.
 
 El motor no tuvo turno libre dentro del timeout de admisión. **Reintentable.**
 
-- Cabecera `X-Basa-Rejected: saturated` — el único de los cuatro 503 que la trae. Distingue
+- Cabecera `X-Sentinel-Rejected: saturated` — el único de los cuatro 503 que la trae. Distingue
   este rechazo de un 503 genérico de proxy o del propio motor.
 - Cabecera `Retry-After`.
 - Queda auditado igual que un bloqueo: la fila se escribe antes de responder.
@@ -83,7 +83,7 @@ Sin cabecera especial.
 
 ### Auditoría no disponible en modo `closed`
 
-La instalación exige registro durable de todo pedido (`BASA_AUDIT_FAIL=closed`) y el
+La instalación exige registro durable de todo pedido (`SENTINEL_AUDIT_FAIL=closed`) y el
 registro falló. **No reintentable** hasta que la base de auditoría vuelva. Mismo texto
 tanto si el fallo ocurrió en el camino feliz como en un bloqueo — para quien opera son el
 mismo hecho: *"esta instalación no sirve tráfico que no puede registrar"*. Sin cabecera
@@ -91,7 +91,7 @@ especial.
 
 Texto exacto del `message`:
 
-> `[Basa Gateway] auditoría no disponible — la instalación exige registro (audit_fail=closed)`
+> `[Sentinel Gateway] auditoría no disponible — la instalación exige registro (audit_fail=closed)`
 
 ### Auditoría no disponible **para este pedido** en modo `policy`
 
@@ -102,40 +102,40 @@ recibe este 503. **No reintentable** hasta que la base vuelva.
 
 !!! warning "El modo EFECTIVO lo fija el deployment, no esta página"
 
-    `policy` es el default del producto cuando `BASA_AUDIT_FAIL` **no llega seteada**. Pero un
+    `policy` es el default del producto cuando `SENTINEL_AUDIT_FAIL` **no llega seteada**. Pero un
     `docker compose` puede pasarla igual con un valor por defecto propio, y en ese caso ese
     valor gana — el backend sólo ve la variable que le llega. **Un deployment que pinea `open`
     nunca alcanza este modo**, y ninguna prueba contra ese stack va a mostrar este 503.
 
     Antes de concluir que la matriz «no funciona», comprobá el valor efectivo dentro del
-    contenedor del backend (`docker compose exec backend env | grep BASA_AUDIT_FAIL`) y
+    contenedor del backend (`docker compose exec backend env | grep SENTINEL_AUDIT_FAIL`) y
     contrastalo con el `environment:` del servicio en tu compose. Es el mismo par de planos de
     siempre: el código dice qué hace con lo que llega, el compose dice qué llega.
 
 El texto es distinto del de `closed` a propósito, y conviene distinguirlos al integrar: acá
 el servicio sigue en pie y es *este* pedido el que no se sirve.
 
-> `[Basa Gateway] auditoría no disponible — este pedido no se sirve sin registro por su nivel de riesgo (audit_fail=policy)`
+> `[Sentinel Gateway] auditoría no disponible — este pedido no se sirve sin registro por su nivel de riesgo (audit_fail=policy)`
 
 **Lo que hay que saber si integrás contra `/gw`, y es la consecuencia menos obvia de este
 modo:** el nivel de riesgo se resuelve desde la credencial del pedido, con la cascada
-`llave → usuario → equipo`. En `/gw` el header `X-Basa-Key` es **opcional** (la ruta se
+`llave → usuario → equipo`. En `/gw` el header `X-Sentinel-Key` es **opcional** (la ruta se
 autentica con el OAuth), así que un pedido sin ese header **no tiene de dónde resolver un
 riesgo**, y un pedido sin riesgo resuelto no demostró ser de riesgo bajo: cuenta como alto.
 
 En consecuencia, en `policy` y con la auditoría caída, **todo el tráfico de `/gw` que no
-mande `X-Basa-Key` recibe este 503** — y ése es el camino habitual de las herramientas de
+mande `X-Sentinel-Key` recibe este 503** — y ése es el camino habitual de las herramientas de
 código. No es un caso de borde: es el volumen normal de esa ruta. Es una decisión de
 diseño, no una condición transitoria.
 
 Las dos perillas del admin, en orden de preferencia:
 
 1. **Poblar el nivel de riesgo** de los equipos (`default_risk_level` en el equipo, o
-   `risk_level` en cada usuario) y hacer que las herramientas manden su `X-Basa-Key`. Es la
+   `risk_level` en cada usuario) y hacer que las herramientas manden su `X-Sentinel-Key`. Es la
    salida buena: el tráfico pasa a decidirse por su riesgo real en vez de por el default
    conservador. `GET /health` avisa **antes** de la caída, con un `degraded` que cuenta los
    usuarios activos que hoy resolverían "sin riesgo".
-2. **`BASA_AUDIT_FAIL=open` explícito**, si la instalación prefiere continuidad con pérdida
+2. **`SENTINEL_AUDIT_FAIL=open` explícito**, si la instalación prefiere continuidad con pérdida
    contada. Es un override global: desactiva la matriz para todo el tráfico, no sólo para el
    anónimo.
 
@@ -144,9 +144,9 @@ y un pedido sin credencial no tiene fila de usuario que contar. O sea que un `/h
 limpio no garantiza que este 503 no vaya a aparecer por esa vía.
 
 **El camino `byok` todavía no participa de la matriz, y conviene no inferir uniformidad.**
-Un pedido que llega con una virtual key `sk-basa-…` en el header de autorización o en la URL
+Un pedido que llega con una virtual key `sk-sentinel-…` en el header de autorización o en la URL
 se enruta a byok, y ahí el registro lo escribe el motor, no la pasarela. Por eso hoy ese
-camino se corta **sólo bajo el override global `BASA_AUDIT_FAIL=closed`**: en `policy`, con
+camino se corta **sólo bajo el override global `SENTINEL_AUDIT_FAIL=closed`**: en `policy`, con
 la auditoría caída, un pedido byok de riesgo alto **no** recibe este 503 desde la pasarela.
 Hacer que la matriz gobierne también a byok requiere que la decisión viaje con el contexto
 de la credencial hasta el motor; está en el mismo plan que este modo y no es una omisión
@@ -174,6 +174,6 @@ un motivo nuevo — si el código no lo emite todavía, no va en esta página.
 
 ## Relacionado
 
-- [Configuración](configuration.md) — variables que afectan estos umbrales (`BASA_ENGINE_MAX_CONCURRENCY`, `BASA_AUDIT_FAIL`)
+- [Configuración](configuration.md) — variables que afectan estos umbrales (`SENTINEL_ENGINE_MAX_CONCURRENCY`, `SENTINEL_AUDIT_FAIL`)
 - [Licenciamiento](../install-deploy/licensing.md) — el ciclo de vida completo detrás del 402/403 de licencia
 - [Integraciones & matriz](../integrations/index.md) — qué herramienta ve cada código

@@ -76,7 +76,7 @@ en Complexity Tracking como decisión de alcance enmendable.
 2. **CHECK constraint sobre `role`, no ENUM nativo de Postgres.** `DROP/ADD CONSTRAINT` es idempotente sin
    `ALTER TYPE`; coherente con el estilo `op.execute` de 001–009.
 3. **RLS con GUC de sesión, no roles Postgres por tenant.** Un solo rol de conexión; tenant inyectado por
-   `SET LOCAL app.current_tenant`. **`FORCE ROW LEVEL SECURITY` obligatorio** (la app corre como `basa_admin`,
+   `SET LOCAL app.current_tenant`. **`FORCE ROW LEVEL SECURITY` obligatorio** (la app corre como `sentinel_admin`,
    dueño de las tablas, que bypasearía RLS por defecto).
 4. **UUID fijo del default tenant (`…0001`).** Determinismo para seeds/backfill/tests e idempotencia
    (`ON CONFLICT DO NOTHING`).
@@ -145,7 +145,7 @@ de 001 y 009.
 tabla; `DROP CONSTRAINT ck_users_role`; restaurar UNIQUE globales; `DROP COLUMN IF EXISTS tenant_id` (y las
 columnas nuevas) por tabla; `DROP TABLE IF EXISTS tenants`.
 
-**Nota `env.py` / runtime**: `alembic/env.py` corre como el dueño (`basa_admin`) — por eso hace falta **FORCE
+**Nota `env.py` / runtime**: `alembic/env.py` corre como el dueño (`sentinel_admin`) — por eso hace falta **FORCE
 RLS**. Para que la app aplique RLS **en runtime**, `src/database.py::get_db` debe setear
 `SET LOCAL app.current_tenant='<uuid>'` por request (o usar un rol NOSUPERUSER separado). Este cambio de `get_db`
 es de runtime y se **coordina** con el deploy de la migración: hasta que el GUC se cablee, arrancar políticas
@@ -166,7 +166,7 @@ permisivas o activarlas tras el cableado, para no dejar la app devolviendo 0 fil
 
 | Riesgo | Mitigación |
 |---|---|
-| **`FORCE RLS` omitido**: la app (dueña de las tablas) bypasea RLS → falso sentido de seguridad (viola SC-4). | Test explícito conectado como `basa_admin` que prueba que sin FORCE fallaría; FORCE en la migración por cada tabla. |
+| **`FORCE RLS` omitido**: la app (dueña de las tablas) bypasea RLS → falso sentido de seguridad (viola SC-4). | Test explícito conectado como `sentinel_admin` que prueba que sin FORCE fallaría; FORCE en la migración por cada tabla. |
 | **GUC no seteado + FORCE activo** → todas las queries devuelven 0 filas / fallan por cast → caída total. | Coordinar deploy migración ↔ cambio `get_db`; arrancar políticas permisivas o activarlas tras cablear el GUC. |
 | **`current_setting(...)::uuid` con GUC vacío explota** (`''::uuid`). | `NULLIF(current_setting('app.current_tenant',true),'')::uuid` en la policy. |
 | **Filas huérfanas en backfill** (`user_id` NULL en audit/keys/budgets) → `SET NOT NULL` falla. | Fallback explícito al default tenant en el `UPDATE`. |

@@ -15,7 +15,7 @@ Las integraciones no usan su usuario y contraseña: usan una **llave virtual** (
 - **A quién se imputa el consumo**: a usted o a su equipo.
 - Una estimación de uso, para que dimensione los límites.
 
-El administrador le entregará una cadena que empieza por `sk-basa-`.
+El administrador le entregará una cadena que empieza por `sk-sentinel-`.
 
 !!! warning "La llave se muestra una sola vez"
     En el momento de generarla se ve completa y no se vuelve a mostrar. Guárdela en su
@@ -31,7 +31,7 @@ administrador.
 
 ```bash
 curl -X POST https://SU-INSTALACION/api/v1/chat/completions \
-  -H "Authorization: Bearer sk-basa-..." \
+  -H "Authorization: Bearer sk-sentinel-..." \
   -H "Content-Type: application/json" \
   -d '{
     "message": "¿Qué documentos necesito para exportar productos alimentarios a Francia?",

@@ -87,7 +87,7 @@ Ejemplo: usuario dr.garcia, grupo cardiologia
 
 ## Consideración: LiteLLM
 
-LiteLLM expone endpoints nativos de budget (`/user/new`, `/team/new`, `/key/generate`) con `max_budget` y `budget_duration`. Los equipos creados en Basa ya se sincronizan a LiteLLM (engine_team_id). Sin embargo, las requests del chat usan el master key — LiteLLM no ve el usuario real. Delegar el presupuesto a LiteLLM requeriría pasar claves por-usuario en cada request (cambio arquitectural mayor). Se deja como mejora futura (Spec 013).
+LiteLLM expone endpoints nativos de budget (`/user/new`, `/team/new`, `/key/generate`) con `max_budget` y `budget_duration`. Los equipos creados en Sentinel ya se sincronizan a LiteLLM (engine_team_id). Sin embargo, las requests del chat usan el master key — LiteLLM no ve el usuario real. Delegar el presupuesto a LiteLLM requeriría pasar claves por-usuario en cada request (cambio arquitectural mayor). Se deja como mejora futura (Spec 013).
 
 ## No en scope
 - Presupuestos por organización (multi-tenant)

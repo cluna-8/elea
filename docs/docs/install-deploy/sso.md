@@ -184,13 +184,13 @@ de cifrado que el despliegue ya exige — todas en el servicio de backend:
 environment:
   # URI de retorno. Obligatoria y EXPLÍCITA: apunta a la consola, no a la API.
   # Debe ser byte a byte la misma que se registró en el directorio del cliente.
-  BASA_SSO_REDIRECT_URI: "https://<origen-de-la-consola>/sso/callback"
+  SENTINEL_SSO_REDIRECT_URI: "https://<origen-de-la-consola>/sso/callback"
   # Clave de cifrado en reposo. El client secret del directorio se guarda cifrado
   # con ella; sin la clave, el canje falla (ver más abajo).
   FERNET_SECRET_KEY: "<clave-fernet-del-despliegue>"
   # SOLO desarrollo sobre HTTP plano: relaja el atributo Secure de la cookie de
   # flujo. En producción se OMITE — el default protege la cookie.
-  # BASA_SSO_COOKIE_INSECURE: "true"
+  # SENTINEL_SSO_COOKIE_INSECURE: "true"
 ```
 
 Notas de operación:
@@ -262,7 +262,7 @@ unset SECRETO
 Reglas de la carga que evitan los errores frecuentes:
 
 - **El tenant no se elige: es el del despliegue.** La API escribe siempre contra el tenant
-  declarado en `BASA_DEPLOYMENT_TENANT_ID` —el mismo que ancla la licencia, ver
+  declarado en `SENTINEL_DEPLOYMENT_TENANT_ID` —el mismo que ancla la licencia, ver
   [Licenciamiento](licensing.md)— y el acceso busca a las personas por correo dentro de ese
   mismo tenant. Por esta vía **no se puede** cargar la configuración contra otro tenant por
   error, que era el modo de fallo silencioso de la carga manual: la configuración existía,
@@ -413,7 +413,7 @@ disponible.
 | El botón no aparece en la pantalla de acceso | La licencia no trae el flag `sso`, o el tenant no tiene proveedor habilitado | Licencia (fabricante) o configuración del tenant |
 | `AADSTS50011` en la pantalla del directorio | La URI de retorno del pedido no coincide con ninguna registrada — barra final, mayúsculas, esquema o puerto | Igualar los tres valores: directorio, variable de entorno, origen de la consola |
 | Un mensaje que dice que **un administrador del directorio tiene que autorizar la aplicación**, con un código entre paréntesis | El directorio devolvió a la consola **sin emitir un código de autorización**, y explicó por qué: consentimiento pendiente, segundo factor sin registrar, o un registro de aplicación mal configurado. El texto exacto depende del código | Según el código: aprobar la aplicación en el directorio (una vez, y lo hace un administrador), completar el registro del usuario, o revisar el registro de la aplicación |
-| «Falta la URI de retorno del SSO» | `BASA_SSO_REDIRECT_URI` sin configurar | Configuración del despliegue |
+| «Falta la URI de retorno del SSO» | `SENTINEL_SSO_REDIRECT_URI` sin configurar | Configuración del despliegue |
 | «Este tenant no tiene un proveedor SSO habilitado» | No hay fila de configuración, o está deshabilitada | Configuración del tenant |
 | «No se pudo iniciar el flujo con el proveedor» | No se llegó al directorio, o su descubrimiento está caído o mal apuntado | Red / salida hacia el directorio, o el Directory ID |
 | «El proveedor no devolvió una identidad válida» | Client secret vencido o mal cargado, clave de cifrado ausente, firma/emisor/destinatario que no validan, **o el directorio no emitió ni correo ni nombre de usuario principal** | Secreto y clave de cifrado de la instalación, o los atributos del usuario en el directorio |
@@ -468,7 +468,7 @@ aparece nunca: viaja en el pedido, no en la respuesta.
   claro y lo lee también el oficial de cumplimiento. La guía advierte que ahí no van
   secretos; que el producto **lo impida** por construcción es roadmap.
 - 🟡 **Un proveedor habilitado por tenant, y el tenant es el del despliegue.** La
-  instalación resuelve la configuración contra `BASA_DEPLOYMENT_TENANT_ID`; en los
+  instalación resuelve la configuración contra `SENTINEL_DEPLOYMENT_TENANT_ID`; en los
   despliegues de una sola organización —que es lo que se entrega hoy— eso es exactamente
   lo que se quiere. No hay selección entre varios directorios simultáneos.
 - 🟡 **El descubrimiento se cachea por proceso** sin invalidación activa: no hay forma de

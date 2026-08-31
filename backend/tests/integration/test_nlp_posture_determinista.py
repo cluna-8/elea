@@ -37,10 +37,10 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_nlp_posture_determinista"
+DB = "sentinel_test_nlp_posture_determinista"
 
 SECRETO = "secreto-interno-determinismo-104"
-CABECERA_INTERNA = {"X-Basa-Internal": SECRETO}
+CABECERA_INTERNA = {"X-Sentinel-Internal": SECRETO}
 IDENTITY = "/api/v1/internal/identity"
 GUARDIANS = "/api/v1/guardians"
 HEALTH = "/api/v1/health"
@@ -63,15 +63,15 @@ NUEVO = datetime(2030, 1, 1, 0, 0, 0)
 def harness():
     """DB fresca migrada a head + app real. El secreto interno se inyecta en el env porque
     `_require_internal_secret` lo lee en cada request al plano interno."""
-    previo = os.environ.get("BASA_ENGINE_MASTER_KEY")
-    os.environ["BASA_ENGINE_MASTER_KEY"] = SECRETO
+    previo = os.environ.get("SENTINEL_ENGINE_MASTER_KEY")
+    os.environ["SENTINEL_ENGINE_MASTER_KEY"] = SECRETO
     client, factory, cleanup = build_app_client(DB)
     yield client, factory
     cleanup()
     if previo is None:
-        os.environ.pop("BASA_ENGINE_MASTER_KEY", None)
+        os.environ.pop("SENTINEL_ENGINE_MASTER_KEY", None)
     else:
-        os.environ["BASA_ENGINE_MASTER_KEY"] = previo
+        os.environ["SENTINEL_ENGINE_MASTER_KEY"] = previo
 
 
 @pytest.fixture(autouse=True)
@@ -433,8 +433,8 @@ def _region_del_tenant(factory):
 
 def test_post_pii_masking_region_no_default_escribe_fila_durable(harness, monkeypatch):
     """El alta con una región != default (de instalación) deja fila durable, igual que
-    `nlp_fail_mode`. Sin `BASA_ENTITY_REGION`, el default de instalación es `eu`."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    `nlp_fail_mode`. Sin `SENTINEL_ENTITY_REGION`, el default de instalación es `eu`."""
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     client, factory = harness
     resp = client.post(GUARDIANS, headers=admin_headers(client), json={
         "name": "PII", "guardian_type": "pii_masking", "is_active": True,
@@ -452,7 +452,7 @@ def test_post_pii_masking_region_no_default_escribe_fila_durable(harness, monkey
 def test_post_pii_masking_region_default_no_genera_ruido(harness, monkeypatch):
     """Contracara: dar de alta con la región QUE YA GOBIERNA (el default de instalación) no es
     un cambio ⇒ cero ruido. Sin esto, el fix podría estar registrando toda alta a ciegas."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     client, factory = harness
     resp = client.post(GUARDIANS, headers=admin_headers(client), json={
         "name": "PII", "guardian_type": "pii_masking", "is_active": True,
@@ -466,7 +466,7 @@ def test_post_pii_masking_region_default_no_genera_ruido(harness, monkeypatch):
 def test_la_fila_de_cambio_de_region_registra_el_actor(harness, monkeypatch):
     """FR-004/#72: la fila de región también lleva el actor — mismo criterio que
     `nlp_fail_mode`, no una excepción para esta decisión."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     from src.models.audit import AuditLog
     from src.models.user import User
     client, factory = harness
@@ -491,7 +491,7 @@ def test_desactivar_la_gobernante_promueve_la_region_y_deja_fila(harness, monkey
     """Repro del round 2, aplicado a región: A (más antigua, `eu`, activa) gobierna; B (más
     nueva, `latam_ar`, activa) espera detrás. `PUT A is_active=false` promueve a B ⇒ la región
     EFECTIVA del tenant pasa `eu→latam_ar` sin que ninguna fila "cambie" su propia región."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     client, factory = harness
     gid_a = sembrar_pii(factory, config={"region": "eu"}, created_at=VIEJO, name="A")
     sembrar_pii(factory, config={"region": "latam_ar"}, created_at=NUEVO, name="B")
@@ -510,7 +510,7 @@ def test_desactivar_la_gobernante_promueve_la_region_y_deja_fila(harness, monkey
 def test_cambio_de_nlp_y_region_a_la_vez_deja_dos_filas_separadas(harness, monkeypatch):
     """Un PUT que mueve LAS DOS posturas a la vez dejar DOS filas, no una combinada — cada
     decisión de compliance, filtrable por separado (`compliance_status` distinto)."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     client, factory = harness
     gid = sembrar_pii(factory, config={"nlp_fail_mode": "block", "region": "eu"},
                       created_at=VIEJO, name="PII")

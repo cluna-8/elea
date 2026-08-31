@@ -38,7 +38,7 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_gateway_block_audit"
+DB = "sentinel_test_gateway_block_audit"
 GW = "/api/v1/gw/v1/messages"
 
 # Dispara `SECRET_PATTERNS["OpenAI API Key"]` (`sk-` + 10+ alfanuméricos) ⇒ bloqueo
@@ -266,7 +266,7 @@ def test_closed_con_auditoria_caida_rechaza_sin_llamar_al_proveedor(
     """SC-002, mitad `closed`: 503 honesto y CERO llamadas al proveedor."""
     client, factory = harness
     from src.api import gateway
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
     monkeypatch.setattr(gateway, "SessionLocal", lambda: _SesionSinBase(factory()))
 
     respuesta = client.post(GW, json=CUERPO_LIMPIO)
@@ -282,12 +282,12 @@ def test_closed_con_auditoria_caida_no_reenvia_al_motor_en_byok(
     auditaría por el plano interno, contra la misma base que acaba de no responder)."""
     client, factory = harness
     from src.api import gateway
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
     monkeypatch.setattr(gateway, "SessionLocal", lambda: _SesionSinBase(factory()))
 
     respuesta = client.post(GW, json=CUERPO_LIMPIO,
-                            headers={"X-Basa-Upstream": "byok",
-                                     "X-Basa-Key": "sk-basa-inexistente-pero-con-forma"})
+                            headers={"X-Sentinel-Upstream": "byok",
+                                     "X-Sentinel-Key": "sk-sentinel-inexistente-pero-con-forma"})
 
     assert respuesta.status_code == 503, respuesta.text
     assert proveedor.llamadas == []
@@ -301,7 +301,7 @@ def test_open_con_la_escritura_rota_sigue_sirviendo_y_cuenta(harness, monkeypatc
     son la misma cosa: esto es lo primero y la 031 existe por lo segundo."""
     client, factory = harness
     from src.api import gateway
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "open")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "open")
     fallona, _estado = con_fallos(factory, 99)
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 
@@ -321,7 +321,7 @@ def test_closed_bloqueo_que_no_pudo_registrarse_responde_503(harness, monkeypatc
     de siempre — el cliente (y el operador) se enteran."""
     client, factory = harness
     from src.api import gateway
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "closed")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "closed")
     fallona, estado = con_fallos(factory, 99)   # el escritor agota su presupuesto
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 
@@ -343,7 +343,7 @@ def test_open_bloqueo_que_no_pudo_registrarse_responde_el_bloqueo_y_cuenta_la_pe
     queda contada para el health y el banner de Logs. Nunca las dos cosas en silencio."""
     client, factory = harness
     from src.api import gateway
-    monkeypatch.setenv("BASA_AUDIT_FAIL", "open")
+    monkeypatch.setenv("SENTINEL_AUDIT_FAIL", "open")
     fallona, _estado = con_fallos(factory, 99)
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 

@@ -11,7 +11,7 @@ from ..database import get_db
 from ..models.user import User
 from ..models.tenant import DEFAULT_TENANT_ID
 
-logger = logging.getLogger("basa-secure-gateway.session")
+logger = logging.getLogger("sentinel-secure-gateway.session")
 
 # Dedicated JWT secret — MUST be set in the environment (JWT_SECRET_KEY). We never fall back
 # to a hard-coded/predictable key (security: fail-closed). We also never reuse the Fernet

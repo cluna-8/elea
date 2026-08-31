@@ -9,11 +9,11 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 fail() { echo "❌ $1"; exit 1; }
 
-docker image inspect basa-backend:prod basa-frontend:prod >/dev/null 2>&1 \
+docker image inspect sentinel-backend:prod sentinel-frontend:prod >/dev/null 2>&1 \
     || fail "faltan las imágenes prod locales (make -C deploy build)"
 
-BACKEND_IMAGE=basa-backend:prod FRONTEND_IMAGE=basa-frontend:prod \
-BASA_ENGINE_IMAGE=caddy:2-alpine CADDY_IMAGE=caddy:2-alpine DOCS_IMAGE=basa-docs:prod \
+BACKEND_IMAGE=sentinel-backend:prod FRONTEND_IMAGE=sentinel-frontend:prod \
+SENTINEL_ENGINE_IMAGE=caddy:2-alpine CADDY_IMAGE=caddy:2-alpine DOCS_IMAGE=sentinel-docs:prod \
 NLP_ANALYZER_IMAGE=caddy:2-alpine \
 POSTGRES_IMAGE=caddy:2-alpine REDIS_IMAGE=caddy:2-alpine \
     "$REPO_ROOT/deploy/release/bundle.sh" example "$WORK/bundle" >/dev/null

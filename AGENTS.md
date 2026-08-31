@@ -19,7 +19,7 @@ ediciones manuales de los artefactos). Fix de causa clara o cambio trivial → r
 corta directa, sin spec. Criterio: si la spec no obligaría a decidir nada, no se
 escribe. En ambos casos: TDD donde hay código nuevo y el trabajo termina en PR —
 jamás commits directos a main. Operativa completa del depto Guardian:
-`tech-team/DevFlow-BasaGuardian.md`; convención común: `CONTRIBUTING.md`.
+`tech-team/DevFlow-SentinelGuardian.md`; convención común: `CONTRIBUTING.md`.
 
 ## Definition of Done — la documentación de producto es PARTE de la feature
 

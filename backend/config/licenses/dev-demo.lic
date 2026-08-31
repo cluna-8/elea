@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "lic_id": "lic_dev_demo_0001",
-  "kid": "basa-dev-2026",
+  "kid": "sentinel-dev-2026",
   "tenant_id": "00000000-0000-0000-0000-000000000001",
-  "distributor_id": "d_basa",
-  "pool_id": "pool_basa_dev",
+  "distributor_id": "d_sentinel",
+  "pool_id": "pool_sentinel_dev",
   "max_seats": 50,
   "feature_flags": [
     "monitor"
@@ -12,6 +12,6 @@
   "not_before": "2026-01-01T00:00:00Z",
   "expiry": "2099-01-01T00:00:00Z",
   "grace_days": 14,
-  "issued_at": "2026-07-16T14:01:25Z",
-  "sig": "xpROJiG1soaWBdqs8xrBVpsRiTUGjgr9J_EGVqnSMJdWGitZ_W5YlTirEHK9GGMg-KXQqOjtPFE463hTE_GYDA=="
+  "issued_at": "2026-08-31T07:07:35Z",
+  "sig": "4yfMaEuyiiA_RlIDBvMvkyTgPDCQ1ofbgCySUb6pkAXnnLhOVJ78JjYLxa2OiivQn2fvi8ZrxXNq4SokbPLGCA=="
 }

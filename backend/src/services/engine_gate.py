@@ -7,7 +7,7 @@ La cadena, verificada:
    **sin tope**. Un pico de chats no se sirve en paralelo: se apila.
 2. Cada chat en vuelo **retiene su conexión Postgres** durante todo el `await` al motor —el
    único `commit` del endpoint está DESPUÉS de la llamada (`chat.py`, `log_transaction`)—,
-   o sea hasta `BASA_ENGINE_TIMEOUT_SECONDS` (150 s en la sede) por pedido.
+   o sea hasta `SENTINEL_ENGINE_TIMEOUT_SECONDS` (150 s en la sede) por pedido.
 3. Con ~30 pedidos en vuelo por worker se agota el pool (`database.py`: `pool_size=10` +
    `max_overflow=20` = 30). El `acquire` de SQLAlchemy es **síncrono**: al agotarse, congela
    el event loop del worker.
@@ -16,7 +16,7 @@ La cadena, verificada:
 
 El fix es de admisión, no de motor: **un tope de pedidos en vuelo hacia el motor por
 proceso, con timeout de adquisición**. El pedido 9.º espera un poco; si en
-`BASA_ENGINE_QUEUE_TIMEOUT_SECONDS` no hay turno, se lo rechaza con un 503 honesto y
+`SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS` no hay turno, se lo rechaza con un 503 honesto y
 AUDITADO en vez de dejarlo aparcado consumiendo una conexión del pool. Se degrada el chat,
 no el producto.
 
@@ -33,7 +33,7 @@ import math
 import os
 from typing import Optional
 
-logger = logging.getLogger("basa-secure-gateway.engine_gate")
+logger = logging.getLogger("sentinel-secure-gateway.engine_gate")
 
 
 # `compliance_status` del rechazo por capacidad.
@@ -49,14 +49,14 @@ STATUS_SATURATED = "rejected_saturated"
 
 # Contrato de wire del rechazo por capacidad (acordado con el equipo del harness).
 #
-# `X-Basa-Rejected: saturated` viaja en TODO 503 de saturación, en los dos planos. Es lo que
+# `X-Sentinel-Rejected: saturated` viaja en TODO 503 de saturación, en los dos planos. Es lo que
 # distingue **nuestro** rechazo de admisión de un 503 genérico de Caddy, del proxy de la sede o
 # del propio motor: los tres se ven igual desde afuera, y el harness de carga no puede estar
 # adivinando por el copy del body cuál es cuál. Un header y no sólo un campo del body porque el
 # byok de `/gw` responde con la forma de error de Anthropic (que no tiene dónde meter un código
 # nuestro sin romper el shape que parsean las coding tools) y porque un cliente que sólo mira
 # cabeceras —o un stream ya abierto— igual lo ve.
-HEADER_REJECTED = "X-Basa-Rejected"
+HEADER_REJECTED = "X-Sentinel-Rejected"
 HEADER_REJECTED_SATURATED = "saturated"
 
 
@@ -131,13 +131,13 @@ def _env_float(name: str, default: float, *, maximo: float) -> float:
 #     worker para login, admin, health y el resto del producto. Eso es exactamente lo que se
 #     rompió en la sede — el chat lento se llevaba puesto todo lo demás.
 # Techo 64: por encima de eso el tope deja de proteger el pool y vuelve a ser una cola.
-ENGINE_MAX_CONCURRENCY = _env_int("BASA_ENGINE_MAX_CONCURRENCY", 8, minimo=1, maximo=64)
+ENGINE_MAX_CONCURRENCY = _env_int("SENTINEL_ENGINE_MAX_CONCURRENCY", 8, minimo=1, maximo=64)
 
 # Cuánto espera un pedido su turno antes de que se lo rechace. Corto a propósito: la promesa
 # del fix es «te digo que no rápido», no «te hago esperar un poco menos». Techo 60 s para que
 # nadie pueda reinstalar la cola infinita por env — un queue-timeout de 600 s es la cola de
 # la sede con otro nombre.
-ENGINE_QUEUE_TIMEOUT_SECONDS = _env_float("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", 5.0, maximo=60.0)
+ENGINE_QUEUE_TIMEOUT_SECONDS = _env_float("SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS", 5.0, maximo=60.0)
 
 # `Retry-After` del 503. Segundos, como string porque va a una cabecera HTTP.
 #
@@ -155,7 +155,7 @@ RETRY_AFTER_SATURATED = str(max(1, math.ceil(ENGINE_QUEUE_TIMEOUT_SECONDS)))
 # no cambian nada.
 # Techo 600 y no 60 como en Redis: son dominios distintos. Una generación local legítima puede
 # tardar minutos; una operación de Redis sana tarda menos de un milisegundo.
-ENGINE_TIMEOUT_SECONDS = _env_float("BASA_ENGINE_TIMEOUT_SECONDS", 60.0, maximo=600.0)
+ENGINE_TIMEOUT_SECONDS = _env_float("SENTINEL_ENGINE_TIMEOUT_SECONDS", 60.0, maximo=600.0)
 
 # Timeout TOTAL del byok no-stream de `/gw`. Env PROPIA y no la del chat (H3 del gate de #135):
 # compartirlas parecía economía y era una regresión silenciosa —este camino tenía `120.0`
@@ -170,7 +170,7 @@ ENGINE_TIMEOUT_SECONDS = _env_float("BASA_ENGINE_TIMEOUT_SECONDS", 60.0, maximo=
 # Los dos planos siguen siendo configurables por separado a propósito: el chat es una UI con una
 # persona esperando (60 s es una eternidad ahí) y el byok es una coding tool que tolera —y
 # necesita— generaciones largas.
-GW_BYOK_TIMEOUT_SECONDS = _env_float("BASA_GW_BYOK_TIMEOUT_SECONDS", 150.0, maximo=600.0)
+GW_BYOK_TIMEOUT_SECONDS = _env_float("SENTINEL_GW_BYOK_TIMEOUT_SECONDS", 150.0, maximo=600.0)
 
 # Read timeout ENTRE CHUNKS del stream byok de `/gw`. Antes eran 60 s hardcodeados, heredados
 # del passthrough de suscripción (donde Anthropic manda `ping` SSE periódicos y 60 s es
@@ -179,7 +179,7 @@ GW_BYOK_TIMEOUT_SECONDS = _env_float("BASA_GW_BYOK_TIMEOUT_SECONDS", 150.0, maxi
 # Default 150 s por la misma regla que el perfil prod aplica al router del motor: el timeout de
 # quien espera tiene que SUPERAR al de quien trabaja (allí, 120 s), o el que espera aborta
 # primero y convierte una respuesta lenta en un error.
-GW_BYOK_READ_TIMEOUT_SECONDS = _env_float("BASA_GW_BYOK_READ_TIMEOUT_SECONDS", 150.0, maximo=600.0)
+GW_BYOK_READ_TIMEOUT_SECONDS = _env_float("SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS", 150.0, maximo=600.0)
 
 
 # ── El semáforo del proceso ───────────────────────────────────────────────────────

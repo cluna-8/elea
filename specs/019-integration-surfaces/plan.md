@@ -6,18 +6,18 @@
 
 ## Summary
 
-Documentar y **portar el LADO CLIENTE** del firewall de Basa: qué herramientas se integran, **cómo** se
-enganchan a Basa, y la **matriz de compatibilidad** real con su por-qué técnico. Complementa la **014**
+Documentar y **portar el LADO CLIENTE** del firewall de Sentinel: qué herramientas se integran, **cómo** se
+enganchan a Sentinel, y la **matriz de compatibilidad** real con su por-qué técnico. Complementa la **014**
 (que formalizó el lado gateway) desde el otro extremo de la conexión.
 
 Las superficies existen y se probaron en vivo en el **demo** `gatelite-salud-eu`; esta spec las **porta**
-a `basa-guardian` y las versiona. Hay dos familias de superficie:
+a `sentinel-guardian` y las versiona. Hay dos familias de superficie:
 
 1. **base_url clients** (coding tools que apuntan `ANTHROPIC_BASE_URL` al gateway): Claude Code
    (**passthrough de suscripción**, FUNCIONA con Agent) y VS Code/Copilot (**auto-byok + key-in-URL**,
    PARCIAL, sólo Ask). El enganche reusa mecanismos estándar del cliente + el ruteo del gateway
-   (`X-Basa-Upstream`, `_BASA_KEY_RE`, exclusión de `x-basa-*`, `_resolve_identity`, `_TOOL_UA`).
-2. **browser surface** (web apps sin base_url): una **extensión MV3** (`basa-browser-dlp/`) que hookea
+   (`X-Sentinel-Upstream`, `_SENTINEL_KEY_RE`, exclusión de `x-sentinel-*`, `_resolve_identity`, `_TOOL_UA`).
+2. **browser surface** (web apps sin base_url): una **extensión MV3** (`sentinel-browser-dlp/`) que hookea
    `window.fetch` en el mundo MAIN, enmascara vía `POST /gw/inspect`, reescribe el body (el modelo ve
    placeholders) y des-enmascara en el DOM con `MutationObserver`. Adapters para ChatGPT y Claude web (con
    cobertura de la fuga de título).
@@ -44,7 +44,7 @@ en el service worker (`chrome.storage`), NO en el mundo MAIN. Feed del monitor: 
 con la 014, `surface="browser"` para la extensión).
 
 **Testing**: pytest — integration tests del ruteo (passthrough vs auto-byok vs key-in-URL, exclusión de
-`x-basa-*`), del endpoint `/gw/inspect` (mask + fail-closed + surface=browser), y de la detección por UA.
+`x-sentinel-*`), del endpoint `/gw/inspect` (mask + fail-closed + surface=browser), y de la detección por UA.
 Tests de la extensión (unit/adapters): mask/unmask, `unmaskTitle`, fail-closed sin key. La **matriz** se
 valida como documentación (cobertura + razón concreta por entrada).
 
@@ -85,17 +85,17 @@ passthrough de suscripción, ya la autorizó y acotó la 014). Ver Complexity Tr
 ## Mapeo demo → superficies portadas
 
 Traducción fiel de la evidencia del demo (`gatelite-salud-eu/backend/src/api/gateway.py` y
-`basa-browser-dlp/`) a los requisitos de esta spec. Columna "Dueño" = REUSA-gateway vs PROPIO.
+`sentinel-browser-dlp/`) a los requisitos de esta spec. Columna "Dueño" = REUSA-gateway vs PROPIO.
 
 | Demo (evidencia) | Objetivo portado (019) | Dueño |
 |---|---|---|
 | modo `anthropic` (default) — reverse-proxy verbatim a `api.anthropic.com` | `subscription-passthrough` (US1): OAuth verbatim, suscripción paga | REUSA gateway (014) |
-| `X-Basa-Upstream` + `BASA_GW_UPSTREAM_DEFAULT` | selección de modo por header/env (FR-002) | REUSA gateway |
+| `X-Sentinel-Upstream` + `SENTINEL_GW_UPSTREAM_DEFAULT` | selección de modo por header/env (FR-002) | REUSA gateway |
 | `_passthrough_headers` (anthropic-version/beta, UA, x-app) | reenvío verbatim de headers de Claude Code (FR-003) | REUSA gateway |
-| `_BASA_KEY_RE = sk-basa-…` + auto-byok (scan de headers de auth) | auto-byok por virtual key (US2, FR-008) | REUSA gateway |
-| exclusión `x-basa-*` en el scan de auto-byok | exclusión load-bearing (FR-009) | REUSA gateway (protege coexistencia) |
-| key-in-URL (`?k=sk-basa-…`, `_with_query`/`request.url`) | fallback de Copilot (FR-010) | REUSA gateway (atajo de demo) |
-| `_resolve_identity` (X-Basa-Key → sha256 → user/group) | identidad/atribución, no credencial (FR-006/FR-007) | REUSA gateway |
+| `_SENTINEL_KEY_RE = sk-sentinel-…` + auto-byok (scan de headers de auth) | auto-byok por virtual key (US2, FR-008) | REUSA gateway |
+| exclusión `x-sentinel-*` en el scan de auto-byok | exclusión load-bearing (FR-009) | REUSA gateway (protege coexistencia) |
+| key-in-URL (`?k=sk-sentinel-…`, `_with_query`/`request.url`) | fallback de Copilot (FR-010) | REUSA gateway (atajo de demo) |
+| `_resolve_identity` (X-Sentinel-Key → sha256 → user/group) | identidad/atribución, no credencial (FR-006/FR-007) | REUSA gateway |
 | `_TOOL_UA`/`_detect_tool` (UA → tool_type) | detección de herramienta (FR-004) | REUSA gateway |
 | `manifest.json` (MAIN + ISOLATED, host_permissions, all_frames:false) | extensión MV3 base (US3) | PROPIO (a portar) |
 | `guardia-main.js` (hook `window.fetch`, mask vía `/gw/inspect`, unmask DOM, unmaskTitle) | content script MAIN (FR-013/14/16) | PROPIO |
@@ -130,7 +130,7 @@ backend/src/
 ├── services/                          # REUSADOS: PresidioService (mask), AuditService (metadata-only), identidad
 └── models/                            # REUSADOS de la 013: APIKey (=Connection con tool_type/upstream_mode), AuditLog
 
-extension/                             # extensión MV3 (a portar de basa-browser-dlp/)
+extension/                             # extensión MV3 (a portar de sentinel-browser-dlp/)
 ├── manifest.json                      # content scripts MAIN + ISOLATED; host_permissions; all_frames:false
 ├── guardia-main.js                      # PROPIO (MAIN): hook window.fetch, mask vía /gw/inspect, unmask DOM + unmaskTitle, adapters
 ├── bridge.js                          # PROPIO (ISOLATED): puente content-script ↔ service worker
@@ -138,7 +138,7 @@ extension/                             # extensión MV3 (a portar de basa-browse
 └── popup.html / popup.js              # PROPIO: login del popup (valida contra /gw/whoami)
 
 tests/
-├── integration/                       # ruteo de superficies (passthrough/auto-byok/key-in-URL/exclusión x-basa-*); /gw/inspect
+├── integration/                       # ruteo de superficies (passthrough/auto-byok/key-in-URL/exclusión x-sentinel-*); /gw/inspect
 └── unit/                              # detección por UA; adapters de la extensión (mask/unmask/unmaskTitle/fail-closed)
 ```
 
@@ -155,10 +155,10 @@ de compatibilidad es un **artefacto de documentación** (spec + `compatibility.m
    comportamiento de Ask vs Agent, body no firmado, WebSocket vs fetch, y los gaps de Gemini/iframe.
    Fijar la **matriz de compatibilidad** (criterios de estado). Bloquea las claims de US1/US2/US4.
 2. **US1 Claude Code passthrough (P1).** Portar/verificar el ruteo `subscription-passthrough` (OAuth
-   verbatim + `_passthrough_headers` + detección por UA + identidad por `X-Basa-Key`). Demo titular.
-3. **US2 VS Code/Copilot auto-byok (P1).** Portar/verificar auto-byok (`_BASA_KEY_RE`) + la **exclusión de
-   `x-basa-*`** (load-bearing) + key-in-URL; documentar Ask vs Agent. Va con US1 (coexistencia).
-4. **US3 extensión MV3 (P1).** Portar la extensión (`manifest`/`basa-guard`/`bridge`/`background`), los
+   verbatim + `_passthrough_headers` + detección por UA + identidad por `X-Sentinel-Key`). Demo titular.
+3. **US2 VS Code/Copilot auto-byok (P1).** Portar/verificar auto-byok (`_SENTINEL_KEY_RE`) + la **exclusión de
+   `x-sentinel-*`** (load-bearing) + key-in-URL; documentar Ask vs Agent. Va con US1 (coexistencia).
+4. **US3 extensión MV3 (P1).** Portar la extensión (`manifest`/`sentinel-guard`/`bridge`/`background`), los
    adapters (chatgpt + claude con `/title`) y los endpoints `/gw/whoami`/`/gw/inspect` (surface=browser).
 5. **US4 matriz de compatibilidad (P2).** Consolidar la matriz (FUNCIONA/PARCIAL/NO/MCP-ONLY) con razones
    concretas; documentar Cursor=**PARCIAL** (sólo chat/plan, como Copilot Ask; el agente Composer no rutea
@@ -171,7 +171,7 @@ de compatibilidad es un **artefacto de documentación** (spec + `compatibility.m
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| **La exclusión de `x-basa-*` en el auto-byok es load-bearing**: si se pierde, Claude Code (que trae `X-Basa-Key` con `sk-basa-…`) se desvía a byok y deja de usar su suscripción. | Alto — rompe la demo titular y factura mal. | Test explícito de coexistencia (SC-002): passthrough + byok en el mismo gateway; test negativo sin la exclusión. |
+| **La exclusión de `x-sentinel-*` en el auto-byok es load-bearing**: si se pierde, Claude Code (que trae `X-Sentinel-Key` con `sk-sentinel-…`) se desvía a byok y deja de usar su suscripción. | Alto — rompe la demo titular y factura mal. | Test explícito de coexistencia (SC-002): passthrough + byok en el mismo gateway; test negativo sin la exclusión. |
 | **Tool-calling agéntico no-Claude rompe (`tool_use_failed`)**: Copilot en Agent y Cursor. | Medio — expectativa mal seteada si se promete Agent. | Fijar Ask/chat-plan como modo soportado: Copilot **y Cursor** = **PARCIAL** (sólo el modo sin-tools es gobernable; el agente Composer/Copilot-Agent no rutea por el endpoint custom); documentar el 400 por input UUID como esperado. **Strip-tools NO habilita el agente** (degrada a chat, rompe la UI que espera `tool_calls`, no frena tool-calls por system prompt). |
 | **Fuga de título en Claude.ai** (`/title` con prompt crudo): si el adapter sólo cubre `/completion`, el título filtra PII. | Alto — fuga de PII. | El adapter `claude` cubre `/completion` **y** `/title`; `unmaskTitle()` con test. |
 | **Respuesta por WebSocket** (no por el `fetch` hookeado): el unmask no puede ir sobre el transporte de respuesta. | Medio — placeholders crudos visibles si se asume fetch. | Unmask **en el DOM** vía `MutationObserver` (no sobre transporte); test sobre DOM. |

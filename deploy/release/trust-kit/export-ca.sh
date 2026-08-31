@@ -14,7 +14,7 @@
 #   ./export-ca.sh --project camara --url https://pasarela.interna --out /tmp/kit
 #
 # Opciones:
-#   --project <nombre>   Proyecto compose de la instalación (default: basa).
+#   --project <nombre>   Proyecto compose de la instalación (default: sentinel).
 #   --container <nombre> Contenedor del ingress, si no sigue la convención.
 #   --url <url>          URL https por la que los puestos llegan a la pasarela.
 #                        Queda escrita en gateway-url.txt para que el instalador
@@ -24,7 +24,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT="basa"
+PROJECT="sentinel"
 CONTAINER=""
 URL=""
 OUT="./kit-certificado"

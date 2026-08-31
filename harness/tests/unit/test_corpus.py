@@ -12,17 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from basa_harness.corpus import (
+from sentinel_harness.corpus import (
     generate,
     generate_canaries,
     validate_dataset,
     validate_doc,
 )
-from basa_harness.corpus import build, oracle
+from sentinel_harness.corpus import build, oracle
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CORPUS_DIR = REPO_ROOT / "harness" / "corpus"
-POLICY_SRC = REPO_ROOT / "litellm" / "extensions" / "basa_guardian_policy.py"
+POLICY_SRC = REPO_ROOT / "litellm" / "extensions" / "sentinel_guardian_policy.py"
 
 # Densidades de muestreo amplio para los tests de oráculo/contrato.
 _MIX = {0: 1, 1: 2, 2: 2, 3: 2, 4: 1, 5: 1}
@@ -116,7 +116,7 @@ def test_canarios_son_pii_detectable():
 def test_canarios_10k_disjuntos_tipos_garantizados():
     """FIX-C3: nonce embebido LITERAL → disjunción GARANTIZADA para EMAIL e IBAN incluso
     a 10 000 runs distintos (su formato admite el nonce completo)."""
-    from basa_harness.corpus.canaries import GUARANTEED_DISJOINT_TYPES
+    from sentinel_harness.corpus.canaries import GUARANTEED_DISJOINT_TYPES
     n = 10000
     seen: dict[str, set] = {t: set() for t in GUARANTEED_DISJOINT_TYPES}
     for k in range(n):
@@ -179,7 +179,7 @@ def test_valores_generados_pasan_el_oraculo():
 
 @pytest.mark.skipif(not POLICY_SRC.exists(), reason="fuente del oráculo no disponible")
 def test_patron_telefono_no_derivo_del_producto():
-    """El patrón replicado debe seguir presente VERBATIM en basa_guardian_policy.py."""
+    """El patrón replicado debe seguir presente VERBATIM en sentinel_guardian_policy.py."""
     src = POLICY_SRC.read_text(encoding="utf-8")
     assert oracle.PHONE_PATTERN in src, "PHONE_PATTERN derivó respecto al producto"
 
@@ -200,7 +200,7 @@ def test_passport_excluye_nif_nie_en_mismo_doc():
 # ── FIX-C2: docs limpios genuinamente diversos ────────────────────────────────────
 
 def test_clean_texts_diversos_y_sin_pii():
-    from basa_harness.corpus.generator import _CLEAN_TEXTS
+    from sentinel_harness.corpus.generator import _CLEAN_TEXTS
     assert len(set(_CLEAN_TEXTS)) >= 15  # no 6 plantillas reusadas ×10
     docs = generate(seed=5, n_docs=300, densities={0: 1})
     textos = {d["text"] for d in docs}
@@ -293,7 +293,7 @@ def test_validador_no_checksumea_forbidden(tmp_path):
 # ── FIX-C1: sin dominios reales de cliente en el corpus ───────────────────────────
 
 def test_sin_dominio_real_de_cliente():
-    from basa_harness.corpus.generator import _DOMINIOS
+    from sentinel_harness.corpus.generator import _DOMINIOS
     assert "camaravalencia.es" not in _DOMINIOS
     dataset = (CORPUS_DIR / f"dataset-v{build.DATASET_VERSION.split('.')[0]}.jsonl").read_text("utf-8")
     regr = (CORPUS_DIR / "regressions-63.jsonl").read_text("utf-8")
@@ -339,7 +339,7 @@ def test_regressions63_contiene_casos_iban_y_fac():
 def test_dataset_v1_reproducible_y_valido():
     dataset = CORPUS_DIR / f"dataset-v{build.DATASET_VERSION.split('.')[0]}.jsonl"
     manifest_path = CORPUS_DIR / "manifest.json"
-    assert dataset.exists(), "falta dataset-v1.jsonl (correr python -m basa_harness.corpus.build)"
+    assert dataset.exists(), "falta dataset-v1.jsonl (correr python -m sentinel_harness.corpus.build)"
 
     # re-generar y comparar byte a byte con lo commiteado
     regen = build.serialize(build.build_docs())

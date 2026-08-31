@@ -92,12 +92,12 @@ docker compose up -d --build
 Variables que el camino SSO necesita en el backend (además de las del despliegue):
 
 ```yaml
-BASA_SSO_REDIRECT_URI: "http://localhost:8090/sso/callback"   # byte a byte la registrada
-BASA_SSO_COOKIE_INSECURE: "true"    # SOLO acá: dev sobre HTTP plano. En producción se OMITE.
+SENTINEL_SSO_REDIRECT_URI: "http://localhost:8090/sso/callback"   # byte a byte la registrada
+SENTINEL_SSO_COOKIE_INSECURE: "true"    # SOLO acá: dev sobre HTTP plano. En producción se OMITE.
 FERNET_SECRET_KEY: "<clave-del-despliegue>"                   # sin ella el PUT corta con 503
 ```
 
-`BASA_SSO_COOKIE_INSECURE` existe para esto y **sólo** para esto: la cookie del flujo se
+`SENTINEL_SSO_COOKIE_INSECURE` existe para esto y **sólo** para esto: la cookie del flujo se
 emite con `Secure` por default, y sobre `http://` plano el navegador puede no devolverla —
 lo que se ve como «no hay flujo SSO en curso en este navegador», un mensaje que manda a
 buscar el problema al lado equivocado.
@@ -231,9 +231,9 @@ buena pinta» no es una medición.
 | Lo que falla | Qué mirar primero |
 |---|---|
 | `403 sso_no_licenciado` donde se esperaba otra cosa | La licencia instalada no trae el flag. No es la contraseña del admin. |
-| `redirect_uri` enviada ≠ esperada | `BASA_SSO_REDIRECT_URI` del backend. Es el valor que viaja, no el del portal. |
+| `redirect_uri` enviada ≠ esperada | `SENTINEL_SSO_REDIRECT_URI` del backend. Es el valor que viaja, no el del portal. |
 | `AADSTS50011` tras las credenciales | El portal del cliente. **Es el único momento en que este error puede aparecer** — ver la sonda que no discrimina, arriba. |
-| «no hay flujo SSO en curso en este navegador» | La cookie de flujo no volvió: `BASA_SSO_COOKIE_INSECURE` sobre HTTP plano, u otro navegador/perfil. |
+| «no hay flujo SSO en curso en este navegador» | La cookie de flujo no volvió: `SENTINEL_SSO_COOKIE_INSECURE` sobre HTTP plano, u otro navegador/perfil. |
 | `503 sso_cifrado_no_disponible` en la carga | `FERNET_SECRET_KEY` del backend. **No se guardó nada**: arreglar y repetir el `PUT`. |
 | Identidad no verificada tras un login exitoso en el portal | Secreto vencido/mal cargado, o el directorio no emitió correo. Los detalles están en los **logs del backend**, nunca en el navegador. |
 

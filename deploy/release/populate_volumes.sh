@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROFILES_ROOT="${PROFILES_ROOT:-$REPO_ROOT/deploy/clients}"
 RENDERED="$PROFILES_ROOT/$SLUG/rendered"
 # El nombre de proyecto compose fija el prefijo de los volúmenes nombrados.
-PROJECT="${COMPOSE_PROJECT:-basa-guardian}"
+PROJECT="${COMPOSE_PROJECT:-sentinel-guardian}"
 
 [ -f "$RENDERED/config.yaml" ] || { echo "❌ falta $RENDERED/config.yaml (correr render_profile.sh $SLUG)"; exit 2; }
 [ -f "$RENDERED/brand.json" ]  || { echo "❌ falta $RENDERED/brand.json (correr render_profile.sh $SLUG)"; exit 2; }
@@ -37,7 +37,7 @@ echo "✅ licenses ← $(basename "$LIC") (→ client.lic)"
 
 # Config del motor → litellm_config:/ (el motor lee /app/config; el backend
 #    /app/litellm_config — y ESCRIBE ahí en el alta de modelos de la UI, como
-#    usuario basa 10001:999: sin el chown el alta muere con permission denied).
+#    usuario sentinel 10001:999: sin el chown el alta muere con permission denied).
 docker volume create "${PROJECT}_litellm_config" >/dev/null
 docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$RENDERED:/src:ro" \
     alpine:3 sh -c "cp /src/config.yaml /vol/config.yaml && chown 10001:999 /vol /vol/config.yaml && chmod 664 /vol/config.yaml"

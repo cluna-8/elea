@@ -41,7 +41,7 @@ marcados ⚠️ se escriben ANTES del artefacto que validan y deben FALLAR prime
 **Purpose**: Estructura del árbol `deploy/` y esqueleto de validación.
 
 - [X] T001 [SETUP] Crear el árbol `deploy/` (`docker/`, `branding/`, `clients/`, `terraform/`, `release/`) con
-      un `README.md` que explique el modelo de negocio (INSTALL + X licencias, distribuidor, Basa no opera
+      un `README.md` que explique el modelo de negocio (INSTALL + X licencias, distribuidor, Sentinel no opera
       servidores) y el mapa "un codebase, dos perfiles" (dev-compose vs prod-images).
 - [X] T002 [P] [SETUP] Añadir `.gitignore` para secretos/artefactos por instalación (tfvars con valores,
       `*.tfstate`, tarballs, `clients/*/secrets*`) — nada de secretos en el repo.
@@ -119,7 +119,7 @@ metadata reflejan la marca **sin editar código**; `grep` de artefactos de marca
 
 ### Implementation for User Story 2
 
-- [X] T013 [US2] Definir el **branding pack** (`deploy/branding/branding.default.env` Basa-neutro +
+- [X] T013 [US2] Definir el **branding pack** (`deploy/branding/branding.default.env` Sentinel-neutro +
       `branding.example.env` distribuidor + `assets/` placeholder) con nombre/logo/colores/dominio/soporte.
       *(FR-006, FR-009)*
 - [X] T014 [US2] Cablear el frontend (bundle marca-neutro) y el metadata del backend para consumir el branding
@@ -216,7 +216,7 @@ bootstrap rotado emitido una vez, nada en claro en state/logs.
 ### Tests for User Story 5 ⚠️
 
 - [X] T030 ⚠️ [P] [US5] Check negativo en `deploy/release/checks/test_no_default_secrets.sh`: 0 coincidencias de
-      `basasecurepass123`/`basa_master_key_9999`/`${VAR:-<secreto>}` en artefactos del **camino prod**. DEBE
+      `sentinelsecurepass123`/`sentinel_master_key_9999`/`${VAR:-<secreto>}` en artefactos del **camino prod**. DEBE
       FALLAR si sobrevive un default. *(FR-025, SC-005)*
 - [X] T031 ⚠️ [P] [US5] Check en `deploy/release/checks/test_secrets_not_in_state.sh`: ningún secreto ni el admin
       bootstrap aparece en claro en `tfstate`/outputs no-sensitive/logs. DEBE FALLAR primero. *(SC-005)*
@@ -228,7 +228,7 @@ bootstrap rotado emitido una vez, nada en claro en state/logs.
       cifrados con **SOPS + age** (v1) / **OpenBao** (v2), no secrets managers cloud; marcar `sensitive`.
       *(FR-019, FR-026, Constraint C5)*
 - [X] T033 [US5] Retirar del camino prod todo secreto default heredado del compose de dev (los artefactos prod
-      NO cargan `${VAR:-basasecurepass123}` ni `${VAR:-basa_master_key_9999}`). *(FR-025)*
+      NO cargan `${VAR:-sentinelsecurepass123}` ni `${VAR:-sentinel_master_key_9999}`). *(FR-025)*
 - [X] T034 [US5] Generar y **rotar** el **admin bootstrap** por instalación; emitirlo una sola vez vía output
       protegido; NO persistirlo en claro. *(FR-027)*
 

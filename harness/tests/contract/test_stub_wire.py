@@ -17,8 +17,8 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from basa_harness.corpus import generate_canaries
-from basa_harness.stub import (
+from sentinel_harness.corpus import generate_canaries
+from sentinel_harness.stub import (
     CanarySentinel,
     SpoolTruncatedError,
     StubState,

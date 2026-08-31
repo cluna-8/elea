@@ -26,7 +26,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_dsar_export"
+DB = "sentinel_test_dsar_export"
 DSAR = "/api/v1/reports/dsar"
 
 
@@ -55,7 +55,7 @@ def _sembrar_sujeto_con_log(factory):
     try:
         db.add(User(
             id=uid, tenant_id=DEFAULT_TENANT_ID, username=username,
-            email=f"{username}@basa.com.ar", password_hash="x", role="compliance_officer",
+            email=f"{username}@sentinel.com.ar", password_hash="x", role="compliance_officer",
         ))
         db.add(AuditLog(
             id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, timestamp=datetime.utcnow(),

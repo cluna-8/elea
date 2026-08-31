@@ -2,7 +2,7 @@
 
 **Fecha**: 2026-07-14 · **Método**: revisión de prior-art público (docs oficiales de los generadores de
 sitios estáticos de documentación, anuncios de licencia/mantenimiento, guías de air-gap/offline) cruzada con
-el shape del negocio (Basa entrega una **imagen por marca** a un **distribuidor**; el cliente final la levanta
+el shape del negocio (Sentinel entrega una **imagen por marca** a un **distribuidor**; el cliente final la levanta
 en su cuenta cloud u **on-prem/air-gap**; **una instancia por cliente**; VPN sin egress como caso duro). Cada
 eje trae **veredicto v1/v2** y **fuentes**. Corrige la hipótesis fácil ("usamos Docusaurus/Mintlify porque son
 populares") que no aguanta el requisito **air-gap 0-egress** ni el de **cero toolchain nueva**.
@@ -21,7 +21,7 @@ populares") que no aguanta el requisito **air-gap 0-egress** ni el de **cero too
   (nov-2025). Contra a declarar: **Material en modo mantenimiento** (fixes sí, features no) → riesgo de
   roadmap. Disparador para migrar a Starlight: si pesan el **acabado visual** y el **i18n de fábrica**.
 - **Empaquetado = imagen estática multi-stage → nginx.** Build con MkDocs → HTML estático servido por nginx
-  (o Caddy con `auto_https off`). Imagen **por marca** `basa-docs:<brand>-<version>`; en air-gap va por
+  (o Caddy con `auto_https off`). Imagen **por marca** `sentinel-docs:<brand>-<version>`; en air-gap va por
   **tarball / Zarf** (020), sin pull de registry en runtime.
 - **Búsqueda = offline, nunca SaaS.** lunr built-in de Material (plugin `offline`) para v1; **Pagefind** es el
   estándar offline del plan B (Starlight lo trae). **Algolia DocSearch = prohibido** (SaaS, rompe air-gap).
@@ -38,7 +38,7 @@ populares") que no aguanta el requisito **air-gap 0-egress** ni el de **cero too
 | Eje | Descartado (y por qué) | v1 (MVP) | plan B / v2 (roadmap) |
 |---|---|---|---|
 | **Framework** | Docusaurus/Nextra/Fumadocs/VitePress/Docsify (ver tabla de frameworks); **Mintlify/GitBook/RTD** (SaaS/hosted, air-gap difícil) | **MkDocs + Material** (Python-nativo, `offline`+`privacy`) | **Astro Starlight + Pagefind** (si pesa acabado visual + i18n) |
-| **Empaquetado** | pull de registry en runtime; SSR/servidor dinámico | **imagen multi-stage → nginx estático**, `basa-docs:<brand>-<version>` | igual; **Zarf** empaqueta la imagen (020 v2) |
+| **Empaquetado** | pull de registry en runtime; SSR/servidor dinámico | **imagen multi-stage → nginx estático**, `sentinel-docs:<brand>-<version>` | igual; **Zarf** empaqueta la imagen (020 v2) |
 | **Air-gap** | fuentes Google/CDN por defecto; hosting SaaS | **`privacy`+`offline` plugins + `--strict`** (0 egress) | igual |
 | **Búsqueda** | **Algolia DocSearch** (SaaS, egress) | **lunr built-in** (Material `offline`) | **Pagefind** (Starlight) |
 | **API reference** | reference escrito a mano (deriva) | **auto-gen desde OpenAPI** (FastAPI single-source) | igual |
@@ -104,7 +104,7 @@ porqué (air-gap + toolchain) para que ningún PR "vuelva a Docusaurus por popul
 El sitio es **HTML estático**: no hay razón para un runtime dinámico. La imagen se construye **multi-stage**
 (stage 1: Python + MkDocs Material construye el sitio con `mkdocs build --strict`; stage 2: copia el `site/` a
 una imagen **nginx** mínima). Resultado: una imagen pequeña, sin toolchain en runtime, que sirve estáticos y
-**no hace egress**. Se etiqueta **por marca**: `basa-docs:<brand>-<version>` (trazabilidad + una marca por
+**no hace egress**. Se etiqueta **por marca**: `sentinel-docs:<brand>-<version>` (trazabilidad + una marca por
 instancia). Se enchufa al **docker-compose v1** como un servicio `docs` detrás del mismo proxy/TLS; en el
 mundo **k8s/air-gap v2**, **Zarf** (020) la empaqueta en el bundle (SBOM + firma cosign) junto al resto de
 imágenes pinneadas — **sin pull de registry en runtime**.
@@ -185,7 +185,7 @@ audiencia** → roadmap P3 (segundo nav-tree bajo el mismo contenedor).
 roadmap.
 
 **Fuentes**:
-- `basa-guardian/docs/whitelabel-deployment.md`, `.../integration-surfaces.md`, `.../compliance-policies.md`
+- `sentinel-guardian/docs/whitelabel-deployment.md`, `.../integration-surfaces.md`, `.../compliance-policies.md`
 - https://diataxis.fr/ (marco de estructura de documentación: tutoriales/how-to/reference/explanation)
 
 ## (7) White-label — build-time vs config runtime → **config-as-data (YAML `INHERIT` / `envsubst`), never fork**
@@ -195,7 +195,7 @@ branding del sitio se aplica **sólo por config**: tokens `site_name`, `logo`, `
 `extra.css`. El mecanismo es **overlay por herencia** — MkDocs soporta **`INHERIT`** para que un
 `mkdocs.<brand>.yml` **superponga** los tokens de marca sobre la config base sin duplicar contenido — **o**
 `envsubst` sobre una plantilla de config en build-time. El **contenido markdown se mantiene marca-neutro** por
-defecto; cambiar de marca = cambiar la config de branding y **reconstruir la imagen** (`basa-docs:<brand>-…`),
+defecto; cambiar de marca = cambiar la config de branding y **reconstruir la imagen** (`sentinel-docs:<brand>-…`),
 **sin forkear** contenido ni tema (Principio VII). Esto evita el **swizzling** que exigen los frameworks React
 para brandear (que es tocar componentes ≈ fork parcial).
 
@@ -227,7 +227,7 @@ ingress **Traefik** (default de k3s, 020) cubre TLS.
 
 - **v1 (MVP entregable)**: **MkDocs + Material** construye el sitio con **`privacy`+`offline`+`--strict`**
   (air-gap 0-egress verificado por test), empaquetado en una **imagen multi-stage → nginx** por marca
-  (`basa-docs:<brand>-<version>`) que se enchufa al **docker-compose**; **búsqueda lunr offline**; **API
+  (`sentinel-docs:<brand>-<version>`) que se enchufa al **docker-compose**; **búsqueda lunr offline**; **API
   reference auto-generado desde el OpenAPI** de FastAPI + **config reference desde `.env.example`**; **contenido
   sembrado** del corpus `docs/*.md` (9 secciones, leyenda de estado); **white-label por config** (`INHERIT`/
   `envsubst`, contenido marca-neutro); **versionado `mike`** + **i18n `mkdocs-static-i18n` ES/EN**. TLS por

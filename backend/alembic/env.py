@@ -17,7 +17,7 @@ if config.config_file_name is not None:
     # de `fileConfig` es True, o sea "apagá todo logger que ya exista y no esté en este
     # .ini". `src/main.py` corre `alembic upgrade head` EN EL IMPORT (:63), después de
     # importar el router — así que para cuando termina la migración de arranque, TODOS los
-    # `logging.getLogger("basa-secure-gateway.*")` del backend quedaban con `disabled=True`
+    # `logging.getLogger("sentinel-secure-gateway.*")` del backend quedaban con `disabled=True`
     # y el producto corría MUDO en producción (verificado: cero líneas del logger de la app
     # en los logs del contenedor, sólo alembic y uvicorn).
     # Con la 031 eso pasa de molestia a defecto de compliance: el `logger.error` que avisa
@@ -36,11 +36,11 @@ def include_object(obj, name, type_, reflected, compare_to):
 
 
 def _get_url() -> str:
-    user = os.getenv("POSTGRES_USER", "basa_admin")
-    password = os.getenv("POSTGRES_PASSWORD", "basasecurepass123")
+    user = os.getenv("POSTGRES_USER", "sentinel_admin")
+    password = os.getenv("POSTGRES_PASSWORD", "sentinelsecurepass123")
     host = os.getenv("POSTGRES_HOST", "db")
     port = os.getenv("POSTGRES_PORT", "5432")
-    db = os.getenv("POSTGRES_DB", "basa_gateway")
+    db = os.getenv("POSTGRES_DB", "sentinel_gateway")
     return f"postgresql://{user}:{password}@{host}:{port}/{db}"
 
 

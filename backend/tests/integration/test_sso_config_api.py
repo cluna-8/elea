@@ -31,7 +31,7 @@ from src.auth.matrix import Rol  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_sso_config_api"
+DB = "sentinel_test_sso_config_api"
 CONFIG = "/api/v1/auth/sso/config"
 SECRETO = "el-secreto-del-idp-que-no-debe-salir"
 

@@ -14,11 +14,11 @@ spec propia?) y si se auditan también los errores.
 
 ## El problema, con evidencia (17-ago, líneas verificadas en el código)
 
-1. **Hoy la decisión es GLOBAL por instalación**: `BASA_AUDIT_FAIL=open|closed`, default
+1. **Hoy la decisión es GLOBAL por instalación**: `SENTINEL_AUDIT_FAIL=open|closed`, default
    `open` (ausente o ilegible ⇒ open), con lector único en el backend
-   (`audit_service.py:59-69`) y espejo en el motor (`basa_guardrail.py:164-175`). Con
+   (`audit_service.py:59-69`) y espejo en el motor (`sentinel_guardrail.py:164-175`). Con
    `open` — el default, y lo que corre en la sede (#207) — un fallo de auditoría se cuenta
-   (`basa:audit:lost`) y TODO el tráfico se sigue sirviendo sin fila; con `closed`, TODO
+   (`sentinel:audit:lost`) y TODO el tráfico se sigue sirviendo sin fila; con `closed`, TODO
    corta con 503 — también el chat de riesgo mínimo.
 2. **El producto ya resuelve riesgo POR PEDIDO y no lo usa para esto**: cascada
    User > Group > Tenant (spec 013 US4, `context_resolution.py:66-70`), aplicada por
@@ -55,7 +55,7 @@ absoluto: ambos valores siguen siendo overrides globales con la semántica actua
 ### User Story 3 - El integrador de /gw se entera a máquina (Priority: P2)
 
 Cuando un pedido se sirvió sin fila, la respuesta de `/gw` lleva un marcador
-machine-readable (precedente: `X-Basa-Rejected` del #135; pedido de marcador del #166),
+machine-readable (precedente: `X-Sentinel-Rejected` del #135; pedido de marcador del #166),
 para que el integrador decida reintentar, marcar o degradar su propio flujo.
 
 ## Requirements *(mandatory)*
@@ -69,19 +69,19 @@ para que el integrador decida reintentar, marcar o degradar su propio flujo.
   `minimal`/`limited` → SIRVE y cuenta. El rol NO participa para el tráfico (el riesgo ya
   compone persona/grupo/tenant vía la cascada). Las acciones de configuración (clase
   `config_audit`) no entran en esta política: siguen su camino actual.
-- **FR-003**: `BASA_AUDIT_FAIL` acepta `policy` además de `open|closed`. Los dos valores
+- **FR-003**: `SENTINEL_AUDIT_FAIL` acepta `policy` además de `open|closed`. Los dos valores
   actuales explícitos = override global sin cambio de semántica. Default si
   ausente/ilegible: D1. El espejo triple (backend + motor + bundle) se actualiza junto y
   los lectores únicos siguen siendo únicos.
 - **FR-004**: Todo pedido servido sin fila incrementa el contador existente
-  (`basa:audit:lost`, contrato 031 en `/health` sin cambios) y — en `/gw` — marca la
+  (`sentinel:audit:lost`, contrato 031 en `/health` sin cambios) y — en `/gw` — marca la
   respuesta (D5).
 - **FR-005** *(cierra «¿se auditan los errores?», #165)*: los 400/422 de validación previa
   NO generan fila durable (nunca fueron tráfico LLM); SÍ generan contador estructurado por
   tenant/endpoint + log sin cuerpo (D4).
 - **FR-006**: Con `enforcement_tier_estricto=on` (018 US2) la instalación se comporta como
-  `closed` global: el tier ya asevera la postura de `BASA_AUDIT_FAIL`
-  (`basa_governance.py:309-329`); la incoherencia sigue degradando health (D3).
+  `closed` global: el tier ya asevera la postura de `SENTINEL_AUDIT_FAIL`
+  (`sentinel_governance.py:309-329`); la incoherencia sigue degradando health (D3).
 - **FR-007** *(precondición)*: #207 y #176 se cierran antes o en el mismo ciclo que esta
   spec. #212 se corrige por call-site (estado propio para el 422 del literal SOLO en
   `/gw`, precedente `STATUS_SATURATED` en `gateway.py:1190`; en los otros dos planos el
@@ -97,7 +97,7 @@ instalación con contexto por-pedido. El mecanismo extiende el lector único:
 el motor a través del probe existente (`/internal/audit/probe` gana el contexto de la
 credencial). `enforcement_tier_estricto` queda como único punto de contacto con el
 registry 027 (FR-006, ya existe). Barrido de lectores en la implementación: `.env.example`
-(hoy NI documenta `BASA_AUDIT_FAIL` — hueco del #190), `docker-compose.yml:81-84,170-172`,
+(hoy NI documenta `SENTINEL_AUDIT_FAIL` — hueco del #190), `docker-compose.yml:81-84,170-172`,
 `docs/docs/api-reference/errors.md:84-90` (y su referencia colgada a `configuration.md`),
 contrato `specs/031-durable-audit/contracts/audit-durable.md:31-35`.
 
@@ -119,7 +119,7 @@ contrato `specs/031-durable-audit/contracts/audit-durable.md:31-35`.
 | D2 | La matriz la manda solo el riesgo (roles fuera) | a) sí · b) sumar eje de rol | ★ **a**: la cascada 013 ya compone persona/grupo/tenant; un eje de rol duplicaría el mecanismo |
 | D3 | Tier estricto ⇒ `closed` global | a) sí · b) no, tier y política independientes | ★ **a**: coherente con la aserción de postura que la 018 ya hace |
 | D4 | Errores 400/422 | a) sin fila + contador estructurado · b) fila durable para todo | ★ **a**: la fila diluye la señal del DPO y abre spam de filas; el contador cierra #165 |
-| D5 | Marcador machine-readable en `/gw` al servir sin fila | a) sí · b) no | ★ **a**: honestidad a máquina, precedente #166 / `X-Basa-Rejected` |
+| D5 | Marcador machine-readable en `/gw` al servir sin fila | a) sí · b) no | ★ **a**: honestidad a máquina, precedente #166 / `X-Sentinel-Rejected` |
 
 Sello registrado en PR #221 (comment del 18-ago). `plan.md` y `tasks.md` viven en este
 mismo directorio. Construye el equipo de Jeff (Ola 2 del sprint al 5-sep).

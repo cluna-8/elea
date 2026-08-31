@@ -53,7 +53,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_audit_filtro_estado"
+DB = "sentinel_test_audit_filtro_estado"
 LOGS = "/api/v1/audit-logs"
 EXPORT = "/api/v1/audit-logs/export"
 

@@ -39,7 +39,7 @@ from ..models.tenant import DEFAULT_TENANT_ID
 from .governance_catalog import (OFF, ON, Profile, map_effective_mode,
                                  resolve_profile, row_get)
 
-logger = logging.getLogger("basa-secure-gateway.governance")
+logger = logging.getLogger("sentinel-secure-gateway.governance")
 
 # La única capa que hoy declara override por-Connection: absorbe el toggle
 # ``redact_enabled`` de la 013 como su decisión de nivel Connection (D8, absorber sin

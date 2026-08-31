@@ -19,7 +19,7 @@ DEST = REPO / "docs" / "docs" / "api-reference" / "configuration.md"
 # prosa: no describe a nadie y no puede terminar como texto de la página.
 #
 # El borde que obliga a ser preciso acá (#271): `.env.example:93` es una línea de
-# PROSA que empieza con `BASA_PURGE_ENABLED=false (el default) el scheduler ni
+# PROSA que empieza con `SENTINEL_PURGE_ENABLED=false (el default) el scheduler ni
 # arranca...`. Clasificarla como variable comentada le comería media frase al
 # banner de la sección de purga. Lo que las separa es que una asignación real
 # termina en el valor o en un comentario inline `#`; la prosa sigue con palabras.

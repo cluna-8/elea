@@ -7,7 +7,7 @@ description: "Task list for feature 016 — Real NLP Masking & Entity Detection 
 **Input**: Design documents from `/specs/016-real-nlp-masking/`
 
 **Prerequisites**: plan.md (required), spec.md (required), research.md, data-model.md, contracts/,
-quickstart.md. Depende de **013** (identidad/APIKey) y **014** (BasaGuardrail, `basa_guardian_policy`,
+quickstart.md. Depende de **013** (identidad/APIKey) y **014** (SentinelGuardrail, `sentinel_guardian_policy`,
 `custom_auth` — esta feature extiende esos módulos, no los reescribe).
 
 **Tests**: SÍ incluidos. La constitución exige tests para lógica no trivial (Dev Workflow — Tested &
@@ -42,9 +42,9 @@ marcados ⚠️ se escriben ANTES de la implementación y deben FALLAR primero.
       control sobre el contrato HTTP exacto, ver `presidio-analyzer/app.py`) y
       `presidio-analyzer/conf/es.yaml` (`NlpEngineConfig`). *(research.md §1-2)*
 - [x] T002 [SETUP] Agregar el servicio `presidio-analyzer` a `docker-compose.yml`: build desde
-      `presidio-analyzer/`, en `basa-network`, **sin** puerto publicado al host, healthcheck sobre su
+      `presidio-analyzer/`, en `sentinel-network`, **sin** puerto publicado al host, healthcheck sobre su
       endpoint de salud. *(research.md §2)*
-- [x] T003 [P] [SETUP] Agregar `NLP_ANALYZER_URL` (+ `BASA_ENTITY_REGION`) a `.env.example`.
+- [x] T003 [P] [SETUP] Agregar `NLP_ANALYZER_URL` (+ `SENTINEL_ENTITY_REGION`) a `.env.example`.
       Pendiente: documentar en `README.md` (sección Quickstart/tabla de puertos, naming neutro
       Principio VII) — ver T034.
 - [x] T004 [P] [SETUP] `backend/tests/test_policy_unit.py` ya existía (de la 014, `test_mask_is_reversible...`
@@ -64,7 +64,7 @@ Fase 3+ puede empezar hasta cerrar esto.
       total, **y caso de 3+ solapados en cadena** (agregado tras encontrar que la comparación par-a-par
       simple no lo garantiza — ver T006). *(contracts/policy-library-functions.md, data-model.md)*
 - [x] T006 [FOUND] Implementar `resolve_overlaps(entities) -> entities` en
-      `litellm/extensions/basa_guardian_policy.py`. **Corrección de diseño**: la primera versión
+      `litellm/extensions/sentinel_guardian_policy.py`. **Corrección de diseño**: la primera versión
       (comparación par-a-par contra el último aceptado) no resolvía correctamente 3+ entidades solapadas
       en cadena; se reemplazó por clustering de intervalos (componentes conexas del grafo de
       solapamiento) — invariante de no-solapamiento garantizada en todos los casos. *(FR-009, research.md §5)*
@@ -72,24 +72,24 @@ Fase 3+ puede empezar hasta cerrar esto.
       tipo configurado `MASK`/`BLOCK`, tipo ausente → default `MASK`, valor inválido en config → default
       `MASK`.
 - [x] T008 [FOUND] Implementar `resolve_entity_action(entity_type, entity_configs)` en
-      `litellm/extensions/basa_guardian_policy.py`. *(FR-005, FR-008, research.md §6)*
+      `litellm/extensions/sentinel_guardian_policy.py`. *(FR-005, FR-008, research.md §6)*
 - [x] T009 ⚠️ [P] [FOUND] Unit tests de `build_ad_hoc_recognizers` en `backend/tests/test_policy_unit.py`:
       región `eu` (default) → solo `PASSPORT` presente (NIF/NIE español son built-in de Presidio, no se
       reimplementan acá), región `latam_ar` → agrega `DNI`/`CUIL`, `custom_names` vacío → sin
       recognizer deny-list, con valores → recognizer deny-list correcto, región desconocida → vacío.
 - [x] T010 [FOUND] Implementar `build_ad_hoc_recognizers(custom_names, region="eu")` en
-      `litellm/extensions/basa_guardian_policy.py` (`STRUCTURED_ID_PATTERNS_BY_REGION`), reemplazando el
+      `litellm/extensions/sentinel_guardian_policy.py` (`STRUCTURED_ID_PATTERNS_BY_REGION`), reemplazando el
       diccionario `PII_PATTERNS` actual de ese archivo como única fuente de patrones estructurados **por
       región** — no un país fijo. **Corrección post-review**: el despliegue objetivo es Europa (España
       primero), no Argentina — región `eu` activa por default. *(FR-003, SC-006, research.md §3)*
 - [x] T011 [FOUND] Definir `NlpUnavailableError` (excepción dedicada) en
-      `litellm/extensions/basa_guardian_policy.py`.
+      `litellm/extensions/sentinel_guardian_policy.py`.
 - [x] T012 ⚠️ [P] [FOUND] Unit test de `presidio_analyze` en `backend/tests/test_policy_unit.py`
       con un cliente HTTP mockeado: éxito → `DetectedEntity[]` normalizada y pasada por
       `resolve_overlaps`; timeout/5xx/body inesperado → levanta `NlpUnavailableError` (NUNCA `[]`); texto
       vacío → cortocircuita sin llamar a la red. *(FR-004, contracts/presidio-analyzer-http.md)*
 - [x] T013 [FOUND] Implementar `presidio_analyze(text, analyzer_url, custom_names, region="eu") ->
-      DetectedEntity[]` (nuevo `AnalyzeFn`) en `litellm/extensions/basa_guardian_policy.py`: `httpx`
+      DetectedEntity[]` (nuevo `AnalyzeFn`) en `litellm/extensions/sentinel_guardian_policy.py`: `httpx`
       async, timeout 2s, arma el body con `build_ad_hoc_recognizers` (+ `entities: null` para recibir
       todo lo que el Analyzer soporte, no una lista fija), normaliza la respuesta, aplica `resolve_overlaps`.
 
@@ -109,17 +109,17 @@ placeholder en lo que ve el motor/LLM y el valor real restaurado en la respuesta
 
 - [x] T014 ⚠️ [P] [US1] Implementado como `test_t014_guardrail_masks_person_without_title_prefix` en
       `backend/tests/e2e/test_guardrail_behavior_e2e.py` (no en `tests/integration/` como decía el nombre
-      original — necesita el motor real corriendo, vía `docker exec`): `BasaGuardrail().async_pre_call_hook()`
+      original — necesita el motor real corriendo, vía `docker exec`): `SentinelGuardrail().async_pre_call_hook()`
       con "Juan Pérez tiene turno el jueves" → placeholder presente, sin bloqueo. Corrido contra el stack
       real (`nlp-analyzer` + litellm). *(spec.md US1, acceptance scenarios 1-3)*
 
 ### Implementation for User Story 1
 
-- [x] T015 [US1] En `litellm/extensions/basa_guardrail.py::async_pre_call_hook`: `policy.presidio_analyze`
+- [x] T015 [US1] En `litellm/extensions/sentinel_guardrail.py::async_pre_call_hook`: `policy.presidio_analyze`
       reemplaza a `policy.default_analyze` en el camino real cuando `NLP_ANALYZER_URL` está seteada;
       `default_analyze` queda como fallback de modo dev con warning explícito si no lo está. *(FR-001, FR-002)*
 - [x] T016 [US1] `custom_names` viaja desde la identidad resuelta por `custom_auth.py` (T020/T021 de
-      US2, implementadas junto con esto) hasta la llamada de `presidio_analyze` en `basa_guardrail.py`.
+      US2, implementadas junto con esto) hasta la llamada de `presidio_analyze` en `sentinel_guardrail.py`.
 - [x] T017 [P] [US1] Validado de forma equivalente sin key real de Anthropic (no disponible en este
       entorno): T014 ejercita el mismo hook (`async_pre_call_hook`) contra el stack real, confirmando
       placeholder + no-bloqueo. Documentado en `implementation-notes.md`.
@@ -153,16 +153,16 @@ rechazo con motivo auditable; configurar otro tipo como `MASK`, verificar que si
 - [x] T020 [US2] Extendida `_IDENTITY_SQL` en `litellm/extensions/custom_auth.py` con subqueries a
       `security_policies` (activa, por tenant) y `guardians` (pii_masking activo) trayendo `entity_configs`
       y `custom_names`. *(research.md §6)*
-- [x] T021 [US2] `entity_configs`/`custom_names` viajan en el dict de identidad (`metadata.basa`, junto a
+- [x] T021 [US2] `entity_configs`/`custom_names` viajan en el dict de identidad (`metadata.sentinel`, junto a
       `redact_enabled`) en `litellm/extensions/custom_auth.py`.
-- [x] T022 [US2] En `litellm/extensions/basa_guardrail.py::async_pre_call_hook`: preview de entidades
+- [x] T022 [US2] En `litellm/extensions/sentinel_guardrail.py::async_pre_call_hook`: preview de entidades
       sobre el texto completo (un solo pase de detección) resuelto vía `resolve_entity_action` ANTES de
       tocar el body — si alguna es `BLOCK`, retorna motivo de bloqueo nombrando los tipos (sin valores),
       sin enmascarar nada primero; si no hay bloqueos, sigue el flujo `MASK` con `PlaceholderMap`.
       *(FR-005, FR-006, FR-007)*
-- [x] T023 [US2] **No requirió cambios** — `litellm/extensions/basa_audit_logger.py:85` ya lee
-      `basa_compliance.status` de forma genérica (`.get("status") or "passed"`); el nuevo motivo
-      `blocked_entity_type` (seteado en `basa_guardrail.py`) aparece en el audit log sin tocar este
+- [x] T023 [US2] **No requirió cambios** — `litellm/extensions/sentinel_audit_logger.py:85` ya lee
+      `sentinel_compliance.status` de forma genérica (`.get("status") or "passed"`); el nuevo motivo
+      `blocked_entity_type` (seteado en `sentinel_guardrail.py`) aparece en el audit log sin tocar este
       archivo. La tarea, tal como estaba escrita, asumía que hacía falta una whitelist explícita — no es
       el caso. *(FR-011)*
 
@@ -189,22 +189,22 @@ rechazan explícitamente (ninguna procesa con detección degradada).
       No bloquea el merge del PR #21.
       *(contracts/presidio-analyzer-http.md)*
 - [x] T025 ⚠️ [P] [US3] Implementado como `test_t025_guardrail_fails_closed_when_presidio_unavailable` en
-      `backend/tests/e2e/test_guardrail_behavior_e2e.py`: monkeypatch de `basa_guardrail._PRESIDIO_URL` a
-      un puerto cerrado → bloqueo con motivo `nlp_unavailable` confirmado end-to-end contra `BasaGuardrail`
+      `backend/tests/e2e/test_guardrail_behavior_e2e.py`: monkeypatch de `sentinel_guardrail._PRESIDIO_URL` a
+      un puerto cerrado → bloqueo con motivo `nlp_unavailable` confirmado end-to-end contra `SentinelGuardrail`
       real. *(FR-004, SC-004)*
 
 ### Implementation for User Story 3
 
-- [x] T026 [US3] En `litellm/extensions/basa_guardrail.py::async_pre_call_hook`: `NlpUnavailableError`
+- [x] T026 [US3] En `litellm/extensions/sentinel_guardrail.py::async_pre_call_hook`: `NlpUnavailableError`
       (tanto en el preview de US2 como en el masking) se traduce al motivo de bloqueo `nlp_unavailable`
       por el mismo canal que AI-Act/secretos (helper `_nlp_unavailable_block`).
-- [x] T027 [US3] **No requirió cambios** — mismo motivo que T023: `basa_audit_logger.py` ya generaliza
-      cualquier `basa_compliance.status`, incluido `blocked_nlp_unavailable`. *(FR-011)*
+- [x] T027 [US3] **No requirió cambios** — mismo motivo que T023: `sentinel_audit_logger.py` ya generaliza
+      cualquier `sentinel_compliance.status`, incluido `blocked_nlp_unavailable`. *(FR-011)*
 - [x] T028 [P] [US3] `presidio_service.py::analyze_text_http` reescrito: ya no atrapa la excepción y
       devuelve `[]` (fail-open heredado) — ahora levanta `NlpUnavailableError`; acepta `custom_names`/`region`
       y construye `ad_hoc_recognizers` vía `policy.build_ad_hoc_recognizers`. *(research.md §7)*
 - [x] T029 [US3] `guardian_service.py`: eliminado el catálogo `PATTERNS` propio de `presidio_service.py`
-      (importa `basa_guardian_policy` vía el mismo sys.path trick que `gateway.py`); `get_or_create_default_guardians`
+      (importa `sentinel_guardian_policy` vía el mismo sys.path trick que `gateway.py`); `get_or_create_default_guardians`
       migra el catálogo por defecto de Argentina (`DNI`/`CUIL`) a EU on-read (mismo patrón que la migración
       de `custom_names`); degradación a regex de dev ahora **visible** (trigger `DEGRADED` auditado), nunca
       silenciosa. *(FR-012, SC-006)*
@@ -258,7 +258,7 @@ del texto enmascarado.
       si `NLP_ANALYZER_URL` está seteada al correrlo, conectividad real al Analyzer + fail-closed
       contra una URL inválida. *(quickstart.md paso 5)*
 - [x] T034 [P] [POLISH] `README.md` actualizado: tabla de Quickstart con el servicio NLP (naming neutro,
-      sin puerto al host) y `NLP_ANALYZER_URL`/`BASA_ENTITY_REGION`; conteo de tests de la suite actualizado.
+      sin puerto al host) y `NLP_ANALYZER_URL`/`SENTINEL_ENTITY_REGION`; conteo de tests de la suite actualizado.
 - [x] T035 [POLISH] Suite completa corrida DENTRO del container real del backend
       (`docker compose run --rm --no-deps backend pytest tests/ -q`): **293 passed, 10 skipped**, 0
       regresiones sobre 013/014/019/021. *(quickstart.md paso 6)*
@@ -292,7 +292,7 @@ review, para que quede trazable igual que el resto de la spec.
       SIEMPRE, list, delete). Auto-provisiona el Guardian `pii_masking` si no existe. *(FR-013)*
 - [x] T040 [US5] Cableado hasta la detección real: `custom_auth.py` trae `custom_entities` (activas) del
       Guardian; `build_ad_hoc_recognizers`/`presidio_analyze` las suma a los `ad_hoc_recognizers`;
-      `basa_guardrail.py` las pasa a través. Probado end-to-end contra el Presidio real (no mocks).
+      `sentinel_guardrail.py` las pasa a través. Probado end-to-end contra el Presidio real (no mocks).
 - [x] T041 [US5] Fix de precisión encontrado probando en vivo: Presidio compila patrones con
       `re.IGNORECASE` por default — el propio patrón de `PASSPORT` matcheaba la palabra "pasaporte".
       `global_regex_flags` case-sensitive en `presidio-analyzer/app.py` para recognizers con patrones.

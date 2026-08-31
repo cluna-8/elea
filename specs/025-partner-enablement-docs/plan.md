@@ -26,7 +26,7 @@ plugins privacy+offline); diagramas Mermaid nativos del sitio
 check-docs` (estructura Diátaxis, naming marca-neutro, 0-egress, strict build,
 white-label, búsqueda offline)
 
-**Target Platform**: imagen `basa-docs:<brand>-<version>`, 100% estática, air-gap-first
+**Target Platform**: imagen `sentinel-docs:<brand>-<version>`, 100% estática, air-gap-first
 
 **Project Type**: documentación de producto (se vende con el producto)
 

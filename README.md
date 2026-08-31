@@ -1,4 +1,4 @@
-# Basa Guardian — Secure AI Gateway (white-label)
+# Sentinel Guardian — Secure AI Gateway (white-label)
 
 Firewall de IA **white-label** para entornos regulados (salud/EU): una **puerta única** por la que pasan
 todos los prompts de una organización hacia los LLMs, aplicando **enmascaramiento reversible de PII/PHI**,
@@ -17,24 +17,24 @@ Un solo endpoint (`/api/v1/gw`) auto-detecta el modo de cada cliente y rutea:
 ```text
                              ┌──────────────────────────────────────────────┐
   Claude Code (OAuth) ─────► │            GATEWAY  /api/v1/gw               │
-  Copilot/Cursor (sk-basa-…) │                                              │
+  Copilot/Cursor (sk-sentinel-…) │                                              │
   Extensión browser ───────► │  passthrough ──► política AQUÍ ─► api.anthropic.com
                              │  byok ─────────► router fino ──► MOTOR LiteLLM
                              │  /gw/inspect ──► mask para la extensión MV3  │
                              └──────────────────────────────────────────────┘
                                                         MOTOR = custom_auth (fail-closed)
-                                                        + BasaGuardrail + audit + budgets
+                                                        + SentinelGuardrail + audit + budgets
 ```
 
 - **`subscription-passthrough`** (Claude Code): el OAuth de suscripción del cliente viaja **verbatim** a
   `api.anthropic.com`; la política (AI-Act/secretos/mask-unmask sobre SSE) la aplica **el gateway**.
-- **`byok`** (Copilot, Cursor, cualquier tool con base URL): se detecta una virtual key `sk-basa-…` en un
+- **`byok`** (Copilot, Cursor, cualquier tool con base URL): se detecta una virtual key `sk-sentinel-…` en un
   header de auth (o `?k=…`) → router fino al **motor LiteLLM**, que aplica la política (custom_auth +
-  BasaGuardrail). El gateway **no** la duplica (evita doble-masking).
+  SentinelGuardrail). El gateway **no** la duplica (evita doble-masking).
 - **Browser** (ChatGPT/Claude web): la extensión MV3 (`extension/`) intercepta `window.fetch`, enmascara
   vía `POST /api/v1/gw/inspect` y des-enmascara el DOM. Fail-closed sin key válida (`/api/v1/gw/whoami`).
 
-Detalle completo del ruteo y la exclusión `x-basa-*`: [specs/019 — compatibility.md](specs/019-integration-surfaces/compatibility.md).
+Detalle completo del ruteo y la exclusión `x-sentinel-*`: [specs/019 — compatibility.md](specs/019-integration-surfaces/compatibility.md).
 
 ---
 
@@ -58,7 +58,7 @@ docker compose up -d --build
 | PostgreSQL (host) | `localhost:5433` |
 
 **Primer login**: entrar al frontend como `admin` con la contraseña que elijas — el primer login
-la fija (bootstrap; queda como `tenant_admin`, email `admin@basa.com.ar`).
+la fija (bootstrap; queda como `tenant_admin`, email `admin@sentinel.com.ar`).
 
 **Sin API keys reales no hay respuesta de LLM**: el sistema es **fail-closed** (no existe modo
 simulado). El panel, las políticas, el seed y la suite de tests funcionan igual sin keys.
@@ -82,10 +82,10 @@ sección *Candidatos*: sin estado hasta que un spike las promueva):
 
 | Cliente | Superficie | Estado | Notas |
 |---|---|---|---|
-| **Claude Code** (CLI) | base_url | ✅ **Funciona** | Passthrough OAuth verbatim; aguanta modo **Agent**. Identidad por UA + `X-Basa-Key`. Verificado en vivo. |
+| **Claude Code** (CLI) | base_url | ✅ **Funciona** | Passthrough OAuth verbatim; aguanta modo **Agent**. Identidad por UA + `X-Sentinel-Key`. Verificado en vivo. |
 | **ChatGPT** (web) | extensión | ✅ **Funciona** | Adapter `chatgpt`; body no firmado → acepta reescritura enmascarada. Verificado en vivo. |
 | **Claude** (web) | extensión | ✅ **Funciona** | Adapters `/completion` + `/title` (cubre la fuga del título). Verificado en vivo. |
-| **VS Code / GitHub Copilot** | base_url | 🟡 **Parcial** | byok (auto-detección `sk-basa-…` + key-in-URL). Sólo modo **Ask** — en Agent, los modelos no-Claude rompen el tool-calling. |
+| **VS Code / GitHub Copilot** | base_url | 🟡 **Parcial** | byok (auto-detección `sk-sentinel-…` + key-in-URL). Sólo modo **Ask** — en Agent, los modelos no-Claude rompen el tool-calling. |
 | **Cursor** | base_url | 🟡 **Parcial** | Override OpenAI Base URL → sólo panel chat/plan (Cmd+L). Composer/inline/autocomplete van clavados al backend de Cursor. |
 | **Gemini** (web) | extensión | 🔜 **Not yet** (viable) | Falta adapter + host match; camino identificado: DOM-hook sobre el editor Quill (requiere spike). |
 | **Claude Desktop** | MCP | 🔒 **MCP-only** | Sin base_url ni hook interceptable. Sólo gobernable en el tool-plane (args/results de tools), no el chat. |
@@ -133,12 +133,12 @@ suscripción de Claude Code verbatim a `api.anthropic.com`. No hay equivalente p
 backend/           FastAPI — API, gateway puerta-única (src/api/gateway.py), /gw/inspect (browser),
                    multi-tenant (013: RLS + tenants), presupuestos, compliance, audit
 litellm/           Motor LiteLLM + extensiones nativas (014):
-  extensions/        basa_guardian_policy.py  ← política PURA compartida (mask/unmask, AI-Act, secretos)
+  extensions/        sentinel_guardian_policy.py  ← política PURA compartida (mask/unmask, AI-Act, secretos)
                      custom_auth.py           ← identidad fail-closed (virtual key → tenant/client/tool)
-                     basa_guardrail.py        ← 3 hooks (pre/post/streaming)
-                     basa_audit_logger.py     ← audit metadata-only + feed del monitor
+                     sentinel_guardrail.py        ← 3 hooks (pre/post/streaming)
+                     sentinel_audit_logger.py     ← audit metadata-only + feed del monitor
 frontend/          React + Vite + Tailwind (panel, playground, monitor)
-extension/         Extensión MV3 Basa Guard (browser-DLP: ChatGPT/Claude web)
+extension/         Extensión MV3 Sentinel Guard (browser-DLP: ChatGPT/Claude web)
 specs/             SDD — una spec por feature (spec/plan/tasks/research); ver ROADMAP-guardian.md
 deploy/            Install & Factory (depto Falime): bundles white-label, perfiles de clientes,
                    imágenes prod, checks de release — en mudanza a repo propio guardian-factory
@@ -160,7 +160,7 @@ docker compose run --rm --no-deps backend pytest tests/ -q          # 979 tests
 docker compose exec -T litellm python /app/extensions/contract_checks.py
 docker compose exec -T litellm python /app/extensions/integration_checks.py
 # E2E reales (cruzan gateway→motor→Postgres; requieren el stack arriba, si no se saltan):
-docker compose -p basa-guardian run --rm --no-deps backend pytest tests/e2e -q
+docker compose -p sentinel-guardian run --rm --no-deps backend pytest tests/e2e -q
 ```
 
 ## Flujo de desarrollo (SDD)
@@ -176,7 +176,7 @@ ediciones manuales; `speckit-analyze` valida consistencia spec↔plan↔tasks.
 - **Departamentos** (decisión 2026-08-03, supera la división por módulos del 15-jul): Guardian App
   Ecosystem (JF, el producto) e Install & Factory (Falime, `deploy/`); Cristian = gate de seguridad, no
   departamento. Convención de trabajo: [CONTRIBUTING.md](CONTRIBUTING.md) + [CODEOWNERS](.github/CODEOWNERS);
-  operativa del depto Guardian: [tech-team/DevFlow-BasaGuardian.md](tech-team/DevFlow-BasaGuardian.md).
+  operativa del depto Guardian: [tech-team/DevFlow-SentinelGuardian.md](tech-team/DevFlow-SentinelGuardian.md).
 - **Gobernanza**: [`.specify/memory/constitution.md`](.specify/memory/constitution.md) (principios I–VIII;
   fail-closed, audit metadata-only, white-label config-as-data, never fork).
 - **Flujo de PRs**: cada spec/fase → branch → PR (merge humano). Hardening con review multi-agente +

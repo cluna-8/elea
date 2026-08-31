@@ -6,8 +6,8 @@
 
 **Status**: Implementada — estado canónico en [`deploy/ROADMAP-factory.md`](../../deploy/ROADMAP-factory.md)
 
-**Input**: User description: "Empaquetar Basa Guardian para el modelo de negocio real: Basa cobra INSTALL + X
-licencias y vende a un DISTRIBUIDOR (marca blanca) que garantiza training+soporte. Basa NO instala a cliente
+**Input**: User description: "Empaquetar Sentinel Guardian para el modelo de negocio real: Sentinel cobra INSTALL + X
+licencias y vende a un DISTRIBUIDOR (marca blanca) que garantiza training+soporte. Sentinel NO instala a cliente
 final y NO tiene servidores: se entrega **OpenTofu** para que el cliente lo levante donde quiera. Requiere (1)
 Dockerfiles de PRODUCCIÓN + imágenes/bundle, (2) branding pack como CONFIG (no fork), (3) perfil por cliente como
 artefacto (env+seed+branding+config templado), (4) módulo OpenTofu portable (VPC/Postgres/Redis/secrets/TLS/región
@@ -30,8 +30,8 @@ air-gapped) existe. Lo que existe es:
 - **`docker-compose.yml` de desarrollo.** Bind-mounts del **código fuente** en caliente (`./backend:/app`,
   `./frontend:/app`, `./litellm/config.yaml`, `./litellm/extensions`), `pgdata` en un **volumen docker
   efímero**, **sin TLS**, y **secretos default hardcodeados** en el propio compose
-  (`POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-basasecurepass123}`,
-  `LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-basa_master_key_9999}`). La imagen de LiteLLM **sí** está pinneada
+  (`POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sentinelsecurepass123}`,
+  `LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-sentinel_master_key_9999}`). La imagen de LiteLLM **sí** está pinneada
   por digest (herencia de la 014, Principio VI), pero el tag sigue siendo `main-latest`.
 - **Cero IaC** (no hay `.tf`, ni Helm, ni manifiestos k8s, ni CloudFormation) y **cero CI/CD**.
 - **Único deploy real documentado**: `llm-guardian/docs/DEPLOY_VPN.md` — `git clone` + `docker compose up` en
@@ -50,11 +50,11 @@ levanta donde quiera con OpenTofu**, respetando el Principio VII (**Containerize
   **branding pack** como config; el **perfil por cliente** como artefacto; el **módulo OpenTofu portable**; la
   **generación de secretos por instalación**; el **modo air-gapped**.
 
-**Modelo de negocio (contexto central).** Basa cobra **INSTALL + X licencias** y vende a un **DISTRIBUIDOR** de
-marca blanca que garantiza **training + soporte** al cliente final. **Basa NO instala al cliente final y NO
+**Modelo de negocio (contexto central).** Sentinel cobra **INSTALL + X licencias** y vende a un **DISTRIBUIDOR** de
+marca blanca que garantiza **training + soporte** al cliente final. **Sentinel NO instala al cliente final y NO
 opera servidores**: entrega el **OpenTofu** (+ imágenes/bundle + perfil) para que el cliente lo levante en su
 propia cuenta cloud / on-prem. Esto define el shape del entregable: **portable, parametrizable por cliente, sin
-dependencia operativa de Basa**.
+dependencia operativa de Sentinel**.
 
 **Alcance honesto.** Esta spec cubre el **empaquetado y el deploy**. **NO** implementa el **enforcement de
 licencias** (contar/expirar/validar las X licencias vendidas) — eso es la **spec 021 (license enforcement)**,
@@ -113,7 +113,7 @@ artefactos de marca blanca (mandato constitucional del Principio VII).
 propio). Sin branding-as-config, cada distribuidor implicaría un fork — exactamente lo que la constitución
 prohíbe. P1 porque define el entregable como producto revendible.
 
-**Independent Test**: Tomar el branding pack por defecto (Basa-neutro), sustituirlo por el de un distribuidor
+**Independent Test**: Tomar el branding pack por defecto (Sentinel-neutro), sustituirlo por el de un distribuidor
 ficticio (nombre/logo/colores/dominio vía **env + assets montados**, sin rebuild) y verificar: (a) la UI y los
 metadatos del backend reflejan la nueva marca **sin editar código ni rebuildear**; (b) un `grep` de los
 artefactos de marca blanca **no** encuentra la cadena "litellm"/"LiteLLM" expuesta al usuario.
@@ -126,7 +126,7 @@ artefactos de marca blanca **no** encuentra la cadena "litellm"/"LiteLLM" expues
 2. **Given** el producto de marca blanca corriendo, **When** se inspecciona la UI y las respuestas visibles,
    **Then** el motor upstream (LiteLLM) **no aparece nombrado** en ninguna parte.
 3. **Given** ausencia de branding pack del distribuidor, **When** se despliega, **Then** cae al branding
-   **por defecto** (Basa-neutro) como fallback documentado, sin romper.
+   **por defecto** (Sentinel-neutro) como fallback documentado, sin romper.
 4. **Given** un segundo distribuidor con otro pack, **When** se despliega su instalación, **Then** ambas marcas
    coexisten desde **el mismo código** parametrizado (dos configs, un solo codebase).
 
@@ -163,7 +163,7 @@ y se materializa vía `seed_client` **sin editar código** ni el `config.yaml` b
 
 ### User Story 4 - Módulo OpenTofu portable (VPC / Postgres / Redis / secrets / TLS / región EU) (Priority: P1)
 
-El entregable a Basa→distribuidor **es OpenTofu** (no Terraform: Terraform pasó a licencia **BSL** en 2023 y
+El entregable a Sentinel→distribuidor **es OpenTofu** (no Terraform: Terraform pasó a licencia **BSL** en 2023 y
 HashiCorp es ahora IBM — entregar IaC bajo BSL a un **distribuidor tercero** es deuda legal evitable; OpenTofu
 es el fork **MPL 2.0** bajo CNCF y es **drop-in** sobre los mismos `.tf`). Es un módulo **portable** que el
 cliente aplica en su cuenta cloud u on-prem para levantar la instalación completa. Provisiona: **red** (VPC con
@@ -177,7 +177,7 @@ portable y apto air-gap; v2 = **OpenBao** si se pide store central) para todos l
 `tenant.slug`); **región fijable a EU** (residencia GDPR). Expone **outputs** (URL, admin bootstrap rotado) y
 soporta **remote state + workspaces por cliente** para las muchas instalaciones del distribuidor.
 
-**Why this priority**: Es literalmente el producto que Basa vende (no instala; entrega el módulo OpenTofu). Sin
+**Why this priority**: Es literalmente el producto que Sentinel vende (no instala; entrega el módulo OpenTofu). Sin
 el módulo no hay negocio. P1.
 
 **⚠️ Premisa condicionada (v1 vs v2 de cómputo)**: v1 apunta a **VM + docker compose por cloud-init** (realista,
@@ -217,7 +217,7 @@ bootstrap **rotado**.
 
 ### User Story 5 - Secretos generados por instalación, sin defaults (Priority: P2)
 
-Los secretos default hardcodeados del compose de dev (`basasecurepass123`, `basa_master_key_9999`) **no pueden
+Los secretos default hardcodeados del compose de dev (`sentinelsecurepass123`, `sentinel_master_key_9999`) **no pueden
 salir a producción**. Esta story los **retira del camino de producción** y hace que **cada instalación genere
 sus propios secretos** (OpenTofu `random_password` cifrados con SOPS+age / OpenBao): `POSTGRES_PASSWORD`,
 `LITELLM_MASTER_KEY`, `FERNET_SECRET_KEY`, `JWT_SECRET_KEY`, keys de proveedores, `oauth_credential_ref`. El
@@ -234,7 +234,7 @@ se emite rotado por output una sola vez y no queda en claro en el state ni en lo
 **Acceptance Scenarios**:
 
 1. **Given** los artefactos de producción, **When** se inspeccionan, **Then** **no** aparecen
-   `basasecurepass123` ni `basa_master_key_9999` ni ningún secreto default (retirados del camino prod).
+   `sentinelsecurepass123` ni `sentinel_master_key_9999` ni ningún secreto default (retirados del camino prod).
 2. **Given** dos `tofu apply` en instalaciones distintas, **When** completan, **Then** cada una tiene
    `POSTGRES_PASSWORD`/`LITELLM_MASTER_KEY`/`FERNET_SECRET_KEY`/`JWT_SECRET_KEY` **únicos** y generados.
 3. **Given** el admin bootstrap, **When** termina el apply, **Then** se emite **rotado** vía output una sola vez
@@ -327,7 +327,7 @@ de negocio principal es cloud-con-OpenTofu. P3: importante y fundamentado, pero 
 - **FR-008**: Un único **branding pack** MUST parametrizar en **runtime** el frontend (env + assets montados) y
   el metadata del backend; cambiar de marca MUST requerir **cero** ediciones de código fuente **y cero
   rebuild** de imagen.
-- **FR-009**: MUST existir un branding **por defecto** (Basa-neutro) como fallback; el pack del distribuidor lo
+- **FR-009**: MUST existir un branding **por defecto** (Sentinel-neutro) como fallback; el pack del distribuidor lo
   sobreescribe.
 
 **Perfil por cliente (US3)**
@@ -371,7 +371,7 @@ de negocio principal es cloud-con-OpenTofu. P3: importante y fundamentado, pero 
 
 **Secretos por instalación (US5)**
 - **FR-025**: Ningún artefacto del camino de producción MUST contener secretos default (retirar
-  `basasecurepass123`, `basa_master_key_9999` y cualquier `${VAR:-default}` de secreto del camino prod).
+  `sentinelsecurepass123`, `sentinel_master_key_9999` y cualquier `${VAR:-default}` de secreto del camino prod).
 - **FR-026**: Cada instalación MUST **generar sus propios secretos** en provisión (OpenTofu `random_password` /
   cifrados con SOPS+age / OpenBao), únicos por instalación.
 - **FR-027**: El **admin bootstrap** MUST generarse y **rotarse** por instalación, emitirse una sola vez vía
@@ -407,7 +407,7 @@ de negocio principal es cloud-con-OpenTofu. P3: importante y fundamentado, pero 
   (air-gapped). Hereda la disciplina de pin de la 014.
 - **Branding pack** — *NUEVO, config-as-data en runtime*. Nombre/logo/colores/dominio/soporte inyectados por
   **env + assets montados en runtime** (NO build-time, NO theming multi-tenant dinámico): **una marca por
-  instancia**. NO fork. Default Basa-neutro + override por distribuidor.
+  instancia**. NO fork. Default Sentinel-neutro + override por distribuidor.
 - **Perfil de cliente** — *NUEVO, artefacto*. env + seed (`seed_client` 013) + branding pack + `config.yaml`
   templado, atado a `tenant.slug`.
 - **Módulo OpenTofu (raíz + submódulos)** — *NUEVO*. `network` (VPC/SG/NAT), `database` (Postgres),
@@ -458,10 +458,10 @@ de negocio principal es cloud-con-OpenTofu. P3: importante y fundamentado, pero 
   se **reusan**; la imagen LiteLLM pinneada por digest, el `config.yaml` y el volumen `litellm/extensions`
   (014) ya existen y se **empaquetan** (el `config.yaml` se templa por cliente, no se rediseña). Esta spec NO
   los diseña.
-- **Modelo de negocio (fuente de las decisiones de shape)**: Basa cobra **INSTALL + X licencias** y vende a un
-  **DISTRIBUIDOR** de marca blanca que garantiza training+soporte; **Basa NO instala al cliente final y NO opera
+- **Modelo de negocio (fuente de las decisiones de shape)**: Sentinel cobra **INSTALL + X licencias** y vende a un
+  **DISTRIBUIDOR** de marca blanca que garantiza training+soporte; **Sentinel NO instala al cliente final y NO opera
   servidores**; entrega **OpenTofu** (+ imágenes/bundle + perfil) para que el cliente lo levante donde quiera.
-  Esto justifica que el entregable sea **portable, parametrizable y sin dependencia operativa de Basa**.
+  Esto justifica que el entregable sea **portable, parametrizable y sin dependencia operativa de Sentinel**.
 - **Enforcement de licencias = spec 021 (license enforcement)**: contar/validar/expirar las X licencias vendidas
   es **otra spec**; esta sólo deja el **hueco de entrada** (placeholder de license key) sin cablearlo (FR-032).
 - **Reconciliación de numeración con el roadmap (bookkeeping SDD)**: `ROADMAP-guardian.md` **reserva** los

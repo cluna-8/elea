@@ -3,7 +3,7 @@
 Contrato del esquema de atribución compartido entre la columna durable
 (`audit_logs.applied_layers` / `blocked_by_layer`) y el feed efímero del monitor, para
 **ambos productores a la vez**: el logger del motor
-(`litellm/extensions/basa_audit_logger.py:143-152`) y el passthrough del gateway
+(`litellm/extensions/sentinel_audit_logger.py:143-152`) y el passthrough del gateway
 (`backend/src/api/gateway.py:304-315`). `guardian_events` queda **congelado como legado,
 sin migración** (D6).
 
@@ -53,7 +53,7 @@ sin migración** (D6).
 6. **Coherencia interna**: `blocked_by_layer != NULL` ⇔ existe un elemento con
    `decision=block` (y su `layer_code` coincide) ⇔ el status del pedido refleja bloqueo.
    Los tres productores durables escriben las columnas nuevas: `AuditService` (gateway y
-   chat) y el `_INSERT_AUDIT_SQL` del motor (`basa_audit_logger.py:25-34`, extendido).
+   chat) y el `_INSERT_AUDIT_SQL` del motor (`sentinel_audit_logger.py:25-34`, extendido).
 7. **Exhaustividad** (SC-005): todo pedido gobernado persiste `applied_layers` con TODAS
    las capas de su perfil (también las `skipped`/`not_configured`/…) — es la
    materialización durable del Principio VIII; `pipeline_metadata` del chat pasa a
@@ -67,11 +67,11 @@ sin migración** (D6).
    elemento §1) y `blocked_by_layer`. Emisores: los **2 productores de tráfico normal**
    existentes (logger del motor + passthrough del gateway) extendidos, más los emisores en
    **punto de bloqueo** de los tres planos (§11-§13 — el del chat es nuevo). El comentario
-   de `gateway.py:297-299` ("MISMO esquema que basa_audit_logger") pasa de convención a
+   de `gateway.py:297-299` ("MISMO esquema que sentinel_audit_logger") pasa de convención a
    contrato: extender uno sin los demás rompe el render uniforme de la vitrina y **falla
    el gate**.
 9. **Best-effort, jamás en el camino del cliente**: el publish a Redis nunca afecta la
-   request ni la respuesta (patrón existente, `basa_audit_logger.py:159-160` /
+   request ni la respuesta (patrón existente, `sentinel_audit_logger.py:159-160` /
    `gateway.py:321-322`). Sigue siendo efímero (TTL 300 s, cap 100) y metadata-only.
 10. **`masked_preview` SIEMPRE display-masked (C1, cierre de fuga D8)**: el preview de **todo**
     evento — incluidos los de punto de bloqueo (§12/§13), donde el bloqueo puede ocurrir ANTES
@@ -89,7 +89,7 @@ sin migración** (D6).
 11. **Plano gateway**: el camino de bloqueo ya emite `_audit` + `_publish_monitor`
     (`gateway.py:485-490`); con 027 esos dos llevan los campos nuevos con
     `blocked_by_layer` poblado.
-12. **Plano motor**: hoy un bloqueo hace `return reason` (`basa_guardrail.py:86, :91-92`)
+12. **Plano motor**: hoy un bloqueo hace `return reason` (`sentinel_guardrail.py:86, :91-92`)
     → LiteLLM levanta 400 → `async_log_success_event` **nunca dispara** → ni fila ni
     evento (research D6). 027 obliga al guardrail a **publicar el evento de monitor en el
     punto de bloqueo** (best-effort, §9), con `applied_layers` + `blocked_by_layer` — el

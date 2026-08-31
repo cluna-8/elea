@@ -17,8 +17,8 @@ contrato del código y aplicar buenas prácticas de auditoría.) Para la demo de
 — «se intentó y se impidió» — es el único que no deja rastro durable:**
 
 1. **Plano motor (LiteLLM — TODO el tráfico byok de herramientas)**: los 4 puntos de bloqueo
-   del guardrail devuelven el rechazo desde el pre-call (`basa_guardrail.py:105-166`) y el
-   logger de auditoría **solo implementa el hook de éxito** (`basa_audit_logger.py:101`;
+   del guardrail devuelven el rechazo desde el pre-call (`sentinel_guardrail.py:105-166`) y el
+   logger de auditoría **solo implementa el hook de éxito** (`sentinel_audit_logger.py:101`;
    `async_log_failure_event` no existe en el repo). Un bloqueo del motor NUNCA produce fila.
 2. **Plano chat del backend (Playground/portal)**: 3 puntos de bloqueo (AI-Act
    `chat.py:598→603`, guardián `728→733`, residencia `839→844`) publican al monitor
@@ -29,11 +29,11 @@ contrato del código y aplicar buenas prácticas de auditoría.) Para la demo de
    pero la escritura pasa por los tragadores de abajo. El camino byok se sale antes
    (`gateway.py:801-802`) y delega en el plano 1 (que no audita bloqueos).
 4. **Escritura best-effort en TODAS las capas**: el POST del motor al plano interno traga
-   4xx/5xx/timeout con un `print` (`basa_audit_logger.py:177-180, 104-105`); el escritor del
+   4xx/5xx/timeout con un `print` (`sentinel_audit_logger.py:177-180, 104-105`); el escritor del
    backend dropea con `logger.error` y devuelve `None` que nadie mira
    (`audit_service.py:117-120`, deuda declarada en `:57-62`); el gateway envuelve todo otra
    vez (`gateway.py:603-604`). Este agujero YA causó pérdida total de auditoría byok en el
-   ensayo del piloto (documentado en `basa_audit_logger.py:145-150`).
+   ensayo del piloto (documentado en `sentinel_audit_logger.py:145-150`).
 5. **Retención = campo de formulario**: `retention_days` se guarda y se muestra
    (`compliance.py:314-334`, pestaña «Retención de Datos») pero NINGÚN proceso lo lee para
    purgar; `purge_log` tiene cero escritores; el único scheduler del proceso es el de

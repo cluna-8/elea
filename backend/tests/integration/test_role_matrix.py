@@ -60,7 +60,7 @@ from src.auth.matrix import Rol, roles_con_escritura, roles_con_lectura  # noqa:
 
 require_postgres()
 
-DB = "basa_test_role_matrix"
+DB = "sentinel_test_role_matrix"
 
 # Roles canónicos minteables (ck_users_role). `lectura` entra con T010: su gate de chat ya
 # existe, así que la fila `chat_playground`=NINGUNO (403) se asserta en vivo sin volver roja la
@@ -277,11 +277,11 @@ def _content_policies_mockeadas(monkeypatch):
         return []
 
     async def _crear(*a, **kw):
-        return {"policy_id": "mock", "guardrail_id": "mock-id", "name": "basa-policy-mock",
+        return {"policy_id": "mock", "guardrail_id": "mock-id", "name": "sentinel-policy-mock",
                 "description": "", "blocked_words": [], "categories": [], "active": False}
 
     async def _actualizar(*a, **kw):
-        return {"policy_id": "mock", "guardrail_id": "mock-id", "name": "basa-policy-mock",
+        return {"policy_id": "mock", "guardrail_id": "mock-id", "name": "sentinel-policy-mock",
                 "description": "", "blocked_words": [], "categories": [], "active": False}
 
     async def _borrar(*a, **kw):
@@ -398,7 +398,7 @@ def test_rol_lectura_es_minteable(harness):
     db = factory()
     try:
         fila = User(username=f"lectura-probe-{uuid.uuid4().hex[:8]}",
-                    email="lectura-probe@basa.com.ar", password_hash=hash_password(ROLE_PASS),
+                    email="lectura-probe@sentinel.com.ar", password_hash=hash_password(ROLE_PASS),
                     role="lectura", is_active=True)
         db.add(fila)
         db.commit()  # sin IntegrityError: el CHECK ya lo admite

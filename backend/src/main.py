@@ -15,7 +15,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("basa-secure-gateway")
+logger = logging.getLogger("sentinel-secure-gateway")
 
 
 def _run_alembic_upgrade_head() -> None:
@@ -64,8 +64,8 @@ else:
     _run_alembic_upgrade_head()
 
 # Marca como CONFIG (spec 020 US2, FR-006): el nombre del producto en el
-# metadata (OpenAPI/health) viene del branding pack via env; default Basa-neutro.
-BRAND_NAME = os.getenv("BRAND_NAME", "Basa Secure AI Gateway")
+# metadata (OpenAPI/health) viene del branding pack via env; default Sentinel-neutro.
+BRAND_NAME = os.getenv("BRAND_NAME", "Sentinel Secure AI Gateway")
 
 # Gate de ARRANQUE de licencia (spec 021 US1): verificación Ed25519 OFFLINE del
 # token inyectado por la 020. Fail-closed para la CREACIÓN de seats (gate en
@@ -81,10 +81,10 @@ license_entitlement.initialize()
 async def _lifespan(_app: FastAPI):
     # Reconciliación periódica de seats (spec 021 US3, T025): vive y muere con
     # la app; 100% local, sin phone-home. Interval/off por
-    # BASA_LICENSE_RECONCILE_INTERVAL_SECONDS.
+    # SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS.
     license_reconcile.start_scheduler()
     # Purga de retención (spec 018 FR-001, T011): mismo patrón, al lado. Doble
-    # compuerta propia: queda APAGADA salvo BASA_PURGE_ENABLED=true, porque un job
+    # compuerta propia: queda APAGADA salvo SENTINEL_PURGE_ENABLED=true, porque un job
     # que hace DELETE retroactivo no se enciende con un pull de imagen.
     retention_scheduler.start_scheduler()
     try:
@@ -152,7 +152,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def health_check():
     return {
         "status": "healthy",
-        "service": os.getenv("BRAND_SERVICE_ID", "basa-secure-ai-gateway-backend"),
+        "service": os.getenv("BRAND_SERVICE_ID", "sentinel-secure-ai-gateway-backend"),
         "version": "1.0.0",
         # Liveness del scheduler de purga (spec 018 FR-001, T011): booleano barato, sin I/O,
         # así que va en el healthcheck del contenedor sin volverlo caro ni tocar `status`.

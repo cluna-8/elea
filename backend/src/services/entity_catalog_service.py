@@ -35,7 +35,7 @@ from ..services.guardian_service import GuardianService
 from . import ai_engine_client
 from . import _redos_worker
 
-logger = logging.getLogger("basa-secure-gateway.entity-catalog")
+logger = logging.getLogger("sentinel-secure-gateway.entity-catalog")
 
 MAX_PATTERN_LEN = 200
 REGEX_TIMEOUT_S = 2.0
@@ -99,7 +99,7 @@ class DuplicateEntityTypeError(ValueError):
 
 
 MAX_ENTITY_TYPE_LEN = 64
-# El placeholder es [TIPO_idx_nonce] (PH_TYPE_RE en basa_guardian_policy.py) —
+# El placeholder es [TIPO_idx_nonce] (PH_TYPE_RE en sentinel_guardian_policy.py) —
 # TIPO debe ser MAYÚSCULAS/dígitos/guion_bajo, empezando con letra, sin '[' ']'
 # ni '_' pegado a un patrón de nonce que confunda el parser de carry-split.
 _ENTITY_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")

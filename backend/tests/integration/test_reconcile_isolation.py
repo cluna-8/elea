@@ -22,7 +22,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_reconcile_iso"
+DB = "sentinel_test_reconcile_iso"
 
 
 @pytest.fixture(scope="module")

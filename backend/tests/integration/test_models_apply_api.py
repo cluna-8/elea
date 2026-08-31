@@ -28,7 +28,7 @@ from src.auth.matrix import Rol  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_models_apply_api"
+DB = "sentinel_test_models_apply_api"
 URL = "/api/v1/chat/models/apply"
 
 # Cuerpo NO-objeto: contra un schema Pydantic (``ModelsApplyRequest``) esto SIEMPRE es

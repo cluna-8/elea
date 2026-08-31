@@ -10,7 +10,7 @@ HARNESS_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_paquete_importa():
-    import basa_harness  # noqa: F401 — el paquete raíz se instala vía pyproject
+    import sentinel_harness  # noqa: F401 — el paquete raíz se instala vía pyproject
 
 
 def test_estructura_del_modulo_existe():

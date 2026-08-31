@@ -1,22 +1,22 @@
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
-  # Identidad Basa (spec 014 US2): virtual key -> tenant/client/tool, fail-closed.
+  # Identidad Sentinel (spec 014 US2): virtual key -> tenant/client/tool, fail-closed.
   # El path se resuelve RELATIVO a este archivo (research T005): extensions/ vive
   # al lado del config dentro del contenedor (/app/extensions, ver docker-compose).
   custom_auth: extensions.custom_auth.user_api_key_auth
   # Backstop del motor sobre la identidad retornada (models/rpm/tpm) — Principio VI
   custom_auth_run_common_checks: true
 guardrails:
-  # Politica Basa como CustomGuardrail nativo (spec 014 US1). mode post_call cubre
+  # Politica Sentinel como CustomGuardrail nativo (spec 014 US1). mode post_call cubre
   # tambien el streaming (async_post_call_streaming_iterator_hook) — research T005.
-- guardrail_name: basa-guardian
+- guardrail_name: sentinel-guardian
   litellm_params:
-    guardrail: extensions.basa_guardrail.BasaGuardrail
+    guardrail: extensions.sentinel_guardrail.SentinelGuardrail
     mode: [pre_call, post_call]
     default_on: true
 litellm_settings:
   # Audit metadata-only + feed del monitor (spec 014 US3)
-  callbacks: extensions.basa_audit_logger.basa_audit_logger_instance
+  callbacks: extensions.sentinel_audit_logger.sentinel_audit_logger_instance
   cache: true
   cache_params:
     host: os.environ/REDIS_HOST

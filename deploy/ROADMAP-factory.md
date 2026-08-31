@@ -19,19 +19,19 @@ consume pinneado.
 | Engine-extensions | pack de `litellm/extensions/*.py` por release + `contract_checks.py` como gate | copia por ruta en `bundle.sh:96`; artefactualizar |
 | Extensión navegador | runtime-pack neutro + campos de manifest que el render puede tocar | render sobre copia ya funciona |
 | Docs | `openapi.json` + config-reference como assets de release | decidido en la 022; publicar |
-| Perfiles de cliente | schema de `seed.yaml`/`client.env`/`brand.json`; `PROFILES_ROOT` soporta repo externo | precedente vivo: `basa-partner-camara` |
-| Keyset de licencias | `basa_public_keys.pem` + procedimiento de rotación de `kid` (**gate Cristian**) | horneado en imagen; desacoplar vía `BASA_LICENSE_PUBLIC_KEYS_FILE` |
-| Runtime del compose | catálogo de envs por imagen (obligatoriedad + paridades, p.ej. `BASA_AUDIT_FAIL`, `NLP_ANALYZER_URL`×2) | artesanal en `render_profile.sh` |
+| Perfiles de cliente | schema de `seed.yaml`/`client.env`/`brand.json`; `PROFILES_ROOT` soporta repo externo | precedente vivo: `sentinel-partner-camara` |
+| Keyset de licencias | `sentinel_public_keys.pem` + procedimiento de rotación de `kid` (**gate Cristian**) | horneado en imagen; desacoplar vía `SENTINEL_LICENSE_PUBLIC_KEYS_FILE` |
+| Runtime del compose | catálogo de envs por imagen (obligatoriedad + paridades, p.ej. `SENTINEL_AUDIT_FAIL`, `NLP_ANALYZER_URL`×2) | artesanal en `render_profile.sh` |
 
 ## Features
 
 | Spec | Título | Prioridad | Estado |
 |------|--------|-----------|--------|
-| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | **Implementada** (US1-US6, 2026-07-20, [PR #23](https://github.com/DrZuzzjen/basa-guardian/pull/23)); resta T040 (tofu apply e2e sandbox) |
-| 025 | Partner Enablement (capacitación + certificación del partner) | P2 | **Implementada** (2026-07-22, [PR #36](https://github.com/DrZuzzjen/basa-guardian/pull/36)); doc oficial del ciclo de onboarding |
-| 026 | CLI de operador `basa-admin` — firma de licencias e instalación guiada offline | **P1** | **Spec+plan completos, implementación EN CERO** — habilitador del partner instalando en septiembre |
-| 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#51](https://github.com/DrZuzzjen/basa-guardian/issues/51)); primer ladrillo del plano de control del futuro Vendor Portal |
-| — | Trust-kit TLS del certificado | **P1** | Mergeado ([PR #55](https://github.com/DrZuzzjen/basa-guardian/pull/55)); **pendiente: pasada en VM Windows real** (UAC, almacén de máquina, GPO, `IsInputRedirected` como SYSTEM) antes de entregarlo a la sede; instaladores sin firma → [#61](https://github.com/DrZuzzjen/basa-guardian/issues/61) |
+| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | **Implementada** (US1-US6, 2026-07-20, [PR #23](https://github.com/DrZuzzjen/sentinel-guardian/pull/23)); resta T040 (tofu apply e2e sandbox) |
+| 025 | Partner Enablement (capacitación + certificación del partner) | P2 | **Implementada** (2026-07-22, [PR #36](https://github.com/DrZuzzjen/sentinel-guardian/pull/36)); doc oficial del ciclo de onboarding |
+| 026 | CLI de operador `sentinel-admin` — firma de licencias e instalación guiada offline | **P1** | **Spec+plan completos, implementación EN CERO** — habilitador del partner instalando en septiembre |
+| 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#51](https://github.com/DrZuzzjen/sentinel-guardian/issues/51)); primer ladrillo del plano de control del futuro Vendor Portal |
+| — | Trust-kit TLS del certificado | **P1** | Mergeado ([PR #55](https://github.com/DrZuzzjen/sentinel-guardian/pull/55)); **pendiente: pasada en VM Windows real** (UAC, almacén de máquina, GPO, `IsInputRedirected` como SYSTEM) antes de entregarlo a la sede; instaladores sin firma → [#61](https://github.com/DrZuzzjen/sentinel-guardian/issues/61) |
 | — | Camino de update v0 (bundle-parche + procedimiento) | **P1** | No existe — hoy solo reinstalación fresca. Prerrequisito del zero-day O(N) del partner |
 | — | CI/CD y convención de releases | **P1** | No existe (`.github/` = solo CODEOWNERS); los 20 checks de `deploy/release/checks/` corren a mano |
 | — | Vendor Portal | oct+ | Su lógica se entrega vía CLI 026; la cara web llega sobre la CLI probada en campo. 100% Factory |
@@ -64,10 +64,10 @@ etapas (formación → práctica → 2-3 installs acompañados → certificació
 checklist de autonomía y tabla quién-hace-qué post-certificación. **Filtro editorial FR-007**: la doc se
 vende → cero economía interna del fabricante (FTE/horas/costos); esa parte vive solo en el doc ejecutivo.
 
-### 026 — CLI de operador `basa-admin` (P1, habilitador del partner)
+### 026 — CLI de operador `sentinel-admin` (P1, habilitador del partner)
 Una **CLI local, offline y airgap-safe** que le da cara humana a las operaciones que hoy son
 **scripts sueltos con foot-guns** (inventario 2026-07-22: 54 operaciones; ver
-`specs/026-cli-operador-basa/inventario-scripts.md`). MVP acotado a **firma de licencias**
+`specs/026-cli-operador-sentinel/inventario-scripts.md`). MVP acotado a **firma de licencias**
 (el primer ladrillo — hoy `issue_dev_license.py` regenera el keyset y **invalida cajas ya
 instaladas** en cada corrida) e **instalación guiada** de un cliente hasta stack corriendo y
 verificado (perfil → secretos → bundle → up → seed → licencia → admin → verify), con
@@ -84,7 +84,7 @@ sólo agrega **un registro A** en su DNS interno y **no se instala nada en ning�
 (CSR / AD CS) es la única vía air-gap sostenible con la vida de los certs cayendo a 47 días en 2029;
 `internal` es lo de hoy, productizado. Las tres convergen en el mismo cambio del `Caddyfile.ingress`.
 **Es además el primer ladrillo real del portal de partners**: usa el mismo plano de control que el
-«firmante central» de FR-030. Research completo en [#51](https://github.com/DrZuzzjen/basa-guardian/issues/51).
+«firmante central» de FR-030. Research completo en [#51](https://github.com/DrZuzzjen/sentinel-guardian/issues/51).
 
 ## Mantenimiento
 

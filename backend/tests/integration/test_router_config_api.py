@@ -48,7 +48,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_router_config_api"
+DB = "sentinel_test_router_config_api"
 URL = "/api/v1/chat/router-config"
 GENERAR = f"{URL}/generate-utterances"
 MODELOS = "/api/v1/chat/models"
@@ -452,7 +452,7 @@ def _headers_no_admin(client, factory):
     try:
         usuario = db.query(User).filter(User.username == "router-no-admin").first()
         if usuario is None:
-            db.add(User(username="router-no-admin", email="router-no-admin@basa.com.ar",
+            db.add(User(username="router-no-admin", email="router-no-admin@sentinel.com.ar",
                         password_hash=hash_password("clave-no-admin-12345"),
                         role="client", is_active=True))
             db.commit()

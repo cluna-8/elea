@@ -30,10 +30,10 @@ un olvido.
 
 ```mermaid
 flowchart TB
-    OFF[Purga apagada<br/>BASA_PURGE_ENABLED=false] -->|1. Operador enciende| ENB[Purga encendida<br/>con simulacro]
-    ENB -->|2. Corrida de simulacro<br/>BASA_PURGE_DRY_RUN=true| CNT[Conteo: cuántas filas<br/>caerían por clase]
+    OFF[Purga apagada<br/>SENTINEL_PURGE_ENABLED=false] -->|1. Operador enciende| ENB[Purga encendida<br/>con simulacro]
+    ENB -->|2. Corrida de simulacro<br/>SENTINEL_PURGE_DRY_RUN=true| CNT[Conteo: cuántas filas<br/>caerían por clase]
     CNT -->|3. DPO firma el conteo| FIR[Número aceptado<br/>con fecha de corte]
-    FIR -->|4. Operador apaga simulacro<br/>BASA_PURGE_DRY_RUN=false| REAL[Borrado real<br/>dentro de la ventana]
+    FIR -->|4. Operador apaga simulacro<br/>SENTINEL_PURGE_DRY_RUN=false| REAL[Borrado real<br/>dentro de la ventana]
     REAL -->|5. Reiniciar a simulacro<br/>o apagar del todo| OFF
 ```
 
@@ -73,20 +73,20 @@ debe contradecirlos**.
 
 | Perilla | Default | Qué hace |
 |---|---|---|
-| `BASA_PURGE_ENABLED` | `false` | **Interruptor maestro.** En `false` el scheduler ni arranca y no se elimina ninguna fila: la instalación queda configurada pero inerte. En `true` (con **reinicio del backend** — se lee al arrancar, no en caliente) el proceso arranca y, salvo simulacro, borra las filas vencidas. Viene apagado a propósito: un proceso que borra hacia atrás no se enciende solo con una actualización de producto. La primera vez que arranque se encontraría con todo lo acumulado en la vida de la instalación y se lo llevaría de una — y lo borrado no vuelve. Se apaga también, ya en operación, para una instalación con un legal hold en curso. |
-| `BASA_PURGE_DRY_RUN` | `true` | **Simulacro.** En `true` la corrida hace todo menos borrar: resuelve la fecha de corte, **cuenta** las filas que caerían y deja el rastro marcado como simulacro. Nada se elimina. Es la segunda mitad de la red del encendido: aun con el interruptor en `true`, la instalación cuenta antes de borrar, y el DPO firma sobre un número real —«se van 412.000 filas de esta clase, con esta fecha de corte»— en vez de enterarse del alcance leyendo el rastro de lo ya borrado. Se pasa a `false` recién cuando ese número está mirado y aceptado, y es el único cambio de esta lista que hay que hacer una sola vez y con alguien mirando. |
-| `BASA_PURGE_INTERVAL_SECONDS` | `3600` | Cada cuánto **despierta** el proceso a mirar si está en ventana, en segundos. No es «cada cuánto borra»: si el momento cae fuera de `BASA_PURGE_WINDOW` no hace nada y se vuelve a dormir. Bajarlo no borra más rápido, sólo engancha la ventana antes. |
-| `BASA_PURGE_WINDOW` | `02:00-05:00` | Ventana horaria en la que se permite borrar, `HH:MM-HH:MM` en la hora local de la instalación (ver `BASA_PURGE_WINDOW_TZ`). El registro de auditoría es la tabla más caliente del producto —con el monitor, la analítica, los costes y el export leyendo encima— y el borrado compite con esos lectores: se trabaja de madrugada para que nadie note que existe. Una ventana que cruza medianoche (`23:00-02:00`) es válida. |
-| `BASA_PURGE_WINDOW_TZ` | `Europe/Madrid` | Zona horaria (nombre IANA) con la que se interpreta `BASA_PURGE_WINDOW`. El contenedor corre en UTC: sin esto, «las 02:00» serían las 04:00 de la sede en verano y las 23:00 del día anterior en una instalación de LATAM — o sea, borrando en hora punta. |
-| `BASA_PURGE_BATCH_SIZE` | `5000` | Filas por lote. Lo acumulado en la primera corrida puede ser meses de tráfico: borrar millones de filas de un golpe bloquea la tabla un rato largo y le tumba la pantalla al officer. Se converge por lotes. |
-| `BASA_PURGE_BATCH_PAUSE_MS` | `200` | Pausa entre lotes, en milisegundos: le devuelve la tabla a los lectores calientes entre lote y lote. Es la perilla de **cortesía** — se sube si la instalación acusa el borrado; bajarla a 0 lo convierte en el vecino ruidoso de su propia tabla. |
+| `SENTINEL_PURGE_ENABLED` | `false` | **Interruptor maestro.** En `false` el scheduler ni arranca y no se elimina ninguna fila: la instalación queda configurada pero inerte. En `true` (con **reinicio del backend** — se lee al arrancar, no en caliente) el proceso arranca y, salvo simulacro, borra las filas vencidas. Viene apagado a propósito: un proceso que borra hacia atrás no se enciende solo con una actualización de producto. La primera vez que arranque se encontraría con todo lo acumulado en la vida de la instalación y se lo llevaría de una — y lo borrado no vuelve. Se apaga también, ya en operación, para una instalación con un legal hold en curso. |
+| `SENTINEL_PURGE_DRY_RUN` | `true` | **Simulacro.** En `true` la corrida hace todo menos borrar: resuelve la fecha de corte, **cuenta** las filas que caerían y deja el rastro marcado como simulacro. Nada se elimina. Es la segunda mitad de la red del encendido: aun con el interruptor en `true`, la instalación cuenta antes de borrar, y el DPO firma sobre un número real —«se van 412.000 filas de esta clase, con esta fecha de corte»— en vez de enterarse del alcance leyendo el rastro de lo ya borrado. Se pasa a `false` recién cuando ese número está mirado y aceptado, y es el único cambio de esta lista que hay que hacer una sola vez y con alguien mirando. |
+| `SENTINEL_PURGE_INTERVAL_SECONDS` | `3600` | Cada cuánto **despierta** el proceso a mirar si está en ventana, en segundos. No es «cada cuánto borra»: si el momento cae fuera de `SENTINEL_PURGE_WINDOW` no hace nada y se vuelve a dormir. Bajarlo no borra más rápido, sólo engancha la ventana antes. |
+| `SENTINEL_PURGE_WINDOW` | `02:00-05:00` | Ventana horaria en la que se permite borrar, `HH:MM-HH:MM` en la hora local de la instalación (ver `SENTINEL_PURGE_WINDOW_TZ`). El registro de auditoría es la tabla más caliente del producto —con el monitor, la analítica, los costes y el export leyendo encima— y el borrado compite con esos lectores: se trabaja de madrugada para que nadie note que existe. Una ventana que cruza medianoche (`23:00-02:00`) es válida. |
+| `SENTINEL_PURGE_WINDOW_TZ` | `Europe/Madrid` | Zona horaria (nombre IANA) con la que se interpreta `SENTINEL_PURGE_WINDOW`. El contenedor corre en UTC: sin esto, «las 02:00» serían las 04:00 de la sede en verano y las 23:00 del día anterior en una instalación de LATAM — o sea, borrando en hora punta. |
+| `SENTINEL_PURGE_BATCH_SIZE` | `5000` | Filas por lote. Lo acumulado en la primera corrida puede ser meses de tráfico: borrar millones de filas de un golpe bloquea la tabla un rato largo y le tumba la pantalla al officer. Se converge por lotes. |
+| `SENTINEL_PURGE_BATCH_PAUSE_MS` | `200` | Pausa entre lotes, en milisegundos: le devuelve la tabla a los lectores calientes entre lote y lote. Es la perilla de **cortesía** — se sube si la instalación acusa el borrado; bajarla a 0 lo convierte en el vecino ruidoso de su propia tabla. |
 
 !!! warning "Las 6 perillas de la corrida no surten efecto con la purga apagada"
-    Salvo `BASA_PURGE_ENABLED`, todas dicen «sólo surte efecto con
-    `BASA_PURGE_ENABLED=true`». Con el interruptor maestro en `false` el scheduler ni
+    Salvo `SENTINEL_PURGE_ENABLED`, todas dicen «sólo surte efecto con
+    `SENTINEL_PURGE_ENABLED=true`». Con el interruptor maestro en `false` el scheduler ni
     arranca, así que el resto de las perillas se lee pero no se aplica.
 
-!!! warning "`BASA_PURGE_ENABLED` se lee al arrancar — pide reinicio"
+!!! warning "`SENTINEL_PURGE_ENABLED` se lee al arrancar — pide reinicio"
     El interruptor maestro se lee al **arrancar el backend**, no en caliente. Cambiarlo
     en el `.env` y recargar el proceso no alcanza: hay que **reiniciar el backend**.
     El resto de las perillas (simulacro, intervalo, ventana, lote, pausa) **sí** se
@@ -104,7 +104,7 @@ python -m src.services.retention.purger --run-now
 ```
 
 `--run-now` es el único flag del CLI. Dice **CUÁNDO** (saltea la ventana horaria) y
-**no** dice SI BORRA: el simulacro se gobierna por `BASA_PURGE_DRY_RUN` (default
+**no** dice SI BORRA: el simulacro se gobierna por `SENTINEL_PURGE_DRY_RUN` (default
 `true` = cuenta sin borrar), que el CLI **no toca**. Los dos ejes son ortogonales a
 propósito — uno es el cuándo y el otro es el si borra — y la combinación más pedida es
 justamente la cruzada: «corré ahora y decime cuánto se iría».
@@ -113,8 +113,8 @@ justamente la cruzada: «corré ahora y decime cuánto se iría».
 # Simulacro inmediato (default — cuenta sin borrar):
 python -m src.services.retention.purger --run-now
 
-# Borrado real inmediato (BASA_PURGE_ENABLED=true + BASA_PURGE_DRY_RUN=false en el entorno):
-BASA_PURGE_DRY_RUN=false python -m src.services.retention.purger --run-now
+# Borrado real inmediato (SENTINEL_PURGE_ENABLED=true + SENTINEL_PURGE_DRY_RUN=false en el entorno):
+SENTINEL_PURGE_DRY_RUN=false python -m src.services.retention.purger --run-now
 ```
 
 El CLI es una **cáscara** sobre `run_once`: corre una pasada por todas las clases y
@@ -130,14 +130,14 @@ simulacro no escribe, así que el log es lo único que le queda al operador en e
 
 El encendido no es un solo paso: es una **secuencia con seguro doble** diseñada para
 que nadie encienda un borrado retroactivo sin haber visto el número. El compose de
-producción trae `BASA_PURGE_ENABLED` en `false` por una razón explícita — si estuviera
+producción trae `SENTINEL_PURGE_ENABLED` en `false` por una razón explícita — si estuviera
 en `true`, un `docker compose pull` encendería solo un `DELETE` retroactivo sobre
 datos del cliente sin que nadie hubiera decidido nada. El encendido es un paso del
 operador, con reinicio del backend y con el conteo del simulacro ya firmado.
 
 ### Paso 1 — Verificar que la purga está apagada
 
-Antes de tocar nada, confirmá que `BASA_PURGE_ENABLED=false` y que el scheduler no
+Antes de tocar nada, confirmá que `SENTINEL_PURGE_ENABLED=false` y que el scheduler no
 está corriendo. El endpoint de salud del backend expone `purge_scheduler_running`
 (booleano): con la purga apagada (el default) es `false` — es lo esperado, no una
 avería.
@@ -146,12 +146,12 @@ avería.
 
 ```bash
 # En el .env del despliegue:
-BASA_PURGE_ENABLED=true
-BASA_PURGE_DRY_RUN=true   # ya es el default, pero dejalo explícito
+SENTINEL_PURGE_ENABLED=true
+SENTINEL_PURGE_DRY_RUN=true   # ya es el default, pero dejalo explícito
 ```
 
 Reiniciá el backend (el interruptor maestro se lee al arrancar). Con esto el scheduler
-arranca y, en cada tick de `BASA_PURGE_INTERVAL_SECONDS`, si está dentro de la ventana
+arranca y, en cada tick de `SENTINEL_PURGE_INTERVAL_SECONDS`, si está dentro de la ventana
 hace una corrida que **cuenta sin borrar**.
 
 ### Paso 3 — Disparar el simulacro y leer el conteo
@@ -173,23 +173,23 @@ Cuando el conteo esté mirado y aceptado:
 
 ```bash
 # En el .env del despliegue:
-BASA_PURGE_DRY_RUN=false
+SENTINEL_PURGE_DRY_RUN=false
 ```
 
-Esto **no** pide reinicio (`BASA_PURGE_DRY_RUN` se relee en cada corrida, no al
+Esto **no** pide reinicio (`SENTINEL_PURGE_DRY_RUN` se relee en cada corrida, no al
 arrancar). La próxima corrida —dentro de la ventana, o inmediata con `--run-now`—
 borra de verdad. Es el único cambio de esta lista que se hace **una sola vez y con
 alguien mirando**.
 
 ### Paso 5 — Volver a simulacro o apagar
 
-Tras la corrida real, volvé a `BASA_PURGE_DRY_RUN=true` (simulacro) o
-`BASA_PURGE_ENABLED=false` (apagado total, con reinicio). No dejes el borrado real
+Tras la corrida real, volvé a `SENTINEL_PURGE_DRY_RUN=true` (simulacro) o
+`SENTINEL_PURGE_ENABLED=false` (apagado total, con reinicio). No dejes el borrado real
 encendido sin motivo: la purga no es un modo permanente, es un acto puntual.
 
 !!! tip "Legal hold"
     Si la instalación entra en un legal hold (una retención judicial o regulatoria que
-    prohíbe borrar), apagá `BASA_PURGE_ENABLED=false` y reiniciá. El scheduler deja de
+    prohíbe borrar), apagá `SENTINEL_PURGE_ENABLED=false` y reiniciá. El scheduler deja de
     arrancar y no se borra ninguna fila mientras dure el hold.
 
 ---
@@ -199,7 +199,7 @@ encendido sin motivo: la purga no es un modo permanente, es un acto puntual.
 El endpoint de salud del backend expone `purge_scheduler_running` (booleano): indica
 si el hilo de purga está vivo.
 
-| `BASA_PURGE_ENABLED` | `purge_scheduler_running` | Lectura |
+| `SENTINEL_PURGE_ENABLED` | `purge_scheduler_running` | Lectura |
 |---|---|---|
 | `false` (default) | `false` | La instalación está configurada pero inerte. Es lo esperado. |
 | `true` | `true` | El scheduler está vivo y despierta en cada intervalo. |

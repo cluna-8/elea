@@ -35,7 +35,7 @@ from seat_gate_harness import (  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_sso_api"
+DB = "sentinel_test_sso_api"
 
 LOGIN = "/api/v1/auth/sso/login"
 CALLBACK = "/api/v1/auth/sso/callback"
@@ -144,7 +144,7 @@ def _licencia_base():
 def _redirect_uri_configurada(monkeypatch):
     """La URI de retorno es obligatoria y apunta al FRONTEND (ver ``_redirect_uri``).
     Se configura como en un deployment real en vez de dejar que el código la derive."""
-    monkeypatch.setenv("BASA_SSO_REDIRECT_URI", FRONTEND_REDIRECT)
+    monkeypatch.setenv("SENTINEL_SSO_REDIRECT_URI", FRONTEND_REDIRECT)
 
 
 # ── El gate de licencia (FR-010) ───────────────────────────────────────────────────
@@ -244,7 +244,7 @@ def test_login_deja_la_cookie_de_state_httponly(entorno, sso_licenciado, config_
     resp = client.get(LOGIN, follow_redirects=False)
 
     cookie = resp.headers.get("set-cookie", "")
-    assert "basa_sso_state=" in cookie
+    assert "sentinel_sso_state=" in cookie
     assert "HttpOnly" in cookie
     assert "Path=/api/v1/auth/sso" in cookie
 
@@ -283,7 +283,7 @@ def test_sin_redirect_uri_configurada_el_flujo_corta_claro(entorno, sso_licencia
     """Sin configurar NO se cae a la URL de la API en silencio: eso daría un flujo que
     pasa los tests y aterriza en una página de JSON en producción."""
     client, _ = entorno
-    monkeypatch.delenv("BASA_SSO_REDIRECT_URI", raising=False)
+    monkeypatch.delenv("SENTINEL_SSO_REDIRECT_URI", raising=False)
 
     resp = client.get(LOGIN, follow_redirects=False)
 
@@ -343,7 +343,7 @@ def test_callback_con_cookie_falsificada_400(entorno, sso_licenciado, config_sso
     """Una cookie de state no firmada por nosotros no habilita el paso."""
     client, _ = entorno
     client.cookies.clear()
-    client.cookies.set("basa_sso_state", "no.es.un.jwt.valido")
+    client.cookies.set("sentinel_sso_state", "no.es.un.jwt.valido")
     resp = client.get(f"{CALLBACK}?state=x&code=abc", follow_redirects=False)
     assert resp.status_code == 400
     assert "sso_state_invalido" in resp.text
@@ -362,7 +362,7 @@ def test_un_token_de_sesion_no_sirve_como_state(entorno, sso_licenciado, config_
     sesion = create_session_token(str(uuid.uuid4()), "tenant_admin", "admin", str(DEFAULT_TENANT_ID))
 
     client.cookies.clear()
-    client.cookies.set("basa_sso_state", sesion)
+    client.cookies.set("sentinel_sso_state", sesion)
     resp = client.get(f"{CALLBACK}?state=x&code=abc", follow_redirects=False)
 
     assert resp.status_code == 400
@@ -397,7 +397,7 @@ def test_el_claim_purpose_es_lo_que_separa_los_dos_tipos_de_token(
     )
 
     client.cookies.clear()
-    client.cookies.set("basa_sso_state", forjado)
+    client.cookies.set("sentinel_sso_state", forjado)
     resp = client.get(f"{CALLBACK}?state={state}&code=abc", follow_redirects=False)
 
     assert resp.status_code == 400, (

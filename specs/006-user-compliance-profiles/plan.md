@@ -22,7 +22,7 @@
 | `backend/src/api/chat.py` | Resolución de proyecto de compliance por grupo; cabecera `X-Processing-Purpose` → audit log |
 | `backend/src/api/keys.py` | rpm_limit / tpm_limit en create/list |
 | `backend/src/services/audit_service.py` | Parámetros processing_purpose y user_group_id |
-| `docker-compose.yml` | Contenedor `basa-redis`; variable `REDIS_HOST=basa-redis` |
+| `docker-compose.yml` | Contenedor `sentinel-redis`; variable `REDIS_HOST=sentinel-redis` |
 | `litellm/config.yaml` | Sección `cache` con Redis |
 | `frontend/src/pages/UsersPage.tsx` | Selector de grupo al crear usuario; sección Grupos |
 | `frontend/src/pages/CompliancePage.tsx` | Tab DSR (exportar por sujeto); tab Consentimientos |

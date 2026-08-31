@@ -43,7 +43,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_chat_attribution"
+DB = "sentinel_test_chat_attribution"
 
 CHAT = "/api/v1/chat/completions"
 MODELO = "ollama-qwen3-4b"

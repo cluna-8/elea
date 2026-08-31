@@ -6,15 +6,15 @@ package_update: true
 packages: [docker.io, docker-compose-v2, curl]
 
 write_files:
-  - path: /opt/basa/compose.prod.yml
+  - path: /opt/sentinel/compose.prod.yml
     permissions: "0644"
     content: |
       ${indent(6, compose_prod)}
-  - path: /opt/basa/instance.env
+  - path: /opt/sentinel/instance.env
     permissions: "0644"
     content: |
       ${indent(6, instance_env)}
-  - path: /opt/basa/secrets.env
+  - path: /opt/sentinel/secrets.env
     permissions: "0600"
     content: |
       POSTGRES_HOST=${postgres_host}
@@ -22,22 +22,22 @@ write_files:
       POSTGRES_USER=${postgres_user}
       POSTGRES_PASSWORD=${postgres_password}
       REDIS_HOST=${redis_host}
-      BASA_ENGINE_MASTER_KEY=${litellm_master_key}
+      SENTINEL_ENGINE_MASTER_KEY=${litellm_master_key}
       FERNET_SECRET_KEY=${fernet_secret_key}
       JWT_SECRET_KEY=${jwt_secret_key}
       BACKEND_IMAGE=${backend_image}
       FRONTEND_IMAGE=${frontend_image}
-      BASA_ENGINE_IMAGE=${litellm_image}
+      SENTINEL_ENGINE_IMAGE=${litellm_image}
       NLP_ANALYZER_IMAGE=${nlp_analyzer_image}
-  - path: /opt/basa/branding/brand.json
+  - path: /opt/sentinel/branding/brand.json
     permissions: "0644"
     content: |
       ${indent(6, brand_json)}
-  - path: /opt/basa/litellm/config.yaml
+  - path: /opt/sentinel/litellm/config.yaml
     permissions: "0644"
     content: |
       ${indent(6, litellm_config)}
-  - path: /opt/basa/Caddyfile
+  - path: /opt/sentinel/Caddyfile
     permissions: "0644"
     content: |
       ${product_domain} {
@@ -51,7 +51,7 @@ write_files:
           reverse_proxy frontend:8080
         }
       }
-  - path: /opt/basa/compose.ingress.yml
+  - path: /opt/sentinel/compose.ingress.yml
     permissions: "0644"
     content: |
       services:
@@ -60,7 +60,7 @@ write_files:
           restart: unless-stopped
           ports: ["443:443", "80:80"]
           volumes:
-            - /opt/basa/Caddyfile:/etc/caddy/Caddyfile:ro
+            - /opt/sentinel/Caddyfile:/etc/caddy/Caddyfile:ro
             - caddy_data:/data
       volumes:
         caddy_data:
@@ -69,10 +69,10 @@ runcmd:
   - systemctl enable --now docker
   # tarball (US6/FR-024): las imágenes llegan por bundle, no por registry.
   - |
-    if [ "${image_source}" = "tarball" ] && [ -f /opt/basa/images.tar ]; then
-      docker load -i /opt/basa/images.tar
+    if [ "${image_source}" = "tarball" ] && [ -f /opt/sentinel/images.tar ]; then
+      docker load -i /opt/sentinel/images.tar
     fi
-  - mkdir -p /opt/basa
-  - cp /opt/basa/branding/brand.json /opt/basa/brand.json || true
-  - cd /opt/basa && docker compose -f compose.prod.yml -f compose.ingress.yml \
+  - mkdir -p /opt/sentinel
+  - cp /opt/sentinel/branding/brand.json /opt/sentinel/brand.json || true
+  - cd /opt/sentinel && docker compose -f compose.prod.yml -f compose.ingress.yml \
       --env-file instance.env --env-file secrets.env up -d

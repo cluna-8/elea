@@ -3,7 +3,7 @@
 #
 # Por qué no pytest: el contenedor de la suite no monta la raíz, no ve docker-compose.yml.
 # Por qué `docker compose config` y no grep del YAML: hay que clavar la interpolación
-# real (${STACK_PREFIX:-basa}), no el texto fuente.
+# real (${STACK_PREFIX:-sentinel}), no el texto fuente.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -58,7 +58,7 @@ cmp_nombres() {
 
 [ -f "$COMPOSE" ] || { echo "❌ no encuentro $COMPOSE"; exit 1; }
 
-cmp_nombres "default (STACK_PREFIX unset)" "basa"
+cmp_nombres "default (STACK_PREFIX unset)" "sentinel"
 cmp_nombres "STACK_PREFIX=foo" "foo"
 
 if [ "$fail" -eq 0 ]; then
@@ -66,6 +66,6 @@ if [ "$fail" -eq 0 ]; then
     # servicio que se agregue a `SERVICIOS` ya no deja el número viejo en la línea de ÉXITO,
     # que es donde nadie lo mira. Misma clase que el rename de arriba: un conteo escrito a
     # mano es un ancla que vence cuando la estructura crece.
-    echo "✅ STACK_PREFIX: default basa-* y prefix foo-* (${#SERVICIOS[@]} servicios)"
+    echo "✅ STACK_PREFIX: default sentinel-* y prefix foo-* (${#SERVICIOS[@]} servicios)"
 fi
 exit "$fail"

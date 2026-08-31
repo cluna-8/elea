@@ -52,7 +52,7 @@ stateDiagram-v2
 ```
 
 El bloqueo total **no es un cuarto estado**: es el toggle de entorno
-`BASA_LICENSE_HARD_BLOCK`, que no cambia el estado de la licencia sino lo que ese
+`SENTINEL_LICENSE_HARD_BLOCK`, que no cambia el estado de la licencia sino lo que ese
 estado *hace*. Y no aplica solo a `expired` — `over_seat`, que publica la
 reconciliación, recibe el mismo trato:
 
@@ -106,7 +106,7 @@ Puntos clave del ciclo, todos 🟢:
 - **Anti-rollback de reloj.** La reconciliación mantiene una **marca monotónica**: si el
   reloj local aparece *detrás* de la marca, la evidencia deja de ser confiable — la creación
   se degrada hasta que el reloj supere la marca y el episodio queda auditado.
-- **Hard block opcional.** Con `BASA_LICENSE_HARD_BLOCK=true`, además de bloquear las altas,
+- **Hard block opcional.** Con `SENTINEL_LICENSE_HARD_BLOCK=true`, además de bloquear las altas,
   `expired` y `over_seat` **cortan las rutas de servicio del gateway** — mensajes, conteo de
   tokens, modelos, identidad e inspección bajo `/api/v1/gw/...` responden 403. El discovery
   (`GET /api/v1/gw`) queda abierto para diagnóstico, y el mensaje al cliente es **fijo y
@@ -133,19 +133,19 @@ producción (placeholders — reemplazar por los valores del despliegue):
 ```yaml
 environment:
   # Token de licencia: por fichero (recomendado, la renovación se aplica en
-  # caliente) o inline con BASA_LICENSE_TOKEN.
-  BASA_LICENSE_TOKEN_FILE: /app/config/licenses/<cliente>.lic
+  # caliente) o inline con SENTINEL_LICENSE_TOKEN.
+  SENTINEL_LICENSE_TOKEN_FILE: /app/config/licenses/<cliente>.lic
   # Keyset de claves públicas del emisor; si se omite se usa el embebido.
-  BASA_LICENSE_PUBLIC_KEYS_FILE: /app/config/licenses/<keyset-publico>.pem
+  SENTINEL_LICENSE_PUBLIC_KEYS_FILE: /app/config/licenses/<keyset-publico>.pem
   # Tenant del deployment: debe coincidir con el tenant del token.
-  BASA_DEPLOYMENT_TENANT_ID: <tenant-id-del-deployment>
+  SENTINEL_DEPLOYMENT_TENANT_ID: <tenant-id-del-deployment>
   # Intervalo de la reconciliación en segundos; un valor <= 0 desactiva el job.
-  BASA_LICENSE_RECONCILE_INTERVAL_SECONDS: "300"
+  SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS: "300"
   # true = expired / over_seat cortan también las rutas de servicio del gateway.
-  BASA_LICENSE_HARD_BLOCK: "false"
+  SENTINEL_LICENSE_HARD_BLOCK: "false"
   # Clave privada del deployment para firmar los exports de true-up:
   # volumen persistente, JAMÁS versionada.
-  BASA_DEPLOYMENT_KEY_FILE: /app/config/licenses/deployment_key.pem
+  SENTINEL_DEPLOYMENT_KEY_FILE: /app/config/licenses/deployment_key.pem
 volumes:
   - ./licenses:/app/config/licenses
 ```
@@ -155,7 +155,7 @@ Notas de operación, todas 🟢:
 - **Fail-closed**: sin token válido el backend **arranca igual** pero bloquea la creación de
   seats (403). Un despliegue de producción necesita este bloque desde el día uno.
 - **Licencias de demo**: los tokens de demostración (identificados por su key id de
-  demostración) requieren el opt-in explícito `BASA_ALLOW_DEV_LICENSE=true`. Sin el opt-in
+  demostración) requieren el opt-in explícito `SENTINEL_ALLOW_DEV_LICENSE=true`. Sin el opt-in
   se rechazan como inválidos — **solo** para entornos dev/demo, nunca en producción.
 - **Tolerancia a blips de I/O**: si en runtime el fichero de token o el keyset quedan
   momentáneamente ilegibles (una rotación de secret no atómica, un blip del volumen), un

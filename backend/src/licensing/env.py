@@ -2,7 +2,7 @@
 
 Trampa que motiva este módulo, MEDIDA contra el sistema real: ``os.getenv(V, D)``
 devuelve ``''`` cuando ``V`` está SETEADA PERO VACÍA — el default NO se aplica.
-En la 021 eso no es cosmético: con ``BASA_LICENSE_PUBLIC_KEYS_FILE=`` el keyset
+En la 021 eso no es cosmético: con ``SENTINEL_LICENSE_PUBLIC_KEYS_FILE=`` el keyset
 embebido queda anulado, ``Path('')`` resuelve a ``'.'`` y leer un directorio
 levanta ``LicenseReadError``; en RUNTIME esa excepción entra por el carril de
 BLIP TRANSITORIO de ``refresh()`` (histéresis) y conserva ``active`` tres ticks

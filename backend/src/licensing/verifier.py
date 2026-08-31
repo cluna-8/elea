@@ -1,8 +1,8 @@
 """Verificación Ed25519 100% OFFLINE del ``.lic`` (spec 021, FR-003/004/005/007).
 
 Cero llamadas de red: lectura de fichero local + criptografía en memoria.
-El producto embebe SÓLO claves públicas (``BasaPublicKeySet``, indexadas por
-``key_id`` para rotación); la privada de firma vive del lado de Basa (FR-002).
+El producto embebe SÓLO claves públicas (``SentinelPublicKeySet``, indexadas por
+``key_id`` para rotación); la privada de firma vive del lado de Sentinel (FR-002).
 """
 from pathlib import Path
 from typing import Dict, Optional
@@ -32,12 +32,12 @@ class LicenseTenantMismatchError(LicenseError):
     """Token legítimo pero de OTRO tenant: no habilita este deployment (FR-005)."""
 
 
-class BasaPublicKeySet:
+class SentinelPublicKeySet:
     """Conjunto de claves públicas Ed25519 indexadas por ``key_id`` (FR-007).
 
     Formato del fichero: bloques PEM ``PUBLIC KEY``, cada uno precedido por un
     comentario ``# key_id: <kid>``. Soportar N claves permite rotar la clave de
-    Basa sin romper cajas ya desplegadas.
+    Sentinel sin romper cajas ya desplegadas.
     """
 
     def __init__(self, keys: Dict[str, Ed25519PublicKey]):
@@ -46,7 +46,7 @@ class BasaPublicKeySet:
         self._keys = dict(keys)
 
     @classmethod
-    def from_pem_file(cls, path) -> "BasaPublicKeySet":
+    def from_pem_file(cls, path) -> "SentinelPublicKeySet":
         text = Path(path).read_text(encoding="utf-8")
         keys: Dict[str, Ed25519PublicKey] = {}
         current_kid: Optional[str] = None
@@ -89,7 +89,7 @@ class BasaPublicKeySet:
         return sorted(self._keys)
 
 
-def verify_license_blob(blob, keyset: BasaPublicKeySet,
+def verify_license_blob(blob, keyset: SentinelPublicKeySet,
                         expected_tenant_id: Optional[str] = None) -> LicenseToken:
     """Verifica el ``.lic`` completo: estructura → firma → esquema → tenant.
 

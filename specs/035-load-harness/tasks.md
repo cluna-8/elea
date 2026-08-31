@@ -62,7 +62,7 @@ no hay lógica).
       (nonces; dos runs → conjuntos disjuntos)
 - [ ] T009 Tests corpus en `harness/tests/unit/test_corpus.py`: determinismo por
       semilla, densidades, unicidad de canarios, TODOS los valores generados matchean
-      el oráculo (regex del producto importadas/replicadas de `basa_guardian_policy`),
+      el oráculo (regex del producto importadas/replicadas de `sentinel_guardian_policy`),
       regressions-63 parsea contra el esquema
 - [ ] T010 Dataset etiquetado v1 generado y commiteado (`harness/corpus/dataset-v1.jsonl`
       versionado) + aviso en #107 al core: artefacto listo para su gate de calidad
@@ -107,7 +107,7 @@ AWS después. **Independent Test**: quickstart escenarios 1-3.
 
 - [ ] T019 [P] [US1] `deploy/clients/itv-examen/`: config.yaml.tmpl (model_list 100%
       `openai/<alias>` → stub, fallbacks stub-backed) + overlay env
-      (`BASA_GW_ANTHROPIC_BASE`→stub, provider keys vacías, `BASA_ALLOW_DEV_LICENSE=true`)
+      (`SENTINEL_GW_ANTHROPIC_BASE`→stub, provider keys vacías, `SENTINEL_ALLOW_DEV_LICENSE=true`)
       — OJO: toca `deploy/` (CODEOWNERS Falime) → su review en el PR
 - [ ] T020 [P] [US1] `harness/src/seeder/`: cliente API (bootstrap admin → pre-check
       seats vía /api/v1/health/license fail-fast → users → keys → budgets), poblaciones
@@ -115,7 +115,7 @@ AWS después. **Independent Test**: quickstart escenarios 1-3.
 - [ ] T021 [US1] Tests seeder en `harness/tests/unit/test_seeder.py` (pre-check con
       población>seats → falla ANTES; orden users→keys; distribución suma exacta)
 - [ ] T022 [US1] Emitir licencias ITV (300 y 500 seats) con
-      `backend/scripts/issue_license.py` — **requiere la privada basa-dev-2026b (JF)**;
+      `backend/scripts/issue_license.py` — **requiere la privada sentinel-dev-2026b (JF)**;
       guardarlas FUERA del repo; documentar comando exacto en harness/README
 
 ### Escenarios k6 y orquestador
@@ -123,7 +123,7 @@ AWS después. **Independent Test**: quickstart escenarios 1-3.
 - [ ] T023 [P] [US1] `harness/Dockerfile.k6` + build pineado k6 v1.8.0 + xk6-sse
       v0.1.12 **en x86_64** (re-verificar el build de R1 en la arch real)
 - [ ] T024 [P] [US1] `harness/scenarios/`: chat.js (JSON, sin streaming), extension.js
-      (X-Basa-Key), coding-sse.js (sse.open, TTFT+cortes), admin.js (paneles JWT) +
+      (X-Sentinel-Key), coding-sse.js (sse.open, TTFT+cortes), admin.js (paneles JWT) +
       common.js (SharedArray de identidades, tags por superficie/fase, thresholds
       dropped_iterations==0)
 - [ ] T025 [US1] `harness/src/reporting/evaluator.py`: evaluador SLO (lee k6 summary +

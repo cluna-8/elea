@@ -7895,12 +7895,12 @@
     },
     "/api/v1/gw/inspect": {
       "post": {
-        "description": "Aplica la política Basa a un prompt de la superficie browser (piso COMPLETO desde\nla 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.\nFail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.",
+        "description": "Aplica la política Sentinel a un prompt de la superficie browser (piso COMPLETO desde\nla 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.\nFail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.",
         "operationId": "gw_inspect_api_v1_gw_inspect_post",
         "parameters": [
           {
             "in": "header",
-            "name": "X-Basa-Key",
+            "name": "X-Sentinel-Key",
             "required": false,
             "schema": {
               "anyOf": [
@@ -7911,7 +7911,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Key"
+              "title": "X-Sentinel-Key"
             }
           }
         ],
@@ -7980,7 +7980,7 @@
         "parameters": [
           {
             "in": "header",
-            "name": "X-Basa-Key",
+            "name": "X-Sentinel-Key",
             "required": false,
             "schema": {
               "anyOf": [
@@ -7991,12 +7991,12 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Key"
+              "title": "X-Sentinel-Key"
             }
           },
           {
             "in": "header",
-            "name": "X-Basa-Redact",
+            "name": "X-Sentinel-Redact",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8007,12 +8007,12 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Redact"
+              "title": "X-Sentinel-Redact"
             }
           },
           {
             "in": "header",
-            "name": "X-Basa-Upstream",
+            "name": "X-Sentinel-Upstream",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8023,7 +8023,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Upstream"
+              "title": "X-Sentinel-Upstream"
             }
           }
         ],
@@ -8059,7 +8059,7 @@
         "parameters": [
           {
             "in": "header",
-            "name": "X-Basa-Key",
+            "name": "X-Sentinel-Key",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8070,12 +8070,12 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Key"
+              "title": "X-Sentinel-Key"
             }
           },
           {
             "in": "header",
-            "name": "X-Basa-Upstream",
+            "name": "X-Sentinel-Upstream",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8086,7 +8086,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Upstream"
+              "title": "X-Sentinel-Upstream"
             }
           }
         ],
@@ -8122,7 +8122,7 @@
         "parameters": [
           {
             "in": "header",
-            "name": "X-Basa-Key",
+            "name": "X-Sentinel-Key",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8133,12 +8133,12 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Key"
+              "title": "X-Sentinel-Key"
             }
           },
           {
             "in": "header",
-            "name": "X-Basa-Upstream",
+            "name": "X-Sentinel-Upstream",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8149,7 +8149,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Upstream"
+              "title": "X-Sentinel-Upstream"
             }
           }
         ],
@@ -8186,7 +8186,7 @@
         "parameters": [
           {
             "in": "header",
-            "name": "X-Basa-Key",
+            "name": "X-Sentinel-Key",
             "required": false,
             "schema": {
               "anyOf": [
@@ -8197,7 +8197,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Basa-Key"
+              "title": "X-Sentinel-Key"
             }
           }
         ],

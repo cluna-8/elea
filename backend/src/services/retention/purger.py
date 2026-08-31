@@ -21,7 +21,7 @@ a mano por CLI (`python -m src.services.retention.purger --run-now`, ver el `__m
 1. **Borra las filas vencidas de `audit_logs`** de cada clase del clasificador: edad medida
    contra el **reloj de la DB** (no el del proceso — con varios workers y contenedores, el
    único reloj que no discute consigo mismo es el del servidor), `DELETE` por lotes de
-   `BASA_PURGE_BATCH_SIZE` con una pausa de `BASA_PURGE_BATCH_PAUSE_MS` entre lote y lote.
+   `SENTINEL_PURGE_BATCH_SIZE` con una pausa de `SENTINEL_PURGE_BATCH_PAUSE_MS` entre lote y lote.
 2. **Mata el único texto real durable** (FR-004): al purgar `prompt_content`,
    `human_reviews.response_text` de las revisiones vencidas pasa a `NULL`. La fila de
    revisión PERSISTE — el DPO tiene que poder demostrar que la revisión ocurrió; lo que
@@ -74,7 +74,7 @@ reloj de la DB. Una corrida interrumpida que se relanza no duplica efecto (lo bo
 está) ni saltea filas (lo vencido sigue vencido). La interrumpida queda registrada con
 `result: partial` — el auditor ve que se cortó, no un hueco inexplicable.
 
-## Simulacro (`BASA_PURGE_DRY_RUN`, default `true`)
+## Simulacro (`SENTINEL_PURGE_DRY_RUN`, default `true`)
 
 En simulacro la corrida hace TODO menos borrar: resuelve el cutoff de cada clase, CUENTA las
 filas que caerían y escribe el rastro igual, con `dry_run: true`. Nada se elimina, ni en
@@ -270,10 +270,10 @@ FabricaDeSesiones = Callable[[], "Session"]
 # composes). Los nombres viven UNA sola vez acá: el purgador, el scheduler y los tests las
 # leen de estas constantes, no de literales repartidos. Los defaults son los del plan y son
 # los que la doc del producto promete — cambiarlos es cambiar el contrato publicado.
-ENV_WINDOW = "BASA_PURGE_WINDOW"
-ENV_WINDOW_TZ = "BASA_PURGE_WINDOW_TZ"
-ENV_BATCH_SIZE = "BASA_PURGE_BATCH_SIZE"
-ENV_BATCH_PAUSE_MS = "BASA_PURGE_BATCH_PAUSE_MS"
+ENV_WINDOW = "SENTINEL_PURGE_WINDOW"
+ENV_WINDOW_TZ = "SENTINEL_PURGE_WINDOW_TZ"
+ENV_BATCH_SIZE = "SENTINEL_PURGE_BATCH_SIZE"
+ENV_BATCH_PAUSE_MS = "SENTINEL_PURGE_BATCH_PAUSE_MS"
 
 DEFAULT_WINDOW = "02:00-05:00"
 DEFAULT_WINDOW_TZ = "Europe/Madrid"
@@ -284,11 +284,11 @@ DEFAULT_BATCH_PAUSE_MS = 200
 # a tiempo porque los nombres de este bloque todavía no estaban publicados en la doc del
 # cliente. Se paga ahora justamente por eso — agregarla después de publicar ya no es agregar
 # una perilla, es cambiar el contrato de configuración de las instalaciones que existan.
-# El default `true` es la mitad de la red de H7: la otra mitad es `BASA_PURGE_ENABLED=false`
+# El default `true` es la mitad de la red de H7: la otra mitad es `SENTINEL_PURGE_ENABLED=false`
 # en `.env.example` y en los dos composes. Juntas, la primera imagen con purgador dentro no
 # borra nada de nadie: hay que encenderla A MANO y, aun encendida, la primera corrida cuenta
 # antes de borrar. Ninguna de las dos alcanza sola.
-ENV_DRY_RUN = "BASA_PURGE_DRY_RUN"
+ENV_DRY_RUN = "SENTINEL_PURGE_DRY_RUN"
 DEFAULT_DRY_RUN = True
 
 # Resultado de una corrida, tal cual viaja al `purge_log` (data-model.md §Corrida de purga).
@@ -433,7 +433,7 @@ def _entero_de_env(nombre: str, default: int, minimo: int = 1) -> int:
 
 
 def _dry_run_de_env() -> bool:
-    """`BASA_PURGE_DRY_RUN`. Cualquier cosa que no sea un «no» explícito es simulacro.
+    """`SENTINEL_PURGE_DRY_RUN`. Cualquier cosa que no sea un «no» explícito es simulacro.
 
     La asimetría es deliberada y es la mitad de la red de H7: un typo (`fasle`, `flase`, `nope`)
     deja la corrida en SIMULACRO, que es el lado que no borra. Lo que apaga el simulacro es
@@ -492,7 +492,7 @@ def en_ventana(ahora: datetime, ventana: Optional[str] = None,
                tz: Optional[str] = None) -> bool:
     """¿Se puede purgar en este instante?
 
-    `ventana` es `HH:MM-HH:MM` en la hora local de la instalación (`BASA_PURGE_WINDOW_TZ`),
+    `ventana` es `HH:MM-HH:MM` en la hora local de la instalación (`SENTINEL_PURGE_WINDOW_TZ`),
     no en la del contenedor: el proceso corre en UTC y «las 02:00» de un operador de Madrid
     no son las 02:00 del contenedor. Una ventana que cruza medianoche (`23:00-02:00`) es
     válida y hay que soportarla — es la forma natural de decir «de madrugada».
@@ -939,7 +939,7 @@ def purgar_clase(clase: str, *, session_factory: Optional[FabricaDeSesiones] = N
     manual (un DPO que acaba de acortar un plazo y quiere el efecto ya). NO es el camino del
     scheduler — el scheduler siempre respeta la ventana.
 
-    `run_now` NO implica corrida real: el simulacro se gobierna por `BASA_PURGE_DRY_RUN`
+    `run_now` NO implica corrida real: el simulacro se gobierna por `SENTINEL_PURGE_DRY_RUN`
     (default `true`), que se relee del entorno en cada corrida como el resto de las perillas.
     Son dos ejes distintos a propósito — uno es CUÁNDO y el otro es SI BORRA — y la
     combinación más pedida es justamente la cruzada: «corré ahora y decime cuánto se iría».
@@ -1354,9 +1354,9 @@ def run_once(*, session_factory: Optional[FabricaDeSesiones] = None,
 #
 # Los dos ejes son ORTOGONALES y el CLI respeta esa separación (Contrato 4):
 #   * `--run-now` dice CUÁNDO (saltea la ventana). Es lo único que gobierna el CLI.
-#   * SI BORRA lo decide `BASA_PURGE_DRY_RUN` (default `true` = simulacro), que `run_once` relee
+#   * SI BORRA lo decide `SENTINEL_PURGE_DRY_RUN` (default `true` = simulacro), que `run_once` relee
 #     del entorno como el resto de las perillas. El CLI NO lo toca: encender la purga real es
-#     `BASA_PURGE_DRY_RUN=false` en el entorno, a mano y a la vista, igual que en el quickstart.
+#     `SENTINEL_PURGE_DRY_RUN=false` en el entorno, a mano y a la vista, igual que en el quickstart.
 
 
 def _main(argv: Optional[List[str]] = None) -> int:
@@ -1371,14 +1371,14 @@ def _main(argv: Optional[List[str]] = None) -> int:
         prog="python -m src.services.retention.purger",
         description=(
             "Purgador de retención (spec 018). Corre una pasada por todas las clases. "
-            "SIMULACRO por default (BASA_PURGE_DRY_RUN=true): cuenta lo que se iría y no borra. "
-            "Para borrar de verdad, exportá BASA_PURGE_DRY_RUN=false."
+            "SIMULACRO por default (SENTINEL_PURGE_DRY_RUN=true): cuenta lo que se iría y no borra. "
+            "Para borrar de verdad, exportá SENTINEL_PURGE_DRY_RUN=false."
         ),
     )
     parser.add_argument(
         "--run-now", action="store_true",
         help=("saltea la ventana horaria y corre YA (CUÁNDO, no SI BORRA). Sin este flag, la "
-              "corrida sólo trabaja dentro de BASA_PURGE_WINDOW."),
+              "corrida sólo trabaja dentro de SENTINEL_PURGE_WINDOW."),
     )
     args = parser.parse_args(argv)
 

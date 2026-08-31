@@ -40,8 +40,8 @@
 
 ### Design Decisions
 - **Todos los modelos visibles**: el catálogo muestra los 14 modelos del config.yaml independientemente de si tienen credenciales. Esto permite al admin entender qué proveedores están disponibles y qué necesita configurar para activarlos.
-- **Fallback nativo del motor**: los fallbacks se escriben en `router_settings.fallbacks` del config.yaml y son procesados por el motor IA internamente. No se requiere lógica adicional en el backend de Basa.
-- **SSO solo visual**: los proveedores SSO se muestran como roadmap. No hay implementación de OAuth2/OIDC en esta feature — el objetivo es informar al admin y permitir planificar la integración con el equipo de Basa.
+- **Fallback nativo del motor**: los fallbacks se escriben en `router_settings.fallbacks` del config.yaml y son procesados por el motor IA internamente. No se requiere lógica adicional en el backend de Sentinel.
+- **SSO solo visual**: los proveedores SSO se muestran como roadmap. No hay implementación de OAuth2/OIDC en esta feature — el objetivo es informar al admin y permitir planificar la integración con el equipo de Sentinel.
 - **Credenciales en config.yaml**: al activar un modelo desde la UI, la API key se escribe directamente en config.yaml (no en .env). Esto es consistente con el comportamiento existente del endpoint `POST /chat/models`. En producción, se recomienda preferir variables de entorno en .env para claves sensibles.
 
 ---
@@ -54,7 +54,7 @@
 - Auth pipeline reescrito: distingue llave virtual (`sk-` prefix, valida contra hash SHA-256 en DB) de sesión JWT (decodifica con HS256, resuelve usuario y grupo). Antes solo se aceptaban llaves virtuales, lo que bloqueaba el Playground con "Llave virtual inválida" cuando el usuario usaba su sesión.
 - Resolución de grupo para sesiones JWT: si el usuario tiene `group_id`, se carga `user.group` para aplicar compliance del equipo. Antes las reglas de grupo no se aplicaban en sesiones de frontend.
 - Alcance del proyecto de compliance corregido: si la llave/usuario/grupo no tiene proyecto asignado, se devuelve `[]` (sin reglas). Antes se aplicaban **todos** los proyectos activos a cualquier sesión, causando que "Pendiente de validación sanitaria" apareciera para todos los usuarios sin asignación.
-- `guardian_events` en audit log: los eventos de guardianes locales (`guardian_triggers` del pipeline Basa) ya se fusionan con los eventos del motor IA (`guardian_events`). Antes ambas listas eran independientes y los triggers locales no aparecían en el log.
+- `guardian_events` en audit log: los eventos de guardianes locales (`guardian_triggers` del pipeline Sentinel) ya se fusionan con los eventos del motor IA (`guardian_events`). Antes ambas listas eran independientes y los triggers locales no aparecían en el log.
 
 **Backend — `backend/src/services/guardian_service.py`**
 - Secret detection regex de OpenAI API Key relajado: `sk-[a-zA-Z0-9]{10,}` (antes `{48}`, que requería exactamente 48 chars y perdía claves de test cortas).

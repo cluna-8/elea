@@ -17,7 +17,7 @@ router = APIRouter(
     tags=["Consent"],
     dependencies=[Depends(require_role("admin", "compliance_officer"))],
 )
-logger = logging.getLogger("basa-secure-gateway.consent")
+logger = logging.getLogger("sentinel-secure-gateway.consent")
 
 CONSENT_VERSION = "1.0"
 

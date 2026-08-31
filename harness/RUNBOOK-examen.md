@@ -52,16 +52,16 @@ tofu output -json fingerprint_hardware > /tmp/itv-hardware.json   # va al finger
 ```bash
 # desde la máquina que tiene las imágenes pinneadas del release
 ./preload-images.sh "$SUT_IP" \
-  ghcr.io/basa/backend@sha256:… \
-  ghcr.io/basa/frontend@sha256:… \
-  ghcr.io/basa/litellm@sha256:… \
-  ghcr.io/basa/nlp-analyzer@sha256:…
+  ghcr.io/sentinel/backend@sha256:… \
+  ghcr.io/sentinel/frontend@sha256:… \
+  ghcr.io/sentinel/litellm@sha256:… \
+  ghcr.io/sentinel/nlp-analyzer@sha256:…
 ```
 
 Verificar en el SUT antes de cerrar el egress:
 
 ```bash
-ssh root@"$SUT_IP" 'docker images --digests | grep basa'
+ssh root@"$SUT_IP" 'docker images --digests | grep sentinel'
 ```
 
 ## 3. Cerrar el egress (deny-out)
@@ -94,12 +94,12 @@ $DC up -d
 
 ### 4b. Par de firma EFÍMERO + licencia de 130 seats
 
-La privada del kid `basa-dev-2026b` (licencia de la Cámara: 25 seats) está bajo custodia de
+La privada del kid `sentinel-dev-2026b` (licencia de la Cámara: 25 seats) está bajo custodia de
 JF y **no se usa acá**. Se genera un par propio dentro del SUT: la pública entra al keyset
 del contenedor y la privada vive en `/tmp` del contenedor — muere con él.
 
-`kid = itv-examen-2026` a propósito **no** empieza con `basa-dev-`, así que no depende del
-opt-in `BASA_ALLOW_DEV_LICENSE`. 130 seats = los 119 del gate 125 + holgura (ampliar en
+`kid = itv-examen-2026` a propósito **no** empieza con `sentinel-dev-`, así que no depende del
+opt-in `SENTINEL_ALLOW_DEV_LICENSE`. 130 seats = los 119 del gate 125 + holgura (ampliar en
 caliente son ~5 min de 402 intermitentes).
 
 ```bash
@@ -115,7 +115,7 @@ priv = Ed25519PrivateKey.generate()
 pub = priv.public_key().public_bytes(
     encoding=serialization.Encoding.PEM,
     format=serialization.PublicFormat.SubjectPublicKeyInfo).decode("ascii")
-keyset = pathlib.Path("/app/src/keys/basa_public_keys.pem")
+keyset = pathlib.Path("/app/src/keys/sentinel_public_keys.pem")
 keyset.write_text(
     "# keyset EFÍMERO del examen ITV — muere con este contenedor.\n"
     f"# generado: {datetime.now(timezone.utc).isoformat()}\n"
@@ -135,7 +135,7 @@ $DC exec -T backend python scripts/issue_license.py \
   --kid itv-examen-2026 \
   --lic-id lic_itv_examen_130 \
   --tenant-id 00000000-0000-0000-0000-000000000001 \
-  --distributor-id d_basa --pool-id pool_itv \
+  --distributor-id d_sentinel --pool-id pool_itv \
   --max-seats 130 --expiry 2026-08-18T00:00:00Z \
   --out /app/config/licenses/client.lic --force
 
@@ -156,13 +156,13 @@ $DC exec -T backend curl -sf http://localhost:8000/health >/dev/null && echo "�
 ```bash
 GEN_IP=$(cd harness/infra && tofu output -raw gen_public_ip)
 ssh root@"$GEN_IP" \
-  'cd /opt/basa-guardian-itv/harness && \
-   nohup python -m uvicorn basa_harness.stub.server:app --host 0.0.0.0 --port 8080 \
+  'cd /opt/sentinel-guardian-itv/harness && \
+   nohup python -m uvicorn sentinel_harness.stub.server:app --host 0.0.0.0 --port 8080 \
      > /var/log/itv-stub.log 2>&1 &'
 ssh root@"$GEN_IP" 'curl -sf http://127.0.0.1:8080/control/report >/dev/null && echo "✓ stub arriba"'
 ```
 
-El puerto 8080 es el mismo que `STUB_URL`/`BASA_GW_ANTHROPIC_BASE` del perfil: el SUT le
+El puerto 8080 es el mismo que `STUB_URL`/`SENTINEL_GW_ANTHROPIC_BASE` del perfil: el SUT le
 manda el tráfico y el orquestador le habla por `/control` — una sola app.
 
 > Los pasos 5 y 6 se corren **desde el generador** (ahí están el checkout del harness y
@@ -175,7 +175,7 @@ El pool es **material de run**: 0600, fuera del repo, y no se publica con la evi
 ```bash
 cd harness
 install -d -m 700 /run/itv
-python -m basa_harness.seeder.seed \
+python -m sentinel_harness.seeder.seed \
   --gate 125 \
   --backend-url http://10.0.0.10:8000 \
   --seed "$ITV_SEED" \
@@ -185,16 +185,16 @@ echo "exit=$?"      # tiene que ser 0
 
 | Salida | Qué significa | Qué hacer |
 |---|---|---|
-| `exit 0` | 119 seats + 6 cuentas admin creados, pool con `basa_key` en todas las identidades de extensión/coding | seguir |
+| `exit 0` | 119 seats + 6 cuentas admin creados, pool con `sentinel_key` en todas las identidades de extensión/coding | seguir |
 | `❌ licencia insuficiente` | la licencia no da para 119 seats | rehacer 4b con más `--max-seats` |
-| `❌ … basa_key` (exit 3) | las Connections ya existían: la key en claro **no** es recuperable | `$DC down -v && $DC up -d`, repetir 4b y 5 |
+| `❌ … sentinel_key` (exit 3) | las Connections ya existían: la key en claro **no** es recuperable | `$DC down -v && $DC up -d`, repetir 4b y 5 |
 | `❌ … OTRA semilla` | la DB fue sembrada con otro `--seed` | `$DC down -v` y repetir con la semilla del run |
 
 Entre runs, sin crear nada (valida además que las keys del pool siguen autenticando contra
 `/gw/whoami`):
 
 ```bash
-python -m basa_harness.seeder.seed --gate 125 --backend-url http://10.0.0.10:8000 \
+python -m sentinel_harness.seeder.seed --gate 125 --backend-url http://10.0.0.10:8000 \
   --seed "$ITV_SEED" --verify-only --emit-credentials /run/itv/pool-g125.json
 ```
 
@@ -204,7 +204,7 @@ python -m basa_harness.seeder.seed --gate 125 --backend-url http://10.0.0.10:800
 cd harness
 
 # el build del SUT, para la firma del run (commit de main + digests de las imágenes):
-ssh root@"$SUT_IP" 'docker images --format "{{.Repository}} {{.ID}}" | grep basa' \
+ssh root@"$SUT_IP" 'docker images --format "{{.Repository}} {{.ID}}" | grep sentinel' \
   | python3 -c 'import json,sys; print(json.dumps({"commit": "'"$ITV_MAIN_SHA"'",
       "digests": dict(l.split() for l in sys.stdin)}))' > /run/itv/producto.json
 
@@ -214,7 +214,7 @@ ssh root@"$SUT_IP" 'docker images --format "{{.Repository}} {{.ID}}" | grep basa
 printf '{"lic_id": "lic_itv_examen_130", "kid": "itv-examen-2026", "max_seats": 130, "seats_used": 119}\n' \
   > /run/itv/licencia.json
 
-python -m basa_harness.orchestrator \
+python -m sentinel_harness.orchestrator \
   --gate 125 \
   --backend-url http://10.0.0.10:8000 \
   --stub-url http://10.0.0.20:8080 \
@@ -229,7 +229,7 @@ python -m basa_harness.orchestrator \
   --run-id "$ITV_RUN_ID"
 ```
 
-- `--pool-file` aporta las `basa_key` (extensión/coding) **y** la credencial
+- `--pool-file` aporta las `sentinel_key` (extensión/coding) **y** la credencial
   `compliance_officer` que lee `audit_logs`. La password nunca va por argv: `ps` no la ve.
 - `--model-chat` es **obligatorio** en una corrida real y tiene que ser un alias del
   `model_list` del motor desplegado (mirá `rendered/config.yaml` del perfil: para
@@ -262,7 +262,7 @@ producto: son «no se puede certificar»):
 | Mensaje | Causa | Qué hacer |
 |---|---|---|
 | `precondición de config no cumplida` | el stack no cumple `stack_config_required` (masking, NLP…) | corregir el perfil y volver a empezar — no se generó carga |
-| `identidad(es) de extensión/coding sin basa_key` | pool sin material | volver al paso 5 (tabla de arriba) |
+| `identidad(es) de extensión/coding sin sentinel_key` | pool sin material | volver al paso 5 (tabla de arriba) |
 | `el filtro de ventana NO se está aplicando` | el backend descartó las fechas y contaría la tabla entera | no certificar; abrir issue al core con la evidencia |
 | `el producto registró N fila(s) de bloqueo … el guion contó 0` | hubo bloqueos que el guion no ve (k6 no incrementa `observed_blocks`) | mirar las filas a mano (`GET /api/v1/audit-logs?estado=bloqueados`) antes de decidir |
 | `la credencial … no autentica` | el pool es de otra semilla/instalación | re-seedear contra stack fresco |
@@ -302,10 +302,10 @@ que es un hueco nuestro:
   literal desconocido cancelaría una fila de tráfico realmente perdida), mientras que el
   literal exacto sólo puede fallar ruidoso. El cierre fino (canario de vocabulario: total
   por prefijo, usado SÓLO como diagnóstico del delta) va con el issue #166.
-- **Auditoría caída + `BASA_AUDIT_FAIL=closed` disfraza los 402 de 5xx.** Los gates
+- **Auditoría caída + `SENTINEL_AUDIT_FAIL=closed` disfraza los 402 de 5xx.** Los gates
   oficiales corren con ese perfil: si la auditoría se cae, el producto falla ANTES de
   responder y los 402 de la cohorte de presupuesto salen como **503 sin**
-  `X-Basa-Rejected`. `chat.js` hoy no tiene rama para ese caso y lo cuenta en el `else`
+  `X-Sentinel-Rejected`. `chat.js` hoy no tiene rama para ese caso y lo cuenta en el `else`
   final (latencia de servicio + evento auditable que no va a tener fila). Síntoma
   combinado: la paridad reprueba con déficit de filas **y** el check `chat sin 5xx (salvo
   saturación)` falló. Ante esa pareja, mirar la **salud de la auditoría** antes de acusar

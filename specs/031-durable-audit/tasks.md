@@ -12,7 +12,7 @@
 
 ## Phase 1: Setup
 
-- [x] T001 Config `BASA_AUDIT_FAIL` (contrato §Config): env con default `open` leída por
+- [x] T001 Config `SENTINEL_AUDIT_FAIL` (contrato §Config): env con default `open` leída por
       backend y extensiones; cablear en `deploy/docker/compose.prod.yml` (backend + motor),
       `docker-compose.yml` (dev) y perfil camara (`open` explícito). Helper único de
       lectura en backend (`audit_service`); las extensiones leen os.environ directo.
@@ -21,7 +21,7 @@
 
 - [x] T002 `backend/src/services/audit_service.py` — núcleo D5: retry acotado (2×,
       backoff 0.2/0.5 s) en la escritura; al agotar → `logger.error` + `INCR
-      basa:audit:lost` + `SET basa:audit:last_fail` (tolerante a Redis caído);
+      sentinel:audit:lost` + `SET sentinel:audit:last_fail` (tolerante a Redis caído);
       `audit_writable()` (SELECT 1 con timeout corto) para el modo closed; adiós al
       return-None-que-nadie-mira (:117-120): en `open` el fallo queda contado, en `closed`
       se propaga excepción tipada. Unit tests
@@ -53,7 +53,7 @@
       bloqueo AI-Act → fila blocked con capa y atribución; bloqueo guardián ídem; fila
       sobrevive aunque el monitor Redis esté caído; closed+DB caída → 503 sin llamada al
       motor (mock httpx cuenta 0 llamadas).
-- [x] T005 [P] [US1] `litellm/extensions/basa_guardrail.py` — D3: en cada punto de bloqueo,
+- [x] T005 [P] [US1] `litellm/extensions/sentinel_guardrail.py` — D3: en cada punto de bloqueo,
       POST al plano interno (identidad de la Connection del `user_api_key_dict`, capa,
       motivo, conteos; 1 reintento) ANTES de rechazar; en closed, pre-check a
       `/internal/audit/probe` (cache 5 s si hace falta — riesgo R2) → rechazo honesto si no
@@ -80,7 +80,7 @@
 
 - [x] T009 [US2] `backend/src/api/health.py` — bloque `audit {mode, lost_events,
       last_failure_at}` del contrato; en closed con auditoría caída el health global
-      refleja degradado. `litellm/extensions/basa_audit_logger.py`: prints→logging real,
+      refleja degradado. `litellm/extensions/sentinel_audit_logger.py`: prints→logging real,
       retry acotado, contador Redis (D5 — mismas claves). Tests: health con contador
       poblado en Redis; logger sin prints (grep en el gate).
 - [x] T010 [P] [US2] `frontend/src/pages/AuditPage.tsx`: banner ámbar «N eventos no
@@ -109,7 +109,7 @@ checkbox mentiroso.
 
 - [x] T015 Gate final: suite completa verde (salvo 3 preexistentes) + SC-003 explícito
       (`-k "hash or chain or licensing"`) + grep sin `print(` en extensiones + INSTALL:
-      nota de `BASA_AUDIT_FAIL` (default open) en la sección de operación.
+      nota de `SENTINEL_AUDIT_FAIL` (default open) en la sección de operación.
 
 ## Dependencies
 

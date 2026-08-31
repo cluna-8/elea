@@ -1,7 +1,7 @@
 variable "location" {
   description = "Datacenter Hetzner (queda en el fingerprint del run)."
   type        = string
-  default     = "hel1" # Helsinki — co-ubicado con el resto de la infra Basa (decisión DevOps+ITV 09-ago)
+  default     = "hel1" # Helsinki — co-ubicado con el resto de la infra Sentinel (decisión DevOps+ITV 09-ago)
 }
 
 variable "sut_server_type" {

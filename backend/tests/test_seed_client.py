@@ -16,7 +16,7 @@ from src.services.onboarding import seed_client, seed_clients_from_config
 
 require_postgres()
 
-DB = "basa_test_seed"
+DB = "sentinel_test_seed"
 
 TENANT_A = uuid.UUID("aaaaaaaa-0000-0000-0000-00000000000a")
 TENANT_B = uuid.UUID("bbbbbbbb-0000-0000-0000-00000000000b")
@@ -68,7 +68,7 @@ def test_seed_client_creates_user_connections_budget(session_factory):
         assert result["created_user"] is True
         assert {c["tool_type"] for c in result["created_connections"]} == {"claude-code", "cursor"}
         # La key en claro solo se devuelve al crearla; en DB solo hay hash+preview
-        assert all(c["plain_key"].startswith("sk-basa-") for c in result["created_connections"])
+        assert all(c["plain_key"].startswith("sk-sentinel-") for c in result["created_connections"])
 
         assert _counts(db, TENANT_A, "seed-client") == (1, 2, 1)
 

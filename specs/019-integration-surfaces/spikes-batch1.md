@@ -15,7 +15,7 @@ Protocolo por spike (criterios de `compatibility.md` §T005): mecanismo de engan
 ciclo completo observable (incl. política del motor) → veredicto FUNCIONA/PARCIAL/NO
 con razón técnica → fila en la matriz. Evidencia = comandos y salidas reales, no teoría.
 
-Entorno: stack dev basa-* (backend :8091, motor :4010, db :5433) + Ollama 0.32.1 en el
+Entorno: stack dev sentinel-* (backend :8091, motor :4010, db :5433) + Ollama 0.32.1 en el
 host (`:11434`), modelo `qwen3:4b` (soporta tool-calling).
 
 ---
@@ -79,7 +79,7 @@ fix (`_unmask_response_inplace` con soporte dict + rewrite de chunks parseados, 
 ## Spike 2 — Claude Code → gateway → modelo propio (¿aguanta Agent?)
 
 **Mecanismo**: `ANTHROPIC_BASE_URL=http://localhost:8091/api/v1/gw` +
-`ANTHROPIC_AUTH_TOKEN=sk-basa-…` (auto-byok detecta la virtual key en el header de auth
+`ANTHROPIC_AUTH_TOKEN=sk-sentinel-…` (auto-byok detecta la virtual key en el header de auth
 → modo byok → `{motor}/v1/messages`, la API Anthropic-compat de LiteLLM) +
 `ANTHROPIC_MODEL=ollama-qwen3-4b` (Claude Code manda ese nombre en el body y el motor
 rutea por `model_name`).
@@ -109,7 +109,7 @@ Claude Code sobre esta cadena.
 - Ollama necesita contexto amplio para el system prompt de Claude Code:
   `OLLAMA_CONTEXT_LENGTH=32768` (el default truncaría).
 - Config del cliente: `ANTHROPIC_BASE_URL=<gateway>/api/v1/gw` +
-  `ANTHROPIC_AUTH_TOKEN=sk-basa-…` + `ANTHROPIC_MODEL=<model_name del motor>`.
+  `ANTHROPIC_AUTH_TOKEN=sk-sentinel-…` + `ANTHROPIC_MODEL=<model_name del motor>`.
 
 **Veredicto**: **PARCIAL** (vocabulario T005) — el mecanismo completo funciona **incluido
 el modo Agent**, y la única limitación que impide FUNCIONA es el unmask del Spike 1
@@ -121,7 +121,7 @@ cliente aloje (un 4b resuelve tareas simples; la elección del modelo es del cli
 ## Spike 3 — Aider (byok por la superficie Anthropic del gateway)
 
 **Mecanismo**: aider usa litellm como lib → con `ANTHROPIC_API_BASE=<gateway>/api/v1/gw` +
-`ANTHROPIC_API_KEY=sk-basa-…` + `--model anthropic/<model_name>` postea al `/v1/messages`
+`ANTHROPIC_API_KEY=sk-sentinel-…` + `--model anthropic/<model_name>` postea al `/v1/messages`
 del gateway. Cero config extra.
 
 **Evidencia** (aider 0.86.2, headless `--message --yes`):
@@ -140,7 +140,7 @@ Promoción a FUNCIONA con el mismo fix-spec del Spike 1.
 **Hallazgo arquitectónico**: el gateway NO expone superficie OpenAI/Responses (solo
 `/v1/messages` Anthropic-shape). Codex ≥0.142 **eliminó** `wire_api=chat` — solo habla
 **Responses API**. El único endpoint que le responde hoy es el motor directo
-(`base_url=<motor>/v1`, `wire_api=responses`, key `sk-basa-…` via `env_key`).
+(`base_url=<motor>/v1`, `wire_api=responses`, key `sk-sentinel-…` via `env_key`).
 
 **Evidencia** (codex-cli 0.142.5, `codex exec`; pruebas 3-4 agregadas tras la review
 adversarial del batch, que refutó el veredicto inicial):

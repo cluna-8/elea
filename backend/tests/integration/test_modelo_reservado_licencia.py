@@ -42,12 +42,12 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_modelo_reservado_licencia"
+DB = "sentinel_test_modelo_reservado_licencia"
 GW = "/api/v1/gw/v1/messages"
 AUDIT = "/api/v1/internal/audit"
 
 SECRETO_INTERNO = "secreto-interno-de-la-suite-018"
-CABECERA_INTERNA = {"X-Basa-Internal": SECRETO_INTERNO}
+CABECERA_INTERNA = {"X-Sentinel-Internal": SECRETO_INTERNO}
 
 RESERVADO = "license"
 CENTINELA = "license__cliente"
@@ -108,15 +108,15 @@ class _HttpxEspia:
 
 @pytest.fixture(scope="module")
 def harness():
-    previo = os.environ.get("BASA_ENGINE_MASTER_KEY")
-    os.environ["BASA_ENGINE_MASTER_KEY"] = SECRETO_INTERNO
+    previo = os.environ.get("SENTINEL_ENGINE_MASTER_KEY")
+    os.environ["SENTINEL_ENGINE_MASTER_KEY"] = SECRETO_INTERNO
     client, factory, cleanup = build_app_client(DB)
     yield client, factory
     cleanup()
     if previo is None:
-        os.environ.pop("BASA_ENGINE_MASTER_KEY", None)
+        os.environ.pop("SENTINEL_ENGINE_MASTER_KEY", None)
     else:
-        os.environ["BASA_ENGINE_MASTER_KEY"] = previo
+        os.environ["SENTINEL_ENGINE_MASTER_KEY"] = previo
 
 
 @pytest.fixture(autouse=True)

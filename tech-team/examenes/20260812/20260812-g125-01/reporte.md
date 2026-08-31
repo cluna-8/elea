@@ -41,10 +41,10 @@ Dos runs solo se comparan si comparten fingerprint (el comparador diffea esto AN
   "producto": {
     "commit": "52e694b",
     "digests": {
-      "basa-docs:prod": "5a2b88562217",
-      "basa/nlp-analyzer:examen-52e694b": "af145d5ef21a",
-      "basa/frontend:examen-52e694b": "0b7957df5d43",
-      "basa/backend:examen-52e694b": "31d77e223890",
+      "sentinel-docs:prod": "5a2b88562217",
+      "sentinel/nlp-analyzer:examen-52e694b": "af145d5ef21a",
+      "sentinel/frontend:examen-52e694b": "0b7957df5d43",
+      "sentinel/backend:examen-52e694b": "31d77e223890",
       "postgres:16": "95206741a5b2",
       "redis:7-alpine": "e7723ff73d96",
       "ghcr.io/berriai/litellm:<none>": "80ea654c506d",
@@ -173,8 +173,8 @@ Dos runs solo se comparan si comparten fingerprint (el comparador diffea esto AN
 
 ## Evidencia
 
-- **k6_summary**: `/root/examen/basa-guardian/harness/runs/20260812-g125-01/summary.json`
-- **pool**: `/root/examen/basa-guardian/harness/runs/20260812-g125-01/pool.json`
-- **corpus**: `/root/examen/basa-guardian/harness/runs/20260812-g125-01/corpus.json`
-- **k6_config**: `/root/examen/basa-guardian/harness/runs/20260812-g125-01/k6_config.json`
+- **k6_summary**: `/root/examen/sentinel-guardian/harness/runs/20260812-g125-01/summary.json`
+- **pool**: `/root/examen/sentinel-guardian/harness/runs/20260812-g125-01/pool.json`
+- **corpus**: `/root/examen/sentinel-guardian/harness/runs/20260812-g125-01/corpus.json`
+- **k6_config**: `/root/examen/sentinel-guardian/harness/runs/20260812-g125-01/k6_config.json`
 - **plataforma_r3**: `/srv/itv-runs/20260812-g125-01/`

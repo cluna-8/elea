@@ -75,15 +75,15 @@ from . import gateway as _gw_plane
 from .gateway import sanear_modelo_declarado
 
 router = APIRouter(prefix="/chat", tags=["Playground Chat"])
-logger = logging.getLogger("basa-secure-gateway.chat")
+logger = logging.getLogger("sentinel-secure-gateway.chat")
 
-_ENGINE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
+_ENGINE_URL = os.getenv("SENTINEL_ENGINE_API_BASE", "http://engine:4000")
 # Lado BACKEND del secreto compartido del plano interno: acá SÍ va el nombre nuevo, porque
-# el compose se lo pasa a ESTE contenedor como BASA_ENGINE_MASTER_KEY (igual que
+# el compose se lo pasa a ESTE contenedor como SENTINEL_ENGINE_MASTER_KEY (igual que
 # `internal.py`, `analytics.py`, `costs.py` y `ai_engine_client.py`). La asimetría con
 # `litellm/extensions/`, que sigue leyendo LITELLM_MASTER_KEY, es deliberada: adentro del
 # motor el nombre lo impone la imagen upstream. Los dos nombres resuelven al MISMO valor.
-_ENGINE_MASTER_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "basa_master_key_9999")
+_ENGINE_MASTER_KEY = os.getenv("SENTINEL_ENGINE_MASTER_KEY", "sentinel_master_key_9999")
 
 # Guardia de calidad (spec 012 US6): reintenta con el prompt original si la respuesta
 # tras compresión es anómala (vacía/muy corta). Fail-open; raro (solo si se comprimió).
@@ -91,7 +91,7 @@ _REVERSAL_GUARD = os.getenv("COMPRESSION_REVERSAL_GUARD", "true").lower() == "tr
 
 
 # Timeout (segundos) de la llamada al motor de IA. Configurable por env sin rebuild
-# (`BASA_ENGINE_TIMEOUT_SECONDS`): un modelo local/self-hosted (Ollama del cliente) puede tardar
+# (`SENTINEL_ENGINE_TIMEOUT_SECONDS`): un modelo local/self-hosted (Ollama del cliente) puede tardar
 # bastante más que un proveedor cloud, así que el hardcode de 15 s cortaba respuestas legítimas.
 #
 # El parser vive ahora en `engine_gate` y es COMPARTIDO con el byok de `/gw` (que tenía su propio
@@ -520,7 +520,7 @@ def _modelo_auditable(declarado):
     saneado = sanear_modelo_declarado(declarado)
     if saneado != declarado:
         logger.warning(
-            "[basa-chat] el pedido declaró el literal reservado de la cadena de licencias "
+            "[sentinel-chat] el pedido declaró el literal reservado de la cadena de licencias "
             "como modelo; la fila durable se registra con el centinela %s", saneado)
     return saneado
 
@@ -654,7 +654,7 @@ async def _registrar_bloqueo(*, db: Session, user, api_key_obj, group, tenant_id
 
     `cabeceras_del_503` es para los llamadores cuyo rechazo tiene un CONTRATO DE WIRE propio
     (H6 del gate de #135). Hoy sólo el rechazo por capacidad: La ITV acordó que
-    `X-Basa-Rejected: saturated` viaja en TODO 503 de saturación, y si la auditoría se cae
+    `X-Sentinel-Rejected: saturated` viaja en TODO 503 de saturación, y si la auditoría se cae
     mientras se registra uno, el 503 que sale por esta puerta sigue siendo la respuesta a un
     pedido saturado. Sin la cabecera, el harness de carga lo contaría como un 503 ajeno —de
     Caddy, del proxy de la sede— y el drill mediría mal justo en el caso interesante. Los
@@ -1101,7 +1101,7 @@ async def chat_completions(
     #
     # La evaluación AI-Act es PISO: ningún alcance puede apagarla (FR-002/SC-004). Por eso
     # el override por-pedido pasa a ser **solo restrictivo**, igual que el header
-    # `X-Basa-Redact` del gateway (contrato resolutor #5): puede forzar la evaluación, no
+    # `X-Sentinel-Redact` del gateway (contrato resolutor #5): puede forzar la evaluación, no
     # saltearla. Sin esta regla, cualquiera que alcance este endpoint —incluido el camino
     # anónimo que cae al usuario por defecto— apagaba una capa de piso mandando un booleano
     # en el body. Ningún input por-request entra a la cascada como relajación.
@@ -1585,7 +1585,7 @@ async def chat_completions(
                 # modelo inexistente/config inválida. Conflarlos mandaba el
                 # diagnóstico al lado equivocado (ensayo pre-piloto 2026-07-22).
                 body_lower = (response.text or "").lower()
-                if "bloqueada" in body_lower or "guardrail" in body_lower or "basa" in body_lower:
+                if "bloqueada" in body_lower or "guardrail" in body_lower or "sentinel" in body_lower:
                     logger.warning("AI engine blocked request (guardrail): %s", response.text)
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -1598,7 +1598,7 @@ async def chat_completions(
                 )
             else:
                 logger.error("AI engine returned status %s: %s", response.status_code, response.text)
-                error_detail = "Basa Gateway error"
+                error_detail = "Sentinel Gateway error"
                 try:
                     error_json = response.json()
                     if "error" in error_json and "message" in error_json["error"]:
@@ -1607,7 +1607,7 @@ async def chat_completions(
                     error_detail = response.text
 
                 # White-label
-                error_detail = error_detail.replace("litellm", "Basa Gateway").replace("LiteLLM", "Basa Gateway")
+                error_detail = error_detail.replace("litellm", "Sentinel Gateway").replace("LiteLLM", "Sentinel Gateway")
                 if "litellm." in error_detail:
                     parts = error_detail.split(":", 1)
                     if len(parts) > 1:
@@ -1668,7 +1668,7 @@ async def chat_completions(
                 parts = err_msg.split(":", 1)
                 if len(parts) > 1:
                     err_msg = parts[1].strip()
-            err_msg = err_msg.replace("litellm", "Basa Gateway").replace("LiteLLM", "Basa Gateway")
+            err_msg = err_msg.replace("litellm", "Sentinel Gateway").replace("LiteLLM", "Sentinel Gateway")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error al ejecutar el modelo: {err_msg}"
@@ -1768,7 +1768,7 @@ async def chat_completions(
     # Lo que NO se puede afirmar, no se afirma: las capas del motor (moderación,
     # anti-inyección, safety, guardrails de proveedor) se le PIDEN al motor en `guardrails`,
     # pero el motor **ignora en silencio** los nombres que no conoce (D4) y todavía no
-    # devuelve atribución propia — eso es T025 (`basa_guardrail.py`), bloqueada por el
+    # devuelve atribución propia — eso es T025 (`sentinel_guardrail.py`), bloqueada por el
     # PR #21. Así que acá no se les fabrica veredicto: quedan `requires_credential` cuando
     # están deseadas sin credencial cargada, y `not_configured` cuando están deseadas y
     # cableadas pero sin confirmación de ejecución. El día que el guardrail escriba su
@@ -1896,7 +1896,7 @@ async def chat_completions(
         # sería exactamente lo que el modo prohíbe —tráfico sin fila—, y el contrato de la
         # 031 ya define el 503 como la forma honesta de decirlo. El `record_audit_loss` no
         # se repite acá: lo hizo el escritor antes de propagar (audit_service, presupuesto
-        # agotado), y contarlo dos veces inflaría `basa:audit:lost`, que es CONSTANCIA de
+        # agotado), y contarlo dos veces inflaría `sentinel:audit:lost`, que es CONSTANCIA de
         # eventos perdidos y no una métrica de reintentos.
         logger.error("audit: la fila del pedido SERVIDO no se pudo escribir y el pedido "
                      "exige registro (modo=%s riesgo=%s) — 503 en vez del 200 (model=%s)",

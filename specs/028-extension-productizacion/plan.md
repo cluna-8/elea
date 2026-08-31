@@ -85,7 +85,7 @@ deploy/clients/camara-comercio/brand.json   # marca cc-guardian para el render
 US4 server: bloque `proteccion` en `whoami` (regla plano gateway ⇒ "patrones", copy de `_PISO_SIGUE`). US4 ext: chip ámbar. US5 ext: parsear `blocked`/`blocked_by_layer`/`motivo` y mostrar el `motivo` del server (server ya hecho por 027). Fallback conservador si el server no informa protección.
 
 **Fase D — Sesión (US6) + endurecimiento (US8a).**
-US6: tres estados (conectado/no-verificado/desconectado), 401≠403, `chrome.alarms` cada ~30min + `onStartup`, un solo dueño del estado (SW; el popup deja de escribir `basa_connected`). US8a: filtro `expires_at` en `_resolve_attribution` (error indistinguible).
+US6: tres estados (conectado/no-verificado/desconectado), 401≠403, `chrome.alarms` cada ~30min + `onStartup`, un solo dueño del estado (SW; el popup deja de escribir `sentinel_connected`). US8a: filtro `expires_at` en `_resolve_attribution` (error indistinguible).
 
 **Verificación:** backend con pytest (whoami proteccion, expires_at) · release con los checks (whitelabel, bundle) · extensión cargada en Chrome contra un gateway real (el ensayo `camara-ensayo`): conectar con permiso, enmascarar, ver chip ámbar, ver motivo de un bloqueo, revocar plaza y ver la desconexión.
 

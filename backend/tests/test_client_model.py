@@ -12,7 +12,7 @@ from src.services.context_resolution import resolve_connection_toggles
 
 require_postgres()
 
-DB = "basa_test_client"
+DB = "sentinel_test_client"
 
 TENANT_A = uuid.UUID("aaaaaaaa-0000-0000-0000-00000000000a")
 TENANT_B = uuid.UUID("bbbbbbbb-0000-0000-0000-00000000000b")
@@ -225,8 +225,8 @@ def test_toggle_resolution_null_inherits_value_overrides():
     assert no_group["compression_mode"] == "headroom"  # hereda del tenant
 
     override = _Obj(redact_enabled=False, compression_mode="off",
-                    allowed_models=["basa-fast"], allowed_tools=None)
+                    allowed_models=["sentinel-fast"], allowed_tools=None)
     resolved = resolve_connection_toggles(override, group=group, tenant=tenant)
     assert resolved["redact_enabled"] is False         # override explícito ≠ heredar
     assert resolved["compression_mode"] == "off"
-    assert resolved["allowed_models"] == ["basa-fast"]
+    assert resolved["allowed_models"] == ["sentinel-fast"]

@@ -38,7 +38,7 @@ from ..licensing.gate import enforce_seat_gate
 from ..models.user import User
 from ..services.onboarding import _SEEDED_PASSWORD_SENTINEL
 
-logger = logging.getLogger("basa-secure-gateway.sso.jit")
+logger = logging.getLogger("sentinel-secure-gateway.sso.jit")
 
 # Password de las identidades nacidas por SSO: su credencial vive en el IdP, no acá.
 # Es un literal que NO es bcrypt ni sha256-legacy, así que ``verify_password`` devuelve

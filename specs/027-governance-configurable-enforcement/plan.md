@@ -12,7 +12,7 @@ existe forma de configurar qué capas aplican por modo de conexión ni por super
 construye el **marco de gobernanza honesto**: (1) un catálogo de capas **en código** con un piso
 no-negociable estructuralmente inapagable; (2) una entidad `GovernanceProfile` (fila-por-decisión,
 `NULL=heredar`) que configura las capas opcionales por modo y superficie, por tenant; (3) un
-**resolutor puro único** en la librería compartida `basa_governance`, consumido por los tres
+**resolutor puro único** en la librería compartida `sentinel_governance`, consumido por los tres
 puntos de aplicación (gateway passthrough, guardrail del motor, chat UI); (4) un **estado real
 calculado** — declarativo + sonda `GET /guardrails/list` + evidencia por pedido — con default
 inseguro (`no_disponible`) y nunca persistido; (5) **atribución por pedido** en campos nuevos
@@ -28,12 +28,12 @@ conocido de toggles). Las decisiones y su evidencia `archivo:línea` están en
 **Primary Dependencies**: FastAPI + SQLAlchemy + Alembic (backend); LiteLLM 1.92.0 **pineado por
 digest** (motor, extensiones vía puntos documentados: custom_auth, custom guardrail, custom logger);
 React/Vite sin router (SPA con `useState<Page>`); librería pura compartida
-`litellm/extensions/basa_governance.py` (módulo nuevo, importado por ambos planos; se evitó tocar
-`basa_guardian_policy.py` porque el PR #21 lo reescribe)
+`litellm/extensions/sentinel_governance.py` (módulo nuevo, importado por ambos planos; se evitó tocar
+`sentinel_guardian_policy.py` porque el PR #21 lo reescribe)
 
-**Storage**: PostgreSQL — base del backend (`basa_gateway`): tabla nueva `governance_profiles` +
+**Storage**: PostgreSQL — base del backend (`sentinel_gateway`): tabla nueva `governance_profiles` +
 2 columnas nuevas en `audit_logs` (`applied_layers` JSONB, `blocked_by_layer` VARCHAR indexable),
-migración Alembic. La base del motor (`basa_engine` en prod) NO recibe esquema nuevo. Redis solo
+migración Alembic. La base del motor (`sentinel_engine` en prod) NO recibe esquema nuevo. Redis solo
 para el feed de monitor existente.
 
 **Testing**: pytest (suite heredada, 226 passing en main) + tests de contrato contra la versión
@@ -113,7 +113,7 @@ backend/
 │   │   ├── governance.py            # NUEVO: GovernanceProfile
 │   │   └── audit.py                 # +applied_layers, +blocked_by_layer
 │   ├── services/
-│   │   ├── governance_catalog.py    # NUEVO: re-export de extensions.basa_governance (registry GOVERNANCE_LAYERS, D1)
+│   │   ├── governance_catalog.py    # NUEVO: re-export de extensions.sentinel_governance (registry GOVERNANCE_LAYERS, D1)
 │   │   ├── governance_resolution.py # NUEVO: resolución por tenant (usa el resolutor puro)
 │   │   ├── governance_status.py     # NUEVO: estado real calculado (D4: A+B+C)
 │   │   ├── guardian_service.py      # −trigger DELEGATED fabricado; seed neutralizado (P2)
@@ -132,10 +132,10 @@ backend/
 
 litellm/
 └── extensions/
-    ├── basa_governance.py           # NUEVO: registry + resolve_profile / apply_layers (resolutor puro, D1/D3)
-    ├── basa_guardrail.py            # consume Profile; evidencia applied-guardrails
-    ├── custom_auth.py               # +perfil resuelto en metadata.basa; invalidación de cache
-    └── basa_audit_logger.py         # +applied_layers/blocked_by_layer en fila y monitor
+    ├── sentinel_governance.py           # NUEVO: registry + resolve_profile / apply_layers (resolutor puro, D1/D3)
+    ├── sentinel_guardrail.py            # consume Profile; evidencia applied-guardrails
+    ├── custom_auth.py               # +perfil resuelto en metadata.sentinel; invalidación de cache
+    └── sentinel_audit_logger.py         # +applied_layers/blocked_by_layer en fila y monitor
 
 frontend/
 └── src/
@@ -150,10 +150,10 @@ frontend/
 
 **Structure Decision**: aplicación web existente (backend + frontend + extensiones del motor). No se
 crean proyectos nuevos. La única pieza compartida entre planos vive donde ya vive la que existe:
-`litellm/extensions/basa_governance.py` (módulo nuevo junto a `basa_guardian_policy.py`, importado
-hoy por `gateway.py:76` y `basa_guardrail.py:40`) — así "la misma decisión" es literal, no una
+`litellm/extensions/sentinel_governance.py` (módulo nuevo junto a `sentinel_guardian_policy.py`, importado
+hoy por `gateway.py:76` y `sentinel_guardrail.py:40`) — así "la misma decisión" es literal, no una
 convención (patrón de paridad de la 014). Se creó un módulo aparte en vez de extender
-`basa_guardian_policy.py` porque el PR #21 reescribe ese archivo; `backend/src/services/governance_catalog.py`
+`sentinel_guardian_policy.py` porque el PR #21 reescribe ese archivo; `backend/src/services/governance_catalog.py`
 es solo la puerta de re-export del backend.
 
 ## Complexity Tracking

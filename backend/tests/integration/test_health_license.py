@@ -17,7 +17,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_health_license"
+DB = "sentinel_test_health_license"
 
 ANON_KEYS = {"status", "clock_rollback_suspected"}
 

@@ -4,7 +4,7 @@
 El export se genera 100% local (sin egress), refleja lo que la caja registró
 (seats + historial encadenado + hash-head + contador) y va firmado con la
 deployment key (Ed25519, generada en el install, privada en volumen). El
-verificador (lado Basa, MISMO módulo) valida: firma; cadena interna; génesis
+verificador (lado Sentinel, MISMO módulo) valida: firma; cadena interna; génesis
 del onboarding en el PRIMER export; y continuidad entre exports sucesivos —
 contador no-decreciente y head previo ANCESTRO — rechazando un export
 post-truncado. Metadata-only: 0 PII, 0 token crudo.
@@ -23,7 +23,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_trueup"
+DB = "sentinel_test_trueup"
 
 
 @pytest.fixture(scope="module")
@@ -85,7 +85,7 @@ def test_signed_export_verifies_and_tamper_invalidates(harness, monkeypatch, tmp
 
     doc = trueup_export.generate_signed_export(session_factory=factory)
     # Refleja lo que la caja registró, con el ancla de la cadena.
-    assert doc["kind"] == "basa-trueup"
+    assert doc["kind"] == "sentinel-trueup"
     assert doc["counter"] >= 3 and doc["hash_head"]
     assert len(doc["events"]) == doc["counter"]
     assert "sig" in doc
@@ -100,7 +100,7 @@ def test_signed_export_verifies_and_tamper_invalidates(harness, monkeypatch, tmp
 
     # Metadata-only: el token crudo no viaja en el export.
     import os
-    raw_blob = open(os.environ["BASA_LICENSE_TOKEN_FILE"], encoding="utf-8").read()
+    raw_blob = open(os.environ["SENTINEL_LICENSE_TOKEN_FILE"], encoding="utf-8").read()
     assert raw_blob not in json.dumps(doc)
 
 
@@ -143,7 +143,7 @@ def test_unlicensed_first_boot_genesis_gets_anchored(harness, monkeypatch, tmp_p
     anchored = [e for e in doc["events"] if e["event_type"] == "license_genesis_anchored"]
     assert len(anchored) == 1 and anchored[0]["license_id"] == "lic_test_0001"
 
-    # Valida contra el id que Basa registró en el onboarding (dato EXTERNO)…
+    # Valida contra el id que Sentinel registró en el onboarding (dato EXTERNO)…
     trueup_export.verify_export(doc, dep_key, expected_genesis_license_id="lic_test_0001")
     # …y un license_id ajeno se rechaza aunque la génesis sea 'unlicensed'.
     with pytest.raises(trueup_export.TrueUpError, match="anclaje|génesis"):

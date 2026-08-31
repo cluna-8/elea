@@ -3,13 +3,13 @@
 # LOCAL con la red bloqueada, y NO existe integración con ningún buscador SaaS
 # (Algolia DocSearch prohibido: rompería el air-gap).
 set -euo pipefail
-IMG="${DOCS_IMG:-basa-docs:prod}"
+IMG="${DOCS_IMG:-sentinel-docs:prod}"
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 fail() { echo "❌ $1"; exit 1; }
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-docs)"
 
-cname="basa-docs-search-check-$$"
+cname="sentinel-docs-search-check-$$"
 trap 'docker rm -f "$cname" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$cname" --network none "$IMG" >/dev/null
 sleep 1

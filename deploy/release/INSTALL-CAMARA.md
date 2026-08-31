@@ -41,9 +41,9 @@ sudo ss -tlnp | grep -E ':80 |:443 ' || echo "80 y 443 libres ✅"
 ## 2 · Copiar e instalar (los 2 comandos)
 
 ```bash
-mkdir -p ~/basa-install && cp /media/*/BASA/bundle-camara-comercio.tar.gz /media/*/BASA/camara-comercio-300.lic ~/basa-install/ && cd ~/basa-install
+mkdir -p ~/sentinel-install && cp /media/*/SENTINEL/bundle-camara-comercio.tar.gz /media/*/SENTINEL/camara-comercio-300.lic ~/sentinel-install/ && cd ~/sentinel-install
 ```
-(En Ubuntu de escritorio el pendrive monta en `/media/<usuario>/BASA`; ajustá si difiere.)
+(En Ubuntu de escritorio el pendrive monta en `/media/<usuario>/SENTINEL`; ajustá si difiere.)
 
 ```bash
 tar xzf bundle-camara-comercio.tar.gz && cd bundle-camara-comercio && ./install.sh ../camara-comercio-300.lic camara
@@ -72,7 +72,7 @@ Tienen que quedar **8**: backend, frontend, docs, nlp-analyzer, engine, ingress,
 ```bash
 curl -s http://localhost/api/v1/health/license
 ```
-Esperado: `"status":"active"`. **Anotá el `chain.genesis_license_id`** — es la génesis de auditoría de esta instalación y hay que registrarla del lado Basa.
+Esperado: `"status":"active"`. **Anotá el `chain.genesis_license_id`** — es la génesis de auditoría de esta instalación y hay que registrarla del lado Sentinel.
 
 ## 4 · Primer login
 
@@ -206,8 +206,8 @@ http://localhost/api/v1/gw
 
 ### Herramientas de código (misma base)
 
-- **Claude Code (suscripción del usuario, protegida)**: `ANTHROPIC_BASE_URL=http://SERVIDOR/api/v1/gw` + atribución opcional `ANTHROPIC_CUSTOM_HEADERS="X-Basa-Key: sk-basa-…"`.
-- **VS Code / Copilot custom endpoint (modelo local byok)**: url `http://SERVIDOR/api/v1/gw/v1/messages?k=sk-basa-…`, `apiType` `messages`, model id `camara-comercio-local`.
+- **Claude Code (suscripción del usuario, protegida)**: `ANTHROPIC_BASE_URL=http://SERVIDOR/api/v1/gw` + atribución opcional `ANTHROPIC_CUSTOM_HEADERS="X-Sentinel-Key: sk-sentinel-…"`.
+- **VS Code / Copilot custom endpoint (modelo local byok)**: url `http://SERVIDOR/api/v1/gw/v1/messages?k=sk-sentinel-…`, `apiType` `messages`, model id `camara-comercio-local`.
 
 ## 9 · Smoke test de la demo
 
@@ -220,13 +220,13 @@ http://localhost/api/v1/gw
 Siempre con los `--env-file` (sin ellos compose falla):
 
 ```bash
-cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.prod.yml --profile selfhosted --env-file profile/instance.env --env-file profile/secrets.env down
+cd ~/sentinel-install/bundle-camara-comercio && docker compose -p camara -f compose.prod.yml --profile selfhosted --env-file profile/instance.env --env-file profile/secrets.env down
 ```
 
 ## 11 · NUNCA
 
 - **NO** correr `issue_dev_license.py` (invalida la licencia viva).
-- **NO** "limpiar" `secrets.env` (sin `BASA_ALLOW_DEV_LICENSE=true` no se puede dar de alta nada).
+- **NO** "limpiar" `secrets.env` (sin `SENTINEL_ALLOW_DEV_LICENSE=true` no se puede dar de alta nada).
 - **NO** reiniciar el motor porque diga `unhealthy` en el primer arranque.
 
 ## Troubleshooting exprés
@@ -236,7 +236,7 @@ cd ~/basa-install/bundle-camara-comercio && docker compose -p camara -f compose.
 | Playground «no hace nada» tras alta de modelo | Falta apretar «Aplicar cambios del motor» en Modelos & Ollama |
 | Apreté «Aplicar cambios del motor» y no pasa nada / dice «Estado del motor no disponible» | `state: "unknown"` — no implica caja vieja por sí solo. Mirá el `last_error` que el panel pega debajo y confirmá el contenedor real con `docker ps` (nota de dos generaciones en el paso 2) antes de `docker restart` |
 | `Cannot connect to host host.docker.internal:11434` | Ollama sin `OLLAMA_HOST=0.0.0.0`, o stack en otra máquina → alta por UI con IP |
-| 401 en todo con clave válida | Motor sin `BASA_IDENTITY_URL` |
+| 401 en todo con clave válida | Motor sin `SENTINEL_IDENTITY_URL` |
 | «Sitio no seguro» tras instalar el .crt con doble-click | Fue al almacén del USUARIO, no al de la máquina → `install-ca.bat` del trust-kit |
 | La extensión no conecta por https y la URL es correcta | Ese puesto todavía no confía en la CA interna → correr el instalador ahí y ver el VERDE |
 | «LA HUELLA NO COINCIDE» / código 4 al instalar la CA | El `root.crt` de ese puesto no es el del kit recién exportado (copia vieja u otro cliente) → reponerlo y recotejar; **no** forzar con `-AcceptFingerprint` sin saber por qué |
@@ -252,7 +252,7 @@ nota de dos generaciones en el paso 2).
 ## Anexo · Sin pendrive
 
 Los mismos 4 ficheros viven en DOS sitios más: la carpeta `~/piloto-camara-sede/` del Mac
-de JF, y `/root/piloto-camara/` del VPS de basa-dev.
+de JF, y `/root/piloto-camara/` del VPS de sentinel-dev.
 
 ### A · Desde el Mac, por la LAN de la sede (vía preferida)
 
@@ -265,14 +265,14 @@ cd ~/piloto-camara-sede && python3 -m http.server 8000
 Anotá la IP del Mac (`ipconfig getifaddr en0`). En el servidor de la sede:
 
 ```bash
-mkdir -p ~/basa-install && cd ~/basa-install && for f in bundle-camara-comercio.tar.gz camara-comercio-300.lic INSTALL-CAMARA.md; do wget "http://IP-DEL-MAC:8000/$f"; done
+mkdir -p ~/sentinel-install && cd ~/sentinel-install && for f in bundle-camara-comercio.tar.gz camara-comercio-300.lic INSTALL-CAMARA.md; do wget "http://IP-DEL-MAC:8000/$f"; done
 ```
 
 Cortá el `http.server` con Ctrl-C en cuanto termine y seguí en el paso 2.
 
 ### B · Desde el VPS (si el Mac no está disponible)
 
-Desde cualquier máquina con la clave SSH de basa-dev:
+Desde cualquier máquina con la clave SSH de sentinel-dev:
 
 ```bash
 scp vps:/root/piloto-camara/\{bundle-camara-comercio.tar.gz,camara-comercio-300.lic\} .

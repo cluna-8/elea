@@ -17,7 +17,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_seats_not_usage"
+DB = "sentinel_test_seats_not_usage"
 
 
 @pytest.fixture(scope="module")

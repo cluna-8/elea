@@ -8,20 +8,20 @@ REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 fail() { echo "❌ $1"; exit 1; }
 
-BRAND_A_NAME="Basa Secure AI Gateway"
+BRAND_A_NAME="Sentinel Secure AI Gateway"
 BRAND_B_NAME="Aegis AI Firewall"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"; docker rm -f docs-wl-a docs-wl-b >/dev/null 2>&1 || true' EXIT
 
 echo "── build marca base + marca aegis"
-docker build -q -f "$REPO_ROOT/docs/Dockerfile" -t basa-docs:wl-base "$REPO_ROOT/docs" >/dev/null \
+docker build -q -f "$REPO_ROOT/docs/Dockerfile" -t sentinel-docs:wl-base "$REPO_ROOT/docs" >/dev/null \
     || fail "build marca base falló"
-docker build -q -f "$REPO_ROOT/docs/Dockerfile" --build-arg BRAND=aegis -t basa-docs:wl-aegis "$REPO_ROOT/docs" >/dev/null \
+docker build -q -f "$REPO_ROOT/docs/Dockerfile" --build-arg BRAND=aegis -t sentinel-docs:wl-aegis "$REPO_ROOT/docs" >/dev/null \
     || fail "build marca aegis falló (¿falta docs/mkdocs.aegis.yml / docs/brand/aegis?)"
 
-docker create --name docs-wl-a basa-docs:wl-base >/dev/null
-docker create --name docs-wl-b basa-docs:wl-aegis >/dev/null
+docker create --name docs-wl-a sentinel-docs:wl-base >/dev/null
+docker create --name docs-wl-b sentinel-docs:wl-aegis >/dev/null
 docker cp -q docs-wl-a:/usr/share/nginx/html "$work/a"
 docker cp -q docs-wl-b:/usr/share/nginx/html "$work/b"
 

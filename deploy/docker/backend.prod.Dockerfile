@@ -21,7 +21,7 @@ FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 curl \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --create-home --uid 10001 basa
+    && useradd --system --create-home --uid 10001 sentinel
 
 WORKDIR /app
 COPY --from=builder /wheels /tmp/wheels
@@ -40,9 +40,9 @@ COPY backend/scripts/*.py ./scripts/
 # MISMO path que el compose usa, así gateway.py la encuentra sin tocar código.
 COPY litellm/extensions ./litellm_config/extensions
 COPY deploy/docker/entrypoint/backend.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && chown -R basa:basa /app
+RUN chmod +x /entrypoint.sh && chown -R sentinel:sentinel /app
 
-USER basa
+USER sentinel
 EXPOSE 8000
 # El período largo tolera migraciones Alembic en el arranque.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \

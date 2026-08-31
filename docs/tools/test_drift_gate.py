@@ -81,7 +81,7 @@ def test_rutas_ocultas_no_cuentan_como_deriva():
 def test_env_incluye_helpers_tipados_y_el_plano_motor():
     env = dg.env_del_codigo()
     # Helper tipado: services/engine_gate.py lo lee con `_env_int`, no con os.getenv.
-    assert env.get("BASA_ENGINE_MAX_CONCURRENCY") == "app"
+    assert env.get("SENTINEL_ENGINE_MAX_CONCURRENCY") == "app"
     # os.environ.get directo — el caso del bug de `_punteado`.
     assert env.get("NLP_ANALYZER_URL") == "app"
     # Plano motor: litellm/config.yaml interpola con `os.environ/VAR`.
@@ -250,7 +250,7 @@ def test_gate_y_generador_coinciden_en_que_es_una_variable_declarada():
     El gate aceptaba `# VAR=` y el generador no, así que una variable comentada
     satisfacía al gate —que la daba por documentada y se callaba— y jamás llegaba
     a la referencia que se le muestra al cliente. En ese hueco vivían las cinco
-    variables de la licencia offline, entre ellas `BASA_ALLOW_DEV_LICENSE`, la que
+    variables de la licencia offline, entre ellas `SENTINEL_ALLOW_DEV_LICENSE`, la que
     habilita claves de licencia de desarrollo.
 
     Este test es el que impide que las dos definiciones se vuelvan a separar: no
@@ -283,7 +283,7 @@ def _env_example(contenido: str):
 
 def test_una_variable_comentada_no_cuenta_como_declarada():
     """`# VAR=` no llega a la referencia, así que no puede contar como documentada."""
-    with _env_example("# BASA_ALLOW_DEV_LICENSE=true    # opt-in a claves dev\nREAL=1\n"):
+    with _env_example("# SENTINEL_ALLOW_DEV_LICENSE=true    # opt-in a claves dev\nREAL=1\n"):
         declaradas = dg.env_declaradas()
     assert declaradas == {"REAL"}, declaradas
 
@@ -324,7 +324,7 @@ def test_en_el_archivo_real_ninguna_variable_solo_comentada_cuenta_como_declarad
 
 
 def test_prosa_que_empieza_con_una_asignacion_no_cuenta_como_declarada():
-    """`.env.example:93` es una FRASE que arranca con `BASA_PURGE_ENABLED=false`.
+    """`.env.example:93` es una FRASE que arranca con `SENTINEL_PURGE_ENABLED=false`.
 
     Con el `#?` viejo, cualquier línea de prosa con esa forma entraba al conjunto
     de declaradas. Es la dirección peligrosa: una variable nombrada al pasar en un
@@ -333,13 +333,13 @@ def test_prosa_que_empieza_con_una_asignacion_no_cuenta_como_declarada():
     """
     with _env_example(
         "# Banner de la purga\n"
-        "# BASA_PURGE_ENABLED=false (el default) el scheduler ni arranca,\n"
+        "# SENTINEL_PURGE_ENABLED=false (el default) el scheduler ni arranca,\n"
         "# así que la caja sale configurada pero inerte.\n"
         "\n"
-        "BASA_PURGE_WINDOW=02:00-04:00\n"
+        "SENTINEL_PURGE_WINDOW=02:00-04:00\n"
     ):
         declaradas = dg.env_declaradas()
-    assert declaradas == {"BASA_PURGE_WINDOW"}, declaradas
+    assert declaradas == {"SENTINEL_PURGE_WINDOW"}, declaradas
 
 
 def _mentiras_de_config() -> set[str]:

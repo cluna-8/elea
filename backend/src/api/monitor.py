@@ -1,6 +1,6 @@
 """Monitor en vivo del firewall (spec 014 US3, FR-017) — la vitrina de las demos.
 
-Sirve el feed efímero que el ``BasaAuditLogger`` (extensión del motor) publica en
+Sirve el feed efímero que el ``SentinelAuditLogger`` (extensión del motor) publica en
 Redis por request: qué herramienta/cliente/tenant, verdicto de compliance, entidades
 enmascaradas y un preview **ya enmascarado** (lo que vio el upstream). Nada de PII
 cruda (Constitución VIII: animación cosmética, datos reales; C1: sin texto sensible).
@@ -118,7 +118,7 @@ _SESION = [Depends(require_role("admin", "compliance_officer", "lectura"))]
 
 router = APIRouter(prefix="/gw", tags=["Monitor"])
 
-_MONITOR_KEY = "basa:gw:events"
+_MONITOR_KEY = "sentinel:gw:events"
 
 
 # ── Copy de capas para la vitrina (Constitución VII) ──────────────────────────────
@@ -203,7 +203,7 @@ def monitor_events(limit: int = 50):
 
 
 _MONITOR_TEMPLATE = """<!doctype html>
-<html lang="es"><head><meta charset="utf-8"><title>Basa Gateway — Monitor en vivo</title>
+<html lang="es"><head><meta charset="utf-8"><title>Sentinel Gateway — Monitor en vivo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root { color-scheme: dark; }
@@ -253,7 +253,7 @@ _MONITOR_TEMPLATE = """<!doctype html>
   .capa.ruteo { color:#79c0ff; border-color:#79c0ff33; background:#1f2d3d; }
 </style></head>
 <body>
-<header><span class="dot"></span><h1>Basa Gateway — Monitor en vivo</h1>
+<header><span class="dot"></span><h1>Sentinel Gateway — Monitor en vivo</h1>
   <span class="muted" id="status">conectando…</span></header>
 <main id="feed"><div class="empty">Esperando tráfico… enviá una request por el gateway.</div></main>
 <script>
@@ -277,7 +277,7 @@ function tabla(obj){ return Object.assign(Object.create(null), obj); }
 //   gateway/inspect → passed · flagged_high_risk · blocked_prohibited · blocked_secret ·
 //                     upstream_error        (gateway.py:262-275, :829)
 //   motor           → passed · flagged_high_risk · blocked_prohibited
-//                     (basa_guardian_policy.evaluate_ai_act, vía basa_compliance.status)
+//                     (sentinel_guardian_policy.evaluate_ai_act, vía sentinel_compliance.status)
 //   chat            → bloqueos de política: blocked_prohibited · blocked_by_policy ·
 //                     blocked_residency; rechazos NUESTROS: rejected_saturated (#135) ·
 //                     rejected_budget (#157)   (chat.py, los 5 llamadores de
@@ -461,7 +461,7 @@ function render(events){
 // vite.config.ts hace lo mismo con /api y /gw, así que abrir la vitrina por el origen de la
 // consola alcanza. Abrirla por el puerto del backend es OTRO origen: ahí no hay token, y el
 // mensaje lo dice en vez de mostrar un feed vacío que parece "no hay tráfico".
-const TOKEN_KEY = 'basa_session_token';   // espejo de frontend/src/services/auth.ts
+const TOKEN_KEY = 'sentinel_session_token';   // espejo de frontend/src/services/auth.ts
 function sesion(){ try { return localStorage.getItem(TOKEN_KEY) || ''; } catch(e){ return ''; } }
 
 function sinSesion(mensaje){

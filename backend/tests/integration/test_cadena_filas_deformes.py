@@ -25,11 +25,11 @@ esta guarda es la que hace que el pasado no tumbe la verificación.
 Se siembran filas deformes junto a una cadena LEGÍTIMA de varios eslabones —emitida por el
 emisor real de la 021, no por dicts a mano— y se exige que los dos lectores **sobrevivan y
 sigan verificando la cadena buena**: `verify_chain` verde con `checked` EXACTO, y un true-up
-firmado que el verificador lado-Basa acepta con los `seq` exactos que emitió el emisor.
+firmado que el verificador lado-Sentinel acepta con los `seq` exactos que emitió el emisor.
 
 `checked` exacto y no «al menos» porque el error simétrico también existe: adoptar la fila
 ajena. Un `[{"seq": 1}]` adoptado hace que el export se lleve una fila que no es de la cadena, y
-entonces el lado-Basa rechaza el true-up del cliente por «cadena interna inválida».
+entonces el lado-Sentinel rechaza el true-up del cliente por «cadena interna inválida».
 
 Lo que NO se prueba acá es que la guarda vuelva indulgente al verificador: por eso está el test
 del final, que rompe un eslabón LEGÍTIMO deformándolo y exige que la cadena se ponga ROJA. Una
@@ -71,7 +71,7 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_cadena_filas_deformes"
+DB = "sentinel_test_cadena_filas_deformes"
 
 RESERVADO = "license"
 
@@ -103,7 +103,7 @@ DEFORMES = [
     # Objeto legítimo a medias: pasa el filtro viejo y `verify_chain` muere en el `prev_hash`.
     # Es además la forma que el clasificador de retención considera eslabón, o sea la que el
     # export ADOPTABA — el daño acá no es sólo la excepción: el true-up sale contaminado y el
-    # lado-Basa lo rechaza con «cadena interna inválida: falta seq 2», medido.
+    # lado-Sentinel lo rechaza con «cadena interna inválida: falta seq 2», medido.
     ("objeto_sin_prev_hash", [{"seq": 1}],
      "KeyError: 'prev_hash' en verify_chain / TrueUpError en el export"),
     # El `seq` con el tipo equivocado: pasa las dos guardas de pertenencia y revienta en el
@@ -218,7 +218,7 @@ def reporte_de_la_cadena(factory):
 
 def export_firmado(factory, monkeypatch, tmp_path):
     """El true-up REAL: firmado con una deployment key efímera y verificado por el mismo
-    verificador que corre del lado Basa."""
+    verificador que corre del lado Sentinel."""
     from src.licensing import deployment_key, trueup_export
     monkeypatch.setenv(deployment_key.DEPLOYMENT_KEY_ENV, str(tmp_path / "deployment_key.pem"))
     deployment_key.ensure_deployment_key()
@@ -268,7 +268,7 @@ def test_el_trueup_sobrevive_a_la_fila_deforme_y_no_se_la_lleva(
     """El lector que le cuesta plata al cliente. Se exige el payload EXACTO —los mismos `seq`
     que emitió el emisor— y que el documento firmado verifique de punta a punta: `verify_export`
     recorre la cadena interna eslabón por eslabón, así que es el assert que de verdad detecta al
-    intruso. Un export con una fila ajena adentro lo rechaza el lado-Basa por «cadena interna
+    intruso. Un export con una fila ajena adentro lo rechaza el lado-Sentinel por «cadena interna
     inválida», y el cliente se queda sin poder demostrar su historial."""
     factory, cadena = harness
 

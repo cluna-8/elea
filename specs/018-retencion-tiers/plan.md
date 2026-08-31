@@ -32,14 +32,14 @@ Darle dientes a la promesa RGPD Art. 5.1.e que hoy es solo configuración: un **
 
 | Env | Default | Qué controla |
 |---|---|---|
-| `BASA_PURGE_ENABLED` | `false` | interruptor maestro del purgador |
-| `BASA_PURGE_DRY_RUN` | `true` | simulacro: cuenta lo que caería y deja rastro, no borra |
-| `BASA_PURGE_INTERVAL_SECONDS` | `3600` | frecuencia de chequeo del scheduler (corre solo si está en ventana) |
-| `BASA_PURGE_WINDOW` | `02:00-05:00` | ventana horaria permitida (hora local de la instalación, `BASA_PURGE_WINDOW_TZ` default `Europe/Madrid`) |
-| `BASA_PURGE_BATCH_SIZE` | `5000` | filas por lote de DELETE |
-| `BASA_PURGE_BATCH_PAUSE_MS` | `200` | pausa entre lotes (cede la tabla a los lectores calientes) |
+| `SENTINEL_PURGE_ENABLED` | `false` | interruptor maestro del purgador |
+| `SENTINEL_PURGE_DRY_RUN` | `true` | simulacro: cuenta lo que caería y deja rastro, no borra |
+| `SENTINEL_PURGE_INTERVAL_SECONDS` | `3600` | frecuencia de chequeo del scheduler (corre solo si está en ventana) |
+| `SENTINEL_PURGE_WINDOW` | `02:00-05:00` | ventana horaria permitida (hora local de la instalación, `SENTINEL_PURGE_WINDOW_TZ` default `Europe/Madrid`) |
+| `SENTINEL_PURGE_BATCH_SIZE` | `5000` | filas por lote de DELETE |
+| `SENTINEL_PURGE_BATCH_PAUSE_MS` | `200` | pausa entre lotes (cede la tabla a los lectores calientes) |
 
-*(enmienda aprobada por el manager 13-ago — arranque seguro; letra completa en Contrato 4.)* `BASA_PURGE_ENABLED` pasa de `true` a **`false`** y entra `BASA_PURGE_DRY_RUN=true`, la séptima perilla y la única fuera de la tabla sellada de este plan: se agrega ahora porque los nombres de este bloque todavía no están publicados en la doc del cliente, y hacerlo después de publicar ya sería cambiar el contrato de configuración de las instalaciones existentes. El porqué del `false`: un job de `DELETE` retroactivo no se enciende con un `docker pull`. El `.env` de la sede se escribe hoy y la imagen con purgador llega después; con `true` ahí, ese pull encendería solo un borrado sobre datos del cliente. Encender es un paso explícito del runbook, con reinicio del backend y con el conteo del simulacro ya firmado. La tensión con el Art. 5.1.e queda aceptada por escrito: una retención que todavía no purga se arregla con un `true`; una purga que se encendió sola y borró de más no se arregla con nada.
+*(enmienda aprobada por el manager 13-ago — arranque seguro; letra completa en Contrato 4.)* `SENTINEL_PURGE_ENABLED` pasa de `true` a **`false`** y entra `SENTINEL_PURGE_DRY_RUN=true`, la séptima perilla y la única fuera de la tabla sellada de este plan: se agrega ahora porque los nombres de este bloque todavía no están publicados en la doc del cliente, y hacerlo después de publicar ya sería cambiar el contrato de configuración de las instalaciones existentes. El porqué del `false`: un job de `DELETE` retroactivo no se enciende con un `docker pull`. El `.env` de la sede se escribe hoy y la imagen con purgador llega después; con `true` ahí, ese pull encendería solo un borrado sobre datos del cliente. Encender es un paso explícito del runbook, con reinicio del backend y con el conteo del simulacro ya firmado. La tensión con el Art. 5.1.e queda aceptada por escrito: una retención que todavía no purga se arregla con un `true`; una purga que se encendió sola y borró de más no se arregla con nada.
 
 ## Constitution Check
 
@@ -47,7 +47,7 @@ Darle dientes a la promesa RGPD Art. 5.1.e que hoy es solo configuración: un **
 
 - **Principio II (compliance dos niveles, D3)**: esta spec convierte retención de «evidencia configurable» en **enforcement real** sin cambiar la postura de bloqueo en runtime de ningún request — la purga es un job, no un gate. Honestidad D3 preservada: nada se declara «enforced» hasta que SC-001/SC-004 pasen.
 - **Security Constraint 1 + 6 (auditoría metadata-only)**: la purga borra metadata; `purge_log` y la fila resumen por corrida guardan **solo conteos/rangos/duración**, jamás contenido. FR-004 además REDUCE contenido real persistido (response_text muere a los 90 d) — movimiento a favor del principio.
-- **Principio VI (LiteLLM-native, no patching)**: el plano motor no se toca. El tier `estricto` exige fail-closed de auditoría (FR-008b) **sin reescribir el env espejo**: el backend valida coherencia tier↔`BASA_AUDIT_FAIL` y la incoherencia degrada el health + audita — el espejo triple queda intacto (sin rebundle).
+- **Principio VI (LiteLLM-native, no patching)**: el plano motor no se toca. El tier `estricto` exige fail-closed de auditoría (FR-008b) **sin reescribir el env espejo**: el backend valida coherencia tier↔`SENTINEL_AUDIT_FAIL` y la incoherencia degrada el health + audita — el espejo triple queda intacto (sin rebundle).
 - **Principio III (multi-tenant forward-looking)**: FR-006 es exactamente la parte C2 de esa deuda — los jobs batch nacen con el contrato de identidad del mundo post-017.
 - **Workflow (tests que muerden)**: cada FR lleva test con criterio verificable; el harness post-017 es Foundational, no polish.
 
@@ -88,10 +88,10 @@ backend/
 │   ├── integration/test_retention_tiers.py      # US2: pisos, SIEMPRE-evalúa, cambio auditado
 │   ├── integration/test_purge_post017.py        # FR-006/SC-004: fixture bootstrap-dropeada + rol NOSUPERUSER
 │   └── unit/test_retention_classifier.py        # tabla de clases vs seed 004, portón por forma medido contra Postgres, cobertura total de filas, y el TEST VERDUGO que llama al emisor real (Contrato 1 regla 2)
-litellm/extensions/basa_governance.py            # SOLO alta de la clave de capa en el registry (código puro compartido, sin migración)
+litellm/extensions/sentinel_governance.py            # SOLO alta de la clave de capa en el registry (código puro compartido, sin migración)
 ```
 
-**Structure Decision**: paquete nuevo `backend/src/services/retention/` para clasificador+purgador (cohesión y testabilidad unitaria), scheduler como módulo hermano siguiendo el precedente de `reconcile`. El único toque fuera del backend es el alta de la clave `enforcement_tier_estricto` en el registry puro compartido (`basa_governance.py`) — cambio de código sin migración, que el resolutor del motor ignora con seguridad (capas desconocidas se ignoran por diseño 027) y solo el backend consume.
+**Structure Decision**: paquete nuevo `backend/src/services/retention/` para clasificador+purgador (cohesión y testabilidad unitaria), scheduler como módulo hermano siguiendo el precedente de `reconcile`. El único toque fuera del backend es el alta de la clave `enforcement_tier_estricto` en el registry puro compartido (`sentinel_governance.py`) — cambio de código sin migración, que el resolutor del motor ignora con seguridad (capas desconocidas se ignoran por diseño 027) y solo el backend consume.
 
 ## Complexity Tracking
 

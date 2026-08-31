@@ -19,7 +19,7 @@
 ## Phase 1: Setup
 
 - [ ] T001 Paquetes `backend/src/sso/` y módulos `auth/matrix.py`, `auth/lockout.py`, `services/auth_events.py` (esqueletos con docstrings de contrato) + alta de `authlib` pineada en requirements (única dependencia nueva — research D2).
-- [ ] T002 [P] Envs nuevos (`BASA_LOGIN_MAX_ATTEMPTS`, `BASA_LOGIN_LOCKOUT_SECONDS`, `BASA_RLS_STRICT`) en `.env.example` + `make -C deploy docs-refs` en el mismo PR (el drift gate vigila).
+- [ ] T002 [P] Envs nuevos (`SENTINEL_LOGIN_MAX_ATTEMPTS`, `SENTINEL_LOGIN_LOCKOUT_SECONDS`, `SENTINEL_RLS_STRICT`) en `.env.example` + `make -C deploy docs-refs` en el mismo PR (el drift gate vigila).
 
 ## Phase 2: Foundational (bloquea todo)
 

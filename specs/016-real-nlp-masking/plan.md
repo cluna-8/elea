@@ -9,10 +9,10 @@
 Reemplaza la detección de PII/PHI regex-only por un motor NLP real (Presidio Analyzer con modelo
 español, sidecar HTTP) en el camino de tráfico real del firewall (spec 014), cerrando el gap de
 `PERSON` sin prefijo (US1); conecta `SecurityPolicy.entity_configs` (hoy cosmético) al
-`BasaGuardrail.async_pre_call_hook` para que `MASK`/`BLOCK` por tipo de entidad tengan efecto real
+`SentinelGuardrail.async_pre_call_hook` para que `MASK`/`BLOCK` por tipo de entidad tengan efecto real
 (US2); vuelve fail-closed la indisponibilidad del NLP en vez del fail-open heredado (US3); y arregla
 la corrupción posible por coincidencias solapadas con una función de resolución determinística (US4).
-Unifica las dos listas de patrones duplicadas (`presidio_service.py` / `basa_guardian_policy.py`) en
+Unifica las dos listas de patrones duplicadas (`presidio_service.py` / `sentinel_guardian_policy.py`) en
 una sola fuente que viaja como `ad_hoc_recognizers` en cada llamada al Analyzer (SC-006).
 
 ## Technical Context
@@ -23,7 +23,7 @@ LiteLLM — mismo split que spec 014). Imagen nueva propia para `presidio-analyz
 
 **Primary Dependencies**: Presidio Analyzer (nuevo, HTTP sidecar) + spaCy modelo español; `httpx`
 (ya presente en backend, se usa también para el nuevo caller del Analyzer dentro de la librería
-compartida); `basa_guardian_policy` (extendida, no reescrita); `custom_auth.py` (extiende su query SQL
+compartida); `sentinel_guardian_policy` (extendida, no reescrita); `custom_auth.py` (extiende su query SQL
 existente, no agrega dependencias nuevas).
 
 **Storage**: PostgreSQL existente — sin tablas nuevas (ver `data-model.md`); `SecurityPolicy.entity_configs`
@@ -49,9 +49,9 @@ reversible jamás persistido (Constraint C1, sin cambios); ninguna llamada a ter
 Analyzer es infraestructura propia containerizada (mantiene residencia de datos EU, Principio I).
 
 **Scale/Scope**: 1 servicio nuevo en compose + 1 imagen custom (Dockerfile propio para el Analyzer con
-modelo ES) + extensión de `basa_guardian_policy.py` (4 funciones nuevas/modificadas, ver
+modelo ES) + extensión de `sentinel_guardian_policy.py` (4 funciones nuevas/modificadas, ver
 `contracts/policy-library-functions.md`) + extensión de la query SQL en `custom_auth.py` + cambios
-acotados en `basa_guardrail.py` (cuerpo de `async_pre_call_hook`, firma sin cambios) + adaptación de
+acotados en `sentinel_guardrail.py` (cuerpo de `async_pre_call_hook`, firma sin cambios) + adaptación de
 `presidio_service.py`/`guardian_service.py` (backend, camino panel/playground) para converger a la
 misma fuente de patrones (FR-012). Sin schema nuevo.
 
@@ -95,9 +95,9 @@ specs/016-real-nlp-masking/
 ```text
 litellm/
 ├── extensions/
-│   ├── basa_guardian_policy.py     # + resolve_overlaps, resolve_entity_action,
+│   ├── sentinel_guardian_policy.py     # + resolve_overlaps, resolve_entity_action,
 │   │                                  build_ad_hoc_recognizers, presidio_analyze (AnalyzeFn)
-│   ├── basa_guardrail.py           # cuerpo de async_pre_call_hook: usa entity_configs +
+│   ├── sentinel_guardrail.py           # cuerpo de async_pre_call_hook: usa entity_configs +
 │   │                                  presidio_analyze; NlpUnavailableError -> bloqueo
 │   ├── custom_auth.py              # _IDENTITY_SQL: + SecurityPolicy.entity_configs
 │   └── contract_checks.py          # + checks de las funciones nuevas y conectividad Analyzer
@@ -106,13 +106,13 @@ backend/
 ├── src/services/
 │   ├── presidio_service.py         # analyze_text_http: deja de fail-open; acepta ad_hoc_recognizers
 │   └── guardian_service.py         # deja de mantener su propio PATTERNS; reusa build_ad_hoc_recognizers
-└── tests/unit/                     # + test_basa_guardian_policy.py (resolve_overlaps, resolve_entity_action)
+└── tests/unit/                     # + test_sentinel_guardian_policy.py (resolve_overlaps, resolve_entity_action)
 
 presidio-analyzer/                  # NUEVO — imagen propia
 ├── Dockerfile                      # build --build-arg NLP_CONF_FILE=conf/es.yaml
 └── conf/es.yaml                    # NlpEngineConfig: spaCy es_core_news_md
 
-docker-compose.yml                  # + servicio nlp-analyzer (basa-network, sin puerto al host)
+docker-compose.yml                  # + servicio nlp-analyzer (sentinel-network, sin puerto al host)
 .env.example                        # + NLP_ANALYZER_URL
 ```
 

@@ -1,6 +1,6 @@
 // Branding como CONFIG en runtime (spec 020 US2, FR-006/FR-008 — never fork).
 // Al arrancar, la SPA intenta leer /branding/brand.json (volumen montado por el
-// deploy; en dev no existe y cae al default Basa-neutro SIN romper, FR-009).
+// deploy; en dev no existe y cae al default Sentinel-neutro SIN romper, FR-009).
 // Una marca por instancia: se resuelve una vez, antes del primer render.
 
 import defaultLogo from "../logo.png";
@@ -18,7 +18,7 @@ export interface Brand {
 }
 
 const DEFAULT_BRAND: Brand = {
-  name: "Basa Secure AI Gateway",
+  name: "Sentinel Secure AI Gateway",
   tagline: "Pasarela segura de IA sanitaria",
   logoUrl: defaultLogo,
   supportContact: "",
@@ -44,7 +44,7 @@ export async function loadBranding(): Promise<Brand> {
       };
     }
   } catch {
-    // Sin pack → default Basa-neutro (fallback documentado, FR-009).
+    // Sin pack → default Sentinel-neutro (fallback documentado, FR-009).
   }
   document.title = brand.name;
   applyBrandColors(brand.colors);

@@ -39,7 +39,7 @@ def enforce_seat_gate(db, tenant_id) -> None:
         raise HTTPException(status_code=403, detail=detail)
     # Principio III: un entitlement de OTRO tenant no habilita crear acá.
     # El entitlement quedó anclado al tenant del DEPLOYMENT en el arranque
-    # (FR-005: token.tenant == BASA_DEPLOYMENT_TENANT_ID); el parámetro es el
+    # (FR-005: token.tenant == SENTINEL_DEPLOYMENT_TENANT_ID); el parámetro es el
     # tenant de la FILA a crear. Deuda 013: los handlers aún no resuelven
     # tenant y toda fila cae en DEFAULT_TENANT_ID, así que el default es un
     # alias válido del tenant licenciado — sin él, un deployment con tenant

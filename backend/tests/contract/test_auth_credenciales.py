@@ -5,7 +5,7 @@ primero si sólo se mira el código de estado:
 
 - **No hay contraseña por defecto.** El alta sin contraseña (o con una corta, o vacía) es
   422; el usuario creado con contraseña válida entra con ESA y no con la que traía cableada
-  el endpoint (``basa123``), que es lo que abría todas las cuentas del despliegue.
+  el endpoint (``sentinel123``), que es lo que abría todas las cuentas del despliegue.
 - **El hash guardado no es reversible.** Lo almacenado es bcrypt, no el sha256 sin sal.
 - **Los usuarios ya cargados no quedan afuera.** Un ``password_hash`` legacy sigue
   verificando, y el primer login válido lo convierte a bcrypt sin script de migración: el
@@ -46,8 +46,8 @@ from src.auth.passwords import hash_password  # noqa: E402
 
 require_postgres()
 
-DB_PRINCIPAL = "basa_test_auth_credenciales"
-DB_BOOTSTRAP = "basa_test_auth_bootstrap"
+DB_PRINCIPAL = "sentinel_test_auth_credenciales"
+DB_BOOTSTRAP = "sentinel_test_auth_bootstrap"
 
 ADMIN_PASSWORD = "admin-de-prueba-1"
 CLAVE_VALIDA = "clave-de-prueba-1"
@@ -90,7 +90,7 @@ def _sembrar(factory, username, password_hash, role="client"):
     from src.models.user import User
     db = factory()
     try:
-        db.add(User(username=username, email=f"{username}@basa.com.ar",
+        db.add(User(username=username, email=f"{username}@sentinel.com.ar",
                     password_hash=password_hash, role=role, is_active=True))
         db.commit()
     finally:
@@ -131,7 +131,7 @@ def _sesion(client, username, password):
 def _payload(username, password, role="compliance_officer"):
     """Rol administrativo a propósito: no es seat, así el alta no depende del tope de la
     licencia de la suite (lo que se mide acá es la credencial)."""
-    return {"username": username, "email": f"{username}@basa.com.ar", "role": role,
+    return {"username": username, "email": f"{username}@sentinel.com.ar", "role": role,
             "password": password}
 
 
@@ -177,7 +177,7 @@ def test_alta_sin_password_da_422(api):
     nombre = _nombre("sin-clave")
 
     resp = client.post("/api/v1/users", headers=headers, json={
-        "username": nombre, "email": f"{nombre}@basa.com.ar", "role": "compliance_officer",
+        "username": nombre, "email": f"{nombre}@sentinel.com.ar", "role": "compliance_officer",
     })
 
     assert resp.status_code == 422, resp.text
@@ -185,7 +185,7 @@ def test_alta_sin_password_da_422(api):
 
 @pytest.mark.parametrize("password", [CORTA, ""])
 def test_alta_con_password_corta_da_422_en_espanol(api, password):
-    """La cadena vacía entra acá y no por el schema: el ``or "basa123"`` la trataba como
+    """La cadena vacía entra acá y no por el schema: el ``or "sentinel123"`` la trataba como
     'no me dieron contraseña' y le ponía la conocida."""
     client, _, headers = api
 
@@ -206,7 +206,7 @@ def test_alta_valida_entra_con_su_password_y_no_con_la_de_fabrica(api):
     assert resp.status_code == 201, resp.text
 
     assert _login(client, nombre, CLAVE_VALIDA).status_code == 200
-    assert _login(client, nombre, "basa123").status_code == 401
+    assert _login(client, nombre, "sentinel123").status_code == 401
     assert _login(client, nombre, "").status_code == 401
 
 
@@ -525,7 +525,7 @@ async def test_login_no_retiene_conexion_del_pool_durante_bcrypt(monkeypatch):
     Si una fase de DB dejara de correr en `run_in_threadpool` o retuviera la conexión a través
     del await, `checkedout()` > 0 durante el bloqueo del verify → rojo. Es el test que faltaba:
     nada rojeaba si mañana el fix de la r1 se revierte."""
-    dbname = "basa_test_auth_pool"
+    dbname = "sentinel_test_auth_pool"
     fresh_db(dbname)
     run_alembic(dbname, "upgrade", "head")
     engine = owner_engine(dbname)
@@ -581,7 +581,7 @@ async def test_create_user_no_retiene_conexion_del_pool_en_sus_awaits(monkeypatc
     el fix, el spy corre con la conexión ya tomada por el query de unicidad y esto rojea con
     `checkedout == 1` — que es el bug del #239 y el P1 de la ronda 2 del #167 a la vez.
     """
-    dbname = "basa_test_alta_pool"
+    dbname = "sentinel_test_alta_pool"
     fresh_db(dbname)
     run_alembic(dbname, "upgrade", "head")
     engine = owner_engine(dbname)
@@ -615,7 +615,7 @@ async def test_create_user_no_retiene_conexion_del_pool_en_sus_awaits(monkeypatc
     usuario = "alta-pool"
     try:
         creado = await users_api.create_user(
-            UserCreate(username=usuario, email=f"{usuario}@basa.com.ar",
+            UserCreate(username=usuario, email=f"{usuario}@sentinel.com.ar",
                        role="admin", password=CLAVE_VALIDA),
             db,
         )

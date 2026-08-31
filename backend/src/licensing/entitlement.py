@@ -18,7 +18,7 @@ from ..models.tenant import DEFAULT_TENANT_ID
 from .env import env_or_default
 from .token import LicenseError, LicenseToken
 from .verifier import (
-    BasaPublicKeySet,
+    SentinelPublicKeySet,
     LicenseTenantMismatchError,
     verify_license_blob,
 )
@@ -37,13 +37,13 @@ STATUS_MISSING = "missing"
 # expired y degradados la creación se bloquea; el tráfico existente no se toca).
 CREATION_ALLOWED_STATUSES = frozenset({STATUS_ACTIVE})
 
-DEFAULT_KEYSET_PATH = Path(__file__).resolve().parent.parent / "keys" / "basa_public_keys.pem"
+DEFAULT_KEYSET_PATH = Path(__file__).resolve().parent.parent / "keys" / "sentinel_public_keys.pem"
 
 # Prefijo de los key_id DEV/DEMO (emitidos por scripts/issue_dev_license.py).
 # La licencia dev y su pública son PÚBLICAS en el repo: sin este guard, el
 # fail-closed quedaría neutralizado por configuración default en cualquier
 # imagen que no excluya el kid dev. Sólo dev/demo (compose) setea el opt-in.
-DEV_KID_PREFIX = "basa-dev-"
+DEV_KID_PREFIX = "sentinel-dev-"
 
 # Histéresis ante fallos de I/O leyendo material de licencia en RUNTIME
 # (hardening post-review US4): una rotación de secret no atómica o un blip del
@@ -72,28 +72,28 @@ _read_failures = 0  # ticks consecutivos de I/O fallido (histéresis de refresh)
 def expected_tenant_id() -> str:
     """Tenant del deployment (013/020): la 020 lo inyecta; default = tenant
     seed de la 013 para dev/demo de caja única."""
-    return env_or_default("BASA_DEPLOYMENT_TENANT_ID", str(DEFAULT_TENANT_ID))
+    return env_or_default("SENTINEL_DEPLOYMENT_TENANT_ID", str(DEFAULT_TENANT_ID))
 
 
 def _read_blob() -> Optional[str]:
     """None = token NO configurado; LicenseReadError = configurado pero
     ilegible (I/O) — la distinción alimenta la histéresis de refresh()."""
-    inline = os.getenv("BASA_LICENSE_TOKEN")
+    inline = os.getenv("SENTINEL_LICENSE_TOKEN")
     if inline and inline.strip():
         return inline
-    path = os.getenv("BASA_LICENSE_TOKEN_FILE")
+    path = os.getenv("SENTINEL_LICENSE_TOKEN_FILE")
     if path and path.strip():
         try:
             return Path(path).read_text(encoding="utf-8")
         except OSError as exc:
-            raise LicenseReadError(f"BASA_LICENSE_TOKEN_FILE ilegible: {exc}") from exc
+            raise LicenseReadError(f"SENTINEL_LICENSE_TOKEN_FILE ilegible: {exc}") from exc
     return None
 
 
-def _load_keyset() -> BasaPublicKeySet:
-    path = env_or_default("BASA_LICENSE_PUBLIC_KEYS_FILE", str(DEFAULT_KEYSET_PATH))
+def _load_keyset() -> SentinelPublicKeySet:
+    path = env_or_default("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(DEFAULT_KEYSET_PATH))
     try:
-        return BasaPublicKeySet.from_pem_file(path)
+        return SentinelPublicKeySet.from_pem_file(path)
     except OSError as exc:
         # I/O (mismo criterio de histéresis); un keyset MALFORMADO sigue
         # siendo LicenseError → invalid (problema real de config, no blip).
@@ -118,7 +118,7 @@ def evaluate(now: Optional[datetime] = None) -> LicenseState:
     now = now or datetime.now(timezone.utc)
     blob = _read_blob()
     if blob is None:
-        return LicenseState(STATUS_MISSING, "token ausente (BASA_LICENSE_TOKEN[_FILE])", None, now)
+        return LicenseState(STATUS_MISSING, "token ausente (SENTINEL_LICENSE_TOKEN[_FILE])", None, now)
     try:
         keyset = _load_keyset()
     except LicenseError as exc:
@@ -138,11 +138,11 @@ def evaluate(now: Optional[datetime] = None) -> LicenseState:
     except LicenseError as exc:
         return LicenseState(STATUS_INVALID, str(exc), None, now)
     if (token.key_id.startswith(DEV_KID_PREFIX)
-            and os.getenv("BASA_ALLOW_DEV_LICENSE", "").lower() != "true"):
+            and os.getenv("SENTINEL_ALLOW_DEV_LICENSE", "").lower() != "true"):
         return LicenseState(
             STATUS_INVALID,
             f"licencia dev '{token.key_id}' no permitida en este deployment "
-            "(falta el opt-in BASA_ALLOW_DEV_LICENSE=true, sólo para dev/demo)",
+            "(falta el opt-in SENTINEL_ALLOW_DEV_LICENSE=true, sólo para dev/demo)",
             None, now,
         )
     status, reason = _lifecycle(token, now)

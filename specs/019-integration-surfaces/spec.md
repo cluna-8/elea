@@ -7,7 +7,7 @@
 **Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Documentar y portar el LADO CLIENTE del firewall: qué herramientas se
-integran a Basa, cómo se enganchan (passthrough de suscripción, auto-byok, key-in-URL, extensión de
+integran a Sentinel, cómo se enganchan (passthrough de suscripción, auto-byok, key-in-URL, extensión de
 navegador MV3) y la matriz de compatibilidad real (qué FUNCIONA, qué es PARCIAL, qué NO y por qué).
 Complementa la 014 (lado gateway). Depende del bedrock 013 y del port de la 014."
 
@@ -17,25 +17,25 @@ Complementa la 014 (lado gateway). Depende del bedrock 013 y del port de la 014.
 
 Esta feature es un **PORT + FORMALIZACIÓN**, no una feature verde. Las superficies de integración que
 esta spec describe **ya existen y se probaron en vivo** en el repo **DEMO** `gatelite-salud-eu`, no en
-`basa-guardian`. Dos piezas de evidencia son la fuente de verdad:
+`sentinel-guardian`. Dos piezas de evidencia son la fuente de verdad:
 
 - **`gatelite-salud-eu/backend/src/api/gateway.py`** — el reverse-proxy hand-rolled que hoy da las
-  demos. De ahí salen literalmente: los dos modos de upstream (`X-Basa-Upstream`, default
-  `BASA_GW_UPSTREAM_DEFAULT`), el **auto-byok** por virtual key (`_BASA_KEY_RE = sk-basa-…`, con el
-  scan que **excluye** los headers `x-basa-*`), el **key-in-URL** (`?k=sk-basa-…`) como fallback de
-  Copilot, la **identidad por `X-Basa-Key`** (`_resolve_identity`, sha256→user/group, fail-closed a
+  demos. De ahí salen literalmente: los dos modos de upstream (`X-Sentinel-Upstream`, default
+  `SENTINEL_GW_UPSTREAM_DEFAULT`), el **auto-byok** por virtual key (`_SENTINEL_KEY_RE = sk-sentinel-…`, con el
+  scan que **excluye** los headers `x-sentinel-*`), el **key-in-URL** (`?k=sk-sentinel-…`) como fallback de
+  Copilot, la **identidad por `X-Sentinel-Key`** (`_resolve_identity`, sha256→user/group, fail-closed a
   default), la **detección de herramienta por User-Agent** (`_TOOL_UA`/`_detect_tool`), y los endpoints
   de la extensión (`GET /gw/whoami`, `POST /gw/inspect`, monitor `surface="browser"`).
-- **`basa-browser-dlp/`** — la extensión MV3 (superficie 2) validada en vivo sobre ChatGPT y Claude.ai:
+- **`sentinel-browser-dlp/`** — la extensión MV3 (superficie 2) validada en vivo sobre ChatGPT y Claude.ai:
   `manifest.json` (content scripts MAIN + ISOLATED, `all_frames:false`), `guardia-main.js` (hook de
   `window.fetch`, mask vía `/gw/inspect`, unmask en DOM con `MutationObserver`, `unmask` + `unmaskTitle`),
   `bridge.js` (mundo ISOLATED) y `background.js` (service worker que guarda la key; el MAIN nunca la ve).
 
 **Qué es esta spec, honestamente:** la **014** formalizó el LADO GATEWAY (el firewall como guardrail
 nativo de LiteLLM + la excepción del passthrough OAuth). Esta **019** formaliza el **LADO CLIENTE**: qué
-herramientas se conectan, **cómo** se enganchan a Basa, y la **matriz de compatibilidad real** con su
+herramientas se conectan, **cómo** se enganchan a Sentinel, y la **matriz de compatibilidad real** con su
 por-qué técnico (incluyendo lo que NO funciona y por qué). No inventa mecanismos nuevos: **porta a
-`basa-guardian` los mecanismos ya probados en el demo** y los eleva a requisitos versionados.
+`sentinel-guardian` los mecanismos ya probados en el demo** y los eleva a requisitos versionados.
 
 **Alcance honesto:**
 - **Lo que está IMPLEMENTADO y probado (en el demo, a portar):** passthrough de suscripción de Claude
@@ -73,13 +73,13 @@ clientes). Esta spec **no** re-diseña el gateway ni el schema: los **consume** 
 ### User Story 1 - Claude Code: passthrough de suscripción + identidad (Priority: P1)
 
 Un desarrollador con **suscripción** Claude Pro/Max apunta `ANTHROPIC_BASE_URL` de Claude Code al gateway
-de Basa. El gateway corre en modo **`anthropic`** (default; reconciliado como `subscription-passthrough`
+de Sentinel. El gateway corre en modo **`anthropic`** (default; reconciliado como `subscription-passthrough`
 en el vocabulario de la 013) y actúa como **reverse-proxy fiel** a `api.anthropic.com`: reenvía la
 credencial del cliente (el token OAuth de la suscripción) **verbatim**, junto con `anthropic-version`,
 `anthropic-beta`, User-Agent y los `x-app` que Claude Code necesita. Resultado: **la suscripción del
-cliente paga** (Basa no gasta tokens) y Basa **sólo firewallea** (bloqueo + masking/unmask). En paralelo,
-Basa **atribuye identidad**: la herramienta se detecta por User-Agent (`claude` → Claude Code) y el
-`X-Basa-Key` (opcional) resuelve tenant/cliente/equipo para la auditoría, **sin** consumirse como
+cliente paga** (Sentinel no gasta tokens) y Sentinel **sólo firewallea** (bloqueo + masking/unmask). En paralelo,
+Sentinel **atribuye identidad**: la herramienta se detecta por User-Agent (`claude` → Claude Code) y el
+`X-Sentinel-Key` (opcional) resuelve tenant/cliente/equipo para la auditoría, **sin** consumirse como
 credencial de upstream.
 
 **Why this priority**: Es la superficie titular de las demos ("firewall on top of your subscription") y
@@ -102,7 +102,7 @@ un prompt con PII y un turno agéntico (tool_use). Verificar: (a) el token OAuth
    propia credencial.
 2. **Given** una request con User-Agent que contiene "claude", **When** el gateway detecta la herramienta,
    **Then** `tool_type` resuelve a "Claude Code" (porta `_TOOL_UA`/`_detect_tool`).
-3. **Given** un `X-Basa-Key` presente, **When** se resuelve identidad, **Then** atribuye tenant/cliente/
+3. **Given** un `X-Sentinel-Key` presente, **When** se resuelve identidad, **Then** atribuye tenant/cliente/
    equipo por `key_hash` (sha256) para la auditoría, pero **no** viaja al upstream ni se usa como
    credencial (porta `_resolve_identity`; ver US2 para el scan que lo excluye del auto-byok).
 4. **Given** un turno agéntico (tool_use) con PII, **When** Claude Code opera en modo Agent, **Then** el
@@ -113,24 +113,24 @@ un prompt con PII y un turno agéntico (tool_use). Verificar: (a) el token OAuth
 
 ### User Story 2 - VS Code / GitHub Copilot: auto-byok + key-in-URL + modo Ask (Priority: P1)
 
-Un desarrollador usa **VS Code / GitHub Copilot** apuntado a Basa en modo **BYOK** (la key de Basa
-gobierna el motor: cost tracking + budgets). Como Copilot **no manda header de control** `X-Basa-Upstream`,
-el gateway usa **auto-byok**: si detecta una virtual key `sk-basa-…` (`_BASA_KEY_RE`) en **cualquier**
+Un desarrollador usa **VS Code / GitHub Copilot** apuntado a Sentinel en modo **BYOK** (la key de Sentinel
+gobierna el motor: cost tracking + budgets). Como Copilot **no manda header de control** `X-Sentinel-Upstream`,
+el gateway usa **auto-byok**: si detecta una virtual key `sk-sentinel-…` (`_SENTINEL_KEY_RE`) en **cualquier**
 header de auth, enruta a byok **y** atribuye identidad — **sin** header de control. El scan **excluye**
-los headers `x-basa-*` (load-bearing: si no los excluyera, la `X-Basa-Key` de Claude Code lo sacaría del
+los headers `x-sentinel-*` (load-bearing: si no los excluyera, la `X-Sentinel-Key` de Claude Code lo sacaría del
 passthrough de suscripción). Para Copilot, que manda `x-api-key` **vacío**, ignora el `apiKey` del config
-y **no** deja mandar headers custom, existe el fallback **key-in-URL** (`?k=sk-basa-…`): la key viaja en
+y **no** deja mandar headers custom, existe el fallback **key-in-URL** (`?k=sk-sentinel-…`): la key viaja en
 la URL (atajo de demo; en prod va por input seguro/SSO). Esta superficie es **PARCIAL**: exige **modo
 Ask** obligatorio, porque en modo **Agent** loopea (los modelos no-Claude rompen el tool-calling y VS Code
 rechaza el input UUID → 400).
 
-**Why this priority**: Es la segunda superficie base_url y prueba que Basa gobierna herramientas que **no
+**Why this priority**: Es la segunda superficie base_url y prueba que Sentinel gobierna herramientas que **no
 cooperan** con headers de control (auto-byok + key-in-URL). Es P1 porque el mecanismo (detección de virtual
-key + exclusión de `x-basa-*`) es load-bearing para que **coexistan** Claude Code (passthrough) y Copilot
+key + exclusión de `x-sentinel-*`) es load-bearing para que **coexistan** Claude Code (passthrough) y Copilot
 (byok) sobre el mismo gateway. La limitación a modo Ask es una **verdad de compatibilidad** que la spec
 debe fijar, no esconder.
 
-**Independent Test**: Apuntar Copilot a Basa **sin** header de control, con la key `sk-basa-…` en la URL
+**Independent Test**: Apuntar Copilot a Sentinel **sin** header de control, con la key `sk-sentinel-…` en la URL
 (`?k=…`). Verificar: (a) el gateway enruta a byok por detección de virtual key; (b) la identidad se
 atribuye (tenant/cliente); (c) en **modo Ask** el masking/unmask completa; (d) documentar que en **modo
 Agent** con modelo no-Claude el ciclo falla (tool_use_failed / 400 por input UUID) — comportamiento
@@ -138,15 +138,15 @@ esperado, no bug.
 
 **Acceptance Scenarios**:
 
-1. **Given** una request **sin** `X-Basa-Upstream` que trae una virtual key `sk-basa-…` en un header de
+1. **Given** una request **sin** `X-Sentinel-Upstream` que trae una virtual key `sk-sentinel-…` en un header de
    auth (p.ej. `x-api-key` o `authorization`), **When** el gateway la inspecciona, **Then** enruta a
-   **byok** por auto-detección (porta `_BASA_KEY_RE`) y atribuye identidad, sin necesidad de header de
+   **byok** por auto-detección (porta `_SENTINEL_KEY_RE`) y atribuye identidad, sin necesidad de header de
    control.
-2. **Given** la misma inspección, **When** la virtual key aparece en un header `x-basa-*` (p.ej.
-   `X-Basa-Key`), **Then** el scan de auto-byok la **ignora** (exclusión load-bearing) para no sacar a
+2. **Given** la misma inspección, **When** la virtual key aparece en un header `x-sentinel-*` (p.ej.
+   `X-Sentinel-Key`), **Then** el scan de auto-byok la **ignora** (exclusión load-bearing) para no sacar a
    Claude Code del passthrough de suscripción.
 3. **Given** Copilot que manda `x-api-key` vacío e ignora el `apiKey` del config, **When** la key viaja
-   en la URL (`?k=sk-basa-…`), **Then** el gateway la acepta como fallback y enruta a byok (atajo de demo;
+   en la URL (`?k=sk-sentinel-…`), **Then** el gateway la acepta como fallback y enruta a byok (atajo de demo;
    en prod la key entra por input seguro/SSO).
 4. **Given** VS Code/Copilot en **modo Ask** con byok, **When** se procesa un prompt con PII, **Then** el
    masking/unmask completa correctamente.
@@ -158,7 +158,7 @@ esperado, no bug.
 
 ### User Story 3 - Extensión de navegador MV3: mask/unmask sobre ChatGPT y Claude web (Priority: P1)
 
-Un usuario instala la extensión **Basa Guard** (MV3) en su navegador y la conecta al gateway con una
+Un usuario instala la extensión **Sentinel Guard** (MV3) en su navegador y la conecta al gateway con una
 virtual key. La extensión es la **superficie 2** (web apps sin base_url): un content script en el mundo
 **MAIN** hookea `window.fetch`, y cuando el usuario envía un prompt a ChatGPT o Claude web, **intercepta el
 body del request**, lo manda a `POST /gw/inspect` (fail-closed: sin key válida no deja pasar), reescribe el
@@ -170,7 +170,7 @@ Adapters: **chatgpt** (`/backend-api/f/conversation`, `messages[].content.parts[
 **mismo monitor en vivo** con `surface="browser"` y deja auditoría metadata-only.
 
 **Why this priority**: Es la superficie que cubre **web apps** (ChatGPT, Claude.ai) donde no hay
-`ANTHROPIC_BASE_URL` que apuntar. Está **implementada y validada en vivo** (`basa-browser-dlp/`). Es P1
+`ANTHROPIC_BASE_URL` que apuntar. Está **implementada y validada en vivo** (`sentinel-browser-dlp/`). Es P1
 porque extiende el firewall a las superficies de chat que los usuarios usan a diario, con el **mismo**
 monitor y la **misma** auditoría que las base_url. Materializa el Principio VIII (mismo pipeline
 transparente) y la excepción del II (intercepta sin re-inyectar).
@@ -307,10 +307,10 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
   quedar fuera del cap. Es una limitación conocida del muestreo (mitigable subiendo el cap o inspeccionando
   por turnos completos — roadmap).
 - **Coexistencia passthrough vs byok en el mismo gateway**: si el scan de auto-byok **no** excluyera los
-  `x-basa-*`, la `X-Basa-Key` de Claude Code (que trae `sk-basa-…` como atribución) lo sacaría del
+  `x-sentinel-*`, la `X-Sentinel-Key` de Claude Code (que trae `sk-sentinel-…` como atribución) lo sacaría del
   passthrough de suscripción y lo enrutaría a byok por error. La exclusión es **load-bearing** y tiene un
   test que la protege.
-- **Key-in-URL es atajo de demo**: la key en `?k=sk-basa-…` viaja en la URL (potencialmente logueable);
+- **Key-in-URL es atajo de demo**: la key en `?k=sk-sentinel-…` viaja en la URL (potencialmente logueable);
   es un **fallback de demo** para Copilot. En prod la credencial entra por input seguro/SSO — la spec lo
   marca como tal para no normalizar la key en la URL.
 - **User-Agent desconocido**: si el UA no matchea ninguna herramienta de `_TOOL_UA`, `tool_type` cae a
@@ -323,9 +323,9 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
 **Claude Code — passthrough de suscripción (US1)**
 - **FR-001**: El sistema MUST soportar el modo **`subscription-passthrough`** (013; "anthropic" en el demo)
   como reverse-proxy fiel a `api.anthropic.com` que reenvía la credencial del cliente (OAuth de suscripción)
-  **verbatim**, de modo que la suscripción del cliente pague y Basa sólo firewallee.
-- **FR-002**: El sistema MUST seleccionar el modo de upstream por el header `X-Basa-Upstream` (por
-  request) y, en su ausencia, por el default de entorno `BASA_GW_UPSTREAM_DEFAULT` (porta la semántica del
+  **verbatim**, de modo que la suscripción del cliente pague y Sentinel sólo firewallee.
+- **FR-002**: El sistema MUST seleccionar el modo de upstream por el header `X-Sentinel-Upstream` (por
+  request) y, en su ausencia, por el default de entorno `SENTINEL_GW_UPSTREAM_DEFAULT` (porta la semántica del
   demo).
 - **FR-003**: El sistema MUST reenviar **verbatim** los headers que Claude Code necesita para
   `api.anthropic.com` (`anthropic-version`, `anthropic-beta`, User-Agent, `x-app`) sin alterarlos (porta
@@ -335,23 +335,23 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
 - **FR-005**: Claude Code MUST figurar como superficie **FUNCIONA** que aguanta modo **Agent** (los modelos
   Claude mantienen el tool-calling a través del proxy con masking).
 
-**Identidad por X-Basa-Key (transversal, US1/US2)**
-- **FR-006**: El sistema MUST tratar `X-Basa-Key` como **identidad/atribución**, NO como credencial de
+**Identidad por X-Sentinel-Key (transversal, US1/US2)**
+- **FR-006**: El sistema MUST tratar `X-Sentinel-Key` como **identidad/atribución**, NO como credencial de
   upstream: resolver `key_hash` (sha256) → tenant/cliente/equipo (porta `_resolve_identity`) sin reenviar
   la key al upstream.
-- **FR-007**: `X-Basa-Key` MUST estar **excluida** del scan de auto-byok y de los headers hop-by-hop (no
+- **FR-007**: `X-Sentinel-Key` MUST estar **excluida** del scan de auto-byok y de los headers hop-by-hop (no
   viaja al upstream).
 
 **VS Code / Copilot — auto-byok + key-in-URL (US2)**
 - **FR-008**: El sistema MUST enrutar a **byok** por **auto-detección** cuando aparece una virtual key
-  `sk-basa-…` (`_BASA_KEY_RE`) en **cualquier** header de auth, **sin** requerir el header de control
-  `X-Basa-Upstream` (porta el auto-byok del demo).
-- **FR-009**: El scan de auto-byok MUST **excluir** los headers `x-basa-*` (load-bearing: evita que la
-  `X-Basa-Key` de Claude Code lo saque del passthrough de suscripción).
-- **FR-010**: El sistema MUST aceptar la virtual key en la **URL** (`?k=sk-basa-…`) como fallback para
+  `sk-sentinel-…` (`_SENTINEL_KEY_RE`) en **cualquier** header de auth, **sin** requerir el header de control
+  `X-Sentinel-Upstream` (porta el auto-byok del demo).
+- **FR-009**: El scan de auto-byok MUST **excluir** los headers `x-sentinel-*` (load-bearing: evita que la
+  `X-Sentinel-Key` de Claude Code lo saque del passthrough de suscripción).
+- **FR-010**: El sistema MUST aceptar la virtual key en la **URL** (`?k=sk-sentinel-…`) como fallback para
   Copilot (que manda `x-api-key` vacío, ignora el `apiKey` del config y no deja headers custom); MUST
   documentar que es un **atajo de demo** y que en prod la key entra por input seguro/SSO.
-- **FR-011**: En modo **byok** el sistema MUST enrutar al motor LiteLLM con la key de Basa (cost tracking
+- **FR-011**: En modo **byok** el sistema MUST enrutar al motor LiteLLM con la key de Sentinel (cost tracking
   + budgets), a diferencia del passthrough de suscripción.
 - **FR-012**: El sistema MUST documentar que VS Code/Copilot es superficie **PARCIAL**: masking/unmask
   soportado en **modo Ask**; en modo **Agent** con modelo no-Claude el ciclo falla (tool_use_failed / 400
@@ -401,16 +401,16 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
 ### Key Entities *(include if feature involves data)*
 
 - **Upstream mode (`upstream_mode`)** — *REUSA 013 / consumido desde el cliente*. `subscription-passthrough`
-  (OAuth verbatim → suscripción paga, Basa firewallea) vs `byok` (motor LiteLLM con key de Basa → cost
-  tracking/budgets). Seleccionado por `X-Basa-Upstream` o `BASA_GW_UPSTREAM_DEFAULT`.
-- **Virtual key `sk-basa-…` (auto-byok)** — *REUSA gateway*. Detectada por `_BASA_KEY_RE` en cualquier
-  header de auth (excepto `x-basa-*`) → enruta a byok + atribuye identidad. Fallback: key-in-URL
-  (`?k=sk-basa-…`).
-- **X-Basa-Key (identidad)** — *REUSA gateway*. Atribución (sha256 → tenant/cliente/equipo vía
+  (OAuth verbatim → suscripción paga, Sentinel firewallea) vs `byok` (motor LiteLLM con key de Sentinel → cost
+  tracking/budgets). Seleccionado por `X-Sentinel-Upstream` o `SENTINEL_GW_UPSTREAM_DEFAULT`.
+- **Virtual key `sk-sentinel-…` (auto-byok)** — *REUSA gateway*. Detectada por `_SENTINEL_KEY_RE` en cualquier
+  header de auth (excepto `x-sentinel-*`) → enruta a byok + atribuye identidad. Fallback: key-in-URL
+  (`?k=sk-sentinel-…`).
+- **X-Sentinel-Key (identidad)** — *REUSA gateway*. Atribución (sha256 → tenant/cliente/equipo vía
   `_resolve_identity`), NO credencial de upstream; excluida del auto-byok y de hop-by-hop.
 - **Tool detection (`_TOOL_UA`/`_detect_tool`)** — *REUSA gateway*. Mapea User-Agent → `tool_type`
   (claude→Claude Code, copilot→GitHub Copilot, vscode→VS Code, cursor→Cursor, …); default "Desconocido".
-- **Basa Guard extension (MV3)** — *código PROPIO (a portar de `basa-browser-dlp/`)*. `manifest.json`
+- **Sentinel Guard extension (MV3)** — *código PROPIO (a portar de `sentinel-browser-dlp/`)*. `manifest.json`
   (content scripts MAIN + ISOLATED, host_permissions, `all_frames:false`), `guardia-main.js` (hook
   `window.fetch` + mask vía `/gw/inspect` + unmask DOM), `bridge.js` (ISOLATED), `background.js` (service
   worker con la key).
@@ -428,8 +428,8 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
 
 | Herramienta | Superficie | Estado | Mecanismo de enganche | Razón / notas |
 |---|---|---|---|---|
-| **Claude Code** | base_url | **FUNCIONA** | `ANTHROPIC_BASE_URL` → `subscription-passthrough`; OAuth verbatim; identidad por UA + `X-Basa-Key` | Aguanta modo **Agent** (modelos Claude no rompen el tool-calling). Superficie titular. |
-| **VS Code / GitHub Copilot** | base_url | **PARCIAL** | byok por **auto-byok** (`sk-basa-…`) + **key-in-URL** (`?k=…`); `x-api-key` vacío | Sólo **modo Ask**. En **Agent** loopea: modelos no-Claude rompen tool-calling y VS Code rechaza input UUID → 400. |
+| **Claude Code** | base_url | **FUNCIONA** | `ANTHROPIC_BASE_URL` → `subscription-passthrough`; OAuth verbatim; identidad por UA + `X-Sentinel-Key` | Aguanta modo **Agent** (modelos Claude no rompen el tool-calling). Superficie titular. |
+| **VS Code / GitHub Copilot** | base_url | **PARCIAL** | byok por **auto-byok** (`sk-sentinel-…`) + **key-in-URL** (`?k=…`); `x-api-key` vacío | Sólo **modo Ask**. En **Agent** loopea: modelos no-Claude rompen tool-calling y VS Code rechaza input UUID → 400. |
 | **ChatGPT (web)** | browser | **FUNCIONA** | Extensión MV3, adapter `chatgpt` (`/backend-api/f/conversation`) | Body no firmado → acepta reescritura enmascarada. |
 | **Claude (web)** | browser | **FUNCIONA** | Extensión MV3, adapter `claude` (`/completion` **y** `/title`) | Cubre la **fuga de título** (`unmaskTitle`). Respuesta por WebSocket → unmask en DOM. |
 | **Gemini (web)** | browser | **NO (roadmap, viable)** | — | **Viable** vía **DOM-hook** (editor Quill `.ql-editor`); requiere **spike** en vivo. Endpoint `StreamGenerate` (POST `batchexecute`, **no** WebSocket → fetch-interceptable) con el prompt enterrado en `f.req` (JSON anidado ofuscado). Faltan **host match** (`manifest.matches`) + **adapter** en `guardia-main.js`; DOM-hook antes que fetch-hook (menor riesgo). Aditivo (US5). |
@@ -441,11 +441,11 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
 ### Measurable Outcomes
 
 - **SC-001 (passthrough de suscripción)**: En 100% de las requests en modo `subscription-passthrough`, el
-  OAuth del cliente llega **verbatim** a `api.anthropic.com` (la suscripción paga) y Basa NO consume la
+  OAuth del cliente llega **verbatim** a `api.anthropic.com` (la suscripción paga) y Sentinel NO consume la
   credencial como propia; verificable inspeccionando el header reenviado.
-- **SC-002 (coexistencia passthrough/byok)**: Con Claude Code (passthrough, trae `X-Basa-Key` con
-  `sk-basa-…` de atribución) y Copilot (byok, trae `sk-basa-…` en `x-api-key`) sobre el **mismo** gateway,
-  el 100% enruta correctamente: Claude Code queda en passthrough (la exclusión de `x-basa-*` lo protege) y
+- **SC-002 (coexistencia passthrough/byok)**: Con Claude Code (passthrough, trae `X-Sentinel-Key` con
+  `sk-sentinel-…` de atribución) y Copilot (byok, trae `sk-sentinel-…` en `x-api-key`) sobre el **mismo** gateway,
+  el 100% enruta correctamente: Claude Code queda en passthrough (la exclusión de `x-sentinel-*` lo protege) y
   Copilot va a byok. Test negativo: sin la exclusión, Claude Code se desviaría a byok.
 - **SC-003 (auto-byok + key-in-URL)**: Copilot **sin** header de control y con `x-api-key` vacío enruta a
   byok por virtual key en la URL (`?k=…`) en el 100% de los casos; la identidad se atribuye
@@ -471,10 +471,10 @@ en `manifest.matches`, adapter en `guardia-main.js`). NO se exige código de Gem
 - **Depende del bedrock 013 y del port 014**: `Tenant`, `role="client"`, `client_type`, la Connection =
   APIKey con `tenant_id`/`tool_type`/`upstream_mode` (013), y el gateway/firewall al que apuntan estos
   clientes (014) ya existen. Esta spec los **consume** desde el lado cliente; no los re-diseña.
-- **La evidencia viene del demo `gatelite-salud-eu`, no de `basa-guardian`**: los mecanismos
+- **La evidencia viene del demo `gatelite-salud-eu`, no de `sentinel-guardian`**: los mecanismos
   (passthrough, auto-byok, key-in-URL, identidad, detección por UA, endpoints `/gw/whoami` y `/gw/inspect`)
   están **implementados y probados** en `gatelite-salud-eu/backend/src/api/gateway.py`; la extensión MV3
-  en `basa-browser-dlp/`. Esta spec **porta** ese comportamiento a `basa-guardian` y lo versiona.
+  en `sentinel-browser-dlp/`. Esta spec **porta** ese comportamiento a `sentinel-guardian` y lo versiona.
 - **Reconciliación de vocabulario con 013 (`upstream_mode`)**: "anthropic" (demo) → `subscription-passthrough`
   (013); "byok" se mantiene. Se usan los valores del enum de 013 como fuente de verdad; "anthropic" queda
   como glosa histórica del demo (misma reconciliación que la 014).

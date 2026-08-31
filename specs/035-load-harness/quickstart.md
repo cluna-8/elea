@@ -9,11 +9,11 @@ en orden de construcción. Referencias: [contracts/](contracts/) y
 1. **Infra**: `tofu apply` en el root ITV (par c6i en eu-central-1; outputs → fingerprint).
    Verificar ANTES: cuota de vCPU de la cuenta ≥12 en la región.
 2. **Licencias ITV**: emitidas in-house con `backend/scripts/issue_license.py`
-   (kid `basa-dev-2026b`; una de 300 y una de 500 seats; requiere la clave privada —
+   (kid `sentinel-dev-2026b`; una de 300 y una de 500 seats; requiere la clave privada —
    custodia a confirmar con JF). Montadas como `client.lic` +
-   `BASA_ALLOW_DEV_LICENSE=true`. JAMÁS `issue_dev_license.py` sobre stack vivo.
+   `SENTINEL_ALLOW_DEV_LICENSE=true`. JAMÁS `issue_dev_license.py` sobre stack vivo.
 3. **SUT**: `compose.prod.yml --profile selfhosted` con el perfil
-   `deploy/clients/itv-examen/` (model_list → stub, `BASA_GW_ANTHROPIC_BASE` → stub,
+   `deploy/clients/itv-examen/` (model_list → stub, `SENTINEL_GW_ANTHROPIC_BASE` → stub,
    provider keys vacías) + Security Group sin egress.
 4. **Observabilidad**: centro (Prometheus+Grafana) arriba en el servidor persistente;
    sonda (exporters + agent) en el override del SUT.

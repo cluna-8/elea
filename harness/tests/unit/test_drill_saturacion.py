@@ -2,7 +2,7 @@
 ``run-report.md``).
 
 El fix de admisión del core rechaza con un 503 rápido cuando el motor está saturado
-(``X-Basa-Rejected: saturated`` + fila durable ``estado='rejected_saturated'`` escrita
+(``X-Sentinel-Rejected: saturated`` + fila durable ``estado='rejected_saturated'`` escrita
 ANTES de responder). Acá se prueba el INSTRUMENTO que lo mide, con datos sintéticos:
 
 - el YAML del drill carga, valida y expone ``kind``/``drill.criteria``; un ``kind``
@@ -21,12 +21,12 @@ import json
 import pytest
 import yaml
 
-from basa_harness.orchestrator import (Orchestrator, OrchestratorError, _drill_overrides,
+from sentinel_harness.orchestrator import (Orchestrator, OrchestratorError, _drill_overrides,
                                        main)
-from basa_harness.reporting.evaluator import (SLOResult, Verdict, evaluate,
+from sentinel_harness.reporting.evaluator import (SLOResult, Verdict, evaluate,
                                               eval_drill_criteria, eval_saturated_durable)
-from basa_harness.reporting.fingerprint import compare
-from basa_harness.reporting.gate_loader import (GATES_DIR, GateError, dry_run, load_gate,
+from sentinel_harness.reporting.fingerprint import compare
+from sentinel_harness.reporting.gate_loader import (GATES_DIR, GateError, dry_run, load_gate,
                                                 validate_gate)
 
 DRILL_FILE = GATES_DIR / "drill-saturacion-125.yaml"
@@ -54,7 +54,7 @@ def _clean_k6_summary() -> dict:
     coding["ttft_ms"] = {"p50": 612, "p95": 640, "p99": 700, "max": 780, "count": 100}
     coding["stream_cuts"] = 0
     surfaces["coding"] = coding
-    return {"schema": "basa-harness/k6-summary@1", "gate": 125, "surfaces": surfaces,
+    return {"schema": "sentinel-harness/k6-summary@1", "gate": 125, "surfaces": surfaces,
             "dropped_iterations_total": 0, "auditable_events": 2250}
 
 

@@ -11,7 +11,7 @@ def cos(a, b):
     na = math.sqrt(sum(x*x for x in a)); nb = math.sqrt(sum(y*y for y in b))
     return dot/(na*nb) if na and nb else 0.0
 
-cfg = json.load(open('/Users/drzuzz/code/BASA-DEV/llm-guardian/litellm/auto_router.json'))
+cfg = json.load(open('/Users/drzuzz/code/SENTINEL-DEV/llm-guardian/litellm/auto_router.json'))
 routes = cfg['routes']
 
 # Batería: (query, ruta esperada) — premium = código/análisis, mini = redacción/resumen, None = default

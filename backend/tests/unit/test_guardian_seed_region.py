@@ -3,7 +3,7 @@
 
 El criterio «igual que `nlp_fail_mode`» NO transfería tal cual: `nlp_fail_mode` siembra
 una CONSTANTE porque no hay env equivalente (sembrarla es no-op, cualquier instalación
-la quiere igual). `region` sí tiene un default de instalación (`BASA_ENTITY_REGION`), así
+la quiere igual). `region` sí tiene un default de instalación (`SENTINEL_ENTITY_REGION`), así
 que sembrar el literal `"eu"` a ciegas ANULABA ese default en la primera pantalla que un
 admin de una instalación no-EU abriera: `GET /guardians` re-seedea y desde ahí la env deja
 de tener efecto. Estos tests fijan que el seed lee la env EN EL MOMENTO de sembrar.
@@ -60,7 +60,7 @@ def _pii_guardian(db) -> Guardian:
 def test_instalacion_latam_siembra_region_latam_no_eu(monkeypatch):
     """El bug exacto de H3: una instalación `latam_ar` fresca no puede nacer con `"eu"`
     cableado — eso apaga DNI/CUIL desde el primer GET, sin que nadie tocara nada."""
-    monkeypatch.setenv("BASA_ENTITY_REGION", "latam_ar")
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "latam_ar")
     db = _FakeSession()
 
     GuardianService.get_or_create_default_guardians(db)
@@ -69,10 +69,10 @@ def test_instalacion_latam_siembra_region_latam_no_eu(monkeypatch):
 
 
 def test_instalacion_sin_env_siembra_el_default_del_codigo(monkeypatch):
-    """Retrocompatibilidad: sin `BASA_ENTITY_REGION` seteada (instalación vieja o
+    """Retrocompatibilidad: sin `SENTINEL_ENTITY_REGION` seteada (instalación vieja o
     perfil que no la declara), el seed sigue naciendo en `eu` — el `DEFAULT_REGION`
     del código, no un literal desconectado de él."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     db = _FakeSession()
 
     GuardianService.get_or_create_default_guardians(db)
@@ -82,7 +82,7 @@ def test_instalacion_sin_env_siembra_el_default_del_codigo(monkeypatch):
 
 
 def test_instalacion_eu_explicita_tambien_se_respeta(monkeypatch):
-    monkeypatch.setenv("BASA_ENTITY_REGION", "eu")
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "eu")
     db = _FakeSession()
 
     GuardianService.get_or_create_default_guardians(db)

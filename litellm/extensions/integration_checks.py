@@ -1,4 +1,4 @@
-"""Integration checks del BasaGuardrail (spec 014 US1) — corren DENTRO de la imagen.
+"""Integration checks del SentinelGuardrail (spec 014 US1) — corren DENTRO de la imagen.
 
 Ejercitan los 3 hooks del guardrail directamente (sin LLM real, que no está
 disponible en este entorno): mask en pre_call + metadata poblada, unmask en
@@ -14,8 +14,8 @@ import sys
 from types import SimpleNamespace
 
 sys.path.insert(0, "/app")
-from extensions.basa_guardrail import BasaGuardrail  # noqa: E402
-from extensions.basa_audit_logger import _scrub  # noqa: E402
+from extensions.sentinel_guardrail import SentinelGuardrail  # noqa: E402
+from extensions.sentinel_audit_logger import _scrub  # noqa: E402
 
 FAILURES = []
 
@@ -27,7 +27,7 @@ def check(name, condition, detail=""):
 
 
 def _identity(redact=True):
-    return SimpleNamespace(metadata={"basa": {"redact_enabled": redact, "tool_type": "claude-code"}})
+    return SimpleNamespace(metadata={"sentinel": {"redact_enabled": redact, "tool_type": "claude-code"}})
 
 
 async def _byte_stream(frames):
@@ -36,7 +36,7 @@ async def _byte_stream(frames):
 
 
 async def main():
-    g = BasaGuardrail()
+    g = SentinelGuardrail()
 
     # ── 1) pre_call enmascara el turno user y puebla litellm_metadata.pii_tokens ──
     body = {
@@ -51,7 +51,7 @@ async def main():
     check("pre_call: placeholders inyectados", "[PERSON_" in masked_text and "[EMAIL_ADDRESS_" in masked_text)
     check("pre_call: mapa reversible en litellm_metadata", len(tokens) == 2)
     check("pre_call: masked_entities registradas",
-          bool(out["litellm_metadata"].get("basa_masked_entities")))
+          bool(out["litellm_metadata"].get("sentinel_masked_entities")))
 
     # ── 2) toggle redact_enabled=False NO enmascara ──────────────────────────────
     body2 = {"messages": [{"role": "user", "content": "paciente Juan Pérez"}]}
@@ -100,9 +100,9 @@ async def main():
     check("streaming: passthrough sin PII intacto", b"ping" in passthrough)
 
     # ── 6) audit scrub elimina el mapa reversible (C1) ───────────────────────────
-    scrubbed = _scrub({"pii_tokens": tokens, "basa_masked_entities": [{"type": "PERSON", "count": 1}]})
+    scrubbed = _scrub({"pii_tokens": tokens, "sentinel_masked_entities": [{"type": "PERSON", "count": 1}]})
     check("audit: scrub elimina pii_tokens", "pii_tokens" not in scrubbed)
-    check("audit: scrub conserva metadata no sensible", "basa_masked_entities" in scrubbed)
+    check("audit: scrub conserva metadata no sensible", "sentinel_masked_entities" in scrubbed)
 
     print(f"\n{'INTEGRACIÓN ROTA: ' + str(FAILURES) if FAILURES else 'Guardrail wiring OK end-to-end.'}")
     sys.exit(1 if FAILURES else 0)
