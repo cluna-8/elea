@@ -426,8 +426,15 @@ app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
     const maskedPath = `${req.file.path}.masked.txt`;
     fs.writeFileSync(maskedPath, masked, 'utf-8');
 
+    // Nombre del archivo que ve AnythingLLM: SIEMPRE .txt, nunca la extensión original.
+    // AnythingLLM elige el parser por extensión (.xlsx/.docx/.pdf usan parsers binarios
+    // específicos) — lo que subimos acá es texto plano ya extraído y enmascarado, nunca
+    // el binario original. Con la extensión original (ej. .xlsx) intentaba parsear texto
+    // plano como Excel real y el contenido quedaba vacío o corrupto (bug real, encontrado
+    // subiendo una planilla real: el RAG respondía "no tengo acceso a documentos").
+    const uploadName = `${rawName}.txt`;
     const form = new FormData();
-    form.append('file', new Blob([fs.readFileSync(maskedPath)], { type: 'text/plain' }), rawName);
+    form.append('file', new Blob([fs.readFileSync(maskedPath)], { type: 'text/plain' }), uploadName);
 
     const uploadResp = await fetch(`${ANYTHINGLLM_URL}/api/v1/document/upload`, {
       method: 'POST',
@@ -494,7 +501,7 @@ app.post('/api/chat', async (req, res) => {
       return res.json({
         role: 'assistant',
         content: data.textResponse,
-        sources: (data.sources || []).map((s) => ({ document: s.title, extracto: s.text })),
+        sources: (data.sources || []).map((s) => ({ document: (s.title || '').replace(/\.txt$/i, ''), extracto: s.text })),
         model_used: data.metrics && data.metrics.model,
         via: 'rag'
       });

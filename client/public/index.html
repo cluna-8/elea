@@ -735,7 +735,10 @@
         const div = document.createElement('div');
         div.className = `thread-item ${activeClass}`;
         div.onclick = () => selectThread(th.slug);
-        div.innerHTML = `<div>🧵 ${th.name}</div>`;
+        // GET /workspace/{slug} de AnythingLLM NO devuelve el nombre del hilo (solo el
+        // slug) — a diferencia de la respuesta de creación, que sí lo trae. Fallback
+        // para no mostrar "undefined" (bug real encontrado 31-ago).
+        div.innerHTML = `<div>🧵 ${th.name || 'Hilo ' + th.slug.slice(0, 8)}</div>`;
         threadsContainer.appendChild(div);
       });
     }
@@ -754,10 +757,14 @@
       if (!currentWorkspace) return;
       (currentWorkspace.documents || []).forEach((doc) => {
         const meta = JSON.parse(doc.metadata || '{}');
+        // El nombre real subido lleva ".txt" al final (necesario para que AnythingLLM lo
+        // trate como texto plano, no como el binario original) — se oculta acá, es un
+        // detalle interno, no algo que la persona que sube el archivo necesite ver.
+        const displayName = (meta.title || doc.filename || '').replace(/\.txt$/i, '');
         const div = document.createElement('div');
         div.className = 'doc-card';
         div.innerHTML = `
-          <div class="doc-card-title">📄 <span>${meta.title || doc.filename}</span></div>
+          <div class="doc-card-title">📄 <span>${displayName}</span></div>
           <div class="doc-card-meta">
             <span>${meta.wordCount || 0} palabras</span>
             <div class="doc-card-actions">

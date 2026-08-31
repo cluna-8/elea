@@ -29,24 +29,40 @@ def extract_file_text(filepath):
         elif ext == '.txt' or ext == '.csv' or ext == '.json' or ext == '.md':
             with open(norm_path, 'r', encoding='utf-8', errors='ignore') as f:
                 return f.read()
+        elif ext == '.pdf':
+            # Sin esto caía al 'else' de abajo: leía los bytes binarios del PDF como si
+            # fueran UTF-8 (garabatos), se "enmascaraba" texto sin sentido y el RAG quedaba
+            # sin contenido real — mismo tipo de bug real que el de .xlsx (31-ago).
+            from pypdf import PdfReader
+            reader = PdfReader(norm_path)
+            pages = [p.extract_text() or '' for p in reader.pages]
+            return "\n\n".join(t.strip() for t in pages if t.strip())
         elif ext == '.xlsx' or ext == '.xls':
             import pandas as pd
             df = pd.read_excel(norm_path)
             df = df.fillna('—') # Replace ugly NaN with clean em-dash
-            
-            # Create a clean markdown table of the first 5 rows
+
+            # ANTES: solo las primeras 5 filas ("muestra") — cualquier pregunta sobre el
+            # resto de una planilla real quedaba sin respuesta ("no puedo trabajar", bug
+            # real reportado 31-ago). Ahora van TODAS las filas como texto plano: el RAG
+            # las trocea y embebe por su cuenta, así cualquier fila es recuperable, no
+            # solo las primeras 5. Tope de 5000 filas para no colgar con un archivo
+            # gigante — si hace falta más, es un caso para DB-GPT (cruces exactos, fuera
+            # de alcance de esta ronda), no para el RAG vectorial.
+            MAX_ROWS = 5000
+            truncated = len(df) > MAX_ROWS
+            df_out = df.head(MAX_ROWS) if truncated else df
+
             headers = [str(c) for c in df.columns]
-            header_row = "| " + " | ".join(headers) + " |"
-            sep_row = "| " + " | ".join(["---"] * len(headers)) + " |"
-            
-            sample_rows = []
-            for _, row in df.head(5).iterrows():
-                sample_rows.append("| " + " | ".join(str(val).strip() for val in row.values) + " |")
-            
-            md_table = "\n".join([header_row, sep_row] + sample_rows)
-            
-            summary = f"**Planilla:** {len(df)} registros | {len(df.columns)} columnas ({', '.join(headers)})\n\n{md_table}"
-            return summary
+            lines = [f"**Planilla:** {len(df)} registros | {len(df.columns)} columnas ({', '.join(headers)})", ""]
+            if truncated:
+                lines.append(f"(mostrando las primeras {MAX_ROWS} de {len(df)} filas)")
+                lines.append("")
+            for _, row in df_out.iterrows():
+                pares = [f"{h}: {str(v).strip()}" for h, v in zip(headers, row.values)]
+                lines.append(" | ".join(pares))
+
+            return "\n".join(lines)
         else:
             with open(norm_path, 'r', encoding='utf-8', errors='ignore') as f:
                 return f.read(2000)
