@@ -67,11 +67,16 @@ Un usuario de servicio + `POST /api/v1/keys` con `tool_type: "chat-ui"` (ver
 
 ## Límites conocidos de esta versión
 
-- **Una sola sesión activa por proceso**: el cliente guarda el JWT en memoria, no por
-  navegador/cookie. Pensado para un uso de escritorio (una persona, una pestaña) — no
-  sirve todavía para múltiples usuarios concurrentes desde distintos navegadores.
 - **Sin historial persistente entre recargas**: los mensajes de chat viven solo en el
   navegador mientras la pestaña está abierta (AnythingLLM sí guarda el hilo del lado de
   servidor; el cliente no lo relee al recargar).
 - **Previsualización de documentos**: no implementada en esta vuelta (se puede ver qué
   documentos hay y su tamaño, no el contenido completo).
+
+## Resuelto (31-ago, ronda de prueba multi-usuario)
+
+- ✅ **Sesión por navegador**: cada uno tiene su propia cookie (`elea_rag_sid`), sesiones
+  aisladas — verificado con 2 usuarios simultáneos, sin cruce.
+- ✅ **CBU enmascarado** (faltaba, ver `specs/040.../tasks.md` Fase 7).
+- ✅ **Auto-router sin Ollama**: default y las 3 categorías resuelven a `azure-gpt-4o-mini`
+  (antes colgaban 30s o fallaban por falta de credencial).
