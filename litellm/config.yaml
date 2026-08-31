@@ -52,42 +52,12 @@ model_list:
     api_key: os.environ/ANTHROPIC_API_KEY
     model: anthropic/claude-3-5-sonnet-20240620
   model_name: claude-3-5-sonnet
-# Upstream Ollama (spike 019 batch 1, 2026-07-20): modelos propios/locales del cliente.
-# ollama_chat/ (no ollama/) porque usa /api/chat y soporta tool-calling; host.docker.internal
-# es el host desde el contenedor (Docker Desktop — SOLO dev; en prod el api_base es el host
-# ruteable del runtime del cliente). Costo 0: el modelo es del cliente.
-# Sin fallback propio a propósito: un fallback local→cloud violaría la residencia de datos
-# que motiva tener el modelo local.
-# `max_parallel_requests` (issue #151, decisión técnica del #134): SEGUNDO candado, del
-# lado del motor. El primero es el tope de admisión del backend (engine_gate.py, 8 en vuelo
-# × 2 workers = 16); éste existe para que la cola infinita no vuelva a existir NI AUNQUE el
-# backend falle en cortarla —byok por `/gw`, un worker de más, un tope mal girado—, porque el
-# runtime local serializa las generaciones y encola FIFO sin límite: ahí empezó el cuelgue de
-# la sede del 30-jul. 20 = tope total del backend (16) + margen, a propósito POR ENCIMA: el
-# que tiene que rechazar es el backend, con su 503 honesto y auditado, no el motor con un
-# error opaco. El motor lo convierte en un `asyncio.Semaphore` por deployment (verificado
-# contra la imagen pinneada 1.92.0; lo fija checks/test_engine_local_limits.sh).
-# Las embeddings del router NO llevan tope: sale una por chat, y los chats ya vienen
-# acotados por el backend — un tope ahí sólo agregaría un modo de degradación nuevo.
-#
-# `num_retries: 0` (issue #151, decisión #134-② sellada por JF el 12-ago): TERCER candado,
-# y el más barato. El `num_retries: 2` global de `router_settings` es sano contra un
-# proveedor cloud —un 429 se reintenta y listo—, pero contra un runtime que serializa es
-# amplificación: cada generación que expira vuelve a la MISMA cola FIFO dos veces más, o sea
-# ×3 trabajo por pedido justo cuando el sistema ya no da abasto. Fue parte del diagnóstico
-# del 30-jul. El valor por deployment PISA al global sólo para este upstream (verificado
-# contra la imagen pinneada: con el global en 2 son 3 intentos, con este 0 es 1).
-# No apaga los FALLBACKS: son otra capa: si el modelo pedido tiene fallback configurado, el
-# router sigue cayendo a él después del único intento fallido (ver ADR-0003).
-- litellm_params:
-    api_base: http://host.docker.internal:11434
-    max_parallel_requests: 20
-    model: ollama_chat/qwen3:4b
-    num_retries: 0
-  model_info:
-    input_cost_per_token: 0
-    output_cost_per_token: 0
-  model_name: ollama-qwen3-4b
+# Ollama LOCAL sacado del catálogo (31-ago, spec 040 — despliegue de prueba
+# multi-usuario): no hay runtime Ollama en este entorno; dejarlo listado permitía
+# elegirlo manualmente (o por fallback) y colgaba 30s por request — no aceptable con
+# varias personas probando a la vez. La entrada completa (comentario original con el
+# contexto del incidente del 30-jul, `max_parallel_requests`, `num_retries: 0`) sigue en
+# el historial de git — restaurarla si el deployment de destino sí tiene Ollama corriendo.
 # Embeddings del auto-router semántico (spec 030 R1): qwen3-embedding:0.6b LOCAL — el
 # contenido del prompt NO puede salir de la máquina para decidir el ruteo (FR-003 +
 # residencia). ollama/ (no ollama_chat/): el endpoint es /v1/embeddings, no /api/chat.
@@ -115,18 +85,23 @@ router_settings:
   # implica esta lista: la sustitución es SILENCIOSA (la respuesta conserva el nombre del
   # modelo pedido), así que cada entrada es una decisión de quien la escribe —acá, de dev.
   fallbacks:
+  # 31-ago (sesión de prueba multi-usuario, spec 040): sacado ollama-qwen3-4b de TODAS
+  # las cadenas — no hay Ollama corriendo en este entorno, y un fallback ahí cuelga 30s
+  # (timeout real observado) en vez de fallar rápido. Cada cadena ahora termina en un
+  # modelo con credencial real configurada (azure-gpt-4o-mini o gemini). gpt-4o/
+  # gpt-4o-mini quedan en el catálogo (sin OPENAI_API_KEY) pero con fallback real: no
+  # deberían pedirse directo, y si se piden, no cuelgan.
   - azure-gpt-4o-mini:
-    - ollama-qwen3-4b
+    - gemini-2.5-flash-lite
   - gemini-2.5-flash-lite:
-    - ollama-qwen3-4b
+    - azure-gpt-4o-mini
   - gpt-4o:
     - azure-gpt-4o-mini
-    - ollama-qwen3-4b
   - gpt-4o-mini:
-    - ollama-qwen3-4b
+    - azure-gpt-4o-mini
   - claude-3-5-sonnet:
     - gemini-2.5-flash
-    - ollama-qwen3-4b
+    - azure-gpt-4o-mini
   - gemini-2.5-flash:
     - gemini-2.5-flash-lite
-    - ollama-qwen3-4b
+    - azure-gpt-4o-mini

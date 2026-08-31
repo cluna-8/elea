@@ -111,6 +111,13 @@ STRUCTURED_ID_PATTERNS_BY_REGION = {
         "DNI": (r"\b\d{2}\.?\d{3}\.?\d{3}\b", 0.85, ["dni", "documento"]),
         "CUIL": (r"\b\d{2}-\d{8}-\d\b", 0.9, ["cuil", "cuit"]),
         "PASSPORT": (r"\b[A-Z]{3}\d{6}\b", 0.75, ["pasaporte"]),
+        # CBU (Clave Bancaria Uniforme): 22 dígitos corridos, sin separador estándar.
+        # Solo formato (como DNI/CUIL acá arriba, sin checksum mod-10 de las dos
+        # secciones) — confirmado como gap real el 31-ago (spec 040): un CBU real
+        # quedaba en texto plano en una respuesta del RAG porque este patrón no
+        # existía. Palabras de contexto bajan falsos positivos sobre otras corridas
+        # largas de dígitos (ids internos, códigos de barra).
+        "CBU": (r"\b\d{22}\b", 0.85, ["cbu", "clave bancaria", "cuenta bancaria"]),
     },
 }
 DEFAULT_REGION = "eu"
