@@ -8,6 +8,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const multer = require('multer');
 const { execSync } = require('child_process');
 
@@ -34,8 +35,47 @@ const upload = multer({
   })
 });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+
+// =========================================================================
+// SESIÓN POR NAVEGADOR (spec 040, fix 31-ago: varias personas probando a la vez
+// se pisaban con una sola sesión global en memoria). Cada navegador recibe una
+// cookie `sid` propia (aleatoria, httpOnly); el JWT real de `elea` vive en el
+// Map del servidor, indexado por `sid` — nunca en el navegador.
+// =========================================================================
+const sessions = new Map(); // sid -> { token, user: {id, username, role, email} }
+const SID_COOKIE = 'elea_rag_sid';
+
+function parseCookies(header) {
+  const out = {};
+  (header || '').split(';').forEach((part) => {
+    const idx = part.indexOf('=');
+    if (idx === -1) return;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  });
+  return out;
+}
+
+app.use((req, res, next) => {
+  const cookies = parseCookies(req.headers.cookie);
+  let sid = cookies[SID_COOKIE];
+  if (!sid) {
+    sid = crypto.randomBytes(24).toString('hex');
+    res.setHeader('Set-Cookie', `${SID_COOKIE}=${sid}; HttpOnly; Path=/; SameSite=Lax`);
+  }
+  req.sid = sid;
+  next();
+});
+
+function getSession(req) {
+  return sessions.get(req.sid) || null;
+}
+function setSession(req, value) {
+  if (value) sessions.set(req.sid, value);
+  else sessions.delete(req.sid);
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 function extractText(filepath) {
@@ -47,13 +87,6 @@ function extractText(filepath) {
     return '';
   }
 }
-
-// =========================================================================
-// SESIÓN — un solo cliente activo a la vez (uso de escritorio en un navegador),
-// documentado como límite conocido en client/README.md. El JWT vive SOLO en este
-// proceso: nunca se escribe a disco ni viaja al navegador.
-// =========================================================================
-let session = null; // { token, user: {id, username, role, email} }
 
 // Sesión de SERVICIO (spec 040 plan.md §3, opción b): un usuario admin dedicado cuyo JWT
 // el cliente usa para consultar presupuesto en nombre del usuario logueado, sin exponer
@@ -81,14 +114,15 @@ async function getServiceToken(forceRefresh = false) {
   return serviceToken;
 }
 
-// Llamada autenticada a `elea` con el JWT del usuario logueado.
-async function eleaFetch(pathname, opts = {}) {
-  if (!session) throw new Error('Sin sesión activa.');
+// Llamada autenticada a `elea` con el JWT de la sesión del navegador que pide (nunca la
+// variable global vieja — cada request trae su propio token).
+async function eleaFetch(token, pathname, opts = {}) {
+  if (!token) throw new Error('Sin sesión activa.');
   const r = await fetch(`${ELEA_BACKEND_URL}${pathname}`, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.token}`,
+      Authorization: `Bearer ${token}`,
       ...(opts.headers || {})
     }
   });
@@ -153,7 +187,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!ok) {
       return res.status(status).json({ error: data.detail || 'Credenciales incorrectas.' });
     }
-    session = { token: data.access_token, user: data.user };
+    setSession(req, { token: data.access_token, user: data.user });
     res.json({ success: true, user: data.user });
   } catch (err) {
     res.status(502).json({ error: `No se pudo contactar a elea: ${err.message}` });
@@ -161,11 +195,12 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  session = null;
+  setSession(req, null);
   res.json({ success: true });
 });
 
 app.get('/api/user/current', async (req, res) => {
+  const session = getSession(req);
   if (!session) return res.json({ isAuthenticated: false });
 
   const [budget, workspaces] = await Promise.all([
@@ -198,9 +233,10 @@ async function fetchUserBudget(userId) {
 // SELECTOR DE MODELO (US2) — catálogo real de elea, nunca una lista inventada.
 // =========================================================================
 app.get('/api/models', async (req, res) => {
+  const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Sin sesión activa.' });
   try {
-    const r = await eleaFetch('/chat/models');
+    const r = await eleaFetch(session.token, '/chat/models');
     if (!r.ok) return res.status(r.status).json({ error: 'No se pudo leer el catálogo de modelos.' });
     res.json(await r.json());
   } catch (err) {
@@ -439,6 +475,7 @@ app.post('/api/workspaces/documents/delete', async (req, res) => {
 //   - Sin workspace   → chat simple directo a elea con el modelo elegido (o "auto").
 // =========================================================================
 app.post('/api/chat', async (req, res) => {
+  const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Sin sesión activa.' });
   const { message, slug, threadSlug, model } = req.body || {};
   if (!message) return res.status(400).json({ error: 'Mensaje vacío.' });
@@ -463,7 +500,7 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    const r = await eleaFetch('/chat/completions', {
+    const r = await eleaFetch(session.token, '/chat/completions', {
       method: 'POST',
       body: JSON.stringify({ message, model: model || 'auto' })
     });
