@@ -33,7 +33,7 @@ la regla de siempre: brief cerrado + worktree propio + tests RED→verde en el M
 **Purpose**: el parser y la matriz existen, testeados, sin que ningún plano los use aún.
 
 - [x] T003 [P] Parser de modo en `backend/src/services/audit_service.py`:
-      `BASA_AUDIT_FAIL ∈ {open, closed, policy}`, ausente/ilegible ⇒ `policy` (D1).
+      `SENTINEL_AUDIT_FAIL ∈ {open, closed, policy}`, ausente/ilegible ⇒ `policy` (D1).
       `audit_fail_mode()` conserva nombre y contrato string. Tests unit RED→verde en
       `backend/tests/unit/`: los 3 valores + ausente + basura (`"POLICY "`, `"abierto"`,
       vacío) ⇒ `policy`.
@@ -42,7 +42,7 @@ la regla de siempre: brief cerrado + worktree propio + tests RED→verde en el M
       `None`/desconocido corta (fail-closed hacia lo reversible) · clase `config_audit`
       no entra (FR-002). Tests unit: los 4 niveles + None + string desconocido + la
       mutación «matriz invertida» debe romper los tests.
-- [x] T005 Aserción del tier (D3) en `backend/src/services/basa_governance.py`: con
+- [x] T005 Aserción del tier (D3) en `backend/src/services/sentinel_governance.py`: con
       `enforcement_tier_estricto=on`, `policy` es incoherencia igual que `open` (degrada
       health, no corta boot). Test integration sobre el camino existente de la 018.
 
@@ -62,7 +62,7 @@ comportamiento (suite completa verde lo demuestra).
       `audit_fail_mode()`; el contexto es `_applied_risk_level`, **citado por símbolo y no
       por línea a propósito** — la cita `:1319` del plan ya estaba vencida al arrancar
       Phase 2), modo `policy` ⇒ `audit_fail_decision(...)`; servir sin fila ⇒
-      `INCR basa:audit:lost` (camino existente). Integration tests: ambos niveles ×
+      `INCR sentinel:audit:lost` (camino existente). Integration tests: ambos niveles ×
       auditoría caída.
       **Alcance ampliado en implementación, con su razón**: el camino feliz de
       `chat_completions` era el ÚNICO call-site de `log_transaction` de un plano de tráfico
@@ -83,7 +83,7 @@ comportamiento (suite completa verde lo demuestra).
       — `gateway.py` no resuelve riesgo, cero hits de `risk_level` en todo el archivo
       (control positivo: el mismo instrumento sobre `backend/src/` lista 12 archivos, con
       `chat.py` entre ellos). En chat el dato ya está resuelto; en `/gw` **hay que
-      producirlo**: la identidad la arma `_resolve_attribution` desde `X-Basa-Key`, que es
+      producirlo**: la identidad la arma `_resolve_attribution` desde `X-Sentinel-Key`, que es
       **opcional** ⇒ el tráfico anónimo resuelve `None` **por construcción**, no por
       configuración faltante, y por lo tanto corta. Eso queda como DISEÑO declarado (body
       del PR + docs), no como bug. Para producir el dato: reusar el helper compartido de la
@@ -134,16 +134,16 @@ comportamiento (suite completa verde lo demuestra).
         de cliente.
 - [ ] T008 [US1] Plano **motor byok**: el probe `/api/v1/internal/audit/probe` gana
       contexto de credencial y responde la DECISIÓN ya tomada (la matriz no se duplica en
-      el motor). `litellm/extensions/basa_guardrail.py` (`_audit_fail_mode`, cache 5 s en
-      `_auditoria_escribible`) y `litellm/extensions/basa_audit_logger.py`
+      el motor). `litellm/extensions/sentinel_guardrail.py` (`_audit_fail_mode`, cache 5 s en
+      `_auditoria_escribible`) y `litellm/extensions/sentinel_audit_logger.py`
       (`audit_fail_mode`) — **los DOS lectores** consumen el resultado nuevo (citados por
       SÍMBOLO: las líneas `:164`/`:280`/`:88` del texto original ya se corrieron una vez).
       Regla de cache: en modo `policy` jamás cachear la decisión de un pedido para otro
       (cachear modo, no decisión). Contract test del probe + integration del plano motor.
       **Tres premisas re-medidas en `c813b7cc` al arrancar, que cambian el diseño:**
       1. **`risk_level` YA significa otra cosa dentro del motor** — es el veredicto de
-         compliance (`low`/`high`/`prohibited`/`unknown`, `basa_guardrail.py` y el módulo
-         compartido `basa_guardian_policy.py`), no el nivel AI-Act del usuario;
+         compliance (`low`/`high`/`prohibited`/`unknown`, `sentinel_guardrail.py` y el módulo
+         compartido `sentinel_guardian_policy.py`), no el nivel AI-Act del usuario;
          `applied_risk_level` tiene **0 hits en todo `litellm/`**. Medido contra la matriz
          real: `low` da **corta**, igual que `prohibited`. Cablear el nombre corto cortaría
          el 100% del tráfico en `policy` con la auditoría caída **sin producir un solo 200
@@ -161,11 +161,11 @@ comportamiento (suite completa verde lo demuestra).
          fallback devolviendo la fila SIN él ⇒ `None` ⇒ corta. Por eso **campo AUSENTE
          significa contrato viejo ⇒ decidir por MODO** (pre-038), jamás riesgo `None`: eso
          cubre a la vez el upgrade desparejo y el fallback de la misma versión.
-      **El flip del pin `${BASA_AUDIT_FAIL:-open}` → `:-policy` viaja EN ESTE PR** (sellado
+      **El flip del pin `${SENTINEL_AUDIT_FAIL:-open}` → `:-policy` viaja EN ESTE PR** (sellado
       27-ago): son **4 pines**, RE-MEDIDOS en `c813b7cc` al arrancar T008 porque tres de las
       cuatro citas ya no anclaban — `deploy/docker/compose.prod.yml:62` y **`:224`** (decía
       `:214`) + `docker-compose.yml:` **`:99`** (decía `:91`) y **`:198`** (decía `:190`).
-      Son los 4 ÚNICOS que pinean (barrido de `BASA_AUDIT_FAIL:-` sobre todo el repo); el
+      Son los 4 ÚNICOS que pinean (barrido de `SENTINEL_AUDIT_FAIL:-` sobre todo el repo); el
       único otro sitio que ASIGNA valor es `deploy/clients/itv-examen/client.env.example:45`
       con `closed` explícito, y **ése no se toca** (SC-002). Si no viajan con el primer
       consumidor del motor, D1 queda letra muerta en prod: el compose pisa el default del
@@ -184,7 +184,7 @@ comportamiento (suite completa verde lo demuestra).
       iba a cerrar. Declarado también en `docs/docs/api-reference/errors.md` (condición (a)),
       donde un integrador podría inferir uniformidad entre passthrough y byok.
       **Además, dos docstrings del motor que shippean falso y se corrigen acá**:
-      `basa_guardrail.py::_audit_fail_mode` se declara «espejo exacto» de
+      `sentinel_guardrail.py::_audit_fail_mode` se declara «espejo exacto» de
       `audit_service.audit_fail_mode()` y ya no lo es (no conoce `policy`), y su default
       documentado es `open` cuando el del backend pasó a `policy` en T003.
 - [ ] T009 [US1] **SC-001 E2E real**: stack levantado, Postgres de auditoría tumbado a
@@ -217,8 +217,8 @@ comportamiento (suite completa verde lo demuestra).
 ## Phase 4: User Story 3 + FR-005 — Honestidad a máquina (P2)
 
 - [ ] T011 [P] [US3] Marcador D5 en `/gw`: toda respuesta servida sin fila lleva el header
-      machine-readable (propuesto `X-Basa-Audit-Lost: 1`; nombre final se documenta en el
-      contrato en el MISMO PR). Precedente `X-Basa-Rejected` (#135). Integration test:
+      machine-readable (propuesto `X-Sentinel-Audit-Lost: 1`; nombre final se documenta en el
+      contrato en el MISMO PR). Precedente `X-Sentinel-Rejected` (#135). Integration test:
       header presente al servir sin fila, ausente en camino normal.
 - [ ] T012 [P] FR-005/D4 (cierra #165): 400/422 de validación previa ⇒ CERO filas en
       `audit_logs` + contador estructurado por tenant/endpoint + log sin cuerpo. SC-003
@@ -231,7 +231,7 @@ comportamiento (suite completa verde lo demuestra).
 - [ ] T013 [P] **Docs de producto (DoD)**: `docs/docs/api-reference/errors.md:84-90`
       (los tres modos + marcador D5) + la referencia colgada a `configuration.md` +
       `make -C deploy check-docs` verde.
-- [ ] T014 [P] Barrido de lectores de `BASA_AUDIT_FAIL` en el MISMO ciclo:
+- [ ] T014 [P] Barrido de lectores de `SENTINEL_AUDIT_FAIL` en el MISMO ciclo:
       `.env.example` (documentarla POR PRIMERA VEZ — hueco del #190: los 3 valores +
       default `policy`) · `docker-compose.yml:91,178-179` (comentario y default del
       template) · contrato `specs/031-durable-audit/contracts/audit-durable.md:31-35`

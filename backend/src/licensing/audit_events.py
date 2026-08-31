@@ -43,7 +43,7 @@ EVENT_CLOCK_ROLLBACK = "license_clock_rollback_suspected"
 # deployment honesto que arrancó sin .lic acusaría tamper sin remediación).
 EVENT_GENESIS_ANCHORED = "license_genesis_anchored"
 
-_GENESIS_PREFIX = "basa-genesis:"
+_GENESIS_PREFIX = "sentinel-genesis:"
 
 
 def genesis_anchor(license_id: Optional[str]) -> str:

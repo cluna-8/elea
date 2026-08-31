@@ -1,4 +1,4 @@
-"""La librería compartida `basa_guardian_policy` tiene que ser UN solo objeto-módulo.
+"""La librería compartida `sentinel_guardian_policy` tiene que ser UN solo objeto-módulo.
 
 Por qué existe este archivo (038 T008): la matriz D2 se muda a la librería PURA compartida
 para que el backend y el motor evalúen **el mismo objeto** en vez de dos copias «igualitas»
@@ -8,9 +8,9 @@ verdad uno, y hoy no lo es.
 El mismo archivo se importa por DOS caminos y produce DOS entradas de `sys.modules` con
 globals independientes:
 
-  * `import basa_guardian_policy`            (nombre PLANO) — lo que hace PRODUCCIÓN:
-    `gateway.py`, `presidio_service.py`, `basa_guardrail.py`, `basa_audit_logger.py`.
-  * `from extensions import basa_guardian_policy` (nombre PAQUETE) — lo que hacen los TESTS
+  * `import sentinel_guardian_policy`            (nombre PLANO) — lo que hace PRODUCCIÓN:
+    `gateway.py`, `presidio_service.py`, `sentinel_guardrail.py`, `sentinel_audit_logger.py`.
+  * `from extensions import sentinel_guardian_policy` (nombre PAQUETE) — lo que hacen los TESTS
     de policy y `litellm/extensions/contract_checks.py`, que es un check de RELEASE.
 
 Los dos invariantes de abajo NO son intercambiables y por eso van los dos:
@@ -19,8 +19,8 @@ Los dos invariantes de abajo NO son intercambiables y por eso van los dos:
   * `is`                 ⇒ no pueden divergir en ESTADO (globals compartidos).
 
 El segundo es el que hoy falla, y el que la red de auto-registro al pie de
-`basa_guardian_policy.py` viene a poner en verde — el mismo patrón que ya usa
-`basa_governance.py` (bloque de identidad del módulo, al final del archivo).
+`sentinel_guardian_policy.py` viene a poner en verde — el mismo patrón que ya usa
+`sentinel_governance.py` (bloque de identidad del módulo, al final del archivo).
 
 Ojo con el autouse `_reset_presidio_http_client_singleton` de `conftest.py`: existe porque
 `_http_client` vive DUPLICADO en las dos copias. NO se simplifica junto con esta red: sigue
@@ -37,23 +37,23 @@ import pytest
 #
 # El camino PAQUETE es directo: `conftest.py` pone la carpeta CONTENEDORA en `sys.path`.
 # El camino PLANO **no se puede importar acá a secas**: `conftest.py` NO agrega la carpeta
-# `extensions` misma, así que `import basa_guardian_policy` explota con ModuleNotFoundError
+# `extensions` misma, así que `import sentinel_guardian_policy` explota con ModuleNotFoundError
 # si nadie lo cargó antes. Medido: el nombre plano existe ÚNICAMENTE como efecto de que un
 # módulo de producción (que se agrega su propio directorio a `sys.path`) se haya importado
 # primero. Por eso la referencia plana se toma de donde PRODUCCIÓN la crea —igual que
-# `test_nlp_fail_mode.py` toma `policy = basa_guardrail.policy`— y no con un import propio
+# `test_nlp_fail_mode.py` toma `policy = sentinel_guardrail.policy`— y no con un import propio
 # que mediría una tercera cosa.
-from extensions import basa_guardian_policy as via_paquete  # noqa: E402  (camino de TESTS)
+from extensions import sentinel_guardian_policy as via_paquete  # noqa: E402  (camino de TESTS)
 
 _gateway = importlib.import_module("src.api.gateway")  # hace el baile de sys.path y el import plano
-via_plano = sys.modules["basa_guardian_policy"]  # noqa: E402  (camino de PRODUCCIÓN)
+via_plano = sys.modules["sentinel_guardian_policy"]  # noqa: E402  (camino de PRODUCCIÓN)
 
 
 def test_las_dos_entradas_de_sys_modules_existen():
     """Control del INSTRUMENTO: si un solo camino estuviera cargado, los asserts de abajo
     medirían la copia contra sí misma y pasarían sin probar nada."""
-    assert sys.modules.get("basa_guardian_policy") is via_plano
-    assert sys.modules.get("extensions.basa_guardian_policy") is via_paquete
+    assert sys.modules.get("sentinel_guardian_policy") is via_plano
+    assert sys.modules.get("extensions.sentinel_guardian_policy") is via_paquete
 
 
 def test_mismo_archivo_fuente_no_pueden_divergir_en_logica():
@@ -90,8 +90,8 @@ def test_canario_de_estado_lo_escrito_en_una_copia_se_lee_en_la_otra():
 
 @pytest.mark.parametrize("nombre_modulo, atributo", [
     ("src.api.gateway", "policy"),
-    ("extensions.basa_guardrail", "policy"),
-    ("extensions.basa_audit_logger", "policy"),
+    ("extensions.sentinel_guardrail", "policy"),
+    ("extensions.sentinel_audit_logger", "policy"),
 ])
 def test_los_call_sites_de_produccion_ven_el_objeto_unico(nombre_modulo, atributo):
     """Los planos reales, no una referencia que este test se importa para sí mismo.

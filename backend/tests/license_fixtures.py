@@ -1,6 +1,6 @@
 """Emisor de licencias DE PRUEBA para la suite (spec 021).
 
-Simula el lado FIRMANTE (el portal de emisión de Basa): genera pares Ed25519,
+Simula el lado FIRMANTE (el portal de emisión de Sentinel): genera pares Ed25519,
 arma el keyset PEM indexado por ``key_id`` y firma payloads ``.lic`` con el
 mismo contrato wire que el producto verifica (JSON canónico ``sort_keys`` +
 separadores compactos + firma detached base64url en ``sig``).
@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
-SUITE_KID = "basa-test-suite"
+SUITE_KID = "sentinel-test-suite"
 
 
 def canonical_payload_bytes(payload: dict) -> bytes:
@@ -55,8 +55,8 @@ def make_payload(**overrides) -> dict:
         "lic_id": "lic_test_0001",
         "kid": SUITE_KID,
         "tenant_id": DEFAULT_TENANT_ID,
-        "distributor_id": "d_basa",
-        "pool_id": "pool_basa_directo",
+        "distributor_id": "d_sentinel",
+        "pool_id": "pool_sentinel_directo",
         "max_seats": 500,
         "feature_flags": ["monitor"],
         "not_before": "2026-01-01T00:00:00Z",
@@ -99,13 +99,13 @@ def install_default_test_license():
     max_seats alto, para que el fail-closed de la 021 no bloquee los tests
     preexistentes de creación. Los tests negativos overridean el env y llaman
     a ``entitlement.initialize(force=True)`` (restaurando al salir)."""
-    tmp = Path(tempfile.mkdtemp(prefix="basa-license-suite-"))
+    tmp = Path(tempfile.mkdtemp(prefix="sentinel-license-suite-"))
     keyset_path, lic_path, _priv = issue_files(tmp)
-    # Asignación FORZADA (no setdefault): el container trae BASA_LICENSE_TOKEN_FILE
+    # Asignación FORZADA (no setdefault): el container trae SENTINEL_LICENSE_TOKEN_FILE
     # apuntando al dev-demo.lic (compose) y mezclarlo con el keyset efímero de la
     # suite daría un par incoherente. La suite es hermética: keyset y token van
     # SIEMPRE juntos; los tests negativos overridean vía monkeypatch.
-    os.environ["BASA_LICENSE_PUBLIC_KEYS_FILE"] = str(keyset_path)
-    os.environ["BASA_LICENSE_TOKEN_FILE"] = str(lic_path)
-    os.environ.pop("BASA_LICENSE_TOKEN", None)
+    os.environ["SENTINEL_LICENSE_PUBLIC_KEYS_FILE"] = str(keyset_path)
+    os.environ["SENTINEL_LICENSE_TOKEN_FILE"] = str(lic_path)
+    os.environ.pop("SENTINEL_LICENSE_TOKEN", None)
     return tmp

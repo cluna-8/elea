@@ -1,12 +1,12 @@
 """Detección de herramienta por User-Agent (spec 019 US1 T008, FR-004).
 
-`detect_tool` vive en la librería compartida `basa_guardian_policy` (la misma que usa
+`detect_tool` vive en la librería compartida `sentinel_guardian_policy` (la misma que usa
 el `custom_auth` del motor); acá se verifica la semántica portada del demo (`_TOOL_UA`):
 primer match gana, degradación honesta a "Desconocido" sin crashear.
 """
 import pytest
 
-from extensions import basa_guardian_policy as policy
+from extensions import sentinel_guardian_policy as policy
 
 
 @pytest.mark.parametrize("ua,expected", [

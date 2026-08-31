@@ -43,7 +43,7 @@ docker compose start nlp-analyzer   # restaurar
 ## 4. Integridad ante coincidencias solapadas (US4)
 
 ```bash
-docker compose run --rm --no-deps backend pytest tests/unit/test_basa_guardian_policy.py -k overlap -q
+docker compose run --rm --no-deps backend pytest tests/unit/test_sentinel_guardian_policy.py -k overlap -q
 ```
 **Esperado**: el test de `resolve_overlaps` (nuevo, unit) pasa — texto sintético con rangos solapados
 produce un único placeholder por rango disputado, sin corrupción.

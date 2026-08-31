@@ -17,7 +17,7 @@
 - `backend/src/api/__init__.py` — registra `groups_router` y `consent_router`
 - `backend/src/api/chat.py` — resolución de proyecto de compliance por grupo del usuario; lectura de `X-Processing-Purpose`; almacena `processing_purpose` y `user_group_id` en audit log
 - `backend/src/api/compliance.py` — endpoint `/dashboard` incluye `processing_purpose_distribution` (distribución por propósito)
-- `docker-compose.yml` — contenedor `basa-redis` (redis:7-alpine, 256 MB maxmemory, healthcheck)
+- `docker-compose.yml` — contenedor `sentinel-redis` (redis:7-alpine, 256 MB maxmemory, healthcheck)
 - `litellm/config.yaml` — sección `cache` con Redis (host, port, ttl: 3600)
 
 **Frontend**

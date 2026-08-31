@@ -50,7 +50,7 @@ def main():
           [p for p in log.parameters] == ["self", "kwargs", "response_obj", "start_time", "end_time"],
           str(log))
 
-    # ── UserAPIKeyAuth: los campos que la identidad Basa usa ──────────────────
+    # ── UserAPIKeyAuth: los campos que la identidad Sentinel usa ──────────────────
     from litellm.proxy._types import UserAPIKeyAuth
     fields = set(UserAPIKeyAuth.model_fields)
     for field in ("user_id", "team_id", "metadata", "models", "rpm_limit", "tpm_limit", "key_alias"):
@@ -63,29 +63,29 @@ def main():
 
     # ── Nuestras extensiones cargan y respetan los gotchas de la research ─────
     sys.path.insert(0, "/app")
-    from extensions.basa_guardrail import BasaGuardrail
+    from extensions.sentinel_guardrail import SentinelGuardrail
     from extensions import custom_auth
-    from extensions.basa_audit_logger import basa_audit_logger_instance
+    from extensions.sentinel_audit_logger import sentinel_audit_logger_instance
 
-    check("BasaGuardrail hereda CustomGuardrail", issubclass(BasaGuardrail, CustomGuardrail))
-    check("BasaGuardrail NO define apply_guardrail (gotcha unified_guardrail)",
-          "apply_guardrail" not in BasaGuardrail.__dict__)
+    check("SentinelGuardrail hereda CustomGuardrail", issubclass(SentinelGuardrail, CustomGuardrail))
+    check("SentinelGuardrail NO define apply_guardrail (gotcha unified_guardrail)",
+          "apply_guardrail" not in SentinelGuardrail.__dict__)
     check("streaming hook overrideado en la clase HOJA (gotcha de detección)",
-          "async_post_call_streaming_iterator_hook" in BasaGuardrail.__dict__)
-    check("pre_call hook overrideado", "async_pre_call_hook" in BasaGuardrail.__dict__)
+          "async_post_call_streaming_iterator_hook" in SentinelGuardrail.__dict__)
+    check("pre_call hook overrideado", "async_pre_call_hook" in SentinelGuardrail.__dict__)
     check("post_call_success hook overrideado",
-          "async_post_call_success_hook" in BasaGuardrail.__dict__)
+          "async_post_call_success_hook" in SentinelGuardrail.__dict__)
 
     auth_sig = inspect.signature(custom_auth.user_api_key_auth)
     check("custom_auth.user_api_key_auth(request, api_key) async",
           [p for p in auth_sig.parameters] == ["request", "api_key"]
           and inspect.iscoroutinefunction(custom_auth.user_api_key_auth))
 
-    check("BasaAuditLogger es CustomLogger",
-          isinstance(basa_audit_logger_instance, CustomLogger))
+    check("SentinelAuditLogger es CustomLogger",
+          isinstance(sentinel_audit_logger_instance, CustomLogger))
 
     # ── Round-trip básico de la policy dentro del container ───────────────────
-    from extensions import basa_guardian_policy as bp
+    from extensions import sentinel_guardian_policy as bp
     ph = {"[PERSON_0_ab12]": "Juan Pérez"}
     blocks, carry, field, _, _ = bp.rewrite_sse_block(
         'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, '

@@ -8,12 +8,12 @@ arrancar sin egress → ver health → true-up. Todo offline (Principio VII).
 ```bash
 cd backend
 python scripts/issue_dev_license.py
-# → scripts/license_out/dev-demo.lic + basa_public_keys.pem (kid basa-dev-*,
+# → scripts/license_out/dev-demo.lic + sentinel_public_keys.pem (kid sentinel-dev-*,
 #   payload fijo: tenant default, max_seats=50, sin expiry práctica)
 ```
 
 La privada dev queda en `scripts/license_out/` (gitignored). En prod las licencias
-las firma Basa (KMS); la caja solo tiene la pública embebida.
+las firma Sentinel (KMS); la caja solo tiene la pública embebida.
 
 ## 2. Inyectar el token (integración con la 020 — T038)
 
@@ -23,19 +23,19 @@ cliente cambiando SOLO estas env (SC-010):
 ```yaml
 # compose del deployment (020) — bloque de licencia
 environment:
-  BASA_LICENSE_TOKEN_FILE: /app/config/licenses/dev-demo.lic   # o BASA_LICENSE_TOKEN inline
-  BASA_LICENSE_PUBLIC_KEYS_FILE: /app/config/licenses/basa_public_keys.pem  # default: embebido
-  BASA_DEPLOYMENT_TENANT_ID: 00000000-0000-0000-0000-000000000001
-  BASA_ALLOW_DEV_LICENSE: "true"      # SOLO dev/demo: sin esto, un kid basa-dev-* es invalid
-  BASA_LICENSE_RECONCILE_INTERVAL_SECONDS: "300"   # <=0 desactiva el job
-  BASA_LICENSE_HARD_BLOCK: "false"    # true = expired/over_seat cortan TODO /gw
-  BASA_DEPLOYMENT_KEY_FILE: /app/config/licenses/deployment_key.pem  # volumen persistente
+  SENTINEL_LICENSE_TOKEN_FILE: /app/config/licenses/dev-demo.lic   # o SENTINEL_LICENSE_TOKEN inline
+  SENTINEL_LICENSE_PUBLIC_KEYS_FILE: /app/config/licenses/sentinel_public_keys.pem  # default: embebido
+  SENTINEL_DEPLOYMENT_TENANT_ID: 00000000-0000-0000-0000-000000000001
+  SENTINEL_ALLOW_DEV_LICENSE: "true"      # SOLO dev/demo: sin esto, un kid sentinel-dev-* es invalid
+  SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS: "300"   # <=0 desactiva el job
+  SENTINEL_LICENSE_HARD_BLOCK: "false"    # true = expired/over_seat cortan TODO /gw
+  SENTINEL_DEPLOYMENT_KEY_FILE: /app/config/licenses/deployment_key.pem  # volumen persistente
 volumes:
   - ./licenses:/app/config/licenses    # token + deployment key (privada JAMÁS en el repo)
 ```
 
 ⚠️ **Fail-closed**: sin token válido el backend ARRANCA igual pero bloquea la
-creación de seats (403). El deploy de guardian.basa-dev.com necesita este bloque.
+creación de seats (403). El deploy de guardian.sentinel-dev.com necesita este bloque.
 
 ## 3. Arrancar y verificar (sin egress)
 
@@ -57,7 +57,7 @@ E2E de la suite (Postgres real, migraciones a head, motor mockeado):
 docker compose exec backend python scripts/generate_trueup.py > trueup-$(date +%F).json
 ```
 
-El operador envía el JSON a Basa fuera de banda. En el onboarding Basa registró
+El operador envía el JSON a Sentinel fuera de banda. En el onboarding Sentinel registró
 la **pública** de la deployment key y la **génesis** (`license_id` inicial):
 `trueup_export.verify_export(doc, public_pem, expected_genesis_license_id=…,
 previous=export_anterior)` valida firma + cadena + continuidad (anti-truncado).
@@ -67,7 +67,7 @@ previous=export_anterior)` valida firma + cadena + continuidad (anti-truncado).
 génesis queda `"unlicensed"` y la cadena la ata al primer `license_id` con
 firma válida vía el evento `license_genesis_anchored` — `verify_export` acepta
 una génesis `"unlicensed"` **solo** con ese anclaje apuntando al `license_id`
-del onboarding (sin eventos licenciados previos). Basa registra el
+del onboarding (sin eventos licenciados previos). Sentinel registra el
 `license_id` emitido; no hace falta coordinar nada más.
 
 ## Rotación de claves (resumen; detalle en el contract test)

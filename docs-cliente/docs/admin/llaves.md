@@ -8,7 +8,7 @@ Las llaves se gestionan en **Usuarios & Presupuestos**, pestaña **Llaves Virtua
 
 ## Qué es una llave virtual
 
-Una llave virtual es una credencial con formato `sk-basa-…` que se envía en la cabecera
+Una llave virtual es una credencial con formato `sk-sentinel-…` que se envía en la cabecera
 `Authorization` de cada petición. Sirve para lo que no es el uso a través del panel:
 una aplicación interna, un script, una herramienta de escritorio.
 
@@ -104,7 +104,7 @@ generar una llave nueva y actualizar la aplicación.
 !!! note "Herramientas de programación"
     Algunas herramientas de desarrollo se conectan a la pasarela por una vía distinta,
     con su propia sesión. Si su equipo técnico necesita ese modo de conexión, escriba a
-    soporte@basa-dev.com.
+    soporte@sentinel-dev.com.
 
 ## Siguiente paso
 

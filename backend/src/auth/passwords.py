@@ -117,7 +117,7 @@ def validar_password(raw: str) -> None:
 
 def _bcrypt_workers() -> int:
     """Hilos del executor de bcrypt: ``min(cpu, 4)`` por default, override por
-    ``BASA_BCRYPT_WORKERS``.
+    ``SENTINEL_BCRYPT_WORKERS``.
 
     El cap es POR PROCESO (como el del #106): el total de la instalación es el valor ×
     WEB_CONCURRENCY. bcrypt es CPU-bound, así que más hilos que CPUs sólo agrega contención;
@@ -126,7 +126,7 @@ def _bcrypt_workers() -> int:
     cae al default en vez de tumbar el arranque: un typo en el env no debe voltear el login.
     """
     default = min(os.cpu_count() or 1, 4)
-    raw = os.environ.get("BASA_BCRYPT_WORKERS", "").strip()
+    raw = os.environ.get("SENTINEL_BCRYPT_WORKERS", "").strip()
     if not raw:
         return default
     try:
@@ -136,9 +136,9 @@ def _bcrypt_workers() -> int:
     return max(1, min(n, 4))
 
 
-BASA_BCRYPT_WORKERS = _bcrypt_workers()
+SENTINEL_BCRYPT_WORKERS = _bcrypt_workers()
 _BCRYPT_EXECUTOR = ThreadPoolExecutor(
-    max_workers=BASA_BCRYPT_WORKERS, thread_name_prefix="bcrypt"
+    max_workers=SENTINEL_BCRYPT_WORKERS, thread_name_prefix="bcrypt"
 )
 
 

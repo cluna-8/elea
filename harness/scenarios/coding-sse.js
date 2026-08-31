@@ -10,7 +10,7 @@ import {
 
 export function coding() {
   const id = pickIdentity('coding');
-  const headers = authHeaders(id, 'coding'); // { 'X-Basa-Key': ... } (byok/subscription)
+  const headers = authHeaders(id, 'coding'); // { 'X-Sentinel-Key': ... } (byok/subscription)
   if (!headers) { metrics.harness_errors.add(1); return; }
 
   const phase = phaseOf();
@@ -54,7 +54,7 @@ export function coding() {
 
   const elapsed = Date.now() - t0;
 
-  // Rechazo de admisión (C1): 503 con `X-Basa-Rejected: saturated`. El early-return va
+  // Rechazo de admisión (C1): 503 con `X-Sentinel-Rejected: saturated`. El early-return va
   // ANTES de la lógica de cortes a propósito — un rechazo NO es un corte de stream: nunca
   // hubo stream que cortar, y contarlo como corte culparía al streaming de una defensa
   // que funcionó. La fila durable sí existe → sigue siendo evento auditable.
@@ -68,7 +68,7 @@ export function coding() {
   // Bloqueo del gateway. `/gw` escribe la fila durable ANTES de responder (gateway.py:
   // «Registrar → bloquear», FR-001) y sale por `_anthropic_error` con 400. xk6-sse NO
   // expone el cuerpo de la respuesta —sólo url/status/headers/error—, así que acá no se
-  // puede leer el «[Basa Gateway]» que sí distingue chat. Lo que hace defendible tratar
+  // puede leer el «[Sentinel Gateway]» que sí distingue chat. Lo que hace defendible tratar
   // ese 400 como bloqueo es la PRUEBA DE HUMO: el orquestador sirvió esta misma superficie
   // con este mismo cuerpo antes de abrir la ventana, así que un 400 en régimen no es un
   // pedido mal armado por nosotros. Sin el humo esto sería adivinar.

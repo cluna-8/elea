@@ -1,4 +1,4 @@
-# Basa Secure AI Gateway — Guía de Uso
+# Sentinel Secure AI Gateway — Guía de Uso
 
 > Pasarela de IA segura y conforme con GDPR / EU AI Act para entornos sanitarios.  
 > Stack: FastAPI · LiteLLM · React · PostgreSQL · Redis · Docker Compose
@@ -33,7 +33,7 @@
 
 ```
                         ┌─────────────────────────────────┐
-  Cliente               │         Basa Gateway             │
+  Cliente               │         Sentinel Gateway             │
   (app, agente,   ──→   │  POST /api/v1/chat/completions   │
    curl, HIS…)          └────────────┬────────────────────┘
                                      │
@@ -75,7 +75,7 @@ El corazón del sistema. Recibe un mensaje del cliente, lo procesa a través del
 
 ```http
 POST /api/v1/chat/completions
-Authorization: Bearer sk-basa-xxxxxxxxxxxx
+Authorization: Bearer sk-sentinel-xxxxxxxxxxxx
 Content-Type: application/json
 
 {
@@ -88,7 +88,7 @@ Content-Type: application/json
 
 ```http
 POST /api/v1/chat/completions
-Authorization: Bearer sk-basa-xxxxxxxxxxxx
+Authorization: Bearer sk-sentinel-xxxxxxxxxxxx
 X-Processing-Purpose: clinical_decision
 Content-Type: application/json
 
@@ -215,7 +215,7 @@ curl -X PUT http://localhost:8081/api/v1/users/{id} \
 
 ## 4. Módulo: Llaves Virtuales y Presupuestos
 
-Las llaves virtuales (`sk-basa-...`) son las credenciales que usan las aplicaciones para llamar al gateway. Cada llave puede tener límites de gasto, velocidad y modelos permitidos.
+Las llaves virtuales (`sk-sentinel-...`) son las credenciales que usan las aplicaciones para llamar al gateway. Cada llave puede tener límites de gasto, velocidad y modelos permitidos.
 
 ### Endpoints
 
@@ -716,8 +716,8 @@ Los agentes autónomos (LangChain, CrewAI, AutoGen, n8n, etc.) interactúan con 
 from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
-    base_url="http://basa-gateway:8081/api/v1/chat",
-    api_key="sk-basa-xxxxxxxxxxxxxxxxxxxx",
+    base_url="http://sentinel-gateway:8081/api/v1/chat",
+    api_key="sk-sentinel-xxxxxxxxxxxxxxxxxxxx",
     model="gpt-4o",
     default_headers={
         "X-Processing-Purpose": "research",
@@ -751,7 +751,7 @@ import httpx
 
 def check_consent_before_call(user_id: str, token: str) -> bool:
     r = httpx.get(
-        f"http://basa-gateway:8081/api/v1/compliance/consent/{user_id}/active",
+        f"http://sentinel-gateway:8081/api/v1/compliance/consent/{user_id}/active",
         headers={"Authorization": f"Bearer {token}"}
     )
     return r.json()["has_special_category"]
@@ -765,9 +765,9 @@ else:
 ### n8n / Zapier / Make
 
 Configura un nodo HTTP con:
-- **URL**: `http://basa-gateway:8081/api/v1/chat/completions`
+- **URL**: `http://sentinel-gateway:8081/api/v1/chat/completions`
 - **Method**: POST
-- **Header**: `Authorization: Bearer sk-basa-xxx`
+- **Header**: `Authorization: Bearer sk-sentinel-xxx`
 - **Body**:
 ```json
 {
@@ -789,8 +789,8 @@ El HIS puede integrar el gateway como un microservicio de IA. Cada departamento 
 # Integración desde el módulo de urgencias del HIS
 import requests
 
-GATEWAY = "http://basa:8081/api/v1"
-KEY = "sk-basa-urgencias-xxx"
+GATEWAY = "http://sentinel:8081/api/v1"
+KEY = "sk-sentinel-urgencias-xxx"
 
 def consultar_ia(prompt: str, paciente_id: str) -> str:
     resp = requests.post(
@@ -810,7 +810,7 @@ def consultar_ia(prompt: str, paciente_id: str) -> str:
 
 ```javascript
 // React Native / Flutter
-const response = await fetch('http://basa:8081/api/v1/chat/completions', {
+const response = await fetch('http://sentinel:8081/api/v1/chat/completions', {
   method: 'POST',
   headers: {
     'Authorization': `Bearer ${virtualKey}`,
@@ -826,7 +826,7 @@ const response = await fetch('http://basa:8081/api/v1/chat/completions', {
 ```bash
 # Exportar audit logs de junio a Power BI / Tableau
 curl -H "Authorization: Bearer $ADMIN_TOKEN" \
-  "http://basa:8081/api/v1/audit-logs/export?from_date=2026-06-01&to_date=2026-06-30" \
+  "http://sentinel:8081/api/v1/audit-logs/export?from_date=2026-06-01&to_date=2026-06-30" \
   -o audit_junio_2026.csv
 ```
 
@@ -1017,7 +1017,7 @@ Panel DPO → Cola de Revisión Humana → seleccionar item
 El Playground tiene dos modos de autenticación:
 
 - **Sesión actual** (predeterminado): usa la sesión del usuario logueado. No requiere ninguna llave. Aplica el presupuesto y compliance asignados al usuario y su grupo.
-- **Llave virtual**: introduce manualmente una `sk-basa-...` para probar los permisos y presupuesto específicos de esa llave.
+- **Llave virtual**: introduce manualmente una `sk-sentinel-...` para probar los permisos y presupuesto específicos de esa llave.
 
 1. Navegar a **Playground**
 2. Seleccionar modo de auth (Sesión actual / Llave virtual)
@@ -1073,7 +1073,7 @@ curl -X POST http://localhost:8081/api/v1/keys \
 
 # 5. Hacer una llamada de prueba
 curl -X POST http://localhost:8081/api/v1/chat/completions \
-  -H "Authorization: Bearer sk-basa-dev-xxxx" \
+  -H "Authorization: Bearer sk-sentinel-dev-xxxx" \
   -H "Content-Type: application/json" \
   -d '{"message": "Hola, ¿cómo estás?", "model": "gpt-4o"}'
 ```
@@ -1104,7 +1104,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://localhost:8081/api/v1/chat",
-    api_key="sk-basa-xxxxxxxxxxxx",
+    api_key="sk-sentinel-xxxxxxxxxxxx",
 )
 
 response = client.chat.completions.create(
@@ -1119,7 +1119,7 @@ response = client.chat.completions.create(
 | Variable | Descripción |
 |----------|-------------|
 | `DATABASE_URL` | Conexión PostgreSQL |
-| `BASA_ENGINE_MASTER_KEY` | Clave maestra del motor de IA |
+| `SENTINEL_ENGINE_MASTER_KEY` | Clave maestra del motor de IA |
 | `FERNET_SECRET_KEY` | Clave de cifrado de credenciales |
 | `SECRET_KEY` | Clave para firma de JWT |
 | `REDIS_HOST` | Host de Redis para rate limiting y caché |
@@ -1143,7 +1143,7 @@ Todos los endpoints (excepto `/users/login`) requieren:
 Authorization: Bearer <token-o-llave-virtual>
 ```
 
-- **Llave virtual** (`sk-basa-...`): para llamadas de aplicaciones y agentes
+- **Llave virtual** (`sk-sentinel-...`): para llamadas de aplicaciones y agentes
 - **Token JWT**: para llamadas de la UI o integración directa de usuario
 
 ### Resumen de endpoints
@@ -1226,4 +1226,4 @@ POST   /budgets
 
 ---
 
-*Basa Secure AI Gateway — © basa dev. Versión 1.0.0 — Rama `feature/007-rate-limiting`*
+*Sentinel Secure AI Gateway — © sentinel dev. Versión 1.0.0 — Rama `feature/007-rate-limiting`*

@@ -20,7 +20,7 @@ from license_fixtures import (
 
 from src.licensing.token import LicenseMalformedError, LicenseToken
 from src.licensing.verifier import (
-    BasaPublicKeySet,
+    SentinelPublicKeySet,
     LicenseSignatureError,
     LicenseTenantMismatchError,
     LicenseUnknownKeyError,
@@ -31,7 +31,7 @@ from src.licensing.verifier import (
 @pytest.fixture()
 def issued(tmp_path):
     keyset_path, lic_path, priv = issue_files(tmp_path)
-    keyset = BasaPublicKeySet.from_pem_file(keyset_path)
+    keyset = SentinelPublicKeySet.from_pem_file(keyset_path)
     return keyset, lic_path.read_text(), priv
 
 
@@ -102,7 +102,7 @@ def test_missing_required_field_rejected(tmp_path):
     payload = make_payload()
     del payload["max_seats"]
     blob = sign_license(priv, payload)
-    keyset = BasaPublicKeySet({SUITE_KID: pub})
+    keyset = SentinelPublicKeySet({SUITE_KID: pub})
     with pytest.raises(LicenseMalformedError):
         verify_license_blob(blob, keyset)
 
@@ -113,7 +113,7 @@ def test_unsupported_schema_rejected(schema):
     una caja vieja jamás interpreta un formato futuro con semántica v1."""
     priv, pub = generate_keypair()
     blob = sign_license(priv, make_payload(schema=schema))
-    keyset = BasaPublicKeySet({SUITE_KID: pub})
+    keyset = SentinelPublicKeySet({SUITE_KID: pub})
     with pytest.raises(LicenseMalformedError):
         verify_license_blob(blob, keyset)
 
@@ -123,20 +123,20 @@ def test_key_rotation_by_key_id(tmp_path):
     (FR-007: rotación sin romper cajas desplegadas)."""
     priv_a, pub_a = generate_keypair()
     _priv_b, pub_b = generate_keypair()
-    payload = make_payload(kid="basa-2026-a")
+    payload = make_payload(kid="sentinel-2026-a")
     blob = sign_license(priv_a, payload)
     pem = tmp_path / "keyset.pem"
-    pem.write_text(keyset_pem({"basa-2026-a": pub_a, "basa-2026-b": pub_b}))
-    keyset = BasaPublicKeySet.from_pem_file(pem)
+    pem.write_text(keyset_pem({"sentinel-2026-a": pub_a, "sentinel-2026-b": pub_b}))
+    keyset = SentinelPublicKeySet.from_pem_file(pem)
     token = verify_license_blob(blob, keyset)
-    assert token.key_id == "basa-2026-a"
+    assert token.key_id == "sentinel-2026-a"
 
 
 def test_unknown_key_id_rejected(issued, tmp_path):
     """El kid del token no está en el keyset embebido → rechazo explícito."""
     _keyset, blob, _priv = issued
     _priv_c, pub_c = generate_keypair()
-    keyset_otro = BasaPublicKeySet({"otra-clave": pub_c})
+    keyset_otro = SentinelPublicKeySet({"otra-clave": pub_c})
     with pytest.raises(LicenseUnknownKeyError):
         verify_license_blob(blob, keyset_otro)
 
@@ -146,6 +146,6 @@ def test_signature_from_wrong_key_rejected(tmp_path):
     priv_falso, _pub_falso = generate_keypair()
     _priv_real, pub_real = generate_keypair()
     blob = sign_license(priv_falso, make_payload())
-    keyset = BasaPublicKeySet({SUITE_KID: pub_real})
+    keyset = SentinelPublicKeySet({SUITE_KID: pub_real})
     with pytest.raises(LicenseSignatureError):
         verify_license_blob(blob, keyset)

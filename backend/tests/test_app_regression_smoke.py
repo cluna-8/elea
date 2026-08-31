@@ -14,7 +14,7 @@ from migration_harness import migrated_legacy_db, require_postgres
 
 require_postgres()
 
-DB = "basa_test_app_smoke"
+DB = "sentinel_test_app_smoke"
 
 
 ADMIN_PASSWORD = "smoke-pass-12345"
@@ -59,7 +59,7 @@ def admin_token(client, factory):
 
     db = factory()
     try:
-        db.add(User(username="admin", email="admin@basa.com.ar",
+        db.add(User(username="admin", email="admin@sentinel.com.ar",
                     password_hash=hash_password(ADMIN_PASSWORD),
                     role="tenant_admin", is_active=True))
         db.commit()
@@ -101,7 +101,7 @@ def test_create_user_accepts_legacy_role_payload(client, admin_token):
     canónico conservando la etiqueta (no 500 por ck_users_role)."""
     resp = client.post("/api/v1/users", headers=_auth(admin_token), json={
         "username": "smoke-clinician",
-        "email": "smoke-clinician@basa.com.ar",
+        "email": "smoke-clinician@sentinel.com.ar",
         "role": "clinician",
         "password": "clave-de-alta-valida",
     })
@@ -114,7 +114,7 @@ def test_create_user_accepts_legacy_role_payload(client, admin_token):
 
 def test_create_user_rejects_unknown_role_with_422(client, admin_token):
     resp = client.post("/api/v1/users", headers=_auth(admin_token), json={
-        "username": "smoke-bad", "email": "smoke-bad@basa.com.ar",
+        "username": "smoke-bad", "email": "smoke-bad@sentinel.com.ar",
         "role": "hacker", "password": "clave-de-alta-valida",
     })
     assert resp.status_code == 422
@@ -124,7 +124,7 @@ def test_update_user_normalizes_legacy_role(client, admin_token):
     users = client.get("/api/v1/users", headers=_auth(admin_token)).json()
     officer = next(u for u in users if u["username"] == "legacy-officer")
     resp = client.put(f"/api/v1/users/{officer['id']}", headers=_auth(admin_token), json={
-        "username": "legacy-officer", "email": "legacy-officer@legacy.basa.com.ar",
+        "username": "legacy-officer", "email": "legacy-officer@legacy.sentinel.com.ar",
         "role": "developer",
     })
     assert resp.status_code == 200, resp.text

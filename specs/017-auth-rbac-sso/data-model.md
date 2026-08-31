@@ -7,7 +7,7 @@
 | `013_sso_providers` | tabla nueva por tenant (ver contrato proveedor-sso) bajo RLS | esquema |
 | `014_role_lectura` | CHECK `ck_users_role` amplía el enum con `lectura` | esquema |
 | `015_encrypt_engine_key` | re-cifra `engine_key_token` existente (Fernet) + DROP de su índice | datos + índice |
-| `016_rls_strict` | DROP `tenant_isolation_bootstrap` + flip NOSUPERUSER — **env-gated `BASA_RLS_STRICT`, APAGADA por default** (release siguiente, con Factory) | esquema, diferida |
+| `016_rls_strict` | DROP `tenant_isolation_bootstrap` + flip NOSUPERUSER — **env-gated `SENTINEL_RLS_STRICT`, APAGADA por default** (release siguiente, con Factory) | esquema, diferida |
 
 ## Entidades
 
@@ -16,7 +16,7 @@
 - **Config de proveedor SSO** (`sso_providers`): ver contrato. Secret SIEMPRE Fernet.
 - **Evento de auth**: fila de auditoría clase `security_events` (clasificador 018) — metadata only: evento, actor (si existe), resultado, timestamps. Jamás passwords/tokens/códigos.
 - **Estado de lockout**: contador Redis por cuenta con TTL — efímero; lo durable es el evento.
-- **Credencial sk-basa**: `engine_key_token` pasa a cifrado en reposo; `expires_at` se vuelve efectivo en los 3 planos (el campo ya existe, keys.py:202 — cambia el enforcement, no el esquema).
+- **Credencial sk-sentinel**: `engine_key_token` pasa a cifrado en reposo; `expires_at` se vuelve efectivo en los 3 planos (el campo ya existe, keys.py:202 — cambia el enforcement, no el esquema).
 
 ## Sin cambios
 

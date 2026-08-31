@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-This feature implements a full compliance policy management system for the Basa Secure AI Gateway, targeting healthcare deployments in Spain and the EU. It covers:
+This feature implements a full compliance policy management system for the Sentinel Secure AI Gateway, targeting healthcare deployments in Spain and the EU. It covers:
 
 - **GDPR Art. 9**: Legal basis management for special category health data
 - **GDPR Art. 28**: DPA (Data Processing Agreement) registry per LLM provider

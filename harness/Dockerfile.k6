@@ -8,11 +8,11 @@
 #
 # Build (la caja de examen Hetzner es amd64 — el showstopper de arch del piloto NO se
 # repite):
-#   docker build -f harness/Dockerfile.k6 --platform linux/amd64 -t basa-harness-k6 harness
+#   docker build -f harness/Dockerfile.k6 --platform linux/amd64 -t sentinel-harness-k6 harness
 #
 # Correr un gate con la imagen (el orquestador Python monta runs/<id>/ y pasa GATE_CONFIG):
 #   docker run --rm --network host -v "$PWD/harness/scenarios:/scenarios" \
-#     -v "$PWD/harness/runs/<id>:/run" -w /run basa-harness-k6 \
+#     -v "$PWD/harness/runs/<id>:/run" -w /run sentinel-harness-k6 \
 #     run --env GATE_CONFIG="$(cat /run/k6_config.json)" \
 #         --env POOL_FILE=/run/pool.json --env CORPUS_FILE=/run/corpus.json \
 #         --env SUMMARY_FILE=/run/summary.json /scenarios/gate.js

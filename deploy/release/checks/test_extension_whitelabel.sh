@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # 028 T009/T010 (US7): gate white-label del ENTREGABLE de la extensión. Descomprime
 # extension-<slug>.zip y falla ante cualquier término de:
-#   - prohibited_brand.txt  (marca del fabricante: basa / basa guard / poc / localhost)
+#   - prohibited_brand.txt  (marca del fabricante: sentinel / sentinel guard / poc / localhost)
 #   - prohibited_names.txt  (motor: litellm / berriai / presidio — compartida con UI/docs)
 # CON la allowlist de identificadores internos del cross-contract 028 (word-exact,
 # mismo espíritu que la allowlist litellm_params/presidio de test_no_engine_name.sh):
 # son wiring interno (claves de storage, header, canal del bridge), no texto visible.
 #
 # Además verifica que el render SUSTITUYÓ la marca: manifest.name/description/
-# action.default_title NO son "Basa Guard" ni contienen "basa", y manifest.key existe.
+# action.default_title NO son "Sentinel Guard" ni contienen "sentinel", y manifest.key existe.
 #
 # El escaneo corre en PYTHON (stdlib) — el gate se ejecuta en el HOST sobre archivos
 # descomprimidos, y las implementaciones de grep del host varían (GNU grep en CI vs
@@ -45,8 +45,8 @@ brand_list, engine_list, slug = sys.argv[2], sys.argv[3], sys.argv[4]
 # bridge↔MAIN. Renombrarlos rompe el wiring sin ganancia de marca blanca. Cualquier
 # OTRO token que contenga la raíz de marca es fuga.
 ALLOW = {s.lower() for s in (
-    "__BASA_GUARD__", "BASA_CONFIG", "basa_key", "basa_gateway", "basa_connected",
-    "basa_user", "basa_team", "X-Basa-Key", "__basa", "__basa_nonce",
+    "__SENTINEL_GUARD__", "SENTINEL_CONFIG", "sentinel_key", "sentinel_gateway", "sentinel_connected",
+    "sentinel_user", "sentinel_team", "X-Sentinel-Key", "__sentinel", "__sentinel_nonce",
 )}
 
 def read_terms(path):
@@ -88,7 +88,7 @@ else:
                        ("description", m.get("description", "")),
                        ("action.default_title", m.get("action", {}).get("default_title", ""))):
         v = str(val)
-        if v.strip().lower() == "basa guard" or "basa" in v.lower():
+        if v.strip().lower() == "sentinel guard" or "sentinel" in v.lower():
             bad.append((field, v))
     if not m.get("key"):
         bad.append(("key", "<falta manifest.key — ID de extensión NO estable>"))
@@ -111,7 +111,7 @@ LOCALHOST_URL = re.compile(r"(//localhost|localhost[:/])", re.I)
 for term in read_terms(brand_list) + read_terms(engine_list):
     tl = term.lower()
 
-    if " " in term:  # frase visible (p.ej. "basa guard") — sin allowlist
+    if " " in term:  # frase visible (p.ej. "sentinel guard") — sin allowlist
         hits = [(rel, i + 1, line) for rel, lines in files
                 for i, line in enumerate(lines) if tl in line.lower()]
         if hits:
@@ -125,7 +125,7 @@ for term in read_terms(brand_list) + read_terms(engine_list):
             flag("URL de infra horneada (localhost) en el zip", hits)
         continue
 
-    # token-contains + allowlist (basa, poc, motor)
+    # token-contains + allowlist (sentinel, poc, motor)
     tok_re = re.compile(r"[A-Za-z0-9_-]*" + re.escape(term) + r"[A-Za-z0-9_-]*", re.I)
     leaks = {}  # token -> [(rel, ln, line)]
     for rel, lines in files:

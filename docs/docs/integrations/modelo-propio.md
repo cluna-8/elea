@@ -18,8 +18,8 @@ política corre en el mismo lugar de siempre — nada de esto depende del modelo
 
 ```mermaid
 graph LR
-    CC[Claude Code] -->|sk-basa auto-byok| GW[Gateway /api/v1/gw]
-    AI[Aider] -->|sk-basa auto-byok| GW
+    CC[Claude Code] -->|sk-sentinel auto-byok| GW[Gateway /api/v1/gw]
+    AI[Aider] -->|sk-sentinel auto-byok| GW
     GW -->|politica: mask, secretos, AI-Act| MOT[Motor del gateway]
     MOT -->|puente de tools nativo| OLL[Runtime local del cliente]
     OLL --> MOD[(Modelo propio)]
@@ -47,7 +47,7 @@ lista viva de modelos se consulta en `GET /api/v1/gw/v1/models` con la virtual k
 
 ```bash
 export ANTHROPIC_BASE_URL="https://<host>/api/v1/gw"
-export ANTHROPIC_AUTH_TOKEN="sk-basa-<usuario>-<herramienta>-<año>"   # auto-byok
+export ANTHROPIC_AUTH_TOKEN="sk-sentinel-<usuario>-<herramienta>-<año>"   # auto-byok
 export ANTHROPIC_MODEL="<model_name-del-motor>"
 ```
 
@@ -61,7 +61,7 @@ chico resuelve tareas simples; la elección es del cliente).
 
 ```bash
 export ANTHROPIC_API_BASE="https://<host>/api/v1/gw"
-export ANTHROPIC_API_KEY="sk-basa-<usuario>-<herramienta>-<año>"
+export ANTHROPIC_API_KEY="sk-sentinel-<usuario>-<herramienta>-<año>"
 aider --model anthropic/<model_name-del-motor>
 ```
 

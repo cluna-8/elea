@@ -3,7 +3,7 @@
 # operadores: aquí JAMÁS entra contenido de operación, licenciamiento ni economía
 # (mismo espíritu FR-007/FR-018 de la 022). Marca-neutra; la marca entra por overlay
 # INHERIT (mkdocs.<slug>.yml) derivado del brand-pack, igual que el sitio de producto.
-site_name: Basa Secure AI Gateway
+site_name: Sentinel Secure AI Gateway
 site_description: Guía de uso para administradores y usuarios
 site_url: !ENV [DOCS_CLIENTE_SITE_URL, "http://localhost:8093/"]
 

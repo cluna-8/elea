@@ -1,5 +1,5 @@
 {
-  "schema": "basa-harness/k6-summary@1",
+  "schema": "sentinel-harness/k6-summary@1",
   "gate": 125,
   "version": "1.0.0",
   "surfaces": {

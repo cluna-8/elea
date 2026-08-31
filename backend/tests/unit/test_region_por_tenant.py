@@ -8,9 +8,9 @@ las 3 familias que faltaban, calcadas del molde de `nlp_fail_mode`:
 
 1. Las DOS copias del SQL de identidad (`custom_auth`/`internal.py`) traen `region`.
 2. `custom_auth` propaga el valor CRUDO a la identidad que recibe el motor.
-3. El motor (BasaGuardrail) OBEDECE la región del tenant, no sólo el default de la
-   instalación — con mutación explícita: revertir `basa_guardrail.py` a
-   `region = os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)` (env-only, sin
+3. El motor (SentinelGuardrail) OBEDECE la región del tenant, no sólo el default de la
+   instalación — con mutación explícita: revertir `sentinel_guardrail.py` a
+   `region = os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION)` (env-only, sin
    `policy.resolve_region(identity, ...)`) tiene que dejar estos tests en rojo.
 
 El plano `/gw` (+ navegador, que reusa el mismo `_build_analyze`) se cubre en
@@ -66,12 +66,12 @@ def _instalar_doble_proxy_types():
 
 _instalar_doble_litellm()
 
-from extensions import basa_guardrail  # noqa: E402
+from extensions import sentinel_guardrail  # noqa: E402
 
 # Misma librería compartida QUE USA EL GUARDRAIL (no un `from extensions import
-# basa_guardian_policy` propio) — dos caminos de import producen objetos-módulo DISTINTOS y
+# sentinel_guardian_policy` propio) — dos caminos de import producen objetos-módulo DISTINTOS y
 # la `NlpUnavailableError` de un doble no sería la misma clase que el guardrail captura.
-policy = basa_guardrail.policy
+policy = sentinel_guardrail.policy
 
 SECRETO = "master-key-de-prueba"
 ANALYZER = "http://nlp-analyzer:3000"
@@ -129,9 +129,9 @@ def test_custom_auth_propaga_la_region_cruda_a_la_identidad(monkeypatch):
 
     import asyncio
     auth = asyncio.get_event_loop().run_until_complete(
-        custom_auth.user_api_key_auth(_Request(), "sk-basa-de-prueba"))
+        custom_auth.user_api_key_auth(_Request(), "sk-sentinel-de-prueba"))
 
-    assert auth.metadata["basa"]["region"] == "latam_ar"
+    assert auth.metadata["sentinel"]["region"] == "latam_ar"
 
 
 def test_custom_auth_sin_region_propaga_none(monkeypatch):
@@ -159,9 +159,9 @@ def test_custom_auth_sin_region_propaga_none(monkeypatch):
 
     import asyncio
     auth = asyncio.get_event_loop().run_until_complete(
-        custom_auth.user_api_key_auth(_Request(), "sk-basa-de-prueba"))
+        custom_auth.user_api_key_auth(_Request(), "sk-sentinel-de-prueba"))
 
-    assert auth.metadata["basa"].get("region") is None
+    assert auth.metadata["sentinel"].get("region") is None
 
 
 # ── 3) El motor OBEDECE la región del tenant (mutación: env-only tiene que romper esto) ──
@@ -204,19 +204,19 @@ class _PlanoInterno:
 
 
 class _Identidad:
-    def __init__(self, **basa):
-        self.metadata = {"basa": basa}
+    def __init__(self, **sentinel):
+        self.metadata = {"sentinel": sentinel}
 
 
 def _connection(**extra):
-    basa = {
+    sentinel = {
         "identity": "connection",
         "key_id": "11111111-1111-1111-1111-111111111111",
         "tenant_id": "33333333-3333-3333-3333-333333333333",
         "redact_enabled": True,
     }
-    basa.update(extra)
-    return _Identidad(**basa)
+    sentinel.update(extra)
+    return _Identidad(**sentinel)
 
 
 def _body(prompt: str = PROMPT) -> dict:
@@ -224,28 +224,28 @@ def _body(prompt: str = PROMPT) -> dict:
 
 
 async def _hook(identidad, data, call_type="acompletion"):
-    return await basa_guardrail.BasaGuardrail().async_pre_call_hook(
+    return await sentinel_guardrail.SentinelGuardrail().async_pre_call_hook(
         identidad, None, data, call_type)
 
 
 @pytest.fixture(autouse=True)
 def entorno(monkeypatch):
     # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
-    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # del motor. El operador ve SENTINEL_ENGINE_MASTER_KEY y el compose se la pasa bajo
     # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO)
-    monkeypatch.setattr(basa_guardrail, "_probe_cache", None, raising=False)
-    monkeypatch.setattr(basa_guardrail, "_PRESIDIO_URL", ANALYZER)
+    monkeypatch.setattr(sentinel_guardrail, "_probe_cache", None, raising=False)
+    monkeypatch.setattr(sentinel_guardrail, "_PRESIDIO_URL", ANALYZER)
 
 
 @pytest.mark.asyncio
 async def test_motor_usa_la_region_del_tenant_no_solo_el_default_de_instalacion(monkeypatch):
-    """Con `BASA_ENTITY_REGION` AUSENTE (default del código, `eu`) pero el tenant con
+    """Con `SENTINEL_ENTITY_REGION` AUSENTE (default del código, `eu`) pero el tenant con
     `region: latam_ar` en su identidad, el analyzer real tiene que recibir `latam_ar` — no
     el default de la instalación. MUTACIÓN que este test mata: revertir la línea de
-    `basa_guardrail.py` a `region = os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)`
+    `sentinel_guardrail.py` a `region = os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION)`
     (env-only, sin `policy.resolve_region(identity, ...)`) deja este test en rojo."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     _PlanoInterno().instalar(monkeypatch)
     capturada = {}
 
@@ -253,7 +253,7 @@ async def test_motor_usa_la_region_del_tenant_no_solo_el_default_de_instalacion(
         capturada["region"] = region
         return []
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _analyze_espia)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _analyze_espia)
 
     salida = await _hook(_connection(region="latam_ar"), _body())
 
@@ -266,9 +266,9 @@ async def test_motor_usa_la_region_del_tenant_no_solo_el_default_de_instalacion(
 @pytest.mark.asyncio
 async def test_motor_sin_region_propia_cae_al_default_de_instalacion(monkeypatch):
     """Contracara de retrocompatibilidad: sin `region` en la identidad (Connection de antes
-    de este PR), el motor sigue resolviendo `BASA_ENTITY_REGION` — el comportamiento no
+    de este PR), el motor sigue resolviendo `SENTINEL_ENTITY_REGION` — el comportamiento no
     cambia para nadie que no fijó región propia."""
-    monkeypatch.setenv("BASA_ENTITY_REGION", "latam_ar")
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "latam_ar")
     _PlanoInterno().instalar(monkeypatch)
     capturada = {}
 
@@ -276,7 +276,7 @@ async def test_motor_sin_region_propia_cae_al_default_de_instalacion(monkeypatch
         capturada["region"] = region
         return []
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _analyze_espia)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _analyze_espia)
 
     salida = await _hook(_connection(), _body())
 
@@ -297,14 +297,14 @@ async def test_degrade_resuelve_la_region_del_tenant_no_el_default_de_instalacio
     importa acá es que la región LLEGA, no si ya hay reconocedores cargados para ella.
 
     MUTACIÓN que este test mata: los `_analyze = policy.default_analyze` SIN bindear
-    `region` (el estado de `basa_guardrail.py` antes de este PR) dejan este test en rojo."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    `region` (el estado de `sentinel_guardrail.py` antes de este PR) dejan este test en rojo."""
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     _PlanoInterno().instalar(monkeypatch)
 
     async def _caido(*_a, **_k):
         raise policy.NlpUnavailableError("connection refused")
 
-    monkeypatch.setattr(basa_guardrail.policy, "presidio_analyze", _caido)
+    monkeypatch.setattr(sentinel_guardrail.policy, "presidio_analyze", _caido)
 
     capturada = {}
     original_default_analyze = policy.default_analyze
@@ -313,7 +313,7 @@ async def test_degrade_resuelve_la_region_del_tenant_no_el_default_de_instalacio
         capturada["region"] = region
         return await original_default_analyze(text, region=region)
 
-    monkeypatch.setattr(basa_guardrail.policy, "default_analyze", _default_analyze_espia)
+    monkeypatch.setattr(sentinel_guardrail.policy, "default_analyze", _default_analyze_espia)
 
     salida = await _hook(_connection(region="latam_ar", nlp_fail_mode="degrade"), _body())
 

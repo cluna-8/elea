@@ -29,7 +29,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_migration_013"
+DB = "sentinel_test_migration_013"
 
 # El objeto decisión COMPLETO de data-model §2 — se guarda tal cual, sin transformar.
 DECISION = {

@@ -1,6 +1,6 @@
 # Changelog: LiteLLM Real Integration
 
-**Proyecto**: Basa Secure AI Gateway (by basa dev)
+**Proyecto**: Sentinel Secure AI Gateway (by sentinel dev)
 **Rama**: `feature/002-litellm-sync`
 **Última actualización**: 2026-06-29
 

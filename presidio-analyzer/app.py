@@ -10,7 +10,7 @@ fork: acá Presidio es una dependencia de librería, igual que cualquier otro pa
 pip del repo).
 
 No hace masking/anonimización — solo detecta y devuelve spans. El reemplazo
-reversible lo sigue haciendo `basa_guardian_policy.PlaceholderMap` (research.md §1:
+reversible lo sigue haciendo `sentinel_guardian_policy.PlaceholderMap` (research.md §1:
 el Anonymizer de Presidio hace sustitución irreversible, no sirve al moat del
 producto).
 """
@@ -34,7 +34,7 @@ _provider = NlpEngineProvider(conf_file=CONF_FILE)
 _nlp_engine = _provider.create_engine()
 _analyzer = AnalyzerEngine(nlp_engine=_nlp_engine, supported_languages=[LANGUAGE])
 
-app = FastAPI(title="Basa NLP Entity Detector (interno)")
+app = FastAPI(title="Sentinel NLP Entity Detector (interno)")
 
 
 class PatternSpec(BaseModel):
@@ -88,7 +88,7 @@ def _build_ad_hoc(spec: AdHocRecognizerSpec) -> PatternRecognizer:
         #
         # CORRECCIÓN (bug real encontrado en review): pasar `global_regex_flags=None`
         # explícito para los recognizers SIN patrones (deny_list-only, como
-        # BASA_CUSTOM_NAMES) rompía el compile de OTROS recognizers en el mismo request
+        # SENTINEL_CUSTOM_NAMES) rompía el compile de OTROS recognizers en el mismo request
         # — incluidos los built-in de Presidio (CREDIT_CARD) — con
         # `TypeError: unsupported operand type(s) for &: 'NoneType' and 'RegexFlag'`.
         # El parámetro no es puramente por-instancia como se asumió originalmente; la

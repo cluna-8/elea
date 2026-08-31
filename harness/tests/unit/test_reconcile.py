@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from basa_harness.reconcile import (AUDIT_PATH, LOGIN_PATH, HttpReconcile, ReconcileError,
+from sentinel_harness.reconcile import (AUDIT_PATH, LOGIN_PATH, HttpReconcile, ReconcileError,
                                     build_http_reconcile, credential_from_pool)
 
 T0 = datetime(2026, 8, 11, 9, 0, 0, tzinfo=timezone.utc)
@@ -143,7 +143,7 @@ class FakeSession:
 def _summary(auditable=100, blocks=0, budget_402=0):
     # `buildSummary` (common.js) emite SIEMPRE los cuatro contadores, 0 incluido: un
     # summary al que le falte uno no es el que produce este harness.
-    return {"schema": "basa-harness/k6-summary@1", "auditable_events": auditable,
+    return {"schema": "sentinel-harness/k6-summary@1", "auditable_events": auditable,
             "observed_blocks": blocks, "provoked_blocks": blocks,
             "budget_402": budget_402}
 

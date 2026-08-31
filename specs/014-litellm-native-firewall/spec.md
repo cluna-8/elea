@@ -18,21 +18,21 @@ Esta feature es un **PORT**, no una feature verde. Hoy existe, y funciona en dem
 (`_detect_tool`), redacta el cuerpo con placeholders reversibles (`_redact_body`), reescribe eventos
 SSE crudos para des-enmascarar (`_rewrite_sse_event`), soporta dos modos (los `upstream_mode` de la 013:
 `byok` y `subscription-passthrough` — este último era "anthropic" en el demo) y resuelve
-identidad por `X-Basa-Key` (`_resolve_identity`). Ese archivo reimplementa a mano cosas que el motor
+identidad por `X-Sentinel-Key` (`_resolve_identity`). Ese archivo reimplementa a mano cosas que el motor
 LiteLLM **ya hace**: framing SSE, decodificación UTF-8 incremental, parsing de `input_tokens`/
 `output_tokens`, reintentos/fallbacks/rpm-tpm/cost-ceiling.
 
 El objetivo de la 014 es mover esa política a los **puntos de extensión documentados de LiteLLM**
 (Principio VI, LiteLLM-Native, No Patching) para dejar de mantener motor propio. Esta spec es
-**explícita** sobre qué se **REUSA del motor** y qué sigue siendo **código PROPIO de Basa**:
+**explícita** sobre qué se **REUSA del motor** y qué sigue siendo **código PROPIO de Sentinel**:
 
 - **REUSA del motor (deja de ser código nuestro):** el endpoint `/v1/messages` nativo con guardrails
   ON; el framing SSE + decodificación UTF-8 incremental + parsing de usage/tokens; reintentos,
   fallbacks, rpm/tpm y cost-ceiling (ya en `router_settings`).
-- **SIGUE siendo PROPIO (política Basa):** los cuatro puntos de extensión — `BasaGuardrail`
-  (CustomGuardrail), `custom_auth` (identidad), `BasaAuditLogger` (CustomLogger), y una **única**
+- **SIGUE siendo PROPIO (política Sentinel):** los cuatro puntos de extensión — `SentinelGuardrail`
+  (CustomGuardrail), `custom_auth` (identidad), `SentinelAuditLogger` (CustomLogger), y una **única**
   excepción de proxy propio: el passthrough OAuth de **suscripción** en el backend. Más una **librería
-  pura compartida** (`basa_guardian_policy`) que ambas rutas (motor y passthrough) importan para no
+  pura compartida** (`sentinel_guardian_policy`) que ambas rutas (motor y passthrough) importan para no
   divergir.
 
 **Alcance honesto:** esta spec cubre el port del firewall y sus contract tests. NO activa Presidio
@@ -48,15 +48,15 @@ con `tenant_id`/`tool_type`/`upstream_mode`).
 ### User Story 1 - El firewall corre como guardrail nativo sobre `/v1/messages` (Priority: P1)
 
 Un desarrollador apunta `ANTHROPIC_BASE_URL` de su coding tool (Claude Code, Cursor…) en modo **BYOK**
-al motor Basa. El motor recibe la request en su endpoint `/v1/messages` **nativo** (no en un
-`/gw/v1/messages` hand-rolled) y ejecuta `BasaGuardrail.async_pre_call_hook`: bloquea prácticas
+al motor Sentinel. El motor recibe la request en su endpoint `/v1/messages` **nativo** (no en un
+`/gw/v1/messages` hand-rolled) y ejecuta `SentinelGuardrail.async_pre_call_hook`: bloquea prácticas
 prohibidas del EU AI Act Art.5 (→ 400), bloquea secretos/keys, y enmascara PII con placeholders
 reversibles antes de que el prompt salga al LLM. La respuesta pasa por
 `async_post_call_success_hook` (no-streaming) o `async_post_call_streaming_iterator_hook` (streaming)
 que des-enmascara, de modo que el LLM sólo vio placeholders pero el usuario recibe los valores reales.
 
 **Why this priority**: Es el titular de la spec y de las demos (ROADMAP: "el firewall que da las
-demos"). Sin esto no hay port: es la prueba de que la política Basa corre como extensión del motor y no
+demos"). Sin esto no hay port: es la prueba de que la política Sentinel corre como extensión del motor y no
 como proxy paralelo. Materializa el Principio VI (reuso del motor) y el Principio I (masking-first
 reversible).
 
@@ -76,7 +76,7 @@ upstream (placeholders) y vuelve des-enmascarado al caller. Todo sin tocar `/cha
 
 **Acceptance Scenarios**:
 
-1. **Given** el contenedor LiteLLM con `BasaGuardrail` registrado en `guardrails:` (modes
+1. **Given** el contenedor LiteLLM con `SentinelGuardrail` registrado en `guardrails:` (modes
    `pre_call`, `post_call`, `post_call_streaming`), **When** llega a `/v1/messages` una request BYOK
    cuyo texto describe una práctica del EU AI Act Art.5, **Then** `async_pre_call_hook` la bloquea con
    HTTP 400 y el LLM nunca recibe el prompt.
@@ -97,7 +97,7 @@ upstream (placeholders) y vuelve des-enmascarado al caller. Todo sin tocar `/cha
 
 Cada request al motor se autentica con `custom_auth.user_api_key_auth(request, api_key)`: se detecta el
 `tool_type` desde el User-Agent (porta `_detect_tool`/`_TOOL_UA`), la virtual key se resuelve contra la
-tabla `APIKey` de Basa (porta `_resolve_identity`) para atribuir tenant/client/team, y esa metadata se
+tabla `APIKey` de Sentinel (porta `_resolve_identity`) para atribuir tenant/client/team, y esa metadata se
 inyecta para que los hooks y el logger la usen. Si no hay virtual key válida, la request se **rechaza**
 (fail-closed): NO cae al usuario admin por defecto.
 
@@ -117,7 +117,7 @@ rechazo (401/403), NO admin por defecto.
    **Then** la identidad resuelta tiene `tool_type="claude-code"`.
 2. **Given** una virtual key que mapea a un `APIKey` activo con `role="client"`, **When** entra la
    request, **Then** `user_api_key_auth` devuelve un `UserAPIKeyAuth` con la metadata
-   `{tenant_id, client_id, tool_type}` correcta resuelta contra la tabla `APIKey` de Basa (013).
+   `{tenant_id, client_id, tool_type}` correcta resuelta contra la tabla `APIKey` de Sentinel (013).
 3. **Given** una request sin virtual key válida en `upstream_mode` = `byok` (013), **When** entra al
    motor, **Then** se rechaza (fail-closed), y NO se cae a `get_or_create_default_user` ni a admin. (El
    ramaje de `custom_auth` sobre `upstream_mode`: `byok` → fail-closed duro; `subscription-passthrough` →
@@ -129,7 +129,7 @@ rechazo (401/403), NO admin por defecto.
 
 ### User Story 3 - Auditoría metadata-only vía CustomLogger + monitor en vivo (Priority: P2)
 
-Cada transacción exitosa dispara `BasaAuditLogger.async_log_success_event`, que persiste **sólo
+Cada transacción exitosa dispara `SentinelAuditLogger.async_log_success_event`, que persiste **sólo
 metadata** (modelo, tokens, verdicto de compliance, tipos de entidad, timing, propósito) reusando
 `AuditService.log_transaction`, y que **hace scrub de `metadata.pii_tokens`** antes de persistir para
 no filtrar el mapa reversible. El mismo logger alimenta un **feed en memoria** que el monitor en vivo
@@ -140,13 +140,13 @@ la vitrina que vende las demos (Principio VIII, Pipeline Transparency). Es P2 po
 identidad (US2) ya entregan valor sin él, pero sin auditoría no hay accountability GDPR y sin monitor no
 hay demo vendible.
 
-**Independent Test**: Registrar `BasaAuditLogger` en `litellm_settings.callbacks`, correr una request
+**Independent Test**: Registrar `SentinelAuditLogger` en `litellm_settings.callbacks`, correr una request
 con PII, y verificar en la DB que el `AuditLog` guarda verdicto/tipos/timing pero **cero** texto de
 prompt y **cero** `pii_tokens`; abrir `/monitor` y verificar que el feed muestra el before/after real.
 
 **Acceptance Scenarios**:
 
-1. **Given** `BasaAuditLogger` en `litellm_settings.callbacks`, **When** una request con PII se completa,
+1. **Given** `SentinelAuditLogger` en `litellm_settings.callbacks`, **When** una request con PII se completa,
    **Then** el `AuditLog` persistido contiene `pii_detected=true`, tipos de entidad, tokens, latencia y
    verdicto, pero **no** el texto del prompt ni el mapa `pii_tokens`.
 2. **Given** el logger corriendo, **When** `metadata.pii_tokens` está poblado, **Then** el logger lo
@@ -160,12 +160,12 @@ prompt y **cero** `pii_tokens`; abrir `/monitor` y verificar que el feed muestra
 
 ### User Story 4 - Excepción: passthrough OAuth de suscripción en el backend (Priority: P2)
 
-Un desarrollador con **suscripción** Claude Pro/Max (OAuth, sin API key) apunta su coding tool a Basa en
+Un desarrollador con **suscripción** Claude Pro/Max (OAuth, sin API key) apunta su coding tool a Sentinel en
 modo `subscription-passthrough` (`upstream_mode` de la 013; era "anthropic" en el demo). Como LiteLLM
 **reclama el header `Authorization` como su propia virtual
 key**, el token OAuth del cliente **no puede atravesar el motor**. Para esta ruta —y sólo esta— el
 backend mantiene un **thin reverse-proxy** a `api.anthropic.com` que reenvía el OAuth **verbatim**, pero
-invoca la **misma** librería pura `basa_guardian_policy` (bloqueo + masking/unmask) para no reimplementar
+invoca la **misma** librería pura `sentinel_guardian_policy` (bloqueo + masking/unmask) para no reimplementar
 la política ni violar el Principio VI. En esta ruta el **GDPR-routing es N/A** (excepción acotada del
 Principio II — base_url clients).
 
@@ -177,7 +177,7 @@ BYOK (US1) ya demuestra el port nativo; la suscripción es el caso que el motor 
 **Independent Test**: Enviar al passthrough del backend una request con OAuth (header `Authorization`
 verbatim) + PII + una práctica prohibida: verificar que el OAuth llega intacto a `api.anthropic.com`
 (la suscripción paga), que la práctica prohibida se bloquea con el **mismo** resultado que la ruta motor,
-y que el masking/unmask produce **idéntico** output que `BasaGuardrail` (misma `basa_guardian_policy`).
+y que el masking/unmask produce **idéntico** output que `SentinelGuardrail` (misma `sentinel_guardian_policy`).
 
 **Acceptance Scenarios**:
 
@@ -185,11 +185,11 @@ y que el masking/unmask produce **idéntico** output que `BasaGuardrail` (misma 
    `subscription-passthrough` con `Authorization` OAuth y sin API key, **Then** el backend reenvía el header verbatim a
    `api.anthropic.com` (la suscripción del cliente paga) y NO usa la auth del motor.
 2. **Given** un prompt con práctica prohibida por esa ruta, **When** entra al passthrough, **Then** se
-   bloquea invocando `basa_guardian_policy` con el **mismo** verdicto que produciría `BasaGuardrail` en
+   bloquea invocando `sentinel_guardian_policy` con el **mismo** verdicto que produciría `SentinelGuardrail` en
    la ruta motor.
 3. **Given** un prompt con PII en modo suscripción con redacción activa, **When** se procesa, **Then**
    el masking/unmask (incluido streaming con placeholder partido) usa la **misma** librería
-   `basa_guardian_policy` y round-trippea igual que la ruta BYOK.
+   `sentinel_guardian_policy` y round-trippea igual que la ruta BYOK.
 4. **Given** esta ruta base_url, **When** se resuelve compliance, **Then** el GDPR-routing es N/A (no se
    fuerza endpoint EU) y la garantía se traslada a masking/audit/allowlist (excepción documentada del
    Principio II).
@@ -245,15 +245,15 @@ hace fallar la suite.
 - **`pii_tokens` filtrado**: si cualquier callback (incluido el propio logger) persiste o loguea
   `metadata.pii_tokens`, se viola Constraint C1. El logger DEBE scrubbearlo explícitamente; hay un test negativo.
 - **Deriva entre los dos call-sites (motor BYOK vs backend suscripción)**: si el passthrough reimplementa
-  la política en vez de importar `basa_guardian_policy`, los verdictos/masking pueden divergir. Un
+  la política en vez de importar `sentinel_guardian_policy`, los verdictos/masking pueden divergir. Un
   contract test ejerce ambas rutas con el mismo input y exige el mismo resultado.
 - **Guardrails no corren sobre `/v1/messages` nativo**: riesgo de madurez del motor; si el hook sólo se
   ejecuta en `/chat/completions`, el masking no correría en la ruta titular. Contract test de US5 lo
   detecta.
 - **Stream truncado a mitad**: si el upstream corta el stream con un `carry` retenido, el guardrail debe
   flushear ese carry des-enmascarado al final (porta el flush de `gen_redacted`), sin perder texto.
-- **Modo suscripción sin `X-Basa-Key`**: en la ruta OAuth (`subscription-passthrough`), la credencial es
-  el OAuth; `X-Basa-Key` es atribución **opcional**. La resolución de identidad
+- **Modo suscripción sin `X-Sentinel-Key`**: en la ruta OAuth (`subscription-passthrough`), la credencial es
+  el OAuth; `X-Sentinel-Key` es atribución **opcional**. La resolución de identidad
   (tenant-anónimo-pero-autenticado-por-suscripción, auditado como `tenant-default`) se fija en el default
   documentado **[D-014]** (Assumptions), revisable.
 
@@ -262,10 +262,10 @@ hace fallar la suite.
 ### Functional Requirements
 
 **Firewall nativo (US1)**
-- **FR-001**: El sistema MUST exponer la política Basa como un `CustomGuardrail` (`BasaGuardrail`)
+- **FR-001**: El sistema MUST exponer la política Sentinel como un `CustomGuardrail` (`SentinelGuardrail`)
   registrado en el bloque `guardrails:` de `config.yaml` con modes `pre_call`, `post_call` y
   `post_call_streaming`, sin parchear el motor (Principio VI).
-- **FR-002**: `BasaGuardrail.async_pre_call_hook` MUST bloquear con HTTP 400 los prompts que describen
+- **FR-002**: `SentinelGuardrail.async_pre_call_hook` MUST bloquear con HTTP 400 los prompts que describen
   prácticas prohibidas del EU AI Act Art.5, delegando en `ComplianceService.evaluate_prompt`
   (enforcement duro, Principio II).
 - **FR-003**: `async_pre_call_hook` MUST bloquear prompts con secretos/API keys detectados, delegando en
@@ -296,7 +296,7 @@ hace fallar la suite.
   `general_settings.custom_auth` para resolver identidad por request.
 - **FR-010**: `user_api_key_auth` MUST derivar el `tool_type` desde el User-Agent (portando el mapeo de
   `_detect_tool`/`_TOOL_UA`).
-- **FR-011**: `user_api_key_auth` MUST resolver la virtual key contra la tabla `APIKey` de Basa
+- **FR-011**: `user_api_key_auth` MUST resolver la virtual key contra la tabla `APIKey` de Sentinel
   (portando `_resolve_identity`) para atribuir `tenant_id`/`client_id`/`team`, e inyectar esa metadata
   para hooks y logger.
 - **FR-012**: `user_api_key_auth` MUST ser **fail-closed** en la ruta BYOK: sin virtual key válida, la
@@ -305,10 +305,10 @@ hace fallar la suite.
   herramienta conocida (`tool_type` = desconocido).
 
 **Auditoría + monitor (US3)**
-- **FR-014**: El sistema MUST registrar `BasaAuditLogger` (`CustomLogger`) en
+- **FR-014**: El sistema MUST registrar `SentinelAuditLogger` (`CustomLogger`) en
   `litellm_settings.callbacks`, cuyo `async_log_success_event` persiste auditoría **metadata-only**
   reusando `AuditService.log_transaction`.
-- **FR-015**: `BasaAuditLogger` MUST hacer **scrub** de `metadata.pii_tokens` (y de cualquier texto de
+- **FR-015**: `SentinelAuditLogger` MUST hacer **scrub** de `metadata.pii_tokens` (y de cualquier texto de
   prompt/PII cruda) antes de persistir; MUST NOT escribir texto de prompt ni el mapa reversible
   (Constraint C1).
 - **FR-016**: El sistema MUST alimentar un feed en memoria (ring acotado) desde el logger para el
@@ -321,8 +321,8 @@ hace fallar la suite.
 - **FR-018**: El sistema MUST mantener en el backend un thin reverse-proxy que, en `upstream_mode` =
   `subscription-passthrough` (013; era "anthropic" en el demo), reenvía el header `Authorization`/OAuth
   **verbatim** a `api.anthropic.com` sin usar la auth del motor (única excepción del Principio VI).
-- **FR-019**: El passthrough OAuth MUST invocar la librería pura compartida `basa_guardian_policy` para
-  bloqueo y masking/unmask, produciendo el **mismo** resultado que `BasaGuardrail`; MUST NOT
+- **FR-019**: El passthrough OAuth MUST invocar la librería pura compartida `sentinel_guardian_policy` para
+  bloqueo y masking/unmask, produciendo el **mismo** resultado que `SentinelGuardrail`; MUST NOT
   reimplementar la política.
 - **FR-020**: En la ruta base_url, el sistema MUST tratar el GDPR-routing como **N/A** (no forzar
   endpoint EU), trasladando la garantía a masking/audit/allowlist (excepción acotada del Principio II).
@@ -330,8 +330,8 @@ hace fallar la suite.
   suscripción sobrevive como proxy propio en el backend.
 
 **Librería compartida + config (transversal)**
-- **FR-022**: El sistema MUST proveer una librería pura `basa_guardian_policy` (mask_reversible / unmask
-  / detect_ai_act / detect_secrets / carry-split de placeholders) importada tanto por `BasaGuardrail`
+- **FR-022**: El sistema MUST proveer una librería pura `sentinel_guardian_policy` (mask_reversible / unmask
+  / detect_ai_act / detect_secrets / carry-split de placeholders) importada tanto por `SentinelGuardrail`
   como por el passthrough OAuth, para no divergir (DRY, Principio VI).
 - **FR-023**: `config.yaml` MUST conservar `model_list` y `router_settings.fallbacks` existentes y
   añadir los bloques `guardrails:`, `litellm_settings.callbacks:` y `general_settings.custom_auth:`.
@@ -355,28 +355,28 @@ hace fallar la suite.
 - **FR-030**: El sistema MUST retirar de `gatelite gateway.py` el endpoint `/gw/v1/messages`, los
   passthrough `count_tokens`/`models`, `_rewrite_sse_event`, `_redact_body`, `_detect_tool`,
   `_resolve_identity`, `_passthrough_headers` y el parsing `_IN_RE`/`_OUT_RE`, conservando **sólo** el
-  passthrough OAuth de suscripción reescrito sobre `basa_guardian_policy`.
+  passthrough OAuth de suscripción reescrito sobre `sentinel_guardian_policy`.
 
 ### Key Entities *(include if feature involves data)*
 
-- **BasaGuardrail (CustomGuardrail)** — *código PROPIO*. Wrapper de los tres hooks nativos
+- **SentinelGuardrail (CustomGuardrail)** — *código PROPIO*. Wrapper de los tres hooks nativos
   (`async_pre_call_hook`, `async_post_call_success_hook`,
   `async_post_call_streaming_iterator_hook`) + estado reversible en `data["metadata"]["pii_tokens"]`.
   REUSA `ComplianceService`/`GuardianService`/`PresidioService`. Reemplaza `_redact_body` y
   `_rewrite_sse_event`.
-- **basa_guardian_policy (librería pura compartida)** — *código PROPIO*. Funciones puras: mask
+- **sentinel_guardian_policy (librería pura compartida)** — *código PROPIO*. Funciones puras: mask
   reversible, unmask (texto y objetos), detect AI-Act, detect secrets, carry-split de placeholders
-  (porta `_safe_split`/`_PH_TYPE_RE`/`_PH_TAIL_RE`). Importada por `BasaGuardrail` (ruta motor) y por el
+  (porta `_safe_split`/`_PH_TYPE_RE`/`_PH_TAIL_RE`). Importada por `SentinelGuardrail` (ruta motor) y por el
   passthrough OAuth (ruta suscripción) para honrar VI.
-- **custom_auth.user_api_key_auth** — *código PROPIO (resolución Basa) sobre pipeline del motor*.
+- **custom_auth.user_api_key_auth** — *código PROPIO (resolución Sentinel) sobre pipeline del motor*.
   Identidad: User-Agent→`tool_type`, virtual key→tenant/client/team vía tabla `APIKey`. Fail-closed.
   Devuelve `UserAPIKeyAuth` del motor.
-- **BasaAuditLogger (CustomLogger)** — *código PROPIO (wrapper)*. `async_log_success_event`
+- **SentinelAuditLogger (CustomLogger)** — *código PROPIO (wrapper)*. `async_log_success_event`
   metadata-only, con scrub de `pii_tokens`. REUSA `AuditService.log_transaction`. Alimenta el monitor.
 - **/v1/messages (endpoint nativo)** — *REUSA motor 100%*. Anthropic Messages API nativo con guardrails
   ON. Reemplaza `/gw/v1/messages` + `count_tokens` + `models`.
 - **Backend subscription OAuth passthrough** — *código PROPIO, única excepción VI*. Thin reverse-proxy
-  a `api.anthropic.com` que reenvía OAuth verbatim e invoca `basa_guardian_policy`. GDPR-routing N/A.
+  a `api.anthropic.com` que reenvía OAuth verbatim e invoca `sentinel_guardian_policy`. GDPR-routing N/A.
 - **APIKey (= Connection, modelo DB de la 013)** — *REUSA*. Usa `tenant_id`/`client_id`/`tool_type`/
   `upstream_mode` para el mapeo de identidad en `custom_auth`. `key_hash` sin cambios. Depende del
   bedrock 013.
@@ -403,7 +403,7 @@ hace fallar la suite.
   text/thinking/tool_use).
 - **SC-005 (paridad de rutas)**: Para un mismo input, la ruta motor BYOK y el passthrough OAuth de
   suscripción producen **idéntico** verdicto de bloqueo y **idéntico** masking/unmask (misma
-  `basa_guardian_policy`).
+  `sentinel_guardian_policy`).
 - **SC-006 (pin + contract tests como puerta)**: La imagen LiteLLM está pinneada por tag+digest y los
   contract tests de las 4 firmas + la ejecución sobre `/v1/messages` corren en el build; un bump
   incompatible del motor hace fallar el build.
@@ -414,7 +414,7 @@ hace fallar la suite.
   por conteo de líneas): un `grep` sobre `gateway.py` de `_rewrite_sse_event`, `_redact_body`,
   `_detect_tool`, `_resolve_identity`, `_passthrough_headers`, `_IN_RE`, `_OUT_RE`, el endpoint
   `/gw/v1/messages` y los passthrough `count_tokens`/`models` devuelve **0 coincidencias**; el archivo
-  retiene únicamente el passthrough OAuth reescrito sobre `basa_guardian_policy`.
+  retiene únicamente el passthrough OAuth reescrito sobre `sentinel_guardian_policy`.
 
 ## Assumptions
 
@@ -432,14 +432,14 @@ hace fallar la suite.
   `custom_auth` sobre la ruta `/v1/messages` nativa; esto se **verifica** con contract tests (US5) y es
   un riesgo explícito (la doc del motor va por detrás del código).
 - **[D-014] (decisión por defecto, revisable)**: en `upstream_mode` = `subscription-passthrough` sin
-  `X-Basa-Key`, la identidad se atribuye así: **tenant/cliente atribuido por `X-Basa-Key` si está
+  `X-Sentinel-Key`, la identidad se atribuye así: **tenant/cliente atribuido por `X-Sentinel-Key` si está
   presente; si no, la request se considera autenticada por la suscripción (el OAuth es la credencial)
   pero con atribución anónima a nivel `tenant-default`, auditada explícitamente como tal**. Esto
   desbloquea US4: el fail-closed duro aplica a `byok` (Constraint C3), no a esta ruta OAuth, donde
-  la credencial es la suscripción y `X-Basa-Key` es atribución opcional. Marcado `[D-014]` como decisión
+  la credencial es la suscripción y `X-Sentinel-Key` es atribución opcional. Marcado `[D-014]` como decisión
   revisable (los defaults son revisables).
 - **Provisioning de virtual keys**: se asume resolución **directa** por `key_hash` contra la tabla
-  `APIKey` de Basa dentro de `custom_auth` (mantiene el modelo de identidad en Basa/013), evitando doble
+  `APIKey` de Sentinel dentro de `custom_auth` (mantiene el modelo de identidad en Sentinel/013), evitando doble
   fuente de verdad con el store interno de virtual keys de LiteLLM. Si se prefiere delegar al store del
   motor, es un seed que sincroniza `APIKey`↔virtual key.
 - **Router GDPR-routing = N/A** en toda esta ruta base_url es una decisión constitucional ya ratificada

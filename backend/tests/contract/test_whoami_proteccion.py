@@ -36,7 +36,7 @@ NOMBRES_DE_MOTOR = ("presidio", "regex", "litellm")
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(gateway, "_resolve_attribution",
-                        lambda k: VALID if k == "sk-basa-valid" else ANON)
+                        lambda k: VALID if k == "sk-sentinel-valid" else ANON)
     app = FastAPI()
     app.include_router(inspect.router)
     return TestClient(app)
@@ -44,7 +44,7 @@ def client(monkeypatch):
 
 @pytest.fixture
 def proteccion(client):
-    r = client.get("/gw/whoami", headers={"X-Basa-Key": "sk-basa-valid"})
+    r = client.get("/gw/whoami", headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200, r.text
     cuerpo = r.json()
     assert "proteccion" in cuerpo, "whoami conectado debe traer el bloque proteccion (US4)"

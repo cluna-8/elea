@@ -3,12 +3,12 @@
 # (selector via versions.json), y la i18n ES/EN sirve la variante correcta con
 # fallback explícito al primario (jamás 404) — todo con la red bloqueada.
 set -euo pipefail
-IMG="${DOCS_IMG:-basa-docs:prod}"
+IMG="${DOCS_IMG:-sentinel-docs:prod}"
 
 fail() { echo "❌ $1"; exit 1; }
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-docs)"
 
-cname="basa-docs-ver-check-$$"
+cname="sentinel-docs-ver-check-$$"
 trap 'docker rm -f "$cname" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$cname" --network none "$IMG" >/dev/null
 

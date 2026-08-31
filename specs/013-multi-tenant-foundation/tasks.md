@@ -28,7 +28,7 @@ la migración con backfill + RLS + los CHECK/unicidad son load-bearing y llevan 
 ## Phase 1: Setup (Shared Infrastructure)
 
 - [X] T001 Verificar baseline: `alembic current` está en `009`; DB Postgres single-tenant poblada disponible en Docker Compose para tests de migración (`backend/`).
-- [X] T002 [P] Confirmar que la app se conecta como `basa_admin` (dueño de las tablas) y documentar el requisito de `FORCE ROW LEVEL SECURITY` en el header de la migración.
+- [X] T002 [P] Confirmar que la app se conecta como `sentinel_admin` (dueño de las tablas) y documentar el requisito de `FORCE ROW LEVEL SECURITY` en el header de la migración.
 - [X] T003 [P] Crear archivo de config de ejemplo `backend/config/clients.example.yaml` (schema del `client_spec` para `seed_client`: client_type, tools[], toggles, budget).
 
 ---
@@ -98,7 +98,7 @@ la migración con backfill + RLS + los CHECK/unicidad son load-bearing y llevan 
 ### Tests for User Story 3 ⚠️
 
 - [X] T019 [P] [US3] Test de aislamiento RLS en `backend/tests/test_rls_isolation.py` con dos tenants: SELECT aislado, INSERT cross-tenant rechazado por WITH CHECK, bypass super_admin, GUC vacío no explota (NULLIF). (SC-003)
-- [X] T020 [P] [US3] Test de FORCE efectivo en `backend/tests/test_rls_isolation.py` conectado como `basa_admin` (dueño): la RLS sí aísla; documentar que sin FORCE fallaría. (SC-004)
+- [X] T020 [P] [US3] Test de FORCE efectivo en `backend/tests/test_rls_isolation.py` conectado como `sentinel_admin` (dueño): la RLS sí aísla; documentar que sin FORCE fallaría. (SC-004)
 
 ### Implementation for User Story 3
 

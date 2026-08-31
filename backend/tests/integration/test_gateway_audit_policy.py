@@ -1,4 +1,4 @@
-"""`BASA_AUDIT_FAIL=policy` en el plano `/gw` (spec 038, Phase 2, T007).
+"""`SENTINEL_AUDIT_FAIL=policy` en el plano `/gw` (spec 038, Phase 2, T007).
 
 Espejo de `test_chat_audit_policy.py` para el segundo plano que decide por riesgo: acá el
 riesgo NO llega resuelto (a diferencia de chat, que lo hereda de `user`/`api_key_obj`) —
@@ -10,7 +10,7 @@ servir/cortar (`audit_service.audit_fail_decision`) es la MISMA de siempre: `min
 Lo que se fija acá, específico de `/gw`:
 
 - la cascada del riesgo se PRODUCE en este plano (T007) y llega hasta el eslabón grupo;
-- **`X-Basa-Key` es OPCIONAL en `/gw`** (la credencial real es el OAuth de suscripción):
+- **`X-Sentinel-Key` es OPCIONAL en `/gw`** (la credencial real es el OAuth de suscripción):
   sin el header no hay key, ni usuario, ni grupo, así que `applied_risk_level` resuelve
   `None` y la matriz D2 corta el tráfico anónimo bajo `policy` — DISEÑO SELLADO (★A,
   27-ago), no un bug que este archivo descubrió;
@@ -23,7 +23,7 @@ Lo que se fija acá, específico de `/gw`:
   ignoran la matriz por completo, en los dos sentidos;
 - FR-004: el claim de `policy` no es "riesgo bajo se sirve" a secas, es "riesgo bajo se
   sirve SIN FILA y la pérdida queda contada" — con el pre-check sano (D4 lo salta) pero el
-  ESCRITOR roto, la fila no se graba y `basa:audit:lost` sí se incrementa. Es la contraparte
+  ESCRITOR roto, la fila no se graba y `sentinel:audit:lost` sí se incrementa. Es la contraparte
   del hallazgo medido de más abajo: el pre-check caído no pierde nada (D4 ni lo consulta);
   el escritor caído sí, y de eso no puede quedar en silencio.
 
@@ -66,7 +66,7 @@ from src.services.audit_service import (  # noqa: E402
     AUDIT_POLICY_DETAIL,
 )
 
-DB = "basa_test_gateway_audit_policy"
+DB = "sentinel_test_gateway_audit_policy"
 GW = "/api/v1/gw/v1/messages"
 
 # Espejo EXACTO de `CUERPO_LIMPIO` en `test_gateway_block_audit.py`: no dispara ninguna capa
@@ -244,12 +244,12 @@ def mensaje_de(respuesta):
 def crear_identidad(factory, *, risk_usuario=None, risk_grupo=None, con_grupo=False,
                     sufijo=""):
     """Crea (Group opcional) + User + APIKey en la DB del harness y devuelve el header
-    `X-Basa-Key` que la resuelve — mismo patrón de alta que `test_gateway_nlp_paridad.py`
+    `X-Sentinel-Key` que la resuelve — mismo patrón de alta que `test_gateway_nlp_paridad.py`
     (fixture `key_atribuible`, ~línea 233): `upstream_mode="byok"` porque una fila
     `subscription-passthrough` exige `oauth_credential_ref` (CHECK
     `ck_api_keys_subscription_oauth`) y acá no hay credencial que custodiar. Eso NO manda el
-    pedido por la ruta byok del motor: `X-Basa-Key` está excluido del scan de
-    `_detect_mode_and_key` (`x-basa-*` no cuenta como credencial auto-detectada), así que el
+    pedido por la ruta byok del motor: `X-Sentinel-Key` está excluido del scan de
+    `_detect_mode_and_key` (`x-sentinel-*` no cuenta como credencial auto-detectada), así que el
     tráfico sigue yendo por passthrough — la Connection sólo sirve para ATRIBUIR.
 
     Escribe la fila DIRECTO — nunca un `UPDATE` sobre una fila existente: bajo RLS un
@@ -276,13 +276,13 @@ def crear_identidad(factory, *, risk_usuario=None, risk_grupo=None, con_grupo=Fa
             group_id = grupo.id
 
         usuario = User(tenant_id=DEFAULT_TENANT_ID, username=f"riesgo-{sufijo}",
-                      email=f"riesgo-{sufijo}@basa.com.ar", password_hash="x",
+                      email=f"riesgo-{sufijo}@sentinel.com.ar", password_hash="x",
                       role="client", client_type="base_url",
                       risk_level=risk_usuario, group_id=group_id, is_active=True)
         db.add(usuario)
         db.flush()
 
-        clave = f"sk-basa-riesgo-{sufijo}"
+        clave = f"sk-sentinel-riesgo-{sufijo}"
         db.query(APIKey).filter(APIKey.key_hash == hash_key(clave)).delete()
         db.add(APIKey(tenant_id=DEFAULT_TENANT_ID, key_hash=hash_key(clave),
                       key_preview=f"sk-...{sufijo}", name=f"key-riesgo-{sufijo}",
@@ -331,7 +331,7 @@ def espiar_audit_writable(monkeypatch):
 
 def test_riesgo_minimo_sirve_sin_pagar_el_pre_check_pese_a_la_base_caida(
         harness, proveedor, perdidas):
-    """`policy` (default, env ausente) + `X-Basa-Key` de un usuario `risk_level=minimal` +
+    """`policy` (default, env ausente) + `X-Sentinel-Key` de un usuario `risk_level=minimal` +
     base de auditoría caída ⇒ 200, y el proveedor se llama UNA vez: D4 corta el pre-check
     ANTES de tocar la base, así que la caída no afecta a este pedido en absoluto (mismo
     invariante de costo que `open` fija en `test_gateway_block_audit.py`, ahora bajo el modo
@@ -339,7 +339,7 @@ def test_riesgo_minimo_sirve_sin_pagar_el_pre_check_pese_a_la_base_caida(
     client, factory = harness
     clave = crear_identidad(factory, risk_usuario="minimal", sufijo="min")
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 200, respuesta.text
     assert len(proveedor.llamadas) == 1, "riesgo bajo: el pedido se sirve de verdad"
@@ -372,7 +372,7 @@ def test_riesgo_minimo_con_el_escritor_caido_sirve_sin_fila_y_cuenta_la_perdida(
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 
     antes = contar_audit_logs(factory)
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 200, respuesta.text
     assert len(proveedor.llamadas) == 1, "riesgo bajo: se sirve de verdad pese al escritor caído"
@@ -392,7 +392,7 @@ def test_riesgo_alto_y_base_caida_corta_con_503_de_policy(harness, proveedor):
     client, factory = harness
     clave = crear_identidad(factory, risk_usuario="high_risk_annex3", sufijo="alto")
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 503, respuesta.text
     mensaje = mensaje_de(respuesta)
@@ -401,15 +401,15 @@ def test_riesgo_alto_y_base_caida_corta_con_503_de_policy(harness, proveedor):
     assert proveedor.llamadas == [], "riesgo alto + base caída: cero POST al proveedor"
 
 
-# ── 3) Sin X-Basa-Key: tráfico anónimo, diseño sellado (★A, 27-ago) ───────────────
+# ── 3) Sin X-Sentinel-Key: tráfico anónimo, diseño sellado (★A, 27-ago) ───────────────
 
 
-def test_sin_x_basa_key_corta_con_503_de_policy_disenio_sellado_no_regresion(
+def test_sin_x_sentinel_key_corta_con_503_de_policy_disenio_sellado_no_regresion(
         harness, proveedor):
-    """Tráfico anónimo (sin `X-Basa-Key`) + `policy` + base caída ⇒ 503 con el copy de
+    """Tráfico anónimo (sin `X-Sentinel-Key`) + `policy` + base caída ⇒ 503 con el copy de
     `policy`.
 
-    **DISEÑO SELLADO (★A, 27-ago-2026), no una regresión.** `X-Basa-Key` es OPCIONAL en
+    **DISEÑO SELLADO (★A, 27-ago-2026), no una regresión.** `X-Sentinel-Key` es OPCIONAL en
     `/gw` — la credencial real de esta ruta es el OAuth de suscripción reenviado verbatim
     ([D-014]) — así que un pedido sin el header no tiene key, ni usuario, ni grupo de dónde
     sacar un riesgo: `applied_risk_level` resuelve `None`, y la matriz D2 trata `None` igual
@@ -419,7 +419,7 @@ def test_sin_x_basa_key_corta_con_503_de_policy_disenio_sellado_no_regresion(
     producto que hay que discutir explícitamente — no un bug que este test encontró solo."""
     client, _ = harness
 
-    respuesta = pedir(client)  # sin X-Basa-Key
+    respuesta = pedir(client)  # sin X-Sentinel-Key
 
     assert respuesta.status_code == 503, respuesta.text
     mensaje = mensaje_de(respuesta)
@@ -440,7 +440,7 @@ def test_riesgo_desde_el_grupo_llega_hasta_gw_y_sirve(harness, proveedor):
     clave = crear_identidad(factory, risk_usuario=None, risk_grupo="limited",
                             con_grupo=True, sufijo="grupo")
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 200, respuesta.text
     assert len(proveedor.llamadas) == 1, "riesgo de grupo: se sirve de verdad"
@@ -458,7 +458,7 @@ def test_d4_riesgo_minimo_no_paga_el_pre_check_de_escribibilidad(harness, monkey
     clave = crear_identidad(factory, risk_usuario="minimal", sufijo="d4-min")
     llamadas = espiar_audit_writable(monkeypatch)
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 200, respuesta.text
     assert llamadas == [], "riesgo bajo: el pre-check de policy no debe correr (D4)"
@@ -472,7 +472,7 @@ def test_d4_riesgo_alto_si_paga_el_pre_check_de_escribibilidad(harness, monkeypa
     clave = crear_identidad(factory, risk_usuario="high_risk_annex3", sufijo="d4-alto")
     llamadas = espiar_audit_writable(monkeypatch)
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 503, respuesta.text
     assert len(llamadas) >= 1, "riesgo alto: el pre-check SÍ tiene que consultar audit_writable"
@@ -482,14 +482,14 @@ def test_d4_riesgo_alto_si_paga_el_pre_check_de_escribibilidad(harness, monkeypa
 
 
 def test_closed_explicito_corta_igual_con_riesgo_minimo(harness, monkeypatch, proveedor):
-    """`BASA_AUDIT_FAIL=closed` EXPLÍCITO + `risk_level=minimal` ⇒ igual corta (503) con el
+    """`SENTINEL_AUDIT_FAIL=closed` EXPLÍCITO + `risk_level=minimal` ⇒ igual corta (503) con el
     texto de `closed`, no el de `policy` — el override global ignora la matriz D2 por
     completo, incluso para el riesgo que `policy` serviría sin pestañear (SC-002)."""
     client, factory = harness
     monkeypatch.setenv(AUDIT_FAIL_ENV, "closed")
     clave = crear_identidad(factory, risk_usuario="minimal", sufijo="closed-min")
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 503, respuesta.text
     mensaje = mensaje_de(respuesta)
@@ -503,14 +503,14 @@ def test_closed_explicito_corta_igual_con_riesgo_minimo(harness, monkeypatch, pr
 
 def test_open_explicito_sirve_igual_con_riesgo_alto(harness, monkeypatch, proveedor,
                                                      perdidas):
-    """`BASA_AUDIT_FAIL=open` EXPLÍCITO + `risk_level=high_risk_annex3` ⇒ se SIRVE (200) —
+    """`SENTINEL_AUDIT_FAIL=open` EXPLÍCITO + `risk_level=high_risk_annex3` ⇒ se SIRVE (200) —
     el override permisivo también ignora la matriz D2 por completo, del otro lado
     (SC-002): ni el riesgo alto paga el pre-check bajo `open`."""
     client, factory = harness
     monkeypatch.setenv(AUDIT_FAIL_ENV, "open")
     clave = crear_identidad(factory, risk_usuario="high_risk_annex3", sufijo="open-alto")
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave})
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave})
 
     assert respuesta.status_code == 200, respuesta.text
     assert len(proveedor.llamadas) == 1, "se sirvió de verdad: el proveedor se llamó una vez"
@@ -555,7 +555,7 @@ def test_bloqueo_con_riesgo_alto_y_escritor_caido_corta_con_503_de_policy(
     fallona, _estado = con_fallos(factory, 99)
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave}, cuerpo=CUERPO_BLOQUEADO)
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave}, cuerpo=CUERPO_BLOQUEADO)
 
     assert respuesta.status_code == 503, respuesta.text
     mensaje = mensaje_de(respuesta)
@@ -577,7 +577,7 @@ def test_bloqueo_con_riesgo_bajo_y_escritor_caido_responde_el_bloqueo_y_cuenta_l
     fallona, _estado = con_fallos(factory, 99)
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave}, cuerpo=CUERPO_BLOQUEADO)
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave}, cuerpo=CUERPO_BLOQUEADO)
 
     assert respuesta.status_code == 400, respuesta.text
     assert "material secreto" in mensaje_de(respuesta)
@@ -598,7 +598,7 @@ def test_literal_reservado_con_riesgo_alto_y_escritor_caido_corta_con_503_de_pol
     fallona, _estado = con_fallos(factory, 99)
     monkeypatch.setattr(gateway, "SessionLocal", fallona)
 
-    respuesta = pedir(client, headers={"X-Basa-Key": clave}, cuerpo=CUERPO_LICENCIA)
+    respuesta = pedir(client, headers={"X-Sentinel-Key": clave}, cuerpo=CUERPO_LICENCIA)
 
     assert respuesta.status_code == 503, respuesta.text
     mensaje = mensaje_de(respuesta)
@@ -627,11 +627,11 @@ def test_literal_reservado_con_riesgo_alto_y_escritor_caido_corta_con_503_de_pol
 # Mutación que tiene que matar el primero de estos dos tests y ningún otro:
 #   `_exige_registro_byok()` → `return audit_exige_registro(None)`   (byok entra a la matriz)
 
-# Forma válida de virtual key (`_BASA_KEY_RE`) que NO existe en la base a propósito: es
+# Forma válida de virtual key (`_SENTINEL_KEY_RE`) que NO existe en la base a propósito: es
 # exactamente la credencial que este plano no puede atribuir, o sea el caso donde el riesgo
 # resolvería `None` si alguien enrutara byok por la matriz. Misma clave en los DOS tests de
 # abajo — el par sólo prueba algo si la única variable es la cabecera de ruteo.
-CLAVE_BYOK = "sk-basa-inexistente-pero-con-forma"
+CLAVE_BYOK = "sk-sentinel-inexistente-pero-con-forma"
 
 
 def test_byok_bajo_policy_con_la_base_caida_lo_sirve_este_plano_no_lo_corta(
@@ -647,8 +647,8 @@ def test_byok_bajo_policy_con_la_base_caida_lo_sirve_este_plano_no_lo_corta(
     from src.api.gateway import _LITELLM_UPSTREAM
     client, _ = harness
 
-    respuesta = pedir(client, headers={"X-Basa-Upstream": "byok",
-                                       "X-Basa-Key": CLAVE_BYOK})
+    respuesta = pedir(client, headers={"X-Sentinel-Upstream": "byok",
+                                       "X-Sentinel-Key": CLAVE_BYOK})
 
     assert respuesta.status_code == 200, respuesta.text
     assert len(proveedor.llamadas) == 1, "el carve-out sirve de verdad: el motor fue contactado"
@@ -658,7 +658,7 @@ def test_byok_bajo_policy_con_la_base_caida_lo_sirve_este_plano_no_lo_corta(
 
 def test_el_mismo_pedido_sin_la_cabecera_byok_si_lo_corta_la_matriz(harness, proveedor):
     """Brazo de control del de arriba: MISMA clave inexistente, MISMO cuerpo, MISMA base
-    caída — sin `X-Basa-Upstream: byok` el pedido cae al passthrough, `_resolve_attribution`
+    caída — sin `X-Sentinel-Upstream: byok` el pedido cae al passthrough, `_resolve_attribution`
     no puede atribuirlo, el riesgo resuelve `None` y la matriz D2 lo corta con el 503 de
     `policy`.
 
@@ -668,7 +668,7 @@ def test_el_mismo_pedido_sin_la_cabecera_byok_si_lo_corta_la_matriz(harness, pro
     dos tests es la cabecera de ruteo, que es exactamente el eje que el carve-out gobierna."""
     client, _ = harness
 
-    respuesta = pedir(client, headers={"X-Basa-Key": CLAVE_BYOK})  # sin X-Basa-Upstream
+    respuesta = pedir(client, headers={"X-Sentinel-Key": CLAVE_BYOK})  # sin X-Sentinel-Upstream
 
     assert respuesta.status_code == 503, respuesta.text
     assert AUDIT_POLICY_DETAIL in mensaje_de(respuesta)

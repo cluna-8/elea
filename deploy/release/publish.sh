@@ -4,7 +4,7 @@
 # se publican backend/frontend propias). El digest impreso al final es el que
 # consumen el módulo OpenTofu (compute) y el bundle air-gapped (bundle.sh).
 #
-# Uso: REGISTRY=registry.example.com/basa VERSION=1.0.0 deploy/release/publish.sh
+# Uso: REGISTRY=registry.example.com/sentinel VERSION=1.0.0 deploy/release/publish.sh
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -38,17 +38,17 @@ retag_upstream() {
     echo "PINNED ${name}=${digest}"
 }
 
-build_and_push basa-backend  deploy/docker/backend.prod.Dockerfile
-build_and_push basa-frontend deploy/docker/frontend.prod.Dockerfile
+build_and_push sentinel-backend  deploy/docker/backend.prod.Dockerfile
+build_and_push sentinel-frontend deploy/docker/frontend.prod.Dockerfile
 # Analizador NLP (spec 016): Dockerfile y contexto propios fuera de deploy/docker.
 # El nombre publicado es neutro (Principio VII) aunque el directorio del repo no lo sea.
-build_and_push basa-nlp-analyzer presidio-analyzer/Dockerfile presidio-analyzer
+build_and_push sentinel-nlp-analyzer presidio-analyzer/Dockerfile presidio-analyzer
 
 # Motor de IA (rename de marca, issue #302): la imagen upstream es la de LiteLLM
-# pinneada por digest (spec 014); se publica como basa-engine sin modificarla —
+# pinneada por digest (spec 014); se publica como sentinel-engine sin modificarla —
 # solo retag+push. El input es el pin real del vendor (ghcr.io/berriai/litellm@sha256:...),
 # no una var de compose.
-retag_upstream basa-engine "${UPSTREAM_ENGINE_IMAGE:?falta UPSTREAM_ENGINE_IMAGE (p.ej. ghcr.io/berriai/litellm@sha256:...)}"
+retag_upstream sentinel-engine "${UPSTREAM_ENGINE_IMAGE:?falta UPSTREAM_ENGINE_IMAGE (p.ej. ghcr.io/berriai/litellm@sha256:...)}"
 
 echo
 echo "Pegá los digests PINNED en el tfvars del cliente (deploy/terraform/envs/<slug>/)"

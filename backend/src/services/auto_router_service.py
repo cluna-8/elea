@@ -39,7 +39,7 @@ from . import ai_engine_client
 from .atomic_file import escribir_atomico
 from .redis_client import get_redis
 
-logger = logging.getLogger("basa-secure-gateway.auto-router")
+logger = logging.getLogger("sentinel-secure-gateway.auto-router")
 
 # Pseudo-modelo que el usuario pide en el chat; no existe en el catálogo del motor.
 AUTO_MODEL = "auto"

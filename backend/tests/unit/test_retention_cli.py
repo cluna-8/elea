@@ -6,7 +6,7 @@ CLI, no la corrida (eso lo cubren los tests de integración contra Postgres):
 
 * `--run-now` invoca `run_once(run_now=True)` — CUÁNDO;
 * sin el flag, `run_now=False` — respeta la ventana;
-* el CLI NO decide SI BORRA: no toca `BASA_PURGE_DRY_RUN`. Los dos ejes son ortogonales
+* el CLI NO decide SI BORRA: no toca `SENTINEL_PURGE_DRY_RUN`. Los dos ejes son ortogonales
   (Contrato 4), y encender la purga real sigue siendo una variable de entorno a la vista.
 
 Se monkeypatchea `run_once` para no necesitar DB: lo que se afirma es el cableado del CLI.
@@ -49,8 +49,8 @@ def test_sin_run_now_respeta_la_ventana(monkeypatch):
 def test_el_cli_no_decide_si_borra(monkeypatch):
     """CUÁNDO y SI BORRA son ortogonales: el CLI no toca la perilla del simulacro."""
     monkeypatch.setattr(purger, "run_once", lambda *, run_now=False: None)
-    monkeypatch.delenv("BASA_PURGE_DRY_RUN", raising=False)
+    monkeypatch.delenv("SENTINEL_PURGE_DRY_RUN", raising=False)
 
     purger._main(["--run-now"])
 
-    assert os.getenv("BASA_PURGE_DRY_RUN") is None, "el CLI no setea BASA_PURGE_DRY_RUN"
+    assert os.getenv("SENTINEL_PURGE_DRY_RUN") is None, "el CLI no setea SENTINEL_PURGE_DRY_RUN"

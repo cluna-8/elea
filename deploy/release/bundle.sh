@@ -3,7 +3,7 @@
 # las imágenes pinneadas + compose prod + perfil renderizado + checks. Se
 # instala con docker load en un host SIN registry (caso Elea / on-prem).
 #
-# Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... BASA_ENGINE_IMAGE=... DOCS_IMAGE=... \
+# Uso: BACKEND_IMAGE=... FRONTEND_IMAGE=... SENTINEL_ENGINE_IMAGE=... DOCS_IMAGE=... \
 #      NLP_ANALYZER_IMAGE=... \
 #      CADDY_IMAGE=caddy:2-alpine POSTGRES_IMAGE=postgres:16 REDIS_IMAGE=redis:7-alpine \
 #      deploy/release/bundle.sh <client-slug> [outdir]
@@ -21,7 +21,7 @@ mkdir -p "$OUT"
 # TODAS las imágenes del release (edge case: una imagen fuera del tarball =
 # pull en runtime = install roto sin egress). Incluye las selfhosted on-prem.
 IMAGES=(
-  "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${BASA_ENGINE_IMAGE:?}" "${DOCS_IMAGE:?sitio de docs por marca (022)}"
+  "${BACKEND_IMAGE:?}" "${FRONTEND_IMAGE:?}" "${SENTINEL_ENGINE_IMAGE:?}" "${DOCS_IMAGE:?sitio de docs por marca (022)}"
   "${NLP_ANALYZER_IMAGE:?analizador NLP (016) — sin él el motor enmascara con regex}"
   "${CADDY_IMAGE:-caddy:2-alpine}" "${POSTGRES_IMAGE:-postgres:16}" "${REDIS_IMAGE:-redis:7-alpine}"
 )
@@ -122,12 +122,12 @@ cat > "$OUT/install.sh" <<'INSTALLER'
 # Instalador air-gapped. No necesita red, ni el repo, ni imágenes extra.
 #
 # Uso:  ./install.sh <fichero.lic> [nombre-de-proyecto]
-#   El nombre de proyecto fija el prefijo de los volúmenes (default: basa).
+#   El nombre de proyecto fija el prefijo de los volúmenes (default: sentinel).
 #   Puertos: INGRESS_HTTP_PORT / INGRESS_HTTPS_PORT (default 80/443).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIC="${1:?uso: ./install.sh <fichero.lic> [nombre-de-proyecto]}"
-PROJECT="${2:-basa}"
+PROJECT="${2:-sentinel}"
 [ -f "$LIC" ] || { echo "❌ no existe el fichero de licencia: $LIC"; exit 2; }
 command -v docker >/dev/null || { echo "❌ docker no está instalado o no está en el PATH"; exit 1; }
 
@@ -137,12 +137,12 @@ BUNDLE_ARCH="$(awk -F': ' '/^# arch:/{print $2; exit}' "$HERE/MANIFEST" 2>/dev/n
 HOST_ARCH="$(uname -m)"
 case "$HOST_ARCH" in x86_64) HOST_ARCH=amd64 ;; aarch64|arm64) HOST_ARCH=arm64 ;; esac
 if [ -n "$BUNDLE_ARCH" ] && [ "$BUNDLE_ARCH" != "$HOST_ARCH" ]; then
-  if [ "${BASA_ALLOW_ARCH_MISMATCH:-}" = "1" ]; then
-    echo "⚠️  bundle $BUNDLE_ARCH sobre host $HOST_ARCH — siguiendo por BASA_ALLOW_ARCH_MISMATCH=1"
+  if [ "${SENTINEL_ALLOW_ARCH_MISMATCH:-}" = "1" ]; then
+    echo "⚠️  bundle $BUNDLE_ARCH sobre host $HOST_ARCH — siguiendo por SENTINEL_ALLOW_ARCH_MISMATCH=1"
     echo "    (sólo funciona con emulación binfmt/Rosetta activa; rendimiento degradado)"
   else
     echo "❌ este bundle trae imágenes $BUNDLE_ARCH y el host es $HOST_ARCH — hace falta el bundle $HOST_ARCH"
-    echo "   (si el host tiene emulación binfmt/Rosetta y es a propósito: BASA_ALLOW_ARCH_MISMATCH=1 ./install.sh …)"
+    echo "   (si el host tiene emulación binfmt/Rosetta y es a propósito: SENTINEL_ALLOW_ARCH_MISMATCH=1 ./install.sh …)"
     exit 1
   fi
 fi

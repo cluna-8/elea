@@ -19,7 +19,7 @@ Filtro canónico de bloqueos (API + UI): `compliance_status LIKE 'blocked%'`.
 
 Campos nuevos OPCIONALES en `AuditEntry` (los que falten hoy): `compliance_status`
 (default actual se conserva), `blocked_by_layer`. El INSERT (internal.py:90) incorpora las
-columnas. Emisor nuevo: `basa_guardrail.py` en bloqueo (antes solo el logger de éxito).
+columnas. Emisor nuevo: `sentinel_guardrail.py` en bloqueo (antes solo el logger de éxito).
 Auth: mismo secreto interno. Reglas: el guardrail POSTea ANTES de rechazar; 1 reintento.
 
 ## GET /api/v1/internal/audit/probe (nuevo, secreto interno)
@@ -30,7 +30,7 @@ Cacheable 5 s por el llamador si la latencia lo exige (riesgo R2 del research).
 
 ## Config
 
-`BASA_AUDIT_FAIL=open|closed` (env; default `open` si ausente/ilegible). La leen: backend
+`SENTINEL_AUDIT_FAIL=open|closed` (env; default `open` si ausente/ilegible). La leen: backend
 (audit_service + chat + gateway) y extensiones del motor. compose.prod.yml la cablea a
 ambos contenedores; el perfil camara la declara `open` explícita.
 
@@ -56,8 +56,8 @@ En `closed` con auditoría caída el estado global del health refleja degradado.
 
 ## Contador de pérdidas (Redis)
 
-- `basa:audit:lost` — INCR al agotar reintentos (backend y extensiones motor).
-- `basa:audit:last_fail` — SET timestamp ISO en cada pérdida.
+- `sentinel:audit:lost` — INCR al agotar reintentos (backend y extensiones motor).
+- `sentinel:audit:last_fail` — SET timestamp ISO en cada pérdida.
 - Sin TTL (constancia hasta reset manual/redeploy de Redis). Redis caído → solo logger.
 
 ## UI

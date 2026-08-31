@@ -4,7 +4,7 @@ Es el ÚNICO camino que tiene el motor hacia la base del producto —no trae dri
 Postgres— así que acá se juegan tres cosas que ninguna otra suite mira:
 
 1. **Retrocompatibilidad del POST de auditoría** (spec 031, contrato §internal): el payload
-   de éxito que emite `basa_audit_logger` hoy tiene que seguir insertando idéntico mientras
+   de éxito que emite `sentinel_audit_logger` hoy tiene que seguir insertando idéntico mientras
    el guardrail empieza a mandar filas de BLOQUEO por el mismo endpoint.
 2. **La fila de bloqueo** (contrato §Fila de bloqueo, convención D1): `compliance_status`
    con prefijo `blocked_` + `blocked_by_layer`, recuperable con el filtro canónico
@@ -34,10 +34,10 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_internal_plane"
+DB = "sentinel_test_internal_plane"
 
 SECRETO = "secreto-interno-de-la-suite-031"
-CABECERA = {"X-Basa-Internal": SECRETO}
+CABECERA = {"X-Sentinel-Internal": SECRETO}
 
 AUDIT = "/api/v1/internal/audit"
 PROBE = "/api/v1/internal/audit/probe"
@@ -52,15 +52,15 @@ def harness():
     """DB fresca + app real. El secreto interno se inyecta en el env porque
     `_require_internal_secret` lo lee en cada request (fail-closed: sin secreto
     configurado, el endpoint responde 404 a todo el mundo)."""
-    previo = os.environ.get("BASA_ENGINE_MASTER_KEY")
-    os.environ["BASA_ENGINE_MASTER_KEY"] = SECRETO
+    previo = os.environ.get("SENTINEL_ENGINE_MASTER_KEY")
+    os.environ["SENTINEL_ENGINE_MASTER_KEY"] = SECRETO
     client, factory, cleanup = build_app_client(DB)
     yield client, factory
     cleanup()
     if previo is None:
-        os.environ.pop("BASA_ENGINE_MASTER_KEY", None)
+        os.environ.pop("SENTINEL_ENGINE_MASTER_KEY", None)
     else:
-        os.environ["BASA_ENGINE_MASTER_KEY"] = previo
+        os.environ["SENTINEL_ENGINE_MASTER_KEY"] = previo
 
 
 # ── Sembrado ──────────────────────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ def presupuesto_de(factory, user_id):
 
 
 def test_payload_viejo_de_exito_sigue_insertando_igual(harness):
-    """El payload EXACTO que emite hoy `basa_audit_logger._log` (sin los campos de
+    """El payload EXACTO que emite hoy `sentinel_audit_logger._log` (sin los campos de
     bloqueo) tiene que seguir dando 200 y una fila `passed` con atribución intacta."""
     client, factory = harness
     ids = sembrar_connection(factory, sufijo="viejo")
@@ -252,7 +252,7 @@ def test_sin_el_secreto_interno_el_plano_no_existe(harness):
     assert client.post(AUDIT, json={"model": "x"}).status_code == 404
     assert client.get(PROBE).status_code == 404
     assert client.get(IDENTITY, params={"key_hash": "a" * 64}).status_code == 404
-    assert client.get(PROBE, headers={"X-Basa-Internal": "otro"}).status_code == 404
+    assert client.get(PROBE, headers={"X-Sentinel-Internal": "otro"}).status_code == 404
 
 
 # ── Probe de escribibilidad (contrato §probe) ─────────────────────────────────────

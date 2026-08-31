@@ -206,7 +206,7 @@ capa LLM-asistida (vía motor IA) por ser circular. El motor es **headroom como 
 - Calculadora `strategy=headroom` sobre JSON con 250 items repetidos: **9871 → 6138 tokens (37.8% ahorro,
   3733 tokens saved), `applied=headroom`, veredicto `conviene`, $0.0093** — 100% local, sin tokens.
 - Calculadora `strategy=deterministic` sobre prosa: sigue funcionando (cae con elegancia, sin ahorro).
-- `/costs/summary` devuelve `by_user` (admin $0.0955/70 req, doctor_basa, …) y `by_group` (cardiologia
+- `/costs/summary` devuelve `by_user` (admin $0.0955/70 req, doctor_sentinel, …) y `by_group` (cardiologia
   $0.0314/18 req, test_clinica, …) con datos reales.
 - Frontend compila limpio (`vite build ✓ 1868 módulos`).
 

@@ -8,7 +8,7 @@ llama `terraform/` por convención: los `.tf` son drop-in.
 ```bash
 cd deploy/terraform
 tofu init -backend-config="bucket=<state-bucket-cifrado>" \
-          -backend-config="key=basa/terraform.tfstate" \
+          -backend-config="key=sentinel/terraform.tfstate" \
           -backend-config="region=eu-central-1" \
           -backend-config="encrypt=true"
 tofu workspace new <tenant-slug>          # state AISLADO por cliente (III)

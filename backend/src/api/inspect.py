@@ -1,16 +1,16 @@
 """Superficie browser-DLP (spec 019 US3): endpoints que consume la extensión MV3.
 
-La extensión ``Basa Guard`` (portada de ``basa-browser-dlp/``) hookea ``window.fetch``
+La extensión ``Sentinel Guard`` (portada de ``sentinel-browser-dlp/``) hookea ``window.fetch``
 en ChatGPT/Claude web y, por cada prompt, llama a estos endpoints del gateway:
 
 - ``GET  /gw/whoami``  → valida la virtual key → identidad (login del popup). **Fail-closed**.
-- ``POST /gw/inspect`` → aplica la política Basa al texto plano del usuario y devuelve los
+- ``POST /gw/inspect`` → aplica la política Sentinel al texto plano del usuario y devuelve los
   ``replacements`` (token→original) para que la extensión reescriba el body (el modelo
   ve placeholders) y des-enmascare en el DOM. Empuja al MISMO monitor (``surface="browser"``)
   y audita **metadata-only** (Constraint C1).
 
 **Reuso (Principio VI):** identidad, monitor y audit se reusan del ``gateway`` (014);
-el masking reusa la **misma** ``basa_guardian_policy`` que el resto (regex hoy; Presidio
+el masking reusa la **misma** ``sentinel_guardian_policy`` que el resto (regex hoy; Presidio
 real llega en 016). Así la extensión y las rutas base_url comparten una sola política.
 
 **Fix P4 (spec 027 T028): esta superficie corría MEDIO piso.** Hasta la 027, ``gw_inspect``
@@ -172,12 +172,12 @@ _PROTECCION_CAPAS_DELEGADAS = tuple(
 
 
 @router.get("/whoami")
-def gw_whoami(x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
+def gw_whoami(x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key")):
     """Valida la key → identidad para el login del popup. Fail-closed (SC-005).
 
     Devuelve además el bloque `proteccion` (US4): copy server-side para el chip de
     honestidad de la extensión (vocabulario cerrado, sin nombres de motor)."""
-    ident = gateway._resolve_attribution(x_basa_key)
+    ident = gateway._resolve_attribution(x_sentinel_key)
     if ident["api_key_id"] is None:
         return _fail_closed()
     return {
@@ -196,12 +196,12 @@ def gw_whoami(x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
 
 @router.post("/inspect")
 async def gw_inspect(body: dict,
-                     x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key")):
-    """Aplica la política Basa a un prompt de la superficie browser (piso COMPLETO desde
+                     x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key")):
+    """Aplica la política Sentinel a un prompt de la superficie browser (piso COMPLETO desde
     la 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.
     Fail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita."""
     start = time.time()
-    ident = gateway._resolve_attribution(x_basa_key)
+    ident = gateway._resolve_attribution(x_sentinel_key)
     if ident["api_key_id"] is None:
         return _fail_closed()
 
@@ -220,7 +220,7 @@ async def gw_inspect(body: dict,
     # `subscription`: este tráfico va contra la suscripción propia del cliente en el
     # producto web del proveedor, el mismo régimen que el passthrough de coding tools (y
     # por eso las capas delegables se reportan `delegated`, no "desprotegido", FR-013).
-    # `X-Basa-Redact` no participa: la extensión no lo manda y, desde la 027, un header
+    # `X-Sentinel-Redact` no participa: la extensión no lo manda y, desde la 027, un header
     # por-request no puede relajar de todos modos.
     profile = gateway._resolve_governance_profile(ident, None, None,
                                                   route=ROUTE_GATEWAY_PASSTHROUGH)

@@ -27,7 +27,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_migration_014"
+DB = "sentinel_test_migration_014"
 
 # Coste de UNA llamada corta a un modelo económico, redondeado hacia arriba. Con la escala
 # vieja (4 decimales) esto es exactamente 0.0000 — el bug entero en un número.

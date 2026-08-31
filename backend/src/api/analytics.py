@@ -29,7 +29,7 @@ router = APIRouter(
     tags=["Analytics"],
     dependencies=[Depends(require_authenticated())],
 )
-logger = logging.getLogger("basa-secure-gateway.analytics")
+logger = logging.getLogger("sentinel-secure-gateway.analytics")
 
 # Las filas de licencia (spec 021) son EVIDENCIA de lifecycle, no tráfico gobernado: mismo
 # corte que compliance.py:361 y reports.py:139. Contarlas acá era el segundo defecto del
@@ -37,8 +37,8 @@ logger = logging.getLogger("basa-secure-gateway.analytics")
 # "activación de guardián".
 _LICENSE_MODEL = "license"
 
-_ENGINE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
-_ENGINE_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "")
+_ENGINE_URL = os.getenv("SENTINEL_ENGINE_API_BASE", "http://engine:4000")
+_ENGINE_KEY = os.getenv("SENTINEL_ENGINE_MASTER_KEY", "")
 
 
 def _range_dates(range_param: str) -> tuple[datetime, datetime]:

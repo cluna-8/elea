@@ -21,7 +21,7 @@ El motor de IA interno (LiteLLM proxy) ya tiene 46 integraciones de guardrails l
 
 ```
 Cliente
-  └── basa-backend
+  └── sentinel-backend
         ├── [nuestro] PII masking pre-envío (placeholder_map para unmask)
         ├── [nuestro] Secret detection (regex, sin dependencia externa)
         └── [motor de IA] Guardrails reales (prompt injection, moderación)

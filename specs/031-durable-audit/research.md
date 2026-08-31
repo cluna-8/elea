@@ -31,7 +31,7 @@ se toca (los eslabones license van por otro camino — FR-010, gate SC-003).
 
 ## D3 — Plano motor: el guardrail registra vía `POST /internal/audit` antes de rechazar
 
-**Decisión**: `basa_guardrail.py` (todos sus puntos de bloqueo, :105-166) construye el
+**Decisión**: `sentinel_guardrail.py` (todos sus puntos de bloqueo, :105-166) construye el
 payload de bloqueo (identidad de la Connection desde `user_api_key_dict`, capa, motivo,
 conteos) y lo POSTea al plano interno EXISTENTE (`internal.py:140 record_audit`,
 autenticado con el secreto interno) ANTES de devolver el rechazo. `AuditEntry` se extiende
@@ -45,7 +45,7 @@ garantiza disparo en rechazos pre-call del guardrail propio — el guardrail es 
 el verdict y la identidad; el logger de éxito queda como está). Driver de Postgres en la
 imagen (restricción conocida: la imagen no trae pip/uv — por eso existe el plano interno).
 
-## D4 — Config `audit_fail`: env `BASA_AUDIT_FAIL=open|closed` (default open)
+## D4 — Config `audit_fail`: env `SENTINEL_AUDIT_FAIL=open|closed` (default open)
 
 **Decisión**: una env leída por backend Y extensiones del motor (compose.prod.yml la
 cablea a ambos contenedores; el perfil del piloto la declara `open` explícita en
@@ -66,15 +66,15 @@ durante una caída.
 ## D5 — Retry acotado + contador Redis (jamás cola, jamás print)
 
 **Decisión**: en `audit_service` (único escritor del backend): 2 reintentos con backoff
-0.2 s/0.5 s (total acotado <1,5 s); al agotar → `logger.error` + `INCR basa:audit:lost` +
-`SET basa:audit:last_fail <iso>` (Redis; si Redis también está caído, solo logger — nunca
+0.2 s/0.5 s (total acotado <1,5 s); al agotar → `logger.error` + `INCR sentinel:audit:lost` +
+`SET sentinel:audit:last_fail <iso>` (Redis; si Redis también está caído, solo logger — nunca
 excepción hacia el request en `open`). Las extensiones del motor replican el patrón en su
 proceso (ya tienen Redis: son productoras de la vitrina) y sus `print` (:104-105, 177-180,
 192-193) pasan a `logging` con nivel real. `gateway.py:603-604` deja de tragar: delega en
 el escritor con retry y solo captura para no romper el request en `open`.
 
 **Racional**: el edge case anti-DoS de la spec — presupuesto fijo, el contador es la
-válvula. La pérdida byok del ensayo (documentada en basa_audit_logger.py:145-150) habría
+válvula. La pérdida byok del ensayo (documentada en sentinel_audit_logger.py:145-150) habría
 sido visible en minutos con el contador+banner.
 
 ## D6 — Exposición: health + banner en Logs

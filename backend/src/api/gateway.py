@@ -3,11 +3,11 @@
 Un solo endpoint (``/gw/v1/messages``) al que las coding tools apuntan su
 ``ANTHROPIC_BASE_URL``, con dos rutas según ``upstream_mode`` (013):
 
-    subscription-passthrough │ Claude Code ──► [política Basa] ──► api.anthropic.com
+    subscription-passthrough │ Claude Code ──► [política Sentinel] ──► api.anthropic.com
     (014 US4)                │   OAuth del cliente verbatim; la suscripción paga
     ─────────────────────────┼──────────────────────────────────────────────────
     byok (019 US2)           │ Copilot/Cursor ──► [router fino] ──► motor LiteLLM
-                             │   sk-basa-… verbatim; el MOTOR aplica la política
+                             │   sk-sentinel-… verbatim; el MOTOR aplica la política
 
 **Passthrough (014, excepción de proxy propio del Principio VI):** como LiteLLM
 reclama ``Authorization`` como su propia virtual key, el OAuth de suscripción no
@@ -15,20 +15,20 @@ puede atravesar el motor; sólo acá el backend reverse-proxya a ``api.anthropic
 reenviando el OAuth **verbatim** y aplicando la política del gateway.
 
 **byok (019):** el gateway es un **router fino** al motor — NO aplica política acá
-(el motor ya corre ``custom_auth`` + ``BasaGuardrail``, 014 US1-3), evitando el
+(el motor ya corre ``custom_auth`` + ``SentinelGuardrail``, 014 US1-3), evitando el
 doble-masking del port literal del demo. Auto-detecta la ruta: una virtual key
-``sk-basa-…`` en un header de auth (excl. ``x-basa-*``) o en la URL (``?k=…``,
+``sk-sentinel-…`` en un header de auth (excl. ``x-sentinel-*``) o en la URL (``?k=…``,
 fallback de Copilot) → byok; si no, passthrough. Selección explícita por
-``X-Basa-Upstream``.
+``X-Sentinel-Upstream``.
 
 **Paridad por librería (FR-022):** el bloqueo y el masking/unmask reversible NO se
-reimplementan acá — se invoca la **misma** ``basa_guardian_policy`` que usa
-``BasaGuardrail`` en la ruta motor (mismos ``evaluate_ai_act`` / ``detect_secrets`` /
+reimplementan acá — se invoca la **misma** ``sentinel_guardian_policy`` que usa
+``SentinelGuardrail`` en la ruta motor (mismos ``evaluate_ai_act`` / ``detect_secrets`` /
 ``mask_body`` / ``rewrite_sse_block``), así las dos rutas nunca divergen (contract
 test de paridad: ``tests/contract/test_route_parity.py``).
 
 **Identidad ([D-014]):** en esta ruta la credencial ES el OAuth de suscripción, así
-que NO se aplica fail-closed (a diferencia de ``byok`` en el motor). ``X-Basa-Key`` es
+que NO se aplica fail-closed (a diferencia de ``byok`` en el motor). ``X-Sentinel-Key`` es
 atribución OPCIONAL: si viene y resuelve, la auditoría lleva tenant/client reales; si
 falta, se audita contra el tenant por defecto (anónimo). El GDPR-routing es N/A acá
 (excepción acotada del Principio II — base_url clients). Ese fail-open vale para la
@@ -38,7 +38,7 @@ gobernanza se aplica, y ahí la ausencia de tenant atribuible resuelve **fail-cl
 de elegirse una postura más laxa.
 
 **Secreto OAuth (FR-025, Constraint C5):** el token nunca vive en ``config.yaml``. En
-el caso normal lo pone el cliente (header, verbatim). En el caso gestionado por Basa,
+el caso normal lo pone el cliente (header, verbatim). En el caso gestionado por Sentinel,
 la Connection referencia un secreto Fernet (``oauth_credential_ref``) que se descifra
 en memoria; jamás en claro en disco.
 
@@ -50,7 +50,7 @@ secretos— corre SIEMPRE, también con el enmascarado apagado (la PII se detect
 registra como "detectada, no enmascarada por configuración", D8); (2) cada pedido lleva
 su **atribución** (``applied_layers`` + ``blocked_by_layer``) a la fila de auditoría y al
 evento del monitor, en vez del ``guardian_events`` fijo que decía "PROXY" pasara lo que
-pasara; (3) ``X-Basa-Redact`` pasa a ser **solo restrictivo**: puede forzar el masking
+pasara; (3) ``X-Sentinel-Redact`` pasa a ser **solo restrictivo**: puede forzar el masking
 ON para ese pedido, pero su "off" se ignora con telemetría — ningún input por-request
 controlado por el cliente puede relajar la postura del admin (research D5).
 """
@@ -105,7 +105,7 @@ from ..services.engine_gate import (
     adquirir_turno,
 )
 # Gobernanza (spec 027): SIEMPRE por la puerta del backend (governance_catalog), nunca
-# importando `extensions.basa_governance` a mano — un segundo camino de import carga el
+# importando `extensions.sentinel_governance` a mano — un segundo camino de import carga el
 # módulo dos veces y deja dos catálogos en memoria (ver el docstring de esa puerta).
 from ..services.governance_catalog import (
     ON,
@@ -138,20 +138,20 @@ for _shared in ("/app/litellm_config/extensions",
         if _abs not in sys.path:
             sys.path.insert(0, _abs)
         break
-import basa_guardian_policy as policy  # noqa: E402
+import sentinel_guardian_policy as policy  # noqa: E402
 
 router = APIRouter(prefix="/gw", tags=["Firewall Gateway (passthrough OAuth)"])
-logger = logging.getLogger("basa-secure-gateway.gateway")
+logger = logging.getLogger("sentinel-secure-gateway.gateway")
 
-_ANTHROPIC_UPSTREAM = os.getenv("BASA_GW_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
+_ANTHROPIC_UPSTREAM = os.getenv("SENTINEL_GW_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
 # Motor LiteLLM (ruta byok): el gateway es la PUERTA ÚNICA (spec 019). En byok NO aplica
-# política — sólo rutea al motor, que ya corre custom_auth + BasaGuardrail (014). Evita
+# política — sólo rutea al motor, que ya corre custom_auth + SentinelGuardrail (014). Evita
 # el doble-masking que tendría el port literal del demo (cuyo motor no tenía guardrail).
-_LITELLM_UPSTREAM = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000").rstrip("/")
-_DEFAULT_MODE = os.getenv("BASA_GW_UPSTREAM_DEFAULT", "subscription-passthrough").lower()
-# Virtual key de Basa en cualquier header de auth (auto-byok, spec 019 US2).
-_BASA_KEY_RE = re.compile(r"sk-basa-[A-Za-z0-9._\-]+")
-_MONITOR_KEY = "basa:gw:events"       # mismo feed que alimenta /gw/monitor (US3)
+_LITELLM_UPSTREAM = os.getenv("SENTINEL_ENGINE_API_BASE", "http://engine:4000").rstrip("/")
+_DEFAULT_MODE = os.getenv("SENTINEL_GW_UPSTREAM_DEFAULT", "subscription-passthrough").lower()
+# Virtual key de Sentinel en cualquier header de auth (auto-byok, spec 019 US2).
+_SENTINEL_KEY_RE = re.compile(r"sk-sentinel-[A-Za-z0-9._\-]+")
+_MONITOR_KEY = "sentinel:gw:events"       # mismo feed que alimenta /gw/monitor (US3)
 _MONITOR_CAP = 100
 _MONITOR_TTL_S = 300
 _DISPLAY_CAP = 2000
@@ -177,7 +177,7 @@ STATUS_PASSTHROUGH_CANCELADO = "passthrough_cancelled"
 _HOP_BY_HOP = {
     "host", "content-length", "connection", "keep-alive", "transfer-encoding",
     "accept-encoding", "te", "trailer", "upgrade", "proxy-authorization",
-    "x-basa-key", "x-basa-upstream", "x-basa-team", "x-basa-redact",
+    "x-sentinel-key", "x-sentinel-upstream", "x-sentinel-team", "x-sentinel-redact",
 }
 
 
@@ -292,7 +292,7 @@ def _anthropic_error(message: str, status_code: int = 400, headers: Optional[dic
     """Error con la FORMA de Anthropic — el shape que parsean las coding tools.
 
     ``headers`` es el canal para la metadata machine-readable que NO cabe en ese shape sin
-    romperlo (hoy: ``X-Basa-Rejected``). El body sigue siendo exactamente el que el cliente
+    romperlo (hoy: ``X-Sentinel-Rejected``). El body sigue siendo exactamente el que el cliente
     espera; quien quiera distinguir el motivo mira la cabecera."""
     return JSONResponse(
         status_code=status_code,
@@ -301,12 +301,12 @@ def _anthropic_error(message: str, status_code: int = 400, headers: Optional[dic
     )
 
 
-# ── política (paridad EXACTA con BasaGuardrail.async_pre_call_hook) ────────────────
+# ── política (paridad EXACTA con SentinelGuardrail.async_pre_call_hook) ────────────────
 #
 # Detección NLP en ESTE plano (issue #63). Hasta el fix, todo `/gw` corría
 # `policy.default_analyze` —el regex de dev/demo— aunque `NLP_ANALYZER_URL` estuviera
 # configurada y el sidecar sano: el docstring del módulo prometía «paridad EXACTA con
-# BasaGuardrail.async_pre_call_hook» y el motor sí usaba el NLP real. Resultado observable:
+# SentinelGuardrail.async_pre_call_hook» y el motor sí usaba el NLP real. Resultado observable:
 # el mismo prompt salía enmascarado por byok (motor) y sub-enmascarado por suscripción
 # (gateway), sin que nada lo dijera. La paridad se restituye en UN solo punto de decisión
 # (`_build_analyze`) para que los tres call-sites de este archivo no puedan volver a divergir.
@@ -325,7 +325,7 @@ def nlp_analyzer_url() -> str:
 def _build_analyze(nlp: Optional[dict]):
     """``(analyze, usa_nlp)`` — el ÚNICO punto donde este plano elige detector.
 
-    Réplica de la decisión del motor (`basa_guardrail.async_pre_call_hook`, paso 3): con
+    Réplica de la decisión del motor (`sentinel_guardrail.async_pre_call_hook`, paso 3): con
     `NLP_ANALYZER_URL` seteada se llama al sidecar con los `custom_names`/`custom_entities`
     del guardián `pii_masking` y la región configurada; sin ella, el regex de dev.
 
@@ -335,16 +335,16 @@ def _build_analyze(nlp: Optional[dict]):
 
     **Región por TENANT (H1 del gate de #137)**: mismo mecanismo que `custom_names`/
     `custom_entities` — clave `region` en `Guardian.config` del guardián `pii_masking`,
-    con `BASA_ENTITY_REGION` (default DE LA INSTALACIÓN) como fallback retrocompatible.
+    con `SENTINEL_ENTITY_REGION` (default DE LA INSTALACIÓN) como fallback retrocompatible.
     Se resuelve UNA sola vez acá y se usa en los DOS caminos de abajo (con y sin sidecar):
     antes de este fix, el camino sin sidecar volvía `policy.default_analyze` a secas —
     congelado en `DEFAULT_REGION` (eu) sin importar la región del tenant o de la
     instalación— así que este plano podía detectar entidades distintas según si el
     analyzer estaba sano o caído. Es la misma clase de falla silenciosa que un degrade
-    sin región (ver `basa_guardrail._analyze_regex`)."""
+    sin región (ver `sentinel_guardrail._analyze_regex`)."""
     cfg = nlp or {}
     region = policy.resolve_region(
-        cfg, default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+        cfg, default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
     url = nlp_analyzer_url()
     if not url:
         async def _analyze_regex(text: str) -> list:
@@ -412,7 +412,7 @@ def _verdict(decision: str, count: Optional[int] = None) -> dict:
 
 
 async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] = None):
-    """Aplica la política Basa a un body Anthropic, en el MISMO orden que el guardrail
+    """Aplica la política Sentinel a un body Anthropic, en el MISMO orden que el guardrail
     del motor: (1) AI-Act Art.5 → block, (2) secretos → block, (3) PII → detección
     (piso) → enmascarado reversible **solo si** el perfil lo tiene encendido.
 
@@ -496,7 +496,7 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
             # tenant hubiera elegido otra región. Un degrade que pierde la región es la
             # falla silenciosa clásica, justo cuando el sistema ya está en problemas.
             region_degradado = policy.resolve_region(
-                nlp, default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+                nlp, default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
 
             async def _analyze_regex_degradado(text: str) -> list:
                 return await policy.default_analyze(text, region=region_degradado)
@@ -536,7 +536,7 @@ def _entity_counts(ph_to_orig: dict) -> list:
 
 def _unmask_json(payload: dict, ph_to_orig: dict) -> dict:
     """Des-enmascara una respuesta no-streaming (Anthropic o OpenAI-like). Espejo de
-    ``BasaGuardrail._unmask_response_inplace`` sobre el dict ya parseado."""
+    ``SentinelGuardrail._unmask_response_inplace`` sobre el dict ya parseado."""
     for blk in payload.get("content", []) or []:
         if not isinstance(blk, dict):
             continue
@@ -556,15 +556,15 @@ def _unmask_json(payload: dict, ph_to_orig: dict) -> dict:
 
 # ── identidad opcional (atribución, NO fail-closed — [D-014]) ─────────────────────
 
-def _resolve_attribution(basa_key: Optional[str]) -> dict:
-    """Resuelve ``X-Basa-Key`` → tenant/client/toggles para AUDITORÍA. Ausente o
+def _resolve_attribution(sentinel_key: Optional[str]) -> dict:
+    """Resuelve ``X-Sentinel-Key`` → tenant/client/toggles para AUDITORÍA. Ausente o
     inválida ⇒ tenant por defecto anónimo (esta ruta se autentica con el OAuth, no
-    con la key Basa). Sesión efímera propia; nunca levanta.
+    con la key Sentinel). Sesión efímera propia; nunca levanta.
 
     Desde la 027 la misma sesión trae también las **decisiones de gobernanza** del tenant
     resuelto: la postura se resuelve por pedido y meterlas acá es lo que evita abrir una
     segunda sesión en el camino caliente. Consecuencia asumida: el tráfico anónimo (sin
-    ``X-Basa-Key``), que antes no tocaba la base, ahora hace una lectura indexada por
+    ``X-Sentinel-Key``), que antes no tocaba la base, ahora hace una lectura indexada por
     tenant — el precio de que la postura del admin también gobierne ese tráfico."""
     ident = {
         "tenant_id": str(DEFAULT_TENANT_ID), "user_id": None, "group_id": None,
@@ -577,7 +577,7 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         # segunda sesión en el camino caliente para un dato que acá sale gratis.
         #
         # **El default `None` no es "falta configurar": es la forma NORMAL del tráfico anónimo
-        # de este plano.** `X-Basa-Key` es OPCIONAL acá (la credencial es el OAuth), así que un
+        # de este plano.** `X-Sentinel-Key` es OPCIONAL acá (la credencial es el OAuth), así que un
         # pedido sin header no tiene key, ni usuario, ni grupo de dónde sacar un riesgo. En
         # `policy` eso lo vuelve un pedido que EXIGE registro (D2: sin riesgo resuelto no se
         # demostró riesgo bajo) ⇒ con la auditoría caída, corta. Es la decisión ★A sellada el
@@ -592,12 +592,12 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
         # canal y por la MISMA razón que las decisiones de gobernanza — una lectura por
         # pedido en la sesión que este helper ya abre, en vez de N queries en el camino
         # caliente. Es el equivalente en este plano a lo que `custom_auth` le pasa al motor
-        # dentro de `user_api_key_metadata.basa`.
+        # dentro de `user_api_key_metadata.sentinel`.
         "nlp": {},
     }
     db = SessionLocal()
     try:
-        if basa_key and basa_key.startswith("sk-"):
+        if sentinel_key and sentinel_key.startswith("sk-"):
             # `expires_at` es DateTime naive-UTC (convención del modelo 013): se compara
             # contra un "ahora" naive-UTC, la MISMA forma que la fuente única de verdad de
             # "key activa no expirada" (``seat_counter.count_active_seats``). Comparar la
@@ -605,7 +605,7 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
             # zona horaria de la sesión Postgres.
             ahora = datetime.now(timezone.utc).replace(tzinfo=None)
             key = db.query(APIKey).filter(
-                APIKey.key_hash == hash_key(basa_key),
+                APIKey.key_hash == hash_key(sentinel_key),
                 APIKey.is_active.is_(True),
                 # US8a: una key VENCIDA cae al fallback anónimo igual que una inexistente.
                 # Sin este filtro, una key con `is_active=True` y `expires_at` en el pasado
@@ -632,7 +632,7 @@ def _resolve_attribution(basa_key: Optional[str]) -> dict:
                     # pedido seguiría con riesgo `None`, que en `policy` es cortar.
                     applied_risk_level=riesgo_aplicado(key, key.user, key.group),
                 )
-        # También para el tráfico anónimo: sin ``X-Basa-Key`` el pedido se audita contra
+        # También para el tráfico anónimo: sin ``X-Sentinel-Key`` el pedido se audita contra
         # el tenant por defecto, y en una instalación de un solo tenant ESE es el tenant
         # cuya postura configuró el admin. Saltear la lectura acá dejaría al tráfico sin
         # atribución fuera de la gobernanza que el admin cree haber configurado.
@@ -673,7 +673,7 @@ def _nlp_context(db, tenant_id, atribuible: bool = False) -> dict:
     review adversarial). Es la MISMA barrera que la 027 ya aplica al perfil de gobernanza en
     ``_resolve_governance_profile`` (``Profile.from_dict(..., trusted=False)``: sobreviven
     las decisiones que AGREGAN protección, se descartan las que RELAJAN), y falta acá por el
-    mismo motivo por el que hacía falta allá. ``X-Basa-Key`` es OPCIONAL en esta ruta —la
+    mismo motivo por el que hacía falta allá. ``X-Sentinel-Key`` es OPCIONAL en esta ruta —la
     credencial es el OAuth—, así que sin esta línea, en una instalación multi-tenant,
     **omitir el header** bastaba para caer al ``DEFAULT_TENANT_ID``: si ESE tenant tiene
     ``degrade``, un cliente cuyo admin configuró ``block`` conseguía que su tráfico se
@@ -708,7 +708,7 @@ def _nlp_context(db, tenant_id, atribuible: bool = False) -> dict:
             # como `nlp_fail_mode` (degrade sirve tráfico con MENOS protección; una región
             # distinta sirve tráfico con OTRO set de reconocedores, no con menos) — mismo
             # criterio que `custom_names`/`custom_entities`, y el mismo que ya usa el motor
-            # (`basa_guardrail.py`, sin barrera sobre `identity.get("region")`). Quien decide
+            # (`sentinel_guardrail.py`, sin barrera sobre `identity.get("region")`). Quien decide
             # es `policy.resolve_region`, con el default de instalación armado por el caller.
             "region": cfg.get("region"),
         }
@@ -749,7 +749,7 @@ _UA_TO_SURFACE = {
 
 def _resolve_surface(ident: dict, ua_tool: Optional[str]):
     """``(superficie, confiable)``. Confiable = el ``tool_type`` que el admin provisionó en
-    la Connection (resuelta por ``X-Basa-Key``); todo lo demás sale del User-Agent, que el
+    la Connection (resuelta por ``X-Sentinel-Key``); todo lo demás sale del User-Agent, que el
     cliente elige, y por eso entra como no confiable."""
     tool_type = ident.get("tool_type")
     if ident.get("api_key_id") and tool_type:
@@ -758,13 +758,13 @@ def _resolve_surface(ident: dict, ua_tool: Optional[str]):
 
 
 def _redact_header_override(header_val: Optional[str]) -> Optional[str]:
-    """``X-Basa-Redact`` — **solo restrictivo** (cierre del bypass, research D5/T026).
+    """``X-Sentinel-Redact`` — **solo restrictivo** (cierre del bypass, research D5/T026).
 
     El header es un override **por-request controlado por el cliente**: puede FORZAR el
     enmascarado (agregar protección con una señal no confiable siempre es legal) pero su
     "off" se **ignora**, porque relajar la postura del admin desde un header sería exactamente
     el vector que la regla de superficie confiable prohíbe — cualquiera con acceso al
-    endpoint apagaba el control más fuerte del producto escribiendo ``X-Basa-Redact: 0``.
+    endpoint apagaba el control más fuerte del producto escribiendo ``X-Sentinel-Redact: 0``.
 
     Devuelve ``ON`` (forzar) o ``None`` (no hay override). El "off" ignorado se cuenta y se
     loguea **metadata-only** (C1: ni texto del pedido ni identidad en el mensaje) para que
@@ -781,7 +781,7 @@ def _redact_header_override(header_val: Optional[str]) -> Optional[str]:
     if header_val.strip().lower() in ("1", "true", "yes", "on"):
         return ON
     _REDACT_OFF_IGNORED["count"] += 1
-    logger.warning("gateway: X-Basa-Redact=off IGNORADO (override por-request no puede "
+    logger.warning("gateway: X-Sentinel-Redact=off IGNORADO (override por-request no puede "
                    "relajar la postura del administrador; spec 027). total=%d",
                    _REDACT_OFF_IGNORED["count"])
     return None
@@ -792,7 +792,7 @@ _REDACT_OFF_IGNORED = {"count": 0}
 
 
 def redact_off_ignored_count() -> int:
-    """Cuántas veces se ignoró un ``X-Basa-Redact: off`` en este proceso.
+    """Cuántas veces se ignoró un ``X-Sentinel-Redact: off`` en este proceso.
 
     Mismo patrón que ``malformed_verdict_counters`` del catálogo: contador metadata-only +
     accesor público. Existe para que la degradación sea **consultable** y no solo
@@ -811,7 +811,7 @@ def reset_redact_off_ignored() -> None:
 def _tenant_atribuible(ident: dict) -> bool:
     """¿Este pedido está atribuido a un tenant de verdad, o cayó al tenant por defecto?
 
-    Atribuible = ``X-Basa-Key`` resolvió una Connection activa (``api_key_id``). Sin eso,
+    Atribuible = ``X-Sentinel-Key`` resolvió una Connection activa (``api_key_id``). Sin eso,
     ``_resolve_attribution`` deja el ``DEFAULT_TENANT_ID`` como fallback anónimo: sirve
     para AUDITAR (dónde archivar la fila), no para decidir **de qué tenant se aplica la
     postura** — el cliente elegiría el tenant simplemente omitiendo un header opcional."""
@@ -836,7 +836,7 @@ def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
 
     **Sin tenant atribuible, la resolución es fail-closed** (hallazgo MEDIA de la
     verificación adversarial de la US2). Esta ruta se autentica con el OAuth de
-    suscripción, no con ``X-Basa-Key``: ese header es OPCIONAL, y hasta la 027 solo decidía
+    suscripción, no con ``X-Sentinel-Key``: ese header es OPCIONAL, y hasta la 027 solo decidía
     a nombre de quién se auditaba ([D-014], fail-open deliberado **para atribución**). Al
     pasar a decidir también las ``governance_decisions``, un cliente de una instalación
     multi-tenant conseguía elegir la postura que le aplicaba con solo **omitir** el header:
@@ -859,7 +859,7 @@ def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
     IDENTIDAD por diseño ([D-014]), así que el tráfico anónimo sigue pasando, solo que
     gobernado con el perfil más protector disponible. En instalaciones single-tenant el
     precio es visible y aceptado: una relajación configurada en ``tenant_default`` (p.ej.
-    ``pii_masking=off``) no aplica al tráfico sin ``X-Basa-Key``; para obtenerla hay que
+    ``pii_masking=off``) no aplica al tráfico sin ``X-Sentinel-Key``; para obtenerla hay que
     emitir la Connection, que es exactamente el dato del admin que la regla exige.
 
     No abre sesión: las filas ya vinieron con la identidad. Sin decisiones legibles, la
@@ -896,7 +896,7 @@ def _audit_no_disponible():
     vez de un literal local de `closed`. No es cosmética: en `policy` este plano ya puede
     cortar, y decirle «audit_fail=closed» al operador de una instalación que nunca seteó esa
     env lo manda a buscar una variable que no existe."""
-    return _anthropic_error(f"[Basa Gateway] {detalle_503_audit()}", 503)
+    return _anthropic_error(f"[Sentinel Gateway] {detalle_503_audit()}", 503)
 
 
 def _exige_registro_byok() -> bool:
@@ -1034,7 +1034,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
 
     ``attribution`` (spec 027) trae ``applied_layers`` + ``blocked_by_layer``: qué capas
     corrieron de verdad en ESTE pedido y cuál lo bloqueó. Reemplaza al ``guardian_events``
-    que se escribía fijo —``{"guardian": "Basa Passthrough", "action": "PROXY"}``— pasara
+    que se escribía fijo —``{"guardian": "Sentinel Passthrough", "action": "PROXY"}``— pasara
     lo que pasara: un registro que decía lo mismo para un pedido enmascarado, uno bloqueado
     por secreto y uno que salió verbatim. ``guardian_events`` queda congelado como legado,
     sin migración (D6).
@@ -1047,7 +1047,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     traducción a booleano:
 
     * ``True``  → la fila es durable;
-    * ``False`` → no hay fila, y la pérdida YA quedó contada (``basa:audit:lost``) y
+    * ``False`` → no hay fila, y la pérdida YA quedó contada (``sentinel:audit:lost``) y
       logueada con nivel error por el escritor.
 
     **El eslabón que se lee al revés** (P1 del gate cross-familia de #340, refutado midiendo):
@@ -1124,7 +1124,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
 def _publish_monitor(ident: dict, tool: str, model: str, status: str,
                      masked_entities: list, masked_preview: str, surface: Optional[str] = None,
                      attribution=None, routing: Optional[dict] = None):
-    """Evento efímero para /gw/monitor — MISMO esquema que basa_audit_logger, así la
+    """Evento efímero para /gw/monitor — MISMO esquema que sentinel_audit_logger, así la
     vitrina renderiza el tráfico del passthrough igual que el del motor. Preview ya
     enmascarado (C1). ``surface`` distingue la extensión browser (spec 019 US3). Best-effort.
 
@@ -1135,7 +1135,7 @@ def _publish_monitor(ident: dict, tool: str, model: str, status: str,
 
     **``routing`` (spec 030 T008) es OPCIONAL y así debe quedar.** El contrato de este
     evento tiene TRES productores —este gateway, el plano chat (``chat.py``, que llama a
-    esta misma función) y el ``basa_audit_logger`` del motor— y sólo UNO emite el campo:
+    esta misma función) y el ``sentinel_audit_logger`` del motor— y sólo UNO emite el campo:
     el plano chat, y sólo en los requests que el usuario mandó con el pseudo-modelo
     «auto». Ni el gateway ni el motor lo mandan nunca (por /gw «auto» se resuelve al
     default del router sin clasificar — research R9). Por eso la clave **se omite** en vez
@@ -1186,7 +1186,7 @@ def _publish_monitor(ident: dict, tool: str, model: str, status: str,
         pass
 
 
-# ── upstream: OAuth verbatim (cliente) o gestionado por Basa (Fernet ref) ─────────
+# ── upstream: OAuth verbatim (cliente) o gestionado por Sentinel (Fernet ref) ─────────
 
 def _upstream_headers(request: Request, ident: dict) -> dict:
     """Headers hacia Anthropic. Caso normal: el cliente manda su propio OAuth y viaja
@@ -1209,44 +1209,44 @@ def _normalize_mode(val: Optional[str]) -> str:
     return "byok" if (val or _DEFAULT_MODE).lower() == "byok" else "subscription-passthrough"
 
 
-def _detect_mode_and_key(request: Request, x_basa_upstream: Optional[str],
-                         x_basa_key: Optional[str]):
-    """Auto-byok (US2): si aparece una virtual key ``sk-basa-…`` en un header de auth
-    (excluyendo ``x-basa-*``) o en la URL (``?k=…``, fallback de Copilot), enruta a
-    **byok** y la usa como identidad. La exclusión de ``x-basa-*`` es **load-bearing**:
-    el ``sk-basa`` de atribución de Claude Code viaja SOLO en ``X-Basa-Key`` y NO debe
-    sacarlo del passthrough de suscripción. Devuelve ``(mode, basa_key)``."""
+def _detect_mode_and_key(request: Request, x_sentinel_upstream: Optional[str],
+                         x_sentinel_key: Optional[str]):
+    """Auto-byok (US2): si aparece una virtual key ``sk-sentinel-…`` en un header de auth
+    (excluyendo ``x-sentinel-*``) o en la URL (``?k=…``, fallback de Copilot), enruta a
+    **byok** y la usa como identidad. La exclusión de ``x-sentinel-*`` es **load-bearing**:
+    el ``sk-sentinel`` de atribución de Claude Code viaja SOLO en ``X-Sentinel-Key`` y NO debe
+    sacarlo del passthrough de suscripción. Devuelve ``(mode, sentinel_key)``."""
     cred = None
     for hn, hv in request.headers.items():
-        if hn.lower().startswith("x-basa-"):
+        if hn.lower().startswith("x-sentinel-"):
             continue
-        m = _BASA_KEY_RE.search(hv or "")
+        m = _SENTINEL_KEY_RE.search(hv or "")
         if m:
             cred = m.group(0)
             break
     if not cred:
-        m = _BASA_KEY_RE.search(str(request.url))  # key-in-URL (atajo de demo, Copilot)
+        m = _SENTINEL_KEY_RE.search(str(request.url))  # key-in-URL (atajo de demo, Copilot)
         if m:
             cred = m.group(0)
     if cred:
-        if not x_basa_key:
-            x_basa_key = cred
-        if not x_basa_upstream:
-            x_basa_upstream = "byok"
-    return _normalize_mode(x_basa_upstream), x_basa_key
+        if not x_sentinel_key:
+            x_sentinel_key = cred
+        if not x_sentinel_upstream:
+            x_sentinel_upstream = "byok"
+    return _normalize_mode(x_sentinel_upstream), x_sentinel_key
 
 
-def _byok_headers(request: Request, basa_key: str) -> dict:
-    """Headers hacia el motor LiteLLM: la ``sk-basa-…`` del cliente viaja como auth para
+def _byok_headers(request: Request, sentinel_key: str) -> dict:
+    """Headers hacia el motor LiteLLM: la ``sk-sentinel-…`` del cliente viaja como auth para
     que el ``custom_auth`` del motor resuelva tenant/client (fail-closed suyo). El caller
-    garantiza ``basa_key`` presente — byok sin virtual key se rechaza con 401 ANTES de
+    garantiza ``sentinel_key`` presente — byok sin virtual key se rechaza con 401 ANTES de
     llegar acá (F2): el master key del proxy NUNCA es alcanzable desde una ruta de
     cliente (evita el bypass a PROXY_ADMIN que saltaría auth/budgets/atribución)."""
     return {
         "Content-Type": "application/json",
         "Accept-Encoding": "identity",
         "anthropic-version": request.headers.get("anthropic-version", "2023-06-01"),
-        "Authorization": f"Bearer {basa_key}",
+        "Authorization": f"Bearer {sentinel_key}",
     }
 
 
@@ -1291,7 +1291,7 @@ def _resolve_auto_model(body: dict, raw: bytes) -> bytes:
     return json.dumps({**body, "model": default_model}).encode("utf-8")
 
 
-def _registrar_rechazo_por_capacidad(basa_key: Optional[str], model: str, tool: str,
+def _registrar_rechazo_por_capacidad(sentinel_key: Optional[str], model: str, tool: str,
                                      latency: int) -> None:
     """Parte SÍNCRONA (y bloqueante) del rechazo por capacidad: identidad + fila durable +
     vitrina. Vive separada de la respuesta HTTP porque corre en un hilo, no en el event loop.
@@ -1301,12 +1301,12 @@ def _registrar_rechazo_por_capacidad(basa_key: Optional[str], model: str, tool: 
     cliente— y `_publish_monitor` habla con Redis. Nada de eso es `await`-able: el `acquire`
     del pool de SQLAlchemy es síncrono.
     """
-    ident = _resolve_attribution(basa_key)
+    ident = _resolve_attribution(sentinel_key)
     _audit(ident, model, 0, 0, STATUS_SATURATED, [], latency, attribution=None)
     _publish_monitor(ident, tool, model, STATUS_SATURATED, [], "", attribution=None)
 
 
-async def _rechazo_por_capacidad(request: Request, basa_key: Optional[str], model: str,
+async def _rechazo_por_capacidad(request: Request, sentinel_key: Optional[str], model: str,
                                  start: float):
     """503 AUDITADO del tope de admisión (nodo C1), para el camino byok de este plano.
 
@@ -1340,10 +1340,10 @@ async def _rechazo_por_capacidad(request: Request, basa_key: Optional[str], mode
     # `await` y no `create_task`: la fila durable se escribe ANTES de responder (registrar →
     # rechazar). Lo que cambia es DÓNDE corre —un hilo— y no CUÁNDO. Diferir la fila para
     # contestar antes es otra decisión, con semántica de pérdida propia, y es de JF.
-    await run_in_threadpool(_registrar_rechazo_por_capacidad, basa_key, model, tool, latency)
+    await run_in_threadpool(_registrar_rechazo_por_capacidad, sentinel_key, model, tool, latency)
     logger.warning("gateway byok: pedido rechazado por capacidad (tool=%s model=%s)", tool, model)
     return _anthropic_error(
-        "[Basa Gateway] El modelo está a capacidad; el pedido no se encoló para no degradar "
+        "[Sentinel Gateway] El modelo está a capacidad; el pedido no se encoló para no degradar "
         "el resto del producto. Reintentá en unos segundos.",
         503,
         headers={"Retry-After": RETRY_AFTER_SATURATED,
@@ -1482,10 +1482,10 @@ class _StreamConTurno(StreamingResponse):
                     await run_in_threadpool(self._auditoria)
 
 
-async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_stream: bool,
+async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str], is_stream: bool,
                       *, model: str = "unknown", start: Optional[float] = None):
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
-    enmascara/bloquea/audita vía BasaGuardrail); el gateway NO aplica política acá para
+    enmascara/bloquea/audita vía SentinelGuardrail); el gateway NO aplica política acá para
     no duplicarla. Límite conocido (spike 019 batch 1, issue #27): en rutas bridged
     (modelos no-Claude) el unmask de respuesta del motor NO corre hoy — la respuesta
     puede traer placeholders; fail-safe, fix-spec pendiente.
@@ -1497,8 +1497,8 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
     """
     # F2 fail-closed: byok EXIGE una virtual key. Sin ella no se cae al master key del
     # motor (sería un bypass a PROXY_ADMIN saltando custom_auth/budgets/atribución).
-    if not basa_key:
-        return _anthropic_error("[Basa Gateway] byok requiere una virtual key (sk-basa-…).", 401)
+    if not sentinel_key:
+        return _anthropic_error("[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).", 401)
     if start is None:
         start = time.time()
 
@@ -1506,7 +1506,7 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
     try:
         await turno.adquirir()
     except EngineSaturatedError:
-        return await _rechazo_por_capacidad(request, basa_key, model, start)
+        return await _rechazo_por_capacidad(request, sentinel_key, model, start)
 
     # A partir de acá el turno YA está tomado, y todo lo que siga vive dentro de este `try`
     # (H8 del gate de #135). Antes, la URL, los headers y la construcción del cliente corrían
@@ -1520,22 +1520,22 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
     turno_traspasado = False
     try:
         url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
-        headers = _byok_headers(request, basa_key)
+        headers = _byok_headers(request, sentinel_key)
 
         if not is_stream:
-            # Timeout PROPIO de este camino (`BASA_GW_BYOK_TIMEOUT_SECONDS`, 150 s de default) y
+            # Timeout PROPIO de este camino (`SENTINEL_GW_BYOK_TIMEOUT_SECONDS`, 150 s de default) y
             # no el del chat: una coding tool tolera —y necesita— generaciones largas, y el
             # router del motor en prod ya espera 120 s. Ver H3 del gate de #135.
             try:
                 async with httpx.AsyncClient(timeout=GW_BYOK_TIMEOUT_SECONDS) as client:
                     up = await client.post(url, headers=headers, content=raw)
             except Exception as exc:  # noqa: BLE001
-                return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
+                return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {exc}", 502)
             return Response(content=up.content, status_code=up.status_code,
                             media_type=up.headers.get("content-type", "application/json"))
 
         # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS. El
-        # read es el de `BASA_GW_BYOK_READ_TIMEOUT_SECONDS` y NO los 60 s del passthrough: aquel
+        # read es el de `SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS` y NO los 60 s del passthrough: aquel
         # mide contra Anthropic, que manda `ping` SSE periódicos; el motor local no manda pings,
         # así que entre chunk y chunk puede pasar lo que tarde el modelo en generar. Con 60 s,
         # una generación local lenta se cortaba sola a mitad de respuesta.
@@ -1546,7 +1546,7 @@ async def _byok_proxy(request: Request, raw: bytes, basa_key: Optional[str], is_
             up = await client.send(req, stream=True)
         except Exception as exc:  # noqa: BLE001
             await client.aclose()
-            return _anthropic_error(f"[Basa Gateway] motor no disponible: {exc}", 502)
+            return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {exc}", 502)
         if up.status_code != 200:
             err = await up.aread()
             await up.aclose()
@@ -1599,9 +1599,9 @@ _HARD_BLOCK = [Depends(require_not_hard_blocked)]
 @router.post("/v1/messages", dependencies=_HARD_BLOCK)
 async def gw_messages(
     request: Request,
-    x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
-    x_basa_redact: Optional[str] = Header(None, alias="X-Basa-Redact"),
-    x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream"),
+    x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key"),
+    x_sentinel_redact: Optional[str] = Header(None, alias="X-Sentinel-Redact"),
+    x_sentinel_upstream: Optional[str] = Header(None, alias="X-Sentinel-Upstream"),
 ):
     start = time.time()
     raw = await request.body()
@@ -1627,7 +1627,7 @@ async def gw_messages(
 
     # ── ruteo de puerta única (spec 019): byok → motor (política del motor), else
     # passthrough de suscripción → Anthropic (política del gateway) ──
-    mode, x_basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
+    mode, x_sentinel_key = _detect_mode_and_key(request, x_sentinel_upstream, x_sentinel_key)
     if mode == "byok":
         # Modo `closed` (spec 031, FR-005): el corte por auditoría es del plano que TIENE la
         # sesión de base. El motor hace su propio pre-check contra `/internal/audit/probe`,
@@ -1659,10 +1659,10 @@ async def gw_messages(
                     json.loads(enviado).get("model") or model)
             except Exception:  # noqa: BLE001 — jamás por un nombre para la auditoría
                 pass
-        return await _byok_proxy(request, enviado, x_basa_key, is_stream,
+        return await _byok_proxy(request, enviado, x_sentinel_key, is_stream,
                                  model=modelo_al_motor, start=start)
 
-    ident = _resolve_attribution(x_basa_key)
+    ident = _resolve_attribution(x_sentinel_key)
     # La decisión servir/cortar de ESTE pedido (spec 038 T007), resuelta UNA vez y leída por
     # los tres puntos que la necesitan: el pre-check del camino feliz y los dos rechazos que
     # ya escriben fila (bloqueo y literal reservado). Una sola llamada y no tres: en `policy`
@@ -1672,7 +1672,7 @@ async def gw_messages(
     exige_registro = audit_exige_registro(ident.get("applied_risk_level"))
     tool = policy.detect_tool(request.headers.get("user-agent"))
     # Postura de gobernanza del tenant para (modo efectivo, superficie) — spec 027 T026.
-    profile = _resolve_governance_profile(ident, tool, x_basa_redact)
+    profile = _resolve_governance_profile(ident, tool, x_sentinel_redact)
 
     # ── política: bloquear/enmascarar (misma librería que el motor) ──
     # `ident["nlp"]` (issue #63) lleva el contexto de detección del tenant: con
@@ -1710,7 +1710,7 @@ async def gw_messages(
             # `closed`: en `policy` un bloqueo de riesgo alto tampoco puede quedar sin fila y
             # con cara de bloqueo normal.
             return _audit_no_disponible()
-        return _anthropic_error(f"[Basa Gateway] {block_reason}")
+        return _anthropic_error(f"[Sentinel Gateway] {block_reason}")
 
     # ── Tercer paso del orden sanear → auditar → **rechazar** (ver `sanear_modelo_declarado`).
     # El pedido llegó hasta acá recorriendo las capas como cualquier otro, así que su fila sale
@@ -1740,7 +1740,7 @@ async def gw_messages(
             # normal.
             return _audit_no_disponible()
         return _anthropic_error(
-            f"[Basa Gateway] '{MODELO_CADENA_LICENCIAS}' es un literal reservado de la "
+            f"[Sentinel Gateway] '{MODELO_CADENA_LICENCIAS}' es un literal reservado de la "
             "auditoría —marca los eslabones de la cadena de evidencia de licencias— y no "
             "puede usarse como nombre de modelo. El intento quedó registrado.", 422)
 
@@ -1784,7 +1784,7 @@ async def gw_messages(
         except Exception as exc:  # noqa: BLE001
             latency = int((time.time() - start) * 1000)
             _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
-            return _anthropic_error(f"[Basa Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
+            return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
 
         in_tok = out_tok = 0
         content_out = up.content
@@ -1821,7 +1821,7 @@ async def gw_messages(
         await client.aclose()
         latency = int((time.time() - start) * 1000)
         _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
-        return _anthropic_error(f"[Basa Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
+        return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
 
     if up.status_code != 200:
         err_body = await up.aread()
@@ -1950,16 +1950,16 @@ async def gw_messages(
 # ── passthroughs finos que Claude Code también llama (verbatim, sin política) ─────
 
 async def _plain_passthrough(request: Request, path: str, method: str, ident: dict,
-                             x_basa_upstream: Optional[str] = None,
-                             x_basa_key: Optional[str] = None):
+                             x_sentinel_upstream: Optional[str] = None,
+                             x_sentinel_key: Optional[str] = None):
     """count_tokens / models: reenvío verbatim. Honra auto-byok (Copilot/Cursor no mandan
     header de control): con virtual key → motor; si no → suscripción del cliente. NO se
     enmascara (count_tokens necesita el conteo real; el destino es la propia suscripción).
 
-    ``x_basa_key`` se threadea a ``_detect_mode_and_key`` con la MISMA semántica que
-    ``/v1/messages`` (P2): un ruteo byok explícito (``X-Basa-Upstream: byok``) con la
-    virtual key SOLO en ``X-Basa-Key`` resuelve byok en vez de un 401 espurio — el scan
-    de headers excluye ``x-basa-*`` (load-bearing), así que sin threadear la key el motor
+    ``x_sentinel_key`` se threadea a ``_detect_mode_and_key`` con la MISMA semántica que
+    ``/v1/messages`` (P2): un ruteo byok explícito (``X-Sentinel-Upstream: byok``) con la
+    virtual key SOLO en ``X-Sentinel-Key`` resuelve byok en vez de un 401 espurio — el scan
+    de headers excluye ``x-sentinel-*`` (load-bearing), así que sin threadear la key el motor
     nunca se contactaría. F2 sigue intacto: byok sin NINGUNA key sigue siendo 401.
 
     **Sin pre-check de auditoría (spec 031, decisión explícita).** Estas dos rutas no
@@ -1968,14 +1968,14 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
     tool entera durante una caída sin proteger ningún registro (no hay registro que
     proteger) y sin ahorrar dinero (no hay generación que pagar). El corte vive donde sí hay
     tráfico auditable y facturable: ``/v1/messages``."""
-    mode, basa_key = _detect_mode_and_key(request, x_basa_upstream, x_basa_key)
+    mode, sentinel_key = _detect_mode_and_key(request, x_sentinel_upstream, x_sentinel_key)
     if mode == "byok":
         # F2: mismo fail-closed que /v1/messages — byok sin virtual key jamás usa el
         # master key del motor (evita el bypass a PROXY_ADMIN en count_tokens/models).
-        if not basa_key:
-            return _anthropic_error("[Basa Gateway] byok requiere una virtual key (sk-basa-…).", 401)
+        if not sentinel_key:
+            return _anthropic_error("[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).", 401)
         url = _with_query(f"{_LITELLM_UPSTREAM}{path}", request)
-        up_headers = _byok_headers(request, basa_key)
+        up_headers = _byok_headers(request, sentinel_key)
     else:
         url = _with_query(f"{_ANTHROPIC_UPSTREAM}{path}", request)
         up_headers = _upstream_headers(request, ident)
@@ -1988,45 +1988,45 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
         return Response(content=up.content, status_code=up.status_code,
                         media_type=up.headers.get("content-type", "application/json"))
     except Exception as exc:  # noqa: BLE001
-        return _anthropic_error(f"[Basa Gateway] upstream: {exc}", 502)
+        return _anthropic_error(f"[Sentinel Gateway] upstream: {exc}", 502)
 
 
 @router.post("/v1/messages/count_tokens", dependencies=_HARD_BLOCK)
 async def gw_count_tokens(request: Request,
-                          x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
-                          x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
+                          x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key"),
+                          x_sentinel_upstream: Optional[str] = Header(None, alias="X-Sentinel-Upstream")):
     return await _plain_passthrough(request, "/v1/messages/count_tokens", "POST",
-                                    _resolve_attribution(x_basa_key), x_basa_upstream, x_basa_key)
+                                    _resolve_attribution(x_sentinel_key), x_sentinel_upstream, x_sentinel_key)
 
 
 @router.get("/v1/models", dependencies=_HARD_BLOCK)
 async def gw_models(request: Request,
-                    x_basa_key: Optional[str] = Header(None, alias="X-Basa-Key"),
-                    x_basa_upstream: Optional[str] = Header(None, alias="X-Basa-Upstream")):
+                    x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key"),
+                    x_sentinel_upstream: Optional[str] = Header(None, alias="X-Sentinel-Upstream")):
     return await _plain_passthrough(request, "/v1/models", "GET",
-                                    _resolve_attribution(x_basa_key), x_basa_upstream, x_basa_key)
+                                    _resolve_attribution(x_sentinel_key), x_sentinel_upstream, x_sentinel_key)
 
 
 @router.get("")
 async def gw_info():
     """Descubrimiento: apuntar el ANTHROPIC_BASE_URL de una coding tool acá."""
     return {
-        "service": "Basa Firewall Gateway (puerta única: passthrough + byok)",
+        "service": "Sentinel Firewall Gateway (puerta única: passthrough + byok)",
         "usage": "Apuntá ANTHROPIC_BASE_URL de tu coding tool a …/api/v1/gw",
         "endpoints": ["/gw/v1/messages", "/gw/v1/messages/count_tokens", "/gw/v1/models"],
         "modes": {
             "subscription-passthrough": "OAuth del cliente verbatim → api.anthropic.com (la suscripción paga); política del gateway.",
-            "byok": "virtual key sk-basa-… → motor LiteLLM (cost tracking + budgets); la política la aplica el motor.",
+            "byok": "virtual key sk-sentinel-… → motor LiteLLM (cost tracking + budgets); la política la aplica el motor.",
         },
-        "routing": "auto: sk-basa-… en header de auth (excl. x-basa-*) o en ?k=… → byok; si no, passthrough. Override: X-Basa-Upstream.",
-        # La entrada de X-Basa-Redact cambió con la 027: prometía un override 1/0 y hoy
+        "routing": "auto: sk-sentinel-… en header de auth (excl. x-sentinel-*) o en ?k=… → byok; si no, passthrough. Override: X-Sentinel-Upstream.",
+        # La entrada de X-Sentinel-Redact cambió con la 027: prometía un override 1/0 y hoy
         # solo puede AGREGAR protección. Documentarlo acá no es cosmética — el discovery
         # es lo que lee quien integra, y una doc que sigue prometiendo "0 = no enmascarar"
         # produce integraciones que creen haber apagado el masking y no lo apagaron.
-        "headers": {"X-Basa-Key": "atribución opcional (tenant/client) para auditoría",
-                    "X-Basa-Redact": ("solo restrictivo: 1 fuerza el enmascarado PII de "
+        "headers": {"X-Sentinel-Key": "atribución opcional (tenant/client) para auditoría",
+                    "X-Sentinel-Redact": ("solo restrictivo: 1 fuerza el enmascarado PII de "
                                       "este request; 0 se IGNORA (un override por request "
                                       "no puede relajar la postura del administrador). "
                                       "Para no enmascarar, configurá la capa en Gobernanza."),
-                    "X-Basa-Upstream": "forzar modo: byok | subscription-passthrough"},
+                    "X-Sentinel-Upstream": "forzar modo: byok | subscription-passthrough"},
     }

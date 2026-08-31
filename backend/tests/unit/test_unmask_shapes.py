@@ -14,7 +14,7 @@ Contrato: specs/024-unmask-bridged-routes/contracts/unmask-roundtrip.md.
 """
 from types import SimpleNamespace
 
-from extensions import basa_guardian_policy as policy
+from extensions import sentinel_guardian_policy as policy
 
 PH = "[EMAIL_ADDRESS_0_ab12]"
 ORIG = "laura.perez@hospital.es"
@@ -213,14 +213,14 @@ def test_unmask_mapping_vacio_early_return():
 # ── Root cause 3: identidad proxy en ambos metadata-homes ──
 
 def test_identidad_en_litellm_metadata_home():
-    data = {"litellm_metadata": {"user_api_key_metadata": {"basa": {"tenant_slug": "default",
+    data = {"litellm_metadata": {"user_api_key_metadata": {"sentinel": {"tenant_slug": "default",
             "client_username": "spike-ollama", "tool_type": "claude-code"}}}}
-    basa = policy.proxy_identity_from(data)
-    assert basa["client_username"] == "spike-ollama"
+    sentinel = policy.proxy_identity_from(data)
+    assert sentinel["client_username"] == "spike-ollama"
 
 
 def test_identidad_en_metadata_home_clasico():
-    data = {"metadata": {"user_api_key_metadata": {"basa": {"client_username": "ana"}}}}
+    data = {"metadata": {"user_api_key_metadata": {"sentinel": {"client_username": "ana"}}}}
     assert policy.proxy_identity_from(data)["client_username"] == "ana"
 
 

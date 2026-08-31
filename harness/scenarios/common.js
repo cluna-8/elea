@@ -3,7 +3,7 @@
 // Frontera: los guiones GENERAN la carga (modelo ABIERTO, research R1); el veredicto lo
 // computa el evaluador Python del k6 summary + producto + stub (NUNCA de k6 en vivo). Este
 // módulo no decide PASS/FAIL: solo mide y escribe el summary en el esquema que el evaluador
-// consume (`basa-harness/k6-summary@1`).
+// consume (`sentinel-harness/k6-summary@1`).
 //
 // Modelo abierto: cada superficie corre como `constant-arrival-rate` (rate=N_s sobre
 // timeUnit=cadencia_media). El threshold `dropped_iterations==0` (definido en gate.js) es la
@@ -147,7 +147,7 @@ export function recordRejection(phase, ms) {
 
 // ── rechazo de admisión por saturación (nodo C1 del core) ──────────────────────────────
 // Contrato de wire SELLADO: TODO 503 de saturación lleva el header
-// `X-Basa-Rejected: saturated`, en los dos caminos (chat del panel y /gw). Ese header ES
+// `X-Sentinel-Rejected: saturated`, en los dos caminos (chat del panel y /gw). Ese header ES
 // la llave: un 503 SIN él NO es rechazo de admisión (puede ser Caddy o cualquier proxy de
 // la sede) y NO debe contarse como tal. En chat el body además trae
 // `code: "rejected_saturated"`, pero el body es EXTRA — acá no se parsea.
@@ -155,7 +155,7 @@ export function saturatedRejection(res) {
   if (!res || res.status !== 503) return false;
   const h = res.headers;
   if (!h) return false;   // xk6-sse devuelve {error} sin headers si la conexión ni abrió
-  const v = h['X-Basa-Rejected'] || h['x-basa-rejected'];
+  const v = h['X-Sentinel-Rejected'] || h['x-sentinel-rejected'];
   if (typeof v !== 'string') return false;
   // Comparación por TOKENS: si el header se escribe en dos capas (backend + un middleware
   // de la sede), Go los junta en un solo valor separado por ', ' ('saturated, saturated')
@@ -186,9 +186,9 @@ export function saturatedRejection(res) {
 // cayendo del lado del fallo del instrumento, que es donde debe estar.
 const BLOCK_ROOTS = ['bloqueó la petición', 'petición bloqueada', 'petición fue bloqueada'];
 
-// Prefijo del plano /gw: `_anthropic_error` antepone «[Basa Gateway]» a TODO rechazo
+// Prefijo del plano /gw: `_anthropic_error` antepone «[Sentinel Gateway]» a TODO rechazo
 // propio del gateway (gateway.py). Es más robusto que la prosa y no depende del idioma.
-const GW_BLOCK_PREFIX = '[basa gateway]';
+const GW_BLOCK_PREFIX = '[sentinel gateway]';
 
 export function policyBlock(res) {
   if (!res || res.status !== 400) return false;
@@ -224,11 +224,11 @@ export function loginToken(id) {
   return null;
 }
 
-// chat/admin/login → JWT Bearer; extension/coding → X-Basa-Key (la Connection del seat).
+// chat/admin/login → JWT Bearer; extension/coding → X-Sentinel-Key (la Connection del seat).
 export function authHeaders(id, surface) {
   if (surface === 'extension' || surface === 'coding') {
-    if (!id.basa_key) return null; // el pool debe traer la key de la Connection (ver README)
-    return { 'X-Basa-Key': id.basa_key };
+    if (!id.sentinel_key) return null; // el pool debe traer la key de la Connection (ver README)
+    return { 'X-Sentinel-Key': id.sentinel_key };
   }
   const tok = loginToken(id);
   if (!tok) return null;
@@ -318,9 +318,9 @@ export function buildSummary(data) {
     };
   }
   // `saturated_rejections` y `rejection_ms` son ADITIVOS: el esquema sigue siendo
-  // `basa-harness/k6-summary@1` (un summary sin rechazos trae 0 y percentiles en 0).
+  // `sentinel-harness/k6-summary@1` (un summary sin rechazos trae 0 y percentiles en 0).
   return {
-    schema: 'basa-harness/k6-summary@1',
+    schema: 'sentinel-harness/k6-summary@1',
     gate: CONFIG.gate,
     version: CONFIG.version,
     surfaces: surfaces,

@@ -47,7 +47,7 @@ inventada — silenciosa o no— hacia un modelo que nadie eligió.
 
 ## Consecuencias
 
-- El 503 de saturación (`X-Basa-Rejected: saturated`, fila `rejected_saturated`) es un
+- El 503 de saturación (`X-Sentinel-Rejected: saturated`, fila `rejected_saturated`) es un
   síntoma **del motor**. Ver un pico de esos rechazos en el passthrough sería un bug, no una
   saturación.
 - El tope del motor local se configura **por encima** del total que el backend puede admitir
@@ -56,7 +56,7 @@ inventada — silenciosa o no— hacia un modelo que nadie eligió.
   un error opaco. `backend/tests/contract/test_catalogo_motor_paralelismo.py` lo fija para los
   valores que se EMBARCAN (20 > 8 × 2); con el tope env-tuneable, subirlo sin subir el del
   motor invierte la relación **en silencio**, así que el co-cambio queda documentado en la
-  descripción de `BASA_ENGINE_MAX_CONCURRENCY` (`.env.example`). Una guarda automática exigiría
+  descripción de `SENTINEL_ENGINE_MAX_CONCURRENCY` (`.env.example`). Una guarda automática exigiría
   acoplar el backend a un valor del catálogo del motor: se diseña con el tuning del gate 250.
 - Los reintentos del router contra el runtime local van en **0** (decisión ②): reintentar
   contra una cola FIFO es multiplicar por tres el trabajo que ya no entra. Los reintentos son

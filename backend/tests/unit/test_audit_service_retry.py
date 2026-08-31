@@ -118,7 +118,7 @@ def logs_de_auditoria():
     el mismo assert pasaba en solitario y fallaba dentro de `-k audit`. Un handler pegado
     al logger concreto mide lo que el test dice medir, corra solo o acompañado.
     """
-    logger = logging.getLogger("basa-secure-gateway.audit")
+    logger = logging.getLogger("sentinel-secure-gateway.audit")
     mensajes = []
 
     class _Captura(logging.Handler):

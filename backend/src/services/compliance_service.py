@@ -2,7 +2,7 @@ import re
 import logging
 from typing import Tuple, Dict, Any
 
-logger = logging.getLogger("basa-secure-gateway.compliance")
+logger = logging.getLogger("sentinel-secure-gateway.compliance")
 
 # Prohibited AI practices under EU AI Act (Article 5) — universales (aplican a cualquier sector)
 PROHIBITED_KEYWORDS = [

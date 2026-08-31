@@ -1,6 +1,6 @@
 # deploy/ — Empaquetado + IaC de marca blanca (spec 020)
 
-**Modelo de negocio** (por qué este dir existe): Basa **vende INSTALL + X licencias y NO
+**Modelo de negocio** (por qué este dir existe): Sentinel **vende INSTALL + X licencias y NO
 instala ni opera servidores**. El comprador es un **distribuidor** que revende el producto
 con SU marca y lo levanta donde quiera. El entregable es: imágenes de producción + branding
 pack + perfil por cliente + **módulo OpenTofu** portable (MPL 2.0 — no Terraform-BSL) +
@@ -41,13 +41,13 @@ es **cero**. La verificación de licencia (021) es 100% offline — jamás llama
 casa. Camino k8s v2: **Zarf** (bundle con SBOM + firma cosign).
 
 **Sitio de documentación (spec 022)**: viaja como una imagen más del release —
-`basa-docs:<brand>-<version>` (build en `docs/`, una por marca) — dentro de
+`sentinel-docs:<brand>-<version>` (build en `docs/`, una por marca) — dentro de
 `images.tar` del bundle y, en el camino v2, del paquete Zarf igual que el resto
 de imágenes pinneadas. Es 100% estático y 0-egress: funciona en air-gap sin
 ninguna pieza extra (checks: `make -C deploy check-docs`).
 
 **Analizador NLP (spec 016)**: viaja como imagen propia del release —
-`basa-nlp-analyzer:<version>` (build en `presidio-analyzer/`, la publica
+`sentinel-nlp-analyzer:<version>` (build en `presidio-analyzer/`, la publica
 `publish.sh`) — y el compose prod la exige por `NLP_ANALYZER_IMAGE`. NO es
 opcional: sin el servicio levantado y sin `NLP_ANALYZER_URL`, el motor detecta
 PII con las regex de dev/demo en vez del modelo real, y el cliente no se entera

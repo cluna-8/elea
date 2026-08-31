@@ -20,7 +20,7 @@ export default defineConfig({
     host: true,
     proxy: {
       // BACKEND_URL: override de URL completa para apuntar el dev server a un backend fuera
-      // de la red del compose (p.ej. BACKEND_URL=http://localhost:8091 para el stack basa-*
+      // de la red del compose (p.ej. BACKEND_URL=http://localhost:8091 para el stack sentinel-*
       // ya corriendo en el host). Sin él, cae al patrón de la red del compose (backend:8000).
       '/api': { target: process.env.BACKEND_URL || `http://${process.env.BACKEND_HOST || 'backend'}:8000`, changeOrigin: true },
       '/gw': { target: process.env.BACKEND_URL || `http://${process.env.BACKEND_HOST || 'backend'}:8000`, changeOrigin: true },

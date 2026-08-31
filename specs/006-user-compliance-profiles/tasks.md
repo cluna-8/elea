@@ -22,8 +22,8 @@
 
 ## Fase 3 — Redis
 
-- [x] **T-015** Contenedor `basa-redis` en `docker-compose.yml`
-- [x] **T-016** Variable `REDIS_HOST=basa-redis` en docker-compose environment
+- [x] **T-015** Contenedor `sentinel-redis` en `docker-compose.yml`
+- [x] **T-016** Variable `REDIS_HOST=sentinel-redis` en docker-compose environment
 - [x] **T-017** Actualizar `litellm/config.yaml`: sección `cache` con Redis
 - [x] **T-018** Actualizar `backend/src/api/keys.py`: `rpm_limit` y `tpm_limit` en create/list de API keys
 

@@ -9,7 +9,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_roles"
+DB = "sentinel_test_roles"
 
 
 @pytest.fixture(scope="module")

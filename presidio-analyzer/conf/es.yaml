@@ -2,7 +2,7 @@
 # Despliegue objetivo: Europa (España como idioma base — habilita gratis los
 # reconocedores built-in de Presidio ES_NIF/ES_NIE, con checksum). Cubre además
 # clientes hispanohablantes de LATAM cuando se sumen esos despliegues (roadmap:
-# STRUCTURED_ID_PATTERNS_BY_REGION en basa_guardian_policy.py). Otros idiomas de
+# STRUCTURED_ID_PATTERNS_BY_REGION en sentinel_guardian_policy.py). Otros idiomas de
 # la UE (IT_FISCAL_CODE, PL_PESEL, UK_NHS, etc. son built-in de Presidio pero
 # requieren su propio modelo spaCy/idioma) quedan fuera de v1 — se suman agregando
 # un `lang_code` acá + su modelo, sin tocar el pipeline.

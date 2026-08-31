@@ -13,7 +13,7 @@ from migration_harness import DEFAULT_TENANT, fresh_db, owner_engine, require_po
 
 require_postgres()
 
-DB = "basa_test_seat_counter"
+DB = "sentinel_test_seat_counter"
 
 OTHER_TENANT = uuid.UUID("22222222-0000-0000-0000-000000000002")
 

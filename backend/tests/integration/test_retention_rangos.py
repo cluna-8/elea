@@ -35,7 +35,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_retention_rangos"
+DB = "sentinel_test_retention_rangos"
 
 
 @pytest.fixture(scope="module")

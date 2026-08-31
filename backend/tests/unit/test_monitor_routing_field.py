@@ -4,7 +4,7 @@ Dos cosas distintas que comparten el mismo hecho —«auto» es un pseudo-modelo
 chat— y por eso viven juntas:
 
 1. **La vitrina aprende un campo sin romper a los que no lo mandan.** El evento de
-   ``basa:gw:events`` tiene tres productores (gateway, plano chat, logger del motor) y sólo
+   ``sentinel:gw:events`` tiene tres productores (gateway, plano chat, logger del motor) y sólo
    uno emite ``routing``. Se verifica lo que hace que eso sea seguro: con el campo, el
    evento lo lleva **proyectado al subset del contrato** (sin ``requested``/``reason``, que
    son del Debugger y de la columna durable); sin el campo, el evento sale **idéntico** a
@@ -264,7 +264,7 @@ def test_byok_manda_al_motor_el_modelo_default_no_auto(gw, monkeypatch):
     _instalar_router(monkeypatch, lambda: {"default_model": "camara-local"})
     r = gw.post("/gw/v1/messages",
                 json={"model": "auto", "messages": [{"role": "user", "content": "hola"}]},
-                headers={"x-api-key": "sk-basa-copilot123"})
+                headers={"x-api-key": "sk-sentinel-copilot123"})
     assert r.status_code == 200
     assert _FakeHttpx.last["url"].startswith(ENGINE)          # fue por byok
     enviado = json.loads(_FakeHttpx.last["content"])
@@ -278,5 +278,5 @@ def test_byok_con_config_rota_manda_el_body_verbatim(gw, monkeypatch):
 
     _instalar_router(monkeypatch, _explota)
     original = {"model": "auto", "messages": [{"role": "user", "content": "hola"}]}
-    gw.post("/gw/v1/messages", json=original, headers={"x-api-key": "sk-basa-copilot123"})
+    gw.post("/gw/v1/messages", json=original, headers={"x-api-key": "sk-sentinel-copilot123"})
     assert json.loads(_FakeHttpx.last["content"]) == original

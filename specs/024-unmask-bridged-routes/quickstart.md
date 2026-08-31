@@ -6,7 +6,7 @@ Ollama en el host con el modelo local (`OLLAMA_CONTEXT_LENGTH=32768 ollama serve
 `seed_client` — ver `specs/019-integration-surfaces/spikes-batch1.md`).
 
 ```bash
-KEY="sk-basa-…"          # virtual key byok
+KEY="sk-sentinel-…"          # virtual key byok
 GW="http://localhost:8091/api/v1/gw"
 
 # 1) No-streaming: el email DEBE volver en claro (hoy: placeholder)

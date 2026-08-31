@@ -10,7 +10,7 @@
 
 ## Context
 
-El MVP (feature 001) construyó toda la gestión de usuarios, grupos, presupuestos y keys en nuestra propia base de datos PostgreSQL. Sin embargo, las keys `basa_sk_...` generadas no son reconocidas por LiteLLM, el enforcement de presupuesto es simulado, y el gasto real no se trackea. Este feature sincroniza ambos sistemas para que el producto sea funcional en producción.
+El MVP (feature 001) construyó toda la gestión de usuarios, grupos, presupuestos y keys en nuestra propia base de datos PostgreSQL. Sin embargo, las keys `sentinel_sk_...` generadas no son reconocidas por LiteLLM, el enforcement de presupuesto es simulado, y el gasto real no se trackea. Este feature sincroniza ambos sistemas para que el producto sea funcional en producción.
 
 ---
 
@@ -131,6 +131,6 @@ Como administrador, quiero poder revocar una virtual key inmediatamente si sospe
 - **Motor de IA disponible**: El motor interno está levantado y tiene acceso a su DB antes de que el backend intente sincronizar recursos.
 - **Registros del MVP anterior son legacy**: Los users/groups/keys creados en el MVP (feature 001) no tienen `engine_team_id` ni `engine_user_id`. La UI los mostrará con gasto `-` sin errores. No se migrarán automáticamente.
 - **Budget en USD**: El motor trabaja con `max_budget` en USD. Los presupuestos en tokens del MVP se mantienen como información visual en nuestra UI pero no se sincronizan con el motor (no tiene límites nativos de tokens por key en la versión OSS).
-- **El cliente usa nuestro FastAPI como proxy**: Los clientes externos envían sus keys a nuestro backend (`http://basa-gateway:8081/api/v1/chat/completions`), nunca directamente al motor interno. Esto garantiza que las capas de seguridad (PII masking, guardianes) siempre se ejecutan.
+- **El cliente usa nuestro FastAPI como proxy**: Los clientes externos envían sus keys a nuestro backend (`http://sentinel-gateway:8081/api/v1/chat/completions`), nunca directamente al motor interno. Esto garantiza que las capas de seguridad (PII masking, guardianes) siempre se ejecutan.
 - **Motor OSS**: Se usa la versión open-source del motor de IA, sin features Enterprise (auto-rotación de keys, SSO, etc.).
 - **Separación infraestructura / producto**: Los archivos de configuración internos (`config.yaml`, variables de entorno del servidor) pueden referenciar nombres de tecnología. Lo que no puede hacerlo es el código de la capa de producto: nombres de clases, campos de DB, respuestas de API, logs de aplicación y UI.

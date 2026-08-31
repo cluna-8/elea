@@ -6,7 +6,7 @@ Tres pantallas del panel describen cómo se protege la información de su organi
 **Gobernanza** (la configuración vigente, capa por capa y alcance por alcance).
 
 Esta guía le enseña a leerlas. Los ajustes de política son una decisión de su organización:
-para cambiarlos, hable con su soporte técnico en **soporte@basa-dev.com**.
+para cambiarlos, hable con su soporte técnico en **soporte@sentinel-dev.com**.
 
 ## Qué le pasa a una consulta: las cinco capas
 
@@ -67,7 +67,7 @@ estas tres cosas:
 | --- | --- | --- |
 | **Detección NLP · Activa** (verde) | Todo normal: los datos personales se detectan con el motor completo. | Nada. |
 | **Detección NLP: no configurada — modo regex de desarrollo** (aviso gris) | Su instalación no tiene el motor de lenguaje conectado y detecta con patrones locales, que encuentran menos casos. | Es habitual en instalaciones de prueba. **No trabaje con datos reales de pacientes o clientes** hasta confirmarlo con soporte. |
-| **El motor de detección de datos personales no responde** (aviso rojo) | El motor está conectado pero caído ahora mismo. | Avise a **soporte@basa-dev.com** indicando desde qué hora aparece el aviso. |
+| **El motor de detección de datos personales no responde** (aviso rojo) | El motor está conectado pero caído ahora mismo. | Avise a **soporte@sentinel-dev.com** indicando desde qué hora aparece el aviso. |
 
 Cuando aparece el aviso rojo, el propio texto le dice qué le está pasando a las consultas,
 porque hay dos comportamientos posibles y su organización tiene configurado uno:
@@ -91,7 +91,7 @@ comprueba que el motor volvió a responder.
     Las dos opciones son legítimas y dependen de qué pesa más: la continuidad del servicio o
     la cobertura de la detección. Con datos de salud, la respuesta correcta es **bloquear**.
     Para revisar o cambiar esta configuración, hable con su soporte técnico en
-    **soporte@basa-dev.com**.
+    **soporte@sentinel-dev.com**.
 
 !!! note "Qué alcanza «bloquear» (y qué no)"
     Esta opción gobierna el **enmascaramiento**: afecta al tráfico cuya capa de
@@ -168,6 +168,6 @@ El botón **Actualizar** recarga la matriz y la hora de la última lectura se in
     Gobernanza y Seguridad y Guardianes son, ante todo, la vista fiable de lo que está
     aplicándose: úselas para verificar y para documentar. Cualquier cambio de la política de
     protección de su organización conviene acordarlo con su soporte técnico en
-    **soporte@basa-dev.com**, que confirmará que la configuración deseada se traduce en
+    **soporte@sentinel-dev.com**, que confirmará que la configuración deseada se traduce en
     capas realmente aplicadas. Después del cambio, compruebe el resultado en esta misma
     pantalla y en los eventos del [Firewall en vivo](auditoria.md).

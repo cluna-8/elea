@@ -57,7 +57,7 @@ from ..services import ai_engine_client, auto_router_service
 from .chat import _default_local_model, _get_config_path as _engine_config_path
 
 router = APIRouter(prefix="/chat", tags=["Auto Router"])
-logger = logging.getLogger("basa-secure-gateway.router-config")
+logger = logging.getLogger("sentinel-secure-gateway.router-config")
 
 # Fail-closed: sin credencial 401, con rol insuficiente 403. Las virtual keys (sk-*) no
 # resuelven a usuario de sesión, así que tampoco llegan acá — por diseño.

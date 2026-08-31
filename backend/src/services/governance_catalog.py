@@ -1,7 +1,7 @@
 """Puerta del backend al catálogo y al resolutor de gobernanza (spec 027, D1/D3).
 
 Este módulo **no implementa nada**: re-exporta la librería compartida
-``extensions.basa_governance``. La implementación vive en ``litellm/extensions/`` por una
+``extensions.sentinel_governance``. La implementación vive en ``litellm/extensions/`` por una
 razón de topología, no de gusto: el contenedor del motor monta ese paquete y **no puede
 importar ``backend/``** (ni ver su código, ni su base — P1 del research: en el perfil prod
 el motor corre contra una base propia). Si el catálogo viviera en ``backend/src/services``
@@ -18,10 +18,10 @@ el mismo archivo.
 **Mecanismo de import — un solo camino canónico** (hallazgo de la verificación adversarial
 del Foundational): se agrega al ``sys.path`` la carpeta **CONTENEDORA** del paquete
 (``/app/litellm_config`` en el contenedor, ``<repo>/litellm`` en local) y se importa
-``from extensions import basa_governance`` — el mismo camino que ya usa
+``from extensions import sentinel_governance`` — el mismo camino que ya usa
 ``backend/tests/conftest.py``. La versión anterior agregaba la carpeta ``extensions`` y
-hacía un import PLANO (``from basa_governance import ...``): con eso, el mismo archivo se
-cargaba **dos veces** —``extensions.basa_governance`` y ``basa_governance`` conviviendo en
+hacía un import PLANO (``from sentinel_governance import ...``): con eso, el mismo archivo se
+cargaba **dos veces** —``extensions.sentinel_governance`` y ``sentinel_governance`` conviviendo en
 ``sys.modules``, con dataclasses distintas— y ``a.Profile is b.Profile`` daba False. Era
 literalmente lo que el docstring declaraba prohibido: dos ``GOVERNANCE_LAYERS`` en memoria
 significan que el "catálogo único" no es único, y un ``isinstance(profile, Profile)`` de la
@@ -29,13 +29,13 @@ US2 fallaría cruzando caminos sin motivo aparente.
 
 Como red de seguridad, tras el import se registra el alias plano con
 ``sys.modules.setdefault``: si alguien (código legado, un call-site del motor) importa
-``basa_governance`` a secas **después**, recibe **este mismo objeto-módulo** en vez de
+``sentinel_governance`` a secas **después**, recibe **este mismo objeto-módulo** en vez de
 cargar una segunda copia. ``setdefault`` y no asignación: si el nombre plano ya estaba
 tomado, pisarlo escondería el problema en vez de exponerlo — el test
 ``test_catalogo_es_un_unico_objeto_modulo`` es el que lo grita.
 
 Regla para el resto del backend: **importar siempre desde acá**, nunca de
-``extensions.basa_governance`` ni del nombre plano. Por eso se re-exporta también el
+``extensions.sentinel_governance`` ni del nombre plano. Por eso se re-exporta también el
 vocabulario de rutas (``ROUTE_*``) que los tres call-sites de la US2 le pasan a
 ``map_effective_mode``: sin el re-export, el dev escribe el literal a mano, y la
 duplicación de taxonomía es justo el origen del problema que documenta D5.
@@ -48,7 +48,7 @@ import sys
 
 # ── Librería PURA compartida ──────────────────────────────────────────────────────
 # Se agrega la carpeta CONTENEDORA del paquete ``extensions`` (no la carpeta
-# ``extensions`` misma): el import canónico es ``from extensions import basa_governance``,
+# ``extensions`` misma): el import canónico es ``from extensions import sentinel_governance``,
 # idéntico al de conftest.py y al que usan los tests del resolutor puro. Un solo camino ⇒
 # un solo objeto-módulo ⇒ un solo catálogo.
 for _container in ("/app/litellm_config",
@@ -60,12 +60,12 @@ for _container in ("/app/litellm_config",
             sys.path.insert(0, _abs)
         break
 
-from extensions import basa_governance  # noqa: E402
+from extensions import sentinel_governance  # noqa: E402
 
 # Red de seguridad: quien importe el nombre plano recibe ESTE módulo, no una segunda copia.
-sys.modules.setdefault("basa_governance", basa_governance)
+sys.modules.setdefault("sentinel_governance", sentinel_governance)
 
-from extensions.basa_governance import (  # noqa: E402
+from extensions.sentinel_governance import (  # noqa: E402
     # Catálogo (D1): constante de código, MappingProxyType — no hay UPDATE que apague el
     # piso, así que SC-004 es estructural y no una validación que alguien puede olvidar.
     GOVERNANCE_LAYERS,
@@ -137,7 +137,7 @@ from extensions.basa_governance import (  # noqa: E402
 )
 
 __all__ = [
-    "basa_governance",
+    "sentinel_governance",
     "GOVERNANCE_LAYERS", "LAYER_KEYS", "GovernanceLayer", "get_layer",
     "floor_layers", "optional_layers",
     "Profile", "LayerDecision", "resolve_profile", "map_effective_mode",

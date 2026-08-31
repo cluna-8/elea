@@ -29,7 +29,7 @@
     return { ok: true, origin: u.origin, url: u.href.replace(/\/+$/, "") };
   }
 
-  root.BASA_CONFIG = {
+  root.SENTINEL_CONFIG = {
     // Sin URL horneada: el usuario la ingresa en el popup. Un partner puede pre-cargar
     // aquí un default editable, pero NUNCA una dirección de desarrollo fija.
     GATEWAY_URL: "",

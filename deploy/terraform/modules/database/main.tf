@@ -36,8 +36,8 @@ resource "aws_db_instance" "this" {
   instance_class            = var.instance_class
   allocated_storage         = 20
   storage_encrypted         = true
-  db_name                   = "basa_gateway"
-  username                  = "basa_admin"
+  db_name                   = "sentinel_gateway"
+  username                  = "sentinel_admin"
   password                  = var.postgres_password
   db_subnet_group_name      = aws_db_subnet_group.this.name
   vpc_security_group_ids    = [aws_security_group.db.id]

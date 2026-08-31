@@ -28,7 +28,7 @@ from ..services.governance_catalog import map_effective_mode
 from .audit import desenvolver_eventos_guardian
 
 router = APIRouter(prefix="/compliance", tags=["Compliance"])
-logger = logging.getLogger("basa-secure-gateway.compliance")
+logger = logging.getLogger("sentinel-secure-gateway.compliance")
 
 DEFAULT_DISCLOSURE_ES = (
     "Este servicio utiliza inteligencia artificial para generar respuestas. "

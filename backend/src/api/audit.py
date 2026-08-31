@@ -25,7 +25,7 @@ router = APIRouter(
     # Endpoints homogéneos de sólo-lectura del rastro de auditoría; sin config ni mutación.
     dependencies=[Depends(require_role("admin", "compliance_officer", "lectura"))],
 )
-logger = logging.getLogger("basa-secure-gateway.audit")
+logger = logging.getLogger("sentinel-secure-gateway.audit")
 
 
 # ── Filtro de estado (spec 031, FR-006 + contrato §UI) ───────────────────────────────

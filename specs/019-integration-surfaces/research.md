@@ -2,7 +2,7 @@
 
 **Fecha**: 2026-07-13 · **Método**: revisión de prior-art público (foros de producto, docs de
 gateways/DLP, blogs técnicos de browser-DLP) cruzada con la evidencia del demo (`gatelite-salud-eu`
-+ `basa-browser-dlp/`). Cinco preguntas abiertas que la spec dejaba pendientes de fundamentar. Cada
++ `sentinel-browser-dlp/`). Cinco preguntas abiertas que la spec dejaba pendientes de fundamentar. Cada
 hallazgo trae **veredicto** y **fuentes**. Complementa los hechos ya verificados del demo (Ask vs
 Agent en Copilot, body no firmado en ChatGPT/Claude, WebSocket vs `fetch`, gaps de iframe).
 
@@ -22,7 +22,7 @@ Agent en Copilot, body no firmado en ChatGPT/Claude, WebSocket vs `fetch`, gaps 
   fetch-interceptable) con el prompt ofuscado en `f.req`; el prior-art hace **DOM-hook** (editor Quill).
 - **Strip-tools = mecanismo, no estrategia.** Fuerza texto pero degrada el agente a chat, rompe UI y no
   frena tool-calls por system prompt. Preferible el modo Ask nativo.
-- **Prior-art browser-DLP:** no hay un "LiteLLM del browser-DLP" OSS; el approach de Basa (extensión MV3
+- **Prior-art browser-DLP:** no hay un "LiteLLM del browser-DLP" OSS; el approach de Sentinel (extensión MV3
   + fetch/DOM hook + mask contra gateway + unmask por MutationObserver) es el **patrón dominante**; el
   moat es **des-enmascarar** (mantener UX) frente a los incumbentes que **bloquean** (rompen UX).
 
@@ -93,16 +93,16 @@ el agente** no-Claude. Ratifica Copilot/Cursor = PARCIAL (sólo modo sin-tools).
 - https://answer.ai/posts/2026-01-20-toolcalling.html
 - https://docs.litellm.ai/docs/completion/drop_params
 
-## (5) Prior-art browser-DLP — ¿hay un estándar/OSS que copiar? → **NO hay "LiteLLM del browser-DLP"; el patrón de Basa es el dominante**
+## (5) Prior-art browser-DLP — ¿hay un estándar/OSS que copiar? → **NO hay "LiteLLM del browser-DLP"; el patrón de Sentinel es el dominante**
 
-No existe un OSS "LiteLLM del browser-DLP". El approach de Basa — **extensión MV3 + fetch/DOM hook + mask
+No existe un OSS "LiteLLM del browser-DLP". El approach de Sentinel — **extensión MV3 + fetch/DOM hook + mask
 contra el gateway + unmask por MutationObserver** — es el **patrón dominante**. `anonym.legal` replica
 casi idéntico: **tokens reversibles + unmask client-side + selectores per-plataforma**. **Moat** frente a
-Nightfall / Microsoft Purview / Zscaler: esos productos **BLOQUEAN** (rompen la UX); Basa **DES-ENMASCARA**
+Nightfall / Microsoft Purview / Zscaler: esos productos **BLOQUEAN** (rompen la UX); Sentinel **DES-ENMASCARA**
 (mantiene la UX). Recomendación de diseño: tratar la **lógica per-plataforma como ADAPTERS versionados**
 (igual que `chatgpt`/`claude`, con Gemini como el próximo adapter).
 
-**Veredicto**: el patrón de Basa está **validado por prior-art convergente**; el diferencial es
+**Veredicto**: el patrón de Sentinel está **validado por prior-art convergente**; el diferencial es
 des-enmascarar (no bloquear) y versionar los adapters per-plataforma.
 
 **Fuentes**:

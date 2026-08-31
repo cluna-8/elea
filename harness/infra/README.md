@@ -26,7 +26,7 @@ tofu init
 tofu apply -var 'ssh_key_names=["itv-op"]' -var 'admin_ssh_cidrs=["A.B.C.D/32"]'
 
 # ORDEN CRÍTICO: precargar imágenes ANTES de que el firewall corte el egress
-./preload-images.sh "$(tofu output -raw sut_public_ip)" basa-backend:prod basa-litellm:pinned basa-nlp:piloto …
+./preload-images.sh "$(tofu output -raw sut_public_ip)" sentinel-backend:prod sentinel-litellm:pinned sentinel-nlp:piloto …
 
 # los outputs alimentan el fingerprint del run
 tofu output -json fingerprint_hardware

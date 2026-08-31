@@ -1,4 +1,4 @@
-"""`BASA_AUDIT_FAIL=policy` en el plano chat (spec 038, Phase 2, T006-T008).
+"""`SENTINEL_AUDIT_FAIL=policy` en el plano chat (spec 038, Phase 2, T006-T008).
 
 `test_chat_block_audit.py` fija el contrato de `open`/`closed` (spec 031). Esta spec agrega
 un TERCER modo — y lo vuelve el DEFAULT (D1: env ausente/ilegible ⇒ `policy`, ya no `open`) —
@@ -38,7 +38,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_chat_audit_policy"
+DB = "sentinel_test_chat_audit_policy"
 
 CHAT = "/api/v1/chat/completions"
 MODELO = "ollama-qwen3-4b"
@@ -269,7 +269,7 @@ def test_policy_sin_riesgo_resuelto_corta(harness, monkeypatch, motor):
 
 
 def test_closed_explicito_no_cambia_con_riesgo_bajo(harness, monkeypatch, motor):
-    """`BASA_AUDIT_FAIL=closed` EXPLÍCITO + `risk_level=minimal` ⇒ igual corta (503) con el
+    """`SENTINEL_AUDIT_FAIL=closed` EXPLÍCITO + `risk_level=minimal` ⇒ igual corta (503) con el
     texto de `closed`, no el de `policy` — el override global ignora la matriz D2 por
     completo, incluso para el riesgo que `policy` serviría sin pestañear (SC-002)."""
     client, factory = harness
@@ -291,7 +291,7 @@ def test_closed_explicito_no_cambia_con_riesgo_bajo(harness, monkeypatch, motor)
 
 
 def test_open_explicito_sirve_con_riesgo_alto(harness, monkeypatch, motor):
-    """`BASA_AUDIT_FAIL=open` EXPLÍCITO + `risk_level=high_risk_annex3` + auditoría caída ⇒
+    """`SENTINEL_AUDIT_FAIL=open` EXPLÍCITO + `risk_level=high_risk_annex3` + auditoría caída ⇒
     se SIRVE (200) y `audit_writable` ni se consulta — el override permisivo también ignora
     la matriz D2 por completo, del otro lado (SC-002)."""
     client, factory = harness
@@ -422,7 +422,7 @@ def test_closed_con_la_fila_final_perdida_devuelve_503_y_no_500(harness, monkeyp
     assert len(motor.posts) == 1, "el proveedor YA se llamó — lo que falla es el INSERT final"
     assert len(perdidas_del_escritor(perdidas)) == 1, (
         "la pérdida se cuenta UNA sola vez: el except del plano no la vuelve a contar — "
-        "`basa:audit:lost` es constancia de eventos perdidos, no de reintentos")
+        "`sentinel:audit:lost` es constancia de eventos perdidos, no de reintentos")
 
 
 def test_policy_con_riesgo_alto_y_fila_final_perdida_devuelve_503_y_no_500(

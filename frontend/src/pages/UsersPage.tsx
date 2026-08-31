@@ -1402,7 +1402,7 @@ export const UsersPage: React.FC = () => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="ej: perez@basa.com.ar"
+              placeholder="ej: perez@sentinel.com.ar"
             />
             <PasswordField
               id="alta-password"

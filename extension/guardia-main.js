@@ -18,10 +18,10 @@
  * ya no hay panel de telemetría visible: se eliminó en 028, ver #46).
  * ==========================================================================*/
 (() => {
-  if (window.__BASA_GUARD__) return;
-  window.__BASA_GUARD__ = true;
+  if (window.__SENTINEL_GUARD__) return;
+  window.__SENTINEL_GUARD__ = true;
 
-  // Sin handle global: `window.__BASA = S` dejaba el mapa token→PII al alcance de
+  // Sin handle global: `window.__SENTINEL = S` dejaba el mapa token→PII al alcance de
   // cualquier script de la página con una línea (issue #44).
   const S = { tok2val: new Map() };
   // No hay `enabled`: el enmascarado NO es desactivable por el usuario. El toggle
@@ -77,15 +77,15 @@
   let _bridgeNonce = null;
   window.addEventListener("message", (ev) => {
     const d = ev.data; if (!d) return;
-    const n = d.__basa_nonce;
+    const n = d.__sentinel_nonce;
     // fijar el nonce del bridge la primera vez que lo vemos (init o state)
-    if (_bridgeNonce === null && (d.__basa === "init" || d.__basa === "state") && typeof n === "string" && n) {
+    if (_bridgeNonce === null && (d.__sentinel === "init" || d.__sentinel === "state") && typeof n === "string" && n) {
       _bridgeNonce = n;
     }
-    if (d.__basa === "resp") {
+    if (d.__sentinel === "resp") {
       if (n !== _bridgeNonce) return;                 // forjado / sin handshake → ignorar
       if (_pending.has(d.id)) { _pending.get(d.id)(d.resp); _pending.delete(d.id); }
-    } else if (d.__basa === "state") {
+    } else if (d.__sentinel === "state") {
       if (n !== _bridgeNonce) return;                 // forjado → ignorar (no cambia el gate)
       state = d.state || state; updateOverlay();
     }
@@ -93,11 +93,11 @@
   function callBridge(kind, payload) {
     return new Promise((resolve) => {
       const id = ++_seq; _pending.set(id, resolve);
-      window.postMessage(Object.assign({ __basa: "req", id, kind }, payload), "*");
+      window.postMessage(Object.assign({ __sentinel: "req", id, kind }, payload), "*");
       setTimeout(() => { if (_pending.has(id)) { _pending.delete(id); resolve({ ok: false, error: "timeout" }); } }, 6000);
     });
   }
-  window.postMessage({ __basa: "getState" }, "*"); // pedir estado al arrancar
+  window.postMessage({ __sentinel: "getState" }, "*"); // pedir estado al arrancar
 
   // ---- hook de fetch: gating + masking vía gateway ----
   // ¿el request lleva un body que debemos inspeccionar? El fail-closed NO depende

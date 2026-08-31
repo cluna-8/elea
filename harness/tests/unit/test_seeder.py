@@ -16,7 +16,7 @@ import json
 
 import pytest
 
-from basa_harness.seeder import (
+from sentinel_harness.seeder import (
     DEFAULT_SEED,
     SeedError,
     derive_password,
@@ -26,7 +26,7 @@ from basa_harness.seeder import (
     seed,
     validate_population,
 )
-from basa_harness.seeder.client import BackendError
+from sentinel_harness.seeder.client import BackendError
 
 GATES = (125, 250, 500)
 # Distribución canónica de R5 (client_total, tenant_admins, compliance, licencia).
@@ -87,10 +87,10 @@ class FakeBackendClient:
         u = self.users.get(username)
         return bool(u and u.get("password") == password)
 
-    def verify_basa_key(self, basa_key):
+    def verify_sentinel_key(self, sentinel_key):
         # Modela GET /gw/whoami: 200 si la key en claro existe (fail-closed 401 si no).
-        self.whoami_calls.append(basa_key)
-        return bool(self.whoami_ok and basa_key in self.plain_keys)
+        self.whoami_calls.append(sentinel_key)
+        return bool(self.whoami_ok and sentinel_key in self.plain_keys)
 
     def license_health(self):
         body = {"status": "active", "clock_rollback_suspected": False}
@@ -458,7 +458,7 @@ def test_FIX3_credenciales_no_incluyen_la_semilla():
 
 def test_FIX3_cli_avisa_con_semilla_default(monkeypatch, capsys):
     import importlib
-    seedmod = importlib.import_module("basa_harness.seeder.seed")
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
     fake = FakeBackendClient(max_seats=300)
     monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
     seedmod.main(["--gate", "125", "--verify-only"])
@@ -468,7 +468,7 @@ def test_FIX3_cli_avisa_con_semilla_default(monkeypatch, capsys):
 
 def test_FIX3_cli_sin_aviso_con_semilla_explicita(monkeypatch, capsys):
     import importlib
-    seedmod = importlib.import_module("basa_harness.seeder.seed")
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
     fake = FakeBackendClient(max_seats=300)
     monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
     seedmod.main(["--gate", "125", "--verify-only", "--seed", "12345"])
@@ -491,7 +491,7 @@ def test_FIX4_verify_reporta_budget_drift():
 
 
 def test_FIX5_budget_400_no_duplicado_es_fail_fast():
-    from basa_harness.seeder.seed import _looks_like_duplicate
+    from sentinel_harness.seeder.seed import _looks_like_duplicate
     pop = load_population_by_gate(125)
     # 400 por payload inválido (no "ya existe") NO debe tragarse como convergencia.
     client = FakeBackendClient(max_seats=300,
@@ -534,7 +534,7 @@ def test_FIX7_reseed_misma_semilla_no_aborta():
 def test_FIX8_emit_credentials_es_0600(tmp_path, monkeypatch):
     import stat
     import importlib
-    seedmod = importlib.import_module("basa_harness.seeder.seed")
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
     fake = FakeBackendClient(max_seats=300)
     monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
     out = tmp_path / "creds.json"
@@ -545,9 +545,9 @@ def test_FIX8_emit_credentials_es_0600(tmp_path, monkeypatch):
     assert mode == 0o600, f"el pool de credenciales no debe ser world-readable, es {oct(mode)}"
 
 
-# ── Material de llave en el pool (X-Basa-Key de extensión/coding) ─────────────────────
+# ── Material de llave en el pool (X-Sentinel-Key de extensión/coding) ─────────────────────
 #
-# Sin `basa_key` en el pool, `authHeaders` de common.js devuelve null y las superficies
+# Sin `sentinel_key` en el pool, `authHeaders` de common.js devuelve null y las superficies
 # extensión y coding NO corren: el examen mediría 2 de 4 y su veredicto no sería el del
 # gate. La key en claro sólo viaja en la respuesta del POST /keys.
 
@@ -555,7 +555,7 @@ def _creds_por_username(report):
     return {c["username"]: c for c in report.credentials}
 
 
-def test_seed_captura_la_basa_key_de_cada_connection():
+def test_seed_captura_la_sentinel_key_de_cada_connection():
     pop = load_population_by_gate(125)
     client = FakeBackendClient(max_seats=300)
     report = seed(pop, client, seed=7)
@@ -564,11 +564,11 @@ def test_seed_captura_la_basa_key_de_cada_connection():
     members = plan_members(pop, 7)
     seats = [m for m in members if m.is_seat]
     # Toda Connection creada dejó su material en el pool…
-    assert all(creds[m.username]["basa_key"] for m in seats)
+    assert all(creds[m.username]["sentinel_key"] for m in seats)
     # …y es la key EN CLARO que el backend devolvió (no el preview ni el id).
-    assert all(creds[m.username]["basa_key"] in client.plain_keys for m in seats)
+    assert all(creds[m.username]["sentinel_key"] in client.plain_keys for m in seats)
     # Las cuentas admin no son seats: no llevan material.
-    assert creds[pop.admin_username]["basa_key"] is None
+    assert creds[pop.admin_username]["sentinel_key"] is None
     assert report.keys_sin_material == []
 
 
@@ -576,11 +576,11 @@ def test_pool_conserva_la_paridad_de_shape_con_common_js():
     pop = load_population_by_gate(125)
     client = FakeBackendClient(max_seats=300)
     report = seed(pop, client, seed=7)
-    # common.js filtra por role/client_type y autentica con basa_key; el orquestador
+    # common.js filtra por role/client_type y autentica con sentinel_key; el orquestador
     # exporta además tool_type. El shape del pool del seeder debe traerlos todos.
     for c in report.credentials:
         assert set(c) >= {"username", "password", "role", "client_type", "tool_type",
-                          "basa_key"}
+                          "sentinel_key"}
     # Los pools por superficie de common.js no quedan vacíos.
     assert any(c["client_type"] == "desktop" for c in report.credentials)     # extensión
     assert any(c["client_type"] == "base_url" for c in report.credentials)    # coding
@@ -589,7 +589,7 @@ def test_pool_conserva_la_paridad_de_shape_con_common_js():
 
 def test_reseed_sin_key_recuperable_marca_las_identidades_y_no_regala_el_examen():
     # Las Connections ya existen (re-seed): el backend NO vuelve a dar la key en claro.
-    # El pool sale con basa_key null y el reporte marca a las identidades afectadas.
+    # El pool sale con sentinel_key null y el reporte marca a las identidades afectadas.
     pop = load_population_by_gate(125)
     client = FakeBackendClient(max_seats=300)
     seed(pop, client, seed=7)
@@ -600,7 +600,7 @@ def test_reseed_sin_key_recuperable_marca_las_identidades_y_no_regala_el_examen(
     afectadas = [m for m in plan_members(pop, 7)
                  if m.client_type in ("desktop", "base_url")]
     assert report.keys_sin_material == [m.username for m in afectadas]
-    assert all(creds[u]["basa_key"] is None for u in report.keys_sin_material)
+    assert all(creds[u]["sentinel_key"] is None for u in report.keys_sin_material)
     # chat_ui va por JWT: su falta de material no marca nada.
     assert not any(m.client_type == "chat_ui" and m.username in report.keys_sin_material
                    for m in plan_members(pop, 7))
@@ -617,12 +617,12 @@ def test_verify_only_recupera_las_keys_del_pool_previo_y_las_valida():
     assert report.state == "verified"
     assert report.keys_sin_material == []
     creds = _creds_por_username(report)
-    assert all(creds[c["username"]]["basa_key"] == c["basa_key"]
-               for c in pool_previo if c.get("basa_key"))
+    assert all(creds[c["username"]]["sentinel_key"] == c["sentinel_key"]
+               for c in pool_previo if c.get("sentinel_key"))
     # se validan TODAS las keys del pool, no una muestra: una revocación PARCIAL (la
     # mitad de las Connections caídas) pasaba desapercibida con [:4] y dejaba el examen
     # midiendo superficies mudas.
-    con_material = [c for c in pool_previo if c.get("basa_key")]
+    con_material = [c for c in pool_previo if c.get("sentinel_key")]
     assert len(client.whoami_calls) == len(con_material) > 4
 
 
@@ -633,7 +633,7 @@ def test_apply_tambien_valida_que_las_keys_sirvan():
     pop = load_population_by_gate(125)
     client = FakeBackendClient(max_seats=300)
     report = seed(pop, client, seed=7)
-    con_material = [c for c in report.credentials if c.get("basa_key")]
+    con_material = [c for c in report.credentials if c.get("sentinel_key")]
     assert len(client.whoami_calls) == len(con_material) > 0
 
 
@@ -653,7 +653,7 @@ def test_verify_only_con_key_que_no_autentica_aborta_ruidoso():
     pop = load_population_by_gate(125)
     client = FakeBackendClient(max_seats=300)
     sembrado = seed(pop, client, seed=7)
-    ajeno = [dict(c, basa_key=("sk-ajena" if c.get("basa_key") else None))
+    ajeno = [dict(c, sentinel_key=("sk-ajena" if c.get("sentinel_key") else None))
              for c in sembrado.credentials]
 
     with pytest.raises(SeedError) as ei:
@@ -663,7 +663,7 @@ def test_verify_only_con_key_que_no_autentica_aborta_ruidoso():
 
 def test_cli_sale_distinto_de_cero_si_falta_material_de_llave(tmp_path, monkeypatch, capsys):
     import importlib
-    seedmod = importlib.import_module("basa_harness.seeder.seed")
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
     fake = FakeBackendClient(max_seats=300)
     monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
     out = tmp_path / "creds.json"
@@ -673,16 +673,16 @@ def test_cli_sale_distinto_de_cero_si_falta_material_de_llave(tmp_path, monkeypa
     rc = seedmod.main(["--gate", "125", "--seed", "7", "--emit-credentials", str(out)])
     assert rc != 0
     err = capsys.readouterr().err
-    assert "basa_key" in err
+    assert "sentinel_key" in err
     # El pool se emite igual, con el campo en null para que se VEA cuál falta.
     pool = json.loads(out.read_text(encoding="utf-8"))
     desktop = [c for c in pool if c["client_type"] == "desktop"]
-    assert desktop and all(c["basa_key"] is None for c in desktop)
+    assert desktop and all(c["sentinel_key"] is None for c in desktop)
 
 
 def test_cli_verify_only_lee_el_pool_emitido_para_recuperar_las_keys(tmp_path, monkeypatch):
     import importlib
-    seedmod = importlib.import_module("basa_harness.seeder.seed")
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
     fake = FakeBackendClient(max_seats=300)
     monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
     out = tmp_path / "creds.json"
@@ -697,7 +697,7 @@ def test_cli_verify_only_lee_el_pool_emitido_para_recuperar_las_keys(tmp_path, m
 def test_FIX8_emit_credentials_0600_incluso_si_ya_existia(tmp_path, monkeypatch):
     import stat
     import importlib
-    seedmod = importlib.import_module("basa_harness.seeder.seed")
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
     fake = FakeBackendClient(max_seats=300)
     monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
     out = tmp_path / "creds.json"
@@ -708,11 +708,11 @@ def test_FIX8_emit_credentials_0600_incluso_si_ya_existia(tmp_path, monkeypatch)
 
 
 def test_verify_only_con_pool_corrupto_no_lo_pisa(tmp_path):
-    """M5: el pool en disco es la ÚNICA fuente de las basa_key (el backend no las devuelve
+    """M5: el pool en disco es la ÚNICA fuente de las sentinel_key (el backend no las devuelve
     dos veces). Ante un JSON corrupto el seeder seguía adelante SIN material y el paso
-    siguiente reescribía ese mismo archivo con basa_key: null — destruyendo material
+    siguiente reescribía ese mismo archivo con sentinel_key: null — destruyendo material
     irrecuperable y obligando a un `down -v`. Ahora aborta sin tocarlo."""
-    from basa_harness.seeder.seed import _read_pool
+    from sentinel_harness.seeder.seed import _read_pool
 
     pool = tmp_path / "pool.json"
     pool.write_text('{"esto": no es json', encoding="utf-8")

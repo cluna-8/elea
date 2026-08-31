@@ -60,7 +60,7 @@ from .governance_catalog import (
     STATUS_APPLIED,
 )
 
-logger = logging.getLogger("basa-secure-gateway.governance")
+logger = logging.getLogger("sentinel-secure-gateway.governance")
 
 # ── Vocabulario cerrado de estados (contrato #4) ──────────────────────────────────
 ESTADO_APLICANDOSE = "aplicandose"
@@ -153,7 +153,7 @@ _SCOPE_PLANES: Mapping[str, frozenset] = {
 # guardrail de proveedor. Configurable por env porque un despliegue white-label puede
 # registrarlo con otro nombre; se usa SOLO para el cruce con la sonda y nunca sale en una
 # respuesta.
-_OWN_GUARDRAIL_DEFAULT = "basa-guardian"
+_OWN_GUARDRAIL_DEFAULT = "sentinel-guardian"
 
 # Ventana de evidencia (fuente C). Corta a propósito: "corrió hace un rato" es lo que
 # distingue `degradada` de `no_disponible`, y una ventana larga haría que una capa caída
@@ -164,7 +164,7 @@ _EVIDENCE_ROW_LIMIT = 200
 
 
 def _own_guardrail_name() -> str:
-    return os.getenv("BASA_ENGINE_GUARDRAIL_NAME", _OWN_GUARDRAIL_DEFAULT).strip() or _OWN_GUARDRAIL_DEFAULT
+    return os.getenv("SENTINEL_ENGINE_GUARDRAIL_NAME", _OWN_GUARDRAIL_DEFAULT).strip() or _OWN_GUARDRAIL_DEFAULT
 
 
 @dataclass(frozen=True)
@@ -370,7 +370,7 @@ def compute_layer_state(layer: GovernanceLayer, *, desired: bool, mode: str,
     reportaba **peor** estado cuando el admin la encendía (``requiere_credencial``) que
     cuando la dejaba apagada (``delegada``), y le pedía cargar una credencial inútil. Es
     exactamente el reordenamiento que ya hizo ``build_attribution``
-    (basa_governance.py, chain de ``applied_layers``) con el mismo argumento; mantenerlo acá
+    (sentinel_governance.py, chain de ``applied_layers``) con el mismo argumento; mantenerlo acá
     es lo que evita que el producto se contradiga a sí mismo, con la vista de gobernanza
     diciendo "te falta credencial" y la atribución del pedido diciendo ``delegated``.
 

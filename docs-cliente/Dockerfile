@@ -6,12 +6,12 @@
 # El contexto de build debe contener `site/` (salida de
 # `mkdocs build -f mkdocs.yml -f mkdocs.<cliente>.yml`).
 #
-# Build:  docker build --build-arg BASE_IMAGE=basa-docs:prod \
-#           -t basa-docs-cliente:<cliente> -f Dockerfile <contexto-con-site/>
-# Pinneo: DOCS_IMAGE=basa-docs-cliente:<cliente> en deploy/clients/<cliente>/client.env
+# Build:  docker build --build-arg BASE_IMAGE=sentinel-docs:prod \
+#           -t sentinel-docs-cliente:<cliente> -f Dockerfile <contexto-con-site/>
+# Pinneo: DOCS_IMAGE=sentinel-docs-cliente:<cliente> en deploy/clients/<cliente>/client.env
 # (el compose toma DOCS_IMAGE de env: es dato del cliente, no código).
 # Institucionalización del pipeline completo: issue #47.
-ARG BASE_IMAGE=basa-docs:prod
+ARG BASE_IMAGE=sentinel-docs:prod
 FROM ${BASE_IMAGE}
 # La base corre como nginx (unprivileged, :8080); el html root es de root.
 USER root

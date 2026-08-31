@@ -2,9 +2,9 @@
 # Los checks son la "suite de tests" de esta spec: exit != 0 = rojo.
 
 REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
-BACKEND_IMG ?= basa-backend:prod
-FRONTEND_IMG ?= basa-frontend:prod
-DOCS_IMG ?= basa-docs:prod
+BACKEND_IMG ?= sentinel-backend:prod
+FRONTEND_IMG ?= sentinel-frontend:prod
+DOCS_IMG ?= sentinel-docs:prod
 # Marca por defecto para el entregable de la extensión (028): el piloto Cámara.
 EXT_BRAND ?= camara-comercio
 
@@ -29,7 +29,7 @@ build-docs:
 build-docs-brand:
 	test -n "$(BRAND)" -a -n "$(VERSION)" || { echo "uso: make build-docs-brand BRAND=<slug> VERSION=<v>"; exit 1; }
 	docker build -f $(REPO_ROOT)/docs/Dockerfile --build-arg BRAND=$(BRAND) \
-		--build-arg DOCS_VERSION=$(VERSION) -t basa-docs:$(BRAND)-$(VERSION) $(REPO_ROOT)/docs
+		--build-arg DOCS_VERSION=$(VERSION) -t sentinel-docs:$(BRAND)-$(VERSION) $(REPO_ROOT)/docs
 
 # Entregable white-label de la EXTENSIÓN de navegador (028 US1): renderiza el zip
 # con la marca del partner desde deploy/clients/$(BRAND)/brand.extension.json.
@@ -89,7 +89,7 @@ check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh
 
 # costura → Falime (Factory): backend y motor escriben/leen las MISMAS claves de Redis
-# (`basa:audit:*` de la 031, `basa:nlp:*` del #63). Si el perfil no le cablea REDIS_HOST al
+# (`sentinel:audit:*` de la 031, `sentinel:nlp:*` del #63). Si el perfil no le cablea REDIS_HOST al
 # motor —o los defaults del código divergen—, el health cuenta cero mientras el otro plano
 # registra: la degradación vuelve a ser silenciosa sin ningún síntoma visible.
 check-redis-wiring:
@@ -127,7 +127,7 @@ check-tofu:
 check-policy-files:
 	$(REPO_ROOT)/deploy/release/checks/test_content_policy_files.sh
 
-# 026 T005 — targets de basa-admin-signer/basa-admin, delegando a cli/Makefile.
+# 026 T005 — targets de sentinel-admin-signer/sentinel-admin, delegando a cli/Makefile.
 # cli-check NO esta en el `check` agregado de arriba todavia: sus sub-targets de
 # contract/offline/artifact-boundary/bundle-contents son placeholders hasta que
 # las fases 2-5 de la 026 los implementen (mismo criterio que el comentario de

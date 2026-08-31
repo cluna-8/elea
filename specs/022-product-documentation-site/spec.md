@@ -7,10 +7,10 @@
 **Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Un SITIO de documentación de producto (no la doc interna de Spec Kit): la
-doc para el DISTRIBUIDOR y el OPERADOR que instalan, marca-blanquean, administran e integran Basa Guardian.
+doc para el DISTRIBUIDOR y el OPERADOR que instalan, marca-blanquean, administran e integran Sentinel Guardian.
 Debe ser un CONTENEDOR propio, estático, air-gap-first (0 requests salientes en runtime), white-label por
 CONFIG sin fork, con búsqueda offline, API reference single-source desde el OpenAPI, versionado por release
-e i18n ES/EN. La semilla es el corpus markdown que ya existe en `basa-guardian/docs/`."
+e i18n ES/EN. La semilla es el corpus markdown que ya existe en `sentinel-guardian/docs/`."
 
 ---
 
@@ -25,7 +25,7 @@ existe hoy y qué no:
   **sólo en español**, con tablas y badges reimplementados a mano en JSX. **No escala**: cada página nueva
   es código, cada cambio de copy es un deploy del frontend, no hay búsqueda, no hay versionado, no hay i18n,
   y **mezcla la doc de producto con el bundle de la app**. Es una vitrina, no un sistema de documentación.
-- **Ya existe un corpus markdown separado y curado en `basa-guardian/docs/`** que es la **SEMILLA** real del
+- **Ya existe un corpus markdown separado y curado en `sentinel-guardian/docs/`** que es la **SEMILLA** real del
   sitio, escrito con la misma disciplina de honestidad SDD (leyenda 🟢 HOY / 🟡 PARCIAL / 🔵 OBJETIVO):
   - `docs/whitelabel-deployment.md` (~24 KB) — runbook de deploy del **distribuidor** (modelo de negocio,
     OpenTofu, branding pack, secretos, tabla estado-actual-vs-objetivo).
@@ -62,7 +62,7 @@ está escrito en `docs/*.md`; esta feature lo **empaqueta y lo hace escalar**, n
 - **VII. Containerized & White-Label (config + seed, never fork)** — *principio rector de esta feature*. El
   sitio es un **container separado** (como backend/motor/frontend) y su marca se aplica por **config-as-data**
   (tokens de branding en YAML/env + assets montados), **nunca un fork**. La imagen-por-marca
-  `basa-docs:<brand>-<version>` es la materialización del "config+seed, never fork" para la doc. Ningún nombre
+  `sentinel-docs:<brand>-<version>` es la materialización del "config+seed, never fork" para la doc. Ningún nombre
   de motor/proveedor (LiteLLM, Anthropic, Presidio…) aparece en el sitio publicado.
 - **VIII. Pipeline Transparency & Explainability** — *el sitio ES el artefacto de transparencia legible por
   humanos*. La constitución hace la transparencia **observable por request** (`pipeline_metadata`, el
@@ -88,13 +88,13 @@ donde Zarf empaqueta la imagen del sitio junto al resto del bundle air-gapped).
 
 ### User Story 1 - El sitio como contenedor propio, estático y air-gapped (Priority: P1)
 
-Un **operador** despliega Basa Guardian en un cliente **on-prem sin egress** (VPN sin salida a internet, caso
+Un **operador** despliega Sentinel Guardian en un cliente **on-prem sin egress** (VPN sin salida a internet, caso
 air-gap). El sitio de documentación corre como un **servicio `docs`** más del stack: una imagen construida en
 **multi-stage** (build con MkDocs+Material → HTML estático servido por **nginx**), sin ningún runtime dinámico.
 La garantía dura: **cero requests salientes en runtime** — ni fuentes de Google, ni CDNs de JS/CSS, ni
 telemetría, ni buscador SaaS. Todo asset (fuentes, iconos, JS del buscador) va **embebido en la imagen**. El
 sitio se integra al **docker-compose v1** como un servicio detrás del mismo proxy/TLS, y como roadmap al
-**k3s+Helm+Zarf v2** de la 020 (donde **Zarf empaqueta la imagen** `basa-docs:<brand>-<version>` en el bundle
+**k3s+Helm+Zarf v2** de la 020 (donde **Zarf empaqueta la imagen** `sentinel-docs:<brand>-<version>` en el bundle
 air-gapped, con SBOM y firma).
 
 **Why this priority**: Es la razón de ser de la decisión de framework y el requisito que descalifica a la
@@ -119,7 +119,7 @@ resueltos); (d) el servicio levanta en el compose detrás del proxy sin puertos 
 3. **Given** el docker-compose v1, **When** se añade el servicio `docs`, **Then** queda como un contenedor
    separado (Principio VII) servido detrás del mismo proxy/TLS, sin exponer egress nuevo.
 4. **Given** el roadmap k8s v2 (020), **When** se empaqueta el release, **Then** la imagen
-   `basa-docs:<brand>-<version>` entra en el bundle **Zarf** (air-gap-native, SBOM + firma) igual que el resto
+   `sentinel-docs:<brand>-<version>` entra en el bundle **Zarf** (air-gap-native, SBOM + firma) igual que el resto
    de imágenes pinneadas — documentado como enganche, materializado por la 020.
 
 ---
@@ -165,13 +165,13 @@ pérdida de la leyenda de estado 🟢/🟡/🔵, y que la navegación lateral re
 
 ### User Story 3 - White-label del sitio por config, sin fork (Priority: P1)
 
-El **distribuidor** revende Basa Guardian bajo **su propia marca**. El sitio de documentación debe
+El **distribuidor** revende Sentinel Guardian bajo **su propia marca**. El sitio de documentación debe
 white-labelearse **por configuración, nunca por fork**: un conjunto acotado de **tokens de marca** —
 `site_name`, `logo`, `favicon`, `palette` (colores primarios/acento), `extra.css` (overrides finos) — que se
 aplican **sin tocar el contenido ni el código del tema**. El mecanismo es **overlay por herencia** (`INHERIT`
 de MkDocs para superponer un `mkdocs.<brand>.yml` sobre la config base) **o** `envsubst` en build-time sobre
 una plantilla de config; el contenido markdown se mantiene **marca-neutro** por defecto. Cada marca produce
-una **imagen propia trazable** `basa-docs:<brand>-<version>` (una marca por instancia, coherente con el modelo
+una **imagen propia trazable** `sentinel-docs:<brand>-<version>` (una marca por instancia, coherente con el modelo
 1-instancia-por-cliente y con la trazabilidad air-gap).
 
 **Why this priority**: Es el Principio **VII** aplicado a la doc: *config + seed, never fork*. Sin white-label
@@ -182,7 +182,7 @@ original). Es P1 porque el sitio es un **entregable comercial del distribuidor**
 la config de branding (site_name/logo/favicon/palette/extra.css), **sin** editar contenido ni tema. Verificar:
 (a) ambos sitios difieren en nombre/logo/favicon/paleta y comparten el mismo contenido; (b) 0 líneas de
 contenido o de código de tema cambiaron entre marcas; (c) cada build produce una imagen etiquetada
-`basa-docs:<brand>-<version>`; (d) el sitio publicado **no** menciona ningún motor/proveedor externo.
+`sentinel-docs:<brand>-<version>`; (d) el sitio publicado **no** menciona ningún motor/proveedor externo.
 
 **Acceptance Scenarios**:
 
@@ -190,7 +190,7 @@ contenido o de código de tema cambiaron entre marcas; (c) cada build produce un
    **Then** la marca se aplica **sólo** por config (overlay `INHERIT` o `envsubst`), sin tocar contenido ni
    código del tema (Principio VII, never fork).
 2. **Given** dos marcas distintas, **When** se construyen, **Then** producen dos imágenes trazables
-   `basa-docs:<brand>-<version>` que comparten el mismo contenido y difieren sólo en los tokens de marca.
+   `sentinel-docs:<brand>-<version>` que comparten el mismo contenido y difieren sólo en los tokens de marca.
 3. **Given** el sitio publicado bajo cualquier marca, **When** se inspecciona, **Then** **no** aparece ningún
    nombre de motor/proveedor (LiteLLM, Anthropic, OpenAI, Presidio…) en páginas, títulos, footer ni assets
    (naming neutro, Principio VII).
@@ -360,7 +360,7 @@ esta feature.
   embebidos) y los plugins **`privacy`** (materializa assets remotos) y **`offline`** de Material.
 - **FR-004**: El servicio `docs` MUST integrarse al **docker-compose v1** detrás del proxy/TLS existente, sin
   exponer egress nuevo; y MUST documentar el enganche al **k3s+Helm+Zarf v2** de la 020 (Zarf empaqueta la
-  imagen `basa-docs:<brand>-<version>` con SBOM+firma en el bundle air-gapped).
+  imagen `sentinel-docs:<brand>-<version>` con SBOM+firma en el bundle air-gapped).
 
 **Contenido Distribuidor + Operador (US2)**
 - **FR-005**: El sitio MUST publicar las secciones: **Overview & arquitectura**, **Install/Deploy**,
@@ -382,7 +382,7 @@ esta feature.
 - **FR-011**: El mecanismo de branding MUST ser **overlay por herencia** (`INHERIT` sobre un
   `mkdocs.<brand>.yml`) **o** `envsubst` build-time sobre una plantilla de config; el contenido markdown MUST
   mantenerse **marca-neutro** por defecto.
-- **FR-012**: Cada marca MUST producir una imagen **trazable** `basa-docs:<brand>-<version>` (una marca por
+- **FR-012**: Cada marca MUST producir una imagen **trazable** `sentinel-docs:<brand>-<version>` (una marca por
   instancia; config-as-data en runtime, sin theming multi-tenant dinámico).
 - **FR-013**: El sitio publicado MUST NOT mencionar ningún nombre de motor/proveedor (LiteLLM, Anthropic,
   OpenAI, Azure, Presidio…) en páginas, títulos, footer ni assets; el build MUST verificarlo (check de naming
@@ -423,7 +423,7 @@ esta feature.
 
 ### Key Entities *(include if feature involves data)*
 
-- **Servicio `docs`** — *artefacto NUEVO (infra)*. Contenedor separado (imagen `basa-docs:<brand>-<version>`),
+- **Servicio `docs`** — *artefacto NUEVO (infra)*. Contenedor separado (imagen `sentinel-docs:<brand>-<version>`),
   multi-stage build → nginx estático; se enchufa al compose v1 y al bundle Zarf v2 (020). 0 egress en runtime.
 - **Corpus de contenido (semilla + curado)** — *SEMILLA existente + NUEVO*. Markdown en `docs/` como fuente:
   `whitelabel-deployment.md`, `integration-surfaces.md`, `compliance-policies.md`; más el contenido nuevo por
@@ -464,14 +464,14 @@ esta feature.
   búsqueda) funciona y se registran **0 requests a hosts externos** en runtime; `mkdocs build --strict` pasó
   en el build.
 - **SC-002 (contenedor separado)**: El sitio corre como **servicio `docs`** propio en el compose v1 (imagen
-  `basa-docs:<brand>-<version>`), servido estático por nginx, sin exponer egress nuevo; documentado el enganche
+  `sentinel-docs:<brand>-<version>`), servido estático por nginx, sin exponer egress nuevo; documentado el enganche
   Zarf v2.
 - **SC-003 (contenido sembrado)**: Las 9 secciones existen con contenido real; las 3 piezas del corpus
   (`whitelabel-deployment.md`, `integration-surfaces.md`, `compliance-policies.md`) están migradas a sus
   secciones **conservando la leyenda de estado** 🟢/🟡/🔵; la doc de producto ya **no** vive en `DocsPage.tsx`.
 - **SC-004 (white-label sin fork)**: Construir el sitio con 2 marcas distintas cambia **sólo** los tokens de
   branding: **0** líneas de contenido y **0** de código de tema difieren entre marcas; cada build produce su
-  imagen `basa-docs:<brand>-<version>`; **0** menciones de motor/proveedor en el HTML publicado.
+  imagen `sentinel-docs:<brand>-<version>`; **0** menciones de motor/proveedor en el HTML publicado.
 - **SC-005 (búsqueda offline)**: El 100% de las búsquedas resuelven contra el índice **local** con la red
   bloqueada; **0** integraciones con buscador SaaS (Algolia u otro) en config y HTML.
 - **SC-006 (API reference sin deriva)**: Un cambio de endpoint/campo en el backend se refleja en el API

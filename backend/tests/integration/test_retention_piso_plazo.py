@@ -93,7 +93,7 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_retencion_piso_plazo"
+DB = "sentinel_test_retencion_piso_plazo"
 
 # Plazos del seed 004 (`alembic/versions/004_compliance_tables.py:102-108`). A mano y NO
 # importados, con el mismo criterio que el archivo del residuo: si alguien cambia el seed, esto
@@ -171,13 +171,13 @@ def caja_en_cero(factory, politicas_del_seed):
 
 @pytest.fixture
 def corrida_real(monkeypatch):
-    """Corrida que BORRA: `BASA_PURGE_DRY_RUN=false` explícito.
+    """Corrida que BORRA: `SENTINEL_PURGE_DRY_RUN=false` explícito.
 
     El default del producto es el simulacro (mitad de la red de H7), así que un test que quiera
     medir borrado tiene que pedirlo — que es la disciplina que la perilla le impone al operador.
     """
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "false")
-    monkeypatch.setenv("BASA_PURGE_BATCH_PAUSE_MS", "0")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "false")
+    monkeypatch.setenv("SENTINEL_PURGE_BATCH_PAUSE_MS", "0")
 
 
 def sembrar(factory, filas):
@@ -347,7 +347,7 @@ def test_el_simulacro_no_reporta_un_numero_bajo_un_plazo_invalido(factory, monke
     """
     from src.services.retention import purger
 
-    monkeypatch.setenv("BASA_PURGE_DRY_RUN", "true")
+    monkeypatch.setenv("SENTINEL_PURGE_DRY_RUN", "true")
     marcas = sembrar(factory, [USO_VIEJA, USO_HOY])
 
     ensayo = purger.purgar_clase("usage_metadata", session_factory=factory, run_now=True)

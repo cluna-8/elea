@@ -1,4 +1,4 @@
-# Matriz de compatibilidad — Basa Guardian (superficies de cliente)
+# Matriz de compatibilidad — Sentinel Guardian (superficies de cliente)
 
 **Spec**: 019 · **Estado**: viva (se actualiza al sumar/validar superficies) · **Última**: 2026-07-20
 
@@ -25,15 +25,15 @@ NO/MCP-ONLY llevan razón técnica concreta, nunca "pendiente" (SC-006).
 
 | Herramienta | Superficie | Estado | Mecanismo de enganche | Razón / notas |
 |---|---|---|---|---|
-| **Claude Code** | base_url | **FUNCIONA** | `ANTHROPIC_BASE_URL` → `subscription-passthrough`; OAuth verbatim; identidad por UA + `X-Basa-Key` | Aguanta modo **Agent** (modelos Claude no rompen el tool-calling). Superficie titular. Verificado live: OAuth reenviado a `api.anthropic.com` (401 real con `request_id`). |
-| **VS Code / GitHub Copilot** | base_url | **PARCIAL** | byok por **auto-byok** (`sk-basa-…`) + **key-in-URL** (`?k=…`); `x-api-key` vacío | Sólo **modo Ask**. En **Agent** loopea: modelos no-Claude rompen tool-calling y VS Code rechaza input UUID → 400. |
+| **Claude Code** | base_url | **FUNCIONA** | `ANTHROPIC_BASE_URL` → `subscription-passthrough`; OAuth verbatim; identidad por UA + `X-Sentinel-Key` | Aguanta modo **Agent** (modelos Claude no rompen el tool-calling). Superficie titular. Verificado live: OAuth reenviado a `api.anthropic.com` (401 real con `request_id`). |
+| **VS Code / GitHub Copilot** | base_url | **PARCIAL** | byok por **auto-byok** (`sk-sentinel-…`) + **key-in-URL** (`?k=…`); `x-api-key` vacío | Sólo **modo Ask**. En **Agent** loopea: modelos no-Claude rompen tool-calling y VS Code rechaza input UUID → 400. |
 | **ChatGPT (web)** | browser | **FUNCIONA** | Extensión MV3, adapter `chatgpt` (`/backend-api/f/conversation`) | Body no firmado → acepta reescritura enmascarada. |
 | **Claude (web)** | browser | **FUNCIONA** | Extensión MV3, adapter `claude` (`/completion` **y** `/title`) | Cubre la **fuga de título** (`unmaskTitle`). Respuesta por WebSocket → unmask en DOM. |
 | **Cursor** | base_url | **PARCIAL** | **Override OpenAI Base URL** (Settings→Models) → gateway; sólo panel **chat/plan** (Cmd+L) | Como Copilot Ask: gobernable sólo sin-tools. El agente (Composer), inline y autocomplete están clavados al backend de Cursor; el "Override Anthropic Base URL" se auto-activa y rompe con **422**. |
 | **Gemini (web)** | browser | **NO (roadmap, viable)** | — (falta adapter + host) | Ver "Gemini — roadmap" abajo. |
 | **Claude Desktop** | desktop | **MCP-ONLY** | Servidor MCP (**tool-plane**) | Sin `ANTHROPIC_BASE_URL` ni hook interceptable. El MCP server sólo ve args/results de tools, nunca el chat: gobierna el tool-plane (DLP sobre results, audit de tool calls), **no** el prompt del usuario. Masking del chat = gap conocido no cubrible por esta vía. |
 | **Ollama (upstream de modelos propios)** | upstream | **FUNCIONA** | Config del motor: `ollama_chat/<modelo>` + `api_base` → 0 código (Principio IV) | Ruteo, identidad, mask pre_call, secretos, fallback y **round-trip unmask completo** verificados en vivo (spec 024, e2e `test_engine_roundtrip_e2e.py`). Nota acotada: cache del motor + prompts crudos idénticos puede servir placeholders ajenos (issue #30, decisión pendiente). |
-| **Claude Code → modelo propio** | base_url (byok) | **FUNCIONA** | `ANTHROPIC_BASE_URL` → gateway + `ANTHROPIC_AUTH_TOKEN=sk-basa-…` (auto-byok) + `ANTHROPIC_MODEL=<model_name>` | **Aguanta modo Agent con modelo no-Claude** (Read/Write/loop verificados vivo — el bridge traduce `tool_use` nativo) y el round-trip mask→unmask cierra (024). Gotchas: `OLLAMA_CONTEXT_LENGTH=32768`, login suscripción pisa env, cache #30. |
+| **Claude Code → modelo propio** | base_url (byok) | **FUNCIONA** | `ANTHROPIC_BASE_URL` → gateway + `ANTHROPIC_AUTH_TOKEN=sk-sentinel-…` (auto-byok) + `ANTHROPIC_MODEL=<model_name>` | **Aguanta modo Agent con modelo no-Claude** (Read/Write/loop verificados vivo — el bridge traduce `tool_use` nativo) y el round-trip mask→unmask cierra (024). Gotchas: `OLLAMA_CONTEXT_LENGTH=32768`, login suscripción pisa env, cache #30. |
 | **Aider** | base_url (byok) | **FUNCIONA** | `ANTHROPIC_API_BASE` → gateway + `--model anthropic/<model_name>` (usa litellm como lib) | Flujo editor completo OK; diff-apply intacto con mask y archivos con los **valores reales** tras la 024 (antes heredaban placeholders). |
 | **Codex CLI** | — (sin superficie hoy) | **NO (roadmap, viable)** | Único endpoint que le responde: motor directo `/v1/responses` (codex ≥0.142 solo habla Responses) — y esa ruta corre **SIN política** (verificado: PII en claro, secretos sin bloquear; el call_type no está en `_TEXT_CALL_TYPES`), sin puerto en prod, y evadiría licencias 021 + atribución | NO ofrecer. Camino identificado: **issue #28** — superficie OpenAI/Responses EN el gateway (licencias+política+atribución) + cobertura del call_type en el guardrail. Agéntico además no dispara tools nativas por ese bridge. Evidencia: [spikes-batch1.md](spikes-batch1.md) Spike 4. |
 
@@ -71,16 +71,16 @@ Estados del registro (ortogonales al veredicto técnico de la matriz):
 
 ## Ruteo (puerta única) — cómo el gateway decide
 
-Un solo endpoint `…/api/v1/gw/v1/messages`; el modo se auto-detecta (o se fuerza con `X-Basa-Upstream`):
+Un solo endpoint `…/api/v1/gw/v1/messages`; el modo se auto-detecta (o se fuerza con `X-Sentinel-Upstream`):
 
 - **`subscription-passthrough`** (Claude Code): OAuth del cliente verbatim → `api.anthropic.com`. La
   política (AI-Act/secretos/mask/unmask) la aplica **el gateway**.
-- **`byok`** (Copilot/Cursor): virtual key `sk-basa-…` detectada en un header de auth (excl. `x-basa-*`)
+- **`byok`** (Copilot/Cursor): virtual key `sk-sentinel-…` detectada en un header de auth (excl. `x-sentinel-*`)
   o en `?k=…` → **router fino al motor LiteLLM**. La política la aplica **el motor** (custom_auth +
-  BasaGuardrail de 014); el gateway NO la duplica.
-- **Exclusión `x-basa-*` (load-bearing)**: el `sk-basa` de atribución de Claude Code viaja SOLO en
-  `X-Basa-Key` y está excluido del scan de auto-byok → Claude Code no se desvía a byok. Test:
-  `tests/integration/test_surface_routing.py::test_xbasa_key_excluded_stays_passthrough`.
+  SentinelGuardrail de 014); el gateway NO la duplica.
+- **Exclusión `x-sentinel-*` (load-bearing)**: el `sk-sentinel` de atribución de Claude Code viaja SOLO en
+  `X-Sentinel-Key` y está excluido del scan de auto-byok → Claude Code no se desvía a byok. Test:
+  `tests/integration/test_surface_routing.py::test_xsentinel_key_excluded_stays_passthrough`.
 
 ## Gemini web — roadmap (US5, NO implementado)
 
@@ -99,7 +99,7 @@ un **DOM-hook** (editor Quill `.ql-editor`, como las extensiones DLP existentes)
 
 - **`all_frames:false`**: artefactos en iframe no se des-enmascaran (roadmap: `all_frames:true` + control de superficie).
 - **Cap de inspección**: toma la cola del último turno; un secreto al inicio de un prompt gigante puede quedar fuera (roadmap: subir cap / inspección por turnos).
-- **Key-in-URL**: `?k=sk-basa-…` es **atajo de demo** (logueable); en prod la key entra por input seguro/SSO.
+- **Key-in-URL**: `?k=sk-sentinel-…` es **atajo de demo** (logueable); en prod la key entra por input seguro/SSO.
 - **Body firmado**: si una web app firmara el body, la reescritura vía `window.fetch` se detectaría (hoy ChatGPT/Claude no firman).
 - **`/gw/inspect` enmascara PII (regex)**: Presidio real (PHI español, CIE-10) llega en la **spec 016**; el shape del endpoint no cambia.
 

@@ -6,7 +6,7 @@
 
 **Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
-**Input**: User description: "Real NLP entity detection and masking hardening: activate Presidio (or equivalent NLP) for PII/PHI detection replacing regex-only, connect SecurityPolicy entity_configs (per-entity MASK/BLOCK) to the live firewall path (spec 014 BasaGuardrail), and harden PERSON detection to not depend on title prefixes, fixing overlapping-match corruption risk in the masking engine"
+**Input**: User description: "Real NLP entity detection and masking hardening: activate Presidio (or equivalent NLP) for PII/PHI detection replacing regex-only, connect SecurityPolicy entity_configs (per-entity MASK/BLOCK) to the live firewall path (spec 014 SentinelGuardrail), and harden PERSON detection to not depend on title prefixes, fixing overlapping-match corruption risk in the masking engine"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -123,7 +123,7 @@ activarse, ni siquiera si el borrador "parece" pasar una revisión superficial.
 
 > **Nota de Contrato (regional fallback)**: el regex de dev/demo (`default_analyze`, sin NLP real
 > levantado) es un piso de cobertura genérico, no una réplica por región del motor NLP. Con
-> `BASA_ENTITY_REGION=eu` (default) ese fallback ya no produce un tipo `DNI` propio — un DNI español
+> `SENTINEL_ENTITY_REGION=eu` (default) ese fallback ya no produce un tipo `DNI` propio — un DNI español
 > sin puntuación reconocible cae dentro del patrón genérico `PHONE_NUMBER` del fallback, igual que
 > cualquier otra secuencia numérica de longitud similar. La detección precisa de NIF/NIE por región
 > depende del motor NLP real (built-in con checksum, ver `research.md` §1/§3) — el fallback de

@@ -54,8 +54,8 @@ try {
     await page.goto(base, { waitUntil: 'domcontentloaded' });
     // seed / clear session
     await page.evaluate((u) => {
-      if (u) { localStorage.setItem('basa_session_token', 'e2e-demo-token'); localStorage.setItem('basa_current_user', JSON.stringify(u)); }
-      else { localStorage.removeItem('basa_session_token'); localStorage.removeItem('basa_current_user'); }
+      if (u) { localStorage.setItem('sentinel_session_token', 'e2e-demo-token'); localStorage.setItem('sentinel_current_user', JSON.stringify(u)); }
+      else { localStorage.removeItem('sentinel_session_token'); localStorage.removeItem('sentinel_current_user'); }
     }, p.auth ? ADMIN : null);
     await page.goto(base, { waitUntil: 'networkidle' }).catch(() => {});
     await page.waitForTimeout(600);

@@ -1,5 +1,5 @@
 <!--
-SYNC IMPACT REPORT — Basa Guardian Constitution
+SYNC IMPACT REPORT — Sentinel Guardian Constitution
 Version change: 2.1.0 -> 2.2.0 (MINOR: default nuevo [D10] + actualizacion factual de la regla (d)
 del Principio I, per Governance "defaults enmendables de una linea").
 Enmienda "D10 del #63" (decision sellada por el owner el 2026-08-07 en el issue #63; la pregunta
@@ -14,9 +14,9 @@ abierta era la prioridad proteccion-vs-continuidad cuando el motor NLP cae — n
 - Informes anteriores (1.0.0 -> 2.0.0 -> 2.1.0): en la historia git.
 -->
 
-# Basa Guardian — Constitución
+# Sentinel Guardian — Constitución
 
-**Basa Guardian** es un gateway/firewall de **compliance y gobernanza multi-tenant** para el uso
+**Sentinel Guardian** es un gateway/firewall de **compliance y gobernanza multi-tenant** para el uso
 de IA en una organización. Se forkeó de `gatelite-salud-eu` feature/012 como base técnica
 (FastAPI + motor LiteLLM white-label + PostgreSQL + Redis + React/Vite, SDD con specs 001-012).
 El producto **ES la compliance y la gobernanza**, no un proxy LLM con features de compliance encima.
@@ -75,7 +75,7 @@ y el aislamiento duro se refuerza con **Row-Level Security de Postgres**. El **m
 **multi-tenant cloud** (SaaS). Jerarquía: **Tenant (empresa) → Group/Team → Client (persona) →
 Connection (APIKey por herramienta)**.
 **Modelo de acceso reconciliado** (integra los 4 roles legacy con lo nuevo): dos ejes —
-(a) *tier administrativo scopeado por tenant*: **super-admin** (Basa, cross-tenant, sobre todo cloud) y
+(a) *tier administrativo scopeado por tenant*: **super-admin** (Sentinel, cross-tenant, sobre todo cloud) y
 **tenant-admin** (gestiona SOLO su tenant: grupos, personas, políticas); (b) *roles de usuario dentro del
 tenant*: **compliance_officer/DPO** (gobernanza) y **client** (la persona/seat que consume IA vía
 herramientas, sujeto de la gobernanza legal). Los labels sectoriales heredados (`clinician`, `developer`)
@@ -117,8 +117,8 @@ de **suscripción** (que el motor no soporta) del módulo firewall — vive en e
 Backend, motor y frontend corren en **containers separados** (Docker Compose es la base de la verificación
 local). Ningún nombre de motor ni proveedor externo (LiteLLM, Anthropic, OpenAI, Azure, Meta, Presidio…)
 aparece en la API pública, mensajes de error, logs ni UI (naming neutro `AIEngineClient`/`engine_*`; strip de
-prefijos `litellm.*` → "Basa Gateway"). Cada demo/cliente = **configuración + seed** sobre el mismo código
-base, **nunca un fork** (el propio Basa Guardian nació de un fork que no debe repetirse).
+prefijos `litellm.*` → "Sentinel Gateway"). Cada demo/cliente = **configuración + seed** sobre el mismo código
+base, **nunca un fork** (el propio Sentinel Guardian nació de un fork que no debe repetirse).
 
 ### VIII. Pipeline Transparency & Explainability
 Cada request DEBE ser **observable capa a capa** vía `pipeline_metadata` real por request
@@ -153,7 +153,7 @@ principio durable; el **Playground** (visualización animada de las capas + Debu
 
 ## Governance
 
-Esta constitución **gobierna todas las decisiones de arquitectura** de Basa Guardian. Ningún despliegue por
+Esta constitución **gobierna todas las decisiones de arquitectura** de Sentinel Guardian. Ningún despliegue por
 cliente (config/seed) puede violar estos principios.
 **Enmiendas:** cambiar el *texto* de un principio o una constraint = bump **MINOR**; **agregar/quitar/derogar**
 un principio core = bump **MAJOR**; correcciones de redacción sin cambio semántico = **PATCH**. Toda enmienda
@@ -192,5 +192,5 @@ es una enmienda de una línea:
   visible. La granularidad por riesgo/rol NO vive aquí: se especifica junto con la política de
   auditoría (#72).
 
-**Versión**: 2.2.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Basa Secure AI Gateway" v1.0.0
+**Versión**: 2.2.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Sentinel Secure AI Gateway" v1.0.0
 (2026-06-29) + feature/012 | **Última enmienda**: 2026-08-07 (D10 del #63: postura ante NLP caído)

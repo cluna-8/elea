@@ -50,10 +50,10 @@ description: "Task list — 028 Productización de la extensión de navegador"
 
 **Goal**: el zip del partner no filtra la marca del fabricante; un gate lo verifica.
 
-**Independent Test**: un commit que reintroduzca "Basa Guard" en el zip pone `make check-whitelabel` en rojo.
+**Independent Test**: un commit que reintroduzca "Sentinel Guard" en el zip pone `make check-whitelabel` en rojo.
 
-- [ ] **T009** [US3] Parametrizar por marca los textos horneados de `extension/` que hoy dicen el fabricante: `manifest.default_title` ("Basa Guard"), comentarios/strings visibles, `README.md`. Lo no-visible (nombres de variables internas) queda.
-- [ ] **T010** [US7] `deploy/release/checks/test_extension_whitelabel.sh`: descomprime el zip y falla ante `prohibited_names.txt` **+** lista de marca del fabricante (`basa`, `basa guard`, `PoC`, `localhost`); ampliar `prohibited_names.txt` o lista separada de fabricante; engancharlo en `make check-whitelabel`.
+- [ ] **T009** [US3] Parametrizar por marca los textos horneados de `extension/` que hoy dicen el fabricante: `manifest.default_title` ("Sentinel Guard"), comentarios/strings visibles, `README.md`. Lo no-visible (nombres de variables internas) queda.
+- [ ] **T010** [US7] `deploy/release/checks/test_extension_whitelabel.sh`: descomprime el zip y falla ante `prohibited_names.txt` **+** lista de marca del fabricante (`sentinel`, `sentinel guard`, `PoC`, `localhost`); ampliar `prohibited_names.txt` o lista separada de fabricante; engancharlo en `make check-whitelabel`.
 
 **Checkpoint**: white-label verificado por gate.
 
@@ -94,7 +94,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 
 **Independent Test**: disparar un bloqueo (AI-Act/secreto) y ver el motivo; un fallo sin `blocked` muestra "servicio no disponible".
 
-- [ ] **T018** [US5] `extension/guardia-main.js`: ante la respuesta de `/inspect`, distinguir `{ok:false, blocked:true, motivo}` (mostrar `motivo` del server) de `ok:false` sin `blocked` (mostrar "servicio no disponible"); **nunca** renderizar `blocked_by_layer` crudo; conservar el fail-closed actual (`basa-guard.js:115-118`) para respuestas viejas.
+- [ ] **T018** [US5] `extension/guardia-main.js`: ante la respuesta de `/inspect`, distinguir `{ok:false, blocked:true, motivo}` (mostrar `motivo` del server) de `ok:false` sin `blocked` (mostrar "servicio no disponible"); **nunca** renderizar `blocked_by_layer` crudo; conservar el fail-closed actual (`sentinel-guard.js:115-118`) para respuestas viejas.
 - [ ] **T019** [P] [US5] Verificación e2e viva: los dos caminos (bloqueo con motivo vs servicio caído) contra el `camara-ensayo` con 027 activa.
 
 **Checkpoint**: la ventana de mentira 027↔extensión queda cerrada (se instalan juntas).
@@ -109,7 +109,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 
 - [ ] **T020** [US6] `extension/background.js`: tres estados `conectado`/`no_verificado`(red, key conservada)/`desconectado`(401 **o** 403, key borrada); 403 con mensaje distinto ("tu plaza ya no está activa") del 401 ("key inválida"); corte de red **no** borra key.
 - [ ] **T021** [US6] `chrome.alarms` (~30 min) + `chrome.runtime.onStartup` revalidan la sesión. **No** keepalive artificial (el SW ya es correcto).
-- [ ] **T022** [US6] Dueño único del estado = **service worker**; `popup.js` deja de escribir `basa_connected` (solo lee/observa).
+- [ ] **T022** [US6] Dueño único del estado = **service worker**; `popup.js` deja de escribir `sentinel_connected` (solo lee/observa).
 
 **Checkpoint**: offboarding por revocación funciona; red intermitente no desloguea.
 

@@ -31,12 +31,12 @@ segunda verificación del mismo mundo: sigue siendo útil, pero ya no es la úni
    de las tablas: le alcanza un ``NO FORCE`` accidental en una migración futura para que el
    aislamiento se evapore sin que nadie se entere. El runtime post-017 se conecta con un rol
    de aplicación —NOSUPERUSER, NOBYPASSRLS, sin propiedad, sólo DML—, y ése es el que este
-   harness crea ad-hoc en la DB de test (``basa_app_post017``). Un no-dueño está sujeto a RLS
+   harness crea ad-hoc en la DB de test (``sentinel_app_post017``). Un no-dueño está sujeto a RLS
    con FORCE o sin FORCE: el mundo que monta acá no depende de que esa bandera siga puesta.
 
 ## El rol de aplicación es una credencial de CLUSTER, no de la base de test
 
-``basa_app_post017`` se crea con ``LOGIN``, y en Postgres los roles NO viven en la base: viven
+``sentinel_app_post017`` se crea con ``LOGIN``, y en Postgres los roles NO viven en la base: viven
 en la instancia y se ven desde todas sus bases. O sea que este harness, que por lo demás sólo
 toca una base descartable, deja atrás lo único suyo que no es descartable. Con el password
 escrito en el fuente eso era una credencial conocida y permanente en cualquier instancia contra
@@ -95,7 +95,7 @@ from migration_harness import (
 
 # Rol de aplicación del mundo post-017. Nombre propio (no ``rls_owner``) porque la diferencia
 # ES el punto: éste no es dueño de ninguna tabla.
-APP_ROLE = "basa_app_post017"
+APP_ROLE = "sentinel_app_post017"
 # Password ALEATORIO por corrida y NO un literal en el fuente (ver el docstring del módulo):
 # el rol es un objeto de cluster con LOGIN, así que un password fijo y versionado es una
 # credencial conocida en toda instancia contra la que se haya corrido la suite alguna vez.
@@ -109,7 +109,7 @@ POLICY_ESTRICTA = "tenant_isolation"
 # ── Guard de destino ──────────────────────────────────────────────────────────────────
 # Los dos olores de «esto es una instancia de test». El del nombre de la base es el
 # específico; el del host, el grueso. Ver `_exigir_instancia_de_test`.
-PREFIJO_DB_TEST = "basa_test_"
+PREFIJO_DB_TEST = "sentinel_test_"
 HOSTS_DE_TEST = frozenset({
     "localhost", "127.0.0.1", "::1",  # la suite corrida desde el host (compose publica 5433)
     "db", "postgres",                 # el servicio de Postgres dentro de la red del compose
@@ -365,7 +365,7 @@ def construir_mundo_post017(dbname: str):
 
 def _dbname_para(modulo: str) -> str:
     """Una DB por módulo de test (los identificadores de Postgres toleran 63 chars)."""
-    return f"basa_test_post017_{modulo.rsplit('.', 1)[-1]}"[:63]
+    return f"sentinel_test_post017_{modulo.rsplit('.', 1)[-1]}"[:63]
 
 
 @pytest.fixture(scope="module")

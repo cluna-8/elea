@@ -1,6 +1,6 @@
 """Spec 031 T009 — el logger de auditoría del motor deja de perder eventos en silencio.
 
-Qué se protege acá: `basa_audit_logger` es el que registra TODO el tráfico byok que el
+Qué se protege acá: `sentinel_audit_logger` es el que registra TODO el tráfico byok que el
 motor sirve (herramientas de coding: la superficie principal del producto). Hasta esta
 spec, cada uno de sus caminos de error terminaba en un `print` "no fatal" — y por eso la
 pérdida TOTAL del rastro byok del ensayo del piloto estuvo semanas invisible: la fila
@@ -8,13 +8,13 @@ fallaba, el motor imprimía en stdout y nadie miraba stdout. El contrato ahora e
 
 1. un fallo transitorio del plano interno se **absorbe** con reintento acotado, sin ruido
    ni pérdida (SC-002 §3);
-2. un fallo que agota el presupuesto **cuenta** la pérdida en Redis (`basa:audit:lost` +
-   `basa:audit:last_fail`) y la loguea con nivel error — nunca un `print`;
+2. un fallo que agota el presupuesto **cuenta** la pérdida en Redis (`sentinel:audit:lost` +
+   `sentinel:audit:last_fail`) y la loguea con nivel error — nunca un `print`;
 3. lo que NO se puede reintentar sin duplicar la fila (y el cargo al presupuesto: el POST
    mueve el gasto del cliente, issue #76) no se reintenta, pero se cuenta igual.
 
 La extensión se importa como la importa el motor (`from extensions import
-basa_audit_logger`, vía el `sys.path` que arma conftest) con dobles de
+sentinel_audit_logger`, vía el `sys.path` que arma conftest) con dobles de
 `litellm.integrations.custom_logger` y de `redis.asyncio` en `sys.modules`: ni litellm ni
 un Redis vivo hacen falta para medir NUESTRA política.
 """
@@ -50,7 +50,7 @@ def _instalar_doble_litellm():
 
 _instalar_doble_litellm()
 
-from extensions import basa_audit_logger as logger_mod  # noqa: E402
+from extensions import sentinel_audit_logger as logger_mod  # noqa: E402
 
 AUDIT_URL = "http://backend:8000/api/v1/internal/audit"
 SECRETO = "master-key-de-prueba"
@@ -139,7 +139,7 @@ def contador(monkeypatch):
     registro = {"incrs": [], "sets": {}, "cerrado": False, "explota": False}
     modulo = types.ModuleType("redis.asyncio")
     # **kwargs: desde #105 #8 el cliente se construye con socket_timeout/socket_connect_timeout
-    # (vía basa_engine_redis) — el doble tiene que aceptarlos sin romper.
+    # (vía sentinel_engine_redis) — el doble tiene que aceptarlos sin romper.
     modulo.Redis = lambda host=None, port=None, **kwargs: _RedisFalso(registro)
     padre = sys.modules.setdefault("redis", types.ModuleType("redis"))
     monkeypatch.setitem(sys.modules, "redis.asyncio", modulo)
@@ -163,7 +163,7 @@ def esperas(monkeypatch):
 def logs():
     """Handler propio sobre el logger de la extensión (no `caplog`, que depende de la
     config global de logging que `src.main` ya fijó cuando corre la suite completa)."""
-    log = logging.getLogger("basa-audit")
+    log = logging.getLogger("sentinel-audit")
     mensajes = []
 
     class _Captura(logging.Handler):
@@ -184,10 +184,10 @@ def logs():
 @pytest.fixture(autouse=True)
 def entorno(monkeypatch):
     # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
-    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # del motor. El operador ve SENTINEL_ENGINE_MASTER_KEY y el compose se la pasa bajo
     # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", SECRETO)
-    monkeypatch.delenv("BASA_AUDIT_FAIL", raising=False)
+    monkeypatch.delenv("SENTINEL_AUDIT_FAIL", raising=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -218,7 +218,7 @@ async def test_camino_feliz_no_reintenta_ni_espera(monkeypatch, contador, espera
     assert esperas == []
     assert contador["incrs"] == []
     # El plano interno exige el secreto compartido: sin cabecera responde 404 a todo.
-    assert plano.posts[0]["headers"]["X-Basa-Internal"] == SECRETO
+    assert plano.posts[0]["headers"]["X-Sentinel-Internal"] == SECRETO
     assert plano.posts[0]["json"] == FILA
 
 
@@ -305,14 +305,14 @@ async def test_redis_caido_no_rompe_y_deja_el_error_en_el_log(monkeypatch, conta
 @pytest.mark.asyncio
 async def test_el_hook_de_exito_emite_la_fila_al_plano_interno(monkeypatch, contador,
                                                                esperas):
-    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
     plano = _PlanoInterno([200]).instalar(monkeypatch)
     inicio = datetime(2026, 7, 28, 10, 0, 0)
     fin = datetime(2026, 7, 28, 10, 0, 1)
     kwargs = {
         "model": "gpt-4o-mini",
         "litellm_params": {},
-        "metadata": {"user_api_key_metadata": {"basa": {
+        "metadata": {"user_api_key_metadata": {"sentinel": {
             "tenant_id": "33333333-3333-3333-3333-333333333333",
             "client_id": "22222222-2222-2222-2222-222222222222",
             "key_id": "11111111-1111-1111-1111-111111111111",
@@ -321,7 +321,7 @@ async def test_el_hook_de_exito_emite_la_fila_al_plano_interno(monkeypatch, cont
     }
     respuesta = type("_R", (), {"usage": {"prompt_tokens": 10, "completion_tokens": 4}})()
 
-    await logger_mod.basa_audit_logger_instance.async_log_success_event(
+    await logger_mod.sentinel_audit_logger_instance.async_log_success_event(
         kwargs, respuesta, inicio, fin)
 
     assert len(plano.posts) == 1
@@ -335,11 +335,11 @@ async def test_el_hook_de_exito_emite_la_fila_al_plano_interno(monkeypatch, cont
 @pytest.mark.asyncio
 async def test_sin_identidad_de_connection_no_se_registra(monkeypatch, contador, esperas):
     """Llamada INTERNA con la master key (chat de la consola, generación de frases del
-    router, embeddings): NO lleva identidad Basa y su plano de origen ya escribe la fila
+    router, embeddings): NO lleva identidad Sentinel y su plano de origen ya escribe la fila
     canónica. Registrarla acá también duplicaba cada petición del Playground en Logs
     (hallazgo JF 29-jul: 2 llamadas → 3 filas, costo contado dos veces). Cero POST, cero
     pérdida contada: no es un fallo, es tráfico que no le pertenece a este plano."""
-    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
     plano = _PlanoInterno([200]).instalar(monkeypatch)
     inicio = datetime(2026, 7, 28, 10, 0, 0)
     fin = datetime(2026, 7, 28, 10, 0, 1)
@@ -351,7 +351,7 @@ async def test_sin_identidad_de_connection_no_se_registra(monkeypatch, contador,
     }
     respuesta = type("_R", (), {"usage": {"prompt_tokens": 23, "completion_tokens": 1972}})()
 
-    await logger_mod.basa_audit_logger_instance.async_log_success_event(
+    await logger_mod.sentinel_audit_logger_instance.async_log_success_event(
         kwargs, respuesta, inicio, fin)
 
     assert plano.posts == []
@@ -362,15 +362,15 @@ async def test_sin_identidad_de_connection_no_se_registra(monkeypatch, contador,
 async def test_una_excepcion_inesperada_del_hook_tambien_cuenta(monkeypatch, contador, logs):
     """El hook nunca voltea la respuesta al cliente, pero si revienta el pedido NO quedó
     registrado — y eso se cuenta igual que un POST agotado."""
-    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
 
     async def _explota(*args, **kwargs):
         raise RuntimeError("payload imposible de armar")
 
-    monkeypatch.setattr(logger_mod.BasaAuditLogger, "_log", _explota)
+    monkeypatch.setattr(logger_mod.SentinelAuditLogger, "_log", _explota)
 
     # No propaga: la respuesta del cliente ya se sirvió y no se puede des-servir.
-    await logger_mod.basa_audit_logger_instance.async_log_success_event({}, None, None, None)
+    await logger_mod.sentinel_audit_logger_instance.async_log_success_event({}, None, None, None)
 
     assert contador["incrs"] == [logger_mod._REDIS_KEY_AUDIT_LOST]
     assert any("NO quedó registrado" in m for m in logs)
@@ -378,15 +378,15 @@ async def test_una_excepcion_inesperada_del_hook_tambien_cuenta(monkeypatch, con
 
 @pytest.mark.asyncio
 async def test_sin_destino_de_auditoria_la_perdida_es_ruidosa(monkeypatch, contador, logs):
-    """Motor sin `BASA_AUDIT_URL` y sin cliente de base: antes se descartaba TODA la
+    """Motor sin `SENTINEL_AUDIT_URL` y sin cliente de base: antes se descartaba TODA la
     auditoría con un `return` mudo; ahora se cuenta y se dice."""
-    monkeypatch.delenv("BASA_AUDIT_URL", raising=False)
+    monkeypatch.delenv("SENTINEL_AUDIT_URL", raising=False)
     proxy_server = types.ModuleType("litellm.proxy.proxy_server")
     proxy_server.prisma_client = None
     sys.modules.setdefault("litellm.proxy", types.ModuleType("litellm.proxy"))
     monkeypatch.setitem(sys.modules, "litellm.proxy.proxy_server", proxy_server)
 
-    await logger_mod.basa_audit_logger_instance._insertar_por_prisma(FILA, [], None, None)
+    await logger_mod.sentinel_audit_logger_instance._insertar_por_prisma(FILA, [], None, None)
 
     assert contador["incrs"] == [logger_mod._REDIS_KEY_AUDIT_LOST]
     assert any("NO deja rastro durable" in m for m in logs)
@@ -394,7 +394,7 @@ async def test_sin_destino_de_auditoria_la_perdida_es_ruidosa(monkeypatch, conta
 
 @pytest.mark.asyncio
 async def test_emitir_fila_durable_enruta_por_env(monkeypatch):
-    """Punto ÚNICO de emisión (#176): con `BASA_AUDIT_URL` la fila va al plano interno; sin
+    """Punto ÚNICO de emisión (#176): con `SENTINEL_AUDIT_URL` la fila va al plano interno; sin
     ella, al prisma de desarrollo. Cada rama ya está cubierta arriba; acá se ancla el ENRUTADO,
     que es lo que reusa el rechazo por presupuesto del motor (`custom_auth`) para no duplicar la
     lógica de emisión."""
@@ -408,15 +408,15 @@ async def test_emitir_fila_durable_enruta_por_env(monkeypatch):
         llamadas.append(("prisma", masked))
 
     monkeypatch.setattr(logger_mod, "_postear_al_plano_interno", _fake_post)
-    monkeypatch.setattr(logger_mod.basa_audit_logger_instance, "_insertar_por_prisma", _fake_prisma)
+    monkeypatch.setattr(logger_mod.sentinel_audit_logger_instance, "_insertar_por_prisma", _fake_prisma)
 
     entry = {"compliance_status": "rejected_budget", "tenant_id": FILA["tenant_id"]}
 
-    monkeypatch.setenv("BASA_AUDIT_URL", AUDIT_URL)
+    monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
     await logger_mod.emitir_fila_durable(entry, [])
     assert llamadas[-1] == ("post", AUDIT_URL)
 
-    monkeypatch.delenv("BASA_AUDIT_URL", raising=False)
+    monkeypatch.delenv("SENTINEL_AUDIT_URL", raising=False)
     await logger_mod.emitir_fila_durable(entry, [])
     assert llamadas[-1][0] == "prisma"
 

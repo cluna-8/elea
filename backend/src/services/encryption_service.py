@@ -1,7 +1,7 @@
 import os
 import logging
 
-logger = logging.getLogger("basa-secure-gateway.encryption")
+logger = logging.getLogger("sentinel-secure-gateway.encryption")
 
 _key = os.getenv("FERNET_SECRET_KEY", "").strip()
 _fernet = None

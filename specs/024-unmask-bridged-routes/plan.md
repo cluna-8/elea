@@ -25,7 +25,7 @@ del motor, 3.13; backend 3.11 — el código compartido ya es compatible con amb
 
 **Primary Dependencies**: motor LiteLLM 1.92.0 pinneado por digest (hooks CustomGuardrail
 + CustomLogger — solo extensiones montadas, sin parches); lib de política compartida
-`litellm/extensions/basa_guardian_policy.py` (carry-split, unmask_text/unmask_deep)
+`litellm/extensions/sentinel_guardian_policy.py` (carry-split, unmask_text/unmask_deep)
 
 **Storage**: N/A (el mapping pii_tokens vive solo en el ciclo request/response; eventos
 del monitor = Redis efímero + tabla audit metadata-only ya existentes — sin cambios de
@@ -49,7 +49,7 @@ pasos; único costo nuevo: un `[` al final de un delta se difiere UN delta)
 shape desconocido → passthrough, jamás romper una respuesta), cero persistencia del
 mapping
 
-**Scale/Scope**: 2 archivos de extensión (`basa_guardrail.py`, `basa_audit_logger.py`) +
+**Scale/Scope**: 2 archivos de extensión (`sentinel_guardrail.py`, `sentinel_audit_logger.py`) +
 posible helper en la lib de política + tests unit/e2e + docs DoD; sin migraciones, sin
 frontend
 
@@ -90,11 +90,11 @@ specs/024-unmask-bridged-routes/
 
 ```text
 litellm/extensions/
-├── basa_guardian_policy.py   # Fix real de streaming (T002): PH_TAIL_RE retiene '[' pelado;
+├── sentinel_guardian_policy.py   # Fix real de streaming (T002): PH_TAIL_RE retiene '[' pelado;
 │                             # + unmask_response_payload (dict/objeto, Anthropic+OpenAI),
 │                             # proxy_identity_from (doble home), flush_carry_sse_block (framed)
-├── basa_guardrail.py         # delega el unmask no-streaming en la lib; flush framed
-└── basa_audit_logger.py      # D3: identidad via proxy_identity_from
+├── sentinel_guardrail.py         # delega el unmask no-streaming en la lib; flush framed
+└── sentinel_audit_logger.py      # D3: identidad via proxy_identity_from
 
 backend/tests/
 ├── unit/test_unmask_shapes.py        # D1/D2 con shapes fabricados (dict + objeto + SSE)

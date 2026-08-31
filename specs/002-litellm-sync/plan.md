@@ -101,10 +101,10 @@ No usamos transacciones distribuidas (overkill para este scope). El rollback bes
 
 ## Architectural Decision: El cliente usa keys `sk-...` contra nuestro backend
 
-Los clientes externos siempre apuntan a `http://basa-gateway:8081`. Nuestro backend recibe la key `sk-...`, la pasa tal cual a LiteLLM en la llamada a `/chat/completions`. LiteLLM valida la key, trackea el spend, y enforces el budget. Nuestro backend no necesita revalidar el presupuesto localmente.
+Los clientes externos siempre apuntan a `http://sentinel-gateway:8081`. Nuestro backend recibe la key `sk-...`, la pasa tal cual a LiteLLM en la llamada a `/chat/completions`. LiteLLM valida la key, trackea el spend, y enforces el budget. Nuestro backend no necesita revalidar el presupuesto localmente.
 
 ```
-Cliente → basa-backend (PII masking + guardianes) → litellm (valida sk-xxx, trackea spend) → LLM
+Cliente → sentinel-backend (PII masking + guardianes) → litellm (valida sk-xxx, trackea spend) → LLM
 ```
 
 ## Fases de implementación
@@ -116,7 +116,7 @@ Crear el servicio, actualizar `config.yaml`, agregar campos a modelos. Sin cambi
 Al crear un grupo, también se crea en LiteLLM. Se guarda `engine_team_id`. Los grupos existentes sin `engine_team_id` son legacy — no se migran.
 
 ### Fase 3 — Keys reales via LiteLLM (US1 + US4)
-Generación y revocación de keys usando la API real de LiteLLM. Las keys `basa_sk_...` locales se reemplazan por `sk-...` reales.
+Generación y revocación de keys usando la API real de LiteLLM. Las keys `sentinel_sk_...` locales se reemplazan por `sk-...` reales.
 
 ### Fase 4 — Sync de Usuarios individuales (US3)
 Al crear un usuario, también se crea en LiteLLM. Se guarda `engine_user_id`.

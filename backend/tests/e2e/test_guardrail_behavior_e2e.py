@@ -1,15 +1,15 @@
-"""e2e de comportamiento REAL del `BasaGuardrail` (spec 016 US1/US2/US3 — T014, T018,
+"""e2e de comportamiento REAL del `SentinelGuardrail` (spec 016 US1/US2/US3 — T014, T018,
 T019, T025). A diferencia de `test_gateway_routing_e2e.py` (HTTP contra la puerta
-única), estos tests ejercitan `BasaGuardrail.async_pre_call_hook` y
+única), estos tests ejercitan `SentinelGuardrail.async_pre_call_hook` y
 `custom_auth.user_api_key_auth` **dentro del container litellm real** — es el único
 lugar donde esas clases existen (el motor pinneado no se puede `pip install` en
 backend, y no vamos a mockear lo que ya podemos correr de verdad).
 
 Mecanismo: seedeamos una Connection + SecurityPolicy + Guardian reales en la MISMA
 Postgres (`SessionLocal`, igual que `seeded_byok_key` de `conftest.py`), y despachamos
-un script Python inline vía `docker exec basa-litellm python3 -c ...` que llama a
+un script Python inline vía `docker exec sentinel-litellm python3 -c ...` que llama a
 `custom_auth.user_api_key_auth` (T018: confirma que la identidad trae `entity_configs`
-reales de la DB) y a `BasaGuardrail().async_pre_call_hook` (T014 detección real de
+reales de la DB) y a `SentinelGuardrail().async_pre_call_hook` (T014 detección real de
 PERSON sin prefijo; T019 enforcement BLOCK; T025 fail-closed). El script imprime un
 JSON de una sola línea a stdout — el test lo parsea y assertea.
 
@@ -30,7 +30,7 @@ from src.models.policy import SecurityPolicy
 from src.models.tenant import DEFAULT_TENANT_ID
 from src.services.key_material import hash_key, key_preview
 
-_CONTAINER = "basa-litellm"
+_CONTAINER = "sentinel-litellm"
 
 
 def _docker_available() -> bool:
@@ -75,7 +75,7 @@ def seeded_connection_with_policy():
     referencia ese tenant. Devuelve la key en claro. Cleanup completo en `finally`."""
     db = SessionLocal()
     rand = uuid.uuid4().hex[:8]
-    plain = f"sk-basa-guardbeh-{rand}"
+    plain = f"sk-sentinel-guardbeh-{rand}"
 
     policy = db.query(SecurityPolicy).filter(
         SecurityPolicy.tenant_id == DEFAULT_TENANT_ID, SecurityPolicy.is_active == True
@@ -150,21 +150,21 @@ def test_t018_custom_auth_resolves_entity_configs_from_real_db(gw, seeded_connec
     assert "CREDIT_CARD" in body, body
 
 
-# ── T014: BasaGuardrail detecta PERSON sin prefijo (US1) ───────────────────────────
+# ── T014: SentinelGuardrail detecta PERSON sin prefijo (US1) ───────────────────────────
 
 def test_t014_guardrail_masks_person_without_title_prefix():
     script = """
 import asyncio, json, sys
 sys.path.insert(0, "/app")
 sys.path.insert(0, "/app/extensions")
-from extensions.basa_guardrail import BasaGuardrail
+from extensions.sentinel_guardrail import SentinelGuardrail
 
 class _FakeIdentity:
-    metadata = {"basa": {"redact_enabled": True, "entity_configs": {}, "custom_names": [],
+    metadata = {"sentinel": {"redact_enabled": True, "entity_configs": {}, "custom_names": [],
                           "custom_entities": []}}
 
 async def main():
-    gr = BasaGuardrail()
+    gr = SentinelGuardrail()
     data = {"messages": [{"role": "user", "content": "Juan Perez tiene turno el jueves"}]}
     result = await gr.async_pre_call_hook(_FakeIdentity(), None, data, "anthropic_messages")
     is_blocked = isinstance(result, str)
@@ -184,27 +184,27 @@ asyncio.run(main())
     assert result["has_placeholder"] is True, result
 
 
-# ── T019: BasaGuardrail bloquea por entity_configs=BLOCK (US2) ─────────────────────
+# ── T019: SentinelGuardrail bloquea por entity_configs=BLOCK (US2) ─────────────────────
 
 def test_t019_guardrail_blocks_entity_configured_as_block():
     script = """
 import asyncio, json, sys
 sys.path.insert(0, "/app")
 sys.path.insert(0, "/app/extensions")
-from extensions.basa_guardrail import BasaGuardrail
+from extensions.sentinel_guardrail import SentinelGuardrail
 
 class _FakeIdentityBlock:
-    metadata = {"basa": {"redact_enabled": True,
+    metadata = {"sentinel": {"redact_enabled": True,
                           "entity_configs": {"CREDIT_CARD": "BLOCK"},
                           "custom_names": [], "custom_entities": []}}
 
 class _FakeIdentityMask:
-    metadata = {"basa": {"redact_enabled": True,
+    metadata = {"sentinel": {"redact_enabled": True,
                           "entity_configs": {"PERSON": "MASK"},
                           "custom_names": [], "custom_entities": []}}
 
 async def main():
-    gr = BasaGuardrail()
+    gr = SentinelGuardrail()
 
     data_block = {"messages": [{"role": "user", "content": "guardame esta tarjeta 4111111111111111"}]}
     r_block = await gr.async_pre_call_hook(_FakeIdentityBlock(), None, data_block, "anthropic_messages")
@@ -229,24 +229,24 @@ asyncio.run(main())
     assert result["mask_case_has_placeholder"] is True, result
 
 
-# ── T025: BasaGuardrail falla cerrado si Presidio no responde (US3) ────────────────
+# ── T025: SentinelGuardrail falla cerrado si Presidio no responde (US3) ────────────────
 
 def test_t025_guardrail_fails_closed_when_presidio_unavailable():
     script = """
 import asyncio, json, sys
 sys.path.insert(0, "/app")
 sys.path.insert(0, "/app/extensions")
-from extensions import basa_guardrail
+from extensions import sentinel_guardrail
 
 # Simula indisponibilidad SIN tocar el container real: apunta a un puerto cerrado.
-basa_guardrail._PRESIDIO_URL = "http://nlp-analyzer:9"
+sentinel_guardrail._PRESIDIO_URL = "http://nlp-analyzer:9"
 
 class _FakeIdentity:
-    metadata = {"basa": {"redact_enabled": True, "entity_configs": {}, "custom_names": [],
+    metadata = {"sentinel": {"redact_enabled": True, "entity_configs": {}, "custom_names": [],
                           "custom_entities": []}}
 
 async def main():
-    gr = basa_guardrail.BasaGuardrail()
+    gr = sentinel_guardrail.SentinelGuardrail()
     data = {"messages": [{"role": "user", "content": "hola, como estas"}]}
     result = await gr.async_pre_call_hook(_FakeIdentity(), None, data, "anthropic_messages")
     print(json.dumps({

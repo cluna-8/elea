@@ -1,7 +1,7 @@
 """Ruteo de superficies base_url (spec 019 US1+US2): passthrough vs auto-byok.
 
 Verifica la PUERTA ÚNICA: a qué upstream rutea cada cliente y la **exclusión
-load-bearing de `x-basa-*`** que hace coexistir Claude Code (passthrough) y Copilot
+load-bearing de `x-sentinel-*`** que hace coexistir Claude Code (passthrough) y Copilot
 (byok) sobre el mismo gateway (SC-001/SC-002/SC-003).
 
 El fake de httpx registra la URL + headers con que se llamó al upstream, así podemos
@@ -98,108 +98,108 @@ def test_passthrough_forwards_anthropic_headers(client):
     assert h.get("user-agent") == "claude-cli/1.2"
 
 
-# ── US2: Copilot auto-byok + key-in-URL + exclusión x-basa-* ────────────────────
+# ── US2: Copilot auto-byok + key-in-URL + exclusión x-sentinel-* ────────────────────
 
 def test_auto_byok_routes_to_engine(client):
-    # T012/SC-003: sk-basa-… en x-api-key (sin X-Basa-Upstream) → motor + la key va como auth.
+    # T012/SC-003: sk-sentinel-… en x-api-key (sin X-Sentinel-Upstream) → motor + la key va como auth.
     r = client.post("/gw/v1/messages", json=BENIGN,
-                    headers={"x-api-key": "sk-basa-copilot123"})
+                    headers={"x-api-key": "sk-sentinel-copilot123"})
     assert r.status_code == 200
     assert _FakeClient.last["url"].startswith(ENGINE)
-    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-copilot123"
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-sentinel-copilot123"
 
 
-def test_xbasa_key_excluded_stays_passthrough(client):
-    # T013/SC-002 (load-bearing): Claude Code trae sk-basa SOLO en X-Basa-Key (atribución)
+def test_xsentinel_key_excluded_stays_passthrough(client):
+    # T013/SC-002 (load-bearing): Claude Code trae sk-sentinel SOLO en X-Sentinel-Key (atribución)
     # + su OAuth real → DEBE quedar en passthrough, NO desviarse a byok.
     client.post("/gw/v1/messages", json=BENIGN, headers={
-        "X-Basa-Key": "sk-basa-attrib999", "Authorization": "Bearer oauth-real"})
+        "X-Sentinel-Key": "sk-sentinel-attrib999", "Authorization": "Bearer oauth-real"})
     assert _FakeClient.last["url"].startswith(ANTHROPIC)          # NO fue al motor
     assert _auth(_FakeClient.last["headers"]) == "Bearer oauth-real"
 
 
 def test_same_key_in_xapikey_would_go_byok(client):
     # Prueba negativa de la exclusión: el MISMO valor en x-api-key SÍ va a byok
-    # (demuestra que el scan lo detectaría si no se excluyera x-basa-*).
-    client.post("/gw/v1/messages", json=BENIGN, headers={"x-api-key": "sk-basa-attrib999"})
+    # (demuestra que el scan lo detectaría si no se excluyera x-sentinel-*).
+    client.post("/gw/v1/messages", json=BENIGN, headers={"x-api-key": "sk-sentinel-attrib999"})
     assert _FakeClient.last["url"].startswith(ENGINE)
 
 
 def test_key_in_url_routes_to_engine(client):
-    # T014/FR-010: Copilot con x-api-key vacío + ?k=sk-basa-… → byok por fallback.
-    client.post("/gw/v1/messages?k=sk-basa-inurl456", json=BENIGN, headers={"x-api-key": ""})
+    # T014/FR-010: Copilot con x-api-key vacío + ?k=sk-sentinel-… → byok por fallback.
+    client.post("/gw/v1/messages?k=sk-sentinel-inurl456", json=BENIGN, headers={"x-api-key": ""})
     assert _FakeClient.last["url"].startswith(ENGINE)
-    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-inurl456"
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-sentinel-inurl456"
 
 
 # ── F2 [HIGH]: byok sin virtual key es fail-closed (NO master-key → motor) ──────────
 
 def test_explicit_upstream_byok_without_key_is_fail_closed(client):
-    # F2/FR-002 (post-hotfix): X-Basa-Upstream: byok SIN sk-basa ya NO rutea al motor con
+    # F2/FR-002 (post-hotfix): X-Sentinel-Upstream: byok SIN sk-sentinel ya NO rutea al motor con
     # el master key (sería un bypass a PROXY_ADMIN saltando auth/budgets). Ahora es 401 y
     # el motor NUNCA es contactado (el fake de httpx no registra llamada).
-    r = client.post("/gw/v1/messages", json=BENIGN, headers={"X-Basa-Upstream": "byok"})
+    r = client.post("/gw/v1/messages", json=BENIGN, headers={"X-Sentinel-Upstream": "byok"})
     assert r.status_code == 401
     assert _FakeClient.last == {}  # el motor jamás recibió el master key
 
 
 def test_byok_with_virtual_key_still_routes_with_client_key(client):
-    # F2 regresión: con una sk-basa real, byok SÍ rutea al motor y usa la key del cliente
+    # F2 regresión: con una sk-sentinel real, byok SÍ rutea al motor y usa la key del cliente
     # como auth (jamás el master key). Preserva SC-003.
-    r = client.post("/gw/v1/messages", json=BENIGN, headers={"x-api-key": "sk-basa-x"})
+    r = client.post("/gw/v1/messages", json=BENIGN, headers={"x-api-key": "sk-sentinel-x"})
     assert r.status_code == 200
     assert _FakeClient.last["url"].startswith(ENGINE)
-    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-x"
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-sentinel-x"
 
 
-# ── F1 [HIGH]: keys online sk-basa-… rutean a byok (no caen a passthrough) ──────────
+# ── F1 [HIGH]: keys online sk-sentinel-… rutean a byok (no caen a passthrough) ──────────
 
-def test_online_sk_basa_key_in_authorization_routes_to_engine(client):
-    # F1 (routing lock): una virtual key emitida online (sk-basa-…) que llega en
+def test_online_sk_sentinel_key_in_authorization_routes_to_engine(client):
+    # F1 (routing lock): una virtual key emitida online (sk-sentinel-…) que llega en
     # Authorization: Bearer DEBE resolver byok → motor y NO caer a passthrough. Cierra el
     # misruteo que fugaba la engine key a Anthropic con doble-masking.
     r = client.post("/gw/v1/messages", json=BENIGN,
-                    headers={"Authorization": "Bearer sk-basa-onlineXYZ"})
+                    headers={"Authorization": "Bearer sk-sentinel-onlineXYZ"})
     assert r.status_code == 200
     assert _FakeClient.last["url"].startswith(ENGINE)          # byok → motor, NO passthrough
     assert not _FakeClient.last["url"].startswith(ANTHROPIC)
-    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-onlineXYZ"
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-sentinel-onlineXYZ"
 
 
 def test_models_endpoint_honors_auto_byok(client):
     # FR-011: /v1/models con virtual key → motor (para que la tool liste modelos byok).
-    client.get("/gw/v1/models", headers={"x-api-key": "sk-basa-copilot123"})
+    client.get("/gw/v1/models", headers={"x-api-key": "sk-sentinel-copilot123"})
     assert _FakeClient.last["url"].startswith(ENGINE)
 
 
-# ── P2 [Codex pase 2]: helpers honran byok explícito + virtual key en X-Basa-Key ────
-# El scan de headers excluye x-basa-* (load-bearing), así que la virtual key que viaja
-# SOLO en X-Basa-Key debe threadearse a _detect_mode_and_key igual que en /v1/messages.
+# ── P2 [Codex pase 2]: helpers honran byok explícito + virtual key en X-Sentinel-Key ────
+# El scan de headers excluye x-sentinel-* (load-bearing), así que la virtual key que viaja
+# SOLO en X-Sentinel-Key debe threadearse a _detect_mode_and_key igual que en /v1/messages.
 # Antes del fix _plain_passthrough la descartaba → 401 espurio / motor no contactado.
 
-def test_helper_models_byok_with_xbasa_key_routes_to_engine(client):
-    # P2: GET /v1/models con X-Basa-Upstream: byok + la virtual key SOLO en X-Basa-Key
+def test_helper_models_byok_with_xsentinel_key_routes_to_engine(client):
+    # P2: GET /v1/models con X-Sentinel-Upstream: byok + la virtual key SOLO en X-Sentinel-Key
     # → motor (paridad con /v1/messages). Antes del fix: 401, motor jamás contactado.
     r = client.get("/gw/v1/models",
-                   headers={"X-Basa-Upstream": "byok", "X-Basa-Key": "sk-basa-helperX"})
+                   headers={"X-Sentinel-Upstream": "byok", "X-Sentinel-Key": "sk-sentinel-helperX"})
     assert r.status_code == 200
     assert _FakeClient.last["url"].startswith(ENGINE)
-    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-helperX"
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-sentinel-helperX"
 
 
-def test_helper_count_tokens_byok_with_xbasa_key_routes_to_engine(client):
+def test_helper_count_tokens_byok_with_xsentinel_key_routes_to_engine(client):
     # P2: idem para POST /v1/messages/count_tokens (el otro helper que Claude Code llama).
     r = client.post("/gw/v1/messages/count_tokens", json=BENIGN,
-                    headers={"X-Basa-Upstream": "byok", "X-Basa-Key": "sk-basa-helperX"})
+                    headers={"X-Sentinel-Upstream": "byok", "X-Sentinel-Key": "sk-sentinel-helperX"})
     assert r.status_code == 200
     assert _FakeClient.last["url"].startswith(ENGINE)
-    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-basa-helperX"
+    assert _auth(_FakeClient.last["headers"]) == "Bearer sk-sentinel-helperX"
 
 
 def test_helper_models_byok_without_any_key_is_fail_closed(client):
     # F2 regresión sobre los helpers: byok SIN ninguna virtual key sigue siendo 401 y el
     # motor NUNCA se contacta (no cae al master key → sin bypass a PROXY_ADMIN). El fix P2
-    # NO debe aflojar esto: X-Basa-Key ausente ⇒ basa_key None ⇒ fail-closed.
-    r = client.get("/gw/v1/models", headers={"X-Basa-Upstream": "byok"})
+    # NO debe aflojar esto: X-Sentinel-Key ausente ⇒ sentinel_key None ⇒ fail-closed.
+    r = client.get("/gw/v1/models", headers={"X-Sentinel-Upstream": "byok"})
     assert r.status_code == 401
     assert _FakeClient.last == {}  # el motor jamás recibió el master key

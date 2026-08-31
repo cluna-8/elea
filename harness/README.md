@@ -1,6 +1,6 @@
 # harness/ — La ITV 🚗💨 · banco de pruebas de carga (spec 035)
 
-Instrumento que administra **el examen de la Fase 0** de Basa Guardian: mide los gates
+Instrumento que administra **el examen de la Fase 0** de Sentinel Guardian: mide los gates
 de carga **125 / 250 / 500** usuarios activos contra un stack de producción completo,
 con veredicto automático por los cuatro SLO de oro (auditoría, PII, bloqueos durables).
 
@@ -18,11 +18,11 @@ estado del examen no se declara — se demuestra con un número reproducible.
 | `gates/` | Definiciones **versionadas** de cada gate (`gate-125.yaml`…) — data, no código. Cambiar un gate = bump de `version` en PR. |
 | `corpus/` | Dataset PII español etiquetado (artefacto compartido con el core, #107) + plantillas por superficie. Los canarios NO se commitean (runtime-only). |
 | `scenarios/` | Guiones k6 por superficie (chat, extensión, coding-SSE, admin) + tormenta de login. |
-| `src/basa_harness/stub/` | Proveedor simulado (doble wire OpenAI+Anthropic) + centinela de canarios. |
-| `src/basa_harness/seeder/` | Aprovisionamiento reproducible de la población vía API real del producto. |
-| `src/basa_harness/corpus/` | Generador determinista por semilla + validador del dataset. |
-| `src/basa_harness/reporting/` | Cargador de gates, fingerprint, evaluador de SLO, comparador de runs. |
-| `src/basa_harness/observe/` | Colector out-of-band (métricas + logs del producto por ventana de run). |
+| `src/sentinel_harness/stub/` | Proveedor simulado (doble wire OpenAI+Anthropic) + centinela de canarios. |
+| `src/sentinel_harness/seeder/` | Aprovisionamiento reproducible de la población vía API real del producto. |
+| `src/sentinel_harness/corpus/` | Generador determinista por semilla + validador del dataset. |
+| `src/sentinel_harness/reporting/` | Cargador de gates, fingerprint, evaluador de SLO, comparador de runs. |
+| `src/sentinel_harness/observe/` | Colector out-of-band (métricas + logs del producto por ventana de run). |
 | `observability/` | Compose del centro (Prometheus+Grafana) y de la sonda (exporters). |
 | `infra/` | Root OpenTofu del entorno de examen (Hetzner Cloud, project `guardian-itv`). |
 | `tests/` | pytest **del instrumento** (unit + contract). Corre en CI sin stack. |
@@ -52,9 +52,9 @@ stack + licencia de test → seed → run → artefactos → destroy), con los c
 está en [`RUNBOOK-examen.md`](RUNBOOK-examen.md).
 
 ```bash
-# gate oficial: el pool 0600 del seeder aporta las basa_key (extensión/coding) y la
+# gate oficial: el pool 0600 del seeder aporta las sentinel_key (extensión/coding) y la
 # credencial compliance que cuenta las filas de audit_logs en la ventana del run.
-python -m basa_harness.orchestrator --gate 125 \
+python -m sentinel_harness.orchestrator --gate 125 \
   --backend-url http://10.0.0.10:8000 --stub-url http://10.0.0.20:8080 \
   --pool-file /run/itv/pool-g125.json --reconcile http --seed "$ITV_SEED"
 ```
@@ -82,19 +82,19 @@ la vez que el sostenido, caería sobre una cola fría y el drill no mediría nad
 
 | Pieza | Valor |
 |---|---|
-| Identificación | header `X-Basa-Rejected: saturated` en **todo** 503 de saturación, en los dos caminos (`/api/v1/chat/completions` y `/api/v1/gw/v1/messages`). El header ES la llave: un 503 **sin** él no es rechazo de admisión (puede ser Caddy o un proxy de la sede) y no se cuenta. En chat el body agrega `code: "rejected_saturated"`; en `/gw` el error mantiene shape Anthropic. |
+| Identificación | header `X-Sentinel-Rejected: saturated` en **todo** 503 de saturación, en los dos caminos (`/api/v1/chat/completions` y `/api/v1/gw/v1/messages`). El header ES la llave: un 503 **sin** él no es rechazo de admisión (puede ser Caddy o un proxy de la sede) y no se cuenta. En chat el body agrega `code: "rejected_saturated"`; en `/gw` el error mantiene shape Anthropic. |
 | Estado auditado | fila en `audit_logs` con el estado **literal** `rejected_saturated` (deliberadamente NO es un bloqueo de política). |
 | Durabilidad | 1 fila durable por request rechazada, escrita **ANTES** de responder el 503 — incluido el camino del queue-timeout. |
 
 ```bash
 # 1) baseline: el gate 125 oficial del MISMO día (mismo hardware, misma imagen)
-python -m basa_harness.orchestrator --gate 125 --backend-url https://<sut>/
+python -m sentinel_harness.orchestrator --gate 125 --backend-url https://<sut>/
 
 # 2) derivar el presupuesto de admin del baseline (p95 de admin + 50% de margen)
 jq '.overhead.admin.medida_ms.p95 * 1.5' runs/<run-id-baseline>/verdict.json
 
 # 3) el drill, con ese umbral (el YAML lo deja en null a propósito: no se hornea)
-python -m basa_harness.orchestrator \
+python -m sentinel_harness.orchestrator \
   --gate-file gates/drill-saturacion-125.yaml \
   --run-id 20260809-drill-sat-01 \
   --backend-url https://<sut>/ --drill-admin-budget-ms 33
@@ -134,23 +134,23 @@ El perfil de despliegue del examen vive en
 
 ## Seeder + licencias del examen
 
-El **seeder** (`src/basa_harness/seeder/`) aprovisiona la población del examen —
+El **seeder** (`src/sentinel_harness/seeder/`) aprovisiona la población del examen —
 organización, usuarios por rol, llaves por herramienta, presupuestos — de forma
 **reproducible e idempotente** vía la **API REST real** del producto (research R5). El
 seed ES el primer mini-examen del plano admin.
 
 Secuencia: bootstrap admin → **pre-check de seats** (`GET /health/license`, fail-fast si
 la licencia no alcanza) → users → keys (users PRIMERO: el seat gate corre en ambos) →
-budgets. Poblaciones declarativas en `src/basa_harness/seeder/populations/gate-<N>.yaml`
+budgets. Poblaciones declarativas en `src/sentinel_harness/seeder/populations/gate-<N>.yaml`
 (distribución R5: 125 = 119 client + 4 admin + 2 compliance; 250 = 238+8+4; 500 = 475+17+8).
 
 ```bash
 # seedear un despliegue (una vez); la semilla fija identidades/passwords deterministas
-python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --seed 20260808 \
+python -m sentinel_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --seed 20260808 \
   --emit-credentials /run/itv/pool-g125.json
 
 # entre runs: verificar sin crear nada (sale 1 si falta población)
-python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --verify-only \
+python -m sentinel_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --verify-only \
   --emit-credentials /run/itv/pool-g125.json
 ```
 
@@ -158,9 +158,9 @@ python -m basa_harness.seeder.seed --gate 125 --backend-url https://<sut>/ --ver
 > derivadas y exige DB fresca (`down -v`). Las credenciales (`--emit-credentials`) son
 > material de RUN: van a un archivo 0600 fuera del repo, nunca se commitean.
 
-El pool emitido lleva además la **`basa_key`** de cada Connection: `POST /keys` devuelve la
+El pool emitido lleva además la **`sentinel_key`** de cada Connection: `POST /keys` devuelve la
 key en claro UNA vez y las superficies extensión/coding se autentican con ella
-(`X-Basa-Key`). Si alguna identidad de esas dos queda sin material —la Connection ya
+(`X-Sentinel-Key`). Si alguna identidad de esas dos queda sin material —la Connection ya
 existía y la key no es recuperable— el seeder sale con **exit ≠ 0**: el examen no corre a
 medias con dos superficies mudas. En `--verify-only` el material se recupera del pool ya
 emitido y se comprueba contra `/gw/whoami` sobre una muestra.
@@ -168,7 +168,7 @@ emitido y se comprueba contra `/gw/whoami` sobre una muestra.
 ### Licencias in-house — ⚠️ PENDIENTE (T022, requiere la privada de JF)
 
 Los gates necesitan DOS licencias: **300 seats** (125/250) y **500 seats** (500). Se
-emiten con `backend/scripts/issue_license.py` reusando el kid horneado `basa-dev-2026b`,
+emiten con `backend/scripts/issue_license.py` reusando el kid horneado `sentinel-dev-2026b`,
 cuya **clave privada NO está en el repo** (custodia de JF; `issue_license.py` está bajo
 gate de Cristian en CODEOWNERS). El comando exacto — a correr cuando JF aporte la privada
 — está documentado en

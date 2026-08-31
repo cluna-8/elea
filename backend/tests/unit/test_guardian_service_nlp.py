@@ -248,7 +248,7 @@ async def test_analyzer_sano_no_marca_ni_avisa(monkeypatch, marcas):
 def test_region_no_reconocida_en_escritura_avisa_por_log(caplog):
     from src.api import guardians as guardians_api
 
-    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+    with caplog.at_level("WARNING", logger="sentinel-secure-gateway.guardians"):
         guardians_api._advertir_region_no_reconocida(
             TENANT, "pii_masking", {"region": "latam-ar"})  # typo: guión, no guión bajo
 
@@ -260,7 +260,7 @@ def test_region_no_reconocida_en_escritura_avisa_por_log(caplog):
 def test_region_reconocida_no_avisa(caplog):
     from src.api import guardians as guardians_api
 
-    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+    with caplog.at_level("WARNING", logger="sentinel-secure-gateway.guardians"):
         guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", {"region": "latam_ar"})
 
     assert caplog.records == []
@@ -271,7 +271,7 @@ def test_region_ausente_o_vacia_no_avisa(caplog):
     no merece el mismo aviso que un valor mal tipeado."""
     from src.api import guardians as guardians_api
 
-    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+    with caplog.at_level("WARNING", logger="sentinel-secure-gateway.guardians"):
         guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", {})
         guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", {"region": ""})
         guardians_api._advertir_region_no_reconocida(TENANT, "pii_masking", None)
@@ -285,7 +285,7 @@ def test_otro_tipo_de_guardian_no_avisa(caplog):
     aviso."""
     from src.api import guardians as guardians_api
 
-    with caplog.at_level("WARNING", logger="basa-secure-gateway.guardians"):
+    with caplog.at_level("WARNING", logger="sentinel-secure-gateway.guardians"):
         guardians_api._advertir_region_no_reconocida(TENANT, "secret_detection", {"region": "mars"})
 
     assert caplog.records == []
@@ -301,7 +301,7 @@ async def test_playground_usa_la_region_del_tenant_no_el_literal_eu(monkeypatch)
     instalación. Mutación que este test mata: volver a `region: str = "eu"` en la firma de
     `PresidioService.analyze_text_http` (o no leer `pii_guardian.config.get('region')` en
     `process_prompt`) lo deja en rojo."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     guardianes = [_GuardianFalso("pii_masking", {"entities": ["EMAIL_ADDRESS", "PERSON"],
                                                  "action": "MASK", "custom_names": [],
                                                  "region": "latam_ar"})]
@@ -329,7 +329,7 @@ async def test_playground_degradado_tambien_resuelve_la_region_del_tenant(monkey
     """Mismo hallazgo que arriba pero en el camino degrade (analyzer configurado, caído):
     `PresidioService.analyze_text` (el fallback regex) tampoco tenía el parámetro `region` —
     se congelaba en `policy.DEFAULT_REGION` sin importar el tenant."""
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     guardianes = [_GuardianFalso("pii_masking", {"entities": ["EMAIL_ADDRESS", "PERSON"],
                                                  "action": "MASK", "custom_names": [],
                                                  "region": "latam_ar"})]
@@ -359,8 +359,8 @@ async def test_playground_degradado_tambien_resuelve_la_region_del_tenant(monkey
 @pytest.mark.asyncio
 async def test_playground_sin_region_propia_cae_al_default_de_instalacion(monkeypatch):
     """Retrocompatibilidad: un `pii_masking` sin `region` en su config (instalación de
-    antes de este PR) sigue resolviendo `BASA_ENTITY_REGION`/`DEFAULT_REGION`."""
-    monkeypatch.setenv("BASA_ENTITY_REGION", "latam_ar")
+    antes de este PR) sigue resolviendo `SENTINEL_ENTITY_REGION`/`DEFAULT_REGION`."""
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "latam_ar")
     guardianes = [_GuardianFalso("pii_masking", {"entities": ["EMAIL_ADDRESS", "PERSON"],
                                                  "action": "MASK", "custom_names": []})]
     monkeypatch.setattr(GuardianService, "get_or_create_default_guardians",

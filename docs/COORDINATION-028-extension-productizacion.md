@@ -55,18 +55,18 @@ El zip del partner lo **arma Minion C** sustituyendo marca en una COPIA de `exte
 
 ### Qué campos de `manifest.json` son "marca" (los sustituye el render de C)
 - `name`, `description`, `action.default_title`, `icons`, `action.default_icon`.
-- C los toma de `brand.extension.json` (`name`, `description`, íconos). **El source de B puede seguir diciendo "Basa Guard" en esos campos** — el render los pisa.
+- C los toma de `brand.extension.json` (`name`, `description`, íconos). **El source de B puede seguir diciendo "Sentinel Guard" en esos campos** — el render los pisa.
 
 ### Qué debe neutralizar B en el SOURCE (porque el render NO los toca y viajan en el zip)
 1. **`config.js`**: el default de URL **NO puede ser `http://localhost:8091/...`** (el gate prohíbe `localhost`). Dejar `GATEWAY_URL: ""` (vacío, editable) o un placeholder `https://` neutro. Pre-cargable con la URL de Cámara vía brand, pero por defecto vacío.
-2. **`*.js` (guardia-main.js, background.js, popup.js)**: quitar el literal **"Basa Guard"** de `console.log`/comentarios visibles → usar un string neutro (p.ej. `"[guardia]"`) o leerlo de `chrome.runtime.getManifest().name`. Los **identificadores internos** (`__BASA_GUARD__`, `BASA_CONFIG`, `basa_key`, `basa_gateway`, `basa_connected`, `X-Basa-Key`, prefijos `__basa_*`) **se conservan** — no son texto visible; van en la allowlist del gate (como `litellm_params`/`presidio` en el gate de la UI).
+2. **`*.js` (guardia-main.js, background.js, popup.js)**: quitar el literal **"Sentinel Guard"** de `console.log`/comentarios visibles → usar un string neutro (p.ej. `"[guardia]"`) o leerlo de `chrome.runtime.getManifest().name`. Los **identificadores internos** (`__SENTINEL_GUARD__`, `SENTINEL_CONFIG`, `sentinel_key`, `sentinel_gateway`, `sentinel_connected`, `X-Sentinel-Key`, prefijos `__sentinel_*`) **se conservan** — no son texto visible; van en la allowlist del gate (como `litellm_params`/`presidio` en el gate de la UI).
 3. **`README.md`**: **NO viaja en el zip** (C lo excluye). B lo neutraliza igual por higiene de repo, pero no es un bloqueante del gate.
 
 ### Qué NO ship-ea el render de C en el zip
 Solo runtime: `manifest.json`, `background.js`, `bridge.js`, `guardia-main.js`, `popup.html`, `popup.js`, `config.js`, `icons/`. **NO** `README.md` ni nada de dev.
 
 ### Allowlist del gate (C la implementa siguiendo el patrón de `test_no_engine_name.sh`)
-Denylist fabricante: `basa`, `basa guard`, `poc`, `localhost`, + `prohibited_names.txt` (motor). Allowlist de identificadores internos (word-exact): `__BASA_GUARD__`, `BASA_CONFIG`, `basa_key`, `basa_gateway`, `basa_connected`, `basa_user`, `basa_team`, `X-Basa-Key`, `__basa`, `__basa_nonce`.
+Denylist fabricante: `sentinel`, `sentinel guard`, `poc`, `localhost`, + `prohibited_names.txt` (motor). Allowlist de identificadores internos (word-exact): `__SENTINEL_GUARD__`, `SENTINEL_CONFIG`, `sentinel_key`, `sentinel_gateway`, `sentinel_connected`, `sentinel_user`, `sentinel_team`, `X-Sentinel-Key`, `__sentinel`, `__sentinel_nonce`.
 
 ---
 
@@ -106,7 +106,7 @@ cd backend && python -m pytest tests/contract/test_whoami_proteccion.py tests/un
 # y no romper lo existente en esos módulos:
 python -m pytest tests/contract/test_governance_status_contract.py tests/unit -q
 ```
-Si el backend necesita Postgres, usá el patrón del repo (docker compose del stack basa; ver `conftest.py`). Reportá el output real.
+Si el backend necesita Postgres, usá el patrón del repo (docker compose del stack sentinel; ver `conftest.py`). Reportá el output real.
 
 ### Reportá: rama, archivos cambiados, output de pytest (conteo pass/fail), blockers.
 
@@ -116,7 +116,7 @@ Si el backend necesita Postgres, usá el patrón del repo (docker compose del st
 
 **Rama base**: `028-extension-productizacion`. **Tu rama**: `028-extension`. Worktree asignado por el orquestador.
 
-Leé **Cross-minion contract** arriba: sos responsable de neutralizar `config.js` (sin `localhost`), los `console.log`/comentarios "Basa Guard" de los `.js`, y `README.md`.
+Leé **Cross-minion contract** arriba: sos responsable de neutralizar `config.js` (sin `localhost`), los `console.log`/comentarios "Sentinel Guard" de los `.js`, y `README.md`.
 
 ### US2 — Conexión agnóstica que funciona (FR-008..FR-012)
 - **`manifest.json`**: reemplazar `"host_permissions": ["http://localhost:8091/*"]` por **`optional_host_permissions`** con un patrón que cubra hosts https/http (p.ej. `["https://*/*", "http://*/*"]` — el permiso real se concede por host en runtime, esto solo declara que PODEMOS pedirlo). Mantener `"permissions": ["storage"]` y agregar lo que haga falta (`"alarms"` para US6). content_scripts SIN cambios (chatgpt/claude; Gemini fuera).
@@ -146,7 +146,7 @@ Leé **Cross-minion contract** arriba: sos responsable de neutralizar `config.js
   - `desconectado` (401 **o** 403): **borrar la key**. 403 = "tu plaza ya no está activa" (mensaje distinto); 401 = "key inválida". (El backend hoy devuelve 401 para vencida/inválida; si 403 no aplica aún, dejá el branch listo y usá el 401 para key inválida — no inventes un 403 que el server no manda. Documentá el mapeo.)
   - Un corte de red **NO** borra la key (FR-023).
 - **Revalidación (FR-024)**: `chrome.alarms` cada ~30 min + `chrome.runtime.onStartup` → re-whoami. **No** keepalive artificial (el SW MV3 ya es correcto).
-- **Dueño único (FR-025)**: el SW escribe `basa_connected`/estado; **`popup.js` deja de escribir `basa_connected`** (solo lee/observa vía `chrome.storage.onChanged`). Hoy `popup.js` no escribe `basa_connected` directamente (lo hace el SW) — verificá y, si el disconnect del popup escribe estado, muévelo al SW o a un mensaje al SW.
+- **Dueño único (FR-025)**: el SW escribe `sentinel_connected`/estado; **`popup.js` deja de escribir `sentinel_connected`** (solo lee/observa vía `chrome.storage.onChanged`). Hoy `popup.js` no escribe `sentinel_connected` directamente (lo hace el SW) — verificá y, si el disconnect del popup escribe estado, muévelo al SW o a un mensaje al SW.
 
 ### Reglas duras (hardening #45 — NO regresar)
 - El mapa `S.tok2val` (token→PII) sigue SOLO en el closure. No exponerlo en `window`, DOM ni `document.title`.
@@ -199,8 +199,8 @@ Target `build-extension-brand` que invoca el render: `make -C deploy build-exten
 - `checks/test_airgapped_bundle.sh`: verificar que el zip de la extensión está presente en el bundle y su sha256 coincide con el MANIFEST.
 
 ### T009/T010 — Gate white-label de la extensión (US7)
-- `deploy/release/checks/prohibited_brand.txt` (NUEVO): lista de marca del fabricante — `basa`, `basa guard`, `poc`, `localhost`. (Separada de `prohibited_names.txt`, que es motor y la comparten UI/docs — NO metas "basa" ahí, rompe esos gates.)
-- `deploy/release/checks/test_extension_whitelabel.sh` (NUEVO): descomprime `extension-<slug>.zip` y falla si aparece cualquier término de `prohibited_brand.txt` **o** de `prohibited_names.txt` (motor), **con la allowlist de identificadores internos** del cross-contract (grep word-exact, patrón de `test_no_engine_name.sh`). Debe además verificar que `manifest.name`/`description` NO son "Basa Guard" (o sea, que el render sustituyó). Test both ways: un zip con "Basa Guard" reintroducido → rojo; el zip limpio → verde.
+- `deploy/release/checks/prohibited_brand.txt` (NUEVO): lista de marca del fabricante — `sentinel`, `sentinel guard`, `poc`, `localhost`. (Separada de `prohibited_names.txt`, que es motor y la comparten UI/docs — NO metas "sentinel" ahí, rompe esos gates.)
+- `deploy/release/checks/test_extension_whitelabel.sh` (NUEVO): descomprime `extension-<slug>.zip` y falla si aparece cualquier término de `prohibited_brand.txt` **o** de `prohibited_names.txt` (motor), **con la allowlist de identificadores internos** del cross-contract (grep word-exact, patrón de `test_no_engine_name.sh`). Debe además verificar que `manifest.name`/`description` NO son "Sentinel Guard" (o sea, que el render sustituyó). Test both ways: un zip con "Sentinel Guard" reintroducido → rojo; el zip limpio → verde.
 
 ### Verificación local (correr ANTES de reportar done)
 ```bash
@@ -210,11 +210,11 @@ ls -la deploy/clients/camara-comercio/rendered/extension/ && test -f extension-c
 # 2. Gate pasa sobre el zip limpio:
 bash deploy/release/checks/test_extension_whitelabel.sh camara-comercio   # ✅ verde
 # 3. Gate falla si se reintroduce la marca (prueba negativa):
-#    (inyectá "Basa Guard" en una copia del manifest y confirmá que el gate da rojo)
+#    (inyectá "Sentinel Guard" en una copia del manifest y confirmá que el gate da rojo)
 # 4. shellcheck de los scripts nuevos:
 command -v shellcheck >/dev/null && shellcheck deploy/release/render_extension_brand.sh deploy/release/checks/test_extension_whitelabel.sh || echo "shellcheck no instalado (ok)"
 ```
-> Nota: al correr en tu worktree, `extension/` es el de la rama base (sin los cambios de Minion B todavía). El zip puede contener el `localhost` de `config.js` o "[Basa Guard]" en los `.js` → tu gate detectará esas fugas. **Eso es correcto**: documentá qué fugas detecta; el orquestador re-corre el gate DESPUÉS de integrar a Minion B (que neutraliza el source) y ahí debe quedar verde. Diseñá el gate para que sea la verdad, no para pasar artificialmente.
+> Nota: al correr en tu worktree, `extension/` es el de la rama base (sin los cambios de Minion B todavía). El zip puede contener el `localhost` de `config.js` o "[Sentinel Guard]" en los `.js` → tu gate detectará esas fugas. **Eso es correcto**: documentá qué fugas detecta; el orquestador re-corre el gate DESPUÉS de integrar a Minion B (que neutraliza el source) y ahí debe quedar verde. Diseñá el gate para que sea la verdad, no para pasar artificialmente.
 
 ### Reglas duras
 - No hornear URL de gateway en el zip. Íconos y nombre desde el brand-pack. Versión fuente única.
@@ -260,7 +260,7 @@ command -v shellcheck >/dev/null && shellcheck deploy/release/render_extension_b
 - [ ] US1: `make -C deploy build-extension-brand BRAND=camara-comercio` produce `extension-camara-comercio.zip` con identidad cc-guardian + `manifest.key` (ID estable), sin URL horneada.
 - [ ] US1: el zip aparece en el bundle con su sha256 en el MANIFEST; `test_airgapped_bundle.sh` lo verifica.
 - [ ] US2: instalado en Chrome, ingresar URL+key → pide permiso de host → conecta y enmascara; cambiar de host re-pide permiso; URL remota no-https rechazada; permiso denegado → mensaje claro.
-- [ ] US3/US7: gate white-label verde sobre el zip limpio, rojo si se reintroduce "Basa Guard".
+- [ ] US3/US7: gate white-label verde sobre el zip limpio, rojo si se reintroduce "Sentinel Guard".
 - [ ] US4: chip ámbar "Detección por patrones · cobertura parcial" desde el server; fallback conservador; contract test verde.
 - [ ] US5: un bloqueo (AI-Act/secreto) muestra el `motivo` del server; un servicio caído muestra "servicio no disponible"; nunca `blocked_by_layer` crudo.
 - [ ] US6: sin-red conserva key (no_verificado), 401/403 borra key (mensajes distintos), revalida por alarm + onStartup, dueño único = SW.

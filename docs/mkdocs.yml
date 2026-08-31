@@ -4,7 +4,7 @@
 # docs_dir = ./docs: los internos del repo (docs/COORDINATION-*.md, docs/retros/) quedan FUERA
 # del sitio por construcción (anti-fuga de contexto interno, FR-018 + delta F4).
 
-site_name: Basa Secure AI Gateway
+site_name: Sentinel Secure AI Gateway
 site_description: Documentación de producto para distribuidores y operadores
 # site_url removido (issue #288): el plugin privacy horneaba URLs absolutas
 # a http://localhost:8092/ (puerto que nadie sirve en producción) para assets

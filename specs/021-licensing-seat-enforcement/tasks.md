@@ -27,7 +27,7 @@ negativos. Los tests marcados ⚠️ se escriben ANTES de la implementación y d
 
 - Núcleo de licenciamiento (backend-only): `backend/src/licensing/`
 - Call-sites de creación: `backend/src/api/keys.py`, `backend/src/api/users.py`, `backend/src/api/health.py`
-- Clave pública embebida: `backend/src/keys/basa_public_keys.pem`
+- Clave pública embebida: `backend/src/keys/sentinel_public_keys.pem`
 - Modelos reusados de la 013: `backend/src/models/` (APIKey, User, Tenant, AuditLog)
 - Inyección del token: artefacto de deploy de la **020**
 - Tests: `tests/unit/`, `tests/integration/`, `tests/contract/`
@@ -65,14 +65,14 @@ negativos. Los tests marcados ⚠️ se escriben ANTES de la implementación y d
       emisión + true-up; 3 ajustes de honestidad (cadena de hashes, expiry degrada, seat-gate
       best-effort). *(FR-001, FR-013, FR-023, FR-028–FR-030)*
 - [X] T005 [FOUND] Generar el par de claves Ed25519 de prueba (offline), colocar SÓLO la pública en
-      `backend/src/keys/basa_public_keys.pem` indexada por `key_id`; documentar que la privada NUNCA se
+      `backend/src/keys/sentinel_public_keys.pem` indexada por `key_id`; documentar que la privada NUNCA se
       despliega en la caja. *(FR-002, Constraint C5)*
 - [X] T006 ⚠️ [P] [FOUND] Unit tests en `tests/unit/test_license_verifier.py`: firma **válida** → parse OK;
       firma **alterada** (un byte) → rechazo; **mismatch** de `tenant_id` → rechazo; token **ausente/
       corrupto** → rechazo; **rotación** (token firmado con clave A, verificado contra el set {A,B} por
       `key_id`) → OK. DEBEN FALLAR primero. *(FR-003, FR-005, FR-006, FR-007)*
 - [X] T007 [FOUND] Implementar `backend/src/licensing/token.py` (parse + esquema del `LicenseToken`) y
-      `backend/src/licensing/verifier.py` (verificación Ed25519 **offline** contra `BasaPublicKeySet` por
+      `backend/src/licensing/verifier.py` (verificación Ed25519 **offline** contra `SentinelPublicKeySet` por
       `key_id`, sin ninguna llamada de red). *(FR-001, FR-003, FR-004, FR-007)*
 
 **Checkpoint**: Verificador offline verde + clave pública embebida → los user stories pueden empezar.
@@ -238,7 +238,7 @@ valida contra la deployment key y un byte alterado invalida la firma.
 - [X] T040 ⚠️ [P] [US5] Integration test en `tests/integration/test_trueup_export.py`: el export firmado
       valida contra la pública del deployment; refleja lo que la caja registró (`seats_used`/historial) +
       **hash-head + contador**; alterar un byte → firma inválida; dos exports sucesivos → el verificador
-      (lado Basa, mismo módulo) acepta continuidad head-ancestro/contador-no-decreciente y **rechaza** un
+      (lado Sentinel, mismo módulo) acepta continuidad head-ancestro/contador-no-decreciente y **rechaza** un
       export post-truncado (contador retrocede o head no-ancestro); el **PRIMER export** se verifica
       contra la **génesis registrada en el onboarding** (FR-028); la generación corre **sin egress**;
       metadata-only (0 PII, 0 token crudo). *(SC-012, FR-028, FR-029)*
@@ -273,7 +273,7 @@ health de licencia expuesto.
       *(SC-010)*
 - [X] T037 [P] [POLISH] Contract test del **formato del token**, del **esquema del evento de audit de
       licencia** (incl. `prev_hash`, FR-028) y del **formato wire del TrueUpExport** (artefacto
-      cross-party que Basa verifica — FR-029) en `tests/contract/`; documentar el proceso de **rotación
+      cross-party que Sentinel verifica — FR-029) en `tests/contract/`; documentar el proceso de **rotación
       de claves** por `key_id`.
 - [X] T038 [POLISH] Documentar la integración con la **020** (dónde/cómo se inyecta el token) y actualizar
       `spec/plan/tasks/changelog` (Dev Workflow — Documentación viva).
@@ -378,4 +378,4 @@ definición de seat; Dev C → US4 (ciclo de vida). US5 lo cierra quien consolid
   **detectable**, no imposible (el cliente controla el runtime). El enforcement real = true-up en la
   renovación sobre el TrueUpExport firmado + audit-rights del EULA (research addendum).
 - **Emisión central**: la caja sólo valida su hoja `.lic`; el techo del pool del distribuidor
-  (`sum(hojas) ≤ max_total_seats`) se valida en el portal de emisión de Basa (FR-030), fuera de scope acá.
+  (`sum(hojas) ≤ max_total_seats`) se valida en el portal de emisión de Sentinel (FR-030), fuera de scope acá.

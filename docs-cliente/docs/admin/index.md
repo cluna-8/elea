@@ -98,4 +98,4 @@ continúe por [Llaves de acceso](llaves.md).
 
 !!! note "¿Algo no responde?"
     Si acaba de añadir un modelo y no contesta pasados unos minutos, o si una pantalla no
-    se comporta como se describe aquí, escriba a **soporte@basa-dev.com**.
+    se comporta como se describe aquí, escriba a **soporte@sentinel-dev.com**.

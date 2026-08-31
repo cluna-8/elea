@@ -8,7 +8,7 @@ Qué muerde este test, y por qué vale la pena antes de que haya una línea de l
    T003 implementa `clase_de(row)` o le agrega un parámetro para «incluir también license»,
    esto se pone rojo acá y no en el refactor de la vitrina.
 2. **Los nombres y defaults de las 7 perillas de FR-001** (las 6 de la tabla del plan más
-   `BASA_PURGE_DRY_RUN`, que entró el 13-ago con la red de H7). Son superficie publicada:
+   `SENTINEL_PURGE_DRY_RUN`, que entró el 13-ago con la red de H7). Son superficie publicada:
    viajan al `.env.example`, de ahí a la referencia de configuración del sitio
    (`docs/gen_config_reference.py`) y de ahí al operador. Un rename silencioso en el código
    deja la doc prometiendo una perilla que ya no existe; el gate de drift lo cazaría en CI,
@@ -42,15 +42,15 @@ def test_clasificador_expone_las_tres_firmas_del_contrato():
     assert list(clase_de.parameters) == ["fila"]
 
 
-# ── Perillas de FR-001 (las 6 de la tabla sellada del plan + `BASA_PURGE_DRY_RUN`) ───
+# ── Perillas de FR-001 (las 6 de la tabla sellada del plan + `SENTINEL_PURGE_DRY_RUN`) ───
 def test_nombres_de_env_de_purga_son_los_publicados():
-    assert purger.ENV_WINDOW == "BASA_PURGE_WINDOW"
-    assert purger.ENV_WINDOW_TZ == "BASA_PURGE_WINDOW_TZ"
-    assert purger.ENV_BATCH_SIZE == "BASA_PURGE_BATCH_SIZE"
-    assert purger.ENV_BATCH_PAUSE_MS == "BASA_PURGE_BATCH_PAUSE_MS"
-    assert purger.ENV_DRY_RUN == "BASA_PURGE_DRY_RUN"
-    assert retention_scheduler.ENV_ENABLED == "BASA_PURGE_ENABLED"
-    assert retention_scheduler.ENV_INTERVAL_SECONDS == "BASA_PURGE_INTERVAL_SECONDS"
+    assert purger.ENV_WINDOW == "SENTINEL_PURGE_WINDOW"
+    assert purger.ENV_WINDOW_TZ == "SENTINEL_PURGE_WINDOW_TZ"
+    assert purger.ENV_BATCH_SIZE == "SENTINEL_PURGE_BATCH_SIZE"
+    assert purger.ENV_BATCH_PAUSE_MS == "SENTINEL_PURGE_BATCH_PAUSE_MS"
+    assert purger.ENV_DRY_RUN == "SENTINEL_PURGE_DRY_RUN"
+    assert retention_scheduler.ENV_ENABLED == "SENTINEL_PURGE_ENABLED"
+    assert retention_scheduler.ENV_INTERVAL_SECONDS == "SENTINEL_PURGE_INTERVAL_SECONDS"
 
 
 def test_defaults_de_purga_son_los_del_plan():
@@ -121,7 +121,7 @@ def test_scheduler_de_purga_habla_el_idioma_de_reconcile():
 
 def test_scheduler_de_purga_ya_tiene_cuerpo():
     # T011 le puso cuerpo al trío: dejó de ser esqueleto. La suite corre con
-    # `BASA_PURGE_ENABLED=false` (conftest), así que sin nadie que lo arranque el estado
+    # `SENTINEL_PURGE_ENABLED=false` (conftest), así que sin nadie que lo arranque el estado
     # base es «no hay thread» — un bool, no un `NotImplementedError`. El comportamiento fino
     # (arranque/apagado, fail-soft, doble compuerta) lo cubre `test_retention_scheduler.py`;
     # acá sólo se sella que las formas quedaron IMPLEMENTADAS y no como stub.

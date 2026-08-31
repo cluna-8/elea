@@ -12,15 +12,15 @@ container real del backend: 293 passed, 10 skipped). `make -C deploy check-docs`
   spaCy `es_core_news_md`, imagen propia — la oficial no trae español), servicio compose
   `nlp-analyzer` (ver "Naming neutro" abajo), expone `/analyze` con soporte de
   `ad_hoc_recognizers` (patterns + deny_list + context).
-- **`STRUCTURED_ID_PATTERNS_BY_REGION`** (`basa_guardian_policy.py`): reemplaza los dos
+- **`STRUCTURED_ID_PATTERNS_BY_REGION`** (`sentinel_guardian_policy.py`): reemplaza los dos
   diccionarios `PII_PATTERNS` duplicados (research §3). Región `"eu"` (default,
-  `BASA_ENTITY_REGION`): solo `PASSPORT` ad-hoc — `ES_NIF`/`ES_NIE` son built-in de
+  `SENTINEL_ENTITY_REGION`): solo `PASSPORT` ad-hoc — `ES_NIF`/`ES_NIE` son built-in de
   Presidio con checksum, no se reimplementan. Región `"latam_ar"` (inactiva, preparada):
   `DNI`/`CUIL`/`PASSPORT`. **Corrección post-review**: el despliegue objetivo es Europa
   (España primero), no Argentina — el research/spec originales asumían DNI/CUIL como
   ejemplo y se corrigieron.
 - **`build_ad_hoc_recognizers`/`presidio_analyze`/`resolve_overlaps`/`resolve_entity_action`**
-  (`basa_guardian_policy.py`, librería PURA compartida motor+backend): única fuente de
+  (`sentinel_guardian_policy.py`, librería PURA compartida motor+backend): única fuente de
   patrones y de resolución de solapamientos/acción por tipo. `resolve_overlaps` usa
   clustering de intervalos (no comparación par-a-par) — resuelve correctamente 3+
   entidades solapadas en cadena. `mask_text` ahora llama `resolve_overlaps` internamente
@@ -30,7 +30,7 @@ container real del backend: 293 passed, 10 skipped). `make -C deploy check-docs`
   Analyzer ya NO produce `[]` silencioso (fail-open heredado); el guardrail retorna motivo
   de bloqueo `nlp_unavailable` por el mismo canal que AI-Act/secretos.
 - **`entity_configs` conectado al firewall real** (US2): `custom_auth._IDENTITY_SQL`
-  extendida para traer la `SecurityPolicy` activa; `BasaGuardrail.async_pre_call_hook`
+  extendida para traer la `SecurityPolicy` activa; `SentinelGuardrail.async_pre_call_hook`
   resuelve MASK/BLOCK por tipo vía `resolve_entity_action` ANTES de tocar el body (un solo
   preview de detección, no se enmascara para bloquear después).
 - **Consistencia panel/playground vs firewall** (US4, T028/T029): `presidio_service.py`
@@ -67,10 +67,10 @@ publicada: el env var `PRESIDIO_ANALYZER_URL` (nombre de variable) y su valor de
 motor/internals al sitio publicado (`configuration.md`, autogenerado desde `.env.example`).
 Fix en dos pasos:
 1. Rename del env var: `PRESIDIO_ANALYZER_URL` → `NLP_ANALYZER_URL` (7+ archivos:
-   `.env.example`, `docker-compose.yml`, `contract_checks.py`, `basa_guardrail.py`,
-   `basa_guardian_policy.py` (comentario), `guardian_service.py`, tests e2e, specs internas).
+   `.env.example`, `docker-compose.yml`, `contract_checks.py`, `sentinel_guardrail.py`,
+   `sentinel_guardian_policy.py` (comentario), `guardian_service.py`, tests e2e, specs internas).
 2. Rename del servicio/hostname compose: `presidio-analyzer` → `nlp-analyzer` (service key,
-   `container_name: basa-nlp-analyzer`, `depends_on`, todas las URLs `http://…:3000`) — el
+   `container_name: sentinel-nlp-analyzer`, `depends_on`, todas las URLs `http://…:3000`) — el
    directorio interno de build `presidio-analyzer/` se dejó **sin cambiar** (no es
    customer-facing, solo estructura de repo).
 
@@ -80,7 +80,7 @@ tras el rename.
 ## Nota de Contrato — regional fallback (hallazgo de review, ver `spec.md` FR-003)
 
 El regex de dev/demo (`default_analyze`, sin NLP real levantado) es un piso de cobertura
-genérico, **no** una réplica por región del motor NLP. Con `BASA_ENTITY_REGION=eu`
+genérico, **no** una réplica por región del motor NLP. Con `SENTINEL_ENTITY_REGION=eu`
 (default) ese fallback ya no produce un tipo `DNI` distinguible — un DNI español cae
 dentro del patrón genérico `PHONE_NUMBER` del fallback. Esto **no** es un bug: la
 detección precisa por región depende del motor NLP real (built-in con checksum), y el

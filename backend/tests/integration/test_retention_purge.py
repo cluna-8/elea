@@ -2,7 +2,7 @@
 
 Es el test de ACEPTACIÓN de la User Story 1: una instalación sembrada con ~200 días de datos
 sintéticos (el seed reutilizable de T013), tras UNA corrida REAL completa del purgador
-(`run_once`, `run_now=True`, `BASA_PURGE_DRY_RUN=false`), tiene que cumplir las cinco cosas del
+(`run_once`, `run_now=True`, `SENTINEL_PURGE_DRY_RUN=false`), tiene que cumplir las cinco cosas del
 Success Criteria a la vez y sobre la MISMA tabla:
 
 1. **cero** filas vencidas de clases purgables quedan;
@@ -47,7 +47,7 @@ from seed_retention_dataset import sembrar_dataset_retencion  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_retention_purge"
+DB = "sentinel_test_retention_purge"
 
 # El predicado PÚBLICO del quickstart §1 (SQL #1): «la fila la protege el portón por la marca en
 # el [0]». Cubre eslabones US5+ y licencias pre-US5. Se usa a mano —no importado del clasificador—
@@ -76,7 +76,7 @@ def factory():
 def escenario(factory, tmp_path_factory):
     """Siembra UNA vez (~200 días) y corre UNA purga REAL. Todos los tests leen ese estado.
 
-    La corrida es REAL (`BASA_PURGE_DRY_RUN=false`) y `run_now=True` (saltea la ventana). El
+    La corrida es REAL (`SENTINEL_PURGE_DRY_RUN=false`) y `run_now=True` (saltea la ventana). El
     `escenario` captura el conteo de filas de forma-cadena ANTES y DESPUÉS, porque «la evidencia no
     se movió» es una igualdad entre esos dos números (quickstart §1, SQL #1).
     """
@@ -86,9 +86,9 @@ def escenario(factory, tmp_path_factory):
     # Deployment key efímera para el export de true-up (mismo patrón que el dataset abusivo).
     keypath = tmp_path_factory.mktemp("dep_key") / "deployment_key.pem"
     prev = {k: os.environ.get(k) for k in
-            ("BASA_PURGE_DRY_RUN", "BASA_PURGE_BATCH_PAUSE_MS", deployment_key.DEPLOYMENT_KEY_ENV)}
-    os.environ["BASA_PURGE_DRY_RUN"] = "false"
-    os.environ["BASA_PURGE_BATCH_PAUSE_MS"] = "0"
+            ("SENTINEL_PURGE_DRY_RUN", "SENTINEL_PURGE_BATCH_PAUSE_MS", deployment_key.DEPLOYMENT_KEY_ENV)}
+    os.environ["SENTINEL_PURGE_DRY_RUN"] = "false"
+    os.environ["SENTINEL_PURGE_BATCH_PAUSE_MS"] = "0"
     os.environ[deployment_key.DEPLOYMENT_KEY_ENV] = str(keypath)
     deployment_key.ensure_deployment_key()
     try:

@@ -106,7 +106,7 @@ from src.services.retention import classifier
 
 require_postgres()
 
-DB = "basa_test_retention_clf"
+DB = "sentinel_test_retention_clf"
 TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")  # default tenant (seed 010)
 
 # `model='license'` — el literal de la exclusión estructural (FR-003). Va acá como constante del
@@ -173,7 +173,7 @@ _HOMONIMOS = {
 # sus constantes son estados de otras máquinas, no de una fila de auditoría.
 _OTROS_VOCABULARIOS_DE_STATUS = {
     "entitlement.py": "STATUS_* = estado de la LICENCIA (active/grace/expired…), spec 021",
-    "basa_governance.py": "STATUS_* = estado de una CAPA del registry (applied/skipped…), spec 027",
+    "sentinel_governance.py": "STATUS_* = estado de una CAPA del registry (applied/skipped…), spec 027",
 }
 
 # Piso del censo: emisores que existen hoy y que se verificaron a mano al escribir esto
@@ -188,10 +188,10 @@ _PISO_DEL_CENSO = {
     "degraded_nlp_regex",           # D10 fail-open: NLP caído, se siguió con regex (plano motor)
     "blocked_prohibited",           # práctica prohibida AI-Act
     "blocked_by_policy",            # default de la cadena de licencias (audit_events.py:195)
-    "blocked_secret",               # gateway.py:433 · basa_guardrail.py:500
+    "blocked_secret",               # gateway.py:433 · sentinel_guardrail.py:500
     "blocked_residency",            # chat.py:1229 (residencia de datos)
     "blocked_nlp_unavailable",      # D10 fail-closed (plano motor)
-    "blocked_entity_type",          # basa_guardrail.py:588 (plano motor)
+    "blocked_entity_type",          # sentinel_guardrail.py:588 (plano motor)
     "rejected_saturated",           # engine_gate.py — tope de admisión (NO es un bloqueo)
     "rejected_budget",              # budget_service.py — tope de presupuesto (issue #157)
     "config_change_nlp_fail_mode",  # guardians.py:334 — cambio de configuración
@@ -1008,7 +1008,7 @@ def _eslabon_de_la_021(seq: int = 7) -> dict:
     """
     return {
         "event_type": "license_loaded",
-        "license_id": "basa-camara-2026",
+        "license_id": "sentinel-camara-2026",
         "seats_used": None,
         "max_seats": 300,
         "reason": None,
@@ -1038,7 +1038,7 @@ def _eslabon_pre_us5() -> dict:
     """
     return {
         "event_type": "license_seat_limit_exceeded",
-        "license_id": "basa-camara-2026",
+        "license_id": "sentinel-camara-2026",
         "seats_used": 26,
         "max_seats": 25,
         "reason": "seats en uso por encima del máximo licenciado",

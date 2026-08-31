@@ -1,5 +1,5 @@
 """Tests del comparador de runs (US3, T033)."""
-from basa_harness.reporting.compare_runs import compare_runs
+from sentinel_harness.reporting.compare_runs import compare_runs
 
 
 def _fp(**over):

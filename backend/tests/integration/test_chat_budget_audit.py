@@ -45,7 +45,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_chat_budget_audit"
+DB = "sentinel_test_chat_budget_audit"
 CHAT = "/api/v1/chat/completions"
 LOGS = "/api/v1/audit-logs"
 MODELO = "ollama-qwen3-4b"
@@ -130,7 +130,7 @@ def presupuesto_agotado(harness):
 
 @pytest.fixture
 def modo_open_por_defecto(monkeypatch):
-    """`BASA_AUDIT_FAIL=open` EXPLÍCITO — la env es global al proceso y sin esto un test que
+    """`SENTINEL_AUDIT_FAIL=open` EXPLÍCITO — la env es global al proceso y sin esto un test que
     corriera después de uno que setea `closed` heredaría el modo y afirmaría sobre un
     escenario que no es el que dice su nombre.
 

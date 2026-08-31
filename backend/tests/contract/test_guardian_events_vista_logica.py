@@ -49,7 +49,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_guardian_events_vista_logica"
+DB = "sentinel_test_guardian_events_vista_logica"
 LOGS = "/api/v1/audit-logs"
 EXPORT = "/api/v1/audit-logs/export"
 PENDIENTES = "/api/v1/compliance/review/pending"

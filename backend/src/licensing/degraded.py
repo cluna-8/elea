@@ -2,7 +2,7 @@
 
 Default = **read-only para creación** (aterrizaje suave, SC-013): en
 grace/expired/over_seat el gate (gate.py) bloquea seats nuevos y el tráfico
-existente sigue. El toggle ``BASA_LICENSE_HARD_BLOCK=true`` endurece
+existente sigue. El toggle ``SENTINEL_LICENSE_HARD_BLOCK=true`` endurece
 ``expired``/``over_seat`` a **bloqueo total**: el tráfico de /gw también se
 corta (403), antes de rutear o tocar upstream. ``grace`` JAMÁS corta tráfico
 (FR-019: la renovación urge, pero el cliente opera).
@@ -19,7 +19,7 @@ from .reconcile import RECON_OVER_SEAT, get_tenant_status
 
 logger = logging.getLogger(__name__)
 
-HARD_BLOCK_ENV = "BASA_LICENSE_HARD_BLOCK"
+HARD_BLOCK_ENV = "SENTINEL_LICENSE_HARD_BLOCK"
 
 # Mensaje FIJO al cliente: el corte corre ANTES de resolver identidad, así que
 # jamás se filtra estado interno (seats, expiry) a un caller sin autenticar.

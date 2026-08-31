@@ -20,7 +20,7 @@ from typing import Tuple
 
 from .token_counter import count_tokens
 
-logger = logging.getLogger("basa-secure-gateway.optimization")
+logger = logging.getLogger("sentinel-secure-gateway.optimization")
 
 # Umbral mínimo de tokens para activar la compresión (evita overhead en prompts cortos).
 DEFAULT_THRESHOLD = int(os.getenv("COMPRESSION_THRESHOLD_TOKENS", "256"))
@@ -68,7 +68,7 @@ _CACHE_TTL = int(os.getenv("COMPRESSION_CACHE_TTL", "86400"))  # 24h por defecto
 def _cache_key(text: str, strategy: str, aggressiveness: str) -> str:
     import hashlib
     h = hashlib.sha256(f"{strategy}|{aggressiveness}|{text}".encode()).hexdigest()
-    return f"basa:compress:{h}"
+    return f"sentinel:compress:{h}"
 
 
 def _cache_get(key: str):

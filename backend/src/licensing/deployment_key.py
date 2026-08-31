@@ -1,10 +1,10 @@
 """Deployment key (spec 021 US5, T041 — FR-029).
 
 Par Ed25519 PROPIO de cada deployment: se genera en el install (primer uso),
-la privada vive en volumen/secret (``BASA_DEPLOYMENT_KEY_FILE``) y JAMÁS en el
+la privada vive en volumen/secret (``SENTINEL_DEPLOYMENT_KEY_FILE``) y JAMÁS en el
 repo ni en config en claro; la pública se registra en el onboarding (lado
-Basa). Firma SOLO evidencia (true-up export) — nunca licencias (la clave de
-firma de licencias es de Basa y no toca la caja, Constraint C5).
+Sentinel). Firma SOLO evidencia (true-up export) — nunca licencias (la clave de
+firma de licencias es de Sentinel y no toca la caja, Constraint C5).
 """
 import logging
 import stat
@@ -17,7 +17,7 @@ from .env import env_or_default
 
 logger = logging.getLogger(__name__)
 
-DEPLOYMENT_KEY_ENV = "BASA_DEPLOYMENT_KEY_FILE"
+DEPLOYMENT_KEY_ENV = "SENTINEL_DEPLOYMENT_KEY_FILE"
 DEFAULT_KEY_PATH = "/app/config/licenses/deployment_key.pem"
 
 
@@ -55,7 +55,7 @@ def ensure_deployment_key() -> Ed25519PrivateKey:
 
 
 def public_key_pem() -> str:
-    """PEM de la pública — lo que el onboarding registra del lado de Basa."""
+    """PEM de la pública — lo que el onboarding registra del lado de Sentinel."""
     return ensure_deployment_key().public_key().public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,

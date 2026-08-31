@@ -56,7 +56,7 @@ El administrador elige el **tier de enforcement** de la instalación — `estric
 
 1. **Given** tier `estricto`, **When** un administrador intenta configurar un plazo de retención por debajo del piso del tier, **Then** el backend lo rechaza con error de validación (no lo acepta y lo ignora en silencio).
 2. **Given** un cambio de tier, **When** se consulta la auditoría, **Then** existe una fila de cambio de configuración con el tier anterior y el nuevo.
-3. **Given** cualquier tier, **When** se evalúa la capa de piso del AI-Act, **Then** la evaluación ocurre siempre — el tier gobierna **consecuencias**, jamás apaga evaluaciones (invariante heredada de la 027, `basa_governance.py:272-283`).
+3. **Given** cualquier tier, **When** se evalúa la capa de piso del AI-Act, **Then** la evaluación ocurre siempre — el tier gobierna **consecuencias**, jamás apaga evaluaciones (invariante heredada de la 027, `sentinel_governance.py:272-283`).
 
 ### User Story 3 — La purga no le cuesta el examen a nadie (Priority: P2)
 
@@ -128,7 +128,7 @@ La ITV corre el gate 250 sobre una instalación con el purgador activo. La purga
 
 - **DSAR #62 y el borrado por sujeto**: purgar por edad y borrar por persona son obras distintas. **Decisión sellada (JF, 13-ago)**: el DSAR deja de ser la Parte 5 del BRIEF de Cristian (quedó huérfana al pasar él al wizard 037) y pasa a Guardian como **spec propia en C3**, después de que 017/018 dejen lista la maquinaria de la que depende (identidad batch, actor, RLS). El export DSAR roto hoy (500 a cualquier rol, `reports.py:89`; issue #193) es un **bug** y su fix de una línea va como tarea suelta del encargo de implementación — no espera a C3.
 - **Particionado de `audit_logs`** u otra cirugía de esquema para acelerar purgas: si el volumen algún día lo exige, será una spec de infraestructura con sus propios números.
-- **Retención de la base propia del motor** (`basa_engine`): inventariarla es un spike de C3; esta spec purga el plano del producto.
+- **Retención de la base propia del motor** (`sentinel_engine`): inventariarla es un spike de C3; esta spec purga el plano del producto.
 - **La FUENTE de configuración futura** (retention_days dentro del PolicyBundle): es FR-003 de la 036 de Cristian. Esta spec consume la fuente vigente y define el contrato de lectura, no la reemplaza.
 
 ## Assumptions

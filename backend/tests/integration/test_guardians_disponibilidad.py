@@ -17,7 +17,7 @@ from seat_gate_harness import admin_headers, build_app_client
 
 require_postgres()
 
-DB = "basa_test_guardians_disponibilidad"
+DB = "sentinel_test_guardians_disponibilidad"
 
 # Los 5 del catálogo incoming (guardrail de nube, ninguno cargado en esta instalación) y
 # los que sí ejecuta código nuestro. Son `guardian_type`, identificadores internos de join.
@@ -42,7 +42,7 @@ class _Probe:
         return bool(self.confirmed and name and name in self.names)
 
 
-MOTOR_ARRIBA_SIN_NUBE = _Probe(True, {"basa-guardian"})
+MOTOR_ARRIBA_SIN_NUBE = _Probe(True, {"sentinel-guardian"})
 MOTOR_CAIDO = _Probe(False)
 
 
@@ -142,7 +142,7 @@ def test_el_guardrail_cargado_de_verdad_vuelve_disponible_al_guardian(harness, m
     """La disponibilidad NO es una lista negra hardcodeada: se resuelve contra la sonda, así
     que una instalación que sí cargue el guardrail recupera su interruptor sola."""
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian", "bedrock_guardrails"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian", "bedrock_guardrails"}))
 
     guardianes = listar(client, headers)
 
@@ -227,7 +227,7 @@ def test_con_el_motor_caido_tampoco_se_puede_activar(harness, monkeypatch):
 
 def test_activar_es_posible_cuando_el_guardrail_SI_esta_cargado(harness, monkeypatch):
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian", "litellm_content_filter"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian", "litellm_content_filter"}))
     g = listar(client, headers)["openai_moderation"]
 
     resp = poner(client, headers, g, is_active=True)

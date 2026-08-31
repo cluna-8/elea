@@ -109,7 +109,7 @@ Reglas del contrato:
 
 4. **Un emisor nuevo con literal no clasificado DEBE romper un test — y lo rompe por censo del fuente, no por caer en un limbo** *(enmienda aprobada por el manager 13-ago)*. La letra original («debe romper el test de partición») se leía, junto con la firma `clase_de() -> str | None`, como si existiera un tercer estado «sin clasificar». No existe, y no debe existir: los prefijos del mapeo son TOTALES y lo que nadie previó cae en la clase fail-safe `usage_metadata` (365 d). Entre «murió con el plazo equivocado» y «no muere nunca y nadie se entera», la spec eligió lo primero — el segundo es el modo de falla que la 018 vino a matar, así que una regla que EXIJA el limbo para poder detectar el emisor nuevo estaría pidiendo el bug como mecanismo de alarma. `None` significa una sola cosa y no dos: **la fila no pasó el portón** *(precisión 14-ago: la letra decía «eslabón de la cadena», y eso es sólo una parte de lo que el portón deja afuera — también quedan las licencias pre-US5 y las formas que el portón no reconoce, regla 6)*.
 
-   La presión de la regla se conserva entera y por un camino mejor: el test de partición (`tests/unit/test_retention_classifier.py`) **censa los `compliance_status` que emite el FUENTE de los dos planos** y los contrasta contra el inventario `EMISORES_VIGENTES` del clasificador; un emisor nuevo sin inventariar pone el test en rojo con su `archivo:línea`. Muerde cuando alguien ESCRIBE el emisor, no cuando alguien se acuerda de sembrar una fila con él en un dataset de test — que es lo mejor que podía dar la letra original. Ya cazó uno real: `blocked_entity_type` (plano motor, `basa_guardrail.py:594`) clasificaba bien por prefijo, pero nadie había decidido su plazo por escrito.
+   La presión de la regla se conserva entera y por un camino mejor: el test de partición (`tests/unit/test_retention_classifier.py`) **censa los `compliance_status` que emite el FUENTE de los dos planos** y los contrasta contra el inventario `EMISORES_VIGENTES` del clasificador; un emisor nuevo sin inventariar pone el test en rojo con su `archivo:línea`. Muerde cuando alguien ESCRIBE el emisor, no cuando alguien se acuerda de sembrar una fila con él en un dataset de test — que es lo mejor que podía dar la letra original. Ya cazó uno real: `blocked_entity_type` (plano motor, `sentinel_guardrail.py:594`) clasificaba bien por prefijo, pero nadie había decidido su plazo por escrito.
 
 5. **La VITRINA excluye la cadena por LITERAL y la PURGA por FORMA, y eso NO es una inconsistencia** *(dictamen del manager 14-ago, punto b — va en el contrato y no sólo en un docstring)*. La frase normativa, textual:
 
@@ -168,11 +168,11 @@ Reglas:
 
 ## Contrato 3 · Capa de tier sobre el registry 027 (FR-008)
 
-- Clave: `enforcement_tier_estricto` — alta en el registry puro compartido (`basa_governance.py`), decision `on`/`off`.
+- Clave: `enforcement_tier_estricto` — alta en el registry puro compartido (`sentinel_governance.py`), decision `on`/`off`.
 - Semántica: `on` = `estricto`, `off`/ausente = `estándar`. La capa de piso `ai_act_evaluation` se evalúa SIEMPRE, cualquiera sea el tier (invariante 027).
 - Consumidores backend:
   1. **Pisos/topes de retención** en `PUT /compliance/retention` (tabla research.md D7) — violación → error de validación (SC-005).
-  2. **Postura de auditoría**: tier `estricto` exige `BASA_AUDIT_FAIL=closed`; incoherencia → health degradado + evento auditado. **No** se reescribe el env ni se toca el espejo triple del motor.
+  2. **Postura de auditoría**: tier `estricto` exige `SENTINEL_AUDIT_FAIL=closed`; incoherencia → health degradado + evento auditado. **No** se reescribe el env ni se toca el espejo triple del motor.
   3. Consecuencias de capas con grado (bloquear vs registrar) según resolución 027 vigente.
 - Cambio de tier: auditado con valor anterior y nuevo (SC-006). El plano motor no consume esta capa en v1 (decisión de diseño — evita rebundle).
 - **Costura 037/perfil**: el bloque `compliance_tier` reservado en el schema del perfil (sellado con Cristian/Falime 13-ago) escribe esta capa al instalar; la licencia autoriza los juguetes, el perfil solo configura.
@@ -183,12 +183,12 @@ Dos perillas gobiernan que la primera imagen con purgador adentro no borre nada 
 
 | perilla | default | qué gobierna |
 |---------|---------|--------------|
-| `BASA_PURGE_ENABLED` | **`false`** | interruptor maestro: el scheduler ni se despierta |
-| `BASA_PURGE_DRY_RUN` | **`true`** | simulacro: resuelve cutoff, CUENTA y deja rastro, no borra |
+| `SENTINEL_PURGE_ENABLED` | **`false`** | interruptor maestro: el scheduler ni se despierta |
+| `SENTINEL_PURGE_DRY_RUN` | **`true`** | simulacro: resuelve cutoff, CUENTA y deja rastro, no borra |
 
-**`BASA_PURGE_ENABLED=false` en los tres lugares donde se declara** (`.env.example`, `docker-compose.yml`, `deploy/docker/compose.prod.yml`). Por qué el default cambió de `true`: un job de `DELETE` retroactivo no se enciende con un `docker pull`. El `.env` de la sede se escribe HOY y la imagen con purgador llega después, así que un `true` acá sería ese pull encendiendo, solo, un borrado sobre datos del cliente sin que nadie lo hubiera decidido. Encender es un paso EXPLÍCITO del runbook: reinicio del backend, con el conteo del simulacro ya firmado. La tensión con el Art. 5.1.e queda escrita y aceptada: una retención que todavía no purga se arregla con un `true`; una purga que se encendió sola y borró de más no se arregla con nada.
+**`SENTINEL_PURGE_ENABLED=false` en los tres lugares donde se declara** (`.env.example`, `docker-compose.yml`, `deploy/docker/compose.prod.yml`). Por qué el default cambió de `true`: un job de `DELETE` retroactivo no se enciende con un `docker pull`. El `.env` de la sede se escribe HOY y la imagen con purgador llega después, así que un `true` acá sería ese pull encendiendo, solo, un borrado sobre datos del cliente sin que nadie lo hubiera decidido. Encender es un paso EXPLÍCITO del runbook: reinicio del backend, con el conteo del simulacro ya firmado. La tensión con el Art. 5.1.e queda escrita y aceptada: una retención que todavía no purga se arregla con un `true`; una purga que se encendió sola y borró de más no se arregla con nada.
 
-**`BASA_PURGE_DRY_RUN=true`** es la séptima perilla y la única que NO viene de la tabla sellada del plan. Entra ahora justamente porque los nombres de este bloque todavía no están publicados en la doc del cliente: agregarla después de publicar ya no sería agregar una perilla, sería cambiar el contrato de configuración de las instalaciones que existan. Semántica (`purger.py`, §Simulacro y `purgar_clase`): se resuelve el cutoff de cada clase con el MISMO predicado que usaría para borrar, se cuenta lo que caería y se escribe el rastro marcado `dry_run: true`; no se emite ni el `DELETE` de `audit_logs` ni el `NULL` de `human_reviews.response_text`.
+**`SENTINEL_PURGE_DRY_RUN=true`** es la séptima perilla y la única que NO viene de la tabla sellada del plan. Entra ahora justamente porque los nombres de este bloque todavía no están publicados en la doc del cliente: agregarla después de publicar ya no sería agregar una perilla, sería cambiar el contrato de configuración de las instalaciones que existan. Semántica (`purger.py`, §Simulacro y `purgar_clase`): se resuelve el cutoff de cada clase con el MISMO predicado que usaría para borrar, se cuenta lo que caería y se escribe el rastro marcado `dry_run: true`; no se emite ni el `DELETE` de `audit_logs` ni el `NULL` de `human_reviews.response_text`.
 
 Por qué default y no modo de debug: la primera corrida real de una instalación no tiene el backlog de un día, tiene el de toda la vida de la caja, y lo borrado no vuelve. El simulacro es lo que le permite al DPO ver el número —«se van 412.000 filas de esta clase, con este cutoff»— y FIRMAR antes de que pase. Encender la purga y descubrir el alcance leyendo el rastro de lo ya borrado es el orden inverso.
 

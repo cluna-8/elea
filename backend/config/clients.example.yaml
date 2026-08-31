@@ -32,7 +32,7 @@ clients:
         # Toggles por-key: null/ausente = heredar del group/tenant (FR-014); valor = override.
         redact_enabled: true
         compression_mode: null         # off | deterministic | headroom
-        allowed_models: null           # lista de model-ids permitidos, p.ej. ["basa-fast"]
+        allowed_models: null           # lista de model-ids permitidos, p.ej. ["sentinel-fast"]
         allowed_tools: null
         rpm_limit: 60
         tpm_limit: 100000

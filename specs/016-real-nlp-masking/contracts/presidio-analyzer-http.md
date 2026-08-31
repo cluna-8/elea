@@ -11,14 +11,14 @@ Interfaz que este feature **consume** (no expone). Se pinnea con un contract tes
   "language": "es",
   "ad_hoc_recognizers": [
     {
-      "name": "BASA_PASSPORT",
+      "name": "SENTINEL_PASSPORT",
       "supported_language": "es",
       "patterns": [{"name": "passport_pattern", "regex": "...", "score": 0.4}],
       "supported_entity": "PASSPORT",
       "context": ["pasaporte", "passport", "reisepass", "passeport"]
     },
     {
-      "name": "BASA_CUSTOM_NAMES",
+      "name": "SENTINEL_CUSTOM_NAMES",
       "supported_language": "es",
       "deny_list": ["Pedro", "Cristian", "..."],
       "supported_entity": "PERSON"
@@ -27,7 +27,7 @@ Interfaz que este feature **consume** (no expone). Se pinnea con un contract tes
   "entities": null
 }
 ```
-- Región `"eu"` (default, `BASA_ENTITY_REGION`): el único `ad_hoc_recognizer` estructurado es `PASSPORT`
+- Región `"eu"` (default, `SENTINEL_ENTITY_REGION`): el único `ad_hoc_recognizer` estructurado es `PASSPORT`
   — `ES_NIF`/`ES_NIE` (DNI/NIE españoles) son reconocedores **built-in** de Presidio con validación de
   checksum para `supported_language="es"`, NO se reimplementan como ad-hoc. Región `"latam_ar"` (no
   activa por default) agrega `DNI`/`CUIL` ad-hoc, análogos al ejemplo de `PASSPORT` arriba.

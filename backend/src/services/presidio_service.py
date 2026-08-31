@@ -5,11 +5,11 @@ from typing import Dict, List, Optional, Tuple, Any
 
 import httpx
 
-logger = logging.getLogger("basa-secure-gateway.privacy")
+logger = logging.getLogger("sentinel-secure-gateway.privacy")
 
 # ── Librería PURA compartida (spec 016 T028/T029, FR-012/SC-006) ──────────────────
 # Antes este archivo mantenía su PROPIO diccionario PATTERNS, literalmente duplicado
-# con `basa_guardian_policy.PII_PATTERNS` del firewall real (spec 014/016) — el
+# con `sentinel_guardian_policy.PII_PATTERNS` del firewall real (spec 014/016) — el
 # comentario de ese archivo decía explícitamente "espejo de PresidioService.PATTERNS".
 # Importa la MISMA librería que usa el motor (mismo patrón que ya usa gateway.py para
 # el passthrough) en vez de mantener una segunda copia que puede divergir en silencio.
@@ -20,7 +20,7 @@ for _shared in ("/app/litellm_config/extensions",
         if _abs not in sys.path:
             sys.path.insert(0, _abs)
         break
-import basa_guardian_policy as policy  # noqa: E402
+import sentinel_guardian_policy as policy  # noqa: E402
 
 
 class NlpUnavailableError(Exception):
@@ -33,7 +33,7 @@ class PresidioService:
     @staticmethod
     async def analyze_text(text: str, language: str = "es",
                            region: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Fallback de dev/demo (regex) — delega en `basa_guardian_policy.default_analyze`,
+        """Fallback de dev/demo (regex) — delega en `sentinel_guardian_policy.default_analyze`,
         la MISMA fuente que usa el camino de producción (spec 016 SC-006). Nunca es el
         detector primario con PHI real (Constraint SC-2) — ver `analyze_text_http`.
 

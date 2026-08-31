@@ -1,7 +1,7 @@
 # docs/ — Sitio de documentación de producto (spec 022)
 
 Sitio **estático, air-gap-first** para distribuidor + operador. MkDocs + Material,
-servido por nginx non-root en la imagen `basa-docs:<brand>-<version>`. **0 egress en
+servido por nginx non-root en la imagen `sentinel-docs:<brand>-<version>`. **0 egress en
 runtime**: fuentes/iconos/búsqueda embebidos en build (plugins `privacy` + `offline`).
 
 ## Build local
@@ -15,7 +15,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
 Imagen + checks (desde la raíz del repo):
 
 ```bash
-make -C deploy build-docs   # imagen marca-neutra basa-docs:prod
+make -C deploy build-docs   # imagen marca-neutra sentinel-docs:prod
 make -C deploy check-docs   # 0-egress, strict, contenido, naming, white-label, búsqueda
 ```
 

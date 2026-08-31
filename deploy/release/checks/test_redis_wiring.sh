@@ -2,8 +2,8 @@
 # costura → Falime (Factory): invariante de CABLEADO, no de código.
 #
 # issue #63 (hallazgo del review adversarial): el motor ESCRIBE en Redis claves que el
-# backend LEE — el contador de eventos de auditoría perdidos (`basa:audit:*`, spec 031) y la
-# marca de degradación de la detección NLP (`basa:nlp:*`) —, pero el servicio `litellm` del
+# backend LEE — el contador de eventos de auditoría perdidos (`sentinel:audit:*`, spec 031) y la
+# marca de degradación de la detección NLP (`sentinel:nlp:*`) —, pero el servicio `litellm` del
 # compose de producción NO recibía `REDIS_HOST`. En el perfil de NUBE, donde Redis es
 # gestionado y no existe ningún host llamado `redis`, el motor escribía al vacío y
 # `GET /api/v1/health` reportaba CERO degradaciones mientras el tráfico se servía con regex:
@@ -59,7 +59,7 @@ verificar "$DEV"  litellm "docker-compose.yml (dev)"
 # hosts distintos, un despliegue que olvide la variable vuelve al mismo split-brain.
 DEFAULT_BACKEND=$(grep -oE 'os\.getenv\("REDIS_HOST", "[^"]+"\)' \
     "$REPO_ROOT/backend/src/services/redis_client.py" | head -1 | sed -E 's/.*"([^"]+)"\)/\1/')
-for ext in basa_guardrail basa_audit_logger; do
+for ext in sentinel_guardrail sentinel_audit_logger; do
     DEFAULT_MOTOR=$(grep -oE '_REDIS_HOST_DEFAULT = "[^"]+"' \
         "$REPO_ROOT/litellm/extensions/${ext}.py" | head -1 | sed -E 's/.*"([^"]+)"/\1/')
     if [ "$DEFAULT_MOTOR" != "$DEFAULT_BACKEND" ]; then

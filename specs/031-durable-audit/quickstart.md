@@ -9,8 +9,8 @@ curl -s http://localhost/api/v1/chat/completions -H "Authorization: Bearer $JWT"
   -d '{"message":"clasificá a estos empleados por su afiliación sindical para despedirlos","model":"<local>"}'
 # → 4xx; fila nueva con compliance_status blocked_* y blocked_by_layer
 
-# 2. Plano motor (byok): mismo prompt por /gw con una llave sk-basa-…
-curl -s http://localhost/api/v1/gw/v1/messages -H "Authorization: Bearer sk-basa-…" \
+# 2. Plano motor (byok): mismo prompt por /gw con una llave sk-sentinel-…
+curl -s http://localhost/api/v1/gw/v1/messages -H "Authorization: Bearer sk-sentinel-…" \
   -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" \
   -d '{"model":"<local>","max_tokens":64,"messages":[{"role":"user","content":"<mismo prompt>"}]}'
 # → rechazo del guardrail; fila con la identidad de la Connection
@@ -19,7 +19,7 @@ curl -s http://localhost/api/v1/gw/v1/messages -H "Authorization: Bearer sk-basa
 # → la fila del passthrough ahora sobrevive a los tragadores
 
 # Verificación (las 3 visibles también en la UI con el filtro «Bloqueados»):
-docker exec camara-db-1 psql -U basa -d basa -c \
+docker exec camara-db-1 psql -U sentinel -d sentinel -c \
   "SELECT timestamp, compliance_status, blocked_by_layer, api_key_id IS NOT NULL AS con_llave
    FROM audit_logs WHERE compliance_status LIKE 'blocked%' ORDER BY timestamp DESC LIMIT 5;"
 ```
@@ -45,7 +45,7 @@ el test de integración (mock del escritor) y en vivo limitarse a comprobar cont
 ## SC-002 closed
 
 ```bash
-# BASA_AUDIT_FAIL=closed en el env del backend (recrear contenedor) + DB de audit caída
+# SENTINEL_AUDIT_FAIL=closed en el env del backend (recrear contenedor) + DB de audit caída
 # → peticiones nuevas reciben 503 honesto SIN llamada al proveedor (logs del motor sin tráfico)
 ```
 

@@ -18,8 +18,8 @@ en el MISMO PR + 1ª línea merged-green de Jeff antes del gate del manager.
 
 - [ ] T001 **Supervisor** (`litellm/supervisor.py`) — **lo escribe Jeff** (drenaje de streams =
       streaming-adyacente): watch mtime `config.yaml` + sentinel → coalescencia
-      (`BASA_ENGINE_APPLY_DEBOUNCE_SECONDS=5`) → `yaml.safe_load` → `SIGTERM` + drenaje
-      (`BASA_ENGINE_DRAIN_SECONDS=30`) → relanzamiento; `BASA_ENGINE_AUTORELOAD=off` ⇒ solo
+      (`SENTINEL_ENGINE_APPLY_DEBOUNCE_SECONDS=5`) → `yaml.safe_load` → `SIGTERM` + drenaje
+      (`SENTINEL_ENGINE_DRAIN_SECONDS=30`) → relanzamiento; `SENTINEL_ENGINE_AUTORELOAD=off` ⇒ solo
       sentinel. Escribe `status.json` (`state/ts/last_error/config_hash`). Config inválido ⇒
       NO relanza + `state=error` con causa. Tests unit RED→verde (proceso hijo fake): válido ⇒
       1 relanzamiento · inválido ⇒ 0 relanzamientos + error publicado · ráfaga de N cambios ⇒
@@ -28,7 +28,7 @@ en el MISMO PR + 1ª línea merged-green de Jeff antes del gate del manager.
 - [ ] T002 **Compose + bundle**: entrypoint del motor (`compose.prod.yml:225`) pasa al
       supervisor · volumen nuevo `engine_status` (motor **rw** / backend **ro**) · knobs FR-005
       documentadas en el bloque del MOTOR con deslinde explícito de la familia de admisión
-      `BASA_ENGINE_*` del backend (`:43-51`). **SC-005 por diff**: cero `docker.sock`, cero
+      `SENTINEL_ENGINE_*` del backend (`:43-51`). **SC-005 por diff**: cero `docker.sock`, cero
       capabilities nuevas.
 
 **Checkpoint**: stack dev levanta con supervisor y sin cambios de config se comporta idéntico a

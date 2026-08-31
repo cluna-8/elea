@@ -44,14 +44,14 @@ from src.services import ai_engine_client as svc  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_content_policies_api"
+DB = "sentinel_test_content_policies_api"
 POLICY_ID = "banco-xyz-sin-credito"
 URL = f"/api/v1/content-policies/{POLICY_ID}"
 
 # Estado ANTERIOR en el motor: la política que el `update` va a borrar. Es el estado que la
 # compensación tiene que reponer tal cual — con sus reglas, no con las del request fallido.
 _ANTERIOR = {
-    "guardrail_name": f"basa-policy-{POLICY_ID}",
+    "guardrail_name": f"sentinel-policy-{POLICY_ID}",
     "guardrail_id": "abc-123",
     "litellm_params": {
         "guardrail": "litellm_content_filter",
@@ -133,7 +133,7 @@ def test_si_falla_el_create_repone_la_politica_anterior(harness, admin, motor, m
 
     # El body de LiteLLM va anidado bajo "guardrail" (ver `_content_policy_payload`).
     repuesto = motor["post"][1]["guardrail"]
-    assert repuesto["guardrail_name"] == f"basa-policy-{POLICY_ID}"
+    assert repuesto["guardrail_name"] == f"sentinel-policy-{POLICY_ID}"
     assert repuesto["litellm_params"]["blocked_words"] == \
         _ANTERIOR["litellm_params"]["blocked_words"], (
         "la compensación tiene que reponer las reglas ANTERIORES, no las del request que falló")

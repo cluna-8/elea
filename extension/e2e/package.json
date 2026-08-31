@@ -1,5 +1,5 @@
 {
-  "name": "basa-extension-e2e",
+  "name": "sentinel-extension-e2e",
   "private": true,
   "type": "module",
   "description": "e2e vivo en Chrome (Playwright) para la extensión — 028",

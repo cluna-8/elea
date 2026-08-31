@@ -56,7 +56,7 @@ function buildOptions() {
 
 export const options = buildOptions();
 
-// El summary en el esquema del evaluador (`basa-harness/k6-summary@1`) — fuente del
+// El summary en el esquema del evaluador (`sentinel-harness/k6-summary@1`) — fuente del
 // veredicto junto al producto y el stub (NUNCA la observabilidad, R3).
 export function handleSummary(data) {
   const summary = buildSummary(data);

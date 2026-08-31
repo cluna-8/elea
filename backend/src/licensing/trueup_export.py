@@ -3,9 +3,9 @@
 Export 100% LOCAL (sin egress) de lo que la caja registró: seats del tenant
 licenciado + historial COMPLETO de eventos de licencia encadenados (metadata-
 only) + hash-head + contador, firmado Ed25519 con la deployment key. El
-operador lo genera y lo envía a Basa fuera de banda (renovación/true-up).
+operador lo genera y lo envía a Sentinel fuera de banda (renovación/true-up).
 
-El verificador (lado Basa, ESTE mismo módulo — artefacto cross-party) valida:
+El verificador (lado Sentinel, ESTE mismo módulo — artefacto cross-party) valida:
 firma vs la pública registrada; la cadena interna del export; la génesis del
 onboarding en el PRIMER export; y la CONTINUIDAD entre exports sucesivos —
 contador no-decreciente y head previo ANCESTRO del nuevo. Eso es lo que vuelve
@@ -37,7 +37,7 @@ from . import deployment_key
 logger = logging.getLogger(__name__)
 
 SCHEMA = 1
-KIND = "basa-trueup"
+KIND = "sentinel-trueup"
 
 
 class TrueUpError(Exception):
@@ -94,7 +94,7 @@ def generate_signed_export(session_factory=None, now: Optional[datetime] = None)
 def verify_export(doc: dict, deployment_public_pem: str,
                   expected_genesis_license_id: Optional[str] = None,
                   previous: Optional[dict] = None) -> None:
-    """Verificación lado-Basa. Levanta TrueUpError con el motivo; si no
+    """Verificación lado-Sentinel. Levanta TrueUpError con el motivo; si no
     levanta, el export es consistente."""
     payload = dict(doc)
     sig_b64 = payload.pop("sig", None)

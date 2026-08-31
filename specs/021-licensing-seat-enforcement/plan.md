@@ -7,9 +7,9 @@
 ## Summary
 
 Construir el **enforcement de licencias OFFLINE** para el modelo comercial "install + X licencias"
-vendido a un **distribuidor marca-blanca**, donde **el cliente corre el software** (Basa no controla la
+vendido a un **distribuidor marca-blanca**, donde **el cliente corre el software** (Sentinel no controla la
 caja) y la caja **puede no tener egress** (on-prem/VPN). Como consecuencia, el enforcement **NO puede
-hacer phone-home**: se basa en un **artefacto de licencia firmado Ed25519**, verificado **localmente** al
+hacer phone-home**: se __VERBOSENTINEL__ en un **artefacto de licencia firmado Ed25519**, verificado **localmente** al
 arranque y en la creación de seats, con **evidencia de tamper** en el audit inmutable ya existente.
 
 Es una feature **greenfield en su núcleo** (hoy: cero `max_seats`/`license_key`/`entitlement`), pero
@@ -68,7 +68,7 @@ inferencia); la reconciliación es un job periódico fuera del camino de request
 
 **Constraints**: **offline / no phone-home** (constraint dura del modelo distribuidor); **fail-closed**
 (sin token válido → no se crean seats; extiende Constraint C3); la clave privada **de firma de licencias
-(Basa) NUNCA** en la caja (sólo pública embebida, Constraint C5) — la **deployment key** (FR-029) SÍ vive
+(Sentinel) NUNCA** en la caja (sólo pública embebida, Constraint C5) — la **deployment key** (FR-029) SÍ vive
 en la caja, en volumen/secret, y firma sólo **evidencia**, no licencias; audit **metadata-only +
 inmutable** (Constraint C1); anti-rollback best-effort con marca monotónica + hash-head/contador (FR-028).
 
@@ -88,7 +88,7 @@ hash-head/contador de la cadena (FR-028), y los módulos `deployment_key.py`/`tr
 | **II. Compliance FIRST (audit inmutable como evidencia)** | Cada transición de licencia (incl. tamper y rollback de reloj) se registra en el **audit existente**, append-only, metadata-only y **hash-chained** (FR-028) → evidencia **detectable y oponible contractualmente** vía true-up firmado (FR-029; la innegabilidad la aporta el contrato — addendum). | PASS by-design |
 | **Constraint C1 No Raw PII/Secret Storage** | El audit de licencia es metadata-only; NUNCA persiste el token crudo ni claves. | PASS by-design |
 | **Constraint C3 Fail-closed** | Sin token válido / entitlement inválido → NO se crean seats (no "sin token = ilimitado"); extiende el fail-closed de `custom_auth`. | PASS by-design |
-| **Constraint C5 Credenciales fuera de config en claro** | Sólo la clave **pública** se embebe (no es secreto); la privada vive offline del lado de Basa; el token se inyecta como secret/env (020), no hardcodeado. | PASS by-design |
+| **Constraint C5 Credenciales fuera de config en claro** | Sólo la clave **pública** se embebe (no es secreto); la privada vive offline del lado de Sentinel; el token se inyecta como secret/env (020), no hardcodeado. | PASS by-design |
 | **Dev Workflow — Reuse over Reinvent** | Reusa `APIKey`/`User`/`Tenant`/`AuditLog` (013), el pre-check/índice de seat, el call-site de creación y el scheduler existentes; sólo el verificador + gate + reconciliación son nuevos. | PASS by-design |
 
 **Sin violaciones de principio que justificar** (ver Complexity Tracking): esta spec **refuerza**
@@ -107,8 +107,8 @@ REUSA-plomería vs PROPIO (nuevo).
 | "Un asiento" | 1 Connection activa (`APIKey`), `≤1 por herramienta por cliente` | REUSA plomería (013) |
 | Unicidad de asiento por herramienta | índice parcial `uq_api_keys_tenant_user_tool` + pre-check 409 | REUSA plomería (013) |
 | "El cliente corre la caja, sin egress" | verificación Ed25519 **local** al arranque, 0 red | PROPIO (verificador offline) |
-| Emisión de licencia (venta) | firma **CENTRAL de Basa** (privada en KMS); el distribuidor mintea vía portal/API dentro de su **cupo** (addendum research; portal fuera de scope aquí) | Externo (sólo se define formato + clave pública) |
-| "El distribuidor revende, Basa no ve al cliente final" | `distributor_id` + `pool_id` en el token (atribución de canal para audit/true-up); techo del pool validado EN LA EMISIÓN, no en la caja (FR-030) | PROPIO (campos) + Externo (portal) |
+| Emisión de licencia (venta) | firma **CENTRAL de Sentinel** (privada en KMS); el distribuidor mintea vía portal/API dentro de su **cupo** (addendum research; portal fuera de scope aquí) | Externo (sólo se define formato + clave pública) |
+| "El distribuidor revende, Sentinel no ve al cliente final" | `distributor_id` + `pool_id` en el token (atribución de canal para audit/true-up); techo del pool validado EN LA EMISIÓN, no en la caja (FR-030) | PROPIO (campos) + Externo (portal) |
 | "Fee por usuarios" cobrado sin metering vivo | captura **en la emisión** (`max_seats` comprometido) + **true-up en renovación** vía TrueUpExport firmado (modelo GitLab) | PROPIO (export FR-029) |
 | "Prueba de que el historial no fue manipulado" | eventos de licencia **encadenados por hash** (génesis = `license_id`); eslabón roto = tamper detectable (FR-028) | PROPIO (cadena) sobre audit REUSADO |
 | "No dejar crear más asientos de los pagados" | gate en `POST keys.py`/`users.py`: `COUNT(activas) ≥ max_seats` → 402/403 antes de `generate_key` | PROPIO (gate) sobre call-site REUSADO |
@@ -118,7 +118,7 @@ REUSA-plomería vs PROPIO (nuevo).
 | "Prueba de que el cliente hizo trampa" | eventos de licencia en el **AuditLog inmutable** existente (metadata-only) | PROPIO (eventos) sobre audit REUSADO |
 | Anti-rollback de reloj | marca monotónica (último ts visto); `now < marca` → sospecha + degradado | PROPIO (best-effort) |
 | Módulos white-label on/off | `feature_flags` del token (ausente = off, fail-closed) | PROPIO (flags) |
-| Rotación de claves de Basa | conjunto de claves públicas embebidas indexadas por `key_id` | PROPIO (rotación) |
+| Rotación de claves de Sentinel | conjunto de claves públicas embebidas indexadas por `key_id` | PROPIO (rotación) |
 | Uso por seat (rpm/tpm/budget, 007) | **NO** es conteo de seats — gobernanza ortogonal, no se toca | REUSA 007 (ortogonal) |
 
 ## Project Structure
@@ -142,7 +142,7 @@ specs/021-licensing-seat-enforcement/
 backend/src/
 ├── licensing/                             # NUEVO: núcleo de licenciamiento (backend-only)
 │   ├── token.py                           # PROPIO: parse + esquema del LicenseToken (payload + firma + key_id)
-│   ├── verifier.py                        # PROPIO: verificación Ed25519 OFFLINE contra BasaPublicKeySet (por key_id)
+│   ├── verifier.py                        # PROPIO: verificación Ed25519 OFFLINE contra SentinelPublicKeySet (por key_id)
 │   ├── entitlement.py                     # PROPIO: entitlement en memoria + cómputo de estado (active/grace/expired/invalid/over_seat)
 │   ├── seat_counter.py                    # PROPIO: COUNT(APIKey activas) | COUNT(User role=client) por tenant (una definición, [D-021])
 │   ├── reconcile.py                       # PROPIO: job periódico de reconciliación (drift → over_seat)
@@ -154,7 +154,7 @@ backend/src/
 │   ├── users.py                           # MODIFICADO: + gate de seats en POST de Client (role=client)
 │   └── health.py                          # MODIFICADO/NUEVO: endpoint de estado de licencia (metadata-only)
 ├── keys/                                  # config del producto (embebida en la imagen)
-│   └── basa_public_keys.pem               # NUEVO: clave(s) PÚBLICA(s) Ed25519 por key_id (sólo pública)
+│   └── sentinel_public_keys.pem               # NUEVO: clave(s) PÚBLICA(s) Ed25519 por key_id (sólo pública)
 ├── services/                              # REUSADOS: ai_engine_client (provisioning), audit
 └── models/                                # REUSADOS de la 013: APIKey (=Connection), User, Tenant, AuditLog
                                            #   + (si hace falta) LicenseState/monotonic mark (tabla pequeña)
@@ -178,7 +178,7 @@ licencia se **inyecta como config** por la 020 (complementariedad explícita).
 ## Orden de implementación
 
 1. **Fundacional — formato del token + verificador offline.** `token.py` + `verifier.py` + la clave
-   pública embebida (`basa_public_keys.pem`) con unit tests (firma válida/alterada/mismatch/rotación por
+   pública embebida (`sentinel_public_keys.pem`) con unit tests (firma válida/alterada/mismatch/rotación por
    `key_id`). Es la base de US1 y bloquea el gate. La lib Ed25519 y el formato `.lic` ya están resueltos en
    [`research.md`](./research.md) (DIY Ed25519, PyNaCl/PyCA o PyJWT-EdDSA).
 2. **US1 verificación al arranque (P1).** Cargar el token (env/secret/fichero de la 020), verificar
@@ -203,13 +203,13 @@ licencia se **inyecta como config** por la 020 (complementariedad explícita).
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
 | **El cliente corre la caja → enforcement no es inviolable** (podrían parchear el binario, embeber otra clave pública, o falsear el Postgres donde vive el seat-count). | Alto — evasión posible. | Objetivo realista: **fail-closed + tamper detectable** — cadena de hashes (FR-028) + TrueUpExport firmado con deployment key (FR-029); el ancla real es **contractual** (true-up en renovación + audit-rights en el EULA). El gate es fricción best-effort honor-system (= GitLab self-managed). Documentado en Assumptions + research addendum. |
-| **El distribuidor emite más allá de su cupo** (canal con incentivo a sobre-vender). | Medio — fuga de revenue del pool. | El techo del pool se valida **en la emisión** (portal de Basa, FR-030): `sum(hojas) ≤ max_total_seats`. La caja NUNCA es responsable del techo global. True-up del pool con los TrueUpExports agregados. La firma delegada (que haría el techo inexigible) NO se construye — trigger documentado en el addendum. |
+| **El distribuidor emite más allá de su cupo** (canal con incentivo a sobre-vender). | Medio — fuga de revenue del pool. | El techo del pool se valida **en la emisión** (portal de Sentinel, FR-030): `sum(hojas) ≤ max_total_seats`. La caja NUNCA es responsable del techo global. True-up del pool con los TrueUpExports agregados. La firma delegada (que haría el techo inexigible) NO se construye — trigger documentado en el addendum. |
 | **Caja sin egress** (on-prem/VPN): cualquier phone-home rompe el modelo. | Alto — producto inoperable en on-prem. | Verificación y reconciliación **100% locales** (Ed25519 con clave embebida); test con egress bloqueado (SC-001). |
 | **Rollback de reloj** para evadir `expiry`. | Medio — extiende licencia vencida. | Marca **monotónica** (último ts visto); `now < marca` → sospecha + degradado + audit. Best-effort, explícito. |
 | **Drift por restauración de backup / DB directa** crea seats fuera del gate. | Medio — más asientos que los pagados. | Reconciliación periódica (US3) detecta `over_seat` y degrada + audita. |
 | **Confundir seats con uso** (usar `rpm_limit`/`max_budget` de 007 como licencia). | Medio — enforcement incorrecto. | Regla dura: seats = `COUNT(activas)`, ortogonal a 007; test explícito (SC-008). |
 | **Definición ambigua de "seat"** (Connection vs User role=client). | Medio — conteo inconsistente entre gate y reconciliación. | **[D-021]** fija UNA definición (default `COUNT(APIKey activas)`) usada en ambos (FR-013); revisable en research. |
-| **Rotación de la clave de Basa** rompe cajas ya desplegadas con la clave vieja. | Medio — deployments existentes dejan de validar. | Conjunto de claves públicas por `key_id` (FR-007); el token trae su `key_id`; se soportan N claves durante la migración. |
+| **Rotación de la clave de Sentinel** rompe cajas ya desplegadas con la clave vieja. | Medio — deployments existentes dejan de validar. | Conjunto de claves públicas por `key_id` (FR-007); el token trae su `key_id`; se soportan N claves durante la migración. |
 | **Downgrade de `max_seats`** en renovación deja al tenant over-seat de golpe. | Medio — bloqueo inesperado. | Política de US4: over-seat entra en grace/read-only-para-creación; NO se borran seats automáticamente; se documenta. |
 | **Fail-open accidental** (bug que trata "sin token" como ilimitado). | Alto — se cae el enforcement en silencio. | Default fail-closed explícito (FR-006/FR-010) + tests negativos (SC-002); revisión de todos los early-returns del gate. |
 | **Acoplamiento con la 020** (dónde/cómo se inyecta el token). | Bajo — fricción de integración. | Contrato claro: token como secret/env/fichero montado (FR-026); la 020 lo provee, esta spec sólo lo consume. |

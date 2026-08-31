@@ -76,13 +76,13 @@ def headers_for_role(client, factory, rol, *, display_label=None, sufijo="", pre
     from src.auth.passwords import hash_password
     from src.models.user import User
 
-    # @basa.com.ar (no .test): UserResponse.email es EmailStr y rechaza el TLD reservado .test,
+    # @sentinel.com.ar (no .test): UserResponse.email es EmailStr y rechaza el TLD reservado .test,
     # con lo que GET /users —que serializa a todos— explotaría al listar estos usuarios.
     nombre = f"{prefijo}-{rol.value}{sufijo}-{uuid.uuid4().hex[:8]}"
     db = factory()
     try:
         db.add(User(
-            username=nombre, email=f"{nombre}@basa.com.ar",
+            username=nombre, email=f"{nombre}@sentinel.com.ar",
             password_hash=hash_password(ROLE_PASS), role=rol.value,
             display_label=display_label, is_active=True,
         ))
@@ -105,17 +105,17 @@ def set_license(monkeypatch, tmp_path, **payload_overrides):
     """Emite un token efímero, apunta el env ahí y recarga el entitlement."""
     from src.licensing import entitlement
     keyset_path, lic_path, _priv = issue_files(tmp_path, payload_overrides or None)
-    monkeypatch.delenv("BASA_LICENSE_TOKEN", raising=False)
-    monkeypatch.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    monkeypatch.delenv("SENTINEL_LICENSE_TOKEN", raising=False)
+    monkeypatch.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
     return entitlement.initialize(force=True, emit_audit=False)
 
 
 def clear_license(monkeypatch):
     """Degradado por token ausente (FR-006): para probar el fail-closed del gate."""
     from src.licensing import entitlement
-    monkeypatch.delenv("BASA_LICENSE_TOKEN", raising=False)
-    monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", "/no/existe/token.lic")
+    monkeypatch.delenv("SENTINEL_LICENSE_TOKEN", raising=False)
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", "/no/existe/token.lic")
     return entitlement.initialize(force=True, emit_audit=False)
 
 
@@ -172,7 +172,7 @@ def mock_engine(monkeypatch):
     async def fake_generate_key(**kwargs):
         recorder.generate_key_calls.append(kwargs)
         suffix = uuid.uuid4().hex
-        return {"plain_key": f"sk-basa-{suffix}", "engine_key_token": f"sk-eng-{suffix}"}
+        return {"plain_key": f"sk-sentinel-{suffix}", "engine_key_token": f"sk-eng-{suffix}"}
 
     async def fake_create_user(user_id):
         recorder.create_user_calls.append(user_id)

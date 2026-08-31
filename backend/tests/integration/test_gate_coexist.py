@@ -24,7 +24,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_gate_coexist"
+DB = "sentinel_test_gate_coexist"
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +48,7 @@ def _seed_client_with_key(factory, username):
     from src.models.user import User
     db = factory()
     try:
-        user = User(username=username, email=f"{username}@basa.com.ar",
+        user = User(username=username, email=f"{username}@sentinel.com.ar",
                     password_hash="x", role="client",
                     engine_user_id=f"eng-{uuid.uuid4().hex[:8]}")
         db.add(user)

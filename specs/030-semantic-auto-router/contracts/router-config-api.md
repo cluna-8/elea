@@ -50,7 +50,7 @@ Cuando `enabled: true`, se antepone el pseudo-modelo:
   ausente (no null) cuando el request no fue «auto».
 - Coste/presupuesto calculados sobre el modelo efectivo que contestó (FR-009, research R7).
 
-## Evento de vitrina (Redis basa:gw:events)  (contrato de 3 productores — extensión)
+## Evento de vitrina (Redis sentinel:gw:events)  (contrato de 3 productores — extensión)
 
 Campo NUEVO OPCIONAL `routing` en el dict del evento (solo lo emite el plano chat y solo
 en requests «auto»):
@@ -58,7 +58,7 @@ en requests «auto»):
 "routing": { "route": "Código y análisis", "score": 0.61,
              "model_selected": "gpt-4o", "degraded": false }
 ```
-- Los productores existentes (gateway, basa_audit_logger del motor) NO lo mandan — el
+- Los productores existentes (gateway, sentinel_audit_logger del motor) NO lo mandan — el
   consumidor (monitor.py) lo renderiza solo si está presente.
 - NUEVO: el plano chat publica también el ÉXITO (hoy solo publica bloqueos): status
   reutiliza los existentes de la vitrina (allowed/masked según entidades), tool =

@@ -2,7 +2,7 @@
 # T007 (US1, SC-001): la imagen prod del frontend sirve ESTÁTICOS (vite build),
 # no un dev server, y corre non-root.
 set -euo pipefail
-IMG="${FRONTEND_IMG:-basa-frontend:prod}"
+IMG="${FRONTEND_IMG:-sentinel-frontend:prod}"
 
 fail() { echo "❌ $1"; exit 1; }
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-frontend)"

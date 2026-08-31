@@ -2,10 +2,10 @@
   "producto": {
     "commit": "52e694b",
     "digests": {
-      "basa-docs:prod": "5a2b88562217",
-      "basa/nlp-analyzer:examen-52e694b": "af145d5ef21a",
-      "basa/frontend:examen-52e694b": "0b7957df5d43",
-      "basa/backend:examen-52e694b": "31d77e223890",
+      "sentinel-docs:prod": "5a2b88562217",
+      "sentinel/nlp-analyzer:examen-52e694b": "af145d5ef21a",
+      "sentinel/frontend:examen-52e694b": "0b7957df5d43",
+      "sentinel/backend:examen-52e694b": "31d77e223890",
       "postgres:16": "95206741a5b2",
       "redis:7-alpine": "e7723ff73d96",
       "ghcr.io/berriai/litellm:<none>": "80ea654c506d",

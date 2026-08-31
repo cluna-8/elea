@@ -6,19 +6,19 @@ Prerrequisitos: stack Docker Compose local (`docker compose -p <tuequipo> up`), 
 
 > **Siembra — pendiente (T013).** El seed sintético `tests/seeds/seed_retention_dataset.py` **todavía no existe** (el directorio `backend/tests/seeds/` no está creado): entra con el PR de US1, junto a T012. Tiene que sembrar 200 días con blocked%, rejected%, config_change_*, tráfico normal, `human_reviews` con `response_text` viejo y las TRES formas de fila `license` que el Contrato 1 distingue — eslabón US5+ (`seq`+`prev_hash`+`event_type`), licencia pre-US5 (`event_type` sin `seq`) y spoof (`model='license'` con `guardian_events=[]`). Las dos primeras tienen que sobrevivir a la purga; la tercera tiene que morir. Hasta que exista, este §1 se ensaya sobre los datos que ya tenga la instalación y el simulacro devuelve los conteos reales de esa base.
 
-> **Cómo se invoca la corrida.** El PR de US1 agregó el entrypoint de CLI: `python -m src.services.retention.purger --run-now` ya **ejecuta una corrida** (`if __name__ == "__main__"` + `argparse` al pie de `purger.py`). `--run-now` dice CUÁNDO (saltea la ventana), no SI BORRA: eso lo decide `BASA_PURGE_DRY_RUN` (default `true` = simulacro), que el CLI NO toca. Bajo el capó el CLI llama a `run_once(run_now=True)`, así que el `python -c` de siempre sigue siendo equivalente.
+> **Cómo se invoca la corrida.** El PR de US1 agregó el entrypoint de CLI: `python -m src.services.retention.purger --run-now` ya **ejecuta una corrida** (`if __name__ == "__main__"` + `argparse` al pie de `purger.py`). `--run-now` dice CUÁNDO (saltea la ventana), no SI BORRA: eso lo decide `SENTINEL_PURGE_DRY_RUN` (default `true` = simulacro), que el CLI NO toca. Bajo el capó el CLI llama a `run_once(run_now=True)`, así que el `python -c` de siempre sigue siendo equivalente.
 
 > ⚠️ **Estos comandos necesitan `purger.py` con el CLI, que entra con el PR de US1.** En el árbol
 > del PR Foundational el módulo no existe todavía y la invocación falla con `ImportError`.
 
 ```bash
-# SIMULACRO — es el default (BASA_PURGE_DRY_RUN=true): cuenta lo que se iría y no borra nada.
+# SIMULACRO — es el default (SENTINEL_PURGE_DRY_RUN=true): cuenta lo que se iría y no borra nada.
 # Es el paso que el DPO firma antes de la corrida real.
 docker compose exec backend python -m src.services.retention.purger --run-now
 
 # Recién después, la corrida REAL. El simulacro es el default, así que hay que pedir
 # explícitamente que borre — y en una instalación de cliente, además, encender el maestro:
-docker compose exec -e BASA_PURGE_DRY_RUN=false backend \
+docker compose exec -e SENTINEL_PURGE_DRY_RUN=false backend \
   python -m src.services.retention.purger --run-now
 
 # Equivalente exacto sin el CLI (lo que el CLI llama por dentro):
@@ -28,11 +28,11 @@ docker compose exec backend python -c \
 
 Salida medida del simulacro sobre el compose (14-ago, base de desarrollo sin backlog), para que se sepa qué forma tiene la respuesta antes de leerla en la sede: `ResultadoCorrida(run_id=…, dry_run=True, clases=(…4 `ResultadoPurga`, una por clase, con `cutoff`, `rows_deleted`, `batches`, `window` y `result`…), filas_no_clasificadas=0, cutoff_no_clasificadas=…)`.
 
-*(enmienda aprobada por el manager 13-ago — Contrato 4.)* `--run-now` dice CUÁNDO, no SI BORRA: son ejes ortogonales, y sin `BASA_PURGE_DRY_RUN=false` esta verificación cuenta filas y no borra ninguna. Con la corrida en simulacro, `result: ok` significa «terminé de contar», no «la clase quedó al día». Que el default sea el simulacro es deliberado: la primera corrida de una instalación arrastra el backlog de toda la vida de la caja y lo borrado no vuelve.
+*(enmienda aprobada por el manager 13-ago — Contrato 4.)* `--run-now` dice CUÁNDO, no SI BORRA: son ejes ortogonales, y sin `SENTINEL_PURGE_DRY_RUN=false` esta verificación cuenta filas y no borra ninguna. Con la corrida en simulacro, `result: ok` significa «terminé de contar», no «la clase quedó al día». Que el default sea el simulacro es deliberado: la primera corrida de una instalación arrastra el backlog de toda la vida de la caja y lo borrado no vuelve.
 
 **Si una clase vuelve con `result: error` y `cutoff: None`, mirá primero su `retention_days`.** El purgador tiene un piso propio en el punto de destrucción —`PLAZO_MINIMO_DIAS = 1` (`purger.py:536`), aplicado en `_plazo_en_dias` (`:554`, chequeo en `:579`)— y un plazo `< 1` **aborta esa clase sin borrar ni contar nada**; las otras tres siguen purgando y el mensaje trae la clase y el valor. El endpoint de hoy acepta `0` y `-30` con **200** (sólo valida `config_audit ≥ 365`, `api/compliance.py:334`), así que ese error es el síntoma normal de una política mal tecleada, no un bug del purgador: se corrige el número en `retention_policies` y se vuelve a correr — la corrida es idempotente y no hay cursor que reponer. Rige igual en simulacro, a propósito: un ensayo bajo un plazo inválido devolvería un conteo con el cutoff parado en AHORA, o sea el número que el DPO firmaría sin que salga de ninguna frontera.
 
-> ⚠ **Lo que el piso NO tapa**: `1` es un plazo válido. Con `retention_days=1` el cutoff cae en `ahora − 1 día` y la corrida real se lleva la clase entera salvo las últimas 24 h — el purgador no puede distinguir un `1` tecleado de un `1` querido. Los mínimos por clase son FR-007/T015 y **todavía no están**: hasta entonces, el simulacro es la única red antes del `DELETE`. Léelo antes de poner `BASA_PURGE_DRY_RUN=false`.
+> ⚠ **Lo que el piso NO tapa**: `1` es un plazo válido. Con `retention_days=1` el cutoff cae en `ahora − 1 día` y la corrida real se lleva la clase entera salvo las últimas 24 h — el purgador no puede distinguir un `1` tecleado de un `1` querido. Los mínimos por clase son FR-007/T015 y **todavía no están**: hasta entonces, el simulacro es la única red antes del `DELETE`. Léelo antes de poner `SENTINEL_PURGE_DRY_RUN=false`.
 
 *(enmienda del manager 14-ago — Contrato 1 regla 6.)* El simulacro tiene que reportar además `filas_no_clasificadas`: las filas que el portón no pudo demostrar que fueran tráfico y que por eso nadie va a borrar. Es el residuo del fail-closed, y sale **antes** de la corrida real justamente para que el DPO firme sabiendo qué se queda, no sólo qué se va.
 

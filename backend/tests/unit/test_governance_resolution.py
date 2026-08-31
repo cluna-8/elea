@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from extensions import basa_governance
+from extensions import sentinel_governance
 from src.models.governance import GovernanceProfile
 from src.services import governance_catalog as gov
 from src.services.governance_resolution import (
@@ -79,27 +79,27 @@ def test_catalogo_es_un_unico_objeto_modulo():
     """Un solo camino de import ⇒ un solo catálogo en memoria.
 
     Reemplaza al T004 original ("el espejo del catálogo está sincronizado"): con la
-    implementación única de ``extensions/basa_governance.py`` ya no hay espejo que
+    implementación única de ``extensions/sentinel_governance.py`` ya no hay espejo que
     comparar, así que el test degeneró a comparar algo consigo mismo. Lo que sí puede
     romperse —y se rompió: lo encontró la verificación adversarial del Foundational— es
     que el MISMO archivo se cargue dos veces por dos caminos de import distintos
-    (``extensions.basa_governance`` y el nombre plano ``basa_governance``). Cada carga
+    (``extensions.sentinel_governance`` y el nombre plano ``sentinel_governance``). Cada carga
     define sus propias dataclasses: ``a.Profile is b.Profile`` da False, un
     ``isinstance(profile, Profile)`` de la US2 falla cruzando planos, y hay dos
     ``GOVERNANCE_LAYERS`` — el "catálogo único" deja de ser único, que es la premisa de
     SC-003 y de todo D1.
     """
     # La puerta del backend y el import canónico devuelven EL MISMO objeto, no una copia.
-    assert gov.GOVERNANCE_LAYERS is basa_governance.GOVERNANCE_LAYERS
-    assert gov.Profile is basa_governance.Profile
-    assert gov.LayerVerdict is basa_governance.LayerVerdict
-    assert gov.LayerDecision is basa_governance.LayerDecision
-    assert gov.GovernanceLayer is basa_governance.GovernanceLayer
+    assert gov.GOVERNANCE_LAYERS is sentinel_governance.GOVERNANCE_LAYERS
+    assert gov.Profile is sentinel_governance.Profile
+    assert gov.LayerVerdict is sentinel_governance.LayerVerdict
+    assert gov.LayerDecision is sentinel_governance.LayerDecision
+    assert gov.GovernanceLayer is sentinel_governance.GovernanceLayer
 
     # Y el alias plano —la red de seguridad del setdefault— apunta al mismo módulo, no a
     # una segunda carga.
     cargados = {name: mod for name, mod in sys.modules.items()
-                if name in ("basa_governance", "extensions.basa_governance")}
+                if name in ("sentinel_governance", "extensions.sentinel_governance")}
     assert len({id(mod) for mod in cargados.values()}) == 1, sorted(cargados)
 
 
@@ -107,8 +107,8 @@ def test_las_capas_del_profile_son_las_del_catalogo_compartido():
     """El perfil que resuelve el backend habla del mismo catálogo que el motor: si
     aparecieran dos registries, acá se vería como un set de claves distinto."""
     profile = gov.resolve_profile(gov.MODE_GATEWAY_MODELS, None, (), surface_trusted=False)
-    assert isinstance(profile, basa_governance.Profile)
-    assert set(profile.layers) == set(basa_governance.LAYER_KEYS)
+    assert isinstance(profile, sentinel_governance.Profile)
+    assert set(profile.layers) == set(sentinel_governance.LAYER_KEYS)
 
 
 def test_reexport_cubre_lo_que_los_call_sites_de_us2_necesitan():
@@ -118,7 +118,7 @@ def test_reexport_cubre_lo_que_los_call_sites_de_us2_necesitan():
                    "ROUTE_CHAT_UI", "ROUTE_BYOK", "ATTRIBUTION_KEYS",
                    "map_effective_mode", "build_attribution"):
         assert nombre in gov.__all__, nombre
-        assert getattr(gov, nombre) is getattr(basa_governance, nombre), nombre
+        assert getattr(gov, nombre) is getattr(sentinel_governance, nombre), nombre
 
     # Y las rutas mapean al modo que espera la tabla, sin traducción intermedia.
     assert gov.map_effective_mode(gov.ROUTE_GATEWAY_PASSTHROUGH) in gov.CONNECTION_MODES

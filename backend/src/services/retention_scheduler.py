@@ -15,11 +15,11 @@ preocupación distinta de QUÉ se borra. El purgador tiene que poder invocarse a
 (`run_now`) sin arrastrar un thread, y los tests del purgador no deberían tener que apagar
 un scheduler para correr.
 
-**El tick no es la purga.** `BASA_PURGE_INTERVAL_SECONDS` (default 3600) es cada cuánto se
-DESPIERTA a mirar; si el momento cae fuera de `BASA_PURGE_WINDOW` no hace nada y se vuelve a
+**El tick no es la purga.** `SENTINEL_PURGE_INTERVAL_SECONDS` (default 3600) es cada cuánto se
+DESPIERTA a mirar; si el momento cae fuera de `SENTINEL_PURGE_WINDOW` no hace nada y se vuelve a
 dormir. Bajar el intervalo no purga más rápido: solo engancha la ventana antes.
 
-`BASA_PURGE_ENABLED` es el interruptor maestro: en `false` el thread ni arranca. Viene
+`SENTINEL_PURGE_ENABLED` es el interruptor maestro: en `false` el thread ni arranca. Viene
 APAGADO —también acá, en `DEFAULT_ENABLED`, no sólo en el `.env.example`— porque un job que
 hace DELETE retroactivo no se enciende con un pull de imagen: la primera imagen nueva se
 encontraría con el backlog de toda la vida de la caja y se lo llevaría de una, y lo borrado
@@ -28,11 +28,11 @@ no purga se arregla con un `true`; una purga que se encendió sola y borró de m
 arregla con nada. Ya en operación se apaga además para un legal hold en curso.
 
 Gotcha heredado del precedente (vale la pena leerlo antes de escribir T011): la suite apaga
-la reconciliación con `BASA_LICENSE_RECONCILE_INTERVAL_SECONDS=0` en `tests/conftest.py`
+la reconciliación con `SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS=0` en `tests/conftest.py`
 porque los tests que abren `TestClient(app)` disparan el lifespan y el job real correría
 contra `SessionLocal` — la DB VIVA del compose, no la DB de test del override de `get_db`.
 Acá el estropicio sería peor que contaminar un registry en memoria: este job BORRA FILAS. Por
-eso la suite lo deja apagado con `BASA_PURGE_ENABLED=false` y los tests que lo ejercitan lo
+eso la suite lo deja apagado con `SENTINEL_PURGE_ENABLED=false` y los tests que lo ejercitan lo
 arrancan ellos, con intervalo y factory explícitos.
 """
 import logging
@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 
 # Perillas propias del scheduler (tabla del plan, `.env.example`). Las de la corrida en sí
 # —ventana, tamaño de lote, pausa— viven en `retention/purger.py`, con su consumidor.
-ENV_ENABLED = "BASA_PURGE_ENABLED"
-ENV_INTERVAL_SECONDS = "BASA_PURGE_INTERVAL_SECONDS"
+ENV_ENABLED = "SENTINEL_PURGE_ENABLED"
+ENV_INTERVAL_SECONDS = "SENTINEL_PURGE_INTERVAL_SECONDS"
 
 # Apagado por default, igual que el `.env.example` y los dos composes. Este valor es el que
 # manda en TODO arranque que no pase por esos composes —un `uvicorn` a mano, un manifiesto
@@ -65,7 +65,7 @@ _stop = threading.Event()
 
 
 def _interval_from_env() -> float:
-    """`BASA_PURGE_INTERVAL_SECONDS` → segundos; mismo criterio tolerante que reconcile
+    """`SENTINEL_PURGE_INTERVAL_SECONDS` → segundos; mismo criterio tolerante que reconcile
     (`_interval_from_env`, `:256-265`): valor ilegible ⇒ warning + default, nunca explota."""
     raw = os.getenv(ENV_INTERVAL_SECONDS, "")
     if not raw.strip():
@@ -79,7 +79,7 @@ def _interval_from_env() -> float:
 
 
 def _enabled_from_env() -> bool:
-    """`BASA_PURGE_ENABLED` → bool. La asimetría es la misma de `purger._dry_run_de_env`
+    """`SENTINEL_PURGE_ENABLED` → bool. La asimetría es la misma de `purger._dry_run_de_env`
     (`:425-443`) pero espejada: acá la perilla se llama en positivo (`ENABLED=true` = encendé)
     y el lado seguro es APAGADO, así que sólo un «sí» explícito enciende. Un typo (`ture`,
     `on `, `1x`) deja la purga apagada, que es el lado que no dispara un DELETE retroactivo.
@@ -94,7 +94,7 @@ def start_scheduler(interval_seconds: Optional[float] = None,
                     session_factory=None) -> Optional[threading.Thread]:
     """Arranca el thread daemon de purga; devuelve `None` si queda desactivado.
 
-    Desactivado = `BASA_PURGE_ENABLED` en false o intervalo <= 0 (mismo criterio que
+    Desactivado = `SENTINEL_PURGE_ENABLED` en false o intervalo <= 0 (mismo criterio que
     `reconcile.start_scheduler`, para que un operador no tenga que aprender dos vocabularios
     de apagado). Idempotente: si el thread ya está vivo, se devuelve ese y no se arranca otro
     — con `WEB_CONCURRENCY` workers ya hay un purgador por proceso, y duplicarlo dentro del
@@ -127,7 +127,7 @@ def start_scheduler(interval_seconds: Optional[float] = None,
                 logger.exception("purga: corrida fallida, reintento en %ss", interval_seconds)
             _stop.wait(interval_seconds)
 
-    _thread = threading.Thread(target=_loop, name="basa-retention-purge", daemon=True)
+    _thread = threading.Thread(target=_loop, name="sentinel-retention-purge", daemon=True)
     _thread.start()
     logger.info("purga: scheduler activo cada %ss (100%% local)", interval_seconds)
     return _thread

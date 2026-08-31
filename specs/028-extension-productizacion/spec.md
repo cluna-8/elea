@@ -49,7 +49,7 @@ El usuario final configura la extensión con dos datos que le da su administrado
 
 El cliente final no debe ver la marca del fabricante ni nombres internos del motor en la lista de extensiones de su navegador cuando el partner rebrandeó el producto.
 
-**Why this priority**: Es una promesa contractual del modelo white-label. Una sola fuga de marca ("Basa", "PoC", el nombre del motor) en la ficha visible rompe la propuesta ante el cliente del partner.
+**Why this priority**: Es una promesa contractual del modelo white-label. Una sola fuga de marca ("Sentinel", "PoC", el nombre del motor) en la ficha visible rompe la propuesta ante el cliente del partner.
 
 **Independent Test**: Inspeccionar el paquete generado para un partner y verificar que en ningún texto visible aparece la marca del fabricante, el término "PoC", el nombre del motor de detección ni una dirección de desarrollo.
 

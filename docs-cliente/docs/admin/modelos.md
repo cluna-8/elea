@@ -72,7 +72,7 @@ consecuencias prácticas:
 !!! warning "Si el modelo nuevo no responde"
     Tras dar de alta un modelo puede pasar unos minutos hasta que quede disponible para
     atender peticiones. Si transcurridos unos minutos el modelo sigue sin responder,
-    contacte con su soporte técnico en **soporte@basa-dev.com** indicando el nombre del
+    contacte con su soporte técnico en **soporte@sentinel-dev.com** indicando el nombre del
     modelo. No hay nada que deba hacer usted desde el panel.
 
 ## Configurar el fallback automático

@@ -25,7 +25,7 @@ from ..services.governance_status import (
 )
 from ..auth.rbac import require_role
 
-_log = logging.getLogger("basa-secure-gateway.guardians")
+_log = logging.getLogger("sentinel-secure-gateway.guardians")
 
 router = APIRouter(
     prefix="/guardians",
@@ -144,7 +144,7 @@ async def _gate_activacion(guardian_like, *, quiere_activar: bool, ya_activo: bo
 
 # ── H6 del gate de #137: aviso ante región no reconocida en escritura ──────────────
 #
-# `resolve_region` (litellm/extensions/basa_guardian_policy.py) cae al default en
+# `resolve_region` (litellm/extensions/sentinel_guardian_policy.py) cae al default en
 # SILENCIO ante un typo o una región inexistente ("latam-ar", "ar", "Mars"…) — es la
 # postura CORRECTA en LECTURA (Principio I regla (d): un typo no puede activar o
 # desactivar reconocedores de otro país por accidente, patrón #131 de guardia
@@ -460,7 +460,7 @@ def _region_efectiva_tenant(db: Session, tenant_id) -> str:
     `nlp_fail_mode`).
 
     El default sin fila (o sin `region` en ninguna) NO es un literal propio: es
-    `BASA_ENTITY_REGION` de ESTE proceso — el MISMO default que `policy.resolve_region`
+    `SENTINEL_ENTITY_REGION` de ESTE proceso — el MISMO default que `policy.resolve_region`
     usa en cada plano de tráfico. Auditar contra un default distinto al que gobierna el
     tráfico real dejaría que "lo que se auditó" y "lo que se sirve" pudieran divergir."""
     fila = (db.query(Guardian.config)
@@ -471,7 +471,7 @@ def _region_efectiva_tenant(db: Session, tenant_id) -> str:
             .first())
     return policy.resolve_region(
         (fila[0] if fila else None) or {},
-        default=os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION))
+        default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
 
 
 def _escribir_fila_compliance(db: Session, tenant_id, compliance_status: str, campo: str,

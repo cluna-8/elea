@@ -21,7 +21,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_seat_gate_users"
+DB = "sentinel_test_seat_gate_users"
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +39,7 @@ def _restore():
 
 
 def _user_payload(name, role):
-    return {"username": name, "email": f"{name}@basa.com.ar", "role": role,
+    return {"username": name, "email": f"{name}@sentinel.com.ar", "role": role,
             "password": "clave-de-alta-valida"}
 
 

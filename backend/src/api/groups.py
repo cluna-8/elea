@@ -19,7 +19,7 @@ router = APIRouter(
     # a admin por-endpoint (#247, alinea a la matriz).
     dependencies=[Depends(require_role("admin", "compliance_officer"))],
 )
-logger = logging.getLogger("basa-secure-gateway.groups")
+logger = logging.getLogger("sentinel-secure-gateway.groups")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

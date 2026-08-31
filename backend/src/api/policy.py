@@ -34,16 +34,16 @@ def get_or_create_default_policy(db: Session) -> SecurityPolicy:
     policy = db.query(SecurityPolicy).first()
     if not policy:
         policy = SecurityPolicy(
-            name="Política de Seguridad BASA",
+            name="Política de Seguridad SENTINEL",
             is_active=True,
             # Tipos que el motor NLP real (spec 016, región "eu"/España) efectivamente
             # detecta hoy: ES_NIF/ES_NIE (built-in Presidio, con checksum), PASSPORT
-            # (ad-hoc, ver basa_guardian_policy.STRUCTURED_ID_PATTERNS_BY_REGION),
+            # (ad-hoc, ver sentinel_guardian_policy.STRUCTURED_ID_PATTERNS_BY_REGION),
             # IBAN_CODE/CREDIT_CARD (built-in), PERSON/EMAIL_ADDRESS/PHONE_NUMBER
             # (built-in). Cualquier tipo detectado que NO esté acá cae al default
             # MASK (resolve_entity_action) — no queda sin cubrir.
             # NOTA: todos en MASK a propósito — el enforcement real de BLOCK por tipo
-            # en el firewall (US2, `entity_configs` consultado en `BasaGuardrail`)
+            # en el firewall (US2, `entity_configs` consultado en `SentinelGuardrail`)
             # todavía no está cableado (spec 016, tasks T018-T023 pendientes). Poner
             # BLOCK acá hoy sería configuración cosmética sin efecto — exactamente el
             # problema que esta spec existe para cerrar. Revisar cuando se implemente.

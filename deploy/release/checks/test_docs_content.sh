@@ -3,12 +3,12 @@
 # y las páginas migradas del corpus conservan la leyenda de estado 🟢/🟡/🔵 (honestidad SDD).
 # Corre contra la IMAGEN (el artefacto publicado), no contra el fuente.
 set -euo pipefail
-IMG="${DOCS_IMG:-basa-docs:prod}"
+IMG="${DOCS_IMG:-sentinel-docs:prod}"
 
 fail() { echo "❌ $1"; exit 1; }
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-docs)"
 
-cname="basa-docs-content-check-$$"
+cname="sentinel-docs-content-check-$$"
 trap 'docker rm -f "$cname" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$cname" --network none "$IMG" >/dev/null
 sleep 1

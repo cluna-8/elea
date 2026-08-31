@@ -22,10 +22,10 @@ código Python en `src/`, tests del instrumento en `tests/`.
 
 ## Alternativas consideradas
 
-- **Repo propio (`basa-guardian-harness`)**: descartada — viola la regla estructural
+- **Repo propio (`sentinel-guardian-harness`)**: descartada — viola la regla estructural
   del CONTRIBUTING; el harness versiona CONTRA el stack (compose, seeds, semántica de
   seats, reconocedores PII como oráculo del corpus) y separado se desincroniza; pierde
-  el compose de test y el oráculo compartido con `basa_guardian_policy`.
+  el compose de test y el oráculo compartido con `sentinel_guardian_policy`.
 - **Bajo `backend/tests/load/`**: descartada — es la suite que CI corre por-PR; los
   gates de carga explícitamente NO aplican por-PR (DevFlow §3) y contaminarían la suite.
 - **Bajo `deploy/`**: descartada — es territorio de Factory (@FalimeJ); mezclaría

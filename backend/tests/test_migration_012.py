@@ -6,7 +6,7 @@ la que decide QUÉ CAPAS DE SEGURIDAD CORREN — sin RLS, un UPSERT/DELETE por P
 ajeno (patrón habitual del CRUD del repo) apaga ``pii_masking`` de OTRO tenant.
 
 Corre contra el Postgres de Docker Compose conectado como ``rls_owner`` (rol NOSUPERUSER
-dueño de las tablas): con ``basa_admin`` —superuser— la RLS se bypasea SIEMPRE, incluso con
+dueño de las tablas): con ``sentinel_admin`` —superuser— la RLS se bypasea SIEMPRE, incluso con
 FORCE, y estos tests pasarían en verde sin probar nada. Self-skip si Postgres no está.
 """
 import uuid
@@ -22,7 +22,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_migration_012"
+DB = "sentinel_test_migration_012"
 
 TENANT_B = uuid.UUID("bbbbbbbb-0000-0000-0000-0000000000cc")
 

@@ -1,7 +1,7 @@
 import { canWrite, canView } from "./roleMatrix";
 
-const TOKEN_KEY = "basa_session_token";
-const USER_KEY = "basa_current_user";
+const TOKEN_KEY = "sentinel_session_token";
+const USER_KEY = "sentinel_current_user";
 
 export interface SessionUser {
   id: string;

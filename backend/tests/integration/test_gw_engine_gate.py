@@ -10,7 +10,7 @@ Lo que se fija:
 
 * saturado ⇒ **503 con la forma de error de Anthropic** (las coding tools parsean
   `error.message`; un shape distinto lo muestran como "respuesta inesperada del proxy") más el
-  header machine-readable `X-Basa-Rejected: saturated`, que es lo que distingue nuestro rechazo
+  header machine-readable `X-Sentinel-Rejected: saturated`, que es lo que distingue nuestro rechazo
   de un 503 de Caddy o del propio motor;
 * el rechazo deja **una fila durable** con `rejected_saturated` y evento de vitrina;
 * **el stream retiene el turno hasta que termina de drenar**. Es el invariante caro: si se
@@ -42,9 +42,9 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_gw_engine_gate"
+DB = "sentinel_test_gw_engine_gate"
 GW = "/api/v1/gw/v1/messages"
-CLAVE = "sk-basa-carga-c1"
+CLAVE = "sk-sentinel-carga-c1"
 MODELO = "claude-3-5-sonnet-20241022"
 CUERPO = {"model": MODELO, "messages": [{"role": "user", "content": "resumime esto"}]}
 SATURADO = "rejected_saturated"
@@ -301,7 +301,7 @@ async def test_byok_saturado_responde_503_con_shape_anthropic_y_header(
     assert "capacidad" in cuerpo["error"]["message"].lower()
     assert "no se encoló" in cuerpo["error"]["message"]
     # El body mantiene el shape ajeno, así que el código machine-readable va en la cabecera.
-    assert rechazo.headers.get("X-Basa-Rejected") == "saturated"
+    assert rechazo.headers.get("X-Sentinel-Rejected") == "saturated"
     assert rechazo.headers.get("Retry-After") == "5"
 
     rechazos = filas(factory, SATURADO)
@@ -354,7 +354,7 @@ async def test_la_fila_del_rechazo_registra_el_modelo_ruteado_y_no_el_auto_del_b
         turno.liberar()
 
     assert respuesta.status_code == 503, respuesta.text
-    assert respuesta.headers.get("X-Basa-Rejected") == "saturated"
+    assert respuesta.headers.get("X-Sentinel-Rejected") == "saturated"
 
     rechazos = filas(factory, SATURADO)
     assert len(rechazos) == 1, f"una fila durable por rechazo, quedaron {len(rechazos)}"
@@ -397,7 +397,7 @@ async def test_un_stream_abierto_sin_drenar_retiene_el_turno_y_al_cerrarse_lo_li
     rechazo = await _byok()
     assert rechazo.status_code == 503, (
         "con un stream abierto el turno tiene que seguir tomado; si no, el tope no acota nada")
-    assert rechazo.headers.get("X-Basa-Rejected") == "saturated"
+    assert rechazo.headers.get("X-Sentinel-Rejected") == "saturated"
 
     # El stream termina y devuelve el turno.
     motor.soltar.set()
@@ -938,7 +938,7 @@ async def test_el_rechazo_por_capacidad_no_bloquea_el_event_loop(
         await corazon
 
     assert rechazo.status_code == 503
-    assert rechazo.headers.get("X-Basa-Rejected") == "saturated"
+    assert rechazo.headers.get("X-Sentinel-Rejected") == "saturated"
     # La fila SIGUE escribiéndose antes de responder (registrar → rechazar): lo que cambia es
     # DÓNDE corre, no cuándo. Por eso el pedido tarda lo que tarda la base...
     assert tardanza >= ESPERA_DE_LA_BASE, (
@@ -988,7 +988,7 @@ async def test_el_passthrough_de_suscripcion_pasa_aunque_el_semaforo_este_lleno(
 @pytest.mark.asyncio
 async def test_el_byok_no_stream_usa_su_propio_timeout_y_no_el_del_chat(harness, motor):
     """Antes: `120.0` hardcodeado acá y otro parser en `chat.py`; en el round 1 los dos caminos
-    compartieron `BASA_ENGINE_TIMEOUT_SECONDS` y eso REGRESÓ este camino de 120 a 60 s (H3 del
+    compartieron `SENTINEL_ENGINE_TIMEOUT_SECONDS` y eso REGRESÓ este camino de 120 a 60 s (H3 del
     gate). Ahora cada plano tiene su env acotada, y la de acá arranca en 150 s.
 
     Igualdad con la constante propia: si alguien reinstala un literal o vuelve a cablear la del
@@ -1040,7 +1040,7 @@ async def test_el_stream_byok_usa_el_read_timeout_propio_y_no_el_del_passthrough
 def _peticion_passthrough():
     """`Request` de passthrough de suscripción: sin virtual key (→ NO byok) y con el body
     resoluble por `request.body()`. El `Authorization: Bearer` es el OAuth de la suscripción, que
-    no lleva `sk-basa-…`, así que `_detect_mode_and_key` resuelve subscription-passthrough."""
+    no lleva `sk-sentinel-…`, así que `_detect_mode_and_key` resuelve subscription-passthrough."""
     cuerpo = json.dumps({**CUERPO, "stream": True}).encode()
 
     async def receive():
@@ -1062,7 +1062,7 @@ async def _passthrough():
     función a mano el default es el objeto `Header`, no `None`."""
     from src.api import gateway
     return await gateway.gw_messages(
-        _peticion_passthrough(), x_basa_key=None, x_basa_redact=None, x_basa_upstream=None)
+        _peticion_passthrough(), x_sentinel_key=None, x_sentinel_redact=None, x_sentinel_upstream=None)
 
 
 @pytest.mark.asyncio

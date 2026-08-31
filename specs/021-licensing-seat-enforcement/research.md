@@ -3,7 +3,7 @@
 **Fecha**: 2026-07-13 · **Feature**: 021-licensing-seat-enforcement · **Método**: evaluación de
 plataformas de licenciamiento/billing contra las **dos restricciones duras y arquitectónicas** del
 modelo distribuidor de esta spec — (1) **air-gapped / sin phone-home** (on-prem/VPN puede no tener
-egress) y (2) **el cliente corre la caja** (Basa no controla el runtime) — más el hecho de que la
+egress) y (2) **el cliente corre la caja** (Sentinel no controla el runtime) — más el hecho de que la
 **unidad de seat** (`Connection activa por Tenant`) ya vive en **NUESTRO Postgres** (bedrock 013).
 
 > **Pregunta de investigación**: ¿existe un "LiteLLM de licencias" —una plataforma que reusemos como
@@ -68,8 +68,8 @@ minúscula sobre criptografía estándar y auditada. **Se construye.**
   - **Alternativa si se prefiere JWT**: **PyJWT con `alg="EdDSA"`** (EdDSA = Ed25519 en JOSE). **Preferir
     PyJWT sobre `python-jose`** (semi-abandonado, con CVEs históricas y menor mantenimiento). El `kid` del
     header JOSE mapea 1:1 a nuestra rotación de claves.
-- **Custodia de claves (lado Basa/distribuidor, offline)**: la **clave privada** vive en **KMS/HSM** de
-  Basa; en la caja del cliente se embebe **sólo la pública**. **Rotación** vía **`kid` multi-clave**: el
+- **Custodia de claves (lado Sentinel/distribuidor, offline)**: la **clave privada** vive en **KMS/HSM** de
+  Sentinel; en la caja del cliente se embebe **sólo la pública**. **Rotación** vía **`kid` multi-clave**: el
   producto embebe un *set* de públicas indexadas por `kid` y el token trae su `kid` → una rotación no
   rompe cajas ya desplegadas (se soportan N claves durante la migración).
 - **Definición de seat [D-021]**: **`COUNT(APIKey activas)` por Tenant** como default (misma definición
@@ -99,7 +99,7 @@ conceptuales de la spec entre paréntesis.
 {
   "schema": 1,                       // versión del formato del artefacto (permite evolucionar sin romper)
   "lic_id": "lic_7f3a…",             // license_id — id único de la licencia (para audit/soporte)
-  "kid": "basa-2026-a",              // key_id — selecciona la clave pública embebida (rotación)
+  "kid": "sentinel-2026-a",              // key_id — selecciona la clave pública embebida (rotación)
   "tenant_id": "t_acme",             // ámbito: la licencia se escopea POR tenant (anti-replay)
   "distributor_id": "d_hyperx",      // canal que giró la licencia (addendum: atribución true-up)
   "pool_id": "pool_hyperx_2026",     // cupo del distribuidor contra el que se emitió (addendum)
@@ -111,8 +111,8 @@ conceptuales de la spec entre paréntesis.
 }
 ```
 
-**Firma**: `sig = Ed25519(privkey_basa, canonical_json(payload))`, adjuntada como campo detached
-(base64). El producto embebe **sólo** la(s) pública(s) en `BasaPublicKeySet`, indexada(s) por `kid`.
+**Firma**: `sig = Ed25519(privkey_sentinel, canonical_json(payload))`, adjuntada como campo detached
+(base64). El producto embebe **sólo** la(s) pública(s) en `SentinelPublicKeySet`, indexada(s) por `kid`.
 **Nunca** se persiste el token crudo ni ninguna clave en el audit (metadata-only, Constraint C1).
 
 ### Verificación en **2 gates fail-closed**
@@ -154,7 +154,7 @@ phone-home.
 Docker + license key"; el segundo, focalizado en sub-licensing de canal: Replicated / Keygen /
 Cryptolens / LicenseSpring / GitLab / marketplaces AWS-Azure-GCP), disparados por dos preguntas del
 fundador: (1) *"¿distribuir por imágenes Docker + clave paga es un modelo probado? ¿hay gente
-haciéndolo?"* y (2) *"¿cómo se cobra install + fee/usuario si Basa NO le vende al cliente final sino a
+haciéndolo?"* y (2) *"¿cómo se cobra install + fee/usuario si Sentinel NO le vende al cliente final sino a
 un distribuidor/hyperscaler marca blanca?"*.
 
 ## (A) "Imagen Docker + license key" es mainstream — VALIDADO
@@ -177,7 +177,7 @@ un distribuidor/hyperscaler marca blanca?"*.
   propio token firmado**; y Keygen **recomienda Ed25519 por sobre RSA-2048**. La elección de esta spec es
   la moderna, no la conservadora.
 
-## (B) Tier DISTRIBUIDOR — veredicto: firma CENTRAL de Basa + emisión por CUPO (NO clave delegada)
+## (B) Tier DISTRIBUIDOR — veredicto: firma CENTRAL de Sentinel + emisión por CUPO (NO clave delegada)
 
 **Hueco detectado**: el `.lic` original no modelaba el CANAL (quién dispara la emisión y contra qué
 techo). **El eje de decisión NO es la conectividad del hospital** (siempre air-gap; el `.lic` viaja por
@@ -193,13 +193,13 @@ Cómo delega el mercado (hallazgo transversal: **NINGUNO le da al canal una clav
 | GitLab EE | el reseller canaliza el pedido | Central (GitLab) | Seats comprometidos + true-up anual |
 | Replicated | RBAC al Vendor Portal | Central | custom field (p.ej. `max_total_seats`) |
 
-**Decisión**: Basa firma TODO (privada en KMS); el distribuidor mintea `.lic` vía un **portal/API de
-emisión de Basa** dentro de su **cupo** (`sum(max_seats de las hojas) ≤ max_total_seats` del pool,
+**Decisión**: Sentinel firma TODO (privada en KMS); el distribuidor mintea `.lic` vía un **portal/API de
+emisión de Sentinel** dentro de su **cupo** (`sum(max_seats de las hojas) ≤ max_total_seats` del pool,
 validado en la emisión — lado portal, fuera del scope de la caja). El `.lic` gana **`distributor_id` +
 `pool_id`** (atribución de canal para audit/true-up). La **firma delegada** (cert intermedio sub-CA del
 distribuidor) **NO se construye**: no tiene prior-art productizado, traslada el riesgo de clave al
 tercero, degrada el techo a por-cert honor-system y la revocación a CRLs/intermedios de vida corta.
-**Trigger documentado para construirla**: un contrato que exija mintear con **cero egress a Basa**
+**Trigger documentado para construirla**: un contrato que exija mintear con **cero egress a Sentinel**
 (distribuidor soberano/desconectado) — recién ahí, aceptando esos costos de forma explícita.
 
 ## (C) Captura del per-seat: en la EMISIÓN + true-up — nunca metering vivo

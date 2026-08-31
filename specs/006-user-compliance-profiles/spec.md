@@ -138,14 +138,14 @@ processing_purpose = request.headers.get("X-Processing-Purpose", "unspecified")
 ## docker-compose.yml — Redis
 
 ```yaml
-basa-redis:
+sentinel-redis:
   image: redis:7-alpine
-  container_name: basa-redis
+  container_name: sentinel-redis
   ports:
     - "6379:6379"
   command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
   networks:
-    - basa-network
+    - sentinel-network
 ```
 
 ## litellm/config.yaml — Redis cache + rate limiting
@@ -153,7 +153,7 @@ basa-redis:
 ```yaml
 cache:
   type: redis
-  host: basa-redis
+  host: sentinel-redis
   port: 6379
   ttl: 3600
 ```
@@ -187,7 +187,7 @@ cache:
 - GET /dsr/{id}/export
 
 ### Fase 3 — Redis
-- docker-compose: contenedor basa-redis
+- docker-compose: contenedor sentinel-redis
 - LiteLLM config.yaml: cache + rpm/tpm limits
 - api_keys: campos rpm_limit, tpm_limit
 - Respuesta 429 correcta

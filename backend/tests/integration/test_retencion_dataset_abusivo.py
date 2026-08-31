@@ -211,13 +211,13 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_retencion_dataset_abusivo"
+DB = "sentinel_test_retencion_dataset_abusivo"
 LOGS = "/api/v1/audit-logs"
 GW = "/api/v1/gw/v1/messages"
 AUDIT_INTERNO = "/api/v1/internal/audit"
 
 SECRETO_INTERNO = "secreto-interno-del-dataset-abusivo"
-CABECERA_INTERNA = {"X-Basa-Internal": SECRETO_INTERNO}
+CABECERA_INTERNA = {"X-Sentinel-Internal": SECRETO_INTERNO}
 
 # Los dos literales del hallazgo. Van a mano y no importados de `gateway`/`classifier` a
 # propósito: si mañana alguien renombra el centinela o afloja el literal reservado, este archivo
@@ -780,7 +780,7 @@ def test_el_export_de_trueup_no_se_lleva_ni_una_fila_ajena(harness, monkeypatch,
     """El otro lector de la cadena, y el que le cuesta plata al cliente.
 
     El true-up es el papel con el que el operador renueva: si arrastra una fila ajena, el
-    verificador lado-Basa lo rechaza (`cadena interna inválida`) y el cliente se queda sin poder
+    verificador lado-Sentinel lo rechaza (`cadena interna inválida`) y el cliente se queda sin poder
     demostrar su historial. Se exige el payload EXACTO —los mismos `seq` que emitió el emisor— y
     además que el documento firmado verifique de punta a punta: `verify_export` recorre la cadena
     interna eslabón por eslabón, así que es el assert que de verdad detecta un intruso.
@@ -927,7 +927,7 @@ def escritores(harness, monkeypatch):
     _client, factory, _marcas, _cadena = harness
     monkeypatch.setattr(gateway, "SessionLocal", factory)
     monkeypatch.setattr(gateway, "httpx", _HttpxMudo())
-    monkeypatch.setenv("BASA_ENGINE_MASTER_KEY", SECRETO_INTERNO)
+    monkeypatch.setenv("SENTINEL_ENGINE_MASTER_KEY", SECRETO_INTERNO)
     return harness
 
 
@@ -1099,7 +1099,7 @@ def test_ningun_escritor_deja_que_el_cliente_le_ponga_el_seq_a_su_propia_fila(es
 # hace falta ni escribir la clave. Y las dos últimas filas son el hallazgo original COMPLETO,
 # los tres daños de una: el clasificador las considera eslabones legítimos (son objetos con
 # clave `seq`), o sea inmortales e invisibles, y encima el verificador acusa manipulación
-# mientras el export se las lleva puestas — el lado-Basa rechaza ese true-up por «cadena interna
+# mientras el export se las lleva puestas — el lado-Sentinel rechaza ese true-up por «cadena interna
 # inválida» y el cliente se queda sin poder demostrar su historial.
 #
 # Nada de esto era alcanzable desde un pedido, y ESE era el único motivo por el que no se

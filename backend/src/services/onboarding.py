@@ -112,7 +112,7 @@ def seed_client(db: Session, tenant: Tenant, client_spec: dict) -> dict:
             continue
 
         # Mismo esquema de key que el flujo online (src/api/keys.py): sha256 + preview.
-        plain_key = f"sk-basa-{secrets.token_urlsafe(24)}"
+        plain_key = f"sk-sentinel-{secrets.token_urlsafe(24)}"
         db.add(APIKey(
             tenant_id=tenant.id,
             user_id=user.id,

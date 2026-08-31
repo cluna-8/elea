@@ -2,7 +2,7 @@
 
 Por qué existe (2026-07-27, víspera del install de la Cámara): `custom_auth` del motor
 resolvía la identidad consultando `api_keys`/`users`/`groups`/`tenants` con el prisma
-client del propio motor. Desde que el motor tiene base PROPIA (`basa_engine`, para que su
+client del propio motor. Desde que el motor tiene base PROPIA (`sentinel_engine`, para que su
 migrador Prisma no dropee las tablas del producto como "drift" — ensayo 2026-07-22) esas
 tablas quedaron fuera de su alcance: **todo byok devolvía 401** con
 `relation "api_keys" does not exist`. El ensayo no lo detectaba porque nunca ejercitó byok.
@@ -15,7 +15,7 @@ el backend es el dueño de estas tablas, el motor sólo necesita el resultado.
 
 Seguridad: el ingress niega /api/v1/internal/* con 404 (Caddyfile.ingress), así que esto
 sólo se alcanza por la red de compose. Encima se exige el secreto compartido que ambos
-servicios YA tienen (`BASA_ENGINE_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
+servicios YA tienen (`SENTINEL_ENGINE_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
 """
 import hmac
 import json
@@ -39,7 +39,7 @@ from ..services.budget_service import BudgetService
 # licencias en media docena de lectores. El porqué completo vive en su bloque de doctrina.
 from .gateway import MODELO_CADENA_USURPADA, sanear_modelo_declarado
 
-logger = logging.getLogger("basa-secure-gateway.internal")
+logger = logging.getLogger("sentinel-secure-gateway.internal")
 
 router = APIRouter(prefix="/internal", tags=["Internal"], include_in_schema=False)
 
@@ -77,7 +77,7 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
            AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS nlp_fail_mode,
        -- Región de STRUCTURED_ID_PATTERNS_BY_REGION por TENANT (extensión de spec 016
-       -- para países reales, ver litellm/extensions/basa_guardian_policy.resolve_region).
+       -- para países reales, ver litellm/extensions/sentinel_guardian_policy.resolve_region).
        -- ⚠️ ESPEJO de litellm/extensions/custom_auth.py (_IDENTITY_SQL) — misma columna,
        -- mismo ORDER BY del #104, cambian juntos.
        (SELECT gd.config->>'region' FROM guardians gd
@@ -116,11 +116,11 @@ WHERE k.key_hash = :key_hash
 """)
 
 
-def _require_internal_secret(x_basa_internal: str = Header(default="")) -> None:
+def _require_internal_secret(x_sentinel_internal: str = Header(default="")) -> None:
     """Fail-closed: si el secreto no está configurado en el backend, NADIE pasa. Un
     default vacío que aceptara la cabecera vacía convertiría esto en un endpoint abierto."""
-    expected = os.environ.get("BASA_ENGINE_MASTER_KEY", "")
-    if not expected or not hmac.compare_digest(x_basa_internal, expected):
+    expected = os.environ.get("SENTINEL_ENGINE_MASTER_KEY", "")
+    if not expected or not hmac.compare_digest(x_sentinel_internal, expected):
         # Mismo 404 que emite el ingress: desde fuera, este endpoint no existe.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
@@ -204,13 +204,13 @@ class AuditEntry(BaseModel):
     Fila de BLOQUEO (spec 031, contrato §Fila de bloqueo): el modelo ya la soporta sin
     campos nuevos — `compliance_status` (convención D1: prefijo `blocked_`, filtro canónico
     `LIKE 'blocked%'`) y `blocked_by_layer` (layer_key del registry 027) existen desde la
-    027 y son opcionales, así que el payload de ÉXITO de `basa_audit_logger` sigue
+    027 y son opcionales, así que el payload de ÉXITO de `sentinel_audit_logger` sigue
     insertando exactamente igual. Lo único que se relaja acá es `tenant_id` (ver abajo)."""
     # Antes obligatorio. Un bloqueo sin identidad resoluble (llave master, o el edge case
     # "llave inválida" de la spec) llegaría sin tenant y el 422 de Pydantic haría
     # DESAPARECER la fila del intento — exactamente el agujero que la 031 paga. La columna
     # es NOT NULL, así que la ausencia se resuelve al tenant por defecto (mismo fallback
-    # que ya aplica el emisor en basa_audit_logger.py:152), y el intento queda registrado
+    # que ya aplica el emisor en sentinel_audit_logger.py:152), y el intento queda registrado
     # con atribución anónima en lugar de perderse.
     tenant_id: Optional[str] = None
     user_id: Optional[str] = None
@@ -286,7 +286,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     modelo = sanear_modelo_declarado(entry.model)
     if modelo != entry.model:
         logger.warning(
-            "[basa-internal] el emisor declaró el literal reservado de la cadena de licencias "
+            "[sentinel-internal] el emisor declaró el literal reservado de la cadena de licencias "
             "como modelo; la fila se registra con el centinela %s (tenant=%s user=%s)",
             MODELO_CADENA_USURPADA, entry.tenant_id, entry.user_id)
     db.execute(_INSERT_AUDIT_SQL, {
@@ -318,14 +318,14 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         logger.exception(
-            "[basa-internal] la fila de auditoría se registró pero el presupuesto NO se "
+            "[sentinel-internal] la fila de auditoría se registró pero el presupuesto NO se "
             "actualizó (tenant=%s user=%s modelo=%s coste=%s)",
             entry.tenant_id, entry.user_id, entry.model, entry.cost_usd)
     return {"ok": True}
 
 
 # ── Escribibilidad de la auditoría (spec 031, contrato §probe) ───────────────────────
-# El modo `closed` (BASA_AUDIT_FAIL) exige rechazar ANTES de llamar al proveedor cuando la
+# El modo `closed` (SENTINEL_AUDIT_FAIL) exige rechazar ANTES de llamar al proveedor cuando la
 # auditoría no puede escribirse — no gastar dinero en tráfico inauditable (FR-005). El
 # backend resuelve eso contra su propia sesión; el MOTOR no tiene driver de Postgres (misma
 # restricción que parió este plano), así que pregunta por HTTP.
@@ -333,7 +333,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
 # Techo del `SELECT 1`: esto vive en el pre-call de cada pedido del guardrail en modo
 # closed, así que una base colgada tiene que resolverse como "no escribible" rápido en vez
 # de sumar su latencia al pedido. Constante y no env: el contrato §Config declara UNA sola
-# variable nueva (BASA_AUDIT_FAIL) y otra perilla sin documentar es deuda.
+# variable nueva (SENTINEL_AUDIT_FAIL) y otra perilla sin documentar es deuda.
 _PROBE_TIMEOUT_MS = 1500
 
 
@@ -355,7 +355,7 @@ def audit_probe(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         return {"writable": True}
     except Exception as exc:
-        logger.error("[basa-internal] auditoría NO escribible: %s", exc)
+        logger.error("[sentinel-internal] auditoría NO escribible: %s", exc)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"writable": False,

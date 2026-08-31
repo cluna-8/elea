@@ -31,7 +31,7 @@ from seat_gate_harness import build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_gateway_nlp"
+DB = "sentinel_test_gateway_nlp"
 GW = "/api/v1/gw/v1/messages"
 ANALYZER = "http://nlp-analyzer:3000"
 
@@ -211,7 +211,7 @@ def guardian_pii(harness):
 
 @pytest.fixture
 def key_atribuible(harness):
-    """Emite una Connection real y devuelve la cabecera `X-Basa-Key` que la resuelve.
+    """Emite una Connection real y devuelve la cabecera `X-Sentinel-Key` que la resuelve.
 
     Necesaria desde el hallazgo ALTO del review: la postura `degrade` sólo se honra con
     tenant ATRIBUIBLE. Un test que la ejercite sin key estaría midiendo el bypass, no la
@@ -221,22 +221,22 @@ def key_atribuible(harness):
     from src.models.tenant import DEFAULT_TENANT_ID
     from src.services.key_material import hash_key
 
-    clave = "sk-basa-test-atribuible-63"
+    clave = "sk-sentinel-test-atribuible-63"
     db = factory()
     try:
         db.query(APIKey).filter(APIKey.key_hash == hash_key(clave)).delete()
         # `upstream_mode="byok"`: la Connection sólo se usa para ATRIBUIR. El ruteo de este
-        # plano lo decide `_detect_mode_and_key` mirando headers/URL —y `X-Basa-Key` está
+        # plano lo decide `_detect_mode_and_key` mirando headers/URL —y `X-Sentinel-Key` está
         # excluido del scan a propósito—, así que el pedido sigue yendo por passthrough. Se
         # usa byok porque una fila `subscription-passthrough` exige `oauth_credential_ref`
         # (CHECK `ck_api_keys_subscription_oauth`) y acá no hay credencial que custodiar.
         db.add(APIKey(tenant_id=DEFAULT_TENANT_ID, key_hash=hash_key(clave),
-                      key_preview="sk-basa-…63", name="conexión de prueba #63",
+                      key_preview="sk-sentinel-…63", name="conexión de prueba #63",
                       is_active=True, tool_type="claude-code", upstream_mode="byok"))
         db.commit()
     finally:
         db.close()
-    return {"X-Basa-Key": clave}
+    return {"X-Sentinel-Key": clave}
 
 
 @pytest.fixture
@@ -369,7 +369,7 @@ def test_analyzer_caido_con_degrade_sirve_con_regex_y_lo_deja_marcado(
     pero deja los tres rastros: enmascarado por regex, `compliance_status` propio en la fila
     durable y estado consultable en Redis.
 
-    Va con `X-Basa-Key`: la relajación sólo se honra con tenant atribuible (ver la sección
+    Va con `X-Sentinel-Key`: la relajación sólo se honra con tenant atribuible (ver la sección
     de la barrera de la 027 más abajo)."""
     from src.services import audit_service
     guardian_pii(nlp_fail_mode="degrade")
@@ -598,7 +598,7 @@ def test_el_texto_de_un_tool_result_si_se_muestra_y_va_enmascarado(harness, nlp_
 
 def test_sin_tenant_atribuible_la_postura_degrade_no_se_hereda(harness, proveedor,
                                                                nlp_configurado, guardian_pii):
-    """`X-Basa-Key` es OPCIONAL en esta ruta (la credencial es el OAuth). Sin la barrera,
+    """`X-Sentinel-Key` es OPCIONAL en esta ruta (la credencial es el OAuth). Sin la barrera,
     OMITIRLA bastaba para caer al tenant por defecto y heredar SU `degrade`: en multi-tenant,
     un cliente cuyo admin exige `block` conseguía que su tráfico se sirviera con regex sólo
     con tirar abajo el sidecar. Misma regla que la 027 ya aplica al perfil: sin tenant
@@ -649,9 +649,9 @@ def test_con_analyzer_caido_el_preview_del_monitor_va_vacio(harness, nlp_configu
         "la vitrina no puede ser la superficie menos protegida del producto")
 
 
-# ── 8) BASA_ENTITY_REGION (default de instalación) llega al analyzer de /gw (#137/#141) ──
+# ── 8) SENTINEL_ENTITY_REGION (default de instalación) llega al analyzer de /gw (#137/#141) ──
 #
-# `_build_analyze` lee `os.environ.get("BASA_ENTITY_REGION", policy.DEFAULT_REGION)` desde
+# `_build_analyze` lee `os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION)` desde
 # antes de este PR — el código consumidor siempre estuvo bien. Lo que faltaba (hallazgo del
 # gate de #137, verificado por el manager) era que el backend RECIBIERA esa env: ni
 # `docker-compose.yml` ni `deploy/docker/compose.prod.yml` la declaraban en el bloque
@@ -665,7 +665,7 @@ def test_region_de_instalacion_llega_al_analyzer_de_gw(harness, proveedor, guard
     from src.api import gateway
 
     monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
-    monkeypatch.setenv("BASA_ENTITY_REGION", "latam_ar")
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "latam_ar")
     # Sin `region` propia en el guardián: el tenant hereda el default DE LA INSTALACIÓN
     # (lo que este PR arregla). El wiring por-tenant es alcance del PR siguiente (#137/#141).
     guardian_pii(nlp_fail_mode="block")
@@ -681,11 +681,11 @@ def test_region_de_instalacion_llega_al_analyzer_de_gw(harness, proveedor, guard
 
     assert client.post(GW, json=_cuerpo()).status_code == 200
     assert capturada.get("region") == "latam_ar", (
-        "el plano /gw no propagó BASA_ENTITY_REGION al analyzer — la instalación eligió "
+        "el plano /gw no propagó SENTINEL_ENTITY_REGION al analyzer — la instalación eligió "
         "latam_ar y el motor de detección se quedó resolviendo el default eu")
 
 
-def test_sin_basa_entity_region_el_analyzer_de_gw_cae_al_default_del_codigo(
+def test_sin_sentinel_entity_region_el_analyzer_de_gw_cae_al_default_del_codigo(
         harness, proveedor, guardian_pii, monkeypatch):
     """Contracara del test anterior: sin la env (instalación vieja, o el compose sin la
     línea), `/gw` sigue funcionando — cae al `DEFAULT_REGION` del código (`eu`), el mismo
@@ -694,7 +694,7 @@ def test_sin_basa_entity_region_el_analyzer_de_gw_cae_al_default_del_codigo(
     from src.api import gateway
 
     monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     guardian_pii(nlp_fail_mode="block")
 
     capturada = {}
@@ -726,7 +726,7 @@ def test_region_propia_del_tenant_pisa_el_default_de_instalacion_en_gw(
     monkeypatch.setenv("NLP_ANALYZER_URL", ANALYZER)
     # Instalación en `eu`, tenant con su PROPIA región `latam_ar` — tienen que divergir
     # para que el test demuestre que gana el tenant, no la instalación.
-    monkeypatch.setenv("BASA_ENTITY_REGION", "eu")
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "eu")
     guardian_pii(nlp_fail_mode="block", region="latam_ar")
 
     capturada = {}
@@ -747,7 +747,7 @@ def test_region_propia_del_tenant_pisa_el_default_de_instalacion_en_gw(
 # ── 10) El camino DEGRADE de /gw también resuelve la región del tenant (H1, PR2 #137) ──
 #
 # Hueco encontrado por el manager en la 1ª línea de #268: el degrade del MOTOR
-# (`basa_guardrail.py`, defendido en `test_region_por_tenant.py`) estaba pineado por un
+# (`sentinel_guardrail.py`, defendido en `test_region_por_tenant.py`) estaba pineado por un
 # test; el degrade de `/gw` (`gateway.evaluate_request_policy`, línea del
 # `_analyze_regex_degradado` que pasa `region=region_degradado` a `policy.default_analyze`)
 # NO lo estaba — el código era correcto, pero nada rompía si alguien le comía el `region=`
@@ -775,7 +775,7 @@ def test_degrade_de_gw_resuelve_la_region_del_tenant_no_el_default_de_instalacio
     test en rojo — lo confirmé con el experimento antes de subir este commit."""
     from src.api import gateway
 
-    monkeypatch.delenv("BASA_ENTITY_REGION", raising=False)
+    monkeypatch.delenv("SENTINEL_ENTITY_REGION", raising=False)
     guardian_pii(nlp_fail_mode="degrade", region="latam_ar")
     nlp_configurado(caido=True)
 

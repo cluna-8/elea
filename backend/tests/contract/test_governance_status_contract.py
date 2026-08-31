@@ -35,7 +35,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_governance_status_contract"
+DB = "sentinel_test_governance_status_contract"
 
 CLAVES_DE_CAPA = {"layer_key", "tier", "planes", "decision_resuelta", "origen",
                   "estado_efectivo", "motivo"}
@@ -111,7 +111,7 @@ def test_shape_exacto_por_capa(harness, monkeypatch):
     """7 claves, ni una más: una clave de más es un canal por donde vuelve a filtrarse
     información del motor a la UI."""
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian"}))
 
     resp = get_status(client, headers, mode="gateway-models")
 
@@ -130,7 +130,7 @@ def test_piso_siempre_presente_on_y_con_origen_floor(harness, monkeypatch):
     """Garantía (b): no existe representación de piso apagado — el piso no sale de la
     configuración sino del registry en código."""
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian"}))
 
     for mode in ("subscription", "gateway-models"):
         capas = get_status(client, headers, mode=mode).json()["layers"]
@@ -157,7 +157,7 @@ def test_decision_y_estado_son_ejes_independientes(harness, monkeypatch):
 def test_resumen_por_modo_sin_parametros(harness, monkeypatch):
     """SC-002: una sola respuesta contesta qué protege cada tipo de tráfico."""
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian"}))
 
     cuerpo = get_status(client, headers).json()
 
@@ -172,7 +172,7 @@ def test_resumen_por_modo_sin_parametros(harness, monkeypatch):
 def test_valores_fuera_de_enum_devuelven_422_nombrando_el_valor(harness, monkeypatch):
     """Garantía (e)."""
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian"}))
 
     resp = get_status(client, headers, mode="produccion")
     assert resp.status_code == 422
@@ -221,7 +221,7 @@ def test_sc001_con_el_cableado_real_del_producto(harness, monkeypatch):
                          ("azure_content_safety", "azure/text_moderations"),
                          ("bedrock_guardrails", "bedrock_guardrails")):
         seed_guardian(factory, tipo, engine_name=nombre, con_credencial=True)
-    probe_names = {"basa-guardian"}
+    probe_names = {"sentinel-guardian"}
     set_probe(monkeypatch, _Probe(True, probe_names))
 
     cuerpo = get_status(client, headers).json()
@@ -242,7 +242,7 @@ def test_sc001_se_sostiene_aunque_el_motor_cargue_capas_de_proveedor(harness, mo
                   con_credencial=True)
     seed_guardian(factory, "bedrock_guardrails", engine_name="bedrock_guardrails",
                   con_credencial=True)
-    probe_names = {"basa-guardian", "litellm_content_filter"}
+    probe_names = {"sentinel-guardian", "litellm_content_filter"}
     set_probe(monkeypatch, _Probe(True, probe_names))
 
     cuerpo = get_status(client, headers).json()
@@ -277,7 +277,7 @@ def test_sc001_contra_la_sonda_viva_del_motor(harness):
 
 def test_tenant_id_inexistente_da_404_en_single_tenant(harness, monkeypatch):
     client, _, headers = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian"}))
 
     resp = get_status(client, headers, tenant_id=str(uuid.uuid4()))
 
@@ -287,6 +287,6 @@ def test_tenant_id_inexistente_da_404_en_single_tenant(harness, monkeypatch):
 def test_sin_sesion_da_401(harness, monkeypatch):
     """Invariante #1: la protección real vive en el router, no en el nav de la UI."""
     client, _, _ = harness
-    set_probe(monkeypatch, _Probe(True, {"basa-guardian"}))
+    set_probe(monkeypatch, _Probe(True, {"sentinel-guardian"}))
 
     assert client.get("/api/v1/governance/status").status_code == 401

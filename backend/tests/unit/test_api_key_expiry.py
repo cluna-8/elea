@@ -26,7 +26,7 @@ from migration_harness import fresh_db, owner_engine, require_postgres, run_alem
 
 require_postgres()
 
-DB = "basa_test_api_key_expiry"
+DB = "sentinel_test_api_key_expiry"
 
 
 @pytest.fixture(scope="module")
@@ -68,7 +68,7 @@ def seed_key(factory, plain, *, is_active=True, expires_at=None, tool_type="chat
 
 
 def _plain():
-    return f"sk-basa-{uuid.uuid4().hex}"
+    return f"sk-sentinel-{uuid.uuid4().hex}"
 
 
 # ── Repro: el hueco que el fix cierra (rojo antes del fix) ────────────────────────
@@ -122,8 +122,8 @@ def test_whoami_vencida_indistinguible_de_inexistente(factory, monkeypatch):
     plain = _plain()
     seed_key(factory, plain, expires_at=datetime.utcnow() - timedelta(days=1))
 
-    r_vencida = client.get("/gw/whoami", headers={"X-Basa-Key": plain})
-    r_inexistente = client.get("/gw/whoami", headers={"X-Basa-Key": _plain()})
+    r_vencida = client.get("/gw/whoami", headers={"X-Sentinel-Key": plain})
+    r_inexistente = client.get("/gw/whoami", headers={"X-Sentinel-Key": _plain()})
 
     assert r_vencida.status_code == 401
     assert r_inexistente.status_code == 401

@@ -83,11 +83,11 @@ def test_env_float_robusto_no_revienta_y_acota_el_rango(monkeypatch):
 
 
 @pytest.mark.parametrize("env,constante,default", [
-    ("BASA_ENGINE_MAX_CONCURRENCY", "ENGINE_MAX_CONCURRENCY", 8),
-    ("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", "ENGINE_QUEUE_TIMEOUT_SECONDS", 5.0),
-    ("BASA_ENGINE_TIMEOUT_SECONDS", "ENGINE_TIMEOUT_SECONDS", 60.0),
-    ("BASA_GW_BYOK_TIMEOUT_SECONDS", "GW_BYOK_TIMEOUT_SECONDS", 150.0),
-    ("BASA_GW_BYOK_READ_TIMEOUT_SECONDS", "GW_BYOK_READ_TIMEOUT_SECONDS", 150.0),
+    ("SENTINEL_ENGINE_MAX_CONCURRENCY", "ENGINE_MAX_CONCURRENCY", 8),
+    ("SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS", "ENGINE_QUEUE_TIMEOUT_SECONDS", 5.0),
+    ("SENTINEL_ENGINE_TIMEOUT_SECONDS", "ENGINE_TIMEOUT_SECONDS", 60.0),
+    ("SENTINEL_GW_BYOK_TIMEOUT_SECONDS", "GW_BYOK_TIMEOUT_SECONDS", 150.0),
+    ("SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS", "GW_BYOK_READ_TIMEOUT_SECONDS", 150.0),
 ])
 @pytest.mark.parametrize("valor_env", ["", "1e9"], ids=["vacio", "fuera-de-rango"])
 def test_las_constantes_estan_cableadas_al_helper_con_guardia(
@@ -111,11 +111,11 @@ def test_las_constantes_estan_cableadas_al_helper_con_guardia(
 def test_con_la_env_valida_la_constante_la_toma(monkeypatch):
     """Contracara del anterior: la guardia acota, no ignora. Un valor razonable SÍ manda."""
     with monkeypatch.context() as m:
-        m.setenv("BASA_ENGINE_MAX_CONCURRENCY", "16")
-        m.setenv("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", "2.5")
-        m.setenv("BASA_ENGINE_TIMEOUT_SECONDS", "150")
-        m.setenv("BASA_GW_BYOK_TIMEOUT_SECONDS", "200")
-        m.setenv("BASA_GW_BYOK_READ_TIMEOUT_SECONDS", "200")
+        m.setenv("SENTINEL_ENGINE_MAX_CONCURRENCY", "16")
+        m.setenv("SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS", "2.5")
+        m.setenv("SENTINEL_ENGINE_TIMEOUT_SECONDS", "150")
+        m.setenv("SENTINEL_GW_BYOK_TIMEOUT_SECONDS", "200")
+        m.setenv("SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS", "200")
         copia = _copia_del_modulo()
     assert copia.ENGINE_MAX_CONCURRENCY == 16
     assert copia.ENGINE_QUEUE_TIMEOUT_SECONDS == 2.5
@@ -134,8 +134,8 @@ def test_el_byok_no_stream_tiene_su_propia_env_y_no_hereda_el_default_del_chat(m
     setear uno mueva al otro es exactamente el bug.
     """
     with monkeypatch.context() as m:
-        m.setenv("BASA_ENGINE_TIMEOUT_SECONDS", "30")
-        m.delenv("BASA_GW_BYOK_TIMEOUT_SECONDS", raising=False)
+        m.setenv("SENTINEL_ENGINE_TIMEOUT_SECONDS", "30")
+        m.delenv("SENTINEL_GW_BYOK_TIMEOUT_SECONDS", raising=False)
         copia = _copia_del_modulo()
     assert copia.ENGINE_TIMEOUT_SECONDS == 30.0
     assert copia.GW_BYOK_TIMEOUT_SECONDS == 150.0, (
@@ -160,7 +160,7 @@ def test_el_retry_after_se_deriva_del_queue_timeout_real(monkeypatch, queue_time
     rápido vino a evitar.
     """
     with monkeypatch.context() as m:
-        m.setenv("BASA_ENGINE_QUEUE_TIMEOUT_SECONDS", queue_timeout)
+        m.setenv("SENTINEL_ENGINE_QUEUE_TIMEOUT_SECONDS", queue_timeout)
         copia = _copia_del_modulo()
     assert copia.RETRY_AFTER_SATURATED == esperado
 
@@ -179,7 +179,7 @@ def test_el_estado_de_saturacion_no_matchea_el_filtro_canonico_de_bloqueos():
 
 def test_el_contrato_de_wire_del_rechazo_es_estable():
     """El harness de carga distingue NUESTRO 503 de uno de Caddy/proxy por esta cabecera."""
-    assert engine_gate.HEADER_REJECTED == "X-Basa-Rejected"
+    assert engine_gate.HEADER_REJECTED == "X-Sentinel-Rejected"
     assert engine_gate.HEADER_REJECTED_SATURATED == "saturated"
     assert engine_gate.RETRY_AFTER_SATURATED == "5"
 

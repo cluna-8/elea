@@ -31,7 +31,7 @@ from src.auth.matrix import Rol  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_models_status_contract"
+DB = "sentinel_test_models_status_contract"
 URL = "/api/v1/chat/models/status"
 
 

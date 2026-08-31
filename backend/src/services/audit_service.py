@@ -10,12 +10,12 @@ from uuid import UUID
 from ..models.audit import AuditLog
 from .redis_client import get_redis
 
-logger = logging.getLogger("basa-secure-gateway.audit")
+logger = logging.getLogger("sentinel-secure-gateway.audit")
 
 
 # ── Política de fallo de auditoría (spec 031 D4/D5 + spec 038 D1/D2, contrato §Config) ──
 #
-# `BASA_AUDIT_FAIL` decide qué pasa cuando la fila durable NO se puede escribir:
+# `SENTINEL_AUDIT_FAIL` decide qué pasa cuando la fila durable NO se puede escribir:
 #
 #   * `open`   override global explícito: el tráfico se sigue sirviendo siempre, el fallo
 #              deja de ser invisible — se reintenta acotado, se cuenta en Redis y se
@@ -37,7 +37,7 @@ logger = logging.getLogger("basa-secure-gateway.audit")
 AUDIT_FAIL_OPEN = "open"
 AUDIT_FAIL_CLOSED = "closed"
 AUDIT_FAIL_POLICY = "policy"
-AUDIT_FAIL_ENV = "BASA_AUDIT_FAIL"
+AUDIT_FAIL_ENV = "SENTINEL_AUDIT_FAIL"
 
 # ── Matriz D2 (spec 038, FR-002) — el ÚNICO lugar donde vive ──────────────────────────
 #
@@ -50,8 +50,8 @@ _RISK_LEVELS_SIRVE = frozenset({"minimal", "limited"})
 
 # Contador de pérdidas (contrato §Contador de pérdidas). Sin TTL a propósito: es
 # CONSTANCIA de que hubo eventos sin registrar, no una métrica que se auto-borra.
-REDIS_KEY_AUDIT_LOST = "basa:audit:lost"
-REDIS_KEY_AUDIT_LAST_FAIL = "basa:audit:last_fail"
+REDIS_KEY_AUDIT_LOST = "sentinel:audit:lost"
+REDIS_KEY_AUDIT_LAST_FAIL = "sentinel:audit:last_fail"
 
 # Presupuesto FIJO de reintentos (D5): 2 reintentos, backoff 0.2 s y 0.5 s → 3 intentos
 # y <1,5 s en el peor caso. Es el edge case anti-DoS de la spec: ante una avalancha de
@@ -65,7 +65,7 @@ AUDIT_PROBE_TIMEOUT_MS = 1500
 
 class AuditUnavailableError(RuntimeError):
     """La fila durable de auditoría no se pudo escribir y la instalación corre en
-    `BASA_AUDIT_FAIL=closed`.
+    `SENTINEL_AUDIT_FAIL=closed`.
 
     Excepción TIPADA a propósito: los planos (chat, gateway, passthrough) la capturan por
     tipo para devolver un 503 honesto — no un 500 genérico ni, peor, un 200 sobre tráfico
@@ -75,7 +75,7 @@ class AuditUnavailableError(RuntimeError):
 
 
 def audit_fail_mode() -> str:
-    """`open` | `closed` | `policy` leído de `BASA_AUDIT_FAIL` (contrato §Config).
+    """`open` | `closed` | `policy` leído de `SENTINEL_AUDIT_FAIL` (contrato §Config).
 
     Default `policy` (spec 038 D1) si la env falta, viene vacía o trae cualquier otra
     cosa: una env mal tipeada NO puede convertirse en un corte de servicio silencioso ni
@@ -221,7 +221,7 @@ def _wait(seconds: float) -> None:
 
 def record_audit_loss(reason: str = "") -> None:
     """Deja constancia de UN evento de auditoría perdido (contrato §Contador de pérdidas):
-    `INCR basa:audit:lost` + `SET basa:audit:last_fail <iso>`.
+    `INCR sentinel:audit:lost` + `SET sentinel:audit:last_fail <iso>`.
 
     Tolerante a Redis caído: si el contador tampoco se puede escribir, queda el
     `logger.error` — que es el piso de esta spec (que la pérdida NUNCA sea silenciosa).
@@ -253,15 +253,15 @@ def record_audit_loss(reason: str = "") -> None:
 # el `logger.error` como piso innegociable). Duplicar ese patrón en otro archivo es cómo se
 # terminan teniendo dos formas distintas de contar la misma clase de hecho.
 #
-# Las claves son las MISMAS que escribe el plano motor (`litellm/extensions/basa_guardrail.py`,
+# Las claves son las MISMAS que escribe el plano motor (`litellm/extensions/sentinel_guardrail.py`,
 # `_marcar_nlp_degradado`): el health tiene que poder responder "¿se está degradando?" sin
-# preguntarle a cada plano por separado, igual que ya hace con `basa:audit:lost`.
+# preguntarle a cada plano por separado, igual que ya hace con `sentinel:audit:lost`.
 #
 # Sin TTL, igual que el contador de pérdidas: es CONSTANCIA, no una métrica que se auto-borre.
 # El único que limpia es `GET /api/v1/health` cuando CONFIRMA que el analyzer volvió a
 # responder (un solo punto de reseteo, documentado allá) — nunca el paso del tiempo.
-REDIS_KEY_NLP_DEGRADED_SINCE = "basa:nlp:degraded_since"
-REDIS_KEY_NLP_DEGRADED_COUNT = "basa:nlp:degraded_requests"
+REDIS_KEY_NLP_DEGRADED_SINCE = "sentinel:nlp:degraded_since"
+REDIS_KEY_NLP_DEGRADED_COUNT = "sentinel:nlp:degraded_requests"
 
 
 def record_nlp_degradation(reason: str = "") -> None:
@@ -290,7 +290,7 @@ def record_nlp_degradation(reason: str = "") -> None:
                      REDIS_KEY_NLP_DEGRADED_SINCE, exc)
         # #8 (#105): con `socket_timeout` acotado (redis_client), una marca que no responde
         # falla RÁPIDO en vez de colgar el request. Esa marca perdida se cuenta REUTILIZANDO
-        # el contador de pérdidas ya existente (`basa:audit:lost` + /health) — no un mecanismo
+        # el contador de pérdidas ya existente (`sentinel:audit:lost` + /health) — no un mecanismo
         # nuevo. `record_audit_loss` es best-effort y jamás propaga.
         record_audit_loss(reason=f"nlp_degradation_mark/{reason}")
 
@@ -459,9 +459,9 @@ class AuditService:
 
         * **reintento acotado** de ``AUDIT_RETRY_BACKOFFS_SECONDS`` (2 reintentos, 0.2 s
           y 0.5 s) — absorbe el fallo transitorio sin pérdida ni ruido;
-        * **al agotar**: ``logger.error`` + ``INCR basa:audit:lost`` + ``SET
-          basa:audit:last_fail`` (tolerante a Redis caído);
-        * en ``BASA_AUDIT_FAIL=open`` devuelve ``None`` como siempre — los callers previos
+        * **al agotar**: ``logger.error`` + ``INCR sentinel:audit:lost`` + ``SET
+          sentinel:audit:last_fail`` (tolerante a Redis caído);
+        * en ``SENTINEL_AUDIT_FAIL=open`` devuelve ``None`` como siempre — los callers previos
           a la 031 no cambian de comportamiento, sólo dejan rastro;
         * en ``closed`` propaga ``AuditUnavailableError`` para que el plano responda 503.
 

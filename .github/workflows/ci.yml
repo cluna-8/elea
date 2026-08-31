@@ -3,7 +3,7 @@ name: CI
 # CI mínimo (#82): corre en cada PR y en main EXACTAMENTE los comandos del gate
 # documentado (AGENTS.md / README) — nada de réplicas con pip que deriven.
 #
-# Optimización de facturación (auditoría 24-ago, BASA DevOps): Actions factura
+# Optimización de facturación (auditoría 24-ago, SENTINEL DevOps): Actions factura
 # CADA JOB redondeado al minuto entero superior. Con 4 jobs cortos pagábamos
 # ~9 min por corrida sobre ~7 min de cómputo real, y construíamos DOS VECES la
 # misma imagen backend (~55 s cada vez). Los comandos del gate no cambian: se
@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # id `backend-tests` conservado: lo citan tech-team/DevFlow-BasaGuardian.md y
+  # id `backend-tests` conservado: lo citan tech-team/DevFlow-SentinelGuardian.md y
   # specs/035. El id `docs-check` se absorbe acá y `harness-tests` en el de abajo.
   backend-tests:
     name: pytest (suite completa, Postgres real) + check-docs

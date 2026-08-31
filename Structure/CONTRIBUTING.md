@@ -1,4 +1,4 @@
-# Cómo trabajamos — Basa Guardian
+# Cómo trabajamos — Sentinel Guardian
 
 Convención operativa del equipo. Dueño del documento: Cristian. Cambios a este archivo: PR con aprobación de Cristian.
 
@@ -46,4 +46,4 @@ Trabajamos en ciclos de 2 semanas con fecha fija: se recorta alcance, no se muev
 
 ## Organización
 
-División de departamentos, router de responsabilidades y reglas de operación: `Structure/ManosALaObra-BasaGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto, JF) y `deploy/ROADMAP-factory.md` (Factory, Falime).
+División de departamentos, router de responsabilidades y reglas de operación: `Structure/ManosALaObra-SentinelGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto, JF) y `deploy/ROADMAP-factory.md` (Factory, Falime).

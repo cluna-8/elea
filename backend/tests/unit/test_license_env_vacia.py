@@ -35,9 +35,9 @@ def _no_contaminar_el_singleton():
 def env_limpio(monkeypatch):
     """El conftest instala una licencia dev de suite en ``os.environ``; cada
     test parte del estado NO CONFIGURADO y setea sólo lo suyo."""
-    for var in ("BASA_LICENSE_TOKEN", "BASA_LICENSE_TOKEN_FILE",
-                "BASA_LICENSE_PUBLIC_KEYS_FILE", "BASA_DEPLOYMENT_TENANT_ID",
-                "BASA_DEPLOYMENT_KEY_FILE"):
+    for var in ("SENTINEL_LICENSE_TOKEN", "SENTINEL_LICENSE_TOKEN_FILE",
+                "SENTINEL_LICENSE_PUBLIC_KEYS_FILE", "SENTINEL_DEPLOYMENT_TENANT_ID",
+                "SENTINEL_DEPLOYMENT_KEY_FILE"):
         monkeypatch.delenv(var, raising=False)
     return monkeypatch
 
@@ -47,21 +47,21 @@ def _keyset_ajeno(tmp_path):
     token de la suite → sirve de default distinguible."""
     ajeno = tmp_path / "ajeno"
     ajeno.mkdir()
-    keyset_path, _, _ = issue_files(ajeno, kid="basa-ajeno")
+    keyset_path, _, _ = issue_files(ajeno, kid="sentinel-ajeno")
     return keyset_path
 
 
-# --- BASA_LICENSE_PUBLIC_KEYS_FILE: vacía ⇒ keyset embebido -------------------
+# --- SENTINEL_LICENSE_PUBLIC_KEYS_FILE: vacía ⇒ keyset embebido -------------------
 
 def test_keyset_vacio_cae_al_embebido_igual_que_ausente(env_limpio, tmp_path):
     """ANTES: ``LicenseReadError: keyset ilegible: Is a directory: '.'`` — el
     keyset embebido quedaba anulado y el fallo salía por el carril de I/O."""
     keyset_path, lic_path, _ = issue_files(tmp_path)
     env_limpio.setattr(entitlement, "DEFAULT_KEYSET_PATH", keyset_path)
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
 
     ausente = entitlement.evaluate()
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", "")
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", "")
     vacia = entitlement.evaluate()
 
     assert ausente.status == "active"  # control: el default del producto verifica
@@ -71,8 +71,8 @@ def test_keyset_vacio_cae_al_embebido_igual_que_ausente(env_limpio, tmp_path):
 def test_keyset_en_blanco_tambien_es_ausente(env_limpio, tmp_path):
     keyset_path, lic_path, _ = issue_files(tmp_path)
     env_limpio.setattr(entitlement, "DEFAULT_KEYSET_PATH", keyset_path)
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", "   ")
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", "   ")
 
     assert entitlement.evaluate().status == "active"
 
@@ -82,25 +82,25 @@ def test_keyset_configurado_le_gana_al_default(env_limpio, tmp_path):
     El default es un keyset AJENO; sólo la variable lleva al que verifica."""
     keyset_path, lic_path, _ = issue_files(tmp_path)
     env_limpio.setattr(entitlement, "DEFAULT_KEYSET_PATH", _keyset_ajeno(tmp_path))
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
 
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
     assert entitlement.evaluate().status == "active"
 
-    env_limpio.delenv("BASA_LICENSE_PUBLIC_KEYS_FILE")
+    env_limpio.delenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE")
     assert entitlement.evaluate().status == "invalid"  # el ajeno no conoce el kid
 
 
-# --- BASA_DEPLOYMENT_TENANT_ID: vacía ⇒ tenant seed --------------------------
+# --- SENTINEL_DEPLOYMENT_TENANT_ID: vacía ⇒ tenant seed --------------------------
 
 def test_tenant_del_deployment_vacio_es_el_default(env_limpio, tmp_path):
     """ANTES: ``mismatch`` contra un deployment de tenant ``''`` — una licencia
     legítima quedaba repudiada y el motivo auditado decía 'deployment ' (vacío)."""
     keyset_path, lic_path, _ = issue_files(tmp_path)  # token del tenant seed
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
 
-    env_limpio.setenv("BASA_DEPLOYMENT_TENANT_ID", "")
+    env_limpio.setenv("SENTINEL_DEPLOYMENT_TENANT_ID", "")
     assert entitlement.expected_tenant_id() == DEFAULT_TENANT_ID
     assert entitlement.evaluate().status == "active"
 
@@ -108,37 +108,37 @@ def test_tenant_del_deployment_vacio_es_el_default(env_limpio, tmp_path):
 def test_tenant_del_deployment_configurado_le_gana_al_default(env_limpio, tmp_path):
     """Anti-vacuidad: el mismatch de tenant (FR-005) tiene que seguir vivo."""
     keyset_path, lic_path, _ = issue_files(tmp_path)
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
 
-    env_limpio.setenv("BASA_DEPLOYMENT_TENANT_ID", OTRO_TENANT)
+    env_limpio.setenv("SENTINEL_DEPLOYMENT_TENANT_ID", OTRO_TENANT)
     assert entitlement.evaluate().status == "mismatch"
 
 
-# --- BASA_LICENSE_TOKEN_FILE: en blanco ⇒ token no configurado ---------------
+# --- SENTINEL_LICENSE_TOKEN_FILE: en blanco ⇒ token no configurado ---------------
 
 def test_token_file_en_blanco_es_token_ausente(env_limpio, tmp_path):
     """``' '`` pasaba el ``if path:`` y moría en el read → LicenseReadError
     (carril de blip) en vez del ``missing`` honesto de 'no lo configuraste'."""
     keyset_path, _, _ = issue_files(tmp_path)
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", "   ")
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", "   ")
 
     assert entitlement.evaluate().status == "missing"
 
 
-# --- BASA_DEPLOYMENT_KEY_FILE: vacía ⇒ path default --------------------------
+# --- SENTINEL_DEPLOYMENT_KEY_FILE: vacía ⇒ path default --------------------------
 
 def test_deployment_key_vacia_es_el_path_default(env_limpio):
     """ANTES: ``Path('')`` → ``'.'``; ``exists()`` da True sobre el cwd y la
     carga de la privada muere leyendo un directorio (true-up sin firma)."""
-    env_limpio.setenv("BASA_DEPLOYMENT_KEY_FILE", "")
+    env_limpio.setenv("SENTINEL_DEPLOYMENT_KEY_FILE", "")
     assert deployment_key.key_path() == Path(deployment_key.DEFAULT_KEY_PATH)
 
 
 def test_deployment_key_configurada_le_gana_al_default(env_limpio, tmp_path):
     propia = tmp_path / "deployment_key.pem"
-    env_limpio.setenv("BASA_DEPLOYMENT_KEY_FILE", str(propia))
+    env_limpio.setenv("SENTINEL_DEPLOYMENT_KEY_FILE", str(propia))
     assert deployment_key.key_path() == propia
 
 
@@ -153,14 +153,14 @@ def test_config_vacia_no_se_lava_como_blip_de_io(env_limpio, tmp_path):
     """
     keyset_path, lic_path, _ = issue_files(tmp_path)
     env_limpio.setattr(entitlement, "DEFAULT_KEYSET_PATH", _keyset_ajeno(tmp_path))
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
-    env_limpio.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    env_limpio.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
     env_limpio.setattr("src.licensing.audit_events.emit_state_event",
                        lambda *a, **k: None)
 
     assert entitlement.initialize(force=True, emit_audit=False).status == "active"
 
-    env_limpio.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", "")  # el operador 'declara' la var
+    env_limpio.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", "")  # el operador 'declara' la var
     primer_tick = entitlement.refresh()
 
     assert primer_tick.status != "active", "conservó el estado viejo: entró por el carril de blip"

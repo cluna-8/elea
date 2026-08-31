@@ -18,7 +18,7 @@ Acá el padrón es de verdad —usuarios reales en una base migrada a head— as
 es el conteo y el testigo negativo puede rojear.
 
 Ambigüedad que este archivo tiene que esquivar y por eso se nombra: el motivo del TIER
-(038 D3, `_tier_estricto_cacheado`) también contiene la subcadena `BASA_AUDIT_FAIL=policy`.
+(038 D3, `_tier_estricto_cacheado`) también contiene la subcadena `SENTINEL_AUDIT_FAIL=policy`.
 Afirmar sólo eso no distinguiría una degradación de la sonda de una del tier — de ahí que
 todo testigo positivo del motivo pida ADEMÁS el número de usuarios (que el motivo del tier
 no tiene) y niegue explícitamente el texto del tier.
@@ -42,7 +42,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_health_riesgo_sin_poblar"
+DB = "sentinel_test_health_riesgo_sin_poblar"
 
 HEALTH = "/api/v1/health"
 
@@ -61,9 +61,9 @@ RIESGO_BAJO = "limited"
 #: Fragmentos del motivo de la sonda (`health.py::_estado_de_auditoria`). Se acoplan a la
 #: copy a propósito: el número y el modo son lo que el operador lee para saber a cuántos
 #: usuarios le está por cortar el tráfico, no un detalle de formato.
-MODO_EN_EL_MOTIVO = "BASA_AUDIT_FAIL=policy"
+MODO_EN_EL_MOTIVO = "SENTINEL_AUDIT_FAIL=policy"
 MOTIVO_SONDA = "no resuelven nivel de riesgo"
-#: Motivo del TIER (038 D3): dice `BASA_AUDIT_FAIL=policy` IGUAL que el de la sonda. Se
+#: Motivo del TIER (038 D3): dice `SENTINEL_AUDIT_FAIL=policy` IGUAL que el de la sonda. Se
 #: niega explícitamente en cada testigo para que una degradación por tier no se lea como
 #: una degradación por padrón (ver el header del módulo).
 MOTIVO_TIER = "el tier de enforcement es estricto"
@@ -190,9 +190,9 @@ def crear_usuario(factory, *, activo: bool = True, risk_level=None, group_id=Non
     try:
         usuario = User(
             username=nombre,
-            # @basa.com.ar (no .test): `UserResponse.email` es EmailStr y rechaza el TLD
+            # @sentinel.com.ar (no .test): `UserResponse.email` es EmailStr y rechaza el TLD
             # reservado, con lo que un GET /users explotaría al serializar estas filas.
-            email=f"{nombre}@basa.com.ar",
+            email=f"{nombre}@sentinel.com.ar",
             password_hash=HASH_CENTINELA,
             role="client",
             is_active=activo,
@@ -308,7 +308,7 @@ def test_policy_con_el_padron_sin_poblar_DEGRADA_el_health(harness):
         "el motivo tiene que decir A CUÁNTOS les corta: sin el número el operador no sabe "
         f"si es un usuario olvidado o el padrón entero — {body['reason']!r}")
     assert MOTIVO_TIER not in body["reason"], (
-        "el motivo del tier (038 D3) trae la MISMA subcadena `BASA_AUDIT_FAIL=policy`: si "
+        "el motivo del tier (038 D3) trae la MISMA subcadena `SENTINEL_AUDIT_FAIL=policy`: si "
         "el que disparó fue ése, este test estaría verde sin haber ejercitado la sonda")
 
 

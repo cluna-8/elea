@@ -54,13 +54,13 @@ try {
 
   const appName = (await popup.textContent('#app-name'))?.trim();
   check('white-label header = cc-guardian (US3 live)', appName === 'cc-guardian', appName);
-  check('header carries NO fabricant brand', appName && !/basa/i.test(appName), appName);
+  check('header carries NO fabricant brand', appName && !/sentinel/i.test(appName), appName);
 
   // FR-010 (US2): remote non-https URL must be rejected at validation (before any prompt).
   await popup.click('#open-config');
   await popup.waitForSelector('#gw:visible', { timeout: 3_000 }).catch(() => {});
   await popup.fill('#gw', 'http://gateway.remoto.example.org/api/v1/gw');
-  await popup.fill('#key', 'sk-basa-dummy-not-a-real-key');
+  await popup.fill('#key', 'sk-sentinel-dummy-not-a-real-key');
   await popup.click('#save');
   await popup.waitForTimeout(500);
   const statusText1 = (await popup.textContent('#status'))?.trim() || '';

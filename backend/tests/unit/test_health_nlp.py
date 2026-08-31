@@ -258,7 +258,7 @@ def test_el_tier_anonimo_no_paga_una_consulta_POR_PROBE(redis_falso, sidecar):
     Rationale original (issue #63): «redactar un motivo que no va a viajar no puede costar
     una consulta a `guardians` en cada probe». Sigue vigente — lo que cambió es que ahora SÍ
     hay un motivo que puede viajar: con el tier de enforcement en estricto, un
-    `BASA_AUDIT_FAIL` que no sea `closed` es una incoherencia y `status: degraded` **sí** se
+    `SENTINEL_AUDIT_FAIL` que no sea `closed` es una incoherencia y `status: degraded` **sí** se
     publica al anónimo (spec 038 D3; opción A sellada por el manager el 26-ago — se descartó
     dársela sólo al admin porque quienes pollean `/health` anónimo, k8s y uptime checks, son
     exactamente los consumidores de esa señal).

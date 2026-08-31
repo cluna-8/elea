@@ -2,12 +2,12 @@
 
 A diferencia de ``tests/integration`` (TestClient + httpx mockeado), esta suite cruza
 procesos de verdad: ``gateway (backend:8000) → motor LiteLLM (litellm:4000) → Postgres
-(db:5432) → custom_auth → BasaGuardrail``. Se corre desde un container efímero unido a
+(db:5432) → custom_auth → SentinelGuardrail``. Se corre desde un container efímero unido a
 la red del compose::
 
-    docker compose -p basa-guardian run --rm --no-deps backend pytest tests/e2e/ -v
+    docker compose -p sentinel-guardian run --rm --no-deps backend pytest tests/e2e/ -v
 
-El seed de la Connection (=``APIKey``) se inserta en la MISMA base ``basa_gateway`` vía
+El seed de la Connection (=``APIKey``) se inserta en la MISMA base ``sentinel_gateway`` vía
 SQLAlchemy directo (``SessionLocal``), así el gateway y el motor la resuelven por HTTP.
 ``user_id=NULL`` evita colisión con el índice único ``(tenant_id, user_id, tool_type)``
 (en Postgres los NULL son distintos entre sí). El GUC de RLS queda sin setear → aplica
@@ -37,7 +37,7 @@ from src.services.key_material import hash_key, key_preview
 
 # Puerta única del gateway sobre HTTP vivo. Override por env para correr fuera del
 # compose (p.ej. contra el puerto publicado 8091), default = DNS interno de la red.
-_BASE_URL = os.getenv("BASA_E2E_BASE_URL", "http://backend:8000/api/v1/gw")
+_BASE_URL = os.getenv("SENTINEL_E2E_BASE_URL", "http://backend:8000/api/v1/gw")
 
 # Margen del teardown para la CARRERA CON EL MOTOR (flaky #41). El logger del motor audita
 # en un callback asíncrono (``async_log_success_event``) que corre DESPUÉS de que el gateway
@@ -50,7 +50,7 @@ _BASE_URL = os.getenv("BASA_E2E_BASE_URL", "http://backend:8000/api/v1/gw")
 # ``audit_logs`` primero, en la MISMA transacción, el INSERT del motor entró ENTRE las dos
 # sentencias y el commit explotó igual. Por eso el borrado es idempotente y REINTENTADO
 # hasta este margen: cada reintento vuelve a purgar lo que haya aparecido mientras tanto.
-_TEARDOWN_MARGEN_S = float(os.getenv("BASA_E2E_TEARDOWN_MARGEN_S", "15"))
+_TEARDOWN_MARGEN_S = float(os.getenv("SENTINEL_E2E_TEARDOWN_MARGEN_S", "15"))
 _TEARDOWN_PASO_S = 0.5
 
 
@@ -91,7 +91,7 @@ def _borrar_sin_carrera(db, api_key_id=None, user_id=None) -> None:
     Reintenta hasta ``_TEARDOWN_MARGEN_S`` porque el INSERT del motor puede llegar tarde:
     cada vuelta re-purga y re-intenta el borrado. Si el INSERT aterriza DESPUÉS del commit
     del teardown no hay nada que arreglar — el que falla entonces es el logger del motor,
-    que ya trata su INSERT como best-effort (``[basa-audit] INSERT no fatal``), y lo único
+    que ya trata su INSERT como best-effort (``[sentinel-audit] INSERT no fatal``), y lo único
     que se pierde es la fila de auditoría de una key sintética de test.
 
     Y no borra en silencio: si tras el margen la fila referenciante sigue ahí, el problema
@@ -216,7 +216,7 @@ def seeded_byok_key():
     fila por id, reintentando contra la carrera con el motor (#41); ``finally`` → siempre,
     aun si el test falla. ``user_id=NULL`` → sin colisión con el índice único parcial."""
     rand = uuid.uuid4().hex[:8]
-    plain = f"sk-basa-e2e-{rand}"
+    plain = f"sk-sentinel-e2e-{rand}"
     db = SessionLocal()
     row = APIKey(
         key_hash=hash_key(plain),

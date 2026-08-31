@@ -35,7 +35,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_governance_profile_contract"
+DB = "sentinel_test_governance_profile_contract"
 
 CLAVES_DE_FILA = {"scope_type", "scope_value", "layer_key", "decision", "updated_by",
                   "updated_at"}
@@ -73,7 +73,7 @@ def _sonda_confirmada(harness, monkeypatch):
     from src.api import governance
 
     async def _fake(**_kwargs):
-        return _Probe(True, {"basa-guardian"})
+        return _Probe(True, {"sentinel-guardian"})
 
     monkeypatch.setattr(governance.ai_engine_client, "probe_loaded_guardrails", _fake)
 
@@ -108,7 +108,7 @@ def eventos(monkeypatch):
     último sin atarse al formato de una línea de log.
 
     **Estos eventos NO van al feed del monitor** (hallazgo A1 de la verificación de US2): iban
-    al ring compartido ``basa:gw:events``, que ``GET /gw/events`` servía **sin sesión** —o
+    al ring compartido ``sentinel:gw:events``, que ``GET /gw/events`` servía **sin sesión** —o
     sea, el ``layer_key``, el alcance, el ``updated_by`` y el ``tenant`` de la configuración
     admin-only salían por un endpoint abierto—. Hoy el registro es el log estructurado (más la
     propia fila, para los cambios aceptados), así que este fixture ya no protege al feed de
@@ -518,7 +518,7 @@ def headers_no_admin(harness):
 def test_la_configuracion_no_sale_por_el_feed_del_monitor(harness, eventos, monkeypatch):
     """Hallazgo A1: el invariante #1 no se sostiene si la misma información sale por otro lado.
 
-    Los eventos de cambio de configuración se publicaban en ``basa:gw:events`` —el ring que
+    Los eventos de cambio de configuración se publicaban en ``sentinel:gw:events`` —el ring que
     sirve ``GET /gw/events``—, así que ``layer_key``, alcance, ``updated_by`` y ``tenant`` de
     un router admin-only viajaban a un feed que no pedía sesión. Este test vigila la mitad
     productora: **ninguna** operación del CRUD escribe en el ring. Lo único que este router
@@ -570,7 +570,7 @@ def test_el_feed_del_monitor_exige_sesion(harness, headers_no_admin):
     # El cascarón se sirve sin sesión, así que no puede traer eventos horneados: los pide por
     # ``/events`` con el token. Si alguna vez alguien inyecta el feed en el HTML "para que
     # cargue más rápido", vuelve a haber fuga y este assert la caza.
-    assert "basa:gw:events" not in pagina.text
+    assert "sentinel:gw:events" not in pagina.text
     assert "Bearer" in pagina.text, "la página tiene que pedir el feed CON credencial"
 
 

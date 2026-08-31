@@ -20,7 +20,7 @@ const MOTIVO = 'Se detectó material secreto (credenciales) en el contenido; el 
 // stub gateway
 const gw = http.createServer((req, res) => {
   let b = ''; req.on('data', c => b += c); req.on('end', () => {
-    const key = req.headers['x-basa-key'] || '';
+    const key = req.headers['x-sentinel-key'] || '';
     const send = (c, o) => { res.writeHead(c, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (req.url.endsWith('/whoami')) return key.startsWith('sk-')
       ? send(200, { ok: true, user: 'dev.browser', team: 'Equipo Web', key_label: 'k', proteccion: { deteccion: 'patrones', titulo: 'Detección por patrones', detalle: 'patrones. El piso no negociable se aplica siempre.', capas_delegadas: [] } })
@@ -71,7 +71,7 @@ try {
   await popup.waitForSelector('#open-config');
   await popup.click('#open-config');
   await popup.fill('#gw', `http://localhost:${GW}/api/v1/gw`);
-  await popup.fill('#key', 'sk-basa-e2e-block');
+  await popup.fill('#key', 'sk-sentinel-e2e-block');
   await popup.click('#save');
   await popup.waitForFunction(() => document.querySelector('#status')?.classList.contains('on'), { timeout: 10_000 }).catch(() => {});
   const connected = await popup.$eval('#status', el => el.classList.contains('on')).catch(() => false);

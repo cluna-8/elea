@@ -26,11 +26,11 @@ El procedimiento completo contra el tenant Entra real, con captura por paso, est
 docker compose exec backend pytest tests/integration/test_rls_post_flip.py -v
 ```
 
-Fixture compartida con la 018 (bootstrap dropeada + NOSUPERUSER): aislamiento cross-tenant = 0 filas; jobs batch escriben vía contrato. La migración `016_rls_strict` NO corre por default — verificar que con `BASA_RLS_STRICT` sin setear el arranque es idéntico a hoy.
+Fixture compartida con la 018 (bootstrap dropeada + NOSUPERUSER): aislamiento cross-tenant = 0 filas; jobs batch escriben vía contrato. La migración `016_rls_strict` NO corre por default — verificar que con `SENTINEL_RLS_STRICT` sin setear el arranque es idéntico a hoy.
 
 ## 5 · Hardening (SC-005)
 
-5 logins fallidos → lockout uniforme + evento; key con `expires_at` vencido → rechazada en byok, Playground y /gw (test por plano); `SELECT engine_key_token FROM api_keys` → cero material `sk-basa` en claro.
+5 logins fallidos → lockout uniforme + evento; key con `expires_at` vencido → rechazada en byok, Playground y /gw (test por plano); `SELECT engine_key_token FROM api_keys` → cero material `sk-sentinel` en claro.
 
 ## 6 · Cero regresión Cámara (SC-007)
 

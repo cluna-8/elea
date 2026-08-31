@@ -29,7 +29,7 @@ class UserBase(BaseModel):
     compliance_project_id: Optional[UUID] = None
 
 class UserCreate(UserBase):
-    # Sin default y sin Optional a propósito: el endpoint tenía un `or "basa123"` que le
+    # Sin default y sin Optional a propósito: el endpoint tenía un `or "sentinel123"` que le
     # daba la MISMA contraseña conocida a todo usuario creado sin una. La longitud mínima
     # la valida el endpoint (no un Field) para responder el 422 en español.
     password: str

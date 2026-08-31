@@ -30,7 +30,7 @@ const server = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => body += c);
   req.on('end', () => {
-    const key = req.headers['x-basa-key'] || '';
+    const key = req.headers['x-sentinel-key'] || '';
     const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
     if (req.url.endsWith('/whoami')) {
       if (!key.startsWith('sk-')) return send(401, { ok: false, error: 'API key requerida o inválida' });
@@ -75,7 +75,7 @@ try {
   await popup.waitForSelector('#open-config');
   await popup.click('#open-config');
   await popup.fill('#gw', `http://localhost:${PORT}/api/v1/gw`);
-  await popup.fill('#key', 'sk-basa-e2e-connected');
+  await popup.fill('#key', 'sk-sentinel-e2e-connected');
   await popup.click('#save');
 
   await popup.waitForFunction(() => document.querySelector('#status')?.classList.contains('on'), { timeout: 10_000 }).catch(() => {});

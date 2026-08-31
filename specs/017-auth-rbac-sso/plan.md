@@ -32,9 +32,9 @@ Cuatro capítulos sobre el recorte sellado: (A) la **matriz RBAC definitiva** op
 
 | Env | Default | Qué controla |
 |---|---|---|
-| `BASA_LOGIN_MAX_ATTEMPTS` | `5` | intentos fallidos antes del lockout |
-| `BASA_LOGIN_LOCKOUT_SECONDS` | `900` | duración del lockout |
-| `BASA_RLS_STRICT` | `false` | FR-014: la migración del drop+flip solo corre con esto en `true` (release siguiente, con Factory) |
+| `SENTINEL_LOGIN_MAX_ATTEMPTS` | `5` | intentos fallidos antes del lockout |
+| `SENTINEL_LOGIN_LOCKOUT_SECONDS` | `900` | duración del lockout |
+| `SENTINEL_RLS_STRICT` | `false` | FR-014: la migración del drop+flip solo corre con esto en `true` (release siguiente, con Factory) |
 
 ## Constitution Check
 
@@ -42,7 +42,7 @@ Cuatro capítulos sobre el recorte sellado: (A) la **matriz RBAC definitiva** op
 
 - **Security Constraint 3 (fail-closed en identidad)**: todo lo nuevo es fail-closed — lockout, flag `sso` ausente = apagado, config SSO rota degrada SOLO el camino SSO con el login local intacto (FR-009 es fallback declarado, no fail-open silencioso).
 - **Security Constraint 4 (tenant isolation / RLS activo)**: el capítulo C es exactamente la parte C2 de esa constraint; el flip final queda entregado y PROBADO (FR-013) aunque apagado — honestidad D7 (forward-looking no se declara hecho).
-- **Security Constraint 5 (Fernet para secretos en reposo)**: client_secret del IdP y `engine_key_token` pasan a Fernet — FR-018 cierra una violación VIGENTE de esta constraint (sk-basa entera en claro e indexada).
+- **Security Constraint 5 (Fernet para secretos en reposo)**: client_secret del IdP y `engine_key_token` pasan a Fernet — FR-018 cierra una violación VIGENTE de esta constraint (sk-sentinel entera en claro e indexada).
 - **Principio III / D9 (RBAC reconciliado)**: la matriz implementa D9 tal cual (super_admin/tenant_admin/compliance_officer/client + `lectura` nuevo; labels sectoriales siguen como display). El shim se consagra como capa de traducción — el rename cosmético queda fuera (blast radius).
 - **Principio VI (LiteLLM-native)**: el único toque al motor es `custom_auth.py` (expires_at) — punto de extensión ya nuestro, con test de contrato; nada del motor se parchea.
 - **Principio II**: los auth events son evidencia (nivel 2), clase `security_events` del clasificador 018 — sin cambiar posturas de bloqueo en runtime.

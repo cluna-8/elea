@@ -2,7 +2,7 @@
 # T006 (US1, SC-001): la imagen prod del backend es non-root, sin toolchain en la
 # capa final, sin --reload, con healthcheck. Rojo si falta cualquiera.
 set -euo pipefail
-IMG="${BACKEND_IMG:-basa-backend:prod}"
+IMG="${BACKEND_IMG:-sentinel-backend:prod}"
 
 fail() { echo "❌ $1"; exit 1; }
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-backend)"

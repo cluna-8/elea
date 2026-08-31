@@ -21,7 +21,7 @@ para el distribuidor que prepara el training de administración del cliente fina
 
 Un **tenant** es la organización compradora: la raíz de toda la jerarquía de datos de la
 plataforma. De él cuelgan los grupos, de los grupos los clientes (usuarios finales) y de cada
-cliente sus **Connections** — una credencial por herramienta (una virtual key `sk-basa-...`).
+cliente sus **Connections** — una credencial por herramienta (una virtual key `sk-sentinel-...`).
 
 ```mermaid
 graph TB
@@ -50,7 +50,7 @@ está pendiente de activarse. 🟡
 
 El modelo de entrega del producto es **una instancia por cliente** (on-premise /
 air-gapped): cada despliegue opera con exactamente **un tenant activo**, anclado por
-configuración con la variable `BASA_DEPLOYMENT_TENANT_ID`. La licencia del despliegue
+configuración con la variable `SENTINEL_DEPLOYMENT_TENANT_ID`. La licencia del despliegue
 está emitida para ese tenant y no habilita ningún otro (fail-closed). 🟢
 
 El modelo de datos soporta además un modo *cloud* con varios tenants conviviendo en una
@@ -107,7 +107,7 @@ Matriz de permisos vigente en la instancia:
 !!! warning "Fail-closed en la administración"
     Todos los endpoints de administración exigen una **sesión JWT válida** de un usuario
     activo; sin token (o con token vencido) la respuesta es `401`. Las **virtual keys**
-    (`sk-basa-…`) sirven exclusivamente para inferencia: **jamás** resuelven a una sesión
+    (`sk-sentinel-…`) sirven exclusivamente para inferencia: **jamás** resuelven a una sesión
     de administración, por diseño.
 
 !!! tip "Bootstrap del primer administrador"
@@ -279,15 +279,15 @@ para cualquier cliente cambiando solo estas variables:
 
 | Variable | Rol |
 |---|---|
-| `BASA_LICENSE_TOKEN_FILE` (o `BASA_LICENSE_TOKEN` inline) | El archivo de licencia (`.lic`) |
-| `BASA_LICENSE_PUBLIC_KEYS_FILE` | Keyset público de verificación (default: el embebido) |
-| `BASA_DEPLOYMENT_TENANT_ID` | Tenant del despliegue — debe coincidir con el de la licencia |
-| `BASA_LICENSE_RECONCILE_INTERVAL_SECONDS` | Intervalo del job de reconciliación de seats (`<=0` lo desactiva) |
-| `BASA_LICENSE_HARD_BLOCK` | `true` = endurecer el modo degradado a bloqueo total (ver abajo) |
-| `BASA_DEPLOYMENT_KEY_FILE` | Clave de despliegue para los reportes de true-up (volumen persistente) |
+| `SENTINEL_LICENSE_TOKEN_FILE` (o `SENTINEL_LICENSE_TOKEN` inline) | El archivo de licencia (`.lic`) |
+| `SENTINEL_LICENSE_PUBLIC_KEYS_FILE` | Keyset público de verificación (default: el embebido) |
+| `SENTINEL_DEPLOYMENT_TENANT_ID` | Tenant del despliegue — debe coincidir con el de la licencia |
+| `SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS` | Intervalo del job de reconciliación de seats (`<=0` lo desactiva) |
+| `SENTINEL_LICENSE_HARD_BLOCK` | `true` = endurecer el modo degradado a bloqueo total (ver abajo) |
+| `SENTINEL_DEPLOYMENT_KEY_FILE` | Clave de despliegue para los reportes de true-up (volumen persistente) |
 
 !!! danger "Licencias de demo: jamás en producción"
-    Existe además `BASA_ALLOW_DEV_LICENSE=true`, que acepta licencias emitidas con el
+    Existe además `SENTINEL_ALLOW_DEV_LICENSE=true`, que acepta licencias emitidas con el
     keyset de **desarrollo** (demos y entornos locales). Sin esa variable, una licencia
     de demo se evalúa como `invalid` — comportamiento correcto. No habilitarla nunca en
     un despliegue productivo.
@@ -340,7 +340,7 @@ El ciclo de vida se evalúa con el reloj local: `active → grace → expired`.
 
 El **modo degradado** por defecto es *read-only para creación*: en `grace`, `expired` u
 `over_seat` (ver reconciliación) las altas se bloquean y el servicio sigue. Con
-`BASA_LICENSE_HARD_BLOCK=true`, los estados `expired` y `over_seat` cortan **todo** el
+`SENTINEL_LICENSE_HARD_BLOCK=true`, los estados `expired` y `over_seat` cortan **todo** el
 tráfico del gateway (`/api/v1/gw`) con un `403` de mensaje genérico — el detalle del motivo va a
 los logs del servidor, nunca al cliente sin autenticar. `grace` **jamás** corta tráfico,
 con o sin hard block.
@@ -410,7 +410,7 @@ Dos claves distintas, dos procedimientos — ninguno interrumpe el servicio:
   paralelo**: el emisor publica un keyset con la clave vieja y la nueva, emite las
   licencias nuevas con la nueva y retira la vieja cuando no quedan licencias vivas
   firmadas con ella. En la instancia solo hay que actualizar el archivo apuntado por
-  `BASA_LICENSE_PUBLIC_KEYS_FILE`.
+  `SENTINEL_LICENSE_PUBLIC_KEYS_FILE`.
 - **Clave de despliegue (true-up)** — se regenera en la propia instancia y se re-registra
   su clave pública con el emisor fuera de banda. **La génesis no cambia** y la
   continuidad de los reportes de true-up se preserva.

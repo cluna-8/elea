@@ -146,7 +146,7 @@ devuelve filas de `tenantB`; un `INSERT` con `tenant_id` de otro tenant es recha
    **Then** solo aparecen filas de A.
 2. **Given** `app.current_tenant=<A>`, **When** `INSERT … VALUES (tenant_id=<B>, …)`, **Then** el `WITH CHECK`
    de la policy lo rechaza.
-3. **Given** la app conectada como **`basa_admin` (dueño de las tablas)**, **When** hay RLS `ENABLE` **+ FORCE**,
+3. **Given** la app conectada como **`sentinel_admin` (dueño de las tablas)**, **When** hay RLS `ENABLE` **+ FORCE**,
    **Then** la RLS **sí** aísla (sin `FORCE`, el dueño la bypasearía → falso sentido de seguridad, viola SC-4).
 4. **Given** `app.bypass_rls='on'`, **When** un super_admin hace `SELECT`, **Then** ve filas de todos los tenants.
 5. **Given** el GUC `app.current_tenant` **no seteado**, **When** la policy evalúa `current_setting(...,true)`,
@@ -310,7 +310,7 @@ re-ejecutarlo con el mismo spec **no** duplica (clave `(tenant_id, user_id, tool
   `display_label='developer'`.
 - **FR-010**: El sistema DEBE aplicar `CHECK (role IN ('super_admin','tenant_admin','compliance_officer','client'))`
   sobre `users.role` (via `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`, no `ALTER TYPE`).
-- **FR-011**: El `super_admin` (cross-tenant, Basa/cloud) NO DEBE autogenerarse por migración; se siembra
+- **FR-011**: El `super_admin` (cross-tenant, Sentinel/cloud) NO DEBE autogenerarse por migración; se siembra
   explícitamente aparte (solo cloud) para no exponer un rol cross-tenant en on-prem.
 
 **Client model & Connection**
@@ -340,7 +340,7 @@ re-ejecutarlo con el mismo spec **no** duplica (clave `(tenant_id, user_id, tool
 **RLS**
 
 - **FR-019**: Por cada tabla tenant-scoped el sistema DEBE `ENABLE ROW LEVEL SECURITY` **y `FORCE ROW LEVEL
-  SECURITY`** (crítico: la app se conecta como `basa_admin`, dueño de las tablas, que bypasearía RLS sin FORCE).
+  SECURITY`** (crítico: la app se conecta como `sentinel_admin`, dueño de las tablas, que bypasearía RLS sin FORCE).
 - **FR-020**: Por cada tabla tenant-scoped el sistema DEBE crear una policy `tenant_isolation` con
   `USING (tenant_id = NULLIF(current_setting('app.current_tenant', true),'')::uuid
    OR current_setting('app.bypass_rls', true) = 'on')` y el mismo predicado en `WITH CHECK`
@@ -410,7 +410,7 @@ re-ejecutarlo con el mismo spec **no** duplica (clave `(tenant_id, user_id, tool
 - **SC-002**: **0** queries de la app rompen tras la migración en modo single-tenant (regresión cero para on-prem).
 - **SC-003** *(SC-4 constitucional)*: con `app.current_tenant=<A>`, **0** filas de otro tenant aparecen en un
   `SELECT` sobre cualquier tabla tenant-scoped, y **0** `INSERT` con `tenant_id` ajeno pasan el `WITH CHECK`.
-- **SC-004**: conectado como el usuario dueño de las tablas (`basa_admin`), la RLS **sigue aislando** (prueba
+- **SC-004**: conectado como el usuario dueño de las tablas (`sentinel_admin`), la RLS **sigue aislando** (prueba
   explícita de que sin `FORCE` fallaría) — el aislamiento no es un falso positivo.
 - **SC-005**: el CHECK de `role` **rechaza el 100%** de valores fuera del enum y **acepta** los 4 válidos; el
   mapeo de backfill (`admin→tenant_admin`, `clinician`/`developer→client`+label) se cumple en **100%** de filas

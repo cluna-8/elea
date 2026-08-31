@@ -208,10 +208,10 @@ def test_el_guard_frena_un_destino_que_no_parece_de_test(monkeypatch):
     # El destino real de esta suite pasa: un guard que no deja correr nada tampoco sirve.
     _exigir_instancia_de_test(destino_valido)
 
-    with pytest.raises(RuntimeError, match="basa_test_"):
-        _exigir_instancia_de_test("basa_gateway")  # la base del producto
+    with pytest.raises(RuntimeError, match="sentinel_test_"):
+        _exigir_instancia_de_test("sentinel_gateway")  # la base del producto
 
-    monkeypatch.setattr(post017_harness, "PG_HOST", "guardian.basa-dev.com")
+    monkeypatch.setattr(post017_harness, "PG_HOST", "guardian.sentinel-dev.com")
     with pytest.raises(RuntimeError, match="POSTGRES_HOST"):
         _exigir_instancia_de_test(destino_valido)
 

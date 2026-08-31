@@ -21,9 +21,9 @@ No agrega campos nuevos si el brand-pack ya los tiene; si falta alguno, se docum
 
 ## Conexión del usuario (runtime, `chrome.storage.local`)
 
-- `basa_gateway`: URL del gateway (editable; default opcional pre-cargado desde `config.js`).
-- `basa_key`: API key del usuario (no se re-inyecta ni persiste antes de validar — hardening #45).
-- `basa_connected` / estado de sesión: **un solo dueño** (el service worker). Estados: `conectado` / `no_verificado` (sin red, key conservada) / `desconectado` (401/403, key borrada).
+- `sentinel_gateway`: URL del gateway (editable; default opcional pre-cargado desde `config.js`).
+- `sentinel_key`: API key del usuario (no se re-inyecta ni persiste antes de validar — hardening #45).
+- `sentinel_connected` / estado de sesión: **un solo dueño** (el service worker). Estados: `conectado` / `no_verificado` (sin red, key conservada) / `desconectado` (401/403, key borrada).
 - Permiso de host: concedido en runtime vía `chrome.permissions` (no es storage propio; lo administra Chrome).
 
 ## Bloque `proteccion` (respuesta de whoami, no persistido)
@@ -36,4 +36,4 @@ Columna ya presente (`budget.py:52`), hoy **ignorada** por `_resolve_attribution
 
 ## Fuera de alcance (US9 diferido)
 
-- `SURFACES` (`basa_governance.py:94`) — agregar valores de navegador (`chatgpt-web`/`claude-web`) + migración del `CHECK tool_type` (`budget.py:89`). Requiere coordinación con Cristian antes del freeze 027. **No en esta feature.**
+- `SURFACES` (`sentinel_governance.py:94`) — agregar valores de navegador (`chatgpt-web`/`claude-web`) + migración del `CHECK tool_type` (`budget.py:89`). Requiere coordinación con Cristian antes del freeze 027. **No en esta feature.**

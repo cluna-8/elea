@@ -57,7 +57,7 @@ _instalar_doble_litellm()
 from fastapi import HTTPException  # noqa: E402
 from extensions import custom_auth  # noqa: E402
 
-CLAVE = "sk-basa-de-prueba"
+CLAVE = "sk-sentinel-de-prueba"
 HASH = "a" * 64
 
 
@@ -149,7 +149,7 @@ async def test_sin_presupuesto_configurado_pasa(identidad):
     identidad(_identidad(spend_usd=0.0))
 
     auth = await _auth()
-    assert auth.metadata["basa"]["identity"] == "connection"
+    assert auth.metadata["sentinel"]["identity"] == "connection"
 
 
 @pytest.mark.asyncio
@@ -157,7 +157,7 @@ async def test_con_credito_disponible_pasa(identidad):
     identidad(_identidad(max_budget_usd=10.0, spend_usd=9.99999))
 
     auth = await _auth()
-    assert auth.metadata["basa"]["key_id"] == "11111111-1111-1111-1111-111111111111"
+    assert auth.metadata["sentinel"]["key_id"] == "11111111-1111-1111-1111-111111111111"
 
 
 @pytest.mark.asyncio
@@ -167,7 +167,7 @@ async def test_gasto_ausente_con_tope_configurado_pasa(identidad):
     identidad(_identidad(max_budget_usd=5.0))
 
     auth = await _auth()
-    assert auth.metadata["basa"]["identity"] == "connection"
+    assert auth.metadata["sentinel"]["identity"] == "connection"
 
 
 @pytest.mark.asyncio
@@ -175,13 +175,13 @@ async def test_la_master_key_no_pasa_por_el_presupuesto(identidad, monkeypatch):
     """La master key es ops del proxy (y el camino por el que el Playground llama al motor):
     frenarla por presupuesto cortaría la administración del sistema junto con el tráfico."""
     # Nombre de upstream a propósito (#302): es la env que la extensión lee DENTRO
-    # del motor. El operador ve BASA_ENGINE_MASTER_KEY y el compose se la pasa bajo
+    # del motor. El operador ve SENTINEL_ENGINE_MASTER_KEY y el compose se la pasa bajo
     # ESTE nombre; renombrarla acá deja el test verde contra un secreto no leído.
     monkeypatch.setenv("LITELLM_MASTER_KEY", "sk-master-de-prueba")
     identidad(_identidad(max_budget_usd=1.0, spend_usd=999.0))
 
     auth = await custom_auth.user_api_key_auth(_Request(), "sk-master-de-prueba")
-    assert auth.metadata["basa"]["identity"] == "master"
+    assert auth.metadata["sentinel"]["identity"] == "master"
 
 
 @pytest.mark.asyncio
@@ -213,7 +213,7 @@ async def test_la_fila_con_presupuesto_se_cachea_menos_tiempo(identidad, monkeyp
 
 # ── #176: la fila durable del rechazo por presupuesto del plano MOTOR ──────────────────
 # Gemela de la del #157 (plano consola). El corte por tope vive en la auth, ANTES del
-# guardrail y del post-call hook, así que `basa_audit_logger` (que sólo corre en el success
+# guardrail y del post-call hook, así que `sentinel_audit_logger` (que sólo corre en el success
 # hook) nunca ve este pedido: sin la emisión de acá, el rechazo del tráfico de coding
 # tools/byok no dejaría rastro durable, y el officer vería los 402 de la consola pero no los
 # del motor — peor que ninguno, porque parece completo y no lo está.
@@ -221,17 +221,17 @@ async def test_la_fila_con_presupuesto_se_cachea_menos_tiempo(identidad, monkeyp
 
 @pytest.fixture
 def emisor_espia(monkeypatch):
-    """Doble de `basa_audit_logger.emitir_fila_durable`: captura la entry sin motor ni red.
+    """Doble de `sentinel_audit_logger.emitir_fila_durable`: captura la entry sin motor ni red.
     `custom_auth` lo importa PEREZOSO dentro del rechazo, así que basta sembrar el módulo en
     `sys.modules` (el real arrastra litellm/redis, que no están instalados acá)."""
     capturadas = []
-    mod = types.ModuleType("basa_audit_logger")
+    mod = types.ModuleType("sentinel_audit_logger")
 
     async def _fake_emitir(entry, masked, applied_layers=None, blocked_by_layer=None):
         capturadas.append(entry)
 
     mod.emitir_fila_durable = _fake_emitir
-    monkeypatch.setitem(sys.modules, "basa_audit_logger", mod)
+    monkeypatch.setitem(sys.modules, "sentinel_audit_logger", mod)
     return capturadas
 
 
@@ -266,13 +266,13 @@ async def test_rechazo_presupuesto_registra_antes_de_responder(identidad, monkey
     """Registrar → responder (#157): la fila se emite ANTES de que salga el 402, no después,
     para que negar servicio nunca preceda al rastro."""
     orden = []
-    mod = types.ModuleType("basa_audit_logger")
+    mod = types.ModuleType("sentinel_audit_logger")
 
     async def _fake_emitir(entry, masked, applied_layers=None, blocked_by_layer=None):
         orden.append("fila")
 
     mod.emitir_fila_durable = _fake_emitir
-    monkeypatch.setitem(sys.modules, "basa_audit_logger", mod)
+    monkeypatch.setitem(sys.modules, "sentinel_audit_logger", mod)
 
     identidad(_identidad(max_budget_usd=1.0, spend_usd=2.0))
     with pytest.raises(HTTPException):
@@ -286,13 +286,13 @@ async def test_fila_perdida_no_convierte_el_402_en_401(identidad, monkeypatch):
     """Fail-closed del rechazo: si el emisor revienta (import roto, un fallo que escape su
     propio guardado), el cliente sigue viendo 402 — jamás 401, que lo mandaría a re-loguear.
     La pérdida se traga acá; el conteo vive dentro del emisor real."""
-    mod = types.ModuleType("basa_audit_logger")
+    mod = types.ModuleType("sentinel_audit_logger")
 
     async def _emisor_que_revienta(entry, masked, applied_layers=None, blocked_by_layer=None):
         raise RuntimeError("plano interno caído")
 
     mod.emitir_fila_durable = _emisor_que_revienta
-    monkeypatch.setitem(sys.modules, "basa_audit_logger", mod)
+    monkeypatch.setitem(sys.modules, "sentinel_audit_logger", mod)
 
     identidad(_identidad(max_budget_usd=1.0, spend_usd=2.0))
     with pytest.raises(HTTPException) as exc:

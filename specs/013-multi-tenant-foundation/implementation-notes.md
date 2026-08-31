@@ -34,7 +34,7 @@ y endpoints gateados).
    (las policies permisivas se OR-ean). Resultado: on-prem sigue funcionando sin GUC (cero
    regresión) y en cuanto una sesión setea el GUC el aislamiento es efectivo.
    **La 017 DEBE dropear la policy bootstrap** al cablear la identidad fail-closed por request.
-3. **⚠️ Trampa superuser (T002)**: `basa_admin` del docker-compose es **SUPERUSER** de Postgres
+3. **⚠️ Trampa superuser (T002)**: `sentinel_admin` del docker-compose es **SUPERUSER** de Postgres
    y los superusers bypasean RLS *siempre, incluso con FORCE*. FORCE cubre al *dueño* no-superuser.
    Los tests lo prueban con un rol NOSUPERUSER dueño (`rls_owner`) y documentan la trampa con un
    test explícito. **Acción pendiente (017)**: la app debe conectarse con un rol NOSUPERUSER en prod.
@@ -49,9 +49,9 @@ y endpoints gateados).
    por tenant es 017. Los bordes de creación aceptan roles legacy vía `normalize_legacy_role`.
 6. **Bootstrap admin** (`users.py` login / `chat.py` fallback) crea ahora `role='tenant_admin'`
    (canónico); el **fallback a admin sin key sigue existiendo** y se cierra en 017 (SC-3),
-   como manda la spec. Fix colateral heredado: el email de bootstrap `admin@basa.local` rompía
-   el `EmailStr` del response (`.local` es TLD reservado) → `admin@basa.com.ar`.
-7. **Coexistencia con gatelite (infra)**: containers renombrados `basa-*` y puertos host
+   como manda la spec. Fix colateral heredado: el email de bootstrap `admin@sentinel.local` rompía
+   el `EmailStr` del response (`.local` es TLD reservado) → `admin@sentinel.com.ar`.
+7. **Coexistencia con gatelite (infra)**: containers renombrados `sentinel-*` y puertos host
    desplazados (db 5433, motor 4010, backend 8091, frontend 8090) para no pisar el demo del
    lunes que corre en paralelo; `REDIS_HOST` ahora usa el nombre de servicio compose (`redis`).
 8. **`seed_client` no registra la key en el motor**: el seeding funciona offline; la
@@ -88,7 +88,7 @@ confirmados, 12 refutados**. Todos los confirmados aplicados; los estructurales:
   `env.py` (LiteLLM comparte la DB — autogenerate no debe tocar sus tablas), ORM
   `Index(unique=True)` alineado 1:1 con la migración.
 - Bug heredado adicional: `EmailStr` rechaza TLDs reservados (`.local`, `.test`) → el
-  bootstrap `admin@basa.local` rompía el listado de usuarios; corregido.
+  bootstrap `admin@sentinel.local` rompía el listado de usuarios; corregido.
 - Refutados (decisiones ratificadas): policy bootstrap permisiva (ventana FR-024),
   defaults Python-side, `retention_policies.log_type` global (018), GUC `bypass_rls`
   como diseño de la spec (el hardening de roles DB es 017), residuos del harness en

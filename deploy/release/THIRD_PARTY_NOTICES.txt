@@ -1,4 +1,4 @@
-BASA SECURE AI GATEWAY - AVISOS DE TERCEROS / THIRD-PARTY NOTICES
+SENTINEL SECURE AI GATEWAY - AVISOS DE TERCEROS / THIRD-PARTY NOTICES
 =================================================================
 
 Este paquete incluye componentes de software de terceros. A continuacion se
@@ -9,7 +9,7 @@ Este fichero es letra chica legal. No describe funcionalidad del producto ni
 sustituye a la documentacion de uso. Se redacta en ASCII a proposito, para que
 sea legible en cualquier host sin depender de la codificacion.
 
-Basa no esta afiliada a los autores de estos componentes ni respaldada por
+Sentinel no esta afiliada a los autores de estos componentes ni respaldada por
 ellos; su mencion aqui es unicamente el cumplimiento de las licencias.
 
 

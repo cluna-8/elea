@@ -10,21 +10,21 @@ exactos y el contrato de la API los fijan [data-model.md](./data-model.md) y
 Stack dev arriba (`docker compose up -d`) con los puertos reales del
 `docker-compose.yml`: backend **:8091** (línea 85), motor **:4010** (línea 44),
 frontend **:8090** (línea 130), Postgres **:5433** (línea 13). Master key del motor:
-`basa_master_key_9999` (default de `docker-compose.yml:47`).
+`sentinel_master_key_9999` (default de `docker-compose.yml:47`).
 
 ```bash
 API="http://localhost:8091/api/v1"
-MK="basa_master_key_9999"
+MK="sentinel_master_key_9999"
 
 # Sesión admin. Sobre una base sin dueño (ningún usuario administrativo) el primer login
 # bootstrapea el usuario admin con esta contraseña; el mínimo es 12 caracteres.
 TOK=$(curl -s $API/users/login -H 'content-type: application/json' \
   -d '{"username":"admin","password":"clave-de-dev-027"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 
-# Virtual key (sk-basa-…) para el tráfico de Modelo propio:
+# Virtual key (sk-sentinel-…) para el tráfico de Modelo propio:
 # seed_client (specs/019-integration-surfaces/spikes-batch1.md) u onboarding existente.
 # Para SC-006 la Connection debe tener tool_type=claude-code (superficie CONFIABLE, D5).
-KEY="sk-basa-…"
+KEY="sk-sentinel-…"
 
 # Token de suscripción para el passthrough /gw/v1/messages. En dev sin suscripción real
 # alcanza un placeholder: el upstream rechazará el reenvío, pero la política y la
@@ -54,7 +54,7 @@ curl -s $API/governance/status -H "Authorization: Bearer $TOK" | python3 -m json
 
 # 2) La sonda directa al motor confirma que solo existe UN guardrail cargado
 curl -s http://localhost:4010/guardrails/list -H "Authorization: Bearer $MK"
-#    → una sola entrada: "basa-guardian". Los 5 nombres de proveedor del seed NO están.
+#    → una sola entrada: "sentinel-guardian". Los 5 nombres de proveedor del seed NO están.
 
 # 3) Cruce SC-001: ninguna capa de plano engine con estado aplicandose fuera de la sonda
 curl -s $API/governance/status -H "Authorization: Bearer $TOK" | python3 -c '
@@ -106,7 +106,7 @@ curl -s $API/chat/completions -H "Authorization: Bearer $TOK" \
   -d '{"message":"ping modelo propio","model":"ollama-qwen3-4b"}'
 
 # 4) Las capas aplicadas DIFIEREN y quedan en applied_layers del audit
-docker compose exec db psql -U basa_admin -d basa_gateway -c \
+docker compose exec db psql -U sentinel_admin -d sentinel_gateway -c \
   "SELECT jsonb_pretty(applied_layers), blocked_by_layer
      FROM audit_logs ORDER BY timestamp DESC LIMIT 2;"
 ```
@@ -156,7 +156,7 @@ curl -s "$API/gw/events?limit=3" -H "Authorization: Bearer $TOK" | python3 -m js
 #     registry, no el nombre de display) y el desglose applied_layers
 
 # Donde exista fila durable, blocked_by_layer es queryable con un WHERE plano:
-docker compose exec db psql -U basa_admin -d basa_gateway -c \
+docker compose exec db psql -U sentinel_admin -d sentinel_gateway -c \
   "SELECT timestamp, blocked_by_layer FROM audit_logs
      WHERE blocked_by_layer IS NOT NULL ORDER BY timestamp DESC LIMIT 5;"
 ```
@@ -190,7 +190,7 @@ curl -s $API/governance/status -H "Authorization: Bearer $TOK" | grep -A3 pii_ma
 # la decisión nueva — sin esperar el minuto
 curl -s $API/gw/v1/messages -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
   -d '{"model":"ollama-qwen3-4b","max_tokens":50,"messages":[{"role":"user","content":"Escribe a laura.perez@hospital.es"}]}'
-docker compose exec db psql -U basa_admin -d basa_gateway -c \
+docker compose exec db psql -U sentinel_admin -d sentinel_gateway -c \
   "SELECT jsonb_pretty(applied_layers) FROM audit_logs ORDER BY timestamp DESC LIMIT 1;"
 ```
 
@@ -223,7 +223,7 @@ t = Tenant(name='Tenant Quickstart 027', slug='qs-027')
 db.add(t); db.commit(); print(t.id)"
 
 # 2) Cero configuración para él…
-docker compose exec db psql -U basa_admin -d basa_gateway -c \
+docker compose exec db psql -U sentinel_admin -d sentinel_gateway -c \
   "SELECT count(*) FROM governance_profiles WHERE tenant_id = '<ID_DEL_PASO_1>';"
 #   → 0
 
@@ -240,7 +240,7 @@ curl -s "$API/governance/status?tenant_id=<ID_DEL_PASO_1>" -H "Authorization: Be
 ## Estado honesto con el motor caído (fail-closed)
 
 ```bash
-docker stop basa-litellm
+docker stop sentinel-litellm
 sleep 35   # TTL del cache de la sonda ~30 s (D4)
 
 curl -s $API/governance/status -H "Authorization: Bearer $TOK" | python3 -m json.tool
@@ -248,7 +248,7 @@ curl -s $API/governance/status -H "Authorization: Bearer $TOK" | python3 -m json
 #     JAMÁS "aplicandose". El copy distingue "no la aplicamos nosotros" de
 #     "estás desprotegido" (FR-013).
 
-docker start basa-litellm && sleep 35
+docker start sentinel-litellm && sleep 35
 curl -s $API/governance/status -H "Authorization: Bearer $TOK"
 #   → los estados se recuperan solos al volver la sonda
 ```

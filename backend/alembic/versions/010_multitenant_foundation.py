@@ -20,11 +20,11 @@ Convierte el esquema single-tenant heredado en el bedrock multi-tenant:
 * Row-Level Security: ``ENABLE`` + ``FORCE`` por tabla con policy ``tenant_isolation``
   (GUC ``app.current_tenant`` + bypass ``app.bypass_rls``).
 
-REQUISITO FORCE RLS (T002): la app y alembic se conectan como ``basa_admin``, DUEÑO de
+REQUISITO FORCE RLS (T002): la app y alembic se conectan como ``sentinel_admin``, DUEÑO de
 las tablas — sin ``FORCE ROW LEVEL SECURITY`` el dueño bypasea RLS y el aislamiento
 sería un falso positivo (SC-4).
 
-⚠️ TRAMPA SUPERUSER: en el docker-compose actual ``basa_admin`` es además SUPERUSER de
+⚠️ TRAMPA SUPERUSER: en el docker-compose actual ``sentinel_admin`` es además SUPERUSER de
 Postgres (lo crea la imagen), y los superusers bypasean RLS SIEMPRE, incluso con FORCE.
 Para que la RLS sea efectiva en runtime, la app debe conectarse como un rol
 NOSUPERUSER (dueño o no) — cableado de identidad/rol de app en spec 017. Los tests de

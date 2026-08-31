@@ -1,9 +1,9 @@
-# 026 T005 — orquesta los dos paquetes de cli/ (basa_admin_signer, basa_admin).
-# Cada sub-Makefile (basa_admin_signer/Makefile, basa_admin/Makefile - T003/T004)
+# 026 T005 — orquesta los dos paquetes de cli/ (sentinel_admin_signer, sentinel_admin).
+# Cada sub-Makefile (sentinel_admin_signer/Makefile, sentinel_admin/Makefile - T003/T004)
 # es quien sabe construir/testear su propio paquete; este archivo solo delega.
 REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
-SIGNER := $(REPO_ROOT)/cli/basa_admin_signer
-ADMIN := $(REPO_ROOT)/cli/basa_admin
+SIGNER := $(REPO_ROOT)/cli/sentinel_admin_signer
+ADMIN := $(REPO_ROOT)/cli/sentinel_admin
 
 .PHONY: build-signer build-admin test test-boundary \
 	test-contract-signer test-offline-signer test-offline-admin \

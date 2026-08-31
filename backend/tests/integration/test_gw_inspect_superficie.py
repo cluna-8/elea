@@ -39,7 +39,7 @@ def harness(monkeypatch):
     publicado: list = []
 
     monkeypatch.setattr(gateway, "_resolve_attribution",
-                        lambda k: ident["actual"] if k == "sk-basa-valid"
+                        lambda k: ident["actual"] if k == "sk-sentinel-valid"
                         else {**ident["actual"], "api_key_id": None})
     monkeypatch.setattr(gateway, "_audit",
                         lambda i, model, *a, **k: auditado.append(model))
@@ -58,7 +58,7 @@ def harness(monkeypatch):
 
 
 def _post(client, body):
-    return client.post("/gw/inspect", json=body, headers={"X-Basa-Key": "sk-basa-valid"})
+    return client.post("/gw/inspect", json=body, headers={"X-Sentinel-Key": "sk-sentinel-valid"})
 
 
 def test_tool_del_body_no_puede_disfrazarse_de_license(harness):

@@ -2,7 +2,7 @@
 
 Corren conectados como ``rls_owner`` — rol NOSUPERUSER **dueño** de las tablas — para
 que ``FORCE ROW LEVEL SECURITY`` sea observable. Incluye el test explícito de la
-trampa superuser: ``basa_admin`` (superuser del compose) bypasea RLS SIEMPRE, incluso
+trampa superuser: ``sentinel_admin`` (superuser del compose) bypasea RLS SIEMPRE, incluso
 con FORCE → el runtime productivo debe conectarse con un rol NOSUPERUSER (spec 017).
 """
 import uuid
@@ -19,7 +19,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_rls"
+DB = "sentinel_test_rls"
 
 TENANT_A = uuid.UUID("aaaaaaaa-0000-0000-0000-00000000000a")
 TENANT_B = uuid.UUID("bbbbbbbb-0000-0000-0000-00000000000b")
@@ -135,9 +135,9 @@ def test_unset_or_empty_guc_does_not_explode(engine):
 
 
 def test_superuser_trap_is_documented(engine):
-    """⚠️ basa_admin (superuser del compose) bypasea RLS SIEMPRE, incluso con FORCE.
+    """⚠️ sentinel_admin (superuser del compose) bypasea RLS SIEMPRE, incluso con FORCE.
     Este test documenta la trampa: el runtime productivo DEBE usar un rol NOSUPERUSER
-    (cableado en 017). Si este test falla, basa_admin dejó de ser superuser (mejor)."""
+    (cableado en 017). Si este test falla, sentinel_admin dejó de ser superuser (mejor)."""
     su = superuser_engine(DB)
     try:
         with su.begin() as cx:

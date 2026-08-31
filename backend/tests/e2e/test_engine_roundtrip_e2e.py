@@ -27,11 +27,11 @@ from src.models.user import User
 from src.services.key_material import hash_key, key_preview
 
 # Modelo puenteado por el motor (no-Claude). Override por env si el stack usa otro.
-BRIDGED_MODEL = os.getenv("BASA_E2E_BRIDGED_MODEL", "ollama-qwen3-4b")
+BRIDGED_MODEL = os.getenv("SENTINEL_E2E_BRIDGED_MODEL", "ollama-qwen3-4b")
 
 # Forma de placeholder tal como la ve el usuario: ``[TIPO_idx_nonce]``. El token que el
 # motor emite de verdad lleva ``nonce = uuid4().hex[:4]`` (``PlaceholderMap``, en
-# basa_guardian_policy) — SIEMPRE 4 hex y con el índice que le tocó al valor en ESTE
+# sentinel_guardian_policy) — SIEMPRE 4 hex y con el índice que le tocó al valor en ESTE
 # request. El regex es a propósito más laxo que esa forma: detecta también los tokens que
 # el modelo reproduce mal, porque distinguirlos por forma no alcanza (ver
 # ``_verifica_round_trip``).
@@ -137,7 +137,7 @@ def seeded_byok_key_con_user(borrado_sin_carrera):
     acá la exposición es doble, porque la fila de auditoría del pedido referencia tanto
     la Connection (``api_key_id``) como la persona (``user_id``)."""
     rand = uuid.uuid4().hex[:8]
-    plain = f"sk-basa-e2e24-{rand}"
+    plain = f"sk-sentinel-e2e24-{rand}"
     db = SessionLocal()
     user = User(
         tenant_id=DEFAULT_TENANT_ID,

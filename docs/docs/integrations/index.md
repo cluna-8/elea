@@ -107,7 +107,7 @@ superficies principales.
 |---|---|---|---|---|
 | **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. Para trabajo agéntico: suscripción, o **modelo propio** (§3.5 — el modo Agent está verificado por esa vía; el límite de G1 es del loop agéntico de Copilot). |
 | **Claude Code → modelo propio** | 🟢 Funciona | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales) y el ciclo mask→restauración completa ([G9](gotchas.md): corregido). Con el cache del motor activo, repetir un prompt idéntico puede devolver placeholders de una respuesta cacheada (limitación conocida en evaluación). |
-| **Aider** | 🟢 Funciona | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-basa-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona, **no** se corrompe con el masking y los archivos quedan con los valores reales ([G9](gotchas.md): corregido). Misma nota de cache del motor que Claude Code → modelo propio. |
+| **Aider** | 🟢 Funciona | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-sentinel-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona, **no** se corrompe con el masking y los archivos quedan con los valores reales ([G9](gotchas.md): corregido). Misma nota de cache del motor que Claude Code → modelo propio. |
 | **Codex CLI** | 🔵 Objetivo (roadmap) | — | Codex ≥0.142 solo habla la Responses API (OpenAI) y el gateway **no expone esa superficie hoy** — no hay camino gobernado que ofrecer en una instalación estándar. | **No se ofrece hoy.** El camino identificado (roadmap) es exponer una superficie OpenAI/Responses gobernada en el propio gateway; hasta entonces, no conectar Codex por rutas internas del despliegue: quedan **fuera** de la política y la auditoría del firewall. |
 | **VS Code / GitHub Copilot** | 🟡 Parcial — **solo modo Ask** | `base_url` | `chatLanguageModels.json` con `apiType:"messages"` → `byok` al motor del gateway. Auto-byok por virtual key. | En **Agent/Edit** entra en loop (los modelos no-Claude llaman mal las tools). La key va **en la URL** (`?k=…`) porque manda `x-api-key` vacío. |
 | **ChatGPT (web)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `POST /backend-api/f/conversation`, enmascara `messages[].content.parts[]` vía `/api/v1/gw/inspect`. | La respuesta **no** viene en el POST: llega por **WebSocket** (`stream_handoff`) → el unmask se hace en el **DOM**, no sobre la respuesta. |
@@ -139,7 +139,7 @@ Qué protección aplica de verdad en cada camino. Leyenda: ✅ activo · 🔶 pa
 | Presupuestos (tope de gasto) | ✅ gate + coste real | ✅ **402 antes del proveedor** | ✗ | n/a |
 | Auditoría durable del tráfico | ✅ | ✅ (tokens y coste) | ✅ | ✅ (evento de protección) |
 | Auditoría durable de **bloqueos** | ✅ registrar→bloquear | ✅ registrar→bloquear | ✅ | ✅ |
-| Atribución persona+herramienta | ✅ por sesión | ✅ por llave | ✅ con `X-Basa-Key` (sin ella: anónimo, se audita igual) | ✅ por llave |
+| Atribución persona+herramienta | ✅ por sesión | ✅ por llave | ✅ con `X-Sentinel-Key` (sin ella: anónimo, se audita igual) | ✅ por llave |
 | Fallback a modelo local | ✅ (todo cloud nace con él) | ✅ | n/a | n/a |
 | Auto-router semántico («Auto») | ✅ embeddings locales | ✗ v1 (declaran modelo) | ✗ | ✗ |
 
@@ -147,7 +147,7 @@ Los caminos con **patrones** (suscripción y navegador) protegen identificadores
 estructurados por diseño: son planos de latencia crítica (herramientas agénticas, miles de
 tokens por petición) y su modelo de amenaza son las credenciales y los identificadores — el
 `whoami` de cada Connection lo declara. La política de fallo de auditoría es configurable
-por instalación (`BASA_AUDIT_FAIL=open|closed|policy`, ver Operación).
+por instalación (`SENTINEL_AUDIT_FAIL=open|closed|policy`, ver Operación).
 
 ---
 
@@ -164,7 +164,7 @@ el Claude global):
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:8091/api/v1/gw",
-    "ANTHROPIC_CUSTOM_HEADERS": "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>"
+    "ANTHROPIC_CUSTOM_HEADERS": "X-Sentinel-Key: sk-sentinel-<usuario>-<herramienta>-<año>"
   }
 }
 ```
@@ -172,9 +172,9 @@ el Claude global):
 - `ANTHROPIC_BASE_URL` → apunta a `…/api/v1/gw` (Claude Code le agrega `/v1/messages`; las rutas
   auxiliares `…/v1/messages/count_tokens` y `…/v1/models` también existen en el gateway, así que
   la paridad de rutas se mantiene).
-- `ANTHROPIC_CUSTOM_HEADERS` → `X-Basa-Key: sk-basa-…` da **atribución de identidad**
+- `ANTHROPIC_CUSTOM_HEADERS` → `X-Sentinel-Key: sk-sentinel-…` da **atribución de identidad**
   (usuario/equipo). Sin ella, el evento se atribuye al identity por defecto.
-- La suscripción OAuth del cliente viaja en `Authorization` y **atraviesa verbatim** — `X-Basa-Key`
+- La suscripción OAuth del cliente viaja en `Authorization` y **atraviesa verbatim** — `X-Sentinel-Key`
   está **excluido** del auto-byok, así que la key de atribución NO desvía a Claude Code al motor
   (el porqué de esa exclusión, en [G8](gotchas.md)).
 - **Reiniciá `claude`** después de tocar el archivo (los headers se leen al arrancar).
@@ -182,11 +182,11 @@ el Claude global):
 Forzar modo `byok` (consumir modelos gobernados del motor del gateway) por request:
 
 ```bash
-# header por request; o BASA_GW_UPSTREAM_DEFAULT=byok en el entorno del gateway
+# header por request; o SENTINEL_GW_UPSTREAM_DEFAULT=byok en el entorno del gateway
 curl -s http://localhost:8091/api/v1/gw/v1/messages \
   -H "content-type: application/json" \
-  -H "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>" \
-  -H "X-Basa-Upstream: byok" \
+  -H "X-Sentinel-Key: sk-sentinel-<usuario>-<herramienta>-<año>" \
+  -H "X-Sentinel-Upstream: byok" \
   -d '{"model":"gpt-4o-mini","max_tokens":256,"messages":[{"role":"user","content":"hola"}]}'
 ```
 
@@ -194,7 +194,7 @@ Verificar identidad:
 
 ```bash
 curl -s http://localhost:8091/api/v1/gw/whoami \
-  -H "X-Basa-Key: sk-basa-<usuario>-<herramienta>-<año>"
+  -H "X-Sentinel-Key: sk-sentinel-<usuario>-<herramienta>-<año>"
 # → {"ok":true,"user":"<usuario>","team":"<equipo>","key_label":"…"}
 ```
 
@@ -209,7 +209,7 @@ curl -s http://localhost:8091/api/v1/gw/whoami \
 [
   {
     "apiType": "messages",
-    "url": "http://localhost:8091/api/v1/gw/v1/messages?k=sk-basa-<usuario>-<herramienta>-<año>",
+    "url": "http://localhost:8091/api/v1/gw/v1/messages?k=sk-sentinel-<usuario>-<herramienta>-<año>",
     "id": "gpt-4o-mini"
   }
 ]
@@ -234,7 +234,7 @@ configura el **propio usuario**: **dirección del gateway** + **API key**. La di
    provista con el producto. Para actualizar el código, botón **↻** sobre la tarjeta.
 2. **Conectar (login):** click en el ícono → **⚙** → ingresar la **dirección del gateway**
    (`https://<host>/api/v1/gw`) y pegar la **API key** (p. ej.
-   `sk-basa-<usuario>-<herramienta>-<año>`) → **Guardar y conectar**. El popup valida contra
+   `sk-sentinel-<usuario>-<herramienta>-<año>`) → **Guardar y conectar**. El popup valida contra
    `GET /api/v1/gw/whoami` y, si la key es válida, muestra "Conectado como `<usuario>` ·
    `<equipo>`".
 3. **Conceder el permiso de host:** al conectar, el navegador pide **permiso para acceder al host**
@@ -282,7 +282,7 @@ sequenceDiagram
 
     P->>CS: fetch interceptado con el prompt crudo
     CS->>SW: texto plano del prompt
-    SW->>GW: POST /api/v1/gw/inspect con X-Basa-Key
+    SW->>GW: POST /api/v1/gw/inspect con X-Sentinel-Key
     GW-->>SW: masked mas replacements token-original
     SW-->>CS: texto enmascarado y mapa local
     CS->>V: body reescrito - solo salen placeholders
@@ -292,7 +292,7 @@ sequenceDiagram
 
 El contrato de `POST /api/v1/gw/inspect` (verificado en el producto):
 
-- Request: `{"text": "<texto plano>", "tool": "<nombre opcional>"}` + header `X-Basa-Key`.
+- Request: `{"text": "<texto plano>", "tool": "<nombre opcional>"}` + header `X-Sentinel-Key`.
 - Respuesta: `masked` (el texto enmascarado **completo** — el enmascaramiento no se trunca; el
   cap corto aplica solo al preview del monitor), `replacements` (pares token → original con los
   que la extensión reescribe el body y des-enmascara el DOM) y `entities` (conteo agregado por

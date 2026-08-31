@@ -7,10 +7,10 @@ from typing import Optional
 
 import httpx
 
-logger = logging.getLogger("basa-secure-gateway")
+logger = logging.getLogger("sentinel-secure-gateway")
 
-_BASE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
-_MASTER_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "")
+_BASE_URL = os.getenv("SENTINEL_ENGINE_API_BASE", "http://engine:4000")
+_MASTER_KEY = os.getenv("SENTINEL_ENGINE_MASTER_KEY", "")
 _TIMEOUT = 10.0
 
 
@@ -166,11 +166,11 @@ async def generate_key(
     if tpm_limit is not None:
         payload["tpm_limit"] = tpm_limit
 
-    # F1: forzamos el prefijo sk-basa- en la virtual key. LiteLLM honra un `key`
+    # F1: forzamos el prefijo sk-sentinel- en la virtual key. LiteLLM honra un `key`
     # provisto y lo devuelve verbatim; sin esto emite sk-<token>, que el router del
-    # gateway (_BASA_KEY_RE = sk-basa-…) NO matchea → byok con key online caería a
+    # gateway (_SENTINEL_KEY_RE = sk-sentinel-…) NO matchea → byok con key online caería a
     # passthrough (doble-masking + engine key fugada a Anthropic).
-    payload["key"] = f"sk-basa-{secrets.token_urlsafe(24)}"
+    payload["key"] = f"sk-sentinel-{secrets.token_urlsafe(24)}"
 
     data = await _post("/key/generate", payload)
     plain_key: str = data["key"]
@@ -216,7 +216,7 @@ async def get_active_guardrail_names(db) -> list[str]:
 # decisión de adoptarlo — ver specs/036-plantillas-politicas-cliente/spec.md). Acá
 # NO se reimplementa el motor de reglas: se envuelve su API de guardrails (creada
 # con `general_settings.store_model_in_db: true` en litellm/config.yaml) para que el
-# resto de Basa hable en un contrato simple — nombre, descripción, palabras a
+# resto de Sentinel hable en un contrato simple — nombre, descripción, palabras a
 # bloquear, activo/inactivo — sin conocer el shape completo de `litellm_params`.
 #
 # `blocked_words` (no `categories`/`category_file`) a propósito: es el camino que NO
@@ -226,10 +226,10 @@ async def get_active_guardrail_names(db) -> list[str]:
 # elaboradas (excepciones, severidad por keyword) que este contrato simple no cubre
 # todavía; las dos formas conviven en el mismo guardrail nativo.
 _CONTENT_POLICY_PROVIDER = "litellm_content_filter"
-# Prefijo para distinguir, al listar, las políticas que creó Basa de cualquier otro
-# guardrail (el propio `basa-guardian`, o el `basa-content-filter` de ejemplo del
+# Prefijo para distinguir, al listar, las políticas que creó Sentinel de cualquier otro
+# guardrail (el propio `sentinel-guardian`, o el `sentinel-content-filter` de ejemplo del
 # config.yaml) sin depender de un campo aparte que LiteLLM no tiene.
-_CONTENT_POLICY_NAME_PREFIX = "basa-policy-"
+_CONTENT_POLICY_NAME_PREFIX = "sentinel-policy-"
 
 
 class ContentPolicyError(AIEngineClientError):
@@ -272,7 +272,7 @@ def _content_policy_guardrail_name(policy_id: str) -> str:
 def _content_policy_payload(name: str, description: str, blocked_words: list[dict],
                             categories: list[dict], active: bool) -> dict:
     """Arma el body que espera `POST/PUT /guardrails` de LiteLLM a partir del
-    contrato simple de Basa. `blocked_words`: `[{"keyword": ..., "action": "BLOCK"|"MASK"}]`
+    contrato simple de Sentinel. `blocked_words`: `[{"keyword": ..., "action": "BLOCK"|"MASK"}]`
     para palabras propias; `categories`: `[{"category": ..., "action": "BLOCK"|"MASK"}]` para
     activar una plantilla YA ARMADA de `litellm_content_filter` (EU AI Act, Singapur, EAU,
     etc. — PR #143, docs-referencia.md) por nombre, sin archivo propio. Las dos listas
@@ -330,7 +330,7 @@ async def update_content_policy(guardrail_id: str, policy_id: str, description: 
     guardada pero la versión que de verdad corre sobre el tráfico se queda vieja, sin
     error visible para el usuario. `POST /guardrails` (crear) no tiene ese problema,
     confirmado con curl directo. El `guardrail_id` cambia — no se persiste en ningún
-    lado del lado de Basa (se resuelve siempre por nombre vía `list_content_policies`),
+    lado del lado de Sentinel (se resuelve siempre por nombre vía `list_content_policies`),
     así que no rompe nada."""
     name = _content_policy_guardrail_name(policy_id)
     try:
@@ -359,8 +359,8 @@ async def update_content_policy(guardrail_id: str, policy_id: str, description: 
 
 
 async def list_content_policies() -> list[dict]:
-    """Políticas de contenido creadas por Basa — filtra del listado completo de
-    LiteLLM (que también trae `basa-guardian` y el `basa-content-filter` de
+    """Políticas de contenido creadas por Sentinel — filtra del listado completo de
+    LiteLLM (que también trae `sentinel-guardian` y el `sentinel-content-filter` de
     config.yaml) por el prefijo de nombre y el proveedor, y devuelve el contrato
     simple, no el `litellm_params` completo del motor."""
     data = await _get("/v2/guardrails/list", {})

@@ -8,9 +8,9 @@
 
 **Anclas**: las citas `archivo:línea` de este documento están medidas contra `origin/main@5fae89a`. Una cita sin su árbol es ambigua: `compose.prod.yml` ya corrió +7 líneas una vez (#267). Ante «esa línea dice otra cosa», comparar contra ESTE árbol antes de dudar del diseño.
 
-**Input**: research del 30-jul sellado en el issue [#50](https://github.com/DrZuzzjen/basa-guardian/issues/50)
+**Input**: research del 30-jul sellado en el issue [#50](https://github.com/DrZuzzjen/sentinel-guardian/issues/50)
 (veredicto: wrapper-supervisor; socket-proxy DESCARTADO por seguridad) + issue
-[#70](https://github.com/DrZuzzjen/basa-guardian/issues/70) (botón de reinicio, puente a la 033) +
+[#70](https://github.com/DrZuzzjen/sentinel-guardian/issues/70) (botón de reinicio, puente a la 033) +
 prerrequisito de escritura atómica YA PAGO (`1151b1e`, en `main`) + dolor documentado del piloto
 (`deploy/release/INSTALL-CAMARA.md`).
 
@@ -68,7 +68,7 @@ paso manual más frágil de la operación del piloto.
 
 Como admin, tengo en Modelos & Ollama un botón que fuerza el ciclo de aplicación a demanda — para
 cuando no quiero esperar la ventana de coalescencia o el watch automático quedó apagado
-(`BASA_ENGINE_AUTORELOAD=off`). Mismo mecanismo del supervisor, cero privilegios nuevos.
+(`SENTINEL_ENGINE_AUTORELOAD=off`). Mismo mecanismo del supervisor, cero privilegios nuevos.
 
 **Acceptance Scenarios**:
 
@@ -114,9 +114,9 @@ nada» (un 400 que la UI no muestra, `INSTALL-CAMARA.md` troubleshooting).
   sentinel. Jamás backend→Docker.
 - **FR-004 — UI**: banner «Aplicando cambios…» + error real en Modelos & Ollama, derivado de
   `/models/status` (polling simple mientras haya cambios pendientes).
-- **FR-005 — Perillas y sus lectores en la misma ronda**: `BASA_ENGINE_AUTORELOAD` (default `on`;
-  `off` = solo botón), `BASA_ENGINE_APPLY_DEBOUNCE_SECONDS` (default 5),
-  `BASA_ENGINE_DRAIN_SECONDS` (default 30) — documentadas en `compose.prod.yml`, los `.env.example`
+- **FR-005 — Perillas y sus lectores en la misma ronda**: `SENTINEL_ENGINE_AUTORELOAD` (default `on`;
+  `off` = solo botón), `SENTINEL_ENGINE_APPLY_DEBOUNCE_SECONDS` (default 5),
+  `SENTINEL_ENGINE_DRAIN_SECONDS` (default 30) — documentadas en `compose.prod.yml`, los `.env.example`
   de `deploy/clients/` y la página de docs de producto correspondiente (superficie 1 del DevFlow).
 - **FR-006 — Alcance del botón = D1** (menú al pie). Con la reco (a), el issue #70 se cierra con
   esta spec y el nodo del tech tree se re-lee como «aplicar cambios del motor desde la UI».
@@ -174,7 +174,7 @@ Sello esperado: **«033: tu reco»** o **«D1: b»**.
 
 - `1151b1e` (escritura atómica) — **pago, en `main`**.
 - Retest E2E del bundle amd64 — costura con Factory/Falime (FR-007).
-- Issue [#70](https://github.com/DrZuzzjen/basa-guardian/issues/70) — lo cierra esta spec (D1=a).
+- Issue [#70](https://github.com/DrZuzzjen/sentinel-guardian/issues/70) — lo cierra esta spec (D1=a).
 - Nodos del tech tree: «Alta de modelos sin reiniciar (y completa)» + «Reinicio de contenedores
   desde la UI» (`specs/ROADMAP-pisos.md`).
 

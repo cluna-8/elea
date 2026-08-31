@@ -89,7 +89,7 @@ def test_una_ventana_malformada_grita_y_cae_al_default(caplog):
     with caplog.at_level(logging.WARNING, logger="src.services.retention.purger"):
         # 03:30 en Madrid: dentro del DEFAULT, o sea que la respuesta prueba que cayó ahí.
         assert purger.en_ventana(AGOSTO_UTC, ventana="de 2 a 5") is True
-    assert any("BASA_PURGE_WINDOW" in r.getMessage() for r in caplog.records)
+    assert any("SENTINEL_PURGE_WINDOW" in r.getMessage() for r in caplog.records)
 
 
 def test_una_ventana_de_ancho_cero_se_rechaza(caplog):
@@ -102,7 +102,7 @@ def test_una_ventana_de_ancho_cero_se_rechaza(caplog):
     with caplog.at_level(logging.WARNING, logger="src.services.retention.purger"):
         assert purger.en_ventana(AGOSTO_UTC, ventana="03:00-03:00") is True
         assert purger.en_ventana(datetime(2026, 8, 14, 12, 0), ventana="03:00-03:00") is False
-    assert any("BASA_PURGE_WINDOW" in r.getMessage() for r in caplog.records)
+    assert any("SENTINEL_PURGE_WINDOW" in r.getMessage() for r in caplog.records)
 
 
 def test_horas_fuera_de_rango_no_se_cuelan():
@@ -116,13 +116,13 @@ def test_horas_fuera_de_rango_no_se_cuelan():
 def test_una_zona_desconocida_grita_y_cae_al_default(caplog):
     with caplog.at_level(logging.WARNING, logger="src.services.retention.purger"):
         assert purger.en_ventana(AGOSTO_UTC, tz="Marte/Olympus") is True
-    assert any("BASA_PURGE_WINDOW_TZ" in r.getMessage() for r in caplog.records)
+    assert any("SENTINEL_PURGE_WINDOW_TZ" in r.getMessage() for r in caplog.records)
 
 
 def test_las_perillas_se_leen_del_entorno_cuando_no_se_pasan(monkeypatch):
     """El purgador llama a `en_ventana` sin argumentos: si las perillas no se leyeran del
     entorno, el operador configuraría una ventana que nadie mira."""
-    monkeypatch.setenv("BASA_PURGE_WINDOW", "10:00-11:00")
-    monkeypatch.setenv("BASA_PURGE_WINDOW_TZ", "UTC")
+    monkeypatch.setenv("SENTINEL_PURGE_WINDOW", "10:00-11:00")
+    monkeypatch.setenv("SENTINEL_PURGE_WINDOW_TZ", "UTC")
     assert purger.en_ventana(datetime(2026, 8, 14, 10, 30)) is True
     assert purger.en_ventana(datetime(2026, 8, 14, 11, 30)) is False

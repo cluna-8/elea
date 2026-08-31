@@ -3,11 +3,11 @@
 Crea bases de datos de test descartables contra el Postgres de Docker Compose y corre
 alembic programáticamente. Las migraciones y las conexiones de test usan un rol
 **NOSUPERUSER** (``rls_owner``) dueño de las tablas: así ``FORCE ROW LEVEL SECURITY``
-es observable (un superuser como ``basa_admin`` bypasea RLS SIEMPRE, incluso con
+es observable (un superuser como ``sentinel_admin`` bypasea RLS SIEMPRE, incluso con
 FORCE — la trampa está documentada en el header de la 010 y testeada explícitamente).
 
 Los tests se auto-skipean si Postgres no está disponible (mismo patrón que los smoke
-tests live del repo). Host: localhost:5433 (docker-compose de basa-guardian) o el env
+tests live del repo). Host: localhost:5433 (docker-compose de sentinel-guardian) o el env
 POSTGRES_* cuando corren dentro del container backend.
 """
 import os
@@ -25,8 +25,8 @@ PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
 # En el host el compose publica 5433 (5432 lo ocupa el repo demo gatelite); dentro
 # del container backend el env trae POSTGRES_PORT=5432.
 PG_PORT = os.getenv("POSTGRES_PORT") or ("5433" if PG_HOST == "localhost" else "5432")
-ADMIN_USER = os.getenv("POSTGRES_USER", "basa_admin")
-ADMIN_PASSWORD = os.getenv("POSTGRES_PASSWORD", "basasecurepass123")
+ADMIN_USER = os.getenv("POSTGRES_USER", "sentinel_admin")
+ADMIN_PASSWORD = os.getenv("POSTGRES_PASSWORD", "sentinelsecurepass123")
 
 RLS_OWNER = "rls_owner"
 RLS_OWNER_PASSWORD = "rls-owner-secret"
@@ -150,7 +150,7 @@ def seed_legacy_single_tenant(engine):
             cx.execute(text("""
                 INSERT INTO users (id, username, email, password_hash, role, group_id)
                 VALUES (:id, :username, :email, 'x', :role, :group_id)
-            """), {"id": ids[key], "username": username, "email": f"{username}@legacy.basa.com.ar",
+            """), {"id": ids[key], "username": username, "email": f"{username}@legacy.sentinel.com.ar",
                    "role": role, "group_id": ids["group"]})
 
         cx.execute(text("""
@@ -182,13 +182,13 @@ def seed_legacy_single_tenant(engine):
         cx.execute(text("""
             INSERT INTO audit_logs (user_id, model, prompt_tokens, completion_tokens,
                                     cost_usd, compliance_status, latency_ms)
-            VALUES (:user_id, 'basa-model', 10, 20, 0.001, 'passed', 100)
+            VALUES (:user_id, 'sentinel-model', 10, 20, 0.001, 'passed', 100)
         """), {"user_id": ids["user_clinician"]})
         # Huérfana: user_id NULL (edge case FR-005)
         cx.execute(text("""
             INSERT INTO audit_logs (model, prompt_tokens, completion_tokens,
                                     cost_usd, compliance_status, latency_ms)
-            VALUES ('basa-model', 5, 5, 0.0005, 'passed', 80)
+            VALUES ('sentinel-model', 5, 5, 0.0005, 'passed', 80)
         """))
 
         cx.execute(text("""

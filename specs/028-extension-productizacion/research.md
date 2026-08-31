@@ -19,7 +19,7 @@ Verificado en [`backend/src/api/inspect.py`](../../backend/src/api/inspect.py):
 - Responde `ok:false` + `blocked` + `blocked_by_layer` + `motivo` en un bloqueo (contrato en `specs/027-.../contracts/api-gobernanza.md`, sección "Bloqueo en /gw/inspect").
 - El `motivo` sale de un **catálogo cerrado** local (`_MOTIVO_POR_CAPA`, inspect.py:52-74): sin nombres de proveedor, sin el `block_reason` que enumera tipos de secreto, sin el texto inspeccionado (garantía C1).
 
-**Implicación:** US5 **server = HECHO**. Solo falta el lado extensión: parsear `blocked`/`motivo` y mostrar el `motivo` del server (hoy `basa-guard.js:115-118` solo bloquea con `!res.ok` y muestra un texto genérico). Extensiones viejas siguen fail-closed (bloquean con su error genérico); las nuevas distinguen y muestran el motivo. Sin skew fail-open.
+**Implicación:** US5 **server = HECHO**. Solo falta el lado extensión: parsear `blocked`/`motivo` y mostrar el `motivo` del server (hoy `sentinel-guard.js:115-118` solo bloquea con `!res.ok` y muestra un texto genérico). Extensiones viejas siguen fail-closed (bloquean con su error genérico); las nuevas distinguen y muestran el motivo. Sin skew fail-open.
 
 ## D3 — US4 (chip de honestidad): falta el bloque `proteccion` en `whoami`
 
@@ -33,7 +33,7 @@ Verificado: `gw_whoami` (inspect.py:134-145) devuelve solo `{ok, user, team, key
 
 ## D4 — Superficie de navegador: no existe en el enum (US9 diferido)
 
-`SURFACES` = `("claude-code","copilot","cursor","claude-desktop","chatgpt","chat-ui")` ([`basa_governance.py:94`](../../litellm/extensions/basa_governance.py)) — **sin valor de navegador**. `_superficie()` (inspect.py:117-131) devuelve `"desconocido"` para el tráfico de la extensión. Agregar `chatgpt-web`/`claude-web` es 2 líneas + migración del `CHECK tool_type` (budget.py:89) + aviso a Cristian **antes del freeze de la 027** (reabre contrato después). **Diferido (US9, fast-follow)** por decisión de alcance del piloto: el tráfico se audita "desconocido", no bloquea nada. Coordinación humana, no código de la 028.
+`SURFACES` = `("claude-code","copilot","cursor","claude-desktop","chatgpt","chat-ui")` ([`sentinel_governance.py:94`](../../litellm/extensions/sentinel_governance.py)) — **sin valor de navegador**. `_superficie()` (inspect.py:117-131) devuelve `"desconocido"` para el tráfico de la extensión. Agregar `chatgpt-web`/`claude-web` es 2 líneas + migración del `CHECK tool_type` (budget.py:89) + aviso a Cristian **antes del freeze de la 027** (reabre contrato después). **Diferido (US9, fast-follow)** por decisión de alcance del piloto: el tráfico se audita "desconocido", no bloquea nada. Coordinación humana, no código de la 028.
 
 ## D5 — US8: expiración sí, filtro por superficie depende de US9
 
@@ -43,9 +43,9 @@ Verificado: `gw_whoami` (inspect.py:134-145) devuelve solo `{ok, user, team, key
 
 `deploy/release/render_docs_brand.sh` es el patrón. El nuevo `render_extension_brand.sh` deriva del brand-pack **solo** identidad visible (nombre, descripción, íconos) + genera/embebe el `manifest.key` para **ID estable** (par RSA por partner, pública base64 en `manifest.key`, privada fuera del repo). **No** hornea URL. El zip entra a `bundle.sh` + MANIFEST con sha256. Excepción documentada al "config+seed, nunca fork": la extensión es el único artefacto horneado por partner porque Chrome lee `name/description/icons` del manifest del paquete, no de runtime.
 
-## D7 — Gate de white-label (US7): la lista de prohibidos no tiene "basa"
+## D7 — Gate de white-label (US7): la lista de prohibidos no tiene "sentinel"
 
-`deploy/release/checks/prohibited_names.txt` = `litellm/berriai/presidio` — **sin `basa`**. El gate actual escanea `/srv` del frontend y `deploy/branding/`, no la extensión. `test_extension_whitelabel.sh` nuevo: descomprime el zip renderizado y falla ante `prohibited_names.txt` **+** una lista de marca del fabricante (`basa`, `basa guard`, `PoC`, `localhost`). `make check-whitelabel` lo invoca.
+`deploy/release/checks/prohibited_names.txt` = `litellm/berriai/presidio` — **sin `sentinel`**. El gate actual escanea `/srv` del frontend y `deploy/branding/`, no la extensión. `test_extension_whitelabel.sh` nuevo: descomprime el zip renderizado y falla ante `prohibited_names.txt` **+** una lista de marca del fabricante (`sentinel`, `sentinel guard`, `PoC`, `localhost`). `make check-whitelabel` lo invoca.
 
 ## Resumen: dónde está el trabajo real de la 028
 

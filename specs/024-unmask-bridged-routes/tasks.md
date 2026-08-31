@@ -39,7 +39,7 @@ El MVP es la US1 sola (streaming = el camino de todas las coding tools).
 > reescritas abajo con el fix real; la redacción original vive en el historial git.
 
 - [x] T004 [US1] Fix del carry en la lib compartida
-      (`litellm/extensions/basa_guardian_policy.py`): `PH_TAIL_RE` retiene un `[` pelado
+      (`litellm/extensions/sentinel_guardian_policy.py`): `PH_TAIL_RE` retiene un `[` pelado
       al final del delta (un solo delta de espera); `flush_carry_sse_block` emite el
       flush de stream truncado como delta sintético **framed** (review: el flush crudo
       lo descartaba el parser SSE del cliente) — usado por el hook del motor Y el
@@ -71,9 +71,9 @@ El MVP es la US1 sola (streaming = el camino de todas las coding tools).
 
 ## Phase 5: User Story 3 — Atribución en el monitor (P3)
 
-- [x] T011 [US3] `litellm/extensions/basa_audit_logger.py`: la identidad
+- [x] T011 [US3] `litellm/extensions/sentinel_audit_logger.py`: la identidad
       (`user_api_key_metadata`) se busca en AMBOS metadata-homes con el mismo patrón que
-      el archivo ya usa para `basa_masked_entities` (D3); el scrub de `pii_tokens` se
+      el archivo ya usa para `sentinel_masked_entities` (D3); el scrub de `pii_tokens` se
       re-asserta sin cambios (contrato #9).
 - [x] T012 [US3] Test unit del logger con metadata en `litellm_metadata` (VERDE) +
       verificación viva (quickstart #4): evento con `tool/client/tenant` no-nulos y

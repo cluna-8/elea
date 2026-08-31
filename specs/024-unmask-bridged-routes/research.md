@@ -24,7 +24,7 @@ el pipeline del motor (viola Principio VI) y arriesga alterar el payload (FR-003
 ## D2 — Unmask streaming: los chunks bridged son objetos parseados, no bytes SSE
 
 **Evidencia**: `resp_type=async_generator` con `tokens=True`; los items no-bytes/str caen
-en el escape del hook («objeto ya parseado → se entrega tal cual», basa_guardrail.py:126-128)
+en el escape del hook («objeto ya parseado → se entrega tal cual», sentinel_guardrail.py:126-128)
 y salen sin reescribir. En el wire el cliente SÍ recibe SSE Anthropic válido → algo aguas
 abajo del hook re-serializa los objetos: el hook es el último punto de extensión nuestro
 antes de esa serialización.
@@ -47,11 +47,11 @@ mapping vive en el motor (transportarlo al gateway = acoplamiento + superficie d
 
 ## D3 — Atribución nula: la identidad se busca en un solo metadata-home
 
-**Evidencia** (código actual, `litellm/extensions/basa_audit_logger.py`): la identidad se
+**Evidencia** (código actual, `litellm/extensions/sentinel_audit_logger.py`): la identidad se
 lee de `data["metadata"]["user_api_key_metadata"]` (línea 59); pero en la ruta anthropic
 los campos proxy viven en `litellm_metadata` (research T005 de la 014 — el mismo motivo
 por el que `_metadata_home()` existe en el guardrail). La ironía: la línea 65 del propio
-logger YA itera ambos homes para `basa_masked_entities`, pero no para la identidad.
+logger YA itera ambos homes para `sentinel_masked_entities`, pero no para la identidad.
 
 **Decisión**: buscar `user_api_key_metadata` con el mismo patrón de doble home que el
 archivo ya usa tres líneas más abajo. Cambio mínimo, coherente con el código existente.

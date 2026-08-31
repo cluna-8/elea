@@ -7,11 +7,11 @@ Cambiarla = cambiar este doc primero (es un artefacto cross-party: lo rellena el
 
 | Archivo | Contenido | ¿Secreto? |
 |---|---|---|
-| `client.env` | `TENANT_SLUG` (013 — deriva dominio/DNS/workspace), `PRODUCT_DOMAIN`, `REGION` (default `eu-central-1`), `IMAGE_SOURCE` (`registry`\|`tarball`), digests de imágenes (de `publish.sh`), `BASA_DEPLOYMENT_TENANT_ID` | No |
+| `client.env` | `TENANT_SLUG` (013 — deriva dominio/DNS/workspace), `PRODUCT_DOMAIN`, `REGION` (default `eu-central-1`), `IMAGE_SOURCE` (`registry`\|`tarball`), digests de imágenes (de `publish.sh`), `SENTINEL_DEPLOYMENT_TENANT_ID` | No |
 | `branding.env` | Override del pack de marca (US2): `BRAND_NAME`, `BRAND_DOMAIN`, `BRAND_SUPPORT`, colores | No |
 | `seed.yaml` | Onboarding-as-data → `seed_client` (013): tenant, clients, connections | No |
 | `config.yaml.tmpl` | LiteLLM config TEMPLADO: `model_list`, proveedores, **región** — las keys de proveedor se referencian como `${VAR}` resueltas desde el store de secretos | Refs, no valores |
-| `client.lic` | Token de licencia (021) emitido por Basa para el tenant | **Sí** (cifrado SOPS en tránsito) |
+| `client.lic` | Token de licencia (021) emitido por Sentinel para el tenant | **Sí** (cifrado SOPS en tránsito) |
 
 **Secretos** (US5): `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`, `FERNET_SECRET_KEY`,
 `JWT_SECRET_KEY`, keys de proveedores, `oauth_credential_ref` — **jamás en el perfil en

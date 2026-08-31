@@ -1,4 +1,4 @@
-"""custom_auth — identidad Basa para el motor (spec 014 US2, FR-009..FR-013).
+"""custom_auth — identidad Sentinel para el motor (spec 014 US2, FR-009..FR-013).
 
 Resuelve la identidad de cada request contra la ``APIKey`` (=Connection) de la 013:
 ``sha256(virtual key) → key_hash → tenant/client/group/tool + toggles``, e inyecta esa
@@ -16,16 +16,16 @@ cuesta dinero — el guardrail y el logger corren cuando el pedido ya está en v
 
 **De dónde sale la identidad** (corregido 2026-07-27, víspera del install de la Cámara):
 originalmente esto reusaba el prisma client del propio motor, porque motor y backend
-compartían una sola base. Ya no: el motor tiene base PROPIA (``basa_engine``) desde que
+compartían una sola base. Ya no: el motor tiene base PROPIA (``sentinel_engine``) desde que
 su migrador Prisma dropeaba las tablas del producto como "drift" (ensayo 2026-07-22), y
 las tablas de identidad —``api_keys``, ``users``, ``groups``, ``tenants``— viven en la
 del backend. Consecuencia observada en el perfil de producción: **todo byok daba 401**
 con ``relation "api_keys" does not exist``, porque el prisma del motor consulta
-``basa_engine``. Nadie lo detectó antes porque el ensayo nunca ejercitó byok (0 keys
+``sentinel_engine``. Nadie lo detectó antes porque el ensayo nunca ejercitó byok (0 keys
 registradas).
 
 Ahora la identidad se lee con una conexión PROPIA de sólo lectura a la base del backend
-(``BASA_IDENTITY_DATABASE_URL``). Si esa variable no está, se cae al prisma del motor:
+(``SENTINEL_IDENTITY_DATABASE_URL``). Si esa variable no está, se cae al prisma del motor:
 es el caso de desarrollo, donde ambos planos comparten base y la consulta funciona.
 El SQL es el mismo en los dos caminos.
 
@@ -45,11 +45,11 @@ from typing import Optional
 from fastapi import HTTPException, Request
 from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
 
-logger = logging.getLogger("basa-custom-auth")
+logger = logging.getLogger("sentinel-custom-auth")
 
 # ESPEJO de ``budget_service.STATUS_BUDGET_EXHAUSTED`` (#157). No se importa del backend: el
 # motor sólo monta ``litellm/extensions/``, no el paquete del producto — el mismo motivo (y el
-# mismo riesgo de divergencia asumido) por el que ``basa_audit_logger`` duplica sus constantes
+# mismo riesgo de divergencia asumido) por el que ``sentinel_audit_logger`` duplica sus constantes
 # del otro lado del límite de proceso. Si cambia allá, cambia acá: los dos planos tienen que
 # contar el rechazo por presupuesto con el MISMO literal, o el filtro binario de la vitrina
 # (prefijo ``rejected%``) los trataría distinto (H4 del #135).
@@ -111,7 +111,7 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
            AND gd.is_active = true ORDER BY gd.created_at, gd.id LIMIT 1) AS nlp_fail_mode,
        -- Región de STRUCTURED_ID_PATTERNS_BY_REGION por TENANT (extensión de spec 016
-       -- para países reales, ver basa_guardian_policy.resolve_region). Mismo desempate
+       -- para países reales, ver sentinel_guardian_policy.resolve_region). Mismo desempate
        -- del #104 y misma advertencia de espejo que `nlp_fail_mode` de arriba.
        (SELECT gd.config->>'region' FROM guardians gd
          WHERE gd.tenant_id = k.tenant_id AND gd.guardian_type = 'pii_masking'
@@ -214,17 +214,17 @@ def _ttl_para(row: Optional[dict]) -> int:
     return _CACHE_TTL_S
 
 
-_IDENTITY_URL = os.environ.get("BASA_IDENTITY_URL", "").strip()
+_IDENTITY_URL = os.environ.get("SENTINEL_IDENTITY_URL", "").strip()
 # ── NO RENOMBRAR `LITELLM_MASTER_KEY` (#302). Vale para los 4 sitios de esta carpeta ──
 # El rename de marca del #302 es de la superficie del OPERADOR: él escribe
-# BASA_ENGINE_MASTER_KEY en su `.env` y el compose se la pasa a ESTE contenedor bajo el
+# SENTINEL_ENGINE_MASTER_KEY en su `.env` y el compose se la pasa a ESTE contenedor bajo el
 # nombre de upstream. Adentro el nombre es contrato de la imagen del motor y no lo
 # elegimos nosotros: `proxy_server.py` lee la variable del env LITERAL y ésa es la RED si
 # falla la carga del config.yaml; el camino que resuelve desde el config degrada a
 # INTERNAL_USER EN SILENCIO cuando queda None. Un rename acá no rojea ningún test de
 # arranque: se ve en producción como "el motor dejó de exigir key".
 # Además este valor es el secreto COMPARTIDO del plano interno: viaja como
-# `X-Basa-Internal` y el backend lo compara contra su BASA_ENGINE_MASTER_KEY. Si los dos
+# `X-Sentinel-Internal` y el backend lo compara contra su SENTINEL_ENGINE_MASTER_KEY. Si los dos
 # lados dejan de resolver al mismo valor, `/internal/audit` rechaza al motor y la
 # auditoría durable del tráfico byok se pierde sin ruido.
 _INTERNAL_SECRET = os.environ.get("LITELLM_MASTER_KEY", "")
@@ -242,10 +242,10 @@ async def _lookup_identity(key_hash: str) -> Optional[dict]:
         # Cualquier fallo levanta → 401 (fail-closed), nunca un usuario por defecto.
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(_IDENTITY_URL, params={"key_hash": key_hash},
-                                 headers={"X-Basa-Internal": _INTERNAL_SECRET})
+                                 headers={"X-Sentinel-Internal": _INTERNAL_SECRET})
         if r.status_code != 200:
             raise Exception(
-                "Basa Gateway: no se pudo resolver la identidad de la Connection "
+                "Sentinel Gateway: no se pudo resolver la identidad de la Connection "
                 f"(plano interno respondió {r.status_code}) — fail-closed.")
         # `row: null` es una respuesta legítima ("no existe esa key"): se cachea como
         # None y el caller lo traduce a 401. Distinto de no haber podido preguntar.
@@ -267,7 +267,7 @@ async def _lookup_identity(key_hash: str) -> Optional[dict]:
         # Import perezoso: el prisma client existe recién cuando el proxy terminó de bootear
         from litellm.proxy.proxy_server import prisma_client
         if prisma_client is None:
-            raise Exception("Basa Gateway: la base de identidad no está disponible (fail-closed).")
+            raise Exception("Sentinel Gateway: la base de identidad no está disponible (fail-closed).")
         rows = await prisma_client.db.query_raw(_IDENTITY_SQL, key_hash)
         row = rows[0] if rows else None
 
@@ -280,7 +280,7 @@ async def _emitir_fila_rechazo_presupuesto(row: dict) -> None:
     #157 escribe en el plano consola (``chat.py``).
 
     El corte por tope vive en la AUTH (abajo), ANTES del guardrail y del post-call hook, así
-    que ``basa_audit_logger`` —que sólo corre en ``async_log_success_event``— NUNCA ve este
+    que ``sentinel_audit_logger`` —que sólo corre en ``async_log_success_event``— NUNCA ve este
     pedido: sin esto, el rechazo del tráfico de coding tools/byok no deja rastro durable, y un
     officer que mire la auditoría después del #157 ve los 402 de la consola pero no los del
     motor (peor que ninguno: parece completo y no lo está).
@@ -317,10 +317,10 @@ async def _emitir_fila_rechazo_presupuesto(row: dict) -> None:
         "blocked_by_layer": None,
     }
     try:
-        # Import perezoso: ``basa_audit_logger`` arrastra litellm/redis al cargarse, y sólo lo
+        # Import perezoso: ``sentinel_audit_logger`` arrastra litellm/redis al cargarse, y sólo lo
         # necesitamos en el camino del rechazo (no en cada auth). Mismo directorio de extensiones.
-        import basa_audit_logger
-        await basa_audit_logger.emitir_fila_durable(entry, [])
+        import sentinel_audit_logger
+        await sentinel_audit_logger.emitir_fila_durable(entry, [])
     except Exception:  # noqa: BLE001 — best-effort: el 402 fail-closed sale pase lo que pase.
         logger.exception(
             "no se pudo emitir la fila durable del rechazo por presupuesto (key_id=%s) — "
@@ -339,17 +339,17 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         return UserAPIKeyAuth(
             api_key=api_key,
             user_role=LitellmUserRoles.PROXY_ADMIN,
-            metadata={"basa": {"identity": "master", "ua_tool": ua_tool}},
+            metadata={"sentinel": {"identity": "master", "ua_tool": ua_tool}},
         )
 
     if not api_key:
-        raise Exception("Basa Gateway: falta la clave de acceso (fail-closed, sin key no hay request).")
+        raise Exception("Sentinel Gateway: falta la clave de acceso (fail-closed, sin key no hay request).")
 
     row = await _lookup_identity(hashlib.sha256(api_key.encode()).hexdigest())
     if row is None:
-        raise Exception("Basa Gateway: clave de acceso desconocida.")
+        raise Exception("Sentinel Gateway: clave de acceso desconocida.")
     if not row.get("is_active"):
-        raise Exception("Basa Gateway: la Connection está revocada.")
+        raise Exception("Sentinel Gateway: la Connection está revocada.")
 
     # ── Presupuesto agotado: rechazo DURO antes del proveedor (#76, decisión A de JF) ──
     # Hasta acá, /gw no tenía enforcement NINGUNO: el tope sólo cortaba en el Playground
@@ -375,7 +375,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         raise HTTPException(
             status_code=402,
             detail=(
-                f"Basa Gateway: presupuesto agotado (${gastado:.4f} de ${tope:.4f} "
+                f"Sentinel Gateway: presupuesto agotado (${gastado:.4f} de ${tope:.4f} "
                 "consumidos). El pedido NO se envió al proveedor. Contactá al "
                 "administrador para ampliar el tope."
             ),
@@ -385,7 +385,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     # Toggles con semántica NULL=heredar (FR-014); espejo de context_resolution del
     # backend (la centralización fina por policy es spec 015).
     redact_enabled = row.get("redact_enabled")
-    basa_identity = {
+    sentinel_identity = {
         "identity": "connection",
         "key_id": row["key_id"],
         "tenant_id": row["tenant_id"],
@@ -405,7 +405,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
             "off",
         ),
         "allowed_tools": _maybe_json(row.get("allowed_tools")),
-        # spec 016: detección/enforcement real por tipo de entidad (ver basa_guardrail.py)
+        # spec 016: detección/enforcement real por tipo de entidad (ver sentinel_guardrail.py)
         "entity_configs": _maybe_json(row.get("entity_configs")) or {},
         "custom_names": _maybe_json(row.get("custom_names")) or [],
         "custom_entities": _maybe_json(row.get("custom_entities")) or [],
@@ -414,7 +414,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         # normalizar acá duplicaría esa decisión en un plano que no es su dueño.
         "nlp_fail_mode": row.get("nlp_fail_mode"),
         # Mismo criterio: CRUDO (incluido None/ausente). Quien decide es
-        # `policy.resolve_region`, con el default de instalación (`BASA_ENTITY_REGION`)
+        # `policy.resolve_region`, con el default de instalación (`SENTINEL_ENTITY_REGION`)
         # que arma el guardrail — no acá.
         "region": row.get("region"),
     }
@@ -423,10 +423,10 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         api_key=api_key,
         user_id=row.get("user_id"),
         team_id=row.get("group_id"),
-        key_alias=f"basa:{row.get('tool_type')}:{row.get('username') or 'sin-user'}",
+        key_alias=f"sentinel:{row.get('tool_type')}:{row.get('username') or 'sin-user'}",
         # rpm/tpm y allowlist de modelos: delegados al motor como backstop (Principio VI)
         rpm_limit=row.get("rpm_limit"),
         tpm_limit=row.get("tpm_limit"),
         models=allowed_models if isinstance(allowed_models, list) else [],
-        metadata={"basa": basa_identity},
+        metadata={"sentinel": sentinel_identity},
     )

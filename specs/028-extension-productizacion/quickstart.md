@@ -15,7 +15,7 @@ Verificar white-label (US7):
 make -C deploy check-whitelabel   # incluye test_extension_whitelabel.sh
 ```
 
-El zip debe: no contener `basa`/`PoC`/nombre del motor/`localhost`; declarar los íconos del partner; tener `manifest.key` (ID estable).
+El zip debe: no contener `sentinel`/`PoC`/nombre del motor/`localhost`; declarar los íconos del partner; tener `manifest.key` (ID estable).
 
 ## Incluir en el bundle de install (US1)
 
@@ -45,7 +45,7 @@ NLP_ANALYZER_IMAGE=... BACKEND_IMAGE=... [...] deploy/release/bundle.sh camara-c
 ## Backend (US4 server + US8a)
 
 ```bash
-docker run --rm --network basa-guardian_basa-network -v <repo>:/repo -w /repo/backend \
-  -e POSTGRES_HOST=db -e POSTGRES_PORT=5432 basa-guardian-backend \
+docker run --rm --network sentinel-guardian_sentinel-network -v <repo>:/repo -w /repo/backend \
+  -e POSTGRES_HOST=db -e POSTGRES_PORT=5432 sentinel-guardian-backend \
   python -m pytest tests/ -q -k "whoami or proteccion or expires"
 ```

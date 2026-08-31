@@ -15,27 +15,27 @@ Este script, en cambio:
   - verifica la licencia recién emitida contra el keyset ANTES de escribirla a disco, así
     que no se puede producir un `.lic` que la instalación vaya a rechazar.
 
-El hogar definitivo de esto es la CLI `basa-admin` de la spec 026 (que documenta este mismo
+El hogar definitivo de esto es la CLI `sentinel-admin` de la spec 026 (que documenta este mismo
 footgun); mientras esa no exista, esto es el procedimiento reproducible mínimo.
 
 Uso (reemitir el piloto de la Cámara con más asientos):
 
     python backend/scripts/issue_license.py \
-      --key backend/scripts/license_out/signing_key_basa-dev-2026b.pem \
-      --kid basa-dev-2026b \
+      --key backend/scripts/license_out/signing_key_sentinel-dev-2026b.pem \
+      --kid sentinel-dev-2026b \
       --lic-id lic_piloto_camara_0002 \
       --tenant-id 00000000-0000-0000-0000-000000000001 \
-      --distributor-id d_basa --pool-id pool_pilotos_basa \
+      --distributor-id d_sentinel --pool-id pool_pilotos_sentinel \
       --max-seats 300 --expiry 2026-10-21T00:00:00Z \
       --out backend/scripts/license_out/camara-comercio-300.lic
 
 Habilitar una feature (el SSO del E2E de la 017 US2):
 
     python backend/scripts/issue_license.py \
-      --key <privada del kid> --kid basa-dev-2026b \
+      --key <privada del kid> --kid sentinel-dev-2026b \
       --lic-id lic_dev_sso_0001 \
       --tenant-id 00000000-0000-0000-0000-000000000001 \
-      --distributor-id d_basa --pool-id pool_basa_dev \
+      --distributor-id d_sentinel --pool-id pool_sentinel_dev \
       --max-seats 50 --expiry 2099-01-01T00:00:00Z \
       --feature-flags sso \
       --out backend/scripts/license_out/dev-sso.lic
@@ -46,7 +46,7 @@ OFF fail-closed: el router de SSO devuelve 403 aunque el código esté en `main`
 Notas de operación aprendidas del piloto:
   - Reusar un kid que YA está en el keyset embebido. Un kid nuevo exige rebuild de la imagen,
     porque el keyset se lee del path horneado (el compose no setea
-    BASA_LICENSE_PUBLIC_KEYS_FILE).
+    SENTINEL_LICENSE_PUBLIC_KEYS_FILE).
   - `--not-before` por default es "ahora - 1h": el reloj de la VM del cliente puede ir
     atrasado, y un not_before futuro deja la licencia `invalid` y bloquea todas las altas.
   - Un "seat" es una Connection (fila APIKey) activa, NO una persona. Una persona con dos
@@ -72,7 +72,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey 
 from licensing import token as token_mod  # noqa: E402
 from licensing import verifier as verifier_mod  # noqa: E402
 
-DEFAULT_KEYSET = pathlib.Path(__file__).resolve().parents[1] / "src" / "keys" / "basa_public_keys.pem"
+DEFAULT_KEYSET = pathlib.Path(__file__).resolve().parents[1] / "src" / "keys" / "sentinel_public_keys.pem"
 
 # Forma de un flag consultable por el producto: los consumidores usan literales en
 # minúscula y el chequeo es por igualdad exacta.
@@ -187,7 +187,7 @@ def main() -> int:
 
     # Verificación ANTES de escribir: si el kid no está en el keyset o la firma no cuadra,
     # la instalación rechazaría el fichero. Mejor fallar acá que en la sede del cliente.
-    keyset = verifier_mod.BasaPublicKeySet.from_pem_file(a.keyset)
+    keyset = verifier_mod.SentinelPublicKeySet.from_pem_file(a.keyset)
     verified = verifier_mod.verify_license_blob(blob, keyset, expected_tenant_id=a.tenant_id)
 
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -12,7 +12,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
 ## 2. Imagen de producción (versionada con mike)
 
 ```bash
-make -C deploy build-docs              # basa-docs:prod — marca neutra, versión 1.0+latest+dev
+make -C deploy build-docs              # sentinel-docs:prod — marca neutra, versión 1.0+latest+dev
 make -C deploy check-docs              # los 8 checks del sitio (ver §5)
 ```
 
@@ -29,7 +29,7 @@ deploy/release/render_profile.sh acme
 deploy/release/render_docs_brand.sh acme deploy/clients/acme/rendered/brand.json
 #    (para probar sin perfil: deploy/release/render_docs_brand.sh aegis deploy/branding/brand.example.json)
 # 2) imagen trazable por marca (VERSION se cablea al versionado mike del sitio):
-make -C deploy build-docs-brand BRAND=acme VERSION=1.0   # → basa-docs:acme-1.0
+make -C deploy build-docs-brand BRAND=acme VERSION=1.0   # → sentinel-docs:acme-1.0
 ```
 
 Cambia SOLO `site_name`/tagline/paleta/logo. `test_docs_whitelabel.sh` verifica que dos

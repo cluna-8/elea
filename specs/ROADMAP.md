@@ -1,4 +1,4 @@
-# Roadmap — Basa Secure AI Gateway
+# Roadmap — Sentinel Secure AI Gateway
 
 > **HISTÓRICO (banner 07-ago-2026)** — roadmap del fork gatelite, congelado el 03-jul. Se conserva SOLO por la deuda heredada A–F que cita `ROADMAP-guardian.md`. La planificación viva: [`ROADMAP-guardian.md`](./ROADMAP-guardian.md) + [`ROADMAP-pisos.md`](./ROADMAP-pisos.md). Nota: la spec 012 figura abajo como draft pero está **CERRADA** (✅ US1–US6, 20/20 tests).
 

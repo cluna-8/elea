@@ -48,5 +48,5 @@ auditable** de cada petición y permite **controlar el gasto** por persona y por
   [datos protegidos y los bloqueos](usuario/proteccion-datos.md).
 
 !!! note "Soporte"
-    Si algo no funciona como se describe aquí, escriba a **soporte@basa-dev.com**
+    Si algo no funciona como se describe aquí, escriba a **soporte@sentinel-dev.com**
     indicando qué pantalla estaba usando y a qué hora ocurrió.

@@ -1,7 +1,7 @@
 """governance_profiles + atribución por pedido en audit_logs (spec 027 — data-model §1 y §3)
 
 Esquema deliberadamente chico: **1 tabla nueva** y **2 columnas nuevas**. Todo vive en
-la base del backend (``basa_gateway``); la base del motor NO recibe esquema — el motor
+la base del backend (``sentinel_gateway``); la base del motor NO recibe esquema — el motor
 consume el perfil ya resuelto por la cascada, no leyendo estas tablas (D3).
 
 Qué agrega:

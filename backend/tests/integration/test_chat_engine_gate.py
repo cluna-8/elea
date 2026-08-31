@@ -15,7 +15,7 @@ Lo que se fija acá es el COMPORTAMIENTO observable del fix, no su implementaci�
 * esa fila **NO cuenta como bloqueo de política** (`LIKE 'blocked%'`): ninguna capa lo impidió,
   y contarlo ahí le mentiría al officer sobre cuántos intentos se bloquearon;
 * el evento de vitrina se publica igual (best-effort, junto a la fila);
-* contrato de wire para el harness de carga: `X-Basa-Rejected: saturated` + `code` en el body;
+* contrato de wire para el harness de carga: `X-Sentinel-Rejected: saturated` + `code` en el body;
 * el turno se libera al terminar: el rechazo es transitorio, no una degradación permanente.
 
 **Por qué httpx/ASGI y no `TestClient`**: la concurrencia es el sujeto del test. Un `TestClient`
@@ -41,7 +41,7 @@ from seat_gate_harness import admin_headers, build_app_client  # noqa: E402
 
 require_postgres()
 
-DB = "basa_test_chat_engine_gate"
+DB = "sentinel_test_chat_engine_gate"
 CHAT = "/api/v1/chat/completions"
 MODELO = "ollama-qwen3-4b"
 SIN_PII = "Resumime en una línea qué hace este servicio."
@@ -251,7 +251,7 @@ async def test_con_el_motor_ocupado_el_segundo_pedido_recibe_503_rapido_y_audita
         assert "no se encoló" in cuerpo["message"], (
             "el copy tiene que decir la verdad: el pedido NO quedó en cola esperando")
         # Contrato de wire del harness: un 503 de Caddy/proxy se ve igual desde afuera.
-        assert segunda.headers.get("X-Basa-Rejected") == "saturated"
+        assert segunda.headers.get("X-Sentinel-Rejected") == "saturated"
         assert segunda.headers.get("Retry-After") == "5"
 
         # La fila durable ya existe ANTES de que el pedido de adentro termine: el registro no
@@ -333,7 +333,7 @@ async def test_con_la_auditoria_caida_el_503_de_saturacion_igual_lleva_el_header
     Hay un cruce de caminos que se le escapaba: si la instalación corre en `audit_fail=closed`
     y la base de auditoría se cae justo mientras se registra un rechazo por capacidad, el 503
     que sale es el de `_registrar_bloqueo` —«no sirvo tráfico que no pueda registrar»— y ese
-    salía pelado. Para el harness de La ITV un 503 sin `X-Basa-Rejected` es un 503 ajeno (de
+    salía pelado. Para el harness de La ITV un 503 sin `X-Sentinel-Rejected` es un 503 ajeno (de
     Caddy, del proxy de la sede), así que el drill de saturación contaría mal justo en el
     escenario que más importa: saturado Y con la auditoría en problemas.
 
@@ -369,7 +369,7 @@ async def test_con_la_auditoria_caida_el_503_de_saturacion_igual_lleva_el_header
     # Es el 503 de la auditoría (no el de saturación): el copy lo dice, y eso prueba que se
     # ejercitó el cruce y no el camino de siempre.
     assert "auditoría" in segunda.json()["detail"], segunda.text
-    assert segunda.headers.get("X-Basa-Rejected") == "saturated", (
+    assert segunda.headers.get("X-Sentinel-Rejected") == "saturated", (
         "un 503 de saturación sin la cabecera es un 503 que el harness de carga no puede "
         "distinguir de uno de Caddy")
     assert segunda.headers.get("Retry-After") == "5"

@@ -123,7 +123,7 @@ El afinado por superficie **solo aplica al enum de herramienta declarada** (las 
 Deliberadamente **fuera de alcance**, por pertenecer a otros módulos/owners:
 
 - **La implementación de las capas de protección en sí** — moderación de contenido, detección de inyección de prompts / anti-jailbreak, content-safety, guardrails de proveedor cloud — → **módulo de seguridad y guardianes**. Esta feature construye el **marco** que las declara, configura, aplica y reporta con honestidad; **no implementa ni cablea ninguna capa**. Cuando el módulo de seguridad entregue una capa, el marco de esta spec la toma sin cambios de diseño.
-- **Enmascarado con NLP real** y hardening de detección de entidades → spec **016** ([PR #21](https://github.com/DrZuzzjen/basa-guardian/pull/21), en review).
+- **Enmascarado con NLP real** y hardening de detección de entidades → spec **016** ([PR #21](https://github.com/DrZuzzjen/sentinel-guardian/pull/21), en review).
 - **Niveles de enforcement de cumplimiento** (qué evidencia pasa a gate duro, incluido el tratamiento del bloqueo por prácticas prohibidas), **retención de datos y purga**, y la **completitud/confiabilidad de la auditoría** (que los bloqueos queden registrados de forma durable y que el registro no se pierda ante fallos) → spec **018**.
 - **Resolución en cascada por grupo/cliente** de políticas → spec **015**. Esta feature configura por modo y por superficie; la granularidad por grupo/usuario se apoyará en ese mecanismo cuando exista.
 - **Gobernar la superficie de la API de Responses** (herramientas que solo hablan ese protocolo) → issue **#28**.

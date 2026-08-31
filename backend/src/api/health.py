@@ -33,7 +33,7 @@ from ..licensing.entitlement import expected_tenant_id, get_state
 from ..licensing.seat_counter import count_active_seats
 from ..models.user import User
 from ..services import audit_service
-# La librería PURA compartida (`basa_guardian_policy`) ya viene resuelta por
+# La librería PURA compartida (`sentinel_guardian_policy`) ya viene resuelta por
 # `presidio_service`, que hace el sys.path dance una sola vez: se reusa desde ahí en vez de
 # agregar una CUARTA copia de ese bloque de import al repo. Acá sólo se necesita el
 # vocabulario del issue #63 (`resolve_nlp_fail_mode`, `NLP_FAIL_DEGRADE`), que es la MISMA
@@ -42,7 +42,7 @@ from ..services.presidio_service import policy
 from ..services.governance_resolution import instalacion_en_tier_estricto
 from ..services.redis_client import get_redis
 
-logger = logging.getLogger("basa-secure-gateway.health")
+logger = logging.getLogger("sentinel-secure-gateway.health")
 
 router = APIRouter(tags=["Health"])
 
@@ -168,7 +168,7 @@ def _tier_estricto_cacheado(db: Session) -> bool:
             # queda la traza. Se cachea igual el fallo: sin eso, cada probe reintentaría la
             # query contra una base que ya sabemos que no responde.
             logger.warning("health: no se pudo resolver el tier de enforcement (%s); "
-                           "no se evalúa la coherencia con BASA_AUDIT_FAIL", exc)
+                           "no se evalúa la coherencia con SENTINEL_AUDIT_FAIL", exc)
             _tier_cache["valor"] = False
         _tier_cache["vencimiento"] = ahora + _TIER_CACHE_TTL_SEGUNDOS
     return _tier_cache["valor"]
@@ -187,7 +187,7 @@ def _tier_estricto_cacheado(db: Session) -> bool:
 # así que caza el fresh-install en el PRIMER `/health` —antes de que llegue un solo pedido—
 # y cuesta CERO en el camino caliente (ni chat ni `/gw` la consultan). Lo que NO ve, y por
 # eso queda declarado en el body del PR y en docs: el tráfico anónimo de `/gw` (sin
-# `X-Basa-Key`), que resuelve `None` por construcción y no tiene fila de usuario que contar.
+# `X-Sentinel-Key`), que resuelve `None` por construcción y no tiene fila de usuario que contar.
 _RIESGO_CACHE_TTL_SEGUNDOS = 30.0
 _riesgo_cache: Dict[str, Any] = {"vencimiento": 0.0, "valor": 0}
 
@@ -245,11 +245,11 @@ def _estado_de_auditoria(db: Session) -> Tuple[str, Optional[str]]:
         return modo, ("auditoría no escribible y la instalación exige registro "
                       "(audit_fail=closed): el tráfico nuevo se rechaza con 503")
     # `open` / `policy` (spec 038 D3 / FR-006): con el tier de enforcement en estricto la
-    # instalación YA aseveró que sin registro no hay servicio. Un `BASA_AUDIT_FAIL` que no
+    # instalación YA aseveró que sin registro no hay servicio. Un `SENTINEL_AUDIT_FAIL` que no
     # sea `closed` contradice esa postura: se DEGRADA el health, no se corta el boot — un
     # arranque abortado deja al operador sin la superficie donde leer el porqué.
     if _tier_estricto_cacheado(db):
-        return modo, (f"el tier de enforcement es estricto y BASA_AUDIT_FAIL={modo}: la "
+        return modo, (f"el tier de enforcement es estricto y SENTINEL_AUDIT_FAIL={modo}: la "
                       "instalación exige registro pero la política no lo garantiza (038 D3)")
     # Señal de riesgo sin poblar (038 D2). Va DESPUÉS del tier a propósito: cuando las dos
     # aplican, la del tier es la que el operador tiene que atender primero (contradice una
@@ -259,7 +259,7 @@ def _estado_de_auditoria(db: Session) -> Tuple[str, Optional[str]]:
         sin_riesgo = _usuarios_sin_riesgo_cacheado(db)
         if sin_riesgo:
             return modo, (
-                f"BASA_AUDIT_FAIL=policy y {sin_riesgo} usuario(s) activo(s) no resuelven "
+                f"SENTINEL_AUDIT_FAIL=policy y {sin_riesgo} usuario(s) activo(s) no resuelven "
                 "nivel de riesgo: sus pedidos se CORTAN con 503 si la auditoría se cae "
                 "(038 D2, `None` corta). Poblá `default_risk_level` en sus grupos "
                 "(PUT /api/v1/groups/{id}/compliance) o el riesgo del usuario")
@@ -469,7 +469,7 @@ def service_health(user: Optional[User] = Depends(get_current_user),
     motivos = [m for m in (motivo_auditoria, motivo_nlp) if m]
     body = {
         "status": "degraded" if motivos else "healthy",
-        "service": os.getenv("BRAND_SERVICE_ID", "basa-secure-ai-gateway-backend"),
+        "service": os.getenv("BRAND_SERVICE_ID", "sentinel-secure-ai-gateway-backend"),
         "version": "1.0.0",
     }
     if not detallado:

@@ -3,7 +3,7 @@
 # prefijo de recursos, sin colisión con otros clientes del distribuidor).
 
 locals {
-  prefix = "basa-${var.tenant_slug}"
+  prefix = "sentinel-${var.tenant_slug}"
 }
 
 module "network" {

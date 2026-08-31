@@ -120,7 +120,7 @@ def _bootstrap_admin_si_sin_dueno(db: Session, password_hash: str) -> Optional[_
             return None
         user = User(
             username="admin",
-            email="admin@basa.com.ar",  # .local es TLD reservado: EmailStr del response lo rechaza (bug heredado)
+            email="admin@sentinel.com.ar",  # .local es TLD reservado: EmailStr del response lo rechaza (bug heredado)
             password_hash=password_hash,
             role="tenant_admin",  # canónico post-013 (equivale al legacy 'admin' vía shim RBAC)
             is_active=True,
@@ -359,7 +359,7 @@ def _borrar_usuario(db: Session, user_id: UUID) -> None:
 async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     # Primero la contraseña: es lo único que no se puede corregir después sin que el usuario
     # quede con una credencial conocida. El alta sin contraseña ya no existe (había un
-    # `or "basa123"` acá, y una cadena vacía pasaba el `if` del schema).
+    # `or "sentinel123"` acá, y una cadena vacía pasaba el `if` del schema).
     try:
         validar_password(user_in.password)
     except ValueError as exc:

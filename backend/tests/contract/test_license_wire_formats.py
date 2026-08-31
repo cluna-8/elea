@@ -2,13 +2,13 @@
 
 Tres artefactos cross-party cuya forma NO puede cambiar sin coordinación:
 
-1. **Token .lic** (Basa → caja): payload canónico + ``sig`` — lo emite el
-   tooling de Basa (KMS en prod, scripts/issue_dev_license.py en dev) y lo
+1. **Token .lic** (Sentinel → caja): payload canónico + ``sig`` — lo emite el
+   tooling de Sentinel (KMS en prod, scripts/issue_dev_license.py en dev) y lo
    verifica la caja offline.
 2. **Evento de audit de licencia** (caja → evidencia): entrada encadenada en
    ``guardian_events`` — la lee el true-up y la auditoría del cliente.
-3. **TrueUpExport** (caja → Basa): payload canónico + ``sig`` de la deployment
-   key — lo verifica Basa en renovación (FR-029).
+3. **TrueUpExport** (caja → Sentinel): payload canónico + ``sig`` de la deployment
+   key — lo verifica Sentinel en renovación (FR-029).
 
 Rotación de claves (contrato operativo, T037): el keyset PEM embebido indexa
 por ``key_id`` (bloques ``# key_id: <kid>``); una licencia declara su ``kid``
@@ -117,7 +117,7 @@ def test_trueup_wire_format(monkeypatch, tmp_path):
 
     doc = trueup_export.generate_signed_export(session_factory=_FakeSession)
     assert set(doc.keys()) == TRUEUP_REQUIRED, sorted(set(doc) ^ TRUEUP_REQUIRED)
-    assert doc["kind"] == "basa-trueup" and doc["schema"] == 1
+    assert doc["kind"] == "sentinel-trueup" and doc["schema"] == 1
     assert set(doc["range"].keys()) == {"from_seq", "to_seq"}
     # Round-trip JSON (el archivo que viaja) verifica igual.
     trueup_export.verify_export(json.loads(json.dumps(doc)), deployment_key.public_key_pem())

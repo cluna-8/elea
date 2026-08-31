@@ -18,7 +18,7 @@ Esta feature no crea entidades ni migraciones. Toca dos estructuras existentes:
 - **Campos afectados** (hoy `null` en byok bridged): `tool` (UA detectado o tool_type de
   la Connection), `client` (username), `tenant` (slug); más `masked_entities` (conteos
   por tipo, sin contenido).
-- **Origen de la identidad**: `UserAPIKeyAuth.metadata["basa"]` (custom_auth) → propagada
+- **Origen de la identidad**: `UserAPIKeyAuth.metadata["sentinel"]` (custom_auth) → propagada
   por el proxy como `user_api_key_metadata` dentro del metadata-home del request. El fix
   es LEERLA del home correcto, no cambiar su forma.
 - **Sin cambios de esquema**: la tabla audit y el shape del evento ya tienen estos campos.

@@ -1,7 +1,7 @@
 # Research T004 (Phase 0) — Build-vs-buy del deploy de marca blanca (020 White-Label Packaging & Deploy)
 
 **Fecha**: 2026-07-13 · **Método**: revisión de prior-art público (docs oficiales de las herramientas,
-anuncios de licencia, FAQs de AWS, guías de air-gap) cruzada con el shape del negocio (Basa entrega IaC a un
+anuncios de licencia, FAQs de AWS, guías de air-gap) cruzada con el shape del negocio (Sentinel entrega IaC a un
 **distribuidor tercero**; el cliente levanta la instalación en su cuenta cloud u **on-prem/air-gap**; **una
 instancia por cliente**). Cada eje trae **veredicto v1/v2** y **fuentes**. Corrige la hipótesis vieja
 (Terraform + ECS/EKS + secrets manager cloud + branding build-time) que no aguanta el requisito air-gap ni el
@@ -9,7 +9,7 @@ de entregar IaC bajo una licencia sin fricción legal.
 
 > ⚠️ Nota de alcance: este research **fija decisiones de arquitectura de empaquetado/deploy** (US1–US6). Lo
 > marcado "v2" es roadmap explícito, no código entregado en esta feature. El principio rector: **portable,
-> sin dependencia operativa de Basa, apto air-gap, sin deuda legal para el distribuidor**.
+> sin dependencia operativa de Sentinel, apto air-gap, sin deuda legal para el distribuidor**.
 
 ## Resumen
 
@@ -232,7 +232,7 @@ Docker + clave paga es un modelo probado? ¿ya hay gente haciéndolo?"*. Resulta
   (air-gap first-class, no add-on).
 
 **Relación con la 021 (tier distribuidor)**: el addendum de la 021 fija la emisión **central por cupo**
-(portal de Basa; `distributor_id`/`pool_id` en el `.lic`). Para esta spec hay **dos puntos de contacto**:
+(portal de Sentinel; `distributor_id`/`pool_id` en el `.lic`). Para esta spec hay **dos puntos de contacto**:
 (1) el `.lic` sigue entrando como config del artefacto (secret/fichero montado), venga del canal que
 venga — sin cambios; (2) **NUEVO** — el artefacto de deploy provisiona un **volumen/secret persistente**
 para la **clave privada del deployment** (par Ed25519 generado en el **install**, que firma los exports

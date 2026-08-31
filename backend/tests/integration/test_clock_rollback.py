@@ -25,7 +25,7 @@ from seat_gate_harness import (
 
 require_postgres()
 
-DB = "basa_test_clock_rollback"
+DB = "sentinel_test_clock_rollback"
 
 T_NOW = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
 T_PAST = T_NOW - timedelta(hours=2)

@@ -22,7 +22,7 @@ No introduce tablas nuevas. Consume el schema existente (013/014) y precisa cóm
   Connection. Esta feature no lo reemplaza, opera dentro de él (si `redact_enabled=False`, no se llama
   ni al Analyzer ni se evalúa `entity_configs`, igual que hoy).
 
-## Contratos en memoria nuevos/modificados (no-DB, viven en `basa_guardian_policy.py`)
+## Contratos en memoria nuevos/modificados (no-DB, viven en `sentinel_guardian_policy.py`)
 
 ### `DetectedEntity` (shape ya implícito, ahora formalizado)
 ```
@@ -41,7 +41,7 @@ detectores regex, para no romper `mask_text`/`PlaceholderMap` (research §1, "el
 entity_type: str -> "MASK" | "BLOCK"
 ```
 Resuelto por una función pura (`resolve_entity_action(entity_type, entity_configs) -> Literal["MASK","BLOCK"]`)
-con default `MASK` (ver arriba). Consumida por `BasaGuardrail.async_pre_call_hook` antes de decidir si
+con default `MASK` (ver arriba). Consumida por `SentinelGuardrail.async_pre_call_hook` antes de decidir si
 una entidad corta la request o se enmascara.
 
 ### `AdHocRecognizerSet` (nuevo)
@@ -63,12 +63,12 @@ ad-hoc recognizers, pasadas por `resolve_overlaps()` primero).
 ```
 resolve_overlaps(entities: list[DetectedEntity]) -> list[DetectedEntity]
 ```
-Determinística, sin estado, sin I/O — vive junto a `mask_text` en `basa_guardian_policy.py` (research §5).
+Determinística, sin estado, sin I/O — vive junto a `mask_text` en `sentinel_guardian_policy.py` (research §5).
 Invariante: la lista de salida nunca contiene dos entidades cuyos rangos `[start, end)` se solapen.
 
 ## Auditoría (sin cambio de schema, nuevo motivo registrable)
 
-`AuditLog`/`basa_audit_logger.py` ya soportan `basa_compliance`/motivo de bloqueo (spec 014). Esta
+`AuditLog`/`sentinel_audit_logger.py` ya soportan `sentinel_compliance`/motivo de bloqueo (spec 014). Esta
 feature agrega dos motivos nuevos al vocabulario existente (no requiere columna nueva, es texto/JSON
 metadata-only):
 - `blocked_entity_type` — bloqueo por `entity_configs[type] == "BLOCK"` (FR-006).

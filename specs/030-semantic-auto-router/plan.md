@@ -8,7 +8,7 @@
 
 Portar el auto-router semántico de llm-guardian (spec 015 de aquel repo: embeddings de
 utterances por ruta + coseno + umbral + best-of, ~140 líneas) al plano de chat de
-basa-guardian, con tres cambios de fondo: **embeddings 100% locales** vía el motor
+sentinel-guardian, con tres cambios de fondo: **embeddings 100% locales** vía el motor
 (`router-embeddings` → `ollama/qwen3-embedding:0.6b`, validado 8/9 en el benchmark del
 28-jul), **config caliente editable por admin** (`auto_router.json` en el volumen
 `litellm_config`, switch global on/off + timeout + default_model), y **rutas con modelo

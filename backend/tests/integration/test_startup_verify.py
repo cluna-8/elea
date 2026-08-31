@@ -15,7 +15,7 @@ from migration_harness import DEFAULT_TENANT, fresh_db, owner_engine, require_po
 
 require_postgres()
 
-DB = "basa_test_license_startup"
+DB = "sentinel_test_license_startup"
 
 
 def _iso(dt: datetime) -> str:
@@ -43,13 +43,13 @@ def _restore_entitlement():
 def _boot(monkeypatch, factory, keyset_path=None, lic_path=None):
     """Simula el gate de arranque: env de la 020 + initialize(force)."""
     from src.licensing import entitlement
-    monkeypatch.delenv("BASA_LICENSE_TOKEN", raising=False)
+    monkeypatch.delenv("SENTINEL_LICENSE_TOKEN", raising=False)
     if keyset_path is not None:
-        monkeypatch.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+        monkeypatch.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
     if lic_path is None:
-        monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", "/no/existe/token.lic")
+        monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", "/no/existe/token.lic")
     else:
-        monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+        monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
     return entitlement.initialize(force=True, session_factory=factory)
 
 
@@ -140,36 +140,36 @@ def test_expired_beyond_grace_boots_expired_never_dies(monkeypatch, factory, tmp
 
 
 def test_inline_token_env_takes_precedence(monkeypatch, factory, tmp_path):
-    """FR-026: el token también puede inyectarse INLINE (BASA_LICENSE_TOKEN);
+    """FR-026: el token también puede inyectarse INLINE (SENTINEL_LICENSE_TOKEN);
     tiene prioridad sobre el fichero y un inline de sólo whitespace cae al
     fichero."""
     from src.licensing import entitlement
     keyset_path, lic_path, _ = issue_files(tmp_path)
-    monkeypatch.setenv("BASA_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
+    monkeypatch.setenv("SENTINEL_LICENSE_PUBLIC_KEYS_FILE", str(keyset_path))
     # inline válido + fichero roto → gana el inline
-    monkeypatch.setenv("BASA_LICENSE_TOKEN", lic_path.read_text())
-    monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", "/no/existe/token.lic")
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN", lic_path.read_text())
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", "/no/existe/token.lic")
     state = entitlement.initialize(force=True, session_factory=factory)
     assert state.status == "active"
     # inline de sólo whitespace + fichero válido → cae al fichero
-    monkeypatch.setenv("BASA_LICENSE_TOKEN", "   ")
-    monkeypatch.setenv("BASA_LICENSE_TOKEN_FILE", str(lic_path))
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN", "   ")
+    monkeypatch.setenv("SENTINEL_LICENSE_TOKEN_FILE", str(lic_path))
     state = entitlement.initialize(force=True, session_factory=factory)
     assert state.status == "active"
 
 
 def test_dev_key_rejected_without_explicit_optin(monkeypatch, factory, tmp_path):
-    """Guard anti-neutralización: la licencia dev del repo (kid basa-dev-*) es
-    PÚBLICA — sin el opt-in BASA_ALLOW_DEV_LICENSE=true se rechaza como
+    """Guard anti-neutralización: la licencia dev del repo (kid sentinel-dev-*) es
+    PÚBLICA — sin el opt-in SENTINEL_ALLOW_DEV_LICENSE=true se rechaza como
     invalid, aunque la firma valide. Con el opt-in (dev/demo) carga normal."""
-    keyset_path, lic_path, _ = issue_files(tmp_path, kid="basa-dev-2026")
-    monkeypatch.delenv("BASA_ALLOW_DEV_LICENSE", raising=False)
+    keyset_path, lic_path, _ = issue_files(tmp_path, kid="sentinel-dev-2026")
+    monkeypatch.delenv("SENTINEL_ALLOW_DEV_LICENSE", raising=False)
     state = _boot(monkeypatch, factory, keyset_path, lic_path)
     assert state.status == "invalid"
-    assert "BASA_ALLOW_DEV_LICENSE" in (state.reason or "")
+    assert "SENTINEL_ALLOW_DEV_LICENSE" in (state.reason or "")
     assert state.token is None
 
-    monkeypatch.setenv("BASA_ALLOW_DEV_LICENSE", "true")
+    monkeypatch.setenv("SENTINEL_ALLOW_DEV_LICENSE", "true")
     state = _boot(monkeypatch, factory, keyset_path, lic_path)
     assert state.status == "active"
 

@@ -6,13 +6,13 @@
 #  (b) ANTI-FUGA: ninguna página del sitio se deriva de las specs internas de Spec Kit
 #      ni de los internos de docs/ (COORDINATION, retros).
 set -euo pipefail
-IMG="${DOCS_IMG:-basa-docs:prod}"
+IMG="${DOCS_IMG:-sentinel-docs:prod}"
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 fail() { echo "❌ $1"; exit 1; }
 
 # (a) deriva del API reference
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"; docker rm -f basa-docs-apiref-check >/dev/null 2>&1 || true' EXIT
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"; docker rm -f sentinel-docs-apiref-check >/dev/null 2>&1 || true' EXIT
 (cd "$REPO_ROOT" && docker compose run --rm --no-deps -e BRAND_NAME="AI Gateway" backend python scripts/export_openapi.py 2>/dev/null) > "$tmp/openapi.json" \
     || fail "no pude exportar el OpenAPI del backend"
 diff -q "$tmp/openapi.json" "$REPO_ROOT/docs/docs/api-reference/openapi.json" >/dev/null \
@@ -28,8 +28,8 @@ fi
 
 # (b) anti-fuga de contexto interno en el sitio publicado
 docker image inspect "$IMG" >/dev/null 2>&1 || fail "imagen $IMG no existe (buildear con make build-docs)"
-docker create --name basa-docs-apiref-check "$IMG" >/dev/null
-docker cp -q basa-docs-apiref-check:/usr/share/nginx/html "$tmp/site"
+docker create --name sentinel-docs-apiref-check "$IMG" >/dev/null
+docker cp -q sentinel-docs-apiref-check:/usr/share/nginx/html "$tmp/site"
 for marker in 'speckit' 'Spec Kit' 'specs/0' 'COORDINATION-019' 'retros/'; do
     hits=$(grep -rl "$marker" "$tmp/site" 2>/dev/null | head -3 || true)
     [ -z "$hits" ] || fail "contexto interno filtrado al sitio ('$marker'):

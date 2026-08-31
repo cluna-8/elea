@@ -1,15 +1,15 @@
 """Contract test de PARIDAD de rutas (spec 014 T033, FR-029, SC-005).
 
-Protege el invariante central del port: la ruta **motor BYOK** (``BasaGuardrail``) y
+Protege el invariante central del port: la ruta **motor BYOK** (``SentinelGuardrail``) y
 el **passthrough OAuth** (``api/gateway.py``) aplican la MISMA política porque ambas
-importan la MISMA ``basa_guardian_policy``. Si una deriva de la otra, esto rompe.
+importan la MISMA ``sentinel_guardian_policy``. Si una deriva de la otra, esto rompe.
 
 Dos niveles:
 
 1. **Paridad de decisión** (puro, sin HTTP): para inputs representativos, el verdicto
    de bloqueo + los tipos enmascarados de ``gateway.evaluate_request_policy`` coinciden
    con lo que produce la librería compartida directamente — que es EXACTAMENTE lo que
-   hace ``BasaGuardrail.async_pre_call_hook`` (mismo orden: AI-Act → secretos → mask).
+   hace ``SentinelGuardrail.async_pre_call_hook`` (mismo orden: AI-Act → secretos → mask).
 2. **E2E del endpoint** con upstream mockeado: bloqueo→400, mask sale al upstream y
    unmask vuelve al caller (no-streaming y streaming, incluido un frame partido).
 
@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.api import gateway
-from extensions import basa_guardian_policy as policy
+from extensions import sentinel_guardian_policy as policy
 
 EMAIL = "juan.perez@hospital.es"
 # DNI español (formato NIF): 8 dígitos + letra. Antes se usaba "12.345.678" (formato AR),
@@ -224,7 +224,7 @@ def client(monkeypatch):
     # dice «no hubo fila», no «acá no me importa la base». Bajo el guard viejo daba igual —
     # `if not registrado and audit_fail_mode() == AUDIT_FAIL_CLOSED` se salvaba por el modo,
     # que por default no es `closed`. Desde T007 el guard es `if not registrado and
-    # exige_registro`, y un pedido sin `X-Basa-Key` resuelve riesgo `None`, que en `policy`
+    # exige_registro`, y un pedido sin `X-Sentinel-Key` resuelve riesgo `None`, que en `policy`
     # (el default) EXIGE registro ⇒ el doble hacía que un bloqueo respondiera 503 en vez de
     # 400, y estos dos tests de contrato rojeaban por una mentira del doble, no del código.
     #
@@ -266,11 +266,11 @@ def test_endpoint_masks_upstream_and_unmasks_reply(client):
 
 
 def test_endpoint_redact_off_header_is_ignored(client):
-    # CAMBIO DE COMPORTAMIENTO (spec 027, cierre del bypass D5): `X-Basa-Redact: 0` era un
+    # CAMBIO DE COMPORTAMIENTO (spec 027, cierre del bypass D5): `X-Sentinel-Redact: 0` era un
     # override por-request, controlado por el CLIENTE, que apagaba el control más fuerte del
     # producto por encima de la postura del admin. Ahora el header es solo restrictivo: el
     # "off" se ignora y el enmascarado del perfil se aplica igual.
-    r = client.post("/gw/v1/messages", json=_body(PII_TEXT), headers={"X-Basa-Redact": "0"})
+    r = client.post("/gw/v1/messages", json=_body(PII_TEXT), headers={"X-Sentinel-Redact": "0"})
     assert r.status_code == 200
     sent = _FakeAsyncClient.captured["content"].decode()
     assert EMAIL not in sent and "[EMAIL_ADDRESS_" in sent    # el header NO relajó nada
@@ -279,7 +279,7 @@ def test_endpoint_redact_off_header_is_ignored(client):
 def test_endpoint_redact_on_header_forces_masking(client):
     # El sentido restrictivo SÍ aplica: agregar protección desde una señal no confiable es
     # legal, y es lo único que el header puede hacer.
-    r = client.post("/gw/v1/messages", json=_body(PII_TEXT), headers={"X-Basa-Redact": "1"})
+    r = client.post("/gw/v1/messages", json=_body(PII_TEXT), headers={"X-Sentinel-Redact": "1"})
     assert r.status_code == 200
     sent = _FakeAsyncClient.captured["content"].decode()
     assert EMAIL not in sent and "[EMAIL_ADDRESS_" in sent

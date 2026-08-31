@@ -10,7 +10,7 @@
 #   · `max_parallel_requests: 20` — techo de generaciones en vuelo contra ese upstream. 20 =
 #     total del backend (8 por proceso × 2 workers = 16) + margen, POR ENCIMA a propósito: el
 #     que tiene que rechazar es el backend, con su 503 honesto, auditado y con cabecera
-#     `X-Basa-Rejected` — no el motor, con un error opaco que nadie cuenta.
+#     `X-Sentinel-Rejected` — no el motor, con un error opaco que nadie cuenta.
 #   · `num_retries: 0` — los reintentos globales (2, sanos contra un proveedor cloud) contra
 #     una cola que serializa son ×3 trabajo por pedido en el peor momento. Amplificación, no
 #     resiliencia.
@@ -31,7 +31,7 @@
 #       dejarían pasar SIN error y sin efecto — límites que son comentarios. Por eso se
 #       levanta la imagen y se le pregunta al router qué construyó y cuántas veces reintenta.
 #
-# Escotilla documentada: BASA_SKIP_ENGINE_IMAGE_INTROSPECTION=1 omite (b) —y sólo (b)— para
+# Escotilla documentada: SENTINEL_SKIP_ENGINE_IMAGE_INTROSPECTION=1 omite (b) —y sólo (b)— para
 # entornos sin acceso al registry. Se anuncia en la salida: un gate que se degrada en silencio
 # no es un gate.
 set -euo pipefail
@@ -124,13 +124,13 @@ case "$IMAGEN" in
    imagen nueva y actualizar DIGEST_VERIFICADO si sigue comportándose igual." ;;
 esac
 
-if [ "${BASA_SKIP_ENGINE_IMAGE_INTROSPECTION:-0}" = "1" ]; then
-    echo "⚠️  introspección de la imagen OMITIDA por BASA_SKIP_ENGINE_IMAGE_INTROSPECTION=1
+if [ "${SENTINEL_SKIP_ENGINE_IMAGE_INTROSPECTION:-0}" = "1" ]; then
+    echo "⚠️  introspección de la imagen OMITIDA por SENTINEL_SKIP_ENGINE_IMAGE_INTROSPECTION=1
    (queda verificada sólo la parte estática; el pin por digest sigue vigilado)"
 elif [ -n "$IMAGEN" ]; then
     if ! command -v docker >/dev/null 2>&1; then
         error "docker no está disponible: la introspección de la imagen del motor no se puede
-   omitir sin decirlo (BASA_SKIP_ENGINE_IMAGE_INTROSPECTION=1)"
+   omitir sin decirlo (SENTINEL_SKIP_ENGINE_IMAGE_INTROSPECTION=1)"
     elif ! docker image inspect "$IMAGEN" >/dev/null 2>&1 && ! docker pull -q "$IMAGEN" >/dev/null 2>&1; then
         error "no pude obtener la imagen pinneada del motor ($IMAGEN)"
     else

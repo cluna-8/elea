@@ -3,7 +3,7 @@
 # lista COMPARTIDA de nombres prohibidos (prohibited_names.txt, la misma del check de
 # la UI) sobre TODO el sitio publicado de la imagen.
 set -euo pipefail
-IMG="${DOCS_IMG:-basa-docs:prod}"
+IMG="${DOCS_IMG:-sentinel-docs:prod}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fail() { echo "❌ $1"; exit 1; }

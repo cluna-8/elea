@@ -97,9 +97,9 @@ Los tres actores y su frontera de responsabilidad:
 | TLS + DNS | En el árbol de release: DNS por cliente derivado del slug + TLS terminado por **proxy auto-HTTPS en la VM**; pendiente la validación e2e aplicada. En dev: HTTP plano en puertos altos. En **LAN sin dominio público** el proxy emite con su **CA interna**, y entonces hay que distribuir esa CA a los puestos — el **kit de confianza** (`deploy/release/trust-kit/`) la exporta, la instala en el almacén de máquina y **verifica con un handshake real**; ver [Operaciones §5.1](../operations/index.md#51-confianza-del-certificado) | TLS terminado + DNS por cliente, región EU | 🟡 |
 | Onboarding de cliente | Perfil por cliente + seed idempotente desde YAML (`seed_clients_from_config(db, tenant_slug, path)`) | Igual, invocado por el flujo de instalación | 🟢 |
 | Tenant por slug | Modelo `Tenant.slug` único; on-prem = 1 tenant (default `…0001`) | Igual; cloud = N tenants aislados por RLS | 🟢 / 🟡 (RLS cableada en las tablas, pero el enforcement por request está pendiente: el aislamiento efectivo hoy es a nivel de aplicación) |
-| Bootstrap de admin | Primer login `admin` crea `tenant_admin` **sólo mientras la instalación no tenga dueño** (ningún usuario con rol administrativo) y con un mínimo de 12 caracteres; email `admin@basa.com.ar`. En el camino IaC la credencial inicial se emite **una sola vez** como output sensible | Igual + rotación de credencial obligatoria post-instalación | 🟢 (rotación por API/UI: `POST /users/me/password` y reseteo de admin `POST /users/{id}/password`) |
+| Bootstrap de admin | Primer login `admin` crea `tenant_admin` **sólo mientras la instalación no tenga dueño** (ningún usuario con rol administrativo) y con un mínimo de 12 caracteres; email `admin@sentinel.com.ar`. En el camino IaC la credencial inicial se emite **una sola vez** como output sensible | Igual + rotación de credencial obligatoria post-instalación | 🟢 (rotación por API/UI: `POST /users/me/password` y reseteo de admin `POST /users/{id}/password`) |
 | Branding white-label | Naming neutro en el código (`AIEngineClient`/`engine_*`, errores del motor reescritos a naming neutro); el render del perfil produce el `brand.json` del cliente | Branding pack (nombre/logo/paleta) por cliente como **config-as-data en runtime** (sin recompilar) | 🟡 |
-| Licenciamiento offline | **Implementado fail-closed**: verificación Ed25519 offline al arranque; gate de seats en las altas (`402` seats agotados / `403` licencia no activa); estados `active`/`grace`/`expired`; `BASA_LICENSE_HARD_BLOCK` corta las rutas de servicio; `GET /api/v1/health/license`; auditoría hash-chained + true-up firmado; sin phone-home | Igual | 🟢 |
+| Licenciamiento offline | **Implementado fail-closed**: verificación Ed25519 offline al arranque; gate de seats en las altas (`402` seats agotados / `403` licencia no activa); estados `active`/`grace`/`expired`; `SENTINEL_LICENSE_HARD_BLOCK` corta las rutas de servicio; `GET /api/v1/health/license`; auditoría hash-chained + true-up firmado; sin phone-home | Igual | 🟢 |
 | Bundle air-gapped | Herramienta de bundle en el árbol de release: tarball autocontenido con **todas** las imágenes + compose de producción + perfil renderizado + checks + manifiesto con digests; validada en el gate del release | Igual, por release; v2 con bundle firmado para k8s | 🟢 |
 
 ---
@@ -149,7 +149,7 @@ Por cada cliente/despliegue, el distribuidor arma un paquete con:
       pull en runtime = instalación rota sin egress) + el compose de producción + el perfil
       renderizado + los checks + un **manifiesto con digests** para verificar el install. 🟢
       La herramienta existe y se valida en el gate del release. El sitio de documentación de
-      producto viaja como una imagen más del release (`basa-docs:<brand>-<version>`, una por
+      producto viaja como una imagen más del release (`sentinel-docs:<brand>-<version>`, una por
       marca, 100% estática y 0-egress).
 
 2. **Branding pack.** Nombre de producto, logo, favicon, paleta y datos de contacto de
@@ -279,7 +279,7 @@ sequenceDiagram
 7. **Bootstrap de admin — ANTES de crear cualquier otro usuario.** El primer login como
    `admin` crea un `tenant_admin` con la password que se envía en ese primer login (mínimo
    **12 caracteres**: si es más corta, la respuesta es `422` y no se crea nada). El email del
-   bootstrap es `admin@basa.com.ar` — un TLD reservado tipo `.local` rompía la validación, ver
+   bootstrap es `admin@sentinel.com.ar` — un TLD reservado tipo `.local` rompía la validación, ver
    [el gotcha](#gotcha-email). El bootstrap **sólo corre mientras la instalación no tenga
    dueño**, es decir mientras no exista ningún usuario cuya existencia pruebe que hubo un
    administrador (`tenant_admin`, `super_admin` o `compliance_officer`: ninguno se puede crear
@@ -310,7 +310,7 @@ sequenceDiagram
    Ed25519 que habilita los N seats contratados (montado por el perfil); el backend la
    verifica offline al arranque. El enforcement es **fail-closed**: sin licencia activa las
    altas de Connections/usuarios se rechazan (**403**; **402** al agotar seats) y, con
-   `BASA_LICENSE_HARD_BLOCK`, se cortan además las rutas de servicio del gateway
+   `SENTINEL_LICENSE_HARD_BLOCK`, se cortan además las rutas de servicio del gateway
    (`/api/v1/gw/...`). Verificar con `GET /api/v1/health/license` y **registrar en el
    onboarding** el `chain.genesis_license_id` de esa respuesta: es la génesis de la cadena
    de auditoría de la instalación, contra la que se verifican después los true-ups. Ver
@@ -363,12 +363,12 @@ El bootstrap de admin usa un email hardcodeado. Con un TLD reservado
 (`.local`/`.test`/`.example`/`.invalid`), una versión reciente de `email-validator`
 (dependencia de Pydantic) lo rechaza como inválido y devuelve **500** en cualquier respuesta
 que incluya la lista de usuarios — rompía toda la pestaña "Usuarios & Presupuestos".
-**Corregido en el producto** (el bootstrap usa `admin@basa.com.ar`). Para un despliegue que
+**Corregido en el producto** (el bootstrap usa `admin@sentinel.com.ar`). Para un despliegue que
 **ya** tiene un admin con el email viejo, corregir a mano en la base:
 
 ```bash
 docker exec <db-container> psql -U <user> -d <db> \
-  -c "UPDATE users SET email='admin@basa.com.ar' WHERE username='admin';"
+  -c "UPDATE users SET email='admin@sentinel.com.ar' WHERE username='admin';"
 ```
 
 ### La consola web parte secretos/URLs de más de ~80 caracteres { #gotcha-consola }

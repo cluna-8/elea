@@ -32,7 +32,7 @@ from seat_gate_harness import admin_headers, build_app_client, mock_engine  # no
 
 require_postgres()
 
-DB = "basa_test_auth_events"
+DB = "sentinel_test_auth_events"
 
 # La password que `admin_headers` usa para bootstrapear el admin (dato del harness): la
 # nombramos acá para poder afirmar en C1 que NO se filtró a ninguna fila auth.
@@ -72,7 +72,7 @@ def _crear_usuario(client, headers, rol):
     email): el PUT los re-manda porque ``UserBase`` los exige (username/email/role
     required — el update es 'reemplazá con estos campos', no un PATCH parcial)."""
     nombre = f"u-{uuid.uuid4().hex[:8]}"
-    email = f"{nombre}@basa.com.ar"
+    email = f"{nombre}@sentinel.com.ar"
     resp = client.post("/api/v1/users", headers=headers, json={
         "username": nombre, "email": email, "role": rol, "password": USER_PASS,
     })

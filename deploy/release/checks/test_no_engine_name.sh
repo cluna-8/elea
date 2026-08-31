@@ -7,7 +7,7 @@
 # gestión del motor). No es texto visible al usuario; renombrarlo rompería el
 # contrato sin ganancia de marca blanca. Cualquier OTRA aparición es fuga.
 set -euo pipefail
-IMG="${FRONTEND_IMG:-basa-frontend:prod}"
+IMG="${FRONTEND_IMG:-sentinel-frontend:prod}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 fail() { echo "❌ $1"; exit 1; }

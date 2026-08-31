@@ -41,7 +41,7 @@ RECON_OVER_SEAT = "over_seat"
 RECON_EXPIRED = "expired"
 
 DEFAULT_INTERVAL_SECONDS = 300.0
-INTERVAL_ENV = "BASA_LICENSE_RECONCILE_INTERVAL_SECONDS"
+INTERVAL_ENV = "SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS"
 
 # Tolerancia del anti-rollback (FR-023). El ataque que la marca persigue es retrasar
 # el reloj HORAS o DÍAS para estirar una licencia; una inversión de micro/milisegundos
@@ -270,7 +270,7 @@ def start_scheduler(interval_seconds: Optional[float] = None,
     """Job periódico en un thread daemon propio (T025): el backend no tenía
     scheduler, y un thread con ``Event.wait`` no bloquea el event loop ni suma
     dependencias. Corre al arrancar y luego cada ``interval_seconds``
-    (env ``BASA_LICENSE_RECONCILE_INTERVAL_SECONDS``, default 300; ≤0 desactiva).
+    (env ``SENTINEL_LICENSE_RECONCILE_INTERVAL_SECONDS``, default 300; ≤0 desactiva).
     """
     global _thread
     if interval_seconds is None:
@@ -291,7 +291,7 @@ def start_scheduler(interval_seconds: Optional[float] = None,
                                  interval_seconds)
             _stop.wait(interval_seconds)
 
-    _thread = threading.Thread(target=_loop, name="basa-license-reconcile", daemon=True)
+    _thread = threading.Thread(target=_loop, name="sentinel-license-reconcile", daemon=True)
     _thread.start()
     logger.info("reconciliación: scheduler activo cada %ss (100%% local)", interval_seconds)
     return _thread

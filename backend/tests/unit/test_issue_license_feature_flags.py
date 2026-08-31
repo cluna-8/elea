@@ -27,7 +27,7 @@ sys.path.insert(0, str(SRC))
 import issue_license  # noqa: E402
 from licensing import verifier as verifier_mod  # noqa: E402
 
-KID = "basa-test-flags"
+KID = "sentinel-test-flags"
 TENANT = "00000000-0000-0000-0000-000000000001"
 
 
@@ -58,7 +58,7 @@ def _emitir(firmante, tmp_path, *extra):
         [sys.executable, str(SCRIPTS / "issue_license.py"),
          "--key", str(key_path), "--kid", KID,
          "--lic-id", "lic_test_0001", "--tenant-id", TENANT,
-         "--distributor-id", "d_basa", "--pool-id", "pool_test",
+         "--distributor-id", "d_sentinel", "--pool-id", "pool_test",
          "--max-seats", "5", "--expiry", "2099-01-01T00:00:00Z",
          "--keyset", str(keyset_path), "--out", str(out), "--force", *extra],
         capture_output=True, text=True,
@@ -102,7 +102,7 @@ def test_la_licencia_emitida_habilita_la_feature_de_verdad(firmante, tmp_path):
     assert proc.returncode == 0, proc.stderr
 
     _key_path, keyset_path = firmante
-    keyset = verifier_mod.BasaPublicKeySet.from_pem_file(str(keyset_path))
+    keyset = verifier_mod.SentinelPublicKeySet.from_pem_file(str(keyset_path))
     token = verifier_mod.verify_license_blob(
         out.read_text(encoding="utf-8"), keyset, expected_tenant_id=TENANT)
 
@@ -117,7 +117,7 @@ def test_sin_el_argumento_la_licencia_sale_sin_features(firmante, tmp_path):
     assert proc.returncode == 0, proc.stderr
 
     _key_path, keyset_path = firmante
-    keyset = verifier_mod.BasaPublicKeySet.from_pem_file(str(keyset_path))
+    keyset = verifier_mod.SentinelPublicKeySet.from_pem_file(str(keyset_path))
     token = verifier_mod.verify_license_blob(
         out.read_text(encoding="utf-8"), keyset, expected_tenant_id=TENANT)
 
@@ -165,6 +165,6 @@ def test_los_flags_viajan_en_el_payload_firmado_no_al_lado(firmante, tmp_path):
     documento["feature_flags"] = ["sso", "monitor"]      # manipulación
     manipulado = json.dumps(documento, ensure_ascii=False, indent=2) + "\n"
     _key_path, keyset_path = firmante
-    keyset = verifier_mod.BasaPublicKeySet.from_pem_file(str(keyset_path))
+    keyset = verifier_mod.SentinelPublicKeySet.from_pem_file(str(keyset_path))
     with pytest.raises(Exception):
         verifier_mod.verify_license_blob(manipulado, keyset, expected_tenant_id=TENANT)

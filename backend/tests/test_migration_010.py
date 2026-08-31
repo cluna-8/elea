@@ -13,7 +13,7 @@ from migration_harness import (
 
 require_postgres()
 
-DB = "basa_test_migration"
+DB = "sentinel_test_migration"
 
 
 @pytest.fixture(scope="module")

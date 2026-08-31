@@ -1,4 +1,4 @@
-"""Unit tests de basa_guardian_policy (spec 014 T006, FR-022).
+"""Unit tests de sentinel_guardian_policy (spec 014 T006, FR-022).
 
 Librería PURA: la detección se inyecta como callable — acá un detector fake por
 patrones fijos, sin Presidio ni DB. Cubre: mask reversible con nonce, colisión de
@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from extensions import basa_guardian_policy as policy
+from extensions import sentinel_guardian_policy as policy
 
 # Detector fake: emails y el nombre "Juan Pérez" (spans exactos, estilo Presidio)
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
@@ -338,7 +338,7 @@ def test_es_phone_pattern_no_marca_numeros_que_no_son_telefonos(texto):
 
 def test_build_ad_hoc_recognizers_adds_deny_list_when_names_present():
     recognizers = policy.build_ad_hoc_recognizers(["Pedro", " Cristian ", "", "  "])
-    deny = next(r for r in recognizers if r["name"] == "BASA_CUSTOM_NAMES")
+    deny = next(r for r in recognizers if r["name"] == "SENTINEL_CUSTOM_NAMES")
     assert deny["deny_list"] == ["Pedro", "Cristian"]
     assert deny["supported_entity"] == "PERSON"
 

@@ -25,7 +25,7 @@ from ..models.user import Group
 from ..services.optimization_service import OptimizationService
 from ..auth.rbac import require_role
 
-logger = logging.getLogger("basa-secure-gateway.costs")
+logger = logging.getLogger("sentinel-secure-gateway.costs")
 
 router = APIRouter(
     prefix="/costs",
@@ -38,8 +38,8 @@ router = APIRouter(
     dependencies=[Depends(require_role("admin", "compliance_officer", "lectura"))],
 )
 
-_ENGINE_URL = os.getenv("BASA_ENGINE_API_BASE", "http://engine:4000")
-_ENGINE_KEY = os.getenv("BASA_ENGINE_MASTER_KEY", "")
+_ENGINE_URL = os.getenv("SENTINEL_ENGINE_API_BASE", "http://engine:4000")
+_ENGINE_KEY = os.getenv("SENTINEL_ENGINE_MASTER_KEY", "")
 
 # Ratio mínimo de ahorro para que el veredicto sea "conviene".
 _MIN_SAVINGS_RATIO = 0.10

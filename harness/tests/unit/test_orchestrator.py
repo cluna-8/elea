@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from basa_harness.orchestrator import Orchestrator, main
+from sentinel_harness.orchestrator import Orchestrator, main
 
 TS = "2026-08-12T00:00:00Z"
 
@@ -340,27 +340,27 @@ def test_conteo_de_auditoria_queda_como_evidencia(tmp_path):
 
 def _pool_del_seeder(tmp_path, *, con_keys=True):
     """Pool como el que emite `seeder.seed --emit-credentials` para el gate 125."""
-    from basa_harness.seeder.population import (derive_password, load_population_by_gate,
+    from sentinel_harness.seeder.population import (derive_password, load_population_by_gate,
                                                 plan_members)
-    from basa_harness.seeder.seed import DEFAULT_SEED
+    from sentinel_harness.seeder.seed import DEFAULT_SEED
     pop = load_population_by_gate(125)
     creds = [{"username": pop.admin_username,
               "password": derive_password(DEFAULT_SEED, pop.admin_username),
               "role": "tenant_admin", "client_type": None, "tool_type": None,
-              "bootstrap": True, "basa_key": None}]
+              "bootstrap": True, "sentinel_key": None}]
     for m in plan_members(pop, DEFAULT_SEED):
         key = None
         if con_keys and m.client_type in ("desktop", "base_url"):
             key = f"sk-{m.username}"
         creds.append({"username": m.username, "password": m.password, "role": m.role,
                       "client_type": m.client_type, "tool_type": m.tool_type,
-                      "basa_key": key})
+                      "sentinel_key": key})
     path = tmp_path / "pool-seeder.json"
     path.write_text(json.dumps(creds), encoding="utf-8")
     return path
 
 
-def test_pool_file_injerta_la_basa_key_en_el_pool_de_k6(tmp_path):
+def test_pool_file_injerta_la_sentinel_key_en_el_pool_de_k6(tmp_path):
     pool_file = _pool_del_seeder(tmp_path)
     orch = _orch(tmp_path, dry_run=False, pool_file=pool_file,
                  health_fn=lambda cual: _health(0),
@@ -374,9 +374,9 @@ def test_pool_file_injerta_la_basa_key_en_el_pool_de_k6(tmp_path):
     for entry in pool:
         if entry["client_type"] in porsuperficie:
             porsuperficie[entry["client_type"]].append(entry)
-    # extensión y coding autentican con X-Basa-Key: TODAS tienen material…
-    assert porsuperficie["desktop"] and all(e["basa_key"] for e in porsuperficie["desktop"])
-    assert porsuperficie["base_url"] and all(e["basa_key"] for e in porsuperficie["base_url"])
+    # extensión y coding autentican con X-Sentinel-Key: TODAS tienen material…
+    assert porsuperficie["desktop"] and all(e["sentinel_key"] for e in porsuperficie["desktop"])
+    assert porsuperficie["base_url"] and all(e["sentinel_key"] for e in porsuperficie["base_url"])
     # …y el resto conserva el shape que espera common.js (password para el JWT).
     assert all(e["password"] for e in porsuperficie["chat_ui"])
 
@@ -395,7 +395,7 @@ def test_pool_sin_material_aborta_antes_de_generar_carga(tmp_path):
                  k6_runner=k6, reconcile_fn=lambda s: _recon_limpia())
     verdict = orch.run()
     assert verdict.estado == "invalid"
-    assert "basa_key" in (verdict.invalid_reason or "")
+    assert "sentinel_key" in (verdict.invalid_reason or "")
     assert lanzado["k6"] is False          # no se quemó una ventana de examen
     assert orch.k6_launched is False
 
@@ -414,11 +414,11 @@ def test_pool_file_ilegible_es_accionable(tmp_path):
 
 
 def test_dry_run_no_necesita_pool_ni_reconcile(tmp_path):
-    """El dry-run no cambia: sin pool (basa_key null) y con reconciliación sintética."""
+    """El dry-run no cambia: sin pool (sentinel_key null) y con reconciliación sintética."""
     orch = _orch(tmp_path, dry_run=True)
     assert orch.run().global_veredicto == "PASS"
     pool = json.loads((orch.run_dir / "pool.json").read_text())
-    assert all(e["basa_key"] is None for e in pool)
+    assert all(e["sentinel_key"] is None for e in pool)
     data = json.loads((orch.run_dir / "reconciliation.json").read_text())
     assert data["filas_persistidas"] == data["eventos_guion"]
 
@@ -463,7 +463,7 @@ def test_cli_dry_run_sigue_verde_y_sin_reconcile(tmp_path, capsys):
 def test_cli_real_sin_reconcile_avisa(tmp_path, capsys, monkeypatch):
     """Un run real sin --reconcile http no puede computar (b) ni (d): tiene que avisarlo
     ANTES, no descubrirse al final del examen."""
-    import basa_harness.orchestrator as orchmod
+    import sentinel_harness.orchestrator as orchmod
 
     class OrchFalso:
         run_dir = tmp_path
@@ -472,7 +472,7 @@ def test_cli_real_sin_reconcile_avisa(tmp_path, capsys, monkeypatch):
             pass
 
         def run(self):
-            from basa_harness.reporting.evaluator import Verdict
+            from sentinel_harness.reporting.evaluator import Verdict
             return Verdict(run_id="x", gate={"n": 125, "version": "1.0.0"},
                            estado="completed", global_veredicto="PASS", slos=[])
 
@@ -656,7 +656,7 @@ def test_humo_limpio_deja_correr(tmp_path):
 
 
 def test_el_humo_recibe_el_pool_del_run(tmp_path):
-    """La sonda necesita credenciales y basa_key reales: se le pasa el pool exportado."""
+    """La sonda necesita credenciales y sentinel_key reales: se le pasa el pool exportado."""
     visto = {}
     orch = _orch(tmp_path, dry_run=False,
                  health_fn=lambda cual: _health(0),

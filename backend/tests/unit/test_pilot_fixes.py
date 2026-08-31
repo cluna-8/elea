@@ -28,7 +28,7 @@ from src.services.budget_service import BudgetService, _is_local_model
 # CABLEADO de la constante y la guardia de rango nueva viven en
 # tests/unit/test_engine_gate.py.
 # --------------------------------------------------------------------------- #
-_ENGINE_TIMEOUT_ENV = "BASA_ENGINE_TIMEOUT_SECONDS"
+_ENGINE_TIMEOUT_ENV = "SENTINEL_ENGINE_TIMEOUT_SECONDS"
 
 
 def _engine_timeout(monkeypatch, valor=None):

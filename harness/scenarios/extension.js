@@ -1,6 +1,6 @@
 // extension.js — superficie extensión navegador (spec 035, T024).
 // GET /api/v1/gw/whoami (login del popup) + POST /api/v1/gw/inspect (aplica política),
-// autenticadas con X-Basa-Key (la Connection del seat, tool_type=desktop).
+// autenticadas con X-Sentinel-Key (la Connection del seat, tool_type=desktop).
 import http from 'k6/http';
 import { check } from 'k6';
 import {
@@ -9,7 +9,7 @@ import {
 
 export function extension() {
   const id = pickIdentity('extension');
-  const headers = authHeaders(id, 'extension'); // { 'X-Basa-Key': ... }
+  const headers = authHeaders(id, 'extension'); // { 'X-Sentinel-Key': ... }
   if (!headers) { metrics.harness_errors.add(1); return; }
 
   const phase = phaseOf();

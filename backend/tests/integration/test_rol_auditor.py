@@ -61,7 +61,7 @@ from seat_gate_harness import admin_headers, build_app_client, mock_engine  # no
 
 require_postgres()
 
-DB = "basa_test_rol_auditor"
+DB = "sentinel_test_rol_auditor"
 
 # El valor que guarda la base. La consola lo muestra como «Auditor» (ROLE_LABELS del
 # frontend); acá se usa el nombre real para que el test hable el idioma del backend.
@@ -126,7 +126,7 @@ def admin(harness):
 def _alta(client, headers, rol=ROL_AUDITOR):
     nombre = f"auditor-{uuid.uuid4().hex[:8]}"
     resp = client.post("/api/v1/users", headers=headers, json={
-        "username": nombre, "email": f"{nombre}@basa.com.ar",
+        "username": nombre, "email": f"{nombre}@sentinel.com.ar",
         "role": rol, "password": CLAVE,
     })
     return nombre, resp

@@ -15,7 +15,7 @@ Qué vive acá:
   (`human_reviews.response_text`, FR-004/T009) y rastro auditable de cada corrida
   (`purge_log` por clase + fila resumen `config_audit`, FR-005/T010). Invocable a mano por CLI
   (`python -m src.services.retention.purger --run-now`). Simulacro por default: no borra hasta
-  `BASA_PURGE_DRY_RUN=false`.
+  `SENTINEL_PURGE_DRY_RUN=false`.
 
 Qué NO vive acá, a propósito:
 

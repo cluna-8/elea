@@ -1,7 +1,7 @@
 """e2e ruteo de la puerta única (spec 019 US1/US2) — HTTP vivo, cruza procesos.
 
-Prueba la cadena real ``gateway → motor LiteLLM → Postgres → custom_auth → BasaGuardrail``
-(byok) y la exclusión del passthrough de suscripción (``X-Basa-Key`` es atribución, no
+Prueba la cadena real ``gateway → motor LiteLLM → Postgres → custom_auth → SentinelGuardrail``
+(byok) y la exclusión del passthrough de suscripción (``X-Sentinel-Key`` es atribución, no
 credencial de ruteo). Nada mockeado: la key se seedea en la base compartida y viaja por
 HTTP hasta el motor. Ver ``docs/COORDINATION-019-e2e-hardening.md`` (asserts T1–T4).
 """
@@ -31,7 +31,7 @@ UNKNOWN_KEY_MARK = "clave de acceso desconocida"
 
 def test_t1_byok_chain_blocks_ai_act(gw, seeded_byok_key):
     """T1 (byok, fuerte): key SEEDEADA + prompt AI-Act. La request cruza el gateway al
-    motor; custom_auth resuelve la key (OK) y el BasaGuardrail bloquea por Art.5.
+    motor; custom_auth resuelve la key (OK) y el SentinelGuardrail bloquea por Art.5.
     Prueba toda la cadena gateway→motor→custom_auth(OK)→guardrail(block)."""
     resp = gw.post("/v1/messages", headers={"x-api-key": seeded_byok_key}, json=AI_ACT_BODY)
     body = resp.text
@@ -44,10 +44,10 @@ def test_t1_byok_chain_blocks_ai_act(gw, seeded_byok_key):
 
 
 def test_t1_regression_byok_unseeded_key_fail_closed(gw):
-    """T1-regresión (fail-closed): MISMO prompt con una key sk-basa-… que NO existe.
+    """T1-regresión (fail-closed): MISMO prompt con una key sk-sentinel-… que NO existe.
     custom_auth del motor rechaza ANTES del guardrail → el body lleva su marca. Guard de
     T1: prueba que el 400 de T1 vino del guardrail (key válida), no de auth."""
-    bogus = f"sk-basa-noexiste-{uuid.uuid4().hex[:8]}"
+    bogus = f"sk-sentinel-noexiste-{uuid.uuid4().hex[:8]}"
     resp = gw.post("/v1/messages", headers={"x-api-key": bogus}, json=AI_ACT_BODY)
     body = resp.text
 
@@ -69,10 +69,10 @@ def test_t2_passthrough_does_not_reach_motor(gw):
     assert resp.status_code in (401, 502), (resp.status_code, body)
 
 
-def test_t3_x_basa_key_excluded_from_byok_routing(gw, seeded_byok_key):
-    """T3 (exclusión x-basa-* — load-bearing): una virtual key VÁLIDA en ``X-Basa-Key``
-    + OAuth de suscripción. ``X-Basa-Key`` es atribución OPCIONAL y NO debe desviar la
-    request a byok: tiene que quedar en passthrough (la sk-basa de atribución de Claude
+def test_t3_x_sentinel_key_excluded_from_byok_routing(gw, seeded_byok_key):
+    """T3 (exclusión x-sentinel-* — load-bearing): una virtual key VÁLIDA en ``X-Sentinel-Key``
+    + OAuth de suscripción. ``X-Sentinel-Key`` es atribución OPCIONAL y NO debe desviar la
+    request a byok: tiene que quedar en passthrough (la sk-sentinel de atribución de Claude
     Code viaja SOLO acá y no puede sacarlo de su suscripción).
 
     Discriminador: en passthrough el 'Bearer fake-oauth' va verbatim a Anthropic, que
@@ -83,7 +83,7 @@ def test_t3_x_basa_key_excluded_from_byok_routing(gw, seeded_byok_key):
     como en T1.) Egress bloqueado → passthrough emite 502 propio (tampoco es byok)."""
     resp = gw.post(
         "/v1/messages",
-        headers={"X-Basa-Key": seeded_byok_key, "Authorization": "Bearer fake-oauth"},
+        headers={"X-Sentinel-Key": seeded_byok_key, "Authorization": "Bearer fake-oauth"},
         json=BENIGN_BODY,
     )
     body = resp.text

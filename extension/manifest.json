@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Basa Guard",
+  "name": "Sentinel Guard",
   "version": "0.3.0",
   "description": "Protege los datos personales antes de que salgan hacia ChatGPT o Claude. Tu organización define qué se enmascara y registra el uso.",
   "permissions": ["storage", "alarms"],
@@ -9,7 +9,7 @@
   "background": { "service_worker": "background.js" },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Basa Guard",
+    "default_title": "Sentinel Guard",
     "default_icon": { "16": "icons/icon-16.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" }
   },
   "content_scripts": [

@@ -55,7 +55,7 @@ from ..services.auth_events import emit_auth_event
 from ..services.encryption_service import CifradoNoDisponible, encrypt
 from .registry import get_provider
 
-logger = logging.getLogger("basa-secure-gateway.sso.admin")
+logger = logging.getLogger("sentinel-secure-gateway.sso.admin")
 
 # Tipo de evento local al módulo, siguiendo el precedente de `AUTH_SSO_DENIED` en
 # `sso/api.py`: los event types propios del SSO viven junto a quien los emite.

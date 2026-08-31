@@ -11,7 +11,7 @@
 ## Categorías de finding
 - **Security/authz**: 2 (master-key PROXY_ADMIN bypass; key-format misroute). Ambos HIGH.
 - **DLP/masking correctness**: 3 (inspect trunca a 8000; fetch-hook fail-open body no-string; catch reenvía crudo).
-- **API contract/consistency**: 2 (X-Basa-Key descartada en helpers; audit count).
+- **API contract/consistency**: 2 (X-Sentinel-Key descartada en helpers; audit count).
 - **Robustez**: 1 (500 con text no-string).
 - **Extension threat-model**: 1 (postMessage forjeable → documentado, no "fixeable" en MV3).
 
@@ -23,7 +23,7 @@
 - **Minion E2E corrigió una debilidad de MI coord doc**: el assert central de T3 ("no contiene 'clave desconocida'") no discriminaba (una key válida desviada a byok tampoco la emite). Lo fortaleció con un discriminador grounded en probes en vivo. → Lección: los asserts del coord doc deben probarse por su capacidad de DISCRIMINAR, no solo describir la conducta esperada.
 
 ## Patterns to promote → CLAUDE.md (aparecen cross-spec)
-1. **Convención `sk-basa-` de virtual keys es un invariante cross-spec**: el seed path (013 `seed_client`) y el online path (014 `keys.py`/`ai_engine_client`) DEBEN emitir el mismo formato, porque el ruteo del gateway (019) y la exclusión load-bearing `x-basa-*` lo asumen. Un finding HIGH nació de que divergían. → Regla candidata: "toda emisión de virtual key produce `sk-basa-…`; el ruteo por prefijo lo asume."
+1. **Convención `sk-sentinel-` de virtual keys es un invariante cross-spec**: el seed path (013 `seed_client`) y el online path (014 `keys.py`/`ai_engine_client`) DEBEN emitir el mismo formato, porque el ruteo del gateway (019) y la exclusión load-bearing `x-sentinel-*` lo asumen. Un finding HIGH nació de que divergían. → Regla candidata: "toda emisión de virtual key produce `sk-sentinel-…`; el ruteo por prefijo lo asume."
 2. **Nunca fallback a master key desde una ruta triggereable por cliente** (fail-closed duro). Aplica a cualquier proxy futuro.
 3. **Doble gate de review (Codex + adversarial multi-agente) es complementario**: Codex vio el master-key; el adversarial vio el key-format misroute (que Codex no). Mantener ambos como gate de deploy vale la pena.
 

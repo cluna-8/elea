@@ -194,15 +194,15 @@ Todos verificados en despliegues reales o en el código actual del producto.
 
 - **Síntoma:** cualquier respuesta que incluya la lista de usuarios devuelve **500** — la pestaña
   "Usuarios & Presupuestos" entera deja de funcionar.
-- **Causa:** el bootstrap de admin usa un email hardcodeado. Con `admin@basa.local` (o cualquier TLD
+- **Causa:** el bootstrap de admin usa un email hardcodeado. Con `admin@sentinel.local` (o cualquier TLD
   reservado `.local`/`.test`/`.example`/`.invalid`), una versión reciente del validador de emails de
   la capa de API lo rechaza como inválido.
-- **Fix:** **corregido en el código actual** (el bootstrap usa `admin@basa.com.ar`). Para un deploy
+- **Fix:** **corregido en el código actual** (el bootstrap usa `admin@sentinel.com.ar`). Para un deploy
   que **ya** tiene un admin con el email viejo, corregir a mano en la base:
 
 ```bash
 docker exec <db-container> psql -U <user> -d <db> \
-  -c "UPDATE users SET email='admin@basa.com.ar' WHERE username='admin';"
+  -c "UPDATE users SET email='admin@sentinel.com.ar' WHERE username='admin';"
 ```
 
 ### d) La consola web parte secretos/URLs de más de ~80 caracteres
@@ -328,8 +328,8 @@ Los códigos **G#** refieren al detalle causa → fix en
 
 | Síntoma | Causa probable | Fix |
 |---|---|---|
-| Claude Code ignora la identidad (aparece admin/default) | No reinició `claude` tras editar `settings.json`; o falta `X-Basa-Key` | Reiniciar `claude`; verificar con `curl …/api/v1/gw/whoami -H "X-Basa-Key: …"` |
-| Copilot 401 / no autentica | `x-api-key` vacío, `apiKey` ignorado (G2) | Poner la key en la URL: `…/api/v1/gw/v1/messages?k=sk-basa-…` |
+| Claude Code ignora la identidad (aparece admin/default) | No reinició `claude` tras editar `settings.json`; o falta `X-Sentinel-Key` | Reiniciar `claude`; verificar con `curl …/api/v1/gw/whoami -H "X-Sentinel-Key: …"` |
+| Copilot 401 / no autentica | `x-api-key` vacío, `apiKey` ignorado (G2) | Poner la key en la URL: `…/api/v1/gw/v1/messages?k=sk-sentinel-…` |
 | Copilot loopea, tarjetas `in=0 out=NN` repetidas (G1) | Modo Agent/Edit con modelo no-Claude | Cambiar a **modo Ask** |
 | El nombre real sale en el título de Claude.ai (G3) | Endpoint `/title` con prompt crudo | Confirmar que el adapter matchea `/title`; recargar la extensión (↻) |
 | Placeholders `[PERSON_0]` visibles en un artefacto de Claude (G5) | Artefacto en `iframe`, `all_frames:false` | Limitación conocida; mostrar en el chat |
@@ -357,7 +357,7 @@ en vivo). No existen otros endpoints `/gw` que estos.
     La detección de PII hoy es **por patrones, in-process** (el motor NLP avanzado es 🔵 roadmap); el monitor
     es una **vitrina de demo** con feed efímero en memoria — la auditoría durable (Postgres) sigue
     siendo **metadata-only** (cero texto de prompt, cero PII cruda). El masking reversible reenvía el
-    original salvo con redacción activa (`X-Basa-Redact`), donde el modelo solo ve placeholders y el
+    original salvo con redacción activa (`X-Sentinel-Redact`), donde el modelo solo ve placeholders y el
     caller recibe los valores reales.
 
 ---

@@ -24,7 +24,7 @@ ANON = {**VALID, "api_key_id": None}
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(gateway, "_resolve_attribution",
-                        lambda k: VALID if k == "sk-basa-valid" else ANON)
+                        lambda k: VALID if k == "sk-sentinel-valid" else ANON)
     monkeypatch.setattr(gateway, "_audit", lambda *a, **k: None)
     monkeypatch.setattr(gateway, "_publish_monitor", lambda *a, **k: None)
     app = FastAPI()
@@ -34,7 +34,7 @@ def client(monkeypatch):
 
 
 def test_whoami_valid_key(client):
-    r = client.get("/gw/whoami", headers={"X-Basa-Key": "sk-basa-valid"})
+    r = client.get("/gw/whoami", headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200
     j = r.json()
     assert j["ok"] and j["user"] == "dev.browser" and j["team"] == "Equipo Web"
@@ -42,7 +42,7 @@ def test_whoami_valid_key(client):
 
 def test_whoami_fail_closed(client):
     assert client.get("/gw/whoami").status_code == 401
-    assert client.get("/gw/whoami", headers={"X-Basa-Key": "sk-basa-wrong"}).status_code == 401
+    assert client.get("/gw/whoami", headers={"X-Sentinel-Key": "sk-sentinel-wrong"}).status_code == 401
 
 
 def test_inspect_fail_closed(client):
@@ -52,7 +52,7 @@ def test_inspect_fail_closed(client):
 
 def test_inspect_masks_and_returns_replacements(client):
     r = client.post("/gw/inspect", json={"text": f"Contactá a {EMAIL}, DNI {DNI}", "tool": "ChatGPT (web)"},
-                    headers={"X-Basa-Key": "sk-basa-valid"})
+                    headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200
     j = r.json()
     # el modelo (ChatGPT) verá placeholders, no la PII. Nota (#64): el fallback dev
@@ -73,7 +73,7 @@ def test_inspect_masks_and_returns_replacements(client):
 
 
 def test_inspect_empty_text_ok(client):
-    r = client.post("/gw/inspect", json={"text": ""}, headers={"X-Basa-Key": "sk-basa-valid"})
+    r = client.post("/gw/inspect", json={"text": ""}, headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200 and r.json()["replacements"] == []
 
 
@@ -83,7 +83,7 @@ def test_inspect_masks_pii_beyond_old_8000_cap(client):
     # Antes: el texto se truncaba a 8000 chars ANTES de enmascarar → PII más allá del cap
     # salía CRUDA hacia el modelo. Ahora se enmascara el texto COMPLETO.
     text = "x" * 9000 + f" contactar a {EMAIL}"  # el email vive en el char ~9012 (>8000)
-    r = client.post("/gw/inspect", json={"text": text}, headers={"X-Basa-Key": "sk-basa-valid"})
+    r = client.post("/gw/inspect", json={"text": text}, headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200
     j = r.json()
     assert EMAIL not in j["masked"]                    # el email del tail fue enmascarado
@@ -95,7 +95,7 @@ def test_inspect_masks_pii_beyond_old_8000_cap(client):
 def test_inspect_short_text_still_masks(client):
     # Regresión F3: el texto corto sigue enmascarando igual (no rompimos el caso base).
     r = client.post("/gw/inspect", json={"text": f"mi email {EMAIL}"},
-                    headers={"X-Basa-Key": "sk-basa-valid"})
+                    headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     j = r.json()
     assert EMAIL not in j["masked"] and "[EMAIL_ADDRESS_" in j["masked"]
 
@@ -103,13 +103,13 @@ def test_inspect_short_text_still_masks(client):
 # ── F7 [LOW]: `text` no-string no debe crashear (500) — coerción a "" ────────────────
 
 def test_inspect_non_string_int_text_does_not_500(client):
-    r = client.post("/gw/inspect", json={"text": 123}, headers={"X-Basa-Key": "sk-basa-valid"})
+    r = client.post("/gw/inspect", json={"text": 123}, headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200                         # NO 500
     assert r.json()["replacements"] == []               # coerción a "": nada que enmascarar
 
 
 def test_inspect_non_string_list_text_does_not_500(client):
-    r = client.post("/gw/inspect", json={"text": ["a", "b"]}, headers={"X-Basa-Key": "sk-basa-valid"})
+    r = client.post("/gw/inspect", json={"text": ["a", "b"]}, headers={"X-Sentinel-Key": "sk-sentinel-valid"})
     assert r.status_code == 200                         # NO 500
     assert r.json()["replacements"] == []
 

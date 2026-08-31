@@ -130,7 +130,7 @@ def test_rol_sin_permiso_de_auditoria_tampoco_ve_los_numeros(redis_falso):
 # 2. Tier de operación: el bloque del contrato, con la semántica de cada valor
 # --------------------------------------------------------------------------- #
 def test_contador_sembrado_se_publica_tal_cual(redis_falso):
-    """Spec 038 D1: sin `BASA_AUDIT_FAIL` seteada el `/health` ahora publica `policy`, no
+    """Spec 038 D1: sin `SENTINEL_AUDIT_FAIL` seteada el `/health` ahora publica `policy`, no
     `open` — consecuencia directa del default nuevo, no un bug de este test."""
     redis_falso({REDIS_KEY_AUDIT_LOST: "5", REDIS_KEY_AUDIT_LAST_FAIL: ISO})
 
@@ -280,7 +280,7 @@ def test_tier_estricto_con_open_explicito_degrada(redis_falso, monkeypatch, tier
 
     assert body["status"] == "degraded"
     assert "tier de enforcement es estricto" in body["reason"]
-    assert "BASA_AUDIT_FAIL=open" in body["reason"]
+    assert "SENTINEL_AUDIT_FAIL=open" in body["reason"]
 
 
 def test_tier_estricto_con_policy_default_degrada(redis_falso, tier_espiado):
@@ -290,7 +290,7 @@ def test_tier_estricto_con_policy_default_degrada(redis_falso, tier_espiado):
     body = _app(_FakeSession(), usuario=_admin()).get(RUTA).json()
 
     assert body["status"] == "degraded"
-    assert "BASA_AUDIT_FAIL=policy" in body["reason"]
+    assert "SENTINEL_AUDIT_FAIL=policy" in body["reason"]
 
 
 def test_tier_estandar_no_degrada(redis_falso, tier_espiado):

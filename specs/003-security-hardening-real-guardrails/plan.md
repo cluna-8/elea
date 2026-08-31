@@ -45,7 +45,7 @@ La arquitectura preserva PII masking en nuestro backend (necesitamos el `placeho
 Request del cliente
   │
   ▼
-basa-backend
+sentinel-backend
   ├── 1. Auth & budget check (nuestro)
   ├── 2. Secret detection (nuestro, regex — rápido, sin dependencias)
   ├── 3. PII masking (nuestro, regex → Presidio NLP en P2)
@@ -64,7 +64,7 @@ Motor de IA interno
   └── post_call guardrails (moderación de la respuesta)
   │
   ▼
-basa-backend
+sentinel-backend
   ├── 5. Recibe respuesta + guardrail events del motor
   ├── 6. PII unmask (aplica placeholder_map sobre la respuesta)
   └── 7. Audit log con guardian_events (sin texto original)
@@ -80,7 +80,7 @@ Admin en SecurityPage
   └── PUT /api/v1/guardians/{id}
         │
         ▼
-        basa-backend
+        sentinel-backend
           ├── 1. Persiste guardian en nuestra DB
           ├── 2. Si guardian tiene engine_guardrail_name:
           │       llama a AIEngineClient.sync_guardrail_config(guardian)
