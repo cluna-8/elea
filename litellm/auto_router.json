@@ -7,7 +7,7 @@
     {
       "name": "Código y análisis",
       "description": "Consultas de código, análisis y razonamiento (modelo premium)",
-      "target_model": "azure-gpt-4o-mini",
+      "target_model": "azure-gpt-5.1-chat",
       "score_threshold": 0.45,
       "tier": "premium",
       "utterances": [
@@ -27,7 +27,7 @@
     {
       "name": "Redacción y resumen",
       "description": "Resumen, redacción y traducción (modelo económico)",
-      "target_model": "azure-gpt-4o-mini",
+      "target_model": "azure-gpt-5.4-mini",
       "score_threshold": 0.45,
       "tier": "economy",
       "utterances": [

@@ -1487,10 +1487,16 @@ async def chat_completions(
     # EXACTAMENTE el de la conexión al motor, ni un statement más.
     try:
         async with adquirir_turno(), httpx.AsyncClient() as client:
+            # `temperature` FIJO sacado (31-ago): los modelos de razonamiento (ej.
+            # azure-gpt-5.1-chat) rechazan cualquier valor que no sea el default (1) —
+            # "Unsupported value: 'temperature' does not support 0.3 with this model"
+            # real, en vivo. Mismo bug que ya se había corregido para el portal
+            # (commit 68f1b22) pero seguía presente en este endpoint. Sin la clave, cada
+            # modelo usa su propio default — no hay control de temperatura expuesto al
+            # usuario hoy, así que omitirla no saca ninguna funcionalidad real.
             raw_request_json = {
                 "model": routed_model,
                 "messages": [{"role": "user", "content": optimized_prompt}],
-                "temperature": 0.3
             }
             if active_engine_guardrails:
                 raw_request_json["guardrails"] = active_engine_guardrails

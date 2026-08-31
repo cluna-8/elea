@@ -25,6 +25,11 @@ litellm_settings:
     type: redis
   drop_params: true
   set_verbose: false
+# Catálogo alineado a producción (31-ago): 3 deployments reales de Azure OpenAI +
+# embeddings también en Azure (antes local vía Ollama, causaba fallos del auto-router
+# — ver auto_router.json). Sacados gemini/openai/claude/ollama del catálogo de
+# desarrollo: no son los que corren en producción, mantenerlos vivos acá invitaba a
+# probar contra un catálogo que no es el real.
 model_list:
 - litellm_params:
     api_base: os.environ/AZURE_API_BASE
@@ -33,39 +38,35 @@ model_list:
     model: azure/gpt-4o-mini
   model_name: azure-gpt-4o-mini
 - litellm_params:
-    api_key: os.environ/GEMINI_API_KEY
-    model: gemini/gemini-2.5-flash
-  model_name: gemini-2.5-flash
+    api_base: os.environ/AZURE_API_BASE
+    api_key: os.environ/AZURE_API_KEY
+    api_version: os.environ/AZURE_API_VERSION
+    model: azure/gpt-5.1-chat
+  model_info:
+    # Precios reales de producción (panel Modelos & Ollama, 31-ago) — este deployment
+    # es nuevo, el mapa de costos embebido de litellm puede no traerlo todavía.
+    input_cost_per_token: 0.00000125
+    output_cost_per_token: 0.00001
+  model_name: azure-gpt-5.1-chat
 - litellm_params:
-    api_key: os.environ/GEMINI_API_KEY
-    model: gemini/gemini-2.5-flash-lite
-  model_name: gemini-2.5-flash-lite
+    api_base: os.environ/AZURE_API_BASE
+    api_key: os.environ/AZURE_API_KEY
+    api_version: os.environ/AZURE_API_VERSION
+    model: azure/gpt-5.4-mini
+  model_info:
+    input_cost_per_token: 0.00000075
+    output_cost_per_token: 0.0000045
+  model_name: azure-gpt-5.4-mini
+# Embeddings del auto-router semántico (spec 030 R1) — Azure OpenAI real (antes Ollama
+# local, ver historial de git: causaba "Auto-router: fallo al embeber" porque no hay
+# runtime Ollama en este entorno). NO es un modelo conversable: se excluye del
+# dropdown del chat por nombre. Gratis en el panel = cost fields en 0 a propósito
+# (el ruteo semántico no se factura al tenant).
 - litellm_params:
-    api_key: os.environ/OPENAI_API_KEY
-    model: openai/gpt-4o
-  model_name: gpt-4o
-- litellm_params:
-    api_key: os.environ/OPENAI_API_KEY
-    model: openai/gpt-4o-mini
-  model_name: gpt-4o-mini
-- litellm_params:
-    api_key: os.environ/ANTHROPIC_API_KEY
-    model: anthropic/claude-3-5-sonnet-20240620
-  model_name: claude-3-5-sonnet
-# Ollama LOCAL sacado del catálogo (31-ago, spec 040 — despliegue de prueba
-# multi-usuario): no hay runtime Ollama en este entorno; dejarlo listado permitía
-# elegirlo manualmente (o por fallback) y colgaba 30s por request — no aceptable con
-# varias personas probando a la vez. La entrada completa (comentario original con el
-# contexto del incidente del 30-jul, `max_parallel_requests`, `num_retries: 0`) sigue en
-# el historial de git — restaurarla si el deployment de destino sí tiene Ollama corriendo.
-# Embeddings del auto-router semántico (spec 030 R1): qwen3-embedding:0.6b LOCAL — el
-# contenido del prompt NO puede salir de la máquina para decidir el ruteo (FR-003 +
-# residencia). ollama/ (no ollama_chat/): el endpoint es /v1/embeddings, no /api/chat.
-# NO es un modelo conversable: se excluye del dropdown del chat por nombre.
-# Requiere `ollama pull qwen3-embedding:0.6b` (639 MB) en el host del runtime.
-- litellm_params:
-    api_base: http://host.docker.internal:11434
-    model: ollama/qwen3-embedding:0.6b
+    api_base: os.environ/AZURE_API_BASE
+    api_key: os.environ/AZURE_API_KEY
+    api_version: os.environ/AZURE_API_VERSION
+    model: azure/text-embedding-3-large
   model_info:
     input_cost_per_token: 0
     mode: embedding
@@ -84,24 +85,13 @@ router_settings:
   # prohibida cualquier degradación hacia un modelo que nadie eligió. Ojo con lo que ya
   # implica esta lista: la sustitución es SILENCIOSA (la respuesta conserva el nombre del
   # modelo pedido), así que cada entrada es una decisión de quien la escribe —acá, de dev.
+  #
+  # 31-ago: alineado a producción — los dos "mini" (más chicos/baratos) se cubren entre
+  # sí; azure-gpt-5.1-chat (el modelo grande) queda SIN fallback, igual que en el panel
+  # real ("Sin fallback"), decisión explícita del usuario (no degradar silenciosamente
+  # hacia un modelo más chico cuando se pidió el grande a propósito).
   fallbacks:
-  # 31-ago (sesión de prueba multi-usuario, spec 040): sacado ollama-qwen3-4b de TODAS
-  # las cadenas — no hay Ollama corriendo en este entorno, y un fallback ahí cuelga 30s
-  # (timeout real observado) en vez de fallar rápido. Cada cadena ahora termina en un
-  # modelo con credencial real configurada (azure-gpt-4o-mini o gemini). gpt-4o/
-  # gpt-4o-mini quedan en el catálogo (sin OPENAI_API_KEY) pero con fallback real: no
-  # deberían pedirse directo, y si se piden, no cuelgan.
   - azure-gpt-4o-mini:
-    - gemini-2.5-flash-lite
-  - gemini-2.5-flash-lite:
-    - azure-gpt-4o-mini
-  - gpt-4o:
-    - azure-gpt-4o-mini
-  - gpt-4o-mini:
-    - azure-gpt-4o-mini
-  - claude-3-5-sonnet:
-    - gemini-2.5-flash
-    - azure-gpt-4o-mini
-  - gemini-2.5-flash:
-    - gemini-2.5-flash-lite
+    - azure-gpt-5.4-mini
+  - azure-gpt-5.4-mini:
     - azure-gpt-4o-mini
