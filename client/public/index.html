@@ -702,7 +702,10 @@
       const res = await fetch(`/api/workspaces/${slug}`);
       if (!res.ok) { showToast('No se pudo abrir el espacio.'); return; }
       const data = await res.json();
-      currentWorkspace = data.workspace;
+      // AnythingLLM devuelve el workspace envuelto en un array de 1 elemento en este
+      // endpoint (a diferencia de /update-embeddings, que lo devuelve como objeto plano)
+      // — verificado en vivo el 31-ago, no está documentado así en ningún lado.
+      currentWorkspace = Array.isArray(data.workspace) ? data.workspace[0] : data.workspace;
       currentThreadSlug = null;
       messages = [];
       renderWorkspaceList();
