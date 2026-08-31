@@ -563,8 +563,15 @@ def _get_http_client() -> httpx.AsyncClient:
 
 
 async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[list] = None,
-                           region: str = DEFAULT_REGION, timeout: float = 2.0,
+                           region: str = DEFAULT_REGION, timeout: float = 15.0,
                            custom_entities: Optional[list] = None) -> list:
+    # timeout subido de 2.0 -> 15.0 (31-ago, cliente RAG): medido en vivo, el spaCy
+    # es_core_news_md real procesa ~330 caracteres/segundo por CPU (1 core al 100%) —
+    # un texto de 6KB, nada exótico, ya tardaba 18s y el fail-closed lo bloqueaba
+    # como si el analyzer estuviera caído. 15s no es "más rápido", es dejar de
+    # confundir "lento pero real" con "no disponible". Documentos grandes se
+    # troceean del lado del cliente (spec 040) — cada trozo individual sigue
+    # entrando en este margen con un cómputo real, no forzado.
     """`AnalyzeFn` real (spec 016): llama al sidecar de detección NLP. Fail-closed
     estricto — cualquier falla de red/formato levanta `NlpUnavailableError`, NUNCA
     devuelve `[]` (contracts/presidio-analyzer-http.md). `entities=None` en el

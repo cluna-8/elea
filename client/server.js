@@ -161,8 +161,8 @@ async function anythingllmFetch(pathname, opts = {}) {
 // Enmascarado NER real (spec 040 US4): misma política que el resto de `elea`
 // (POST /api/v1/gw/inspect, latam_ar hoy — DNI/CUIL/CBU). Fail-closed: si el motor de
 // detección no responde, NO se sube el texto sin enmascarar — se corta la subida.
-async function maskText(text) {
-  if (!text) return { masked: '', blocked: false };
+async function maskChunk(text) {
+  if (!text) return { masked: '', blocked: false, entities: [] };
   const r = await fetch(`${ELEA_BACKEND_URL}/gw/inspect`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Sentinel-Key': MASKING_VIRTUAL_KEY },
@@ -170,8 +170,69 @@ async function maskText(text) {
   });
   if (!r.ok) throw new Error(`Enmascarado no disponible (HTTP ${r.status}) — no se sube el documento.`);
   const data = await r.json();
-  if (!data.ok) throw new Error('El motor de enmascarado no autorizó el texto (sin key válida).');
-  return { masked: data.masked, blocked: !!data.blocked, entities: data.entities || [] };
+  // BUG real encontrado 31-ago con un archivo real (238 registros de salud): `ok:false`
+  // no significa SOLO "key inválida" — también lo devuelve un bloqueo real de la capa de
+  // gobernanza (`blocked:true`, con `motivo` explicando por qué). El mensaje anterior
+  // ("sin key válida") era falso en ese caso y ocultaba la razón real del bloqueo.
+  if (data.blocked) {
+    return { masked: '', blocked: true, motivo: data.motivo || 'Bloqueado por la política de contenido.', entities: [] };
+  }
+  if (!data.ok) throw new Error('El motor de enmascarado no respondió correctamente (verificar la virtual key).');
+  return { masked: data.masked, blocked: false, entities: data.entities || [] };
+}
+
+// El analizador NLP (Presidio) es lento de verdad: medido en vivo, ~330 caracteres/
+// segundo por CPU (spaCy es_core_news_md, 1 core al 100%) — un texto grande de una sola
+// vez agotaba el timeout del motor y el documento quedaba bloqueado por fail-closed
+// (BUG real encontrado 31-ago con una planilla real de 570KB/238 filas: "no autorizó el
+// texto" era en realidad un ReadTimeout del analizador, no un rechazo de política). El
+// motor ahora tolera hasta 15s por trozo (ver litellm/extensions/sentinel_guardian_
+// policy.py) — 4000 caracteres a ~330 c/s son ~12s, con margen real, no al límite.
+const MASK_CHUNK_CHARS = 4000;
+// Tope total honesto: a esta velocidad medida, un documento de más de ~150.000
+// caracteres tardaría varios minutos en subir (secuencial, un trozo detrás de otro).
+// Se corta ahí y se avisa — mejor una subida rápida con parte del contenido que una
+// espera de 10+ minutos sin saber si sigue viva.
+const MASK_MAX_TOTAL_CHARS = 150000;
+
+function splitIntoChunks(text) {
+  if (text.length <= MASK_CHUNK_CHARS) return [text];
+  const lines = text.split('\n');
+  const chunks = [];
+  let current = '';
+  for (const line of lines) {
+    if (current.length + line.length + 1 > MASK_CHUNK_CHARS && current) {
+      chunks.push(current);
+      current = '';
+    }
+    current += (current ? '\n' : '') + line;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+async function maskText(text) {
+  if (!text) return { masked: '', blocked: false, entities: [], truncated: false };
+  const truncated = text.length > MASK_MAX_TOTAL_CHARS;
+  const usable = truncated ? text.slice(0, MASK_MAX_TOTAL_CHARS) : text;
+  const chunks = splitIntoChunks(usable);
+  const maskedParts = [];
+  const allEntities = [];
+  for (const chunk of chunks) {
+    const result = await maskChunk(chunk);
+    if (result.blocked) return result; // un pedazo bloqueado bloquea todo el documento
+    maskedParts.push(result.masked);
+    allEntities.push(...result.entities);
+  }
+  // Sumar counts por tipo de entidad entre los pedazos (cada chunk cuenta desde 0).
+  const merged = {};
+  for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
+  return {
+    masked: maskedParts.join('\n'),
+    blocked: false,
+    entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
+    truncated
+  };
 }
 
 // =========================================================================
@@ -305,13 +366,18 @@ app.post('/api/workspaces/create', async (req, res) => {
     const created = await createResp.json();
     const slug = created.workspace.slug;
 
-    const settings = pickWorkspaceSettings(req.body);
-    if (Object.keys(settings).length > 0) {
-      await anythingllmFetch(`/api/v1/workspace/${slug}/update`, {
-        method: 'POST',
-        body: JSON.stringify(settings)
-      });
-    }
+    // Default de AnythingLLM (similarityThreshold: 0.25) es DEMASIADO estricto para
+    // texto tipo tabla/CSV (filas de datos, no lenguaje natural) contra el modelo de
+    // embeddings nativo chico (Xenova/all-MiniLM-L6-v2) — la búsqueda por similitud no
+    // superaba el umbral y devolvía CERO fragmentos, así que el chat contestaba con
+    // conocimiento genérico del modelo en vez de leer el documento real (BUG raíz real
+    // encontrado 31-ago, con archivos reales del usuario: "no lee, solo veo títulos").
+    // Confirmado en vivo: bajando a 0.05 el mismo archivo se responde con datos reales.
+    const settings = { similarityThreshold: 0.05, topN: 8, ...pickWorkspaceSettings(req.body) };
+    await anythingllmFetch(`/api/v1/workspace/${slug}/update`, {
+      method: 'POST',
+      body: JSON.stringify(settings)
+    });
     res.json({ success: true, workspace: created.workspace });
   } catch (err) {
     res.status(502).json({ error: `No se pudo contactar a AnythingLLM: ${err.message}` });
@@ -416,9 +482,9 @@ app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
     // (spec 040 US4: el dato real no puede persistir en ningún punto del camino).
     fs.unlinkSync(req.file.path);
 
-    const { masked, blocked, entities } = await maskText(extractedText);
+    const { masked, blocked, motivo, entities, truncated } = await maskText(extractedText);
     if (blocked) {
-      return res.status(422).json({ error: 'El documento fue bloqueado por la política de contenido de elea.' });
+      return res.status(422).json({ error: `Documento bloqueado por la gobernanza de elea: ${motivo}` });
     }
 
     // Se sube el TEXTO ENMASCARADO como un .txt propio — AnythingLLM nunca ve el
@@ -452,10 +518,13 @@ app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
       body: JSON.stringify({ adds: [doc.location] })
     });
 
+    const avisoTruncado = truncated
+      ? ' ⚠️ El documento es grande — se indexó solo la primera parte (~150.000 caracteres) por ahora.'
+      : '';
     res.json({
       success: true,
-      document: { name: rawName, location: doc.location, entitiesEnmascaradas: entities },
-      message: `"${rawName}" enmascarado e indexado (${entities.length} tipo(s) de dato protegido detectado(s)).`
+      document: { name: rawName, location: doc.location, entitiesEnmascaradas: entities, truncated: !!truncated },
+      message: `"${rawName}" enmascarado e indexado (${entities.length} tipo(s) de dato protegido detectado(s)).${avisoTruncado}`
     });
   } catch (err) {
     res.status(502).json({ error: err.message });
