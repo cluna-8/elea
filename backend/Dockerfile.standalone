@@ -1,0 +1,35 @@
+# Imagen de producción/instalador (spec 040-installer): igual que backend/Dockerfile
+# pero con `litellm/extensions/` horneada adentro en `/app/litellm_config/extensions`
+# — el backend la importa en tiempo de ejecución (governance_catalog.py, política
+# compartida con el motor), y en el docker-compose de desarrollo eso lo resuelve un
+# volume mount (`./litellm:/app/litellm_config`) que este build NO tiene, porque no
+# expone código fuente vía bind mount al distribuirse como imagen.
+#
+# Build DESDE LA RAÍZ del repo (necesita ver backend/ y litellm/ a la vez):
+#   docker build -f backend/Dockerfile.standalone -t <tag> .
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/ .
+COPY litellm/extensions/ /app/litellm_config/extensions/
+# config.yaml y auto_router.json: el backend los LEE (catálogo de modelos, config del
+# auto-router) por el mismo camino que en dev resuelve el volume mount compartido con
+# el motor. Nota: acá quedan como snapshot horneado, no compartido en vivo con el
+# motor (que tiene su propia copia via litellm/Dockerfile) — si algún día se expone
+# edición de modelos desde un panel admin en este despliegue, hace falta un volumen
+# compartido real entre backend y engine, no dos copias independientes.
+COPY litellm/config.yaml /app/litellm_config/config.yaml
+COPY litellm/auto_router.json /app/litellm_config/auto_router.json
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000"]
