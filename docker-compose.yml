@@ -27,6 +27,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -39,6 +40,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
   nlp-analyzer:
     # Motor de detección NLP real (spec 016) — sidecar propio, español. Sin puerto
@@ -59,6 +61,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    restart: unless-stopped
 
   engine:
     # PIN por digest (spec 014 T004/FR-026, Principio VI): litellm 1.92.0.
@@ -118,6 +121,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   backend:
     build:
@@ -206,6 +210,7 @@ services:
         condition: service_healthy
     networks:
       - sentinel-network
+    restart: unless-stopped
 
   frontend:
     # Perfil `full`: panel admin — no hace falta prendido para trabajar el cliente RAG
@@ -225,6 +230,7 @@ services:
       - sentinel-network
     depends_on:
       - backend
+    restart: unless-stopped
 
   anythingllm:
     # Perfil `rag`: motor RAG open source (spec 040). Sin puerto host propio necesario
