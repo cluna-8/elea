@@ -245,6 +245,15 @@ services:
       - SERVER_PORT=3001
       - STORAGE_DIR=/app/server/storage
       - DISABLE_TELEMETRY=true
+      # El proveedor LLM de AnythingLLM (motor real, no simulado) — verificado en vivo
+      # (02-sep) que escribir esto solo en `system_settings` vía DB NO alcanza: la clase
+      # GenericOpenAiLLM lee estas env vars del proceso directamente (falla con "must
+      # have a valid base path" si faltan), sin fallback a la fila de la base.
+      - LLM_PROVIDER=generic-openai
+      - GENERIC_OPEN_AI_BASE_PATH=http://engine:4000/v1
+      - GENERIC_OPEN_AI_API_KEY=${SENTINEL_ENGINE_MASTER_KEY:-sentinel_master_key_9999}
+      - GENERIC_OPEN_AI_MODEL_PREF=azure-gpt-4o-mini
+      - GENERIC_OPEN_AI_MAX_TOKENS=4096
     volumes:
       - anythingllm_data:/app/server/storage
     networks:
