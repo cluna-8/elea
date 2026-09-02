@@ -340,6 +340,37 @@ app.get('/api/workspaces/:slug', async (req, res) => {
   }
 });
 
+// Historial real de un hilo (o del hilo principal del espacio si no se pasa
+// threadSlug) — AnythingLLM SÍ persiste los mensajes server-side; hasta acá el
+// cliente los tiraba al cambiar de hilo/espacio y volvían a aparecer vacíos
+// (bug real reportado 02-sep: "salía del hilo y volvía, desaparecía la info").
+app.get('/api/workspaces/:slug/messages', async (req, res) => {
+  const { slug } = req.params;
+  const { threadSlug } = req.query;
+  const path = threadSlug
+    ? `/api/v1/workspace/${slug}/thread/${threadSlug}/chats`
+    : `/api/v1/workspace/${slug}/chats`;
+  try {
+    const r = await anythingllmFetch(path);
+    if (!r.ok) return res.status(r.status).json({ error: 'No se pudo leer el historial del hilo.' });
+    const data = await r.json();
+    // Mismo shape que ya arma /api/chat para mensajes nuevos ({document, extracto})
+    // — si no, el historial recargado muestra "Fuente (RAG): undefined".
+    const messages = (data.history || []).map((m) => ({
+      role: m.role,
+      content: m.content,
+      sources: (m.sources || []).map((s) => ({ document: (s.title || '').replace(/\.txt$/i, ''), extracto: s.text })),
+      modelUsed: m.metrics && m.metrics.model,
+      timestamp: m.sentAt
+        ? new Date(m.sentAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : undefined
+    }));
+    res.json({ messages });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // Las 7 opciones reales de AnythingLLM documentadas en spec.md US3 — nada de
 // nombre/descripción nada más.
 function pickWorkspaceSettings(body) {

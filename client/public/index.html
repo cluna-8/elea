@@ -815,6 +815,22 @@
       });
     }
 
+    // Historial real del hilo (o del hilo principal si threadSlug es null) — AnythingLLM
+    // sí lo persiste server-side. Antes de esto `messages` se vaciaba al cambiar de hilo/
+    // espacio y no se volvía a leer nunca (bug real 02-sep: "salía del hilo y volvía,
+    // desaparecía la info" — no desaparecía en AnythingLLM, solo dejaba de mostrarse).
+    async function loadMessages(slug, threadSlug) {
+      const qs = threadSlug ? `?threadSlug=${encodeURIComponent(threadSlug)}` : '';
+      try {
+        const res = await fetch(`/api/workspaces/${slug}/messages${qs}`);
+        if (!res.ok) { messages = []; return; }
+        const data = await res.json();
+        messages = data.messages || [];
+      } catch (err) {
+        messages = [];
+      }
+    }
+
     async function selectWorkspace(slug) {
       const res = await fetch(`/api/workspaces/${slug}`);
       if (!res.ok) { showToast('No se pudo abrir el espacio.'); return; }
@@ -824,7 +840,7 @@
       // — verificado en vivo el 31-ago, no está documentado así en ningún lado.
       currentWorkspace = Array.isArray(data.workspace) ? data.workspace[0] : data.workspace;
       currentThreadSlug = null;
-      messages = [];
+      await loadMessages(slug, null);
       renderWorkspaceList();
       renderThreads();
       renderDocuments();
@@ -860,9 +876,9 @@
       });
     }
 
-    function selectThread(slug) {
+    async function selectThread(slug) {
       currentThreadSlug = slug;
-      messages = [];
+      await loadMessages(currentWorkspace.slug, slug);
       renderThreads();
       renderChatTopbar();
       renderMessages();
