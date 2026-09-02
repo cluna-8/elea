@@ -404,7 +404,32 @@ app.post('/api/workspaces/create', async (req, res) => {
     // conocimiento genérico del modelo en vez de leer el documento real (BUG raíz real
     // encontrado 31-ago, con archivos reales del usuario: "no lee, solo veo títulos").
     // Confirmado en vivo: bajando a 0.05 el mismo archivo se responde con datos reales.
-    const settings = { similarityThreshold: 0.05, topN: 8, ...pickWorkspaceSettings(req.body) };
+    //
+    // `openAiPrompt`: el motor SÍ desenmascara los tokens [TIPO_n_xxxx] que el modelo
+    // repita literal en su respuesta (bóveda Redis, SENTINEL_PII_VAULT_ENABLED — ver
+    // sentinel_guardian_policy.py) — pero verificado en vivo (02-sep): sin esta
+    // instrucción, ante "¿cuál es el DNI/CBU/teléfono?" el modelo NO copiaba el token,
+    // ALUCINABA un valor con formato plausible (ej. CBU "000...000", DNI "12345678")
+    // en vez de citarlo — el desenmascarado no tiene nada que reemplazar si el modelo
+    // no reprodujo el placeholder exacto. Con esta línea en el prompt, el mismo
+    // modelo (azure-gpt-4o-mini) empezó a citar el token exacto y el DNI/CBU/teléfono
+    // reales aparecieron correctos en la respuesta. Nombres/emails ya funcionaban sin
+    // esto (el modelo los copia solo), pero se agrega igual por consistencia.
+    const DEFAULT_UNMASK_PROMPT_HINT = 'Cuando en el contexto veas un token entre '
+      + 'corchetes con este formato exacto [TIPO_numero_codigo] (por ejemplo '
+      + '[DNI_0_a03c], [PHONE_NUMBER_0_a03c], [EMAIL_ADDRESS_0_a03c]), es un dato '
+      + 'protegido. Si el usuario pide ese dato, respondé copiando el token EXACTO '
+      + 'tal cual aparece entre corchetes, letra por letra — NUNCA inventes, adivines '
+      + 'ni generes un valor de reemplazo con un formato similar.';
+    const customSettings = pickWorkspaceSettings(req.body);
+    const settings = {
+      similarityThreshold: 0.05,
+      topN: 8,
+      ...customSettings,
+      openAiPrompt: customSettings.openAiPrompt
+        ? `${customSettings.openAiPrompt}\n\n${DEFAULT_UNMASK_PROMPT_HINT}`
+        : DEFAULT_UNMASK_PROMPT_HINT
+    };
     await anythingllmFetch(`/api/v1/workspace/${slug}/update`, {
       method: 'POST',
       body: JSON.stringify(settings)

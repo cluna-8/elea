@@ -96,6 +96,13 @@ services:
       # Motor NLP real (spec 016) — nombre de servicio compose, puerto interno del app.py
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
       - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-eu}
+      # Bóveda persistente de PII opt-in (decisión de Elea 02-sep, ver docstring de
+      # sentinel_guardian_policy.py): sin esto el RAG documental NUNCA podía
+      # desenmascarar en la respuesta — el mask ocurre en la subida del documento, un
+      # request completamente aparte del chat que lo consulta después. Default en el
+      # módulo compartido es OFF (Constraint C1); ESTE despliegue lo prende a propósito.
+      - SENTINEL_PII_VAULT_ENABLED=${SENTINEL_PII_VAULT_ENABLED:-true}
+      - SENTINEL_PII_VAULT_TTL_SECONDS=${SENTINEL_PII_VAULT_TTL_SECONDS:-7776000}
       # Política de fallo de auditoría (spec 031, contrato §Config). Misma env y mismo
       # valor que el backend: si una instalación exige `closed`, el motor no puede
       # quedarse en `open` y seguir sirviendo byok inauditable.
@@ -139,6 +146,10 @@ services:
       - POSTGRES_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # Mismo flag que `engine` (ver comentario ahí) — el backend escribe la bóveda en
+      # /gw/inspect (masking de documentos RAG); el motor la lee al desenmascarar.
+      - SENTINEL_PII_VAULT_ENABLED=${SENTINEL_PII_VAULT_ENABLED:-true}
+      - SENTINEL_PII_VAULT_TTL_SECONDS=${SENTINEL_PII_VAULT_TTL_SECONDS:-7776000}
       - SENTINEL_ENGINE_API_BASE=http://engine:4000
       - SENTINEL_ENGINE_MASTER_KEY=${SENTINEL_ENGINE_MASTER_KEY:-sentinel_master_key_9999}
       # ── Admisión hacia el motor (nodo C1, issue #151) ──────────────────────────

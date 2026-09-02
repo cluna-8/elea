@@ -15,12 +15,31 @@ callable async (``analyze``). Importable desde el contenedor del motor Y desde e
 backend (los dos hogares del plan 014) sin arrastrar dependencias.
 
 El mapa reversible (``ph_to_orig``) vive en memoria del request y JAMÁS se persiste
-ni se delega a un tercero (Constitución I, Constraint C1).
+ni se delega a un tercero POR DEFECTO (Constitución I, Constraint C1). Esa es la
+postura para todo despliegue de Sentinel/GuardIAn que NO fije la env var de abajo.
+
+**Excepción explícita, opt-in, decisión de producto de Elea (02-sep)**: para RAG
+documental, el enmascarado ocurre en la subida del documento — un request aparte,
+mucho antes de cualquier chat que lo consulte — así que sin persistir el mapa en
+ningún lado es IMPOSIBLE restaurar el dato real en una respuesta RAG (a diferencia
+del chat directo, mask+unmask en el mismo request). Confirmado en vivo (02-sep):
+con el mapa solo en memoria, un documento enmascarado correctamente jamás se
+desenmascaraba en el chat — ni para DNI/CBU ni para el resto —, contra la
+expectativa del producto ("el mismo comportamiento que el chat directo").
+
+``SENTINEL_PII_VAULT_ENABLED=true`` activa una bóveda Redis (``pii_vault_redis``,
+abajo) que persiste ``ph_to_orig`` con TTL (``SENTINEL_PII_VAULT_TTL_SECONDS``,
+default 90 días) y la consulta en el post-call hook para desenmascarar placeholders
+que NO nacieron en el request actual. Default: **OFF** — ningún despliegue existente
+cambia de comportamiento sin fijar la env var explícitamente. Best-effort en los dos
+sentidos (falla silenciosa con log si Redis no está, nunca rompe el masking ni deja
+un placeholder sin resolver como error 500).
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -31,8 +50,17 @@ import httpx
 
 logger = logging.getLogger("sentinel-guardian-policy")
 
+sys.path.insert(0, os.path.dirname(__file__))
+try:
+    import sentinel_engine_redis  # noqa: E402 — construcción única de clientes Redis con timeouts (#8)
+except ImportError:  # pragma: no cover — no debería faltar (mismo directorio), defensivo igual
+    sentinel_engine_redis = None
+
 # Un placeholder es [TYPE_idx_nonce]; TYPE puede contener '_' (EMAIL_ADDRESS).
 PH_TYPE_RE = re.compile(r"\[(.+)_\d+_[0-9a-f]+\]$")
+# Igual que PH_TYPE_RE pero SIN anclar a fin de string — para encontrar TODOS los
+# placeholders sueltos dentro de un texto largo (bóveda persistente, más abajo).
+PLACEHOLDER_TOKEN_RE = re.compile(r"\[[A-Z][A-Za-z0-9_]*_\d+_[0-9a-f]+\]")
 # Fragmento colgante que todavía podría crecer hasta ser un placeholder. Los
 # placeholders empiezan SIEMPRE con tipo en MAYÚSCULAS ([PERSON_…), así que un '['
 # seguido de minúscula/dígito (arr[i, nums[0) NO se retiene. Un '[' PELADO al final
@@ -742,7 +770,89 @@ async def mask_body(body: dict, analyze: AnalyzeFn,
         if not isinstance(msg, dict) or msg.get("role") != "user":
             continue
         msg["content"] = await _mask_content(msg.get("content"), analyze, pmap)
+    if PII_VAULT_ENABLED:
+        await persist_placeholder_map(pmap.ph_to_orig)
     return body, pmap.ph_to_orig
+
+
+# ── Bóveda persistente opt-in (ver docstring del módulo) ──────────────────────────────
+PII_VAULT_ENABLED = os.environ.get("SENTINEL_PII_VAULT_ENABLED", "false").strip().lower() in (
+    "1", "true", "yes", "on")
+PII_VAULT_PREFIX = "sentinel:pii_vault:"
+PII_VAULT_TTL_SECONDS = int(os.environ.get("SENTINEL_PII_VAULT_TTL_SECONDS", str(90 * 24 * 3600)))
+_REDIS_HOST_DEFAULT = "eu-redis"
+
+
+def _pii_vault_redis_endpoint() -> Tuple[str, int]:
+    return os.getenv("REDIS_HOST", _REDIS_HOST_DEFAULT), int(os.getenv("REDIS_PORT", "6379"))
+
+
+async def persist_placeholder_map(ph_to_orig: dict) -> None:
+    """Guarda ``ph_to_orig`` en la bóveda Redis con TTL — SOLO si ``PII_VAULT_ENABLED``.
+    Best-effort total: si Redis no está disponible el masking de este request YA pasó
+    bien (el placeholder ya está en el texto); lo único que se pierde es la chance de
+    desenmascarar más tarde, nunca se rompe ni se reintenta la request de masking."""
+    if not ph_to_orig or sentinel_engine_redis is None:
+        return
+    try:
+        import redis.asyncio as redis_lib
+    except ImportError:
+        logger.warning("pii_vault: redis no está en la imagen — el mapa de este masking "
+                       "no persiste, RAG no podrá desenmascararlo después.")
+        return
+    client = None
+    try:
+        client = sentinel_engine_redis.async_redis_con_timeouts(redis_lib, *_pii_vault_redis_endpoint())
+        pipe = client.pipeline()
+        for ph, orig in ph_to_orig.items():
+            pipe.set(PII_VAULT_PREFIX + ph, orig, ex=PII_VAULT_TTL_SECONDS)
+        await pipe.execute()
+    except Exception:  # noqa: BLE001 — best-effort, jamás propaga (ver docstring)
+        logger.warning("pii_vault: no se pudo persistir el mapa reversible (Redis no "
+                       "disponible) — el masking sigue OK, solo no se podrá "
+                       "desenmascarar más tarde.", exc_info=True)
+    finally:
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+async def resolve_placeholders_from_vault(text: str) -> dict:
+    """Busca placeholders en ``text`` que no vinieron del request actual (p.ej. texto
+    RAG masked en la subida de un documento, requests atrás) y los resuelve contra la
+    bóveda persistente. Devuelve ``{}`` si ``PII_VAULT_ENABLED`` está apagado, no hay
+    matches, o Redis no responde — nunca lanza."""
+    if not PII_VAULT_ENABLED or sentinel_engine_redis is None:
+        return {}
+    tokens = sorted(set(PLACEHOLDER_TOKEN_RE.findall(text or "")))
+    if not tokens:
+        return {}
+    try:
+        import redis.asyncio as redis_lib
+    except ImportError:
+        return {}
+    client = None
+    try:
+        client = sentinel_engine_redis.async_redis_con_timeouts(redis_lib, *_pii_vault_redis_endpoint())
+        keys = [PII_VAULT_PREFIX + t for t in tokens]
+        values = await client.mget(keys)
+        return {
+            tok: (val.decode("utf-8") if isinstance(val, (bytes, bytearray)) else val)
+            for tok, val in zip(tokens, values) if val
+        }
+    except Exception:  # noqa: BLE001 — best-effort, jamás propaga
+        logger.warning("pii_vault: no se pudo consultar la bóveda (Redis no disponible) "
+                       "— la respuesta se muestra con los placeholders sin resolver.",
+                       exc_info=True)
+        return {}
+    finally:
+        if client is not None:
+            try:
+                await client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def unmask_text(text: str, ph_to_orig: dict) -> str:

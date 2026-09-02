@@ -636,6 +636,14 @@ class SentinelGuardrail(CustomGuardrail):
 
     async def async_post_call_success_hook(self, data: dict, user_api_key_dict, response):
         ph_to_orig = _pii_tokens_from(data)
+        # Bóveda opt-in (ver docstring de sentinel_guardian_policy — decisión de Elea
+        # 02-sep): sin esto, una respuesta RAG que solo ECOA placeholders de un
+        # documento enmascarado en un request PASADO nunca los resolvía — `ph_to_orig`
+        # de ESTE request está vacío porque acá no se enmascaró nada nuevo.
+        if policy.PII_VAULT_ENABLED:
+            vault_ph = await policy.resolve_placeholders_from_vault(_response_text_preview(response))
+            if vault_ph:
+                ph_to_orig = {**vault_ph, **ph_to_orig}  # el del request actual gana en colisión
         if not ph_to_orig:
             return response
         _unmask_response_inplace(response, ph_to_orig)
@@ -698,6 +706,60 @@ def _entity_counts(ph_to_orig: dict) -> list:
         etype = m.group(1) if m else "PII"
         counts[etype] = counts.get(etype, 0) + 1
     return [{"type": t, "count": c} for t, c in counts.items()]
+
+
+def _response_text_preview(response) -> str:
+    """Junta TODO el texto de una respuesta no-streaming (dict bridged u objeto) en un
+    solo string, solo para buscarle placeholders (bóveda persistente) — no muta nada,
+    a diferencia de `unmask_response_payload`. Fail-safe: shape no reconocido → ''."""
+    get = response.get if isinstance(response, dict) else (
+        lambda k, d=None: getattr(response, k, d))
+    parts = []
+
+    content = get("content")
+    if isinstance(content, list):
+        for block in content:
+            bget = block.get if isinstance(block, dict) else (
+                lambda k, d=None, _b=block: getattr(_b, k, d))
+            for field in ("text", "thinking"):
+                value = bget(field)
+                if isinstance(value, str):
+                    parts.append(value)
+            tool_input = bget("input")
+            if tool_input is not None:
+                try:
+                    parts.append(json.dumps(tool_input, ensure_ascii=False, default=str))
+                except Exception:  # noqa: BLE001
+                    pass
+
+    choices = get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            cget = choice.get if isinstance(choice, dict) else (
+                lambda k, d=None, _c=choice: getattr(_c, k, d))
+            if isinstance(cget("text"), str):
+                parts.append(cget("text"))
+            message = cget("message")
+            if message is None:
+                continue
+            mget = message.get if isinstance(message, dict) else (
+                lambda k, d=None, _m=message: getattr(_m, k, d))
+            if isinstance(mget("content"), str):
+                parts.append(mget("content"))
+            tool_calls = mget("tool_calls")
+            if isinstance(tool_calls, list):
+                for tc in tool_calls:
+                    tget = tc.get if isinstance(tc, dict) else (
+                        lambda k, d=None, _t=tc: getattr(_t, k, d))
+                    fn = tget("function")
+                    if fn is None:
+                        continue
+                    fget = fn.get if isinstance(fn, dict) else (
+                        lambda k, d=None, _f=fn: getattr(_f, k, d))
+                    if isinstance(fget("arguments"), str):
+                        parts.append(fget("arguments"))
+
+    return "\n".join(parts)
 
 
 def _unmask_response_inplace(response, ph_to_orig: dict) -> None:
