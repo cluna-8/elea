@@ -4,27 +4,36 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Elea Hub · Enterprise RAG & Governance</title>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700;1,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
-      --bg-dark: #070a13;
-      --panel-bg: rgba(13, 18, 30, 0.95);
-      --card-bg: rgba(26, 34, 52, 0.75);
-      --border-color: rgba(255, 255, 255, 0.1);
-      --accent-blue: #38bdf8;
-      --accent-purple: #818cf8;
-      --accent-green: #34d399;
-      --accent-amber: #fbbf24;
-      --accent-red: #f87171;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
+      --bg-app: #eef0f5;
+      --panel-bg: #ffffff;
+      --card-bg: #ffffff;
+      --border-color: #e5e8f0;
+      --border-strong: #dfe3ee;
+      --accent: #7c3aed;
+      --accent-soft: #f3effc;
+      --accent-border: #e2dcf7;
+      --accent-deep: #6d28d9;
+      --accent-blue: #1247a5;
+      --accent-green: #16a34a;
+      --accent-amber: #b45309;
+      --accent-red: #d64550;
+      --text-main: #1e2333;
+      --text-mid: #3a4158;
+      --text-soft: #58607a;
+      --text-muted: #8a90a5;
+      --grad-purple: linear-gradient(135deg, #8b5cf6, #6d28d9);
+      --grad-frame: linear-gradient(135deg, #8b5cf6, #60a5fa 45%, #a78bfa 80%, #7c3aed);
+      --grad-card: linear-gradient(150deg, #8b5cf6, #ec4899 60%, #a78bfa);
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif; }
 
     body {
-      background: var(--bg-dark);
+      background: var(--bg-app);
       color: var(--text-main);
       height: 100vh;
       display: flex;
@@ -32,295 +41,352 @@
       overflow: hidden;
     }
 
+    svg.ic { flex-shrink: 0; }
+
     /* TOP NAVBAR */
     .top-navbar {
-      height: 60px;
-      background: rgba(13, 18, 30, 0.98);
+      height: 66px;
+      background: #ffffff;
       border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 1.25rem;
+      padding: 0 22px;
       z-index: 100;
-      gap: 12px;
+      gap: 14px;
+      flex-shrink: 0;
     }
 
     .brand-section { display: flex; align-items: center; gap: 10px; }
-    .brand-logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-      border-radius: 10px; display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 1.1rem; box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
-    }
-    .brand-title { font-size: 1rem; font-weight: 800; letter-spacing: -0.3px; }
-    .brand-subtitle { font-size: 0.65rem; color: var(--accent-blue); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 
     .client-tenant-badge {
-      display: flex; align-items: center; gap: 6px; background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.3); padding: 4px 10px; border-radius: 14px;
-      font-size: 0.75rem; font-weight: 700; color: var(--accent-blue);
+      display: flex; align-items: center; gap: 6px; background: #ffffff;
+      border: 1px solid var(--border-strong); padding: 8px 14px; border-radius: 10px;
+      font-size: 13px; font-weight: 700; color: var(--text-main);
+      box-shadow: 0 1px 2px rgba(30,35,51,0.05); white-space: nowrap;
     }
-
-    .nav-tabs {
-      display: flex; gap: 4px; background: rgba(30, 41, 59, 0.6); padding: 3px; border-radius: 8px; border: 1px solid var(--border-color);
-    }
-    .nav-tab-btn {
-      background: transparent; border: none; color: var(--text-muted); padding: 0.4rem 0.9rem;
-      border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
-    }
-    .nav-tab-btn.active, .nav-tab-btn:hover { background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple)); color: white; }
 
     .guardian-selector-container {
-      display: flex; align-items: center; gap: 6px; background: rgba(26, 34, 52, 0.8);
-      padding: 5px 12px; border-radius: 20px; border: 1px solid rgba(56, 189, 248, 0.3);
+      display: flex; align-items: center; gap: 8px; background: var(--accent-soft);
+      padding: 8px 14px; border-radius: 10px; border: 1px solid var(--accent-border);
     }
     .guardian-select {
-      background: transparent; border: none; color: var(--accent-blue); font-size: 0.8rem; font-weight: 700; outline: none; cursor: pointer;
+      background: transparent; border: none; color: #4b3f78; font-size: 13px; font-weight: 600; outline: none; cursor: pointer; max-width: 210px;
     }
-    .guardian-select option { background: #131b2e; color: var(--text-main); }
+    .guardian-select option { background: #ffffff; color: var(--text-main); }
 
     .user-profile-widget {
-      display: flex; align-items: center; gap: 8px; background: rgba(26, 34, 52, 0.7);
-      padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border-color);
+      display: flex; align-items: center; gap: 10px;
     }
+    .user-identity { display: flex; flex-direction: column; gap: 3px; }
     .user-avatar-circle {
-      width: 24px; height: 24px; border-radius: 50%; background: var(--accent-purple);
-      display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700;
+      width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: #ffffff; flex-shrink: 0;
     }
-    .user-select {
-      background: transparent; border: none; color: var(--text-main); font-size: 0.8rem; font-weight: 600; outline: none; cursor: pointer;
-    }
-    .user-select option { background: #131b2e; color: var(--text-main); }
+    #user-display-name { font-size: 13px; font-weight: 700; color: var(--text-main); }
 
     .quota-badge {
-      font-size: 0.72rem; color: var(--accent-green); background: rgba(52, 211, 153, 0.15);
-      padding: 2px 8px; border-radius: 12px; border: 1px solid rgba(52, 211, 153, 0.3); font-weight: 600;
+      font-size: 10px; color: var(--accent-green); background: #e7f7ee;
+      padding: 2px 8px; border-radius: 8px; border: 1px solid #bfe8d2; font-weight: 700; width: fit-content;
     }
 
     .action-icon-btn {
-      background: rgba(255, 255, 255, 0.08); border: 1px solid var(--border-color); color: var(--text-main);
-      border-radius: 8px; padding: 6px 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s;
+      background: #ffffff; border: 1px solid var(--border-strong); color: var(--text-soft);
+      border-radius: 9px; padding: 7px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: all 0.2s;
     }
-    .action-icon-btn:hover { background: rgba(255, 255, 255, 0.16); border-color: var(--accent-blue); }
-    .action-icon-btn.logout:hover { background: rgba(248, 113, 113, 0.2); border-color: var(--accent-red); color: var(--accent-red); }
+    .action-icon-btn:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
+    .action-icon-btn.logout { border: none; background: transparent; color: var(--text-soft); font-size: 13px; }
+    .action-icon-btn.logout:hover { color: var(--accent-red); background: transparent; }
 
     /* 3-PANEL PORTAL */
-    .portal-main { flex: 1; display: flex; height: calc(100vh - 60px); overflow: hidden; }
-
-    .tab-view-page {
-      position: absolute; top: 60px; left: 0; right: 0; bottom: 0; display: none; width: 100%; height: calc(100vh - 60px);
-    }
-    .tab-view-page.active { display: flex; }
-    .marketplace-iframe { width: 100%; height: 100%; border: none; background: #070a13; }
+    .portal-main { flex: 1; display: flex; height: calc(100vh - 66px); overflow: hidden; }
 
     /* PANEL 1: WORKSPACES & THREADS */
     .left-panel {
-      width: 290px; background: var(--panel-bg); border-right: 1px solid var(--border-color);
-      display: flex; flex-direction: column; padding: 1.1rem; gap: 1.1rem;
+      width: 260px; background: var(--panel-bg); border-right: 1px solid var(--border-color);
+      display: flex; flex-direction: column; padding: 18px 14px; gap: 14px; flex-shrink: 0;
     }
 
     .section-header {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
     }
     .section-title {
-      font-size: 0.72rem; text-transform: uppercase; color: var(--text-muted); font-weight: 800; letter-spacing: 0.5px;
+      font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 800; letter-spacing: 0.6px;
     }
     .add-btn {
-      background: rgba(56, 189, 248, 0.15); border: 1px solid var(--accent-blue); color: var(--accent-blue);
-      border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+      background: transparent; border: none; color: var(--accent);
+      padding: 2px 4px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 6px;
     }
-    .add-btn:hover { background: var(--accent-blue); color: white; }
+    .add-btn:hover { background: var(--accent-soft); }
 
-    .workspaces-list { display: flex; flex-direction: column; gap: 5px; max-height: 140px; overflow-y: auto; }
+    .workspaces-list { display: flex; flex-direction: column; gap: 2px; max-height: 170px; overflow-y: auto; }
     .workspace-item {
-      padding: 0.6rem 0.8rem; border-radius: 8px; background: var(--card-bg); border: 1px solid var(--border-color);
-      font-size: 0.8rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 6px; transition: all 0.2s;
+      padding: 9px 10px; border-radius: 9px; background: transparent; border: 1px solid transparent;
+      font-size: 13px; font-weight: 600; color: var(--text-mid); cursor: pointer;
+      display: flex; align-items: center; gap: 10px; transition: all 0.15s;
     }
-    .workspace-item:hover, .workspace-item.active {
-      background: rgba(56, 189, 248, 0.15); border-color: var(--accent-blue); color: var(--accent-blue);
+    .workspace-item:hover { background: #f6f7fa; }
+    .workspace-item.active {
+      background: var(--accent-soft); border-color: var(--accent-border); color: #4b3f78; font-weight: 700;
     }
 
-    .threads-list { display: flex; flex-direction: column; gap: 5px; flex: 1; overflow-y: auto; }
+    .threads-list { display: flex; flex-direction: column; gap: 2px; flex: 1; overflow-y: auto; }
     .thread-item {
-      padding: 0.6rem 0.8rem; border-radius: 8px; background: rgba(26, 34, 52, 0.4); border: 1px solid transparent;
-      font-size: 0.78rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s;
+      padding: 9px 10px; border-radius: 9px; background: transparent; border: 1px solid transparent;
+      font-size: 13px; font-weight: 600; color: var(--text-mid); cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px; transition: all 0.15s;
     }
-    .thread-item:hover { background: var(--card-bg); }
+    .thread-item > div { display: flex; align-items: center; gap: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .thread-item:hover { background: #f6f7fa; }
     .thread-item.active {
-      background: rgba(129, 140, 248, 0.15); border-color: var(--accent-purple); color: var(--text-main); font-weight: 600;
+      background: var(--accent-soft); border-color: var(--accent-border); color: #4b3f78; font-weight: 700;
     }
+
+    .left-panel-footer {
+      display: flex; flex-direction: column; gap: 2px; border-top: 1px solid #eceef4; padding-top: 12px;
+    }
+    .footer-link-btn {
+      display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px;
+      background: transparent; border: none; font-size: 12.5px; font-weight: 600; color: var(--text-soft);
+      cursor: pointer; text-align: left; transition: all 0.15s;
+    }
+    .footer-link-btn:hover { background: #f6f7fa; color: var(--text-main); }
+    .footer-link-btn.danger { color: var(--accent-red); }
+    .footer-link-btn.danger:hover { background: #fdf1f2; color: var(--accent-red); }
 
     /* PANEL 2: CENTER CHAT AREA */
     .center-chat {
       flex: 1; display: flex; flex-direction: column; height: 100%;
-      background: radial-gradient(circle at top, #111827, #070a13);
+      background: var(--bg-app); padding: 14px 20px 16px 20px; gap: 12px; min-width: 0;
     }
 
     .chat-topbar {
-      padding: 0.8rem 1.25rem; border-bottom: 1px solid var(--border-color); background: rgba(13, 18, 30, 0.7);
-      backdrop-filter: blur(10px); display: flex; justify-content: space-between; align-items: center;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
     }
-    .chat-context-breadcrumb { font-size: 0.88rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-    .ws-pill {
-      background: rgba(56, 189, 248, 0.15); color: var(--accent-blue); padding: 3px 9px; border-radius: 12px; font-size: 0.72rem; border: 1px solid var(--accent-blue);
-    }
+    .chat-context-breadcrumb { font-size: 14px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .ws-pill { font-weight: 600; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .breadcrumb-sep { color: #c3c8d6; }
+    #current-thread-title { font-weight: 800; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    .thread-actions { display: flex; align-items: center; gap: 6px; }
+    .thread-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
     .tool-btn {
-      background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border-color); color: var(--text-muted);
-      padding: 4px 8px; border-radius: 6px; font-size: 0.72rem; cursor: pointer; transition: all 0.2s; font-weight: 600;
+      background: #ffffff; border: 1px solid var(--border-strong); color: var(--text-mid);
+      padding: 7px 13px; border-radius: 9px; font-size: 12.5px; cursor: pointer; transition: all 0.2s; font-weight: 700;
+      box-shadow: 0 1px 2px rgba(30,35,51,0.04);
     }
-    .tool-btn:hover { color: var(--text-main); border-color: var(--accent-blue); background: rgba(56, 189, 248, 0.1); }
-    .tool-btn.danger:hover { color: var(--accent-red); border-color: var(--accent-red); background: rgba(248, 113, 113, 0.1); }
+    .tool-btn:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
+    .tool-btn.danger:hover { color: var(--accent-red); border-color: #f2c9cd; background: #fdf1f2; }
+    .tool-btn.icon-only { padding: 7px 9px; border: none; background: transparent; box-shadow: none; color: var(--text-muted); display: flex; align-items: center; }
+    .tool-btn.icon-only:hover { color: var(--accent-red); background: #fdf1f2; }
+
+    .chat-frame {
+      flex: 1; border-radius: 22px; padding: 2px; background: var(--grad-frame);
+      box-shadow: 0 8px 32px rgba(124, 58, 237, 0.10); min-height: 0; display: flex;
+    }
+    .chat-frame-inner {
+      flex: 1; background: #ffffff; border-radius: 20px; display: flex; flex-direction: column; overflow: hidden;
+    }
 
     .chat-feed {
-      flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 1.1rem;
+      flex: 1; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 16px;
     }
 
+    /* EMPTY STATE */
+    .chat-empty-state {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center;
+    }
+    .empty-tagline { font-size: 15px; font-weight: 600; color: var(--text-mid); max-width: 320px; line-height: 1.45; }
+    .empty-chat-icon {
+      width: 60px; height: 60px; border-radius: 18px; background: var(--accent-soft);
+      display: flex; align-items: center; justify-content: center; margin-top: 22px;
+    }
+    .empty-title { font-size: 17px; font-weight: 800; color: var(--text-main); margin-top: 8px; }
+    .empty-sub { font-size: 13.5px; font-weight: 500; color: var(--text-muted); max-width: 340px; line-height: 1.55; }
+
+    /* MESSAGES */
     .msg { display: flex; gap: 10px; max-width: 88%; position: relative; }
     .msg.user { align-self: flex-end; flex-direction: row-reverse; }
 
     .msg-avatar {
       width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-      font-size: 0.8rem; font-weight: 800; flex-shrink: 0;
+      font-size: 12px; font-weight: 800; flex-shrink: 0; color: #ffffff;
     }
-    .msg.user .msg-avatar { background: var(--accent-purple); }
-    .msg.assistant .msg-avatar { background: var(--accent-blue); }
+    .msg.user .msg-avatar { background: linear-gradient(135deg, #7c3aed, #4f46e5); }
+    .msg.assistant .msg-avatar { background: linear-gradient(120deg, #2dd4bf, #6366f1); }
 
     .msg-body {
-      background: var(--card-bg); border: 1px solid var(--border-color); padding: 1rem 1.25rem;
-      border-radius: 12px; line-height: 1.55; font-size: 0.85rem; box-shadow: 0 4px 16px rgba(0,0,0,0.3); position: relative;
+      background: #f7f8fb; border: 1px solid var(--border-color); padding: 14px 18px; color: var(--text-main);
+      border-radius: 14px; line-height: 1.55; font-size: 13.5px; position: relative;
     }
-    .msg.user .msg-body { background: linear-gradient(135deg, #4338ca, #2563eb); border: none; }
+    .msg.user .msg-body { background: var(--grad-purple); border: none; color: #ffffff; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.22); }
 
     .msg-body table {
-      width: 100%; border-collapse: collapse; margin: 0.8rem 0; font-size: 0.8rem; border-radius: 8px; overflow: hidden;
-      border: 1px solid rgba(255,255,255,0.12); background: rgba(13, 18, 30, 0.6);
+      width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; border-radius: 8px; overflow: hidden;
+      border: 1px solid var(--border-color); background: #ffffff;
     }
     .msg-body th {
-      background: rgba(56, 189, 248, 0.18); color: var(--accent-blue); font-weight: 700; padding: 8px 12px; text-align: left;
-      border-bottom: 1px solid rgba(255,255,255,0.15);
+      background: var(--accent-soft); color: #4b3f78; font-weight: 700; padding: 8px 12px; text-align: left;
+      border-bottom: 1px solid var(--accent-border);
     }
     .msg-body td {
-      padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: var(--text-main);
+      padding: 6px 12px; border-bottom: 1px solid #f0f1f6; color: var(--text-main);
     }
-    .msg-body tr:hover { background: rgba(255,255,255,0.04); }
+    .msg-body tr:hover { background: #fafafd; }
 
-    .msg-body h3 { font-size: 0.92rem; color: var(--accent-blue); margin: 0.5rem 0 0.3rem 0; font-weight: 700; }
-    .msg-body hr { border: 0; height: 1px; background: rgba(255,255,255,0.1); margin: 0.8rem 0; }
+    .msg-body h3 { font-size: 14px; color: var(--accent-deep); margin: 8px 0 4px 0; font-weight: 700; }
+    .msg-body hr { border: 0; height: 1px; background: var(--border-color); margin: 12px 0; }
+    .msg-body code { font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #eef0f5; padding: 1px 5px; border-radius: 4px; }
+    .msg.user .msg-body code { background: rgba(255,255,255,0.2); }
 
     .citation-card {
-      margin-top: 0.75rem; padding: 0.65rem 0.9rem; background: rgba(0, 0, 0, 0.45);
-      border-left: 3px solid var(--accent-blue); border-radius: 6px; font-size: 0.78rem; color: var(--accent-blue);
+      margin-top: 10px; padding: 9px 13px; background: var(--accent-soft);
+      border-left: 3px solid var(--accent); border-radius: 8px; font-size: 12px; color: #4b3f78;
     }
 
     .msg-footer {
-      display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0.4rem; font-size: 0.68rem; color: var(--text-muted);
+      display: flex; justify-content: space-between; align-items: center; margin-top: 8px;
+      border-top: 1px solid rgba(30, 35, 51, 0.08); padding-top: 6px; font-size: 10.5px; color: var(--text-muted);
     }
+    .msg.user .msg-footer { border-top-color: rgba(255,255,255,0.25); color: rgba(255,255,255,0.75); }
     .copy-btn {
-      background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.7rem; font-weight: 600;
+      background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 11px; font-weight: 700;
     }
-    .copy-btn:hover { color: var(--accent-blue); }
+    .msg.user .copy-btn { color: rgba(255,255,255,0.75); }
+    .copy-btn:hover { color: var(--accent); }
+    .msg.user .copy-btn:hover { color: #ffffff; }
 
-    .cost-pill {
-      font-size: 0.68rem; color: var(--accent-amber); background: rgba(251, 191, 36, 0.12);
-      padding: 1px 6px; border-radius: 10px; border: 1px solid rgba(251, 191, 36, 0.3); display: inline-block;
-    }
+    /* INPUT AREA */
+    .chat-bottom-input { display: flex; flex-direction: column; gap: 10px; }
 
-    .chat-bottom-input {
-      padding: 0.9rem 1.25rem; background: rgba(13, 18, 30, 0.95); border-top: 1px solid var(--border-color);
-      display: flex; flex-direction: column; gap: 6px;
-    }
-
-    .quick-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+    .quick-chips { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 2px; }
     .chip-btn {
-      background: rgba(26, 34, 52, 0.8); border: 1px solid var(--border-color); color: var(--text-muted);
-      padding: 3px 9px; border-radius: 14px; font-size: 0.72rem; cursor: pointer; white-space: nowrap; font-weight: 600;
+      display: flex; align-items: center; gap: 7px;
+      background: #ffffff; border: 1px solid #d9cef5; color: #4b3f78;
+      padding: 8px 15px; border-radius: 20px; font-size: 12.5px; cursor: pointer; white-space: nowrap; font-weight: 700;
+      box-shadow: 0 1px 3px rgba(124, 58, 237, 0.08); transition: all 0.2s;
     }
-    .chip-btn:hover { color: var(--text-main); border-color: var(--accent-blue); }
+    .chip-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
 
     .input-box {
-      display: flex; gap: 8px; background: rgba(26, 34, 52, 0.85); border: 1px solid var(--border-color);
-      padding: 7px 10px; border-radius: 10px; align-items: center;
+      display: flex; gap: 10px; background: #ffffff; border: 1px solid var(--border-strong);
+      padding: 8px 8px 8px 18px; border-radius: 14px; align-items: center;
+      box-shadow: 0 2px 8px rgba(30, 35, 51, 0.05);
     }
     .input-box input {
-      flex: 1; background: transparent; border: none; outline: none; color: var(--text-main); font-size: 0.88rem;
+      flex: 1; background: transparent; border: none; outline: none; color: var(--text-main); font-size: 14px; min-width: 0;
     }
+    .input-box input::placeholder { color: #a0a6ba; font-weight: 500; }
     .send-action-btn {
-      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
-      border: none; color: white; padding: 0.55rem 1.1rem; border-radius: 6px; font-weight: 700; font-size: 0.82rem; cursor: pointer;
+      width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+      background: var(--grad-purple);
+      border: none; color: white; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3); transition: transform 0.15s;
     }
+    .send-action-btn:hover { transform: scale(1.05); }
+    .send-action-btn.wide { width: auto; height: auto; border-radius: 12px; padding: 10px 20px; font-size: 13px; gap: 8px; }
 
     /* PANEL 3: WORKSPACE DOCUMENTS (RIGHT) */
     .right-panel {
-      width: 290px; background: var(--panel-bg); border-left: 1px solid var(--border-color);
-      display: flex; flex-direction: column; padding: 1.1rem; gap: 1.1rem;
+      width: 292px; background: transparent; border-left: none;
+      display: flex; flex-direction: column; padding: 14px 20px 16px 0; gap: 12px; flex-shrink: 0; overflow-y: auto;
     }
 
-    .docs-list { display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; }
+    .docs-header-card {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #ffffff; border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 14px; flex-shrink: 0;
+    }
+    .docs-header-card .section-title { line-height: 1.4; margin: 0; }
+    .doc-count-num { font-size: 15px; font-weight: 800; color: var(--text-main); text-align: right; }
+    .doc-count-label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); }
+
+    .gradient-card { border-radius: 18px; padding: 1.5px; background: var(--grad-card); flex-shrink: 0; }
+    .gradient-card-inner { background: #ffffff; border-radius: 17px; padding: 15px; display: flex; flex-direction: column; gap: 12px; }
+    .gradient-card-title { font-size: 14px; font-weight: 800; color: var(--text-main); display: flex; justify-content: space-between; align-items: center; }
+
+    .ingest-visual { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; justify-items: center; align-items: center; }
+    .format-chips { display: flex; flex-wrap: wrap; gap: 6px; grid-column: span 2; justify-self: stretch; align-self: center; }
+    .format-chip {
+      font-size: 10.5px; font-weight: 700; color: var(--text-mid); background: #ffffff;
+      border: 1px solid var(--border-strong); border-radius: 7px; padding: 3px 9px;
+      box-shadow: 0 1px 3px rgba(30, 35, 51, 0.08);
+    }
+
+    .upload-main-btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      background: var(--grad-purple); border: none; color: #ffffff;
+      padding: 11px 0; border-radius: 12px; font-size: 13px; font-weight: 800; cursor: pointer;
+      box-shadow: 0 4px 14px rgba(124, 58, 237, 0.28); transition: transform 0.15s;
+    }
+    .upload-main-btn:hover { transform: translateY(-1px); }
+
+    .docs-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-shrink: 1; }
     .doc-card {
-      background: var(--card-bg); border: 1px solid var(--border-color); padding: 0.65rem 0.8rem;
-      border-radius: 8px; display: flex; flex-direction: column; gap: 3px; position: relative;
+      background: #ffffff; border: 1px solid var(--border-color); padding: 10px 12px;
+      border-radius: 12px; display: flex; flex-direction: column; gap: 3px; position: relative;
     }
-    .doc-card-title { font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; gap: 5px; }
-    .doc-card-meta { font-size: 0.68rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
+    .doc-card-title { font-size: 12.5px; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 7px; }
+    .doc-card-meta { font-size: 10.5px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; margin-top: 2px; }
     .doc-card-actions { display: flex; gap: 4px; }
+    .doc-card-actions .tool-btn { padding: 3px 7px; font-size: 11px; box-shadow: none; }
 
-    .upload-dropzone {
-      border: 2px dashed rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.05);
-      border-radius: 10px; padding: 1.1rem 0.8rem; text-align: center; cursor: pointer; transition: all 0.2s;
-    }
-    .upload-dropzone:hover { background: rgba(56, 189, 248, 0.12); border-color: var(--accent-blue); }
-    .dropzone-text { font-size: 0.75rem; font-weight: 700; color: var(--accent-blue); margin-top: 3px; }
-    .dropzone-sub { font-size: 0.65rem; color: var(--text-muted); }
+    .rag-status-line { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 800; color: var(--text-main); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; }
+    .rag-meta-rows { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+    .rag-meta-row { display: flex; justify-content: space-between; gap: 8px; }
+    .rag-meta-row .k { color: var(--text-soft); font-weight: 600; }
+    .rag-meta-row .v { font-weight: 700; color: var(--text-main); text-align: right; }
 
     /* AUTH OVERLAY / LOGIN SCREEN */
     .auth-overlay {
-      position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(7, 10, 19, 0.95);
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(238, 240, 245, 0.92);
       backdrop-filter: blur(12px); display: none; justify-content: center; align-items: center; z-index: 500;
     }
     .auth-overlay.active { display: flex; }
     .auth-card {
-      width: 420px; background: #131b2e; border: 1px solid var(--border-color); border-radius: 16px;
-      padding: 2.2rem; display: flex; flex-direction: column; gap: 1.25rem; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      width: 420px; background: #ffffff; border: 1px solid var(--border-color); border-radius: 20px;
+      padding: 36px; display: flex; flex-direction: column; gap: 18px; box-shadow: 0 20px 60px rgba(30, 35, 51, 0.12);
       text-align: center;
     }
-    .auth-title { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.5px; }
-    .auth-user-pick {
-      display: flex; flex-direction: column; gap: 8px; text-align: left; margin-top: 6px;
-    }
-    .user-pick-btn {
-      padding: 0.85rem 1rem; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
-      color: var(--text-main); font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px;
-      transition: all 0.2s;
-    }
-    .user-pick-btn:hover { background: rgba(56, 189, 248, 0.15); border-color: var(--accent-blue); }
+    .auth-title { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: var(--text-main); }
 
     /* MODALS */
     .modal-backdrop {
-      position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.78);
-      backdrop-filter: blur(8px); display: none; justify-content: center; align-items: center; z-index: 300;
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(30, 35, 51, 0.35);
+      backdrop-filter: blur(6px); display: none; justify-content: center; align-items: center; z-index: 300;
     }
     .modal-backdrop.active { display: flex; }
     .modal-box {
-      width: 540px; max-height: 85vh; overflow-y: auto; background: #131b2e; border: 1px solid var(--border-color);
-      border-radius: 14px; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.2rem;
+      width: 540px; max-height: 85vh; overflow-y: auto; background: #ffffff; border: 1px solid var(--border-color);
+      border-radius: 18px; padding: 26px; display: flex; flex-direction: column; gap: 18px;
+      box-shadow: 0 20px 60px rgba(30, 35, 51, 0.18);
     }
+    .modal-title { font-weight: 800; font-size: 17px; color: var(--text-main); }
+    .modal-label { font-size: 12.5px; font-weight: 700; color: var(--text-mid); margin-bottom: 4px; }
     .modal-input {
-      width: 100%; background: #070a13; border: 1px solid var(--border-color); color: white;
-      padding: 0.65rem 0.8rem; border-radius: 6px; margin-top: 4px; font-size: 0.82rem; outline: none;
+      width: 100%; background: #f7f8fb; border: 1px solid var(--border-strong); color: var(--text-main);
+      padding: 10px 13px; border-radius: 9px; margin-top: 4px; font-size: 13px; outline: none; font-family: inherit;
     }
+    .modal-input:focus { border-color: var(--accent); background: #ffffff; }
+    .modal-close-x {
+      background: transparent; border: none; color: var(--text-muted); font-size: 16px; font-weight: 700; cursor: pointer;
+      padding: 4px 8px; border-radius: 8px;
+    }
+    .modal-close-x:hover { background: #f1f2f7; color: var(--text-main); }
+    .modal-cancel-btn {
+      background: #ffffff; border: 1px solid var(--border-strong); color: var(--text-mid);
+      padding: 9px 18px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer;
+    }
+    .modal-cancel-btn:hover { background: #f6f7fa; }
+    .help-text { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
 
     /* TOAST */
     .toast-msg {
-      position: fixed; bottom: 20px; right: 20px; background: #1e293b; border: 1px solid var(--accent-blue);
-      color: white; padding: 10px 16px; border-radius: 8px; font-size: 0.8rem; font-weight: 600; z-index: 999;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.3s;
+      position: fixed; bottom: 20px; right: 20px; background: var(--text-main); border: none;
+      color: white; padding: 11px 18px; border-radius: 12px; font-size: 13px; font-weight: 600; z-index: 999;
+      box-shadow: 0 8px 24px rgba(30, 35, 51, 0.25); opacity: 0; transition: opacity 0.3s;
     }
     .toast-msg.show { opacity: 1; }
-
-    .help-text { font-size: 0.68rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -329,24 +395,24 @@
   <div class="auth-overlay" id="auth-overlay">
     <div class="auth-card">
       <div style="display:flex; justify-content:center;">
-        <div class="brand-logo" style="width:48px; height:48px; font-size:1.4rem;">E</div>
+        <img src="/eleia-logo.png" alt="Elea" style="height:64px; width:auto;">
       </div>
       <div>
-        <div class="auth-title">Elea RAG · Portal de Acceso</div>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Gobernanza IA y RAG Corporativo · Laboratorios ELEA</div>
+        <div class="auth-title">Portal de Acceso</div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:4px;">Gobernanza IA y RAG Corporativo · Laboratorios ELEA</div>
       </div>
 
-      <form id="login-form" style="display:flex; flex-direction:column; gap:10px; text-align:left;" onsubmit="return handleLogin(event)">
+      <form id="login-form" style="display:flex; flex-direction:column; gap:12px; text-align:left;" onsubmit="return handleLogin(event)">
         <div>
-          <label style="font-size:0.72rem; color:var(--text-muted); font-weight:700;">Usuario</label>
+          <div class="modal-label">Usuario</div>
           <input type="text" id="login-username" class="modal-input" autocomplete="username" required>
         </div>
         <div>
-          <label style="font-size:0.72rem; color:var(--text-muted); font-weight:700;">Contraseña</label>
+          <div class="modal-label">Contraseña</div>
           <input type="password" id="login-password" class="modal-input" autocomplete="current-password" required>
         </div>
-        <div id="login-error" style="color:var(--accent-red); font-size:0.75rem; display:none;"></div>
-        <button type="submit" class="send-action-btn" style="margin-top:4px;">Ingresar</button>
+        <div id="login-error" style="color:var(--accent-red); font-size:12.5px; display:none;"></div>
+        <button type="submit" class="send-action-btn wide" style="width:100%; justify-content:center;">Ingresar</button>
       </form>
     </div>
   </div>
@@ -354,35 +420,31 @@
   <!-- TOP NAVBAR -->
   <div class="top-navbar">
     <div class="brand-section">
-      <div class="brand-logo">E</div>
-      <div>
-        <div class="brand-title">Elea Hub</div>
-        <div class="brand-subtitle">ELEIA & AnythingLLM</div>
-      </div>
+      <img src="/eleia-logo.png" alt="Elea" style="height:40px; width:auto;">
     </div>
 
     <!-- CLIENT / TENANT BADGE -->
-    <div class="client-tenant-badge" id="client-tenant-badge">
-      🏢 <span>Laboratorios ELEA</span>
-    </div>
+    <div class="client-tenant-badge" id="client-tenant-badge">Laboratorios ELEA</div>
 
     <!-- SELECTOR DE MODELO — catálogo real de elea (GET /chat/models), solo aplica al
          chat directo (sin workspace RAG seleccionado). Nunca una lista inventada. -->
     <div class="guardian-selector-container" title="Modelo para el chat directo (sin RAG). En un espacio RAG, el modelo lo decide el workspace.">
-      <span>🛡️</span>
+      <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4-2.5 5.5S15 17 15 18h-6c0-1-.5-2-1.5-3.5S5 11.5 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path></svg>
       <select class="guardian-select" id="guardian-model-selector"></select>
     </div>
 
     <!-- Usuario real + presupuesto real -->
     <div class="user-profile-widget">
       <div class="user-avatar-circle" id="user-avatar">U</div>
-      <span id="user-display-name" style="font-size:0.8rem; font-weight:600;"></span>
-      <div class="quota-badge" id="user-quota">💰 —</div>
+      <div class="user-identity">
+        <span id="user-display-name"></span>
+        <div class="quota-badge" id="user-quota">—</div>
+      </div>
     </div>
 
     <!-- Action Buttons -->
     <div style="display:flex; gap:6px;">
-      <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">🚪 Salir</button>
+      <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">Salir</button>
     </div>
   </div>
 
@@ -393,7 +455,7 @@
     <div class="left-panel">
       <div>
         <div class="section-header">
-          <span class="section-title">🏢 Espacios de Trabajo</span>
+          <span class="section-title">Espacios de Trabajo</span>
           <button class="add-btn" onclick="openNewWsModal()">+ Nuevo</button>
         </div>
         <div class="workspaces-list" id="workspaces-container"></div>
@@ -401,15 +463,21 @@
 
       <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
         <div class="section-header">
-          <span class="section-title">🧵 Hilos en este Espacio</span>
+          <span class="section-title">Hilos en este Espacio</span>
           <button class="add-btn" onclick="openNewThreadModal()">+ Hilo</button>
         </div>
         <div class="threads-list" id="threads-container"></div>
       </div>
 
-      <div style="border-top:1px solid var(--border-color); padding-top:0.6rem; display:flex; justify-content:space-between;">
-        <button class="tool-btn" onclick="openWorkspaceSettingsModal()">⚙️ Ajustes Espacio</button>
-        <button class="tool-btn danger" onclick="deleteCurrentWorkspace()">🗑️ Borrar Espacio</button>
+      <div class="left-panel-footer">
+        <button class="footer-link-btn" onclick="openWorkspaceSettingsModal()">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>Ajustes del espacio</span>
+        </button>
+        <button class="footer-link-btn danger" onclick="deleteCurrentWorkspace()">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+          <span>Eliminar espacio</span>
+        </button>
       </div>
     </div>
 
@@ -417,72 +485,108 @@
     <div class="center-chat">
       <div class="chat-topbar">
         <div class="chat-context-breadcrumb">
-          <span class="ws-pill" id="current-ws-badge">📁 Control de Calidad ELEA</span>
-          <span id="current-thread-title">🧵 Revisión Documental y Clientes</span>
+          <span class="ws-pill" id="current-ws-badge">Espacio</span>
+          <span class="breadcrumb-sep">/</span>
+          <span id="current-thread-title">Hilo</span>
         </div>
 
         <div class="thread-actions">
-          <button class="tool-btn" onclick="renameCurrentThread()" title="Renombrar título del hilo">✏️ Renombrar</button>
-          <button class="tool-btn" onclick="clearCurrentChat()" title="Limpiar mensajes del chat">🧹 Limpiar Chat</button>
-          <button class="tool-btn" onclick="exportChatTranscript()" title="Descargar reporte del chat">📥 Exportar</button>
-          <button class="tool-btn danger" onclick="deleteCurrentThread()" title="Eliminar este hilo">🗑️</button>
+          <button class="tool-btn" onclick="renameCurrentThread()" title="Renombrar título del hilo">Renombrar</button>
+          <button class="tool-btn" onclick="clearCurrentChat()" title="Limpiar mensajes del chat">Limpiar chat</button>
+          <button class="tool-btn" onclick="exportChatTranscript()" title="Descargar reporte del chat">Exportar</button>
+          <button class="tool-btn icon-only" onclick="deleteCurrentThread()" title="Eliminar este hilo">
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+          </button>
         </div>
       </div>
 
-      <div class="chat-feed" id="chat-messages"></div>
+      <div class="chat-frame">
+        <div class="chat-frame-inner">
+          <div class="chat-feed" id="chat-messages"></div>
+        </div>
+      </div>
 
       <div class="chat-bottom-input">
         <div class="quick-chips">
-          <button class="chip-btn" onclick="quickSend('¿Podrías decirme qué hay en los documentos que subí?')">📄 Analizar Documentos Reales</button>
-          <button class="chip-btn" onclick="quickSend('¿De qué trata el acuerdo de no divulgación y cuáles son sus cláusulas?')">📝 Resumen Acuerdo NDA</button>
-          <button class="chip-btn" onclick="quickSend('¿Cuántos contactos hay en el archivo Excel y cuáles son sus columnas?')">📊 Analizar Planilla Contactos</button>
+          <button class="chip-btn" onclick="quickSend('¿Podrías decirme qué hay en los documentos que subí?')">
+            <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+            <span>Analizar documentos reales</span>
+          </button>
+          <button class="chip-btn" onclick="quickSend('¿De qué trata el acuerdo de no divulgación y cuáles son sus cláusulas?')">
+            <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+            <span>Resumen acuerdo NDA</span>
+          </button>
+          <button class="chip-btn" onclick="quickSend('¿Cuántos contactos hay en el archivo Excel y cuáles son sus columnas?')">
+            <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 21V9"></path></svg>
+            <span>Analizar planilla contactos</span>
+          </button>
         </div>
 
         <div class="input-box">
-          <input type="text" id="chat-input" placeholder="Escribe tu consulta sobre este espacio de trabajo..." onkeypress="handleKeyPress(event)">
-          <button class="send-action-btn" onclick="sendMessage()">Enviar</button>
+          <input type="text" id="chat-input" placeholder="Escribí tu consulta sobre este espacio de trabajo..." onkeypress="handleKeyPress(event)">
+          <button class="send-action-btn" onclick="sendMessage()" title="Enviar">
+            <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path></svg>
+          </button>
         </div>
       </div>
     </div>
 
     <!-- PANEL 3: WORKSPACE DOCUMENTS (RIGHT) -->
     <div class="right-panel">
-      <div class="section-header">
-        <span class="section-title">📂 Documentos del Espacio</span>
-        <span style="font-size:0.7rem; color:var(--accent-blue);" id="doc-count-badge">0 archivos</span>
+      <div class="docs-header-card">
+        <span class="section-title">Documentos del Espacio</span>
+        <div>
+          <div class="doc-count-num" id="doc-count-badge">0</div>
+          <div class="doc-count-label">archivos</div>
+        </div>
       </div>
 
       <input type="file" id="ws-file-input" style="display:none" onchange="handleWsFileUpload(event)">
-      <div class="upload-dropzone" onclick="document.getElementById('ws-file-input').click()">
-        <div style="font-size:1.3rem;">📎</div>
-        <div class="dropzone-text">+ Subir Documento o Excel</div>
-        <div class="dropzone-sub">PDF, Word, Excel, CSV (Persistente)</div>
+
+      <!-- DATA INGEST CARD -->
+      <div class="gradient-card">
+        <div class="gradient-card-inner">
+          <div class="gradient-card-title">
+            <span>Data Ingest Core</span>
+            <span style="color:#a0a6ba; letter-spacing:1px; font-weight:800;">···</span>
+          </div>
+          <div class="ingest-visual">
+            <svg class="ic" width="40" height="40" viewBox="0 0 42 42" fill="none"><rect x="8" y="4" width="24" height="32" rx="3" fill="#ede9fe" stroke="#a78bfa" stroke-width="1.5"></rect><path d="M13 12h14M13 18h14M13 24h9" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round"></path></svg>
+            <svg class="ic" width="40" height="40" viewBox="0 0 42 42" fill="none"><path d="M21 5l13 7v14l-13 7-13-7V12z" fill="#fce7f3" stroke="#ec4899" stroke-width="1.5" stroke-linejoin="round"></path><path d="M21 5v14m0 0l13-7m-13 7L8 12" stroke="#ec4899" stroke-width="1.2"></path></svg>
+            <svg class="ic" width="40" height="40" viewBox="0 0 42 42" fill="none"><rect x="8" y="4" width="24" height="32" rx="3" fill="#dbeafe" stroke="#60a5fa" stroke-width="1.5"></rect><path d="M13 14l5 5-5 5M22 24h7" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <svg class="ic" width="40" height="40" viewBox="0 0 42 42" fill="none"><path d="M21 5l13 7v14l-13 7-13-7V12z" fill="#cffafe" stroke="#22d3ee" stroke-width="1.5" stroke-linejoin="round"></path><path d="M21 5v14m0 0l13-7m-13 7L8 12" stroke="#06b6d4" stroke-width="1.2"></path></svg>
+            <div class="format-chips">
+              <span class="format-chip">PDF</span>
+              <span class="format-chip">Excel</span>
+              <span class="format-chip">CSV</span>
+              <span class="format-chip">Documento</span>
+            </div>
+          </div>
+          <button class="upload-main-btn" onclick="document.getElementById('ws-file-input').click()">
+            <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M17 8l-5-5-5 5"></path><path d="M12 3v12"></path></svg>
+            <span>Subir archivos</span>
+          </button>
+        </div>
       </div>
 
       <div class="docs-list" id="documents-container"></div>
 
-      <div style="background:rgba(0,0,0,0.4); padding:0.8rem; border-radius:8px; border:1px solid var(--border-color); font-size:0.7rem;">
-        <div style="font-weight:700; color:var(--accent-blue); margin-bottom:3px;">🎯 Motor RAG Activo:</div>
-        <div style="color:var(--text-muted);" id="rag-mode-label">• Modo: <strong>RAG Estricto (Query)</strong></div>
-        <div style="color:var(--text-muted); margin-top:2px;">• Vector Store: <strong>LanceDB Local</strong></div>
-        <div style="color:var(--text-muted); margin-top:2px;">• Gobernanza: <strong>Elea GuardIAn</strong></div>
+      <!-- RAG STATUS CARD (estático — sin endpoint de ping real en el backend) -->
+      <div class="gradient-card" style="margin-top:auto;">
+        <div class="gradient-card-inner">
+          <div class="rag-status-line">
+            <span class="status-dot"></span>
+            <span>Motor RAG Activo</span>
+          </div>
+          <div class="rag-meta-rows">
+            <div class="rag-meta-row"><span class="k">Modo</span><span class="v" id="rag-mode-label">Chat directo</span></div>
+            <div class="rag-meta-row"><span class="k">Vector store</span><span class="v">LanceDB Local</span></div>
+            <div class="rag-meta-row"><span class="k">Gobernanza</span><span class="v">Elea GuardIAn</span></div>
+          </div>
+        </div>
       </div>
     </div>
 
-  </div>
-
-  <!-- MODAL: PREVISUALIZAR DOCUMENTO -->
-  <div class="modal-backdrop" id="modal-doc-preview">
-    <div class="modal-box" style="width:650px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-weight:800; font-size:1.05rem;" id="preview-doc-name">📄 Previsualización de Documento</div>
-        <button class="chip-btn" onclick="closeDocPreviewModal()">✕</button>
-      </div>
-      <div style="background:#070a13; border:1px solid var(--border-color); border-radius:8px; padding:1rem; max-height:400px; overflow-y:auto; font-size:0.8rem; line-height:1.6;" id="preview-doc-content"></div>
-      <div style="display:flex; justify-content:flex-end;">
-        <button class="send-action-btn" onclick="closeDocPreviewModal()">Cerrar</button>
-      </div>
-    </div>
   </div>
 
   <!-- MODAL: AJUSTES DE WORKSPACE — las 7 opciones reales de AnythingLLM (spec 040 US3),
@@ -490,64 +594,64 @@
   <div class="modal-backdrop" id="modal-ws-settings">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div style="font-weight:800; font-size:1.1rem;">⚙️ Ajustes del Espacio RAG</div>
-        <button class="chip-btn" onclick="closeWsSettingsModal()">✕</button>
+        <div class="modal-title">Ajustes del Espacio RAG</div>
+        <button class="modal-close-x" onclick="closeWsSettingsModal()">✕</button>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Modo de conversación</div>
+        <div class="modal-label">Modo de conversación</div>
         <select id="ws-chatMode" class="modal-input">
-          <option value="chat">💬 Conversacional</option>
-          <option value="query">🎯 Estricto</option>
+          <option value="chat">Conversacional</option>
+          <option value="query">Estricto</option>
         </select>
         <div class="help-text">Conversacional: combina lo que sabe el modelo con tus documentos. Estricto: solo responde si está en los documentos — 0% de invención.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Temperatura</div>
-        <input type="range" id="ws-openAiTemp" min="0.0" max="1.0" step="0.1" value="0.2" style="width:100%;">
-        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
+        <div class="modal-label">Temperatura</div>
+        <input type="range" id="ws-openAiTemp" min="0.0" max="1.0" step="0.1" value="0.2" style="width:100%; accent-color:#7c3aed;">
+        <div style="font-size:11.5px; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
           <span>0.0</span><span id="temp-val">0.2</span><span>1.0</span>
         </div>
         <div class="help-text">Más bajo = respuestas más literales y repetibles. Más alto = respuestas más variadas.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Ventana de historial</div>
+        <div class="modal-label">Ventana de historial</div>
         <input type="number" id="ws-openAiHistory" class="modal-input" min="0" max="50" value="20">
         <div class="help-text">Cuántas vueltas de la conversación tiene en cuenta antes de responder.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Instrucciones del espacio (system prompt)</div>
+        <div class="modal-label">Instrucciones del espacio (system prompt)</div>
         <textarea id="ws-openAiPrompt" class="modal-input" rows="3" placeholder="Reglas que aplican a TODAS las respuestas de este espacio (tono, formato, alcance)..."></textarea>
         <div class="help-text">Reglas fijas para este espacio — se aplican a cada respuesta, no hace falta repetirlas en cada mensaje.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Umbral de similitud</div>
-        <input type="range" id="ws-similarityThreshold" min="0.0" max="1.0" step="0.05" value="0.25" style="width:100%;">
-        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
+        <div class="modal-label">Umbral de similitud</div>
+        <input type="range" id="ws-similarityThreshold" min="0.0" max="1.0" step="0.05" value="0.25" style="width:100%; accent-color:#7c3aed;">
+        <div style="font-size:11.5px; color:var(--text-muted); display:flex; justify-content:space-between; margin-top:2px;">
           <span>0.0</span><span id="sim-val">0.25</span><span>1.0</span>
         </div>
         <div class="help-text">Más alto = solo usa fragmentos muy relevantes (más estricto, puede omitir contexto útil).</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Fragmentos por consulta (Top-N)</div>
+        <div class="modal-label">Fragmentos por consulta (Top-N)</div>
         <input type="number" id="ws-topN" class="modal-input" min="1" max="20" value="4">
         <div class="help-text">Cuántos trozos de documento se le pasan al modelo por pregunta.</div>
       </div>
 
       <div>
-        <div style="font-size:0.78rem; font-weight:700; margin-bottom:2px;">Respuesta cuando no hay nada relevante</div>
+        <div class="modal-label">Respuesta cuando no hay nada relevante</div>
         <input type="text" id="ws-queryRefusalResponse" class="modal-input" placeholder="Solo aplica en modo Estricto — dejar vacío usa el default.">
         <div class="help-text">El mensaje exacto que ve el usuario en modo Estricto cuando no hay nada relevante en los documentos.</div>
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:8px;">
-        <button class="chip-btn" onclick="closeWsSettingsModal()">Cancelar</button>
-        <button class="send-action-btn" onclick="saveWorkspaceSettings()">Guardar Ajustes</button>
+        <button class="modal-cancel-btn" onclick="closeWsSettingsModal()">Cancelar</button>
+        <button class="send-action-btn wide" onclick="saveWorkspaceSettings()">Guardar Ajustes</button>
       </div>
     </div>
   </div>
@@ -555,11 +659,11 @@
   <!-- MODAL: NUEVO ESPACIO -->
   <div class="modal-backdrop" id="modal-new-ws">
     <div class="modal-box" style="width:420px;">
-      <div style="font-weight:800; font-size:1.1rem; margin-bottom:0.4rem;">🏢 Crear Nuevo Espacio de Trabajo</div>
+      <div class="modal-title" style="margin-bottom:2px;">Crear Nuevo Espacio de Trabajo</div>
       <input type="text" id="new-ws-name" class="modal-input" placeholder="Nombre del espacio (ej. Control Microbiológico)">
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
-        <button class="chip-btn" onclick="closeNewWsModal()">Cancelar</button>
-        <button class="send-action-btn" onclick="submitNewWorkspace()">Crear Espacio</button>
+        <button class="modal-cancel-btn" onclick="closeNewWsModal()">Cancelar</button>
+        <button class="send-action-btn wide" onclick="submitNewWorkspace()">Crear Espacio</button>
       </div>
     </div>
   </div>
@@ -567,11 +671,11 @@
   <!-- MODAL: NUEVO HILO -->
   <div class="modal-backdrop" id="modal-new-thread">
     <div class="modal-box" style="width:420px;">
-      <div style="font-weight:800; font-size:1.1rem; margin-bottom:0.4rem;">🧵 Crear Nuevo Hilo de Conversación</div>
+      <div class="modal-title" style="margin-bottom:2px;">Crear Nuevo Hilo de Conversación</div>
       <input type="text" id="new-thread-title" class="modal-input" placeholder="Título del hilo (ej. Análisis Cláusulas NDA)">
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
-        <button class="chip-btn" onclick="closeNewThreadModal()">Cancelar</button>
-        <button class="send-action-btn" onclick="submitNewThread()">Crear Hilo</button>
+        <button class="modal-cancel-btn" onclick="closeNewThreadModal()">Cancelar</button>
+        <button class="send-action-btn wide" onclick="submitNewThread()">Crear Hilo</button>
       </div>
     </div>
   </div>
@@ -588,6 +692,18 @@
     let currentWorkspace = null; // objeto completo (con documents[] y threads[])
     let currentThreadSlug = null;
     let messages = [];
+
+    const EMPTY_STATE_HTML = `
+      <div class="chat-empty-state">
+        <img src="/eleia-logo.png" alt="Elea" style="height:70px; width:auto;">
+        <div class="empty-tagline">La plataforma inteligente para Laboratorios Elea</div>
+        <div class="empty-chat-icon">
+          <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"></path></svg>
+        </div>
+        <div class="empty-title">Empezá una conversación</div>
+        <div class="empty-sub">Escribí tu consulta sobre este espacio de trabajo o elegí una acción rápida abajo.</div>
+      </div>
+    `;
 
     function showToast(text) {
       const toast = document.getElementById('toast-notification');
@@ -650,9 +766,9 @@
       document.getElementById('user-display-name').innerText = `${currentUser.username} · ${currentUser.role}`;
       const quotaEl = document.getElementById('user-quota');
       if (currentBudget && currentBudget.maxUsd != null) {
-        quotaEl.innerText = `💰 $${currentBudget.usedUsd.toFixed(2)} / $${currentBudget.maxUsd.toFixed(2)}`;
+        quotaEl.innerText = `$${currentBudget.usedUsd.toFixed(2)} / $${currentBudget.maxUsd.toFixed(2)}`;
       } else {
-        quotaEl.innerText = '💰 Sin presupuesto asignado';
+        quotaEl.innerText = 'Sin presupuesto asignado';
       }
     }
 
@@ -666,7 +782,7 @@
       models.forEach((m) => {
         const opt = document.createElement('option');
         opt.value = m.model_name;
-        opt.innerText = m.model_name === 'auto' ? '✨ Automático (elea decide)' : m.model_name;
+        opt.innerText = m.model_name === 'auto' ? 'Automático (elea decide)' : m.model_name;
         sel.appendChild(opt);
       });
     }
@@ -682,6 +798,7 @@
         await selectWorkspace(workspaces[0].slug);
       } else if (workspaces.length === 0) {
         renderChatTopbar();
+        renderMessages();
       }
     }
 
@@ -693,7 +810,7 @@
         const div = document.createElement('div');
         div.className = `workspace-item ${activeClass}`;
         div.onclick = () => selectWorkspace(ws.slug);
-        div.innerHTML = `<span>📁</span><span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.name}</span>`;
+        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.name}</span>`;
         wsContainer.appendChild(div);
       });
     }
@@ -716,14 +833,14 @@
     }
 
     function renderChatTopbar() {
-      document.getElementById('current-ws-badge').innerText = currentWorkspace ? `📁 ${currentWorkspace.name}` : '💬 Chat directo (sin RAG)';
+      document.getElementById('current-ws-badge').innerText = currentWorkspace ? currentWorkspace.name : 'Chat directo (sin RAG)';
       document.getElementById('current-thread-title').innerText = currentThreadSlug
-        ? `🧵 ${(currentWorkspace.threads || []).find((t) => t.slug === currentThreadSlug)?.name || 'Hilo'}`
-        : (currentWorkspace ? '🧵 Hilo principal del espacio' : '');
-      document.getElementById('doc-count-badge').innerText = currentWorkspace ? `${(currentWorkspace.documents || []).length} archivos` : '0 archivos';
-      document.getElementById('rag-mode-label').innerHTML = currentWorkspace
-        ? `• Modo: <strong>${currentWorkspace.chatMode === 'query' ? 'Estricto' : 'Conversacional'}</strong>`
-        : '• Modo: <strong>Chat directo</strong>';
+        ? ((currentWorkspace.threads || []).find((t) => t.slug === currentThreadSlug)?.name || 'Hilo')
+        : (currentWorkspace ? 'Hilo principal del espacio' : '');
+      document.getElementById('doc-count-badge').innerText = currentWorkspace ? `${(currentWorkspace.documents || []).length}` : '0';
+      document.getElementById('rag-mode-label').innerText = currentWorkspace
+        ? (currentWorkspace.chatMode === 'query' ? 'RAG Estricto' : 'RAG Conversacional')
+        : 'Chat directo';
     }
 
     function renderThreads() {
@@ -738,7 +855,7 @@
         // GET /workspace/{slug} de AnythingLLM NO devuelve el nombre del hilo (solo el
         // slug) — a diferencia de la respuesta de creación, que sí lo trae. Fallback
         // para no mostrar "undefined" (bug real encontrado 31-ago).
-        div.innerHTML = `<div>🧵 ${th.name || 'Hilo ' + th.slug.slice(0, 8)}</div>`;
+        div.innerHTML = `<div><span style="overflow:hidden; text-overflow:ellipsis;">${th.name || 'Hilo ' + th.slug.slice(0, 8)}</span></div>`;
         threadsContainer.appendChild(div);
       });
     }
@@ -764,11 +881,11 @@
         const div = document.createElement('div');
         div.className = 'doc-card';
         div.innerHTML = `
-          <div class="doc-card-title">📄 <span>${displayName}</span></div>
+          <div class="doc-card-title"><span>${displayName}</span></div>
           <div class="doc-card-meta">
             <span>${meta.wordCount || 0} palabras</span>
             <div class="doc-card-actions">
-              <button class="tool-btn danger" title="Eliminar">🗑️</button>
+              <button class="tool-btn danger" title="Eliminar">✕</button>
             </div>
           </div>`;
         div.querySelector('.tool-btn.danger').onclick = (e) => deleteDocument(doc.docpath, e);
@@ -860,7 +977,7 @@
     function exportChatTranscript() {
       if (messages.length === 0) return;
       let transcript = `# Transcripción Elea RAG\n**Espacio:** ${currentWorkspace ? currentWorkspace.name : 'Chat directo'}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
-      messages.forEach((m) => { transcript += `### ${m.role === 'user' ? '👤 Usuario' : '🤖 Asistente'}\n${m.content}\n\n`; });
+      messages.forEach((m) => { transcript += `### ${m.role === 'user' ? 'Usuario' : 'Asistente'}\n${m.content}\n\n`; });
       const blob = new Blob([transcript], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -983,15 +1100,19 @@
     function renderMessages() {
       const container = document.getElementById('chat-messages');
       container.innerHTML = '';
+      if (messages.length === 0) {
+        container.innerHTML = EMPTY_STATE_HTML;
+        return;
+      }
       messages.forEach((msg) => {
         const msgDiv = document.createElement('div');
         msgDiv.className = `msg ${msg.role}`;
         const parsedContent = msg.role === 'assistant' && typeof marked !== 'undefined' ? marked.parse(msg.content) : msg.content;
         let citationHtml = '';
         if (msg.sources && msg.sources.length > 0) {
-          citationHtml = `<div class="citation-card">📄 <strong>Fuente (RAG):</strong> ${msg.sources[0].document}</div>`;
+          citationHtml = `<div class="citation-card">Fuente (RAG): <strong>${msg.sources[0].document}</strong></div>`;
         }
-        const modelHtml = msg.modelUsed ? `<span style="color:var(--text-muted);">Respondió: ${msg.modelUsed}</span>` : '';
+        const modelHtml = msg.modelUsed ? `<span>Respondió: ${msg.modelUsed}</span>` : '';
         msgDiv.innerHTML = `
           <div class="msg-avatar">${msg.role === 'user' ? 'U' : 'AI'}</div>
           <div class="msg-body">
@@ -1001,7 +1122,7 @@
               <div>${modelHtml}</div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span>${msg.timestamp || ''}</span>
-                <button class="copy-btn" onclick="copyToClipboard(\`${(msg.content || '').replace(/`/g, '\\`')}\`)" title="Copiar">📋 Copiar</button>
+                <button class="copy-btn" onclick="copyToClipboard(\`${(msg.content || '').replace(/`/g, '\\`')}\`)" title="Copiar">Copiar</button>
               </div>
             </div>
           </div>`;
