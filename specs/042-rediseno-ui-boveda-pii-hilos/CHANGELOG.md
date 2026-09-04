@@ -150,6 +150,30 @@ los contenedores `elea-engine` y `elea-backend` reales.
   `SENTINEL_ENTITY_REGION` default corregido a `latam_ar`).
 - `cluna-8/elea-installer`: `docker-compose.yml`, `.env.example` (mismas variables).
 
+## Nota de mejora — extracción de Excel/CSV: ¿duplicamos trabajo con AnythingLLM?
+
+Duda real del usuario (03-sep): el `client/extract_text.py` extrae `.xlsx` a mano con
+pandas, pero AnythingLLM **ya trae su propio procesador nativo de xlsx**
+(`asXlsx.js` en su `collector/`, usa `node-xlsx`, convierte cada hoja a CSV y arma un
+documento por hoja) — parecería trabajo duplicado.
+
+**Por qué hoy no se puede usar el nativo tal cual**: el enmascarado de PII tiene que
+pasar ANTES de que el archivo llegue a AnythingLLM — si le subiéramos el `.xlsx`
+original para que lo procese su collector nativo, el vector store quedaría con los
+datos reales sin proteger (justo lo que el flujo actual evita). AnythingLLM no expone
+ningún hook para interceptar entre "extraje el archivo" y "lo indexé" — o se enmascara
+afuera antes de subir (lo que hacemos hoy), o habría que forkear/parchear su collector
+(mucho más invasivo, y hay que mantenerlo contra cada actualización de imagen).
+
+**Mejora real posible, no una reescritura completa**: nuestra extracción con pandas es
+más cruda que la de AnythingLLM (un volcado plano `columna: valor | columna: valor`,
+sin distinguir hojas). El código de `asXlsx.js` ya resuelve bien el caso multi-hoja
+(CSV por hoja, con su nombre) — se podría portar SOLO esa lógica de parseo/formato
+(no el pipeline de indexado) a `extract_text.py`, para que el texto que enmascaramos y
+subimos tenga la misma calidad/estructura que si AnythingLLM lo hubiera procesado él
+mismo, en vez de reinventar el formato de salida. Pendiente de spec propia si se decide
+priorizar — no es urgente, el volcado actual funciona (verificado con archivos reales).
+
 ## Pendiente (no tocado en esta ronda, ver spec 041)
 
 PPTX, generación de documentos, cruces exactos CSV/Excel (DB-GPT), formateo de respuesta
