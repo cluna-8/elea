@@ -4,10 +4,19 @@
 
 **Created**: 2026-08-31
 
-**Status**: Borrador — pendiente de retomar. Depende de
-[040-cliente-rag-elea-completo](../040-cliente-rag-elea-completo/spec.md) (ya construido,
-probado con archivos reales, instalador funcionando en `eleavdmia` — ver tasks.md de esa
-spec para el detalle de lo hecho el 31-ago).
+**Status**: ✅ **Lista** — **Redistribuida (08-sep-2026)** en tres specs de UI completas y propias.
+Como diagnóstico, esta spec está cerrada: los 6 puntos originales quedaron auditados y cada uno
+tiene ahora un plan propio y completo (spec+plan+tasks) en el documento que le corresponde. Este
+archivo queda como el diagnóstico original, ya no como el plan de trabajo. Cada punto pendiente
+se retomó así:
+
+- US1 (carga de pptx) y US4 (generación de documentos) → [045-generacion-carga-documentos-eleia-hub](../045-generacion-carga-documentos-eleia-hub/spec.md)
+- US5 (cruces CSV/Excel exactos, DB-GPT) → [046-analisis-exacto-datos-eleia-hub](../046-analisis-exacto-datos-eleia-hub/spec.md)
+- US2 (formateo de respuesta) y US3 (presupuesto por rol) → [047-formato-respuesta-presupuesto-rol-eleia-hub](../047-formato-respuesta-presupuesto-rol-eleia-hub/spec.md)
+
+Depende de [040-cliente-rag-elea-completo](../040-cliente-rag-elea-completo/spec.md) (ya
+construido, probado con archivos reales, instalador funcionando en `eleavdmia` — ver tasks.md de
+esa spec para el detalle de lo hecho el 31-ago).
 
 **Input**: Mensaje literal del cliente Elea (compartido por el usuario, 31-ago), los 6
 puntos originales del piloto. Esta spec audita cuáles cubre hoy el **cliente RAG**
