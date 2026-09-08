@@ -79,6 +79,7 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        k.group_id::text AS group_id, k.tool_type, k.upstream_mode, k.redact_enabled,
        k.compression_mode AS key_compression_mode, k.allowed_models, k.allowed_tools,
        k.rpm_limit, k.tpm_limit, k.is_active, k.expires_at::text AS expires_at,
+       k.can_act_on_behalf,
        u.username, u.role, u.client_type, u.display_label,
        g.compression_mode AS group_compression_mode,
        t.slug AS tenant_slug, t.compression_mode AS tenant_compression_mode,
@@ -275,6 +276,47 @@ async def _lookup_identity(key_hash: str) -> Optional[dict]:
     return row
 
 
+async def _verify_acting_user(row: dict, header_value: Optional[str]) -> Optional[str]:
+    """Spec 043 (US2, contrato 2, T026): "en nombre de quién" actúa este pedido, o
+    ``None`` si no aplica. Nunca confía a ciegas en `X-Guardian-Acting-User`: solo la
+    honra si (a) la Connection tiene `can_act_on_behalf=true` —dato del admin, no del
+    cliente— y (b) el usuario referenciado existe y pertenece al MISMO tenant que la
+    Connection (verificado contra el backend, dueño de esas tablas — mismo camino HTTP/
+    dev-fallback que `_lookup_identity`). Cualquier otro caso (cabecera ausente, sin
+    privilegio, usuario ajeno, fallo de red) devuelve ``None`` — el pedido se atribuye
+    como si la cabecera no hubiera llegado, NUNCA bloquea ni degrada el request."""
+    if not header_value or not isinstance(header_value, str):
+        return None
+    if not row.get("can_act_on_behalf"):
+        return None
+    tenant_id = row.get("tenant_id")
+    if not tenant_id:
+        return None
+    try:
+        if _IDENTITY_URL:
+            import httpx
+            verify_url = _IDENTITY_URL.rsplit("/", 1)[0] + "/verify-user"
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                r = await client.get(verify_url, params={
+                    "user_id": header_value.strip(), "tenant_id": tenant_id,
+                }, headers={"X-Sentinel-Internal": _INTERNAL_SECRET})
+            if r.status_code != 200 or not r.json().get("valid"):
+                return None
+            return header_value.strip()
+        else:
+            # Desarrollo: motor y backend comparten base, consulta directa vía prisma.
+            from litellm.proxy.proxy_server import prisma_client
+            if prisma_client is None:
+                return None
+            rows = await prisma_client.db.query_raw(
+                'SELECT id FROM users WHERE id = $1::uuid AND tenant_id = $2::uuid',
+                header_value.strip(), tenant_id,
+            )
+            return header_value.strip() if rows else None
+    except Exception:  # noqa: BLE001 — best-effort, nunca bloquea ni rompe el pedido
+        return None
+
+
 async def _emitir_fila_rechazo_presupuesto(row: dict) -> None:
     """Fila durable del rechazo por presupuesto del plano MOTOR (#176), gemela de la que el
     #157 escribe en el plano consola (``chat.py``).
@@ -385,6 +427,9 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     # Toggles con semántica NULL=heredar (FR-014); espejo de context_resolution del
     # backend (la centralización fina por policy es spec 015).
     redact_enabled = row.get("redact_enabled")
+    # Spec 043 (US2, T026/T027): "en nombre de quién" — ver `_verify_acting_user`.
+    acted_for_user_id = await _verify_acting_user(
+        row, request.headers.get("x-guardian-acting-user"))
     sentinel_identity = {
         "identity": "connection",
         "key_id": row["key_id"],
@@ -417,6 +462,9 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
         # `policy.resolve_region`, con el default de instalación (`SENTINEL_ENTITY_REGION`)
         # que arma el guardrail — no acá.
         "region": row.get("region"),
+        # Spec 043 (US2): None salvo que la Connection tenga can_act_on_behalf=true Y el
+        # usuario referenciado sea verificablemente del mismo tenant (_verify_acting_user).
+        "acted_for_user_id": acted_for_user_id,
     }
 
     return UserAPIKeyAuth(

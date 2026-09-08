@@ -41,6 +41,10 @@ class KeyCreateSchema(BaseModel):
     tpm_limit: Optional[int] = 100000
     # Connection (spec 013 US5): herramienta a la que se liga la key
     tool_type: str = "claude-code"
+    # Spec 043 (US2, contrato 2): allowlist explícita para que esta Connection pueda
+    # afirmar "actúo en nombre del usuario X" vía X-Guardian-Acting-User. Default False
+    # — solo las llaves de servicio del instalador (tool_type='servicio') la necesitan.
+    can_act_on_behalf: bool = False
 
 
 class KeyResponseSchema(BaseModel):
@@ -50,6 +54,7 @@ class KeyResponseSchema(BaseModel):
     user_id: Optional[UUID]
     group_id: Optional[UUID]
     tool_type: str = "claude-code"
+    can_act_on_behalf: bool = False
     is_active: bool
     compliance_project_id: Optional[UUID] = None
     rpm_limit: Optional[int] = 60
@@ -206,6 +211,7 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
         compliance_project_id=key_in.compliance_project_id,
         rpm_limit=key_in.rpm_limit or 60,
         tpm_limit=key_in.tpm_limit or 100000,
+        can_act_on_behalf=key_in.can_act_on_behalf,
     )
     db.add(db_key)
 

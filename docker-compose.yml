@@ -248,7 +248,9 @@ services:
     # salvo para administrar la instancia (crear la API key inicial, spec 040 T040) —
     # se publica igual para ese uso puntual, no para tráfico de producto.
     profiles: ["rag"]
-    image: mintplexlabs/anythingllm:latest
+    # Versión fijada (spec 043 T021, mismo criterio que elea-installer/docker-compose.yml):
+    # 1.16.1 confirmada como la más reciente publicada en Docker Hub al 08-sep-2026.
+    image: mintplexlabs/anythingllm:1.16.1
     container_name: ${STACK_PREFIX:-sentinel}-anythingllm
     ports:
       - "3001:3001"

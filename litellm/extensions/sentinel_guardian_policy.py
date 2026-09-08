@@ -37,6 +37,8 @@ un placeholder sin resolver como error 500).
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -698,19 +700,56 @@ class PlaceholderMap:
     El mismo valor original recibe el MISMO placeholder en todo el prompt (el modelo
     ve un texto coherente). El nonce por request evita colisiones con literales que
     el usuario haya tipeado (p.ej. "[PERSON_0]") y hace irreproducibles los tokens.
+
+    Spec 043 (US3, T038/T039): ``document_id`` opcional resuelve el bug reportado por el
+    cliente Elea — "el mismo nombre se enmascara distinto en filas separadas del mismo
+    CSV" (diagnostico.md §2 de la 043). Causa raíz: el cliente trocea documentos grandes en
+    varias llamadas HTTP, y cada una crea su PROPIA ``PlaceholderMap`` (nonce aleatorio +
+    contador que arranca en 0) — dos chunks del mismo documento nunca compartían nonce ni
+    índice. Con ``document_id``, tanto el nonce como el índice se DERIVAN por HMAC del
+    documento (nunca del valor solo, y nunca con I/O — sigue siendo PURA): dos chunks del
+    MISMO documento con el MISMO valor detectado producen el MISMO placeholder sin
+    necesitar estado compartido entre instancias; dos documentos distintos (incluso con
+    idéntico contenido) producen placeholders distintos porque el HMAC usa ``document_id``
+    como clave — no se crea un seudónimo estable ENTRE documentos (decisión sellada por el
+    dueño del producto el 08-sep: eso sería una enmienda constitucional aparte, C1, no una
+    continuación técnica de este bug). Sin ``document_id`` (el caso de la extensión de
+    navegador y de cualquier otro cliente del despliegue compartido), el comportamiento es
+    EXACTAMENTE el de antes — nonce aleatorio, contador secuencial — sin regresión (FR-021).
     """
 
-    def __init__(self, nonce: Optional[str] = None):
-        self.nonce = nonce or uuid.uuid4().hex[:4]
+    def __init__(self, nonce: Optional[str] = None, document_id: Optional[str] = None):
+        self.document_id = document_id
+        if document_id:
+            # Determinista por documento: mismo document_id → mismo nonce siempre.
+            self.nonce = nonce or hmac.new(
+                document_id.encode(), b"sentinel-placeholder-nonce", hashlib.sha256
+            ).hexdigest()[:4]
+        else:
+            self.nonce = nonce or uuid.uuid4().hex[:4]
         self.orig_to_ph: dict = {}
         self.ph_to_orig: dict = {}
         self._type_counts: dict = {}
 
+    def _deterministic_index(self, value: str, entity_type: str) -> int:
+        """Índice derivado por HMAC(document_id, tipo|valor) — no un contador secuencial,
+        porque distintos chunks del mismo documento son instancias DISTINTAS de
+        PlaceholderMap y no comparten memoria. Acotado a 4 dígitos: alcanza para no
+        colisionar dentro de un documento razonable y mantiene el placeholder corto
+        (gramática `[TIPO_n_hex]` sin cambios, PH_TYPE_RE/PLACEHOLDER_TOKEN_RE intactas)."""
+        digest = hmac.new(
+            self.document_id.encode(), f"{entity_type}|{value}".encode(), hashlib.sha256
+        ).digest()
+        return int.from_bytes(digest[:2], "big") % 10_000
+
     def placeholder_for(self, value: str, entity_type: str) -> str:
         if value in self.orig_to_ph:
             return self.orig_to_ph[value]
-        idx = self._type_counts.get(entity_type, 0)
-        self._type_counts[entity_type] = idx + 1
+        if self.document_id:
+            idx = self._deterministic_index(value, entity_type)
+        else:
+            idx = self._type_counts.get(entity_type, 0)
+            self._type_counts[entity_type] = idx + 1
         ph = f"[{entity_type}_{idx}_{self.nonce}]"
         self.orig_to_ph[value] = ph
         self.ph_to_orig[ph] = value

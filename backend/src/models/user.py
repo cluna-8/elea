@@ -92,6 +92,15 @@ class User(Base):
     engine_user_id = Column(String, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
 
+    # Spec 043 US4/US5 (T008): distingue personas de cuentas de servicio (las que crea el
+    # instalador — `svc.anythingllm-provider`, `svc.rag-masking` — que hoy se listaban como
+    # usuarios humanos, ver diagnostico.md §4). `deactivated_at` es la BAJA definitiva
+    # (revoca llaves/sesiones, libera asiento) — distinta de `is_active` (suspensión
+    # reversible ya existente). Ninguna de las dos reescribe la otra.
+    account_type = Column(String, nullable=False, default="person")  # person | service
+    deactivated_at = Column(DateTime, nullable=True)
+    deactivated_reason = Column(String, nullable=True)
+
     # Individual compliance override (takes precedence over group defaults)
     legal_basis = Column(String, nullable=True)
     risk_level = Column(String, nullable=True)
@@ -103,7 +112,11 @@ class User(Base):
     group = relationship("Group", back_populates="users")
     api_keys = relationship("APIKey", back_populates="user")
     budgets = relationship("Budget", back_populates="user")
-    audit_logs = relationship("AuditLog", back_populates="user")
+    # foreign_keys explícito (spec 043 T009): AuditLog ganó un segundo FK a users
+    # (acted_for_user_id), así que SQLAlchemy ya no puede inferir solo cuál de los dos usa
+    # esta relación — sin esto, `AmbiguousForeignKeysError` en cualquier query sobre User.
+    audit_logs = relationship("AuditLog", back_populates="user",
+                              foreign_keys="AuditLog.user_id")
     consent_records = relationship("ConsentRecord", back_populates="user")
     compliance_project = relationship("ComplianceProject", foreign_keys=[compliance_project_id])
 
@@ -121,5 +134,9 @@ class User(Base):
         CheckConstraint(
             "client_type IS NULL OR role = 'client'",
             name="ck_users_client_type_role",
+        ),
+        CheckConstraint(
+            "account_type IN ('person', 'service')",
+            name="ck_users_account_type",
         ),
     )

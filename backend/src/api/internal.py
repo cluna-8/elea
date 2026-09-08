@@ -50,6 +50,7 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        k.group_id::text AS group_id, k.tool_type, k.upstream_mode, k.redact_enabled,
        k.compression_mode AS key_compression_mode, k.allowed_models, k.allowed_tools,
        k.rpm_limit, k.tpm_limit, k.is_active, k.expires_at::text AS expires_at,
+       k.can_act_on_behalf,
        u.username, u.role, u.client_type, u.display_label,
        g.compression_mode AS group_compression_mode,
        t.slug AS tenant_slug, t.compression_mode AS tenant_compression_mode,
@@ -136,6 +137,25 @@ def _a_float(valor) -> Optional[float]:
         return float(valor)
     except (TypeError, ValueError, InvalidOperation):
         return None
+
+
+@router.get("/verify-user", dependencies=[Depends(_require_internal_secret)])
+def verify_user(user_id: str = Query(...), tenant_id: str = Query(...),
+                db: Session = Depends(get_db)):
+    """Spec 043 (US2, contrato 2, T026/T027): confirma que `user_id` existe y pertenece al
+    MISMO `tenant_id` que la Connection que llama — el motor lo consulta antes de honrar
+    `X-Guardian-Acting-User`, nunca acepta la cabecera a ciegas. `{"valid": false}` (200)
+    para "no existe"/"tenant distinto"; solo un fallo de transporte debe ser un error real
+    (fail-closed: el motor trata cualquier respuesta que no sea `valid: true` como "ignorar
+    la cabecera", nunca como "bloquear el pedido")."""
+    from ..models.user import User
+    try:
+        row = db.query(User.id).filter(User.id == user_id,
+                                       User.tenant_id == tenant_id).first()
+    except Exception:  # noqa: BLE001 — UUID mal formado u otro dato inválido: nunca 500
+        db.rollback()
+        return {"valid": False}
+    return {"valid": row is not None}
 
 
 @router.get("/identity", dependencies=[Depends(_require_internal_secret)])

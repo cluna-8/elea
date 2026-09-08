@@ -10,9 +10,11 @@ from .consent import ConsentRecord
 from .license_state import LicenseRuntimeState
 from .governance import GovernanceProfile
 from .sso_provider import SSOProvider
+from .workspace import Workspace, WorkspaceMembership, WorkspaceThread
 
 __all__ = [
     "Base", "Tenant", "DEFAULT_TENANT_ID", "User", "Group", "Budget", "APIKey", "SecurityPolicy",
     "AuditLog", "Guardian", "ComplianceProject", "DPARegistry", "DataSubjectRequest", "HumanReview",
     "RetentionPolicy", "ConsentRecord", "LicenseRuntimeState", "GovernanceProfile", "SSOProvider",
+    "Workspace", "WorkspaceMembership", "WorkspaceThread",
 ]

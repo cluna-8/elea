@@ -217,7 +217,10 @@ def get_analytics_summary(
     """)
     core_row = db.execute(core_sql, {"from_dt": from_dt, "to_dt": to_dt}).fetchone()
 
-    # Per-model breakdown (spec 012 US6 — ratio de compresión + ahorro por modelo)
+    # Per-model breakdown (spec 012 US6 — ratio de compresión + ahorro por modelo).
+    # Spec 043 (US4, T047): mismo criterio que costs.py top_models — "modelo" es
+    # event_type='traffic' AND surface IS NULL, ya no hace falta excluir 'license' a mano
+    # (la migración 018 lo separó a event_type='license_evidence').
     models_sql = text("""
         SELECT
             model,
@@ -229,6 +232,7 @@ def get_analytics_summary(
             COUNT(*) FILTER (WHERE compression_reversed = TRUE) AS reversions
         FROM audit_logs
         WHERE timestamp >= :from_dt AND timestamp <= :to_dt
+          AND event_type = 'traffic' AND surface IS NULL AND model IS NOT NULL
         GROUP BY model
         ORDER BY requests DESC
         LIMIT 10

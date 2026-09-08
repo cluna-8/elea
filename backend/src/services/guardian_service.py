@@ -176,7 +176,12 @@ class GuardianService:
             )
             
             g9 = Guardian(
-                name="Detección NLP de PII/PHI (Presidio)",
+                # Spec 043 (US6, T061): nombre neutro — antes "(Presidio)" en el `name`
+                # visible (diagnostico.md §4/§5: el admin lo lee literal en el panel de
+                # Seguridad). `guardian_type="presidio"` sigue siendo el identificador
+                # INTERNO (nunca mostrado crudo — mismo criterio que `litellm_params`
+                # como contrato wire vs. campo público).
+                name="Detección lingüística de datos personales",
                 guardian_type="presidio",
                 is_active=False,
                 config={

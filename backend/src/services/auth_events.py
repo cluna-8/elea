@@ -61,4 +61,8 @@ def emit_auth_event(db, event_type: str, *, actor_user_id: Optional[str] = None,
         compliance_status="passed",
         latency_ms=0,
         guardian_events=[entry],
+        # Spec 043 (US4, T047): tampoco es tráfico — mismo criterio que la 018 aplicó a
+        # `model='license'`. `AuditLog.event_type` (columna) es un vocabulario distinto
+        # del parámetro `event_type` de esta función (tipo de evento de auth).
+        event_type="auth_evidence",
     ))

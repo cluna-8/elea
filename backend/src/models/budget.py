@@ -78,6 +78,12 @@ class APIKey(Base):
     allowed_models = Column(JSONB, nullable=True)      # lista de model-ids permitidos
     allowed_tools = Column(JSONB, nullable=True)       # lista de tools/features permitidas
 
+    # Spec 043 US2 (T010, contrato 2 — X-Guardian-Acting-User): allowlist EXPLÍCITA para que
+    # una Connection pueda afirmar "actúo en nombre del usuario X" y que el motor/backend lo
+    # acepte. Default False: ninguna key existente gana esta capacidad por accidente al
+    # migrar. Solo las llaves de servicio del instalador (tool_type='servicio') la necesitan.
+    can_act_on_behalf = Column(Boolean, nullable=False, default=False)
+
     # Relationships
     user = relationship("User", back_populates="api_keys")
     group = relationship("Group", back_populates="api_keys")
@@ -90,7 +96,7 @@ class APIKey(Base):
         Index("uq_api_keys_tenant_user_tool", "tenant_id", "user_id", "tool_type",
               unique=True, postgresql_where=text("is_active IS TRUE")),
         CheckConstraint(
-            "tool_type IN ('claude-code', 'copilot', 'cursor', 'claude-desktop', 'chatgpt', 'chat-ui')",
+            "tool_type IN ('claude-code', 'copilot', 'cursor', 'claude-desktop', 'chatgpt', 'chat-ui', 'servicio')",
             name="ck_api_keys_tool_type",
         ),
         CheckConstraint(
