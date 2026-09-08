@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { LayoutDashboard, FlaskConical, Activity, Boxes, Wallet, Users as UsersIcon, Scale, ShieldCheck, ClipboardCheck, ScrollText, BookOpen } from "lucide-react";
+import { LayoutDashboard, FlaskConical, Activity, Boxes, Wallet, Users as UsersIcon, Scale, ShieldCheck, ClipboardCheck, ScrollText, BookOpen, FolderOpen } from "lucide-react";
 import { getBrand } from "./services/branding";
 import { UsersPage } from "./pages/UsersPage";
+import { WorkspacesUnassignedPage } from "./pages/WorkspacesUnassignedPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { CompliancePage } from "./pages/CompliancePage";
 import { DocsPage } from "./pages/DocsPage";
@@ -25,7 +26,7 @@ import { canView, SurfaceGroup } from "./services/roleMatrix";
 // Agregar una sección son TRES ediciones sincronizadas en este archivo: este union, el item
 // de `navigation` y el render condicional de abajo. Si falta una, el usuario hace click y
 // ve una pantalla en blanco sin ningún error.
-type Page = "dashboard" | "playground" | "firewall" | "users" | "governance" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
+type Page = "dashboard" | "playground" | "firewall" | "users" | "workspaces-unassigned" | "governance" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -57,6 +58,9 @@ export const App: React.FC = () => {
     { id: "models", name: "Modelos & Ollama", icon: Boxes, surface: null, legacyRoles: ["admin", "developer"] },
     { id: "costs", name: "Costos", icon: Wallet, surface: "vitrinas_lectura" },
     { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, surface: "gestion_iam" },
+    // Spec 044 (T044): mismo grupo de superficie que Usuarios — es gestión de identidad/
+    // acceso (a quién pertenece cada espacio), no config de producto.
+    { id: "workspaces-unassigned", name: "Espacios sin asignar", icon: FolderOpen, surface: "gestion_iam" },
     { id: "governance", name: "Gobernanza", icon: Scale, surface: "config_producto" },
     { id: "security", name: "Seguridad y Guardianes", icon: ShieldCheck, surface: "config_producto" },
     { id: "compliance", name: "Políticas de Cumplimiento", icon: ClipboardCheck, surface: "compliance_config" },
@@ -194,6 +198,7 @@ export const App: React.FC = () => {
         {currentPage === "models" && <ModelsPage />}
         {currentPage === "costs" && <CostsPage />}
         {currentPage === "users" && <UsersPage />}
+        {currentPage === "workspaces-unassigned" && <WorkspacesUnassignedPage />}
         {currentPage === "governance" && <GovernancePage />}
         {currentPage === "security" && <SecurityPage />}
         {currentPage === "compliance" && <CompliancePage />}

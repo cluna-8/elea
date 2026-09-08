@@ -21,7 +21,7 @@ import {
   cn,
 } from "../components/ui";
 import type { BadgeTone } from "../components/ui";
-import { ROLE_LABELS } from "../services/auth";
+import { ROLE_LABELS, authStorage } from "../services/auth";
 
 const LEGAL_BASIS_SHORT: Record<string, string> = {
   art_9_2_h: "Art. 9(2)(h) Sanitario",
@@ -156,6 +156,9 @@ const TOOL_LABELS: Record<string, string> = {
 type Tab = "overview" | "teams" | "keys" | "budgets" | "auth";
 
 export const UsersPage: React.FC = () => {
+  // T043 (US4): rol de QUIEN MIRA el panel — nunca el rol de la fila que se está
+  // renderizando. Determina si se ofrecen acciones destructivas/de edición.
+  const miRol = authStorage.getUser()?.role;
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [users, setUsers] = useState<User[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -195,6 +198,19 @@ export const UsersPage: React.FC = () => {
   // Assign group modal
   const [assignGroupUser, setAssignGroupUser] = useState<any | null>(null);
   const [assignGroupId, setAssignGroupId] = useState("");
+
+  // Spec 043/044 (US4/US5): edición parcial (T040), desactivar/reactivar y baja (T041),
+  // cuentas de servicio (T042). `serviceAccounts` viene de la MISMA lista con
+  // `include_service=true` — separado acá, nunca mezclado con `users` (T036).
+  const [serviceAccounts, setServiceAccounts] = useState<User[]>([]);
+  const [serviceAccountsOpen, setServiceAccountsOpen] = useState(false);
+  const [editUser, setEditUser] = useState<User | null>(null);
+  const [editUserRole, setEditUserRole] = useState("");
+  const [editUserEmail, setEditUserEmail] = useState("");
+  const [editUserError, setEditUserError] = useState<string | null>(null);
+  const [bajaTarget, setBajaTarget] = useState<User | null>(null);
+  const [bajaConfirmText, setBajaConfirmText] = useState("");
+  const [bajaError, setBajaError] = useState<string | null>(null);
 
   // Edit budget modal
   const [editingBudget, setEditingBudget] = useState<any | null>(null);
@@ -257,13 +273,18 @@ export const UsersPage: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [fetchedUsers, fetchedBudgets, fetchedGroups, fetchedKeys] = await Promise.all([
+      const [fetchedUsers, fetchedAllUsers, fetchedBudgets, fetchedGroups, fetchedKeys] = await Promise.all([
         api.getUsers(),
+        api.getUsers({ includeService: true }),
         api.getBudgets(),
         api.getGroups(),
         api.getKeys(),
       ]);
       setUsers(fetchedUsers);
+      // Spec 043 (US4, T045): `GET /users` ya excluye las cuentas de servicio por default —
+      // se piden aparte con `include_service=true` para la sección plegada de solo lectura
+      // (T042), nunca mezcladas en la tabla principal de personas.
+      setServiceAccounts(fetchedAllUsers.filter((u) => u.account_type === "service"));
       setBudgets(fetchedBudgets);
       setGroups(fetchedGroups);
       setKeys(fetchedKeys);
@@ -511,6 +532,89 @@ export const UsersPage: React.FC = () => {
       await fetchData();
     } catch (err: any) {
       alert(err.message || "Error al asignar equipo.");
+    }
+  };
+
+  // ── Edición parcial de rol/email (spec 043 US5, T052; spec 044 T040) ────────────────
+  const openEditUserModal = (u: User) => {
+    setEditUser(u);
+    setEditUserRole(u.role);
+    setEditUserEmail(u.email);
+    setEditUserError(null);
+  };
+  const closeEditUserModal = () => { setEditUser(null); setEditUserError(null); };
+
+  const handleSaveUserEdit = async () => {
+    if (!editUser) return;
+    // `patchUser` (T007) manda solo lo que cambió — nunca reenvía rol/email/estado que
+    // la persona no tocó, a diferencia de `updateUser` (PUT, reemplazo completo).
+    const patch: { role?: string; email?: string } = {};
+    if (editUserRole !== editUser.role) patch.role = editUserRole;
+    if (editUserEmail !== editUser.email) patch.email = editUserEmail;
+    if (Object.keys(patch).length === 0) { closeEditUserModal(); return; }
+    setActionLoading(true);
+    try {
+      await api.patchUser(editUser.id, patch);
+      closeEditUserModal();
+      await fetchData();
+    } catch (err: any) {
+      setEditUserError(err?.message || "No se pudo actualizar el usuario.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ── Desactivar / reactivar (spec 043 US5, T053; spec 044 T041) ──────────────────────
+  const handleToggleActive = async (u: User) => {
+    try {
+      await api.patchUser(u.id, { is_active: !u.is_active });
+      await fetchData();
+    } catch (err: any) {
+      alert(err?.message || "No se pudo cambiar el estado del usuario.");
+    }
+  };
+
+  // ── Baja definitiva (spec 043 US5, T053-T055; spec 044 T041) ────────────────────────
+  // FR-041/FR-042: la UI repite las mismas dos validaciones que el backend (auto-baja,
+  // último admin activo) ANTES de llamar — no porque el backend no las tenga (las tiene,
+  // 409), sino para que la persona vea la razón sin depender solo del mensaje del server.
+  const openBajaModal = (u: User) => {
+    setBajaTarget(u);
+    setBajaConfirmText("");
+    setBajaError(null);
+  };
+  const closeBajaModal = () => { setBajaTarget(null); setBajaConfirmText(""); setBajaError(null); };
+
+  const misAdminsActivos = () => users.filter(
+    (u) => (u.role === "super_admin" || u.role === "tenant_admin" || u.role === "admin")
+      && u.is_active && !u.deactivated_at
+  ).length;
+
+  const handleConfirmBaja = async () => {
+    if (!bajaTarget) return;
+    const yo = authStorage.getUser();
+    if (yo && yo.id === bajaTarget.id) {
+      setBajaError("No podés darte de baja a vos mismo.");
+      return;
+    }
+    const esAdmin = bajaTarget.role === "super_admin" || bajaTarget.role === "tenant_admin" || bajaTarget.role === "admin";
+    if (esAdmin && misAdminsActivos() <= 1) {
+      setBajaError("No se puede dar de baja al último admin activo del tenant.");
+      return;
+    }
+    if (bajaConfirmText !== bajaTarget.username) {
+      setBajaError("Escribí el nombre de usuario exacto para confirmar.");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await api.deleteUser(bajaTarget.id);
+      closeBajaModal();
+      await fetchData();
+    } catch (err: any) {
+      setBajaError(err?.message || "No se pudo dar de baja al usuario.");
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -784,6 +888,7 @@ export const UsersPage: React.FC = () => {
                     <Table.HeaderCell>Rol</Table.HeaderCell>
                     <Table.HeaderCell>Equipo</Table.HeaderCell>
                     <Table.HeaderCell>Riesgo AI Act</Table.HeaderCell>
+                    <Table.HeaderCell>Estado</Table.HeaderCell>
                     <Table.HeaderCell />
                   </Table.Row>
                 </Table.Head>
@@ -793,6 +898,11 @@ export const UsersPage: React.FC = () => {
                     const effectiveRisk = u.risk_level ||
                       complianceGroups.find((g: any) => g.id === u.group_id)?.default_risk_level;
                     const risk = effectiveRisk ? RISK_BADGE[effectiveRisk] : null;
+                    // T043 (US4): sin acciones destructivas/de edición para quien mira con
+                    // el rol "lectura" — el backend las rechaza igual, esto es solo para
+                    // no ofrecer un botón que va a fallar.
+                    const puedeEditar = miRol !== ROL_LECTURA;
+                    const diadoDeBaja = !!u.deactivated_at;
                     return (
                       <Table.Row key={u.id} className="hover:bg-surface-2 transition-colors">
                         <Table.Cell className="font-semibold text-text-primary">{u.username}</Table.Cell>
@@ -812,7 +922,16 @@ export const UsersPage: React.FC = () => {
                           ) : <span className="text-text-tertiary text-[10px]">sin dato</span>}
                         </Table.Cell>
                         <Table.Cell>
-                          <div className="flex items-center gap-4">
+                          {diadoDeBaja ? (
+                            <StatusBadge tone="danger">Dado de baja</StatusBadge>
+                          ) : u.is_active ? (
+                            <StatusBadge tone="ok">Activo</StatusBadge>
+                          ) : (
+                            <StatusBadge tone="warn">Desactivado</StatusBadge>
+                          )}
+                        </Table.Cell>
+                        <Table.Cell>
+                          <div className="flex items-center gap-4 flex-wrap">
                             <button
                               onClick={() => { setAssignGroupUser(u); setAssignGroupId(u.group_id || ""); }}
                               className="text-xs text-primary hover:text-primary-hover hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
@@ -825,11 +944,78 @@ export const UsersPage: React.FC = () => {
                             >
                               Restablecer contraseña
                             </button>
+                            {puedeEditar && !diadoDeBaja && (
+                              <>
+                                <button
+                                  onClick={() => openEditUserModal(u)}
+                                  className="text-xs text-primary hover:text-primary-hover hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+                                >
+                                  Editar
+                                </button>
+                                <button
+                                  onClick={() => handleToggleActive(u)}
+                                  className="text-xs text-warn hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-warn rounded whitespace-nowrap"
+                                >
+                                  {u.is_active ? "Desactivar" : "Reactivar"}
+                                </button>
+                                <button
+                                  onClick={() => openBajaModal(u)}
+                                  className="text-xs text-danger hover:underline font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-danger rounded whitespace-nowrap"
+                                >
+                                  Dar de baja
+                                </button>
+                              </>
+                            )}
                           </div>
                         </Table.Cell>
                       </Table.Row>
                     );
                   })}
+                </Table.Body>
+              </Table>
+            )}
+          </Card>
+
+          {/* Cuentas de servicio (spec 043 US4, contrato 4; spec 044 T042) — SOLO lectura,
+              nunca en la tabla de personas de arriba (diagnostico.md §4 de la 043). */}
+          <Card
+            title={`Cuentas de servicio (${serviceAccounts.length})`}
+            actions={
+              <button
+                onClick={() => setServiceAccountsOpen((v) => !v)}
+                className="text-xs text-primary hover:underline font-semibold"
+              >
+                {serviceAccountsOpen ? "Ocultar" : "Mostrar"}
+              </button>
+            }
+          >
+            {!serviceAccountsOpen ? (
+              <p className="text-xs text-text-secondary">
+                {serviceAccounts.length === 0
+                  ? "No hay cuentas de servicio."
+                  : `${serviceAccounts.length} cuenta(s) técnica(s) — usadas por el Hub para enmascarar y consultar el motor de documentos en nombre de cada persona, nunca personas reales.`}
+              </p>
+            ) : serviceAccounts.length === 0 ? (
+              <p className="text-xs text-text-secondary">No hay cuentas de servicio.</p>
+            ) : (
+              <Table className="text-xs">
+                <Table.Head>
+                  <Table.Row>
+                    <Table.HeaderCell>Nombre</Table.HeaderCell>
+                    <Table.HeaderCell>Propósito</Table.HeaderCell>
+                    <Table.HeaderCell>Estado</Table.HeaderCell>
+                  </Table.Row>
+                </Table.Head>
+                <Table.Body>
+                  {serviceAccounts.map((s: any) => (
+                    <Table.Row key={s.id}>
+                      <Table.Cell className="font-mono text-text-secondary">{s.username}</Table.Cell>
+                      <Table.Cell className="text-text-secondary">{s.purpose || "—"}</Table.Cell>
+                      <Table.Cell>
+                        {s.is_active ? <StatusBadge tone="ok">Activa</StatusBadge> : <StatusBadge tone="warn">Inactiva</StatusBadge>}
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
                 </Table.Body>
               </Table>
             )}
@@ -1402,7 +1588,7 @@ export const UsersPage: React.FC = () => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="ej: perez@sentinel.com.ar"
+              placeholder="ej: perez@empresa.com.ar"
             />
             <PasswordField
               id="alta-password"
@@ -1621,6 +1807,87 @@ export const UsersPage: React.FC = () => {
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="secondary" size="sm" onClick={() => setAssignGroupUser(null)}>Cancelar</Button>
               <Button variant="primary" size="sm" onClick={handleAssignGroup}>Guardar</Button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Editar usuario: rol/email, actualización parcial (T040) ──────── */}
+      {editUser && (
+        <ModalShell title={`Editar: ${editUser.username}`} maxW="max-w-sm">
+          <div className="space-y-4 text-xs">
+            {editUserError && (
+              <div className="bg-danger-bg border border-danger/20 text-danger px-3 py-2 rounded-md">
+                {editUserError}
+              </div>
+            )}
+            <Field label="Email" id="edit-user-email">
+              <input
+                id="edit-user-email"
+                type="email"
+                value={editUserEmail}
+                onChange={(e) => setEditUserEmail(e.target.value)}
+                className={inputBaseClass}
+              />
+            </Field>
+            <Field label="Rol">
+              <select value={editUserRole} onChange={(e) => setEditUserRole(e.target.value)} className={selectClass}>
+                <option value="tenant_admin">Administrador</option>
+                <option value={ROL_AUDITOR}>Auditor</option>
+                <option value="client">Cliente</option>
+                <option value={ROL_LECTURA}>Solo Lectura</option>
+              </select>
+              {editUserRole !== editUser.role && (
+                <p className="text-warn text-[11px] mt-1">
+                  Vas a cambiar el rol de {editUser.username} de "{ROLE_LABELS[editUser.role] ?? editUser.role}" a
+                  "{ROLE_LABELS[editUserRole] ?? editUserRole}". Esto queda auditado.
+                </p>
+              )}
+            </Field>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="secondary" size="sm" onClick={closeEditUserModal}>Cancelar</Button>
+              <Button variant="primary" size="sm" onClick={handleSaveUserEdit} disabled={actionLoading}>
+                {actionLoading ? "Guardando..." : "Guardar"}
+              </Button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Dar de baja: confirmación fuerte escribiendo el username (T041) ─ */}
+      {bajaTarget && (
+        <ModalShell title={`Dar de baja a ${bajaTarget.username}`} maxW="max-w-sm">
+          <div className="space-y-4 text-xs">
+            <p className="text-text-secondary leading-relaxed">
+              No es una baja física: se desactiva, se revocan sus llaves activas y sus espacios
+              propios en Eleia Hub quedan "sin asignar". Su historial de auditoría y consumo
+              sigue visible bajo su nombre. Esta acción no se deshace desde acá.
+            </p>
+            {bajaError && (
+              <div className="bg-danger-bg border border-danger/20 text-danger px-3 py-2 rounded-md">
+                {bajaError}
+              </div>
+            )}
+            <Field label={`Escribí "${bajaTarget.username}" para confirmar`} id="baja-confirm-text">
+              <input
+                id="baja-confirm-text"
+                type="text"
+                value={bajaConfirmText}
+                onChange={(e) => setBajaConfirmText(e.target.value)}
+                className={inputBaseClass}
+                autoComplete="off"
+              />
+            </Field>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="secondary" size="sm" onClick={closeBajaModal}>Cancelar</Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleConfirmBaja}
+                disabled={actionLoading || bajaConfirmText !== bajaTarget.username}
+              >
+                {actionLoading ? "Dando de baja..." : "Dar de baja"}
+              </Button>
             </div>
           </div>
         </ModalShell>

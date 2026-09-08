@@ -444,6 +444,7 @@
 
     <!-- Action Buttons -->
     <div style="display:flex; gap:6px;">
+      <button class="action-icon-btn" id="btn-open-unassigned" style="display:none;" onclick="openUnassignedModal()" title="Espacios heredados sin miembros">Sin asignar</button>
       <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">Salir</button>
     </div>
   </div>
@@ -459,6 +460,9 @@
           <button class="add-btn" onclick="openNewWsModal()">+ Nuevo</button>
         </div>
         <div class="workspaces-list" id="workspaces-container"></div>
+        <div id="workspaces-empty-state" style="display:none; padding:16px 10px; font-size:13px; line-height:1.5; opacity:0.8;">
+          Todavía no tenés espacios. Creá uno o pedile a tu administrador que te agregue.
+        </div>
       </div>
 
       <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
@@ -470,6 +474,10 @@
       </div>
 
       <div class="left-panel-footer">
+        <button class="footer-link-btn" id="btn-open-members" onclick="openMembersModal()">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span>Miembros</span>
+        </button>
         <button class="footer-link-btn" onclick="openWorkspaceSettingsModal()">
           <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           <span>Ajustes del espacio</span>
@@ -589,8 +597,8 @@
 
   </div>
 
-  <!-- MODAL: AJUSTES DE WORKSPACE — las 7 opciones reales de AnythingLLM (spec 040 US3),
-       cada una con su texto de ayuda para que se entienda qué hace sin saber de AnythingLLM. -->
+  <!-- MODAL: AJUSTES DE WORKSPACE — las 7 opciones reales del motor de documentos (spec 040 US3),
+       cada una con su texto de ayuda para que se entienda qué hace sin saber del motor. -->
   <div class="modal-backdrop" id="modal-ws-settings">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -680,11 +688,49 @@
     </div>
   </div>
 
+  <!-- MODAL: MIEMBROS DEL ESPACIO (T016, FR-004) -->
+  <div class="modal-backdrop" id="modal-members">
+    <div class="modal-box" style="width:440px;">
+      <div class="modal-title" style="margin-bottom:2px;">Miembros del espacio</div>
+      <div id="members-list" style="display:flex; flex-direction:column; gap:6px; margin:10px 0; max-height:260px; overflow-y:auto;"></div>
+      <div id="members-add-row" style="display:flex; gap:8px;">
+        <input type="text" id="member-username-input" class="modal-input" placeholder="Nombre de usuario a agregar">
+        <button class="send-action-btn" onclick="submitAddMember()">Agregar</button>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button class="modal-cancel-btn" onclick="closeMembersModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RESUMEN DE PROTECCIÓN POR DOCUMENTO (T033, FR-007) -->
+  <div class="modal-backdrop" id="modal-protection-summary">
+    <div class="modal-box" style="width:420px;">
+      <div class="modal-title" style="margin-bottom:2px;" id="protection-summary-title">Documento protegido</div>
+      <div id="protection-summary-body" style="display:flex; flex-direction:column; gap:6px; margin:10px 0;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button class="send-action-btn wide" onclick="closeProtectionSummaryModal()">Entendido</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ESPACIOS SIN ASIGNAR (T018, FR-010, solo admins) -->
+  <div class="modal-backdrop" id="modal-unassigned">
+    <div class="modal-box" style="width:460px;">
+      <div class="modal-title" style="margin-bottom:2px;">Espacios sin asignar</div>
+      <div class="modal-label" style="margin-bottom:8px;">Espacios heredados de la migración, todavía sin miembros. Asignales un dueño para que aparezcan en su Hub.</div>
+      <div id="unassigned-list" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button class="modal-cancel-btn" onclick="closeUnassignedModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-msg" id="toast-notification">Acción completada</div>
 
   <script>
-    // Estado de la UI. `messages` es SOLO de esta pestaña (no se persiste ni se relee de
-    // AnythingLLM al recargar — limitación conocida, ver client/README.md).
+    // Estado de la UI. `messages` es SOLO de esta pestaña (no se persiste ni se relee del
+    // motor de documentos al recargar — limitación conocida, ver client/README.md).
     let currentUser = null;
     let currentBudget = null;
     let models = [];
@@ -692,6 +738,10 @@
     let currentWorkspace = null; // objeto completo (con documents[] y threads[])
     let currentThreadSlug = null;
     let messages = [];
+    // T034 (US3, R5): fecha de corte del enmascarado determinista — `null` mientras no
+    // esté configurada en el Hub (`MASKING_DETERMINISM_SINCE`), y entonces ningún
+    // documento se marca como "esquema anterior" (mejor no avisar que avisar mal).
+    let maskingDeterminismSince = null;
 
     const EMPTY_STATE_HTML = `
       <div class="chat-empty-state">
@@ -723,6 +773,7 @@
       document.getElementById('auth-overlay').classList.remove('active');
       currentUser = state.user;
       currentBudget = state.budget;
+      maskingDeterminismSince = state.maskingDeterminismSince || null;
       renderUserHeader();
       await Promise.all([loadModels(), loadWorkspaces()]);
     }
@@ -761,6 +812,14 @@
       document.getElementById('auth-overlay').classList.add('active');
     }
 
+    // Roles admin del lado del Hub (ver también backend/src/api/workspaces.py
+    // `_ADMIN_ROLES`) — solo controla qué se MUESTRA acá; el backend vuelve a exigirlo
+    // en cada llamada, nunca se confía en esto para autorizar nada.
+    const HUB_ADMIN_ROLES = ['super_admin', 'tenant_admin'];
+    function isHubAdmin() {
+      return !!currentUser && HUB_ADMIN_ROLES.includes(currentUser.role);
+    }
+
     function renderUserHeader() {
       document.getElementById('user-avatar').innerText = (currentUser.username || 'U').slice(0, 2).toUpperCase();
       document.getElementById('user-display-name').innerText = `${currentUser.username} · ${currentUser.role}`;
@@ -770,6 +829,7 @@
       } else {
         quotaEl.innerText = 'Sin presupuesto asignado';
       }
+      document.getElementById('btn-open-unassigned').style.display = isHubAdmin() ? '' : 'none';
     }
 
     // ── Selector de modelo real (US2) ──────────────────────────────────────────────────
@@ -788,15 +848,17 @@
     }
 
     // ── Workspaces (US3) ────────────────────────────────────────────────────────────────
+    // FR-002 (T015): el Hub lista solo los espacios propios y MUST NOT auto-seleccionar
+    // ninguno — la persona elige explícitamente con qué espacio trabajar; sin espacios,
+    // estado vacío con las dos acciones ("crear" / "pedile a tu admin").
     async function loadWorkspaces() {
       const res = await fetch('/api/workspaces');
       if (!res.ok) { workspaces = []; renderWorkspaceList(); return; }
       const data = await res.json();
       workspaces = data.workspaces || [];
       renderWorkspaceList();
-      if (workspaces.length > 0 && !currentWorkspace) {
-        await selectWorkspace(workspaces[0].slug);
-      } else if (workspaces.length === 0) {
+      if (workspaces.length === 0) {
+        currentWorkspace = null;
         renderChatTopbar();
         renderMessages();
       }
@@ -804,21 +866,26 @@
 
     function renderWorkspaceList() {
       const wsContainer = document.getElementById('workspaces-container');
+      const emptyState = document.getElementById('workspaces-empty-state');
       wsContainer.innerHTML = '';
+      emptyState.style.display = workspaces.length === 0 ? '' : 'none';
+      // `workspaces` viene del backend (contrato 1: `engine_slug`/`display_name`), NO del
+      // motor de documentos — a diferencia de `currentWorkspace`, que sí usa el shape nativo
+      // del motor (`.slug`/`.name`) porque sale de otro endpoint (ver `selectWorkspace`).
       workspaces.forEach((ws) => {
-        const activeClass = currentWorkspace && currentWorkspace.slug === ws.slug ? 'active' : '';
+        const activeClass = currentWorkspace && currentWorkspace.slug === ws.engine_slug ? 'active' : '';
         const div = document.createElement('div');
         div.className = `workspace-item ${activeClass}`;
-        div.onclick = () => selectWorkspace(ws.slug);
-        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.name}</span>`;
+        div.onclick = () => selectWorkspace(ws.engine_slug);
+        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.display_name}</span>`;
         wsContainer.appendChild(div);
       });
     }
 
-    // Historial real del hilo (o del hilo principal si threadSlug es null) — AnythingLLM
-    // sí lo persiste server-side. Antes de esto `messages` se vaciaba al cambiar de hilo/
-    // espacio y no se volvía a leer nunca (bug real 02-sep: "salía del hilo y volvía,
-    // desaparecía la info" — no desaparecía en AnythingLLM, solo dejaba de mostrarse).
+    // Historial real del hilo (o del hilo principal si threadSlug es null) — el motor de
+    // documentos sí lo persiste server-side. Antes de esto `messages` se vaciaba al cambiar
+    // de hilo/espacio y no se volvía a leer nunca (bug real 02-sep: "salía del hilo y volvía,
+    // desaparecía la info" — no desaparecía en el motor, solo dejaba de mostrarse).
     async function loadMessages(slug, threadSlug) {
       const qs = threadSlug ? `?threadSlug=${encodeURIComponent(threadSlug)}` : '';
       try {
@@ -831,13 +898,16 @@
       }
     }
 
+    // T017 (FR-002/escenario 5): un espacio ajeno con identificador conocido responde 403
+    // sin datos — el Hub no debe cargar nada del espacio anterior ni intentar nada más.
     async function selectWorkspace(slug) {
       const res = await fetch(`/api/workspaces/${slug}`);
+      if (res.status === 403) { showToast('No tenés acceso a este espacio.'); return; }
       if (!res.ok) { showToast('No se pudo abrir el espacio.'); return; }
       const data = await res.json();
-      // AnythingLLM devuelve el workspace envuelto en un array de 1 elemento en este
-      // endpoint (a diferencia de /update-embeddings, que lo devuelve como objeto plano)
-      // — verificado en vivo el 31-ago, no está documentado así en ningún lado.
+      // El motor de documentos devuelve el workspace envuelto en un array de 1 elemento en
+      // este endpoint (a diferencia de /update-embeddings, que lo devuelve como objeto
+      // plano) — verificado en vivo el 31-ago, no está documentado así en ningún lado.
       currentWorkspace = Array.isArray(data.workspace) ? data.workspace[0] : data.workspace;
       currentThreadSlug = null;
       await loadMessages(slug, null);
@@ -868,8 +938,8 @@
         const div = document.createElement('div');
         div.className = `thread-item ${activeClass}`;
         div.onclick = () => selectThread(th.slug);
-        // GET /workspace/{slug} de AnythingLLM NO devuelve el nombre del hilo (solo el
-        // slug) — a diferencia de la respuesta de creación, que sí lo trae. Fallback
+        // GET /workspace/{slug} del motor de documentos NO devuelve el nombre del hilo (solo
+        // el slug) — a diferencia de la respuesta de creación, que sí lo trae. Fallback
         // para no mostrar "undefined" (bug real encontrado 31-ago).
         div.innerHTML = `<div><span style="overflow:hidden; text-overflow:ellipsis;">${th.name || 'Hilo ' + th.slug.slice(0, 8)}</span></div>`;
         threadsContainer.appendChild(div);
@@ -884,18 +954,33 @@
       renderMessages();
     }
 
+    // T034 (US3, R5 de research.md): `meta.published` es la fecha de subida que
+    // el motor de documentos guarda en los metadatos del documento — si no está configurada
+    // la fecha de corte, o el documento no trae esa fecha, NO se marca nada (mejor no avisar
+    // que avisar mal por un dato que no está).
+    function esquemaAnteriorDeEnmascarado(meta) {
+      if (!maskingDeterminismSince || !meta.published) return false;
+      const subido = new Date(meta.published);
+      const corte = new Date(maskingDeterminismSince);
+      if (isNaN(subido.getTime()) || isNaN(corte.getTime())) return false;
+      return subido < corte;
+    }
+
     function renderDocuments() {
       const docsContainer = document.getElementById('documents-container');
       docsContainer.innerHTML = '';
       if (!currentWorkspace) return;
       (currentWorkspace.documents || []).forEach((doc) => {
         const meta = JSON.parse(doc.metadata || '{}');
-        // El nombre real subido lleva ".txt" al final (necesario para que AnythingLLM lo
-        // trate como texto plano, no como el binario original) — se oculta acá, es un
-        // detalle interno, no algo que la persona que sube el archivo necesite ver.
+        // El nombre real subido lleva ".txt" al final (necesario para que el motor de
+        // documentos lo trate como texto plano, no como el binario original) — se oculta
+        // acá, es un detalle interno, no algo que la persona que sube el archivo necesite ver.
         const displayName = (meta.title || doc.filename || '').replace(/\.txt$/i, '');
         const div = document.createElement('div');
         div.className = 'doc-card';
+        const avisoEsquemaAnterior = esquemaAnteriorDeEnmascarado(meta)
+          ? '<div style="font-size:11px; color:#b45309; margin-top:4px;">⚠️ Esquema anterior. Reenviá el documento para mejorar las respuestas.</div>'
+          : '';
         div.innerHTML = `
           <div class="doc-card-title"><span>${displayName}</span></div>
           <div class="doc-card-meta">
@@ -903,7 +988,8 @@
             <div class="doc-card-actions">
               <button class="tool-btn danger" title="Eliminar">✕</button>
             </div>
-          </div>`;
+          </div>
+          ${avisoEsquemaAnterior}`;
         div.querySelector('.tool-btn.danger').onclick = (e) => deleteDocument(doc.docpath, e);
         docsContainer.appendChild(div);
       });
@@ -934,6 +1020,133 @@
       });
       currentWorkspace = null;
       showToast('Espacio eliminado');
+      await loadWorkspaces();
+    }
+
+    // ── Miembros del espacio (T016, FR-004) ─────────────────────────────────────────────
+    // Dueño/admin ven la lista con acciones (quitar/transferir); un miembro no dueño solo
+    // ve la lista, sin el formulario de alta ni los botones de acción — el backend igual
+    // vuelve a exigirlo del lado suyo si alguien fuerza la llamada desde la consola.
+    let membersModalRole = 'member';
+
+    async function openMembersModal() {
+      if (!currentWorkspace) { showToast('Abrí un espacio primero.'); return; }
+      document.getElementById('modal-members').classList.add('active');
+      await renderMembersList();
+    }
+    function closeMembersModal() { document.getElementById('modal-members').classList.remove('active'); }
+
+    async function renderMembersList() {
+      const container = document.getElementById('members-list');
+      const addRow = document.getElementById('members-add-row');
+      container.innerHTML = 'Cargando…';
+      try {
+        const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/members`);
+        if (!res.ok) { container.innerHTML = 'No se pudieron cargar los miembros.'; return; }
+        const data = await res.json();
+        const members = data.members || [];
+        membersModalRole = (members.find((m) => m.username === currentUser.username) || {}).role || 'member';
+        const canManage = membersModalRole === 'owner' || isHubAdmin();
+        addRow.style.display = canManage ? 'flex' : 'none';
+        container.innerHTML = '';
+        members.forEach((m) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:8px; background:rgba(127,127,127,0.08);';
+          const actions = canManage && m.role !== 'owner'
+            ? `<button class="tool-btn" data-action="transfer" title="Transferir propiedad">Hacer dueño</button>
+               <button class="tool-btn danger" data-action="remove" title="Quitar">✕</button>`
+            : '';
+          row.innerHTML = `<span>${m.username} <span style="opacity:0.6;">(${m.role === 'owner' ? 'dueño' : 'miembro'})</span></span><span style="display:flex; gap:4px;">${actions}</span>`;
+          const transferBtn = row.querySelector('[data-action="transfer"]');
+          const removeBtn = row.querySelector('[data-action="remove"]');
+          if (transferBtn) transferBtn.onclick = () => transferOwnership(m.user_id, m.username);
+          if (removeBtn) removeBtn.onclick = () => removeMember(m.user_id, m.username);
+          container.appendChild(row);
+        });
+      } catch (err) {
+        container.innerHTML = 'No se pudieron cargar los miembros.';
+      }
+    }
+
+    async function submitAddMember() {
+      const input = document.getElementById('member-username-input');
+      const username = input.value.trim();
+      if (!username) return;
+      const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo agregar el miembro.'); return; }
+      input.value = '';
+      showToast(`"${username}" agregado al espacio.`);
+      await renderMembersList();
+    }
+
+    async function removeMember(userId, username) {
+      if (!confirm(`¿Quitar a "${username}" de este espacio?`)) return;
+      const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/members/${userId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo quitar el miembro.'); return; }
+      showToast(`"${username}" ya no es miembro del espacio.`);
+      await renderMembersList();
+    }
+
+    async function transferOwnership(newOwnerUserId, username) {
+      if (!confirm(`¿Transferir la propiedad del espacio a "${username}"?`)) return;
+      const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/transfer-owner`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newOwnerUserId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo transferir la propiedad.'); return; }
+      showToast(`"${username}" es ahora el dueño del espacio.`);
+      await renderMembersList();
+    }
+
+    // ── Espacios "Sin asignar" (T018, FR-010, solo admins) ──────────────────────────────
+    async function openUnassignedModal() {
+      document.getElementById('modal-unassigned').classList.add('active');
+      await renderUnassignedList();
+    }
+    function closeUnassignedModal() { document.getElementById('modal-unassigned').classList.remove('active'); }
+
+    async function renderUnassignedList() {
+      const container = document.getElementById('unassigned-list');
+      container.innerHTML = 'Cargando…';
+      try {
+        const res = await fetch('/api/workspaces/unassigned');
+        if (res.status === 403) { container.innerHTML = 'Solo administradores pueden ver esta lista.'; return; }
+        if (!res.ok) { container.innerHTML = 'No se pudo consultar los espacios sin asignar.'; return; }
+        const data = await res.json();
+        const list = data.workspaces || [];
+        if (list.length === 0) { container.innerHTML = 'No hay espacios sin asignar.'; return; }
+        container.innerHTML = '';
+        list.forEach((ws) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:8px 10px; border-radius:8px; background:rgba(127,127,127,0.08);';
+          row.innerHTML = `
+            <div style="font-weight:600;">${ws.display_name}</div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" class="modal-input" placeholder="Nombre de usuario del dueño" style="flex:1;">
+              <button class="send-action-btn">Asignar</button>
+            </div>`;
+          const input = row.querySelector('input');
+          row.querySelector('button').onclick = () => assignUnassignedWorkspace(ws.id, input.value.trim(), ws.display_name);
+          container.appendChild(row);
+        });
+      } catch (err) {
+        container.innerHTML = 'No se pudo consultar los espacios sin asignar.';
+      }
+    }
+
+    async function assignUnassignedWorkspace(workspaceId, username, displayName) {
+      if (!username) { showToast('Ingresá el nombre de usuario del dueño.'); return; }
+      const res = await fetch(`/api/workspaces/unassigned/${workspaceId}/members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo asignar el espacio.'); return; }
+      showToast(`"${displayName}" asignado a "${username}".`);
+      await renderUnassignedList();
       await loadWorkspaces();
     }
 
@@ -1016,6 +1229,11 @@
     async function handleWsFileUpload(event) {
       const file = event.target.files[0];
       if (!file || !currentWorkspace) return;
+      if (currentBudget && currentBudget.status === 'exceeded') {
+        event.target.value = '';
+        showToast(MENSAJE_PRESUPUESTO_AGOTADO);
+        return;
+      }
       const formData = new FormData();
       formData.append('file', file);
       formData.append('slug', currentWorkspace.slug);
@@ -1026,9 +1244,32 @@
       if (!res.ok) { showToast(data.error || 'No se pudo subir el documento.'); return; }
       await selectWorkspace(currentWorkspace.slug);
       showToast(data.message);
+      showProtectionSummaryModal(data.document);
     }
 
-    // ── Ajustes de espacio — las 7 opciones reales de AnythingLLM (US3) ─────────────────
+    // T033 (US3, FR-007): resumen de protección AGREGADO POR DOCUMENTO (un tipo de dato
+    // se cuenta una sola vez por documento, ya no "cada chunk cuenta desde 0" — mismo
+    // criterio que `maskText()` en el servidor) tras cada subida, no solo el toast fugaz.
+    function showProtectionSummaryModal(doc) {
+      if (!doc) return;
+      document.getElementById('protection-summary-title').innerText = `"${doc.name}" protegido`;
+      const body = document.getElementById('protection-summary-body');
+      const entidades = doc.entitiesEnmascaradas || [];
+      if (entidades.length === 0) {
+        body.innerHTML = '<div style="font-size:13px; opacity:0.8;">No se detectaron datos personales en este documento.</div>';
+      } else {
+        body.innerHTML = entidades.map((e) =>
+          `<div style="display:flex; justify-content:space-between; font-size:13px;"><span>${e.type}</span><span style="font-weight:600;">${e.count}</span></div>`
+        ).join('');
+      }
+      if (doc.truncated) {
+        body.innerHTML += '<div style="font-size:12px; color:#b45309; margin-top:6px;">⚠️ El documento es grande — se indexó solo la primera parte (~150.000 caracteres).</div>';
+      }
+      document.getElementById('modal-protection-summary').classList.add('active');
+    }
+    function closeProtectionSummaryModal() { document.getElementById('modal-protection-summary').classList.remove('active'); }
+
+    // ── Ajustes de espacio — las 7 opciones reales del motor de documentos (US3) ────────
     function openWorkspaceSettingsModal() {
       if (!currentWorkspace) { showToast('Elegí un espacio primero.'); return; }
       const w = currentWorkspace;
@@ -1068,6 +1309,12 @@
     }
 
     // ── Chat (US2 simple + US3 RAG) ──────────────────────────────────────────────────────
+    // T024 (FR-006): mismo texto que `MENSAJE_PRESUPUESTO_AGOTADO` en `client/server.js` —
+    // la persona ve exactamente el mismo mensaje sea que el bloqueo lo decida esta pantalla
+    // (con el `currentBudget` ya cargado, sin ida y vuelta) o que llegue como un 402 real
+    // del servidor (budget cambiado en otra pestaña, carrera entre pedidos, etc).
+    const MENSAJE_PRESUPUESTO_AGOTADO = 'Alcanzaste tu presupuesto. Contactá a tu administrador.';
+
     function handleKeyPress(e) { if (e.key === 'Enter') sendMessage(); }
     function quickSend(text) { document.getElementById('chat-input').value = text; sendMessage(); }
 
@@ -1075,6 +1322,13 @@
       const inputEl = document.getElementById('chat-input');
       const text = inputEl.value.trim();
       if (!text) return;
+      if (currentBudget && currentBudget.status === 'exceeded') {
+        messages.push({ role: 'user', content: text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+        messages.push({ role: 'assistant', content: `⚠️ ${MENSAJE_PRESUPUESTO_AGOTADO}` });
+        inputEl.value = '';
+        renderMessages();
+        return;
+      }
       inputEl.value = '';
       messages.push({ role: 'user', content: text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
       renderMessages();

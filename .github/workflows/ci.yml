@@ -93,6 +93,24 @@ jobs:
         if: ${{ !cancelled() }}
         run: npx tsc --noEmit
         working-directory: frontend
+      - name: vitest (Eleia Guardian, spec 044)
+        if: ${{ !cancelled() }}
+        run: npm test
+        working-directory: frontend
+      - name: build de producción (para el check de marca sobre el bundle real)
+        if: ${{ !cancelled() }}
+        run: npx vite build
+        working-directory: frontend
+      - run: npm ci
+        if: ${{ !cancelled() }}
+        working-directory: client
+      - name: node --test (Eleia Hub, spec 044)
+        if: ${{ !cancelled() }}
+        run: npm test
+        working-directory: client
+      - name: branding neutro (spec 044 US5, T047/T052)
+        if: ${{ !cancelled() }}
+        run: node tools/check-branding-neutral.js
       - uses: actions/setup-python@v5
         if: ${{ !cancelled() }}
         with:
