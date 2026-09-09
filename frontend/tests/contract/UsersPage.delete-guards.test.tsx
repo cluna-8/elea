@@ -14,8 +14,8 @@ vi.mock('../../src/services/api', async () => {
     api: {
       ...actual.api,
       getUsers: vi.fn(async ({ includeService }: any = {}) => {
-        const admin = { id: 'admin-id', username: 'admin', email: 'admin@x.test', role: 'tenant_admin', is_active: true, created_at: '', updated_at: '', account_type: 'human' };
-        const ana = { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'human' };
+        const admin = { id: 'admin-id', username: 'admin', email: 'admin@x.test', role: 'tenant_admin', is_active: true, created_at: '', updated_at: '', account_type: 'person' };
+        const ana = { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'person' };
         return includeService ? [admin, ana] : [admin, ana];
       }),
       getBudgets: vi.fn(async () => []),

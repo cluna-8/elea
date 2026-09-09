@@ -542,6 +542,7 @@ def patch_user(user_id: UUID, user_in: UserPatch,
             raise HTTPException(status_code=409,
                                 detail=f"El email '{data['email']}' ya está en uso.")
 
+    era_activo = user.is_active
     for field, value in data.items():
         setattr(user, field, value)
 
@@ -549,6 +550,19 @@ def patch_user(user_id: UUID, user_in: UserPatch,
         emit_auth_event(db, AUTH_ROLE_CHANGED, actor_user_id=str(actor.id),
                         target_user_id=str(user.id), old_role=rol_anterior,
                         new_role=data["role"])
+
+    # Bug real encontrado en revisión (09-sep): el toggle "Desactivar" del panel llama
+    # a ESTE endpoint (PATCH, no DELETE) con is_active=false — sin esto, la persona ve el
+    # badge "Desactivado" pero sus Connections seguían activas, porque custom_auth.py
+    # solo mira `api_keys.is_active` (el flag de la LLAVE), nunca el del usuario. Mismo
+    # criterio que `deactivate_user` (DELETE), pero acá NO se reactivan llaves al volver
+    # a activar al usuario — una reactivación no debe restaurar en silencio la capacidad
+    # de una llave potencialmente comprometida; si hace falta, se emite una nueva.
+    if "is_active" in data and era_activo and not data["is_active"]:
+        from ..models.budget import APIKey
+        db.query(APIKey).filter(APIKey.user_id == user.id, APIKey.is_active.is_(True)) \
+            .update({"is_active": False}, synchronize_session=False)
+
     db.commit()
     db.refresh(user)
     return user

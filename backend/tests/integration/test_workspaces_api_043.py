@@ -180,3 +180,57 @@ def test_sin_sesion_401_en_todo(app_and_client):
     assert tc.get("/workspaces").status_code == 401
     assert tc.post("/workspaces", json={"display_name": "x"}).status_code == 401
     assert tc.get(f"/workspaces/{uuid.uuid4()}").status_code == 401
+
+
+def test_asignar_miembro_a_espacio_sin_asignar_lo_saca_de_la_lista_y_lo_hace_dueno(factory, app_and_client):
+    """Bug real encontrado en revisión (09-sep): `add_member` nunca seteaba
+    `owner_user_id`/`status` en un espacio "sin asignar" (herencia de migración) — la UI
+    ("Espacios sin asignar") prometía "Asignales un dueño" pero el espacio se quedaba en
+    esa lista para siempre, y la persona asignada quedaba como "member", no "owner"."""
+    from src.models.tenant import DEFAULT_TENANT_ID, Tenant
+    from src.models.user import User
+    from src.models.workspace import Workspace
+
+    app = app_and_client
+    db = factory()
+    try:
+        if not db.query(Tenant).filter(Tenant.id == DEFAULT_TENANT_ID).first():
+            db.add(Tenant(id=DEFAULT_TENANT_ID, name="Default", slug="default"))
+        suf = uuid.uuid4().hex[:8]
+        admin = User(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, username=f"admin-{suf}",
+                    email=f"admin-{suf}@x.test", password_hash="!", role="tenant_admin")
+        ana = User(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, username=f"ana-{suf}",
+                  email=f"ana-{suf}@x.test", password_hash="!", role="client")
+        ws = Workspace(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID,
+                       engine_slug=f"heredado-{suf}", display_name="Espacio heredado",
+                       owner_user_id=None, status="unassigned")
+        db.add_all([admin, ana, ws])
+        db.commit()
+        admin_id, ana_id, ana_username, ws_id = str(admin.id), str(ana.id), ana.username, str(ws.id)
+    finally:
+        db.close()
+
+    tc_admin = _tc_as(app, admin_id)
+
+    # Antes de asignar: aparece en "sin asignar".
+    r = tc_admin.get("/workspaces", params={"status_filter": "unassigned"})
+    assert r.status_code == 200, r.text
+    assert any(w["id"] == ws_id for w in r.json()["workspaces"])
+
+    r = tc_admin.post(f"/workspaces/{ws_id}/members", json={"username": ana_username})
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "owner", "el primer miembro de un espacio sin dueño debe quedar como owner"
+
+    # Después de asignar: YA NO aparece en "sin asignar".
+    r2 = tc_admin.get("/workspaces", params={"status_filter": "unassigned"})
+    assert r2.status_code == 200, r2.text
+    assert not any(w["id"] == ws_id for w in r2.json()["workspaces"]), \
+        "el espacio debe salir de la lista de sin asignar una vez asignado"
+
+    # Y Ana lo ve en su propio listado, como dueña.
+    tc_ana = _tc_as(app, ana_id)
+    r3 = tc_ana.get("/workspaces")
+    assert r3.status_code == 200, r3.text
+    mio = next((w for w in r3.json()["workspaces"] if w["id"] == ws_id), None)
+    assert mio is not None
+    assert mio["role"] == "owner"

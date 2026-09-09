@@ -25,7 +25,7 @@ describe('Contrato 4 (043) — tipo de cuenta en usuarios', () => {
     const { api } = await import('../../src/services/api');
     fetchMock.mockImplementation((url: string) =>
       jsonResponse([
-        { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'human' },
+        { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'person' },
         { id: 'svc1', username: 'svc.rag-masking', email: 'svc@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'service', purpose: 'Protección de documentos antes de indexarlos' },
       ])
     );

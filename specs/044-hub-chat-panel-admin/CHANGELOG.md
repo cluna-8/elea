@@ -215,3 +215,57 @@ reformatea un volumen ya inicializado) y se confirmó con una consulta real que 
 sobrevivieron sin pérdida. Las pruebas de esta feature se corrieron después contra un
 Postgres descartable y completamente aislado (`elea-pytest-db`, puerto 5434, sin volumen
 compartido con ningún otro proyecto).
+
+## 12. Revisión de código del PR (09-sep) — 8 hallazgos, 7 corregidos
+
+Revisión con 7 ángulos de búsqueda en paralelo (correctness ×3, reuse, simplificación,
+eficiencia, altitud) sobre el diff completo del PR, cada candidato verificado por un
+segundo agente antes de reportarlo. 6 de los 8 hallazgos tenían relación directa con lo
+que 043/044 prometieron arreglar (aislamiento, atribución, enmascarado determinista) —
+ninguno era una regresión introducida por la revisión misma, todos preexistían en el
+código ya mergeado a esta rama.
+
+**Corregidos (7), cada uno con test nuevo, verificados contra Postgres real:**
+
+1. **"Desactivar" en el panel no revocaba las API keys** — el toggle usa `PATCH
+   is_active=false`, no `DELETE`; solo este último revocaba llaves. Ahora `patch_user`
+   también las revoca (nunca las reactiva automáticamente al volver a activar — evita
+   restaurar en silencio la capacidad de una llave potencialmente comprometida).
+   `backend/src/api/users.py`.
+2. **El placeholder determinista podía colisionar** entre dos valores distintos del
+   mismo tipo dentro de un chunk (HMAC mod 10.000 — ~50% de probabilidad de colisión ya a
+   los ~118 valores, paradoja del cumpleaños). Ensanchado a mod 100.000.000 (~11.700
+   valores para el mismo 50%, físicamente imposible en un chunk de 4000 caracteres) +
+   reintento determinista (`probe`) como respaldo que garantiza que dos valores distintos
+   NUNCA terminan con el mismo placeholder, aunque colisionen.
+   `litellm/extensions/sentinel_guardian_policy.py`.
+3. **Asignar un dueño en "Espacios sin asignar" no funcionaba de verdad** —
+   `add_member()` nunca seteaba `owner_user_id` ni cambiaba `status`, así que el espacio
+   seguía apareciendo en la lista para siempre y la persona asignada quedaba como
+   "member". Ahora el primer miembro de un espacio sin dueño pasa a ser el dueño.
+   `backend/src/services/workspace_service.py`.
+4. **Un `document_id` no-UUID perdía la fila de auditoría entera**, no solo ese campo —
+   `_audit()` parseaba el UUID dentro del mismo `try` que escribe toda la fila. Ahora se
+   parsea antes, aparte, y se degrada solo ese campo a `NULL` si no es válido.
+   `backend/src/api/gateway.py`.
+5. **Un bloqueo por guardrail no atribuía a la persona real** — `_auditar_bloqueo` nunca
+   leía `acted_for_user_id` (que `custom_auth.py` ya calculaba), y el modelo/INSERT del
+   endpoint interno de auditoría ni siquiera tenía esa columna. Agregada en los tres
+   lugares: `sentinel_guardrail.py`, `backend/src/api/internal.py` (`AuditEntry` + SQL).
+6. **El sanitizador de errores podía truncar texto legítimo** — cortaba en el primer
+   `:` de todo el mensaje si "litellm." aparecía en cualquier posición, no solo como
+   prefijo real de módulo. Anclado con regex al inicio del string.
+   `backend/src/services/error_sanitizer.py`.
+7. **El tipo `account_type` del frontend declaraba `"human"`**, un valor que el backend
+   nunca manda (manda `"person"`) — trampa silenciosa sin error de TypeScript. Corregido
+   a `"person" | "service"`. `frontend/src/services/api.ts`.
+
+**Investigado y descartado (1)**: la lista de términos prohibidos del test de branding
+del backend no incluye "sentinel" — no es un bug: "Sentinel Gateway" es el nombre neutro
+real del producto base compartido (usado deliberadamente por `error_sanitizer.py` y como
+nombre del logger), la regla "nunca Sentinel" aplica solo a las superficies de cara a
+Eleia, ya cubiertas por `tools/check-branding-neutral.js`.
+
+**Regresión**: suite completa corrida de nuevo tras los 7 fixes — **2746 passed, 9 failed
+(los mismos de siempre), 21 skipped, 0 regresiones** (los 12 tests nuevos de esta revisión
+están dentro del total: +12 respecto de la corrida anterior).

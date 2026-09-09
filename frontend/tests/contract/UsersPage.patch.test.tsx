@@ -13,7 +13,7 @@ vi.mock('../../src/services/api', async () => {
     api: {
       ...actual.api,
       getUsers: vi.fn(async ({ includeService }: any = {}) => {
-        const persona = { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'human' };
+        const persona = { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'person' };
         return includeService ? [persona] : [persona];
       }),
       getBudgets: vi.fn(async () => []),

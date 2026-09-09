@@ -114,8 +114,20 @@ def add_member(db: Session, tenant_id, workspace_id, *, actor_user_id, username:
     existing = _membership(db, workspace_id, target.id)
     if existing is not None:
         return existing
+    # Bug real encontrado en revisión (09-sep): un espacio "sin asignar" (herencia de
+    # migración, `owner_user_id` nulo) se quedaba así PARA SIEMPRE — este método nunca
+    # seteaba dueño ni cambiaba `status`, así que `list_unassigned` lo seguía devolviendo
+    # después de "asignarlo", y la persona quedaba como "member" (sin poder agregar a
+    # nadie más), contradiciendo la propia UI ("Asignales un dueño"). El primer miembro
+    # que se agrega a un espacio sin dueño PASA A SER el dueño — mismo criterio que
+    # `create_workspace` (el creador siempre es "owner").
+    role = "member"
+    if ws.owner_user_id is None:
+        role = "owner"
+        ws.owner_user_id = target.id
+        ws.status = "active"
     row = WorkspaceMembership(id=uuid.uuid4(), tenant_id=tenant_id, workspace_id=ws.id,
-                              user_id=target.id, role="member")
+                              user_id=target.id, role=role)
     db.add(row)
     db.commit()
     return row

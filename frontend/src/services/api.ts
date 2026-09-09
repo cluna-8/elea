@@ -55,7 +55,11 @@ export interface User {
   // personas reales — `GET /users` las excluye por default (`?include_service=true` las
   // trae, con `purpose`). `deactivated_at`/`deactivated_reason` quedan pobladas cuando se
   // dio de baja (`DELETE /{user_id}`, no borra físicamente — ver `UsersPage.tsx` T041).
-  account_type?: "human" | "service";
+  // Bug real encontrado en revisión (09-sep): declaraba "human", pero el backend
+  // (ck_users_account_type, backend/src/models/user.py) nunca manda ese valor — manda
+  // "person". "human" era una trampa silenciosa: TypeScript no marca error si algún
+  // código futuro compara === "human", porque el literal es válido según el tipo.
+  account_type?: "person" | "service";
   purpose?: string;
   deactivated_at?: string | null;
   deactivated_reason?: string | null;

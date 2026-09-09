@@ -12,7 +12,7 @@ vi.mock('../../src/services/api', async () => {
     api: {
       ...actual.api,
       getUsers: vi.fn(async ({ includeService }: any = {}) => {
-        const persona = { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'human' };
+        const persona = { id: 'u1', username: 'ana', email: 'ana@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'person' };
         const servicio = { id: 'svc1', username: 'svc.rag-masking', email: 'svc@x.test', role: 'client', is_active: true, created_at: '', updated_at: '', account_type: 'service', purpose: 'Enmascarado de documentos del Hub' };
         return includeService ? [persona, servicio] : [persona];
       }),

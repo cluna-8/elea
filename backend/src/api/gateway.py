@@ -1089,6 +1089,21 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     El chat sí se lo pasa porque ALLÁ la excepción es el mecanismo del 503 (su camino feliz
     bufferiza entero: cero ``StreamingResponse`` en `chat.py`, medido).
     """
+    # Bug real encontrado en revisión (09-sep): `document_id` es "opcional, efímero,
+    # generado por el cliente" (docstring de `PlaceholderMap`) — nunca se garantiza que
+    # sea un UUID. Antes, un `document_id` no-UUID hacía que `uuid.UUID(...)` lanzara
+    # DENTRO del `try` de más abajo, y el `except Exception` de esa función tumbaba la
+    # fila ENTERA (ver más abajo) — se perdía la auditoría completa de un pedido que ya
+    # se había enmascarado y respondido, no solo el campo document_group_id. Parsearlo
+    # ACÁ, fuera del try grande, y degradar solo este campo a `None` si no es un UUID
+    # válido — la fila se sigue escribiendo igual, solo sin agrupación por documento.
+    document_group_uuid = None
+    if document_group_id:
+        try:
+            document_group_uuid = uuid.UUID(str(document_group_id))
+        except (ValueError, AttributeError, TypeError):
+            document_group_uuid = None
+
     db = SessionLocal()
     try:
         tid = uuid.UUID(ident["tenant_id"]) if ident.get("tenant_id") else DEFAULT_TENANT_ID
@@ -1123,7 +1138,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
                 acted_for_user_id=(uuid.UUID(acted_for_user_id) if acted_for_user_id else None),
                 surface=surface,
                 event_type=event_type,
-                document_group_id=(uuid.UUID(document_group_id) if document_group_id else None),
+                document_group_id=document_group_uuid,
             )
         return fila is not None
     except AuditUnavailableError:

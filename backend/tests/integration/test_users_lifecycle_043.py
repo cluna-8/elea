@@ -170,3 +170,68 @@ def test_baja_reasigna_espacios_propios_a_sin_asignar(harness, monkeypatch, tmp_
         assert ws.owner_user_id is None
     finally:
         db.close()
+
+
+def test_patch_is_active_false_tambien_revoca_llaves(harness, monkeypatch, tmp_path):
+    """Bug real encontrado en revisión (09-sep): el toggle "Desactivar" del panel llama
+    a PATCH (`is_active: false`), no DELETE — antes solo `deactivate_user` (DELETE)
+    revocaba las llaves, así que las Connections del usuario seguían funcionando pese al
+    badge "Desactivado" en el panel."""
+    client, factory, headers = harness
+    user_id, _username, _email = _crear_usuario(client, headers, monkeypatch, tmp_path)
+
+    from src.models.budget import APIKey
+    from src.models.tenant import DEFAULT_TENANT_ID
+    db = factory()
+    try:
+        key = APIKey(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, user_id=user_id,
+                    key_hash=f"hash-{uuid.uuid4()}", key_preview="sk-...x",
+                    name="k-patch-test", tool_type="claude-code", is_active=True)
+        db.add(key)
+        db.commit()
+        key_id = key.id
+    finally:
+        db.close()
+
+    r = client.patch(f"/api/v1/users/{user_id}", headers=headers, json={"is_active": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["is_active"] is False
+
+    db = factory()
+    try:
+        row = db.query(APIKey).filter(APIKey.id == key_id).first()
+        assert row.is_active is False, "PATCH is_active=false debe revocar las llaves igual que DELETE"
+    finally:
+        db.close()
+
+
+def test_patch_is_active_true_no_reactiva_llaves_ya_revocadas(harness, monkeypatch, tmp_path):
+    """Reactivar a la persona NO debe restaurar en silencio la capacidad de una llave
+    potencialmente comprometida — si hace falta, se emite una nueva."""
+    client, factory, headers = harness
+    user_id, _username, _email = _crear_usuario(client, headers, monkeypatch, tmp_path)
+
+    from src.models.budget import APIKey
+    from src.models.tenant import DEFAULT_TENANT_ID
+    db = factory()
+    try:
+        key = APIKey(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, user_id=user_id,
+                    key_hash=f"hash-{uuid.uuid4()}", key_preview="sk-...y",
+                    name="k-reactivate-test", tool_type="claude-code", is_active=True)
+        db.add(key)
+        db.commit()
+        key_id = key.id
+    finally:
+        db.close()
+
+    client.patch(f"/api/v1/users/{user_id}", headers=headers, json={"is_active": False})
+    r = client.patch(f"/api/v1/users/{user_id}", headers=headers, json={"is_active": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["is_active"] is True
+
+    db = factory()
+    try:
+        row = db.query(APIKey).filter(APIKey.id == key_id).first()
+        assert row.is_active is False, "reactivar al usuario no debe reactivar llaves ya revocadas"
+    finally:
+        db.close()

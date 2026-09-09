@@ -161,3 +161,34 @@ async def test_dos_valores_distintos_mismo_documento_no_colisionan():
     placeholders = policy.PLACEHOLDER_TOKEN_RE.findall(masked)
     assert len(placeholders) == 2
     assert placeholders[0] != placeholders[1]
+
+
+def test_colision_forzada_de_indice_no_pisa_el_placeholder_del_otro_valor(monkeypatch):
+    """Bug real encontrado en revisión (09-sep): antes, si dos valores DISTINTOS del
+    mismo entity_type hasheaban al mismo índice de 4 dígitos, `ph_to_orig[ph] = value`
+    pisaba en silencio el mapeo del primero — al desenmascarar, ocurrencias del
+    placeholder que eran del primer valor resolvían al segundo. Acá se fuerza la
+    colisión (monkeypatch de `_deterministic_index` para que probe=0 siempre devuelva el
+    mismo índice) y se verifica que `placeholder_for` prueba el siguiente `probe` en vez
+    de sobreescribir — cada valor termina con SU PROPIO placeholder, y `ph_to_orig` sigue
+    apuntando cada uno a su valor real."""
+    doc_id = "doc-colision-forzada"
+    pmap = policy.PlaceholderMap(document_id=doc_id)
+
+    real_index = pmap._deterministic_index
+
+    def index_colisionante(value, entity_type, probe=0):
+        if probe == 0:
+            return 42  # el mismo índice para CUALQUIER valor en probe=0 → colisión forzada
+        return real_index(value, entity_type, probe)
+
+    monkeypatch.setattr(pmap, "_deterministic_index", index_colisionante)
+
+    ph_julian = pmap.placeholder_for("Julián", "PERSON")
+    ph_maria = pmap.placeholder_for("María", "PERSON")
+
+    assert ph_julian != ph_maria, "dos valores distintos NUNCA deben terminar con el mismo placeholder"
+    assert pmap.ph_to_orig[ph_julian] == "Julián"
+    assert pmap.ph_to_orig[ph_maria] == "María"
+    # El primer placeholder asignado (Julián) sigue resolviendo a Julián — no fue pisado.
+    assert pmap.ph_to_orig[ph_julian] != "María"

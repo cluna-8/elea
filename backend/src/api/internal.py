@@ -202,14 +202,15 @@ _INSERT_AUDIT_SQL = text("""
 INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
-    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer
+    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
+    acted_for_user_id
 ) VALUES (
     gen_random_uuid(), CAST(:tenant_id AS uuid), NOW(), CAST(:user_id AS uuid),
     CAST(:api_key_id AS uuid), :model,
     :prompt_tokens, :completion_tokens, :cost_usd, :pii_detected,
     CAST(:masked_entities AS jsonb),
     :compliance_status, :latency_ms, CAST(:user_group_id AS uuid),
-    CAST(:applied_layers AS jsonb), :blocked_by_layer
+    CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid)
 )
 """)
 
@@ -246,6 +247,12 @@ class AuditEntry(BaseModel):
     user_group_id: Optional[str] = None
     applied_layers: Optional[list] = None
     blocked_by_layer: Optional[str] = None
+    # Bug real encontrado en revisión (09-sep, contrato 2 de la 043): faltaba acá — una
+    # llave de servicio actuando "en nombre de" alguien (X-Guardian-Acting-User) que se
+    # bloqueaba por un guardrail del motor quedaba atribuida solo a la cuenta de servicio,
+    # nunca a la persona real, porque este modelo (y el INSERT de abajo) no tenían la
+    # columna. `custom_auth.py` ya la calcula; `sentinel_guardrail.py` ahora la manda.
+    acted_for_user_id: Optional[str] = None
 
 
 def _entidades_saneadas(items: list) -> list:
@@ -326,6 +333,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         # hoy no la produce — T025); [] afirmaría "ninguna capa corrió", que sería mentira.
         "applied_layers": json.dumps(entry.applied_layers) if entry.applied_layers is not None else None,
         "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
+        "acted_for_user_id": entry.acted_for_user_id,
     })
     db.commit()
 

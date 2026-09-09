@@ -731,26 +731,49 @@ class PlaceholderMap:
         self.ph_to_orig: dict = {}
         self._type_counts: dict = {}
 
-    def _deterministic_index(self, value: str, entity_type: str) -> int:
-        """Índice derivado por HMAC(document_id, tipo|valor) — no un contador secuencial,
-        porque distintos chunks del mismo documento son instancias DISTINTAS de
-        PlaceholderMap y no comparten memoria. Acotado a 4 dígitos: alcanza para no
-        colisionar dentro de un documento razonable y mantiene el placeholder corto
-        (gramática `[TIPO_n_hex]` sin cambios, PH_TYPE_RE/PLACEHOLDER_TOKEN_RE intactas)."""
+    def _deterministic_index(self, value: str, entity_type: str, probe: int = 0) -> int:
+        """Índice derivado por HMAC(document_id, tipo|valor|probe) — no un contador
+        secuencial, porque distintos chunks del mismo documento son instancias DISTINTAS
+        de PlaceholderMap y no comparten memoria. `probe` (default 0) es el eslabón de
+        `placeholder_for` para resolver una colisión sin romper el determinismo: mismo
+        valor, mismo `probe` → mismo índice, siempre.
+
+        Bug real encontrado en revisión (09-sep): acotado antes a 4 dígitos (mod 10.000)
+        — con la paradoja del cumpleaños, la probabilidad de colisión entre dos valores
+        DISTINTOS del mismo tipo ya ronda el 50% a partir de ~118 valores en un mismo
+        chunk (hasta 4000 caracteres, gramática `[TIPO_n_hex]` sin cambios). Ensanchado a
+        8 dígitos (mod 100.000.000): la misma probabilidad recién se acerca al 50% con
+        ~11.700 valores distintos del mismo tipo — físicamente imposible en un chunk de
+        4000 caracteres. `placeholder_for` además prueba (`probe`) hasta encontrar un
+        índice libre como respaldo, así que la colisión queda cerrada en los dos niveles:
+        astronómicamente improbable, y si ocurriera, resuelta sin pisar el placeholder de
+        otro valor."""
         digest = hmac.new(
-            self.document_id.encode(), f"{entity_type}|{value}".encode(), hashlib.sha256
+            self.document_id.encode(),
+            f"{entity_type}|{value}|{probe}".encode(),
+            hashlib.sha256,
         ).digest()
-        return int.from_bytes(digest[:2], "big") % 10_000
+        return int.from_bytes(digest[:5], "big") % 100_000_000
 
     def placeholder_for(self, value: str, entity_type: str) -> str:
         if value in self.orig_to_ph:
             return self.orig_to_ph[value]
         if self.document_id:
-            idx = self._deterministic_index(value, entity_type)
+            probe = 0
+            idx = self._deterministic_index(value, entity_type, probe)
+            ph = f"[{entity_type}_{idx}_{self.nonce}]"
+            # Colisión real (índice ya usado por OTRO valor en esta misma instancia):
+            # reintentar con el siguiente probe — determinista, nunca aleatorio, así que
+            # el mismo valor sigue resolviendo al mismo placeholder en cualquier chunk
+            # que no haya visto la misma colisión previa.
+            while ph in self.ph_to_orig and self.ph_to_orig[ph] != value:
+                probe += 1
+                idx = self._deterministic_index(value, entity_type, probe)
+                ph = f"[{entity_type}_{idx}_{self.nonce}]"
         else:
             idx = self._type_counts.get(entity_type, 0)
             self._type_counts[entity_type] = idx + 1
-        ph = f"[{entity_type}_{idx}_{self.nonce}]"
+            ph = f"[{entity_type}_{idx}_{self.nonce}]"
         self.orig_to_ph[value] = ph
         self.ph_to_orig[ph] = value
         return ph
