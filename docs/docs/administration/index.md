@@ -431,6 +431,9 @@ intelectual del artefacto): [Licenciamiento offline](../install-deploy/licensing
 - [Purga de retención](purga-retencion.md) — cómo se enciende y se ensaya el proceso
   que elimina las filas vencidas del registro de auditoría: las 7 perillas, el CLI
   `--run-now` y el procedimiento de encendido seguro.
+- [Eleia Hub: espacios, presupuesto y protección de documentos](eleia-hub-workspaces.md) —
+  guía específica para instancias con el chat de espacios de trabajo activo: aislamiento
+  entre personas, gasto por usuario y qué avisa la interfaz sobre PII en documentos.
 - [Operaciones & troubleshooting](../operations/index.md) — chequeos de salud del stack
   (incluido el probe de licencia) y gotchas operativos verificados en despliegues reales.
 - [Compliance](../compliance/index.md) — el marco legal (GDPR / EU AI Act) que los modos
