@@ -20,6 +20,22 @@ const ELEA_BACKEND_URL = process.env.ELEA_BACKEND_URL || 'http://backend:8000/ap
 const ANYTHINGLLM_URL = process.env.ANYTHINGLLM_URL || 'http://anythingllm:3001';
 const ANYTHINGLLM_API_KEY = process.env.ANYTHINGLLM_API_KEY || '';
 const MASKING_VIRTUAL_KEY = process.env.MASKING_VIRTUAL_KEY || '';
+
+// Marca como CONFIG en runtime (mismo criterio que `frontend/src/services/branding.ts`,
+// spec 020 US2) — encontrado en revisión (09-sep): el Hub tenía "Elea"/"Eleia"/"Laboratorios
+// ELEA" fijos en `public/index.html` (título, logo, tag del tenant, tagline, nombre de
+// archivo de transcripción). Eso contradice el principio "Eleia Hub es un cliente más": el
+// MISMO Hub, sin tocar código, tiene que poder apuntar a cualquier instancia de Guardian
+// (Eleia, la base genérica, o la de otro cliente) y mostrar SU marca, no la de Elea a la
+// fuerza. Default neutro — nunca "Elea" por default; la instalación de Elea lo fija por env
+// (ver `elea-installer/docker-compose.yml`).
+const HUB_BRAND = {
+  name: process.env.HUB_BRAND_NAME || 'Guardian Hub',
+  tagline: process.env.HUB_BRAND_TAGLINE || 'Chat corporativo con documentos, protegido',
+  logoUrl: process.env.HUB_BRAND_LOGO_URL || '/eleia-logo.png',
+  tenantLabel: process.env.HUB_BRAND_TENANT_LABEL || '',
+  governanceLabel: process.env.HUB_BRAND_GOVERNANCE_LABEL || 'Guardian',
+};
 // T034 (US3, R5 de research.md): fecha de corte para avisar "esquema anterior" en
 // documentos subidos ANTES de que el enmascarado determinista (document_id) existiera —
 // se setea al desplegar esta feature, nunca inferida. Sin esto configurado, ningún
@@ -216,7 +232,12 @@ async function maskChunk(text, { documentId, actingUserId } = {}) {
       r = await fetch(`${ELEA_BACKEND_URL}/gw/inspect`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ text, tool: 'elea-rag-client', document_id: documentId })
+        // 'hub-client' es descriptivo, no funcional: no está en el enum SURFACES del
+        // backend (inspect.py `_SURFACES_POR_TOKEN`), así que nunca decide la superficie
+        // auditada — eso lo resuelve `tool_type` de la Connection ("servicio"). Antes
+        // decía 'elea-rag-client', un nombre atado a Elea en un cliente que se conecta a
+        // cualquier instancia de Guardian (encontrado en revisión, 09-sep).
+        body: JSON.stringify({ text, tool: 'hub-client', document_id: documentId })
       });
       lastNetworkError = null;
       break;
@@ -324,13 +345,20 @@ app.post('/api/auth/login', async (req, res) => {
     setSession(req, { token: data.access_token, user: data.user });
     res.json({ success: true, user: data.user });
   } catch (err) {
-    res.status(502).json({ error: `No se pudo contactar a elea: ${err.message}` });
+    res.status(502).json({ error: 'No se pudo contactar al backend de Guardian. Intentá de nuevo en unos minutos.' });
   }
 });
 
 app.post('/api/auth/logout', (req, res) => {
   setSession(req, null);
   res.json({ success: true });
+});
+
+// Marca en runtime, pública (necesaria ANTES del login — el logo también se muestra en la
+// pantalla de login). Mismo criterio que `frontend`: la instancia decide su marca por env,
+// el código del Hub no tiene ninguna atada.
+app.get('/api/branding', (req, res) => {
+  res.json(HUB_BRAND);
 });
 
 app.get('/api/user/current', async (req, res) => {

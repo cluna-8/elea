@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Elea Hub · Enterprise RAG & Governance</title>
+  <!-- Placeholder neutro — `applyBranding()` (más abajo) lo sobreescribe con la marca real
+       de la instancia (`GET /api/branding`) antes de que la persona vea nada. Nunca un
+       nombre de cliente específico hardcodeado acá (encontrado en revisión, 09-sep: decía
+       "Elea Hub" fijo, lo que contradice que este Hub sea un cliente más, no atado a Elea). -->
+  <title>Guardian Hub</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700;1,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
@@ -391,15 +395,16 @@
 </head>
 <body>
 
-  <!-- LOGIN / LOCK OVERLAY — credenciales reales de elea, sin lista de usuarios -->
+  <!-- LOGIN / LOCK OVERLAY — credenciales reales del backend de Guardian de esta
+       instancia, sin lista de usuarios -->
   <div class="auth-overlay" id="auth-overlay">
     <div class="auth-card">
       <div style="display:flex; justify-content:center;">
-        <img src="/eleia-logo.png" alt="Elea" style="height:64px; width:auto;">
+        <img src="/eleia-logo.png" alt="" id="login-logo" style="height:64px; width:auto;">
       </div>
       <div>
         <div class="auth-title">Portal de Acceso</div>
-        <div style="font-size:12.5px; color:var(--text-muted); margin-top:4px;">Gobernanza IA y RAG Corporativo · Laboratorios ELEA</div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:4px;" id="login-tagline">Gobernanza IA y RAG Corporativo</div>
       </div>
 
       <form id="login-form" style="display:flex; flex-direction:column; gap:12px; text-align:left;" onsubmit="return handleLogin(event)">
@@ -420,11 +425,13 @@
   <!-- TOP NAVBAR -->
   <div class="top-navbar">
     <div class="brand-section">
-      <img src="/eleia-logo.png" alt="Elea" style="height:40px; width:auto;">
+      <img src="/eleia-logo.png" alt="" id="navbar-logo" style="height:40px; width:auto;">
     </div>
 
-    <!-- CLIENT / TENANT BADGE -->
-    <div class="client-tenant-badge" id="client-tenant-badge">Laboratorios ELEA</div>
+    <!-- CLIENT / TENANT BADGE — texto de config (`HUB_BRAND_TENANT_LABEL`), oculto si la
+         instancia no configuró ninguno (no todas las instalaciones son de un único
+         tenant/cliente nombrado). -->
+    <div class="client-tenant-badge" id="client-tenant-badge" style="display:none;"></div>
 
     <!-- SELECTOR DE MODELO — catálogo real de elea (GET /chat/models), solo aplica al
          chat directo (sin workspace RAG seleccionado). Nunca una lista inventada. -->
@@ -589,7 +596,7 @@
           <div class="rag-meta-rows">
             <div class="rag-meta-row"><span class="k">Modo</span><span class="v" id="rag-mode-label">Chat directo</span></div>
             <div class="rag-meta-row"><span class="k">Vector store</span><span class="v">LanceDB Local</span></div>
-            <div class="rag-meta-row"><span class="k">Gobernanza</span><span class="v">Elea GuardIAn</span></div>
+            <div class="rag-meta-row"><span class="k">Gobernanza</span><span class="v" id="governance-label">Guardian</span></div>
           </div>
         </div>
       </div>
@@ -742,11 +749,19 @@
     // esté configurada en el Hub (`MASKING_DETERMINISM_SINCE`), y entonces ningún
     // documento se marca como "esquema anterior" (mejor no avisar que avisar mal).
     let maskingDeterminismSince = null;
+    // Marca de ESTA instancia — default neutro mientras `applyBranding()` no resolvió
+    // todavía (evita un `undefined` de una fracción de segundo antes del primer fetch).
+    let hubBrand = { name: 'Guardian Hub', tagline: '', logoUrl: '/eleia-logo.png', tenantLabel: '', governanceLabel: 'Guardian' };
 
-    const EMPTY_STATE_HTML = `
+    // Función, no una constante: se arma con la marca de ESTA instancia (`hubBrand`,
+    // cargada en `boot()`), no con un logo/tagline fijo de Elea (encontrado en revisión,
+    // 09-sep — el Hub tiene que poder mostrar la marca de cualquier Guardian al que
+    // apunte, no solo la de Elea).
+    function emptyStateHtml() {
+      return `
       <div class="chat-empty-state">
-        <img src="/eleia-logo.png" alt="Elea" style="height:70px; width:auto;">
-        <div class="empty-tagline">La plataforma inteligente para Laboratorios Elea</div>
+        <img src="${hubBrand.logoUrl}" alt="" style="height:70px; width:auto;">
+        <div class="empty-tagline">${hubBrand.tagline}</div>
         <div class="empty-chat-icon">
           <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"></path></svg>
         </div>
@@ -754,12 +769,44 @@
         <div class="empty-sub">Escribí tu consulta sobre este espacio de trabajo o elegí una acción rápida abajo.</div>
       </div>
     `;
+    }
 
     function showToast(text) {
       const toast = document.getElementById('toast-notification');
       toast.innerText = text;
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    // Marca en runtime (spec 020 US2, mismo criterio que `frontend`) — se resuelve ANTES
+    // de que la persona vea nada, incluida la pantalla de login (por eso corre antes de
+    // `boot()`, no adentro). Sin `/api/branding` (instancia vieja, o el endpoint no
+    // responde), se queda con el default neutro — nunca rompe el arranque.
+    async function applyBranding() {
+      try {
+        const res = await fetch('/api/branding');
+        if (res.ok) hubBrand = { ...hubBrand, ...(await res.json()) };
+      } catch (err) {
+        // sin conexión al propio servidor del Hub — el default neutro alcanza.
+      }
+      document.title = hubBrand.name;
+      const loginLogo = document.getElementById('login-logo');
+      const navbarLogo = document.getElementById('navbar-logo');
+      if (loginLogo) loginLogo.src = hubBrand.logoUrl;
+      if (navbarLogo) navbarLogo.src = hubBrand.logoUrl;
+      const loginTagline = document.getElementById('login-tagline');
+      if (loginTagline && hubBrand.tagline) loginTagline.innerText = hubBrand.tagline;
+      const tenantBadge = document.getElementById('client-tenant-badge');
+      if (tenantBadge) {
+        if (hubBrand.tenantLabel) {
+          tenantBadge.innerText = hubBrand.tenantLabel;
+          tenantBadge.style.display = '';
+        } else {
+          tenantBadge.style.display = 'none';
+        }
+      }
+      const governanceLabel = document.getElementById('governance-label');
+      if (governanceLabel) governanceLabel.innerText = hubBrand.governanceLabel;
     }
 
     // ── Arranque / sesión ──────────────────────────────────────────────────────────────
@@ -1205,12 +1252,12 @@
 
     function exportChatTranscript() {
       if (messages.length === 0) return;
-      let transcript = `# Transcripción Elea RAG\n**Espacio:** ${currentWorkspace ? currentWorkspace.name : 'Chat directo'}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
+      let transcript = `# Transcripción — ${hubBrand.name}\n**Espacio:** ${currentWorkspace ? currentWorkspace.name : 'Chat directo'}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
       messages.forEach((m) => { transcript += `### ${m.role === 'user' ? 'Usuario' : 'Asistente'}\n${m.content}\n\n`; });
       const blob = new Blob([transcript], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'transcripcion-elea-rag.md'; a.click();
+      a.href = url; a.download = 'transcripcion-hub.md'; a.click();
       showToast('Transcripción descargada.');
     }
 
@@ -1371,7 +1418,7 @@
       const container = document.getElementById('chat-messages');
       container.innerHTML = '';
       if (messages.length === 0) {
-        container.innerHTML = EMPTY_STATE_HTML;
+        container.innerHTML = emptyStateHtml();
         return;
       }
       messages.forEach((msg) => {
@@ -1401,7 +1448,7 @@
       container.scrollTop = container.scrollHeight;
     }
 
-    boot();
+    applyBranding().then(boot);
   </script>
 </body>
 </html>

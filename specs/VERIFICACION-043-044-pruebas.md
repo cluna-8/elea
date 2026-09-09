@@ -17,7 +17,7 @@ este documento contra un despliegue real.
 
 | # | Tarea | Spec | Bloqueada por |
 |---|---|---|---|
-| 1 | T064 — sitio de docs con los endpoints/conceptos nuevos | 043 | Nada en realidad — **esta sí se puede hacer ahora** si nadie la hizo (ver §5) |
+| 1 | T064 — sitio de docs con los endpoints/conceptos nuevos | 043 | Nada en realidad — **esta sí se puede hacer ahora** si nadie la hizo (ver §6) |
 | 2 | T068 — `quickstart.md` completo (043) contra `docker compose up` desde cero | 043 | Credenciales reales de proveedor LLM (Azure OpenAI u otro) |
 | 3 | T069 — reconstruir/taggear imágenes `elea-guardian-backend`/`elea-guardian-engine` | 043 | Depende de T068 |
 | 4 | T019 — `quickstart.md` §1/§6 (044): migración de los 3 espacios reales | 044 | Acceso a la instalación real de Elea |
@@ -132,7 +132,58 @@ pendiente.
 
 ---
 
-## 3. Parte B — Plan de pruebas TÉCNICO
+## 3. Parte C — Independencia del CLI (Eleia Hub funciona con cualquier Guardian)
+
+**Pedido explícito del dueño del producto (09-sep-2026)**: confirmar en la práctica que
+**Eleia Guardian es el firewall/protector** y **Eleia Hub es un cliente más** — sin ningún
+acoplamiento especial entre los dos. El mismo Hub, sin tocar código, debe poder apuntar a
+CUALQUIER instancia de Guardian (la propia de Elea, la base genérica, o la de otro cliente
+como Sentinel/Evidenze) solo cambiando su configuración de entorno — exactamente como
+apuntaría Claude Code, Copilot o Cursor a cualquier Connection.
+
+**Instancias disponibles para esta prueba** (ya existen en esta máquina, no hace falta
+crear nada nuevo):
+
+| Instancia | Marca | Repo |
+|---|---|---|
+| Eleia Guardian | Eleia | `LLMADMIN-Elea/elea` (esta) |
+| Guardian (base) | Guardian / hoy configurado como "Basa" | `GuardIAn-Master/GuardIAn-secure` |
+| Sentinel | Evidenze | `EVIDENZE/SENTINEL` |
+
+### Guion
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Levantar las 3 instancias (`docker compose up`, cada una con sus propias credenciales de proveedor LLM) | Las 3 responden en sus puertos propios, sin pisarse entre sí (mismo cuidado que el incidente documentado en el `CHANGELOG.md` de la 044 — `STACK_PREFIX` distinto por instancia si comparten red Docker) |
+| 2 | Crear una llave/Connection de servicio para el Hub en la instancia A (Eleia Guardian) | El Hub, apuntado con `ELEA_BACKEND_URL`/`ANYTHINGLLM_*`/`MASKING_VIRTUAL_KEY` de la instancia A, funciona: login, crear espacio, subir documento, preguntar |
+| 3 | Sin tocar código del Hub — solo cambiar las variables de entorno para apuntar a la instancia B (Guardian base) | El Hub funciona igual: login, espacios, presupuesto — con los datos y usuarios de la instancia B, sin ningún rastro de la instancia A |
+| 4 | Repetir apuntando a la instancia C (Sentinel) | Mismo resultado — el Hub no tiene ninguna referencia hardcodeada a "Eleia" en su lógica, solo en textos de marca (que si Sentinel tiene su propio `brand.json`, deberían reflejar la marca de Sentinel, no la de Eleia) |
+| 5 | Verificar branding neutro en los 3 casos | El Hub muestra la marca de CADA instancia (título de pestaña, logo, tagline, tag del tenant, label de gobernanza) — nunca la de Eleia salvo cuando apunta a la instancia de Eleia |
+
+**Falla si**: el Hub necesita algún cambio de CÓDIGO (no solo de configuración) para
+funcionar contra una instancia distinta de la de Elea, o si arrastra datos/sesión de una
+instancia a otra.
+
+**Resuelto (09-sep)**: el candidato que este documento marcaba como pendiente — el Hub
+tenía "Elea"/"Eleia"/"Laboratorios ELEA" fijos en `client/public/index.html` (título, logo,
+tag del tenant, tagline, label de gobernanza, nombre de archivo de transcripción) y en
+`client/server.js` (log de arranque, el `tool` que viaja a `/gw/inspect`, un mensaje de
+error) — ya se corrigió: nuevo endpoint `GET /api/branding` + `HUB_BRAND_*` por env
+(mismo patrón runtime que `frontend/src/services/branding.ts`), default NEUTRO sin
+ninguna de esas variables configuradas, verificado con
+`client/tests/contract/test_branding.test.js` (incluye un caso simulando una marca de
+OTRO cliente, sin ningún rastro de "Elea"). `elea-installer/docker-compose.yml` ya fija
+las `HUB_BRAND_*` con los valores reales de Eleia, así que la instalación real de Elea no
+pierde su marca actual.
+
+**Nota honesta**: el guion en sí (levantar las 3 instancias y probar en vivo) no se
+ejecutó en esta sesión — requiere levantar 3 stacks completos con credenciales reales de
+proveedor LLM cada uno, que no están disponibles en este entorno. Lo que sí quedó resuelto
+es el bloqueo de código que habría hecho fallar el paso 5 del guion.
+
+---
+
+## 4. Parte B — Plan de pruebas TÉCNICO
 
 Verifica que el código que resuelve lo de arriba esté sano — esto **sí se puede correr ahora**,
 sin despliegue real, y ya se corrió durante la implementación (ver los `CHANGELOG.md` de cada
@@ -220,18 +271,22 @@ de servicios desactualizada — le falta contemplar `profiles: ["full"]` en `fro
 
 ---
 
-## 4. Checklist final de aceptación
+## 5. Checklist final de aceptación
 
-Cerrar como "solucionado para Tomás" requiere las DOS partes en verde:
+Cerrar como "solucionado para Tomás" requiere Parte A y Parte B en verde; Parte C cierra el
+pedido explícito de arquitectura (09-sep) — Guardian como firewall, Hub como cliente
+intercambiable:
 
 - [ ] Parte A (§2, P1-P7) corrida contra un despliegue real o una copia de la instalación de
   Elea, sin ningún "Falla si" disparado.
-- [ ] Parte B (§3, T1-T7) corrida en este repo, sin regresiones nuevas.
+- [ ] Parte C (§3) corrida contra las 3 instancias (Eleia Guardian, Guardian base, Sentinel) —
+  el Hub funciona contra las 3 sin cambios de código.
+- [ ] Parte B (§4, T1-T7) corrida en este repo, sin regresiones nuevas.
 - [ ] Las 12 tareas de §1 quedan marcadas `[X]` en `tasks.md` de cada spec, con el resultado
   registrado en su `CHANGELOG.md` (no antes — mismo criterio usado en todo este trabajo: nunca
   marcar hecho lo que no se verificó).
 
-## 5. Nota — T64 (sitio de docs) es la única tarea de §1 sin bloqueo real
+## 6. Nota — T64 (sitio de docs) es la única tarea de §1 sin bloqueo real
 
 A diferencia de las otras 11, T064 (043 — actualizar `docs/docs/**` con los endpoints/conceptos
 de la 043: `workspaces`, `X-Guardian-Acting-User`, `document_id`, `PATCH/DELETE /users`) no

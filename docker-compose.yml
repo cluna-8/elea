@@ -286,11 +286,15 @@ services:
     environment:
       - PORT=8095
       - ELEA_BACKEND_URL=http://backend:8000/api/v1
-      - ELEA_SERVICE_USERNAME=${ELEA_SERVICE_USERNAME:-admin}
-      - ELEA_SERVICE_PASSWORD=${ELEA_SERVICE_PASSWORD}
+      # ELEA_SERVICE_USERNAME/PASSWORD: quitadas (09-sep) — `server.js` ya no las lee
+      # desde que T022 de la 044 cambió el presupuesto a autoservicio.
       - ANYTHINGLLM_URL=http://anythingllm:3001
       - ANYTHINGLLM_API_KEY=${ANYTHINGLLM_API_KEY}
       - MASKING_VIRTUAL_KEY=${MASKING_VIRTUAL_KEY}
+      # Sin HUB_BRAND_* a propósito: este compose es el de DESARROLLO genérico (cualquier
+      # dev prueba cualquier escenario de cliente, default STACK_PREFIX=sentinel) — se
+      # queda con la marca neutra por default. La marca de Eleia se fija en
+      # `elea-installer/docker-compose.yml`, que sí es el instalador real del cliente.
     volumes:
       - ./client/public/uploads:/app/public/uploads
     networks:
