@@ -977,7 +977,17 @@ app.post('/api/chat', async (req, res) => {
       via: 'direct'
     });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    // Bug real encontrado en verificación en vivo (09-sep, P6 paso 1): con el motor de
+    // documentos completamente CAÍDO (no solo respondiendo error, sino sin escuchar en
+    // el puerto), `fetch()` lanza ANTES de llegar al `if (!r.ok)` de arriba — este catch
+    // devolvía `err.message` crudo ("fetch failed", o peor con DNS: "getaddrinfo ENOTFOUND
+    // anythingllm") directo al chat. Mismo criterio que el resto del handler: mensaje
+    // neutro al usuario, el detalle técnico solo al log del servidor.
+    console.error('POST /api/chat falló:', err.message);
+    const mensaje = slug
+      ? 'El servicio de documentos no está disponible. Intentá de nuevo en unos minutos.'
+      : 'No se pudo obtener una respuesta. Intentá de nuevo.';
+    res.status(502).json({ error: mensaje });
   }
 });
 

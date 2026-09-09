@@ -138,6 +138,65 @@ def test_no_se_puede_dar_de_baja_al_ultimo_admin(harness, monkeypatch, tmp_path)
     assert r.status_code in (409, 401, 403)
 
 
+def test_patch_no_puede_autodesactivarse(harness):
+    """Bug real encontrado en verificación en vivo (09-sep): las guardas de auto-baja y
+    último-admin SOLO vivían en `DELETE`. El toggle "Desactivar" del panel llama a
+    `PATCH` con `is_active: false` — mismo efecto, cero guarda — así que un PATCH directo
+    (curl, un cliente que no repita el guard de UI) podía autodesactivar al único admin y
+    dejar la instancia sin forma de administrarse por API (confirmado en vivo: la única
+    salida fue un UPDATE manual en Postgres). Ver `_bloquear_baja_insegura`."""
+    client, factory, headers = harness
+    import jose.jwt as jwt_lib
+    token = headers["Authorization"].removeprefix("Bearer ")
+    payload = jwt_lib.get_unverified_claims(token)
+    admin_id = payload["sub"]
+
+    r = client.patch(f"/api/v1/users/{admin_id}", headers=headers, json={"is_active": False})
+    assert r.status_code == 409
+
+    r2 = client.get(f"/api/v1/users/{admin_id}", headers=headers)
+    assert r2.status_code == 200
+    assert r2.json()["is_active"] is True, "el PATCH bloqueado no debe haber tocado is_active"
+
+
+def test_patch_no_puede_dar_de_baja_al_ultimo_admin(harness, monkeypatch, tmp_path):
+    client, factory, headers = harness
+    from src.models.user import User
+    from src.models.tenant import DEFAULT_TENANT_ID
+
+    id2, username2, _ = _crear_usuario(client, headers, monkeypatch, tmp_path,
+                                       role="tenant_admin")
+
+    db = factory()
+    try:
+        admins_activos = db.query(User).filter(
+            User.tenant_id == DEFAULT_TENANT_ID,
+            User.role.in_(("super_admin", "tenant_admin", "admin")),
+            User.deactivated_at.is_(None), User.is_active.is_(True),
+        ).all()
+        for a in admins_activos[1:]:
+            a.is_active = False
+        ultimo_id = admins_activos[0].id
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.patch(f"/api/v1/users/{ultimo_id}", headers=headers, json={"is_active": False})
+    assert r.status_code in (409, 401, 403)
+
+
+def test_patch_is_active_false_no_toca_la_edicion_de_otros_campos(harness, monkeypatch, tmp_path):
+    """La guarda solo debe activarse cuando el PATCH efectivamente intenta APAGAR
+    is_active — editar rol/email de alguien sigue andando igual que antes del fix."""
+    client, factory, headers = harness
+    user_id, _username, _email = _crear_usuario(client, headers, monkeypatch, tmp_path)
+
+    r = client.patch(f"/api/v1/users/{user_id}", headers=headers,
+                     json={"role": "compliance_officer", "is_active": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "compliance_officer"
+
+
 def test_baja_reasigna_espacios_propios_a_sin_asignar(harness, monkeypatch, tmp_path):
     client, factory, headers = harness
     user_id, username, _ = _crear_usuario(client, headers, monkeypatch, tmp_path)

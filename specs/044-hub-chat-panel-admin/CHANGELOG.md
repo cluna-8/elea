@@ -341,3 +341,88 @@ en su llamada saliente al motor) — no un descuido corregible con un cambio chi
 documentado acá como hallazgo real para decidir si amerita trabajo futuro (por ejemplo,
 resolver el usuario real desde la membership del espacio al momento de auditar en el
 motor, en vez de depender de un header que AnythingLLM nunca va a reenviar).
+
+## 14. Corrida real de punta a punta (09-sep) — P5/P6/P7 del plan de verificación
+
+Continuación de §13 sobre el mismo stack (`STACK_PREFIX=eleae2e`, mismos volúmenes con
+datos reales de la corrida anterior). Encontró y corrigió **dos bugs reales más**.
+
+### P5 — Ciclo de vida de usuario, contra el backend real
+
+Los 6 pasos del guion, vía API real (login/PATCH/DELETE reales, no mocks):
+
+1-2. Editar SOLO el rol y SOLO el email de un usuario: cada PATCH cambió únicamente el
+   campo pedido — verificado.
+3. Desactivar → login falla (401) → reactivar → login vuelve a andar — verificado con un
+   usuario nuevo (`p5.test`).
+4. Dar de baja a otro usuario: `GET /users/{id}/spend` sigue respondiendo con datos
+   válidos después de la baja (no desaparece de Costos) — verificado.
+5-6. Auto-baja y último-admin — acá salió el primer bug real (ver abajo).
+
+**🔴 Bug real encontrado (crítico) — corregido**: las guardas "no podés darte de baja a
+vos mismo" y "no se puede dar de baja al último admin activo" **solo vivían en
+`DELETE /users/{id}`**. El toggle "Desactivar" del panel llama a `PATCH` con
+`is_active: false` — mismo efecto visible, CERO guarda. Confirmado en vivo de la peor
+manera posible: un `PATCH` directo a la única cuenta admin devolvió `200`, la dejó
+`is_active=false`, y el siguiente request con su JWT quedó `401` — sin otra cuenta admin
+activa en el tenant, la única salida fue un `UPDATE` manual en Postgres (`docker exec`
+directo a la base). Cualquier caller de `PATCH` que no repitiera el guard de UI de
+`UsersPage.tsx` (un curl directo, un futuro cliente distinto del panel) podía dejar la
+instancia entera sin forma de administrarse por API.
+
+**Corregido** en `backend/src/api/users.py`: nuevo helper `_bloquear_baja_insegura()`
+(mismas dos guardas que ya tenía `DELETE`, ahora compartidas) invocado desde `PATCH`
+solo cuando el PATCH efectivamente intenta apagar `is_active` — editar rol/email o
+reactivar sigue sin tocar la guarda. Reverificado en vivo: el mismo `PATCH` directo a la
+única admin ahora da `409` con explicación, y el token sigue valiendo. Tests nuevos en
+`test_users_lifecycle_043.py`: `test_patch_no_puede_autodesactivarse`,
+`test_patch_no_puede_dar_de_baja_al_ultimo_admin`,
+`test_patch_is_active_false_no_toca_la_edicion_de_otros_campos`.
+
+### P6 — Branding, contra el Hub y el panel reales
+
+1. **🔴 Segundo bug real encontrado — corregido**: con el motor de documentos
+   completamente CAÍDO (contenedor parado, no un error HTTP — `fetch()` lanzando antes
+   de llegar al `if (!r.ok)` que ya sabía dar el mensaje neutro), `POST /api/chat`
+   devolvía `{"error":"fetch failed"}` crudo al chat — un detalle técnico de Node.js
+   visible para cualquier persona usando el Hub, justo lo que el branding neutro prohíbe.
+   Corregido: el catch general de `/api/chat` ahora devuelve el mismo mensaje neutro
+   ("El servicio de documentos no está disponible...") para chat RAG, o uno propio para
+   chat directo, con el detalle técnico solo al log del servidor. Tests nuevos en
+   `client/tests/integration/test_chat_motor_caido.test.js` (2 casos: motor caído con
+   slug, backend caído sin slug — ninguno filtra `fetch failed`/`ECONNREFUSED`/etc).
+2. Código fuente servido (`curl http://localhost:8095/`, equivalente a Ctrl+U): 0
+   coincidencias de nombres de motor (`anythingllm`/`litellm`/`presidio`) — confirmado.
+   De paso, se encontraron y limpiaron 4 comentarios de desarrollo en `public/index.html`
+   que mencionaban "Elea" por nombre (contexto de por qué se hizo un fix) — no eran
+   nombres de motor así que no violaban la letra de este paso, pero sí el espíritu de
+   Parte C (independencia real del Hub): cualquier OTRO cliente corriendo este mismo
+   código con marca neutra vería, al ver el código fuente, que el producto se construyó
+   originalmente para Elea. Reescritos en términos genéricos, mismo contenido técnico.
+3. Tarjeta de detección NLP (`GET /guardians`, `guardian_type=presidio`): `name` devuelto
+   es `"Detección lingüística de datos personales"` — ya neutro desde un fix anterior
+   (spec 043 US6 T061), reconfirmado en vivo.
+4. Título de pestaña, ambas UIs, con la marca real de Eleia montada
+   (`brand.json`/`HUB_BRAND_*` reales de `elea-installer`): panel → `document.title ===
+   "Eleia Guardian"`; Hub → `document.title === "Eleia Hub"` — ambos confirmados con el
+   navegador real, no solo con el HTML servido (son SPAs, el título lo fija JS en
+   runtime).
+5. `node tools/check-branding-neutral.js`: `0 términos prohibidos`, antes y después de
+   los fixes de este punto.
+
+### P7 — Continuidad de la instalación existente
+
+**No ejecutable tal como está escrito en esta sesión**: el guion pide los 3 espacios
+reales del cliente (`Area 1`, `Contabilidad`, `Análisis NDA`) con su contenido real —
+esos datos no existen en este entorno de desarrollo, solo en la instalación real del
+cliente. Verificación parcial hecha como proxy honesto: el espacio "Contabilidad" creado
+en la corrida de §13 (antes de esta sesión de pruebas) siguió accesible con su dueño y
+membresía intactos tras reiniciar el stack completo — continuidad de datos a través de
+un ciclo de baja/alta del stack, confirmada. El mecanismo de aviso "esquema anterior"
+(`MASKING_DETERMINISM_SINCE`, `client/server.js`) se confirmó presente en el código y
+correctamente fail-closed (sin la variable configurada, no marca ningún documento) pero
+no se ejecutó en vivo contra un documento real pre-fecha-de-corte. **Este paso sigue
+pendiente de una corrida contra la instalación real (o una copia de sus datos)**.
+
+**Regresión completa tras los 2 fixes**: `2750 passed` (2747 + 3 tests nuevos), mismos
+`9 failed` preexistentes de siempre, 0 nuevos. `client/`: 20/20 (18 + 2 nuevos).

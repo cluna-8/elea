@@ -513,6 +513,37 @@ def update_user(user_id: UUID, user_in: UserBase,
     return user
 
 
+def _bloquear_baja_insegura(db: Session, actor: User, user: User) -> None:
+    """Las dos guardas de baja (spec 043 US5): nadie se da de baja a sí mismo, y el
+    último admin activo del tenant no se puede desactivar (la instancia se queda sin
+    forma de administrarse — la recuperación pasa por tocar la base a mano).
+
+    Bug real encontrado en verificación en vivo (09-sep): estas dos guardas SOLO vivían
+    en `DELETE /users/{id}` (deactivate_user). El toggle "Desactivar" del panel llama a
+    `PATCH` con `is_active=false` — mismo efecto visible, cero guarda — así que cualquier
+    caller de PATCH (un curl directo, un futuro cliente que no repita el guard de UI de
+    UsersPage.tsx) podía autodesactivarse o dejar el tenant sin ningún admin activo. Se
+    confirmó en vivo: un PATCH directo a la única cuenta admin devolvió 200, la dejó
+    `is_active=false`, y el siguiente request con su JWT quedó 401 — sin otra cuenta
+    admin, la única salida era un UPDATE manual en Postgres."""
+    if actor.id == user.id:
+        raise HTTPException(status_code=409, detail="No podés darte de baja a vos mismo.")
+
+    if user.role in ("super_admin", "tenant_admin", "admin"):
+        otros_admins_activos = (
+            db.query(User)
+            .filter(User.tenant_id == user.tenant_id,
+                    User.role.in_(("super_admin", "tenant_admin", "admin")),
+                    User.id != user.id,
+                    User.deactivated_at.is_(None),
+                    User.is_active.is_(True))
+            .count()
+        )
+        if otros_admins_activos == 0:
+            raise HTTPException(status_code=409,
+                                detail="No se puede dar de baja al último admin activo del tenant.")
+
+
 @router.patch("/{user_id}", response_model=UserResponse)
 def patch_user(user_id: UUID, user_in: UserPatch,
                actor: User = Depends(require_role("admin")),
@@ -525,6 +556,12 @@ def patch_user(user_id: UUID, user_in: UserPatch,
         raise HTTPException(status_code=404, detail="User not found")
     data = user_in.model_dump(exclude_unset=True)
     rol_anterior = user.role
+
+    # Mismas dos guardas que DELETE (ver _bloquear_baja_insegura): solo aplican cuando
+    # el PATCH efectivamente apaga is_active — editar rol/email de alguien inactivo, o
+    # reactivar, no pasa por acá.
+    if "is_active" in data and data["is_active"] is False and user.is_active:
+        _bloquear_baja_insegura(db, actor, user)
 
     if "role" in data and data["role"] is not None:
         try:

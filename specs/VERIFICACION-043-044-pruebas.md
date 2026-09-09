@@ -141,6 +141,14 @@ camino RAG, o hace falta una spec nueva para resolverla?
 
 **Falla si**: cualquier paso no tiene efecto, o rompe la pantalla.
 
+**🔴 Corrido en vivo (09-sep) — encontró y corrigió un bug crítico real**: pasos 1-4 OK.
+Los pasos 5-6 destaparon que las guardas de auto-baja/último-admin SOLO vivían en
+`DELETE`, no en `PATCH` (el endpoint que realmente usa el toggle "Desactivar" del
+panel) — un `PATCH` directo dejó a la instancia sin ningún admin activo, recuperado
+solo por `UPDATE` manual en Postgres. Corregido en `backend/src/api/users.py`
+(`_bloquear_baja_insegura`, compartida por `PATCH` y `DELETE`), reverificado en vivo y
+con 3 tests nuevos — ver CHANGELOG §14.
+
 ### P6 — Branding (mencionado indirectamente: nombres de motor no deben aparecer)
 
 | Paso | Acción | Resultado esperado |
@@ -153,6 +161,16 @@ camino RAG, o hace falta una spec nueva para resolverla?
 
 **Falla si**: aparece cualquier nombre de motor/proveedor en una superficie que la persona ve.
 
+**🔴 Corrido en vivo (09-sep) — encontró y corrigió un segundo bug real**: paso 1 con el
+motor de documentos completamente caído (no un error HTTP, un `fetch()` que lanza)
+devolvía `{"error":"fetch failed"}` crudo — corregido, ahora mensaje neutro igual que el
+caso ya manejado de error HTTP. Pasos 2-5: verificados en vivo — título de pestaña con
+marca real de Eleia confirmado con `document.title` en el navegador real para ambas UIs
+(panel: "Eleia Guardian", Hub: "Eleia Hub"). De paso se limpiaron 4 comentarios de
+desarrollo en `public/index.html` que mencionaban "Elea" por nombre (no nombres de
+motor, pero sí una fuga de identidad del cliente original hacia cualquier OTRO cliente
+que corra este mismo código con marca neutra) — ver CHANGELOG §14.
+
 ### P7 — Continuidad de la instalación existente (los 3 espacios reales del cliente)
 
 | Paso | Acción | Resultado esperado |
@@ -162,6 +180,16 @@ camino RAG, o hace falta una spec nueva para resolverla?
 | 3 | Abrir documentos/hilos previos a la migración | Siguen consultables; los subidos antes de esta feature muestran el aviso de "esquema anterior" al preguntar por un dato protegido |
 
 **Falla si**: se pierde algún espacio/documento/hilo existente, o queda inaccesible para siempre.
+
+**🟡 No ejecutable tal como está escrito, en esta sesión (09-sep)**: requiere los 3
+espacios reales del cliente con su contenido — no existen en este entorno de
+desarrollo. Verificación parcial como proxy: un espacio de la corrida anterior
+(§13 del CHANGELOG) siguió accesible con dueño/membresía intactos tras bajar y volver a
+levantar el stack completo. El mecanismo de aviso "esquema anterior"
+(`MASKING_DETERMINISM_SINCE`) se confirmó presente en el código, fail-closed por
+default, pero no se ejecutó en vivo contra un documento real pre-fecha-de-corte. Sigue
+pendiente una corrida contra la instalación real o una copia de sus datos — ver
+CHANGELOG §14.
 
 ---
 

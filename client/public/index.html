@@ -6,7 +6,8 @@
   <!-- Placeholder neutro — `applyBranding()` (más abajo) lo sobreescribe con la marca real
        de la instancia (`GET /api/branding`) antes de que la persona vea nada. Nunca un
        nombre de cliente específico hardcodeado acá (encontrado en revisión, 09-sep: decía
-       "Elea Hub" fijo, lo que contradice que este Hub sea un cliente más, no atado a Elea). -->
+       el nombre del primer cliente fijo, lo que contradice que este Hub sea un cliente
+       más, no atado a ninguno en particular). -->
   <title>Guardian Hub</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700;1,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -433,7 +434,7 @@
          tenant/cliente nombrado). -->
     <div class="client-tenant-badge" id="client-tenant-badge" style="display:none;"></div>
 
-    <!-- SELECTOR DE MODELO — catálogo real de elea (GET /chat/models), solo aplica al
+    <!-- SELECTOR DE MODELO — catálogo real de la instancia (GET /chat/models), solo aplica al
          chat directo (sin workspace RAG seleccionado). Nunca una lista inventada. -->
     <div class="guardian-selector-container" title="Modelo para el chat directo (sin RAG). En un espacio RAG, el modelo lo decide el workspace.">
       <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4-2.5 5.5S15 17 15 18h-6c0-1-.5-2-1.5-3.5S5 11.5 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path></svg>
@@ -754,9 +755,9 @@
     let hubBrand = { name: 'Guardian Hub', tagline: '', logoUrl: '/guardian-logo.svg', tenantLabel: '', governanceLabel: 'Guardian' };
 
     // Función, no una constante: se arma con la marca de ESTA instancia (`hubBrand`,
-    // cargada en `boot()`), no con un logo/tagline fijo de Elea (encontrado en revisión,
-    // 09-sep — el Hub tiene que poder mostrar la marca de cualquier Guardian al que
-    // apunte, no solo la de Elea).
+    // cargada en `boot()`), no con un logo/tagline fijo del primer cliente (encontrado en
+    // revisión, 09-sep — el Hub tiene que poder mostrar la marca de cualquier Guardian
+    // al que apunte, no la de uno en particular).
     function emptyStateHtml() {
       return `
       <div class="chat-empty-state">
