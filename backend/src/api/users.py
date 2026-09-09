@@ -312,6 +312,15 @@ def _insertar_usuario(db: Session, user_in: UserCreate, role: str,
     serializarlo con la conexión suelta y la instancia expirada, o sea un reload perezoso en
     el event loop —justo lo que esta partición evita."""
     try:
+        # Bug real encontrado en una prueba de punta a punta en vivo (09-sep): la
+        # migración 018 solo backfillea `account_type='service'` para usuarios `svc.%`
+        # YA EXISTENTES al momento de migrar — ninguna cuenta de servicio creada DESPUÉS
+        # (cada instalación nueva de `install.sh` crea las suyas en su primer arranque)
+        # quedaba marcada, así que reaparecía en la tabla principal de personas — el
+        # bug original que reportó Tomás Mc Nally, de vuelta en cualquier instalación
+        # fresca. Mismo criterio de prefijo que `_proposito_de()`, más abajo en este
+        # archivo (y que `install.sh`: `svc.anythingllm-provider`, `svc.rag-masking`).
+        account_type = "service" if user_in.username.startswith("svc.") else "person"
         user = User(
             username=user_in.username,
             email=user_in.email,
@@ -320,6 +329,7 @@ def _insertar_usuario(db: Session, user_in: UserCreate, role: str,
             display_label=display_label,
             group_id=user_in.group_id,
             is_active=user_in.is_active,
+            account_type=account_type,
         )
         db.add(user)
         db.commit()

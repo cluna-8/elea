@@ -400,7 +400,7 @@
   <div class="auth-overlay" id="auth-overlay">
     <div class="auth-card">
       <div style="display:flex; justify-content:center;">
-        <img src="/eleia-logo.png" alt="" id="login-logo" style="height:64px; width:auto;">
+        <img src="/guardian-logo.svg" alt="" id="login-logo" style="height:64px; width:auto;">
       </div>
       <div>
         <div class="auth-title">Portal de Acceso</div>
@@ -425,7 +425,7 @@
   <!-- TOP NAVBAR -->
   <div class="top-navbar">
     <div class="brand-section">
-      <img src="/eleia-logo.png" alt="" id="navbar-logo" style="height:40px; width:auto;">
+      <img src="/guardian-logo.svg" alt="" id="navbar-logo" style="height:40px; width:auto;">
     </div>
 
     <!-- CLIENT / TENANT BADGE — texto de config (`HUB_BRAND_TENANT_LABEL`), oculto si la
@@ -751,7 +751,7 @@
     let maskingDeterminismSince = null;
     // Marca de ESTA instancia — default neutro mientras `applyBranding()` no resolvió
     // todavía (evita un `undefined` de una fracción de segundo antes del primer fetch).
-    let hubBrand = { name: 'Guardian Hub', tagline: '', logoUrl: '/eleia-logo.png', tenantLabel: '', governanceLabel: 'Guardian' };
+    let hubBrand = { name: 'Guardian Hub', tagline: '', logoUrl: '/guardian-logo.svg', tenantLabel: '', governanceLabel: 'Guardian' };
 
     // Función, no una constante: se arma con la marca de ESTA instancia (`hubBrand`,
     // cargada en `boot()`), no con un logo/tagline fijo de Elea (encontrado en revisión,
@@ -889,7 +889,7 @@
       models.forEach((m) => {
         const opt = document.createElement('option');
         opt.value = m.model_name;
-        opt.innerText = m.model_name === 'auto' ? 'Automático (elea decide)' : m.model_name;
+        opt.innerText = m.model_name === 'auto' ? 'Automático (Guardian decide)' : m.model_name;
         sel.appendChild(opt);
       });
     }

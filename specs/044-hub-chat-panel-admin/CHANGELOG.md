@@ -269,3 +269,75 @@ Eleia, ya cubiertas por `tools/check-branding-neutral.js`.
 **Regresión**: suite completa corrida de nuevo tras los 7 fixes — **2746 passed, 9 failed
 (los mismos de siempre), 21 skipped, 0 regresiones** (los 12 tests nuevos de esta revisión
 están dentro del total: +12 respecto de la corrida anterior).
+
+## 13. Corrida real de punta a punta (09-sep) — Parte A del plan de verificación
+
+Primera corrida EN VIVO contra un despliegue real completo (no dobles de prueba) —
+`elea/docker-compose.yml` con **credenciales reales de Azure OpenAI** ya presentes en
+`.env` de este entorno (`AZURE_OPENAI_ENDPOINT=elea-openai-dev.openai.azure.com`, no
+inventadas). Los 7 servicios (`db`, `redis`, `nlp-analyzer`, `engine`, `backend`,
+`anythingllm`, `client`, `frontend`) se buildearon desde el código de ESTA rama y se
+aprovisionaron de cero (admin, llaves de servicio con `tool_type=servicio`, conexión
+motor↔AnythingLLM) replicando exactamente lo que hace `elea-installer/install.sh`.
+Stack aislado (`STACK_PREFIX=eleae2e`, sin tocar ningún contenedor de otro proyecto),
+apagado y volúmenes descartados al terminar.
+
+### Verificado en verde (real, no simulado)
+
+- **P1 (aislamiento)**: usuaria nueva sin espacios → `workspaces: []`; acceso directo a un
+  espacio ajeno por slug conocido → **403**; sin sesión → **401**; tras agregarla como
+  miembro, lo ve. Los 4 pasos, contra el backend/DB reales.
+- **P2 (enmascarado determinista) — EL bug original de Tomás, verificado resuelto de
+  punta a punta**: documento de 9600 caracteres (3 chunks) con "Julián Fernández"
+  repetido 60 veces. Los 8 fragmentos que el RAG devolvió comparten el MISMO placeholder
+  (`[PERSON_36717395_6b95]`) en los tres chunks — y la pregunta "¿Qué datos tiene Julián?"
+  contra Azure GPT-4o-mini real respondió con el DNI/email/teléfono REALES (bóveda de PII
+  desenmascarando correctamente con el nuevo índice HMAC ensanchado de la revisión §12).
+- **Chat directo (sin RAG)**: costo atribuido correctamente a la persona real (`ana`,
+  no a ninguna cuenta de servicio).
+- **Branding del Hub**: título/logo/tagline neutros por default en un compose sin
+  `HUB_BRAND_*` configuradas — confirma el fix de la sesión anterior funcionando en un
+  despliegue real, no solo en tests.
+- **Panel (Eleia Guardian)**: login, dashboard, costos por modelo, "Espacios sin
+  asignar" — sin ningún nombre de motor/proveedor visible.
+
+### 2 bugs reales encontrados y corregidos EN esta corrida
+
+1. **Las cuentas de servicio nuevas no quedaban marcadas — el bug original de Tomás
+   reaparecía en cualquier instalación fresca.** La migración 018 solo hace backfill de
+   `account_type='service'` para usuarios `svc.%` que YA EXISTÍAN al migrar. Cualquier
+   cuenta creada DESPUÉS (exactamente lo que `install.sh` hace en el primer arranque de
+   cada instalación nueva) quedaba con `account_type='person'` — reaparecía en la tabla
+   principal de personas del panel, tal cual el reclamo original ("aparece
+   anythingllm-provider y rag-masking como usuarios"). Encontrado en vivo creando las 2
+   llaves de servicio del stack de prueba y viéndolas en la tabla principal del panel.
+   **Corregido**: `POST /users` ahora detecta el prefijo `svc.` en la creación
+   (`backend/src/api/users.py`), verificado con un usuario nuevo real (quedó
+   `account_type='service'` en la base y fuera de la tabla principal) y con test nuevo
+   (`test_crear_usuario_svc_via_api_queda_marcado_como_cuenta_de_servicio`).
+2. **`public/index.html` tenía dos strings más con "elea" en minúscula** que el chequeo
+   automatizado no había atrapado (el selector de modelo decía "Automático (**elea**
+   decide)"; un mensaje de error decía "No se pudo contactar a **elea**") — corregidos a
+   "Guardian decide" / mensaje neutro sin nombre de cliente. El logo por default también
+   seguía siendo el archivo real de Eleia (`/eleia-logo.png`) aunque el texto ya fuera
+   neutro — se agregó `guardian-logo.svg` (ícono genérico) como default, con
+   `HUB_BRAND_LOGO_URL` fijado explícitamente en `elea-installer` para no perder el logo
+   real de Eleia en la instalación real.
+
+### 1 limitación arquitectónica real encontrada (no un bug de código, no se "arregla" con un parche)
+
+**El costo de una pregunta RAG (a través del motor de documentos) queda atribuido a la
+cuenta de servicio, no a la persona real que preguntó** — a diferencia del chat directo
+y del enmascarado, que sí atribuyen bien. Causa: la llamada real al modelo en el camino
+RAG la hace el motor de documentos (AnythingLLM) con SU PROPIA credencial de proveedor
+fija (`svc.anythingllm-provider`, `can_act_on_behalf=false` a propósito — nunca actúa en
+nombre de nadie, "habla con el motor por su cuenta"), no el Hub — el Hub nunca tiene la
+oportunidad de inyectar `X-Guardian-Acting-User` en ESA llamada específica, porque no es
+él quien la hace. Verificado en vivo: la misma pregunta hecha por chat directo atribuye
+bien a la persona ($0.000016 → "ana"); hecha con `slug` (RAG) atribuye a la cuenta de
+servicio ($0.000496 → "svc.anythingllm-provider2"). Esto es un límite real del diseño
+actual (AnythingLLM es de terceros, sin ningún mecanismo para pasar "en nombre de quién"
+en su llamada saliente al motor) — no un descuido corregible con un cambio chico; queda
+documentado acá como hallazgo real para decidir si amerita trabajo futuro (por ejemplo,
+resolver el usuario real desde la membership del espacio al momento de auditar en el
+motor, en vez de depender de un header que AnythingLLM nunca va a reenviar).

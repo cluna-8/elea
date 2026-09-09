@@ -38,9 +38,13 @@ código, su lógica y su cobertura automatizada ya están hechos y verificados (
 ## 2. Parte A — Plan de pruebas FUNCIONAL
 
 Verifica que lo que Tomás reportó (mails del 03-sep y 07-sep) esté realmente resuelto, no solo
-que el código exista. Cada prueba mapea 1:1 a una frase textual de sus mails. Requiere una
-instalación desplegada (real o una copia) — es la corrida que las 12 tareas de §1 dejan
-pendiente.
+que el código exista. Cada prueba mapea 1:1 a una frase textual de sus mails.
+
+**🟢 Corrida en vivo (09-sep)**: P1, P2 y P3 ya se corrieron contra un despliegue real completo
+(`elea/docker-compose.yml`, credenciales reales de Azure OpenAI, `STACK_PREFIX=eleae2e`
+aislado) — resultado completo y los 2 bugs reales que encontró y corrigió esa corrida en
+`specs/044-hub-chat-panel-admin/CHANGELOG.md` §13. P4-P7 y la corrida contra la instalación
+real de Elea (con sus 3 espacios reales) siguen pendientes — ver el detalle marcado abajo.
 
 ### Prerrequisitos
 
@@ -63,6 +67,11 @@ pendiente.
 
 **Falla si**: en cualquier paso 2-6 aparece un dato de la otra persona.
 
+**🟢 Corrido en vivo (09-sep)**: los pasos 2, 3, 4 y 6 pasaron contra el stack real (usuaria
+nueva sin espacios, 403 en acceso directo, 401 sin sesión, visible tras agregarla). Pasos 1 y
+5 (crear espacio+pregunta, hilos que no se cruzan) no se ejecutaron por API en esta corrida —
+quedan para la próxima pasada, junto con P4-P7.
+
 ### P2 — "El enmascaramiento no parece ser determinista... Julián se enmascara distinto" (03-sep)
 
 | Paso | Acción | Resultado esperado |
@@ -73,6 +82,12 @@ pendiente.
 
 **Falla si**: el mismo dato recibe placeholders distintos dentro de un mismo documento.
 
+**🟢 Corrido en vivo (09-sep) — resuelto, confirmado con Azure OpenAI real**: documento de
+9600 caracteres (3 chunks), mismo placeholder en los 8 fragmentos que cruzan los 3 chunks; la
+pregunta al RAG devolvió el DNI/email/teléfono REALES (bóveda de PII desenmascarando bien).
+Paso 3 (segunda subida, documento distinto) no se corrió esta vez — el resto del guion sí,
+con el CSV/documento de prueba de esta sesión (no el CSV real del cliente todavía).
+
 ### P3 — "Aparece en modelos: license y chat-ui" / "en usuarios: anythingllm-provider y rag-masking"
 
 | Paso | Acción | Resultado esperado |
@@ -82,6 +97,15 @@ pendiente.
 | 3 | Desplegar "Cuentas de servicio" en esa misma página | Ahí sí aparecen, con su propósito, de solo lectura |
 
 **Falla si**: `license`/`chat-ui`/`svc.*` aparecen en la tabla principal de modelos o usuarios.
+
+**🟡 Corrido en vivo (09-sep) — encontró y corrigió un bug real**: `top_models` sin
+`license`/`chat-ui`, confirmado. Pero las cuentas de servicio SÍ aparecían en la tabla
+principal — la migración 018 solo marca `account_type='service'` a cuentas ya existentes al
+migrar, no a las que crea `install.sh` en una instalación nueva. Corregido en
+`backend/src/api/users.py` (`POST /users` detecta el prefijo `svc.` al crear) y verificado con
+una cuenta nueva real — ver CHANGELOG §13. Falta re-correr este paso completo con el fix ya
+adentro contra una instalación fresca (esta corrida lo verificó a nivel API/DB, no
+recorriendo la UI del paso 2/3 de nuevo tras el fix).
 
 ### P4 — "No aparece nada asociado a mi usuario... no puedo evaluar costos"
 
@@ -94,6 +118,15 @@ pendiente.
 | 5 | Agotar el presupuesto de prueba y volver a preguntar | Bloqueo antes de enviar (o inmediatamente si lo decide el backend), mismo mensaje neutro en ambos casos |
 
 **Falla si**: el usuario sigue "invisible" en Costos, o el presupuesto se muestra pero no se aplica.
+
+**🔴 Corrido en vivo (09-sep) — encontró una limitación arquitectónica real, sin resolver**:
+el paso 1 con "sin espacio/RAG" (chat directo) atribuye bien — verificado, el costo aparece a
+nombre de la persona real. El paso 1 CON espacio/RAG **NO atribuye bien**: el costo de la
+pregunta queda a nombre de la cuenta de servicio del motor de documentos, no de la persona. El
+enmascarado (subida de documentos) SÍ atribuye bien. Detalle completo, causa raíz y por qué no
+es un fix chico en el CHANGELOG de la 044 §13 — esto es lo más importante que dejó esta
+corrida para decidir antes de cerrar la 044 como "lista": ¿se acepta esta limitación en el
+camino RAG, o hace falta una spec nueva para resolverla?
 
 ### P5 — "No se puede editar roles ni eliminar usuarios, ni editar mails"
 

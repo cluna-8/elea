@@ -63,3 +63,38 @@ def test_usuario_persona_normal_no_lleva_purpose(harness):
     admin_row = next(u for u in r.json() if u["role"] in ("tenant_admin", "admin"))
     assert admin_row.get("account_type", "person") == "person"
     assert "purpose" not in admin_row
+
+
+def test_crear_usuario_svc_via_api_queda_marcado_como_cuenta_de_servicio(harness, monkeypatch, tmp_path):
+    """Bug real encontrado en una prueba de punta a punta en vivo (09-sep): la migración
+    018 solo hace backfill de `account_type='service'` para usuarios `svc.%` que YA
+    existían al migrar — cualquier cuenta de servicio creada DESPUÉS (cada instalación
+    fresca de `install.sh` crea las suyas en su primer arranque) quedaba con
+    `account_type='person'` por default, así que reaparecía en la tabla principal de
+    personas — el bug original que reportó Tomás Mc Nally, de vuelta en instalaciones
+    nuevas. `POST /users` ahora detecta el prefijo `svc.` y lo marca en la creación."""
+    from seat_gate_harness import mock_engine, set_license
+    client, factory, headers = harness
+    mock_engine(monkeypatch)
+    set_license(monkeypatch, tmp_path, max_seats=1000)
+
+    suf = uuid.uuid4().hex[:8]
+    r = client.post("/api/v1/users", headers=headers, json={
+        "username": f"svc.verificacion-{suf}", "email": f"svc.verificacion-{suf}@elea-internal.com",
+        "role": "client", "password": "ContraseñaValida2026!",
+    })
+    assert r.status_code in (200, 201), r.text
+    user_id = r.json()["id"]
+
+    db = factory()
+    try:
+        from src.models.user import User
+        u = db.query(User).filter(User.id == user_id).first()
+        assert u.account_type == "service"
+    finally:
+        db.close()
+
+    # Y por lo tanto no aparece en la tabla principal (sin include_service).
+    r2 = client.get("/api/v1/users", headers=headers)
+    assert r2.status_code == 200
+    assert not any(row["username"] == f"svc.verificacion-{suf}" for row in r2.json())

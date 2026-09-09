@@ -32,7 +32,7 @@ const MASKING_VIRTUAL_KEY = process.env.MASKING_VIRTUAL_KEY || '';
 const HUB_BRAND = {
   name: process.env.HUB_BRAND_NAME || 'Guardian Hub',
   tagline: process.env.HUB_BRAND_TAGLINE || 'Chat corporativo con documentos, protegido',
-  logoUrl: process.env.HUB_BRAND_LOGO_URL || '/eleia-logo.png',
+  logoUrl: process.env.HUB_BRAND_LOGO_URL || '/guardian-logo.svg',
   tenantLabel: process.env.HUB_BRAND_TENANT_LABEL || '',
   governanceLabel: process.env.HUB_BRAND_GOVERNANCE_LABEL || 'Guardian',
 };
