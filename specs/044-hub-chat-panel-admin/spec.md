@@ -4,7 +4,13 @@
 
 **Created**: 2026-09-08
 
-**Status**: Draft — lista para `/speckit-plan`. **Depende de** [043-aislamiento-atribucion-motor](../043-aislamiento-atribucion-motor/spec.md) (contratos 1-6); las historias P1 no se cierran sin los contratos 1, 2 y 3.
+**Status**: 🟢 **54/63 tareas hechas y verificadas** (US1-US5 completas; US6 y Polish completos
+salvo lo que requiere una instalación real desplegada). Las 9 restantes están bloqueadas por
+infraestructura real (credenciales de proveedor LLM, acceso a la instalación real de Elea,
+publicación de imágenes) — ver [CHANGELOG.md](CHANGELOG.md) y
+[../VERIFICACION-043-044-pruebas.md](../VERIFICACION-043-044-pruebas.md).
+**Depende de** [043-aislamiento-atribucion-motor](../043-aislamiento-atribucion-motor/spec.md)
+(contratos 1-6, todos consumidos).
 
 **Repos/carpetas que toca**: `cluna-8/elea` → `client/` (Hub Chat, la UI que usan las personas de Elea) y `frontend/` (panel de administración). Las imágenes se reconstruyen y el `elea-installer` solo actualiza versiones. **NO toca** `backend/` ni `litellm/`.
 

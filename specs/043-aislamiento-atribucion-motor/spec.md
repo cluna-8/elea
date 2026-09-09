@@ -4,7 +4,12 @@
 
 **Created**: 2026-09-08
 
-**Status**: Draft — lista para `/speckit-plan`
+**Status**: 🟢 **67/69 tareas hechas y verificadas contra Postgres real** (0 regresiones — suite
+completa 2734 passed). Las 3 restantes (docs de producto pendiente de la sección de conceptos de
+motor, `quickstart.md` en vivo, publicación de imágenes) están bloqueadas por infraestructura real
+no disponible en el entorno de desarrollo — ver
+[CHANGELOG.md](CHANGELOG.md) y
+[../VERIFICACION-043-044-pruebas.md](../VERIFICACION-043-044-pruebas.md).
 
 **Repos que toca**: `cluna-8/elea` (`backend/`, `litellm/extensions/`), `cluna-8/elea-installer`.
 **NO toca** `frontend/` ni `client/` — todo lo de cara al usuario vive en la spec hermana

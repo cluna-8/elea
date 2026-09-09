@@ -1,0 +1,241 @@
+# Verificación 043+044 — qué falta y cómo probar que se solucionó todo
+
+**Fecha**: 08-sep-2026
+**Alcance**: [043-aislamiento-atribucion-motor](043-aislamiento-atribucion-motor/spec.md) (motor/backend) +
+[044-hub-chat-panel-admin](044-hub-chat-panel-admin/spec.md) (Eleia Hub + Eleia Guardian).
+**Para quién**: quien vaya a dar por cerrado el trabajo frente a Tomás Mc Nally (Elea) — un plan
+de pruebas en dos partes: **funcional** (¿se solucionó lo que él reportó?) y **técnica** (¿el
+código que lo soluciona está sano?).
+
+---
+
+## 1. Qué falta (12 tareas, todas bloqueadas por infraestructura real)
+
+Nada de esto es código sin escribir — es **verificación en vivo** que este entorno de desarrollo
+no puede hacer porque no tiene acceso a lo que hace falta. Se resuelve corriendo la Parte A de
+este documento contra un despliegue real.
+
+| # | Tarea | Spec | Bloqueada por |
+|---|---|---|---|
+| 1 | T064 — sitio de docs con los endpoints/conceptos nuevos | 043 | Nada en realidad — **esta sí se puede hacer ahora** si nadie la hizo (ver §5) |
+| 2 | T068 — `quickstart.md` completo (043) contra `docker compose up` desde cero | 043 | Credenciales reales de proveedor LLM (Azure OpenAI u otro) |
+| 3 | T069 — reconstruir/taggear imágenes `elea-guardian-backend`/`elea-guardian-engine` | 043 | Depende de T068 |
+| 4 | T019 — `quickstart.md` §1/§6 (044): migración de los 3 espacios reales | 044 | Acceso a la instalación real de Elea |
+| 5 | T027 — `quickstart.md` §2 (044): presupuesto en vivo | 044 | Despliegue real |
+| 6 | T035 — `quickstart.md` §3 (044): CSV real del cliente | 044 | El CSV real de Elea + despliegue real |
+| 7 | T046 — `quickstart.md` §4 (044): panel de usuarios en vivo | 044 | Despliegue real |
+| 8 | T053 — `quickstart.md` §5 (044): branding en vivo | 044 | Despliegue real |
+| 9 | T055 — `quickstart.md` completo, instalación limpia | 044 | Credenciales reales de proveedor LLM |
+| 10 | T056 — `quickstart.md` completo, instalación real/copia | 044 | Acceso a la instalación real de Elea |
+| 11 | T058 — reconstruir/taggear imágenes `elea-rag-client`/`elea-guardian-frontend` | 044 | Depende de T055/T056 |
+| 12 | T063 — corrida final + nota de cierre firmada | 044 | Depende de T055/T056 |
+
+**En una frase**: todo lo que falta es "prenderlo con datos reales y mirar la pantalla" — el
+código, su lógica y su cobertura automatizada ya están hechos y verificados (ver Parte B).
+
+---
+
+## 2. Parte A — Plan de pruebas FUNCIONAL
+
+Verifica que lo que Tomás reportó (mails del 03-sep y 07-sep) esté realmente resuelto, no solo
+que el código exista. Cada prueba mapea 1:1 a una frase textual de sus mails. Requiere una
+instalación desplegada (real o una copia) — es la corrida que las 12 tareas de §1 dejan
+pendiente.
+
+### Prerrequisitos
+
+- `docker compose up` de 043+044 (o la instalación real de Elea) con credenciales reales de
+  proveedor LLM.
+- Dos usuarios de prueba con roles distintos (uno cliente, uno admin) y sesiones separadas
+  (dos navegadores o uno en incógnito).
+- El CSV real del cliente con un nombre repetido en varias filas (para P2).
+
+### P1 — "La memoria de chats es compartida... veo el historial de usuarios previos" (07-sep, prioritario)
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Usuario A crea un espacio, sube un documento, hace una pregunta | El espacio y la respuesta quedan visibles para A |
+| 2 | Usuario B (recién registrado) entra al Hub | Ve el estado vacío ("Todavía no tenés espacios...") — **NO** el historial de A |
+| 3 | B intenta abrir el espacio de A por una URL/id copiado a mano | "No tenés acceso a este espacio", sin datos |
+| 4 | A agrega a B como miembro desde el panel "Miembros" | B ve el espacio en su lista al recargar |
+| 5 | B abre el espacio, crea su propio hilo | El hilo de B y el hilo de A no se cruzan; cada uno ve solo el suyo |
+| 6 | Cualquier llamada del Hub sin sesión (ventana privada, sin login) | Pide iniciar sesión, nunca devuelve datos |
+
+**Falla si**: en cualquier paso 2-6 aparece un dato de la otra persona.
+
+### P2 — "El enmascaramiento no parece ser determinista... Julián se enmascara distinto" (03-sep)
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Subir el CSV real con el nombre repetido en filas separadas por más de un trozo de 4000 caracteres | El resumen de protección post-subida cuenta ese nombre **una sola vez** (no una entrada por trozo) |
+| 2 | Preguntar "¿qué registros tiene [el nombre]?" contra ese espacio | La respuesta lista **todas** sus filas, con el nombre real (no un placeholder distinto por fila) |
+| 3 | Subir el mismo CSV una segunda vez (documento nuevo) | El resumen es coherente; el placeholder interno (verificable en logs/backend, no en la UI) es **distinto** al de la primera subida — sin seudónimo estable entre documentos |
+
+**Falla si**: el mismo dato recibe placeholders distintos dentro de un mismo documento.
+
+### P3 — "Aparece en modelos: license y chat-ui" / "en usuarios: anythingllm-provider y rag-masking"
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Panel → Costos → Top modelos | Ninguna fila dice `license` ni `chat-ui` — solo modelos reales |
+| 2 | Panel → Usuarios & Presupuestos, tabla principal | Ninguna fila dice `svc.anythingllm-provider` ni `svc.rag-masking` |
+| 3 | Desplegar "Cuentas de servicio" en esa misma página | Ahí sí aparecen, con su propósito, de solo lectura |
+
+**Falla si**: `license`/`chat-ui`/`svc.*` aparecen en la tabla principal de modelos o usuarios.
+
+### P4 — "No aparece nada asociado a mi usuario... no puedo evaluar costos"
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | El usuario de prueba hace 2-3 preguntas (con y sin espacio/RAG) y sube un documento | Cada pregunta tiene costo y modelo real |
+| 2 | Panel → Costos → filtrar por ese usuario | Aparece con costo real acumulado de sus preguntas |
+| 3 | Misma vista, tabla "Protección de documentos por persona" | Aparece con la subida contada como documento, sin costo |
+| 4 | Badge de presupuesto en el Hub, tras cada respuesta | Sube en menos de 5s |
+| 5 | Agotar el presupuesto de prueba y volver a preguntar | Bloqueo antes de enviar (o inmediatamente si lo decide el backend), mismo mensaje neutro en ambos casos |
+
+**Falla si**: el usuario sigue "invisible" en Costos, o el presupuesto se muestra pero no se aplica.
+
+### P5 — "No se puede editar roles ni eliminar usuarios, ni editar mails"
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Editar solo el rol de un usuario | Cambia el rol, el resto de sus datos queda igual |
+| 2 | Editar solo el email del mismo usuario | Cambia el email, nada más |
+| 3 | Desactivar al usuario → intenta loguear | No puede loguear; reactivar → puede loguear de nuevo |
+| 4 | Dar de baja a otro usuario (con la confirmación escribiendo su username) | No puede loguear; su consumo histórico sigue visible en Costos bajo su nombre |
+| 5 | Intentar darse de baja a uno mismo | La UI lo impide con una explicación, sin llamar al backend |
+| 6 | Intentar dar de baja al último admin activo | Lo mismo — bloqueado con explicación |
+
+**Falla si**: cualquier paso no tiene efecto, o rompe la pantalla.
+
+### P6 — Branding (mencionado indirectamente: nombres de motor no deben aparecer)
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Detener el motor de documentos a propósito, preguntar en un espacio | "El servicio de documentos no está disponible...", sin nombres técnicos |
+| 2 | Ver código fuente del Hub (`Ctrl+U` / "Ver código fuente") | Sin "AnythingLLM"/"LiteLLM"/"Presidio" en ningún lado, ni en comentarios |
+| 3 | Panel → Seguridad, tarjeta de detección NLP | Nombre neutro |
+| 4 | Título de la pestaña del navegador (ambas UIs) | El de la marca configurada de Eleia |
+| 5 | `node tools/check-branding-neutral.js` contra el despliegue real (`client/public`, build de `frontend/`) | 0 hallazgos |
+
+**Falla si**: aparece cualquier nombre de motor/proveedor en una superficie que la persona ve.
+
+### P7 — Continuidad de la instalación existente (los 3 espacios reales del cliente)
+
+| Paso | Acción | Resultado esperado |
+|---|---|---|
+| 1 | Tras desplegar 043+044 sobre la instalación (o una copia) con los 3 espacios reales (`Area 1`, `Contabilidad`, `Análisis NDA`) | El admin los ve en "Sin asignar" (panel o Hub) |
+| 2 | Asignarles miembros | Los usuarios correspondientes empiezan a verlos |
+| 3 | Abrir documentos/hilos previos a la migración | Siguen consultables; los subidos antes de esta feature muestran el aviso de "esquema anterior" al preguntar por un dato protegido |
+
+**Falla si**: se pierde algún espacio/documento/hilo existente, o queda inaccesible para siempre.
+
+---
+
+## 3. Parte B — Plan de pruebas TÉCNICO
+
+Verifica que el código que resuelve lo de arriba esté sano — esto **sí se puede correr ahora**,
+sin despliegue real, y ya se corrió durante la implementación (ver los `CHANGELOG.md` de cada
+spec para el detalle exacto). Repetirlo sirve como confirmación final antes de mergear.
+
+### T1 — Regresión completa del backend
+
+```bash
+cd elea/backend
+python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt
+docker run -d --name verif-db -p 5555:5432 \
+  -e POSTGRES_DB=sentinel_gateway -e POSTGRES_USER=sentinel_admin -e POSTGRES_PASSWORD=sentinelsecurepass123 \
+  postgres:16-alpine
+export POSTGRES_HOST=localhost POSTGRES_PORT=5555 POSTGRES_USER=sentinel_admin \
+       POSTGRES_PASSWORD=sentinelsecurepass123 POSTGRES_DB=sentinel_gateway
+.venv/bin/python -m pytest -q
+```
+**Esperado**: `2734 passed`, exactamente estos 9 fallos preexistentes y ninguno más —
+`test_catalogo_motor_paralelismo`, `test_chat_auto_router` (×7), `test_policy_unit` — documentados
+como sin relación con 043/044 en ambos `CHANGELOG.md`. Cualquier fallo FUERA de esta lista es una
+regresión real.
+
+### T2 — Suite del Hub (`client/`)
+
+```bash
+cd elea/client && npm ci && npm test
+```
+**Esperado**: 15/15 en verde (aislamiento, presupuesto, `document_id`, reintento, "sin asignar",
+sesión vencida).
+
+### T3 — Suite del panel (`frontend/`)
+
+```bash
+cd elea/frontend && npm ci
+npx tsc --noEmit
+npx vite build
+npm test
+```
+**Esperado**: `tsc` sin errores, build exitoso, 13/13 tests en verde (edición parcial, guardas de
+baja, cuentas de servicio, contratos 4/5/6, edición concurrente).
+
+### T4 — Branding neutro automatizado
+
+```bash
+cd elea
+node tools/check-branding-neutral.js
+```
+**Esperado**: `0 términos prohibidos`. (Cubre `client/public/**`, errores de `client/server.js`, y
+el build de `frontend/` si `frontend/dist` existe — correr T3 antes para incluirlo.)
+
+### T5 — Sitio de docs
+
+```bash
+cd elea && make -C deploy check-docs
+```
+**Esperado**: los 4 checks reales del sitio (`test_docs_image`, `test_docs_strict_build`,
+`test_docs_content`, `test_docs_neutral_naming`) en verde. El único fallo conocido
+(`test_env_incluye_helpers_tipados_y_el_plano_motor`, en `docs/tools/drift_gate.py`) es
+preexistente y sin relación — verificar que sigue siendo el ÚNICO fallo.
+
+### T6 — CI de GitHub
+
+```bash
+gh pr checks <numero-de-PR>
+```
+**Esperado (al momento de escribir esto)**: el job `harness-tests` (tsc + vitest + node --test +
+branding-neutral) debería pasar — no se corrió en CI todavía dentro de esta sesión, correrlo es
+parte de cerrar el PR. El job `backend-tests` va a fallar en el paso `check_stack_prefix.sh`
+("Render de container_name") — **esto es preexistente en `main`** (las últimas 5 corridas de CI en
+`main` también fallan), no una regresión de este trabajo; no bloquea el merge por ese motivo, pero
+sí conviene abrir un issue aparte para arreglarlo (`scripts/check_stack_prefix.sh` tiene una lista
+de servicios desactualizada — le falta contemplar `profiles: ["full"]` en `frontend`).
+
+### T7 — Revisión de seguridad (rápida, manual)
+
+- [ ] Ningún endpoint nuevo de `workspaces.py`/`inspect.py`/`users.py` confía en un dato que
+  manda el cliente para decidir autorización (siempre re-consulta `workspace_memberships` o el
+  rol real del actor) — ver `diagnostico.md` §1 de la 043.
+- [ ] El header `X-Guardian-Acting-User` se valida contra `can_act_on_behalf` + tenant antes de
+  usarse — nunca se confía a ciegas.
+- [ ] Ningún mensaje de error nuevo (`client/server.js`, `chat.py`, `gateway.py`) filtra un
+  detalle interno (stack trace, nombre de motor, ruta de archivo).
+- [ ] Las 403 de `workspaces.py` son uniformes (nunca revelan si un espacio existe) — confirmado
+  en `_denied()`.
+
+---
+
+## 4. Checklist final de aceptación
+
+Cerrar como "solucionado para Tomás" requiere las DOS partes en verde:
+
+- [ ] Parte A (§2, P1-P7) corrida contra un despliegue real o una copia de la instalación de
+  Elea, sin ningún "Falla si" disparado.
+- [ ] Parte B (§3, T1-T7) corrida en este repo, sin regresiones nuevas.
+- [ ] Las 12 tareas de §1 quedan marcadas `[X]` en `tasks.md` de cada spec, con el resultado
+  registrado en su `CHANGELOG.md` (no antes — mismo criterio usado en todo este trabajo: nunca
+  marcar hecho lo que no se verificó).
+
+## 5. Nota — T64 (sitio de docs) es la única tarea de §1 sin bloqueo real
+
+A diferencia de las otras 11, T064 (043 — actualizar `docs/docs/**` con los endpoints/conceptos
+de la 043: `workspaces`, `X-Guardian-Acting-User`, `document_id`, `PATCH/DELETE /users`) no
+requiere despliegue real. Este pase ya agregó una página nueva
+(`docs/docs/administration/eleia-hub-workspaces.md`, del lado de la 044/Hub) pero **no** la
+página específica de conceptos de motor/backend que pide T064 (contratos 1-6 de cara al
+operador). Queda como el ítem más barato de sacar de la lista de pendientes sin esperar a nada.
