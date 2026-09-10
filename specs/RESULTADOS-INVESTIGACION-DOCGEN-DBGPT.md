@@ -6,6 +6,8 @@
 
 ---
 
+> **Actualización 10-sep-2026 (misma fecha, más tarde)**: la Parte 1 se complementó con una segunda investigación dedicada a los enfoques agénticos (skills de documentos, CLIs de agentes de código en modo headless, servidores MCP de Office, sandboxes de ejecución de código y plataformas completas), en `RESULTADOS-INVESTIGACION-DOCGEN-AGENTICO.md`. Conclusión: la recomendación principal de abajo (motor de plantillas determinista) se mantiene como camino por defecto, y se agrega un "modo libre" agéntico opt-in (smolagents o Codex CLI sobre un contenedor efímero sin red). Ver ese documento para la arquitectura híbrida.
+
 ## Resumen ejecutivo (leer esto si no hay tiempo para más)
 
 ### Parte 1 — Generación de documentos desde plantillas
