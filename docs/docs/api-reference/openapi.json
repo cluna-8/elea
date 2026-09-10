@@ -180,6 +180,20 @@
         "title": "BlockedWordSchema",
         "type": "object"
       },
+      "Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post": {
+        "properties": {
+          "doc_file": {
+            "format": "binary",
+            "title": "Doc File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_file"
+        ],
+        "title": "Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post",
+        "type": "object"
+      },
       "BudgetCreate": {
         "properties": {
           "group_id": {
@@ -1375,6 +1389,19 @@
           "motivo"
         ],
         "title": "EstadoPorModoSchema",
+        "type": "object"
+      },
+      "ExactAnalysisWorkspaceCreate": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "ExactAnalysisWorkspaceCreate",
         "type": "object"
       },
       "FallbackBody": {
@@ -6830,6 +6857,200 @@
         "summary": "Get Costs Summary",
         "tags": [
           "Costs"
+        ]
+      }
+    },
+    "/api/v1/exact-analysis/workspaces": {
+      "post": {
+        "operationId": "create_exact_analysis_workspace_api_v1_exact_analysis_workspaces_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExactAnalysisWorkspaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Exact Analysis Workspace",
+        "tags": [
+          "ExactAnalysis"
+        ]
+      }
+    },
+    "/api/v1/exact-analysis/workspaces/{workspace_id}/files": {
+      "post": {
+        "operationId": "upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Exact Analysis File",
+        "tags": [
+          "ExactAnalysis"
+        ]
+      }
+    },
+    "/api/v1/exact-analysis/workspaces/{workspace_id}/query": {
+      "post": {
+        "description": "`body` espera `{\"question\": str, \"conv_uid\": str, \"select_param\": dict}` — `conv_uid` y\n`select_param` son los que devolvió `POST .../files` (FR-010: preguntas que cruzan varios\narchivos del mismo espacio son responsabilidad del Hub, que puede resubir/reusar el mismo\n`conv_uid` para más de un archivo — DB-GPT acumula contexto por conversación).",
+        "operationId": "query_exact_analysis_api_v1_exact_analysis_workspaces__workspace_id__query_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Query Exact Analysis",
+        "tags": [
+          "ExactAnalysis"
         ]
       }
     },
