@@ -3367,6 +3367,17 @@
               }
             ],
             "title": "Engine Thread Slug"
+          },
+          "principal_engine_thread_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Principal Engine Thread Slug"
           }
         },
         "title": "WorkspaceThreadCreate",
