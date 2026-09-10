@@ -87,6 +87,14 @@ class WorkspaceThread(Base):
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     # NULL = hilo principal de esa persona en ese espacio (uno por (workspace, usuario)).
     engine_thread_slug = Column(String, nullable=True)
+    # Bug real encontrado en verificación en vivo (10-sep, el reclamo original de Tomás
+    # "la memoria de chats es compartida"): la fila con engine_thread_slug IS NULL solo
+    # probaba que ESTA persona reclamó el hilo principal — Eleia Hub nunca creaba un hilo
+    # real en el motor para respaldarla, y en su lugar proxyaba directo al chat/historial
+    # a NIVEL DE ESPACIO de AnythingLLM (compartido por todo el mundo, sin dueño). Acá
+    # queda el slug real del motor que respalda al hilo principal de esta persona —
+    # creado la primera vez que lo usa, reutilizado después (migración 019).
+    principal_engine_thread_slug = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     workspace = relationship("Workspace", back_populates="threads")

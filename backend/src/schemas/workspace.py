@@ -54,12 +54,18 @@ class WorkspaceTransferOwnerIn(BaseModel):
 
 class WorkspaceThreadCreate(BaseModel):
     engine_thread_slug: Optional[str] = None  # None => hilo principal del usuario
+    # Solo tiene efecto cuando engine_thread_slug es None — el slug REAL del motor que
+    # respalda el hilo principal de esta persona (bug real 10-sep, ver workspace.py del
+    # modelo). Se ignora para hilos explícitos: esos ya traen su propio slug real en
+    # engine_thread_slug.
+    principal_engine_thread_slug: Optional[str] = None
 
 
 class WorkspaceThreadOut(BaseModel):
     id: UUID
     workspace_id: UUID
     engine_thread_slug: Optional[str] = None
+    principal_engine_thread_slug: Optional[str] = None
     created_at: datetime
 
     class Config:

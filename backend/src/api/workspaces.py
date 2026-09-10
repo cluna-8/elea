@@ -188,7 +188,9 @@ def list_threads(workspace_id: uuid.UUID, db: Session = Depends(get_db),
     rows = svc.list_threads_for_user(db, user.tenant_id, workspace_id, user.id)
     return {"threads": [
         {"id": t.id, "workspace_id": t.workspace_id,
-         "engine_thread_slug": t.engine_thread_slug, "created_at": t.created_at}
+         "engine_thread_slug": t.engine_thread_slug,
+         "principal_engine_thread_slug": t.principal_engine_thread_slug,
+         "created_at": t.created_at}
         for t in rows
     ]}
 
@@ -204,9 +206,12 @@ def create_thread(workspace_id: uuid.UUID, body: WorkspaceThreadCreate,
     except svc.WorkspaceAccessDenied:
         _denied(db, user, workspace_id)
     row = svc.create_or_get_thread(db, user.tenant_id, workspace_id, user.id,
-                                   engine_thread_slug=body.engine_thread_slug)
+                                   engine_thread_slug=body.engine_thread_slug,
+                                   principal_engine_thread_slug=body.principal_engine_thread_slug)
     return {"id": row.id, "workspace_id": row.workspace_id,
-            "engine_thread_slug": row.engine_thread_slug, "created_at": row.created_at}
+            "engine_thread_slug": row.engine_thread_slug,
+            "principal_engine_thread_slug": row.principal_engine_thread_slug,
+            "created_at": row.created_at}
 
 
 @router.delete("/{workspace_id}/threads/{thread_id}")

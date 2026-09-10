@@ -147,6 +147,33 @@ def test_flujo_completo_aislamiento_y_membresia(factory, app_and_client):
     assert len(luis_threads) == 1
     assert ana_threads[0]["id"] != luis_threads[0]["id"]
 
+    # Bug real 10-sep (migración 019): el hilo PRINCIPAL (engine_thread_slug=None) tiene que
+    # poder guardar el slug REAL del motor que lo respalda — sin esto, "hilo principal" no
+    # tenía ningún hilo real detrás y el Hub terminaba hablando con el chat compartido a
+    # nivel de espacio (el reclamo original de Tomás: "la memoria de chats es compartida").
+    r = tc_ana.post(f"/workspaces/{ws_id}/threads",
+                    json={"engine_thread_slug": None, "principal_engine_thread_slug": "engine-thread-ana"})
+    assert r.status_code == 200, r.text
+    assert r.json()["principal_engine_thread_slug"] == "engine-thread-ana"
+
+    # Reclamarlo de nuevo (idempotente, como hace el Hub en cada pregunta) NO lo pisa con
+    # otro valor — el mismo hilo real se reutiliza siempre.
+    r2 = tc_ana.post(f"/workspaces/{ws_id}/threads",
+                     json={"engine_thread_slug": None, "principal_engine_thread_slug": "otro-slug-distinto"})
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["principal_engine_thread_slug"] == "engine-thread-ana", \
+        "el hilo principal ya reclamado no debe pisarse con un slug nuevo"
+
+    # El de Luis es un hilo real DISTINTO, y sigue sin cruzarse con el de Ana.
+    r3 = tc_luis.post(f"/workspaces/{ws_id}/threads",
+                      json={"engine_thread_slug": None, "principal_engine_thread_slug": "engine-thread-luis"})
+    assert r3.status_code == 200, r3.text
+    assert r3.json()["principal_engine_thread_slug"] == "engine-thread-luis"
+    ana_principal = [t for t in tc_ana.get(f"/workspaces/{ws_id}/threads").json()["threads"]
+                     if t["engine_thread_slug"] is None]
+    assert len(ana_principal) == 1
+    assert ana_principal[0]["principal_engine_thread_slug"] == "engine-thread-ana"
+
     # B (member, no owner) no puede quitar miembros
     r = tc_luis.delete(f"/workspaces/{ws_id}/members/{ana_id}")
     assert r.status_code == 403

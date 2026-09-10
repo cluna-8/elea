@@ -162,6 +162,11 @@ def get_costs_summary(
     # ESA persona, no para la cuenta de servicio que autenticó. Sin esto, el gasto real de
     # un usuario del Hub quedaba invisible bajo `svc.rag-masking`/`svc.anythingllm-
     # provider` (diagnostico.md §5 de la 043).
+    # Bug real encontrado en verificación en vivo (10-sep): sin el AND de account_type, una
+    # pregunta RAG cuyo costo no se pudo atribuir a la persona real (limitación conocida,
+    # ver CHANGELOG de la 044 §13) caía en `a.user_id` — la cuenta de SERVICIO que habló
+    # con el motor — y esta tabla, pensada para mostrar gasto de PERSONAS, terminaba
+    # listando `svc.anythingllm-provider2` como si fuera un usuario más.
     by_user = db.execute(
         text(
             """
@@ -173,6 +178,7 @@ def get_costs_summary(
             FROM audit_logs a
             LEFT JOIN users u ON u.id = COALESCE(a.acted_for_user_id, a.user_id)
             WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
+              AND (u.account_type IS NULL OR u.account_type != 'service')
             GROUP BY u.username
             ORDER BY cost_usd DESC
             LIMIT 10
@@ -198,6 +204,7 @@ def get_costs_summary(
             LEFT JOIN users u ON u.id = COALESCE(a.acted_for_user_id, a.user_id)
             WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
               AND a.event_type = 'traffic' AND a.surface = 'servicio'
+              AND (u.account_type IS NULL OR u.account_type != 'service')
             GROUP BY u.username
             ORDER BY documents DESC
             LIMIT 10

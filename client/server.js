@@ -198,6 +198,45 @@ async function ownsThreadSlug(session, workspaceId, threadSlug) {
   return own.some((t) => t.engine_thread_slug === threadSlug);
 }
 
+// Bug real encontrado en verificación en vivo (10-sep, el reclamo original de Tomás: "la
+// memoria de chats es compartida"). Antes de este fix, "hilo principal" (sin threadSlug)
+// no tenía NINGÚN hilo real detrás en el motor — el Hub hablaba directo con el chat/
+// historial A NIVEL DE ESPACIO de AnythingLLM, compartido por cualquiera que use ese
+// espacio sin crear un hilo propio (o sea, el caso normal). Confirmado con sesión limpia,
+// sin caché: un usuario nuevo agregado a un espacio veía la conversación completa de otro.
+//
+// Esta función resuelve (o crea, la primera vez) un hilo REAL del motor que respalda el
+// "hilo principal" de ESTA persona en ESTE espacio — nunca vuelve a tocar el endpoint
+// compartido a nivel de espacio. Se persiste en el backend (`principal_engine_thread_slug`,
+// migración 019) así se reutiliza el mismo hilo real entre sesiones, en vez de crear uno
+// nuevo cada vez que alguien pregunta sin haber elegido un hilo explícito.
+async function resolvePrincipalEngineThreadSlug(session, workspaceId, engineSlug) {
+  const own = await getOwnThreads(session, workspaceId);
+  const principalRow = own.find((t) => t.engine_thread_slug === null);
+  if (principalRow && principalRow.principal_engine_thread_slug) {
+    return principalRow.principal_engine_thread_slug;
+  }
+  // Primera vez: crear el hilo real en el motor y registrarlo. Si dos requests del mismo
+  // usuario llegan casi juntos (dos pestañas), el backend deduplica por el índice único
+  // (workspace, usuario) y devuelve el que haya ganado la carrera — usamos SIEMPRE lo que
+  // el backend confirma, nunca lo que acabamos de crear acá a ciegas.
+  const r = await anythingllmFetch(`/api/v1/workspace/${engineSlug}/thread/new`, {
+    method: 'POST',
+    body: JSON.stringify({ name: 'Principal' })
+  });
+  if (!r.ok) throw new Error(`No se pudo crear el hilo principal (HTTP ${r.status}).`);
+  const data = await r.json();
+  const nuevoSlug = data.thread && data.thread.slug;
+  if (!nuevoSlug) throw new Error('El motor no devolvió un slug de hilo válido.');
+  const claimed = await eleaFetch(session.token, `/workspaces/${workspaceId}/threads`, {
+    method: 'POST',
+    body: JSON.stringify({ engine_thread_slug: null, principal_engine_thread_slug: nuevoSlug })
+  });
+  if (!claimed.ok) throw new Error(`No se pudo registrar el hilo principal (HTTP ${claimed.status}).`);
+  const claimedData = await claimed.json();
+  return claimedData.principal_engine_thread_slug || nuevoSlug;
+}
+
 // Enmascarado NER real (spec 040 US4): misma política que el resto de `elea`
 // (POST /api/v1/gw/inspect, latam_ar hoy — DNI/CUIL/CBU). Fail-closed: si el motor de
 // detección no responde, NO se sube el texto sin enmascarar — se corta la subida.
@@ -490,7 +529,20 @@ app.get('/api/workspaces/:slug', async (req, res) => {
     const r = await anythingllmFetch(`/api/v1/workspace/${req.params.slug}`);
     if (!r.ok) return res.status(r.status).json({ error: 'Espacio no encontrado.' });
     const data = await r.json();
-    res.json({ ...data, role: membership.role });
+    const workspace = Array.isArray(data.workspace) ? data.workspace[0] : data.workspace;
+    // Bug real 10-sep, junto con el del hilo principal: `threads` acá venía CRUDO del
+    // motor — TODOS los hilos del espacio, de cualquier persona, sin filtrar (el
+    // sidebar terminaba listando "Hilo de otra persona" a cualquier miembro). FR-003:
+    // solo los hilos EXPLÍCITOS propios se muestran como ítems — el "hilo principal"
+    // (el real que respalda el default) es un detalle interno, nunca un ítem de la lista.
+    if (workspace && Array.isArray(workspace.threads)) {
+      const own = await getOwnThreads(session, membership.id);
+      const ownExplicitSlugs = new Set(
+        own.filter((t) => t.engine_thread_slug).map((t) => t.engine_thread_slug)
+      );
+      workspace.threads = workspace.threads.filter((t) => ownExplicitSlugs.has(t.slug));
+    }
+    res.json({ ...data, workspace, role: membership.role });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
@@ -583,9 +635,10 @@ app.get('/api/workspaces/:slug/messages', async (req, res) => {
     if (threadSlug && !(await ownsThreadSlug(session, membership.id, threadSlug))) {
       return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
     }
-    const path = threadSlug
-      ? `/api/v1/workspace/${slug}/thread/${threadSlug}/chats`
-      : `/api/v1/workspace/${slug}/chats`;
+    // Bug real 10-sep: "hilo principal" (sin threadSlug) NUNCA debe leer el historial
+    // compartido a nivel de espacio — cada persona tiene su propio hilo real detrás.
+    const realThreadSlug = threadSlug || await resolvePrincipalEngineThreadSlug(session, membership.id, slug);
+    const path = `/api/v1/workspace/${slug}/thread/${realThreadSlug}/chats`;
     const r = await anythingllmFetch(path);
     if (!r.ok) return res.status(r.status).json({ error: 'No se pudo leer el historial del hilo.' });
     const data = await r.json();
@@ -941,9 +994,10 @@ app.post('/api/chat', async (req, res) => {
       if (!(await ownsThreadSlug(session, membership.id, threadSlug))) {
         return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
       }
-      const path = threadSlug
-        ? `/api/v1/workspace/${slug}/thread/${threadSlug}/chat`
-        : `/api/v1/workspace/${slug}/chat`;
+      // Bug real 10-sep: "hilo principal" (sin threadSlug) NUNCA debe chatear contra el
+      // espacio compartido — cada persona habla con su propio hilo real del motor.
+      const realThreadSlug = threadSlug || await resolvePrincipalEngineThreadSlug(session, membership.id, slug);
+      const path = `/api/v1/workspace/${slug}/thread/${realThreadSlug}/chat`;
       const r = await anythingllmFetch(path, {
         method: 'POST',
         body: JSON.stringify({ message, mode: 'chat' })

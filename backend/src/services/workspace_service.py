@@ -11,6 +11,7 @@ Principio: toda verificación de acceso pasa por acá, nunca por el cliente que 
 import uuid
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models.workspace import Workspace, WorkspaceMembership, WorkspaceThread
@@ -215,7 +216,13 @@ def list_threads_for_user(db: Session, tenant_id, workspace_id, user_id) -> list
 
 
 def create_or_get_thread(db: Session, tenant_id, workspace_id, user_id,
-                         engine_thread_slug: Optional[str] = None) -> WorkspaceThread:
+                         engine_thread_slug: Optional[str] = None,
+                         principal_engine_thread_slug: Optional[str] = None) -> WorkspaceThread:
+    """`principal_engine_thread_slug` solo importa cuando `engine_thread_slug` es None (el
+    hilo principal): es el slug REAL del motor que lo respalda (bug 10-sep, ver el modelo).
+    Se persiste UNA vez — si la fila ya existe y trae uno propio, no se pisa con otro nuevo
+    (evita que una carrera entre dos requests del mismo usuario cree dos hilos reales en el
+    motor y el Hub termine hablándole al que se sobreescribió último, huérfano)."""
     existing = (
         db.query(WorkspaceThread)
         .filter(WorkspaceThread.tenant_id == tenant_id,
@@ -225,11 +232,36 @@ def create_or_get_thread(db: Session, tenant_id, workspace_id, user_id,
         .first()
     )
     if existing is not None:
+        if (engine_thread_slug is None and principal_engine_thread_slug
+                and not existing.principal_engine_thread_slug):
+            existing.principal_engine_thread_slug = principal_engine_thread_slug
+            db.commit()
         return existing
     row = WorkspaceThread(id=uuid.uuid4(), tenant_id=tenant_id, workspace_id=workspace_id,
-                          owner_user_id=user_id, engine_thread_slug=engine_thread_slug)
+                          owner_user_id=user_id, engine_thread_slug=engine_thread_slug,
+                          principal_engine_thread_slug=(
+                              principal_engine_thread_slug if engine_thread_slug is None else None
+                          ))
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Carrera real (dos requests casi simultáneos del mismo usuario sin threadSlug,
+        # p.ej. dos pestañas): el índice parcial único (workspace, usuario) WHERE
+        # engine_thread_slug IS NULL ya cortó el segundo insert — el ganador ya está en
+        # la base, lo devolvemos en vez de propagar el 500.
+        db.rollback()
+        existing = (
+            db.query(WorkspaceThread)
+            .filter(WorkspaceThread.tenant_id == tenant_id,
+                    WorkspaceThread.workspace_id == workspace_id,
+                    WorkspaceThread.owner_user_id == user_id,
+                    WorkspaceThread.engine_thread_slug == engine_thread_slug)
+            .first()
+        )
+        if existing is None:
+            raise
+        return existing
     return row
 
 
