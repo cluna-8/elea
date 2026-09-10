@@ -82,15 +82,19 @@ def get_with_access_check(db: Session, tenant_id, workspace_id, user_id,
 
 
 def create_workspace(db: Session, tenant_id, owner_user_id, *, display_name: str,
-                     engine_slug: Optional[str] = None) -> Workspace:
+                     engine_slug: Optional[str] = None, kind: str = "rag") -> Workspace:
     """Crea el espacio en el backend y a su dueño como primer miembro. NO crea nada en el
     motor de documentos — esa orquestación vive del lado de Eleia Hub (spec 044), que llama
     acá con el `engine_slug` real una vez que el espacio ya existe ahí, o deja el campo
-    vacío para completarlo después (decisión: "solo se comparte la identidad" con el back)."""
+    vacío para completarlo después (decisión: "solo se comparte la identidad" con el back).
+
+    `kind` (spec 048, migración 020): `"rag"` (default, chat semántico) o `"exact_analysis"`
+    (DB-GPT) — un espacio de análisis exacto ES un Workspace más, reusa membresías/RLS/"sin
+    asignar" tal cual, nunca una entidad paralela."""
     ws = Workspace(
         id=uuid.uuid4(), tenant_id=tenant_id,
         engine_slug=engine_slug or f"pendiente-{uuid.uuid4().hex[:12]}",
-        display_name=display_name, owner_user_id=owner_user_id, status="active",
+        display_name=display_name, owner_user_id=owner_user_id, status="active", kind=kind,
     )
     db.add(ws)
     db.flush()

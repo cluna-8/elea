@@ -36,6 +36,11 @@ class Workspace(Base):
     # estado transitorio cuando se da de baja al dueño, FR-042).
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     status = Column(String, nullable=False, default="active")
+    # 'rag' (chat semántico, AnythingLLM) | 'exact_analysis' (cómputo exacto sobre tabulares,
+    # DB-GPT — spec 048, migración 020). Default 'rag': ningún espacio existente cambia de
+    # comportamiento. Un espacio de análisis exacto ES un Workspace más — reusa membresías, RLS
+    # y "sin asignar" en vez de una entidad paralela (Reuse over Reinvent).
+    kind = Column(String, nullable=False, default="rag")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -50,6 +55,10 @@ class Workspace(Base):
         CheckConstraint(
             "status IN ('active', 'unassigned')",
             name="ck_workspaces_status",
+        ),
+        CheckConstraint(
+            "kind IN ('rag', 'exact_analysis')",
+            name="ck_workspaces_kind",
         ),
     )
 

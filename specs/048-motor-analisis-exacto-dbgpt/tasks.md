@@ -18,16 +18,17 @@ lógica no trivial lleva tests automatizados").
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T070 Crear migración `020_workspace_kind_exact_analysis.py` en `backend/alembic/versions/`:
+- [x] T070 Crear migración `020_workspace_kind_exact_analysis.py` en `backend/alembic/versions/`:
       `ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS kind VARCHAR NOT NULL DEFAULT 'rag'` + CHECK
       `kind IN ('rag','exact_analysis')` (idempotente, mismo criterio que 018/019 — ver
-      data-model.md)
-- [ ] T071 [P] Agregar servicio `exact-analysis-engine` a `docker-compose.yml`: imagen
+      data-model.md). Corrida en vivo contra el stack local, confirmada.
+- [x] T071 [P] Agregar servicio `exact-analysis-engine` a `docker-compose.yml`: imagen
       `eosphorosai/dbgpt-openai` pinneada por digest, `expose` (NUNCA `ports`), red Docker nueva
-      `exact-analysis-net`, volumen dedicado para el estado de DB-GPT (SQLite+Chroma) — mitiga
-      FR-002/CVE-2026-80104 (ver research.md R4)
-- [ ] T072 [P] Agregar `backend` a la red `exact-analysis-net` en `docker-compose.yml` (único
-      servicio con esa doble membresía de red)
+      `exact-analysis-net` (`internal:true`), volumen dedicado — mitiga FR-002/CVE-2026-80104 (ver
+      research.md R4). Verificado en vivo: `docker inspect` sin puertos, `curl` desde el host
+      falla (SC-003).
+- [x] T072 [P] Agregar `backend` (y `engine`, necesario para que exact-analysis-engine pueda
+      llamarlo — ver docker-compose.yml) a la red `exact-analysis-net`.
 
 **Checkpoint**: el contenedor levanta, sin puertos publicados, solo alcanzable desde `backend`.
 
@@ -37,23 +38,27 @@ lógica no trivial lleva tests automatizados").
 
 **⚠️ CRITICAL**: ningún User Story puede empezar hasta cerrar esta fase.
 
-- [ ] T073 Script `backend/scripts/bootstrap_dbgpt_service_key.py`: crea el usuario
-      `svc.dbgpt-excel` (`account_type='service'`) y su `APIKey` (`tool_type='servicio'`,
-      `can_act_on_behalf=True`) — mismo patrón que las llaves de AnythingLLM (data-model.md)
-- [ ] T074 **Descubrir el contrato real de DB-GPT (research.md R2, OBLIGATORIO antes de T077)**:
-      levantar `exact-analysis-engine` local, inspeccionar con las herramientas de red del
-      navegador (Browser pane) los llamados reales de su web UI al subir una planilla y preguntar
-      — documentar rutas/payloads/forma de respuesta en
-      `specs/048-motor-analisis-exacto-dbgpt/contracts/02-dbgpt-real-api.md`. NO adivinar el
-      contrato.
-- [ ] T075 Configurar el `.toml`/env de DB-GPT (`LLM_MODEL_PROVIDER=proxy/openai`,
-      `OPENAI_API_BASE=http://engine:4000/v1`, `OPENAI_API_KEY=<llave de svc.dbgpt-excel>`,
-      `LLM_MODEL_NAME=<deployment real del catálogo>`) — verificado contra research.md R1
-- [ ] T076 Router base `backend/src/api/exact_analysis.py`: prefijo `/exact-analysis`, `Depends
-      (get_current_user)` fail-closed en todas las rutas (mismo criterio que el resto de la API)
-- [ ] T077 [P] Servicio `backend/src/services/exact_analysis_service.py`: cliente HTTP hacia
-      `exact-analysis-engine` usando el contrato descubierto en T074 (httpx, mismo patrón que
-      otras integraciones del backend)
+- [x] T073 **Desviación deliberada del plan**: no un script Python nuevo — la llave de
+      `svc.dbgpt-excel` se crea con el MISMO mecanismo bash `create_service_key()` que ya usan
+      `svc.anythingllm-provider`/`svc.rag-masking` en `elea-installer/install.sh` (confirmado que
+      ESE es el patrón real de producción, no un script Python separado). Agregada ahí, exporta
+      `DBGPT_ENGINE_VIRTUAL_KEY` al `.env`. En dev local se creó a mano vía API (mismo POST
+      /users + POST /keys que hace install.sh), confirmado `account_type='service'` correcto.
+- [x] T074 **Descubrir el contrato real de DB-GPT** — hecho en vivo: `GET /openapi.json` de una
+      instancia real + prueba end-to-end real (subir CSV, preguntar, respuesta correcta con SQL
+      auditado). Documentado en
+      `specs/048-motor-analisis-exacto-dbgpt/contracts/02-dbgpt-real-api.md`, con el hallazgo real
+      que costó un 500 (`select_param` es el objeto `data` completo del upload, no el `file_path`
+      pelado) y la corrección de ruta (v1, no v2 — v2 no soporta `chat_mode=chat_excel`).
+- [x] T075 Configurado (`command:` override + env vars en `docker-compose.yml`) — verificado en
+      vivo: el selector de modelo de DB-GPT mostró `azure-gpt-4o-mini` (el catálogo real de
+      Eleia), y la pregunta de prueba resolvió correctamente contra Azure real vía el motor
+      interno.
+- [x] T076 Router base `backend/src/api/exact_analysis.py` — `_require_user()` fail-closed en
+      las 3 rutas, mismo patrón que `workspaces.py`.
+- [x] T077 [P] `backend/src/services/exact_analysis_service.py` — `upload_file`/`ask_question`
+      contra el contrato real de T074, con extracción del SQL ejecutado del tag `<chart-view>`
+      (confirma R3). Verificado en vivo end-to-end.
 
 **Checkpoint**: infraestructura y contrato real confirmados — los User Stories pueden empezar.
 
@@ -69,29 +74,35 @@ Costos → "Gasto por usuario" que aparece bajo la persona real, con un modelo d
 
 ### Tests for User Story 1
 
-- [ ] T078 [P] [US1] Contract test en
-      `backend/tests/contract/test_exact_analysis_atribucion_costo.py`: con un doble HTTP del
-      motor DB-GPT, confirmar que la llamada saliente hacia LiteLLM lleva el header "en nombre de"
-      con el id de la persona real (no de `svc.dbgpt-excel`)
-- [ ] T079 [P] [US1] Integration test en
-      `backend/tests/integration/test_exact_analysis_costos_by_user.py`: una pregunta completa deja
-      una fila en `AuditLog` con `acted_for_user_id` = persona real, visible en
-      `GET /costs/summary` → `by_user` (reusa el patrón de
-      `test_costs_by_user_attribution_043.py`)
+- [x] T078/T079 [P] [US1] Cubiertos parcialmente por
+      `backend/tests/integration/test_exact_analysis_048.py` (query exitosa devuelve
+      `sql_executed`/`model_used`, presupuesto bloquea antes de llamar al motor). **NO escrito**:
+      el test específico de que la llamada saliente lleve el header "en nombre de" — bloqueado
+      por T081 (ver abajo, gap real sin cerrar).
 
 ### Implementation for User Story 1
 
-- [ ] T080 [US1] Endpoint `POST /api/v1/exact-analysis/workspaces/{id}/query` en
-      `exact_analysis.py`: valida membresía (403), valida presupuesto (402, ANTES de reenviar —
-      FR-008), reenvía a `exact_analysis_service.py` con el header de atribución
-- [ ] T081 [US1] `exact_analysis_service.py`: agrega el header "en nombre de" (mismo mecanismo que
-      `X-Guardian-Acting-User`, contrato 2 de la 043) a la llamada hacia DB-GPT/hacia LiteLLM
-      según dónde corresponda según el contrato real descubierto en T074
-- [ ] T082 [US1] Restringir `LLM_MODEL_NAME` de DB-GPT al catálogo real de Eleia — ningún modelo
-      fuera de los deployments configurados en `litellm/config.yaml` (FR de "solo puede elegir
-      entre los del catálogo")
+- [x] T080 [US1] Endpoint `POST /exact-analysis/workspaces/{id}/query` — membresía (403),
+      presupuesto (402, ANTES de reenviar), reenvía a `exact_analysis_service.py`. Verificado en
+      vivo con Azure OpenAI real.
+- [ ] **T081 [US1] — NO CERRADO, gap real documentado (no fingido)**: DB-GPT llama al motor de
+      Eleia POR SU CUENTA con su propia llave (`svc.dbgpt-excel`) — este backend nunca hace esa
+      llamada, así que no puede inyectarle un header. Confirmado en vivo (`audit_logs`): el costo
+      quedó atribuido a `svc.dbgpt-excel`, no a `admin` (la persona real que preguntó) — MISMA
+      limitación arquitectónica ya aceptada para AnythingLLM/RAG (CHANGELOG 044 §13), ahora
+      también real acá. Documentado en el docstring de `exact_analysis_service.py`. Cerrarlo del
+      todo requeriría confirmar si DB-GPT soporta headers custom en su cliente `proxy/openai`
+      (no confirmado en esta ronda) — o resolver la atribución en el motor por otra vía (p. ej.
+      el motor podría resolver "quién preguntó" por el propio backend en vez de por header, si
+      el contrato de la llamada de DB-GPT trae algún campo `user`/`sys_code` reenviable — sin
+      investigar en esta ronda).
+- [x] T082 [US1] `LLM_MODEL_NAME` fijo por env var a un deployment real del catálogo (no
+      seleccionable por DB-GPT) — verificado en vivo, el selector mostró `azure-gpt-4o-mini`.
+      Simplificado respecto del plan original (no lee dinámicamente `GET /chat/models`) — anotado
+      como decisión de implementación en el propio código.
 
-**Checkpoint**: User Story 1 funciona y se prueba de forma independiente.
+**Checkpoint**: User Story 1 funciona de punta a punta (verificado en vivo, Azure real) salvo la
+atribución de costo a la persona real, que queda como limitación documentada, no resuelta.
 
 ---
 
@@ -105,28 +116,28 @@ planillas del mismo espacio SÍ se cruzan en una pregunta.
 
 ### Tests for User Story 2
 
-- [ ] T083 [P] [US2] Integration test en
-      `backend/tests/integration/test_exact_analysis_aislamiento.py`: dos personas, dos espacios,
-      confirma 403 en acceso cruzado y respuesta correcta en cruce dentro del mismo espacio (mismo
-      patrón que `test_workspaces_api_043.py`)
-- [ ] T084 [P] [US2] Test de red (script bash o pytest con `docker network inspect`/intento de
-      conexión desde un contenedor de otra red) en
-      `backend/tests/integration/test_exact_analysis_red_aislada.py` — confirma SC-003 (0 puertos
-      alcanzables desde fuera)
+- [x] T083 [P] [US2] `test_exact_analysis_048.py::test_no_miembro_no_puede_subir_archivo` (403
+      real, no simulado) + `test_sin_sesion_401`. **NO escrito**: el caso "cruce dentro del mismo
+      espacio con dos archivos" — depende de T087, no implementado (ver abajo).
+- [x] T084 [P] [US2] Confirmado en vivo (no como test automatizado todavía): `docker inspect`
+      sin puertos publicados + `curl` desde el host falla tras sacar el override temporal de
+      T074. **Falta**: automatizar esto como test de CI (hoy es verificación manual).
 
 ### Implementation for User Story 2
 
-- [ ] T085 [US2] Endpoint `POST /api/v1/exact-analysis/workspaces` (crea `Workspace
-      kind='exact_analysis'`, reusa `workspace_service.py` de la 043 con el nuevo `kind`)
-- [ ] T086 [US2] Endpoint `POST /api/v1/exact-analysis/workspaces/{id}/files` — valida membresía,
-      valida extensión tabular (`.csv`/`.xlsx`/`.xls`), reenvía a DB-GPT con el `file_id` scopeado
-      al espacio
-- [ ] T087 [US2] `exact_analysis_service.py`: soporte de pregunta que referencia múltiples
-      archivos del mismo espacio (FR-010, cierra el hallazgo #1 de la investigación — DB-GPT solo
-      soporta un archivo nativo, así que esto puede requerir cargar ambos en la misma sesión/
-      dataset de DB-GPT según lo que confirme T074)
+- [x] T085 [US2] Endpoint `POST /exact-analysis/workspaces` — `workspace_service.create_workspace`
+      extendido con `kind` (default `"rag"`, sin romper nada existente). Verificado en vivo.
+- [x] T086 [US2] Endpoint `POST /exact-analysis/workspaces/{id}/files` — membresía, extensión
+      tabular (422 si no), reenvía al motor. Verificado en vivo con un CSV real.
+- [ ] **T087 [US2] — NO implementado**: cruzar múltiples archivos del mismo espacio en una sola
+      pregunta. Reusar el MISMO `conv_uid` para dos subidas distintas (dejando que DB-GPT acumule
+      contexto de conversación) es la hipótesis más simple según el contrato descubierto en T074,
+      pero no se probó en esta ronda — la prueba en vivo fue con un solo archivo. Cierra el
+      hallazgo #1 de la investigación original (DB-GPT nativo no cruza archivos) — sigue
+      pendiente confirmar que el truco del `conv_uid` compartido realmente lo resuelve.
 
-**Checkpoint**: User Stories 1 y 2 funcionan juntas de forma independiente.
+**Checkpoint**: aislamiento entre personas confirmado (US2 parcial) — el cruce de archivos del
+mismo espacio (FR-010) queda pendiente de una siguiente ronda.
 
 ---
 
@@ -140,41 +151,46 @@ involucre directamente, confirmar por log que la columna protegida no viajó en 
 
 ### Tests for User Story 3
 
-- [ ] T088 [P] [US3] Contract test en
-      `backend/tests/contract/test_exact_analysis_enmascarado.py`: la subida de una planilla con
-      PII pasa por el mismo pipeline de enmascarado que el resto del Hub antes de llegar al doble
-      HTTP de DB-GPT
-- [ ] T089 [P] [US3] Contract test en
-      `backend/tests/contract/test_exact_analysis_sql_readonly.py`: `sqlglot` rechaza/marca
-      cualquier SQL auditado que no sea `SELECT`/`WITH` (research.md R3)
+- [ ] T088 [P] [US3] **NO escrito** — depende de T090.
+- [ ] T089 [P] [US3] **NO escrito** — depende de T092.
 
 ### Implementation for User Story 3
 
-- [ ] T090 [US3] `exact_analysis_service.py`: enmascarar la planilla (reusar el pipeline existente
-      de `client/server.js`/backend, según dónde viva la subida) ANTES de mandarla a T086
-- [ ] T091 [US3] Auditoría: guardar el SQL ejecutado (si el contrato real de T074 lo expone) en
-      `AuditLog`, `surface='exact_analysis'` (agregar al vocabulario `_SURFACES_BACKFILL` si
-      corresponde)
-- [ ] T092 [US3] Validación `sqlglot` sobre el SQL auditado — alarma/log si aparece algo que no
-      sea solo-lectura (defensa en capas, no bloqueo garantizado — ver research.md R3)
+- [ ] **T090 [US3] — NO implementado, gap real documentado**: el archivo tabular se sube al
+      motor SIN pasar por el enmascarado (`TODO` explícito y visible en
+      `api/exact_analysis.py::upload_exact_analysis_file`, no escondido). Es el hallazgo #2 de
+      la investigación original (DB-GPT manda datos crudos al LLM) — sigue sin cerrar del lado
+      de Eleia todavía. Requiere decidir el mecanismo de reuso: llamar a `/gw/inspect` desde el
+      backend mismo (mismo endpoint que ya usa `client/server.js` para el enmascarado del RAG) es
+      la hipótesis más simple, no implementada en esta ronda.
+- [x] T091 [US3] (parcial) `sql_executed` se extrae y se devuelve en la respuesta — es la pieza de
+      "evidencia auditable" del research.md R3. **Falta**: persistirlo en `AuditLog` con
+      `surface` propio (hoy solo se loguea con `logger.info`, no queda en la tabla).
+- [ ] T092 [US3] **NO implementado**: validación `sqlglot`. La dependencia no se agregó a
+      `requirements.txt` — no se usó en esta ronda. El SQL extraído (T091) se PODRÍA validar, no
+      se hizo todavía.
 
-**Checkpoint**: los 3 User Stories P1 funcionan juntos, de forma independiente entre sí.
+**Checkpoint**: US1 y US2 funcionan de punta a punta en vivo con las limitaciones anotadas; **US3
+(enmascarado) NO está cerrado — es el gap de seguridad más importante que queda pendiente**, dado
+que el pedido original incluía explícitamente proteger los datos que entran al motor.
 
 ---
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T093 Mensajes de error neutros en todo el flujo (sin nombrar "DB-GPT") — motor caído,
-      timeout, 502 (FR-009, mismo estándar del bug ya corregido en el chat RAG, CHANGELOG 044 §14)
-- [ ] T094 [P] `elea-installer/docker-compose.yml`: mismo servicio `exact-analysis-engine` para
-      producción, con la misma restricción de red
-- [ ] T095 [P] **Sitio de docs de producto (OBLIGATORIO, DoD)**: actualizar `docs/docs/**` con el
-      modo de análisis exacto (curado marca-neutro — nunca "DB-GPT" en la doc pública, mismo
-      criterio que el resto del producto) y correr `make -C deploy check-docs`
-- [ ] T096 Correr `quickstart.md` completo contra un despliegue local real — los 8 pasos, cada uno
-      mapea a un `SC-00X` de `spec.md`
-- [ ] T097 Regresión completa del backend (`pytest`) — confirmar 0 regresiones sobre el baseline
-      conocido (9 fallos preexistentes sin relación)
+- [x] T093 Mensajes de error neutros (`MENSAJE_MOTOR_NO_DISPONIBLE`/`MENSAJE_PRESUPUESTO_AGOTADO`
+      en `exact_analysis.py`, sin nombrar "DB-GPT") — no probado contra el motor realmente caído
+      en esta ronda (sí implementado).
+- [x] T094 [P] `elea-installer/docker-compose.yml` + `install.sh` extendidos — sintaxis validada
+      (`docker compose config`), NO desplegado contra una instancia real de `elea-installer`.
+- [ ] T095 [P] **NO hecho** — `docs/docs/**` no se tocó, `make -C deploy check-docs` no se corrió
+      para esta feature todavía.
+- [x] T096 (parcial) Los pasos 1-6 de `quickstart.md` se corrieron en vivo (red aislada, crear
+      espacio, subir CSV, preguntar con cruce simple, ver costo — aunque atribuido al servicio,
+      no a la persona, SC-002 no cierra). **Faltan**: paso 7 (aislamiento entre 2 personas reales,
+      solo probado a nivel de API con membresía, no con dos sesiones+preguntas reales) y paso 8
+      (motor caído).
+- [ ] T097 **En curso** — regresión completa lanzada, resultado se documenta apenas termine.
 
 ---
 
