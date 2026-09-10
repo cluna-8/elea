@@ -1356,7 +1356,7 @@ def _registrar_rechazo_por_capacidad(sentinel_key: Optional[str], model: str, to
 
 
 async def _rechazo_por_capacidad(request: Request, sentinel_key: Optional[str], model: str,
-                                 start: float):
+                                 start: float, *, error_fn=None):
     """503 AUDITADO del tope de admisión (nodo C1), para el camino byok de este plano.
 
     Registrar → rechazar, la misma secuencia que el bloqueo por política: fila durable
@@ -1391,7 +1391,10 @@ async def _rechazo_por_capacidad(request: Request, sentinel_key: Optional[str], 
     # contestar antes es otra decisión, con semántica de pérdida propia, y es de JF.
     await run_in_threadpool(_registrar_rechazo_por_capacidad, sentinel_key, model, tool, latency)
     logger.warning("gateway byok: pedido rechazado por capacidad (tool=%s model=%s)", tool, model)
-    return _anthropic_error(
+    # `error_fn`: la forma del error la pone la RUTA, no este helper. La ruta de mensajes
+    # usa el shape que parsean las coding tools; la de chat estándar necesita el suyo, o el
+    # cliente muestra "error de red" en vez del motivo. Default = el de siempre.
+    return (error_fn or _anthropic_error)(
         "[Sentinel Gateway] El modelo está a capacidad; el pedido no se encoló para no degradar "
         "el resto del producto. Reintentá en unos segundos.",
         503,
@@ -1576,12 +1579,19 @@ async def _respuesta_destino(ctx, status: int, content: bytes, media_type: str,
 
 
 async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str], is_stream: bool,
-                      *, model: str = "unknown", start: Optional[float] = None, ctx=None):
+                      *, model: str = "unknown", start: Optional[float] = None,
+                      ruta_motor: str = "/v1/messages", error_fn=None, ctx=None):
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
     enmascara/bloquea/audita vía SentinelGuardrail); el gateway NO aplica política acá para
     no duplicarla. Límite conocido (spike 019 batch 1, issue #27): en rutas bridged
     (modelos no-Claude) el unmask de respuesta del motor NO corre hoy — la respuesta
     puede traer placeholders; fail-safe, fix-spec pendiente.
+
+    ``ruta_motor`` / ``error_fn`` (spec 045): lo ÚNICO que este router tiene acoplado a un
+    formato concreto es la URL del motor y la forma del error. El cuerpo va verbatim y no se
+    parsea, así que servir el formato de chat estándar es cambiar esos dos parámetros — no
+    escribir un traductor ni una segunda política. Los defaults dejan la ruta de mensajes
+    exactamente como estaba.
 
     **Tope de admisión (nodo C1):** este es el camino de este plano que va AL MOTOR, o sea el
     que comparte cola con el chat y el que puede quedarse esperando una generación local de
@@ -1591,7 +1601,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
     # F2 fail-closed: byok EXIGE una virtual key. Sin ella no se cae al master key del
     # motor (sería un bypass a PROXY_ADMIN saltando custom_auth/budgets/atribución).
     if not sentinel_key:
-        return _anthropic_error("[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).", 401)
+        return (error_fn or _anthropic_error)("[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).", 401)
     if start is None:
         start = time.time()
 
@@ -1599,7 +1609,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
     try:
         await turno.adquirir()
     except EngineSaturatedError:
-        return await _rechazo_por_capacidad(request, sentinel_key, model, start)
+        return await _rechazo_por_capacidad(request, sentinel_key, model, start, error_fn=error_fn)
 
     # A partir de acá el turno YA está tomado, y todo lo que siga vive dentro de este `try`
     # (H8 del gate de #135). Antes, la URL, los headers y la construcción del cliente corrían
@@ -1612,7 +1622,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
     # error son varias y olvidarse en una es exactamente el bug.
     turno_traspasado = False
     try:
-        url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
+        url = _with_query(f"{_LITELLM_UPSTREAM}{ruta_motor}", request)
         headers = _byok_headers(request, sentinel_key)
         if ctx is not None:
             raw, headers = await _plugins_pre_engine(ctx, request, raw, headers, byok=True)
@@ -1625,7 +1635,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
                 async with httpx.AsyncClient(timeout=GW_BYOK_TIMEOUT_SECONDS) as client:
                     up = await client.post(url, headers=headers, content=raw)
             except Exception as exc:  # noqa: BLE001
-                return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
+                return (error_fn or _anthropic_error)(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
             return await _respuesta_destino(ctx, up.status_code, up.content,
                                             up.headers.get("content-type", "application/json"),
                                             exito_mapeable=True)
@@ -1642,7 +1652,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
             up = await client.send(req, stream=True)
         except Exception as exc:  # noqa: BLE001
             await client.aclose()
-            return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
+            return (error_fn or _anthropic_error)(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
         if up.status_code != 200:
             err = await up.aread()
             await up.aclose()
