@@ -4,16 +4,18 @@
 
 **Created**: 2026-09-08
 
-**Status**: Draft — lista para `/speckit-plan`. **Bloqueada en investigación** (ver Assumptions)
-antes de comprometer diseño detallado — es la pieza más grande del pedido original del cliente.
+**Status**: Draft — lista para `/speckit-plan`. **Investigación cerrada** (10-sep-2026, ver
+`specs/RESULTADOS-INVESTIGACION-DOCGEN-DBGPT.md` Parte 2 y la
+[spec 048](../048-motor-analisis-exacto-dbgpt/spec.md), que retoma el motor deferido acá) — ya no
+bloquea `/speckit-plan` de esta spec.
 
 **Repos que toca**: solo `client/` (Eleia Hub) — flujo de usuario, orquestación del pedido, y el
 punto de integración hacia el motor de análisis exacto. **NO toca `backend/` ni `litellm/`.** El
 único punto compartido con el producto base ("Guardian") es la identidad del usuario ya
-autenticado. El motor de análisis exacto en sí (DB-GPT o equivalente open source: texto→SQL/
-DuckDB), su despliegue, su seguridad y cómo se le atribuye costo/presupuesto al usuario, se
-especifican en una spec de backend aparte ("el back lo vemos en otras spec") — acá solo se
-especifica qué necesita la UI de esa pieza para funcionar.
+autenticado. El motor de análisis exacto en sí (DB-GPT — decisión explícita del dueño del producto,
+10-sep-2026, ver [spec 048](../048-motor-analisis-exacto-dbgpt/spec.md)), su despliegue, su
+seguridad y cómo se le atribuye costo/presupuesto al usuario, se especifican en esa spec de
+backend aparte — acá solo se especifica qué necesita la UI de esa pieza para funcionar.
 
 **Input**: punto 4 del pedido original de 6 puntos del cliente Elea, y el segundo punto del mail
 de Tomás del 03-sep ("el almacenamiento del csv parece haberse hecho dentro de una Base Vectorial
@@ -135,17 +137,20 @@ para una pregunta de cómputo exacto vs. una pregunta de contenido general, solo
 
 ## Assumptions
 
-- **Investigación obligatoria antes de `/speckit-plan` de esta spec**: retomar la evaluación de
-  DB-GPT (texto→SQL sobre DuckDB) ya iniciada en trabajo previo del laboratorio (referenciada en
-  `specs/041-cliente-rag-cobertura-completa-cliente-elea/tasks.md`, tarea T050) y confirmar si
-  sigue siendo la mejor opción open source disponible, o si conviene evaluar alternativas más
-  recientes. Esta spec no compromete la herramienta específica — solo el contrato que la UI
-  necesita de ella (recibir una pregunta en lenguaje natural + el archivo/dataset, devolver un
-  resultado exacto y explicable).
+- **Investigación cerrada (10-sep-2026)**: la evaluación de DB-GPT y alternativas
+  (`specs/RESULTADOS-INVESTIGACION-DOCGEN-DBGPT.md` Parte 2, retomando el trabajo previo
+  referenciado en `specs/041-cliente-rag-cobertura-completa-cliente-elea/tasks.md` T050)
+  encontró problemas reales en DB-GPT (un solo archivo sin cruces, SQL sin validar, PII sin
+  enmascarar, una CVE crítica de RCE) y recomendó un módulo propio con DuckDB en su lugar. El
+  dueño del producto decidió igual usar DB-GPT, con las mitigaciones de esos hallazgos como
+  requisito — ver [spec 048](../048-motor-analisis-exacto-dbgpt/spec.md). Esta spec no compromete
+  la herramienta específica — solo el contrato que la UI necesita de ella (recibir una pregunta en
+  lenguaje natural + el archivo/dataset, devolver un resultado exacto y explicable).
 - El **motor de análisis exacto en sí** (cómo se despliega, cómo se lo autentica, cómo se le
-  atribuye costo al usuario, si corre en el mismo host o en un servicio aparte) es una spec de
-  backend separada, fuera de este documento — acá solo se especifica la experiencia de usuario y
-  el punto de integración que `client/server.js` necesita exponer.
+  atribuye costo al usuario, si corre en el mismo host o en un servicio aparte) es la
+  [spec 048](../048-motor-analisis-exacto-dbgpt/spec.md), backend separado — acá solo se
+  especifica la experiencia de usuario y el punto de integración que `client/server.js` necesita
+  exponer.
 - Se asume que "espacio de análisis exacto" es un concepto de interfaz nuevo, no una extensión del
   chat RAG existente — el diseño exacto (tipo de `Workspace` nuevo vs. entidad separada) se decide
   en `plan.md`, coordinando con la spec 043 solo en la medida en que reutilice el modelo de

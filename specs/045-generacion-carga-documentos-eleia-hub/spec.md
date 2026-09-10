@@ -9,9 +9,9 @@
 **Repos que toca**: solo `client/` (Eleia Hub). **NO toca `backend/` ni `litellm/`.** El único
 punto compartido con el producto base ("Guardian") es la identidad del usuario ya autenticado
 (sesión/JWT existente, contrato de usuarios de la spec 043) — no se pide ni se asume ningún
-endpoint nuevo del backend. El motor de generación de documentos (si se necesita uno propio más
-allá de lo que ya ofrece el motor de documentos actual) se especifica en una spec de backend
-aparte, fuera de este documento.
+endpoint nuevo del backend. El motor de generación de documentos (investigación cerrada 10-sep-
+2026, arquitectura híbrida: plantillas deterministas + modo libre agéntico opt-in) se especifica
+en la [spec 049](../049-motor-generacion-documentos/spec.md), backend aparte.
 
 **Input**: puntos 1 y 2 del pedido original de 6 puntos del cliente Elea (compartido 31-ago,
 auditado en la spec 041 US1 y US4, retomados acá como specs de UI completas): carga de documentos
@@ -140,17 +140,16 @@ relacionado al documento citado.
 
 ## Assumptions
 
-- **Investigación previa a comprometer alcance/fecha de US2 (obligatoria antes de `/speckit-plan`
-  de esta historia)**: evaluar si el "Document Generation Agent" del motor de documentos actual
-  (modo `@agent`, ya identificado en la investigación de la spec 041) alcanza para pptx/docx/pdf/
-  xlsx antes de integrar o construir un motor de generación propio. Si no alcanza, la alternativa
-  (librería de generación directa desde `client/`, o un servicio dedicado nuevo) es una decisión
-  de arquitectura que puede requerir una spec de backend propia (fuera de este documento, "el back
-  lo vemos en otras spec").
-- Esta spec asume que existe **un punto de integración** desde `client/server.js` hacia lo que sea
-  que genere el documento (el motor de documentos actual, o un servicio nuevo) — no prescribe cuál.
-  El plan de esta spec debe dejar ese punto de integración como una interfaz clara (URL/función
-  configurable), sin acoplarse a los detalles internos de la herramienta elegida.
+- **Investigación cerrada (10-sep-2026)**: el "Document Generation Agent" del motor de documentos
+  actual (modo `@agent`) genera desde cero con tres temas de color fijos, sin partir de la
+  plantilla real del cliente — no alcanza para el pedido (`RESULTADOS-INVESTIGACION-DOCGEN-
+  DBGPT.md` Parte 1). La arquitectura elegida es un motor propio con dos caminos: plantillas
+  deterministas por defecto y un modo libre agéntico opt-in (`RESULTADOS-INVESTIGACION-DOCGEN-
+  AGENTICO.md`) — especificado en la [spec 049](../049-motor-generacion-documentos/spec.md).
+- Esta spec asume que existe **un punto de integración** desde `client/server.js` hacia el motor
+  de la [spec 049](../049-motor-generacion-documentos/spec.md) — no prescribe los detalles
+  internos de esa pieza. El plan de esta spec debe dejar ese punto de integración como una
+  interfaz clara (URL/función configurable).
 - US1 (carga de pptx) no depende de ninguna decisión de US2 — puede implementarse y entregarse de
   forma completamente independiente y sin investigación previa (mismo patrón que xlsx/pdf).
 - El enmascarado y el presupuesto reutilizan lo ya construido en 043/044 — esta spec no redefine
