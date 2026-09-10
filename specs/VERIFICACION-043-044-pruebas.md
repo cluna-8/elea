@@ -88,6 +88,18 @@ pregunta al RAG devolvió el DNI/email/teléfono REALES (bóveda de PII desenmas
 Paso 3 (segunda subida, documento distinto) no se corrió esta vez — el resto del guion sí,
 con el CSV/documento de prueba de esta sesión (no el CSV real del cliente todavía).
 
+**⚠️ Segundo reclamo del mismo mail (03-sep), NO cubierto por P2 — fuera de alcance de 043/044**:
+"el almacenamiento del csv parece haberse hecho dentro de una Base Vectorial con Chunks
+definidos, lo que hace que no se pueda aplicar un análisis cruzando filas/columnas o incluso
+otros archivos como el que se suele aplicar en áreas como Finanzas/BI." No es un bug de
+enmascarado — es una limitación arquitectónica real: el motor de documentos hace búsqueda
+semántica sobre chunks, no consultas tabulares/SQL. Ya trackeado como
+[spec 046](046-analisis-exacto-datos-eleia-hub/spec.md) ("Análisis exacto de datos
+Excel/CSV en Eleia Hub", cita esta misma frase del mail como input), que a su vez depende de
+un motor nuevo (DB-GPT o equivalente, texto→SQL/DuckDB) especificado aparte en backend —
+decisión ya tomada el 31-ago: queda fuera del piloto, AnythingLLM alcanza para eso. Sigue en
+`Draft`, bloqueada en investigación. No forma parte del cierre de 043/044.
+
 ### P3 — "Aparece en modelos: license y chat-ui" / "en usuarios: anythingllm-provider y rag-masking"
 
 | Paso | Acción | Resultado esperado |
