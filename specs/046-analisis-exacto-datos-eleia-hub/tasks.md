@@ -98,27 +98,49 @@ description: "Task list — spec 046: Análisis exacto de datos (Excel/CSV) en E
    `kind=exact_analysis` de su respuesta. Regresión cubierta en
    `client/tests/contract/test_workspaces.test.js` y verificado en vivo.
 
-## Riesgo real encontrado en producción (11-sep), NO corregido — decisión explícita del dueño
-## del producto de mitigar con aviso, no con bloqueo ni con enmascarado de .xlsx
+## Riesgo real encontrado en producción (11-sep) — CERRADO para `.xlsx` más tarde el mismo día
 
 Subiendo un `.xlsx` real (con datos de facturación reales: CUIT, nombre completo, email
 personal, teléfono, domicilio) la respuesta del motor volvió con **todos esos datos en texto
 plano, sin ninguna protección** — la confirmación en producción del gap ya documentado arriba
-(el enmascarado de CSV, bugs 2 y 3, NO corre para `.xlsx`/`.xls`; T090 de la 048 sigue
-pendiente para Excel binario). No es un bug nuevo: es el gap conocido manifestándose con datos
-reales de un cliente (Drexgen SAS) en vez de datos de prueba.
+(el enmascarado de CSV, bugs 2 y 3, NO corría para `.xlsx`/`.xls`; T090 de la 048 quedaba
+pendiente para Excel binario). No era un bug nuevo: era el gap conocido manifestándose con
+datos reales de un cliente (Drexgen SAS) en vez de datos de prueba.
 
-**Decisión del dueño del producto (11-sep, tras revisar tres opciones)**: no bloquear `.xlsx`
-ni implementar el enmascarado binario todavía — en su lugar, avisar explícitamente ANTES de
-subir. Implementado en `uploadExactAnalysisFile()` (`client/public/index.html`): un
-`confirm()` nativo al elegir un archivo `.xlsx`/`.xls` que dice textualmente que el archivo
-NO se enmascara y que datos personales reales pueden volver sin proteger en la respuesta —
-la persona decide con esa información, la subida no se bloquea. El texto de estado durante la
-subida también cambia ("sin enmascarar — Excel") para no sugerir una protección que no ocurre.
-**El riesgo de fondo sigue sin cerrarse** — solo se lo hace visible antes de cada subida. Si en
-algún momento se decide cerrar el gap de raíz, la opción evaluada y descartada esta ronda era:
-leer el `.xlsx` celda por celda, enmascarar cada celda (mismo criterio fila-por-fila que ya
-tiene el CSV) y reempaquetar como `.xlsx` real antes de subir.
+**Primera decisión del dueño del producto (11-sep, mitigación inmediata)**: no bloquear
+`.xlsx` ni implementar el enmascarado binario todavía — avisar explícitamente ANTES de subir.
+Implementado un `confirm()` nativo en `uploadExactAnalysisFile()` que decía que el archivo NO
+se enmascaraba.
+
+**Segunda decisión, mismo día, más tarde**: cerrar el gap de raíz para `.xlsx` (la opción que
+antes se había evaluado y descartado por tiempo). Implementado `maskXlsxBuffer()` en
+`client/server.js`: lee el `.xlsx` con `exceljs`, enmascara **celda por celda** (más simple y
+más seguro que el enfoque fila-por-fila de CSV — cada celda ya tiene un límite real en el
+archivo, no hace falta reconstruir nada por delimitador, así que es imposible que una entidad
+"cruce" un límite de celda), excluye siempre la primera fila de cada hoja (encabezado, mismo
+criterio que CSV) y las celdas no-texto (números/fechas, nunca candidatos de PII), y
+re-empaqueta un `.xlsx` real con `workbook.xlsx.writeBuffer()`.
+
+**Por qué `exceljs` y no el paquete `xlsx` (SheetJS) de npm**: `xlsx@0.18.5` (la última
+versión publicada al registro público de npm) tiene dos vulnerabilidades de severidad alta sin
+parche disponible ahí — prototype pollution y ReDoS (SheetJS solo publica las versiones
+parchadas en su propio CDN, no en npm, por una disputa con el registro). Este código parsea
+archivos subidos por cualquier persona autenticada; una dependencia con esas vulnerabilidades
+conocidas sobre ESE input es exactamente el tipo de agujero que un producto de protección de
+datos no puede tener. Verificado con `npm audit` antes de decidir.
+
+**`.xls` (formato binario legado) sigue sin enmascarar**: `exceljs` no lo soporta (solo
+`.xlsx`/`.csv`). El aviso `confirm()` se mantiene, pero acotado solo a `.xls` — recomienda
+guardar como `.xlsx` desde Excel/Sheets. Mucho menos común hoy que `.xlsx` en la práctica.
+
+Verificado: `client/tests/integration/test_xlsx_masking_046.test.js` (enmascara celda por
+celda con un doble HTTP real de `/gw/inspect`, nunca el encabezado ni las celdas numéricas;
+una celda bloqueada por gobernanza bloquea todo el documento) y en vivo contra el stack real
+— subida vía `curl` de un `.xlsx` con nombres de prueba (`Julian Test Perez`, `Maria Test
+Gomez`), confirmadas 4 llamadas a `/gw/inspect` en los logs del backend (una por celda de
+texto de datos, nunca el encabezado ni los montos), y una pregunta posterior sobre el archivo
+ya enmascarado que el motor respondió correctamente (`total_monto: 300.0` para Marketing,
+`depto` intacto y usable para el filtro SQL).
 
 ## Corrida de QA real (11-sep) — checklist en Chrome (T107 repetido por otra persona/sesión) —
 ## 1 bloqueante y 5 menores encontrados, bloqueante corregido el mismo día

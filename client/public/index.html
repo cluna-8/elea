@@ -1618,25 +1618,29 @@
       const file = input.files[0];
       if (!file || !currentExactAnalysisWorkspace) return;
 
-      // Aviso explícito antes de subir .xlsx/.xls (decisión del dueño del producto,
-      // 11-sep, tras encontrar en vivo un archivo real con CUIT/email/teléfono/domicilio
-      // reales que volvió del motor completamente sin proteger): el enmascarado de PII
-      // hoy SOLO corre para .csv (T090 de la 048, todavía pendiente para Excel binario).
-      // No se bloquea la subida — se avisa y la persona decide, sabiendo el riesgo real.
+      // Aviso explícito antes de subir .xls (decisión del dueño del producto, 11-sep, tras
+      // encontrar en vivo un archivo real con CUIT/email/teléfono/domicilio reales que
+      // volvió del motor completamente sin proteger). Alcance actualizado: .xlsx YA se
+      // enmascara (celda por celda, servidor) desde que se cerró el gap — el aviso queda
+      // solo para .xls, el formato binario legado que la librería de enmascarado no puede
+      // leer (ver el comentario de `maskXlsxBuffer` en server.js). No se bloquea la
+      // subida — se avisa y la persona decide, sabiendo el riesgo real.
       const ext = (file.name.split('.').pop() || '').toLowerCase();
-      if (ext === 'xlsx' || ext === 'xls') {
+      if (ext === 'xls') {
         const seguir = confirm(
-          'Este archivo Excel NO pasa por el enmascarado de datos personales (hoy solo ' +
-          'protegemos .csv). Si tiene nombres, DNI/CUIT, emails o teléfonos reales, van a ' +
-          'llegar sin proteger al motor de análisis y pueden volver así en la respuesta.\n\n' +
-          '¿Subir igual?'
+          'Este archivo .xls (formato Excel viejo) NO pasa por el enmascarado de datos ' +
+          'personales — solo .csv y .xlsx están protegidos hoy. Si tiene nombres, DNI/CUIT, ' +
+          'emails o teléfonos reales, van a llegar sin proteger al motor de análisis y ' +
+          'pueden volver así en la respuesta.\n\n' +
+          'Si podés, guardalo como .xlsx desde Excel/Sheets y subí esa versión en su lugar.\n\n' +
+          '¿Subir igual, sin enmascarar?'
         );
         if (!seguir) { input.value = ''; return; }
       }
 
       const statusEl = document.getElementById('exact-analysis-file-status');
-      statusEl.textContent = (ext === 'xlsx' || ext === 'xls')
-        ? 'Subiendo la planilla (sin enmascarar — Excel)…'
+      statusEl.textContent = (ext === 'xls')
+        ? 'Subiendo la planilla (sin enmascarar — .xls) …'
         : 'Subiendo y protegiendo la planilla…';
 
       const form = new FormData();

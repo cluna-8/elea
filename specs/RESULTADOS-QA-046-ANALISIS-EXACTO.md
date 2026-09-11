@@ -7,8 +7,17 @@
 **Checklist seguido:** guion de 8 casos publicado como artifact interactivo (privado, editable por quien lo abre — por eso este archivo, para que el hallazgo quede versionado y con fecha, sin que nadie lo pise).
 
 **Archivos usados (no son documentación, son insumos, no versionados en git):**
-- `~/Descargas/ventas_qa.xlsx` — fixture sintético (`depto`, `vendedor`, `monto`; una fila `Marketing` = `300`). Datos 100% inventados, justamente porque `.xlsx` hoy no pasa por enmascarado.
+- `~/Descargas/ventas_qa.xlsx` — fixture sintético (`depto`, `vendedor`, `monto`; una fila `Marketing` = `300`). Datos 100% inventados — en el momento de esta corrida, `.xlsx` todavía no pasaba por enmascarado (ver actualización abajo).
 - `~/Descargas/archivo_no_soportado_qa.pdf` — para el Caso 3 (formato rechazado).
+
+> **Actualización posterior a esta corrida (11-sep, más tarde el mismo día):** el riesgo de
+> `.xlsx` sin enmascarar descripto en todo este documento (Casos 2/4, sección de "Riesgos
+> conocidos") **se cerró**. `.xlsx` ahora se enmascara celda por celda del lado del servidor
+> (`maskXlsxBuffer()`, `client/server.js`, con `exceljs`) antes de salir del Hub. El aviso
+> `confirm()` que se describe abajo para "Excel" quedó acotado solo a `.xls` (formato binario
+> legado, sin soporte de la librería). Detalle completo en
+> `specs/046-analisis-exacto-datos-eleia-hub/tasks.md`. Esta corrida se deja intacta como
+> registro histórico de lo que era cierto en ese momento — no se reescribe retroactivamente.
 
 ---
 

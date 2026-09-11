@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
+const ExcelJS = require('exceljs');
 const { execSync } = require('child_process');
 
 const app = express();
@@ -423,6 +424,75 @@ async function maskCsvText(text, { actingUserId } = {}) {
   for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
   return {
     masked: maskedLines.join('\n'),
+    blocked: false,
+    entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
+    truncated,
+    documentId
+  };
+}
+
+// Tope de celdas a enmascarar por planilla (mismo criterio que MASK_MAX_TOTAL_CHARS para
+// CSV): una planilla real puede tener decenas de miles de celdas, y cada una es una
+// llamada de red al analizador — mejor cortar y avisar que colgar la subida.
+const MASK_XLSX_MAX_CELLS = 4000;
+
+// Enmascarado real de .xlsx (spec 046, cierra el gap documentado desde T090 de la 048 —
+// hasta hoy .xlsx/.xls salían del Hub sin ninguna protección de PII, riesgo confirmado en
+// vivo con datos reales de un cliente: CUIT, email, teléfono, domicilio en texto plano).
+//
+// Celda por celda, NO fila por fila (a diferencia de `maskCsvText`): un .xlsx ya tiene
+// límites de celda reales en el archivo — no hace falta reconstruir nada por delimitador,
+// así que enmascarar celda por celda es más simple Y más seguro que el enfoque de CSV (ahí
+// no hay ninguna forma de que una entidad "cruce" un límite de fila, porque cada celda es
+// su propia llamada al analizador y su propio reemplazo 1:1, sin split/join de por medio).
+//
+// Solo celdas de TEXTO (`typeof cell.value === 'string'`): un monto o una fecha no son
+// candidatos de PII y enmascararlos sería una llamada al NER desperdiciada. La primera
+// fila de cada hoja (encabezado) nunca se enmascara — mismo criterio y misma razón que ya
+// rige para CSV (T090/spec 046, decisión del dueño del producto 11-sep): un nombre de
+// columna no es PII real, y enmascararlo rompe la semántica que el motor necesita para
+// armar el SQL (`WHERE depto = 'Marketing'` deja de funcionar si "depto" es un placeholder).
+//
+// Se usa `exceljs`, no el paquete `xlsx` (SheetJS) de npm: `xlsx@0.18.5` (la última versión
+// publicada al registro de npm) tiene dos vulnerabilidades conocidas SIN parche disponible
+// ahí (prototype pollution + ReDoS — SheetJS solo publica las versiones parchadas en su
+// propio CDN, no en npm). Este código parsea archivos subidos por cualquier persona
+// autenticada — una dependencia con ReDoS/prototype-pollution conocidos sobre ESE input es
+// exactamente el tipo de agujero que un producto de protección de datos no puede tener.
+// `exceljs` no soporta el formato binario legado `.xls` (solo `.xlsx`/`.csv`) — por eso
+// `.xls` (mucho menos común hoy que `.xlsx`) se queda en el camino viejo de "sube sin
+// enmascarar, con aviso explícito" (ver `uploadExactAnalysisFile()` del lado del cliente).
+async function maskXlsxBuffer(buffer, { actingUserId } = {}) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const documentId = crypto.randomUUID();
+
+  const celdas = [];
+  for (const sheet of workbook.worksheets) {
+    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber === 1) return; // encabezado de ESTA hoja: nunca se enmascara
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        if (typeof cell.value === 'string' && cell.value.trim()) celdas.push(cell);
+      });
+    });
+  }
+
+  const truncated = celdas.length > MASK_XLSX_MAX_CELLS;
+  const usable = truncated ? celdas.slice(0, MASK_XLSX_MAX_CELLS) : celdas;
+  const allEntities = [];
+
+  for (const cell of usable) {
+    const result = await maskChunk(String(cell.value), { documentId, actingUserId });
+    if (result.blocked) return { ...result, documentId }; // una celda bloqueada bloquea todo el documento
+    cell.value = result.masked;
+    allEntities.push(...result.entities);
+  }
+
+  const merged = {};
+  for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
+  const outBuffer = await workbook.xlsx.writeBuffer();
+  return {
+    buffer: Buffer.from(outBuffer),
     blocked: false,
     entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
     truncated,
@@ -1171,11 +1241,12 @@ app.post('/api/exact-analysis/workspaces/:id/files', upload.single('file'), asyn
     let buffer = fs.readFileSync(req.file.path);
     let contentType = req.file.mimetype || 'text/csv';
 
-    // Enmascarado ANTES de que el dato salga del Hub (FR-003) — hoy solo para .csv (texto
-    // delimitado real: enmascarar valor por valor conserva filas/columnas intactas, el motor
-    // sigue pudiendo calcular sobre la estructura). .xlsx es binario — extraer, enmascarar y
-    // re-empaquetar como .xlsx real queda FUERA de esta ronda (T090 de la 048, documentado,
-    // no escondido: ver el log de abajo). Sigue siendo mejor que no enmascarar nada.
+    // Enmascarado ANTES de que el dato salga del Hub (FR-003). .csv fila por fila
+    // (`maskCsvText`); .xlsx celda por celda (`maskXlsxBuffer`, cierra el gap real
+    // confirmado en vivo el 11-sep con datos reales de un cliente sin ninguna protección).
+    // .xls (formato binario legado, mucho menos común hoy) se queda sin enmascarar — ver
+    // el comentario de `maskXlsxBuffer` sobre por qué (soporte de librería + riesgo real de
+    // una dependencia con vulnerabilidades conocidas sobre input subido por cualquiera).
     if (ext === 'csv') {
       const rawText = buffer.toString('utf-8');
       const { masked, blocked, budgetExceeded, motivo } =
@@ -1187,10 +1258,20 @@ app.post('/api/exact-analysis/workspaces/:id/files', upload.single('file'), asyn
       }
       buffer = Buffer.from(masked, 'utf-8');
       contentType = 'text/csv';
+    } else if (ext === 'xlsx') {
+      const { buffer: maskedBuffer, blocked, budgetExceeded, motivo } =
+        await maskXlsxBuffer(buffer, { actingUserId: session.user.id });
+      fs.unlinkSync(req.file.path);
+      if (budgetExceeded) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
+      if (blocked) {
+        return res.status(422).json({ error: `Archivo bloqueado por la política de protección de datos: ${motivo}` });
+      }
+      buffer = maskedBuffer;
+      contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     } else {
       console.warn(
-        `exact-analysis: subida .${ext} SIN pasar por enmascarado (T090 de la spec 048, ` +
-        'pendiente) — solo .csv lo aplica hoy.'
+        `exact-analysis: subida .${ext} SIN pasar por enmascarado (formato binario legado, ` +
+        'sin soporte de la librería de enmascarado — solo .csv y .xlsx lo aplican hoy).'
       );
       fs.unlinkSync(req.file.path);
     }
@@ -1213,6 +1294,13 @@ app.post('/api/exact-analysis/workspaces/:id/files', upload.single('file'), asyn
     if (!r.ok) return res.status(r.status).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
     res.json(data);
   } catch (err) {
+    // Si `maskXlsxBuffer`/`maskCsvText` explotan antes de su propio `unlinkSync` (ej. un
+    // .xlsx corrupto que ExcelJS no puede parsear), el temporal de multer quedaría
+    // huérfano en `public/uploads/` — mismo criterio ya establecido para el resto de las
+    // subidas del Hub (ver el comentario "huérfano" más arriba en este archivo).
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (_) { /* ya no está, no importa */ }
+    }
     console.error('exact-analysis upload falló:', err.message);
     res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
   }
@@ -1254,3 +1342,10 @@ if (require.main === module) {
 }
 
 module.exports = app;
+// Expuesto solo para tests de integración (ver tests/integration/test_xlsx_masking_046.
+// test.js) — verificar el enmascarado de .xlsx celda por celda contra el analizador real
+// necesita inspeccionar el buffer binario resultante, algo que el doble HTTP compartido
+// (mock-servers.js) no puede hacer sin corromper bytes al pasar por texto. No cambia nada
+// del comportamiento en producción: `require('./server.js')` siempre devolvía `app`, esto
+// solo agrega una propiedad más al mismo objeto exportado.
+module.exports.maskXlsxBuffer = maskXlsxBuffer;
