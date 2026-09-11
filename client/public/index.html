@@ -1677,18 +1677,56 @@
     }
 
     // Bug real encontrado en pruebas de QA (11-sep): el motor (DB-GPT) devuelve la
-    // respuesta con un bloque <chart-view content="{...}"> embebido al final — el mismo
-    // SQL/datos que ya mostramos aparte en el recuadro de SQL, con las comillas del JSON
-    // escapadas como &quot; y los saltos de línea como la secuencia literal "\n" (dos
-    // caracteres, no un salto real). Sin limpiar, la persona veía ese JSON crudo pegado
-    // después de la respuesta en lugar de solo el texto. `sql_executed` viene aparte y
-    // por eso el recuadro de SQL siempre se vio bien — acá falta el mismo tratamiento.
+    // respuesta con un bloque <chart-view content="{...}"> embebido al final, con las
+    // comillas del JSON escapadas como &quot; y los saltos de línea del texto como la
+    // secuencia literal "\n" (dos caracteres, no un salto real). Sin limpiar, la persona
+    // veía ese JSON crudo pegado después de la respuesta.
+    //
+    // Segundo bug real, encontrado por QA sobre el primer arreglo (11-sep, mismo día): el
+    // primer intento borraba el bloque <chart-view> entero asumiendo que era redundante
+    // con el recuadro de SQL — pero el recuadro de SQL solo muestra la CONSULTA
+    // (`sql_executed`), nunca el RESULTADO. El resultado (`data: [{total_ventas: 300.0}]`)
+    // vive únicamente adentro del `content` del <chart-view>. Borrarlo sin más dejaba a la
+    // persona leyendo el razonamiento y el SQL pero sin ver nunca el número. Ahora se
+    // PARSEA el `content` (decodificando sus entidades y el JSON) y se agrega el resultado
+    // real al final del texto, en vez de descartarlo.
+    function formatearFilasChartView(filas) {
+      if (!filas || !filas.length) return '';
+      const columnas = Object.keys(filas[0]);
+      // Caso más común de este modo: una sola fila con una sola columna numérica
+      // (SUM/COUNT/AVG) — el resultado ES ese valor, sin necesidad de tabla.
+      if (filas.length === 1 && columnas.length === 1) {
+        return `Resultado: ${filas[0][columnas[0]]}`;
+      }
+      const MAX_FILAS = 20;
+      const mostrar = filas.slice(0, MAX_FILAS);
+      const filasTexto = mostrar.map((fila) => columnas.map((c) => `${c}: ${fila[c]}`).join(', '));
+      let tabla = filasTexto.join('\n');
+      if (filas.length > MAX_FILAS) tabla += `\n… y ${filas.length - MAX_FILAS} fila(s) más.`;
+      return tabla;
+    }
+
     function limpiarRespuestaExactAnalysis(raw) {
       if (!raw) return '';
+      const decodificarEntidades = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
+      let resultado = '';
+      const match = raw.match(/<chart-view\s+content="([\s\S]*?)">/i);
+      if (match) {
+        try {
+          const parsed = JSON.parse(decodificarEntidades(match[1]));
+          resultado = formatearFilasChartView(parsed.data);
+        } catch (err) {
+          // El content no se pudo parsear (formato inesperado del motor) — seguimos sin
+          // el resultado embebido en vez de romper toda la respuesta por esto.
+        }
+      }
+
       let texto = raw.replace(/<chart-view[\s\S]*?<\/chart-view>/gi, '').trim();
       texto = texto.replace(/\\n/g, '\n');
-      texto = texto.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
-      return texto.trim();
+      texto = decodificarEntidades(texto).trim();
+      if (resultado) texto += (texto ? '\n\n' : '') + resultado;
+      return texto;
     }
 
     async function askExactAnalysisQuestion() {
