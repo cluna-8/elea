@@ -120,6 +120,52 @@ algún momento se decide cerrar el gap de raíz, la opción evaluada y descartad
 leer el `.xlsx` celda por celda, enmascarar cada celda (mismo criterio fila-por-fila que ya
 tiene el CSV) y reempaquetar como `.xlsx` real antes de subir.
 
+## Corrida de QA real (11-sep) — checklist en Chrome (T107 repetido por otra persona/sesión) —
+## 1 bloqueante y 5 menores encontrados, bloqueante corregido el mismo día
+
+Se corrió el guion completo de 8 casos en `http://localhost:8095` (usuaria `ana`). 7/8 pasaron
+en la corrida original; el que falló era un bug real de presentación, no de cálculo.
+
+**Bloqueante (corregido el mismo día)**: la respuesta de `POST /exact-analysis/.../query` volvía
+con un bloque `<chart-view content="{...}">` embebido, saltos de línea como la secuencia literal
+`\n` (dos caracteres) y comillas del JSON escapadas como `&quot;` — `askExactAnalysisQuestion()`
+lo asignaba tal cual a `answerText.textContent`, así que la persona veía el JSON crudo del motor
+pegado después de la respuesta. El SQL (`sql_executed`) viaja aparte del `answer` y por eso el
+recuadro de SQL siempre se vio bien — solo la respuesta en sí quedaba sin procesar. Arreglado con
+`limpiarRespuestaExactAnalysis()` (`client/public/index.html`): saca el bloque `<chart-view>`
+(redundante con el recuadro de SQL), convierte los `\n` literales en saltos reales y decodifica
+las entidades más comunes (`&quot;`, `&amp;`, `&#39;`). Verificado en vivo tras reconstruir el
+contenedor: la misma pregunta que antes mostraba el JSON crudo ahora responde con texto legible.
+
+**Menor (corregido el mismo día)**: el archivo rechazado por extensión (ej. un `.pdf`) quedaba
+con su nombre pegado al lado de "Seleccionar archivo" tras el aviso de error, como si hubiera
+quedado cargado — `uploadExactAnalysisFile()` ahora limpia `input.value` también en el camino de
+error (ya lo hacía el camino de cancelar el aviso de Excel).
+
+**Menores abiertos, no corregidos esta ronda**:
+- El recuadro de columnas detectadas (`#exact-analysis-columns`) queda siempre vacío — el
+  backend nunca devuelve `data.columns` en la respuesta de subida, solo
+  `{conv_uid, file_name, select_param}`. O se implementa la detección de columnas del lado del
+  backend, o se saca el elemento de la UI (hoy es un recuadro vacío inofensivo, no roto).
+- Al cerrar sesión SIN recargar la página, los nombres de los espacios (de ambos modos) siguen
+  visibles un instante en el DOM detrás del overlay de login (`rgba(...,0.92)`, no 100% opaco).
+  Mismo `handleLogout()` sin re-render ya reportado el 10-sep para el resto del Hub — no es un
+  bug nuevo de esta spec, pero ahora también alcanza a "Análisis exacto". Recargar la página lo
+  resuelve. Fuera de alcance de la 046 corregirlo acá.
+- `askExactAnalysisQuestion()` no pre-chequea el presupuesto del lado del cliente antes de
+  llamar (el chat normal sí lo hace con `currentBudget.status === 'exceeded'`) — el backend
+  corta igual con el mensaje neutro correcto, así que no es un agujero de seguridad, pero es una
+  ida y vuelta de más e inconsistente con el resto del Hub. Además, con presupuesto agotado la
+  SUBIDA del archivo igual se permite; solo se corta al preguntar.
+- Fuera de alcance de esta spec: el panel de branding (`:8090`) arranca titulado con el nombre
+  de otro cliente ("Sentinel Secure AI Gateway") hasta que carga el branding real, y las claves
+  de `localStorage` siguen siendo `sentinel_session_token`/`basa_current_user` — cosmético, no
+  afecta la función, pero se ve en una demo.
+
+Detalle completo, tabla de resultados caso por caso y el payload crudo real antes del fix quedan
+documentados en la guía de QA publicada (checklist interactivo, ver enlace en el mensaje al
+equipo de QA).
+
 ## Implementation Strategy
 
 MVP = T098-T104 (US1 completo) — ya demuestra el flujo real pedido. T105 (US2) y T106/T107 cierran

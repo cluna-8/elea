@@ -1649,6 +1649,12 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           statusEl.textContent = '';
+          // Bug real encontrado en pruebas de QA (11-sep): sin esto, el nombre del
+          // archivo rechazado quedaba pegado al lado de "Seleccionar archivo" como si
+          // hubiera quedado cargado, aunque la subida haya fallado (ej. formato no
+          // soportado) — mismo criterio que ya usaba el camino de cancelar el aviso
+          // de Excel, que sí limpiaba el input.
+          input.value = '';
           showToast(data.error || 'No se pudo subir la planilla.');
           return;
         }
@@ -1665,8 +1671,24 @@
         document.getElementById('exact-analysis-answer-box').style.display = 'none';
       } catch (err) {
         statusEl.textContent = '';
+        input.value = '';
         showToast('No se pudo subir la planilla.');
       }
+    }
+
+    // Bug real encontrado en pruebas de QA (11-sep): el motor (DB-GPT) devuelve la
+    // respuesta con un bloque <chart-view content="{...}"> embebido al final — el mismo
+    // SQL/datos que ya mostramos aparte en el recuadro de SQL, con las comillas del JSON
+    // escapadas como &quot; y los saltos de línea como la secuencia literal "\n" (dos
+    // caracteres, no un salto real). Sin limpiar, la persona veía ese JSON crudo pegado
+    // después de la respuesta en lugar de solo el texto. `sql_executed` viene aparte y
+    // por eso el recuadro de SQL siempre se vio bien — acá falta el mismo tratamiento.
+    function limpiarRespuestaExactAnalysis(raw) {
+      if (!raw) return '';
+      let texto = raw.replace(/<chart-view[\s\S]*?<\/chart-view>/gi, '').trim();
+      texto = texto.replace(/\\n/g, '\n');
+      texto = texto.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      return texto.trim();
     }
 
     async function askExactAnalysisQuestion() {
@@ -1694,7 +1716,7 @@
           answerText.textContent = data.error || 'No se pudo responder.';
           return;
         }
-        answerText.textContent = data.answer;
+        answerText.textContent = limpiarRespuestaExactAnalysis(data.answer);
         if (data.sql_executed) {
           sqlBox.textContent = data.sql_executed.trim();
           sqlBox.style.display = 'block';
