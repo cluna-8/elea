@@ -41,7 +41,7 @@ def list_for_user(db: Session, tenant_id, user_id) -> list[dict]:
     )
     return [
         {"id": ws.id, "engine_slug": ws.engine_slug, "display_name": ws.display_name,
-         "role": role, "status": ws.status}
+         "role": role, "status": ws.status, "kind": ws.kind}
         for ws, role in rows
     ]
 

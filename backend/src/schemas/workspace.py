@@ -21,6 +21,11 @@ class WorkspaceOut(BaseModel):
     display_name: str
     role: Literal["owner", "member"]
     status: Literal["active", "unassigned"]
+    # spec 048/046: distingue un espacio de chat RAG de uno de análisis exacto (DB-GPT). Bug
+    # real encontrado en vivo (11-sep): faltaba acá, así que el Hub nunca podía filtrar sus
+    # propios espacios de análisis exacto desde GET /workspaces (siempre volvía `None` del
+    # ORM, la UI mostraba "no tenés espacios" aunque el espacio SÍ se hubiera creado bien).
+    kind: Literal["rag", "exact_analysis"] = "rag"
 
     class Config:
         from_attributes = True

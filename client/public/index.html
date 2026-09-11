@@ -124,6 +124,23 @@
     }
     .add-btn:hover { background: var(--accent-soft); }
 
+    .hub-mode-tab {
+      background: transparent; border: none; color: var(--text-muted);
+      padding: 6px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; border-radius: 6px;
+    }
+    .hub-mode-tab.active { background: #fff; color: var(--text-main); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+    .exact-analysis-sql-box {
+      background: #1e1e2e; color: #a6e3a1; font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; padding: 10px 12px; border-radius: 8px; margin-top: 8px;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .exact-analysis-columns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .exact-analysis-columns span {
+      background: var(--accent-soft); color: #4b3f78; font-size: 11.5px; font-weight: 700;
+      padding: 3px 9px; border-radius: 999px;
+    }
+
     .workspaces-list { display: flex; flex-direction: column; gap: 2px; max-height: 170px; overflow-y: auto; }
     .workspace-item {
       padding: 9px 10px; border-radius: 9px; background: transparent; border: 1px solid transparent;
@@ -441,6 +458,14 @@
       <select class="guardian-select" id="guardian-model-selector"></select>
     </div>
 
+    <!-- Spec 046 (US2/FR-001): camino visible y DISTINTO del chat RAG — nunca mezclado en
+         la misma vista, para que la persona nunca confunda "cómputo exacto" con "chat sobre
+         documentos" (el reclamo original era justo esa confusión). -->
+    <div class="hub-mode-tabs" style="display:flex; gap:4px; background:var(--bg-hover); padding:3px; border-radius:8px;">
+      <button class="hub-mode-tab active" id="tab-chat" onclick="switchHubView('chat')" title="Chat sobre documentos (RAG)">💬 Chat</button>
+      <button class="hub-mode-tab" id="tab-exact-analysis" onclick="switchHubView('exact-analysis')" title="Cálculos exactos sobre planillas — sumas, conteos, cruces. No es el chat de documentos.">📊 Análisis exacto</button>
+    </div>
+
     <!-- Usuario real + presupuesto real -->
     <div class="user-profile-widget">
       <div class="user-avatar-circle" id="user-avatar">U</div>
@@ -730,6 +755,71 @@
       <div id="unassigned-list" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
         <button class="modal-cancel-btn" onclick="closeUnassignedModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VISTA: ANÁLISIS EXACTO (spec 046) — separada del chat RAG a propósito (US2/FR-001).
+       Para cálculos exactos sobre planillas: sumas, conteos, cruces. No es el chat de
+       documentos — acá SÍ se muestra el SQL ejecutado (Pipeline Transparency, a diferencia
+       del chat RAG que nunca lo expone). -->
+  <div class="portal-main" id="view-exact-analysis" style="display:none;">
+    <div class="left-panel">
+      <div>
+        <div class="section-header">
+          <span class="section-title">Espacios de Análisis Exacto</span>
+          <button class="add-btn" onclick="openNewExactAnalysisWsModal()">+ Nuevo</button>
+        </div>
+        <div class="workspaces-list" id="exact-analysis-workspaces-container"></div>
+        <div id="exact-analysis-workspaces-empty" style="display:none; padding:16px 10px; font-size:13px; line-height:1.5; opacity:0.8;">
+          Todavía no tenés espacios de análisis exacto. Creá uno para subir una planilla.
+        </div>
+      </div>
+      <div style="padding:12px 10px; font-size:12px; line-height:1.5; color:var(--text-muted); border-top:1px solid var(--border-color); margin-top:8px;">
+        Para cálculos exactos sobre planillas — sumas, conteos, cruces por columna. Si lo que
+        necesitás es preguntar sobre el contenido de un documento (no calcular), usá <a href="#" onclick="switchHubView('chat'); return false;" style="color:var(--accent);">el chat normal</a>.
+      </div>
+    </div>
+
+    <div class="chat-panel" style="display:flex; flex-direction:column; padding:20px 26px; overflow-y:auto; gap:16px;">
+      <div id="exact-analysis-empty-state" style="text-align:center; margin-top:60px; opacity:0.7;">
+        <div style="font-size:15px; font-weight:700; margin-bottom:6px;">Elegí o creá un espacio de análisis exacto</div>
+        <div style="font-size:13px;">Subí una planilla (.csv, .xlsx, .xls) y preguntá en lenguaje natural — la respuesta es un cálculo real, no una aproximación.</div>
+      </div>
+
+      <div id="exact-analysis-workspace-view" style="display:none; flex-direction:column; gap:16px; max-width:720px; margin:0 auto; width:100%;">
+        <div>
+          <div class="modal-label" style="margin-bottom:6px;">Subir planilla</div>
+          <input type="file" id="exact-analysis-file-input" accept=".csv,.xlsx,.xls" onchange="uploadExactAnalysisFile()">
+          <div id="exact-analysis-file-status" style="font-size:12.5px; color:var(--text-muted); margin-top:6px;"></div>
+          <div class="exact-analysis-columns" id="exact-analysis-columns"></div>
+        </div>
+
+        <div id="exact-analysis-qa-box" style="display:none; flex-direction:column; gap:10px;">
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="exact-analysis-question" class="modal-input" style="flex:1;"
+                   placeholder="Ej: ¿Cuánto suman las ventas del departamento de Marketing?"
+                   onkeydown="if(event.key==='Enter') askExactAnalysisQuestion()">
+            <button class="send-action-btn" onclick="askExactAnalysisQuestion()">Preguntar</button>
+          </div>
+          <div id="exact-analysis-answer-box" style="display:none; background:#fff; border:1px solid var(--border-color); border-radius:10px; padding:14px 16px;">
+            <div id="exact-analysis-answer-text" style="font-size:14px; line-height:1.6; white-space:pre-wrap;"></div>
+            <div id="exact-analysis-sql" class="exact-analysis-sql-box" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: NUEVO ESPACIO DE ANÁLISIS EXACTO -->
+  <div class="modal-backdrop" id="modal-new-exact-analysis-ws">
+    <div class="modal-box" style="width:420px;">
+      <div class="modal-title" style="margin-bottom:2px;">Crear Espacio de Análisis Exacto</div>
+      <div class="modal-label" style="margin-bottom:8px;">Solo para planillas — no mezcla con el chat de documentos.</div>
+      <input type="text" id="new-exact-analysis-ws-name" class="modal-input" placeholder="Nombre del espacio (ej. Ventas Q3)">
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button class="modal-cancel-btn" onclick="closeNewExactAnalysisWsModal()">Cancelar</button>
+        <button class="send-action-btn wide" onclick="submitNewExactAnalysisWorkspace()">Crear Espacio</button>
       </div>
     </div>
   </div>
@@ -1447,6 +1537,153 @@
         container.appendChild(msgDiv);
       });
       container.scrollTop = container.scrollHeight;
+    }
+
+    // =====================================================================
+    // ANÁLISIS EXACTO DE DATOS (spec 046) — separado del chat RAG a propósito (US2/FR-001).
+    // Estado propio (`exactAnalysisWorkspaces`, `currentExactAnalysisWorkspace`), nunca
+    // mezclado con `workspaces`/`currentWorkspace` del chat.
+    // =====================================================================
+    let exactAnalysisWorkspaces = [];
+    let currentExactAnalysisWorkspace = null; // { id, display_name }
+    let exactAnalysisFileInfo = null;         // { conv_uid, select_param, file_name } tras subir
+
+    function switchHubView(view) {
+      const isChat = view === 'chat';
+      document.getElementById('view-hub').style.display = isChat ? '' : 'none';
+      document.getElementById('view-exact-analysis').style.display = isChat ? 'none' : 'flex';
+      document.getElementById('tab-chat').classList.toggle('active', isChat);
+      document.getElementById('tab-exact-analysis').classList.toggle('active', !isChat);
+      if (!isChat && exactAnalysisWorkspaces.length === 0) loadExactAnalysisWorkspaces();
+    }
+
+    async function loadExactAnalysisWorkspaces() {
+      const res = await fetch('/api/exact-analysis/workspaces');
+      if (!res.ok) { exactAnalysisWorkspaces = []; renderExactAnalysisWorkspaceList(); return; }
+      const data = await res.json();
+      exactAnalysisWorkspaces = data.workspaces || [];
+      renderExactAnalysisWorkspaceList();
+    }
+
+    function renderExactAnalysisWorkspaceList() {
+      const container = document.getElementById('exact-analysis-workspaces-container');
+      const empty = document.getElementById('exact-analysis-workspaces-empty');
+      container.innerHTML = '';
+      empty.style.display = exactAnalysisWorkspaces.length === 0 ? '' : 'none';
+      exactAnalysisWorkspaces.forEach((ws) => {
+        const activeClass = currentExactAnalysisWorkspace && currentExactAnalysisWorkspace.id === ws.id ? 'active' : '';
+        const div = document.createElement('div');
+        div.className = `workspace-item ${activeClass}`;
+        div.onclick = () => selectExactAnalysisWorkspace(ws);
+        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.display_name}</span>`;
+        container.appendChild(div);
+      });
+    }
+
+    function selectExactAnalysisWorkspace(ws) {
+      currentExactAnalysisWorkspace = ws;
+      exactAnalysisFileInfo = null;
+      renderExactAnalysisWorkspaceList();
+      document.getElementById('exact-analysis-empty-state').style.display = 'none';
+      document.getElementById('exact-analysis-workspace-view').style.display = 'flex';
+      document.getElementById('exact-analysis-file-input').value = '';
+      document.getElementById('exact-analysis-file-status').textContent = '';
+      document.getElementById('exact-analysis-columns').innerHTML = '';
+      document.getElementById('exact-analysis-qa-box').style.display = 'none';
+      document.getElementById('exact-analysis-answer-box').style.display = 'none';
+    }
+
+    function openNewExactAnalysisWsModal() { document.getElementById('modal-new-exact-analysis-ws').classList.add('active'); }
+    function closeNewExactAnalysisWsModal() { document.getElementById('modal-new-exact-analysis-ws').classList.remove('active'); }
+
+    async function submitNewExactAnalysisWorkspace() {
+      const nameInput = document.getElementById('new-exact-analysis-ws-name');
+      const name = nameInput.value.trim();
+      if (!name) return;
+      const res = await fetch('/api/exact-analysis/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: name })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo crear el espacio.'); return; }
+      nameInput.value = '';
+      closeNewExactAnalysisWsModal();
+      await loadExactAnalysisWorkspaces();
+      selectExactAnalysisWorkspace({ id: data.id, display_name: data.display_name });
+    }
+
+    async function uploadExactAnalysisFile() {
+      const input = document.getElementById('exact-analysis-file-input');
+      const file = input.files[0];
+      if (!file || !currentExactAnalysisWorkspace) return;
+      const statusEl = document.getElementById('exact-analysis-file-status');
+      statusEl.textContent = 'Subiendo y protegiendo la planilla…';
+
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const res = await fetch(`/api/exact-analysis/workspaces/${currentExactAnalysisWorkspace.id}/files`, {
+          method: 'POST',
+          body: form
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          statusEl.textContent = '';
+          showToast(data.error || 'No se pudo subir la planilla.');
+          return;
+        }
+        exactAnalysisFileInfo = data; // { conv_uid, file_name, select_param }
+        statusEl.textContent = `"${data.file_name}" lista — ya podés preguntar.`;
+        const colsBox = document.getElementById('exact-analysis-columns');
+        colsBox.innerHTML = '';
+        (data.columns || []).forEach((c) => {
+          const span = document.createElement('span');
+          span.textContent = c;
+          colsBox.appendChild(span);
+        });
+        document.getElementById('exact-analysis-qa-box').style.display = 'flex';
+        document.getElementById('exact-analysis-answer-box').style.display = 'none';
+      } catch (err) {
+        statusEl.textContent = '';
+        showToast('No se pudo subir la planilla.');
+      }
+    }
+
+    async function askExactAnalysisQuestion() {
+      const input = document.getElementById('exact-analysis-question');
+      const question = input.value.trim();
+      if (!question || !currentExactAnalysisWorkspace || !exactAnalysisFileInfo) return;
+      const answerBox = document.getElementById('exact-analysis-answer-box');
+      const answerText = document.getElementById('exact-analysis-answer-text');
+      const sqlBox = document.getElementById('exact-analysis-sql');
+      answerBox.style.display = 'block';
+      answerText.textContent = 'Calculando…';
+      sqlBox.style.display = 'none';
+      try {
+        const res = await fetch(`/api/exact-analysis/workspaces/${currentExactAnalysisWorkspace.id}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question,
+            conv_uid: exactAnalysisFileInfo.conv_uid,
+            select_param: exactAnalysisFileInfo.select_param
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          answerText.textContent = data.error || 'No se pudo responder.';
+          return;
+        }
+        answerText.textContent = data.answer;
+        if (data.sql_executed) {
+          sqlBox.textContent = data.sql_executed.trim();
+          sqlBox.style.display = 'block';
+        }
+        input.value = '';
+      } catch (err) {
+        answerText.textContent = 'No se pudo responder. Intentá de nuevo.';
+      }
     }
 
     applyBranding().then(boot);

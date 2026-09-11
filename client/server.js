@@ -368,6 +368,68 @@ async function maskText(text, { actingUserId } = {}) {
   };
 }
 
+// Enmascarado línea por línea para CSV (bug real encontrado en vivo 11-sep, spec 046):
+// `maskText` junta varias líneas en un mismo trozo de hasta `MASK_CHUNK_CHARS` antes de
+// mandarlo al analizador NER — Presidio/spaCy no tratan el salto de línea como un límite
+// duro, así que pueden detectar una entidad que ABARCA dos filas (medido en vivo:
+// "Julian,1200\nVentas" salió como una sola entidad LOCATION) y reemplazarla por UN
+// placeholder — fusiona dos filas en una y corre las columnas. El motor de análisis
+// exacto entonces rechaza el archivo con un 422 genérico, sin ningún error propio: el
+// CSV ya no es tabular, no es un problema del motor. Enmascarar fila por fila hace
+// IMPOSIBLE que una entidad cruce un límite de fila — el costo es una llamada al
+// analizador por fila en vez de una cada ~4000 caracteres, aceptable para las planillas
+// que espera este modo (T090 de la 048 lo dejaba pendiente; esto lo cierra para .csv).
+//
+// La PRIMERA fila (encabezado) NUNCA se manda al analizador (decisión explícita del
+// usuario, 11-sep, tras encontrar en vivo que el NER da falsos positivos sobre nombres de
+// columna y valores categóricos cortos — "depto" salió marcado PERSON, "Marketing"/
+// "Ventas" salieron LOCATION). Enmascarar el encabezado no protege ningún dato personal
+// real (un nombre de columna no es PII) pero SÍ rompe la semántica que el motor de
+// análisis exacto necesita para armar el SQL: si "depto" se reemplaza por un placeholder
+// tipo `PERSON_xxx`, el motor arma `WHERE person_id = '<placeholder de otro valor>'`
+// contra una columna que ya no existe con ese nombre, y la respuesta vuelve `null` — no
+// es un error visible, es una respuesta vacía o incorrecta silenciosa, peor que no
+// enmascarar. Los VALORES de datos (filas 2 en adelante) sí siguen enmascarándose fila
+// por fila como antes — ahí es donde puede haber PII real (nombres de personas, DNIs,
+// etc. en columnas de datos, no en el nombre de la columna).
+//
+// Gap conocido, documentado a propósito (mismo criterio que el gap de .xlsx sin
+// enmascarar, T090 de la 048): un valor categórico REPETIDO en muchas filas (p.ej. un
+// nombre de departamento) todavía puede dar falso positivo fila por fila y quedar
+// enmascarado de forma inconsistente entre filas (cada fila es una llamada independiente
+// al NER, sin memoria de "esto ya lo vi antes y decidí que es una categoría, no PII")
+// — eso puede seguir devolviendo respuestas incorrectas para ESE caso puntual. Excluir
+// headers cierra el caso más común y más dañino (el nombre de columna, que aparece una
+// sola vez pero rompe el SQL entero); no cierra el caso general de valores categóricos
+// repetidos, que queda fuera de esta ronda.
+async function maskCsvText(text, { actingUserId } = {}) {
+  if (!text) return { masked: '', blocked: false, entities: [], truncated: false, documentId: null };
+  const documentId = crypto.randomUUID();
+  const truncated = text.length > MASK_MAX_TOTAL_CHARS;
+  const usable = truncated ? text.slice(0, MASK_MAX_TOTAL_CHARS) : text;
+  const lines = usable.split('\n');
+  const maskedLines = [];
+  const allEntities = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) { maskedLines.push(line); continue; } // línea vacía: nada que mandar al analizador
+    if (i === 0) { maskedLines.push(line); continue; } // encabezado: nunca se enmascara (ver comentario arriba)
+    const result = await maskChunk(line, { documentId, actingUserId });
+    if (result.blocked) return { ...result, documentId }; // una fila bloqueada bloquea todo el documento
+    maskedLines.push(result.masked);
+    allEntities.push(...result.entities);
+  }
+  const merged = {};
+  for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
+  return {
+    masked: maskedLines.join('\n'),
+    blocked: false,
+    entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
+    truncated,
+    documentId
+  };
+}
+
 // =========================================================================
 // AUTENTICACIÓN (US1) — login real contra elea, sin lista de usuarios falsa.
 // =========================================================================
@@ -1042,6 +1104,134 @@ app.post('/api/chat', async (req, res) => {
       ? 'El servicio de documentos no está disponible. Intentá de nuevo en unos minutos.'
       : 'No se pudo obtener una respuesta. Intentá de nuevo.';
     res.status(502).json({ error: mensaje });
+  }
+});
+
+// =========================================================================
+// ANÁLISIS EXACTO DE DATOS (spec 046, UI) — 1:1 proxy hacia el backend (spec 048, ya
+// probado en vivo). El Hub NUNCA habla con el motor de análisis exacto directamente —
+// mismo criterio de "solo el backend proxea autenticación/atribución" que ya rige RAG.
+// =========================================================================
+const MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE =
+  'El servicio de análisis de datos no está disponible. Intentá de nuevo en unos minutos.';
+
+app.post('/api/exact-analysis/workspaces', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const { display_name } = req.body || {};
+  if (!display_name) return res.status(400).json({ error: 'Falta el nombre del espacio.' });
+  try {
+    const r = await eleaFetch(session.token, '/exact-analysis/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ display_name })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) return res.status(r.status).json({ error: data.detail || 'No se pudo crear el espacio.' });
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// Espacios de análisis exacto propios — reusa /workspaces (ya trae `kind`, spec 048) y
+// filtra del lado del Hub; no hace falta un endpoint de listado aparte en el backend.
+app.get('/api/exact-analysis/workspaces', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  try {
+    const all = await getMemberWorkspaces(session);
+    res.json({ workspaces: all.filter((w) => w.kind === 'exact_analysis') });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.post('/api/exact-analysis/workspaces/:id/files', upload.single('file'), async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo.' });
+
+  const ext = (req.file.originalname.split('.').pop() || '').toLowerCase();
+  if (!['csv', 'xlsx', 'xls'].includes(ext)) {
+    fs.unlinkSync(req.file.path);
+    return res.status(422).json({
+      error: 'Este modo solo acepta planillas (.csv, .xlsx, .xls) — para otro tipo de documento, usá el chat normal.'
+    });
+  }
+
+  try {
+    let buffer = fs.readFileSync(req.file.path);
+    let contentType = req.file.mimetype || 'text/csv';
+
+    // Enmascarado ANTES de que el dato salga del Hub (FR-003) — hoy solo para .csv (texto
+    // delimitado real: enmascarar valor por valor conserva filas/columnas intactas, el motor
+    // sigue pudiendo calcular sobre la estructura). .xlsx es binario — extraer, enmascarar y
+    // re-empaquetar como .xlsx real queda FUERA de esta ronda (T090 de la 048, documentado,
+    // no escondido: ver el log de abajo). Sigue siendo mejor que no enmascarar nada.
+    if (ext === 'csv') {
+      const rawText = buffer.toString('utf-8');
+      const { masked, blocked, budgetExceeded, motivo } =
+        await maskCsvText(rawText, { actingUserId: session.user.id });
+      fs.unlinkSync(req.file.path);
+      if (budgetExceeded) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
+      if (blocked) {
+        return res.status(422).json({ error: `Archivo bloqueado por la política de protección de datos: ${motivo}` });
+      }
+      buffer = Buffer.from(masked, 'utf-8');
+      contentType = 'text/csv';
+    } else {
+      console.warn(
+        `exact-analysis: subida .${ext} SIN pasar por enmascarado (T090 de la spec 048, ` +
+        'pendiente) — solo .csv lo aplica hoy.'
+      );
+      fs.unlinkSync(req.file.path);
+    }
+
+    // Bug real encontrado en vivo (11-sep): `eleaFetch` fuerza SIEMPRE
+    // `Content-Type: application/json` — para un `FormData` eso pisa el boundary
+    // multipart real que el propio `fetch` arma solo, y el backend recibía un body
+    // multipart con Content-Type mintiendo "json" (422, `doc_file` nunca llegaba
+    // parseado). Mismo motivo por el que el upload de AnythingLLM (más arriba en este
+    // archivo) tampoco usa `eleaFetch` — un fetch directo, sin forzar headers.
+    const form = new FormData();
+    form.append('doc_file', new Blob([buffer], { type: contentType }), req.file.originalname);
+    const r = await fetch(`${ELEA_BACKEND_URL}/exact-analysis/workspaces/${id}/files`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}` },
+      body: form
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 403) return res.status(403).json({ error: 'No tenés acceso a este espacio.' });
+    if (!r.ok) return res.status(r.status).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+    res.json(data);
+  } catch (err) {
+    console.error('exact-analysis upload falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+app.post('/api/exact-analysis/workspaces/:id/query', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const { id } = req.params;
+  const { question, conv_uid, select_param } = req.body || {};
+  if (!question || !conv_uid || !select_param) {
+    return res.status(400).json({ error: 'Faltan datos del archivo — subilo de nuevo.' });
+  }
+  try {
+    const r = await eleaFetch(session.token, `/exact-analysis/workspaces/${id}/query`, {
+      method: 'POST',
+      body: JSON.stringify({ question, conv_uid, select_param })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 402) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
+    if (r.status === 403) return res.status(403).json({ error: 'No tenés acceso a este espacio.' });
+    if (!r.ok) return res.status(r.status).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+    res.json(data);
+  } catch (err) {
+    console.error('exact-analysis query falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
   }
 });
 

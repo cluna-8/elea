@@ -95,6 +95,15 @@ def test_flujo_completo_aislamiento_y_membresia(factory, app_and_client):
     ws_id = r.json()["id"]
     assert r.json()["role"] == "owner"
 
+    # Bug real encontrado en vivo (11-sep, spec 046): GET /workspaces armaba el dict a mano
+    # en `list_for_user` sin `kind` — el Hub nunca podía distinguir un espacio de análisis
+    # exacto (DB-GPT, spec 048) de uno de chat RAG desde ese listado, aunque el espacio se
+    # hubiera creado bien con el `kind` correcto.
+    r_list = tc_ana.get("/workspaces")
+    assert r_list.status_code == 200
+    creado = next(w for w in r_list.json()["workspaces"] if w["id"] == ws_id)
+    assert creado["kind"] == "rag", "GET /workspaces debe incluir kind en cada fila"
+
     # B no lo ve en su listado
     tc_luis = _tc_as(app, luis_id)
     r = tc_luis.get("/workspaces")
