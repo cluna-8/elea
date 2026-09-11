@@ -538,8 +538,15 @@ app.get('/api/workspaces', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   try {
-    const workspaces = await getMemberWorkspaces(session);
-    res.json({ workspaces });
+    const all = await getMemberWorkspaces(session);
+    // Bug real encontrado en vivo (11-sep, spec 046): esta ruta alimenta el sidebar del
+    // modo Chat normal — sin filtrar, los espacios `kind=exact_analysis` (que tienen su
+    // propia sección en el modo "Análisis exacto", ver /api/exact-analysis/workspaces más
+    // abajo) también aparecían acá, mezclando los dos modos contra FR-001 (deben quedar
+    // SIEMPRE separados). `kind` es `'rag'` por default (columna vieja, sin backfill) —
+    // por eso el filtro es "no es exact_analysis", no "es rag", para no perder espacios
+    // preexistentes que nunca tuvieron `kind` seteado explícito.
+    res.json({ workspaces: all.filter((w) => w.kind !== 'exact_analysis') });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

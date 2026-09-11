@@ -17,12 +17,16 @@ description: "Task list — spec 046: Análisis exacto de datos (Excel/CSV) en E
 ## Phase 2: User Story 1 - Preguntar y obtener un cálculo exacto (Priority: P1)
 
 - [X] T099 [US1] Tab lateral "Análisis exacto" en el sidebar — sección propia, nunca mezclada
-      con la lista de espacios RAG (FR-001/US2). **Gap conocido encontrado en vivo (11-sep)**:
-      los espacios `kind=exact_analysis` SÍ quedan aislados en su propia sección dentro del
-      modo "Análisis exacto", pero también aparecen en la lista de espacios del modo Chat
-      normal (`renderWorkspaceList()` de `#view-hub` no filtra por `kind`) — mezcla parcial
-      de los dos modos, contra el espíritu de FR-001. No corregido esta ronda, reportado al
-      dueño del producto; queda pendiente.
+      con la lista de espacios RAG (FR-001/US2). **Bug real encontrado en vivo (11-sep) y
+      corregido el mismo día**: los espacios `kind=exact_analysis` SÍ quedaban aislados en su
+      propia sección dentro del modo "Análisis exacto", pero también aparecían en la lista de
+      espacios del modo Chat normal — `GET /api/workspaces` (backend de `renderWorkspaceList()`
+      de `#view-hub`) no filtraba por `kind`. Corregido en `client/server.js`: la ruta ahora
+      excluye `kind=exact_analysis` de su respuesta (mismo criterio inverso que ya usaba
+      `/api/exact-analysis/workspaces`, que solo INCLUYE ese kind). Regresión cubierta en
+      `client/tests/contract/test_workspaces.test.js` y verificado en vivo por Chrome: el
+      espacio "Ventas Setiembre" (`exact_analysis`) deja de aparecer en "ESPACIOS DE TRABAJO"
+      del modo Chat, sigue apareciendo en "ESPACIOS DE ANÁLISIS EXACTO" de su propio modo.
 - [X] T100 [US1] Lista + creación de espacios de análisis exacto (reusa el modal de "+ Nuevo",
       con el `kind` correcto)
 - [X] T101 [US1] Subida de archivo — solo `.csv`/`.xlsx`/`.xls` (rechazo claro de otros formatos,
@@ -87,10 +91,38 @@ description: "Task list — spec 046: Análisis exacto de datos (Excel/CSV) en E
    PII". Excluir el encabezado cierra el caso más común y más dañino (el nombre de columna,
    que aparece una sola vez pero rompe el SQL entero); no cierra el caso general de valores
    categóricos repetidos en las filas de datos, que queda fuera de esta ronda.
+4. **Los espacios `kind=exact_analysis` se filtraban al aparecer en su propio modo, pero
+   también aparecían en el sidebar del modo Chat normal** (`GET /api/workspaces`, backend de
+   `renderWorkspaceList()` de `#view-hub`, no filtraba por `kind`) — mezcla parcial de los dos
+   modos, contra FR-001. Arreglado el mismo día tras reportarlo: la ruta ahora excluye
+   `kind=exact_analysis` de su respuesta. Regresión cubierta en
+   `client/tests/contract/test_workspaces.test.js` y verificado en vivo.
+
+## Riesgo real encontrado en producción (11-sep), NO corregido — decisión explícita del dueño
+## del producto de mitigar con aviso, no con bloqueo ni con enmascarado de .xlsx
+
+Subiendo un `.xlsx` real (con datos de facturación reales: CUIT, nombre completo, email
+personal, teléfono, domicilio) la respuesta del motor volvió con **todos esos datos en texto
+plano, sin ninguna protección** — la confirmación en producción del gap ya documentado arriba
+(el enmascarado de CSV, bugs 2 y 3, NO corre para `.xlsx`/`.xls`; T090 de la 048 sigue
+pendiente para Excel binario). No es un bug nuevo: es el gap conocido manifestándose con datos
+reales de un cliente (Drexgen SAS) en vez de datos de prueba.
+
+**Decisión del dueño del producto (11-sep, tras revisar tres opciones)**: no bloquear `.xlsx`
+ni implementar el enmascarado binario todavía — en su lugar, avisar explícitamente ANTES de
+subir. Implementado en `uploadExactAnalysisFile()` (`client/public/index.html`): un
+`confirm()` nativo al elegir un archivo `.xlsx`/`.xls` que dice textualmente que el archivo
+NO se enmascara y que datos personales reales pueden volver sin proteger en la respuesta —
+la persona decide con esa información, la subida no se bloquea. El texto de estado durante la
+subida también cambia ("sin enmascarar — Excel") para no sugerir una protección que no ocurre.
+**El riesgo de fondo sigue sin cerrarse** — solo se lo hace visible antes de cada subida. Si en
+algún momento se decide cerrar el gap de raíz, la opción evaluada y descartada esta ronda era:
+leer el `.xlsx` celda por celda, enmascarar cada celda (mismo criterio fila-por-fila que ya
+tiene el CSV) y reempaquetar como `.xlsx` real antes de subir.
 
 ## Implementation Strategy
 
 MVP = T098-T104 (US1 completo) — ya demuestra el flujo real pedido. T105 (US2) y T106/T107 cierran
-la entrega. **Estado al cierre (11-sep): completo y verificado en vivo**, con dos gaps conocidos
-documentados arriba (leak de espacios `exact_analysis` en el sidebar del chat normal; enmascarado
+la entrega. **Estado al cierre (11-sep): completo y verificado en vivo**, con un gap conocido
+documentado arriba (enmascarado
 de valores categóricos repetidos en filas de datos) — ninguno bloquea el flujo principal.

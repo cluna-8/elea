@@ -40,21 +40,23 @@ function buildFakeBackend() {
         .filter((w) => w.members.some((m) => m.user_id === user.id))
         .map((w) => ({
           id: w.id, engine_slug: w.engine_slug, display_name: w.display_name,
-          role: w.members.find((m) => m.user_id === user.id).role, status: 'active'
+          role: w.members.find((m) => m.user_id === user.id).role, status: 'active',
+          kind: w.kind || 'rag'
         }));
       return send(200, { workspaces: mine });
     }
     if (req.method === 'POST' && pathname === '/workspaces') {
       const ws = {
         id: crypto.randomUUID(), engine_slug: body.engine_slug, display_name: body.display_name,
+        kind: body.kind || 'rag',
         members: [{ user_id: user.id, role: 'owner' }]
       };
       state.workspaces.push(ws);
-      return send(200, { id: ws.id, engine_slug: ws.engine_slug, display_name: ws.display_name, role: 'owner', status: 'active' });
+      return send(200, { id: ws.id, engine_slug: ws.engine_slug, display_name: ws.display_name, role: 'owner', status: 'active', kind: ws.kind });
     }
     return send(404, { detail: 'no encontrado en el doble de backend' });
   };
-  return { handler };
+  return { handler, state };
 }
 
 function buildFakeAnythingLLM() {
@@ -116,4 +118,39 @@ test('contrato: GET /api/workspaces solo devuelve los espacios propios', async (
 
   const luisList = await luisAgent.get('/api/workspaces');
   assert.ok(!luisList.body.workspaces.some((w) => w.engine_slug === slug));
+});
+
+// Bug real encontrado en vivo (11-sep, spec 046): esta ruta alimenta el sidebar del modo
+// Chat normal — sin filtrar por `kind`, los espacios de "Análisis exacto" (kind=
+// exact_analysis, con su propia sección en su propio modo) también aparecían acá,
+// mezclando los dos modos contra FR-001 (deben quedar SIEMPRE separados).
+test('contrato: GET /api/workspaces nunca incluye espacios kind=exact_analysis (no se mezclan los dos modos)', async (t) => {
+  const fakeBackend = buildFakeBackend();
+  const backend = await startMockServer((req, res, body) => fakeBackend.handler(req, res, body));
+  const engine = await startMockServer((req, res, body) => buildFakeAnythingLLM().handler(req, res, body));
+  process.env.ELEA_BACKEND_URL = backend.url;
+  process.env.ANYTHINGLLM_URL = engine.url;
+  process.env.ANYTHINGLLM_API_KEY = 'test-key';
+  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
+  delete require.cache[require.resolve('../../server.js')];
+  const app = require('../../server.js');
+  t.after(async () => { await backend.close(); await engine.close(); });
+
+  const anaAgent = request.agent(app);
+  await anaAgent.post('/api/auth/login').send({ username: 'ana', password: 'x' });
+
+  // Un espacio de chat normal (kind=rag) y uno de análisis exacto, ambos de ana.
+  const chatWs = await anaAgent.post('/api/workspaces/create').send({ name: 'Contabilidad' });
+  assert.strictEqual(chatWs.status, 200, JSON.stringify(chatWs.body));
+  fakeBackend.state.workspaces.push({
+    id: crypto.randomUUID(), engine_slug: 'ventas-q3', display_name: 'Ventas Q3', kind: 'exact_analysis',
+    members: [{ user_id: 'ana-id', role: 'owner' }],
+  });
+
+  const anaList = await anaAgent.get('/api/workspaces');
+  assert.strictEqual(anaList.status, 200);
+  assert.ok(anaList.body.workspaces.some((w) => w.display_name === 'Contabilidad'),
+    'el espacio de chat normal sí debe aparecer');
+  assert.ok(!anaList.body.workspaces.some((w) => w.display_name === 'Ventas Q3'),
+    'el espacio de análisis exacto NUNCA debe aparecer en el listado del chat normal');
 });
