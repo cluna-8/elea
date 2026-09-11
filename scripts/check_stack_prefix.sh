@@ -14,6 +14,12 @@ COMPOSE="$REPO_ROOT/docker-compose.yml"
 # este archivo, así que el paso 2 de `backend-tests` (ci.yml) voltea el job entero antes de
 # levantar la base. El rojo es del rename, no del PR que lo descubre.
 SERVICIOS=(backend db engine frontend nlp-analyzer redis)
+# `frontend` vive detrás de `profiles: ["full"]` (spec 040, 668ced5) — sin pedir ese
+# perfil, `docker compose config` lo omite en silencio y el render "obtenido" queda
+# corto por uno, para CUALQUIER prefix. `client`/`anythingllm` quedan detrás de
+# `profiles: ["rag"]` y no están en SERVICIOS, así que no se piden acá: pedirlos
+# metería servicios de más y el compare exacto de abajo fallaría igual, por el otro lado.
+export COMPOSE_PROFILES=full
 
 fail=0
 error() { echo "❌ $1"; fail=1; }

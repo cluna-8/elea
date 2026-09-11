@@ -96,6 +96,7 @@ nav:
   - White-label & branding: white-label/index.md
   - Administración:
       - Administración: administration/index.md
+      - "Eleia Hub: espacios, presupuesto y documentos": administration/eleia-hub-workspaces.md
       - Gobernanza del firewall: administration/gobernanza.md
       - Purga de retención: administration/purga-retencion.md
   - Integraciones & matriz:

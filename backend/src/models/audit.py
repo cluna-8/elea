@@ -50,8 +50,23 @@ class AuditLog(Base):
     processing_purpose = Column(String, nullable=True)   # marketing | expense_processing | pharmacovigilance | research | administrative (alias legacy: clinical_decision)
     user_group_id = Column(UUID(as_uuid=True), nullable=True)
 
+    # Spec 043 US2/US4 (T009): separa tres taxonomías que hasta acá compartían la columna
+    # `model` (diagnostico.md §3/§5) — modelos reales, superficies (`chat-ui`…) y evidencia
+    # de licencia (`license`) se contaban todas como "modelo" en las vitrinas de costos.
+    # `acted_for_user_id`: "en nombre de quién" cuando una llave de servicio con
+    # `can_act_on_behalf=true` actúa por una persona (contrato 2 de la 043); `user_id` sigue
+    # siendo "quién autenticó". `surface`: la superficie resuelta (mismo vocabulario que
+    # `SURFACES` + 'servicio'), ya NO viaja en `model`. `event_type`: distingue tráfico real
+    # de evidencia de licencia. `document_group_id`: agrupa los N chunks de un mismo
+    # documento enmascarado como una sola operación (FR-013).
+    acted_for_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    surface = Column(String, nullable=True)
+    event_type = Column(String, nullable=False, default="traffic")  # traffic | license_evidence
+    document_group_id = Column(UUID(as_uuid=True), nullable=True)
+
     # Relationships
-    user = relationship("User", back_populates="audit_logs")
+    user = relationship("User", back_populates="audit_logs", foreign_keys=[user_id])
+    acted_for_user = relationship("User", foreign_keys=[acted_for_user_id])
     api_key = relationship("APIKey", back_populates="audit_logs")
 
     __table_args__ = (
@@ -62,4 +77,8 @@ class AuditLog(Base):
         # produce la 012 (misma convención que tenant.py:33).
         Index("ix_audit_logs_tenant_blocked_layer", "tenant_id", "blocked_by_layer",
               postgresql_where=text("blocked_by_layer IS NOT NULL")),
+        Index("ix_audit_logs_acted_for_user_id", "acted_for_user_id",
+              postgresql_where=text("acted_for_user_id IS NOT NULL")),
+        Index("ix_audit_logs_document_group_id", "document_group_id",
+              postgresql_where=text("document_group_id IS NOT NULL")),
     )

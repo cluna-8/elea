@@ -180,6 +180,20 @@
         "title": "BlockedWordSchema",
         "type": "object"
       },
+      "Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post": {
+        "properties": {
+          "doc_file": {
+            "format": "binary",
+            "title": "Doc File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "doc_file"
+        ],
+        "title": "Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post",
+        "type": "object"
+      },
       "BudgetCreate": {
         "properties": {
           "group_id": {
@@ -1377,6 +1391,19 @@
         "title": "EstadoPorModoSchema",
         "type": "object"
       },
+      "ExactAnalysisWorkspaceCreate": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "ExactAnalysisWorkspaceCreate",
+        "type": "object"
+      },
       "FallbackBody": {
         "properties": {
           "fallback_model": {
@@ -1905,6 +1932,11 @@
             "default": "30d",
             "title": "Budget Duration"
           },
+          "can_act_on_behalf": {
+            "default": false,
+            "title": "Can Act On Behalf",
+            "type": "boolean"
+          },
           "compliance_project_id": {
             "anyOf": [
               {
@@ -2093,6 +2125,11 @@
       },
       "KeyResponseSchema": {
         "properties": {
+          "can_act_on_behalf": {
+            "default": false,
+            "title": "Can Act On Behalf",
+            "type": "boolean"
+          },
           "compliance_project_id": {
             "anyOf": [
               {
@@ -2352,7 +2389,7 @@
       },
       "ModelCredentialSchema": {
         "properties": {
-          "litellm_params": {
+          "engine_params": {
             "anyOf": [
               {
                 "additionalProperties": true,
@@ -2363,6 +2400,19 @@
               }
             ],
             "title": "Parámetros del motor"
+          },
+          "litellm_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "deprecated": true,
+            "title": "Alias de compatibilidad de engine_params — usar engine_params"
           }
         },
         "title": "ModelCredentialSchema",
@@ -3042,6 +3092,115 @@
         "title": "UserGroupAssign",
         "type": "object"
       },
+      "UserPatch": {
+        "description": "Spec 043 (US5, T051): actualización PARCIAL — todos los campos opcionales, a\ndiferencia de `UserBase` (que `PUT /{user_id}` sigue usando, reemplazo completo, se\nmantiene por compatibilidad). Solo lo que el caller manda se toca (`exclude_unset`).",
+        "properties": {
+          "compliance_project_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compliance Project Id"
+          },
+          "display_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Label"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "format": "email",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "group_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "legal_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Basis"
+          },
+          "risk_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Level"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "title": "UserPatch",
+        "type": "object"
+      },
       "UserResponse": {
         "properties": {
           "compliance_project_id": {
@@ -3184,6 +3343,85 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkspaceCreate": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "engine_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Slug"
+          }
+        },
+        "required": [
+          "display_name"
+        ],
+        "title": "WorkspaceCreate",
+        "type": "object"
+      },
+      "WorkspaceMemberIn": {
+        "properties": {
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username"
+        ],
+        "title": "WorkspaceMemberIn",
+        "type": "object"
+      },
+      "WorkspaceThreadCreate": {
+        "properties": {
+          "engine_thread_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Thread Slug"
+          },
+          "principal_engine_thread_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Principal Engine Thread Slug"
+          }
+        },
+        "title": "WorkspaceThreadCreate",
+        "type": "object"
+      },
+      "WorkspaceTransferOwnerIn": {
+        "properties": {
+          "new_owner_user_id": {
+            "format": "uuid",
+            "title": "New Owner User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "new_owner_user_id"
+        ],
+        "title": "WorkspaceTransferOwnerIn",
         "type": "object"
       }
     }
@@ -4577,7 +4815,7 @@
         ]
       },
       "patch": {
-        "description": "Merge de credenciales del motor (campos del contrato litellm_params) en config.yaml.",
+        "description": "Merge de credenciales del motor (campos del contrato engine_params) en config.yaml.",
         "operationId": "update_model_credential_api_v1_chat_models__model_name__patch",
         "parameters": [
           {
@@ -6622,6 +6860,200 @@
         ]
       }
     },
+    "/api/v1/exact-analysis/workspaces": {
+      "post": {
+        "operationId": "create_exact_analysis_workspace_api_v1_exact_analysis_workspaces_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExactAnalysisWorkspaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Exact Analysis Workspace",
+        "tags": [
+          "ExactAnalysis"
+        ]
+      }
+    },
+    "/api/v1/exact-analysis/workspaces/{workspace_id}/files": {
+      "post": {
+        "operationId": "upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Exact Analysis File",
+        "tags": [
+          "ExactAnalysis"
+        ]
+      }
+    },
+    "/api/v1/exact-analysis/workspaces/{workspace_id}/query": {
+      "post": {
+        "description": "`body` espera `{\"question\": str, \"conv_uid\": str, \"select_param\": dict}` — `conv_uid` y\n`select_param` son los que devolvió `POST .../files` (FR-010: preguntas que cruzan varios\narchivos del mismo espacio son responsabilidad del Hub, que puede resubir/reusar el mismo\n`conv_uid` para más de un archivo — DB-GPT acumula contexto por conversación).",
+        "operationId": "query_exact_analysis_api_v1_exact_analysis_workspaces__workspace_id__query_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Body",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Query Exact Analysis",
+        "tags": [
+          "ExactAnalysis"
+        ]
+      }
+    },
     "/api/v1/governance/profile": {
       "get": {
         "description": "Las filas de decisión configuradas del tenant. **Lo no configurado no está.**\n\nLa ausencia de fila **es** \"heredar\" (D2, mismo idioma que ``redact_enabled=NULL`` de la\n013): este endpoint no fabrica filas implícitas ni completa el catálogo con los defaults\nde producto. Si las fabricara, el default de producto pasaría a parecer un dato editable\n—y borrable— cuando en realidad vive en el registry en código; y \"el admin decidió esto\"\ndejaría de distinguirse de \"esto es lo que trae el producto\".\n\nOrden determinista (eje, valor, capa) para que dos lecturas seguidas no barajen la tabla\nque la UI está mostrando.",
@@ -7895,7 +8327,7 @@
     },
     "/api/v1/gw/inspect": {
       "post": {
-        "description": "Aplica la política Sentinel a un prompt de la superficie browser (piso COMPLETO desde\nla 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.\nFail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.",
+        "description": "Aplica la política Sentinel a un prompt de la superficie browser (piso COMPLETO desde\nla 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.\nFail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.\n\nSpec 043 (US2): ``X-Guardian-Acting-User`` es opcional y solo lo obedece\n``_resolve_acting_user`` cuando la key lo autoriza — ver su docstring.",
         "operationId": "gw_inspect_api_v1_gw_inspect_post",
         "parameters": [
           {
@@ -7912,6 +8344,22 @@
                 }
               ],
               "title": "X-Sentinel-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Guardian-Acting-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Guardian-Acting-User"
             }
           }
         ],
@@ -9075,8 +9523,19 @@
     },
     "/api/v1/users": {
       "get": {
+        "description": "Spec 043 (US4, T045): excluye cuentas de servicio por default (diagnostico.md §4 de\nla 043 — se listaban como personas). `?include_service=true` las trae con `purpose`.",
         "operationId": "list_users_api_v1_users_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "include_service",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Service",
+              "type": "boolean"
+            }
+          },
           {
             "in": "header",
             "name": "authorization",
@@ -9098,13 +9557,7 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UserResponse"
-                  },
-                  "title": "Response List Users Api V1 Users Get",
-                  "type": "array"
-                }
+                "schema": {}
               }
             },
             "description": "Successful Response"
@@ -9389,6 +9842,54 @@
         ]
       }
     },
+    "/api/v1/users/me/budget": {
+      "get": {
+        "description": "Autoservicio de presupuesto (spec 043 US2, contrato 2): el propio Eleia Hub lo\nconsume con la sesión JWT de la persona, sin necesitar una sesión de admin de fondo\n(antes leía `/budgets` completo con `ELEA_SERVICE_USERNAME=admin` y filtraba en\nmemoria — diagnostico.md §5 de la 043). Prioriza el presupuesto PERSONAL sobre el de\ngrupo (mismo orden que `BudgetService.update_budget`); si no hay ninguno configurado,\nreporta \"sin límite\" — igual que `has_sufficient_budget` ya trata ese caso: nadie queda\nbloqueado por un presupuesto que nunca se configuró.",
+        "operationId": "get_own_budget_api_v1_users_me_budget_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Own Budget",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/api/v1/users/me/password": {
       "post": {
         "description": "Cambio de la contraseña propia, para cualquier rol autenticado.",
@@ -9448,6 +9949,62 @@
       }
     },
     "/api/v1/users/{user_id}": {
+      "delete": {
+        "description": "Baja definitiva (spec 043 US5, T053/T054/T055) — NO física: revoca llaves y\nsesiones (`is_active=False` bloquea el JWT en `get_current_user`, que ya filtra por\nesa columna), libera el asiento, y cierra sus espacios propios a \"sin asignar\"\n(FR-042, workspace_service.orphan_owned_workspaces). La auditoría histórica del\nusuario NUNCA se toca — sigue visible bajo su identidad.",
+        "operationId": "deactivate_user_api_v1_users__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deactivate User",
+        "tags": [
+          "Users"
+        ]
+      },
       "get": {
         "operationId": "get_user_api_v1_users__user_id__get",
         "parameters": [
@@ -9501,6 +10058,74 @@
           }
         },
         "summary": "Get User",
+        "tags": [
+          "Users"
+        ]
+      },
+      "patch": {
+        "description": "Spec 043 (US5, T052): actualización PARCIAL — solo cambia lo que el caller mandó,\na diferencia de `PUT` (reemplazo completo, se mantiene por compatibilidad hacia\natrás). Misma validación de unicidad y misma auditoría de cambio de rol que `PUT`.",
+        "operationId": "patch_user_api_v1_users__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch User",
         "tags": [
           "Users"
         ]
@@ -9695,6 +10320,636 @@
         "summary": "Get User Spend",
         "tags": [
           "Users"
+        ]
+      }
+    },
+    "/api/v1/workspaces": {
+      "get": {
+        "operationId": "list_workspaces_api_v1_workspaces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "all",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "All",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status_filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Filter"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Workspaces",
+        "tags": [
+          "Workspaces"
+        ]
+      },
+      "post": {
+        "operationId": "create_workspace_api_v1_workspaces_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Workspace",
+        "tags": [
+          "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}": {
+      "get": {
+        "operationId": "get_workspace_api_v1_workspaces__workspace_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workspace",
+        "tags": [
+          "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/members": {
+      "get": {
+        "operationId": "list_members_api_v1_workspaces__workspace_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Members",
+        "tags": [
+          "Workspaces"
+        ]
+      },
+      "post": {
+        "operationId": "add_member_api_v1_workspaces__workspace_id__members_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceMemberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Member",
+        "tags": [
+          "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/members/{target_user_id}": {
+      "delete": {
+        "operationId": "remove_member_api_v1_workspaces__workspace_id__members__target_user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "target_user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Target User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Member",
+        "tags": [
+          "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/threads": {
+      "get": {
+        "operationId": "list_threads_api_v1_workspaces__workspace_id__threads_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Threads",
+        "tags": [
+          "Workspaces"
+        ]
+      },
+      "post": {
+        "operationId": "create_thread_api_v1_workspaces__workspace_id__threads_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceThreadCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Thread",
+        "tags": [
+          "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/threads/{thread_id}": {
+      "delete": {
+        "operationId": "delete_thread_api_v1_workspaces__workspace_id__threads__thread_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Thread",
+        "tags": [
+          "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/transfer-owner": {
+      "patch": {
+        "operationId": "transfer_owner_api_v1_workspaces__workspace_id__transfer_owner_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceTransferOwnerIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Transfer Owner",
+        "tags": [
+          "Workspaces"
         ]
       }
     },

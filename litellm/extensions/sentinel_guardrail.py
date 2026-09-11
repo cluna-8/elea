@@ -344,6 +344,12 @@ async def _auditar_bloqueo(user_api_key_dict, data: dict, *, compliance_status: 
             "latency_ms": max(0, int((time.monotonic() - inicio) * 1000)) if inicio else 0,
             "user_group_id": identidad.get("group_id"),
             "blocked_by_layer": layer,
+            # Bug real encontrado en revisión (09-sep): faltaba — `custom_auth.py` ya
+            # calcula `acted_for_user_id` (contrato 2 de la 043) y lo deja en la
+            # identidad, pero esta fila nunca lo leía. Una llave de servicio actuando
+            # "en nombre de" alguien que se bloqueaba acá quedaba atribuida solo a la
+            # cuenta de servicio, nunca a la persona real.
+            "acted_for_user_id": identidad.get("acted_for_user_id"),
         }
         # Las claves con valor None se ELIMINAN antes de mandar (misma convención que el
         # plano interno aplica al emitir identidad). Acá además evita un 422: los campos

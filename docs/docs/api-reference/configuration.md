@@ -54,7 +54,9 @@ La retención ya no es sólo una DECLARACIÓN: el DPO fija los plazos, la pantal
 | `SENTINEL_PURGE_BATCH_SIZE` | `5000` | Sólo surte efecto con SENTINEL_PURGE_ENABLED=true (ver arriba). Filas por lote. Lo acumulado en la primera corrida puede ser de meses de tráfico: borrar millones de filas de un golpe bloquea la tabla un rato largo y le tumba la pantalla al officer. Se converge por lotes. |
 | `SENTINEL_PURGE_BATCH_PAUSE_MS` | `200` | Sólo surte efecto con SENTINEL_PURGE_ENABLED=true (ver arriba). Pausa entre lotes, en milisegundos: le devuelve la tabla a los lectores calientes entre lote y lote. Es la perilla de CORTESÍA — se sube si la instalación acusa el borrado; bajarla a 0 lo convierte en el vecino ruidoso de su propia tabla. |
 | `NLP_ANALYZER_URL` | `http://nlp-analyzer:3000` | Motor de detección NLP real (spec 016) — servicio interno, sin necesidad de key. Default correcto para docker compose (nombre de servicio); no tocar salvo despliegue custom. |
-| `SENTINEL_ENTITY_REGION` | `eu` | Set de patrones estructurados a usar (DNI/pasaporte/etc.) — "eu" por default. Es el default DE ARRANQUE de la instalación (lo leen el motor Y el backend — gobierna byok, /gw, la extensión de navegador y el Playground), NO la fuente canónica: cada tenant puede fijar su propia región en `pii_masking.config.region` (spec 016, issues 137/141) y esa la pisa. Cambiar acá sólo mueve el default para tenants que todavía no tienen la clave propia — un despliegue latam_ar recién instalado, p.ej. |
+| `SENTINEL_ENTITY_REGION` | `latam_ar` | Set de patrones estructurados a usar (DNI/pasaporte/etc.) — "eu" por default. Es el default DE ARRANQUE de la instalación (lo leen el motor Y el backend — gobierna byok, /gw, la extensión de navegador y el Playground), NO la fuente canónica: cada tenant puede fijar su propia región en `pii_masking.config.region` (spec 016, issues 137/141) y esa la pisa. Cambiar acá sólo mueve el default para tenants que todavía no tienen la clave propia — un despliegue latam_ar recién instalado, p.ej. |
+| `SENTINEL_PII_VAULT_ENABLED` | `true` | Bóveda persistente de PII (opt-in, decisión de Elea 02-sep): sin esto el RAG documental nunca puede restaurar el dato real en la respuesta (el enmascarado ocurre en la subida del documento, un request aparte del chat que lo consulta después) — el chat directo SÍ desenmascara sin esto porque mask+unmask pasan en el MISMO request. Guarda ph_to_orig en Redis con TTL, consultado solo al desenmascarar. Default del módulo compartido es `false` (Constraint C1) — acá se prende a propósito para Elea. |
+| `SENTINEL_PII_VAULT_TTL_SECONDS` | `7776000` | — |
 | `OPENAI_API_KEY` | *(secreto — generado por instalación)* | LLM API Keys (agregar las de los providers que uses; sin key real NO hay respuesta LLM - el sistema es fail-closed, no existe modo simulado) |
 | `ANTHROPIC_API_KEY` | *(secreto — generado por instalación)* | — |
 | `GEMINI_API_KEY` | — | — |
@@ -79,4 +81,13 @@ Enforcement FAIL-CLOSED: sin token válido no se crean Connections/Clients nuevo
 |---|---|---|
 | `SENTINEL_LICENSE_TOKEN_FILE` | — | Ruta al .lic DENTRO del contenedor. El bundle de producción ya la fija (/app/config/licenses/client.lic) y el compose de dev/demo trae su propio default, así que esta variable es para despliegues que arman su propio compose. Vacía = el default del compose. |
 | `SENTINEL_LICENSE_TOKEN` | — | Alternativa a la anterior: el contenido del .lic inline (JSON). Cuando trae contenido el backend la prefiere sobre SENTINEL_LICENSE_TOKEN_FILE. Ninguno de los dos composes que se shipean la pasa al contenedor: es para despliegues que inyectan el env por su cuenta. |
+
+### ── Cliente RAG de Elea (perfil `rag`, spec 040) ──────────────────────────────────────
+
+Ver client/README.md para cómo generar cada valor. ELEA_SERVICE_USERNAME/ELEA_SERVICE_PASSWORD: quitadas (09-sep) — server.js ya no las lee desde que el presupuesto pasó a autoservicio (sesión propia de cada persona, no una cuenta de admin de fondo); habían quedado declaradas acá sin que ningún plano las consumiera.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `ANYTHINGLLM_API_KEY` | — | API key de la instancia de AnythingLLM (se genera una vez, no la de ejemplo del código heredado — esa estaba filtrada en texto plano). |
+| `MASKING_VIRTUAL_KEY` | — | Virtual key de elea (tool_type=chat-ui) para enmascarar documentos antes de subirlos a AnythingLLM (POST /gw/inspect). Generada vía POST /api/v1/keys, no reutilizar la del proveedor LLM de AnythingLLM. |
 

@@ -67,3 +67,38 @@ def test_counts_only_active_non_expired_per_tenant(factory):
         assert count_active_seats(db, uuid.uuid4()) == 0
     finally:
         db.close()
+
+
+def test_llaves_de_cuentas_de_servicio_no_ocupan_asiento(factory):
+    """Spec 043 (US4, T046): las llaves de `svc.anythingllm-provider`/`svc.rag-masking`
+    (o cualquier usuario `account_type='service'`) NO cuentan como seat — sin esto, cada
+    cliente de Eleia paga 2 asientos de licencia por cuentas que ningún humano usa."""
+    from src.licensing.seat_counter import count_active_seats
+    from src.models.user import User
+    db = factory()
+    try:
+        persona = User(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT,
+                       username=f"persona-{uuid.uuid4().hex[:6]}",
+                       email=f"{uuid.uuid4().hex[:6]}@x.test", password_hash="!",
+                       role="client", account_type="person")
+        servicio = User(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT,
+                        username=f"svc.rag-masking-{uuid.uuid4().hex[:6]}",
+                        email=f"{uuid.uuid4().hex[:6]}@x.test", password_hash="!",
+                        role="client", account_type="service")
+        db.add_all([persona, servicio])
+        db.flush()
+
+        antes = count_active_seats(db, DEFAULT_TENANT)
+
+        k_persona = _key(db)
+        k_persona.user_id = persona.id
+        k_servicio = _key(db, tool="servicio")
+        k_servicio.user_id = servicio.id
+        k_huerfana = _key(db)  # sin user_id — debe seguir contando igual que hoy
+        db.commit()
+
+        despues = count_active_seats(db, DEFAULT_TENANT)
+        # +2: la de la persona y la huérfana. La de la cuenta de servicio NO suma.
+        assert despues == antes + 2
+    finally:
+        db.close()

@@ -81,3 +81,5 @@ docs/.cache/
 
 # binarios vendorizados para el bundle air-gapped (no van a git)
 deploy/release/vendor/
+docker-compose.override.yml
+frontend/public/branding/

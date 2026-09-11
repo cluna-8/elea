@@ -15,18 +15,33 @@ from datetime import datetime, timezone
 from sqlalchemy import func, or_
 
 from ..models.budget import APIKey
+from ..models.user import User
 
 
 def count_active_seats(db, tenant_id) -> int:
     # expires_at es DateTime naive-UTC (convención del modelo 013)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Spec 043 (US4, T046): las llaves de cuentas de servicio (`svc.anythingllm-provider`,
+    # `svc.rag-masking` — instaladas por el instalador, ver diagnostico.md §4 de la 043)
+    # NO ocupan asiento. Dos pasos con SOLO `.filter()`/`.all()`/`.scalar()` a propósito —
+    # ni `.outerjoin()` ni `.subquery()` — porque esta es LA fuente única de conteo
+    # (docstring del módulo) y el doble de test de `test_license_wire_formats.py`
+    # (`_FakeQuery`, solo implementa esos cuatro métodos) la ejercita con una sesión falsa;
+    # una lista Python vacía (`.all()` del doble) es un `NOT IN ()` inofensivo.
+    ids_cuentas_servicio = [
+        row[0] for row in db.query(User.id).filter(User.account_type == "service").all()
+    ]
+    filtros = [
+        APIKey.tenant_id == tenant_id,
+        APIKey.is_active.is_(True),
+        or_(APIKey.expires_at.is_(None), APIKey.expires_at > now),
+    ]
+    if ids_cuentas_servicio:
+        filtros.append(or_(APIKey.user_id.is_(None),
+                           ~APIKey.user_id.in_(ids_cuentas_servicio)))
     return (
         db.query(func.count(APIKey.id))
-        .filter(
-            APIKey.tenant_id == tenant_id,
-            APIKey.is_active.is_(True),
-            or_(APIKey.expires_at.is_(None), APIKey.expires_at > now),
-        )
+        .filter(*filtros)
         .scalar()
         or 0
     )

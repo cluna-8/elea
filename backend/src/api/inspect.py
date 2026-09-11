@@ -31,15 +31,29 @@ proveedor — fail-open por skew de versiones, exactamente lo que un firewall no
 permitirse. Con ``ok:false`` las extensiones viejas bloquean por su propio fail-closed
 (mostrando su error genérico) y las nuevas podrán distinguir ``blocked`` y mostrar
 ``motivo``.
+
+**Spec 043 (US2, contrato 2): identidad "en nombre de" para Eleia Hub.** Este mismo endpoint
+lo usan también las llaves de servicio del Hub (``svc.rag-masking``) para enmascarar
+documentos — antes, ese tráfico quedaba atribuido a la cuenta de servicio, nunca a la
+persona real (diagnostico.md §5 de la 043). Ahora acepta la cabecera opcional
+``X-Guardian-Acting-User`` (un ``user_id``), pero **solo la obedece si la key que autentica
+tiene ``can_act_on_behalf=true``** (allowlist explícita, nunca a ciegas — mismo criterio ya
+aplicado acá para ``tool``/C1) **y** el usuario pertenece al mismo tenant de la key. Si
+cualquiera de las dos condiciones falla, la cabecera se ignora y el pedido se audita como
+antes (atribuido a la key), sin romper ni bloquear nada.
 """
 import time
+import uuid as uuidlib
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header
 from fastapi.responses import JSONResponse
 
 from . import gateway  # reuse: _resolve_attribution (fail-closed check), _audit, _publish_monitor, policy
+from ..database import SessionLocal
 from ..licensing.degraded import require_not_hard_blocked
+from ..models.user import User
+from ..services.budget_service import BudgetService
 from ..services.governance_catalog import (
     GOVERNANCE_LAYERS,
     LAYER_KEYS,
@@ -120,6 +134,36 @@ _SUPERFICIE_DESCONOCIDA = "desconocido"
 _SURFACES_POR_TOKEN = {s.casefold(): s for s in SURFACES}
 
 
+def _resolve_acting_user(ident: dict, header_value: Optional[str]) -> Optional[str]:
+    """"En nombre de quién" actúa este pedido (spec 043, contrato 2) — o ``None`` si no
+    aplica. Nunca confía a ciegas en la cabecera: solo la honra si (a) la key que autentica
+    tiene ``can_act_on_behalf=true`` — dato del admin, no del cliente — y (b) el usuario
+    referenciado existe y pertenece al MISMO tenant que la key. Cualquier otro caso
+    (cabecera ausente, key sin el privilegio, usuario ajeno o inexistente) devuelve
+    ``None`` — el pedido se audita como si la cabecera no hubiera llegado, nunca falla."""
+    if not header_value or not isinstance(header_value, str):
+        return None
+    if not ident.get("can_act_on_behalf"):
+        return None
+    try:
+        acting_id = uuidlib.UUID(header_value.strip())
+    except (ValueError, AttributeError):
+        return None
+    tenant_id = ident.get("tenant_id")
+    if not tenant_id:
+        return None
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(
+            User.id == acting_id, User.tenant_id == uuidlib.UUID(tenant_id),
+        ).first()
+        return str(user.id) if user else None
+    except Exception:  # noqa: BLE001 — best-effort, nunca bloquea el pedido
+        return None
+    finally:
+        db.close()
+
+
 def _superficie(ident: dict, tool_declarado) -> str:
     """Superficie canónica del pedido para auditoría y monitor. Devuelve SIEMPRE un valor
     del enum ``SURFACES`` o el centinela — nunca lo que mandó el cliente."""
@@ -196,14 +240,54 @@ def gw_whoami(x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key
 
 @router.post("/inspect")
 async def gw_inspect(body: dict,
-                     x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key")):
+                     x_sentinel_key: Optional[str] = Header(None, alias="X-Sentinel-Key"),
+                     x_guardian_acting_user: Optional[str] = Header(
+                         None, alias="X-Guardian-Acting-User")):
     """Aplica la política Sentinel a un prompt de la superficie browser (piso COMPLETO desde
     la 027) y devuelve el texto enmascarado + los ``replacements`` para la extensión.
-    Fail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita."""
+    Fail-closed sin key válida → 401. Empuja al monitor (surface=browser) + audita.
+
+    Spec 043 (US2): ``X-Guardian-Acting-User`` es opcional y solo lo obedece
+    ``_resolve_acting_user`` cuando la key lo autoriza — ver su docstring."""
     start = time.time()
     ident = gateway._resolve_attribution(x_sentinel_key)
     if ident["api_key_id"] is None:
         return _fail_closed()
+    acted_for_user_id = _resolve_acting_user(ident, x_guardian_acting_user)
+    document_group_id = body.get("document_id") if isinstance(body.get("document_id"), str) \
+        else None
+
+    # Spec 043 (US2, contrato 2, FR-012): presupuesto ANTES de gastar, no solo mostrado. El
+    # usuario relevante es "en nombre de quién" si la cabecera se honró, si no el dueño de
+    # la key — igual que el resto del producto (BudgetService.has_sufficient_budget ya
+    # devuelve True cuando no hay presupuesto configurado para ese usuario/grupo, así que
+    # esto no cambia nada para las llaves/extensión que nunca tuvieron budget: mismo
+    # comportamiento de siempre). Cierra el mismo agujero que `chat.py` ya cierra en su
+    # propio plano (constraint de seguridad #3: "cerrar el fallback a admin por defecto").
+    presupuesto_user_id = acted_for_user_id or ident.get("user_id")
+    if presupuesto_user_id:
+        # Best-effort, mismo criterio que `_resolve_acting_user`: un `user_id`/`group_id`
+        # mal formado (o la DB caída) nunca bloquea el pedido por sí solo — solo se corta
+        # cuando la consulta SÍ pudo resolverse y dice explícitamente "sin crédito".
+        try:
+            uuidlib.UUID(presupuesto_user_id)
+            _bdb = SessionLocal()
+            try:
+                tiene_credito = BudgetService.has_sufficient_budget(
+                    db=_bdb, user_id=presupuesto_user_id, group_id=ident.get("group_id"))
+            finally:
+                _bdb.close()
+        except (ValueError, AttributeError, TypeError):
+            tiene_credito = True
+        except Exception:  # noqa: BLE001
+            tiene_credito = True
+        if not tiene_credito:
+            return JSONResponse(status_code=402, content={
+                "ok": False,
+                "blocked": True,
+                "code": "budget_exceeded",
+                "motivo": "Alcanzaste tu presupuesto asignado.",
+            })
 
     # F7: coerción segura — un `text` no-string (int/list/None) NO debe crashear el
     # endpoint; se trata como vacío (200 con replacements=[]), nunca un 500.
@@ -235,8 +319,13 @@ async def gw_inspect(body: dict,
     # `evaluate_request_policy` — si esta superficie eligiera detector por su cuenta,
     # volvería a divergir del piso, que es justo lo que el fix P4 vino a cerrar.
     nlp_ctx = ident.get("nlp") or {}
+    # Spec 043 (US3, T040): document_group_id (ya extraído arriba para la auditoría) viaja
+    # también acá — es lo que hace que el mismo valor reciba el mismo placeholder en todos
+    # los chunks de un documento. None (el caso de la extensión de navegador, que no manda
+    # este campo) preserva el comportamiento actual sin cambios.
     block_reason, status, ph_to_orig, entities, attribution = \
-        await gateway.evaluate_request_policy(synthetic, profile, nlp_ctx)
+        await gateway.evaluate_request_policy(synthetic, profile, nlp_ctx,
+                                              document_id=document_group_id)
 
     latency = int((time.time() - start) * 1000)
     # Preview del monitor: SIEMPRE display-masked sobre mapa desechable + scrub de secretos
@@ -244,7 +333,15 @@ async def gw_inspect(body: dict,
     # bloqueo ocurre antes del enmascarado y el texto sigue crudo: sin este pase propio, la
     # vitrina se convertiría en el canal de fuga del contenido que acabamos de bloquear.
     preview = await gateway._safe_preview(synthetic, nlp_ctx)
-    gateway._audit(ident, superficie, 0, 0, status, entities, latency, attribution)
+    # `model` sigue siendo `superficie` por compatibilidad (la columna es NOT NULL y este
+    # endpoint no llama a ningún modelo real) — lo que cambia es que ahora TAMBIÉN viaja en
+    # `surface`, columna propia, para que las vitrinas de costos puedan filtrar
+    # `surface IS NULL` y dejar de contar este tráfico como "modelo" (diagnostico.md §3 de
+    # la 043, T047). `event_type` default "traffic" — esto sí es tráfico real, no evidencia
+    # de licencia.
+    gateway._audit(ident, superficie, 0, 0, status, entities, latency, attribution,
+                   acted_for_user_id=acted_for_user_id, surface=superficie,
+                   document_group_id=document_group_id)
     gateway._publish_monitor(ident, superficie, superficie, status, entities, preview,
                              surface="browser", attribution=attribution)
 

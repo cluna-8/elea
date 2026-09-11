@@ -50,6 +50,7 @@ SELECT k.id::text AS key_id, k.tenant_id::text AS tenant_id, k.user_id::text AS 
        k.group_id::text AS group_id, k.tool_type, k.upstream_mode, k.redact_enabled,
        k.compression_mode AS key_compression_mode, k.allowed_models, k.allowed_tools,
        k.rpm_limit, k.tpm_limit, k.is_active, k.expires_at::text AS expires_at,
+       k.can_act_on_behalf,
        u.username, u.role, u.client_type, u.display_label,
        g.compression_mode AS group_compression_mode,
        t.slug AS tenant_slug, t.compression_mode AS tenant_compression_mode,
@@ -138,6 +139,25 @@ def _a_float(valor) -> Optional[float]:
         return None
 
 
+@router.get("/verify-user", dependencies=[Depends(_require_internal_secret)])
+def verify_user(user_id: str = Query(...), tenant_id: str = Query(...),
+                db: Session = Depends(get_db)):
+    """Spec 043 (US2, contrato 2, T026/T027): confirma que `user_id` existe y pertenece al
+    MISMO `tenant_id` que la Connection que llama — el motor lo consulta antes de honrar
+    `X-Guardian-Acting-User`, nunca acepta la cabecera a ciegas. `{"valid": false}` (200)
+    para "no existe"/"tenant distinto"; solo un fallo de transporte debe ser un error real
+    (fail-closed: el motor trata cualquier respuesta que no sea `valid: true` como "ignorar
+    la cabecera", nunca como "bloquear el pedido")."""
+    from ..models.user import User
+    try:
+        row = db.query(User.id).filter(User.id == user_id,
+                                       User.tenant_id == tenant_id).first()
+    except Exception:  # noqa: BLE001 — UUID mal formado u otro dato inválido: nunca 500
+        db.rollback()
+        return {"valid": False}
+    return {"valid": row is not None}
+
+
 @router.get("/identity", dependencies=[Depends(_require_internal_secret)])
 def resolve_identity(key_hash: str = Query(min_length=64, max_length=64),
                      db: Session = Depends(get_db)):
@@ -182,14 +202,15 @@ _INSERT_AUDIT_SQL = text("""
 INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
-    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer
+    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
+    acted_for_user_id
 ) VALUES (
     gen_random_uuid(), CAST(:tenant_id AS uuid), NOW(), CAST(:user_id AS uuid),
     CAST(:api_key_id AS uuid), :model,
     :prompt_tokens, :completion_tokens, :cost_usd, :pii_detected,
     CAST(:masked_entities AS jsonb),
     :compliance_status, :latency_ms, CAST(:user_group_id AS uuid),
-    CAST(:applied_layers AS jsonb), :blocked_by_layer
+    CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid)
 )
 """)
 
@@ -226,6 +247,12 @@ class AuditEntry(BaseModel):
     user_group_id: Optional[str] = None
     applied_layers: Optional[list] = None
     blocked_by_layer: Optional[str] = None
+    # Bug real encontrado en revisión (09-sep, contrato 2 de la 043): faltaba acá — una
+    # llave de servicio actuando "en nombre de" alguien (X-Guardian-Acting-User) que se
+    # bloqueaba por un guardrail del motor quedaba atribuida solo a la cuenta de servicio,
+    # nunca a la persona real, porque este modelo (y el INSERT de abajo) no tenían la
+    # columna. `custom_auth.py` ya la calcula; `sentinel_guardrail.py` ahora la manda.
+    acted_for_user_id: Optional[str] = None
 
 
 def _entidades_saneadas(items: list) -> list:
@@ -306,6 +333,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         # hoy no la produce — T025); [] afirmaría "ninguna capa corrió", que sería mentira.
         "applied_layers": json.dumps(entry.applied_layers) if entry.applied_layers is not None else None,
         "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
+        "acted_for_user_id": entry.acted_for_user_id,
     })
     db.commit()
 

@@ -28,6 +28,21 @@ class UserBase(BaseModel):
     risk_level: Optional[str] = None
     compliance_project_id: Optional[UUID] = None
 
+class UserPatch(BaseModel):
+    """Spec 043 (US5, T051): actualización PARCIAL — todos los campos opcionales, a
+    diferencia de `UserBase` (que `PUT /{user_id}` sigue usando, reemplazo completo, se
+    mantiene por compatibilidad). Solo lo que el caller manda se toca (`exclude_unset`)."""
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[str] = None
+    display_label: Optional[str] = None
+    group_id: Optional[UUID] = None
+    is_active: Optional[bool] = None
+    legal_basis: Optional[str] = None
+    risk_level: Optional[str] = None
+    compliance_project_id: Optional[UUID] = None
+
+
 class UserCreate(UserBase):
     # Sin default y sin Optional a propósito: el endpoint tenía un `or "sentinel123"` que le
     # daba la MISMA contraseña conocida a todo usuario creado sin una. La longitud mínima

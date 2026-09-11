@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
@@ -23,15 +24,20 @@
     "tailwind-merge": "^2.3.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^8.4.38",
+    "jsdom": "^30.0.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.2.2",
-    "vite": "^5.2.11"
+    "vite": "^5.2.11",
+    "vitest": "^2.1.9"
   }
 }

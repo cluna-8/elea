@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Elea Hub · Enterprise RAG & Governance</title>
+  <!-- Placeholder neutro — `applyBranding()` (más abajo) lo sobreescribe con la marca real
+       de la instancia (`GET /api/branding`) antes de que la persona vea nada. Nunca un
+       nombre de cliente específico hardcodeado acá (encontrado en revisión, 09-sep: decía
+       el nombre del primer cliente fijo, lo que contradice que este Hub sea un cliente
+       más, no atado a ninguno en particular). -->
+  <title>Guardian Hub</title>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700;1,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
@@ -118,6 +123,23 @@
       padding: 2px 4px; font-size: 12px; font-weight: 700; cursor: pointer; border-radius: 6px;
     }
     .add-btn:hover { background: var(--accent-soft); }
+
+    .hub-mode-tab {
+      background: transparent; border: none; color: var(--text-muted);
+      padding: 6px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; border-radius: 6px;
+    }
+    .hub-mode-tab.active { background: #fff; color: var(--text-main); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+    .exact-analysis-sql-box {
+      background: #1e1e2e; color: #a6e3a1; font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; padding: 10px 12px; border-radius: 8px; margin-top: 8px;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .exact-analysis-columns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .exact-analysis-columns span {
+      background: var(--accent-soft); color: #4b3f78; font-size: 11.5px; font-weight: 700;
+      padding: 3px 9px; border-radius: 999px;
+    }
 
     .workspaces-list { display: flex; flex-direction: column; gap: 2px; max-height: 170px; overflow-y: auto; }
     .workspace-item {
@@ -391,15 +413,16 @@
 </head>
 <body>
 
-  <!-- LOGIN / LOCK OVERLAY — credenciales reales de elea, sin lista de usuarios -->
+  <!-- LOGIN / LOCK OVERLAY — credenciales reales del backend de Guardian de esta
+       instancia, sin lista de usuarios -->
   <div class="auth-overlay" id="auth-overlay">
     <div class="auth-card">
       <div style="display:flex; justify-content:center;">
-        <img src="/eleia-logo.png" alt="Elea" style="height:64px; width:auto;">
+        <img src="/guardian-logo.svg" alt="" id="login-logo" style="height:64px; width:auto;">
       </div>
       <div>
         <div class="auth-title">Portal de Acceso</div>
-        <div style="font-size:12.5px; color:var(--text-muted); margin-top:4px;">Gobernanza IA y RAG Corporativo · Laboratorios ELEA</div>
+        <div style="font-size:12.5px; color:var(--text-muted); margin-top:4px;" id="login-tagline">Gobernanza IA y RAG Corporativo</div>
       </div>
 
       <form id="login-form" style="display:flex; flex-direction:column; gap:12px; text-align:left;" onsubmit="return handleLogin(event)">
@@ -420,17 +443,27 @@
   <!-- TOP NAVBAR -->
   <div class="top-navbar">
     <div class="brand-section">
-      <img src="/eleia-logo.png" alt="Elea" style="height:40px; width:auto;">
+      <img src="/guardian-logo.svg" alt="" id="navbar-logo" style="height:40px; width:auto;">
     </div>
 
-    <!-- CLIENT / TENANT BADGE -->
-    <div class="client-tenant-badge" id="client-tenant-badge">Laboratorios ELEA</div>
+    <!-- CLIENT / TENANT BADGE — texto de config (`HUB_BRAND_TENANT_LABEL`), oculto si la
+         instancia no configuró ninguno (no todas las instalaciones son de un único
+         tenant/cliente nombrado). -->
+    <div class="client-tenant-badge" id="client-tenant-badge" style="display:none;"></div>
 
-    <!-- SELECTOR DE MODELO — catálogo real de elea (GET /chat/models), solo aplica al
+    <!-- SELECTOR DE MODELO — catálogo real de la instancia (GET /chat/models), solo aplica al
          chat directo (sin workspace RAG seleccionado). Nunca una lista inventada. -->
     <div class="guardian-selector-container" title="Modelo para el chat directo (sin RAG). En un espacio RAG, el modelo lo decide el workspace.">
       <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.5-1.5 4-2.5 5.5S15 17 15 18h-6c0-1-.5-2-1.5-3.5S5 11.5 5 9a7 7 0 0 1 7-7z"></path><path d="M9 21h6"></path></svg>
       <select class="guardian-select" id="guardian-model-selector"></select>
+    </div>
+
+    <!-- Spec 046 (US2/FR-001): camino visible y DISTINTO del chat RAG — nunca mezclado en
+         la misma vista, para que la persona nunca confunda "cómputo exacto" con "chat sobre
+         documentos" (el reclamo original era justo esa confusión). -->
+    <div class="hub-mode-tabs" style="display:flex; gap:4px; background:var(--bg-hover); padding:3px; border-radius:8px;">
+      <button class="hub-mode-tab active" id="tab-chat" onclick="switchHubView('chat')" title="Chat sobre documentos (RAG)">💬 Chat</button>
+      <button class="hub-mode-tab" id="tab-exact-analysis" onclick="switchHubView('exact-analysis')" title="Cálculos exactos sobre planillas — sumas, conteos, cruces. No es el chat de documentos.">📊 Análisis exacto</button>
     </div>
 
     <!-- Usuario real + presupuesto real -->
@@ -444,6 +477,7 @@
 
     <!-- Action Buttons -->
     <div style="display:flex; gap:6px;">
+      <button class="action-icon-btn" id="btn-open-unassigned" style="display:none;" onclick="openUnassignedModal()" title="Espacios heredados sin miembros">Sin asignar</button>
       <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">Salir</button>
     </div>
   </div>
@@ -459,6 +493,9 @@
           <button class="add-btn" onclick="openNewWsModal()">+ Nuevo</button>
         </div>
         <div class="workspaces-list" id="workspaces-container"></div>
+        <div id="workspaces-empty-state" style="display:none; padding:16px 10px; font-size:13px; line-height:1.5; opacity:0.8;">
+          Todavía no tenés espacios. Creá uno o pedile a tu administrador que te agregue.
+        </div>
       </div>
 
       <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
@@ -470,6 +507,10 @@
       </div>
 
       <div class="left-panel-footer">
+        <button class="footer-link-btn" id="btn-open-members" onclick="openMembersModal()">
+          <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span>Miembros</span>
+        </button>
         <button class="footer-link-btn" onclick="openWorkspaceSettingsModal()">
           <svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           <span>Ajustes del espacio</span>
@@ -581,7 +622,7 @@
           <div class="rag-meta-rows">
             <div class="rag-meta-row"><span class="k">Modo</span><span class="v" id="rag-mode-label">Chat directo</span></div>
             <div class="rag-meta-row"><span class="k">Vector store</span><span class="v">LanceDB Local</span></div>
-            <div class="rag-meta-row"><span class="k">Gobernanza</span><span class="v">Elea GuardIAn</span></div>
+            <div class="rag-meta-row"><span class="k">Gobernanza</span><span class="v" id="governance-label">Guardian</span></div>
           </div>
         </div>
       </div>
@@ -589,8 +630,8 @@
 
   </div>
 
-  <!-- MODAL: AJUSTES DE WORKSPACE — las 7 opciones reales de AnythingLLM (spec 040 US3),
-       cada una con su texto de ayuda para que se entienda qué hace sin saber de AnythingLLM. -->
+  <!-- MODAL: AJUSTES DE WORKSPACE — las 7 opciones reales del motor de documentos (spec 040 US3),
+       cada una con su texto de ayuda para que se entienda qué hace sin saber del motor. -->
   <div class="modal-backdrop" id="modal-ws-settings">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -680,11 +721,114 @@
     </div>
   </div>
 
+  <!-- MODAL: MIEMBROS DEL ESPACIO (T016, FR-004) -->
+  <div class="modal-backdrop" id="modal-members">
+    <div class="modal-box" style="width:440px;">
+      <div class="modal-title" style="margin-bottom:2px;">Miembros del espacio</div>
+      <div id="members-list" style="display:flex; flex-direction:column; gap:6px; margin:10px 0; max-height:260px; overflow-y:auto;"></div>
+      <div id="members-add-row" style="display:flex; gap:8px;">
+        <input type="text" id="member-username-input" class="modal-input" placeholder="Nombre de usuario a agregar">
+        <button class="send-action-btn" onclick="submitAddMember()">Agregar</button>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button class="modal-cancel-btn" onclick="closeMembersModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RESUMEN DE PROTECCIÓN POR DOCUMENTO (T033, FR-007) -->
+  <div class="modal-backdrop" id="modal-protection-summary">
+    <div class="modal-box" style="width:420px;">
+      <div class="modal-title" style="margin-bottom:2px;" id="protection-summary-title">Documento protegido</div>
+      <div id="protection-summary-body" style="display:flex; flex-direction:column; gap:6px; margin:10px 0;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button class="send-action-btn wide" onclick="closeProtectionSummaryModal()">Entendido</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ESPACIOS SIN ASIGNAR (T018, FR-010, solo admins) -->
+  <div class="modal-backdrop" id="modal-unassigned">
+    <div class="modal-box" style="width:460px;">
+      <div class="modal-title" style="margin-bottom:2px;">Espacios sin asignar</div>
+      <div class="modal-label" style="margin-bottom:8px;">Espacios heredados de la migración, todavía sin miembros. Asignales un dueño para que aparezcan en su Hub.</div>
+      <div id="unassigned-list" style="display:flex; flex-direction:column; gap:8px; max-height:320px; overflow-y:auto;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+        <button class="modal-cancel-btn" onclick="closeUnassignedModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VISTA: ANÁLISIS EXACTO (spec 046) — separada del chat RAG a propósito (US2/FR-001).
+       Para cálculos exactos sobre planillas: sumas, conteos, cruces. No es el chat de
+       documentos — acá SÍ se muestra el SQL ejecutado (Pipeline Transparency, a diferencia
+       del chat RAG que nunca lo expone). -->
+  <div class="portal-main" id="view-exact-analysis" style="display:none;">
+    <div class="left-panel">
+      <div>
+        <div class="section-header">
+          <span class="section-title">Espacios de Análisis Exacto</span>
+          <button class="add-btn" onclick="openNewExactAnalysisWsModal()">+ Nuevo</button>
+        </div>
+        <div class="workspaces-list" id="exact-analysis-workspaces-container"></div>
+        <div id="exact-analysis-workspaces-empty" style="display:none; padding:16px 10px; font-size:13px; line-height:1.5; opacity:0.8;">
+          Todavía no tenés espacios de análisis exacto. Creá uno para subir una planilla.
+        </div>
+      </div>
+      <div style="padding:12px 10px; font-size:12px; line-height:1.5; color:var(--text-muted); border-top:1px solid var(--border-color); margin-top:8px;">
+        Para cálculos exactos sobre planillas — sumas, conteos, cruces por columna. Si lo que
+        necesitás es preguntar sobre el contenido de un documento (no calcular), usá <a href="#" onclick="switchHubView('chat'); return false;" style="color:var(--accent);">el chat normal</a>.
+      </div>
+    </div>
+
+    <div class="chat-panel" style="display:flex; flex-direction:column; padding:20px 26px; overflow-y:auto; gap:16px;">
+      <div id="exact-analysis-empty-state" style="text-align:center; margin-top:60px; opacity:0.7;">
+        <div style="font-size:15px; font-weight:700; margin-bottom:6px;">Elegí o creá un espacio de análisis exacto</div>
+        <div style="font-size:13px;">Subí una planilla (.csv, .xlsx, .xls) y preguntá en lenguaje natural — la respuesta es un cálculo real, no una aproximación.</div>
+      </div>
+
+      <div id="exact-analysis-workspace-view" style="display:none; flex-direction:column; gap:16px; max-width:720px; margin:0 auto; width:100%;">
+        <div>
+          <div class="modal-label" style="margin-bottom:6px;">Subir planilla</div>
+          <input type="file" id="exact-analysis-file-input" accept=".csv,.xlsx,.xls" onchange="uploadExactAnalysisFile()">
+          <div id="exact-analysis-file-status" style="font-size:12.5px; color:var(--text-muted); margin-top:6px;"></div>
+          <div class="exact-analysis-columns" id="exact-analysis-columns"></div>
+        </div>
+
+        <div id="exact-analysis-qa-box" style="display:none; flex-direction:column; gap:10px;">
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="exact-analysis-question" class="modal-input" style="flex:1;"
+                   placeholder="Ej: ¿Cuánto suman las ventas del departamento de Marketing?"
+                   onkeydown="if(event.key==='Enter') askExactAnalysisQuestion()">
+            <button class="send-action-btn" onclick="askExactAnalysisQuestion()">Preguntar</button>
+          </div>
+          <div id="exact-analysis-answer-box" style="display:none; background:#fff; border:1px solid var(--border-color); border-radius:10px; padding:14px 16px;">
+            <div id="exact-analysis-answer-text" style="font-size:14px; line-height:1.6; white-space:pre-wrap;"></div>
+            <div id="exact-analysis-sql" class="exact-analysis-sql-box" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: NUEVO ESPACIO DE ANÁLISIS EXACTO -->
+  <div class="modal-backdrop" id="modal-new-exact-analysis-ws">
+    <div class="modal-box" style="width:420px;">
+      <div class="modal-title" style="margin-bottom:2px;">Crear Espacio de Análisis Exacto</div>
+      <div class="modal-label" style="margin-bottom:8px;">Solo para planillas — no mezcla con el chat de documentos.</div>
+      <input type="text" id="new-exact-analysis-ws-name" class="modal-input" placeholder="Nombre del espacio (ej. Ventas Q3)">
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button class="modal-cancel-btn" onclick="closeNewExactAnalysisWsModal()">Cancelar</button>
+        <button class="send-action-btn wide" onclick="submitNewExactAnalysisWorkspace()">Crear Espacio</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-msg" id="toast-notification">Acción completada</div>
 
   <script>
-    // Estado de la UI. `messages` es SOLO de esta pestaña (no se persiste ni se relee de
-    // AnythingLLM al recargar — limitación conocida, ver client/README.md).
+    // Estado de la UI. `messages` es SOLO de esta pestaña (no se persiste ni se relee del
+    // motor de documentos al recargar — limitación conocida, ver client/README.md).
     let currentUser = null;
     let currentBudget = null;
     let models = [];
@@ -692,11 +836,23 @@
     let currentWorkspace = null; // objeto completo (con documents[] y threads[])
     let currentThreadSlug = null;
     let messages = [];
+    // T034 (US3, R5): fecha de corte del enmascarado determinista — `null` mientras no
+    // esté configurada en el Hub (`MASKING_DETERMINISM_SINCE`), y entonces ningún
+    // documento se marca como "esquema anterior" (mejor no avisar que avisar mal).
+    let maskingDeterminismSince = null;
+    // Marca de ESTA instancia — default neutro mientras `applyBranding()` no resolvió
+    // todavía (evita un `undefined` de una fracción de segundo antes del primer fetch).
+    let hubBrand = { name: 'Guardian Hub', tagline: '', logoUrl: '/guardian-logo.svg', tenantLabel: '', governanceLabel: 'Guardian' };
 
-    const EMPTY_STATE_HTML = `
+    // Función, no una constante: se arma con la marca de ESTA instancia (`hubBrand`,
+    // cargada en `boot()`), no con un logo/tagline fijo del primer cliente (encontrado en
+    // revisión, 09-sep — el Hub tiene que poder mostrar la marca de cualquier Guardian
+    // al que apunte, no la de uno en particular).
+    function emptyStateHtml() {
+      return `
       <div class="chat-empty-state">
-        <img src="/eleia-logo.png" alt="Elea" style="height:70px; width:auto;">
-        <div class="empty-tagline">La plataforma inteligente para Laboratorios Elea</div>
+        <img src="${hubBrand.logoUrl}" alt="" style="height:70px; width:auto;">
+        <div class="empty-tagline">${hubBrand.tagline}</div>
         <div class="empty-chat-icon">
           <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 8.5 8.5z"></path></svg>
         </div>
@@ -704,12 +860,44 @@
         <div class="empty-sub">Escribí tu consulta sobre este espacio de trabajo o elegí una acción rápida abajo.</div>
       </div>
     `;
+    }
 
     function showToast(text) {
       const toast = document.getElementById('toast-notification');
       toast.innerText = text;
       toast.classList.add('show');
       setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    // Marca en runtime (spec 020 US2, mismo criterio que `frontend`) — se resuelve ANTES
+    // de que la persona vea nada, incluida la pantalla de login (por eso corre antes de
+    // `boot()`, no adentro). Sin `/api/branding` (instancia vieja, o el endpoint no
+    // responde), se queda con el default neutro — nunca rompe el arranque.
+    async function applyBranding() {
+      try {
+        const res = await fetch('/api/branding');
+        if (res.ok) hubBrand = { ...hubBrand, ...(await res.json()) };
+      } catch (err) {
+        // sin conexión al propio servidor del Hub — el default neutro alcanza.
+      }
+      document.title = hubBrand.name;
+      const loginLogo = document.getElementById('login-logo');
+      const navbarLogo = document.getElementById('navbar-logo');
+      if (loginLogo) loginLogo.src = hubBrand.logoUrl;
+      if (navbarLogo) navbarLogo.src = hubBrand.logoUrl;
+      const loginTagline = document.getElementById('login-tagline');
+      if (loginTagline && hubBrand.tagline) loginTagline.innerText = hubBrand.tagline;
+      const tenantBadge = document.getElementById('client-tenant-badge');
+      if (tenantBadge) {
+        if (hubBrand.tenantLabel) {
+          tenantBadge.innerText = hubBrand.tenantLabel;
+          tenantBadge.style.display = '';
+        } else {
+          tenantBadge.style.display = 'none';
+        }
+      }
+      const governanceLabel = document.getElementById('governance-label');
+      if (governanceLabel) governanceLabel.innerText = hubBrand.governanceLabel;
     }
 
     // ── Arranque / sesión ──────────────────────────────────────────────────────────────
@@ -723,6 +911,7 @@
       document.getElementById('auth-overlay').classList.remove('active');
       currentUser = state.user;
       currentBudget = state.budget;
+      maskingDeterminismSince = state.maskingDeterminismSince || null;
       renderUserHeader();
       await Promise.all([loadModels(), loadWorkspaces()]);
     }
@@ -761,6 +950,14 @@
       document.getElementById('auth-overlay').classList.add('active');
     }
 
+    // Roles admin del lado del Hub (ver también backend/src/api/workspaces.py
+    // `_ADMIN_ROLES`) — solo controla qué se MUESTRA acá; el backend vuelve a exigirlo
+    // en cada llamada, nunca se confía en esto para autorizar nada.
+    const HUB_ADMIN_ROLES = ['super_admin', 'tenant_admin'];
+    function isHubAdmin() {
+      return !!currentUser && HUB_ADMIN_ROLES.includes(currentUser.role);
+    }
+
     function renderUserHeader() {
       document.getElementById('user-avatar').innerText = (currentUser.username || 'U').slice(0, 2).toUpperCase();
       document.getElementById('user-display-name').innerText = `${currentUser.username} · ${currentUser.role}`;
@@ -770,6 +967,7 @@
       } else {
         quotaEl.innerText = 'Sin presupuesto asignado';
       }
+      document.getElementById('btn-open-unassigned').style.display = isHubAdmin() ? '' : 'none';
     }
 
     // ── Selector de modelo real (US2) ──────────────────────────────────────────────────
@@ -782,21 +980,23 @@
       models.forEach((m) => {
         const opt = document.createElement('option');
         opt.value = m.model_name;
-        opt.innerText = m.model_name === 'auto' ? 'Automático (elea decide)' : m.model_name;
+        opt.innerText = m.model_name === 'auto' ? 'Automático (Guardian decide)' : m.model_name;
         sel.appendChild(opt);
       });
     }
 
     // ── Workspaces (US3) ────────────────────────────────────────────────────────────────
+    // FR-002 (T015): el Hub lista solo los espacios propios y MUST NOT auto-seleccionar
+    // ninguno — la persona elige explícitamente con qué espacio trabajar; sin espacios,
+    // estado vacío con las dos acciones ("crear" / "pedile a tu admin").
     async function loadWorkspaces() {
       const res = await fetch('/api/workspaces');
       if (!res.ok) { workspaces = []; renderWorkspaceList(); return; }
       const data = await res.json();
       workspaces = data.workspaces || [];
       renderWorkspaceList();
-      if (workspaces.length > 0 && !currentWorkspace) {
-        await selectWorkspace(workspaces[0].slug);
-      } else if (workspaces.length === 0) {
+      if (workspaces.length === 0) {
+        currentWorkspace = null;
         renderChatTopbar();
         renderMessages();
       }
@@ -804,21 +1004,26 @@
 
     function renderWorkspaceList() {
       const wsContainer = document.getElementById('workspaces-container');
+      const emptyState = document.getElementById('workspaces-empty-state');
       wsContainer.innerHTML = '';
+      emptyState.style.display = workspaces.length === 0 ? '' : 'none';
+      // `workspaces` viene del backend (contrato 1: `engine_slug`/`display_name`), NO del
+      // motor de documentos — a diferencia de `currentWorkspace`, que sí usa el shape nativo
+      // del motor (`.slug`/`.name`) porque sale de otro endpoint (ver `selectWorkspace`).
       workspaces.forEach((ws) => {
-        const activeClass = currentWorkspace && currentWorkspace.slug === ws.slug ? 'active' : '';
+        const activeClass = currentWorkspace && currentWorkspace.slug === ws.engine_slug ? 'active' : '';
         const div = document.createElement('div');
         div.className = `workspace-item ${activeClass}`;
-        div.onclick = () => selectWorkspace(ws.slug);
-        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.name}</span>`;
+        div.onclick = () => selectWorkspace(ws.engine_slug);
+        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.display_name}</span>`;
         wsContainer.appendChild(div);
       });
     }
 
-    // Historial real del hilo (o del hilo principal si threadSlug es null) — AnythingLLM
-    // sí lo persiste server-side. Antes de esto `messages` se vaciaba al cambiar de hilo/
-    // espacio y no se volvía a leer nunca (bug real 02-sep: "salía del hilo y volvía,
-    // desaparecía la info" — no desaparecía en AnythingLLM, solo dejaba de mostrarse).
+    // Historial real del hilo (o del hilo principal si threadSlug es null) — el motor de
+    // documentos sí lo persiste server-side. Antes de esto `messages` se vaciaba al cambiar
+    // de hilo/espacio y no se volvía a leer nunca (bug real 02-sep: "salía del hilo y volvía,
+    // desaparecía la info" — no desaparecía en el motor, solo dejaba de mostrarse).
     async function loadMessages(slug, threadSlug) {
       const qs = threadSlug ? `?threadSlug=${encodeURIComponent(threadSlug)}` : '';
       try {
@@ -831,13 +1036,16 @@
       }
     }
 
+    // T017 (FR-002/escenario 5): un espacio ajeno con identificador conocido responde 403
+    // sin datos — el Hub no debe cargar nada del espacio anterior ni intentar nada más.
     async function selectWorkspace(slug) {
       const res = await fetch(`/api/workspaces/${slug}`);
+      if (res.status === 403) { showToast('No tenés acceso a este espacio.'); return; }
       if (!res.ok) { showToast('No se pudo abrir el espacio.'); return; }
       const data = await res.json();
-      // AnythingLLM devuelve el workspace envuelto en un array de 1 elemento en este
-      // endpoint (a diferencia de /update-embeddings, que lo devuelve como objeto plano)
-      // — verificado en vivo el 31-ago, no está documentado así en ningún lado.
+      // El motor de documentos devuelve el workspace envuelto en un array de 1 elemento en
+      // este endpoint (a diferencia de /update-embeddings, que lo devuelve como objeto
+      // plano) — verificado en vivo el 31-ago, no está documentado así en ningún lado.
       currentWorkspace = Array.isArray(data.workspace) ? data.workspace[0] : data.workspace;
       currentThreadSlug = null;
       await loadMessages(slug, null);
@@ -868,8 +1076,8 @@
         const div = document.createElement('div');
         div.className = `thread-item ${activeClass}`;
         div.onclick = () => selectThread(th.slug);
-        // GET /workspace/{slug} de AnythingLLM NO devuelve el nombre del hilo (solo el
-        // slug) — a diferencia de la respuesta de creación, que sí lo trae. Fallback
+        // GET /workspace/{slug} del motor de documentos NO devuelve el nombre del hilo (solo
+        // el slug) — a diferencia de la respuesta de creación, que sí lo trae. Fallback
         // para no mostrar "undefined" (bug real encontrado 31-ago).
         div.innerHTML = `<div><span style="overflow:hidden; text-overflow:ellipsis;">${th.name || 'Hilo ' + th.slug.slice(0, 8)}</span></div>`;
         threadsContainer.appendChild(div);
@@ -884,18 +1092,33 @@
       renderMessages();
     }
 
+    // T034 (US3, R5 de research.md): `meta.published` es la fecha de subida que
+    // el motor de documentos guarda en los metadatos del documento — si no está configurada
+    // la fecha de corte, o el documento no trae esa fecha, NO se marca nada (mejor no avisar
+    // que avisar mal por un dato que no está).
+    function esquemaAnteriorDeEnmascarado(meta) {
+      if (!maskingDeterminismSince || !meta.published) return false;
+      const subido = new Date(meta.published);
+      const corte = new Date(maskingDeterminismSince);
+      if (isNaN(subido.getTime()) || isNaN(corte.getTime())) return false;
+      return subido < corte;
+    }
+
     function renderDocuments() {
       const docsContainer = document.getElementById('documents-container');
       docsContainer.innerHTML = '';
       if (!currentWorkspace) return;
       (currentWorkspace.documents || []).forEach((doc) => {
         const meta = JSON.parse(doc.metadata || '{}');
-        // El nombre real subido lleva ".txt" al final (necesario para que AnythingLLM lo
-        // trate como texto plano, no como el binario original) — se oculta acá, es un
-        // detalle interno, no algo que la persona que sube el archivo necesite ver.
+        // El nombre real subido lleva ".txt" al final (necesario para que el motor de
+        // documentos lo trate como texto plano, no como el binario original) — se oculta
+        // acá, es un detalle interno, no algo que la persona que sube el archivo necesite ver.
         const displayName = (meta.title || doc.filename || '').replace(/\.txt$/i, '');
         const div = document.createElement('div');
         div.className = 'doc-card';
+        const avisoEsquemaAnterior = esquemaAnteriorDeEnmascarado(meta)
+          ? '<div style="font-size:11px; color:#b45309; margin-top:4px;">⚠️ Esquema anterior. Reenviá el documento para mejorar las respuestas.</div>'
+          : '';
         div.innerHTML = `
           <div class="doc-card-title"><span>${displayName}</span></div>
           <div class="doc-card-meta">
@@ -903,7 +1126,8 @@
             <div class="doc-card-actions">
               <button class="tool-btn danger" title="Eliminar">✕</button>
             </div>
-          </div>`;
+          </div>
+          ${avisoEsquemaAnterior}`;
         div.querySelector('.tool-btn.danger').onclick = (e) => deleteDocument(doc.docpath, e);
         docsContainer.appendChild(div);
       });
@@ -934,6 +1158,133 @@
       });
       currentWorkspace = null;
       showToast('Espacio eliminado');
+      await loadWorkspaces();
+    }
+
+    // ── Miembros del espacio (T016, FR-004) ─────────────────────────────────────────────
+    // Dueño/admin ven la lista con acciones (quitar/transferir); un miembro no dueño solo
+    // ve la lista, sin el formulario de alta ni los botones de acción — el backend igual
+    // vuelve a exigirlo del lado suyo si alguien fuerza la llamada desde la consola.
+    let membersModalRole = 'member';
+
+    async function openMembersModal() {
+      if (!currentWorkspace) { showToast('Abrí un espacio primero.'); return; }
+      document.getElementById('modal-members').classList.add('active');
+      await renderMembersList();
+    }
+    function closeMembersModal() { document.getElementById('modal-members').classList.remove('active'); }
+
+    async function renderMembersList() {
+      const container = document.getElementById('members-list');
+      const addRow = document.getElementById('members-add-row');
+      container.innerHTML = 'Cargando…';
+      try {
+        const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/members`);
+        if (!res.ok) { container.innerHTML = 'No se pudieron cargar los miembros.'; return; }
+        const data = await res.json();
+        const members = data.members || [];
+        membersModalRole = (members.find((m) => m.username === currentUser.username) || {}).role || 'member';
+        const canManage = membersModalRole === 'owner' || isHubAdmin();
+        addRow.style.display = canManage ? 'flex' : 'none';
+        container.innerHTML = '';
+        members.forEach((m) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:8px; background:rgba(127,127,127,0.08);';
+          const actions = canManage && m.role !== 'owner'
+            ? `<button class="tool-btn" data-action="transfer" title="Transferir propiedad">Hacer dueño</button>
+               <button class="tool-btn danger" data-action="remove" title="Quitar">✕</button>`
+            : '';
+          row.innerHTML = `<span>${m.username} <span style="opacity:0.6;">(${m.role === 'owner' ? 'dueño' : 'miembro'})</span></span><span style="display:flex; gap:4px;">${actions}</span>`;
+          const transferBtn = row.querySelector('[data-action="transfer"]');
+          const removeBtn = row.querySelector('[data-action="remove"]');
+          if (transferBtn) transferBtn.onclick = () => transferOwnership(m.user_id, m.username);
+          if (removeBtn) removeBtn.onclick = () => removeMember(m.user_id, m.username);
+          container.appendChild(row);
+        });
+      } catch (err) {
+        container.innerHTML = 'No se pudieron cargar los miembros.';
+      }
+    }
+
+    async function submitAddMember() {
+      const input = document.getElementById('member-username-input');
+      const username = input.value.trim();
+      if (!username) return;
+      const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo agregar el miembro.'); return; }
+      input.value = '';
+      showToast(`"${username}" agregado al espacio.`);
+      await renderMembersList();
+    }
+
+    async function removeMember(userId, username) {
+      if (!confirm(`¿Quitar a "${username}" de este espacio?`)) return;
+      const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/members/${userId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo quitar el miembro.'); return; }
+      showToast(`"${username}" ya no es miembro del espacio.`);
+      await renderMembersList();
+    }
+
+    async function transferOwnership(newOwnerUserId, username) {
+      if (!confirm(`¿Transferir la propiedad del espacio a "${username}"?`)) return;
+      const res = await fetch(`/api/workspaces/${currentWorkspace.slug}/transfer-owner`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newOwnerUserId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo transferir la propiedad.'); return; }
+      showToast(`"${username}" es ahora el dueño del espacio.`);
+      await renderMembersList();
+    }
+
+    // ── Espacios "Sin asignar" (T018, FR-010, solo admins) ──────────────────────────────
+    async function openUnassignedModal() {
+      document.getElementById('modal-unassigned').classList.add('active');
+      await renderUnassignedList();
+    }
+    function closeUnassignedModal() { document.getElementById('modal-unassigned').classList.remove('active'); }
+
+    async function renderUnassignedList() {
+      const container = document.getElementById('unassigned-list');
+      container.innerHTML = 'Cargando…';
+      try {
+        const res = await fetch('/api/workspaces/unassigned');
+        if (res.status === 403) { container.innerHTML = 'Solo administradores pueden ver esta lista.'; return; }
+        if (!res.ok) { container.innerHTML = 'No se pudo consultar los espacios sin asignar.'; return; }
+        const data = await res.json();
+        const list = data.workspaces || [];
+        if (list.length === 0) { container.innerHTML = 'No hay espacios sin asignar.'; return; }
+        container.innerHTML = '';
+        list.forEach((ws) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:8px 10px; border-radius:8px; background:rgba(127,127,127,0.08);';
+          row.innerHTML = `
+            <div style="font-weight:600;">${ws.display_name}</div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" class="modal-input" placeholder="Nombre de usuario del dueño" style="flex:1;">
+              <button class="send-action-btn">Asignar</button>
+            </div>`;
+          const input = row.querySelector('input');
+          row.querySelector('button').onclick = () => assignUnassignedWorkspace(ws.id, input.value.trim(), ws.display_name);
+          container.appendChild(row);
+        });
+      } catch (err) {
+        container.innerHTML = 'No se pudo consultar los espacios sin asignar.';
+      }
+    }
+
+    async function assignUnassignedWorkspace(workspaceId, username, displayName) {
+      if (!username) { showToast('Ingresá el nombre de usuario del dueño.'); return; }
+      const res = await fetch(`/api/workspaces/unassigned/${workspaceId}/members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo asignar el espacio.'); return; }
+      showToast(`"${displayName}" asignado a "${username}".`);
+      await renderUnassignedList();
       await loadWorkspaces();
     }
 
@@ -992,12 +1343,12 @@
 
     function exportChatTranscript() {
       if (messages.length === 0) return;
-      let transcript = `# Transcripción Elea RAG\n**Espacio:** ${currentWorkspace ? currentWorkspace.name : 'Chat directo'}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
+      let transcript = `# Transcripción — ${hubBrand.name}\n**Espacio:** ${currentWorkspace ? currentWorkspace.name : 'Chat directo'}\n**Fecha:** ${new Date().toLocaleString()}\n\n---\n\n`;
       messages.forEach((m) => { transcript += `### ${m.role === 'user' ? 'Usuario' : 'Asistente'}\n${m.content}\n\n`; });
       const blob = new Blob([transcript], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'transcripcion-elea-rag.md'; a.click();
+      a.href = url; a.download = 'transcripcion-hub.md'; a.click();
       showToast('Transcripción descargada.');
     }
 
@@ -1016,6 +1367,11 @@
     async function handleWsFileUpload(event) {
       const file = event.target.files[0];
       if (!file || !currentWorkspace) return;
+      if (currentBudget && currentBudget.status === 'exceeded') {
+        event.target.value = '';
+        showToast(MENSAJE_PRESUPUESTO_AGOTADO);
+        return;
+      }
       const formData = new FormData();
       formData.append('file', file);
       formData.append('slug', currentWorkspace.slug);
@@ -1026,9 +1382,32 @@
       if (!res.ok) { showToast(data.error || 'No se pudo subir el documento.'); return; }
       await selectWorkspace(currentWorkspace.slug);
       showToast(data.message);
+      showProtectionSummaryModal(data.document);
     }
 
-    // ── Ajustes de espacio — las 7 opciones reales de AnythingLLM (US3) ─────────────────
+    // T033 (US3, FR-007): resumen de protección AGREGADO POR DOCUMENTO (un tipo de dato
+    // se cuenta una sola vez por documento, ya no "cada chunk cuenta desde 0" — mismo
+    // criterio que `maskText()` en el servidor) tras cada subida, no solo el toast fugaz.
+    function showProtectionSummaryModal(doc) {
+      if (!doc) return;
+      document.getElementById('protection-summary-title').innerText = `"${doc.name}" protegido`;
+      const body = document.getElementById('protection-summary-body');
+      const entidades = doc.entitiesEnmascaradas || [];
+      if (entidades.length === 0) {
+        body.innerHTML = '<div style="font-size:13px; opacity:0.8;">No se detectaron datos personales en este documento.</div>';
+      } else {
+        body.innerHTML = entidades.map((e) =>
+          `<div style="display:flex; justify-content:space-between; font-size:13px;"><span>${e.type}</span><span style="font-weight:600;">${e.count}</span></div>`
+        ).join('');
+      }
+      if (doc.truncated) {
+        body.innerHTML += '<div style="font-size:12px; color:#b45309; margin-top:6px;">⚠️ El documento es grande — se indexó solo la primera parte (~150.000 caracteres).</div>';
+      }
+      document.getElementById('modal-protection-summary').classList.add('active');
+    }
+    function closeProtectionSummaryModal() { document.getElementById('modal-protection-summary').classList.remove('active'); }
+
+    // ── Ajustes de espacio — las 7 opciones reales del motor de documentos (US3) ────────
     function openWorkspaceSettingsModal() {
       if (!currentWorkspace) { showToast('Elegí un espacio primero.'); return; }
       const w = currentWorkspace;
@@ -1068,6 +1447,12 @@
     }
 
     // ── Chat (US2 simple + US3 RAG) ──────────────────────────────────────────────────────
+    // T024 (FR-006): mismo texto que `MENSAJE_PRESUPUESTO_AGOTADO` en `client/server.js` —
+    // la persona ve exactamente el mismo mensaje sea que el bloqueo lo decida esta pantalla
+    // (con el `currentBudget` ya cargado, sin ida y vuelta) o que llegue como un 402 real
+    // del servidor (budget cambiado en otra pestaña, carrera entre pedidos, etc).
+    const MENSAJE_PRESUPUESTO_AGOTADO = 'Alcanzaste tu presupuesto. Contactá a tu administrador.';
+
     function handleKeyPress(e) { if (e.key === 'Enter') sendMessage(); }
     function quickSend(text) { document.getElementById('chat-input').value = text; sendMessage(); }
 
@@ -1075,6 +1460,13 @@
       const inputEl = document.getElementById('chat-input');
       const text = inputEl.value.trim();
       if (!text) return;
+      if (currentBudget && currentBudget.status === 'exceeded') {
+        messages.push({ role: 'user', content: text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+        messages.push({ role: 'assistant', content: `⚠️ ${MENSAJE_PRESUPUESTO_AGOTADO}` });
+        inputEl.value = '';
+        renderMessages();
+        return;
+      }
       inputEl.value = '';
       messages.push({ role: 'user', content: text, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
       renderMessages();
@@ -1117,7 +1509,7 @@
       const container = document.getElementById('chat-messages');
       container.innerHTML = '';
       if (messages.length === 0) {
-        container.innerHTML = EMPTY_STATE_HTML;
+        container.innerHTML = emptyStateHtml();
         return;
       }
       messages.forEach((msg) => {
@@ -1147,7 +1539,237 @@
       container.scrollTop = container.scrollHeight;
     }
 
-    boot();
+    // =====================================================================
+    // ANÁLISIS EXACTO DE DATOS (spec 046) — separado del chat RAG a propósito (US2/FR-001).
+    // Estado propio (`exactAnalysisWorkspaces`, `currentExactAnalysisWorkspace`), nunca
+    // mezclado con `workspaces`/`currentWorkspace` del chat.
+    // =====================================================================
+    let exactAnalysisWorkspaces = [];
+    let currentExactAnalysisWorkspace = null; // { id, display_name }
+    let exactAnalysisFileInfo = null;         // { conv_uid, select_param, file_name } tras subir
+
+    function switchHubView(view) {
+      const isChat = view === 'chat';
+      document.getElementById('view-hub').style.display = isChat ? '' : 'none';
+      document.getElementById('view-exact-analysis').style.display = isChat ? 'none' : 'flex';
+      document.getElementById('tab-chat').classList.toggle('active', isChat);
+      document.getElementById('tab-exact-analysis').classList.toggle('active', !isChat);
+      if (!isChat && exactAnalysisWorkspaces.length === 0) loadExactAnalysisWorkspaces();
+    }
+
+    async function loadExactAnalysisWorkspaces() {
+      const res = await fetch('/api/exact-analysis/workspaces');
+      if (!res.ok) { exactAnalysisWorkspaces = []; renderExactAnalysisWorkspaceList(); return; }
+      const data = await res.json();
+      exactAnalysisWorkspaces = data.workspaces || [];
+      renderExactAnalysisWorkspaceList();
+    }
+
+    function renderExactAnalysisWorkspaceList() {
+      const container = document.getElementById('exact-analysis-workspaces-container');
+      const empty = document.getElementById('exact-analysis-workspaces-empty');
+      container.innerHTML = '';
+      empty.style.display = exactAnalysisWorkspaces.length === 0 ? '' : 'none';
+      exactAnalysisWorkspaces.forEach((ws) => {
+        const activeClass = currentExactAnalysisWorkspace && currentExactAnalysisWorkspace.id === ws.id ? 'active' : '';
+        const div = document.createElement('div');
+        div.className = `workspace-item ${activeClass}`;
+        div.onclick = () => selectExactAnalysisWorkspace(ws);
+        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.display_name}</span>`;
+        container.appendChild(div);
+      });
+    }
+
+    function selectExactAnalysisWorkspace(ws) {
+      currentExactAnalysisWorkspace = ws;
+      exactAnalysisFileInfo = null;
+      renderExactAnalysisWorkspaceList();
+      document.getElementById('exact-analysis-empty-state').style.display = 'none';
+      document.getElementById('exact-analysis-workspace-view').style.display = 'flex';
+      document.getElementById('exact-analysis-file-input').value = '';
+      document.getElementById('exact-analysis-file-status').textContent = '';
+      document.getElementById('exact-analysis-columns').innerHTML = '';
+      document.getElementById('exact-analysis-qa-box').style.display = 'none';
+      document.getElementById('exact-analysis-answer-box').style.display = 'none';
+    }
+
+    function openNewExactAnalysisWsModal() { document.getElementById('modal-new-exact-analysis-ws').classList.add('active'); }
+    function closeNewExactAnalysisWsModal() { document.getElementById('modal-new-exact-analysis-ws').classList.remove('active'); }
+
+    async function submitNewExactAnalysisWorkspace() {
+      const nameInput = document.getElementById('new-exact-analysis-ws-name');
+      const name = nameInput.value.trim();
+      if (!name) return;
+      const res = await fetch('/api/exact-analysis/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: name })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo crear el espacio.'); return; }
+      nameInput.value = '';
+      closeNewExactAnalysisWsModal();
+      await loadExactAnalysisWorkspaces();
+      selectExactAnalysisWorkspace({ id: data.id, display_name: data.display_name });
+    }
+
+    async function uploadExactAnalysisFile() {
+      const input = document.getElementById('exact-analysis-file-input');
+      const file = input.files[0];
+      if (!file || !currentExactAnalysisWorkspace) return;
+
+      // Aviso explícito antes de subir .xls (decisión del dueño del producto, 11-sep, tras
+      // encontrar en vivo un archivo real con CUIT/email/teléfono/domicilio reales que
+      // volvió del motor completamente sin proteger). Alcance actualizado: .xlsx YA se
+      // enmascara (celda por celda, servidor) desde que se cerró el gap — el aviso queda
+      // solo para .xls, el formato binario legado que la librería de enmascarado no puede
+      // leer (ver el comentario de `maskXlsxBuffer` en server.js). No se bloquea la
+      // subida — se avisa y la persona decide, sabiendo el riesgo real.
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      if (ext === 'xls') {
+        const seguir = confirm(
+          'Este archivo .xls (formato Excel viejo) NO pasa por el enmascarado de datos ' +
+          'personales — solo .csv y .xlsx están protegidos hoy. Si tiene nombres, DNI/CUIT, ' +
+          'emails o teléfonos reales, van a llegar sin proteger al motor de análisis y ' +
+          'pueden volver así en la respuesta.\n\n' +
+          'Si podés, guardalo como .xlsx desde Excel/Sheets y subí esa versión en su lugar.\n\n' +
+          '¿Subir igual, sin enmascarar?'
+        );
+        if (!seguir) { input.value = ''; return; }
+      }
+
+      const statusEl = document.getElementById('exact-analysis-file-status');
+      statusEl.textContent = (ext === 'xls')
+        ? 'Subiendo la planilla (sin enmascarar — .xls) …'
+        : 'Subiendo y protegiendo la planilla…';
+
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const res = await fetch(`/api/exact-analysis/workspaces/${currentExactAnalysisWorkspace.id}/files`, {
+          method: 'POST',
+          body: form
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          statusEl.textContent = '';
+          // Bug real encontrado en pruebas de QA (11-sep): sin esto, el nombre del
+          // archivo rechazado quedaba pegado al lado de "Seleccionar archivo" como si
+          // hubiera quedado cargado, aunque la subida haya fallado (ej. formato no
+          // soportado) — mismo criterio que ya usaba el camino de cancelar el aviso
+          // de Excel, que sí limpiaba el input.
+          input.value = '';
+          showToast(data.error || 'No se pudo subir la planilla.');
+          return;
+        }
+        exactAnalysisFileInfo = data; // { conv_uid, file_name, select_param }
+        statusEl.textContent = `"${data.file_name}" lista — ya podés preguntar.`;
+        const colsBox = document.getElementById('exact-analysis-columns');
+        colsBox.innerHTML = '';
+        (data.columns || []).forEach((c) => {
+          const span = document.createElement('span');
+          span.textContent = c;
+          colsBox.appendChild(span);
+        });
+        document.getElementById('exact-analysis-qa-box').style.display = 'flex';
+        document.getElementById('exact-analysis-answer-box').style.display = 'none';
+      } catch (err) {
+        statusEl.textContent = '';
+        input.value = '';
+        showToast('No se pudo subir la planilla.');
+      }
+    }
+
+    // Bug real encontrado en pruebas de QA (11-sep): el motor (DB-GPT) devuelve la
+    // respuesta con un bloque <chart-view content="{...}"> embebido al final, con las
+    // comillas del JSON escapadas como &quot; y los saltos de línea del texto como la
+    // secuencia literal "\n" (dos caracteres, no un salto real). Sin limpiar, la persona
+    // veía ese JSON crudo pegado después de la respuesta.
+    //
+    // Segundo bug real, encontrado por QA sobre el primer arreglo (11-sep, mismo día): el
+    // primer intento borraba el bloque <chart-view> entero asumiendo que era redundante
+    // con el recuadro de SQL — pero el recuadro de SQL solo muestra la CONSULTA
+    // (`sql_executed`), nunca el RESULTADO. El resultado (`data: [{total_ventas: 300.0}]`)
+    // vive únicamente adentro del `content` del <chart-view>. Borrarlo sin más dejaba a la
+    // persona leyendo el razonamiento y el SQL pero sin ver nunca el número. Ahora se
+    // PARSEA el `content` (decodificando sus entidades y el JSON) y se agrega el resultado
+    // real al final del texto, en vez de descartarlo.
+    function formatearFilasChartView(filas) {
+      if (!filas || !filas.length) return '';
+      const columnas = Object.keys(filas[0]);
+      // Caso más común de este modo: una sola fila con una sola columna numérica
+      // (SUM/COUNT/AVG) — el resultado ES ese valor, sin necesidad de tabla.
+      if (filas.length === 1 && columnas.length === 1) {
+        return `Resultado: ${filas[0][columnas[0]]}`;
+      }
+      const MAX_FILAS = 20;
+      const mostrar = filas.slice(0, MAX_FILAS);
+      const filasTexto = mostrar.map((fila) => columnas.map((c) => `${c}: ${fila[c]}`).join(', '));
+      let tabla = filasTexto.join('\n');
+      if (filas.length > MAX_FILAS) tabla += `\n… y ${filas.length - MAX_FILAS} fila(s) más.`;
+      return tabla;
+    }
+
+    function limpiarRespuestaExactAnalysis(raw) {
+      if (!raw) return '';
+      const decodificarEntidades = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
+      let resultado = '';
+      const match = raw.match(/<chart-view\s+content="([\s\S]*?)">/i);
+      if (match) {
+        try {
+          const parsed = JSON.parse(decodificarEntidades(match[1]));
+          resultado = formatearFilasChartView(parsed.data);
+        } catch (err) {
+          // El content no se pudo parsear (formato inesperado del motor) — seguimos sin
+          // el resultado embebido en vez de romper toda la respuesta por esto.
+        }
+      }
+
+      let texto = raw.replace(/<chart-view[\s\S]*?<\/chart-view>/gi, '').trim();
+      texto = texto.replace(/\\n/g, '\n');
+      texto = decodificarEntidades(texto).trim();
+      if (resultado) texto += (texto ? '\n\n' : '') + resultado;
+      return texto;
+    }
+
+    async function askExactAnalysisQuestion() {
+      const input = document.getElementById('exact-analysis-question');
+      const question = input.value.trim();
+      if (!question || !currentExactAnalysisWorkspace || !exactAnalysisFileInfo) return;
+      const answerBox = document.getElementById('exact-analysis-answer-box');
+      const answerText = document.getElementById('exact-analysis-answer-text');
+      const sqlBox = document.getElementById('exact-analysis-sql');
+      answerBox.style.display = 'block';
+      answerText.textContent = 'Calculando…';
+      sqlBox.style.display = 'none';
+      try {
+        const res = await fetch(`/api/exact-analysis/workspaces/${currentExactAnalysisWorkspace.id}/query`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            question,
+            conv_uid: exactAnalysisFileInfo.conv_uid,
+            select_param: exactAnalysisFileInfo.select_param
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          answerText.textContent = data.error || 'No se pudo responder.';
+          return;
+        }
+        answerText.textContent = limpiarRespuestaExactAnalysis(data.answer);
+        if (data.sql_executed) {
+          sqlBox.textContent = data.sql_executed.trim();
+          sqlBox.style.display = 'block';
+        }
+        input.value = '';
+      } catch (err) {
+        answerText.textContent = 'No se pudo responder. Intentá de nuevo.';
+      }
+    }
+
+    applyBranding().then(boot);
   </script>
 </body>
 </html>

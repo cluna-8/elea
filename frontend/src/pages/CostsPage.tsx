@@ -79,6 +79,46 @@ function BreakdownTable({
   );
 }
 
+// Protección de documentos por persona (spec 044 US2, T025) — tabla separada de
+// `BreakdownTable` a propósito: sin costo/modelo (nunca llaman a un proveedor), cuenta
+// DOCUMENTOS distintos (un documento grande manda varios chunks bajo el mismo id,
+// contrato 3 de la 043), no llamadas de chunk sueltas ni pesos en dólares.
+function MaskingBreakdownTable({
+  rows, loading,
+}: { rows: { name: string; documents: number; sin_document_id: number }[]; loading: boolean }) {
+  return (
+    <div className="bg-surface border border-border rounded-lg p-5">
+      <h2 className="text-sm font-bold text-text-primary mb-1">Protección de documentos por persona</h2>
+      <p className="text-[10px] text-text-secondary mb-4">
+        Enmascarado de documentos — sin costo, un documento cuenta una sola vez aunque se haya
+        troceado en varios pedidos.
+      </p>
+      {loading ? (
+        <p className="text-xs text-text-secondary">Cargando…</p>
+      ) : !rows?.length ? (
+        <p className="text-xs text-text-secondary">Sin documentos protegidos en este período.</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-text-secondary text-left border-b border-border">
+              <th className="pb-2 font-medium">Persona</th>
+              <th className="pb-2 font-medium text-right">Documentos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.name + i} className="border-b border-border">
+                <td className="py-2 font-mono text-text-secondary truncate max-w-[160px]">{r.name}</td>
+                <td className="py-2 text-right">{r.documents}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export const CostsPage: React.FC = () => {
   const [range, setRange] = useState<Range>("week");
   const [summary, setSummary] = useState<CostSummary | null>(null);
@@ -344,6 +384,7 @@ export const CostsPage: React.FC = () => {
           emptyText="Sin datos de grupos en este período."
           loading={loading}
         />
+        <MaskingBreakdownTable rows={summary?.masking_by_user ?? []} loading={loading} />
       </div>
 
       {/* Calculator */}

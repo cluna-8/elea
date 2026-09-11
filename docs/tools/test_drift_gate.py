@@ -84,8 +84,10 @@ def test_env_incluye_helpers_tipados_y_el_plano_motor():
     assert env.get("SENTINEL_ENGINE_MAX_CONCURRENCY") == "app"
     # os.environ.get directo — el caso del bug de `_punteado`.
     assert env.get("NLP_ANALYZER_URL") == "app"
-    # Plano motor: litellm/config.yaml interpola con `os.environ/VAR`.
-    assert env.get("OPENAI_API_KEY") == "app"
+    # Plano motor: litellm/config.yaml interpola con `os.environ/VAR`. OPENAI_API_KEY
+    # (el ejemplo original) salió del catálogo en 484b5a9 — dev pasó a Azure-only, ver
+    # commit — así que el ejemplo pasa a AZURE_API_KEY, que sigue interpolado igual.
+    assert env.get("AZURE_API_KEY") == "app"
     # Perilla de compose: no es superficie de configuración del producto.
     assert env.get("BACKEND_IMAGE") == "orquestacion"
 

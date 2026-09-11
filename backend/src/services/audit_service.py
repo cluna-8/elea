@@ -421,6 +421,10 @@ class AuditService:
         *,
         routing_decision: Optional[Dict[str, Any]] = None,
         exige_registro: Optional[bool] = None,
+        acted_for_user_id: Optional[UUID] = None,
+        surface: Optional[str] = None,
+        event_type: str = "traffic",
+        document_group_id: Optional[UUID] = None,
     ) -> Optional[AuditLog]:
         """
         Creates a secure audit log entry for a transaction.
@@ -483,6 +487,17 @@ class AuditService:
         en su propio `try`; `purger._escribir_fila_resumen` dentro del `try` de
         `_persistir_rastro`, su ÚNICO llamador). La razón de este default es FR-002, no un
         aborto que no podía ocurrir.
+
+        Spec 043 (US2/US4): cuatro parámetros nuevos, todos con default que preserva el
+        comportamiento anterior bit-a-bit para los 8 call-sites del passthrough
+        (``gateway.py``) que no los pasan. ``acted_for_user_id``: "en nombre de quién" actuó
+        una llave de servicio con ``can_act_on_behalf=true`` (contrato 2 de la 043) — separado
+        de ``user_id``, que sigue siendo "quién autenticó". ``surface``: la superficie
+        resuelta (antes viajaba pisando la columna ``model``, ver diagnostico.md §3 de la
+        043). ``event_type``: default ``"traffic"``, que es exactamente lo que toda fila
+        anterior a esta migración ya significaba — no hace falta backfill de las filas viejas
+        para que este default sea correcto. ``document_group_id``: agrupa los N chunks de un
+        documento enmascarado como una operación (FR-013).
         """
         # Masked entities parameter format: [{"type": "PERSON", "count": 2}]
         # We summarize the counts from the list of masked entities. Se calcula UNA vez,
@@ -533,6 +548,10 @@ class AuditService:
                     ai_disclosure_delivered=ai_disclosure_delivered,
                     processing_purpose=processing_purpose,
                     user_group_id=user_group_id,
+                    acted_for_user_id=acted_for_user_id,
+                    surface=surface,
+                    event_type=event_type,
+                    document_group_id=document_group_id,
                     timestamp=datetime.utcnow()
                 )
                 # tenant_id explícito sólo si el caller lo resolvió (spec 014 US4); si es

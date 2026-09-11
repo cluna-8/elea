@@ -78,6 +78,7 @@ from ..licensing.degraded import require_not_hard_blocked
 from ..models.budget import APIKey
 from ..models.tenant import DEFAULT_TENANT_ID, Tenant
 from ..services import encryption_service
+from ..services.error_sanitizer import sanitize_engine_error
 from ..services.audit_service import (
     AUDIT_FAIL_CLOSED,
     AuditService,
@@ -411,7 +412,8 @@ def _verdict(decision: str, count: Optional[int] = None) -> dict:
     return {"decision": decision, "count": count} if count else {"decision": decision}
 
 
-async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] = None):
+async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] = None,
+                                  document_id: Optional[str] = None):
     """Aplica la política Sentinel a un body Anthropic, en el MISMO orden que el guardrail
     del motor: (1) AI-Act Art.5 → block, (2) secretos → block, (3) PII → detección
     (piso) → enmascarado reversible **solo si** el perfil lo tiene encendido.
@@ -431,7 +433,13 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
     ``custom_entities`` y ``nlp_fail_mode``— que ``_resolve_attribution`` resolvió en la
     sesión que ya abría por pedido. ``None`` es válido (lo usan los tests y el call-site de
     la superficie browser): el detector NLP se elige igual por env, sin listas personalizadas
-    y con ``nlp_fail_mode`` en su default ``block``."""
+    y con ``nlp_fail_mode`` en su default ``block``.
+
+    ``document_id`` (spec 043 US3, T038): opcional, efímero, generado por el cliente que
+    enmascara un documento en varios chunks (Eleia Hub). Con él, el mismo valor recibe el
+    mismo placeholder en TODOS los chunks del mismo documento (ver docstring de
+    ``PlaceholderMap``); sin él, comportamiento idéntico al actual — sin regresión para
+    otros clientes del despliegue compartido (FR-021)."""
     profile = _as_profile(profile)
     analyze, _usa_nlp = _build_analyze(nlp)
     # El piso `interception_audit` es la propiedad que hace del producto un firewall:
@@ -465,7 +473,7 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
         # uno, así que una caída del analyzer a mitad de camino deja parte del body ya
         # enmascarada. Con un mapa nuevo (otro nonce) esos placeholders no tendrían original
         # al que volver y saldrían CRUDOS al cliente en el unmask de la respuesta.
-        pmap = policy.PlaceholderMap()
+        pmap = policy.PlaceholderMap(document_id=document_id)
         try:
             _, ph_to_orig = await policy.mask_body(body, analyze, pmap)
         except policy.NlpUnavailableError:
@@ -571,6 +579,9 @@ def _resolve_attribution(sentinel_key: Optional[str]) -> dict:
         "api_key_id": None, "client_username": None, "tenant_slug": None,
         "group_name": None, "key_label": None,
         "tool_type": None, "redact_enabled": None, "oauth_credential_ref": None,
+        # Spec 043 (contrato 2): allowlist explícita para aceptar X-Guardian-Acting-User.
+        # Default False — ninguna key existente gana esta capacidad por accidente.
+        "can_act_on_behalf": False,
         # `applied_risk_level` del pedido (spec 038 T007). Viaja acá por la MISMA razón que
         # `governance_decisions` y `nlp`: la cascada viva es Key > User > Group y esta función
         # ya tiene los tres objetos cargados en su sesión — resolverla afuera costaría una
@@ -626,6 +637,7 @@ def _resolve_attribution(sentinel_key: Optional[str]) -> dict:
                     key_label=key.name,
                     tool_type=key.tool_type, redact_enabled=key.redact_enabled,
                     oauth_credential_ref=key.oauth_credential_ref,
+                    can_act_on_behalf=bool(key.can_act_on_behalf),
                     # DENTRO del `try`, y no después: `key.user`/`key.group` son relaciones
                     # lazy y el `finally` cierra la sesión. Resolverlo afuera daría
                     # `DetachedInstanceError` —o, peor, lo tragaría el `except` de abajo y el
@@ -1027,7 +1039,9 @@ def sanear_modelo_declarado(declarado):
 
 
 def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
-           masked_entities: list, latency_ms: int, attribution=None) -> bool:
+           masked_entities: list, latency_ms: int, attribution=None, *,
+           acted_for_user_id=None, surface: Optional[str] = None,
+           event_type: str = "traffic", document_group_id=None) -> bool:
     """AuditLog metadata-only en sesión fresca, scopeada al tenant resuelto (el GUC de
     RLS se inyecta por ``tenant_context`` → correcto también bajo la 017). Nunca texto
     de prompt ni el mapa reversible (Constraint C1).
@@ -1075,6 +1089,21 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     El chat sí se lo pasa porque ALLÁ la excepción es el mecanismo del 503 (su camino feliz
     bufferiza entero: cero ``StreamingResponse`` en `chat.py`, medido).
     """
+    # Bug real encontrado en revisión (09-sep): `document_id` es "opcional, efímero,
+    # generado por el cliente" (docstring de `PlaceholderMap`) — nunca se garantiza que
+    # sea un UUID. Antes, un `document_id` no-UUID hacía que `uuid.UUID(...)` lanzara
+    # DENTRO del `try` de más abajo, y el `except Exception` de esa función tumbaba la
+    # fila ENTERA (ver más abajo) — se perdía la auditoría completa de un pedido que ya
+    # se había enmascarado y respondido, no solo el campo document_group_id. Parsearlo
+    # ACÁ, fuera del try grande, y degradar solo este campo a `None` si no es un UUID
+    # válido — la fila se sigue escribiendo igual, solo sin agrupación por documento.
+    document_group_uuid = None
+    if document_group_id:
+        try:
+            document_group_uuid = uuid.UUID(str(document_group_id))
+        except (ValueError, AttributeError, TypeError):
+            document_group_uuid = None
+
     db = SessionLocal()
     try:
         tid = uuid.UUID(ident["tenant_id"]) if ident.get("tenant_id") else DEFAULT_TENANT_ID
@@ -1102,6 +1131,14 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
                 applied_layers=(attribution.applied_layers if attribution else None),
                 blocked_by_layer=(attribution.blocked_by_layer if attribution else None),
                 tenant_id=tid,
+                # Spec 043: kwargs nuevos, todos con default idéntico al comportamiento
+                # anterior — los 8 call-sites de este mismo archivo (passthrough byok) no
+                # los pasan y no cambian de fila escrita. Solo `inspect.py` (Eleia Hub /
+                # extensión) los pasa cuando aplica.
+                acted_for_user_id=(uuid.UUID(acted_for_user_id) if acted_for_user_id else None),
+                surface=surface,
+                event_type=event_type,
+                document_group_id=document_group_uuid,
             )
         return fila is not None
     except AuditUnavailableError:
@@ -1530,7 +1567,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
                 async with httpx.AsyncClient(timeout=GW_BYOK_TIMEOUT_SECONDS) as client:
                     up = await client.post(url, headers=headers, content=raw)
             except Exception as exc:  # noqa: BLE001
-                return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {exc}", 502)
+                return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
             return Response(content=up.content, status_code=up.status_code,
                             media_type=up.headers.get("content-type", "application/json"))
 
@@ -1546,7 +1583,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
             up = await client.send(req, stream=True)
         except Exception as exc:  # noqa: BLE001
             await client.aclose()
-            return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {exc}", 502)
+            return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
         if up.status_code != 200:
             err = await up.aread()
             await up.aclose()
@@ -1784,7 +1821,7 @@ async def gw_messages(
         except Exception as exc:  # noqa: BLE001
             latency = int((time.time() - start) * 1000)
             _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
-            return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
+            return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {sanitize_engine_error(str(exc))}", 502)
 
         in_tok = out_tok = 0
         content_out = up.content
@@ -1821,7 +1858,7 @@ async def gw_messages(
         await client.aclose()
         latency = int((time.time() - start) * 1000)
         _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
-        return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {exc}", 502)
+        return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {sanitize_engine_error(str(exc))}", 502)
 
     if up.status_code != 200:
         err_body = await up.aread()
@@ -1988,7 +2025,7 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
         return Response(content=up.content, status_code=up.status_code,
                         media_type=up.headers.get("content-type", "application/json"))
     except Exception as exc:  # noqa: BLE001
-        return _anthropic_error(f"[Sentinel Gateway] upstream: {exc}", 502)
+        return _anthropic_error(f"[Sentinel Gateway] upstream: {sanitize_engine_error(str(exc))}", 502)
 
 
 @router.post("/v1/messages/count_tokens", dependencies=_HARD_BLOCK)

@@ -4,7 +4,12 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sentinel Secure AI Gateway</title>
+    <!-- Spec 044 (US5, T050): placeholder NEUTRO — `loadBranding()` (src/main.tsx) resuelve
+         la marca real ANTES del primer render y sobreescribe esto con `brand.name`
+         (services/branding.ts) apenas carga, así que esto solo se ve una fracción de
+         segundo mientras esa llamada resuelve (o en "ver código fuente"). Nunca un nombre
+         de marca de cliente específico hardcodeado acá. -->
+    <title>Guardian</title>
   </head>
   <body>
     <div id="root"></div>

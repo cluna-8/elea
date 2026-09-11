@@ -271,6 +271,15 @@ def _append_chained(db, state, row_tenant, event_type, *, license_id,
         compliance_status=_COMPLIANCE_BY_EVENT.get(event_type, "blocked_by_policy"),
         latency_ms=0,
         guardian_events=[entry],
+        # Spec 043 (US4, T047): estos eslabones de la hash-chain NUNCA son tráfico, así
+        # que a partir de acá se marcan como tal en el momento de escritura (antes solo
+        # el backfill de la migración 018 los marcaba retroactivamente — las filas NUEVAS
+        # seguían naciendo con el default `event_type='traffic'` y volvían a colarse en
+        # "top modelos"). `AuditLog.event_type` (esta columna) es un vocabulario DISTINTO
+        # del parámetro local `event_type` de esta función (que son los eventos de la
+        # cadena de licencias — EVENT_SEAT_LIMIT y similares); no hay colisión real, pero
+        # sí posible confusión de lectura — de ahí este comentario.
+        event_type="license_evidence",
     ))
     state.hash_head = entry_hash(entry)
     state.event_counter = seq

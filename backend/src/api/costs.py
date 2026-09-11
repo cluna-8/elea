@@ -140,7 +140,14 @@ def get_costs_summary(
                    COUNT(*)                                       AS requests,
                    COALESCE(SUM(tokens_saved_by_optimization), 0) AS tokens_saved
             FROM audit_logs
+            -- Spec 043 (US4, T047): antes esta lista mezclaba modelos reales con la
+            -- evidencia de licencia (model='license') y las superficies del enmascarado
+            -- (model='chat-ui', ver diagnostico.md §3 de la 043 — /gw/inspect auditaba la
+            -- superficie EN la columna model). Ya no hace falta excluir 'license' a mano:
+            -- event_type/surface (migración 018) separan las tres taxonomías; "modelo" es
+            -- exactamente event_type='traffic' AND surface IS NULL.
             WHERE timestamp >= :from_dt AND timestamp <= :to_dt
+              AND event_type = 'traffic' AND surface IS NULL AND model IS NOT NULL
             GROUP BY model
             ORDER BY cost_usd DESC
             LIMIT 10
@@ -149,7 +156,17 @@ def get_costs_summary(
         {"from_dt": from_dt, "to_dt": to_dt},
     ).all()
 
-    # Desglose por usuario (top 10 por gasto)
+    # Desglose por usuario (top 10 por gasto). Spec 043 (US2, T033, contrato 2): agrupa
+    # por COALESCE(acted_for_user_id, user_id) — el gasto que una llave de servicio hizo
+    # "en nombre de" una persona (Eleia Hub enmascarando/preguntando por ella) cuenta para
+    # ESA persona, no para la cuenta de servicio que autenticó. Sin esto, el gasto real de
+    # un usuario del Hub quedaba invisible bajo `svc.rag-masking`/`svc.anythingllm-
+    # provider` (diagnostico.md §5 de la 043).
+    # Bug real encontrado en verificación en vivo (10-sep): sin el AND de account_type, una
+    # pregunta RAG cuyo costo no se pudo atribuir a la persona real (limitación conocida,
+    # ver CHANGELOG de la 044 §13) caía en `a.user_id` — la cuenta de SERVICIO que habló
+    # con el motor — y esta tabla, pensada para mostrar gasto de PERSONAS, terminaba
+    # listando `svc.anythingllm-provider2` como si fuera un usuario más.
     by_user = db.execute(
         text(
             """
@@ -159,10 +176,37 @@ def get_costs_summary(
                    COALESCE(SUM(a.tokens_saved_by_optimization), 0) AS tokens_saved,
                    COALESCE(SUM(a.cost_saved_usd), 0)        AS cost_saved_usd
             FROM audit_logs a
-            LEFT JOIN users u ON u.id = a.user_id
+            LEFT JOIN users u ON u.id = COALESCE(a.acted_for_user_id, a.user_id)
             WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
+              AND (u.account_type IS NULL OR u.account_type != 'service')
             GROUP BY u.username
             ORDER BY cost_usd DESC
+            LIMIT 10
+            """
+        ),
+        {"from_dt": from_dt, "to_dt": to_dt},
+    ).all()
+
+    # Desglose de PROTECCIÓN DE DOCUMENTOS por persona (spec 044 US2, T025): las llamadas
+    # de enmascarado (`surface='servicio'`, el tool_type de la llave del Hub) NUNCA tienen
+    # costo real (no llaman a ningún modelo) y por eso `by_user` de arriba las cuenta con
+    # `cost_usd=0` — correcto para el gasto, pero mezclarlas ahí infla el conteo de
+    # "requests" de una persona con enmascarado de documentos, no preguntas. Este desglose
+    # separado cuenta DOCUMENTOS distintos (`document_group_id`, contrato 3 de la 043 — un
+    # documento grande manda varios chunks con el MISMO id), no llamadas de chunk sueltas.
+    masking_by_user = db.execute(
+        text(
+            """
+            SELECT u.username                                          AS name,
+                   COUNT(DISTINCT a.document_group_id)                  AS documents,
+                   COUNT(*) FILTER (WHERE a.document_group_id IS NULL)  AS sin_document_id
+            FROM audit_logs a
+            LEFT JOIN users u ON u.id = COALESCE(a.acted_for_user_id, a.user_id)
+            WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
+              AND a.event_type = 'traffic' AND a.surface = 'servicio'
+              AND (u.account_type IS NULL OR u.account_type != 'service')
+            GROUP BY u.username
+            ORDER BY documents DESC
             LIMIT 10
             """
         ),
@@ -216,6 +260,14 @@ def get_costs_summary(
                 "cost_saved_usd": float(b.cost_saved_usd or 0),
             }
             for b in by_user
+        ],
+        "masking_by_user": [
+            {
+                "name": b.name or "— sin usuario —",
+                "documents": int(b.documents or 0),
+                "sin_document_id": int(b.sin_document_id or 0),
+            }
+            for b in masking_by_user
         ],
         "by_group": [
             {

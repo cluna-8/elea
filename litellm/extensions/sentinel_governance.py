@@ -91,7 +91,11 @@ CONNECTION_MODES = (MODE_SUBSCRIPTION, MODE_GATEWAY_MODELS)
 # User-Agent, que es spoofeable por el cliente (D5). Una superficie fuera de este enum
 # (API de Responses #28, extensión de navegador) cae a None → la cascada arranca en el
 # modo (fallback explícito, riesgo asumido en D5).
-SURFACES = ("claude-code", "copilot", "cursor", "claude-desktop", "chatgpt", "chat-ui")
+# 'servicio' agregado en la migración 018 (spec 043 US2/US4, T002): las llaves de servicio
+# del instalador (`svc.anythingllm-provider`, `svc.rag-masking`) dejan de auditarse bajo
+# 'chat-ui' — tenían el tool_type equivocado, que terminaba pisando la columna `model` de
+# auditoría (ver `_superficie()` en `backend/src/api/inspect.py` y diagnostico.md §3 de la 043).
+SURFACES = ("claude-code", "copilot", "cursor", "claude-desktop", "chatgpt", "chat-ui", "servicio")
 
 # Alcances de configuración (CHECK `ck_governance_profiles_scope_type`).
 SCOPE_TENANT_DEFAULT = "tenant_default"

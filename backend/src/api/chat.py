@@ -22,6 +22,7 @@ from ..api.compliance import DEFAULT_DISCLOSURE_ES
 from ..api.policy import get_or_create_default_policy
 from ..services import auto_router_service
 from ..services.atomic_file import escribir_atomico
+from ..services.error_sanitizer import sanitize_engine_error
 from ..services.budget_service import (
     STATUS_BUDGET_EXHAUSTED,
     BudgetService,
@@ -1612,12 +1613,8 @@ async def chat_completions(
                 except Exception:
                     error_detail = response.text
 
-                # White-label
-                error_detail = error_detail.replace("litellm", "Sentinel Gateway").replace("LiteLLM", "Sentinel Gateway")
-                if "litellm." in error_detail:
-                    parts = error_detail.split(":", 1)
-                    if len(parts) > 1:
-                        error_detail = parts[1].strip()
+                # White-label (spec 043 US6, T059): helper único, ver error_sanitizer.py.
+                error_detail = sanitize_engine_error(error_detail)
 
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1669,12 +1666,7 @@ async def chat_completions(
     except Exception as e:
         # Check if we were able to reach the server. If yes, it's a model execution error.
         if "response" in locals() and response is not None:
-            err_msg = str(e)
-            if "litellm." in err_msg:
-                parts = err_msg.split(":", 1)
-                if len(parts) > 1:
-                    err_msg = parts[1].strip()
-            err_msg = err_msg.replace("litellm", "Sentinel Gateway").replace("LiteLLM", "Sentinel Gateway")
+            err_msg = sanitize_engine_error(str(e))
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error al ejecutar el modelo: {err_msg}"
@@ -2254,15 +2246,25 @@ async def delete_model(model_name: str):
 
 
 class ModelCredentialSchema(BaseModel):
-    # Identificador del CONTRATO WIRE con el motor (allowlisted en los checks de marca
-    # blanca); el title explícito evita que el titulado automático exponga el vendor
-    # en el OpenAPI publicado (constitución VII).
-    litellm_params: Optional[dict] = Field(default=None, title="Parámetros del motor")
+    # Spec 043 (US6, T060, contrato 6): renombrado desde `litellm_params` — ese nombre era
+    # el campo público de la API (visible en el OpenAPI publicado, `docs/docs/api-reference/
+    # openapi.json`), no solo un identificador interno; el `title` explícito ya intentaba
+    # tapar el titulado automático pero el NOMBRE del campo seguía viajando en el wire. Se
+    # sigue aceptando `litellm_params` como alias de ENTRADA por compatibilidad (al menos
+    # una versión, contrato 6); la salida de la API usa siempre el nombre nuevo.
+    engine_params: Optional[dict] = Field(default=None, title="Parámetros del motor")
+    litellm_params: Optional[dict] = Field(
+        default=None, deprecated=True,
+        title="Alias de compatibilidad de engine_params — usar engine_params",
+    )
+
+    def resolved_engine_params(self) -> Optional[dict]:
+        return self.engine_params if self.engine_params is not None else self.litellm_params
 
 
 @router.patch("/models/{model_name}", dependencies=[Depends(require_role("admin", "developer"))])
 async def update_model_credential(model_name: str, body: ModelCredentialSchema):
-    """Merge de credenciales del motor (campos del contrato litellm_params) en config.yaml."""
+    """Merge de credenciales del motor (campos del contrato engine_params) en config.yaml."""
     config_path = _get_config_path()
     try:
         with open(config_path, "r") as f:
@@ -2272,11 +2274,16 @@ async def update_model_credential(model_name: str, body: ModelCredentialSchema):
         raise HTTPException(status_code=500, detail="Failed to read model configuration")
 
     found = False
+    engine_params = body.resolved_engine_params()
     for m in config_data.get("model_list", []):
         if m.get("model_name") == model_name:
-            if body.litellm_params:
+            if engine_params:
+                # `litellm_params` acá adentro es el nombre real de la clave del
+                # config.yaml del motor upstream (contrato WIRE con LiteLLM, allowlisted
+                # en los checks de marca blanca) — eso NO se renombra, es lo que el motor
+                # espera. Lo que cambió es el nombre del campo PÚBLICO de nuestra API.
                 m.setdefault("litellm_params", {}).update(
-                    {k: v for k, v in body.litellm_params.items() if v}
+                    {k: v for k, v in engine_params.items() if v}
                 )
             found = True
             break

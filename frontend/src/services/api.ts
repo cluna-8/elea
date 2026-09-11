@@ -51,6 +51,41 @@ export interface User {
   legal_basis?: string;
   risk_level?: string;
   compliance_project_id?: string;
+  // Spec 043 (US4/US5): distingue cuentas de servicio (`account_type: "service"`) de
+  // personas reales — `GET /users` las excluye por default (`?include_service=true` las
+  // trae, con `purpose`). `deactivated_at`/`deactivated_reason` quedan pobladas cuando se
+  // dio de baja (`DELETE /{user_id}`, no borra físicamente — ver `UsersPage.tsx` T041).
+  // Bug real encontrado en revisión (09-sep): declaraba "human", pero el backend
+  // (ck_users_account_type, backend/src/models/user.py) nunca manda ese valor — manda
+  // "person". "human" era una trampa silenciosa: TypeScript no marca error si algún
+  // código futuro compara === "human", porque el literal es válido según el tipo.
+  account_type?: "person" | "service";
+  purpose?: string;
+  deactivated_at?: string | null;
+  deactivated_reason?: string | null;
+}
+
+/** Actualización parcial de persona (spec 043 US5, contrato `PATCH /users/{id}`) — solo se
+ *  envían los campos tocados, a diferencia de `updateUser` (reemplazo completo vía `PUT`,
+ *  que se mantiene por compatibilidad hacia atrás). */
+export interface UserPatch {
+  username?: string;
+  email?: string;
+  role?: string;
+  group_id?: string | null;
+  is_active?: boolean;
+  legal_basis?: string;
+  risk_level?: string;
+  compliance_project_id?: string | null;
+}
+
+/** Espacio de Eleia Hub heredado de una migración, sin dueño todavía (spec 043 US1,
+ *  contrato 1: `WorkspaceUnassignedOut`) — sin `role`, porque nadie es miembro aún. */
+export interface WorkspaceUnassigned {
+  id: string;
+  engine_slug: string;
+  display_name: string;
+  status: "unassigned";
 }
 
 export interface Budget {
@@ -100,6 +135,16 @@ export interface CostEntityBreakdown {
   cost_saved_usd?: number;
 }
 
+/** Protección de documentos por persona (spec 044 US2, T025) — separado de `by_user`
+ *  a propósito: cuenta DOCUMENTOS enmascarados (contrato 3 de la 043: varios chunks
+ *  comparten un `document_group_id`), nunca cuestiones con costo/modelo real. Mezclar
+ *  ambos infla el "gasto por usuario" con operaciones que nunca llaman a un modelo. */
+export interface MaskingEntityBreakdown {
+  name: string;
+  documents: number;
+  sin_document_id: number;
+}
+
 export interface CostSummary {
   range: string;
   total_cost_usd: number;
@@ -112,6 +157,7 @@ export interface CostSummary {
   top_models: CostModelBreakdown[];
   by_user: CostEntityBreakdown[];
   by_group: CostEntityBreakdown[];
+  masking_by_user: MaskingEntityBreakdown[];
 }
 
 export interface CostConfig {
@@ -683,8 +729,13 @@ export const api = {
   },
 
   // --- Users & Groups ---
-  getUsers: async (): Promise<User[]> => {
-    const res = await fetch(`${API_BASE}/users`, { headers: authHeaders() });
+  // `includeService` (spec 043 US4, T045 del lado backend): por default el backend excluye
+  // las cuentas de servicio de la lista (dejaban de aparecer entre las personas reales);
+  // pedirlas explícitamente las trae con su `purpose`, para la sección plegada de
+  // "Cuentas de servicio" (T042), nunca en la tabla principal.
+  getUsers: async ({ includeService = false }: { includeService?: boolean } = {}): Promise<User[]> => {
+    const qs = includeService ? "?include_service=true" : "";
+    const res = await fetch(`${API_BASE}/users${qs}`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to fetch users");
     return res.json();
   },
@@ -742,6 +793,68 @@ export const api = {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("Failed to update user");
+    return res.json();
+  },
+
+  /** Actualización parcial (spec 043 US5, T052) — solo manda los campos tocados, a
+   *  diferencia de `updateUser` (que siempre reenvía `username`/`email`/`role`/`is_active`
+   *  completos vía `PUT`). Usar esta para ediciones puntuales (solo rol, solo email). */
+  patchUser: async (userId: string, patch: UserPatch): Promise<User> => {
+    const res = await fetch(`${API_BASE}/users/${userId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(e, "No se pudo actualizar el usuario."), res.status);
+    }
+    return res.json();
+  },
+
+  /** Baja definitiva (spec 043 US5, T053-T055): no borra físicamente — desactiva, revoca
+   *  llaves y libera sus espacios propios a "sin asignar". El backend impide auto-baja y
+   *  baja del último admin activo del tenant (409 en ambos casos); la UI (T041) MUST
+   *  repetir esas dos validaciones localmente antes de llamar, para no depender solo del
+   *  mensaje del backend. */
+  deleteUser: async (userId: string): Promise<{ status: string; id: string; workspaces_unassigned: number }> => {
+    const res = await fetch(`${API_BASE}/users/${userId}`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(e, "No se pudo dar de baja al usuario."), res.status);
+    }
+    return res.json();
+  },
+
+  /** Espacios de Eleia Hub heredados de una migración, sin dueño (spec 043 US1/US4,
+   *  contrato 1) — solo admins; el backend exige el rol server-side, esto no depende de
+   *  qué rol crea que tiene el que llama. */
+  getUnassignedWorkspaces: async (): Promise<WorkspaceUnassigned[]> => {
+    const res = await fetch(`${API_BASE}/workspaces?status_filter=unassigned`, { headers: authHeaders() });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(e, "No se pudieron consultar los espacios sin asignar."), res.status);
+    }
+    const data = await res.json();
+    return data.workspaces ?? data;
+  },
+
+  /** Asigna el primer miembro (dueño) a un espacio "sin asignar" (spec 043 US1, T044/T018
+   *  de la 044) — mismo endpoint de miembros que un espacio ya asignado; el backend lo
+   *  permite para un admin aunque no sea miembro (`add_member(..., is_admin=...)`). */
+  assignWorkspaceMember: async (workspaceId: string, username: string): Promise<{ user_id: string; role: string }> => {
+    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/members`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ username }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(e, "No se pudo asignar el espacio."), res.status);
+    }
     return res.json();
   },
 
@@ -933,11 +1046,14 @@ export const api = {
     return res.json();
   },
 
-  updateModelCredential: async (modelName: string, litellmParams: Record<string, string>): Promise<void> => {
+  // Spec 043/044 (US5, contrato 6, T051): el backend ahora acepta `engine_params` como
+  // nombre primario (con `litellm_params` mantenido como alias `deprecated` durante la
+  // migración — nunca expone "litellm" en la respuesta). El cliente ya manda el nuevo.
+  updateModelCredential: async (modelName: string, engineParams: Record<string, string>): Promise<void> => {
     const res = await fetch(`${API_BASE}/chat/models/${modelName}`, {
       method: "PATCH",
       headers: jsonHeaders(),
-      body: JSON.stringify({ litellm_params: litellmParams }),
+      body: JSON.stringify({ engine_params: engineParams }),
     });
     if (!res.ok) throw new Error("Failed to update model credential");
   },

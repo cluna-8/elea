@@ -1,7 +1,7 @@
 # 042 — Rediseño de UI, historial de hilos real, bóveda de PII para RAG
 
 **Fecha**: 02/03-sep-2026
-**Estado**: Hecho, verificado end-to-end (local y en `eleavdmia`), desplegado en producción.
+**Estado**: ✅ **Lista.** Hecho, verificado end-to-end (local y en `eleavdmia`), desplegado en producción.
 **Depende de**: [040-cliente-rag-elea-completo](../040-cliente-rag-elea-completo/spec.md),
 [041-cliente-rag-cobertura-completa-cliente-elea](../041-cliente-rag-cobertura-completa-cliente-elea/spec.md).
 

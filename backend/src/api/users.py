@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, NamedTuple, Optional
@@ -10,9 +11,10 @@ from ..licensing.gate import enforce_seat_gate
 from ..models.tenant import DEFAULT_TENANT_ID
 from ..models.user import User, Group, normalize_legacy_role
 from ..schemas.user import (UserCreate, UserResponse, GroupCreate, GroupResponse, UserBase,
-                            PasswordChangeRequest, PasswordResetRequest)
+                            UserPatch, PasswordChangeRequest, PasswordResetRequest)
 from ..services import ai_engine_client
 from ..services.ai_engine_client import AIEngineClientError
+from ..services.budget_service import BudgetService
 from ..services.auth_events import (emit_auth_event, AUTH_BOOTSTRAP_ADMIN,
                                     AUTH_ROLE_CHANGED)
 from ..auth.session import create_session_token, get_current_user
@@ -310,6 +312,15 @@ def _insertar_usuario(db: Session, user_in: UserCreate, role: str,
     serializarlo con la conexión suelta y la instancia expirada, o sea un reload perezoso en
     el event loop —justo lo que esta partición evita."""
     try:
+        # Bug real encontrado en una prueba de punta a punta en vivo (09-sep): la
+        # migración 018 solo backfillea `account_type='service'` para usuarios `svc.%`
+        # YA EXISTENTES al momento de migrar — ninguna cuenta de servicio creada DESPUÉS
+        # (cada instalación nueva de `install.sh` crea las suyas en su primer arranque)
+        # quedaba marcada, así que reaparecía en la tabla principal de personas — el
+        # bug original que reportó Tomás Mc Nally, de vuelta en cualquier instalación
+        # fresca. Mismo criterio de prefijo que `_proposito_de()`, más abajo en este
+        # archivo (y que `install.sh`: `svc.anythingllm-provider`, `svc.rag-masking`).
+        account_type = "service" if user_in.username.startswith("svc.") else "person"
         user = User(
             username=user_in.username,
             email=user_in.email,
@@ -318,6 +329,7 @@ def _insertar_usuario(db: Session, user_in: UserCreate, role: str,
             display_label=display_label,
             group_id=user_in.group_id,
             is_active=user_in.is_active,
+            account_type=account_type,
         )
         db.add(user)
         db.commit()
@@ -387,9 +399,74 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     return await run_in_threadpool(_persistir_engine_user_id, db, snap.id, engine_user_id)
 
 
-@router.get("", response_model=List[UserResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
-def list_users(db: Session = Depends(get_db)):
-    return db.query(User).all()
+# Propósito legible por cuenta de servicio conocida (spec 043 US4, T045): vocabulario
+# cerrado, sin nombre de motor/proveedor (Constitución VII) — mismo criterio que
+# `/gw/whoami`. Coincide por PREFIJO del username, que es la convención real del
+# instalador (`svc.anythingllm-provider`, `svc.rag-masking`, ver install.sh).
+_PROPOSITO_CUENTA_SERVICIO = {
+    "svc.anythingllm-provider": "Habla con el motor de documentos en nombre del Hub.",
+    "svc.rag-masking": "Protege los documentos antes de indexarlos en el Hub.",
+}
+
+
+def _proposito_de(username: str) -> str:
+    for prefijo, texto in _PROPOSITO_CUENTA_SERVICIO.items():
+        if username.startswith(prefijo):
+            return texto
+    return "Cuenta de servicio interna."
+
+
+@router.get("", dependencies=[Depends(require_role("admin", "compliance_officer"))])
+def list_users(include_service: bool = False, db: Session = Depends(get_db)):
+    """Spec 043 (US4, T045): excluye cuentas de servicio por default (diagnostico.md §4 de
+    la 043 — se listaban como personas). `?include_service=true` las trae con `purpose`."""
+    query = db.query(User)
+    if not include_service:
+        query = query.filter(User.account_type != "service")
+    users = query.all()
+    out = []
+    for u in users:
+        row = UserResponse.model_validate(u).model_dump()
+        row["account_type"] = u.account_type
+        if u.account_type == "service":
+            row["purpose"] = _proposito_de(u.username)
+        out.append(row)
+    return out
+
+
+# El literal /me/budget va ANTES de /{user_id}: FastAPI resuelve por orden de registro
+# dentro del mismo router, y al revés "me" entraría como user_id y moriría en el parseo
+# del UUID (mismo motivo ya documentado para /me/password, más abajo).
+
+@router.get("/me/budget")
+def get_own_budget(
+    db: Session = Depends(get_db),
+    user: Optional[User] = Depends(get_current_user),
+):
+    """Autoservicio de presupuesto (spec 043 US2, contrato 2): el propio Eleia Hub lo
+    consume con la sesión JWT de la persona, sin necesitar una sesión de admin de fondo
+    (antes leía `/budgets` completo con `ELEA_SERVICE_USERNAME=admin` y filtraba en
+    memoria — diagnostico.md §5 de la 043). Prioriza el presupuesto PERSONAL sobre el de
+    grupo (mismo orden que `BudgetService.update_budget`); si no hay ninguno configurado,
+    reporta "sin límite" — igual que `has_sufficient_budget` ya trata ese caso: nadie queda
+    bloqueado por un presupuesto que nunca se configuró."""
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autenticación requerida: sesión JWT válida no proporcionada o expirada.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    budget = BudgetService.get_personal_budget(db, str(user.id))
+    if budget is None and user.group_id:
+        budget = BudgetService.get_group_budget(db, str(user.group_id))
+    if budget is None:
+        return {"used_usd": 0.0, "max_usd": None, "status": "ok"}
+    tiene_credito = BudgetService._budget_has_credit(budget)
+    return {
+        "used_usd": float(budget.current_spend_usd),
+        "max_usd": float(budget.max_spend_usd),
+        "status": "ok" if tiene_credito else "exceeded",
+    }
 
 
 @router.get("/{user_id}", response_model=UserResponse, dependencies=[Depends(require_role("admin", "compliance_officer"))])
@@ -436,10 +513,152 @@ def update_user(user_id: UUID, user_in: UserBase,
     return user
 
 
-# --- Password Endpoints ---
-# El literal /me/password va ANTES de /{user_id}/password: FastAPI resuelve por orden de
-# registro, y al revés "me" entraría como user_id y moriría en el parseo del UUID.
+def _bloquear_baja_insegura(db: Session, actor: User, user: User) -> None:
+    """Las dos guardas de baja (spec 043 US5): nadie se da de baja a sí mismo, y el
+    último admin activo del tenant no se puede desactivar (la instancia se queda sin
+    forma de administrarse — la recuperación pasa por tocar la base a mano).
 
+    Bug real encontrado en verificación en vivo (09-sep): estas dos guardas SOLO vivían
+    en `DELETE /users/{id}` (deactivate_user). El toggle "Desactivar" del panel llama a
+    `PATCH` con `is_active=false` — mismo efecto visible, cero guarda — así que cualquier
+    caller de PATCH (un curl directo, un futuro cliente que no repita el guard de UI de
+    UsersPage.tsx) podía autodesactivarse o dejar el tenant sin ningún admin activo. Se
+    confirmó en vivo: un PATCH directo a la única cuenta admin devolvió 200, la dejó
+    `is_active=false`, y el siguiente request con su JWT quedó 401 — sin otra cuenta
+    admin, la única salida era un UPDATE manual en Postgres."""
+    if actor.id == user.id:
+        raise HTTPException(status_code=409, detail="No podés darte de baja a vos mismo.")
+
+    if user.role in ("super_admin", "tenant_admin", "admin"):
+        otros_admins_activos = (
+            db.query(User)
+            .filter(User.tenant_id == user.tenant_id,
+                    User.role.in_(("super_admin", "tenant_admin", "admin")),
+                    User.id != user.id,
+                    User.deactivated_at.is_(None),
+                    User.is_active.is_(True))
+            .count()
+        )
+        if otros_admins_activos == 0:
+            raise HTTPException(status_code=409,
+                                detail="No se puede dar de baja al último admin activo del tenant.")
+
+
+@router.patch("/{user_id}", response_model=UserResponse)
+def patch_user(user_id: UUID, user_in: UserPatch,
+               actor: User = Depends(require_role("admin")),
+               db: Session = Depends(get_db)):
+    """Spec 043 (US5, T052): actualización PARCIAL — solo cambia lo que el caller mandó,
+    a diferencia de `PUT` (reemplazo completo, se mantiene por compatibilidad hacia
+    atrás). Misma validación de unicidad y misma auditoría de cambio de rol que `PUT`."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    data = user_in.model_dump(exclude_unset=True)
+    rol_anterior = user.role
+
+    # Mismas dos guardas que DELETE (ver _bloquear_baja_insegura): solo aplican cuando
+    # el PATCH efectivamente apaga is_active — editar rol/email de alguien inactivo, o
+    # reactivar, no pasa por acá.
+    if "is_active" in data and data["is_active"] is False and user.is_active:
+        _bloquear_baja_insegura(db, actor, user)
+
+    if "role" in data and data["role"] is not None:
+        try:
+            data["role"], label = normalize_legacy_role(data["role"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if label:
+            data.setdefault("display_label", label)
+
+    # Unicidad por tenant (username/email) — mismo criterio que el índice
+    # uq_users_tenant_username/uq_users_tenant_email, chequeado ANTES de tocar la fila
+    # para devolver un 409 legible en vez de que lo levante el commit.
+    if "username" in data and data["username"] != user.username:
+        dup = db.query(User).filter(User.tenant_id == user.tenant_id,
+                                    User.username == data["username"],
+                                    User.id != user.id).first()
+        if dup:
+            raise HTTPException(status_code=409,
+                                detail=f"El nombre de usuario '{data['username']}' ya está en uso.")
+    if "email" in data and data["email"] != user.email:
+        dup = db.query(User).filter(User.tenant_id == user.tenant_id,
+                                    User.email == data["email"],
+                                    User.id != user.id).first()
+        if dup:
+            raise HTTPException(status_code=409,
+                                detail=f"El email '{data['email']}' ya está en uso.")
+
+    era_activo = user.is_active
+    for field, value in data.items():
+        setattr(user, field, value)
+
+    if "role" in data and data["role"] != rol_anterior:
+        emit_auth_event(db, AUTH_ROLE_CHANGED, actor_user_id=str(actor.id),
+                        target_user_id=str(user.id), old_role=rol_anterior,
+                        new_role=data["role"])
+
+    # Bug real encontrado en revisión (09-sep): el toggle "Desactivar" del panel llama
+    # a ESTE endpoint (PATCH, no DELETE) con is_active=false — sin esto, la persona ve el
+    # badge "Desactivado" pero sus Connections seguían activas, porque custom_auth.py
+    # solo mira `api_keys.is_active` (el flag de la LLAVE), nunca el del usuario. Mismo
+    # criterio que `deactivate_user` (DELETE), pero acá NO se reactivan llaves al volver
+    # a activar al usuario — una reactivación no debe restaurar en silencio la capacidad
+    # de una llave potencialmente comprometida; si hace falta, se emite una nueva.
+    if "is_active" in data and era_activo and not data["is_active"]:
+        from ..models.budget import APIKey
+        db.query(APIKey).filter(APIKey.user_id == user.id, APIKey.is_active.is_(True)) \
+            .update({"is_active": False}, synchronize_session=False)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.delete("/{user_id}")
+def deactivate_user(user_id: UUID, actor: User = Depends(require_role("admin")),
+                    db: Session = Depends(get_db)):
+    """Baja definitiva (spec 043 US5, T053/T054/T055) — NO física: revoca llaves y
+    sesiones (`is_active=False` bloquea el JWT en `get_current_user`, que ya filtra por
+    esa columna), libera el asiento, y cierra sus espacios propios a "sin asignar"
+    (FR-042, workspace_service.orphan_owned_workspaces). La auditoría histórica del
+    usuario NUNCA se toca — sigue visible bajo su identidad."""
+    if actor.id == user_id:
+        raise HTTPException(status_code=409, detail="No podés darte de baja a vos mismo.")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.role in ("super_admin", "tenant_admin", "admin"):
+        otros_admins_activos = (
+            db.query(User)
+            .filter(User.tenant_id == user.tenant_id,
+                    User.role.in_(("super_admin", "tenant_admin", "admin")),
+                    User.id != user.id,
+                    User.deactivated_at.is_(None),
+                    User.is_active.is_(True))
+            .count()
+        )
+        if otros_admins_activos == 0:
+            raise HTTPException(status_code=409,
+                                detail="No se puede dar de baja al último admin activo del tenant.")
+
+    from ..models.budget import APIKey
+    db.query(APIKey).filter(APIKey.user_id == user.id, APIKey.is_active.is_(True)) \
+        .update({"is_active": False}, synchronize_session=False)
+
+    user.is_active = False
+    user.deactivated_at = datetime.utcnow()
+
+    from ..services import workspace_service
+    espacios_afectados = workspace_service.orphan_owned_workspaces(db, user.tenant_id, user.id)
+
+    db.commit()
+    return {"status": "deactivated", "id": str(user.id), "workspaces_unassigned": espacios_afectados}
+
+
+# --- Password Endpoints ---
 @router.post("/me/password")
 def change_own_password(
     body: PasswordChangeRequest,

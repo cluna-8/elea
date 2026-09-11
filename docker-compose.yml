@@ -123,6 +123,10 @@ services:
         condition: service_healthy
     networks:
       - sentinel-network
+      # exact-analysis-engine (spec 048) le habla directo a este motor con su propia llave de
+      # servicio (svc.dbgpt-excel) — mismo patrón que anythingllm, que también habla con engine
+      # directo, no a través de backend, para sus propias llamadas de modelo.
+      - exact-analysis-net
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health/readiness\")' || exit 1"]
       interval: 5s
@@ -221,6 +225,10 @@ services:
         condition: service_healthy
     networks:
       - sentinel-network
+      # Único servicio, además de exact-analysis-engine, con ruta hacia esa red (spec 048,
+      # FR-002) — el backend es el único proxy de autenticación/atribución permitido hacia el
+      # motor de análisis exacto.
+      - exact-analysis-net
     restart: unless-stopped
 
   frontend:
@@ -248,7 +256,9 @@ services:
     # salvo para administrar la instancia (crear la API key inicial, spec 040 T040) —
     # se publica igual para ese uso puntual, no para tráfico de producto.
     profiles: ["rag"]
-    image: mintplexlabs/anythingllm:latest
+    # Versión fijada (spec 043 T021, mismo criterio que elea-installer/docker-compose.yml):
+    # 1.16.1 confirmada como la más reciente publicada en Docker Hub al 08-sep-2026.
+    image: mintplexlabs/anythingllm:1.16.1
     container_name: ${STACK_PREFIX:-sentinel}-anythingllm
     ports:
       - "3001:3001"
@@ -271,6 +281,47 @@ services:
       - sentinel-network
     restart: unless-stopped
 
+  exact-analysis-engine:
+    # Perfil `exact-analysis`: motor de análisis exacto de datos Excel/CSV (spec 048, DB-GPT).
+    # PIN POR DIGEST (FR-001, mismo criterio que `engine`/LiteLLM, Principio VI): nunca `:latest`
+    # ni siquiera el tag de versión solo — bump de imagen es un evento deliberado con prueba.
+    # v0.8.2 confirmada como la más reciente publicada al 10-sep-2026 (imagen `dbgpt-openai`:
+    # liviana, solo el proxy model, sin dependencias de un modelo local pesado — research.md R1
+    # de la 048).
+    profiles: ["exact-analysis"]
+    image: eosphorosai/dbgpt-openai@sha256:bd7d35ce7994f0f977007c28c839fffcdc80cfa810fa12ead9aecfd4e9b3d11f
+    container_name: ${STACK_PREFIX:-sentinel}-exact-analysis-engine
+    # El CMD default de la imagen apunta a configs/dbgpt-proxy-siliconflow.toml (confirmado en
+    # vivo, 10-sep) — el que interpola OPENAI_API_BASE/OPENAI_API_KEY/LLM_MODEL_NAME (research.md
+    # R1) es dbgpt-proxy-openai.toml, hay que pedirlo explícito.
+    command: ["dbgpt", "start", "webserver", "--config", "configs/dbgpt-proxy-openai.toml"]
+    # SIN `ports:` — a propósito, mitigación obligatoria de FR-002 (CVE-2026-80104, RCE crítica
+    # sin autenticación, ver research.md R4 de la 048). Ningún puerto de este contenedor se
+    # publica al host NI SIQUIERA en dev: es el único servicio del compose con esta restricción
+    # más estricta que `anythingllm` (que sí publica 3001 por comodidad de administración) —
+    # acá la comodidad de debug no vale el riesgo, la instancia solo se inspecciona con
+    # `docker exec`/logs, nunca por HTTP directo.
+    expose:
+      - "5670"
+    environment:
+      - LLM_MODEL_PROVIDER=proxy/openai
+      # El motor interno de Eleia (LiteLLM), nunca una credencial de Azure directa — es el
+      # pedido explícito de esta ronda ("que use a Eleia para los modelos y el costo", FR-004).
+      - OPENAI_API_BASE=http://engine:4000/v1
+      - OPENAI_API_KEY=${DBGPT_ENGINE_VIRTUAL_KEY:-}
+      - LLM_MODEL_NAME=${DBGPT_ENGINE_MODEL_NAME:-azure-gpt-4o-mini}
+      # Deployment de embeddings real del catálogo (litellm/config.yaml) — mismo criterio que el
+      # LLM, nunca un embeddings de OpenAI directo.
+      - EMBEDDING_MODEL_NAME=${DBGPT_ENGINE_EMBEDDING_MODEL_NAME:-router-embeddings}
+      - EMBEDDING_MODEL_API_URL=http://engine:4000/v1/embeddings
+    volumes:
+      - exact_analysis_data:/app/pilot/data
+    networks:
+      # Red dedicada, NO sentinel-network — ni siquiera los demás servicios internos
+      # (anythingllm, nlp-analyzer) tienen ruta hacia este contenedor, solo `backend`.
+      - exact-analysis-net
+    restart: unless-stopped
+
   client:
     # Perfil `rag`: cliente Hub Chat (spec 040) — solo RAG documental vía AnythingLLM,
     # login real contra `backend`, sin acceso directo al motor.
@@ -284,11 +335,15 @@ services:
     environment:
       - PORT=8095
       - ELEA_BACKEND_URL=http://backend:8000/api/v1
-      - ELEA_SERVICE_USERNAME=${ELEA_SERVICE_USERNAME:-admin}
-      - ELEA_SERVICE_PASSWORD=${ELEA_SERVICE_PASSWORD}
+      # ELEA_SERVICE_USERNAME/PASSWORD: quitadas (09-sep) — `server.js` ya no las lee
+      # desde que T022 de la 044 cambió el presupuesto a autoservicio.
       - ANYTHINGLLM_URL=http://anythingllm:3001
       - ANYTHINGLLM_API_KEY=${ANYTHINGLLM_API_KEY}
       - MASKING_VIRTUAL_KEY=${MASKING_VIRTUAL_KEY}
+      # Sin HUB_BRAND_* a propósito: este compose es el de DESARROLLO genérico (cualquier
+      # dev prueba cualquier escenario de cliente, default STACK_PREFIX=sentinel) — se
+      # queda con la marca neutra por default. La marca de Eleia se fija en
+      # `elea-installer/docker-compose.yml`, que sí es el instalador real del cliente.
     volumes:
       - ./client/public/uploads:/app/public/uploads
     networks:
@@ -301,7 +356,15 @@ services:
 networks:
   sentinel-network:
     driver: bridge
+  # Red aislada del motor de análisis exacto (spec 048, FR-002/CVE-2026-80104) — internal:true
+  # además de sin `ports:`, doble cerrojo: ni un bug de configuración que agregara `ports:` por
+  # error dejaría este contenedor alcanzable desde fuera del host, porque la red en sí no tiene
+  # salida.
+  exact-analysis-net:
+    driver: bridge
+    internal: true
 
 volumes:
   pgdata:
+  exact_analysis_data:
   anythingllm_data:
