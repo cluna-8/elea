@@ -33,7 +33,6 @@ test('sesión expirada a mitad de subida: 403 limpio, sin 500, sin archivo huér
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); await engine.close(); });

@@ -83,7 +83,6 @@ test('contrato: GET /api/workspaces sin sesión responde 401', async (t) => {
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); await engine.close(); });
@@ -99,7 +98,6 @@ test('contrato: GET /api/workspaces solo devuelve los espacios propios', async (
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); await engine.close(); });
@@ -131,7 +129,6 @@ test('contrato: GET /api/workspaces nunca incluye espacios kind=exact_analysis (
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); await engine.close(); });

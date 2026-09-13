@@ -211,6 +211,28 @@ def test_transferencia_de_propiedad(factory, app_and_client):
     assert r.status_code == 200
 
 
+def test_kind_al_crear_y_al_leer_050(factory, app_and_client):
+    """Spec 050 FR-041: el Hub declara el tipo de espacio al crearlo y lo lee de vuelta.
+    Antes solo el endpoint de DB-GPT (spec 048, retirado) podía crear `exact_analysis`."""
+    ana_id, _luis_id, _a, _l = _seed_tenant_and_users(factory)
+    tc_ana = _tc_as(app_and_client, ana_id)
+
+    r = tc_ana.post("/workspaces", json={"display_name": "Ventas Q3", "kind": "exact_analysis"})
+    assert r.status_code == 200, r.text
+    assert r.json()["kind"] == "exact_analysis"
+    ws_id = r.json()["id"]
+
+    assert tc_ana.get(f"/workspaces/{ws_id}").json()["kind"] == "exact_analysis"
+
+    # default sigue siendo `rag`
+    r = tc_ana.post("/workspaces", json={"display_name": "Docs"})
+    assert r.json()["kind"] == "rag"
+    assert tc_ana.get(f"/workspaces/{r.json()['id']}").json()["kind"] == "rag"
+
+    # valor inválido rechazado por el schema
+    assert tc_ana.post("/workspaces", json={"display_name": "x", "kind": "otro"}).status_code == 422
+
+
 def test_sin_sesion_401_en_todo(app_and_client):
     tc = _tc_as(app_and_client, None)
     assert tc.get("/workspaces").status_code == 401

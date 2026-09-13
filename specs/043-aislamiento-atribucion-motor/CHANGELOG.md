@@ -179,3 +179,24 @@ Azure que usa el compose completo):
 
 Nada de esto se commiteó — todo vive en la rama `043-aislamiento-atribucion-motor`, sin
 tocar `main`, a la espera de la revisión de calidad y el push a GitHub.
+
+---
+
+## 12-sep-2026 — US3 (enmascarado determinista por documento) deja de tener consumidor en el Hub
+
+Decisión del dueño del producto, registrada en la
+[spec 050](../050-ia-hub-conector-motores/spec.md): **Guardian es firewall + base de usuarios y no
+recibe archivos**. El Hub deja de enmascarar documentos, CSV y Excel antes de subirlos a los
+motores (050 FR-001/FR-002). Los archivos crudos viven en los motores locales, dentro del servidor
+del cliente; la PII se enmascara únicamente cuando el motor manda el prompt por
+`engine:4000/v1/chat/completions`.
+
+Consecuencias sobre lo entregado por esta spec:
+
+- `POST /gw/inspect`, el `document_id` determinista y la cuenta `svc.rag-masking` **quedan en
+  Guardian sin cambios**, pero sin consumidor en `client/`. No se borran (otra superficie puede
+  usarlos).
+- US1 (espacios con miembros e hilos privados) y US2 (atribución y cuentas de servicio) siguen
+  vigentes y son la base de la 050 (contrato 01).
+- Riesgo residual aceptado por el dueño: documentos crudos con PII en el motor de documentos y en
+  el motor tabular. Ver 050 "Riesgos residuales".

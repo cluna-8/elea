@@ -19,7 +19,6 @@ from .inspect import router as inspect_router
 from .health import router as health_router
 from .content_policies import router as content_policies_router
 from .workspaces import router as workspaces_router
-from .exact_analysis import router as exact_analysis_router
 from ..sso.api import router as sso_router, require_sso_enabled
 from ..sso.admin_api import router as sso_admin_router
 
@@ -46,7 +45,6 @@ api_router.include_router(inspect_router)
 api_router.include_router(health_router)
 api_router.include_router(content_policies_router)
 api_router.include_router(workspaces_router)
-api_router.include_router(exact_analysis_router)
 # SSO (spec 017 US2): el gate de licencia se aplica ACÁ, al montar el router — no
 # dentro de cada handler. Como dependency corre ANTES de la validación de request,
 # así que con el flag apagado la respuesta es 403 (veredicto de licencia) y nunca un

@@ -10,7 +10,6 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
-const ExcelJS = require('exceljs');
 const { execSync } = require('child_process');
 
 const app = express();
@@ -20,7 +19,15 @@ const PORT = process.env.PORT || 8095;
 const ELEA_BACKEND_URL = process.env.ELEA_BACKEND_URL || 'http://backend:8000/api/v1';
 const ANYTHINGLLM_URL = process.env.ANYTHINGLLM_URL || 'http://anythingllm:3001';
 const ANYTHINGLLM_API_KEY = process.env.ANYTHINGLLM_API_KEY || '';
-const MASKING_VIRTUAL_KEY = process.env.MASKING_VIRTUAL_KEY || '';
+// Motores opcionales (spec 050 FR-010): vacío = el motor no existe en esta instalación y la
+// UI oculta su sección. El Hub arranca con cualquier combinación (solo Guardian es obligatorio).
+const TABULAR_URL = (process.env.TABULAR_URL || '').replace(/\/$/, '');
+const TABULAR_INTERNAL_TOKEN = process.env.TABULAR_INTERNAL_TOKEN || '';
+const PRESENTON_URL = (process.env.PRESENTON_URL || '').replace(/\/$/, '');
+const DOCGEN_URL = (process.env.DOCGEN_URL || '').replace(/\/$/, '');
+// Artefactos generados por persona (spec 050 FR-015): pptx/pdf hoy, docx/xlsx después.
+const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(__dirname, 'data', 'artifacts');
+const PRESENTON_TIMEOUT_MS = parseInt(process.env.PRESENTON_TIMEOUT_MS || '300000', 10);
 
 // Marca como CONFIG en runtime (mismo criterio que `frontend/src/services/branding.ts`,
 // spec 020 US2) — encontrado en revisión (09-sep): el Hub tenía "Elea"/"Eleia"/"Laboratorios
@@ -37,11 +44,6 @@ const HUB_BRAND = {
   tenantLabel: process.env.HUB_BRAND_TENANT_LABEL || '',
   governanceLabel: process.env.HUB_BRAND_GOVERNANCE_LABEL || 'Guardian',
 };
-// T034 (US3, R5 de research.md): fecha de corte para avisar "esquema anterior" en
-// documentos subidos ANTES de que el enmascarado determinista (document_id) existiera —
-// se setea al desplegar esta feature, nunca inferida. Sin esto configurado, ningún
-// documento se marca (mejor no avisar que avisar mal por un default arbitrario).
-const MASKING_DETERMINISM_SINCE = process.env.MASKING_DETERMINISM_SINCE || null;
 
 const uploadDir = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -238,267 +240,11 @@ async function resolvePrincipalEngineThreadSlug(session, workspaceId, engineSlug
   return claimedData.principal_engine_thread_slug || nuevoSlug;
 }
 
-// Enmascarado NER real (spec 040 US4): misma política que el resto de `elea`
-// (POST /api/v1/gw/inspect, latam_ar hoy — DNI/CUIL/CBU). Fail-closed: si el motor de
-// detección no responde, NO se sube el texto sin enmascarar — se corta la subida.
-//
-// `documentId` (spec 044 US3, contrato 3 de la 043): el mismo id en todos los chunks de
-// una subida hace que el mismo valor detectado reciba el MISMO placeholder en todo el
-// documento — antes cada chunk creaba su propio mapa con un nonce aleatorio, así que
-// "Julián" en la fila 3 y en la fila 40 de un CSV salían con placeholders distintos (bug
-// real reportado por Tomás Mc Nally, 03-sep). `acted_for_user_id` (contrato 2): la
-// llave de servicio de enmascarado actúa "en nombre de" la persona real de la sesión —
-// sin esto, el gasto y el enmascarado quedaban atribuidos a la cuenta de servicio, no a
-// quien realmente subió el documento (diagnostico.md §5 de la 043).
-// Reintento (spec 044 US3, T029/R2 de research.md) — SOLO ante un fallo de RED (fetch
-// que ni siquiera llega a tener respuesta: timeout, conexión rechazada), nunca ante un
-// 4xx/402 real (eso es una decisión de política o de presupuesto, reintentarla no
-// cambiaría nada). Reusa el MISMO `documentId` del cierre de `maskText` — no genera uno
-// nuevo — así que el chunk reintentado sigue perteneciendo al mismo documento.
-const MASK_CHUNK_RETRY_ATTEMPTS = 3;
-const MASK_CHUNK_RETRY_DELAY_MS = 300;
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-async function maskChunk(text, { documentId, actingUserId } = {}) {
-  if (!text) return { masked: '', blocked: false, entities: [] };
-  const headers = { 'Content-Type': 'application/json', 'X-Sentinel-Key': MASKING_VIRTUAL_KEY };
-  if (actingUserId) headers['X-Guardian-Acting-User'] = actingUserId;
-
-  let r;
-  let lastNetworkError;
-  for (let intento = 1; intento <= MASK_CHUNK_RETRY_ATTEMPTS; intento++) {
-    try {
-      r = await fetch(`${ELEA_BACKEND_URL}/gw/inspect`, {
-        method: 'POST',
-        headers,
-        // 'hub-client' es descriptivo, no funcional: no está en el enum SURFACES del
-        // backend (inspect.py `_SURFACES_POR_TOKEN`), así que nunca decide la superficie
-        // auditada — eso lo resuelve `tool_type` de la Connection ("servicio"). Antes
-        // decía 'elea-rag-client', un nombre atado a Elea en un cliente que se conecta a
-        // cualquier instancia de Guardian (encontrado en revisión, 09-sep).
-        body: JSON.stringify({ text, tool: 'hub-client', document_id: documentId })
-      });
-      lastNetworkError = null;
-      break;
-    } catch (err) {
-      lastNetworkError = err;
-      if (intento < MASK_CHUNK_RETRY_ATTEMPTS) await sleep(MASK_CHUNK_RETRY_DELAY_MS);
-    }
-  }
-  if (lastNetworkError) {
-    throw new Error('El servicio de protección de documentos no está disponible — no se sube el documento.');
-  }
-
-  if (r.status === 402) {
-    const data = await r.json().catch(() => ({}));
-    return { masked: '', blocked: true, budgetExceeded: true,
-      motivo: data.motivo || 'Alcanzaste tu presupuesto asignado.', entities: [] };
-  }
-  if (!r.ok) throw new Error(`El servicio de protección de documentos no está disponible (HTTP ${r.status}) — no se sube el documento.`);
-  const data = await r.json();
-  // BUG real encontrado 31-ago con un archivo real (238 registros de salud): `ok:false`
-  // no significa SOLO "key inválida" — también lo devuelve un bloqueo real de la capa de
-  // gobernanza (`blocked:true`, con `motivo` explicando por qué). El mensaje anterior
-  // ("sin key válida") era falso en ese caso y ocultaba la razón real del bloqueo.
-  if (data.blocked) {
-    return { masked: '', blocked: true, motivo: data.motivo || 'Bloqueado por la política de contenido.', entities: [] };
-  }
-  if (!data.ok) throw new Error('El servicio de protección de documentos no respondió correctamente.');
-  return { masked: data.masked, blocked: false, entities: data.entities || [] };
-}
-
-// El analizador NLP (Presidio) es lento de verdad: medido en vivo, ~330 caracteres/
-// segundo por CPU (spaCy es_core_news_md, 1 core al 100%) — un texto grande de una sola
-// vez agotaba el timeout del motor y el documento quedaba bloqueado por fail-closed
-// (BUG real encontrado 31-ago con una planilla real de 570KB/238 filas: "no autorizó el
-// texto" era en realidad un ReadTimeout del analizador, no un rechazo de política). El
-// motor ahora tolera hasta 15s por trozo (ver litellm/extensions/sentinel_guardian_
-// policy.py) — 4000 caracteres a ~330 c/s son ~12s, con margen real, no al límite.
-const MASK_CHUNK_CHARS = 4000;
-// Tope total honesto: a esta velocidad medida, un documento de más de ~150.000
-// caracteres tardaría varios minutos en subir (secuencial, un trozo detrás de otro).
-// Se corta ahí y se avisa — mejor una subida rápida con parte del contenido que una
-// espera de 10+ minutos sin saber si sigue viva.
-const MASK_MAX_TOTAL_CHARS = 150000;
-
-function splitIntoChunks(text) {
-  if (text.length <= MASK_CHUNK_CHARS) return [text];
-  const lines = text.split('\n');
-  const chunks = [];
-  let current = '';
-  for (const line of lines) {
-    if (current.length + line.length + 1 > MASK_CHUNK_CHARS && current) {
-      chunks.push(current);
-      current = '';
-    }
-    current += (current ? '\n' : '') + line;
-  }
-  if (current) chunks.push(current);
-  return chunks;
-}
-
-// `actingUserId` (spec 044 US2/US3): quien realmente sube el documento, propagado a cada
-// chunk. `documentId` se genera UNA vez acá (crypto.randomUUID) y viaja igual a todos los
-// chunks de esta subida — es lo que hace determinista el enmascarado dentro del
-// documento sin correlacionar nada entre documentos distintos (cada subida, un id nuevo).
-async function maskText(text, { actingUserId } = {}) {
-  if (!text) return { masked: '', blocked: false, entities: [], truncated: false, documentId: null };
-  const documentId = crypto.randomUUID();
-  const truncated = text.length > MASK_MAX_TOTAL_CHARS;
-  const usable = truncated ? text.slice(0, MASK_MAX_TOTAL_CHARS) : text;
-  const chunks = splitIntoChunks(usable);
-  const maskedParts = [];
-  const allEntities = [];
-  for (const chunk of chunks) {
-    const result = await maskChunk(chunk, { documentId, actingUserId });
-    if (result.blocked) return { ...result, documentId }; // un pedazo bloqueado bloquea todo el documento
-    maskedParts.push(result.masked);
-    allEntities.push(...result.entities);
-  }
-  // Resumen agregado por DOCUMENTO (spec 044 US3), no por chunk: cada tipo de dato
-  // detectado se cuenta una vez por documento, ya no "cada chunk cuenta desde 0".
-  const merged = {};
-  for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
-  return {
-    masked: maskedParts.join('\n'),
-    blocked: false,
-    entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
-    truncated,
-    documentId
-  };
-}
-
-// Enmascarado línea por línea para CSV (bug real encontrado en vivo 11-sep, spec 046):
-// `maskText` junta varias líneas en un mismo trozo de hasta `MASK_CHUNK_CHARS` antes de
-// mandarlo al analizador NER — Presidio/spaCy no tratan el salto de línea como un límite
-// duro, así que pueden detectar una entidad que ABARCA dos filas (medido en vivo:
-// "Julian,1200\nVentas" salió como una sola entidad LOCATION) y reemplazarla por UN
-// placeholder — fusiona dos filas en una y corre las columnas. El motor de análisis
-// exacto entonces rechaza el archivo con un 422 genérico, sin ningún error propio: el
-// CSV ya no es tabular, no es un problema del motor. Enmascarar fila por fila hace
-// IMPOSIBLE que una entidad cruce un límite de fila — el costo es una llamada al
-// analizador por fila en vez de una cada ~4000 caracteres, aceptable para las planillas
-// que espera este modo (T090 de la 048 lo dejaba pendiente; esto lo cierra para .csv).
-//
-// La PRIMERA fila (encabezado) NUNCA se manda al analizador (decisión explícita del
-// usuario, 11-sep, tras encontrar en vivo que el NER da falsos positivos sobre nombres de
-// columna y valores categóricos cortos — "depto" salió marcado PERSON, "Marketing"/
-// "Ventas" salieron LOCATION). Enmascarar el encabezado no protege ningún dato personal
-// real (un nombre de columna no es PII) pero SÍ rompe la semántica que el motor de
-// análisis exacto necesita para armar el SQL: si "depto" se reemplaza por un placeholder
-// tipo `PERSON_xxx`, el motor arma `WHERE person_id = '<placeholder de otro valor>'`
-// contra una columna que ya no existe con ese nombre, y la respuesta vuelve `null` — no
-// es un error visible, es una respuesta vacía o incorrecta silenciosa, peor que no
-// enmascarar. Los VALORES de datos (filas 2 en adelante) sí siguen enmascarándose fila
-// por fila como antes — ahí es donde puede haber PII real (nombres de personas, DNIs,
-// etc. en columnas de datos, no en el nombre de la columna).
-//
-// Gap conocido, documentado a propósito (mismo criterio que el gap de .xlsx sin
-// enmascarar, T090 de la 048): un valor categórico REPETIDO en muchas filas (p.ej. un
-// nombre de departamento) todavía puede dar falso positivo fila por fila y quedar
-// enmascarado de forma inconsistente entre filas (cada fila es una llamada independiente
-// al NER, sin memoria de "esto ya lo vi antes y decidí que es una categoría, no PII")
-// — eso puede seguir devolviendo respuestas incorrectas para ESE caso puntual. Excluir
-// headers cierra el caso más común y más dañino (el nombre de columna, que aparece una
-// sola vez pero rompe el SQL entero); no cierra el caso general de valores categóricos
-// repetidos, que queda fuera de esta ronda.
-async function maskCsvText(text, { actingUserId } = {}) {
-  if (!text) return { masked: '', blocked: false, entities: [], truncated: false, documentId: null };
-  const documentId = crypto.randomUUID();
-  const truncated = text.length > MASK_MAX_TOTAL_CHARS;
-  const usable = truncated ? text.slice(0, MASK_MAX_TOTAL_CHARS) : text;
-  const lines = usable.split('\n');
-  const maskedLines = [];
-  const allEntities = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) { maskedLines.push(line); continue; } // línea vacía: nada que mandar al analizador
-    if (i === 0) { maskedLines.push(line); continue; } // encabezado: nunca se enmascara (ver comentario arriba)
-    const result = await maskChunk(line, { documentId, actingUserId });
-    if (result.blocked) return { ...result, documentId }; // una fila bloqueada bloquea todo el documento
-    maskedLines.push(result.masked);
-    allEntities.push(...result.entities);
-  }
-  const merged = {};
-  for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
-  return {
-    masked: maskedLines.join('\n'),
-    blocked: false,
-    entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
-    truncated,
-    documentId
-  };
-}
-
-// Tope de celdas a enmascarar por planilla (mismo criterio que MASK_MAX_TOTAL_CHARS para
-// CSV): una planilla real puede tener decenas de miles de celdas, y cada una es una
-// llamada de red al analizador — mejor cortar y avisar que colgar la subida.
-const MASK_XLSX_MAX_CELLS = 4000;
-
-// Enmascarado real de .xlsx (spec 046, cierra el gap documentado desde T090 de la 048 —
-// hasta hoy .xlsx/.xls salían del Hub sin ninguna protección de PII, riesgo confirmado en
-// vivo con datos reales de un cliente: CUIT, email, teléfono, domicilio en texto plano).
-//
-// Celda por celda, NO fila por fila (a diferencia de `maskCsvText`): un .xlsx ya tiene
-// límites de celda reales en el archivo — no hace falta reconstruir nada por delimitador,
-// así que enmascarar celda por celda es más simple Y más seguro que el enfoque de CSV (ahí
-// no hay ninguna forma de que una entidad "cruce" un límite de fila, porque cada celda es
-// su propia llamada al analizador y su propio reemplazo 1:1, sin split/join de por medio).
-//
-// Solo celdas de TEXTO (`typeof cell.value === 'string'`): un monto o una fecha no son
-// candidatos de PII y enmascararlos sería una llamada al NER desperdiciada. La primera
-// fila de cada hoja (encabezado) nunca se enmascara — mismo criterio y misma razón que ya
-// rige para CSV (T090/spec 046, decisión del dueño del producto 11-sep): un nombre de
-// columna no es PII real, y enmascararlo rompe la semántica que el motor necesita para
-// armar el SQL (`WHERE depto = 'Marketing'` deja de funcionar si "depto" es un placeholder).
-//
-// Se usa `exceljs`, no el paquete `xlsx` (SheetJS) de npm: `xlsx@0.18.5` (la última versión
-// publicada al registro de npm) tiene dos vulnerabilidades conocidas SIN parche disponible
-// ahí (prototype pollution + ReDoS — SheetJS solo publica las versiones parchadas en su
-// propio CDN, no en npm). Este código parsea archivos subidos por cualquier persona
-// autenticada — una dependencia con ReDoS/prototype-pollution conocidos sobre ESE input es
-// exactamente el tipo de agujero que un producto de protección de datos no puede tener.
-// `exceljs` no soporta el formato binario legado `.xls` (solo `.xlsx`/`.csv`) — por eso
-// `.xls` (mucho menos común hoy que `.xlsx`) se queda en el camino viejo de "sube sin
-// enmascarar, con aviso explícito" (ver `uploadExactAnalysisFile()` del lado del cliente).
-async function maskXlsxBuffer(buffer, { actingUserId } = {}) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
-  const documentId = crypto.randomUUID();
-
-  const celdas = [];
-  for (const sheet of workbook.worksheets) {
-    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      if (rowNumber === 1) return; // encabezado de ESTA hoja: nunca se enmascara
-      row.eachCell({ includeEmpty: false }, (cell) => {
-        if (typeof cell.value === 'string' && cell.value.trim()) celdas.push(cell);
-      });
-    });
-  }
-
-  const truncated = celdas.length > MASK_XLSX_MAX_CELLS;
-  const usable = truncated ? celdas.slice(0, MASK_XLSX_MAX_CELLS) : celdas;
-  const allEntities = [];
-
-  for (const cell of usable) {
-    const result = await maskChunk(String(cell.value), { documentId, actingUserId });
-    if (result.blocked) return { ...result, documentId }; // una celda bloqueada bloquea todo el documento
-    cell.value = result.masked;
-    allEntities.push(...result.entities);
-  }
-
-  const merged = {};
-  for (const e of allEntities) merged[e.type] = (merged[e.type] || 0) + e.count;
-  const outBuffer = await workbook.xlsx.writeBuffer();
-  return {
-    buffer: Buffer.from(outBuffer),
-    blocked: false,
-    entities: Object.entries(merged).map(([type, count]) => ({ type, count })),
-    truncated,
-    documentId
-  };
-}
+// Spec 050 (12-sep-2026): el Hub YA NO enmascara. Guardian es firewall + base de usuarios y
+// no recibe archivos: los documentos suben crudos al motor de documentos local y la PII se
+// enmascara únicamente cuando el motor manda el prompt por `engine:4000/v1/chat/completions`.
+// El bloque de enmascarado por trozos (`maskText`/`maskCsvText`/`maskXlsxBuffer`, `/gw/inspect`,
+// `MASKING_VIRTUAL_KEY`) se retiró entero — ver specs/050-ia-hub-conector-motores (FR-001/002).
 
 // =========================================================================
 // AUTENTICACIÓN (US1) — login real contra elea, sin lista de usuarios falsa.
@@ -545,8 +291,7 @@ app.get('/api/user/current', async (req, res) => {
     isAuthenticated: true,
     user: session.user,
     budget,
-    workspaces,
-    maskingDeterminismSince: MASKING_DETERMINISM_SINCE
+    workspaces
   });
 });
 
@@ -611,7 +356,7 @@ app.get('/api/workspaces', async (req, res) => {
     const all = await getMemberWorkspaces(session);
     // Bug real encontrado en vivo (11-sep, spec 046): esta ruta alimenta el sidebar del
     // modo Chat normal — sin filtrar, los espacios `kind=exact_analysis` (que tienen su
-    // propia sección en el modo "Análisis exacto", ver /api/exact-analysis/workspaces más
+    // propia sección en el modo "Planillas", ver /api/tabular/workspaces más
     // abajo) también aparecían acá, mezclando los dos modos contra FR-001 (deben quedar
     // SIEMPRE separados). `kind` es `'rag'` por default (columna vieja, sin backfill) —
     // por eso el filtro es "no es exact_analysis", no "es rag", para no perder espacios
@@ -1022,44 +767,25 @@ app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
     const rawName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
     const extractedText = extractText(req.file.path);
 
-    // El original SIN enmascarar solo vive en disco lo que dura la extracción — se borra
-    // acá, antes de que exista ninguna chance de que quede huérfano en `public/uploads/`
-    // (spec 040 US4: el dato real no puede persistir en ningún punto del camino).
+    // El original solo vive en disco lo que dura la extracción — se borra acá, antes de
+    // que exista ninguna chance de que quede huérfano en `public/uploads/`.
     fs.unlinkSync(req.file.path);
-
-    // documentId (spec 044 US3): un solo id para TODOS los chunks de esta subida — mismo
-    // valor detectado, mismo placeholder en cualquier parte del documento.
-    // acted_for_user_id (US2): la llave de enmascarado actúa en nombre de esta persona.
-    const { masked, blocked, budgetExceeded, motivo, entities, truncated, documentId } =
-      await maskText(extractedText, { actingUserId: session.user.id });
-    if (budgetExceeded) {
-      return res.status(402).json({ error: 'Alcanzaste tu presupuesto asignado. Contactá a tu administrador.' });
-    }
-    if (blocked) {
-      return res.status(422).json({ error: `Documento bloqueado por la política de protección de datos: ${motivo}` });
-    }
-
-    // Se sube el TEXTO ENMASCARADO como un .txt propio — el motor de documentos nunca ve
-    // el archivo original con los datos reales, solo los placeholders.
-    const maskedPath = `${req.file.path}.masked.txt`;
-    fs.writeFileSync(maskedPath, masked, 'utf-8');
 
     // Nombre del archivo que ve el motor de documentos: SIEMPRE .txt, nunca la extensión
     // original. Elige el parser por extensión (.xlsx/.docx/.pdf usan parsers binarios
-    // específicos) — lo que subimos acá es texto plano ya extraído y enmascarado, nunca
-    // el binario original. Con la extensión original (ej. .xlsx) intentaba parsear texto
-    // plano como Excel real y el contenido quedaba vacío o corrupto (bug real, encontrado
-    // subiendo una planilla real: el RAG respondía "no tengo acceso a documentos").
+    // específicos) — lo que subimos acá es texto plano ya extraído, nunca el binario
+    // original. Con la extensión original (ej. .xlsx) intentaba parsear texto plano como
+    // Excel real y el contenido quedaba vacío o corrupto (bug real, encontrado subiendo una
+    // planilla real: el RAG respondía "no tengo acceso a documentos").
     const uploadName = `${rawName}.txt`;
     const form = new FormData();
-    form.append('file', new Blob([fs.readFileSync(maskedPath)], { type: 'text/plain' }), uploadName);
+    form.append('file', new Blob([extractedText], { type: 'text/plain' }), uploadName);
 
     const uploadResp = await fetch(`${ANYTHINGLLM_URL}/api/v1/document/upload`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${ANYTHINGLLM_API_KEY}` },
       body: form
     });
-    fs.unlinkSync(maskedPath);
     if (!uploadResp.ok) return res.status(uploadResp.status).json({ error: 'El servicio de documentos no aceptó este archivo.' });
     const uploaded = await uploadResp.json();
     const doc = (uploaded.documents || [])[0];
@@ -1070,15 +796,10 @@ app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
       body: JSON.stringify({ adds: [doc.location] })
     });
 
-    const avisoTruncado = truncated
-      ? ' ⚠️ El documento es grande — se indexó solo la primera parte (~150.000 caracteres) por ahora.'
-      : '';
     res.json({
       success: true,
-      document: { name: rawName, location: doc.location, entitiesEnmascaradas: entities, truncated: !!truncated, documentId },
-      // Resumen agregado por DOCUMENTO, no por chunk (spec 044 US3) — cada tipo de dato
-      // protegido se cuenta una sola vez para todo el archivo.
-      message: `"${rawName}" protegido e indexado (${entities.length} tipo(s) de dato protegido detectado(s)).${avisoTruncado}`
+      document: { name: rawName, location: doc.location },
+      message: `"${rawName}" indexado.`
     });
   } catch (err) {
     res.status(502).json({ error: err.message });
@@ -1185,36 +906,123 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // =========================================================================
-// ANÁLISIS EXACTO DE DATOS (spec 046, UI) — 1:1 proxy hacia el backend (spec 048, ya
-// probado en vivo). El Hub NUNCA habla con el motor de análisis exacto directamente —
-// mismo criterio de "solo el backend proxea autenticación/atribución" que ya rige RAG.
+// MOTORES CONFIGURADOS (spec 050 FR-010) — la UI pregunta qué hay y oculta lo que no.
+// =========================================================================
+app.get('/api/features', (req, res) => {
+  res.json({
+    documents: !!process.env.ANYTHINGLLM_URL || !!ANYTHINGLLM_API_KEY,
+    tabular: !!(TABULAR_URL && TABULAR_INTERNAL_TOKEN),
+    presentations: !!PRESENTON_URL,
+    docgen: !!DOCGEN_URL
+  });
+});
+
+// =========================================================================
+// ANÁLISIS DE PLANILLAS — motor tabular (spec 050 US2, contratos 02 y 03 §3.2).
+// El Hub verifica membresía contra Guardian ANTES de tocar el motor (FR-011); el motor
+// confía en el Hub por red interna + token. Guardian nunca ve el archivo.
 // =========================================================================
 const MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE =
   'El servicio de análisis de datos no está disponible. Intentá de nuevo en unos minutos.';
+const MENSAJE_SIN_ACCESO = 'No tenés acceso a este espacio.';
 
-app.post('/api/exact-analysis/workspaces', async (req, res) => {
+function tabularDisponible(res) {
+  if (TABULAR_URL && TABULAR_INTERNAL_TOKEN) return true;
+  res.status(404).json({ error: 'El análisis de planillas no está habilitado en esta instalación.', code: 'feature_disabled' });
+  return false;
+}
+
+async function tabularFetch(session, pathname, opts = {}) {
+  const r = await fetch(`${TABULAR_URL}${pathname}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${TABULAR_INTERNAL_TOKEN}`,
+      'X-Hub-User-Id': session.user.id,
+      ...(opts.headers || {})
+    }
+  });
+  return r;
+}
+
+// Membresía real contra Guardian (FR-011): 403 uniforme, nunca revela si el espacio existe.
+async function requireTabularWorkspace(session, id, res) {
+  const r = await eleaFetch(session.token, `/workspaces/${encodeURIComponent(id)}`);
+  if (r.status === 403 || r.status === 404) {
+    res.status(403).json({ error: MENSAJE_SIN_ACCESO });
+    return null;
+  }
+  if (!r.ok) throw new Error(`No se pudo verificar el espacio (HTTP ${r.status}).`);
+  const ws = await r.json();
+  if (ws.kind && ws.kind !== 'exact_analysis') {
+    res.status(403).json({ error: MENSAJE_SIN_ACCESO });
+    return null;
+  }
+  return ws;
+}
+
+// El espacio en el motor se crea a demanda (idempotente): si Guardian registró el espacio
+// pero el motor no lo tenía (motor caído al crear, volumen nuevo), se crea acá.
+async function ensureTabularSpace(session, id) {
+  const r = await tabularFetch(session, '/v1/spaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id: id })
+  });
+  if (r.status !== 201 && r.status !== 409) throw new Error(`tabular no pudo crear el espacio (HTTP ${r.status}).`);
+}
+
+function mensajeErrorTabular(status, data) {
+  const code = data && data.detail && data.detail.code;
+  if (status === 502 && code === 'engine_error') {
+    const s = data.detail.status;
+    if (s === 402) return [402, MENSAJE_PRESUPUESTO_AGOTADO];
+    if (s === 400) return [422, 'La pregunta fue bloqueada por la política de protección de datos.'];
+    return [502, MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE];
+  }
+  const porCodigo = {
+    unsafe_sql: [422, 'No pude responder con una consulta segura. Probá reformular la pregunta.'],
+    sql_error: [422, 'No pude armar una consulta válida para esa pregunta. Probá reformularla.'],
+    not_answerable: [422, 'Esa pregunta no se puede responder con los datos de las planillas de este espacio. Preguntá por lo que está en sus columnas (cantidades, sumas, cruces, búsquedas por un término).'],
+    no_files: [422, 'Este espacio todavía no tiene planillas. Subí una primero.'],
+    unsupported_format: [415, 'Este modo solo acepta planillas .csv y .xlsx.'],
+    file_too_large: [413, `El archivo supera el máximo permitido (${(data.detail && data.detail.max_mb) || 50} MB).`],
+    empty_file: [422, 'La planilla no tiene datos.'],
+    unreadable_file: [422, 'No se pudo leer la planilla. Verificá que no esté dañada.'],
+    timeout: [504, 'La consulta tardó demasiado. Probá con una pregunta más acotada.'],
+    file_not_found: [404, 'Ese archivo ya no está en el espacio.'],
+    space_not_found: [404, 'El espacio no existe en el motor de análisis.']
+  };
+  return porCodigo[code] || [502, MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE];
+}
+
+app.post('/api/tabular/workspaces', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
+  if (!tabularDisponible(res)) return;
   const { display_name } = req.body || {};
   if (!display_name) return res.status(400).json({ error: 'Falta el nombre del espacio.' });
   try {
-    const r = await eleaFetch(session.token, '/exact-analysis/workspaces', {
+    // Registro de acceso en Guardian (FR-041: `kind` al crear) — quién ve este espacio.
+    const r = await eleaFetch(session.token, '/workspaces', {
       method: 'POST',
-      body: JSON.stringify({ display_name })
+      body: JSON.stringify({ display_name, kind: 'exact_analysis' })
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) return res.status(r.status).json({ error: data.detail || 'No se pudo crear el espacio.' });
-    res.json(data);
+    // Base del espacio en el motor (a demanda si acá falla — ver ensureTabularSpace).
+    try { await ensureTabularSpace(session, data.id); } catch (err) { console.warn('tabular:', err.message); }
+    res.json({ id: data.id, display_name: data.display_name, kind: 'exact_analysis', role: 'owner' });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    console.error('tabular crear espacio falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
   }
 });
 
-// Espacios de análisis exacto propios — reusa /workspaces (ya trae `kind`, spec 048) y
-// filtra del lado del Hub; no hace falta un endpoint de listado aparte en el backend.
-app.get('/api/exact-analysis/workspaces', async (req, res) => {
+// Espacios de planillas propios — reusa /workspaces (trae `kind`) y filtra del lado del Hub.
+app.get('/api/tabular/workspaces', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
+  if (!tabularDisponible(res)) return;
   try {
     const all = await getMemberWorkspaces(session);
     res.json({ workspaces: all.filter((w) => w.kind === 'exact_analysis') });
@@ -1223,111 +1031,339 @@ app.get('/api/exact-analysis/workspaces', async (req, res) => {
   }
 });
 
-app.post('/api/exact-analysis/workspaces/:id/files', upload.single('file'), async (req, res) => {
+app.get('/api/tabular/workspaces/:id/files', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
-  const { id } = req.params;
-  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo.' });
-
-  const ext = (req.file.originalname.split('.').pop() || '').toLowerCase();
-  if (!['csv', 'xlsx', 'xls'].includes(ext)) {
-    fs.unlinkSync(req.file.path);
-    return res.status(422).json({
-      error: 'Este modo solo acepta planillas (.csv, .xlsx, .xls) — para otro tipo de documento, usá el chat normal.'
-    });
-  }
-
+  if (!tabularDisponible(res)) return;
   try {
-    let buffer = fs.readFileSync(req.file.path);
-    let contentType = req.file.mimetype || 'text/csv';
-
-    // Enmascarado ANTES de que el dato salga del Hub (FR-003). .csv fila por fila
-    // (`maskCsvText`); .xlsx celda por celda (`maskXlsxBuffer`, cierra el gap real
-    // confirmado en vivo el 11-sep con datos reales de un cliente sin ninguna protección).
-    // .xls (formato binario legado, mucho menos común hoy) se queda sin enmascarar — ver
-    // el comentario de `maskXlsxBuffer` sobre por qué (soporte de librería + riesgo real de
-    // una dependencia con vulnerabilidades conocidas sobre input subido por cualquiera).
-    if (ext === 'csv') {
-      const rawText = buffer.toString('utf-8');
-      const { masked, blocked, budgetExceeded, motivo } =
-        await maskCsvText(rawText, { actingUserId: session.user.id });
-      fs.unlinkSync(req.file.path);
-      if (budgetExceeded) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
-      if (blocked) {
-        return res.status(422).json({ error: `Archivo bloqueado por la política de protección de datos: ${motivo}` });
-      }
-      buffer = Buffer.from(masked, 'utf-8');
-      contentType = 'text/csv';
-    } else if (ext === 'xlsx') {
-      const { buffer: maskedBuffer, blocked, budgetExceeded, motivo } =
-        await maskXlsxBuffer(buffer, { actingUserId: session.user.id });
-      fs.unlinkSync(req.file.path);
-      if (budgetExceeded) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
-      if (blocked) {
-        return res.status(422).json({ error: `Archivo bloqueado por la política de protección de datos: ${motivo}` });
-      }
-      buffer = maskedBuffer;
-      contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    } else {
-      console.warn(
-        `exact-analysis: subida .${ext} SIN pasar por enmascarado (formato binario legado, ` +
-        'sin soporte de la librería de enmascarado — solo .csv y .xlsx lo aplican hoy).'
-      );
-      fs.unlinkSync(req.file.path);
-    }
-
-    // Bug real encontrado en vivo (11-sep): `eleaFetch` fuerza SIEMPRE
-    // `Content-Type: application/json` — para un `FormData` eso pisa el boundary
-    // multipart real que el propio `fetch` arma solo, y el backend recibía un body
-    // multipart con Content-Type mintiendo "json" (422, `doc_file` nunca llegaba
-    // parseado). Mismo motivo por el que el upload de AnythingLLM (más arriba en este
-    // archivo) tampoco usa `eleaFetch` — un fetch directo, sin forzar headers.
-    const form = new FormData();
-    form.append('doc_file', new Blob([buffer], { type: contentType }), req.file.originalname);
-    const r = await fetch(`${ELEA_BACKEND_URL}/exact-analysis/workspaces/${id}/files`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session.token}` },
-      body: form
-    });
+    if (!(await requireTabularWorkspace(session, req.params.id, res))) return;
+    await ensureTabularSpace(session, req.params.id);
+    const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(req.params.id)}/files`);
     const data = await r.json().catch(() => ({}));
-    if (r.status === 403) return res.status(403).json({ error: 'No tenés acceso a este espacio.' });
-    if (!r.ok) return res.status(r.status).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+    if (!r.ok) { const [st, msg] = mensajeErrorTabular(r.status, data); return res.status(st).json({ error: msg }); }
     res.json(data);
   } catch (err) {
-    // Si `maskXlsxBuffer`/`maskCsvText` explotan antes de su propio `unlinkSync` (ej. un
-    // .xlsx corrupto que ExcelJS no puede parsear), el temporal de multer quedaría
-    // huérfano en `public/uploads/` — mismo criterio ya establecido para el resto de las
-    // subidas del Hub (ver el comentario "huérfano" más arriba en este archivo).
-    if (req.file && fs.existsSync(req.file.path)) {
-      try { fs.unlinkSync(req.file.path); } catch (_) { /* ya no está, no importa */ }
-    }
-    console.error('exact-analysis upload falló:', err.message);
+    console.error('tabular listar archivos falló:', err.message);
     res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
   }
 });
 
-app.post('/api/exact-analysis/workspaces/:id/query', async (req, res) => {
+app.post('/api/tabular/workspaces/:id/files', upload.single('file'), async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
+  if (!tabularDisponible(res)) { if (req.file) fs.unlinkSync(req.file.path); return; }
   const { id } = req.params;
-  const { question, conv_uid, select_param } = req.body || {};
-  if (!question || !conv_uid || !select_param) {
-    return res.status(400).json({ error: 'Faltan datos del archivo — subilo de nuevo.' });
+  if (!req.file) return res.status(400).json({ error: 'No se recibió archivo.' });
+  const rawName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+  const ext = (rawName.split('.').pop() || '').toLowerCase();
+  if (!['csv', 'xlsx'].includes(ext)) {
+    fs.unlinkSync(req.file.path);
+    return res.status(415).json({
+      error: 'Este modo solo acepta planillas .csv y .xlsx — para otro tipo de documento, usá el chat normal.'
+    });
   }
   try {
-    const r = await eleaFetch(session.token, `/exact-analysis/workspaces/${id}/query`, {
-      method: 'POST',
-      body: JSON.stringify({ question, conv_uid, select_param })
-    });
+    const buffer = fs.readFileSync(req.file.path);
+    fs.unlinkSync(req.file.path);
+    if (buffer.length > 50 * 1024 * 1024) return res.status(413).json({ error: 'El archivo supera el máximo permitido (50 MB).' });
+    if (!(await requireTabularWorkspace(session, id, res))) return;
+    await ensureTabularSpace(session, id);
+    // Multipart real: nunca por `eleaFetch`/JSON (bug real del 11-sep, mismo criterio que la
+    // subida al motor de documentos más arriba).
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: req.file.mimetype || 'application/octet-stream' }), rawName);
+    const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(id)}/files`, { method: 'POST', body: form });
     const data = await r.json().catch(() => ({}));
-    if (r.status === 402) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
-    if (r.status === 403) return res.status(403).json({ error: 'No tenés acceso a este espacio.' });
-    if (!r.ok) return res.status(r.status).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+    if (!r.ok) { const [st, msg] = mensajeErrorTabular(r.status, data); return res.status(st).json({ error: msg }); }
     res.json(data);
   } catch (err) {
-    console.error('exact-analysis query falló:', err.message);
+    if (req.file && fs.existsSync(req.file.path)) {
+      try { fs.unlinkSync(req.file.path); } catch (_) { /* ya no está */ }
+    }
+    console.error('tabular subida falló:', err.message);
     res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
   }
+});
+
+app.delete('/api/tabular/workspaces/:id/files/:fileId', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  try {
+    if (!(await requireTabularWorkspace(session, req.params.id, res))) return;
+    const r = await tabularFetch(session,
+      `/v1/spaces/${encodeURIComponent(req.params.id)}/files/${encodeURIComponent(req.params.fileId)}`, { method: 'DELETE' });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const [st, msg] = mensajeErrorTabular(r.status, data); return res.status(st).json({ error: msg }); }
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('tabular borrar archivo falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+app.post('/api/tabular/workspaces/:id/query', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  const { id } = req.params;
+  const { question, history } = req.body || {};
+  if (!question || typeof question !== 'string') return res.status(400).json({ error: 'Falta la pregunta.' });
+  try {
+    // Presupuesto propio antes de gastar (mismo criterio que /api/chat).
+    const budget = await fetchOwnBudget(session).catch(() => null);
+    if (budget && budget.status === 'exceeded') return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
+    if (!(await requireTabularWorkspace(session, id, res))) return;
+    const hist = Array.isArray(history)
+      ? history.slice(-5).map((h) => ({ question: String(h.question || ''), answer: String(h.answer || '') }))
+      : [];
+    const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(id)}/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: question.slice(0, 4000), history: hist })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const [st, msg] = mensajeErrorTabular(r.status, data); return res.status(st).json({ error: msg }); }
+    res.json({ answer: data.answer, sql: data.sql, columns: data.columns, rows: data.rows, model_used: data.model_used });
+  } catch (err) {
+    console.error('tabular consulta falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+// =========================================================================
+// ARTEFACTOS GENERADOS (spec 050 FR-015) — almacén propio del Hub, por persona.
+// `/app/data/artifacts/<userId>/<uuid>.<ext>` + `index.json`. Descarga solo para la dueña.
+// =========================================================================
+function artifactsUserDir(userId) {
+  const safe = String(userId).replace(/[^A-Za-z0-9_-]/g, '');
+  const dir = path.join(ARTIFACTS_DIR, safe);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+function readArtifactIndex(userId) {
+  const p = path.join(artifactsUserDir(userId), 'index.json');
+  try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch (_) { return []; }
+}
+function writeArtifactIndex(userId, list) {
+  const dir = artifactsUserDir(userId);
+  const tmp = path.join(dir, 'index.json.tmp');
+  fs.writeFileSync(tmp, JSON.stringify(list, null, 1), 'utf-8');
+  fs.renameSync(tmp, path.join(dir, 'index.json'));
+}
+function saveArtifact(userId, { kind, title, threadKey, buffer, source }) {
+  const id = crypto.randomUUID();
+  const dir = artifactsUserDir(userId);
+  fs.writeFileSync(path.join(dir, `${id}.${kind}`), buffer);
+  const entry = { id, kind, title, thread_key: threadKey || null, source: source || null,
+    created_at: new Date().toISOString(), size: buffer.length };
+  const list = readArtifactIndex(userId);
+  list.unshift(entry);
+  writeArtifactIndex(userId, list);
+  return entry;
+}
+const ARTIFACT_MIME = {
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+};
+
+app.get('/api/artifacts', (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  res.json({ artifacts: readArtifactIndex(session.user.id) });
+});
+
+app.get('/api/artifacts/:id/download', (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const entry = readArtifactIndex(session.user.id).find((a) => a.id === req.params.id);
+  // 403 uniforme: el id de otra persona no existe en SU índice — nunca se revela si existe.
+  if (!entry) return res.status(403).json({ error: 'No tenés acceso a este archivo.' });
+  const file = path.join(artifactsUserDir(session.user.id), `${entry.id}.${entry.kind}`);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'El archivo ya no está disponible.' });
+  const safeTitle = (entry.title || 'archivo').replace(/[^\w\- áéíóúñÁÉÍÓÚÑ]/g, '').slice(0, 80) || 'archivo';
+  res.setHeader('Content-Type', ARTIFACT_MIME[entry.kind] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${safeTitle}.${entry.kind}`)}`);
+  fs.createReadStream(file).pipe(res);
+});
+
+app.delete('/api/artifacts/:id', (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const list = readArtifactIndex(session.user.id);
+  const entry = list.find((a) => a.id === req.params.id);
+  if (!entry) return res.status(403).json({ error: 'No tenés acceso a este archivo.' });
+  try { fs.unlinkSync(path.join(artifactsUserDir(session.user.id), `${entry.id}.${entry.kind}`)); } catch (_) { /* ya no está */ }
+  writeArtifactIndex(session.user.id, list.filter((a) => a.id !== entry.id));
+  res.json({ status: 'ok' });
+});
+
+// =========================================================================
+// PRESENTACIONES — motor Presenton (spec 050 US3, contrato 03 §3.3). El Hub manda el texto,
+// Presenton pide el contenido de las diapositivas a Guardian con su llave `svc.presenton`,
+// exporta el archivo y el Hub lo copia a los artefactos de la persona. Copy neutro (FR-016).
+// =========================================================================
+const MENSAJE_PRESENTACIONES_NO_DISPONIBLE =
+  'El servicio de presentaciones no está disponible. Intentá de nuevo en unos minutos.';
+
+function presentacionesDisponible(res) {
+  if (PRESENTON_URL) return true;
+  res.status(404).json({ error: 'La generación de presentaciones no está habilitada en esta instalación.', code: 'feature_disabled' });
+  return false;
+}
+
+async function generarPresentacion(session, { content, title, n_slides, export_as, instructions, thread_key, source, template }) {
+  const budget = await fetchOwnBudget(session).catch(() => null);
+  if (budget && budget.status === 'exceeded') return { status: 402, error: MENSAJE_PRESUPUESTO_AGOTADO };
+  const nSlides = Math.min(20, Math.max(3, parseInt(n_slides, 10) || 8));
+  const exportAs = export_as === 'pdf' ? 'pdf' : 'pptx';
+  const texto = (title ? `Título de la presentación: ${title}\n\n` : '') + String(content).slice(0, 20000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PRESENTON_TIMEOUT_MS);
+  try {
+    const r = await fetch(`${PRESENTON_URL}/api/v1/ppt/presentation/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: texto, n_slides: nSlides, language: 'Spanish', export_as: exportAs,
+        // Plantilla modelo (pedido del dueño 13-sep): las integradas de Presenton o las propias
+        // creadas a partir de un PPTX del cliente; ambas aparecen en `GET /api/presentations/templates`.
+        template: String(template || 'general').replace(/[^A-Za-z0-9_-]/g, '') || 'general',
+        // La pista de tokens es la misma del chat (spec 040): el firewall enmascara el contenido
+        // que Presenton manda al modelo y restituye el valor real solo si el token vuelve EXACTO.
+        // Visto en vivo (12-sep): "OTC" fue tomado por nombre de persona y volvió como
+        // "[PERSON / 0 / 31d5]" en una diapositiva. Con esta instrucción el modelo lo copia tal cual.
+        instructions: `${instructions || 'Presentación corporativa en español, clara y concreta. Sin inventar datos que no estén en el contenido.'} ` +
+          'Si en el contenido aparece un token entre corchetes con el formato exacto [TIPO_numero_codigo] (por ejemplo [PERSON_0_a03c]), ' +
+          'es un dato protegido: copialo EXACTAMENTE igual, con corchetes y guiones bajos, sin espacios ni cambios, en el lugar donde corresponda.',
+        include_title_slide: true
+      }),
+      signal: controller.signal
+    });
+    if (!r.ok) {
+      console.error('presenton generate:', r.status, (await r.text().catch(() => '')).slice(0, 300));
+      return { status: 502, error: MENSAJE_PRESENTACIONES_NO_DISPONIBLE };
+    }
+    const data = await r.json();
+    if (!data.path) return { status: 502, error: MENSAJE_PRESENTACIONES_NO_DISPONIBLE };
+    const fileUrl = data.path.startsWith('http') ? data.path : `${PRESENTON_URL}${data.path.startsWith('/') ? '' : '/'}${data.path}`;
+    const f = await fetch(fileUrl, { signal: controller.signal });
+    if (!f.ok) {
+      console.error('presenton download:', f.status, fileUrl);
+      return { status: 502, error: MENSAJE_PRESENTACIONES_NO_DISPONIBLE };
+    }
+    const buffer = Buffer.from(await f.arrayBuffer());
+    if (buffer.length < 1024) return { status: 422, error: 'La presentación generada vino vacía. Probá de nuevo.' };
+    const entry = saveArtifact(session.user.id, {
+      kind: exportAs, title: title || 'Presentación', threadKey: thread_key, buffer, source: source || 'presentation'
+    });
+    return { status: 200, artifact: entry };
+  } catch (err) {
+    if (err.name === 'AbortError') return { status: 504, error: 'La presentación tardó demasiado. Probá con menos diapositivas o menos texto.' };
+    console.error('presenton falló:', err.message);
+    return { status: 502, error: MENSAJE_PRESENTACIONES_NO_DISPONIBLE };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Plantillas modelo disponibles: las integradas de Presenton y las propias del cliente (creadas
+// a partir de un PPTX corporativo desde la API de Presenton; ver contrato 03 §3.3).
+app.get('/api/presentations/templates', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!presentacionesDisponible(res)) return;
+  try {
+    const r = await fetch(`${PRESENTON_URL}/api/v1/ppt/template/all`);
+    if (!r.ok) return res.status(502).json({ error: MENSAJE_PRESENTACIONES_NO_DISPONIBLE });
+    const data = await r.json();
+    const items = (data.items || data || []).map((t) => ({
+      id: t.id, name: t.name || t.id, description: t.description || '', custom: t.is_default === false
+    }));
+    // Las propias del cliente primero: son las que representan la marca.
+    items.sort((a, b) => Number(b.custom) - Number(a.custom) || a.name.localeCompare(b.name));
+    res.json({ templates: items });
+  } catch (err) {
+    console.error('presenton templates:', err.message);
+    res.status(502).json({ error: MENSAJE_PRESENTACIONES_NO_DISPONIBLE });
+  }
+});
+
+app.post('/api/presentations/generate', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!presentacionesDisponible(res)) return;
+  const { content, title, n_slides, export_as, instructions, thread_key, template } = req.body || {};
+  if (!content || typeof content !== 'string' || !content.trim()) return res.status(400).json({ error: 'Falta el contenido de la presentación.' });
+  const out = await generarPresentacion(session, { content, title, n_slides, export_as, instructions, thread_key, template });
+  if (out.status !== 200) return res.status(out.status).json({ error: out.error });
+  res.json({ artifact: out.artifact });
+});
+
+// =========================================================================
+// "ENVIAR A" / ENCADENADO (spec 050 US4, FR-014, contrato 02 §handoff). Toma una respuesta
+// (del chat o de planillas), opcionalmente le suma la respuesta a una pregunta sobre un
+// espacio de planillas (motor tabular), y manda el conjunto al motor destino. Si la consulta
+// a planillas falla, se aborta: nunca se genera un archivo parcial sin avisar.
+// =========================================================================
+function tablaMarkdown(columns, rows, max = 50) {
+  if (!Array.isArray(columns) || !columns.length || !Array.isArray(rows) || !rows.length) return '';
+  const cell = (v) => (v === null || v === undefined ? '' : String(v)).replace(/\|/g, '/');
+  const lineas = [columns.join(' | '), columns.map(() => '---').join(' | ')];
+  rows.slice(0, max).forEach((r) => lineas.push(columns.map((c) => cell(r[c])).join(' | ')));
+  if (rows.length > max) lineas.push(`(mostrando ${max} de ${rows.length} filas)`);
+  return lineas.join('\n');
+}
+
+app.post('/api/handoff', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const { target, content, tabular, options } = req.body || {};
+  if (!['presentation', 'document'].includes(target)) return res.status(400).json({ error: 'Destino inválido.' });
+  if (target === 'document') {
+    if (!DOCGEN_URL) return res.status(404).json({ error: 'La generación de documentos no está habilitada en esta instalación.', code: 'feature_disabled' });
+    return res.status(501).json({ error: 'La generación de documentos llega en una próxima versión.', code: 'not_implemented' });
+  }
+  if (!presentacionesDisponible(res)) return;
+  let texto = String(content || '').trim();
+  let tabularUsado = false;
+
+  if (tabular && tabular.workspace_id) {
+    if (!tabularDisponible(res)) return;
+    const question = String(tabular.question || '').trim();
+    if (!question) return res.status(400).json({ error: 'Falta la pregunta para la planilla.' });
+    try {
+      if (!(await requireTabularWorkspace(session, tabular.workspace_id, res))) return;
+      const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(tabular.workspace_id)}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: question.slice(0, 4000), history: [] })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const [, msg] = mensajeErrorTabular(r.status, data);
+        return res.status(502).json({ error: `No se pudo consultar la planilla, así que no se generó nada. ${msg}`, code: 'tabular_failed' });
+      }
+      const tabla = tablaMarkdown(data.columns, data.rows);
+      texto = `${texto}\n\nDatos de la planilla — pregunta: ${question}\n${data.answer || ''}${tabla ? `\n\nTabla de resultados:\n${tabla}` : ''}`.trim();
+      tabularUsado = true;
+    } catch (err) {
+      console.error('handoff tabular falló:', err.message);
+      return res.status(502).json({ error: 'No se pudo consultar la planilla, así que no se generó nada.', code: 'tabular_failed' });
+    }
+  }
+  if (!texto) return res.status(400).json({ error: 'Falta el contenido.' });
+
+  const opts = options || {};
+  const out = await generarPresentacion(session, {
+    content: texto, title: opts.title, n_slides: opts.n_slides, export_as: opts.export_as,
+    instructions: opts.instructions, thread_key: opts.thread_key, template: opts.template,
+    source: tabularUsado ? 'handoff+tabular' : 'handoff'
+  });
+  if (out.status !== 200) return res.status(out.status).json({ error: out.error });
+  res.json({ artifact: out.artifact, tabular_used: tabularUsado });
 });
 
 // Spec 044 (Setup, T001): solo escucha cuando se ejecuta directo (`node server.js` /
@@ -1338,14 +1374,9 @@ if (require.main === module) {
     console.log(`Eleia Hub escuchando en http://localhost:${PORT}`);
     console.log(`  Guardian:              ${ELEA_BACKEND_URL}`);
     console.log(`  servicio de documentos: ${ANYTHINGLLM_URL}`);
+    console.log(`  motor tabular:          ${TABULAR_URL || '(no configurado)'}`);
+    console.log(`  presentaciones:         ${PRESENTON_URL || '(no configurado)'}`);
   });
 }
 
 module.exports = app;
-// Expuesto solo para tests de integración (ver tests/integration/test_xlsx_masking_046.
-// test.js) — verificar el enmascarado de .xlsx celda por celda contra el analizador real
-// necesita inspeccionar el buffer binario resultante, algo que el doble HTTP compartido
-// (mock-servers.js) no puede hacer sin corromper bytes al pasar por texto. No cambia nada
-// del comportamiento en producción: `require('./server.js')` siempre devolvía `app`, esto
-// solo agrega una propiedad más al mismo objeto exportado.
-module.exports.maskXlsxBuffer = maskXlsxBuffer;

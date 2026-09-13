@@ -41,7 +41,6 @@ test('contrato: el presupuesto se lee con la sesión propia, no con una sesión 
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); await engine.close(); });
@@ -61,7 +60,6 @@ test('contrato: sin sesión, el presupuesto no se devuelve', async (t) => {
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); await engine.close(); });

@@ -13,6 +13,11 @@ class WorkspaceCreate(BaseModel):
     # vez que el espacio real existe en el motor de documentos — el backend no orquesta esa
     # creación (queda del lado de la 044, mismo criterio que "solo se comparte la identidad").
     engine_slug: Optional[str] = None
+    # Spec 050 FR-041 (12-sep-2026): el Hub declara el tipo de espacio al crearlo. Es registro
+    # de acceso (quién ve qué), no lógica de motor: `rag` = documentos, `exact_analysis` =
+    # planillas (motor tabular). Antes solo el endpoint de DB-GPT (spec 048, retirado) podía
+    # crear espacios `exact_analysis`.
+    kind: Literal["rag", "exact_analysis"] = "rag"
 
 
 class WorkspaceOut(BaseModel):

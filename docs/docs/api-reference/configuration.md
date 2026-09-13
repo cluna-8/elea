@@ -89,5 +89,4 @@ Ver client/README.md para cómo generar cada valor. ELEA_SERVICE_USERNAME/ELEA_S
 | Variable | Default | Descripción |
 |---|---|---|
 | `ANYTHINGLLM_API_KEY` | — | API key de la instancia de AnythingLLM (se genera una vez, no la de ejemplo del código heredado — esa estaba filtrada en texto plano). |
-| `MASKING_VIRTUAL_KEY` | — | Virtual key de elea (tool_type=chat-ui) para enmascarar documentos antes de subirlos a AnythingLLM (POST /gw/inspect). Generada vía POST /api/v1/keys, no reutilizar la del proveedor LLM de AnythingLLM. |
 

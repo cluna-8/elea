@@ -35,7 +35,6 @@ ELEA_SERVICE_USERNAME=admin
 ELEA_SERVICE_PASSWORD=<contraseña del admin de elea>
 ANYTHINGLLM_URL=http://anythingllm:3001
 ANYTHINGLLM_API_KEY=<generada en AnythingLLM, ver abajo>
-MASKING_VIRTUAL_KEY=<virtual key de elea, tool_type=chat-ui>
 ```
 
 ### Generar la API key de AnythingLLM (paso manual, una vez por instancia)
@@ -60,10 +59,11 @@ curl -X POST http://localhost:3001/api/v1/system/update-env \
   -d '{"LLMProvider":"generic-openai","GenericOpenAiBasePath":"http://engine:4000/v1","GenericOpenAiModelPref":"azure-gpt-4o-mini","GenericOpenAiKey":"<virtual key de elea>"}'
 ```
 
-### Virtual key de enmascarado (`MASKING_VIRTUAL_KEY`)
+### Enmascarado (spec 050, 12-sep-2026)
 
-Un usuario de servicio + `POST /api/v1/keys` con `tool_type: "chat-ui"` (ver
-`plan.md` para el detalle) — no reutilizar la del proveedor LLM de AnythingLLM.
+El Hub **no enmascara**: Guardian es firewall + base de usuarios y no recibe archivos. Los
+documentos suben crudos al motor de documentos local; la PII se enmascara únicamente cuando
+el motor manda el prompt por `engine:4000/v1/chat/completions` con su llave de servicio.
 
 ## Límites conocidos de esta versión
 

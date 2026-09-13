@@ -67,7 +67,6 @@ test('motor de documentos completamente caído (fetch lanza): mensaje neutro, si
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engineUrl;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
   t.after(async () => { await backend.close(); });
@@ -98,7 +97,6 @@ test('chat directo (sin slug) con el Guardian caído: mensaje neutro propio, no 
   process.env.ELEA_BACKEND_URL = backendUrl;
   process.env.ANYTHINGLLM_URL = 'http://127.0.0.1:1';
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
 

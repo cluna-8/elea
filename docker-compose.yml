@@ -123,10 +123,10 @@ services:
         condition: service_healthy
     networks:
       - sentinel-network
-      # exact-analysis-engine (spec 048) le habla directo a este motor con su propia llave de
-      # servicio (svc.dbgpt-excel) — mismo patrón que anythingllm, que también habla con engine
-      # directo, no a través de backend, para sus propias llamadas de modelo.
-      - exact-analysis-net
+      # tabular (spec 050) le habla directo a este motor con su llave `svc.tabular` — mismo
+      # patrón que anythingllm: nunca a través de backend para sus llamadas de modelo.
+      - tabular-net
+      - presentations-net
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:4000/health/readiness\")' || exit 1"]
       interval: 5s
@@ -225,10 +225,6 @@ services:
         condition: service_healthy
     networks:
       - sentinel-network
-      # Único servicio, además de exact-analysis-engine, con ruta hacia esa red (spec 048,
-      # FR-002) — el backend es el único proxy de autenticación/atribución permitido hacia el
-      # motor de análisis exacto.
-      - exact-analysis-net
     restart: unless-stopped
 
   frontend:
@@ -281,50 +277,73 @@ services:
       - sentinel-network
     restart: unless-stopped
 
-  exact-analysis-engine:
-    # Perfil `exact-analysis`: motor de análisis exacto de datos Excel/CSV (spec 048, DB-GPT).
-    # PIN POR DIGEST (FR-001, mismo criterio que `engine`/LiteLLM, Principio VI): nunca `:latest`
-    # ni siquiera el tag de versión solo — bump de imagen es un evento deliberado con prueba.
-    # v0.8.2 confirmada como la más reciente publicada al 10-sep-2026 (imagen `dbgpt-openai`:
-    # liviana, solo el proxy model, sin dependencias de un modelo local pesado — research.md R1
-    # de la 048).
-    profiles: ["exact-analysis"]
-    image: eosphorosai/dbgpt-openai@sha256:bd7d35ce7994f0f977007c28c839fffcdc80cfa810fa12ead9aecfd4e9b3d11f
-    container_name: ${STACK_PREFIX:-sentinel}-exact-analysis-engine
-    # El CMD default de la imagen apunta a configs/dbgpt-proxy-siliconflow.toml (confirmado en
-    # vivo, 10-sep) — el que interpola OPENAI_API_BASE/OPENAI_API_KEY/LLM_MODEL_NAME (research.md
-    # R1) es dbgpt-proxy-openai.toml, hay que pedirlo explícito.
-    command: ["dbgpt", "start", "webserver", "--config", "configs/dbgpt-proxy-openai.toml"]
-    # SIN `ports:` — a propósito, mitigación obligatoria de FR-002 (CVE-2026-80104, RCE crítica
-    # sin autenticación, ver research.md R4 de la 048). Ningún puerto de este contenedor se
-    # publica al host NI SIQUIERA en dev: es el único servicio del compose con esta restricción
-    # más estricta que `anythingllm` (que sí publica 3001 por comodidad de administración) —
-    # acá la comodidad de debug no vale el riesgo, la instancia solo se inspecciona con
-    # `docker exec`/logs, nunca por HTTP directo.
+  tabular:
+    # Perfil `tabular`: motor de análisis de Excel/CSV propio (spec 050 FR-020..026). Reemplaza
+    # a DB-GPT (spec 048, retirada). FastAPI + DuckDB in-process, SQL solo lectura, contenedor
+    # aparte de Guardian. SIN `ports:` — solo el Hub le habla, por `tabular-net`; su única salida
+    # a un modelo es Guardian (`engine:4000/v1`) con su propia llave `svc.tabular`, nunca la
+    # maestra (FR-050). Los archivos crudos viven en `tabular_data` y no salen del servidor.
+    profiles: ["tabular"]
+    build:
+      context: ./tabular
+      dockerfile: Dockerfile
+    container_name: ${STACK_PREFIX:-sentinel}-tabular
     expose:
-      - "5670"
+      - "8090"
     environment:
-      - LLM_MODEL_PROVIDER=proxy/openai
-      # El motor interno de Eleia (LiteLLM), nunca una credencial de Azure directa — es el
-      # pedido explícito de esta ronda ("que use a Eleia para los modelos y el costo", FR-004).
-      - OPENAI_API_BASE=http://engine:4000/v1
-      - OPENAI_API_KEY=${DBGPT_ENGINE_VIRTUAL_KEY:-}
-      - LLM_MODEL_NAME=${DBGPT_ENGINE_MODEL_NAME:-azure-gpt-4o-mini}
-      # Deployment de embeddings real del catálogo (litellm/config.yaml) — mismo criterio que el
-      # LLM, nunca un embeddings de OpenAI directo.
-      - EMBEDDING_MODEL_NAME=${DBGPT_ENGINE_EMBEDDING_MODEL_NAME:-router-embeddings}
-      - EMBEDDING_MODEL_API_URL=http://engine:4000/v1/embeddings
+      - TABULAR_INTERNAL_TOKEN=${TABULAR_INTERNAL_TOKEN:-}
+      - TABULAR_ENGINE_URL=http://engine:4000/v1
+      - TABULAR_ENGINE_VIRTUAL_KEY=${TABULAR_ENGINE_VIRTUAL_KEY:-}
+      # 5.4-mini: probado 12-sep con planillas reales de Elea (ventas, forecast, stock): 5/5 correctas;
+      # 4o-mini fallaba los cruces entre tablas e inventaba conteos al redactar.
+      - TABULAR_MODEL=${TABULAR_MODEL:-azure-gpt-5.4-mini}
+      - TABULAR_MAX_FILE_MB=50
+      - TABULAR_QUERY_TIMEOUT_S=20
     volumes:
-      - exact_analysis_data:/app/pilot/data
+      - tabular_data:/data
     networks:
-      # Red dedicada, NO sentinel-network — ni siquiera los demás servicios internos
-      # (anythingllm, nlp-analyzer) tienen ruta hacia este contenedor, solo `backend`.
-      - exact-analysis-net
+      - tabular-net
+    depends_on:
+      engine:
+        condition: service_healthy
+    restart: unless-stopped
+
+  presenton:
+    # Perfil `presentations`: motor de presentaciones (spec 050 US3/FR-030). Apache-2.0, imagen
+    # fijada por digest. SIN `ports:` — solo el Hub le habla, por `presentations-net`; su única
+    # salida a un modelo es Guardian (`engine:4000/v1`) con su llave `svc.presenton`. Imágenes
+    # apagadas (por defecto llama a Pexels/DALL-E, fuera del firewall).
+    profiles: ["presentations"]
+    image: ghcr.io/presenton/presenton@sha256:f0c6a235c6fdb85c0fce29ad16fe15e08aa9002b5fa963ee8c4cb5da7d740e18
+    container_name: ${STACK_PREFIX:-sentinel}-presenton
+    # La imagen escucha en el 80 (nginx → Next.js + FastAPI); el 5001 de la documentación es solo
+    # el mapeo de host del `docker run` de ejemplo. Verificado en vivo 12-sep.
+    expose:
+      - "80"
+    environment:
+      - LLM=custom
+      - CUSTOM_LLM_URL=http://engine:4000/v1
+      - CUSTOM_LLM_API_KEY=${PRESENTON_ENGINE_VIRTUAL_KEY:-}
+      - CUSTOM_MODEL=${PRESENTON_MODEL:-azure-gpt-5.4-mini}
+      - DISABLE_IMAGE_GENERATION=true
+      - CAN_CHANGE_KEYS=false
+      - DISABLE_ANONYMOUS_TRACKING=true
+      # Presenton 0.9.x trae login propio (428 "Login setup is required" hasta crear un usuario).
+      # Acá no aplica: nadie llega a Presenton salvo el Hub por red interna sin puertos (FR-032),
+      # y la identidad la pone el Hub contra Guardian. Se desactiva (modo single-user).
+      - DISABLE_AUTH=true
+    volumes:
+      - presenton_data:/app_data
+    networks:
+      - presentations-net
+    depends_on:
+      engine:
+        condition: service_healthy
     restart: unless-stopped
 
   client:
-    # Perfil `rag`: cliente Hub Chat (spec 040) — solo RAG documental vía AnythingLLM,
-    # login real contra `backend`, sin acceso directo al motor.
+    # Perfil `rag`: cliente Eleia Hub (spec 040/050) — login real contra `backend`, sin
+    # acceso directo al motor; conector fino hacia los motores configurados por env.
     profiles: ["rag"]
     build:
       context: ./client
@@ -339,32 +358,45 @@ services:
       # desde que T022 de la 044 cambió el presupuesto a autoservicio.
       - ANYTHINGLLM_URL=http://anythingllm:3001
       - ANYTHINGLLM_API_KEY=${ANYTHINGLLM_API_KEY}
-      - MASKING_VIRTUAL_KEY=${MASKING_VIRTUAL_KEY}
+      # Spec 050: sin MASKING_VIRTUAL_KEY — el Hub ya no enmascara (Guardian no recibe archivos).
+      # Motores opcionales (FR-010): vacío = la UI oculta la sección.
+      - TABULAR_URL=${TABULAR_URL:-}
+      - TABULAR_INTERNAL_TOKEN=${TABULAR_INTERNAL_TOKEN:-}
+      - PRESENTON_URL=${PRESENTON_URL:-}
       # Sin HUB_BRAND_* a propósito: este compose es el de DESARROLLO genérico (cualquier
       # dev prueba cualquier escenario de cliente, default STACK_PREFIX=sentinel) — se
       # queda con la marca neutra por default. La marca de Eleia se fija en
       # `elea-installer/docker-compose.yml`, que sí es el instalador real del cliente.
     volumes:
       - ./client/public/uploads:/app/public/uploads
+      # Artefactos generados por persona (spec 050 FR-015): pptx/pdf y, después, docx/xlsx.
+      - client_artifacts:/app/data/artifacts
     networks:
       - sentinel-network
+      - tabular-net
+      - presentations-net
     depends_on:
+      # Spec 050 FR-004: solo Guardian es obligatorio. Los motores (anythingllm, tabular,
+      # presenton) se activan por perfil y por variable de entorno; el Hub arranca sin ellos.
       - backend
-      - anythingllm
     restart: unless-stopped
 
 networks:
   sentinel-network:
     driver: bridge
-  # Red aislada del motor de análisis exacto (spec 048, FR-002/CVE-2026-80104) — internal:true
-  # además de sin `ports:`, doble cerrojo: ni un bug de configuración que agregara `ports:` por
-  # error dejaría este contenedor alcanzable desde fuera del host, porque la red en sí no tiene
-  # salida.
-  exact-analysis-net:
+  # Red interna del motor tabular (spec 050 FR-025): solo Hub, engine y tabular. `internal:
+  # true` = sin salida a internet aunque alguien agregara `ports:` por error.
+  tabular-net:
+    driver: bridge
+    internal: true
+  # Red interna del motor de presentaciones (spec 050 FR-030): solo Hub, engine y presenton.
+  presentations-net:
     driver: bridge
     internal: true
 
 volumes:
   pgdata:
-  exact_analysis_data:
+  tabular_data:
+  presenton_data:
+  client_artifacts:
   anythingllm_data:

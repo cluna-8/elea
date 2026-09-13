@@ -13,7 +13,6 @@ async function setupApp(brandEnv) {
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   for (const k of ['HUB_BRAND_NAME', 'HUB_BRAND_TAGLINE', 'HUB_BRAND_LOGO_URL', 'HUB_BRAND_TENANT_LABEL', 'HUB_BRAND_GOVERNANCE_LABEL']) {
     delete process.env[k];
   }

@@ -62,24 +62,17 @@ para que la persona nunca note la diferencia entre un bloqueo local y uno del ba
 
 En el panel de administración, **Costos → Gasto por usuario** ya incluye la actividad que una
 persona hizo dentro de sus espacios (antes quedaba invisible bajo la cuenta de servicio del
-Hub). Una tabla separada, **Protección de documentos por persona**, cuenta los documentos
-protegidos — sin costo, un documento cuenta una sola vez aunque se haya troceado en varios
-pedidos al enmascarar.
+Hub).
 
-## Protección de documentos: un resumen por documento, no por trozo 🟢
+## Protección de documentos: en el firewall, no en el Hub 🟢
 
-Al subir un documento grande, Eleia Hub lo trocea antes de enmascararlo (los documentos
-grandes tardan demasiado para enmascararse de una sola vez). Todos los trozos de una misma
-subida comparten un identificador de documento — es lo que hace que un mismo dato (por
-ejemplo, un nombre repetido en distintas filas de una planilla) reciba **siempre el mismo
-placeholder** dentro de ese documento, y que la protección se resuma **una sola vez por
-documento**, no por trozo.
-
-Tras cada subida, la persona ve un resumen con el conteo por tipo de dato protegido (DNI,
-email, nombre, etc.), no un aviso genérico. Un documento subido antes de que este mecanismo
-existiera se marca con un aviso de "esquema anterior" y una sugerencia de reenviarlo — solo si
-la instalación tiene configurada la fecha de corte (`MASKING_DETERMINISM_SINCE`); sin esa
-configuración, ningún documento se marca (mejor no avisar que avisar mal).
+Desde la spec 050 (12-sep-2026), Eleia Hub **no enmascara** los documentos antes de subirlos.
+Los archivos viven crudos en el motor de documentos, dentro del servidor de la instalación, y
+nunca salen de ahí. La protección ocurre en el firewall de Eleia Guardian: cada vez que el
+motor de documentos arma una pregunta con fragmentos de un documento y la envía al modelo, el
+firewall detecta y enmascara los datos personales antes de que salgan al proveedor, y los
+restituye en la respuesta. En el panel, **Costos → Protección** muestra las entidades
+enmascaradas por consulta, atribuidas a la cuenta de servicio del motor de documentos.
 
 ## Ninguna marca de motor visible 🟢
 

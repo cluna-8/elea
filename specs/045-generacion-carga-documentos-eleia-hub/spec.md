@@ -4,7 +4,11 @@
 
 **Created**: 2026-09-08
 
-**Status**: Draft — lista para `/speckit-plan`
+**Status**: Draft — **recortada el 12-sep-2026 por la [spec 050](../050-ia-hub-conector-motores/spec.md)**:
+queda vigente solo US1 (carga de `.pptx` y otros formatos al RAG). US2 (generación de documentos y
+presentaciones) pasa a la 050 (presentaciones, motor Presenton) y a la
+[spec 049](../049-motor-generacion-documentos/spec.md) (docx/xlsx/pdf). Lista para `/speckit-plan`
+solo en ese alcance.
 
 **Repos que toca**: solo `client/` (Eleia Hub). **NO toca `backend/` ni `litellm/`.** El único
 punto compartido con el producto base ("Guardian") es la identidad del usuario ya autenticado

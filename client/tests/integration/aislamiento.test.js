@@ -128,7 +128,6 @@ test('aislamiento real: A crea, B no ve ni accede, A agrega, B ve, hilos no se c
   process.env.ELEA_BACKEND_URL = backend.url;
   process.env.ANYTHINGLLM_URL = engine.url;
   process.env.ANYTHINGLLM_API_KEY = 'test-key';
-  process.env.MASKING_VIRTUAL_KEY = 'test-mask-key';
   delete require.cache[require.resolve('../../server.js')];
   const app = require('../../server.js');
 

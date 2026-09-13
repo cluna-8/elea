@@ -88,9 +88,9 @@ def create_workspace(body: WorkspaceCreate, db: Session = Depends(get_db),
                      user: Optional[User] = Depends(get_current_user)):
     user = _require_user(user)
     ws = svc.create_workspace(db, user.tenant_id, user.id, display_name=body.display_name,
-                              engine_slug=body.engine_slug)
+                              engine_slug=body.engine_slug, kind=body.kind)
     return {"id": ws.id, "engine_slug": ws.engine_slug, "display_name": ws.display_name,
-            "role": "owner", "status": ws.status}
+            "role": "owner", "status": ws.status, "kind": ws.kind}
 
 
 @router.get("/{workspace_id}")
@@ -105,7 +105,7 @@ def get_workspace(workspace_id: uuid.UUID, db: Session = Depends(get_db),
     membership = svc._membership(db, workspace_id, user.id)
     role = membership.role if membership else ("owner" if _is_admin(user) else "member")
     return {"id": ws.id, "engine_slug": ws.engine_slug, "display_name": ws.display_name,
-            "role": role, "status": ws.status}
+            "role": role, "status": ws.status, "kind": ws.kind}
 
 
 @router.get("/{workspace_id}/members")

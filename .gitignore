@@ -83,3 +83,6 @@ docs/.cache/
 deploy/release/vendor/
 docker-compose.override.yml
 frontend/public/branding/
+
+# MCP local (cadena de conexión de la base de desarrollo, nunca la de producción)
+.mcp.json

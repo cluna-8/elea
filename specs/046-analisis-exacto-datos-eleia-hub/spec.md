@@ -4,10 +4,11 @@
 
 **Created**: 2026-09-08
 
-**Status**: Draft — lista para `/speckit-plan`. **Investigación cerrada** (10-sep-2026, ver
-`specs/RESULTADOS-INVESTIGACION-DOCGEN-DBGPT.md` Parte 2 y la
-[spec 048](../048-motor-analisis-exacto-dbgpt/spec.md), que retoma el motor deferido acá) — ya no
-bloquea `/speckit-plan` de esta spec.
+**Status**: **Absorbida el 12-sep-2026 por la [spec 050](../050-ia-hub-conector-motores/spec.md)**
+(US2 y contratos 02/03). No planificar desde acá. Motivo: el dueño decidió reemplazar DB-GPT por un
+motor tabular propio (DuckDB) en contenedor aparte, fuera de Guardian; la UI de Excel se
+especifica junto con ese motor en la 050. La investigación (10-sep-2026,
+`specs/RESULTADOS-INVESTIGACION-DOCGEN-DBGPT.md` Parte 2) sigue siendo la base técnica.
 
 **Repos que toca**: solo `client/` (Eleia Hub) — flujo de usuario, orquestación del pedido, y el
 punto de integración hacia el motor de análisis exacto. **NO toca `backend/` ni `litellm/`.** El

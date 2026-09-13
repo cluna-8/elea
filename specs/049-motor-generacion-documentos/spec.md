@@ -4,7 +4,12 @@
 
 **Created**: 2026-09-10
 
-**Status**: Draft — lista para `/speckit-plan`
+**Status**: Draft — **recortada el 12-sep-2026 por la [spec 050](../050-ia-hub-conector-motores/spec.md)**:
+este motor cubre **solo docx/xlsx/pdf** ("motor 4" de la 050, US6). Las presentaciones salen de
+esta spec y las genera Presenton (050 US3); quitar `pptx-automizer` y toda mención a `.pptx` al
+planificar. El contrato Hub ↔ motor es el reservado en la 050 (`contracts/03-motores.md` §3.4:
+token interno + `X-Hub-User-Id`; salida solo por `svc.docgen`). Implementación prevista para las
+semanas posteriores a la 050, no ahora.
 
 **Repos que toca**: `backend/` (el servicio de render y su contrato de identidad/atribución/
 presupuesto) y despliegue (`docker-compose.yml`, `elea-installer/`) — la imagen nueva del motor

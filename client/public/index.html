@@ -135,6 +135,22 @@
       font-size: 12px; padding: 10px 12px; border-radius: 8px; margin-top: 8px;
       white-space: pre-wrap; word-break: break-all;
     }
+    .exact-analysis-file { background:#fff; border:1px solid var(--border-color); border-radius:10px; padding:10px 12px; font-size:13px; }
+    .exact-analysis-file .name { font-weight:700; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .exact-analysis-file .del { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:12px; }
+    .exact-analysis-file .del:hover { color:#b91c1c; }
+    .exact-analysis-table { border-collapse:collapse; font-size:12.5px; margin-top:8px; max-width:100%; display:block; overflow-x:auto; }
+    .exact-analysis-table th, .exact-analysis-table td { border:1px solid var(--border-color); padding:4px 8px; text-align:left; white-space:nowrap; }
+    .exact-analysis-table th { background:var(--bg-hover); font-weight:700; }
+    .exact-analysis-turn { background:#fff; border:1px solid var(--border-color); border-radius:10px; padding:12px 14px; }
+    .exact-analysis-turn .q { font-weight:700; margin-bottom:6px; }
+    .exact-analysis-turn .a { white-space:pre-wrap; line-height:1.6; font-size:14px; }
+    .exact-analysis-turn details { margin-top:8px; font-size:12px; color:var(--text-muted); }
+    .msg-action-btn { background: none; border: 1px solid var(--border-strong); color: var(--text-mid); font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+    .msg-action-btn:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
+    .artifact-item { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--border-color); border-radius:10px; background:#fff; font-size:13px; }
+    .artifact-item .meta { font-size:11.5px; color:var(--text-muted); }
+    .artifact-item a { color: var(--accent); font-weight:700; text-decoration:none; }
     .exact-analysis-columns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .exact-analysis-columns span {
       background: var(--accent-soft); color: #4b3f78; font-size: 11.5px; font-weight: 700;
@@ -463,7 +479,8 @@
          documentos" (el reclamo original era justo esa confusión). -->
     <div class="hub-mode-tabs" style="display:flex; gap:4px; background:var(--bg-hover); padding:3px; border-radius:8px;">
       <button class="hub-mode-tab active" id="tab-chat" onclick="switchHubView('chat')" title="Chat sobre documentos (RAG)">💬 Chat</button>
-      <button class="hub-mode-tab" id="tab-exact-analysis" onclick="switchHubView('exact-analysis')" title="Cálculos exactos sobre planillas — sumas, conteos, cruces. No es el chat de documentos.">📊 Análisis exacto</button>
+      <button class="hub-mode-tab" id="tab-exact-analysis" onclick="switchHubView('exact-analysis')" title="Cálculos exactos sobre planillas — sumas, conteos, cruces entre archivos. No es el chat de documentos." style="display:none;">📊 Planillas</button>
+      <button class="hub-mode-tab" id="tab-artifacts" onclick="openArtifactsModal()" title="Presentaciones y documentos que generaste" style="display:none;">📁 Mis archivos</button>
     </div>
 
     <!-- Usuario real + presupuesto real -->
@@ -759,67 +776,135 @@
     </div>
   </div>
 
-  <!-- VISTA: ANÁLISIS EXACTO (spec 046) — separada del chat RAG a propósito (US2/FR-001).
-       Para cálculos exactos sobre planillas: sumas, conteos, cruces. No es el chat de
-       documentos — acá SÍ se muestra el SQL ejecutado (Pipeline Transparency, a diferencia
-       del chat RAG que nunca lo expone). -->
+  <!-- VISTA: ANÁLISIS DE PLANILLAS (spec 050 US2, motor tabular) — separada del chat RAG a
+       propósito. Cálculos exactos sobre .csv/.xlsx: sumas, conteos, cruces entre archivos.
+       Acá SÍ se muestra el SQL ejecutado (transparencia), a diferencia del chat RAG. -->
   <div class="portal-main" id="view-exact-analysis" style="display:none;">
     <div class="left-panel">
       <div>
         <div class="section-header">
-          <span class="section-title">Espacios de Análisis Exacto</span>
+          <span class="section-title">Espacios de Planillas</span>
           <button class="add-btn" onclick="openNewExactAnalysisWsModal()">+ Nuevo</button>
         </div>
         <div class="workspaces-list" id="exact-analysis-workspaces-container"></div>
         <div id="exact-analysis-workspaces-empty" style="display:none; padding:16px 10px; font-size:13px; line-height:1.5; opacity:0.8;">
-          Todavía no tenés espacios de análisis exacto. Creá uno para subir una planilla.
+          Todavía no tenés espacios de planillas. Creá uno para subir un .csv o .xlsx.
         </div>
       </div>
       <div style="padding:12px 10px; font-size:12px; line-height:1.5; color:var(--text-muted); border-top:1px solid var(--border-color); margin-top:8px;">
-        Para cálculos exactos sobre planillas — sumas, conteos, cruces por columna. Si lo que
+        Para cálculos exactos sobre planillas — sumas, conteos, cruces entre archivos. Si lo que
         necesitás es preguntar sobre el contenido de un documento (no calcular), usá <a href="#" onclick="switchHubView('chat'); return false;" style="color:var(--accent);">el chat normal</a>.
       </div>
     </div>
 
-    <div class="chat-panel" style="display:flex; flex-direction:column; padding:20px 26px; overflow-y:auto; gap:16px;">
-      <div id="exact-analysis-empty-state" style="text-align:center; margin-top:60px; opacity:0.7;">
-        <div style="font-size:15px; font-weight:700; margin-bottom:6px;">Elegí o creá un espacio de análisis exacto</div>
-        <div style="font-size:13px;">Subí una planilla (.csv, .xlsx, .xls) y preguntá en lenguaje natural — la respuesta es un cálculo real, no una aproximación.</div>
+    <!-- Centro: misma estructura que el chat (feed arriba, pregunta abajo) -->
+    <div class="center-chat">
+      <div class="chat-topbar">
+        <div class="chat-context-breadcrumb">
+          <span class="ws-pill">Planillas</span>
+          <span class="breadcrumb-sep">/</span>
+          <span id="exact-analysis-ws-title" style="font-weight:800; color:var(--text-main);">Elegí un espacio</span>
+        </div>
       </div>
 
-      <div id="exact-analysis-workspace-view" style="display:none; flex-direction:column; gap:16px; max-width:720px; margin:0 auto; width:100%;">
-        <div>
-          <div class="modal-label" style="margin-bottom:6px;">Subir planilla</div>
-          <input type="file" id="exact-analysis-file-input" accept=".csv,.xlsx,.xls" onchange="uploadExactAnalysisFile()">
-          <div id="exact-analysis-file-status" style="font-size:12.5px; color:var(--text-muted); margin-top:6px;"></div>
-          <div class="exact-analysis-columns" id="exact-analysis-columns"></div>
+      <div class="chat-frame">
+        <div class="chat-frame-inner">
+          <div class="chat-feed" id="exact-analysis-history">
+            <div class="chat-empty-state" id="exact-analysis-empty-state">
+              <div style="font-size:15px; font-weight:700;">Elegí o creá un espacio de planillas</div>
+              <div style="font-size:13px; color:var(--text-muted);">Subí una o varias planillas (.csv, .xlsx) en el panel de la derecha y preguntá en lenguaje natural — la respuesta es un cálculo real, no una aproximación.</div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div id="exact-analysis-qa-box" style="display:none; flex-direction:column; gap:10px;">
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="exact-analysis-question" class="modal-input" style="flex:1;"
-                   placeholder="Ej: ¿Cuánto suman las ventas del departamento de Marketing?"
-                   onkeydown="if(event.key==='Enter') askExactAnalysisQuestion()">
-            <button class="send-action-btn" onclick="askExactAnalysisQuestion()">Preguntar</button>
-          </div>
-          <div id="exact-analysis-answer-box" style="display:none; background:#fff; border:1px solid var(--border-color); border-radius:10px; padding:14px 16px;">
-            <div id="exact-analysis-answer-text" style="font-size:14px; line-height:1.6; white-space:pre-wrap;"></div>
-            <div id="exact-analysis-sql" class="exact-analysis-sql-box" style="display:none;"></div>
-          </div>
+      <div class="chat-bottom-input">
+        <div class="input-box">
+          <input type="text" id="exact-analysis-question"
+                 placeholder="Ej: ¿Cuánto suman las ventas por zona, cruzando con la planilla de vendedores?"
+                 onkeydown="if(event.key==='Enter') askExactAnalysisQuestion()" disabled>
+          <button class="send-action-btn" id="exact-analysis-ask-btn" onclick="askExactAnalysisQuestion()" title="Preguntar">
+            <svg class="ic" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path></svg>
+          </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Derecha: planillas del espacio (mismo lugar que los documentos en el chat) -->
+    <div class="right-panel">
+      <div class="docs-header-card">
+        <span class="section-title">Planillas del Espacio</span>
+        <div>
+          <div class="doc-count-num" id="exact-analysis-file-count">0</div>
+          <div class="doc-count-label">archivos</div>
+        </div>
+      </div>
+      <div id="exact-analysis-workspace-view" style="display:none; flex-direction:column; gap:10px;">
+        <div id="exact-analysis-files" style="display:flex; flex-direction:column; gap:8px;"></div>
+        <label class="send-action-btn wide" style="justify-content:center; cursor:pointer;">
+          <span>⬆ Subir planilla</span>
+          <input type="file" id="exact-analysis-file-input" accept=".csv,.xlsx" onchange="uploadExactAnalysisFile()" style="display:none;">
+        </label>
+        <div id="exact-analysis-file-status" style="font-size:12px; color:var(--text-muted);"></div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: NUEVO ESPACIO DE ANÁLISIS EXACTO -->
+  <!-- MODAL: NUEVO ESPACIO DE PLANILLAS -->
   <div class="modal-backdrop" id="modal-new-exact-analysis-ws">
     <div class="modal-box" style="width:420px;">
-      <div class="modal-title" style="margin-bottom:2px;">Crear Espacio de Análisis Exacto</div>
-      <div class="modal-label" style="margin-bottom:8px;">Solo para planillas — no mezcla con el chat de documentos.</div>
+      <div class="modal-title" style="margin-bottom:2px;">Crear Espacio de Planillas</div>
+      <div class="modal-label" style="margin-bottom:8px;">Solo para planillas — no se mezcla con el chat de documentos.</div>
       <input type="text" id="new-exact-analysis-ws-name" class="modal-input" placeholder="Nombre del espacio (ej. Ventas Q3)">
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
         <button class="modal-cancel-btn" onclick="closeNewExactAnalysisWsModal()">Cancelar</button>
         <button class="send-action-btn wide" onclick="submitNewExactAnalysisWorkspace()">Crear Espacio</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CREAR PRESENTACIÓN CON ESTA RESPUESTA (spec 050 US3) -->
+  <div class="modal-backdrop" id="modal-presentation">
+    <div class="modal-box" style="width:460px;">
+      <div class="modal-title" style="margin-bottom:2px;">Crear presentación</div>
+      <div class="modal-label" style="margin-bottom:8px;">Se arma a partir de la respuesta elegida. Tarda entre uno y dos minutos.</div>
+      <input type="text" id="presentation-title" class="modal-input" placeholder="Título (ej. Resultados ventas 2025)">
+      <label style="display:block; font-size:12.5px; color:var(--text-muted); margin-top:8px;">Plantilla modelo
+        <select id="presentation-template" class="modal-input" style="margin-top:4px;"><option value="general">General</option></select>
+      </label>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <label style="flex:1; font-size:12.5px; color:var(--text-muted);">Diapositivas
+          <input type="number" id="presentation-slides" class="modal-input" value="8" min="3" max="20" style="margin-top:4px;">
+        </label>
+        <label style="flex:1; font-size:12.5px; color:var(--text-muted);">Formato
+          <select id="presentation-format" class="modal-input" style="margin-top:4px;">
+            <option value="pptx">PowerPoint (.pptx)</option>
+            <option value="pdf">PDF</option>
+          </select>
+        </label>
+      </div>
+      <textarea id="presentation-instructions" class="modal-input" rows="2" style="margin-top:8px; resize:vertical;" placeholder="Indicaciones opcionales (tono, público, qué destacar)"></textarea>
+      <div id="presentation-tabular-box" style="display:none; margin-top:10px; padding:10px; border:1px dashed var(--border-strong); border-radius:10px;">
+        <div style="font-size:12.5px; font-weight:700; margin-bottom:6px;">Sumar datos de una planilla (opcional)</div>
+        <select id="presentation-tabular-ws" class="modal-input"><option value="">Sin planilla</option></select>
+        <input type="text" id="presentation-tabular-question" class="modal-input" style="margin-top:6px;" placeholder="Pregunta para la planilla (ej. ventas por zona en 2025)">
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+        <button class="modal-cancel-btn" onclick="closePresentationModal()">Cancelar</button>
+        <button class="send-action-btn wide" id="presentation-submit" onclick="submitPresentation()">Generar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: MIS ARCHIVOS GENERADOS (spec 050 FR-015) -->
+  <div class="modal-backdrop" id="modal-artifacts">
+    <div class="modal-box" style="width:520px;">
+      <div class="modal-title" style="margin-bottom:2px;">Mis archivos generados</div>
+      <div class="modal-label" style="margin-bottom:8px;">Solo vos los ves. Se descargan desde acá.</div>
+      <div id="artifacts-list" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
+      <div id="artifacts-empty" style="display:none; font-size:13px; color:var(--text-muted); padding:12px 0;">Todavía no generaste archivos. Desde cualquier respuesta podés crear una presentación.</div>
+      <div style="display:flex; justify-content:flex-end; margin-top:10px;">
+        <button class="modal-cancel-btn" onclick="closeArtifactsModal()">Cerrar</button>
       </div>
     </div>
   </div>
@@ -913,6 +998,7 @@
       currentBudget = state.budget;
       maskingDeterminismSince = state.maskingDeterminismSince || null;
       renderUserHeader();
+      loadFeatures();
       await Promise.all([loadModels(), loadWorkspaces()]);
     }
 
@@ -1375,14 +1461,13 @@
       const formData = new FormData();
       formData.append('file', file);
       formData.append('slug', currentWorkspace.slug);
-      showToast('Enmascarando y subiendo documento…');
+      showToast('Subiendo documento…');
       const res = await fetch('/api/workspaces/upload', { method: 'POST', body: formData });
       const data = await res.json();
       event.target.value = '';
       if (!res.ok) { showToast(data.error || 'No se pudo subir el documento.'); return; }
       await selectWorkspace(currentWorkspace.slug);
       showToast(data.message);
-      showProtectionSummaryModal(data.document);
     }
 
     // T033 (US3, FR-007): resumen de protección AGREGADO POR DOCUMENTO (un tipo de dato
@@ -1530,6 +1615,7 @@
               <div>${modelHtml}</div>
               <div style="display:flex; align-items:center; gap:8px;">
                 <span>${msg.timestamp || ''}</span>
+                ${msg.role === 'assistant' && hubFeatures.presentations ? `<button class="msg-action-btn" data-content-idx="${messages.indexOf(msg)}" onclick="openPresentationModalFromMessage(this)" title="Armar una presentación con esta respuesta">Crear presentación</button>` : ''}
                 <button class="copy-btn" onclick="copyToClipboard(\`${(msg.content || '').replace(/`/g, '\\`')}\`)" title="Copiar">Copiar</button>
               </div>
             </div>
@@ -1540,16 +1626,29 @@
     }
 
     // =====================================================================
-    // ANÁLISIS EXACTO DE DATOS (spec 046) — separado del chat RAG a propósito (US2/FR-001).
-    // Estado propio (`exactAnalysisWorkspaces`, `currentExactAnalysisWorkspace`), nunca
-    // mezclado con `workspaces`/`currentWorkspace` del chat.
+    // ANÁLISIS DE PLANILLAS (spec 050 US2, motor tabular) — separado del chat RAG a
+    // propósito. Estado propio, nunca mezclado con `workspaces`/`currentWorkspace`.
+    // La sección solo existe si la instalación tiene el motor (`GET /api/features`).
     // =====================================================================
+    let hubFeatures = { documents: true, tabular: false, presentations: false, docgen: false };
     let exactAnalysisWorkspaces = [];
     let currentExactAnalysisWorkspace = null; // { id, display_name }
-    let exactAnalysisFileInfo = null;         // { conv_uid, select_param, file_name } tras subir
+    let exactAnalysisFiles = [];              // [{file_id, name, tables:[{name, columns, rows}]}]
+    let exactAnalysisHistory = [];            // [{question, answer}] (se manda al motor, máx 5)
+
+    async function loadFeatures() {
+      try {
+        const res = await fetch('/api/features');
+        if (res.ok) hubFeatures = { ...hubFeatures, ...(await res.json()) };
+      } catch (err) { /* sin features = defaults */ }
+      document.getElementById('tab-exact-analysis').style.display = hubFeatures.tabular ? '' : 'none';
+      document.getElementById('tab-artifacts').style.display = (hubFeatures.presentations || hubFeatures.docgen) ? '' : 'none';
+      if (!hubFeatures.tabular) switchHubView('chat');
+      if (typeof renderMessages === 'function' && messages.length) renderMessages();
+    }
 
     function switchHubView(view) {
-      const isChat = view === 'chat';
+      const isChat = view === 'chat' || !hubFeatures.tabular;
       document.getElementById('view-hub').style.display = isChat ? '' : 'none';
       document.getElementById('view-exact-analysis').style.display = isChat ? 'none' : 'flex';
       document.getElementById('tab-chat').classList.toggle('active', isChat);
@@ -1558,7 +1657,7 @@
     }
 
     async function loadExactAnalysisWorkspaces() {
-      const res = await fetch('/api/exact-analysis/workspaces');
+      const res = await fetch('/api/tabular/workspaces');
       if (!res.ok) { exactAnalysisWorkspaces = []; renderExactAnalysisWorkspaceList(); return; }
       const data = await res.json();
       exactAnalysisWorkspaces = data.workspaces || [];
@@ -1575,22 +1674,94 @@
         const div = document.createElement('div');
         div.className = `workspace-item ${activeClass}`;
         div.onclick = () => selectExactAnalysisWorkspace(ws);
-        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.display_name}</span>`;
+        const span = document.createElement('span');
+        span.style.cssText = 'flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+        span.textContent = ws.display_name;
+        div.appendChild(span);
         container.appendChild(div);
       });
     }
 
-    function selectExactAnalysisWorkspace(ws) {
+    async function selectExactAnalysisWorkspace(ws) {
       currentExactAnalysisWorkspace = ws;
-      exactAnalysisFileInfo = null;
+      exactAnalysisFiles = [];
+      exactAnalysisHistory = [];
       renderExactAnalysisWorkspaceList();
-      document.getElementById('exact-analysis-empty-state').style.display = 'none';
+      document.getElementById('exact-analysis-ws-title').textContent = ws.display_name;
       document.getElementById('exact-analysis-workspace-view').style.display = 'flex';
       document.getElementById('exact-analysis-file-input').value = '';
       document.getElementById('exact-analysis-file-status').textContent = '';
-      document.getElementById('exact-analysis-columns').innerHTML = '';
-      document.getElementById('exact-analysis-qa-box').style.display = 'none';
-      document.getElementById('exact-analysis-answer-box').style.display = 'none';
+      document.getElementById('exact-analysis-history').innerHTML = '';
+      await loadExactAnalysisFiles();
+    }
+
+    async function loadExactAnalysisFiles() {
+      if (!currentExactAnalysisWorkspace) return;
+      try {
+        const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/files`);
+        const data = await res.json().catch(() => ({}));
+        exactAnalysisFiles = res.ok ? (data.files || []) : [];
+        if (!res.ok && data.error) showToast(data.error);
+      } catch (err) { exactAnalysisFiles = []; }
+      renderExactAnalysisFiles();
+    }
+
+    function renderExactAnalysisFiles() {
+      const box = document.getElementById('exact-analysis-files');
+      box.innerHTML = '';
+      exactAnalysisFiles.forEach((f) => {
+        const card = document.createElement('div');
+        card.className = 'exact-analysis-file';
+        card.style.fontSize = '12.5px';
+        const head = document.createElement('div');
+        head.className = 'name';
+        const name = document.createElement('span');
+        name.textContent = f.name;
+        const del = document.createElement('button');
+        del.className = 'del';
+        del.textContent = 'Quitar';
+        del.onclick = () => deleteExactAnalysisFile(f.file_id);
+        head.appendChild(name); head.appendChild(del);
+        card.appendChild(head);
+        (f.tables || []).forEach((t) => {
+          const cols = document.createElement('div');
+          cols.className = 'exact-analysis-columns';
+          const label = document.createElement('span');
+          label.style.background = '#e8f0fe';
+          label.textContent = `${t.name} · ${t.rows} filas`;
+          cols.appendChild(label);
+          (t.columns || []).forEach((c) => {
+            const chip = document.createElement('span');
+            chip.textContent = c.name;
+            cols.appendChild(chip);
+          });
+          card.appendChild(cols);
+        });
+        box.appendChild(card);
+      });
+      document.getElementById('exact-analysis-file-count').textContent = String(exactAnalysisFiles.length);
+      const input = document.getElementById('exact-analysis-question');
+      input.disabled = !exactAnalysisFiles.length;
+      input.placeholder = exactAnalysisFiles.length
+        ? 'Ej: ¿Cuánto suman las ventas por zona, cruzando con la planilla de vendedores?'
+        : 'Subí una planilla en el panel de la derecha para empezar a preguntar';
+      const feed = document.getElementById('exact-analysis-history');
+      if (!feed.children.length) {
+        const empty = document.createElement('div');
+        empty.className = 'chat-empty-state';
+        empty.innerHTML = exactAnalysisFiles.length
+          ? '<div style="font-size:14px; font-weight:700;">Listo para preguntar</div><div style="font-size:13px; color:var(--text-muted);">Preguntá abajo; podés cruzar los archivos entre sí.</div>'
+          : '<div style="font-size:14px; font-weight:700;">Este espacio no tiene planillas</div><div style="font-size:13px; color:var(--text-muted);">Subí un .csv o .xlsx desde el panel de la derecha.</div>';
+        feed.appendChild(empty);
+      }
+    }
+
+    async function deleteExactAnalysisFile(fileId) {
+      if (!confirm('¿Quitar esta planilla del espacio?')) return;
+      const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/files/${fileId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo quitar la planilla.'); return; }
+      await loadExactAnalysisFiles();
     }
 
     function openNewExactAnalysisWsModal() { document.getElementById('modal-new-exact-analysis-ws').classList.add('active'); }
@@ -1600,7 +1771,7 @@
       const nameInput = document.getElementById('new-exact-analysis-ws-name');
       const name = nameInput.value.trim();
       if (!name) return;
-      const res = await fetch('/api/exact-analysis/workspaces', {
+      const res = await fetch('/api/tabular/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ display_name: name })
@@ -1617,62 +1788,18 @@
       const input = document.getElementById('exact-analysis-file-input');
       const file = input.files[0];
       if (!file || !currentExactAnalysisWorkspace) return;
-
-      // Aviso explícito antes de subir .xls (decisión del dueño del producto, 11-sep, tras
-      // encontrar en vivo un archivo real con CUIT/email/teléfono/domicilio reales que
-      // volvió del motor completamente sin proteger). Alcance actualizado: .xlsx YA se
-      // enmascara (celda por celda, servidor) desde que se cerró el gap — el aviso queda
-      // solo para .xls, el formato binario legado que la librería de enmascarado no puede
-      // leer (ver el comentario de `maskXlsxBuffer` en server.js). No se bloquea la
-      // subida — se avisa y la persona decide, sabiendo el riesgo real.
-      const ext = (file.name.split('.').pop() || '').toLowerCase();
-      if (ext === 'xls') {
-        const seguir = confirm(
-          'Este archivo .xls (formato Excel viejo) NO pasa por el enmascarado de datos ' +
-          'personales — solo .csv y .xlsx están protegidos hoy. Si tiene nombres, DNI/CUIT, ' +
-          'emails o teléfonos reales, van a llegar sin proteger al motor de análisis y ' +
-          'pueden volver así en la respuesta.\n\n' +
-          'Si podés, guardalo como .xlsx desde Excel/Sheets y subí esa versión en su lugar.\n\n' +
-          '¿Subir igual, sin enmascarar?'
-        );
-        if (!seguir) { input.value = ''; return; }
-      }
-
       const statusEl = document.getElementById('exact-analysis-file-status');
-      statusEl.textContent = (ext === 'xls')
-        ? 'Subiendo la planilla (sin enmascarar — .xls) …'
-        : 'Subiendo y protegiendo la planilla…';
-
+      statusEl.textContent = 'Subiendo la planilla…';
       const form = new FormData();
       form.append('file', file);
       try {
-        const res = await fetch(`/api/exact-analysis/workspaces/${currentExactAnalysisWorkspace.id}/files`, {
-          method: 'POST',
-          body: form
-        });
+        const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/files`, { method: 'POST', body: form });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          statusEl.textContent = '';
-          // Bug real encontrado en pruebas de QA (11-sep): sin esto, el nombre del
-          // archivo rechazado quedaba pegado al lado de "Seleccionar archivo" como si
-          // hubiera quedado cargado, aunque la subida haya fallado (ej. formato no
-          // soportado) — mismo criterio que ya usaba el camino de cancelar el aviso
-          // de Excel, que sí limpiaba el input.
-          input.value = '';
-          showToast(data.error || 'No se pudo subir la planilla.');
-          return;
-        }
-        exactAnalysisFileInfo = data; // { conv_uid, file_name, select_param }
-        statusEl.textContent = `"${data.file_name}" lista — ya podés preguntar.`;
-        const colsBox = document.getElementById('exact-analysis-columns');
-        colsBox.innerHTML = '';
-        (data.columns || []).forEach((c) => {
-          const span = document.createElement('span');
-          span.textContent = c;
-          colsBox.appendChild(span);
-        });
-        document.getElementById('exact-analysis-qa-box').style.display = 'flex';
-        document.getElementById('exact-analysis-answer-box').style.display = 'none';
+        input.value = '';
+        if (!res.ok) { statusEl.textContent = ''; showToast(data.error || 'No se pudo subir la planilla.'); return; }
+        const n = (data.tables || []).length;
+        statusEl.textContent = `"${data.name}" lista (${n} ${n === 1 ? 'tabla' : 'tablas'}) — ya podés preguntar.`;
+        await loadExactAnalysisFiles();
       } catch (err) {
         statusEl.textContent = '';
         input.value = '';
@@ -1680,93 +1807,209 @@
       }
     }
 
-    // Bug real encontrado en pruebas de QA (11-sep): el motor (DB-GPT) devuelve la
-    // respuesta con un bloque <chart-view content="{...}"> embebido al final, con las
-    // comillas del JSON escapadas como &quot; y los saltos de línea del texto como la
-    // secuencia literal "\n" (dos caracteres, no un salto real). Sin limpiar, la persona
-    // veía ese JSON crudo pegado después de la respuesta.
-    //
-    // Segundo bug real, encontrado por QA sobre el primer arreglo (11-sep, mismo día): el
-    // primer intento borraba el bloque <chart-view> entero asumiendo que era redundante
-    // con el recuadro de SQL — pero el recuadro de SQL solo muestra la CONSULTA
-    // (`sql_executed`), nunca el RESULTADO. El resultado (`data: [{total_ventas: 300.0}]`)
-    // vive únicamente adentro del `content` del <chart-view>. Borrarlo sin más dejaba a la
-    // persona leyendo el razonamiento y el SQL pero sin ver nunca el número. Ahora se
-    // PARSEA el `content` (decodificando sus entidades y el JSON) y se agrega el resultado
-    // real al final del texto, en vez de descartarlo.
-    function formatearFilasChartView(filas) {
-      if (!filas || !filas.length) return '';
-      const columnas = Object.keys(filas[0]);
-      // Caso más común de este modo: una sola fila con una sola columna numérica
-      // (SUM/COUNT/AVG) — el resultado ES ese valor, sin necesidad de tabla.
-      if (filas.length === 1 && columnas.length === 1) {
-        return `Resultado: ${filas[0][columnas[0]]}`;
+    function renderExactAnalysisTable(columns, rows) {
+      if (!columns || !columns.length || !rows || !rows.length) return null;
+      const MAX = 50;
+      const table = document.createElement('table');
+      table.className = 'exact-analysis-table';
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      columns.forEach((c) => { const th = document.createElement('th'); th.textContent = c; trh.appendChild(th); });
+      thead.appendChild(trh); table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      rows.slice(0, MAX).forEach((r) => {
+        const tr = document.createElement('tr');
+        columns.forEach((c) => { const td = document.createElement('td'); td.textContent = r[c] === null || r[c] === undefined ? '' : String(r[c]); tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      const wrap = document.createElement('div');
+      wrap.appendChild(table);
+      if (rows.length > MAX) {
+        const more = document.createElement('div');
+        more.style.cssText = 'font-size:12px; color:var(--text-muted); margin-top:4px;';
+        more.textContent = `Mostrando ${MAX} de ${rows.length} filas.`;
+        wrap.appendChild(more);
       }
-      const MAX_FILAS = 20;
-      const mostrar = filas.slice(0, MAX_FILAS);
-      const filasTexto = mostrar.map((fila) => columnas.map((c) => `${c}: ${fila[c]}`).join(', '));
-      let tabla = filasTexto.join('\n');
-      if (filas.length > MAX_FILAS) tabla += `\n… y ${filas.length - MAX_FILAS} fila(s) más.`;
-      return tabla;
+      return wrap;
     }
 
-    function limpiarRespuestaExactAnalysis(raw) {
-      if (!raw) return '';
-      const decodificarEntidades = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
-
-      let resultado = '';
-      const match = raw.match(/<chart-view\s+content="([\s\S]*?)">/i);
-      if (match) {
-        try {
-          const parsed = JSON.parse(decodificarEntidades(match[1]));
-          resultado = formatearFilasChartView(parsed.data);
-        } catch (err) {
-          // El content no se pudo parsear (formato inesperado del motor) — seguimos sin
-          // el resultado embebido en vez de romper toda la respuesta por esto.
-        }
-      }
-
-      let texto = raw.replace(/<chart-view[\s\S]*?<\/chart-view>/gi, '').trim();
-      texto = texto.replace(/\\n/g, '\n');
-      texto = decodificarEntidades(texto).trim();
-      if (resultado) texto += (texto ? '\n\n' : '') + resultado;
-      return texto;
+    function appendExactAnalysisTurn(question) {
+      const feed = document.getElementById('exact-analysis-history');
+      const empty = feed.querySelector('.chat-empty-state');
+      if (empty) empty.remove();
+      const turn = document.createElement('div');
+      turn.className = 'exact-analysis-turn';
+      const q = document.createElement('div'); q.className = 'q'; q.textContent = question;
+      const a = document.createElement('div'); a.className = 'a'; a.textContent = 'Calculando…';
+      turn.appendChild(q); turn.appendChild(a);
+      document.getElementById('exact-analysis-history').appendChild(turn);
+      turn.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      return { turn, a };
     }
 
     async function askExactAnalysisQuestion() {
       const input = document.getElementById('exact-analysis-question');
+      const btn = document.getElementById('exact-analysis-ask-btn');
       const question = input.value.trim();
-      if (!question || !currentExactAnalysisWorkspace || !exactAnalysisFileInfo) return;
-      const answerBox = document.getElementById('exact-analysis-answer-box');
-      const answerText = document.getElementById('exact-analysis-answer-text');
-      const sqlBox = document.getElementById('exact-analysis-sql');
-      answerBox.style.display = 'block';
-      answerText.textContent = 'Calculando…';
-      sqlBox.style.display = 'none';
+      if (!question || !currentExactAnalysisWorkspace || !exactAnalysisFiles.length) return;
+      if (currentBudget && currentBudget.status === 'exceeded') { showToast(MENSAJE_PRESUPUESTO_AGOTADO); return; }
+      input.value = '';
+      btn.disabled = true;
+      const { turn, a } = appendExactAnalysisTurn(question);
       try {
-        const res = await fetch(`/api/exact-analysis/workspaces/${currentExactAnalysisWorkspace.id}/query`, {
+        const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            question,
-            conv_uid: exactAnalysisFileInfo.conv_uid,
-            select_param: exactAnalysisFileInfo.select_param
-          })
+          body: JSON.stringify({ question, history: exactAnalysisHistory.slice(-5) })
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          answerText.textContent = data.error || 'No se pudo responder.';
-          return;
+        if (!res.ok) { a.textContent = data.error || 'No se pudo responder.'; return; }
+        // Misma regla que el chat: la respuesta del asistente se renderiza como markdown.
+        if (typeof marked !== 'undefined') { a.style.whiteSpace = 'normal'; a.innerHTML = marked.parse(data.answer || ''); }
+        else a.textContent = data.answer || '';
+        const table = renderExactAnalysisTable(data.columns, data.rows);
+        if (table) turn.appendChild(table);
+        if (data.sql) {
+          const det = document.createElement('details');
+          const sum = document.createElement('summary'); sum.textContent = 'Ver consulta ejecutada';
+          const pre = document.createElement('div'); pre.className = 'exact-analysis-sql-box'; pre.textContent = data.sql;
+          det.appendChild(sum); det.appendChild(pre); turn.appendChild(det);
         }
-        answerText.textContent = limpiarRespuestaExactAnalysis(data.answer);
-        if (data.sql_executed) {
-          sqlBox.textContent = data.sql_executed.trim();
-          sqlBox.style.display = 'block';
+        exactAnalysisHistory.push({ question, answer: data.answer || '' });
+        if (hubFeatures.presentations) {
+          const act = document.createElement('div');
+          act.style.cssText = 'display:flex; justify-content:flex-end; margin-top:8px;';
+          const btn = document.createElement('button');
+          btn.className = 'msg-action-btn'; btn.textContent = 'Crear presentación';
+          const tablaTexto = (data.columns || []).length
+            ? '\n\nTabla de resultados:\n' + (data.columns || []).join(' | ') + '\n' +
+              (data.rows || []).slice(0, 50).map((r) => (data.columns || []).map((c) => r[c]).join(' | ')).join('\n')
+            : '';
+          btn.onclick = () => openPresentationModal(`${question}\n\n${data.answer || ''}${tablaTexto}`, `${currentExactAnalysisWorkspace.id}`);
+          act.appendChild(btn); turn.appendChild(act);
         }
-        input.value = '';
+        turn.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        if (typeof refreshBudget === 'function') refreshBudget();
       } catch (err) {
-        answerText.textContent = 'No se pudo responder. Intentá de nuevo.';
+        a.textContent = 'No se pudo responder. Intentá de nuevo.';
+      } finally {
+        btn.disabled = false;
       }
+    }
+
+    // =====================================================================
+    // PRESENTACIONES Y ARTEFACTOS (spec 050 US3 / FR-013 / FR-015)
+    // =====================================================================
+    let presentationSource = { content: '', threadKey: null };
+
+    function openPresentationModalFromMessage(btn) {
+      const msg = messages[parseInt(btn.getAttribute('data-content-idx'), 10)];
+      if (!msg) return;
+      const threadKey = currentWorkspace ? `${currentWorkspace.slug}/${currentThreadSlug || 'principal'}` : null;
+      openPresentationModal(msg.content || '', threadKey);
+    }
+    async function openPresentationModal(content, threadKey) {
+      presentationSource = { content, threadKey };
+      document.getElementById('presentation-title').value = '';
+      document.getElementById('presentation-instructions').value = '';
+      document.getElementById('presentation-tabular-question').value = '';
+      document.getElementById('modal-presentation').classList.add('active');
+      setTimeout(() => document.getElementById('presentation-title').focus(), 50);
+      // Plantillas modelo (integradas + propias del cliente) y espacios de planillas.
+      try {
+        const r = await fetch('/api/presentations/templates');
+        if (r.ok) {
+          const sel = document.getElementById('presentation-template');
+          const items = (await r.json()).templates || [];
+          if (items.length) {
+            sel.innerHTML = '';
+            items.forEach((t) => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.custom ? `${t.name} (propia)` : t.name; sel.appendChild(o); });
+            const propia = items.find((t) => t.custom); sel.value = propia ? propia.id : (items.find((t) => t.id === 'general') ? 'general' : items[0].id);
+          }
+        }
+      } catch (err) { /* se queda con la default */ }
+      const box = document.getElementById('presentation-tabular-box');
+      box.style.display = hubFeatures.tabular ? '' : 'none';
+      if (hubFeatures.tabular) {
+        try {
+          const r = await fetch('/api/tabular/workspaces');
+          const sel = document.getElementById('presentation-tabular-ws');
+          sel.innerHTML = '<option value="">Sin planilla</option>';
+          ((await r.json()).workspaces || []).forEach((w) => { const o = document.createElement('option'); o.value = w.id; o.textContent = w.display_name; sel.appendChild(o); });
+        } catch (err) { /* sin espacios */ }
+      }
+    }
+    function closePresentationModal() { document.getElementById('modal-presentation').classList.remove('active'); }
+
+    async function submitPresentation() {
+      if (currentBudget && currentBudget.status === 'exceeded') { showToast(MENSAJE_PRESUPUESTO_AGOTADO); return; }
+      const btn = document.getElementById('presentation-submit');
+      const title = document.getElementById('presentation-title').value.trim() || 'Presentación';
+      const options = {
+        title,
+        n_slides: parseInt(document.getElementById('presentation-slides').value, 10) || 8,
+        export_as: document.getElementById('presentation-format').value,
+        template: document.getElementById('presentation-template').value || 'general',
+        instructions: document.getElementById('presentation-instructions').value.trim() || undefined,
+        thread_key: presentationSource.threadKey
+      };
+      const wsId = document.getElementById('presentation-tabular-ws').value;
+      const pregunta = document.getElementById('presentation-tabular-question').value.trim();
+      if (wsId && !pregunta) { showToast('Escribí la pregunta para la planilla o elegí "Sin planilla".'); return; }
+      // Con planilla → encadenado (/api/handoff); sin planilla → generación directa.
+      const url = wsId ? '/api/handoff' : '/api/presentations/generate';
+      const body = wsId
+        ? { target: 'presentation', content: presentationSource.content, tabular: { workspace_id: wsId, question: pregunta }, options }
+        : { content: presentationSource.content, ...options };
+      btn.disabled = true; btn.textContent = 'Generando…';
+      closePresentationModal();
+      showToast(`Generando "${title}"… te aviso cuando esté lista.`);
+      try {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) { showToast(data.error || 'No se pudo generar la presentación.'); return; }
+        showToast(`"${data.artifact.title}" lista. Está en Mis archivos.`);
+        openArtifactsModal();
+      } catch (err) {
+        showToast('No se pudo generar la presentación.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Generar';
+      }
+    }
+
+    async function openArtifactsModal() {
+      document.getElementById('modal-artifacts').classList.add('active');
+      await renderArtifacts();
+    }
+    function closeArtifactsModal() { document.getElementById('modal-artifacts').classList.remove('active'); }
+
+    async function renderArtifacts() {
+      const list = document.getElementById('artifacts-list');
+      const empty = document.getElementById('artifacts-empty');
+      list.innerHTML = '';
+      let items = [];
+      try { const r = await fetch('/api/artifacts'); if (r.ok) items = (await r.json()).artifacts || []; } catch (err) { /* vacío */ }
+      empty.style.display = items.length ? 'none' : '';
+      items.forEach((a) => {
+        const row = document.createElement('div'); row.className = 'artifact-item';
+        const left = document.createElement('div');
+        const name = document.createElement('div'); name.style.fontWeight = '700'; name.textContent = `${a.title} (.${a.kind})`;
+        const meta = document.createElement('div'); meta.className = 'meta';
+        meta.textContent = `${new Date(a.created_at).toLocaleString()} · ${(a.size / 1024).toFixed(0)} KB`;
+        left.appendChild(name); left.appendChild(meta);
+        const right = document.createElement('div'); right.style.cssText = 'display:flex; gap:10px; align-items:center;';
+        const dl = document.createElement('a'); dl.href = `/api/artifacts/${a.id}/download`; dl.textContent = 'Descargar';
+        const del = document.createElement('button'); del.className = 'msg-action-btn'; del.textContent = 'Borrar';
+        del.onclick = async () => {
+          if (!confirm(`¿Borrar "${a.title}"?`)) return;
+          await fetch(`/api/artifacts/${a.id}`, { method: 'DELETE' });
+          renderArtifacts();
+        };
+        right.appendChild(dl); right.appendChild(del);
+        row.appendChild(left); row.appendChild(right);
+        list.appendChild(row);
+      });
     }
 
     applyBranding().then(boot);
