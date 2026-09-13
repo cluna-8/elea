@@ -671,6 +671,12 @@ class SentinelGuardrail(CustomGuardrail):
         buffer = ""      # texto acumulado hasta el próximo límite de evento (\n\n)
         carry = ""       # fragmento de placeholder retenido entre deltas
         carry_field: Optional[str] = None
+        # Ruta OpenAI (/v1/chat/completions): chunks ya parseados (ModelResponseStream o
+        # dict). Hueco real visto con Presenton (spec 050, 12-sep-2026): pasaban tal cual y
+        # el cliente recibía los placeholders. Mismo carry-split que la ruta Anthropic.
+        openai_carries: dict = {}
+        last_openai_chunk = None
+        json_content = policy.request_wants_json(request_data)
 
         async for item in response:
             if isinstance(item, bytes):
@@ -678,8 +684,8 @@ class SentinelGuardrail(CustomGuardrail):
             elif isinstance(item, str):
                 buffer += item
             else:
-                # Objeto ya parseado (otra ruta/versión): se entrega tal cual
-                yield item
+                last_openai_chunk = item
+                yield policy.unmask_openai_chunk(item, openai_carries, ph_to_orig, json_content=json_content)
                 continue
 
             while "\n\n" in buffer:
@@ -703,6 +709,10 @@ class SentinelGuardrail(CustomGuardrail):
         if carry:
             # Framed (review 024): un flush crudo lo descarta el parser SSE del cliente.
             yield policy.flush_carry_sse_block(carry, carry_field, ph_to_orig).encode("utf-8")
+        if openai_carries:
+            flushed = policy.flush_openai_carries(last_openai_chunk, openai_carries, ph_to_orig, json_content=json_content)
+            if flushed is not None:
+                yield flushed
 
 
 def _entity_counts(ph_to_orig: dict) -> list:

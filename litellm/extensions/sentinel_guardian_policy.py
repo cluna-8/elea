@@ -984,6 +984,119 @@ def unmask_delta_event(data: dict, carry: str, carry_field: Optional[str],
     return [data], carry, carry_field
 
 
+def _get(obj, key, default=None):
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _set(obj, key, value) -> None:
+    if isinstance(obj, dict):
+        obj[key] = value
+    else:
+        setattr(obj, key, value)
+
+
+def json_string_map(ph_to_orig: dict) -> dict:
+    """Mapa placeholder → original escapado como CONTENIDO de cadena JSON (sin comillas
+    externas). Para respuestas pedidas en JSON (`response_format`) o tool calls: un original con
+    salto de línea o comillas restituido crudo rompe el JSON del cliente (visto 13-sep con
+    Presenton: "Invalid control character at: line 1 column 67")."""
+    return {ph: json.dumps(orig, ensure_ascii=False)[1:-1] for ph, orig in ph_to_orig.items()}
+
+
+def request_wants_json(request_data: dict) -> bool:
+    """True si el cliente pidió la respuesta como JSON (`response_format` json_object/json_schema)."""
+    rf = (request_data or {}).get("response_format")
+    if isinstance(rf, dict):
+        return rf.get("type") in ("json_object", "json_schema")
+    return bool(rf)
+
+
+def unmask_openai_chunk(chunk, carries: dict, ph_to_orig: dict, *, final: bool = False,
+                        json_content: bool = False):
+    """Restituye placeholders en UN chunk de streaming de la API OpenAI (chat/completions).
+
+    Hueco real (spec 050, 12/13-sep-2026): el hook de streaming solo reescribía frames SSE
+    crudos (ruta Anthropic); los chunks de ``/v1/chat/completions`` llegan como objetos
+    ``ModelResponseStream`` (o dicts) y pasaban tal cual → Presenton (streaming) recibía
+    ``[PERSON_0_66a5]`` en vez de "OTC". Verificado con texto, JSON y tool calls.
+
+    ``carries`` es el estado entre chunks: ``{clave: fragmento_retenido}`` con clave
+    ``("c", i)`` para ``delta.content`` de la choice ``i`` y ``("t", i, j)`` para los
+    ``arguments`` del tool call ``j`` — un placeholder puede venir partido en dos deltas y
+    ``safe_split`` retiene la cola hasta que llega el ``]``. Con ``final=True`` (chunk con
+    ``finish_reason`` o último del stream) el carry pendiente se vuelca al chunk: 0 texto
+    perdido. Muta el chunk y lo devuelve.
+    """
+    choices = _get(chunk, "choices") or []
+    content_map = json_string_map(ph_to_orig) if json_content else ph_to_orig
+    args_map = json_string_map(ph_to_orig)  # los `arguments` de un tool call SIEMPRE son JSON
+    for i, choice in enumerate(choices):
+        delta = _get(choice, "delta")
+        if delta is None:
+            continue
+        fin = final or bool(_get(choice, "finish_reason"))
+        key = ("c", i)
+        content = _get(delta, "content")
+        if isinstance(content, str) or (fin and carries.get(key)):
+            combined = carries.pop(key, "") + (content or "")
+            if fin:
+                safe, carry = combined, ""
+            else:
+                safe, carry = safe_split(combined)
+            if carry:
+                carries[key] = carry
+            if safe or content is not None:
+                _set(delta, "content", unmask_text(safe, content_map))
+        for j, tc in enumerate(_get(delta, "tool_calls") or []):
+            fn = _get(tc, "function")
+            if fn is None:
+                continue
+            tkey = ("t", i, _get(tc, "index", j) if _get(tc, "index", None) is not None else j)
+            args = _get(fn, "arguments")
+            if isinstance(args, str) or (fin and carries.get(tkey)):
+                combined = carries.pop(tkey, "") + (args or "")
+                if fin:
+                    safe, carry = combined, ""
+                else:
+                    safe, carry = safe_split(combined)
+                if carry:
+                    carries[tkey] = carry
+                _set(fn, "arguments", unmask_text(safe, args_map))
+    return chunk
+
+
+def flush_openai_carries(last_chunk, carries: dict, ph_to_orig: dict, *, json_content: bool = False):
+    """Stream truncado sin ``finish_reason``: vuelca los carries pendientes en una copia del
+    último chunk (solo ``delta.content`` / ``arguments``), para no perder texto."""
+    if not carries or last_chunk is None:
+        return None
+    import copy as _copy
+    chunk = _copy.deepcopy(last_chunk)
+    content_map = json_string_map(ph_to_orig) if json_content else ph_to_orig
+    args_map = json_string_map(ph_to_orig)
+    for i, choice in enumerate(_get(chunk, "choices") or []):
+        delta = _get(choice, "delta")
+        if delta is None:
+            continue
+        _set(delta, "content", unmask_text(carries.pop(("c", i), ""), content_map) or None)
+        for j, tc in enumerate(_get(delta, "tool_calls") or []):
+            fn = _get(tc, "function")
+            if fn is not None:
+                idx = _get(tc, "index", None)
+                _set(fn, "arguments", unmask_text(carries.pop(("t", i, idx if idx is not None else j), ""), args_map))
+        if isinstance(choice, dict):
+            choice["finish_reason"] = None
+        else:
+            try:
+                setattr(choice, "finish_reason", None)
+            except Exception:  # pragma: no cover - objetos inmutables
+                pass
+    carries.clear()
+    return chunk
+
+
 def flush_carry_sse_block(carry: str, carry_field: Optional[str],
                           ph_to_orig: dict, index: int = 0) -> str:
     """Delta sintético SSE **framed** para flushear el carry de un stream truncado
