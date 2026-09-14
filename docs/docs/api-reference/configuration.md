@@ -93,6 +93,9 @@ sin puertos, y sale a los modelos únicamente por `engine:4000/v1` con su propia
 | `TABULAR_INTERNAL_TOKEN` | — | Token interno Hub → tabular (cadena aleatoria; lo genera el instalador). |
 | `TABULAR_ENGINE_VIRTUAL_KEY` | — | Llave virtual de `svc.tabular` (`tool_type=servicio`, `can_act_on_behalf=true`). |
 | `TABULAR_MODEL` | `azure-gpt-5.4-mini` | Modelo real del catálogo para SQL y redacción (5/5 con planillas reales de Elea; 4o-mini 3/5). |
+| `TABULAR_HISTORY_WINDOW` | `5` | Spec 051: últimos turnos del hilo que ve el modelo en cada pregunta. |
+| `TABULAR_HISTORY_SUMMARY_EVERY` | `5` | Spec 051: cada cuántos turnos viejos el motor pide a Guardian un resumen acumulado del hilo. |
+| `TABULAR_HISTORY_ROWS` | `50` | Spec 051: filas de resultado guardadas por turno (las que usa "Crear presentación" desde el historial). |
 | `PRESENTON_URL` | — | URL del motor de presentaciones para el Hub (`http://presenton:80`). Vacía = sin presentaciones. |
 | `PRESENTON_ENGINE_VIRTUAL_KEY` | — | Llave virtual de `svc.presenton` (rpm 300 / tpm 2.000.000: manda varias diapositivas con imagen en paralelo). |
 | `PRESENTON_MODEL` | `azure-gpt-5.4-mini` | Modelo para Presenton. `azure-gpt-5.1-chat` no sirve (rate limit de Azure con 6 pedidos con imagen). |

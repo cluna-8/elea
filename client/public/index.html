@@ -792,6 +792,13 @@
           Todavía no tenés espacios de planillas. Creá uno para subir un .csv o .xlsx.
         </div>
       </div>
+      <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="section-header">
+          <span class="section-title">Hilos en este Espacio</span>
+          <button class="add-btn" id="exact-analysis-new-thread" onclick="newExactThread()" style="display:none;">+ Hilo</button>
+        </div>
+        <div class="threads-list" id="exact-analysis-threads"></div>
+      </div>
       <div style="padding:12px 10px; font-size:12px; line-height:1.5; color:var(--text-muted); border-top:1px solid var(--border-color); margin-top:8px;">
         Para cálculos exactos sobre planillas — sumas, conteos, cruces entre archivos. Si lo que
         necesitás es preguntar sobre el contenido de un documento (no calcular), usá <a href="#" onclick="switchHubView('chat'); return false;" style="color:var(--accent);">el chat normal</a>.
@@ -805,6 +812,12 @@
           <span class="ws-pill">Planillas</span>
           <span class="breadcrumb-sep">/</span>
           <span id="exact-analysis-ws-title" style="font-weight:800; color:var(--text-main);">Elegí un espacio</span>
+          <span class="breadcrumb-sep" id="exact-analysis-thread-sep" style="display:none;">/</span>
+          <span id="exact-analysis-thread-title" style="font-weight:800; color:var(--text-main);"></span>
+        </div>
+        <div class="thread-actions" id="exact-analysis-thread-actions" style="display:none;">
+          <button class="tool-btn" onclick="renameExactThread()" title="Renombrar el hilo">Renombrar</button>
+          <button class="tool-btn" onclick="deleteExactThread()" title="Eliminar este hilo y su historial">Eliminar hilo</button>
         </div>
       </div>
 
@@ -1002,6 +1015,21 @@
       renderUserHeader();
       loadFeatures();
       await Promise.all([loadModels(), loadWorkspaces()]);
+      await ensurePersonalWorkspace();
+    }
+
+    // Spec 051: el chat sin espacio ("directo") no guardaba nada. Ahora cada persona tiene un
+    // espacio propio sin documentos, con hilos e historial, que se abre por defecto.
+    let personalSlug = null;
+    async function ensurePersonalWorkspace() {
+      try {
+        const res = await fetch('/api/workspaces/personal', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        personalSlug = data.slug;
+        if (data.created) await loadWorkspaces();
+        if (!currentWorkspace) await selectWorkspace(personalSlug);
+      } catch (err) { /* el chat sigue disponible sin espacio */ }
     }
 
     async function handleLogin(event) {
@@ -1098,12 +1126,15 @@
       // `workspaces` viene del backend (contrato 1: `engine_slug`/`display_name`), NO del
       // motor de documentos — a diferencia de `currentWorkspace`, que sí usa el shape nativo
       // del motor (`.slug`/`.name`) porque sale de otro endpoint (ver `selectWorkspace`).
-      workspaces.forEach((ws) => {
+      const esPersonal = (ws) => String(ws.display_name || '').startsWith('Mi chat · ');
+      [...workspaces].sort((a, b) => (esPersonal(b) ? 1 : 0) - (esPersonal(a) ? 1 : 0)).forEach((ws) => {
         const activeClass = currentWorkspace && currentWorkspace.slug === ws.engine_slug ? 'active' : '';
         const div = document.createElement('div');
         div.className = `workspace-item ${activeClass}`;
         div.onclick = () => selectWorkspace(ws.engine_slug);
-        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${ws.display_name}</span>`;
+        const label = esPersonal(ws) ? '💬 Mi chat' : ws.display_name;
+        div.innerHTML = `<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${label}</span>`;
+        if (esPersonal(ws)) div.title = 'Tu chat personal: sin documentos, con historial por hilo';
         wsContainer.appendChild(div);
       });
     }
@@ -1636,7 +1667,9 @@
     let exactAnalysisWorkspaces = [];
     let currentExactAnalysisWorkspace = null; // { id, display_name }
     let exactAnalysisFiles = [];              // [{file_id, name, tables:[{name, columns, rows}]}]
-    let exactAnalysisHistory = [];            // [{question, answer}] (se manda al motor, máx 5)
+    let exactAnalysisHistory = [];            // [{question, answer}] (solo sin hilo; con hilo el motor guarda)
+    let exactThreads = [];                    // spec 051: hilos de la persona en el espacio [{key,title,turns}]
+    let currentExactThread = null;            // { key, title }
 
     async function loadFeatures() {
       try {
@@ -1695,7 +1728,144 @@
       document.getElementById('exact-analysis-file-input').value = '';
       document.getElementById('exact-analysis-file-status').textContent = '';
       document.getElementById('exact-analysis-history').innerHTML = '';
+      currentExactThread = null; exactThreads = [];
       await loadExactAnalysisFiles();
+      await loadExactThreads();
+    }
+
+    // ── Spec 051: hilos con historial persistente en Planillas ────────────────────────────
+    async function loadExactThreads() {
+      if (!currentExactAnalysisWorkspace) return;
+      try {
+        const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/threads`);
+        const data = await res.json().catch(() => ({}));
+        exactThreads = res.ok ? (data.threads || []) : [];
+      } catch (err) { exactThreads = []; }
+      document.getElementById('exact-analysis-new-thread').style.display = '';
+      if (!exactThreads.length) {
+        // Primer uso del espacio: un hilo "Principal", como en Documentos.
+        const created = await crearExactThread('Principal');
+        if (created) exactThreads = [created];
+      }
+      renderExactThreads();
+      if (exactThreads.length) await selectExactThread(exactThreads[0].key);
+    }
+
+    async function crearExactThread(title) {
+      const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/threads`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo crear el hilo.'); return null; }
+      return data;
+    }
+
+    function renderExactThreads() {
+      const box = document.getElementById('exact-analysis-threads');
+      box.innerHTML = '';
+      exactThreads.forEach((th) => {
+        const div = document.createElement('div');
+        div.className = `thread-item ${currentExactThread && currentExactThread.key === th.key ? 'active' : ''}`;
+        div.onclick = () => selectExactThread(th.key);
+        const inner = document.createElement('div');
+        const name = document.createElement('span');
+        name.style.cssText = 'overflow:hidden; text-overflow:ellipsis;';
+        name.textContent = th.title || 'Hilo';
+        inner.appendChild(name);
+        if (th.turns) { const n = document.createElement('span'); n.style.cssText = 'font-size:11px; color:var(--text-muted);'; n.textContent = `· ${th.turns}`; inner.appendChild(n); }
+        div.appendChild(inner);
+        box.appendChild(div);
+      });
+    }
+
+    async function selectExactThread(key) {
+      const th = exactThreads.find((t) => t.key === key);
+      if (!th) return;
+      currentExactThread = th;
+      renderExactThreads();
+      document.getElementById('exact-analysis-thread-sep').style.display = '';
+      document.getElementById('exact-analysis-thread-title').textContent = th.title || 'Hilo';
+      document.getElementById('exact-analysis-thread-actions').style.display = '';
+      const feed = document.getElementById('exact-analysis-history');
+      feed.innerHTML = '';
+      try {
+        const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/threads/${encodeURIComponent(key)}/turns`);
+        const data = await res.json().catch(() => ({}));
+        (res.ok ? (data.turns || []) : []).forEach((t) => {
+          const { turn, a } = appendExactAnalysisTurn(t.question);
+          renderExactAnswer(turn, a, t.question, t);
+        });
+      } catch (err) { /* sin historial */ }
+      if (!feed.children.length) renderExactAnalysisFiles();
+      const last = feed.lastElementChild; if (last) last.scrollIntoView({ block: 'end' });
+    }
+
+    async function newExactThread() {
+      const title = prompt('Nombre del hilo (ej. Ventas marzo, Stock vencido):', '');
+      if (title === null) return;
+      const created = await crearExactThread(title.trim() || 'Nuevo hilo');
+      if (!created) return;
+      exactThreads.unshift(created);
+      await selectExactThread(created.key);
+    }
+
+    async function renameExactThread() {
+      if (!currentExactThread) return;
+      const title = prompt('Nuevo nombre del hilo:', currentExactThread.title || '');
+      if (title === null || !title.trim()) return;
+      const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/threads/${encodeURIComponent(currentExactThread.key)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo renombrar.'); return; }
+      currentExactThread.title = data.title; renderExactThreads();
+      document.getElementById('exact-analysis-thread-title').textContent = data.title || 'Hilo';
+    }
+
+    async function deleteExactThread() {
+      if (!currentExactThread) return;
+      if (!confirm('¿Eliminar este hilo y todo su historial? No se puede deshacer.')) return;
+      const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/threads/${encodeURIComponent(currentExactThread.key)}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo eliminar el hilo.'); return; }
+      exactThreads = exactThreads.filter((t) => t.key !== currentExactThread.key);
+      currentExactThread = null;
+      await loadExactThreads();
+    }
+
+    // Pinta una respuesta (recién calculada o guardada) dentro de un turno ya agregado al feed.
+    function renderExactAnswer(turn, a, question, data) {
+      if (typeof marked !== 'undefined') { a.style.whiteSpace = 'normal'; a.innerHTML = marked.parse(data.answer || ''); }
+      else a.textContent = data.answer || '';
+      if (data.stale) {
+        const warn = document.createElement('div');
+        warn.style.cssText = 'font-size:12px; color:#8a6d3b; background:#fff8e1; padding:4px 8px; border-radius:6px; margin-top:6px;';
+        warn.textContent = 'Una planilla usada en esta respuesta ya no está en el espacio.';
+        turn.appendChild(warn);
+      }
+      const table = renderExactAnalysisTable(data.columns, data.rows);
+      if (table) turn.appendChild(table);
+      if (data.sql) {
+        const det = document.createElement('details');
+        const sum = document.createElement('summary'); sum.textContent = 'Ver consulta ejecutada';
+        const pre = document.createElement('div'); pre.className = 'exact-analysis-sql-box'; pre.textContent = data.sql;
+        det.appendChild(sum); det.appendChild(pre); turn.appendChild(det);
+      }
+      if (hubFeatures.presentations) {
+        const act = document.createElement('div');
+        act.style.cssText = 'display:flex; justify-content:flex-end; margin-top:8px;';
+        const btn = document.createElement('button');
+        btn.className = 'msg-action-btn'; btn.textContent = 'Crear presentación';
+        const tablaTexto = (data.columns || []).length
+          ? '\n\nTabla de resultados:\n' + (data.columns || []).join(' | ') + '\n' +
+            (data.rows || []).slice(0, 50).map((r) => (data.columns || []).map((c) => r[c]).join(' | ')).join('\n')
+          : '';
+        const turnRef = (data.id || data.turn_id) && currentExactThread
+          ? { workspace_id: currentExactAnalysisWorkspace.id, thread_key: currentExactThread.key, turn_id: data.id || data.turn_id }
+          : null;
+        btn.onclick = () => openPresentationModal(`${question}\n\n${data.answer || ''}${tablaTexto}`, `${currentExactAnalysisWorkspace.id}`, turnRef);
+        act.appendChild(btn); turn.appendChild(act);
+      }
     }
 
     async function loadExactAnalysisFiles() {
@@ -1883,37 +2053,19 @@
       btn.disabled = true;
       const { turn, a } = appendExactAnalysisTurn(question);
       try {
+        const body = currentExactThread
+          ? { question, thread_key: currentExactThread.key }
+          : { question, history: exactAnalysisHistory.slice(-5) };
         const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/query`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question, history: exactAnalysisHistory.slice(-5) })
+          body: JSON.stringify(body)
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) { a.textContent = data.error || 'No se pudo responder.'; return; }
-        // Misma regla que el chat: la respuesta del asistente se renderiza como markdown.
-        if (typeof marked !== 'undefined') { a.style.whiteSpace = 'normal'; a.innerHTML = marked.parse(data.answer || ''); }
-        else a.textContent = data.answer || '';
-        const table = renderExactAnalysisTable(data.columns, data.rows);
-        if (table) turn.appendChild(table);
-        if (data.sql) {
-          const det = document.createElement('details');
-          const sum = document.createElement('summary'); sum.textContent = 'Ver consulta ejecutada';
-          const pre = document.createElement('div'); pre.className = 'exact-analysis-sql-box'; pre.textContent = data.sql;
-          det.appendChild(sum); det.appendChild(pre); turn.appendChild(det);
-        }
-        exactAnalysisHistory.push({ question, answer: data.answer || '' });
-        if (hubFeatures.presentations) {
-          const act = document.createElement('div');
-          act.style.cssText = 'display:flex; justify-content:flex-end; margin-top:8px;';
-          const btn = document.createElement('button');
-          btn.className = 'msg-action-btn'; btn.textContent = 'Crear presentación';
-          const tablaTexto = (data.columns || []).length
-            ? '\n\nTabla de resultados:\n' + (data.columns || []).join(' | ') + '\n' +
-              (data.rows || []).slice(0, 50).map((r) => (data.columns || []).map((c) => r[c]).join(' | ')).join('\n')
-            : '';
-          btn.onclick = () => openPresentationModal(`${question}\n\n${data.answer || ''}${tablaTexto}`, `${currentExactAnalysisWorkspace.id}`);
-          act.appendChild(btn); turn.appendChild(act);
-        }
+        renderExactAnswer(turn, a, question, data);
+        if (!currentExactThread) exactAnalysisHistory.push({ question, answer: data.answer || '' });
+        else { currentExactThread.turns = (currentExactThread.turns || 0) + 1; renderExactThreads(); }
         turn.scrollIntoView({ behavior: 'smooth', block: 'end' });
         if (typeof refreshBudget === 'function') refreshBudget();
       } catch (err) {
@@ -1926,7 +2078,7 @@
     // =====================================================================
     // PRESENTACIONES Y ARTEFACTOS (spec 050 US3 / FR-013 / FR-015)
     // =====================================================================
-    let presentationSource = { content: '', threadKey: null };
+    let presentationSource = { content: '', threadKey: null, tabularTurn: null };
 
     function openPresentationModalFromMessage(btn) {
       const msg = messages[parseInt(btn.getAttribute('data-content-idx'), 10)];
@@ -1934,8 +2086,8 @@
       const threadKey = currentWorkspace ? `${currentWorkspace.slug}/${currentThreadSlug || 'principal'}` : null;
       openPresentationModal(msg.content || '', threadKey);
     }
-    async function openPresentationModal(content, threadKey) {
-      presentationSource = { content, threadKey };
+    async function openPresentationModal(content, threadKey, tabularTurn) {
+      presentationSource = { content, threadKey, tabularTurn: tabularTurn || null };
       document.getElementById('presentation-title').value = '';
       document.getElementById('presentation-instructions').value = '';
       document.getElementById('presentation-tabular-question').value = '';
@@ -1963,6 +2115,12 @@
           const sel = document.getElementById('presentation-tabular-ws');
           sel.innerHTML = '<option value="">Sin planilla</option>';
           ((await r.json()).workspaces || []).forEach((w) => { const o = document.createElement('option'); o.value = w.id; o.textContent = w.display_name; sel.appendChild(o); });
+          // Desde una respuesta guardada de Planillas: la planilla ya está elegida y la pregunta
+          // no hace falta (se usa el turno guardado, sin volver a consultar).
+          if (presentationSource.tabularTurn) {
+            sel.value = presentationSource.tabularTurn.workspace_id;
+            document.getElementById('presentation-tabular-question').placeholder = 'Se usan los datos de esta respuesta (dejá vacío) o escribí otra pregunta';
+          } else document.getElementById('presentation-tabular-question').placeholder = 'Pregunta para la planilla (ej. ventas por zona en 2025)';
         } catch (err) { /* sin espacios */ }
       }
     }
@@ -1995,11 +2153,14 @@
       };
       const wsId = document.getElementById('presentation-tabular-ws').value;
       const pregunta = document.getElementById('presentation-tabular-question').value.trim();
-      if (wsId && !pregunta) { showToast('Escribí la pregunta para la planilla o elegí "Sin planilla".'); return; }
+      const turnRef = presentationSource.tabularTurn && presentationSource.tabularTurn.workspace_id === wsId && !pregunta
+        ? presentationSource.tabularTurn : null;
+      if (wsId && !pregunta && !turnRef) { showToast('Escribí la pregunta para la planilla o elegí "Sin planilla".'); return; }
       // Con planilla → encadenado (/api/handoff); sin planilla → generación directa.
       const url = wsId ? '/api/handoff' : '/api/presentations/generate';
+      const tabular = turnRef ? { workspace_id: wsId, thread_key: turnRef.thread_key, turn_id: turnRef.turn_id } : { workspace_id: wsId, question: pregunta };
       const body = wsId
-        ? { target: 'presentation', content: presentationSource.content, tabular: { workspace_id: wsId, question: pregunta }, options }
+        ? { target: 'presentation', content: turnRef ? presentationSource.content.split('\n\n')[0] : presentationSource.content, tabular, options }
         : { content: presentationSource.content, ...options };
       btn.disabled = true; btn.textContent = 'Generando…';
       closePresentationModal();

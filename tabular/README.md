@@ -25,12 +25,27 @@ Cabeceras obligatorias: `Authorization: Bearer <TABULAR_INTERNAL_TOKEN>` y `X-Hu
 | `GET /v1/spaces/{ws}/files` | lista archivos y tablas |
 | `DELETE /v1/spaces/{ws}/files/{file_id}` | borra archivo y sus tablas |
 | `PUT /v1/spaces/{ws}/dictionary` `{tables: {alias: {columna: descripción}}}` | diccionario de datos: qué significa cada columna; viaja al modelo en cada pregunta |
-| `POST /v1/spaces/{ws}/query` `{question, history[]}` | `{sql, columns, rows, answer, model_used}` |
+| `POST /v1/spaces/{ws}/query` `{question, history[]?, thread_key?}` | `{sql, columns, rows, answer, model_used, turn_id}`. Con `thread_key` (spec 051) el motor guarda el turno y arma el contexto solo (resumen + últimos turnos); `history` explícito sigue valiendo sin hilo |
+| `GET/POST /v1/spaces/{ws}/threads` · `PATCH/DELETE …/threads/{key}` | hilos de la persona (`X-Hub-User-Id`) en ese espacio: `{key, title, turns}`; otra persona recibe 403 |
+| `GET …/threads/{key}/turns?limit=&before=` · `GET …/turns/{id}` | turnos guardados: pregunta, respuesta, SQL, columnas, hasta 50 filas, `stale` (una planilla usada ya no está) |
 | `GET /health` | sin auth, para el healthcheck |
 
 Errores con código estable en `detail.code`: `unauthorized`, `missing_user`, `space_not_found`,
 `space_exists`, `unsupported_format`, `file_too_large`, `empty_file`, `no_files`, `unsafe_sql`,
 `sql_error`, `not_answerable`, `engine_error` (con `status` 400/401/402 del engine), `timeout`.
+
+## Historial de conversaciones (spec 051)
+
+Cada espacio tiene un `history.sqlite` al lado del `db.duckdb` (DuckDB no admite escritura mientras
+las consultas usan la conexión de solo lectura; SQLite viene con Python y no molesta). Hilos y
+turnos son de UNA persona; Guardian registra el hilo y su dueño por fuera, el Hub verifica ahí y el
+motor vuelve a verificar por `X-Hub-User-Id`. Al preguntar con hilo, el modelo ve el resumen
+acumulado de los turnos viejos más los últimos `TABULAR_HISTORY_WINDOW` (5); cada
+`TABULAR_HISTORY_SUMMARY_EVERY` (5) turnos el motor pide a Guardian un resumen en español y lo
+guarda, así "resumime lo que hablamos" cubre toda la charla sin mandar 40 turnos. Se guardan hasta
+`TABULAR_HISTORY_ROWS` (50) filas por turno, lo que permite armar una presentación desde una
+respuesta anterior sin volver a consultar. Borrar una planilla marca `stale` los turnos que la
+usaron; borrar el hilo borra sus turnos; borrar el espacio borra todo.
 
 ## Cómo ve el modelo cada espacio
 

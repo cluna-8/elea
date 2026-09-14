@@ -13,7 +13,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .config import settings
-from .llm import EngineClient, EngineError, answer_messages, sql_messages
+from .history import History, ThreadForbidden, ThreadNotFound
+from .llm import EngineClient, EngineError, answer_messages, sql_messages, summary_messages
 from .sqlguard import UnparsableSQL, UnsafeSQL, validate, validate_fallback
 from .store import (EmptyTable, QueryTimeout, SpaceExists, SpaceNotFound, SpaceStore,
                     UnsupportedFormat)
@@ -26,6 +27,9 @@ store = SpaceStore(settings.data_dir, memory_limit=settings.memory_limit,
                    threads=settings.threads, sample_rows=settings.sample_rows)
 engine = EngineClient(settings.engine_url, settings.engine_key, settings.model,
                       timeout_s=settings.engine_timeout_s)
+# Spec 051: hilos y turnos por espacio en history.sqlite (al lado del .duckdb).
+history_store = History(lambda ws: store._dir(ws), window=settings.history_window,
+                        summary_every=settings.history_summary_every, max_rows=settings.history_rows)
 
 
 # ── auth ─────────────────────────────────────────────────────────────────────
@@ -65,6 +69,18 @@ class DictionaryIn(BaseModel):
 class QueryIn(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     history: list[HistoryItem] = Field(default_factory=list, max_length=5)
+    # Spec 051: si viene, el motor guarda el turno en ese hilo y, si `history` viene vacío,
+    # usa el resumen + últimos turnos del hilo.
+    thread_key: str | None = Field(default=None, max_length=80)
+
+
+class ThreadIn(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    title: str | None = Field(default=None, max_length=120)
+
+
+class ThreadPatch(BaseModel):
+    title: str = Field(min_length=0, max_length=120)
 
 
 # ── rutas ────────────────────────────────────────────────────────────────────
@@ -121,9 +137,80 @@ def set_dictionary(ws: str, body: DictionaryIn, _user: str = Depends(require_hub
 @app.delete("/v1/spaces/{ws}/files/{file_id}")
 def delete_file(ws: str, file_id: str, _user: str = Depends(require_hub)):
     _space(ws)
-    if not store.delete_file(ws, file_id):
+    entry = next((f for f in store.list_files(ws) if f["file_id"] == file_id), None)
+    if not entry or not store.delete_file(ws, file_id):
         raise HTTPException(404, {"code": "file_not_found"})
+    names = [n for t in entry["tables"] for n in (t.get("name"), t.get("alias")) if n]
+    stale = history_store.mark_stale(ws, names)
+    return {"status": "ok", "stale_turns": stale}
+
+
+# ── hilos y turnos (spec 051) ─────────────────────────────────────────────
+def _thread_errors(fn):
+    try:
+        return fn()
+    except ThreadNotFound:
+        raise HTTPException(404, {"code": "thread_not_found"})
+    except ThreadForbidden:
+        raise HTTPException(403, {"code": "thread_forbidden"})
+    except ValueError as e:
+        raise HTTPException(422, {"code": "invalid_thread_key", "detail": str(e)})
+
+
+@app.get("/v1/spaces/{ws}/threads")
+def list_threads(ws: str, user_id: str = Depends(require_hub)):
+    _space(ws)
+    return {"threads": history_store.list_threads(ws, user_id)}
+
+
+@app.post("/v1/spaces/{ws}/threads", status_code=201)
+def create_thread(ws: str, body: ThreadIn, user_id: str = Depends(require_hub)):
+    _space(ws)
+    return _thread_errors(lambda: history_store.create_thread(ws, user_id, body.key, body.title))
+
+
+@app.patch("/v1/spaces/{ws}/threads/{key}")
+def rename_thread(ws: str, key: str, body: ThreadPatch, user_id: str = Depends(require_hub)):
+    _space(ws)
+    return _thread_errors(lambda: history_store.rename_thread(ws, user_id, key, body.title))
+
+
+@app.delete("/v1/spaces/{ws}/threads/{key}")
+def delete_thread(ws: str, key: str, user_id: str = Depends(require_hub)):
+    _space(ws)
+    _thread_errors(lambda: history_store.delete_thread(ws, user_id, key))
     return {"status": "ok"}
+
+
+@app.get("/v1/spaces/{ws}/threads/{key}/turns")
+def list_turns(ws: str, key: str, limit: int = 50, before: int | None = None,
+               user_id: str = Depends(require_hub)):
+    _space(ws)
+    limit = max(1, min(limit, 200))
+    return {"turns": _thread_errors(lambda: history_store.turns(ws, user_id, key, limit=limit, before=before))}
+
+
+@app.get("/v1/spaces/{ws}/threads/{key}/turns/{turn_id}")
+def get_turn(ws: str, key: str, turn_id: int, user_id: str = Depends(require_hub)):
+    _space(ws)
+    t = _thread_errors(lambda: history_store.turn(ws, user_id, key, turn_id))
+    if not t:
+        raise HTTPException(404, {"code": "turn_not_found"})
+    return t
+
+
+def _maybe_summarize(ws: str, user_id: str, key: str) -> None:
+    """Cada `summary_every` turnos, resume lo viejo en UNA llamada a Guardian. Nunca rompe la
+    consulta que lo disparó: si falla, se reintenta en la próxima pregunta."""
+    try:
+        pending = history_store.needs_summary(ws, user_id, key)
+        if not pending:
+            return
+        text, _ = engine.chat(summary_messages(pending[0].get("previous_summary"), pending),
+                              acting_user_id=user_id, max_tokens=300, temperature=0.0)
+        history_store.set_summary(ws, user_id, key, text.strip(), pending[-1]["id"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("resumen del hilo %s/%s falló: %s", ws, key, e)
 
 
 @app.post("/v1/spaces/{ws}/query")
@@ -136,6 +223,13 @@ def query(ws: str, body: QueryIn, user_id: str = Depends(require_hub)):
     schema = store.schema_text(ws)
     common = store.common_keys(ws)
     history = [h.model_dump() for h in body.history]
+    summary = None
+    if body.thread_key:
+        # El hilo tiene que existir y ser de esta persona (403 si es de otra: defensa en
+        # profundidad, el Hub ya verificó el dueño contra Guardian).
+        _thread_errors(lambda: history_store.create_thread(ws, user_id, body.thread_key))
+        if not history:
+            summary, history = history_store.context(ws, user_id, body.thread_key)
 
     # 1) SQL desde Guardian, con UN reintento si no valida o falla al ejecutar (FR-023).
     feedback = None
@@ -145,13 +239,24 @@ def query(ws: str, body: QueryIn, user_id: str = Depends(require_hub)):
     model_used = settings.model
     for attempt in (1, 2):
         try:
-            raw, model_used = engine.chat(sql_messages(schema, body.question, history, feedback, common),
+            raw, model_used = engine.chat(sql_messages(schema, body.question, history, feedback, common, summary),
                                           acting_user_id=user_id, max_tokens=1500)
         except EngineError as e:
             raise _engine_http(e)
         if raw.strip().upper().startswith("NO_SQL"):
             raise HTTPException(422, {"code": "not_answerable",
                                       "detail": "la pregunta no se puede responder con estos archivos"})
+        if raw.strip().upper().startswith("CHAT:"):
+            # Spec 051: pregunta sobre la conversación (resumen, "qué te pregunté"): sin SQL, sin
+            # segunda llamada; la respuesta sale del resumen + últimos turnos del hilo.
+            answer = raw.strip()[5:].strip()
+            turn_id = None
+            if body.thread_key:
+                turn_id = history_store.add_turn(ws, user_id, body.thread_key, question=body.question,
+                                                 answer=answer, sql=None, columns=[], rows=[], model_used=model_used)
+                _maybe_summarize(ws, user_id, body.thread_key)
+            return {"sql": None, "columns": [], "rows": [], "answer": answer, "model_used": model_used,
+                    "turn_id": turn_id}
         try:
             sql = validate(raw, max_rows=settings.max_rows, allowed_tables=tables)
         except UnparsableSQL as e:
@@ -193,7 +298,13 @@ def query(ws: str, body: QueryIn, user_id: str = Depends(require_hub)):
     except EngineError as e:
         raise _engine_http(e)
 
-    return {"sql": sql, "columns": columns, "rows": rows, "answer": answer, "model_used": model_used}
+    turn_id = None
+    if body.thread_key:
+        turn_id = history_store.add_turn(ws, user_id, body.thread_key, question=body.question, answer=answer,
+                                         sql=sql, columns=columns, rows=rows, model_used=model_used)
+        _maybe_summarize(ws, user_id, body.thread_key)
+    return {"sql": sql, "columns": columns, "rows": rows, "answer": answer, "model_used": model_used,
+            "turn_id": turn_id}
 
 
 def _engine_http(e: EngineError) -> HTTPException:

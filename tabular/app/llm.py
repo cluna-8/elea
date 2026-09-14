@@ -88,6 +88,9 @@ SQL_SYSTEM = (
     "respuesta engañosa. En cambio, 'contame todo sobre IOT', 'qué hay de COTEC', 'buscá X' SÍ son SQL: "
     "devolvé las filas cuyas columnas de texto contengan ese término (ILIKE '%término%'), con todas las "
     "columnas, y si hay varias tablas buscá en cada una.\n"
+    "11. Si la pregunta es sobre la CONVERSACIÓN misma y no sobre los datos (por ejemplo 'resumime lo que "
+    "hablamos', '¿qué te pregunté antes?', 'repetime la respuesta anterior'), NO escribas SQL: respondé "
+    "con la palabra CHAT: seguida de la respuesta en español, usando el resumen y los turnos anteriores.\n"
     "10. Para buscar un término en VARIAS tablas con columnas distintas, usá UNION ALL BY NAME "
     "(DuckDB alinea por nombre de columna y rellena con NULL las que faltan): "
     "SELECT 'Nombre legible' AS hoja, * FROM t1 WHERE col ILIKE '%x%' UNION ALL BY NAME "
@@ -111,14 +114,35 @@ ANSWER_SYSTEM = (
 )
 
 
+SUMMARY_SYSTEM = (
+    "Resumís, en español rioplatense y en no más de 120 palabras, una conversación entre una persona "
+    "y un analista de datos sobre unas planillas. Conservá: qué quiso saber la persona, las cifras y "
+    "conclusiones que ya obtuvo (copiadas tal cual), y sus preferencias (por ejemplo, cómo quiere ver "
+    "los datos). Si te dan un resumen previo, integralo: el resultado es UN solo resumen acumulado. "
+    "Sin encabezados, sin listas, sin comentarios sobre el resumen mismo."
+)
+
+
+def summary_messages(previous_summary: str | None, turns: list[dict]) -> list[dict]:
+    body = ""
+    if previous_summary:
+        body += f"Resumen previo:\n{previous_summary}\n\n"
+    body += "Turnos nuevos a integrar:\n" + "\n".join(
+        f"- Pregunta: {t.get('question', '')}\n  Respuesta: {t.get('answer', '')}" for t in turns)
+    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": body}]
+
+
 def sql_messages(schema_text: str, question: str, history: list[dict] | None,
-                 error_feedback: str | None = None, common_keys: dict[str, list[str]] | None = None) -> list[dict]:
+                 error_feedback: str | None = None, common_keys: dict[str, list[str]] | None = None,
+                 summary: str | None = None) -> list[dict]:
     schema = schema_text
     if common_keys:
         schema += "\n\nColumnas en común entre tablas (claves para JOIN):\n" + "\n".join(
             f"  - {col}: {', '.join(tabs)}" for col, tabs in common_keys.items())
     msgs = [{"role": "system", "content": SQL_SYSTEM},
             {"role": "user", "content": f"Esquema:\n{schema}"}]
+    if summary:
+        msgs.append({"role": "user", "content": f"Resumen de la conversación anterior con esta persona:\n{summary}"})
     for h in (history or [])[-5:]:
         if h.get("question"):
             msgs.append({"role": "user", "content": h["question"]})

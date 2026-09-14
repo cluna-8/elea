@@ -29,6 +29,10 @@ class Settings:
     max_rows: int = _int("TABULAR_MAX_ROWS", 500)        # LIMIT forzado (FR-023)
     sample_rows: int = _int("TABULAR_SAMPLE_ROWS", 5)     # muestra por tabla en el prompt
     answer_rows: int = _int("TABULAR_ANSWER_ROWS", 50)    # filas que ve el modelo al redactar (FR-024)
+    # Historial (spec 051): últimos N turnos literales al modelo; resumen de lo anterior cada M.
+    history_window: int = _int("TABULAR_HISTORY_WINDOW", 5)
+    history_summary_every: int = _int("TABULAR_HISTORY_SUMMARY_EVERY", 5)
+    history_rows: int = _int("TABULAR_HISTORY_ROWS", 50)  # filas guardadas por turno
 
 
 settings = Settings()

@@ -93,6 +93,30 @@ y la persona ve la respuesta, la tabla y la consulta plegada. Cruzar archivos en
 - Las planillas viven crudas en el motor, dentro del servidor; solo lo que va al modelo pasa por
   el firewall.
 
+### Historial por hilo en Planillas 🟢
+
+Desde la spec 051 (14-sep-2026), cada espacio de planillas tiene **hilos**, igual que Documentos:
+la primera vez se crea "Principal"; con "+ Hilo" se abren más (por ejemplo, uno por tema). Al volver
+al espacio o al día siguiente, las preguntas, las respuestas, la consulta ejecutada y la tabla de
+resultados siguen ahí. Cada hilo es de la persona que lo creó: en un espacio compartido, otra
+persona no ve tus hilos ni puede preguntar en ellos (Guardian registra de quién es cada hilo; el
+motor lo vuelve a verificar). El asistente recuerda la conversación: ve los últimos cinco turnos y
+un resumen de los anteriores, que se actualiza solo cada cinco preguntas, así "resumime lo que
+hablamos" funciona aunque la charla sea larga. Si se quita una planilla, las respuestas que la
+usaron quedan marcadas con un aviso. Eliminar el hilo borra su historial.
+
+"Crear presentación" desde una respuesta guardada usa esa respuesta y su tabla tal cual, sin
+volver a consultar la planilla (más rápido y sin gasto).
+
+## "Mi chat": el chat sin documentos, con historial 🟢
+
+El chat "directo" (sin espacio) no guardaba nada y cada mensaje iba solo. Ahora cada persona tiene
+un espacio propio **"Mi chat"**, sin documentos, que el Hub abre por defecto al entrar. Tiene
+hilos e historial como cualquier espacio y el asistente mantiene el contexto de la conversación.
+Nota: en "Mi chat" el modelo lo decide el motor de documentos para ese espacio, no el selector
+"Automático"; el selector sigue mandando en el chat directo sin espacio, que queda disponible pero
+sin historial.
+
 ## Presentaciones y "Mis archivos" 🟢
 
 Desde cualquier respuesta, del chat o de planillas, el botón **Crear presentación** abre un

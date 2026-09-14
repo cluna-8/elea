@@ -4,8 +4,9 @@
 
 **Created**: 2026-09-14
 
-**Status**: ✅ **Investigación cerrada (14-sep-2026), recomendación en [RESULTADOS.md](RESULTADOS.md)**
-— pendiente de aprobación del dueño para implementar. Elegido: **D** para planillas (el motor
+**Status**: 🟢 **Implementada (14-sep-2026)** — investigación en [RESULTADOS.md](RESULTADOS.md),
+qué se hizo y cómo se probó en [CHANGELOG.md](CHANGELOG.md). Aprobada por el dueño el mismo día
+("listo, que lo hagas, lo pruebes en local y cuando lo dejes listo que lo subas"). Elegido: **D** para planillas (el motor
 guarda hilos y turnos en `history.sqlite` por espacio, Guardian registra el hilo con lo que ya
 tiene, el Hub muestra hilos como en Documentos) y **(a)** para el chat directo (espacio personal
 sin documentos en el motor de documentos). **Sin frameworks de conversación**: propio. Esta spec

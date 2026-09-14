@@ -633,6 +633,47 @@ app.post('/api/workspaces/create', async (req, res) => {
   }
 });
 
+// ── Spec 051: espacio personal para el chat directo ───────────────────────────
+// El chat "directo" (sin espacio) no guardaba nada y cada mensaje iba solo. Ahora cada persona
+// tiene un espacio propio SIN documentos en el motor de documentos, con hilos y historial como
+// cualquier espacio, registrado en Guardian a su nombre. Se crea la primera vez que se pide
+// (idempotente). El modelo lo decide el motor de documentos para ese espacio (no el selector).
+const PERSONAL_PREFIX = 'Mi chat · ';
+app.post('/api/workspaces/personal', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  const displayName = `${PERSONAL_PREFIX}${session.user.username}`;
+  try {
+    const mine = await getMemberWorkspaces(session);
+    const existing = mine.find((w) => w.display_name === displayName && (!w.kind || w.kind === 'rag'));
+    if (existing) return res.json({ slug: existing.engine_slug, display_name: displayName, created: false });
+    const createResp = await anythingllmFetch('/api/v1/workspace/new', { method: 'POST', body: JSON.stringify({ name: displayName }) });
+    if (!createResp.ok) return res.status(502).json({ error: 'El servicio de documentos no está disponible. Intentá de nuevo en unos minutos.' });
+    const created = await createResp.json();
+    const slug = created.workspace.slug;
+    const registered = await eleaFetch(session.token, '/workspaces', {
+      method: 'POST', body: JSON.stringify({ display_name: displayName, engine_slug: slug })
+    });
+    if (!registered.ok) {
+      await anythingllmFetch(`/api/v1/workspace/${slug}`, { method: 'DELETE' }).catch(() => {});
+      return res.status(registered.status).json({ error: 'No se pudo registrar el espacio personal.' });
+    }
+    // Sin documentos no hay nada que buscar: prompt corto de asistente general, en español.
+    await anythingllmFetch(`/api/v1/workspace/${slug}/update`, {
+      method: 'POST',
+      body: JSON.stringify({
+        openAiPrompt: 'Sos un asistente de trabajo. Respondé en español rioplatense, con claridad y sin rodeos. '
+          + 'Si la persona pide un resumen de lo que hablaron, usá la conversación de este hilo.',
+        openAiHistory: 20
+      })
+    });
+    res.json({ slug, display_name: displayName, created: true });
+  } catch (err) {
+    console.error('espacio personal falló:', err.message);
+    res.status(502).json({ error: 'El servicio de documentos no está disponible. Intentá de nuevo en unos minutos.' });
+  }
+});
+
 app.post('/api/workspaces/settings', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
@@ -1131,29 +1172,144 @@ app.delete('/api/tabular/workspaces/:id/files/:fileId', async (req, res) => {
   }
 });
 
+// ── Spec 051: hilos y turnos de Planillas ─────────────────────────────────────
+// El motor guarda hilos y turnos por espacio (history.sqlite); Guardian registra qué hilo es de
+// quién (mismo registro que Documentos: `engine_thread_slug` = key del hilo). Antes de leer o
+// tocar un hilo, el Hub verifica el dueño contra Guardian; el motor lo vuelve a verificar por
+// `X-Hub-User-Id` (defensa en profundidad).
+async function tabularJson(session, pathname, opts, res) {
+  const r = await tabularFetch(session, pathname, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const [st, msg] = mensajeErrorTabular(r.status, data);
+    res.status(st).json({ error: msg });
+    return null;
+  }
+  return data;
+}
+
+app.get('/api/tabular/workspaces/:id/threads', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  try {
+    if (!(await requireTabularWorkspace(session, req.params.id, res))) return;
+    await ensureTabularSpace(session, req.params.id);
+    const own = new Set((await getOwnThreads(session, req.params.id)).map((t) => t.engine_thread_slug).filter(Boolean));
+    const data = await tabularJson(session, `/v1/spaces/${encodeURIComponent(req.params.id)}/threads`, {}, res);
+    if (!data) return;
+    // Solo los hilos que Guardian dice que son de esta persona (registro compartido, spec 043).
+    res.json({ threads: (data.threads || []).filter((t) => own.has(t.key)) });
+  } catch (err) {
+    console.error('tabular listar hilos falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+app.post('/api/tabular/workspaces/:id/threads', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  const title = String((req.body || {}).title || '').trim().slice(0, 120);
+  try {
+    if (!(await requireTabularWorkspace(session, req.params.id, res))) return;
+    await ensureTabularSpace(session, req.params.id);
+    const key = `h-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    await claimOwnThread(session, req.params.id, key);
+    const data = await tabularJson(session, `/v1/spaces/${encodeURIComponent(req.params.id)}/threads`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, title: title || null })
+    }, res);
+    if (!data) return;
+    res.json(data);
+  } catch (err) {
+    console.error('tabular crear hilo falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+app.patch('/api/tabular/workspaces/:id/threads/:key', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  const { id, key } = req.params;
+  const title = String((req.body || {}).title || '').trim().slice(0, 120);
+  try {
+    if (!(await requireTabularWorkspace(session, id, res))) return;
+    if (!(await ownsThreadSlug(session, id, key))) return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
+    const data = await tabularJson(session, `/v1/spaces/${encodeURIComponent(id)}/threads/${encodeURIComponent(key)}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title })
+    }, res);
+    if (data) res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+app.delete('/api/tabular/workspaces/:id/threads/:key', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  const { id, key } = req.params;
+  try {
+    if (!(await requireTabularWorkspace(session, id, res))) return;
+    const own = await getOwnThreads(session, id);
+    const row = own.find((t) => t.engine_thread_slug === key);
+    if (!row) return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
+    const data = await tabularJson(session, `/v1/spaces/${encodeURIComponent(id)}/threads/${encodeURIComponent(key)}`, { method: 'DELETE' }, res);
+    if (!data) return;
+    await eleaFetch(session.token, `/workspaces/${id}/threads/${row.id}`, { method: 'DELETE' }).catch(() => {});
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
+app.get('/api/tabular/workspaces/:id/threads/:key/turns', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  const { id, key } = req.params;
+  try {
+    if (!(await requireTabularWorkspace(session, id, res))) return;
+    if (!(await ownsThreadSlug(session, id, key))) return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
+    const qs = new URLSearchParams();
+    if (req.query.before) qs.set('before', String(req.query.before));
+    if (req.query.limit) qs.set('limit', String(req.query.limit));
+    const data = await tabularJson(session, `/v1/spaces/${encodeURIComponent(id)}/threads/${encodeURIComponent(key)}/turns${qs.toString() ? '?' + qs : ''}`, {}, res);
+    if (data) res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
 app.post('/api/tabular/workspaces/:id/query', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
   if (!tabularDisponible(res)) return;
   const { id } = req.params;
-  const { question, history } = req.body || {};
+  const { question, history, thread_key } = req.body || {};
   if (!question || typeof question !== 'string') return res.status(400).json({ error: 'Falta la pregunta.' });
   try {
     // Presupuesto propio antes de gastar (mismo criterio que /api/chat).
     const budget = await fetchOwnBudget(session).catch(() => null);
     if (budget && budget.status === 'exceeded') return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
     if (!(await requireTabularWorkspace(session, id, res))) return;
-    const hist = Array.isArray(history)
+    // Spec 051: con hilo, el motor guarda el turno y arma el contexto (resumen + últimos turnos);
+    // sin hilo, se mantiene el historial efímero del navegador (compatibilidad).
+    const threadKey = typeof thread_key === 'string' && thread_key ? thread_key : null;
+    if (threadKey && !(await ownsThreadSlug(session, id, threadKey))) return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
+    const hist = !threadKey && Array.isArray(history)
       ? history.slice(-5).map((h) => ({ question: String(h.question || ''), answer: String(h.answer || '') }))
       : [];
     const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(id)}/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: question.slice(0, 4000), history: hist })
+      body: JSON.stringify({ question: question.slice(0, 4000), history: hist, thread_key: threadKey })
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) { const [st, msg] = mensajeErrorTabular(r.status, data); return res.status(st).json({ error: msg }); }
-    res.json({ answer: data.answer, sql: data.sql, columns: data.columns, rows: data.rows, model_used: data.model_used });
+    res.json({ answer: data.answer, sql: data.sql, columns: data.columns, rows: data.rows, model_used: data.model_used, turn_id: data.turn_id || null });
   } catch (err) {
     console.error('tabular consulta falló:', err.message);
     res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
@@ -1418,21 +1574,39 @@ app.post('/api/handoff', async (req, res) => {
   if (tabular && tabular.workspace_id) {
     if (!tabularDisponible(res)) return;
     const question = String(tabular.question || '').trim();
-    if (!question) return res.status(400).json({ error: 'Falta la pregunta para la planilla.' });
+    const turnId = Number.isInteger(tabular.turn_id) ? tabular.turn_id : null;
+    const threadKey = typeof tabular.thread_key === 'string' ? tabular.thread_key : null;
+    if (!question && !(turnId && threadKey)) return res.status(400).json({ error: 'Falta la pregunta para la planilla.' });
     try {
       if (!(await requireTabularWorkspace(session, tabular.workspace_id, res))) return;
-      const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(tabular.workspace_id)}/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question.slice(0, 4000), history: [] })
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        const [, msg] = mensajeErrorTabular(r.status, data);
-        return res.status(502).json({ error: `No se pudo consultar la planilla, así que no se generó nada. ${msg}`, code: 'tabular_failed' });
+      let data;
+      if (turnId && threadKey) {
+        // Spec 051: desde una respuesta ya guardada — sin nueva consulta, sin gasto, sin
+        // nada que pueda fallar del lado del modelo.
+        if (!(await ownsThreadSlug(session, tabular.workspace_id, threadKey))) return res.status(403).json({ error: 'Ese hilo no te pertenece.' });
+        const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(tabular.workspace_id)}/threads/${encodeURIComponent(threadKey)}/turns/${turnId}`);
+        data = await r.json().catch(() => ({}));
+        if (!r.ok) return res.status(502).json({ error: 'No se encontró esa respuesta guardada, así que no se generó nada.', code: 'tabular_failed' });
+      } else {
+        // Un reintento ante error pasajero (hallazgo 10 de la prueba en el servidor, 14-sep).
+        let r; let intento = 0;
+        do {
+          r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(tabular.workspace_id)}/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: question.slice(0, 4000), history: [] })
+          });
+          intento += 1;
+        } while (!r.ok && r.status >= 500 && intento < 2);
+        data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const [, msg] = mensajeErrorTabular(r.status, data);
+          console.warn('handoff tabular falló:', r.status, JSON.stringify(data).slice(0, 300));
+          return res.status(502).json({ error: `No se pudo consultar la planilla, así que no se generó nada. ${msg}`, code: 'tabular_failed' });
+        }
       }
       const tabla = tablaMarkdown(data.columns, data.rows);
-      texto = `${texto}\n\nDatos de la planilla — pregunta: ${question}\n${data.answer || ''}${tabla ? `\n\nTabla de resultados:\n${tabla}` : ''}`.trim();
+      texto = `${texto}\n\nDatos de la planilla — pregunta: ${question || data.question || ''}\n${data.answer || ''}${tabla ? `\n\nTabla de resultados:\n${tabla}` : ''}`.trim();
       tabularUsado = true;
     } catch (err) {
       console.error('handoff tabular falló:', err.message);

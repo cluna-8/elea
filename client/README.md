@@ -14,6 +14,7 @@ contratos en [`specs/050-ia-hub-conector-motores/`](../specs/050-ia-hub-conector
 | Planillas: espacios de Excel/CSV, preguntas en lenguaje natural, diccionario de datos (motor tabular) | No guarda mensajes de chat (viven en cada motor) |
 | Presentaciones desde cualquier respuesta, con plantillas modelo y datos de una planilla (Presenton) | No llama al motor `engine:4000` directamente, solo al backend de Guardian |
 | "Mis archivos": presentaciones generadas, por persona | No arranca sin Guardian (decisión del dueño: hereda el SSO) |
+| Historial en Planillas por hilo y chat personal con historial (spec 051): lo guardan los motores, el Hub lo muestra | No guarda mensajes ni tiene base propia: Guardian registra los hilos, cada motor guarda sus turnos |
 | Proxy de administración de plantillas (puerto 8097, solo admins) | Ningún motor es obligatorio: la UI oculta lo que no está configurado |
 
 Antes de tocar un motor sobre un espacio, el Hub verifica la membresía contra Guardian
@@ -23,7 +24,9 @@ Antes de tocar un motor sobre un espacio, el Hub verifica la membresía contra G
 
 - `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/user/current`, `GET /api/user/budget`, `GET /api/models`, `GET /api/branding`, `GET /api/features`
 - Documentos: `GET/POST /api/workspaces*`, `POST /api/workspaces/upload`, `POST /api/threads/*`, `GET /api/workspaces/{slug}/messages`, `POST /api/chat`
-- Planillas: `GET/POST /api/tabular/workspaces`, `GET/POST /api/tabular/workspaces/{id}/files`, `DELETE .../files/{file_id}`, `PUT .../dictionary`, `POST .../query`
+- Planillas: `GET/POST /api/tabular/workspaces`, `GET/POST /api/tabular/workspaces/{id}/files`, `DELETE .../files/{file_id}`, `PUT .../dictionary`, `POST .../query` (`thread_key` opcional)
+- Hilos de planillas (spec 051): `GET/POST .../threads`, `PATCH/DELETE .../threads/{key}`, `GET .../threads/{key}/turns`. El hilo se registra en Guardian a nombre de la persona (mismo registro que Documentos) y el motor guarda los turnos.
+- Chat personal (spec 051): `POST /api/workspaces/personal` crea (una vez) o devuelve el espacio "Mi chat · <usuario>", sin documentos, con hilos e historial; la UI lo abre por defecto.
 - Presentaciones: `GET /api/presentations/templates`, `GET .../templates/{id}/thumbnail`, `POST /api/presentations/generate`, `POST /api/handoff`
 - Artefactos: `GET /api/artifacts`, `GET /api/artifacts/{id}/download`, `DELETE /api/artifacts/{id}`
 
@@ -51,7 +54,7 @@ sesión vale para el 8095 y el 8097.
 
 ```bash
 cd client && npm install
-npm test          # 37 pruebas: dobles HTTP reales de Guardian, motor de documentos, tabular y Presenton
+npm test          # 40 pruebas: dobles HTTP reales de Guardian, motor de documentos, tabular y Presenton
 npm start         # escucha en PORT (8095)
 ```
 
