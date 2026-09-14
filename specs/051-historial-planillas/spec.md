@@ -4,8 +4,12 @@
 
 **Created**: 2026-09-14
 
-**Status**: 🔍 **Investigación** — esta spec define qué hay que averiguar y con qué criterio se elige;
-no implementa. Sale de la prueba guiada en el servidor de Elea del 14-sep-2026
+**Status**: ✅ **Investigación cerrada (14-sep-2026), recomendación en [RESULTADOS.md](RESULTADOS.md)**
+— pendiente de aprobación del dueño para implementar. Elegido: **D** para planillas (el motor
+guarda hilos y turnos en `history.sqlite` por espacio, Guardian registra el hilo con lo que ya
+tiene, el Hub muestra hilos como en Documentos) y **(a)** para el chat directo (espacio personal
+sin documentos en el motor de documentos). **Sin frameworks de conversación**: propio. Esta spec
+definió qué averiguar y con qué criterio; no implementa. Sale de la prueba guiada en el servidor de Elea del 14-sep-2026
 ([PRUEBA-SERVIDOR-ELEA-2026-09-14.md](../050-ia-hub-conector-motores/PRUEBA-SERVIDOR-ELEA-2026-09-14.md),
 hallazgo 5): en la sección Planillas la pregunta y la respuesta desaparecen al recargar.
 
