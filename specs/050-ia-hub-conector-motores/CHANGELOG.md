@@ -17,11 +17,17 @@ corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff
    `docker image prune -a` liberó lo justo. El Hub muestra las tres secciones. Quedan en el
    servidor el contenedor e imagen viejos de DB-GPT (`elea-exact-analysis-engine`, no era huérfano
    del compose actual) para borrar a mano y recuperar espacio, y el disco chico como riesgo.
-2. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
-3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
-4. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
-5. Visibilidad de las imágenes: absorbido por el punto 1 (todas públicas).
-6. Dos tarjetas fantasma "HUB Elea" (0/6 y 2/6) en la pantalla de plantillas de Presenton local:
+2. **Regla del dueño (14-sep, reiterada): en versiones futuras NO puede quedar expuesto el nombre
+   "LiteLLM"** ni otros nombres de tecnología (Ollama, Presenton, AnythingLLM, Presidio) en nada
+   visible por el cliente: panel de Guardian ("Modelos & Ollama"), logs que el cliente pueda ver,
+   mensajes de error, docs entregadas, títulos de pestañas. Motivo: "no quiero que evalúen
+   tecnologías". Hoy el panel del servidor ya está con marca Eleia; el barrido de nombres es
+   tarea propia (spec futura), con prueba de `grep -ri litellm` sobre lo servido.
+3. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
+4. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
+5. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
+6. Visibilidad de las imágenes: absorbido por el punto 1 (todas públicas).
+7. Dos tarjetas fantasma "HUB Elea" (0/6 y 2/6) en la pantalla de plantillas de Presenton local:
    tareas muertas, cosméticas.
 
 
