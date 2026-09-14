@@ -1,9 +1,9 @@
-# Eleia Hub: espacios, presupuesto y protección de documentos
+# Eleia Hub: espacios, planillas, presentaciones y protección
 
-Guía para el administrador de una instancia con **Eleia Hub** (el chat de espacios de trabajo
-con documentos) activo. Cubre el aislamiento de espacios entre personas, cómo se ve el gasto
-de cada una, y qué avisa la interfaz sobre la protección de datos personales en los documentos
-que se suben.
+Guía para el administrador de una instancia con **Eleia Hub** activo: el chat con documentos,
+los espacios de planillas (cálculo exacto sobre Excel/CSV) y la generación de presentaciones.
+Cubre el aislamiento entre personas, el gasto, la protección de datos y la administración de
+plantillas.
 
 **Para quién**: el tenant admin que opera la instancia y responde consultas de las personas
 que usan Eleia Hub.
@@ -73,6 +73,47 @@ motor de documentos arma una pregunta con fragmentos de un documento y la envía
 firewall detecta y enmascara los datos personales antes de que salgan al proveedor, y los
 restituye en la respuesta. En el panel, **Costos → Protección** muestra las entidades
 enmascaradas por consulta, atribuidas a la cuenta de servicio del motor de documentos.
+
+## Planillas: cálculo exacto sobre Excel y CSV 🟢
+
+La pestaña **Planillas** tiene sus propios espacios, con la misma regla de membresía que los de
+documentos, pero nunca mezclados. En cada espacio se suben una o varias planillas (`.csv`,
+`.xlsx`; cada hoja es una tabla; hasta 50 MB) y se pregunta en lenguaje natural. La respuesta es
+un cálculo real: el modelo escribe una consulta de solo lectura, el motor la valida y la ejecuta,
+y la persona ve la respuesta, la tabla y la consulta plegada. Cruzar archivos entre sí es nativo.
+
+- El encabezado real se detecta aunque la planilla tenga título y notas arriba.
+- **Diccionario de datos**: un clic en cualquier columna permite escribir qué significa (por
+  ejemplo, `Ce.` = "centro logístico", o "vacío = pendiente de decisión"). Lo que se escribe
+  viaja al modelo en cada pregunta de ese espacio. Conviene cargarlo en planillas exportadas de
+  SAP u otros sistemas con encabezados abreviados.
+- Preguntas que exigen un juicio que los datos no contienen (por ejemplo "¿hay nombres de
+  personas?") se responden como "no se puede responder con estos datos": eso lo hace el detector
+  de Guardian, no el SQL.
+- Las planillas viven crudas en el motor, dentro del servidor; solo lo que va al modelo pasa por
+  el firewall.
+
+## Presentaciones y "Mis archivos" 🟢
+
+Desde cualquier respuesta, del chat o de planillas, el botón **Crear presentación** abre un
+formulario: título, plantilla modelo, cantidad de diapositivas, formato (PowerPoint o PDF),
+indicaciones y, opcionalmente, **sumar datos de una planilla** con una pregunta. Tarda entre uno y
+dos minutos. El archivo queda en **Mis archivos**, visible y descargable solo por quien lo generó.
+
+### Plantillas modelo y plantilla corporativa 🟢
+
+El formulario ofrece las plantillas integradas y, primero, las **propias**. Para crear una
+plantilla propia a partir del PowerPoint corporativo, un administrador abre la pestaña
+**Plantillas** (o `http://<host>:8097/templates`, con la misma sesión del Hub), sube el `.pptx`,
+acepta las fuentes de respaldo y confirma. El motor analiza cada diapositiva con un modelo con
+visión y arma los layouts; con 6 diapositivas tarda unos 5 minutos. Si un layout falla, se
+repite el flujo. Esa pantalla es solo para administradores; nadie más llega al motor.
+
+## Varias personas: qué está verificado 🟢
+
+Con dos usuarios reales: ninguno ve los espacios, hilos, planillas ni archivos generados del
+otro; al pedirlos por id recibe "sin acceso"; al agregar a la persona como miembro, accede. El
+administrador del tenant accede a todos los espacios por su rol.
 
 ## Ninguna marca de motor visible 🟢
 

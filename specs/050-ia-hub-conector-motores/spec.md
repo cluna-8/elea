@@ -4,7 +4,11 @@
 
 **Created**: 2026-09-12
 
-**Status**: Draft — lista para `/speckit-plan`. **Absorbe** la [spec 046](../046-analisis-exacto-datos-eleia-hub/spec.md)
+**Status**: 🟢 **Implementada (hitos 1 a 6, 12 al 14-sep-2026)** — estado canónico en
+[`CHANGELOG.md`](CHANGELOG.md); pruebas: Hub 37, tabular 74, firewall 30 nuevas; prueba
+integral local 12/12 y multiusuario 17/17; imágenes publicadas en `ghcr.io/cluna-8`
+(`elea-rag-client`, `elea-tabular`, `elea-guardian-backend`, `elea-guardian-engine`, tag
+`2026-09-14`). Pendiente: prueba del instalador desde cero en máquina limpia. **Absorbe** la [spec 046](../046-analisis-exacto-datos-eleia-hub/spec.md)
 (UI de Excel) y la [spec 048](../048-motor-analisis-exacto-dbgpt/spec.md) (motor DB-GPT), que quedan
 retiradas. **Recorta** la [spec 045](../045-generacion-carga-documentos-eleia-hub/spec.md) (queda solo la
 carga de `.pptx` al RAG) y la [spec 049](../049-motor-generacion-documentos/spec.md) (queda solo el
@@ -326,6 +330,7 @@ y un caso de SQL destructivo rechazado.
 4. **Given** un archivo de 60 MB, **When** lo subo, **Then** el Hub lo rechaza antes de enviarlo con el límite indicado.
 5. **Given** un espacio de Excel, **When** miro la lista de espacios de documentos, **Then** no aparece ahí (y viceversa).
 6. **Given** el motor tabular apagado, **When** entro al Hub, **Then** la sección de Excel no aparece y el resto funciona.
+7. **Given** una planilla exportada de SAP con columnas `Ce.`, `Alm.`, `UMB`, **When** escribo qué significa cada una desde la UI, **Then** la próxima pregunta usa esas definiciones (por ejemplo "vacío = pendiente" al contar lotes).
 
 ---
 
@@ -451,6 +456,9 @@ ahora.
 - **FR-024**: tabular MUST redactar la respuesta con una segunda llamada a Guardian que reciba a lo sumo 50 filas; MUST devolver `{sql, rows, answer, model_used}`.
 - **FR-025**: tabular MUST NOT tener puertos publicados al host ni credenciales de proveedor; MUST estar solo en una red interna con el Hub y el engine.
 - **FR-026**: tabular MUST NOT llamar a `/v1/embeddings`.
+- **FR-027 (diccionario de datos, pedido del dueño 13-sep)**: cada espacio MUST permitir una
+  descripción por columna (`PUT /v1/spaces/{id}/dictionary`), editable por cualquier miembro
+  desde la UI (clic en la columna), que MUST viajar al modelo en el esquema de cada pregunta.
 
 **Presenton**
 

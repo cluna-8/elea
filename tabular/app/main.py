@@ -57,6 +57,11 @@ class HistoryItem(BaseModel):
     answer: str = ""
 
 
+class DictionaryIn(BaseModel):
+    # {tabla o alias: {columna: descripción}} — descripción vacía borra.
+    tables: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
 class QueryIn(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     history: list[HistoryItem] = Field(default_factory=list, max_length=5)
@@ -105,6 +110,12 @@ async def upload_file(ws: str, file: UploadFile = File(...), _user: str = Depend
         log.warning("carga falló en %s: %s", ws, e)
         raise HTTPException(422, {"code": "unreadable_file", "detail": "no se pudo leer el archivo"})
     return entry
+
+
+@app.put("/v1/spaces/{ws}/dictionary")
+def set_dictionary(ws: str, body: DictionaryIn, _user: str = Depends(require_hub)):
+    _space(ws)
+    return {"updated": store.set_dictionary(ws, body.tables)}
 
 
 @app.delete("/v1/spaces/{ws}/files/{file_id}")

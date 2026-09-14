@@ -1092,6 +1092,28 @@ app.post('/api/tabular/workspaces/:id/files', upload.single('file'), async (req,
   }
 });
 
+// Diccionario de datos del espacio (pedido del dueño 13-sep): qué significa cada columna.
+// Viaja al modelo con cada pregunta. Cualquier miembro del espacio puede editarlo.
+app.put('/api/tabular/workspaces/:id/dictionary', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!tabularDisponible(res)) return;
+  const tables = (req.body && req.body.tables) || {};
+  if (typeof tables !== 'object') return res.status(400).json({ error: 'Formato inválido.' });
+  try {
+    if (!(await requireTabularWorkspace(session, req.params.id, res))) return;
+    const r = await tabularFetch(session, `/v1/spaces/${encodeURIComponent(req.params.id)}/dictionary`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tables })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const [st, msg] = mensajeErrorTabular(r.status, data); return res.status(st).json({ error: msg }); }
+    res.json(data);
+  } catch (err) {
+    console.error('tabular diccionario falló:', err.message);
+    res.status(502).json({ error: MENSAJE_MOTOR_ANALISIS_NO_DISPONIBLE });
+  }
+});
+
 app.delete('/api/tabular/workspaces/:id/files/:fileId', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;

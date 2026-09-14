@@ -1,82 +1,60 @@
-# Cliente RAG de Elea
+# Eleia Hub (`client/`)
 
-Cliente web (Node/Express) que da acceso **solo al RAG documental** (AnythingLLM), con
-login real contra `elea` y enmascarado NER de todo documento antes de indexarlo. Ver
-[specs/040-cliente-rag-elea-completo/](../specs/040-cliente-rag-elea-completo/) para el
-detalle de diseño (spec.md, plan.md, tasks.md).
+Cliente web de Eleia (Node 20 / Express, una sola página en `public/index.html`). Es un
+**conector fino**: la identidad, el presupuesto, el registro de espacios y toda la seguridad
+viven en Guardian; los datos viven en los motores; el Hub solo une las piezas. Diseño y
+contratos en [`specs/050-ia-hub-conector-motores/`](../specs/050-ia-hub-conector-motores/spec.md).
 
-## Cómo funciona (todo real, nada simulado)
+## Qué hace y qué no
 
-- **Login**: `POST /api/auth/login` reenvía a `POST {elea}/users/login` — usuario y
-  contraseña reales, sin lista de usuarios hardcodeada.
-- **Selector de modelo** (chat directo, sin workspace): catálogo real de `elea`
-  (`GET /chat/models`), incluye "Automático" cuando el auto-router está activo.
-- **Presupuesto**: el cliente mantiene una sesión de SERVICIO propia (usuario admin
-  dedicado) para leer `GET /budgets` en nombre del usuario logueado — hoy `elea` no tiene
-  un endpoint de autoservicio (`/me/budget`); ver plan.md §3 para la razón.
-- **Workspaces**: proxy directo a la API real de AnythingLLM (crear, ajustar las 7
-  opciones — modo, temperatura, historial, prompt, umbral de similitud, top-N, respuesta
-  de rechazo —, borrar).
-- **Documentos**: se extraen con `extract_text.py`, se enmascaran vía
-  `POST {elea}/gw/inspect` (misma política que el resto del producto — DNI/CUIL/CBU en
-  `latam_ar`) y **solo el texto enmascarado** se sube a AnythingLLM. Verificado: el dato
-  real nunca llega al vector store.
-- **Chat**: con workspace seleccionado → RAG real vía AnythingLLM (que a su vez habla con
-  el motor de `elea`, enmascarado transparente en el turno de chat). Sin workspace → chat
-  directo a `elea` con el modelo elegido.
+| Hace | No hace |
+|---|---|
+| Login contra Guardian y sesión de la persona (cookie, en memoria) | No tiene usuarios ni contraseñas propias |
+| Chat con documentos (motor de documentos) y chat directo con modelo `auto` (Guardian) | No enmascara: los archivos suben crudos al motor local; Guardian enmascara lo que va al modelo |
+| Planillas: espacios de Excel/CSV, preguntas en lenguaje natural, diccionario de datos (motor tabular) | No guarda mensajes de chat (viven en cada motor) |
+| Presentaciones desde cualquier respuesta, con plantillas modelo y datos de una planilla (Presenton) | No llama al motor `engine:4000` directamente, solo al backend de Guardian |
+| "Mis archivos": presentaciones generadas, por persona | No arranca sin Guardian (decisión del dueño: hereda el SSO) |
+| Proxy de administración de plantillas (puerto 8097, solo admins) | Ningún motor es obligatorio: la UI oculta lo que no está configurado |
+
+Antes de tocar un motor sobre un espacio, el Hub verifica la membresía contra Guardian
+(`GET /workspaces/{id}`); 403 ⇒ el motor nunca es llamado.
+
+## Rutas (contrato completo: `specs/050-.../contracts/02-hub-api.md`)
+
+- `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/user/current`, `GET /api/user/budget`, `GET /api/models`, `GET /api/branding`, `GET /api/features`
+- Documentos: `GET/POST /api/workspaces*`, `POST /api/workspaces/upload`, `POST /api/threads/*`, `GET /api/workspaces/{slug}/messages`, `POST /api/chat`
+- Planillas: `GET/POST /api/tabular/workspaces`, `GET/POST /api/tabular/workspaces/{id}/files`, `DELETE .../files/{file_id}`, `PUT .../dictionary`, `POST .../query`
+- Presentaciones: `GET /api/presentations/templates`, `GET .../templates/{id}/thumbnail`, `POST /api/presentations/generate`, `POST /api/handoff`
+- Artefactos: `GET /api/artifacts`, `GET /api/artifacts/{id}/download`, `DELETE /api/artifacts/{id}`
 
 ## Variables de entorno
 
-Ver `docker-compose.yml` (servicio `client`, perfil `rag`) y el `.env` de la raíz del repo:
+| Variable | Obligatoria | Uso |
+|---|---|---|
+| `ELEA_BACKEND_URL` | sí | backend de Guardian (`http://backend:8000/api/v1`) |
+| `ANYTHINGLLM_URL`, `ANYTHINGLLM_API_KEY` | no | motor de documentos |
+| `TABULAR_URL`, `TABULAR_INTERNAL_TOKEN` | no | motor de planillas |
+| `PRESENTON_URL` | no | motor de presentaciones (`http://presenton:80`) |
+| `PRESENTON_ADMIN_PORT` | no | segundo puerto con la pantalla de plantillas de Presenton, solo admins (8097) |
+| `ARTIFACTS_DIR` | no | carpeta de archivos generados (`/app/data/artifacts`, volumen) |
+| `HUB_BRAND_*` | no | marca de la instalación (nombre, tagline, logo, etiquetas) |
 
-```
-ELEA_BACKEND_URL=http://backend:8000/api/v1
-ELEA_SERVICE_USERNAME=admin
-ELEA_SERVICE_PASSWORD=<contraseña del admin de elea>
-ANYTHINGLLM_URL=http://anythingllm:3001
-ANYTHINGLLM_API_KEY=<generada en AnythingLLM, ver abajo>
-```
+Sin `TABULAR_URL`/`PRESENTON_URL` la sección correspondiente no aparece.
 
-### Generar la API key de AnythingLLM (paso manual, una vez por instancia)
+## Sesiones
 
-AnythingLLM no expone un endpoint de alta sin sesión. Con el contenedor arriba:
+La sesión vive en memoria del proceso: **reiniciar o reconstruir el contenedor cierra todas las
+sesiones** y cada persona vuelve a entrar. Las cookies no distinguen puerto, por eso la misma
+sesión vale para el 8095 y el 8097.
 
-```bash
-docker exec elea-anythingllm node -e "
-const {PrismaClient} = require('/app/server/node_modules/@prisma/client');
-const p = new PrismaClient();
-p.api_keys.create({data:{name:'elea-rag-client', secret: require('crypto').randomBytes(32).toString('hex')}})
-  .then(r => console.log(r.secret)).finally(() => process.exit());
-"
-```
-
-Después, apuntar el proveedor LLM de AnythingLLM al motor de `elea` (nunca a un motor
-externo, y nunca con una key de ejemplo commiteada):
+## Desarrollo y pruebas
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/system/update-env \
-  -H "Authorization: Bearer <la key de arriba>" -H 'Content-Type: application/json' \
-  -d '{"LLMProvider":"generic-openai","GenericOpenAiBasePath":"http://engine:4000/v1","GenericOpenAiModelPref":"azure-gpt-4o-mini","GenericOpenAiKey":"<virtual key de elea>"}'
+cd client && npm install
+npm test          # 37 pruebas: dobles HTTP reales de Guardian, motor de documentos, tabular y Presenton
+npm start         # escucha en PORT (8095)
 ```
 
-### Enmascarado (spec 050, 12-sep-2026)
-
-El Hub **no enmascara**: Guardian es firewall + base de usuarios y no recibe archivos. Los
-documentos suben crudos al motor de documentos local; la PII se enmascara únicamente cuando
-el motor manda el prompt por `engine:4000/v1/chat/completions` con su llave de servicio.
-
-## Límites conocidos de esta versión
-
-- **Sin historial persistente entre recargas**: los mensajes de chat viven solo en el
-  navegador mientras la pestaña está abierta (AnythingLLM sí guarda el hilo del lado de
-  servidor; el cliente no lo relee al recargar).
-- **Previsualización de documentos**: no implementada en esta vuelta (se puede ver qué
-  documentos hay y su tamaño, no el contenido completo).
-
-## Resuelto (31-ago, ronda de prueba multi-usuario)
-
-- ✅ **Sesión por navegador**: cada uno tiene su propia cookie (`elea_rag_sid`), sesiones
-  aisladas — verificado con 2 usuarios simultáneos, sin cruce.
-- ✅ **CBU enmascarado** (faltaba, ver `specs/040.../tasks.md` Fase 7).
-- ✅ **Auto-router sin Ollama**: default y las 3 categorías resuelven a `azure-gpt-4o-mini`
-  (antes colgaban 30s o fallaban por falta de credencial).
+Compose de desarrollo: perfil `rag` (`docker compose --profile rag --profile tabular --profile presentations up -d --build client`).
+Regla de marca (spec 044): ningún nombre interno de motor o proveedor en el HTML servido ni en los
+mensajes de error.

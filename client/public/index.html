@@ -1735,7 +1735,13 @@
           cols.appendChild(label);
           (t.columns || []).forEach((c) => {
             const chip = document.createElement('span');
-            chip.textContent = c.name;
+            chip.textContent = c.description ? `${c.name} ✎` : c.name;
+            chip.title = c.description
+              ? `${c.label && c.label !== c.name ? c.label + ' — ' : ''}${c.description} (clic para editar)`
+              : `${c.label && c.label !== c.name ? c.label + ' — ' : ''}clic para explicar qué significa esta columna`;
+            chip.style.cursor = 'pointer';
+            if (c.description) chip.style.background = '#e6f4ea';
+            chip.onclick = () => editarDescripcionColumna(t.alias || t.name, c);
             cols.appendChild(chip);
           });
           card.appendChild(cols);
@@ -1757,6 +1763,22 @@
           : '<div style="font-size:14px; font-weight:700;">Este espacio no tiene planillas</div><div style="font-size:13px; color:var(--text-muted);">Subí un .csv o .xlsx desde el panel de la derecha.</div>';
         feed.appendChild(empty);
       }
+    }
+
+    // Diccionario de datos: qué significa cada columna (ej. "Ce." = centro logístico). Lo que se
+    // escribe acá viaja al modelo con cada pregunta de este espacio.
+    async function editarDescripcionColumna(tabla, col) {
+      const etiqueta = col.label && col.label !== col.name ? `${col.name} (en la planilla: "${col.label}")` : col.name;
+      const desc = prompt(`¿Qué significa la columna ${etiqueta}?\nEjemplo: "centro logístico", "importe en pesos sin IVA". Dejá vacío para borrar.`, col.description || '');
+      if (desc === null) return;
+      const res = await fetch(`/api/tabular/workspaces/${currentExactAnalysisWorkspace.id}/dictionary`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables: { [tabla]: { [col.name]: desc.trim() } } })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(data.error || 'No se pudo guardar la descripción.'); return; }
+      showToast(desc.trim() ? `Guardado: ${col.name} = ${desc.trim()}` : `Descripción de ${col.name} borrada`);
+      await loadExactAnalysisFiles();
     }
 
     async function deleteExactAnalysisFile(fileId) {

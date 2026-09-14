@@ -18,8 +18,14 @@ reindexado. **Sin enmascarado** (FR-001/002). Respuesta sin los campos `entities
 
 ## Nuevo: `GET /api/features`
 
-**Response 200**: `{ "documents": bool, "tabular": bool, "presentations": bool, "docgen": bool }`
-según `ANYTHINGLLM_URL`, `TABULAR_URL`, `PRESENTON_URL`, `DOCGEN_URL` no vacías.
+**Response 200**: `{ "documents": bool, "tabular": bool, "presentations": bool, "presentations_admin_port": int|null, "docgen": bool }`
+según `ANYTHINGLLM_URL`, `TABULAR_URL`, `PRESENTON_URL`, `PRESENTON_ADMIN_PORT`, `DOCGEN_URL` no vacías.
+
+## Nuevo: proxy de administración de plantillas (segundo puerto, `PRESENTON_ADMIN_PORT`)
+
+Todo lo que llega a ese puerto se reenvía a la pantalla de Presenton **solo si** la cookie de sesión
+del Hub corresponde a un rol `tenant_admin`/`super_admin`; si no, página "Solo administradores"
+(403) y Presenton no recibe nada. La cookie del Hub no viaja a Presenton.
 
 ## Renombrado: `/api/tabular/*` (antes `/api/exact-analysis/*`)
 
@@ -33,6 +39,7 @@ Antes de cada ruta con `{id}`: `GET /workspaces/{id}` en Guardian con el token d
 | `POST /api/tabular/workspaces/{id}/files` | multipart `file` (csv/xlsx, ≤ 50 MB) | `{ file_id, tables: [ { name, columns: [..], rows } ] }` | `413 { code: "file_too_large" }`, `415 { code: "unsupported_format" }` |
 | `GET /api/tabular/workspaces/{id}/files` | — | `{ files: [ { file_id, name, tables: [..], uploaded_at } ] }` | — |
 | `DELETE /api/tabular/workspaces/{id}/files/{file_id}` | — | `{ status: "ok" }` | — |
+| `PUT /api/tabular/workspaces/{id}/dictionary` | `{ tables: { <alias>: { <columna>: descripción } } }` (vacío borra) | `{ updated: n }` | `403` sin membresía |
 | `POST /api/tabular/workspaces/{id}/query` | `{ question, history?: [ { question, answer } ] (≤ 5) }` | `{ answer, sql, rows: [ {..} ] (≤ 500), columns: [..], model_used }` | `422 { code: "unsafe_sql" }`, `402 { code: "budget_exceeded" }`, `504 { code: "timeout" }` |
 
 ## Nuevo: `GET /api/presentations/templates`
@@ -78,6 +85,8 @@ Almacenamiento: `/app/data/artifacts/<userId>/<uuid>.<ext>` + `/app/data/artifac
 | `ANYTHINGLLM_URL`, `ANYTHINGLLM_API_KEY` | no | motor de documentos |
 | `TABULAR_URL`, `TABULAR_INTERNAL_TOKEN` | no | motor tabular |
 | `PRESENTON_URL` | no | motor de presentaciones |
+| `PRESENTON_ADMIN_PORT` | no | pantalla de plantillas de Presenton para admins (8097) |
+| `ARTIFACTS_DIR` | no | archivos generados (`/app/data/artifacts`) |
 | `DOCGEN_URL`, `DOCGEN_INTERNAL_TOKEN` | no | motor de documentos generados (049) |
 | `HUB_BRAND_*` | no | marca |
 | ~~`MASKING_VIRTUAL_KEY`~~ | eliminada | — |

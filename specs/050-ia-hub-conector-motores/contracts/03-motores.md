@@ -43,6 +43,11 @@ Guardian; FR-051). Compose dev debe dejar de usar la llave maestra (FR-050).
 ### `GET /v1/spaces/{workspace_id}/files`
 **Response 200**: `{ "files": [ { file_id, name, tables: [..], uploaded_at } ] }`.
 
+### `PUT /v1/spaces/{workspace_id}/dictionary`
+**Request**: `{ "tables": { "<alias o nombre>": { "<columna>": "descripción" } } }` — descripción vacía borra.
+**Response 200**: `{ "updated": n }`. La descripción se guarda en `meta.json` y aparece en el esquema
+que ve el modelo: `- ce: VARCHAR — en la planilla se llama "Ce." — significa: centro logístico`.
+
 ### `DELETE /v1/spaces/{workspace_id}/files/{file_id}`
 **Response 200**: `{ "status": "ok" }` (borra tablas y archivo).
 

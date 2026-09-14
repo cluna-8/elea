@@ -66,6 +66,8 @@ function buildFakeTabular() {
     let m = pathname.match(/^\/v1\/spaces\/([^/]+)\/files$/);
     if (m && req.method === 'GET') return send(200, { files: [{ file_id: 'f1', name: 'ventas.csv', tables: [{ name: 'f1_ventas', columns: [{ name: 'depto', type: 'VARCHAR' }], rows: 3 }] }] });
     if (m && req.method === 'POST') return send(201, { file_id: 'f1', name: 'ventas.csv', tables: [{ name: 'f1_ventas', columns: [{ name: 'depto', type: 'VARCHAR' }, { name: 'monto', type: 'BIGINT' }], rows: 3, sample: [] }] });
+    m = pathname.match(/^\/v1\/spaces\/([^/]+)\/dictionary$/);
+    if (m && req.method === 'PUT') return send(200, { updated: Object.values(body.tables || {}).reduce((n, t) => n + Object.keys(t).length, 0) });
     m = pathname.match(/^\/v1\/spaces\/([^/]+)\/files\/([^/]+)$/);
     if (m && req.method === 'DELETE') return send(m[2] === 'f1' ? 200 : 404, m[2] === 'f1' ? { status: 'ok' } : { detail: { code: 'file_not_found' } });
     m = pathname.match(/^\/v1\/spaces\/([^/]+)\/query$/);
@@ -127,6 +129,10 @@ test('planillas: crear espacio (kind en Guardian), subir multipart al motor, lis
   assert.strictEqual(q.body.answer, 'Ventas suma 150.');
   assert.deepStrictEqual(q.body.columns, ['depto', 'total']);
   assert.ok(q.body.sql.startsWith('SELECT'));
+
+  const dic = await ana.put('/api/tabular/workspaces/ws-ea-1/dictionary').send({ tables: { t1: { monto: 'importe sin IVA' } } });
+  assert.strictEqual(dic.status, 200); assert.deepStrictEqual(dic.body, { updated: 1 });
+  assert.strictEqual((await ana.put('/api/tabular/workspaces/ws-ea-ajeno/dictionary').send({ tables: {} })).status, 403);
 
   assert.strictEqual((await ana.delete('/api/tabular/workspaces/ws-ea-1/files/f1')).status, 200);
   assert.strictEqual((await ana.delete('/api/tabular/workspaces/ws-ea-1/files/zz')).status, 404);

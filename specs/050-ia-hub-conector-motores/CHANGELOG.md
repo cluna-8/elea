@@ -33,6 +33,16 @@ dueño el 13-sep tras el diagnóstico.**
 - **Alcance no cubierto:** la bóveda (placeholders ecoados de requests pasados) sigue aplicando
   solo al camino no-streaming, igual que antes.
 
+## 14-sep-2026 — Diccionario de datos por espacio (FR-027) y cierre de la documentación
+
+- tabular `PUT /v1/spaces/{ws}/dictionary` + Hub `PUT /api/tabular/workspaces/{id}/dictionary` +
+  clic en la columna en la UI. Probado con `stock_21052026.xlsx` (columnas SAP `Ce.`, `Alm.`,
+  `UMB`, `decision_de_empleo`): con "vacío = pendiente" el SQL contó también las cadenas vacías.
+- Imágenes republicadas: las 4 del repo `elea` (`latest` y `2026-09-14`).
+- Documentación: `client/README.md` reescrito, `tabular/README.md`, `docs/api-reference/configuration.md`,
+  `docs/administration/eleia-hub-workspaces.md` (planillas, presentaciones, plantillas, multiusuario),
+  README del instalador. Spec 050 pasa a **Implementada**.
+
 ## 14-sep-2026 — Administración de plantillas reusando la pantalla de Presenton
 
 Decisión del dueño: "sacar todo lo posible de Presenton para evitar desarrollar en el Hub".

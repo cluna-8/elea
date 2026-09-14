@@ -24,6 +24,7 @@ Cabeceras obligatorias: `Authorization: Bearer <TABULAR_INTERNAL_TOKEN>` y `X-Hu
 | `POST /v1/spaces/{ws}/files` multipart `file` | carga csv/xlsx (≤ 50 MB); devuelve tablas, columnas, filas y muestra |
 | `GET /v1/spaces/{ws}/files` | lista archivos y tablas |
 | `DELETE /v1/spaces/{ws}/files/{file_id}` | borra archivo y sus tablas |
+| `PUT /v1/spaces/{ws}/dictionary` `{tables: {alias: {columna: descripción}}}` | diccionario de datos: qué significa cada columna; viaja al modelo en cada pregunta |
 | `POST /v1/spaces/{ws}/query` `{question, history[]}` | `{sql, columns, rows, answer, model_used}` |
 | `GET /health` | sin auth, para el healthcheck |
 
@@ -31,11 +32,22 @@ Errores con código estable en `detail.code`: `unauthorized`, `missing_user`, `s
 `space_exists`, `unsupported_format`, `file_too_large`, `empty_file`, `no_files`, `unsafe_sql`,
 `sql_error`, `not_answerable`, `engine_error` (con `status` 400/401/402 del engine), `timeout`.
 
+## Cómo ve el modelo cada espacio
+
+Por cada tabla: alias corto `tN` (vista DuckDB; el nombre largo confundía al firewall, que lo
+tomaba por un nombre de persona), nombre legible (archivo y hoja original), columnas con tipo,
+rótulo original de la planilla y descripción del diccionario si la hay, 5 filas de ejemplo, y las
+columnas en común entre tablas (claves para JOIN). El encabezado real se detecta aunque haya
+título y notas arriba (planillas armadas a mano). Acentos normalizados en los nombres técnicos.
+
 ## Seguridad del SQL (FR-023), dos capas
 
 1. `app/sqlguard.py`: una sola sentencia `SELECT`/`WITH`; sin funciones de archivo ni de
    sistema; sin tablas que sean rutas o URLs; solo tablas del espacio; `LIMIT 500` forzado.
-   Lo que no pasa se rechaza, nunca se "sanea". Un reintento con el motivo al modelo.
+   Lo que no pasa se rechaza, nunca se "sanea". Un reintento con el motivo al modelo. Si sqlglot
+   no puede interpretar la consulta (p. ej. muy larga), pasa una validación conservadora sin AST
+   (forma SELECT, sin palabras ni funciones prohibidas, sin comentarios ni comillas sin cerrar) y
+   la decide la conexión de solo lectura.
 2. `app/store.py`: la consulta corre en una conexión DuckDB `read_only=True` con
    `enable_external_access=false`, `memory_limit`, `threads=2`, `lock_configuration=true`
    y `interrupt()` a los 20 s.

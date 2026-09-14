@@ -164,3 +164,12 @@ def test_sql_no_parseable_va_por_fallback_y_ejecuta(client, monkeypatch):
     r = client.post("/v1/spaces/ws-1/query", json={"question": "cuántas"}, headers=H)
     assert r.status_code == 200, r.text
     assert r.json()["rows"] == [{"n": 3, "uno": 1}]
+
+
+def test_diccionario_endpoint(client, monkeypatch):
+    _space_with_csv(client)
+    r = client.put("/v1/spaces/ws-1/dictionary", json={"tables": {"t1": {"monto": "importe en pesos sin IVA"}}}, headers=H)
+    assert r.status_code == 200 and r.json() == {"updated": 1}
+    cols = client.get("/v1/spaces/ws-1/files", headers=H).json()["files"][0]["tables"][0]["columns"]
+    assert next(c for c in cols if c["name"] == "monto")["description"] == "importe en pesos sin IVA"
+    assert client.put("/v1/spaces/nope/dictionary", json={"tables": {}}, headers=H).status_code == 404

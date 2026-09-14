@@ -165,3 +165,15 @@ def test_nombre_legible_de_hoja(store):
     labels = store.table_labels("ws")
     assert labels["t1"] == 'libro.xlsx, hoja "Vendedores"' and labels["t2"] == 'libro.xlsx, hoja "Otra hoja"'
     assert 'nombre legible para mostrar: "libro.xlsx, hoja "Vendedores""' in store.schema_text("ws")
+
+
+def test_diccionario_de_datos_viaja_al_esquema(store):
+    store.create_space("ws")
+    e = store.load_file("ws", "stock.csv", "Ce.,Alm.,UMB\nAR06,6451,UN\n".encode("utf-8"))
+    n = store.set_dictionary("ws", {"t1": {"ce": "centro logístico (planta)", "umb": "unidad de medida base", "no_existe": "x"}})
+    assert n == 2
+    schema = store.schema_text("ws")
+    assert "ce: VARCHAR — en la planilla se llama \"Ce.\" — significa: centro logístico (planta)" in schema
+    assert store.list_files("ws")[0]["tables"][0]["columns"][0]["description"] == "centro logístico (planta)"
+    assert store.set_dictionary("ws", {e["tables"][0]["name"]: {"ce": ""}}) == 1
+    assert "description" not in store.list_files("ws")[0]["tables"][0]["columns"][0]

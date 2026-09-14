@@ -405,12 +405,36 @@ class SpaceStore:
                 for c in t["columns"]:
                     label = c.get("label") or c["name"]
                     extra = f' — en la planilla se llama "{label}"' if label != c["name"] else ""
+                    if c.get("description"):
+                        extra += f' — significa: {c["description"]}'
                     parts.append(f'  - {c["name"]}: {c["type"]}{extra}')
                 if t["sample"]:
                     parts.append("  Filas de ejemplo (JSON):")
                     parts.extend("    " + json.dumps(r, ensure_ascii=False) for r in t["sample"])
                 parts.append("")
         return "\n".join(parts).rstrip()
+
+    def set_dictionary(self, ws: str, entries: dict[str, dict[str, str]]) -> int:
+        """Diccionario de datos por espacio (pedido del dueño 13-sep): descripción por columna,
+        `{tabla_o_alias: {columna: "qué significa"}}`. Se guarda en meta y viaja al modelo en el
+        esquema de cada pregunta. Descripción vacía = borrar. Devuelve cuántas columnas cambió."""
+        self._require(ws)
+        meta = self._read_meta(ws)
+        cambios = 0
+        for f in meta["files"]:
+            for t in f["tables"]:
+                por_tabla = entries.get(t.get("alias") or "") or entries.get(t["name"]) or {}
+                for c in t["columns"]:
+                    if c["name"] in por_tabla:
+                        desc = str(por_tabla[c["name"]] or "").strip()[:300]
+                        if desc:
+                            c["description"] = desc
+                        else:
+                            c.pop("description", None)
+                        cambios += 1
+        with self._lock(ws):
+            self._write_meta(ws, meta)
+        return cambios
 
     def table_labels(self, ws: str) -> dict[str, str]:
         """alias/nombre técnico → nombre legible ("archivo, hoja") para las respuestas."""
