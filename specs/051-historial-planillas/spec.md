@@ -17,7 +17,15 @@ existe (`/workspaces/{id}/threads`), sin cambiarlo. **No toca `litellm/`.**
 armamos bien". **Regla sellada el mismo día**: Guardian y el Hub **no comparten base de datos**.
 Guardian es el gateway con las políticas, lo usan otros programas además del Hub y tiene que
 poder actualizarse solo; el Hub cambia todo el tiempo y no puede arriesgar la base de Guardian.
-Si el Hub necesita guardar, es con base propia y ciclo de vida propio. Reglas heredadas de la 050 que esta spec no puede romper: Guardian no guarda
+Si el Hub necesita guardar, es con base propia y ciclo de vida propio.
+
+**Principio que está detrás (dueño, 14-sep)**: la relación Guardian ↔ Hub es **cliente ↔
+proveedor**, y por eso el login del Hub es por API. Nada de código compartido, nada de base
+compartida, nada de imports cruzados: lo único que los une es el contrato de la API de Guardian
+(login, identidad, presupuesto, modelos, chat, registro de espacios e hilos). Consecuencias: (1)
+todo dato del Hub vive en el Hub o en sus motores, Guardian solo guarda lo que le llega por su
+API; (2) cada uno cambia de versión sin tocar al otro mientras respete el contrato; (3) el SSO lo
+resuelve Guardian y el Hub lo hereda por la misma API. Reglas heredadas de la 050 que esta spec no puede romper: Guardian no guarda
 mensajes ni conoce los motores; el Hub es un conector fino que no guarda mensajes de chat; cada
 motor guarda lo suyo; una persona solo ve su trabajo.
 
