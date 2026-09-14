@@ -96,7 +96,14 @@ propia a partir del PPTX corporativo del cliente usa el flujo de Presenton (`/te
 Guardian); **queda para el hito 6/plan** exponerlo como acción de admin desde el Hub, porque la UI de
 Presenton no es accesible (FR-032).
 
-**Restricciones**: UI de Presenton no accesible por personas (FR-032).
+**Administración de plantillas (13-sep, decisión del dueño: "sacar todo lo posible de Presenton"):** la
+pantalla de Presenton (`/templates`, `/custom-template`, `/template-preview`) se publica **por el Hub** en
+un segundo puerto (`PRESENTON_ADMIN_PORT`, 8097) mediante un proxy que exige sesión del Hub con rol
+`tenant_admin`/`super_admin`; la cookie del Hub no viaja a Presenton. Presenton sigue sin puertos propios.
+Ahí el admin crea la plantilla corporativa a partir del PPTX de Elea; el Hub la lista y muestra su
+miniatura (`GET /api/presentations/templates/{id}/thumbnail`).
+
+**Restricciones**: UI de Presenton no accesible por personas comunes (FR-032); solo admins vía el proxy.
 
 ---
 

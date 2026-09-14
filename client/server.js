@@ -28,6 +28,12 @@ const DOCGEN_URL = (process.env.DOCGEN_URL || '').replace(/\/$/, '');
 // Artefactos generados por persona (spec 050 FR-015): pptx/pdf hoy, docx/xlsx después.
 const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(__dirname, 'data', 'artifacts');
 const PRESENTON_TIMEOUT_MS = parseInt(process.env.PRESENTON_TIMEOUT_MS || '300000', 10);
+// Administración de plantillas (spec 050, pedido 13-sep): en vez de programar en el Hub la
+// creación de plantillas desde un PPTX, se reusa ENTERA la pantalla de Presenton, publicada por
+// el Hub en un segundo puerto solo para administradores (sesión del Hub + rol admin). Presenton
+// sigue sin puertos propios (FR-032): el único camino es este proxy.
+const PRESENTON_ADMIN_PORT = parseInt(process.env.PRESENTON_ADMIN_PORT || '0', 10);
+const HUB_ADMIN_ROLES = ['super_admin', 'tenant_admin'];
 
 // Marca como CONFIG en runtime (mismo criterio que `frontend/src/services/branding.ts`,
 // spec 020 US2) — encontrado en revisión (09-sep): el Hub tenía "Elea"/"Eleia"/"Laboratorios
@@ -913,6 +919,7 @@ app.get('/api/features', (req, res) => {
     documents: !!process.env.ANYTHINGLLM_URL || !!ANYTHINGLLM_API_KEY,
     tabular: !!(TABULAR_URL && TABULAR_INTERNAL_TOKEN),
     presentations: !!PRESENTON_URL,
+    presentations_admin_port: (PRESENTON_URL && PRESENTON_ADMIN_PORT) ? PRESENTON_ADMIN_PORT : null,
     docgen: !!DOCGEN_URL
   });
 });
@@ -1291,6 +1298,62 @@ app.get('/api/presentations/templates', async (req, res) => {
   }
 });
 
+// Miniatura de una plantilla (para elegirla viendo cómo es). Solo imágenes de `app_data/templates`.
+app.get('/api/presentations/templates/:id/thumbnail', async (req, res) => {
+  const session = requireSession(req, res);
+  if (!session) return;
+  if (!presentacionesDisponible(res)) return;
+  const id = String(req.params.id).replace(/[^A-Za-z0-9_-]/g, '');
+  try {
+    const r = await fetch(`${PRESENTON_URL}/api/v1/ppt/template/all`);
+    const data = r.ok ? await r.json() : { items: [] };
+    const t = (data.items || []).find((x) => x.id === id);
+    if (!t || !t.thumbnail) return res.status(404).end();
+    const img = await fetch(`${PRESENTON_URL}${t.thumbnail.startsWith('/') ? '' : '/'}${t.thumbnail}`);
+    if (!img.ok) return res.status(404).end();
+    res.setHeader('Content-Type', img.headers.get('content-type') || 'image/png');
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.end(Buffer.from(await img.arrayBuffer()));
+  } catch (err) {
+    res.status(502).end();
+  }
+});
+
+// Proxy de administración hacia la pantalla de Presenton (segundo puerto). La cookie de sesión
+// del Hub vale acá porque los navegadores no distinguen puerto en las cookies de `localhost`
+// ni de un mismo host: quien entró al Hub como admin, entra acá; nadie más.
+function crearProxyAdminPresenton() {
+  const http = require('http');
+  const target = new URL(PRESENTON_URL);
+  const PAGINA_403 = `<!doctype html><meta charset="utf-8"><title>Plantillas</title>
+<body style="font-family:sans-serif;max-width:520px;margin:80px auto;line-height:1.5">
+<h2>Solo administradores</h2><p>La administración de plantillas de presentaciones es para cuentas de
+administrador. Entrá primero al Hub con una cuenta de administrador y volvé a abrir esta página.</p></body>`;
+  const server = http.createServer((req, res) => {
+    const cookies = parseCookies(req.headers.cookie);
+    const session = sessions.get(cookies[SID_COOKIE]) || null;
+    if (!session || !HUB_ADMIN_ROLES.includes(session.user.role)) {
+      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(PAGINA_403);
+    }
+    const headers = { ...req.headers, host: target.host };
+    delete headers.cookie; // la sesión del Hub no viaja a Presenton
+    const up = http.request({
+      hostname: target.hostname, port: target.port || 80, method: req.method, path: req.url, headers
+    }, (upRes) => {
+      res.writeHead(upRes.statusCode, upRes.headers);
+      upRes.pipe(res);
+    });
+    up.on('error', (err) => {
+      console.error('proxy presenton:', err.message);
+      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('El servicio de presentaciones no está disponible.');
+    });
+    req.pipe(up);
+  });
+  return server;
+}
+
 app.post('/api/presentations/generate', async (req, res) => {
   const session = requireSession(req, res);
   if (!session) return;
@@ -1376,7 +1439,13 @@ if (require.main === module) {
     console.log(`  servicio de documentos: ${ANYTHINGLLM_URL}`);
     console.log(`  motor tabular:          ${TABULAR_URL || '(no configurado)'}`);
     console.log(`  presentaciones:         ${PRESENTON_URL || '(no configurado)'}`);
+    if (PRESENTON_URL && PRESENTON_ADMIN_PORT) {
+      crearProxyAdminPresenton().listen(PRESENTON_ADMIN_PORT, () => {
+        console.log(`  plantillas (solo admin): http://localhost:${PRESENTON_ADMIN_PORT}/templates`);
+      });
+    }
   });
 }
 
 module.exports = app;
+module.exports.crearProxyAdminPresenton = crearProxyAdminPresenton;

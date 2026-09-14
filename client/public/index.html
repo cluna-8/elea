@@ -481,6 +481,7 @@
       <button class="hub-mode-tab active" id="tab-chat" onclick="switchHubView('chat')" title="Chat sobre documentos (RAG)">💬 Chat</button>
       <button class="hub-mode-tab" id="tab-exact-analysis" onclick="switchHubView('exact-analysis')" title="Cálculos exactos sobre planillas — sumas, conteos, cruces entre archivos. No es el chat de documentos." style="display:none;">📊 Planillas</button>
       <button class="hub-mode-tab" id="tab-artifacts" onclick="openArtifactsModal()" title="Presentaciones y documentos que generaste" style="display:none;">📁 Mis archivos</button>
+      <button class="hub-mode-tab" id="tab-templates-admin" onclick="openTemplatesAdmin()" title="Cargar la plantilla corporativa y administrar las plantillas de presentaciones (solo administradores)" style="display:none;">🎨 Plantillas</button>
     </div>
 
     <!-- Usuario real + presupuesto real -->
@@ -870,8 +871,9 @@
       <div class="modal-label" style="margin-bottom:8px;">Se arma a partir de la respuesta elegida. Tarda entre uno y dos minutos.</div>
       <input type="text" id="presentation-title" class="modal-input" placeholder="Título (ej. Resultados ventas 2025)">
       <label style="display:block; font-size:12.5px; color:var(--text-muted); margin-top:8px;">Plantilla modelo
-        <select id="presentation-template" class="modal-input" style="margin-top:4px;"><option value="general">General</option></select>
+        <select id="presentation-template" class="modal-input" style="margin-top:4px;" onchange="updateTemplateThumb()"><option value="general">General</option></select>
       </label>
+      <img id="presentation-template-thumb" alt="" style="display:none; width:100%; border:1px solid var(--border-color); border-radius:8px; margin-top:6px;" onerror="this.style.display='none'">
       <div style="display:flex; gap:8px; margin-top:8px;">
         <label style="flex:1; font-size:12.5px; color:var(--text-muted);">Diapositivas
           <input type="number" id="presentation-slides" class="modal-input" value="8" min="3" max="20" style="margin-top:4px;">
@@ -1643,6 +1645,7 @@
       } catch (err) { /* sin features = defaults */ }
       document.getElementById('tab-exact-analysis').style.display = hubFeatures.tabular ? '' : 'none';
       document.getElementById('tab-artifacts').style.display = (hubFeatures.presentations || hubFeatures.docgen) ? '' : 'none';
+      document.getElementById('tab-templates-admin').style.display = (hubFeatures.presentations_admin_port && isHubAdmin()) ? '' : 'none';
       if (!hubFeatures.tabular) switchHubView('chat');
       if (typeof renderMessages === 'function' && messages.length) renderMessages();
     }
@@ -1927,6 +1930,7 @@
             items.forEach((t) => { const o = document.createElement('option'); o.value = t.id; o.textContent = t.custom ? `${t.name} (propia)` : t.name; sel.appendChild(o); });
             const propia = items.find((t) => t.custom); sel.value = propia ? propia.id : (items.find((t) => t.id === 'general') ? 'general' : items[0].id);
           }
+          updateTemplateThumb();
         }
       } catch (err) { /* se queda con la default */ }
       const box = document.getElementById('presentation-tabular-box');
@@ -1941,6 +1945,19 @@
       }
     }
     function closePresentationModal() { document.getElementById('modal-presentation').classList.remove('active'); }
+    // Administración de plantillas: pantalla de Presenton publicada por el Hub en otro puerto,
+    // solo para admins (el proxy vuelve a verificar la sesión y el rol).
+    function openTemplatesAdmin() {
+      if (!hubFeatures.presentations_admin_port) return;
+      window.open(`${location.protocol}//${location.hostname}:${hubFeatures.presentations_admin_port}/templates`, '_blank');
+    }
+    function updateTemplateThumb() {
+      const sel = document.getElementById('presentation-template');
+      const img = document.getElementById('presentation-template-thumb');
+      if (!sel.value) { img.style.display = 'none'; return; }
+      img.src = `/api/presentations/templates/${encodeURIComponent(sel.value)}/thumbnail`;
+      img.style.display = '';
+    }
 
     async function submitPresentation() {
       if (currentBudget && currentBudget.status === 'exceeded') { showToast(MENSAJE_PRESUPUESTO_AGOTADO); return; }

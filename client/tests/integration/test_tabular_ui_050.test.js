@@ -97,7 +97,7 @@ test('planillas: crear espacio (kind en Guardian), subir multipart al motor, lis
   const { ana, guardian, tabular } = await boot(t);
 
   const feat = await ana.get('/api/features');
-  assert.deepStrictEqual(feat.body, { documents: true, tabular: true, presentations: false, docgen: false });
+  assert.deepStrictEqual(feat.body, { documents: true, tabular: true, presentations: false, presentations_admin_port: null, docgen: false });
 
   const created = await ana.post('/api/tabular/workspaces').send({ display_name: 'Nuevo' });
   assert.strictEqual(created.status, 200, JSON.stringify(created.body));

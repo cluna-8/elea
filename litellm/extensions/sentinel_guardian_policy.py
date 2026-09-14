@@ -71,6 +71,7 @@ PLACEHOLDER_TOKEN_RE = re.compile(r"\[[A-Z][A-Za-z0-9_]*_\d+_[0-9a-f]+\]")
 PH_TAIL_RE = re.compile(r"\[$|\[[A-Z][A-Za-z0-9_]*$")
 # Máximo largo de un fragmento retenible (un placeholder real nunca supera esto).
 MAX_CARRY = 48
+NLP_TIMEOUT_S = float(os.getenv("SENTINEL_NLP_TIMEOUT_S", "15"))
 
 # Tipo de delta Anthropic → campo JSON que lleva su texto.
 DELTA_FIELDS = {"text_delta": "text", "thinking_delta": "thinking", "input_json_delta": "partial_json"}
@@ -593,7 +594,7 @@ def _get_http_client() -> httpx.AsyncClient:
 
 
 async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[list] = None,
-                           region: str = DEFAULT_REGION, timeout: float = 15.0,
+                           region: str = DEFAULT_REGION, timeout: Optional[float] = None,
                            custom_entities: Optional[list] = None) -> list:
     # timeout subido de 2.0 -> 15.0 (31-ago, cliente RAG): medido en vivo, el spaCy
     # es_core_news_md real procesa ~330 caracteres/segundo por CPU (1 core al 100%) —
@@ -609,6 +610,11 @@ async def presidio_analyze(text: str, analyzer_url: str, custom_names: Optional[
     + ad-hoc) — cobertura amplia de "todo lo que no cumpla GDPR", no una lista fija."""
     if not text:
         return []
+    # Spec 050 (14-sep): configurable por env. Presenton manda prompts largos (HTML de una
+    # diapositiva) y a ~330 chars/s el analyzer supera los 15 s → fail-closed "no disponible".
+    # Default 15 (sin cambios); en las instalaciones con motores de generación se sube a 60.
+    if timeout is None:
+        timeout = NLP_TIMEOUT_S
     payload = {
         "text": text,
         "language": "es",

@@ -33,6 +33,25 @@ dueño el 13-sep tras el diagnóstico.**
 - **Alcance no cubierto:** la bóveda (placeholders ecoados de requests pasados) sigue aplicando
   solo al camino no-streaming, igual que antes.
 
+## 14-sep-2026 — Administración de plantillas reusando la pantalla de Presenton
+
+Decisión del dueño: "sacar todo lo posible de Presenton para evitar desarrollar en el Hub".
+- El Hub publica la pantalla de Presenton (`/templates`, `/custom-template`) en un segundo puerto
+  (`PRESENTON_ADMIN_PORT`, 8097) con un proxy que exige sesión del Hub con rol admin; la cookie
+  del Hub no viaja a Presenton; Presenton sigue sin puertos. Pestaña "Plantillas" solo para admins.
+  Miniatura de la plantilla elegida en el modal (`/api/presentations/templates/{id}/thumbnail`).
+- Probado en vivo con `HUB Elea.pptx` (6 diapositivas). Tres obstáculos reales y sus ajustes:
+  1. El firewall bloqueaba con "detector de datos personales no disponible": el prompt de cada
+     diapositiva (HTML) supera lo que el analyzer procesa en 15 s (~330 chars/s). Nuevo
+     `SENTINEL_NLP_TIMEOUT_S` (default 15, sin cambios; 60 en los composes con motores).
+  2. 429 del engine: la llave `svc.presenton` tenía 100k tokens/min y Presenton manda 6 slides
+     con imagen en paralelo. Llave recreada con rpm 300 / tpm 2.000.000; el instalador acepta
+     rpm/tpm por cuenta.
+  3. `azure-gpt-5.1-chat` no sirve para este flujo (rate limit de Azure, timeouts, 500). Se
+     mantiene `azure-gpt-5.4-mini`; en el primer intento salieron 5/6 layouts (uno inválido por
+     validación de esquema de Presenton, que exige los 6).
+- La sesión del Hub vive en memoria: cada rebuild del contenedor cierra las sesiones.
+
 ## 13-sep-2026 — Hito 5: encadenado y plantillas modelo
 
 - `POST /api/handoff`: respuesta + pregunta a un espacio de planillas → presentación. Si la

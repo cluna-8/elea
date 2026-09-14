@@ -95,6 +95,9 @@ services:
       - LITELLM_LOG=INFO
       # Motor NLP real (spec 016) — nombre de servicio compose, puerto interno del app.py
       - NLP_ANALYZER_URL=http://nlp-analyzer:3000
+      # Spec 050: los motores de generación (Presenton, plantillas) mandan prompts largos; el
+      # analyzer procesa ~330 chars/s. 15 s los bloqueaba como "NLP no disponible".
+      - SENTINEL_NLP_TIMEOUT_S=${SENTINEL_NLP_TIMEOUT_S:-60}
       - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-eu}
       # Bóveda persistente de PII opt-in (decisión de Elea 02-sep, ver docstring de
       # sentinel_guardian_policy.py): sin esto el RAG documental NUNCA podía
@@ -351,8 +354,12 @@ services:
     container_name: ${STACK_PREFIX:-sentinel}-client
     ports:
       - "8095:8095"
+      # Administración de plantillas de presentaciones (spec 050): pantalla de Presenton
+      # publicada por el Hub SOLO para admins con sesión (proxy con verificación de rol).
+      - "8097:8097"
     environment:
       - PORT=8095
+      - PRESENTON_ADMIN_PORT=8097
       - ELEA_BACKEND_URL=http://backend:8000/api/v1
       # ELEA_SERVICE_USERNAME/PASSWORD: quitadas (09-sep) — `server.js` ya no las lee
       # desde que T022 de la 044 cambió el presupuesto a autoservicio.
