@@ -7,14 +7,17 @@ corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff
 **instalador probado desde cero y como actualización** (sección siguiente).
 
 **Pendiente**:
-1. Sincronizar `elea-installer` a Azure DevOps y actualizar `eleavdmia` en caliente
-   (procedimiento en `elea-installer/README.md`, "Actualizar una instalación existente"). Queda
-   listo; lo ejecuta el dueño.
+1. **Hacer públicos los repos `cluna-8/elea-installer` y `cluna-8/elea` y las 6 imágenes de
+   `ghcr.io/cluna-8`** (decisión del dueño, 14-sep-2026: por los problemas de acceso en Elea, el
+   servidor baja instrucciones y desarrollo directo de GitHub, sin token; reemplaza la regla del
+   31-ago de Azure DevOps como puente, que queda de respaldo). No estaba documentado en ningún
+   lado hasta hoy; al 14-sep sigue sin ejecutarse (repos privados, 2 de 6 imágenes públicas).
+   Escaneo de secretos en árbol e historial de los dos repos: limpio. Después: `git pull` y
+   `./install.sh` en `eleavdmia` (procedimiento en `elea-installer/README.md`).
 2. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
 3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
 4. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
-5. Visibilidad uniforme de las imágenes en `ghcr.io/cluna-8` (hoy mezclada: backend y rag-client
-   públicas; engine, frontend, nlp y tabular privadas).
+5. Visibilidad de las imágenes: absorbido por el punto 1 (todas públicas).
 6. Dos tarjetas fantasma "HUB Elea" (0/6 y 2/6) en la pantalla de plantillas de Presenton local:
    tareas muertas, cosméticas.
 
