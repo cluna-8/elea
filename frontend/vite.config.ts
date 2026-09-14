@@ -18,6 +18,9 @@ export default defineConfig({
   // dentro de la red). Solo aplica a `vite dev`; el build de prod lo ignora.
   server: {
     host: true,
+    // Instalador (14-sep): el panel se sirve con `vite dev` detrás de un hostname del cliente
+    // (eleavdmia); Vite 6 bloquea cualquier host que no sea localhost salvo que se permita acá.
+    allowedHosts: true,
     proxy: {
       // BACKEND_URL: override de URL completa para apuntar el dev server a un backend fuera
       // de la red del compose (p.ej. BACKEND_URL=http://localhost:8091 para el stack sentinel-*
