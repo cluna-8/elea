@@ -7,13 +7,13 @@ corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff
 **instalador probado desde cero y como actualización** (sección siguiente).
 
 **Pendiente**:
-1. **Hacer públicos los repos `cluna-8/elea-installer` y `cluna-8/elea` y las 6 imágenes de
-   `ghcr.io/cluna-8`** (decisión del dueño, 14-sep-2026: por los problemas de acceso en Elea, el
-   servidor baja instrucciones y desarrollo directo de GitHub, sin token; reemplaza la regla del
-   31-ago de Azure DevOps como puente, que queda de respaldo). No estaba documentado en ningún
-   lado hasta hoy; al 14-sep sigue sin ejecutarse (repos privados, 2 de 6 imágenes públicas).
-   Escaneo de secretos en árbol e historial de los dos repos: limpio. Después: `git pull` y
-   `./install.sh` en `eleavdmia` (procedimiento en `elea-installer/README.md`).
+1. **Repos públicos — ejecutado el 14-sep** (decisión del dueño: por los problemas de acceso en
+   Elea, el servidor baja instrucciones y desarrollo directo de GitHub, sin token; reemplaza la
+   regla del 31-ago de Azure DevOps como puente, que queda de respaldo). `cluna-8/elea` y
+   `cluna-8/elea-installer` son públicos y `main` de ambos tiene lo probado. **Falta**: poner
+   públicas en la web de GitHub las imágenes `elea-guardian-engine`, `elea-guardian-nlp`,
+   `elea-guardian-frontend` y `elea-tabular` (no se puede por API); hasta entonces el servidor
+   necesita `docker login ghcr.io`. Después: `git pull` y `./install.sh` en `eleavdmia`.
 2. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
 3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
 4. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
