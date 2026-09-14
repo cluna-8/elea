@@ -21,8 +21,8 @@ código); "Eleia Hub" / "Eleia Guardian" son solo la marca de Elea, fijada por e
 | Presenton como motor de presentaciones (compose, red interna, llave `svc.presenton`) | `docker-compose.yml`, instalador | probado en vivo |
 | Guardian backend: retiro de DB-GPT; `kind` al crear/leer espacios (FR-041) | `backend/src/api/workspaces.py`, `schemas/workspace.py`, `api/__init__.py` | 5 tests |
 | Guardian firewall: **restitución de placeholders en streaming de la API OpenAI** (bug real) + escape JSON + `SENTINEL_NLP_TIMEOUT_S` | `litellm/extensions/sentinel_guardian_policy.py`, `sentinel_guardrail.py` | 30 tests nuevos |
-| Instalador: cuentas `svc.tabular`/`svc.presenton`, motores en compose, puerto 8097, timeout NLP | `elea-installer/` | sin probar desde cero |
-| Imágenes | `ghcr.io/cluna-8/{elea-rag-client, elea-tabular, elea-guardian-backend, elea-guardian-engine}` tags `latest` y `2026-09-14` | publicadas |
+| Instalador: cuentas `svc.tabular`/`svc.presenton`, motores en compose, puerto 8097, timeout NLP, ruta de actualización (revoca y reemite llaves `svc.*`) | `elea-installer/` | probado desde cero y como actualización (14-sep) |
+| Imágenes | `ghcr.io/cluna-8/elea-*` (6), tags `latest` y `2026-09-14`, publicadas con `deploy/release/publish-elea.sh` (el backend distribuible sale de `backend/Dockerfile.standalone`, no del de dev) | publicadas |
 
 Pruebas de cierre: integral local 12/12 (documento real, chat `auto`, planilla real, presentación,
 encadenado, descarga), multiusuario 17/17, planillas reales de Elea (ventas, forecast, stock) y de
@@ -109,8 +109,8 @@ En vivo: con la llave `svc.presenton` (o cualquiera) contra `engine:4000`, una p
 
 ## 6. Pendientes que quedan abiertos (para el roadmap de Sentinel)
 
-- Probar `elea-installer` desde cero en una máquina limpia (hoy validado solo en sintaxis y con
-  el stack de desarrollo).
+- Sincronizar `elea-installer` a Azure DevOps y actualizar el servidor de Elea (el instalador ya
+  está probado desde cero y como actualización; ver CHANGELOG 14-sep).
 - Atribución de gasto por persona en el engine (`acted_for_user_id` en la fila de éxito).
 - Allow-list de términos de negocio por tenant en el NLP.
 - Spec 049 (motor de documentos docx/xlsx/pdf, "motor 4") y spec 047 (formato de respuesta,

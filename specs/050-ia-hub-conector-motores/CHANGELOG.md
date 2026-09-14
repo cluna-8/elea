@@ -3,21 +3,63 @@
 ## Estado al cierre (14-sep-2026) y pendientes
 
 **Hecho y verificado**: hitos 1 a 6, prueba integral local 12/12, multiusuario 17/17, plantilla
-corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff a Sentinel escrito.
+corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff a Sentinel escrito,
+**instalador probado desde cero y como actualización** (sección siguiente).
 
-**Pendiente, por decisión del dueño (14-sep, "dejemos pendiente el instalador")**:
-1. **Instalador desde cero** (`elea-installer`): validado en sintaxis y con el stack de desarrollo,
-   **no** ejecutado en una máquina limpia. Choca con los puertos del stack dev (8090/8091/8095/8097/3001).
-   Al probarlo: `./install.sh` dos veces (la primera genera `.env`), verificar que crea `svc.tabular` y
-   `svc.presenton`, que el Hub muestra las tres secciones y que `http://localhost:8097/templates` exige
-   admin. Después, sincronizar solo `elea-installer` a Azure DevOps (regla del 31-ago) y actualizar
-   `eleavdmia` en caliente sin tocar volúmenes.
+**Pendiente**:
+1. Sincronizar `elea-installer` a Azure DevOps y actualizar `eleavdmia` en caliente
+   (procedimiento en `elea-installer/README.md`, "Actualizar una instalación existente"). Queda
+   listo; lo ejecuta el dueño.
 2. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
 3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
 4. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
-5. Visibilidad uniforme de las imágenes en `ghcr.io/cluna-8` (hoy mezclada).
+5. Visibilidad uniforme de las imágenes en `ghcr.io/cluna-8` (hoy mezclada: backend y rag-client
+   públicas; engine, frontend, nlp y tabular privadas).
 6. Dos tarjetas fantasma "HUB Elea" (0/6 y 2/6) en la pantalla de plantillas de Presenton local:
    tareas muertas, cosméticas.
+
+
+## 14-sep-2026 — Prueba del instalador desde cero (y como actualización)
+
+Corrido `elea-installer` en una carpeta nueva, sin `.env`, con las imágenes del registro (stack de
+desarrollo apagado para liberar los puertos). Dos bugs reales, ninguno visible con el stack de dev:
+
+1. **La imagen publicada del backend no arrancaba** (`ModuleNotFoundError: No module named
+   'extensions'`, 7 reinicios). Causa: la publiqué el 13-sep con `backend/Dockerfile` (desarrollo),
+   donde `litellm/extensions` llega por un bind mount que la imagen no tiene. La distribuible es
+   `backend/Dockerfile.standalone` (contexto = raíz del repo). Arreglo: imagen reconstruida y
+   republicada (`latest` y `2026-09-14`), y nuevo `deploy/release/publish-elea.sh` que fija el
+   Dockerfile y el contexto de las 6 imágenes y **verifica el import antes de subir**. Regla: no
+   publicar con `docker build` a mano.
+2. **El instalador hablaba con AnythingLLM por `localhost:3001`**, puerto que dejó de publicarse el
+   8-sep (aislamiento). Arreglo: se le habla desde adentro de su contenedor (`docker exec … curl`),
+   la espera falla con mensaje en vez de pasar en silencio, y la respuesta del `update-env` se
+   verifica (`"error":false`).
+
+Mejoras que salieron de lo mismo: la conexión de AnythingLLM al motor corre siempre (antes vivía
+dentro del bloque que se saltea en la segunda corrida: una instalación cortada a la mitad quedaba
+sin motor); la llave del proveedor se guarda en `.env` (`ANYTHINGLLM_PROVIDER_VIRTUAL_KEY`);
+`set_env` reemplaza en vez de duplicar líneas; `--remove-orphans` borra el contenedor viejo de
+DB-GPT al actualizar; `ANYTHINGLLM_MODEL` configurable.
+
+**Actualización de una instalación existente** (el caso del servidor de Elea): las cuentas `svc.*`
+ya existen y Guardian permite una sola llave activa por cuenta y herramienta → el instalador busca
+la cuenta (`GET /users?include_service=true`), revoca su llave anterior y emite una nueva, y
+reconecta AnythingLLM en el mismo paso. Simulado sobre la instalación limpia borrando las llaves del
+`.env` y corriendo de nuevo: exit 0, y después planillas (731 productos = pandas), documentos y
+presentación (40 s) siguen respondiendo.
+
+**Prueba integral sobre la instalación limpia** (`e2e_install.py`, datos reales): 25/26 — login,
+features, marca por env, modelos con `auto`, presupuesto autoservicio, espacio de planillas +
+`df_ventas_21052026.xlsx` + consulta (5.504.288 unidades en marzo 2025 = pandas), consulta
+destructiva sin efecto, espacio de documentos + `Elea_llm_rout.pdf` + chat, chat directo `auto`
+con nombre y DNI **sin placeholders** (fix de streaming vigente), presentación 3 slides (42 s) +
+descarga PPTX + 403 para otra persona, plantillas listadas, encadenado planilla → presentación
+(30 s), puerto 8097 (403 sin sesión, 403 tester, 200 admin), motores sin puertos publicados.
+El único "fallo" fue una suposición mía: el admin ve el espacio de otra persona **por diseño**
+(spec 043: los admins son dueños de todos los espacios); entre dos personas comunes el 403 se
+confirmó aparte. Imágenes `frontend` y `nlp` republicadas con el script (ahora las 6 tienen tag
+`2026-09-14`).
 
 
 ## 13-sep-2026 — Cambio en Guardian: restitución de placeholders en streaming de la API OpenAI
