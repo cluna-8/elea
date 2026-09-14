@@ -7,13 +7,16 @@ corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff
 **instalador probado desde cero y como actualización** (sección siguiente).
 
 **Pendiente**:
-1. **Repos públicos — ejecutado el 14-sep** (decisión del dueño: por los problemas de acceso en
-   Elea, el servidor baja instrucciones y desarrollo directo de GitHub, sin token; reemplaza la
-   regla del 31-ago de Azure DevOps como puente, que queda de respaldo). `cluna-8/elea` y
-   `cluna-8/elea-installer` son públicos y `main` de ambos tiene lo probado. **Falta**: poner
-   públicas en la web de GitHub las imágenes `elea-guardian-engine`, `elea-guardian-nlp`,
-   `elea-guardian-frontend` y `elea-tabular` (no se puede por API); hasta entonces el servidor
-   necesita `docker login ghcr.io`. Después: `git pull` y `./install.sh` en `eleavdmia`.
+1. ~~Repos públicos y actualización del servidor~~ **hecho el 14-sep**: `cluna-8/elea` y
+   `cluna-8/elea-installer` públicos, `main` con lo probado; `eleavdmia` actualizado en caliente
+   con `./install.sh` desde GitHub (sin Azure DevOps). Incidentes reales en el servidor, ya
+   corregidos en el instalador: la rama local venía de Azure DevOps (se reemplazó con
+   `git checkout -B main origin/main`, conservando `.env`); el motor exige alias de llave únicos
+   incluso revocadas (sufijo de fecha al reemitir); imágenes privadas → `unauthorized` (el dueño
+   las hizo públicas); **disco lleno** (38 GB, LVM sin espacio libre) al bajar Presenton →
+   `docker image prune -a` liberó lo justo. El Hub muestra las tres secciones. Quedan en el
+   servidor el contenedor e imagen viejos de DB-GPT (`elea-exact-analysis-engine`, no era huérfano
+   del compose actual) para borrar a mano y recuperar espacio, y el disco chico como riesgo.
 2. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
 3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
 4. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
