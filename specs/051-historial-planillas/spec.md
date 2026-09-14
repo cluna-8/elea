@@ -31,6 +31,10 @@ motor guarda lo suyo; una persona solo ve su trabajo.
 - En Documentos el historial sí persiste porque el motor de documentos guarda hilos y mensajes, y
   Guardian registra qué hilo es de quién (`/workspaces/{id}/threads`, spec 043). Planillas no tiene
   hilos: un espacio, una sola conversación efímera.
+- **Chat directo** (modelo "Automático" sin espacio, `POST /api/chat` sin `slug`): tampoco se
+  guarda en ningún lado y **cada mensaje va solo**, sin los anteriores (`server.js`, rama
+  `via: 'direct'`). Guardian deja solo la fila de auditoría, sin texto. Verificado 14-sep a
+  pedido del dueño: el Hub no guarda ni lo de documentos (lo guarda su motor) ni lo del chat.
 - Las respuestas de planillas contienen **datos del negocio** (cifras, nombres de productos) y el
   SQL ejecutado. Hoy nada de eso queda escrito en el servidor una vez respondido.
 
@@ -79,7 +83,13 @@ motor guarda lo suyo; una persona solo ve su trabajo.
    aceptable (los datos ya viven crudos en el motor por decisión de la 050) y dejarlo escrito.
 7. **Presentaciones desde el historial** (US4): confirmar que `POST /api/handoff` puede tomar una
    respuesta guardada por `thread_key` + índice, en vez de re-preguntar.
-8. **Borrado**: borrar un archivo de planilla, ¿invalida el historial que lo usó? Propuesta: no,
+8. **Chat directo**: ¿se resuelve en esta misma spec o en otra? Para planillas hay un motor que
+   puede guardar; para el chat directo no hay motor (Guardian no guarda mensajes por regla). Las
+   salidas posibles: (a) el chat directo pasa a ser un hilo del motor de documentos sin
+   documentos; (b) un almacén mínimo de hilos en el Hub, rompiendo "el Hub no guarda mensajes";
+   (c) queda sin historial, como hoy, y se documenta. Recomendar una con el mismo criterio de la
+   sección 5.
+9. **Borrado**: borrar un archivo de planilla, ¿invalida el historial que lo usó? Propuesta: no,
    se marca. Borrar el espacio borra todo.
 
 ## 5. Criterios para elegir
@@ -95,7 +105,7 @@ mediciones de la sección 4.
 
 ## 6. Entregables de la investigación
 
-- `RESULTADOS.md` en esta carpeta con las respuestas a las 8 preguntas, mediciones y la opción
+- `RESULTADOS.md` en esta carpeta con las respuestas a las 9 preguntas, mediciones y la opción
   elegida.
 - Contrato propuesto del motor: `GET/POST /v1/spaces/{id}/threads`, `GET /v1/spaces/{id}/threads/{key}/messages`,
   `DELETE …`, y el cambio en `query` para que guarde el turno.
@@ -104,5 +114,4 @@ mediciones de la sección 4.
 
 ## 7. Fuera de alcance
 
-Cambios en Guardian más allá de usar el registro de hilos existente; historial del chat directo
-(modelo `auto` sin espacio); búsqueda dentro del historial; exportación (queda para después).
+Cambios en Guardian más allá de usar el registro de hilos existente; búsqueda dentro del historial; exportación (queda para después).
