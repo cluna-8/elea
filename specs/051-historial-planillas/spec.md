@@ -58,6 +58,7 @@ motor guarda lo suyo; una persona solo ve su trabajo.
 | **A. El motor tabular guarda** (igual que el motor de documentos guarda lo suyo) | Tabla `history` en el `.duckdb` del espacio, o SQLite/JSON al lado; hilos por `thread_key` | Coherente con la 050: cada motor guarda lo suyo; el Hub sigue fino; el SQL y las filas quedan junto a los datos que las produjeron | Las consultas corren con conexión `read_only`; la escritura del historial necesita la conexión de carga (ver `store.py:165`). Riesgo de bloqueo entre carga y consulta. Retención y tamaño (¿guardar filas o solo la respuesta?) |
 | **B. El Hub guarda** | Archivo por persona en el volumen `client_artifacts` (como "Mis archivos") | Cero cambios en el motor; ya existe el patrón de índice por persona | Rompe "el Hub no guarda mensajes" (decisión sellada 12-sep); no sirve si otro cliente distinto del Hub usa el motor; historial y datos en lugares distintos |
 | **C. Guardian guarda** | Tabla nueva en Guardian | Aislamiento por persona ya resuelto | **Descartada de entrada**: Guardian no guarda mensajes ni conoce los motores (regla del dueño). Solo puede registrar *qué hilo es de quién*, como ya hace |
+| **E. Base propia del Hub (o del motor) en la misma instancia Postgres de Guardian** (pedido del dueño, 14-sep: "aprovechemos una de las bases") | Base `hub` (o `tabular`) separada dentro del contenedor `db` que ya existe; Guardian no la conoce | Sin infraestructura nueva; una sola base que respalda todo (documentos no, siguen en su motor); sirve para planillas **y** chat directo con el mismo esquema | El Hub deja de ser "sin base" (decisión 050): hay que medir qué gana; el instalador tiene que crear la base y un usuario propio; la regla "Guardian no guarda mensajes" se cumple solo si la base es de otro dueño (usuario Postgres distinto, sin acceso desde el backend) |
 | **D. Hilos registrados en Guardian + mensajes en el motor** (la A con hilos, espejo exacto de Documentos) | Motor: mensajes por `thread_key`; Guardian: registro de hilo y dueño (`/workspaces/{id}/threads` con `engine_thread_slug`) | Misma experiencia que Documentos (hilos, renombrar, borrar); aislamiento por persona con el mecanismo existente; sin cambios en Guardian | Más trabajo en el Hub (UI de hilos en Planillas); hay que confirmar que el registro de hilos acepta espacios `kind = exact_analysis` sin tocar el backend |
 
 ## 4. Preguntas que la investigación tiene que responder
@@ -89,7 +90,15 @@ motor guarda lo suyo; una persona solo ve su trabajo.
    documentos; (b) un almacén mínimo de hilos en el Hub, rompiendo "el Hub no guarda mensajes";
    (c) queda sin historial, como hoy, y se documenta. Recomendar una con el mismo criterio de la
    sección 5.
-9. **Borrado**: borrar un archivo de planilla, ¿invalida el historial que lo usó? Propuesta: no,
+9. **Gestor de conversación** (pedido del dueño): evaluar LangChain / LangGraph (memoria de
+   conversación: buffer, ventana, resumen de turnos viejos) u otro gestor preparado, contra una
+   implementación propia mínima (guardar turnos, mandar los últimos N, resumir los anteriores con
+   una llamada a Guardian). Condiciones que no se negocian: toda llamada a un modelo sale por
+   Guardian (`/chat/completions` del backend con el token de la persona, o `engine:4000/v1` con
+   llave `svc.*`), nunca directo a un proveedor; ningún nombre de tecnología visible; dependencias
+   y tamaño de imagen acotados. Medir: tokens por pregunta con y sin resumen, calidad de las
+   preguntas encadenadas sobre planillas reales, líneas de código que agrega cada camino.
+10. **Borrado**: borrar un archivo de planilla, ¿invalida el historial que lo usó? Propuesta: no,
    se marca. Borrar el espacio borra todo.
 
 ## 5. Criterios para elegir
@@ -99,13 +108,14 @@ sus datos); (2) aislamiento por persona con el mecanismo que ya existe; (3) mism
 que Documentos para la persona (no aprender dos formas de trabajar); (4) menor cantidad de código
 nuevo en el Hub; (5) sin riesgo para las consultas actuales (rendimiento, bloqueos).
 
-**Hipótesis de partida**: la opción **D** (motor guarda mensajes por hilo, Guardian registra el
+**Hipótesis de partida**: la opción **D** para planillas, con la **E** como candidata si se decide
+dar historial también al chat directo (un solo esquema de hilos y turnos para los dos casos) (motor guarda mensajes por hilo, Guardian registra el
 hilo, Hub muestra igual que Documentos). La investigación la confirma o la tumba con las
 mediciones de la sección 4.
 
 ## 6. Entregables de la investigación
 
-- `RESULTADOS.md` en esta carpeta con las respuestas a las 9 preguntas, mediciones y la opción
+- `RESULTADOS.md` en esta carpeta con las respuestas a las 10 preguntas, mediciones y la opción
   elegida.
 - Contrato propuesto del motor: `GET/POST /v1/spaces/{id}/threads`, `GET /v1/spaces/{id}/threads/{key}/messages`,
   `DELETE …`, y el cambio en `query` para que guarde el turno.
