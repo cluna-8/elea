@@ -1,5 +1,25 @@
 # CHANGELOG — spec 050 (IA Hub: Hub conector + motores)
 
+## Estado al cierre (14-sep-2026) y pendientes
+
+**Hecho y verificado**: hitos 1 a 6, prueba integral local 12/12, multiusuario 17/17, plantilla
+corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff a Sentinel escrito.
+
+**Pendiente, por decisión del dueño (14-sep, "dejemos pendiente el instalador")**:
+1. **Instalador desde cero** (`elea-installer`): validado en sintaxis y con el stack de desarrollo,
+   **no** ejecutado en una máquina limpia. Choca con los puertos del stack dev (8090/8091/8095/8097/3001).
+   Al probarlo: `./install.sh` dos veces (la primera genera `.env`), verificar que crea `svc.tabular` y
+   `svc.presenton`, que el Hub muestra las tres secciones y que `http://localhost:8097/templates` exige
+   admin. Después, sincronizar solo `elea-installer` a Azure DevOps (regla del 31-ago) y actualizar
+   `eleavdmia` en caliente sin tocar volúmenes.
+2. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
+3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
+4. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
+5. Visibilidad uniforme de las imágenes en `ghcr.io/cluna-8` (hoy mezclada).
+6. Dos tarjetas fantasma "HUB Elea" (0/6 y 2/6) en la pantalla de plantillas de Presenton local:
+   tareas muertas, cosméticas.
+
+
 ## 13-sep-2026 — Cambio en Guardian: restitución de placeholders en streaming de la API OpenAI
 
 **Fuera del alcance original de la 050 ("NO toca `litellm/`"), aprobado explícitamente por el
