@@ -14,7 +14,10 @@ hallazgo 5): en la sección Planillas la pregunta y la respuesta desaparecen al 
 existe (`/workspaces/{id}/threads`), sin cambiarlo. **No toca `litellm/`.**
 
 **Input**: decisión del dueño (14-sep): "hagamos el spec de investigar la mejor opción así lo
-armamos bien". Reglas heredadas de la 050 que esta spec no puede romper: Guardian no guarda
+armamos bien". **Regla sellada el mismo día**: Guardian y el Hub **no comparten base de datos**.
+Guardian es el gateway con las políticas, lo usan otros programas además del Hub y tiene que
+poder actualizarse solo; el Hub cambia todo el tiempo y no puede arriesgar la base de Guardian.
+Si el Hub necesita guardar, es con base propia y ciclo de vida propio. Reglas heredadas de la 050 que esta spec no puede romper: Guardian no guarda
 mensajes ni conoce los motores; el Hub es un conector fino que no guarda mensajes de chat; cada
 motor guarda lo suyo; una persona solo ve su trabajo.
 
@@ -58,7 +61,7 @@ motor guarda lo suyo; una persona solo ve su trabajo.
 | **A. El motor tabular guarda** (igual que el motor de documentos guarda lo suyo) | Tabla `history` en el `.duckdb` del espacio, o SQLite/JSON al lado; hilos por `thread_key` | Coherente con la 050: cada motor guarda lo suyo; el Hub sigue fino; el SQL y las filas quedan junto a los datos que las produjeron | Las consultas corren con conexión `read_only`; la escritura del historial necesita la conexión de carga (ver `store.py:165`). Riesgo de bloqueo entre carga y consulta. Retención y tamaño (¿guardar filas o solo la respuesta?) |
 | **B. El Hub guarda** | Archivo por persona en el volumen `client_artifacts` (como "Mis archivos") | Cero cambios en el motor; ya existe el patrón de índice por persona | Rompe "el Hub no guarda mensajes" (decisión sellada 12-sep); no sirve si otro cliente distinto del Hub usa el motor; historial y datos en lugares distintos |
 | **C. Guardian guarda** | Tabla nueva en Guardian | Aislamiento por persona ya resuelto | **Descartada de entrada**: Guardian no guarda mensajes ni conoce los motores (regla del dueño). Solo puede registrar *qué hilo es de quién*, como ya hace |
-| **E. Base propia del Hub (o del motor) en la misma instancia Postgres de Guardian** (pedido del dueño, 14-sep: "aprovechemos una de las bases") | Base `hub` (o `tabular`) separada dentro del contenedor `db` que ya existe; Guardian no la conoce | Sin infraestructura nueva; una sola base que respalda todo (documentos no, siguen en su motor); sirve para planillas **y** chat directo con el mismo esquema | El Hub deja de ser "sin base" (decisión 050): hay que medir qué gana; el instalador tiene que crear la base y un usuario propio; la regla "Guardian no guarda mensajes" se cumple solo si la base es de otro dueño (usuario Postgres distinto, sin acceso desde el backend) |
+| **E. Base propia del Hub, separada de Guardian** (decisión del dueño, 14-sep) | Contenedor propio del Hub (Postgres chico o SQLite en el volumen del Hub), **nunca la instancia `db` de Guardian** | Un solo esquema de hilos y turnos para planillas y chat directo; el Hub se actualiza y se rompe por separado; Guardian queda intacto | El Hub deja de ser "sin base" (decisión 050): medir qué gana; el instalador suma un servicio; respaldo aparte del de Guardian |
 | **D. Hilos registrados en Guardian + mensajes en el motor** (la A con hilos, espejo exacto de Documentos) | Motor: mensajes por `thread_key`; Guardian: registro de hilo y dueño (`/workspaces/{id}/threads` con `engine_thread_slug`) | Misma experiencia que Documentos (hilos, renombrar, borrar); aislamiento por persona con el mecanismo existente; sin cambios en Guardian | Más trabajo en el Hub (UI de hilos en Planillas); hay que confirmar que el registro de hilos acepta espacios `kind = exact_analysis` sin tocar el backend |
 
 ## 4. Preguntas que la investigación tiene que responder
