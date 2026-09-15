@@ -100,7 +100,10 @@ que no están como tareas.
 - [`RESULTADOS-PRUEBA-MANUAL-UI.md`](RESULTADOS-PRUEBA-MANUAL-UI.md) — prueba manual de UI de 043/044 (10-sep), 20 bugs.
 - [`RESULTADOS-QA-046-ANALISIS-EXACTO.md`](RESULTADOS-QA-046-ANALISIS-EXACTO.md) — QA de Análisis Exacto (11-sep) + addendum del 15-sep.
 - [`VERIFICACION-043-044-pruebas.md`](VERIFICACION-043-044-pruebas.md) — verificación por API de 043/044.
-- [`RESULTADOS-INVESTIGACION-DOCGEN-*.md`](.) — investigación de docgen y DB-GPT.
+- [`GENERACION-DOCUMENTOS.md`](GENERACION-DOCUMENTOS.md) — **cómo se decidió hacer la generación de
+  documentos**: los dos modos, qué hace Presenton y qué el motor 4, y el contrato ya reservado.
+  Junta lo que hoy está repartido en 045, 049, 050 y las dos investigaciones.
+- [`RESULTADOS-INVESTIGACION-DOCGEN-*.md`](.) — investigación de docgen y DB-GPT (las fuentes).
 
 ---
 
