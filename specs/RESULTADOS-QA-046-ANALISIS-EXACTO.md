@@ -1,5 +1,10 @@
 # Resultados de QA — spec 046 (Análisis exacto de datos en Eleia Hub)
 
+> **⚠️ Addendum del 15-sep-2026 — leer antes que el resto.**
+> Esta corrida es del **11-sep** y describe la arquitectura **anterior a la spec 050**. Todo lo que
+> sigue vale como registro histórico de lo que se probó y se encontró, pero varias de sus
+> conclusiones ya no describen el sistema actual. Ver §"Estado al 15-sep" al final.
+
 **Fecha:** 11-sep-2026
 **Entorno:** stack local ya levantado — Eleia Hub `http://localhost:8095` (perfil `rag` de `docker compose`, `STACK_PREFIX=eleae2e`)
 **Navegador:** Chrome (Browser pane). El selector de archivos del sistema operativo no es manejable por automatización — se inyectó el `File` real disparando el mismo evento `change` que dispara una persona eligiendo el archivo a mano; el `confirm()` nativo del aviso de Excel también se interceptó para leer su texto y decidir confirmar/cancelar. La lógica probada en ambos casos es la real de la app; lo no ejercitado es el pintado del diálogo del navegador/SO en sí.
@@ -125,3 +130,70 @@ Dos cosas a tener en cuenta antes de dar la spec 046 por lista para producción:
 2. **El gap de CSV nunca se probó.** Las dos corridas fueron con `.xlsx`, que no pasa por
    enmascarado. El riesgo conocido de valores categóricos repetidos en un `.csv` sigue sin
    ejercitarse — conviene una corrida corta con un CSV antes del piloto.
+
+---
+
+## Estado al 15-sep-2026 (addendum)
+
+Revisión del repo cuatro días después de la corrida. **Nada quedó sin commitear**: los tres
+repos (`elea`, `elea-installer`, `llm-guardian`) están limpios y `elea` está a la par de
+`origin`. Lo que sigue es la traza de qué pasó con cada hallazgo.
+
+### Lo que se cerró
+
+| Hallazgo | Estado | Dónde |
+|---|---|---|
+| #1 Bloqueante — la respuesta no mostraba el resultado | Cerrado | `e16482a` (saca el payload crudo) + `f141797` (muestra el resultado del cálculo) |
+| #2 Archivo rechazado pegado en el selector | Cerrado | mismo día, verificado en código |
+| Riesgo conocido — `.xlsx` sin enmascarar | Cerrado y **después retirado** (ver abajo) | `10ad1e5` (`maskXlsxBuffer()` celda por celda con `exceljs`) |
+| "El fix vive en el working tree, sin commitear" | Resuelto | `e16482a`; el punto 1 de "Lo prioritario" ya no aplica |
+
+### Lo que cambió de raíz: spec 050 (12-sep)
+
+`904dd37` reemplazó la arquitectura sobre la que corrió este QA. Dos consecuencias directas
+sobre este informe:
+
+1. **El motor DB-GPT ya no está en el cliente.** `chart-view` no aparece ni una vez en
+   `client/public/index.html`, y con él se fue `limpiarRespuestaExactAnalysis()`. El bloqueante
+   #1 no puede reaparecer por esa vía: el camino tabular ahora pasa por el motor propio
+   (`tabular/`, DuckDB). **La regresión que este informe pedía vigilar ya no aplica tal cual** —
+   habría que re-escribir el Caso 2 contra el motor nuevo.
+
+2. **El Hub ya no enmascara.** Citando el comentario en `client/server.js:249`:
+
+   > Spec 050 (12-sep-2026): el Hub YA NO enmascara. Guardian es firewall + base de usuarios y no
+   > recibe archivos: los documentos suben crudos al motor de documentos local y la PII se
+   > enmascara únicamente cuando el motor manda el prompt por `engine:4000/v1/chat/completions`.
+   > El bloque de enmascarado por trozos (`maskText`/`maskCsvText`/`maskXlsxBuffer`,
+   > `/gw/inspect`, `MASKING_VIRTUAL_KEY`) se retiró entero.
+
+   Es decir: el `maskXlsxBuffer()` que cerró el gap el 11-sep **ya no existe** —`exceljs` tampoco
+   está en `client/package.json`— y el `confirm()` que avisaba "este Excel no se enmascara"
+   tampoco (0 ocurrencias). No es un retroceso: el enmascarado se movió al borde del LLM.
+
+   **Consecuencia para QA:** los Casos 2 y 4 de este guion prueban un aviso y un camino de
+   enmascarado que ya no están donde estaban. **Los dos riesgos conocidos de este informe —el de
+   `.xlsx` y el de valores repetidos en `.csv`— hay que re-evaluarlos contra el punto nuevo**, no
+   darlos por cerrados ni por abiertos en base a lo que dice acá. El mecanismo por trozos que
+   causaba el gap de CSV se retiró; si la propiedad se repite en el borde del motor es algo que
+   **no se probó**.
+
+### Menores que siguen pendientes de re-verificar
+
+- **#3 (recuadro de columnas vacío):** el modelo del cliente ahora sí lleva columnas
+  (`exactAnalysisFiles = [{file_id, name, tables:[{name, columns, rows}]}]`,
+  `client/public/index.html:1669`). Pinta a resuelto por el motor nuevo, **sin verificar en vivo**.
+- **#4 (restos en el DOM al salir sin recargar):** no se volvió a probar. Era del `handleLogout()`
+  general, no de esta spec.
+- **#5 (presupuesto sin pre-chequeo en el cliente):** no se volvió a probar.
+- **#6 (branding de otro cliente):** **medio corregido.** `frontend/index.html:12` ya dice
+  `<title>Guardian</title>` — la marca base neutra, correcta según la regla de nomenclatura. Pero
+  la clave de sesión sigue siendo `sentinel_session_token`
+  (`frontend/src/services/auth.ts:3`), o sea la marca de Evidenze sigue en el storage de una
+  instancia de Elea.
+
+### Qué haría falta
+
+Una corrida corta de QA contra el motor tabular nuevo, con un `.csv` (no `.xlsx`), que re-escriba
+los Casos 2 y 4 sobre el punto de enmascarado actual. Hasta entonces, este informe sirve como
+historia de spec 046, no como foto del sistema.
