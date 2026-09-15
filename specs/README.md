@@ -218,7 +218,36 @@ este pedido ("no quiero que el cliente vea la dependencia tan directa de litellm
 | Spec sin `spec.md` | `042` (solo CHANGELOG) |
 | Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051` |
 | Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051` |
-| **Spec citada que nunca se escribió** | **`015`** — la cascada de `SecurityPolicy`/`entity_configs` (`client > group > tenant > default`) se cita como "spec 015" en `013` (3 veces), `016` y sus checklists, pero **no existe ni acá ni en Sentinel**, y nunca se creó en la historia común. Es trabajo de arquitectura documentado sin spec en ninguna parte. |
+| **Spec citada que nunca se escribió** | **`015`** — la cascada de `SecurityPolicy`/`entity_configs` (`client > group > tenant > default`) se cita como "spec 015" en `013` (3 veces), `016` y sus checklists, pero **no existe ni acá ni en Sentinel**, y nunca se creó en la historia común. Consecuencia real medida abajo. |
+
+#### Qué significa que la 015 no exista (verificado el 15-sep)
+
+Investigado a la par con la sesión de Sentinel, y **medido en este repo**, no asumido:
+
+`SecurityPolicy` **no es multi-tenant en la práctica**, pese a tener la columna `tenant_id`. Lo
+dice el propio código en [`backend/src/models/governance.py:20`](../backend/src/models/governance.py):
+
+> *"esa tabla no es multi-tenant en la práctica pese a tener `tenant_id` — su lector real es
+> `db.query(SecurityPolicy).first()` sin filtrar tenant"*
+
+Confirmado en los lectores: `api/policy.py:34` y `api/costs.py:335-336` hacen `.first()` sin filtro
+de tenant, y el invariante se mantiene apagando el resto en cada escritura. O sea que
+`entity_configs` —qué entidades se enmascaran, cuáles se bloquean, y los flags de GDPR/AI Act— es
+un **singleton efectivo de toda la instalación**.
+
+**Lo que NO afecta, y es lo que importa para el modelo de localización:** la región no viaja por
+`SecurityPolicy`. Viaja por la fila `Guardian(guardian_type="pii_masking")`, y su lector
+`_select_pii_guardian` **sí filtra** (`entity_catalog_service.py:435`:
+`.filter(Guardian.tenant_id == tenant_id, Guardian.guardian_type == "pii_masking")`). La
+afirmación de arriba —región por tenant, más fina que un fork— se sostiene.
+
+**El límite honesto:** dos tenants de países distintos en la misma instalación tendrían
+**detectores distintos** (correcto) pero **compartirían la acción** —qué se enmascara y qué se
+bloquea— hasta que exista la cascada. Es acotado y no es un agujero en el modelo de tres niveles,
+pero conviene saberlo antes de vender multi-país sobre una sola instalación.
+
+Escribir la 015 es una spec aparte; está marcada **fuera de alcance** del plan de convergencia
+para que no se cuele ahí.
 
 ### Enlaces y referencias cruzadas
 
