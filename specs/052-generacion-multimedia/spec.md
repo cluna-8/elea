@@ -4,11 +4,12 @@
 
 **Created**: 2026-09-15
 
-**Status**: 🅿️ **MARCADOR — abierta a propósito, no planificable todavía.** Registra la intención
-del dueño del producto (15-sep-2026) de que Eleia genere también imagen, audio y video, para que
-las decisiones que se tomen ahora en la línea de documentos no cierren esa puerta. **No tiene
-alcance cerrado, no tiene plan, y NO está comprometida para el piloto.** Convertirla en spec real
-exige antes las respuestas de §3.
+**Status**: 🔬 **INVESTIGACIÓN PENDIENTE — no arrancada.** Mismo molde que la
+[spec 051](../051-historial-planillas/spec.md): primero se investiga y se entrega un
+`RESULTADOS.md`, después se decide si hay spec de implementación. Registra la intención del dueño
+del producto (15-sep-2026) de que Eleia genere también imagen, audio y video. **Todavía no hay
+alcance cerrado ni nada comprometido para el piloto** — lo que hay es una tarea de investigación
+con preguntas y entregables definidos (§3 y §6).
 
 **Referencia cruzada**: `ELEIA-052` (convención de ADR-0007 para specs 039+).
 
@@ -20,7 +21,7 @@ creación de video, audio e imágenes"*.
 
 ---
 
-## 1. Por qué existe este marcador
+## 1. Por qué existe esta investigación
 
 La [spec 049](../049-motor-generacion-documentos/spec.md) define el motor de documentos
 (`docx/xlsx/pdf`) y la [050](../050-ia-hub-conector-motores/spec.md) ya dejó a Presenton generando
@@ -35,7 +36,7 @@ multimedia:
 | Errores neutros, sin nombrar la herramienta | 049 FR-010 | Regla de marca vigente |
 | "Mis archivos generados" como lugar único de descarga | 050 (UI única) | El usuario no debería aprender un lugar nuevo por cada tipo |
 
-**El riesgo que este marcador evita:** que el motor 4 se construya asumiendo "documentos" en el
+**El riesgo que esta investigación evita:** que el motor 4 se construya asumiendo "documentos" en el
 nombre de las rutas, el modelo de datos y la UI, y que meter video después obligue a rehacerlo.
 
 ## 2. Lo único que ya se puede afirmar
@@ -49,7 +50,7 @@ nombre de las rutas, el modelo de datos y la UI, y que meter video después obli
   pronunciarlo. Eso **no está resuelto** para estos formatos y es la pregunta más seria de las
   de abajo.
 
-## 3. Preguntas abiertas — hay que responderlas antes de planificar
+## 3. Preguntas que la investigación tiene que responder
 
 1. **¿Local o API externa?** Es la decisión que define todo lo demás. Un modelo de difusión o de
    voz local necesita GPU (el servidor de Elea hoy no la tiene, y ya tuvo problemas de disco); una
@@ -75,12 +76,38 @@ nombre de las rutas, el modelo de datos y la UI, y que meter video después obli
   (`artefacto`, `archivo generado`) cuesta lo mismo. La 050 ya usa "mis archivos generados" en la
   UI — mantener ese vocabulario.
 - **No** construir el visor de descargas asumiendo que todo lo generado se abre en Office.
-- **No** prometerlo al cliente. Esto es un marcador interno.
+- **No** prometerlo al cliente. Esto es una investigación interna, no una funcionalidad anunciada.
 
-## 5. Criterio de cierre de este marcador
+## 5. Criterios para elegir
 
-Este archivo deja de ser marcador y pasa a spec real cuando estén respondidas **§3.1 (local o
-externo)**, **§3.2 (PII en formatos no textuales)** y **§3.3 (casos de uso reales)**. Las otras
-tres pueden resolverse durante el `plan.md`.
+En este orden, y el primero manda sobre los demás:
 
-Hasta entonces, cualquiera que lo lea debe saber que **acá no hay trabajo comprometido**.
+1. **Que no saque contenido de la instalación.** Es lo que el producto vende. Una opción externa
+   sólo entra si hay una respuesta convincente a qué sale, adónde y con qué contrato.
+2. **Que el enmascarado siga valiendo.** Si no hay forma de proteger PII en ese formato, la opción
+   no sirve por más barata que sea.
+3. **Que corra en el hardware que hay** — o que el costo del hardware que falta esté cuantificado.
+   El servidor de Elea no tiene GPU y ya tuvo problemas de disco.
+4. **Costo por pieza acotado y medible**, para que entre en el mismo control de presupuesto.
+5. **Licencia compatible** con distribuir el producto, como se evaluó en las investigaciones de
+   docgen.
+
+## 6. Entregables de la investigación
+
+- `RESULTADOS.md` en esta carpeta con las respuestas a las 6 preguntas de §3, con **mediciones
+  reales** donde aplique (costo por pieza, tiempo, requisitos de hardware), no sólo lectura de
+  documentación.
+- Una recomendación **con opción elegida y descartadas**, en el molde de las dos investigaciones
+  de docgen — incluyendo la opción "no hacerlo", que es legítima si las respuestas son malas.
+- Si la recomendación es seguir: contrato propuesto del motor, en el molde de
+  [050 §3.4](../050-ia-hub-conector-motores/contracts/03-motores.md).
+- Qué habría que tocar del motor 4 **antes** de que se construya, si es que algo — que es la razón
+  por la que esta investigación conviene que se haga temprano aunque la implementación sea tarde.
+
+## 7. Criterio de cierre
+
+La investigación se da por cerrada con el `RESULTADOS.md` entregado. Recién ahí se decide si nace
+una spec de implementación.
+
+Hasta entonces, cualquiera que lea esto debe saber que **no hay trabajo de implementación
+comprometido**.
