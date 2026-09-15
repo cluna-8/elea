@@ -205,12 +205,21 @@ mayor antes de confirmar.
   de Eleia (con autenticación, verificación de dueño, y expiración) — nunca embebida como base64
   dentro del resultado de una tool call, para no filtrar el contenido binario al contexto del
   modelo ni a los logs.
+- **FR-012** (decisión del dueño, 15-sep-2026): El **alta, modificación y baja de plantillas**
+  MUST estar restringida a **roles de administración**. Un usuario común MUST poder **listar y
+  usar** las plantillas registradas, y MUST NOT poder registrar, editar ni borrar ninguna. El
+  endpoint de alta MUST devolver `403` a un rol no administrativo, con mensaje neutro (FR-010).
+  Motivo: la plantilla es la papelería corporativa — que cualquiera pueda cambiarla convierte el
+  membrete oficial en algo editable por quien pase por ahí. `GET /v1/templates` del contrato
+  reservado (050 §3.4) no cambia; lo que se restringe es la escritura.
 
 ### Key Entities
 
-- **Plantilla registrada**: archivo `.docx`/`.pptx`/`.xlsx` real del cliente, con sus
-  placeholders/schema asociado — de dónde sale el "modo plantilla" (US1). Su gestión (alta,
-  versionado, quién puede registrar una) es decisión de `plan.md`.
+- **Plantilla registrada**: archivo `.docx`/`.xlsx` real del cliente, con sus
+  placeholders/schema asociado — de dónde sale el "modo plantilla" (US1). **Quién puede
+  registrarla: decidido por el dueño del producto el 15-sep-2026 — solo roles de administración.
+  Un usuario común NO registra plantillas: las usa.** Ver FR-012. El versionado y qué pasa cuando
+  cambia el membrete siguen siendo decisión de `plan.md`.
 - **Documento generado**: archivo resultante de un pedido — formato, tamaño, espacio de origen,
   plantilla usada (si aplica), modo (plantilla/libre), documentos fuente citados.
 - **DocRunner (sandbox del modo libre)**: contenedor efímero sin red con la toolchain de
