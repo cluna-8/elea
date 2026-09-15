@@ -43,7 +43,7 @@ disolverlo:**
 - **Falime pasa a INSTALACIONES**: sedes de cliente (drops de imagen, accesos remotos, operativa
   Hetzner). Sigue siendo el dueño de `deploy/` como operador; el desarrollo que tenía en curso se
   redistribuye.
-- **Cristian toma el wizard de onboarding (spec 037) con full ownership**, dentro del Guardian
+- **Cristian toma el wizard de onboarding (`SENTINEL-037`, no está en este repo) con full ownership**, dentro del Guardian
   ecosystem — hereda de Falime el esqueleto CLI ([PR #103](https://github.com/DrZuzzjen/sentinel-guardian/pull/103))
   y el encargo del schema del perfil (validador + bloques reservados `sso`/`compliance_tier`,
   contrato en `specs/037-wizard-onboarding/`). Mantiene además su gate de review.

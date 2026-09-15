@@ -129,7 +129,7 @@ de configuración. El piso no tiene filas, así que no hay DELETE que lo afecte.
 ## Bloqueo en `/gw/inspect` (superficie browser) — contrato para la extensión MV3
 
 El fix P4 (research) mete `gw_inspect` bajo el mismo `Profile`: hoy enmascara pero no corre
-AI-Act ni bloqueo de secretos ([inspect.py:50-91](../../backend/src/api/inspect.py#L50)) —
+AI-Act ni bloqueo de secretos ([inspect.py:50-91](../../../backend/src/api/inspect.py#L50)) —
 el contraejemplo del piso. Al pasar por `apply_layers`, la extensión **empezará a recibir
 bloqueos** y necesita un contrato estable:
 

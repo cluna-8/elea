@@ -116,7 +116,7 @@ As a developer or administrator, I want an interactive Playground where I can ch
 ## Technical Implementation & Architectural Decisions
 
 ### 1. Zero-Dependency Local PII/PHI Masking
-To achieve a lightweight local footprint, the heavy external Microsoft Presidio containers (`presidio-analyzer` and `presidio-anonymizer`) were removed from [docker-compose.yml](file:///home/drexgen/Documents/EVIDENZE/LLM-Router/docker-compose.yml). They were replaced by a high-performance, local regex-based masking engine in [presidio_service.py](file:///home/drexgen/Documents/EVIDENZE/LLM-Router/backend/src/services/presidio_service.py). This engine:
+To achieve a lightweight local footprint, the heavy external Microsoft Presidio containers (`presidio-analyzer` and `presidio-anonymizer`) were removed from `docker-compose.yml` (del repo LLM-Router, fuera de este repositorio). They were replaced by a high-performance, local regex-based masking engine in `presidio_service.py` (del repo LLM-Router, fuera de este repositorio). This engine:
 * Detects and masks critical entities (PERSON, DNI, CUIL, EMAIL_ADDRESS, PHONE_NUMBER).
 * Performs reversible masking in-memory without external network calls.
 * Reduces RAM overhead by several gigabytes.

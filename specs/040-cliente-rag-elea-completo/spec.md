@@ -136,7 +136,7 @@ DNI/CUIL/CBU) que el resto del producto — no hay un camino paralelo sin protec
 
 **Decisión de arquitectura a tomar (bloquea el plan)**: AnythingLLM habla con un LLM
 "proveedor" configurado en su propio panel de administración. Si ese proveedor apunta al
-motor de `elea` (`http://engine:4000/v1`, como ya define spec 037), el **chat** de
+motor de `elea` (`http://engine:4000/v1`, como ya define `SENTINEL-037` — spec de la localización europea, no está en este repo), el **chat** de
 AnythingLLM queda enmascarado gratis (pasa por `SentinelGuardrail`). Pero la **ingesta de
 documentos** (embeddings al subir un archivo) es un camino separado dentro de AnythingLLM
 que no pasa por el motor de chat — un documento con datos personales podría vectorizarse

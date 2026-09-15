@@ -202,6 +202,24 @@ este pedido ("no quiero que el cliente vea la dependencia tan directa de litellm
 | Spec sin `spec.md` | `042` (solo CHANGELOG) |
 | Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051` |
 | Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051` |
+| **Spec citada que nunca se escribió** | **`015`** — la cascada de `SecurityPolicy`/`entity_configs` (`client > group > tenant > default`) se cita como "spec 015" en `013` (3 veces), `016` y sus checklists, pero **no existe ni acá ni en Sentinel**, y nunca se creó en la historia común. Es trabajo de arquitectura documentado sin spec en ninguna parte. |
+
+### Enlaces y referencias cruzadas
+
+`scripts/enlaces-rotos.py` valida los enlaces markdown relativos de `specs/` y `docs/` (sale con
+código 1 si hay rotos, sirve para un gate). Viene de la sesión de Sentinel; cuando esto converja,
+va a la base y lo corren las dos localizaciones.
+
+Al 15-sep: **521 enlaces, cero rotos.** Los 6 que encontró se arreglaron — dos apuntaban a otro
+repositorio con rutas `file:///home/...` (que no son enlaces, son notas que sólo funcionan en una
+máquina), uno contaba mal la profundidad desde el origen, uno apuntaba a `design-system/`
+(repositorio aparte), uno a la extensión de navegador que no vive acá, y **uno era mío**: al mover
+`046` a `_retiradas/` corregí los enlaces con `../` y con `specs/`, pero se me escapó uno relativo
+pelado.
+
+**Referencias cruzadas entre localizaciones:** las que apuntan a una spec de la otra llevan
+prefijo, según ADR-0007. Hoy hay dos a `SENTINEL-037` (el wizard de onboarding, que vive sólo en
+la localización europea), en `040/spec.md` y `ROADMAP-guardian.md`.
 
 El más costoso es **050**: es la rama actual y el mayor cuerpo de trabajo del mes, y su estado vive
 en prosa dentro del CHANGELOG. Si algo se convierte en `tasks.md`, que sea eso.

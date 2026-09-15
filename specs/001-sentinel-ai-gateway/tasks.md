@@ -4,7 +4,7 @@
 
 **Prerequisites**: [plan.md](plan.md) (required), [spec.md](spec.md) (required for user stories), [research.md](research.md), [data-model.md](data-model.md), [contracts/api.md](contracts/api.md)
 
-**Design System**: [design-system/sentinel-secure-ai-gateway/MASTER.md](../../design-system/sentinel-secure-ai-gateway/MASTER.md) (Accessible & Ethical style, Fira Code/Fira Sans typography, Calm Cyan & Health Green palette)
+**Design System**: `design-system/sentinel-secure-ai-gateway/MASTER.md` (repositorio aparte, no versionado acá) (Accessible & Ethical style, Fira Code/Fira Sans typography, Calm Cyan & Health Green palette)
 
 **Organization**: Tasks are grouped by setup, foundation, and user stories to enable independent implementation and testing.
 

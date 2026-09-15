@@ -94,7 +94,7 @@ definidos, lo que hace que no se pueda aplicar un análisis cruzando filas/colum
 otros archivos como el que se suele aplicar en áreas como Finanzas/BI." No es un bug de
 enmascarado — es una limitación arquitectónica real: el motor de documentos hace búsqueda
 semántica sobre chunks, no consultas tabulares/SQL. Ya trackeado como
-[spec 046](046-analisis-exacto-datos-eleia-hub/spec.md) ("Análisis exacto de datos
+[spec 046](_retiradas/046-analisis-exacto-datos-eleia-hub/spec.md) ("Análisis exacto de datos
 Excel/CSV en Eleia Hub", cita esta misma frase del mail como input), que a su vez depende de
 un motor nuevo (DB-GPT o equivalente, texto→SQL/DuckDB) especificado aparte en backend —
 decisión ya tomada el 31-ago: queda fuera del piloto, AnythingLLM alcanza para eso. Sigue en
