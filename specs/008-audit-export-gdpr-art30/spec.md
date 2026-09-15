@@ -1,3 +1,8 @@
+> **🇦🇷 Nota de localización (Eleia).** El export está modelado sobre el **Registro de Actividades de
+> Tratamiento del Art. 30 del GDPR**. El equivalente argentino bajo la Ley 25.326 (registro de bases
+> de datos ante la AAIP) **no está cubierto**. Se mantiene como base compartida; el mapeo queda
+> pendiente — ver "Localización argentina" en [`../README.md`](../README.md).
+
 # Feature 008 — Audit Export & Registros de Tratamiento (GDPR Art. 30)
 
 **Status**: Implementado ✅ (mergeado a master, 2026-06-29)

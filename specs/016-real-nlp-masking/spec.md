@@ -1,3 +1,8 @@
+> **🇦🇷 Nota de localización (Eleia).** Esta es la spec donde vive el reconocimiento de entidades
+> argentinas (DNI, CUIL, CUIT, CBU) del perfil `latam_ar`. **Hay un hallazgo abierto**: el CBU no se
+> enmascara en ese perfil (ver 040, tarea abierta). Además, la spec 050 movió el enmascarado al borde
+> del LLM, así que el hallazgo hay que re-verificar contra el camino nuevo.
+
 # Feature Specification: Real NLP Masking & Entity Detection Hardening
 
 **Feature Branch**: `016-real-nlp-masking`

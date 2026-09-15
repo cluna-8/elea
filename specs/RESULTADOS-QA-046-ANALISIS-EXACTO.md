@@ -21,7 +21,7 @@
 > (`maskXlsxBuffer()`, `client/server.js`, con `exceljs`) antes de salir del Hub. El aviso
 > `confirm()` que se describe abajo para "Excel" quedó acotado solo a `.xls` (formato binario
 > legado, sin soporte de la librería). Detalle completo en
-> `specs/046-analisis-exacto-datos-eleia-hub/tasks.md`. Esta corrida se deja intacta como
+> `specs/_retiradas/046-analisis-exacto-datos-eleia-hub/tasks.md`. Esta corrida se deja intacta como
 > registro histórico de lo que era cierto en ese momento — no se reescribe retroactivamente.
 
 ---

@@ -1,3 +1,7 @@
+> **🚫 NO APLICA A ELEIA.**
+> Productización de la extensión de navegador, del producto base (Sentinel/Evidenze). **No hay código
+> de la extensión en este repo** — verificado el 15-sep-2026. Sus 28 tareas no son backlog de Eleia.
+
 # Feature Specification: Productización de la extensión de navegador
 
 **Feature Branch**: `028-extension-productizacion`

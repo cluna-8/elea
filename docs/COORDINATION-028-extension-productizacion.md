@@ -3,7 +3,7 @@
 **Orquestador**: Claude (srdev-claude). **Rama feature**: `028-extension-productizacion` (worktree base desde `dev-fran` @ ca3725b + specs).
 **Deadline**: install del piloto Cámara **martes 28-jul**. **Regla dura**: NUNCA commit directo a `dev-fran`/`main`. Cada minion trabaja en su worktree y su rama; el orquestador integra a la rama feature y verifica antes de PR.
 
-Artefactos SDD (fuente de verdad, ya escritos y commiteados): [spec.md](../specs/028-extension-productizacion/spec.md) · [plan.md](../specs/028-extension-productizacion/plan.md) · [tasks.md](../specs/028-extension-productizacion/tasks.md) · [research.md](../specs/028-extension-productizacion/research.md) · [contracts/whoami-proteccion.md](../specs/028-extension-productizacion/contracts/whoami-proteccion.md).
+Artefactos SDD (fuente de verdad, ya escritos y commiteados): [spec.md](../specs/_no-aplica-eleia/028-extension-productizacion/spec.md) · [plan.md](../specs/_no-aplica-eleia/028-extension-productizacion/plan.md) · [tasks.md](../specs/_no-aplica-eleia/028-extension-productizacion/tasks.md) · [research.md](../specs/_no-aplica-eleia/028-extension-productizacion/research.md) · [contracts/whoami-proteccion.md](../specs/_no-aplica-eleia/028-extension-productizacion/contracts/whoami-proteccion.md).
 
 `speckit-analyze` corrió limpio: 27/28 FR cubiertos (FR-028 diferido a fast-follow, documentado), 0 CRITICAL/HIGH, constitución OK.
 
@@ -75,7 +75,7 @@ Denylist fabricante: `sentinel`, `sentinel guard`, `poc`, `localhost`, + `prohib
 **Rama base**: `028-extension-productizacion`. **Tu rama**: `028-backend`. Worktree: te lo asigna el orquestador (cd ahí).
 
 ### Tareas
-1. **US4 server (T016)** — `backend/src/api/inspect.py`, función `gw_whoami` (líneas 134-145): agregar un bloque `proteccion` a la respuesta. Contrato exacto: [contracts/whoami-proteccion.md](../specs/028-extension-productizacion/contracts/whoami-proteccion.md).
+1. **US4 server (T016)** — `backend/src/api/inspect.py`, función `gw_whoami` (líneas 134-145): agregar un bloque `proteccion` a la respuesta. Contrato exacto: [contracts/whoami-proteccion.md](../specs/_no-aplica-eleia/028-extension-productizacion/contracts/whoami-proteccion.md).
    - `proteccion.deteccion` = `"patrones"` (regla: plano gateway + `pii_detection.requires_service is None`; hoy `requires_service` está vacío → siempre `"patrones"`. Ver `backend/src/services/governance_status.py:309-311`).
    - `proteccion.titulo` = `"Detección por patrones"`.
    - `proteccion.detalle` = texto en lenguaje llano que **termina con el literal `_PISO_SIGUE`** (`governance_status.py:87`) — importalo, no lo copies a mano (fuente única de copy).
@@ -129,7 +129,7 @@ Leé **Cross-minion contract** arriba: sos responsable de neutralizar `config.js
 - El SW ya recibe `whoami`; pasar el bloque `proteccion` de la respuesta al popup y al panel.
 - **`popup.js`/`popup.html`**: mostrar un chip **ámbar** (no verde) con `proteccion.titulo` + " · cobertura parcial" y `proteccion.detalle` (texto del server). **Nunca** la palabra "protegido" en verde.
 - **`guardia-main.js`**: el panel flotante debe reflejar el mismo chip ámbar desde `proteccion` (viaja en el `state` por el bridge, o pedirlo). **Fallback**: si `proteccion` falta (backend viejo) → asumir `"patrones"` con un `detalle` mínimo genérico, **nunca** "linguistico"/verde. **No hardcodear** el `detalle` (debe venir del server cuando está).
-- Coordinación con Minion A: el shape lo define [contracts/whoami-proteccion.md](../specs/028-extension-productizacion/contracts/whoami-proteccion.md). Programá contra ese contrato + fallback.
+- Coordinación con Minion A: el shape lo define [contracts/whoami-proteccion.md](../specs/_no-aplica-eleia/028-extension-productizacion/contracts/whoami-proteccion.md). Programá contra ese contrato + fallback.
 
 ### US5 — Motivo real de bloqueo (FR-018..FR-020)
 - **`guardia-main.js`**, en el hook de fetch tras `callBridge("inspect", …)`: hoy trata cualquier `!res.ok` como "gateway no disponible" (línea 125-128). Distinguir:

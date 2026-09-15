@@ -1,0 +1,139 @@
+# Specs de Eleia — índice
+
+**Eleia** es la versión con **localización argentina** del producto. Corre sobre la misma base que
+Sentinel (el producto de Evidenze): el núcleo se comparte, y encima va lo propio de Eleia.
+Nomenclatura: **Evidenze = Sentinel**, **Elea = Eleia Guardian / Eleia Hub**, **base = Guardian**.
+
+Esta carpeta tenía 44 specs sin ningún criterio visible y 332 casillas sin marcar, de las que la
+mayoría no era trabajo pendiente. Reorganizada el **15-sep-2026**; acá está el criterio.
+
+## Cómo leer esta carpeta
+
+| Carpeta | Qué contiene | ¿Sus tareas son backlog? |
+|---|---|---|
+| `0xx-*` en la raíz | Specs vigentes: la línea Eleia (040+) y la base compartida (001-039) | Sí, con el matiz de abajo |
+| [`_retiradas/`](_retiradas/) | Specs que ya no describen el sistema (absorbidas o superadas) | **No** |
+| [`_no-aplica-eleia/`](_no-aplica-eleia/) | Funcionalidad de la base que no vive en este repo | **No** |
+
+**Importante:** una spec en la raíz no significa "trabajo comprometido". Las de la base
+(`001-039`) llegaron con el fork y su backlog es del producto base, no el plan de Eleia. Los
+números están separados más abajo.
+
+---
+
+## 1. Línea Eleia — el backlog real
+
+Lo único que hay que mirar para saber qué falta en Eleia.
+
+| Spec | Estado | Pendiente |
+|---|---|---|
+| [040 Cliente RAG de Elea](040-cliente-rag-elea-completo/) | Entregada | **1 — el CBU no se enmascara en el perfil `latam_ar`.** Hallazgo de PII confirmado y abierto. Re-verificar contra el enmascarado nuevo de 050. |
+| [042 Rediseño UI bóveda/PII/hilos](042-rediseno-ui-boveda-pii-hilos/) | Entregada | **Sin `spec.md`** — solo CHANGELOG. Hueco de documentación. |
+| [043 Aislamiento y atribución](043-aislamiento-atribucion-motor/) | Entregada | 3 — sitio de docs (DoD), correr `quickstart.md`, reconstruir imágenes. *Probablemente cubiertas por 050 (imágenes `2026-09-14`); confirmar y cerrar.* |
+| [044 Hub Chat + panel admin](044-hub-chat-panel-admin/) | Entregada | 9 — todas "correr `quickstart.md` §N y registrar", diferidas por necesitar datos reales. *Mismo caso que 043.* |
+| [045 Carga de formatos y documentos](045-generacion-carga-documentos-eleia-hub/) | **Recortada** por 050 | Queda solo la carga de `.pptx` al RAG. Sin `tasks.md`. |
+| [047 Formato de respuesta y presupuesto por rol](047-formato-respuesta-presupuesto-rol-eleia-hub/) | Sin arrancar | Sin `plan.md` ni `tasks.md`. |
+| [049 Motor de generación de documentos](049-motor-generacion-documentos/) | **Recortada** por 050 | Queda docx/xlsx/pdf, sin presentaciones. Sin `tasks.md`. |
+| [050 IA Hub — conector + motores](050-ia-hub-conector-motores/) | **Activa** (rama actual) | 7 puntos en su [CHANGELOG](050-ia-hub-conector-motores/CHANGELOG.md#estado-al-cierre-14-sep-2026-y-pendientes), no en un `tasks.md`. Ver abajo. |
+| [051 Historial en Planillas](051-historial-planillas/) | Investigación **cerrada** | [RESULTADOS.md](051-historial-planillas/RESULTADOS.md) escrito; falta convertirlo en plan. |
+
+**Total contable en la línea Eleia: 13 tareas** (040: 1, 043: 3, 044: 9), más los 7 puntos de 050
+que no están como tareas.
+
+### Pendientes de 050 (los que importan hoy)
+
+1. **Barrido de nombres de tecnología** — regla del dueño, reiterada el 14-sep: que no quede
+   "LiteLLM", "Ollama", "Presenton", "AnythingLLM" ni "Presidio" en nada visible al cliente.
+   Hoy el panel todavía dice **"Modelos & Ollama"**. La spec que cubre esto es la
+   [039](039-white-label-motor-marketplace/) — ver §4.
+2. Atribución de gasto por persona en el engine (`acted_for_user_id`).
+3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" detectados como PERSON).
+4. Specs 047 y 049.
+5. Restos de DB-GPT ocupando disco en el servidor (`elea-exact-analysis-engine`), con el disco
+   chico como riesgo.
+6. Dos tarjetas fantasma en la pantalla de plantillas de Presenton local (cosmético).
+
+### Informes sueltos de la línea Eleia
+
+- [`RESULTADOS-PRUEBA-MANUAL-UI.md`](RESULTADOS-PRUEBA-MANUAL-UI.md) — prueba manual de UI de 043/044 (10-sep), 20 bugs.
+- [`RESULTADOS-QA-046-ANALISIS-EXACTO.md`](RESULTADOS-QA-046-ANALISIS-EXACTO.md) — QA de Análisis Exacto (11-sep) + addendum del 15-sep.
+- [`VERIFICACION-043-044-pruebas.md`](VERIFICACION-043-044-pruebas.md) — verificación por API de 043/044.
+- [`RESULTADOS-INVESTIGACION-DOCGEN-*.md`](.) — investigación de docgen y DB-GPT.
+
+---
+
+## 2. Base compartida (001-039)
+
+El núcleo Guardian sobre el que corre Eleia: gateway, firewall, enmascarado NLP, RBAC, auditoría,
+retención, multi-tenant, licencias, ahorro de costes, docs de producto.
+
+**272 tareas abiertas.** Es el backlog del **producto base**, no el plan de Eleia. Antes de tomar
+cualquiera, confirmar que aplica a la versión argentina.
+
+Las más pesadas: `035-load-harness` (46), `026-cli-operador-sentinel` (39),
+`019-integration-surfaces` (33), `012-ahorro-costes-ia` (29), `017-auth-rbac-sso` (27),
+`029-ui-foundry` (15), `018-retencion-tiers` (15).
+
+**Dos que conviene revisar:**
+- `029-ui-foundry` (15 tareas) — rediseño del panel. Posiblemente superado por 042/044/050. Confirmar.
+- `026-cli-operador-sentinel` (39 tareas) — **sí aplica**: el CLI existe (`cli/sentinel_admin`) y
+  las licencias están activas (`backend/src/licensing/`, seats). Pero **el nombre `sentinel-admin`
+  es deuda de marca** en una instancia de Elea — ver §4.
+
+---
+
+## 3. Localización argentina — lo que falta
+
+Eleia es la versión argentina, pero el compliance está escrito sobre marco europeo.
+
+| Tema | Estado |
+|---|---|
+| Entidades argentinas (DNI, CUIL, CUIT, CBU) en el perfil `latam_ar` | Implementado en [016](016-real-nlp-masking/), **con el CBU sin enmascarar** (hallazgo abierto de 040) |
+| **Ley 25.326** de Protección de Datos Personales | **No mapeada.** [005](005-compliance-policies-gdpr-ai-act/) cubre GDPR + EU AI Act |
+| Registro de bases ante la **AAIP** | **No cubierto.** [008](008-audit-export-gdpr-art30/) exporta el Art. 30 del GDPR |
+
+Las tres specs llevan una nota de localización en su encabezado. Decisión del 15-sep: se mantienen
+como base compartida —el cliente es farmacéutica con operación internacional— y el mapeo a la ley
+argentina queda como trabajo pendiente, sin fecha.
+
+---
+
+## 4. Deuda de marca
+
+La regla: el cliente no debe ver nombres de tecnología ni la marca de otro cliente. Lo que hoy
+incumple, verificado el 15-sep:
+
+| Dónde | Qué se ve |
+|---|---|
+| Panel de Guardian | Menú **"Modelos & Ollama"** |
+| `frontend/src/services/auth.ts:3` | Clave de sesión **`sentinel_session_token`** (también `basa_current_user`) |
+| `cli/sentinel_admin` | El CLI de operador se llama **`sentinel-admin`** |
+
+La spec que cubre esto es la [039](039-white-label-motor-marketplace/) — creada exactamente por
+este pedido ("no quiero que el cliente vea la dependencia tan directa de litellm"). **No tiene
+`tasks.md`**; es la candidata natural para absorber el punto 1 de los pendientes de 050.
+
+---
+
+## 5. Huecos de documentación
+
+| Hueco | Dónde |
+|---|---|
+| Spec sin `spec.md` | `042` (solo CHANGELOG) |
+| Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051` |
+| Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051` |
+
+El más costoso es **050**: es la rama actual y el mayor cuerpo de trabajo del mes, y su estado vive
+en prosa dentro del CHANGELOG. Si algo se convierte en `tasks.md`, que sea eso.
+
+---
+
+## Números, antes y después
+
+|  | Antes | Después |
+|---|---|---|
+| Carpetas en la raíz | 44 | 40 |
+| Casillas sin marcar visibles | 332 | 285 |
+| De esas, backlog real de Eleia | *no se podía saber* | **13** (+ 7 puntos de 050) |
+| Backlog del producto base | *mezclado* | 272, separado y rotulado |
+| Tareas de specs muertas contadas como pendientes | 47 | 0 |

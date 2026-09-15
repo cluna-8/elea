@@ -1,3 +1,9 @@
+> **🇦🇷 Nota de localización (Eleia).** Esta spec está escrita sobre **GDPR + EU AI Act**. Para la
+> versión argentina, el marco aplicable es la **Ley 25.326 de Protección de Datos Personales** y su
+> autoridad de control, la **AAIP**. La spec se mantiene como base compartida —el cliente Elea es
+> farmacéutica con operación internacional y el marco europeo le sigue aplicando—, pero **el mapeo a
+> la ley argentina está pendiente**: ver "Localización argentina" en [`../README.md`](../README.md).
+
 # Feature Specification: Compliance Policies — GDPR & EU AI Act
 **Feature Branch**: `feature/005-compliance-policies`
 **Version**: 1.0.0

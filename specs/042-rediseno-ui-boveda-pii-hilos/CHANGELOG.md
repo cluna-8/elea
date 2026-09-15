@@ -3,7 +3,7 @@
 **Fecha**: 02/03-sep-2026
 **Estado**: ✅ **Lista.** Hecho, verificado end-to-end (local y en `eleavdmia`), desplegado en producción.
 **Depende de**: [040-cliente-rag-elea-completo](../040-cliente-rag-elea-completo/spec.md),
-[041-cliente-rag-cobertura-completa-cliente-elea](../041-cliente-rag-cobertura-completa-cliente-elea/spec.md).
+[041-cliente-rag-cobertura-completa-cliente-elea](../_retiradas/041-cliente-rag-cobertura-completa-cliente-elea/spec.md).
 
 Este doc no sigue el template de spec (no es trabajo por hacer) — es el registro de lo que
 se hizo, por qué, y cómo quedó verificado, para que quede trazable junto con las demás specs.

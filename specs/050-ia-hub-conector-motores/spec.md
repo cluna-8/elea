@@ -8,8 +8,8 @@
 [`CHANGELOG.md`](CHANGELOG.md); pruebas: Hub 37, tabular 74, firewall 30 nuevas; prueba
 integral local 12/12 y multiusuario 17/17; imágenes publicadas en `ghcr.io/cluna-8`
 (`elea-rag-client`, `elea-tabular`, `elea-guardian-backend`, `elea-guardian-engine`, tag
-`2026-09-14`). Pendiente: prueba del instalador desde cero en máquina limpia. **Absorbe** la [spec 046](../046-analisis-exacto-datos-eleia-hub/spec.md)
-(UI de Excel) y la [spec 048](../048-motor-analisis-exacto-dbgpt/spec.md) (motor DB-GPT), que quedan
+`2026-09-14`). Pendiente: prueba del instalador desde cero en máquina limpia. **Absorbe** la [spec 046](../_retiradas/046-analisis-exacto-datos-eleia-hub/spec.md)
+(UI de Excel) y la [spec 048](../_retiradas/048-motor-analisis-exacto-dbgpt/spec.md) (motor DB-GPT), que quedan
 retiradas. **Recorta** la [spec 045](../045-generacion-carga-documentos-eleia-hub/spec.md) (queda solo la
 carga de `.pptx` al RAG) y la [spec 049](../049-motor-generacion-documentos/spec.md) (queda solo el
 motor de documentos docx/xlsx/pdf, sin presentaciones).

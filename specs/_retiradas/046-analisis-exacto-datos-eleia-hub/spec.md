@@ -1,3 +1,8 @@
+> **🗄️ SPEC RETIRADA — no es trabajo pendiente.**
+> Absorbida por la [spec 050](../../050-ia-hub-conector-motores/spec.md) el 12-sep-2026. La UI de Excel
+> que describe se reimplementó sobre el motor tabular propio (`tabular/`, DuckDB). Se conserva como
+> historia; sus tareas no cuentan como backlog.
+
 # Feature Specification: Análisis exacto de datos (Excel/CSV) en Eleia Hub
 
 **Feature Branch**: `046-analisis-exacto-datos-eleia-hub`

@@ -1,3 +1,8 @@
+> **🗄️ SPEC RETIRADA — no es trabajo pendiente.**
+> Absorbida por la [spec 050](../../050-ia-hub-conector-motores/spec.md) el 12-sep-2026: DB-GPT se
+> descartó (motor de terceros con CVE crítica, dentro de Guardian) y se reemplazó por el motor
+> tabular propio. Sus 8 tareas abiertas son de DB-GPT: **muertas**, no backlog.
+
 # Feature Specification: Motor de análisis exacto de datos (DB-GPT) para Eleia Hub
 
 **Feature Branch**: `048-motor-analisis-exacto-dbgpt`

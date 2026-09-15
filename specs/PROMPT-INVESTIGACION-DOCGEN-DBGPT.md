@@ -18,7 +18,7 @@ Hub/Guardian: gateway de IA con RAG, air-gapped/on-premise, spec-kit workflow). 
 de las dos existe todavía en el código — es research para decidir QUÉ construir, no para
 tocar código. Contexto de las specs en
 /home/drexgen/Documents/ELEA/LLMADMIN-Elea/elea/specs/045-generacion-carga-documentos-eleia-hub/spec.md
-y .../046-analisis-exacto-datos-eleia-hub/spec.md si querés leerlas antes de arrancar —
+y .../_retiradas/046-analisis-exacto-datos-eleia-hub/spec.md si querés leerlas antes de arrancar —
 no hace falta.
 
 ## Parte 1 — Generación de documentos desde plantillas (spec 045)

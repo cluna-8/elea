@@ -1,3 +1,8 @@
+> **🗄️ SPEC SUPERADA — no es trabajo pendiente.**
+> Sus 11 tareas quedaron cubiertas por specs posteriores: `.pptx` → 045, análisis tabular → 048 y
+> luego 050, generación de documentos → 049, presupuesto por rol → 047. Se conserva como historia;
+> no cuenta como backlog.
+
 # Feature Specification: Cobertura completa de los 6 puntos del cliente Elea en el cliente RAG
 
 **Feature Branch**: `041-cliente-rag-cobertura-completa-cliente-elea`
