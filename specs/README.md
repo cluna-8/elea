@@ -27,7 +27,7 @@ Lo único que hay que mirar para saber qué falta en Eleia.
 
 | Spec | Estado | Pendiente |
 |---|---|---|
-| [040 Cliente RAG de Elea](040-cliente-rag-elea-completo/) | Entregada | **1 — el CBU no se enmascara en el perfil `latam_ar`.** Hallazgo de PII confirmado y abierto. Re-verificar contra el enmascarado nuevo de 050. |
+| [040 Cliente RAG de Elea](040-cliente-rag-elea-completo/) | Entregada | **0** — el hallazgo del CBU se cerró el 31-ago y se verificó el 15-sep (patrón presente, perfil `latam_ar` activo en el contenedor). Ver el gap adyacente en §3. |
 | [042 Rediseño UI bóveda/PII/hilos](042-rediseno-ui-boveda-pii-hilos/) | Entregada | **Sin `spec.md`** — solo CHANGELOG. Hueco de documentación. |
 | [043 Aislamiento y atribución](043-aislamiento-atribucion-motor/) | Entregada | 3 — sitio de docs (DoD), correr `quickstart.md`, reconstruir imágenes. *Probablemente cubiertas por 050 (imágenes `2026-09-14`); confirmar y cerrar.* |
 | [044 Hub Chat + panel admin](044-hub-chat-panel-admin/) | Entregada | 9 — todas "correr `quickstart.md` §N y registrar", diferidas por necesitar datos reales. *Mismo caso que 043.* |
@@ -37,7 +37,7 @@ Lo único que hay que mirar para saber qué falta en Eleia.
 | [050 IA Hub — conector + motores](050-ia-hub-conector-motores/) | **Activa** (rama actual) | 7 puntos en su [CHANGELOG](050-ia-hub-conector-motores/CHANGELOG.md#estado-al-cierre-14-sep-2026-y-pendientes), no en un `tasks.md`. Ver abajo. |
 | [051 Historial en Planillas](051-historial-planillas/) | Investigación **cerrada** | [RESULTADOS.md](051-historial-planillas/RESULTADOS.md) escrito; falta convertirlo en plan. |
 
-**Total contable en la línea Eleia: 13 tareas** (040: 1, 043: 3, 044: 9), más los 7 puntos de 050
+**Total contable en la línea Eleia: 12 tareas** (043: 3, 044: 9 — el hallazgo del CBU de 040 se cerró el 15-sep), más los 7 puntos de 050
 que no están como tareas.
 
 ### Pendientes de 050 (los que importan hoy)
@@ -88,13 +88,43 @@ Eleia es la versión argentina, pero el compliance está escrito sobre marco eur
 
 | Tema | Estado |
 |---|---|
-| Entidades argentinas (DNI, CUIL, CUIT, CBU) en el perfil `latam_ar` | Implementado en [016](016-real-nlp-masking/), **con el CBU sin enmascarar** (hallazgo abierto de 040) |
+| Entidades argentinas (DNI, CUIL, CBU, PASSPORT) en el perfil `latam_ar` | **Implementado y activo.** Verificado el 15-sep dentro del contenedor: `SENTINEL_ENTITY_REGION=latam_ar`, cuatro entidades. El instalador lo pone como default (`elea-installer/docker-compose.yml`). El CBU se cerró el 31-ago. |
+| **El paracaídas de detección es sólo europeo** | 🔴 **ABIERTO** — ver abajo |
 | **Ley 25.326** de Protección de Datos Personales | **No mapeada.** [005](005-compliance-policies-gdpr-ai-act/) cubre GDPR + EU AI Act |
 | Registro de bases ante la **AAIP** | **No cubierto.** [008](008-audit-export-gdpr-art30/) exporta el Art. 30 del GDPR |
 
 Las tres specs llevan una nota de localización en su encabezado. Decisión del 15-sep: se mantienen
 como base compartida —el cliente es farmacéutica con operación internacional— y el mapeo a la ley
 argentina queda como trabajo pendiente, sin fecha.
+
+### 🔴 El paracaídas de detección es sólo europeo (abierto, 15-sep-2026)
+
+Hay **dos** tablas de patrones en `litellm/extensions/sentinel_guardian_policy.py`, y sólo una
+conoce Argentina:
+
+| Tabla | Cuándo se usa | Regiones |
+|---|---|---|
+| `STRUCTURED_ID_PATTERNS_BY_REGION` | Camino normal: reconocedores ad-hoc → Presidio | `eu`, **`latam_ar`** |
+| `FALLBACK_STRUCTURED_BY_REGION` | Paracaídas `default_analyze()`, cuando el sidecar NLP no responde | **sólo `eu`** (`PHONE_NUMBER`, `PHONE_INTL`, `ES_NIF`, `ES_NIE`) |
+
+**Si se cae el `nlp-analyzer`, una instalación argentina degrada a patrones españoles.** Probado
+el 15-sep por el camino degradado con `El CBU de la cuenta es 0170099220000012345678 y el DNI del
+titular es 28.455.910.`: detectó **sólo `CREDIT_CARD`**. El CBU se salva de carambola —el
+fail-safe enmascara cualquier corrida larga de dígitos que podría ser tarjeta/IBAN— pero **el DNI
+no se detecta**, y CUIL/CUIT tampoco tienen patrón ahí.
+
+Para un firewall de PII el camino degradado es justo donde más importa. El arreglo es de la
+**base**, no de la localización: `FALLBACK_STRUCTURED_BY_REGION` tiene que espejar las regiones de
+la tabla principal. Comunicado a la sesión de Sentinel el 15-sep para el plan de convergencia.
+
+De paso, dos cosas del mismo archivo:
+- El `TODO(región)` de la línea 364 (*"no se threadea `SENTINEL_ENTITY_REGION` desde los
+  call-sites … hoy el único despliegue es eu"*) **está vencido**: los call-sites sí pasan `region`
+  (`sentinel_guardrail.py:542,582`, `gateway.py:352,510`) y ya no es cierto que el único
+  despliegue sea `eu`.
+- La env var se llama **`SENTINEL_ENTITY_REGION`**: la instalación argentina configura su perfil
+  de país con una variable con marca de Evidenze. Suma a la deuda de marca (§4); lo neutro sería
+  `GUARDIAN_ENTITY_REGION` con alias retrocompatible.
 
 ---
 
@@ -134,6 +164,6 @@ en prosa dentro del CHANGELOG. Si algo se convierte en `tasks.md`, que sea eso.
 |---|---|---|
 | Carpetas en la raíz | 44 | 40 |
 | Casillas sin marcar visibles | 332 | 285 |
-| De esas, backlog real de Eleia | *no se podía saber* | **13** (+ 7 puntos de 050) |
+| De esas, backlog real de Eleia | *no se podía saber* | **12** (+ 7 puntos de 050, + 1 gap abierto en §3) |
 | Backlog del producto base | *mezclado* | 272, separado y rotulado |
 | Tareas de specs muertas contadas como pendientes | 47 | 0 |

@@ -112,7 +112,21 @@ por API. Hallazgos:
 - [x] **Bloqueo de presupuesto (402)**: confirmado real — presupuesto agotado → el
   cliente propaga el 402 tal cual, badge muestra `$0.00/$0.00`, mensaje real de `elea`
   ("Presupuesto mensual agotado para la llave virtual o el usuario/equipo").
-- [ ] ⚠️ **HALLAZGO — el CBU no se enmascara en el perfil `latam_ar`**: confirmado
+- [x] ⚠️ **HALLAZGO — el CBU no se enmascara en el perfil `latam_ar`** — **CERRADO el 31-ago,
+  verificado el 15-sep-2026.** El patrón existe hoy en
+  `litellm/extensions/sentinel_guardian_policy.py:151`:
+  `"CBU": (r"\b\d{22}\b", 0.85, ["cbu", "clave bancaria", "cuenta bancaria"])`, y el propio
+  comentario del código cita esta tarea como la causa de haberlo agregado. Verificado dentro
+  del contenedor `engine` en marcha: `SENTINEL_ENTITY_REGION = latam_ar`, entidades del perfil
+  `['CBU', 'CUIL', 'DNI', 'PASSPORT']` (cuatro, no dos), y el patrón matchea el CBU exacto de
+  este hallazgo (`0170099220000012345678`). Todos los call-sites reales pasan la env var como
+  default a `resolve_region()` (`gateway.py:348,507`, `guardian_service.py:324`,
+  `guardians.py:474`, `sentinel_guardrail.py:533`), así que el perfil argentino está activo en
+  el camino normal. **La causa raíz que describe el texto de abajo ya no es cierta** — se deja
+  como registro de lo que se encontró el 31-ago. Hay un gap ADYACENTE todavía abierto en el
+  camino degradado: ver "El paracaídas es sólo europeo" en [`../README.md`](../README.md).
+
+  <sub>Texto original del hallazgo (31-ago-2026, ya no vigente):</sub> confirmado
   visualmente (`El CBU mencionado en el documento es 0170099220000012345678...` en texto
   plano en la respuesta del RAG). Causa raíz: `STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]`
   (`litellm/extensions/sentinel_guardian_policy.py:110`) **solo define `DNI` y `CUIL`** — el
