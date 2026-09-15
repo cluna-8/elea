@@ -1163,3 +1163,52 @@ async def test_fallback_goldens_no_se_sobre_enmascaran(text, expected_types):
         assert masked == text
     else:
         assert policy.unmask_text(masked, pmap.ph_to_orig) == text
+
+
+# ── FR-015/FR-016: el paracaídas tiene que espejar las regiones ────────────────────────
+#
+# Por qué existe este test: la resolución del paracaídas es
+# `FALLBACK_STRUCTURED_BY_REGION.get(region, {})`. Si una región existe en la tabla
+# principal y falta en la del paracaídas, NO hereda `eu` — devuelve `{}` y el modo
+# degradado se queda sin ninguna detección estructurada, justo cuando ya falló algo.
+# Pasó de verdad: `latam_ar` estuvo sólo en la tabla principal hasta el 15-sep-2026.
+
+def test_paracaidas_espeja_regiones():
+    """Agregar una región arriba y olvidarla en el paracaídas tiene que romper acá."""
+    principales = set(policy.STRUCTURED_ID_PATTERNS_BY_REGION)
+    paracaidas = set(policy.FALLBACK_STRUCTURED_BY_REGION)
+    faltan = principales - paracaidas
+    assert not faltan, (
+        f"Regiones en STRUCTURED_ID_PATTERNS_BY_REGION sin entrada en "
+        f"FALLBACK_STRUCTURED_BY_REGION: {sorted(faltan)}. En modo degradado esas regiones "
+        f"pierden TODA la detección estructurada (`.get(region, {{}})` devuelve vacío, no "
+        f"hereda 'eu')."
+    )
+
+
+def test_paracaidas_ninguna_region_queda_vacia():
+    """Una región presente pero con dict vacío es el mismo agujero, disfrazado."""
+    vacias = [r for r, pats in policy.FALLBACK_STRUCTURED_BY_REGION.items() if not pats]
+    assert not vacias, f"Regiones del paracaídas sin ningún patrón: {vacias}"
+
+
+def test_paracaidas_latam_ar_cubre_los_documentos_argentinos():
+    """Regresión del hallazgo del 15-sep: DNI, CUIL y CBU en el camino degradado."""
+    pats = policy.FALLBACK_STRUCTURED_BY_REGION["latam_ar"]
+    for entidad in ("DNI", "CUIL", "CBU"):
+        assert entidad in pats, f"falta {entidad} en el paracaídas de latam_ar"
+    assert re.search(pats["DNI"], "el DNI es 28.455.910")
+    assert re.search(pats["CUIL"], "CUIL 20-28455910-3")
+    assert re.search(pats["CBU"], "CBU 0170099220000012345678")
+
+
+def test_paracaidas_reusa_los_patrones_de_la_tabla_principal():
+    """Los patrones se toman con [0] de la principal: no pueden divergir en silencio."""
+    for region, pats in policy.FALLBACK_STRUCTURED_BY_REGION.items():
+        principal = policy.STRUCTURED_ID_PATTERNS_BY_REGION.get(region, {})
+        for entidad, patron in pats.items():
+            if entidad in principal:
+                assert patron == principal[entidad][0], (
+                    f"{region}/{entidad}: el patrón del paracaídas se separó del de la "
+                    f"tabla principal"
+                )

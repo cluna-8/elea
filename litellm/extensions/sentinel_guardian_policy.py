@@ -171,12 +171,35 @@ DEFAULT_REGION = "eu"
 # sobre-matcheo: EXIGE prefijo `+`/`00` + dígito de país 1-9. Como arranca por `+`/`00` y los
 # IBANs por letras y las facturas sin prefijo, no se pisan (review R2). La etiqueta que emite
 # es `PHONE_NUMBER` (ver `default_analyze`): `PHONE_INTL` es sólo la clave del patrón.
+# INVARIANTE (FR-015): este diccionario tiene que cubrir las MISMAS regiones que
+# `STRUCTURED_ID_PATTERNS_BY_REGION`. La resolución de abajo es
+# `FALLBACK_STRUCTURED_BY_REGION.get(region, {})`: una región que falte acá NO hereda `eu`,
+# se queda con `{}` — o sea, el paracaídas pierde TODA la detección estructurada justo
+# cuando ya falló algo. Se encontró así el 15-sep-2026: `latam_ar` existía en la tabla de
+# arriba y faltaba acá, y una instalación argentina en modo degradado no detectaba ni DNI,
+# ni CUIL, ni CBU (ni los europeos). `test_paracaidas_espeja_regiones` falla si alguien
+# agrega una región arriba y se olvida acá.
+#
+# Ojo con qué se copia: acá NO hay palabras de contexto ni score — es regex puro sobre el
+# texto. Por eso `eu` deja PASSPORT afuera a propósito (su patrón es `[A-Z0-9]{6,9}`, que
+# sin contexto matchea casi cualquier token) y `latam_ar` sí lo incluye (`[A-Z]{3}\d{6}` es
+# lo bastante específico para ir solo). Los patrones se toman de la tabla de arriba con
+# `[0]` para que no puedan divergir.
 FALLBACK_STRUCTURED_BY_REGION = {
     "eu": {
         "PHONE_NUMBER": STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0],
         "PHONE_INTL": r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b",
         "ES_NIF": r"\b\d{8}[A-Za-z]\b",
         "ES_NIE": r"\b[XYZxyz]\d{7}[A-Za-z]\b",
+    },
+    "latam_ar": {
+        "DNI": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["DNI"][0],
+        "CUIL": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["CUIL"][0],
+        "CBU": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["CBU"][0],
+        "PASSPORT": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["PASSPORT"][0],
+        # El teléfono argentino no está en la tabla de arriba (Presidio lo cubre con
+        # prefijo internacional), así que acá va sólo el internacional, igual que en `eu`.
+        "PHONE_INTL": r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b",
     },
 }
 # Clave del patrón fallback → etiqueta canónica emitida (cuando difieren). El teléfono
