@@ -1192,14 +1192,45 @@ def test_paracaidas_ninguna_region_queda_vacia():
     assert not vacias, f"Regiones del paracaídas sin ningún patrón: {vacias}"
 
 
-def test_paracaidas_latam_ar_cubre_los_documentos_argentinos():
-    """Regresión del hallazgo del 15-sep: DNI, CUIL y CBU en el camino degradado."""
+def test_paracaidas_no_pierde_entidades_de_la_tabla_principal():
+    """El espejo es por REGIÓN: lo que está arriba baja, salvo exclusiones documentadas.
+
+    Formulado sobre la tabla principal en vez de sobre una lista fija de entidades para que
+    valga en cualquier localización: un perfil sin CBU (Sentinel hoy) pasa igual, y el día
+    que agregue uno nuevo arriba, este test lo exige abajo sin tocar el test.
+    """
+    for region, principal in policy.STRUCTURED_ID_PATTERNS_BY_REGION.items():
+        excluidas = policy._FUERA_DEL_PARACAIDAS.get(region, set())
+        esperadas = set(principal) - excluidas
+        presentes = set(policy.FALLBACK_STRUCTURED_BY_REGION.get(region, {}))
+        faltan = esperadas - presentes
+        assert not faltan, (
+            f"región {region!r}: entidades en la tabla principal que no llegaron al "
+            f"paracaídas y no están excluidas a propósito: {sorted(faltan)}"
+        )
+
+
+def test_paracaidas_latam_ar_caza_los_documentos_argentinos():
+    """Regresión del hallazgo del 15-sep, sobre lo que el perfil de esta línea sí tiene."""
     pats = policy.FALLBACK_STRUCTURED_BY_REGION["latam_ar"]
-    for entidad in ("DNI", "CUIL", "CBU"):
-        assert entidad in pats, f"falta {entidad} en el paracaídas de latam_ar"
-    assert re.search(pats["DNI"], "el DNI es 28.455.910")
-    assert re.search(pats["CUIL"], "CUIL 20-28455910-3")
-    assert re.search(pats["CBU"], "CBU 0170099220000012345678")
+    casos = {
+        "DNI": "el DNI es 28.455.910",
+        "CUIL": "CUIL 20-28455910-3",
+        "CBU": "CBU 0170099220000012345678",
+    }
+    for entidad, texto in casos.items():
+        if entidad not in pats:          # perfil incompleto en otra localización
+            continue
+        assert re.search(pats[entidad], texto), f"{entidad} no caza su propio ejemplo"
+    assert "DNI" in pats and "CUIL" in pats, "el perfil argentino mínimo son DNI y CUIL"
+
+
+def test_el_paracaidas_no_revienta_con_un_perfil_incompleto():
+    """`_desde_principal` saltea lo ausente en vez de romper el import (KeyError)."""
+    assert policy._desde_principal("latam_ar", "NO_EXISTE") == {}
+    assert policy._desde_principal("region_inventada", "DNI") == {}
+    parcial = policy._desde_principal("latam_ar", "DNI", "NO_EXISTE")
+    assert set(parcial) == {"DNI"}
 
 
 def test_paracaidas_reusa_los_patrones_de_la_tabla_principal():

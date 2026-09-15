@@ -185,21 +185,47 @@ DEFAULT_REGION = "eu"
 # sin contexto matchea casi cualquier token) y `latam_ar` sí lo incluye (`[A-Z]{3}\d{6}` es
 # lo bastante específico para ir solo). Los patrones se toman de la tabla de arriba con
 # `[0]` para que no puedan divergir.
+# Entidades que una región tiene en la tabla principal y NO van al paracaídas, con el
+# motivo. La simetría del espejo es de REGIONES, no de ENTIDADES: acá no hay palabras de
+# contexto ni score, es regex puro sobre el texto, así que un patrón laxo que arriba se
+# sostiene con contexto abajo se vuelve una máquina de falsos positivos.
+_FUERA_DEL_PARACAIDAS = {
+    # `[A-Z0-9]{6,9}` sin contexto matchea casi cualquier token en mayúsculas.
+    "eu": {"PASSPORT"},
+}
+
+
+def _desde_principal(region: str, *entidades: str) -> dict:
+    """Patrones de `STRUCTURED_ID_PATTERNS_BY_REGION[region]`, salteando los que falten.
+
+    DEFENSIVO A PROPÓSITO, y el motivo es concreto (15-sep-2026): este archivo es de la
+    BASE y lo comparten localizaciones con perfiles DESIGUALES — Eleia tiene `CBU` en
+    `latam_ar` y Sentinel no. Con acceso directo (`[...]["CBU"][0]`) este diccionario, que
+    es un literal a nivel de módulo, levanta `KeyError` EN EL IMPORT: no es "falta una
+    entidad", es el módulo de enmascarado sin cargar, o sea el firewall caído al arranque.
+    Lo detectó la sesión de Sentinel al intentar traer este arreglo.
+
+    Saltear lo ausente también desacopla: el arreglo del paracaídas deja de depender de que
+    haya bajado antes el commit que agregó la entidad.
+    """
+    principal = STRUCTURED_ID_PATTERNS_BY_REGION.get(region, {})
+    return {e: principal[e][0] for e in entidades if e in principal}
+
+
+_TELEFONO_INTL = r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b"
+
 FALLBACK_STRUCTURED_BY_REGION = {
     "eu": {
-        "PHONE_NUMBER": STRUCTURED_ID_PATTERNS_BY_REGION["eu"]["PHONE_NUMBER"][0],
-        "PHONE_INTL": r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b",
+        **_desde_principal("eu", "PHONE_NUMBER"),
+        "PHONE_INTL": _TELEFONO_INTL,
         "ES_NIF": r"\b\d{8}[A-Za-z]\b",
         "ES_NIE": r"\b[XYZxyz]\d{7}[A-Za-z]\b",
     },
     "latam_ar": {
-        "DNI": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["DNI"][0],
-        "CUIL": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["CUIL"][0],
-        "CBU": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["CBU"][0],
-        "PASSPORT": STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["PASSPORT"][0],
+        **_desde_principal("latam_ar", "DNI", "CUIL", "CBU", "PASSPORT"),
         # El teléfono argentino no está en la tabla de arriba (Presidio lo cubre con
         # prefijo internacional), así que acá va sólo el internacional, igual que en `eu`.
-        "PHONE_INTL": r"(?<![\w+])(?:\+|00)[1-9]\d{0,2}(?:[\s.\-]?\d){6,14}\b",
+        "PHONE_INTL": _TELEFONO_INTL,
     },
 }
 # Clave del patrón fallback → etiqueta canónica emitida (cuando difieren). El teléfono
