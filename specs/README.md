@@ -25,9 +25,26 @@ instalación, y la fuente canónica es **por tenant** — `pii_masking.config.re
 spec 016, issues 137/141). Una sola instalación puede servir a la vez a un tenant argentino y a uno
 español con detectores distintos. Un fork no da esa granularidad.
 
-> **Numeración** (ADR-0007): las specs **001-038** son las mismas en los dos repos —están en los
-> 524 commits de historia común— y van **sin prefijo**. De la **039 en adelante** divergen: se
-> referencian como `ELEIA-0xx` / `SENTINEL-0xx`.
+> **Numeración de specs** (ADR-0007): las specs **001-038** son las mismas en los dos repos
+> —están en los 524 commits de historia común— y van **sin prefijo**. De la **039 en adelante**
+> divergen: se referencian como `ELEIA-0xx` / `SENTINEL-0xx`.
+
+> ⚠️ **Numeración de MIGRACIONES: el mismo problema, sin convención todavía, y falla más feo.**
+> Nuestras revisiones de Alembic usan ids secuenciales (`revision = "018"`, `down_revision = "017"`)
+> y las tres líneas consumen ese contador por separado: base, Sentinel (head `021`) y Eleia
+> (head `020`). Dos revisiones con el mismo id en el mismo directorio **no arrancan** — no es un
+> conflicto de texto, Alembic no levanta.
+>
+> Ya pasó una vez: el PR [guardian-secure#345](https://github.com/cluna-8/guardian-secure/pull/345)
+> proponía una migración `018` para la base, y la nuestra —`018_workspaces_service_accounts_audit_surface`,
+> specs 043/044— ya ocupa ese id. Se detectó antes del merge y allá la cambiaron por un hash
+> (`fd25cc8bcb94`), que es lo que Alembic genera solo cuando no se le pide lo contrario.
+>
+> **Para la próxima migración de esta línea: no usar `021`** — Sentinel ya lo tiene aplicado en
+> producción. Usar el hash que genera `alembic revision`. Renumerar lo ya aplicado **no** es
+> opción: `alembic_version` guarda el id en cada base instalada, incluida la de Elea.
+>
+> La política de fondo la decide Cristian; está planteada como paralelo de ADR-0007.
 
 Esta carpeta tenía 44 specs sin ningún criterio visible y 332 casillas sin marcar, de las que la
 mayoría no era trabajo pendiente. Reorganizada el **15-sep-2026**; acá está el criterio.
