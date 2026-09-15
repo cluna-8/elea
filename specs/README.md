@@ -114,7 +114,7 @@ Eleia es la versión argentina, pero el compliance está escrito sobre marco eur
 | Tema | Estado |
 |---|---|
 | Entidades argentinas (DNI, CUIL, CBU, PASSPORT) en el perfil `latam_ar` | **Implementado y activo.** Verificado el 15-sep dentro del contenedor: `SENTINEL_ENTITY_REGION=latam_ar`, cuatro entidades. El instalador lo pone como default (`elea-installer/docker-compose.yml`). El CBU se cerró el 31-ago. |
-| **El paracaídas de detección no cubre Argentina** | 🔴 **ABIERTO** — en modo degradado se pierde TODA la detección estructurada. Ver abajo |
+| El paracaídas de detección no cubría Argentina | 🟢 **CERRADO el 15-sep** (`8a8c8df`) — era el único agujero de protección. Ver abajo |
 | **Ley 25.326** de Protección de Datos Personales | **No mapeada.** [005](005-compliance-policies-gdpr-ai-act/) cubre GDPR + EU AI Act |
 | Registro de bases ante la **AAIP** | **No cubierto.** [008](008-audit-export-gdpr-art30/) exporta el Art. 30 del GDPR |
 
@@ -122,17 +122,17 @@ Las tres specs llevan una nota de localización en su encabezado. Decisión del 
 como base compartida —el cliente es farmacéutica con operación internacional— y el mapeo a la ley
 argentina queda como trabajo pendiente, sin fecha.
 
-### 🔴 El paracaídas de detección no cubre Argentina (abierto, 15-sep-2026)
+### 🟢 El paracaídas de detección no cubría Argentina (cerrado el 15-sep-2026)
 
 Hay **dos** tablas de patrones en `litellm/extensions/sentinel_guardian_policy.py`, y sólo una
 conoce Argentina:
 
 | Tabla | Cuándo se usa | Regiones |
 |---|---|---|
-| `STRUCTURED_ID_PATTERNS_BY_REGION` | Camino normal: reconocedores ad-hoc → Presidio | `eu`, **`latam_ar`** |
-| `FALLBACK_STRUCTURED_BY_REGION` | Paracaídas `default_analyze()`, cuando el sidecar NLP no responde | **sólo `eu`** |
+| `STRUCTURED_ID_PATTERNS_BY_REGION` | Camino normal: reconocedores ad-hoc → Presidio | `eu`, `latam_ar` |
+| `FALLBACK_STRUCTURED_BY_REGION` | Paracaídas `default_analyze()`, cuando el sidecar NLP no responde | **antes: sólo `eu`** · ahora: `eu`, `latam_ar` |
 
-**Si se cae el `nlp-analyzer`, una instalación argentina se queda sin ningún patrón estructurado.**
+**El problema, hasta el 15-sep:** si se caía el `nlp-analyzer`, una instalación argentina se quedaba sin ningún patrón estructurado.
 No hereda los europeos: la resolución es `FALLBACK_STRUCTURED_BY_REGION.get(region, {})`
 (`sentinel_guardian_policy.py:369`), y con `region="latam_ar"` eso devuelve `{}`. Los patrones
 efectivos por región:
@@ -154,15 +154,31 @@ corrida larga de dígitos: por eso un CBU de 22 dígitos se salva de carambola, 
 > Sentinel. El modo de fallo real es **peor**: pérdida total de detección estructurada.
 
 Para un firewall de PII el camino degradado es justo donde más importa: corre **cuando algo ya
-falló**. El arreglo es de la **base**, no de la localización, y son dos cosas:
+falló**.
 
-1. Que `FALLBACK_STRUCTURED_BY_REGION` **espeje** las regiones de la tabla principal — no que
-   herede `eu`, porque un patrón español sobre datos argentinos no sirve.
-2. Un **test que falle** si alguien agrega una región a la tabla principal y no al paracaídas. Sin
-   eso, esto se vuelve a desincronizar solo.
+**Arreglado el 15-sep en `8a8c8df`** (FR-015 y FR-016 del plan de convergencia, User Story 6 P1),
+en dos mitades:
 
-En el plan de convergencia de `guardian-secure` son **FR-015 y FR-016 (User Story 6, P1)** — el
-único agujero de protección de esa spec; el resto es orden y documentación.
+1. `FALLBACK_STRUCTURED_BY_REGION` ahora **espeja** las regiones: `latam_ar` con DNI, CUIL, CBU,
+   PASSPORT y teléfono internacional. Los patrones se toman de la tabla principal con `[0]`, así no
+   pueden divergir en silencio. La simetría es de **regiones, no de entidades**: `eu` deja PASSPORT
+   afuera a propósito —su patrón `[A-Z0-9]{6,9}` sin palabras de contexto matchea casi cualquier
+   token— y `latam_ar` sí lo lleva, porque `[A-Z]{3}\d{6}` aguanta solo en un camino de regex puro.
+2. Cuatro tests en `backend/tests/test_policy_unit.py` que rompen si alguien agrega una región a
+   una tabla y se olvida de la otra.
+
+Los tests se verificaron **por mutación**: reintroduciendo el bug, dos se ponen en rojo. Vale
+decirlo porque el primer intento de mutación no se aplicó y la corrida salió en verde igual —
+quedarse ahí habría dado por verificado un test que nunca se ejecutó contra el fallo.
+
+> **Es código de la base, no de la localización.** Se implementó acá porque es donde el agujero se
+> sufría; la sesión de Sentinel lo toma por merge en vez de escribir un gemelo.
+
+**Asimetría, para no confundirla:** `eu` era la única región que el paracaídas sí cubría, y por eso
+el agujero era nuestro y no de la localización europea. En modo degradado Europa conserva sus
+estructurados y pierde el NLP (el `PERSON` del paracaídas es regex y su propio docstring lo llama
+*lossy*); Argentina, antes de este arreglo, no conservaba **nada** estructurado. Son dos pérdidas
+distintas y sólo la segunda dejaba documentos de identidad en claro.
 
 De paso, dos cosas del mismo archivo:
 - El `TODO(región)` de la línea 364 (**FR-018** del plan de convergencia) (*"no se threadea `SENTINEL_ENTITY_REGION` desde los
