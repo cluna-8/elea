@@ -8,7 +8,7 @@
 
 **Created**: 2026-07-24
 
-**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
+**Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../../ROADMAP-guardian.md)
 
 **Input**: User description: "Preparar la extensión de navegador para el primer piloto real (Cámara de Comercio, install del martes). La extensión intercepta Claude y ChatGPT en el navegador, enmascara PII antes de que salga y muestra bloqueos de gobernanza. Debe entregarse con la marca del partner (white-label), declarar honestamente su nivel de protección, entender los bloqueos de la 027, distinguir sesión caída por red vs por permiso, y viajar dentro del entregable que se instala en el servidor del cliente. Brief de handoff completo en issue #46."
 

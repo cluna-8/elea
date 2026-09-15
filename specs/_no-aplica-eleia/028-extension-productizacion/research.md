@@ -14,7 +14,7 @@ Insumo primario: **issue #46** (brief de handoff). Este documento registra lo **
 
 ## D2 — La 027 ya implementó el lado servidor de los bloqueos (US5)
 
-Verificado en [`backend/src/api/inspect.py`](../../backend/src/api/inspect.py):
+Verificado en [`backend/src/api/inspect.py`](../../../backend/src/api/inspect.py):
 - `gw_inspect` (líneas 148+) arma un body sintético y pasa el texto del navegador por la **misma** `evaluate_request_policy` que el passthrough (AI-Act → secretos → detección PII → enmascarado). Fix P4 de la 027.
 - Responde `ok:false` + `blocked` + `blocked_by_layer` + `motivo` en un bloqueo (contrato en `specs/027-.../contracts/api-gobernanza.md`, sección "Bloqueo en /gw/inspect").
 - El `motivo` sale de un **catálogo cerrado** local (`_MOTIVO_POR_CAPA`, inspect.py:52-74): sin nombres de proveedor, sin el `block_reason` que enumera tipos de secreto, sin el texto inspeccionado (garantía C1).
@@ -25,7 +25,7 @@ Verificado en [`backend/src/api/inspect.py`](../../backend/src/api/inspect.py):
 
 Verificado: `gw_whoami` (inspect.py:134-145) devuelve solo `{ok, user, team, key_label}` — **no** trae protección. Hay que agregar un bloque `proteccion` calculado server-side.
 
-- La regla: plano `gateway` + `pii_detection.requires_service is None` ⇒ `deteccion="patrones"`. Verificado que `requires_service` **hoy está vacío** para todo el catálogo ([`governance_status.py:309-311`](../../backend/src/services/governance_status.py)) → en el piloto siempre es "patrones". El día que el sidecar NLP declare `requires_service`, el mismo cálculo da "linguistico" sin tocar la extensión.
+- La regla: plano `gateway` + `pii_detection.requires_service is None` ⇒ `deteccion="patrones"`. Verificado que `requires_service` **hoy está vacío** para todo el catálogo ([`governance_status.py:309-311`](../../../backend/src/services/governance_status.py)) → en el piloto siempre es "patrones". El día que el sidecar NLP declare `requires_service`, el mismo cálculo da "linguistico" sin tocar la extensión.
 - El copy sale de una **fuente única**: `_PISO_SIGUE` de `governance_status.py:87`. La extensión **no** hardcodea el texto (FR-016).
 - `capas_delegadas`: en modo suscripción, las capas delegables (moderación, prompt-injection) se reportan `delegated`, no "desprotegido" (ya en la lógica de 027).
 
@@ -33,7 +33,7 @@ Verificado: `gw_whoami` (inspect.py:134-145) devuelve solo `{ok, user, team, key
 
 ## D4 — Superficie de navegador: no existe en el enum (US9 diferido)
 
-`SURFACES` = `("claude-code","copilot","cursor","claude-desktop","chatgpt","chat-ui")` ([`sentinel_governance.py:94`](../../litellm/extensions/sentinel_governance.py)) — **sin valor de navegador**. `_superficie()` (inspect.py:117-131) devuelve `"desconocido"` para el tráfico de la extensión. Agregar `chatgpt-web`/`claude-web` es 2 líneas + migración del `CHECK tool_type` (budget.py:89) + aviso a Cristian **antes del freeze de la 027** (reabre contrato después). **Diferido (US9, fast-follow)** por decisión de alcance del piloto: el tráfico se audita "desconocido", no bloquea nada. Coordinación humana, no código de la 028.
+`SURFACES` = `("claude-code","copilot","cursor","claude-desktop","chatgpt","chat-ui")` ([`sentinel_governance.py:94`](../../../litellm/extensions/sentinel_governance.py)) — **sin valor de navegador**. `_superficie()` (inspect.py:117-131) devuelve `"desconocido"` para el tráfico de la extensión. Agregar `chatgpt-web`/`claude-web` es 2 líneas + migración del `CHECK tool_type` (budget.py:89) + aviso a Cristian **antes del freeze de la 027** (reabre contrato después). **Diferido (US9, fast-follow)** por decisión de alcance del piloto: el tráfico se audita "desconocido", no bloquea nada. Coordinación humana, no código de la 028.
 
 ## D5 — US8: expiración sí, filtro por superficie depende de US9
 

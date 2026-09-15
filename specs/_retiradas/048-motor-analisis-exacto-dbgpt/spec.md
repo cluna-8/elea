@@ -9,7 +9,7 @@
 
 **Created**: 2026-09-10
 
-**Status**: **Retirada el 12-sep-2026, absorbida por la [spec 050](../050-ia-hub-conector-motores/spec.md)**
+**Status**: **Retirada el 12-sep-2026, absorbida por la [spec 050](../../050-ia-hub-conector-motores/spec.md)**
 (FR-020 a FR-026 y FR-040). El dueño revirtió la decisión del 10-sep de mantener DB-GPT: se
 reemplaza por el motor tabular propio (DuckDB) fuera de Guardian. Lo que esta spec agregó a
 `backend/` (`api/exact_analysis.py`, `services/exact_analysis_service.py`, su prueba de

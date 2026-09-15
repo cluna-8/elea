@@ -15,11 +15,11 @@ tiene ahora un plan propio y completo (spec+plan+tasks) en el documento que le c
 archivo queda como el diagnóstico original, ya no como el plan de trabajo. Cada punto pendiente
 se retomó así:
 
-- US1 (carga de pptx) y US4 (generación de documentos) → [045-generacion-carga-documentos-eleia-hub](../045-generacion-carga-documentos-eleia-hub/spec.md)
+- US1 (carga de pptx) y US4 (generación de documentos) → [045-generacion-carga-documentos-eleia-hub](../../045-generacion-carga-documentos-eleia-hub/spec.md)
 - US5 (cruces CSV/Excel exactos, DB-GPT) → [046-analisis-exacto-datos-eleia-hub](../046-analisis-exacto-datos-eleia-hub/spec.md)
-- US2 (formateo de respuesta) y US3 (presupuesto por rol) → [047-formato-respuesta-presupuesto-rol-eleia-hub](../047-formato-respuesta-presupuesto-rol-eleia-hub/spec.md)
+- US2 (formateo de respuesta) y US3 (presupuesto por rol) → [047-formato-respuesta-presupuesto-rol-eleia-hub](../../047-formato-respuesta-presupuesto-rol-eleia-hub/spec.md)
 
-Depende de [040-cliente-rag-elea-completo](../040-cliente-rag-elea-completo/spec.md) (ya
+Depende de [040-cliente-rag-elea-completo](../../040-cliente-rag-elea-completo/spec.md) (ya
 construido, probado con archivos reales, instalador funcionando en `eleavdmia` — ver tasks.md de
 esa spec para el detalle de lo hecho el 31-ago).
 
@@ -101,6 +101,6 @@ decisión del usuario (31-ago); queda documentado acá para no perderlo de vista
 
 ## Fuera de alcance de esta spec
 
-- Todo lo de [040](../040-cliente-rag-elea-completo/spec.md) — ya resuelto, no se repite acá.
+- Todo lo de [040](../../040-cliente-rag-elea-completo/spec.md) — ya resuelto, no se repite acá.
 - El instalador (`elea-installer`) — funcional, deployado en `eleavdmia` (servidor VPN de
   Elea) el 31-ago. Ver notas de esa sesión para el detalle de la instalación remota.

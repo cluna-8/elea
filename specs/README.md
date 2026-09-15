@@ -1,8 +1,33 @@
 # Specs de Eleia — índice
 
-**Eleia** es la versión con **localización argentina** del producto. Corre sobre la misma base que
-Sentinel (el producto de Evidenze): el núcleo se comparte, y encima va lo propio de Eleia.
-Nomenclatura: **Evidenze = Sentinel**, **Elea = Eleia Guardian / Eleia Hub**, **base = Guardian**.
+**Eleia es el perfil de país de Argentina** sobre Guardian Secure. Tres niveles, según
+**ADR-0007** (`guardian-secure`, `docs/adr/0007-localizaciones-como-perfiles-de-pais.md`):
+
+| Nivel | Qué es | Quién |
+|---|---|---|
+| **Base** | El producto genérico: firewall, motor, enmascarado, auditoría, licensing, metodología | `guardian-secure` |
+| **Localización** | El **perfil de país**: normativa aplicable, entidades de PII/NLP, idioma, precios | Sentinel = Europa · **Eleia = Argentina** |
+| **Instalación** | Un cliente concreto: marca, seed, catálogo de modelos, superficies | `deploy/clients/<slug>` |
+
+Se dice **"perfil de país"** y no "policy pack" porque tiene referente en el código: el perfil de
+enmascarado se llama `latam_ar` y así lo trata la [spec 016](016-real-nlp-masking/).
+
+**El perfil de país NO es este repositorio.** [ADR-0001](../docs/adr/) sigue vigente ("queda
+prohibido crear ramas o forks por país"), y que hoy Eleia y Sentinel sean repos separados es
+**deuda declarada con plan de salida**, no doctrina. El plan vive en la spec
+`050-convergencia-localizaciones` de `guardian-secure`; la deuda se revisa cuando cierre su fase 1
+o el **15-dic-2026**, lo que pase primero.
+
+El argumento más fuerte contra el repo-por-país es que **la localización ya está implementada más
+fina de lo que un fork puede dar**: `SENTINEL_ENTITY_REGION` es sólo el default de arranque de la
+instalación, y la fuente canónica es **por tenant** — `pii_masking.config.region` la pisa
+(documentado en [`docs/docs/api-reference/configuration.md:57`](../docs/docs/api-reference/configuration.md),
+spec 016, issues 137/141). Una sola instalación puede servir a la vez a un tenant argentino y a uno
+español con detectores distintos. Un fork no da esa granularidad.
+
+> **Numeración** (ADR-0007): las specs **001-038** son las mismas en los dos repos —están en los
+> 524 commits de historia común— y van **sin prefijo**. De la **039 en adelante** divergen: se
+> referencian como `ELEIA-0xx` / `SENTINEL-0xx`.
 
 Esta carpeta tenía 44 specs sin ningún criterio visible y 332 casillas sin marcar, de las que la
 mayoría no era trabajo pendiente. Reorganizada el **15-sep-2026**; acá está el criterio.
@@ -139,7 +164,10 @@ incumple, verificado el 15-sep:
 | `frontend/src/services/auth.ts:3` | Clave de sesión **`sentinel_session_token`** (también `basa_current_user`) |
 | `cli/sentinel_admin` | El CLI de operador se llama **`sentinel-admin`** |
 
-La spec que cubre esto es la [039](039-white-label-motor-marketplace/) — creada exactamente por
+Va como **US4 del plan de convergencia** (`050-convergencia-localizaciones`, en `guardian-secure`), escrita
+explícitamente como **trabajo de la base**: si lo hace cada fork por su lado se multiplica la
+divergencia que el plan busca reducir. De nuestro lado la spec que lo toca es la
+[039](039-white-label-motor-marketplace/) — creada exactamente por
 este pedido ("no quiero que el cliente vea la dependencia tan directa de litellm"). **No tiene
 `tasks.md`**; es la candidata natural para absorber el punto 1 de los pendientes de 050.
 

@@ -9,7 +9,7 @@
 
 **Created**: 2026-09-08
 
-**Status**: **Absorbida el 12-sep-2026 por la [spec 050](../050-ia-hub-conector-motores/spec.md)**
+**Status**: **Absorbida el 12-sep-2026 por la [spec 050](../../050-ia-hub-conector-motores/spec.md)**
 (US2 y contratos 02/03). No planificar desde acá. Motivo: el dueño decidió reemplazar DB-GPT por un
 motor tabular propio (DuckDB) en contenedor aparte, fuera de Guardian; la UI de Excel se
 especifica junto con ese motor en la 050. La investigación (10-sep-2026,
