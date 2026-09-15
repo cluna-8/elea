@@ -78,7 +78,7 @@ Lo único que hay que mirar para saber qué falta en Eleia.
 | [049 Motor de generación de documentos](049-motor-generacion-documentos/) | **Recortada** por 050 | Queda docx/xlsx/pdf, sin presentaciones. Sin `tasks.md`. |
 | [050 IA Hub — conector + motores](050-ia-hub-conector-motores/) | **Activa** (rama actual) | 7 puntos en su [CHANGELOG](050-ia-hub-conector-motores/CHANGELOG.md#estado-al-cierre-14-sep-2026-y-pendientes), no en un `tasks.md`. Ver abajo. |
 | [051 Historial en Planillas](051-historial-planillas/) | Investigación **cerrada** | [RESULTADOS.md](051-historial-planillas/RESULTADOS.md) escrito; falta convertirlo en plan. |
-| [052 Generación multimedia](052-generacion-multimedia/) | 🔬 **Investigación pendiente** | **Tarea abierta: investigar** imagen, audio y video. Mismo molde que la 051 — entregable es un `RESULTADOS.md`. Sin implementación comprometida; no entra en el piloto. |
+| [052 Generación multimedia](052-generacion-multimedia/) | 🔬 **Investigación pendiente** | **Tarea abierta: investigar** imagen, audio y video. Arranca por relevar **qué proyectos ya lo hacen** — el patrón de este producto es integrar, no construir. "No lo hacemos acá" es un cierre válido. Sin implementación comprometida; no entra en el piloto. |
 
 **Total contable en la línea Eleia: 12 tareas** (043: 3, 044: 9 — el hallazgo del CBU de 040 se
 cerró el 15-sep), más los 7 puntos de 050 que no están como tareas, más **2 investigaciones

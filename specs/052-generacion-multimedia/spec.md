@@ -42,15 +42,51 @@ nombre de las rutas, el modelo de datos y la UI, y que meter video después obli
 ## 2. Lo único que ya se puede afirmar
 
 - **No entra en el piloto.** El piloto es chat, planillas, presentaciones y documentos.
-- **Va como motor aparte**, no dentro de docgen. Las toolchains no se parecen en nada (ffmpeg y
-  modelos de difusión no comparten con `docxtpl`).
-- **Mismo contrato de identidad, presupuesto y entrega** que los motores existentes (tabla de §1).
+- **Si se hace, NO va dentro de docgen** (motor 4). Las toolchains no se parecen en nada: ffmpeg
+  y los modelos de difusión no comparten nada con `docxtpl`. Pero *si va como motor propio, como
+  proyecto integrado, o directamente fuera de este producto* es **pregunta abierta** — ver §3.0.
+- **Si entra, entra con el mismo contrato** de identidad, presupuesto y entrega que los motores
+  existentes (tabla de §1). Eso no cambia sea quien sea el que genere.
 - **El enmascarado tiene que pensarse distinto.** Hoy la PII se detecta y se enmascara sobre
   **texto**. Un prompt de imagen puede llevar el nombre de una persona; un audio generado puede
   pronunciarlo. Eso **no está resuelto** para estos formatos y es la pregunta más seria de las
   de abajo.
 
+> **Lo que esta spec NO afirma:** que esto haya que construirlo. Ver §3.0 — puede que la respuesta
+> correcta sea integrar un proyecto que ya existe, o que ni siquiera sea trabajo de este producto.
+
 ## 3. Preguntas que la investigación tiene que responder
+
+### 3.0 — La primera, y la que puede hacer innecesarias a las demás
+
+**¿Existe ya un proyecto que haga esto, y alcanza con integrarlo?**
+
+Es la pregunta de arranque, no una más de la lista. **El patrón de este producto es integrar, no
+construir**: Presenton genera las presentaciones, AnythingLLM es el motor de documentos, Presidio
+hace el NLP, DuckDB el análisis tabular. En los cuatro casos se integró un proyecto existente en
+un contenedor con su contrato, y lo propio fue el gobierno alrededor —identidad, presupuesto,
+enmascarado, auditoría—, no el motor.
+
+Si para imagen/audio/video pasa lo mismo, el trabajo de Eleia es **el gobierno**, y el motor se
+elige, no se escribe.
+
+La investigación tiene que:
+
+- **Relevar qué hay**, self-hosted y con licencia compatible, por tipo de salida (imagen, audio,
+  video). Incluir la pista que mencionó el dueño —un proyecto tipo *"open design"*— y verificar
+  qué es y si aplica, porque hoy no está confirmado.
+- Evaluar cada candidato contra los criterios de §5, **con el mismo rasero que se usó con
+  Presenton**: qué licencia, qué hardware pide, si corre sin salir de la instalación, qué se
+  puede gobernar desde afuera.
+- Responder explícitamente **si esto es trabajo de este producto**. Puede que la respuesta sea que
+  no: que sea un proyecto aparte, o que el cliente lo resuelva con una herramienta que ya usa. Esa
+  respuesta cierra la investigación de forma válida.
+
+Sólo si la conclusión es "hay que meterlo acá" tienen sentido las preguntas 1 a 6.
+
+---
+
+### Las demás
 
 1. **¿Local o API externa?** Es la decisión que define todo lo demás. Un modelo de difusión o de
    voz local necesita GPU (el servidor de Elea hoy no la tiene, y ya tuvo problemas de disco); una
@@ -94,9 +130,11 @@ En este orden, y el primero manda sobre los demás:
 
 ## 6. Entregables de la investigación
 
-- `RESULTADOS.md` en esta carpeta con las respuestas a las 6 preguntas de §3, con **mediciones
-  reales** donde aplique (costo por pieza, tiempo, requisitos de hardware), no sólo lectura de
-  documentación.
+- `RESULTADOS.md` en esta carpeta, **empezando por §3.0**: el relevamiento de proyectos existentes
+  y la respuesta a si esto se integra, se construye, o no es trabajo de este producto. Si la
+  respuesta cierra el tema, el informe puede terminar ahí — es un resultado válido y barato.
+- Si sigue: respuestas a las preguntas 1 a 6, con **mediciones reales** donde aplique (costo por
+  pieza, tiempo, requisitos de hardware), no sólo lectura de documentación.
 - Una recomendación **con opción elegida y descartadas**, en el molde de las dos investigaciones
   de docgen — incluyendo la opción "no hacerlo", que es legítima si las respuestas son malas.
 - Si la recomendación es seguir: contrato propuesto del motor, en el molde de
@@ -107,7 +145,8 @@ En este orden, y el primero manda sobre los demás:
 ## 7. Criterio de cierre
 
 La investigación se da por cerrada con el `RESULTADOS.md` entregado. Recién ahí se decide si nace
-una spec de implementación.
+una spec de implementación — **y "no nace ninguna" es un cierre válido**, si §3.0 concluye que ya
+hay un proyecto que lo resuelve, o que esto no corresponde a este producto.
 
 Hasta entonces, cualquiera que lea esto debe saber que **no hay trabajo de implementación
 comprometido**.
