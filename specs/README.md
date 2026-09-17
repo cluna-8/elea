@@ -301,6 +301,26 @@ en prosa dentro del CHANGELOG. Si algo se convierte en `tasks.md`, que sea eso.
 
 ---
 
+## 6. Pendientes acordados entre localizaciones (sin implementar)
+
+**Tarifario centralizado (17-sep-2026)** — acordado entre esta sesión y la sesión de Sentinel,
+confirmado por el dueño del producto: hoy cada línea (Sentinel, Eleia, y cualquier futura)
+mantiene su propia tabla `MODEL_PRICING` hardcodeada a mano en su propio código
+(`backend/src/services/budget_service.py` acá; Sentinel confirmó tener el mismo patrón, con el
+mismo bug de sobrefacturación para `azure-gpt-5.1-chat`/`azure-gpt-5.4-mini` sin precio manual
+cargado — ver [053](053-integridad-costos-restriccion-tabular/spec.md) US2). La iniciativa: un
+servicio o fuente de precios **centralizada y compartida** entre todas las localizaciones, para
+que ninguna tenga que mantener su tabla por separado ni pueda quedar desalineada del resto.
+
+**Estado: acordado como dirección futura, nada implementado todavía.** No tiene spec propia ni
+número asignado — cuando se tome, conviene que sea una spec de la **base** (`guardian-secure`),
+no de Eleia ni de Sentinel por separado, para que ambas localizaciones (y las que vengan) lean de
+la misma fuente desde el día uno. Del lado de Sentinel quedó anotado en su propio registro de
+cambios (sesión "Cambios de Elea", 17-sep) — si esta nota se pierde de un lado, el otro repo la
+tiene igual.
+
+---
+
 ## Números, antes y después
 
 |  | Antes | Después |
