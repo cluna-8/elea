@@ -79,11 +79,13 @@ Lo único que hay que mirar para saber qué falta en Eleia.
 | [050 IA Hub — conector + motores](050-ia-hub-conector-motores/) | **Activa** (rama actual) | 7 puntos en su [CHANGELOG](050-ia-hub-conector-motores/CHANGELOG.md#estado-al-cierre-14-sep-2026-y-pendientes), no en un `tasks.md`. Ver abajo. |
 | [051 Historial en Planillas](051-historial-planillas/) | Investigación **cerrada** | [RESULTADOS.md](051-historial-planillas/RESULTADOS.md) escrito; falta convertirlo en plan. |
 | [052 Generación multimedia](052-generacion-multimedia/) | 🔬 **Investigación pendiente** | **Tarea abierta: investigar** imagen, audio y video. Arranca por relevar **qué proyectos ya lo hacen** — el patrón de este producto es integrar, no construir. "No lo hacemos acá" es un cierre válido. Sin implementación comprometida; no entra en el piloto. |
+| [053 Integridad de costos y restricción tabular](053-integridad-costos-restriccion-tabular/) | US1 🟢 **implementada** (17-sep), US2/US3 Draft | Mail de Tomás Mc Nally (16-sep). US1 (atribución + precio de respaldo desalineado) ya arreglada y con test de integración verificado por mutación. Quedan US2 (tarifario: precio manual al alta, reload periódico del cost map) y US3 (restricción de `.csv`/`.xlsx` en el chat RAG). Sin `plan.md` ni `tasks.md` todavía. |
 
 **Total contable en la línea Eleia: 12 tareas** (043: 3, 044: 9 — el hallazgo del CBU de 040 se
 cerró el 15-sep), más los 7 puntos de 050 que no están como tareas, más **2 investigaciones
 pendientes de arrancar**: convertir la [051](051-historial-planillas/) en plan, e **investigar la
-[052](052-generacion-multimedia/) (imagen, audio, video)**.
+[052](052-generacion-multimedia/) (imagen, audio, video)** — más la [053](053-integridad-costos-restriccion-tabular/)
+recién creada, todavía sin convertir a tareas.
 
 ### Pendientes de 050 (los que importan hoy)
 
@@ -91,7 +93,10 @@ pendientes de arrancar**: convertir la [051](051-historial-planillas/) en plan, 
    "LiteLLM", "Ollama", "Presenton", "AnythingLLM" ni "Presidio" en nada visible al cliente.
    Hoy el panel todavía dice **"Modelos & Ollama"**. La spec que cubre esto es la
    [039](039-white-label-motor-marketplace/) — ver §4.
-2. Atribución de gasto por persona en el engine (`acted_for_user_id`).
+2. ~~Atribución de gasto por persona en el engine (`acted_for_user_id`).~~ **Movido a la
+   [053](053-integridad-costos-restriccion-tabular/)**, que amplió el diagnóstico (17-sep): no era
+   solo atribución, también hay un precio de respaldo desalineado y una pregunta abierta sobre dos
+   sistemas de tracking de costo que pueden divergir.
 3. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" detectados como PERSON).
 4. Specs 047 y 049.
 5. Restos de DB-GPT ocupando disco en el servidor (`elea-exact-analysis-engine`), con el disco
@@ -239,9 +244,10 @@ este pedido ("no quiero que el cliente vea la dependencia tan directa de litellm
 | Hueco | Dónde |
 |---|---|
 | Spec sin `spec.md` | `042` (solo CHANGELOG) |
-| Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051` |
-| Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051` |
+| Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051`, `053` |
+| Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051`, `053` |
 | **Spec citada que nunca se escribió** | **`015`** — la cascada de `SecurityPolicy`/`entity_configs` (`client > group > tenant > default`) se cita como "spec 015" en `013` (3 veces), `016` y sus checklists, pero **no existe ni acá ni en Sentinel**, y nunca se creó en la historia común. Consecuencia real medida abajo. |
+| **Roadmap desactualizado respecto al código real** | `specs/ROADMAP-pisos.md` (líneas ~45, 51) y `specs/033-engine-reload-restart-ui/tasks.md` (T001-T006 sin marcar) dicen "🔨 por construir" para alta de modelos sin reiniciar y reinicio desde la UI — verificado el 17-sep (investigación de la [053](053-integridad-costos-restriccion-tabular/)) que **ya está implementado**: `litellm/supervisor.py` + `POST /models` + `/models/apply` + `/models/status`, integrado en `deploy/docker/compose.prod.yml:225`. Falta actualizar el roadmap y tildar las tareas, no construir código. |
 
 #### Qué significa que la 015 no exista (verificado el 15-sep)
 
