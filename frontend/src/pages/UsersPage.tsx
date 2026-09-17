@@ -212,6 +212,11 @@ export const UsersPage: React.FC = () => {
   const [bajaConfirmText, setBajaConfirmText] = useState("");
   const [bajaError, setBajaError] = useState<string | null>(null);
 
+  // Baja de equipo (spec 054) — mismo patrón que la baja de usuario de arriba.
+  const [bajaGrupoTarget, setBajaGrupoTarget] = useState<{ id: string; name: string } | null>(null);
+  const [bajaGrupoConfirmText, setBajaGrupoConfirmText] = useState("");
+  const [bajaGrupoError, setBajaGrupoError] = useState<string | null>(null);
+
   // Edit budget modal
   const [editingBudget, setEditingBudget] = useState<any | null>(null);
   const [editBudgetUsd, setEditBudgetUsd] = useState("");
@@ -618,6 +623,35 @@ export const UsersPage: React.FC = () => {
     }
   };
 
+  const openBajaGrupoModal = (g: { id: string; name: string }) => {
+    setBajaGrupoTarget(g);
+    setBajaGrupoConfirmText("");
+    setBajaGrupoError(null);
+  };
+  const closeBajaGrupoModal = () => {
+    setBajaGrupoTarget(null);
+    setBajaGrupoConfirmText("");
+    setBajaGrupoError(null);
+  };
+
+  const handleConfirmBajaGrupo = async () => {
+    if (!bajaGrupoTarget) return;
+    if (bajaGrupoConfirmText !== bajaGrupoTarget.name) {
+      setBajaGrupoError("Escribí el nombre del equipo exacto para confirmar.");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await api.deactivateGroup(bajaGrupoTarget.id);
+      closeBajaGrupoModal();
+      await fetchData();
+    } catch (err: any) {
+      setBajaGrupoError(err?.message || "No se pudo dar de baja al equipo.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const openComplianceModal = (g: any) => {
     setEditingGroup(g);
     setComplianceForm({
@@ -855,6 +889,13 @@ export const UsersPage: React.FC = () => {
                             className="text-primary hover:text-primary-hover hover:underline text-xs font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
                           >
                             Editar perfil
+                          </button>
+                          {" "}
+                          <button
+                            onClick={() => openBajaGrupoModal({ id: g.id, name: g.name })}
+                            className="text-danger hover:text-danger-hover hover:underline text-xs font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-danger rounded ml-2"
+                          >
+                            Dar de baja
                           </button>
                         </Table.Cell>
                       </Table.Row>
@@ -1885,6 +1926,45 @@ export const UsersPage: React.FC = () => {
                 size="sm"
                 onClick={handleConfirmBaja}
                 disabled={actionLoading || bajaConfirmText !== bajaTarget.username}
+              >
+                {actionLoading ? "Dando de baja..." : "Dar de baja"}
+              </Button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {/* ── Dar de baja a un equipo (spec 054) — mismo patrón que la de usuario ── */}
+      {bajaGrupoTarget && (
+        <ModalShell title={`Dar de baja a ${bajaGrupoTarget.name}`} maxW="max-w-sm">
+          <div className="space-y-4 text-xs">
+            <p className="text-text-secondary leading-relaxed">
+              No es una baja física: se desactiva, se revocan sus llaves activas y sus
+              miembros actuales quedan "sin equipo". Su historial de auditoría y consumo
+              sigue visible bajo su nombre. Esta acción no se deshace desde acá.
+            </p>
+            {bajaGrupoError && (
+              <div className="bg-danger-bg border border-danger/20 text-danger px-3 py-2 rounded-md">
+                {bajaGrupoError}
+              </div>
+            )}
+            <Field label={`Escribí "${bajaGrupoTarget.name}" para confirmar`} id="baja-grupo-confirm-text">
+              <input
+                id="baja-grupo-confirm-text"
+                type="text"
+                value={bajaGrupoConfirmText}
+                onChange={(e) => setBajaGrupoConfirmText(e.target.value)}
+                className={inputBaseClass}
+                autoComplete="off"
+              />
+            </Field>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="secondary" size="sm" onClick={closeBajaGrupoModal}>Cancelar</Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleConfirmBajaGrupo}
+                disabled={actionLoading || bajaGrupoConfirmText !== bajaGrupoTarget.name}
               >
                 {actionLoading ? "Dando de baja..." : "Dar de baja"}
               </Button>

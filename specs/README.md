@@ -80,12 +80,13 @@ Lo único que hay que mirar para saber qué falta en Eleia.
 | [051 Historial en Planillas](051-historial-planillas/) | Investigación **cerrada** | [RESULTADOS.md](051-historial-planillas/RESULTADOS.md) escrito; falta convertirlo en plan. |
 | [052 Generación multimedia](052-generacion-multimedia/) | 🔬 **Investigación pendiente** | **Tarea abierta: investigar** imagen, audio y video. Arranca por relevar **qué proyectos ya lo hacen** — el patrón de este producto es integrar, no construir. "No lo hacemos acá" es un cierre válido. Sin implementación comprometida; no entra en el piloto. |
 | [053 Integridad de costos y restricción tabular](053-integridad-costos-restriccion-tabular/) | US1 y US3 🟢 **implementadas** (17-sep), US2 Draft | Mail de Tomás Mc Nally (16-sep). US1 (atribución + precio de respaldo desalineado) y US3 (restricción `.csv`/`.xlsx` en el chat RAG) verificadas con tests y EN VIVO contra el stack real. Queda US2 (tarifario: precio manual al alta, reload periódico del cost map). Sin `plan.md` ni `tasks.md` todavía. |
+| [054 Baja de equipos](054-baja-de-equipos/) | 🟢 **Implementada** (17-sep) | Hallazgo probando la 053 en vivo: un equipo se podía crear pero nunca dar de baja. Mismo patrón que la baja de usuario (spec 043 US5) — `is_active`/`deactivated_at` en `Group`, migración con id por hash. Sin `plan.md` ni `tasks.md`. |
 
 **Total contable en la línea Eleia: 12 tareas** (043: 3, 044: 9 — el hallazgo del CBU de 040 se
 cerró el 15-sep), más los 7 puntos de 050 que no están como tareas, más **2 investigaciones
 pendientes de arrancar**: convertir la [051](051-historial-planillas/) en plan, e **investigar la
 [052](052-generacion-multimedia/) (imagen, audio, video)** — más la [053](053-integridad-costos-restriccion-tabular/)
-recién creada, todavía sin convertir a tareas.
+y la [054](054-baja-de-equipos/), recién creadas, todavía sin convertir a tareas.
 
 ### Pendientes de 050 (los que importan hoy)
 
@@ -244,8 +245,8 @@ este pedido ("no quiero que el cliente vea la dependencia tan directa de litellm
 | Hueco | Dónde |
 |---|---|
 | Spec sin `spec.md` | `042` (solo CHANGELOG) |
-| Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051`, `053` |
-| Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051`, `053` |
+| Specs sin `tasks.md` | `023`, `039`, `042`, `045`, `047`, `049`, **`050`**, `051`, `053`, `054` |
+| Specs sin `plan.md` | `045`, `047`, `049`, `050`, `051`, `053`, `054` |
 | **Spec citada que nunca se escribió** | **`015`** — la cascada de `SecurityPolicy`/`entity_configs` (`client > group > tenant > default`) se cita como "spec 015" en `013` (3 veces), `016` y sus checklists, pero **no existe ni acá ni en Sentinel**, y nunca se creó en la historia común. Consecuencia real medida abajo. |
 | **Roadmap desactualizado respecto al código real** | `specs/ROADMAP-pisos.md` (líneas ~45, 51) y `specs/033-engine-reload-restart-ui/tasks.md` (T001-T006 sin marcar) dicen "🔨 por construir" para alta de modelos sin reiniciar y reinicio desde la UI — verificado el 17-sep (investigación de la [053](053-integridad-costos-restriccion-tabular/)) que **ya está implementado**: `litellm/supervisor.py` + `POST /models` + `/models/apply` + `/models/status`, integrado en `deploy/docker/compose.prod.yml:225`. Falta actualizar el roadmap y tildar las tareas, no construir código. |
 

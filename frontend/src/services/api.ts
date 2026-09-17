@@ -812,6 +812,21 @@ export const api = {
     return res.json();
   },
 
+  /** Baja de equipo (spec 054): no borra físicamente — desactiva, revoca las Connections
+   *  propias del grupo y libera a sus miembros a "sin equipo". La auditoría histórica
+   *  del grupo sigue visible bajo su nombre, igual que con un usuario dado de baja. */
+  deactivateGroup: async (groupId: string): Promise<{ status: string; id: string; members_unassigned: number }> => {
+    const res = await fetch(`${API_BASE}/users/groups/${groupId}`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(e, "No se pudo dar de baja al equipo."), res.status);
+    }
+    return res.json();
+  },
+
   /** Baja definitiva (spec 043 US5, T053-T055): no borra físicamente — desactiva, revoca
    *  llaves y libera sus espacios propios a "sin asignar". El backend impide auto-baja y
    *  baja del último admin activo del tenant (409 en ambos casos); la UI (T041) MUST

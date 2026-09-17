@@ -14,6 +14,9 @@ class GroupResponse(GroupBase):
     id: UUID
     engine_team_id: Optional[str] = None
     created_at: datetime
+    # Spec 054: ciclo de vida del equipo, mismo criterio que User.is_active/deactivated_at.
+    is_active: bool = True
+    deactivated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

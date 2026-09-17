@@ -243,8 +243,47 @@ async def create_group(group_in: GroupCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/groups", response_model=List[GroupResponse], dependencies=[Depends(require_role("admin", "compliance_officer"))])
-def list_groups(db: Session = Depends(get_db)):
-    return db.query(Group).all()
+def list_groups(include_inactive: bool = False, db: Session = Depends(get_db)):
+    q = db.query(Group)
+    if not include_inactive:
+        q = q.filter(Group.is_active.is_(True))
+    return q.all()
+
+
+@router.delete("/groups/{group_id}", dependencies=[Depends(require_role("admin"))])
+def deactivate_group(group_id: UUID, db: Session = Depends(get_db)):
+    """Baja de equipo (spec 054, 17-sep) — NO física, mismo criterio que
+    `deactivate_user` (`DELETE /users/{id}`, más arriba): hasta esta spec un equipo se
+    podía crear pero nunca dar de baja, "un error grave" reportado en vivo probando la
+    atribución de costos (spec 053) — se necesitaba un equipo descartable para probar y
+    no había forma de sacarlo de encima.
+
+    Revoca las Connections que cuelgan directo del grupo (`api_keys.group_id`, distinto
+    de las que cuelgan de un usuario del grupo — esas ya las revoca `deactivate_user`
+    cuando corresponda), y libera a los miembros actuales a "sin equipo" — mismo
+    criterio que `orphan_owned_workspaces` deja espacios "sin asignar" en vez de
+    borrarlos. La auditoría histórica (`audit_logs.user_group_id`, `budgets.group_id`)
+    NUNCA se toca — sigue visible bajo el nombre del grupo, igual que con un usuario
+    dado de baja.
+    """
+    group = db.query(Group).filter(Group.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Grupo no encontrado.")
+    if not group.is_active:
+        raise HTTPException(status_code=409, detail="El grupo ya está dado de baja.")
+
+    from ..models.budget import APIKey
+    db.query(APIKey).filter(APIKey.group_id == group.id, APIKey.is_active.is_(True)) \
+        .update({"is_active": False}, synchronize_session=False)
+
+    miembros_afectados = db.query(User).filter(User.group_id == group.id) \
+        .update({"group_id": None}, synchronize_session=False)
+
+    group.is_active = False
+    group.deactivated_at = datetime.utcnow()
+
+    db.commit()
+    return {"status": "deactivated", "id": str(group.id), "members_unassigned": miembros_afectados}
 
 
 # --- User Endpoints ---

@@ -47,6 +47,13 @@ class Group(Base):
     engine_team_id = Column(String, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # Spec 054 (17-sep): hasta acá un equipo se podía crear pero nunca dar de baja — "es
+    # un error grave" (el dueño, tras probar en vivo). Mismo criterio que `User.is_active`/
+    # `deactivated_at`: NO es baja física, la auditoría histórica del grupo sigue visible
+    # bajo su nombre (`audit_logs.user_group_id`, `budgets.group_id` no se tocan).
+    is_active = Column(Boolean, nullable=False, default=True)
+    deactivated_at = Column(DateTime, nullable=True)
+
     # Compliance profile fields (Feature 006)
     default_legal_basis = Column(String, nullable=True)       # e.g. art_9_2_h
     default_risk_level = Column(String, nullable=True)        # e.g. high_risk_annex3
