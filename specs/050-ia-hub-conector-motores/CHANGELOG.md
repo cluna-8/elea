@@ -23,7 +23,11 @@ corporativa de Elea creada y usada, imágenes publicadas (`2026-09-14`), handoff
    mensajes de error, docs entregadas, títulos de pestañas. Motivo: "no quiero que evalúen
    tecnologías". Hoy el panel del servidor ya está con marca Eleia; el barrido de nombres es
    tarea propia (spec futura), con prueba de `grep -ri litellm` sobre lo servido.
-3. Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) — Guardian.
+3. ~~Atribución de gasto por persona en el engine (`acted_for_user_id` en filas de éxito) —
+   Guardian.~~ **Cerrado en Elea el 17-sep**, spec 053 (mail Tomás Mc Nally 16-sep): además de la
+   atribución, se encontró y corrigió un precio de respaldo desalineado que sobrefacturaba hasta
+   6.7x. Handoff hacia Guardian en
+   [`../053-integridad-costos-restriccion-tabular/HANDOFF-elea-a-sentinel.md`](../053-integridad-costos-restriccion-tabular/HANDOFF-elea-a-sentinel.md).
 4. Allow-list de términos de negocio por tenant en el NLP ("OTC", "FASON" como PERSON) — Guardian.
 5. Spec 047 (formato de respuesta, presupuesto por rol) y spec 049 (motor de documentos docx/xlsx/pdf).
 6. Visibilidad de las imágenes: absorbido por el punto 1 (todas públicas).

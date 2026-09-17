@@ -111,7 +111,11 @@ En vivo: con la llave `svc.presenton` (o cualquiera) contra `engine:4000`, una p
 
 - Sincronizar `elea-installer` a Azure DevOps y actualizar el servidor de Elea (el instalador ya
   está probado desde cero y como actualización; ver CHANGELOG 14-sep).
-- Atribución de gasto por persona en el engine (`acted_for_user_id` en la fila de éxito).
+- ~~Atribución de gasto por persona en el engine (`acted_for_user_id` en la fila de éxito).~~
+  **Cerrado en Elea el 17-sep** (más un precio de respaldo desalineado que se encontró de paso,
+  sobrefacturaba hasta 6.7x) — ver
+  [`../053-integridad-costos-restriccion-tabular/HANDOFF-elea-a-sentinel.md`](../053-integridad-costos-restriccion-tabular/HANDOFF-elea-a-sentinel.md)
+  para el handoff específico de ese fix.
 - Allow-list de términos de negocio por tenant en el NLP.
 - Spec 049 (motor de documentos docx/xlsx/pdf, "motor 4") y spec 047 (formato de respuesta,
   presupuesto por rol).
