@@ -1,7 +1,10 @@
+import logging
 from decimal import ROUND_HALF_UP, Decimal
 from sqlalchemy.orm import Session
 from ..models.budget import Budget
 from ..models.user import User
+
+logger = logging.getLogger(__name__)
 
 # Precisión del contador de gasto (issue #76 + migración 014). Es la MISMA escala que
 # `budgets.current_spend_usd` en la base: cuantizar acá con otra escala no serviría de nada
@@ -35,9 +38,23 @@ def cuantizar_usd(monto: Decimal) -> Decimal:
 STATUS_BUDGET_EXHAUSTED = "rejected_budget"
 
 # Model pricing per 1,000,000 tokens (Input, Output) in USD
+#
+# Spec 053 (17-sep): esta tabla es SOLO el fallback cuando el header nativo del motor
+# (`x-litellm-response-cost`) no llega — el camino normal usa ese costo real, calculado
+# por litellm contra `litellm/config.yaml` (`model_info.input_cost_per_token`/
+# `output_cost_per_token` para los deployments propios, o el mapa de costos de litellm
+# para el resto). Hasta el 17-sep esta tabla NO tenía los dos modelos de mayor uso en
+# producción (`azure-gpt-5.1-chat`, `azure-gpt-5.4-mini`): cualquier pedido que cayera acá
+# sin costo real se facturaba al `default` genérico ($5/$15), de 1.5x a 6.7x el precio
+# real — bug real, ver `specs/053-integridad-costos-restriccion-tabular/spec.md` FR-003.
+# Los precios de estos dos deployments deben quedar SIEMPRE espejados con
+# `litellm/config.yaml` (única fuente de verdad de lo que factura el proveedor de verdad);
+# si cambian ahí, cambian acá.
 MODEL_PRICING = {
     "gpt-4o": {"input": Decimal("5.00"), "output": Decimal("15.00")},
     "azure-gpt-4o-mini": {"input": Decimal("0.165"), "output": Decimal("0.66")},
+    "azure-gpt-5.1-chat": {"input": Decimal("1.25"), "output": Decimal("10.00")},
+    "azure-gpt-5.4-mini": {"input": Decimal("0.75"), "output": Decimal("4.50")},
     "gemini-2.5-flash": {"input": Decimal("0.30"), "output": Decimal("2.50")},
     "gemini-2.5-flash-lite": {"input": Decimal("0.075"), "output": Decimal("0.30")},
     "gpt-4o-mini": {"input": Decimal("0.15"), "output": Decimal("0.60")},
@@ -170,8 +187,19 @@ class BudgetService:
         """
         if _is_local_model(model):
             pricing = _LOCAL_MODEL_PRICING
+        elif model in MODEL_PRICING:
+            pricing = MODEL_PRICING[model]
         else:
-            pricing = MODEL_PRICING.get(model, MODEL_PRICING["default"])
+            # FR-004 (spec 053): el precio genérico de respaldo puede estar lejos del
+            # real de un modelo que el catálogo todavía no conoce — dejar traza para
+            # poder auditar cuántas veces pasó y corregir esta tabla, en vez de que sea
+            # invisible como lo fue el bug de `azure-gpt-5.1-chat`/`azure-gpt-5.4-mini`.
+            logger.warning(
+                "budget_service: costo de respaldo GENÉRICO ($%s/$%s por millón) para "
+                "modelo desconocido %r — MODEL_PRICING puede estar desactualizado",
+                MODEL_PRICING["default"]["input"], MODEL_PRICING["default"]["output"], model,
+            )
+            pricing = MODEL_PRICING["default"]
         input_cost = (Decimal(prompt_tokens) / Decimal("1000000")) * pricing["input"]
         output_cost = (Decimal(completion_tokens) / Decimal("1000000")) * pricing["output"]
         return cuantizar_usd(input_cost + output_cost)

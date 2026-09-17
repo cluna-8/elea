@@ -213,7 +213,14 @@ def get_costs_summary(
         {"from_dt": from_dt, "to_dt": to_dt},
     ).all()
 
-    # Desglose por grupo (top 10 por gasto) — usa el grupo registrado en la request
+    # Desglose por grupo (top 10 por gasto). Spec 053 (mail Tomás Mc Nally 16-sep: "mi
+    # usuario está en un grupo y ese grupo no aparece: solo incrementa el sin grupo").
+    # Antes usaba el grupo crudo de la fila (`a.user_group_id`), que es el grupo de la
+    # Connection/cuenta de servicio que autenticó — casi siempre NULL — no el grupo de la
+    # persona real. Mismo criterio que `by_user` arriba (contrato 2 de la 043): se
+    # resuelve el grupo a través de COALESCE(acted_for_user_id, user_id), y si ese usuario
+    # real tiene grupo (`u.group_id`) se usa ese; si no, se cae al grupo crudo de la fila
+    # por si algún día un productor distinto de este sí lo completa bien.
     by_group = db.execute(
         text(
             """
@@ -223,7 +230,8 @@ def get_costs_summary(
                    COALESCE(SUM(a.tokens_saved_by_optimization), 0) AS tokens_saved,
                    COALESCE(SUM(a.cost_saved_usd), 0)        AS cost_saved_usd
             FROM audit_logs a
-            LEFT JOIN groups g ON g.id = a.user_group_id
+            LEFT JOIN users u ON u.id = COALESCE(a.acted_for_user_id, a.user_id)
+            LEFT JOIN groups g ON g.id = COALESCE(u.group_id, a.user_group_id)
             WHERE a.timestamp >= :from_dt AND a.timestamp <= :to_dt
             GROUP BY g.name
             ORDER BY cost_usd DESC

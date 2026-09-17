@@ -383,6 +383,13 @@ class SentinelAuditLogger(CustomLogger):
             # que hoy produce el motor mientras T025 no cablee un productor propio.
             "applied_layers": applied_layers,
             "blocked_by_layer": blocked_by_layer,
+            # Mismo bug que ya se corrigió en sentinel_guardrail.py (09-sep, camino de
+            # bloqueo): `custom_auth.py` ya calcula `acted_for_user_id` (contrato 2 de la
+            # 043) y lo deja en la identidad, pero este camino de ÉXITO nunca lo leía. Una
+            # llave de servicio actuando "en nombre de" alguien quedaba atribuida solo a la
+            # cuenta de servicio en el gasto por usuario/grupo (spec 053, mail Tomás Mc
+            # Nally 16-sep: "mi usuario sigue en 0... el grupo no aparece").
+            "acted_for_user_id": sentinel.get("acted_for_user_id"),
         }
         # Emisión por el punto ÚNICO (reusado por el rechazo por presupuesto del motor, #176):
         # el reintento y el contador de pérdidas viven adentro, acá no hay nada que tragar.
