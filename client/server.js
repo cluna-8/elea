@@ -804,6 +804,18 @@ app.post('/api/workspaces/upload', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió archivo.' });
   if (!slug) return res.status(400).json({ error: 'Falta el workspace destino.' });
 
+  // Spec 053 (US3, mail Tomás Mc Nally 16-sep): .csv/.xlsx quedan afuera del RAG general.
+  // Van SOLO por el motor tabular (POST /api/tabular/workspaces/:id/files, que ya valida
+  // esto igual — ver la constante hermana ahí abajo). Chequeo server-side porque el `accept`
+  // del input y la validación en handleWsFileUpload() son bypasseables con un POST directo.
+  const extRechazada = /\.(csv|xlsx)$/i.test(req.file.originalname || '');
+  if (extRechazada) {
+    fs.unlinkSync(req.file.path);
+    return res.status(415).json({
+      error: 'Las planillas .csv y .xlsx no se suben acá — usá "Planillas del Espacio" para consultarlas con cálculo exacto.'
+    });
+  }
+
   try {
     const membership = await findMemberWorkspaceBySlug(session, slug);
     if (!membership) {

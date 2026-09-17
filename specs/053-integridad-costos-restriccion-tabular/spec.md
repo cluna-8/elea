@@ -4,10 +4,13 @@
 
 **Created**: 2026-09-17
 
-**Status**: 🟢 **US1 implementada y verificada (17-sep)** — FR-001 a FR-004 hechos, con test de
-integración nuevo (`backend/tests/integration/test_costs_by_group_attribution_053.py`) confirmado
-por mutación contra Postgres real (falla sin el fix, pasa con el fix). US2 y US3 siguen en Draft,
-sin implementar.
+**Status**: 🟢 **US1 y US3 implementadas y verificadas (17-sep)**. US1: FR-001 a FR-004, con test
+de integración (`backend/tests/integration/test_costs_by_group_attribution_053.py`) confirmado por
+mutación contra Postgres real. US3: FR-009 a FR-011, verificada tanto con tests automatizados
+(`client/tests/unit/workspace-upload-restriccion-tabular-053.test.js`) como EN VIVO contra el
+stack real (login real, subida real de `.csv`/`.xlsx`/`.txt` por HTTP, confirmado 415/200 según
+corresponda, y el atributo `accept` presente en el DOM del navegador). US2 (tarifario) sigue en
+Draft, sin implementar — no bloquea el piloto del lunes 21/9.
 
 **Repos que toca**: `cluna-8/elea` (`litellm/extensions/`, `backend/src/api/`, `backend/src/services/`, `client/`).
 
@@ -330,7 +333,7 @@ esta User Story respecto a la primera versión de esta spec:
 
 ---
 
-### User Story 3 - Restricción de `.csv`/`.xlsx` en el chat RAG, motor tabular como única vía (Priority: P2)
+### User Story 3 - Restricción de `.csv`/`.xlsx` en el chat RAG, motor tabular como única vía (Priority: P2) — 🟢 IMPLEMENTADA (17-sep)
 
 Un administrador quiere evitar que las personas suban planillas al espacio de trabajo del chat
 general, para que las consultas sobre `.csv`/`.xlsx` pasen siempre por el motor tabular (cálculo
@@ -392,6 +395,34 @@ cambios.
   motor tabular. **Bloquear esas extensiones en el flujo AnythingLLM elimina esa capacidad**,
   dejando el motor tabular como única vía para `.csv`/`.xlsx`. El dueño decidió proceder así,
   priorizando el pedido explícito del cliente sobre conservar la búsqueda aproximada.
+
+#### Implementación (17-sep) — FR-009 a FR-011
+
+- **FR-009 (servidor)**: `client/server.js`, `POST /api/workspaces/upload` — rechazo con 415
+  apenas llega el archivo (antes de chequear membresía del espacio, para no gastar esa llamada al
+  backend en un archivo que se va a rechazar igual), si `req.file.originalname` termina en
+  `.csv`/`.xlsx`. Borra el archivo temporal que `multer` ya había guardado en disco, para no dejar
+  huérfanos.
+- **FR-009 (cliente)**: `client/public/index.html`, `handleWsFileUpload()` — mismo chequeo de
+  extensión ANTES de llamar a `fetch`, por si el navegador ignora el `accept` del input.
+  `ws-file-input` ahora tiene `accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,image/*"` (positivo, no
+  negativo — más robusto que enumerar lo prohibido).
+- **FR-010**: el mensaje de rechazo, igual en cliente y servidor, dirige explícitamente a
+  "Planillas del Espacio" ("las planillas .csv y .xlsx no se suben acá — usá 'Planillas del
+  Espacio' para consultarlas con cálculo exacto").
+- **FR-011**: cero líneas tocadas del endpoint tabular
+  (`POST /api/tabular/workspaces/:id/files`) — confirmado por diff y por prueba en vivo.
+- **Verificación EN VIVO (17-sep)**, contra el stack real levantado con `docker compose up`, no
+  solo contra tests: login real como `admin` vía `POST /api/auth/login`, después tres subidas
+  reales por HTTP a `POST /api/workspaces/upload` con un `.csv`, un `.xlsx` y un `.txt` de
+  prueba — los dos primeros devolvieron 415 con el mensaje esperado, el `.txt` devolvió 200 y quedó
+  indexado igual que antes del cambio. Confirmado además con JavaScript en la página real que
+  `document.getElementById('ws-file-input').accept` ya trae la whitelist nueva. El endpoint
+  tabular se probó aparte y devolvió 403 por control de acceso normal (workspace de otro tipo),
+  no por nada relacionado a esta spec — confirma que ese código no se tocó.
+- **Verificación automatizada**: `client/tests/unit/workspace-upload-restriccion-tabular-053.test.js`
+  (3 tests: rechaza `.csv` sin llegar a pedirle nada al motor de documentos, rechaza `.xlsx`, no
+  rompe un `.txt` normal). Suite completa del cliente corrida: 43 tests, 0 fallos.
 
 ### Edge Cases
 

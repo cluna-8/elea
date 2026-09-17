@@ -600,7 +600,10 @@
         </div>
       </div>
 
-      <input type="file" id="ws-file-input" style="display:none" onchange="handleWsFileUpload(event)">
+      <!-- Spec 053 (US3): .csv/.xlsx quedan afuera de "Documentos del Espacio" — el
+           `accept` evita que el selector del navegador los ofrezca; el chequeo real (por si
+           el navegador ignora `accept`) vive en handleWsFileUpload(). -->
+      <input type="file" id="ws-file-input" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,image/*" style="display:none" onchange="handleWsFileUpload(event)">
 
       <!-- DATA INGEST CARD -->
       <div class="gradient-card">
@@ -1486,6 +1489,14 @@
     async function handleWsFileUpload(event) {
       const file = event.target.files[0];
       if (!file || !currentWorkspace) return;
+      // Spec 053 (US3): mismo criterio que el servidor (server.js), repetido acá para
+      // frenar ANTES de subir — el `accept` del input ya lo evita en navegadores normales,
+      // esto cubre el caso de un navegador que lo ignore.
+      if (/\.(csv|xlsx)$/i.test(file.name)) {
+        event.target.value = '';
+        showToast('Las planillas .csv y .xlsx no van acá — usá "Planillas del Espacio" para consultarlas con cálculo exacto.');
+        return;
+      }
       if (currentBudget && currentBudget.status === 'exceeded') {
         event.target.value = '';
         showToast(MENSAJE_PRESUPUESTO_AGOTADO);
