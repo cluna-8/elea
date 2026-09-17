@@ -4,9 +4,13 @@
 
 **Created**: 2026-09-17
 
-**Status**: 🟢 **US1 y US3 implementadas y verificadas (17-sep)**. US1: FR-001 a FR-004, con test
-de integración (`backend/tests/integration/test_costs_by_group_attribution_053.py`) confirmado por
-mutación contra Postgres real. US3: FR-009 a FR-011, verificada tanto con tests automatizados
+**Status**: 🟢 **US1 y US3 implementadas y verificadas de punta a punta (17-sep)**. US1: FR-001 a
+FR-004 más FR-012 (nuevo, segunda ronda) — el gasto por usuario/grupo del chat de documentos (RAG)
+no se atribuía porque AnythingLLM nunca manda la identidad al motor; se agregó
+`POST /chat/rag-usage` para que el Hub reporte su propio consumo. Verificado con login real, chat
+real contra Azure real, y confirmado en el panel de Costos real que el contador sube — no solo con
+tests que arman la fila a mano (ver [[regla-verificacion-completa-antes-de-informar]] para el porqué
+de este segundo párrafo). US3: FR-009 a FR-011, verificada tanto con tests automatizados
 (`client/tests/unit/workspace-upload-restriccion-tabular-053.test.js`) como EN VIVO contra el
 stack real (login real, subida real de `.csv`/`.xlsx`/`.txt` por HTTP, confirmado 415/200 según
 corresponda, y el atributo `accept` presente en el DOM del navegador). US2 (tarifario) sigue en
@@ -183,13 +187,56 @@ fix se mantiene mínimo: FR-001 tal como está arriba, la línea faltante en `se
   millón), espejando exactamente `litellm/config.yaml`.
 - **FR-004**: `calculate_cost` deja `logger.warning` cada vez que un modelo no está en
   `MODEL_PRICING` y cae al `default` genérico.
-- **Verificación**: nuevo test de integración
+- **Verificación (primera ronda, parcial)**: nuevo test de integración
   `backend/tests/integration/test_costs_by_group_attribution_053.py`, corrido contra
   Postgres real (`docker compose up -d db`) y **verificado por mutación** — revertido
   momentáneamente el fix de `costs.py`, el test pasó a fallar; reaplicado, vuelve a pasar.
   Suite completa relacionada corrida sin regresiones: 45 tests (unit + integration) en
-  verde, incluidos los de atribución por usuario (043), enmascarado por usuario (044),
-  filtro de modelos (043), precisión de presupuesto y el guardrail de bloqueo (043).
+  verde. **Esta verificación resultó incompleta** — ver el hallazgo del mismo día más abajo:
+  el test inserta la fila de auditoría ya armada a mano, así que confirma que la consulta
+  del panel lee bien la columna, pero no probaba si esa columna llegaba a poblarse para el
+  tráfico real. Corregido en la segunda ronda (mismo día, ver abajo). Regla de trabajo que
+  quedó fijada a partir de este caso: [[regla-verificacion-completa-antes-de-informar]].
+
+#### Hallazgo en vivo (17-sep, misma tarde) — el fix de arriba no alcanzaba para el chat de documentos
+
+Probado en el servidor real de producción (con un usuario y grupo de prueba nuevos, sin tocar
+datos de clientes reales) después de desplegar el fix de arriba: el gasto de un usuario real que
+manda un mensaje real por el chat de documentos del Hub (RAG, el que usa AnythingLLM) **seguía sin
+atribuirse** — el mismo síntoma que reportó Tomás Mc Nally. La causa: `custom_auth.py` (línea
+~431) resuelve `acted_for_user_id` a partir de un header propio de Guardian,
+`X-Guardian-Acting-User` (`custom_auth.py::_verify_acting_user`). Ese header **solo lo manda el
+motor tabular** (`tabular/app/llm.py:32`) — grep exhaustivo del repo confirmó que ningún otro
+punto lo setea. AnythingLLM es de terceros: no tiene ninguna forma de saber que ese header existe,
+así que para el chat de documentos `acted_for_user_id` **nunca llega a existir en primer lugar**.
+El fix de FR-001/FR-002 (leer el campo bien) era necesario pero no alcanzaba: no hay nada que leer
+si nadie lo escribió.
+
+**La solución no es enseñarle el header a un producto externo.** Confirmado contra AnythingLLM
+real (`curl` directo a `/api/v1/workspace/:slug/chat`): su respuesta ya trae, en `metrics`, los
+`prompt_tokens`/`completion_tokens`/`model` reales de la respuesta. El Hub (`client/server.js`) ya
+recibe ese payload y ya sabe con certeza quién es la persona (su propia sesión) — no necesita que
+AnythingLLM le confirme nada. Mismo patrón que ya usa `chat.py` para "chat directo": el plano que
+originó el tráfico escribe su propia fila.
+
+**Implementado (17-sep, segunda ronda)**:
+- Nuevo endpoint `POST /chat/rag-usage` (`backend/src/api/chat.py`), autenticado por sesión JWT
+  (no virtual key): recibe `model`/`prompt_tokens`/`completion_tokens` del Hub, calcula el costo
+  con `BudgetService.calculate_cost` (el Hub nunca manda un costo en dólares, así que no hay un
+  segundo lugar donde el precio pueda desalinearse), escribe la fila con
+  `AuditService.log_transaction` (`acted_for_user_id`/`user_group_id` de la sesión autenticada,
+  `surface="rag"`) y descuenta `BudgetService.update_budget` — cierra de paso el hallazgo ya
+  conocido de la spec 043 ("el presupuesto se muestra pero no se aplica en el camino RAG").
+- `client/server.js`, rama RAG de `POST /api/chat`: después de la respuesta de AnythingLLM, reporta
+  `data.metrics` a `/chat/rag-usage` — best-effort (si falla, no rompe el chat ya servido y pagado).
+- **Verificación completa esta vez, exactamente como la haría el cliente**: login real como
+  usuario de prueba (no admin, no atajos de API), dos mensajes reales por el chat de documentos del
+  Hub contra Azure real, y confirmado en el panel de Costos real (no una query directa a la base)
+  que el contador de ese usuario y de su grupo sube de 0 a 1 a 2 peticiones. Repetido primero
+  local (`localhost`) y validado el mismo patrón en el servidor real de producción. Más
+  `backend/tests/integration/test_rag_usage_053.py` (2 tests: atribución+presupuesto correctos,
+  401 sin sesión) para fijar la regresión. Suite completa: 45 tests backend + 43 tests cliente, 0
+  fallos.
 
 #### Hallazgo documentado, sin resolver en esta ronda: dos sistemas de tracking que pueden divergir
 
@@ -455,6 +502,10 @@ cambios.
   desalineado del catálogo actual.
 - **FR-004**: Toda vez que se use el precio de respaldo genérico (no el precio específico de un
   modelo conocido), el sistema DEBE dejar traza auditable de que ocurrió.
+- **FR-012** (hallazgo en vivo, segunda ronda): el gasto de una petición servida por el chat de
+  documentos (motor de terceros que no puede transportar identidad de Guardian) DEBE atribuirse a
+  la persona real y a su grupo, y DEBE descontarse de su presupuesto — sin depender de que ese
+  motor externo coopere.
 
 **US2 — Tarifario**
 

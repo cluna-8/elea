@@ -924,6 +924,24 @@ app.post('/api/chat', async (req, res) => {
       if (r.status === 402) return res.status(402).json({ error: MENSAJE_PRESUPUESTO_AGOTADO });
       if (!r.ok) return res.status(r.status).json({ error: 'El servicio de documentos no está disponible. Intentá de nuevo en unos minutos.' });
       const data = await r.json();
+      // Spec 053 (US1, hallazgo en vivo 17-sep): AnythingLLM no manda ni puede mandar la
+      // identidad de la persona al motor (es de terceros, no conoce X-Guardian-Acting-User
+      // — ver rag-usage en chat.py para el porqué completo), así que el gasto de este
+      // camino quedaba sin atribuir a nadie. El Hub SÍ sabe con certeza quién es (su propia
+      // sesión) y YA recibe de AnythingLLM los tokens reales en `metrics` — los reporta acá
+      // mismo. Best-effort a propósito: si esto falla, la persona igual ve su respuesta: no
+      // vale la pena romper un chat que ya se sirvió y ya se pagó por un fallo de reporte.
+      if (data.metrics && data.metrics.model) {
+        eleaFetch(session.token, '/chat/rag-usage', {
+          method: 'POST',
+          body: JSON.stringify({
+            model: data.metrics.model,
+            prompt_tokens: data.metrics.prompt_tokens || 0,
+            completion_tokens: data.metrics.completion_tokens || 0,
+            latency_ms: Math.round((data.metrics.duration || 0) * 1000),
+          }),
+        }).catch((err) => console.error('rag-usage: no se pudo reportar el consumo:', err.message));
+      }
       return res.json({
         role: 'assistant',
         content: data.textResponse,

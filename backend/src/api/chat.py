@@ -2043,6 +2043,109 @@ async def chat_completions(
         }
     }
 
+
+class RagUsageReportSchema(BaseModel):
+    model: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    latency_ms: int = 0
+
+
+@router.post("/rag-usage")
+async def report_rag_usage(
+    body: RagUsageReportSchema,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Registra el costo real de un turno de chat que pasó por el motor de DOCUMENTOS
+    (AnythingLLM), reportado por el Hub — spec 053 (US1, hallazgo en vivo 17-sep).
+
+    Por qué existe: `AuditService.log_transaction`/`sentinel_audit_logger.py` esperan la
+    identidad "en nombre de quién" vía `X-Guardian-Acting-User`, un header propio de
+    Guardian (`custom_auth.py::_verify_acting_user`). Ese header solo lo manda el motor
+    tabular (`tabular/app/llm.py`) — AnythingLLM es de terceros y no tiene forma de saberlo,
+    así que para el chat de documentos esa identidad nunca llegaba a existir en primer
+    lugar. El fix de la atribución en `sentinel_audit_logger.py` (mismo día) era correcto
+    pero no alcanzaba para este camino: no hay nada que leer si nadie lo escribió.
+
+    La solución NO es enseñarle el header a un producto externo. El Hub ya sabe con
+    certeza quién es la persona (su propia sesión JWT, la misma que autentica este POST) y
+    ya recibe de AnythingLLM, en `metrics`, los tokens reales y el modelo que contestó
+    (verificado en vivo contra AnythingLLM real: `prompt_tokens`/`completion_tokens`/
+    `model`) — así que el Hub reporta ese consumo acá, con la MISMA identidad verificada
+    que usa cualquier otro endpoint de sesión, sin depender de que el motor de documentos
+    reenvíe nada. Mismo patrón que ya usa `chat_completions` para "chat directo": el plano
+    que originó el tráfico escribe su propia fila.
+
+    Autenticado por sesión (no virtual key): solo alguien logueado como esa persona puede
+    reportar en su nombre, igual que el resto de los endpoints de usuario. El costo se
+    calcula acá, con `BudgetService.calculate_cost` (mismo tarifario que todo el resto del
+    producto) — el Hub NUNCA manda un costo en dólares, solo tokens y modelo, para que no
+    haya un segundo lugar donde el precio pueda desalinearse.
+    """
+    if not (authorization and authorization.startswith("Bearer ")):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión requerida.")
+
+    from ..auth.session import decode_session_token
+    from ..models.user import User as UserModel, Group as GroupModel
+
+    token = authorization.replace("Bearer ", "").strip()
+    payload = decode_session_token(token)
+    if not payload or not payload.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión expirada. Por favor, vuelve a iniciar sesión.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = db.query(UserModel).filter(
+        UserModel.id == payload["sub"], UserModel.is_active == True
+    ).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario inválido.")
+
+    group = db.query(GroupModel).filter(GroupModel.id == user.group_id).first() if user.group_id else None
+
+    prompt_tokens = max(0, int(body.prompt_tokens))
+    completion_tokens = max(0, int(body.completion_tokens))
+    cost = BudgetService.calculate_cost(body.model, prompt_tokens, completion_tokens)
+
+    try:
+        AuditService.log_transaction(
+            db=db,
+            model=body.model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=float(cost),
+            pii_detected=False,
+            masked_entities=[],
+            compliance_status="passed",
+            latency_ms=max(0, int(body.latency_ms)),
+            user_id=user.id,
+            acted_for_user_id=user.id,
+            user_group_id=group.id if group else None,
+            surface="rag",
+            event_type="traffic",
+        )
+    except AuditUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detalle_503_audit(),
+        ) from exc
+
+    BudgetService.update_budget(
+        db=db,
+        user_id=user.id,
+        group_id=group.id if group else None,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        model=body.model,
+        override_cost=cost,
+    )
+
+    return {"cost_usd": float(cost)}
+
+
 class ModelCreateSchema(BaseModel):
     model_name: str
     provider: str
