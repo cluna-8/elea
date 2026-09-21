@@ -87,6 +87,7 @@ class _LoginSnapshot(NamedTuple):
     email: str
     password_hash: str
     is_active: bool
+    must_change_password: bool
 
 
 def _instantanea(user: Optional[User]) -> Optional[_LoginSnapshot]:
@@ -96,6 +97,7 @@ def _instantanea(user: Optional[User]) -> Optional[_LoginSnapshot]:
         id=user.id, tenant_id=user.tenant_id, username=user.username, role=user.role,
         display_label=user.display_label, email=user.email,
         password_hash=user.password_hash, is_active=user.is_active,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -209,6 +211,7 @@ async def login(body: LoginRequest, db: Session = Depends(get_db)):
             "role": snap.role,
             "display_label": snap.display_label,
             "email": snap.email,
+            "must_change_password": snap.must_change_password,
         },
     }
 
@@ -369,6 +372,8 @@ def _insertar_usuario(db: Session, user_in: UserCreate, role: str,
             group_id=user_in.group_id,
             is_active=user_in.is_active,
             account_type=account_type,
+            # La contraseña la puso el admin en el alta: se fuerza el cambio en el próximo login.
+            must_change_password=True,
         )
         db.add(user)
         db.commit()
@@ -722,6 +727,8 @@ def change_own_password(
         raise HTTPException(status_code=422, detail=str(exc))
 
     user.password_hash = hash_password(body.new_password)
+    # El propio dueño acaba de fijar su contraseña: apaga cualquier cambio forzado pendiente.
+    user.must_change_password = False
     db.commit()
     return {"status": "ok"}
 
@@ -738,6 +745,8 @@ def reset_user_password(user_id: UUID, body: PasswordResetRequest, db: Session =
         raise HTTPException(status_code=422, detail=str(exc))
 
     user.password_hash = hash_password(body.new_password)
+    # La contraseña la fijó el admin, no el dueño: se fuerza el cambio en el próximo login.
+    user.must_change_password = True
     db.commit()
     return {"status": "ok"}
 

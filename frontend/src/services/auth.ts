@@ -11,6 +11,9 @@ export interface SessionUser {
     | "super_admin" | "tenant_admin" | "client" | "lectura"; // canónicos post-013 (lectura: 017)
   display_label?: string | null;
   email: string;
+  /** Contraseña fijada por un admin (alta o reseteo), no por el propio dueño: la UI debe
+   *  forzar el cambio antes de dejar usar el resto del panel. */
+  must_change_password?: boolean;
 }
 
 // Shim de compatibilidad post-013 (espejo de backend/src/auth/rbac.py, transicional

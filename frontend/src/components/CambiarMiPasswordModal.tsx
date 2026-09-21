@@ -13,7 +13,11 @@ import { Card, Button, PasswordField, cn } from "./ui";
  *  actual no coincide", no sesión vencida, así que echar a la persona por un tipeo le haría
  *  perder el formulario y parecería un fallo del producto (`api.changeOwnPassword` ya no
  *  trata ese 401 como sesión vencida). */
-export const CambiarMiPasswordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const CambiarMiPasswordModal: React.FC<{
+  onClose: () => void;
+  /** Contraseña fijada por un admin: no hay forma de cerrar sin cambiarla primero. */
+  obligatorio?: boolean;
+}> = ({ onClose, obligatorio = false }) => {
   const [actual, setActual] = useState("");
   const [nueva, setNueva] = useState("");
   const [repetida, setRepetida] = useState("");
@@ -53,7 +57,7 @@ export const CambiarMiPasswordModal: React.FC<{ onClose: () => void }> = ({ onCl
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className={cn("w-full", "max-w-md")}>
-        <Card title="Cambiar mi contraseña">
+        <Card title={obligatorio ? "Debe cambiar su contraseña para continuar" : "Cambiar mi contraseña"}>
           {listo ? (
             <div className="space-y-4">
               <div className="bg-ok-bg border border-ok/20 text-ok px-4 py-2.5 rounded-md text-xs">
@@ -65,6 +69,12 @@ export const CambiarMiPasswordModal: React.FC<{ onClose: () => void }> = ({ onCl
             </div>
           ) : (
             <form onSubmit={enviar} className="space-y-4">
+              {obligatorio && (
+                <div className="bg-canvas border border-border text-text-secondary px-4 py-2.5 rounded-md text-xs">
+                  Su contraseña fue definida por un administrador. Debe cambiarla antes de
+                  continuar.
+                </div>
+              )}
               {error && (
                 <div className="bg-danger-bg border border-danger/20 text-danger px-4 py-2.5 rounded-md text-xs">
                   {error}
@@ -95,9 +105,11 @@ export const CambiarMiPasswordModal: React.FC<{ onClose: () => void }> = ({ onCl
                 placeholder="Escríbala otra vez"
               />
               <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                <Button type="button" variant="secondary" onClick={onClose} disabled={enviando}>
-                  Cancelar
-                </Button>
+                {!obligatorio && (
+                  <Button type="button" variant="secondary" onClick={onClose} disabled={enviando}>
+                    Cancelar
+                  </Button>
+                )}
                 <Button type="submit" disabled={enviando}>
                   {enviando ? "Guardando…" : "Cambiar contraseña"}
                 </Button>

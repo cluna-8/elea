@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
-import { SessionUser } from "../services/auth";
+import { authStorage, SessionUser } from "../services/auth";
 import { getBrand } from "../services/branding";
 import { Markdown } from "../components/Markdown";
 import { CambiarMiPasswordModal } from "../components/CambiarMiPasswordModal";
@@ -48,7 +48,12 @@ export const UserPortal: React.FC<PortalProps> = ({ user, onLogout }) => {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [cambiarPassword, setCambiarPassword] = useState(false);
+  // Contraseña fijada por un admin (alta o reseteo): arranca abierto y obligatorio, sin
+  // depender de un click en el menú. `user` es una prop (App.tsx tiene la fuente de verdad),
+  // así que este portal guarda su propio "¿ya la cambió?" para no releer el flag viejo tras
+  // cerrarlo.
+  const [debeCambiarPassword, setDebeCambiarPassword] = useState(!!user.must_change_password);
+  const [cambiarPassword, setCambiarPassword] = useState(!!user.must_change_password);
   const bottomRef = useRef<HTMLDivElement>(null);
   const brand = getBrand();
 
@@ -248,7 +253,21 @@ export const UserPortal: React.FC<PortalProps> = ({ user, onLogout }) => {
         </p>
       </div>
 
-      {cambiarPassword && <CambiarMiPasswordModal onClose={() => setCambiarPassword(false)} />}
+      {cambiarPassword && (
+        <CambiarMiPasswordModal
+          obligatorio={debeCambiarPassword}
+          onClose={() => {
+            setCambiarPassword(false);
+            if (debeCambiarPassword) {
+              setDebeCambiarPassword(false);
+              // Persistir en localStorage: sin esto, un refresh vuelve a leer el flag viejo
+              // (true) desde la sesión guardada y reabre el modal en un loop.
+              const token = authStorage.getToken();
+              if (token) authStorage.save(token, { ...user, must_change_password: false });
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

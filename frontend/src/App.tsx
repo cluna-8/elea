@@ -82,6 +82,9 @@ export const App: React.FC = () => {
   const handleLogin = (user: SessionUser) => {
     setCurrentUser(user);
     setCurrentPage("dashboard");
+    // Contraseña fijada por un admin (alta o reseteo): se fuerza el cambio antes de dejar
+    // usar el resto del panel.
+    if (user.must_change_password) setCambiarPassword(true);
   };
 
   const handleLogout = () => {
@@ -206,7 +209,22 @@ export const App: React.FC = () => {
         {currentPage === "docs" && <DocsPage />}
       </main>
 
-      {cambiarPassword && <CambiarMiPasswordModal onClose={() => setCambiarPassword(false)} />}
+      {cambiarPassword && (
+        <CambiarMiPasswordModal
+          obligatorio={!!currentUser?.must_change_password}
+          onClose={() => {
+            setCambiarPassword(false);
+            if (currentUser?.must_change_password) {
+              const actualizado = { ...currentUser, must_change_password: false };
+              setCurrentUser(actualizado);
+              // Persistir también en localStorage: sin esto, un refresh de página vuelve a
+              // leer el flag viejo (true) y reabre el modal en un loop tras haberla cambiado.
+              const token = authStorage.getToken();
+              if (token) authStorage.save(token, actualizado);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

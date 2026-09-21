@@ -98,6 +98,9 @@ class User(Base):
     group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
     engine_user_id = Column(String, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
+    # Prende en alta (create_user) y reseteo admin (reset_user_password); lo apaga el propio
+    # usuario al cambiar su contraseña (change_own_password) — nunca al revés.
+    must_change_password = Column(Boolean, nullable=False, default=False)
 
     # Spec 043 US4/US5 (T008): distingue personas de cuentas de servicio (las que crea el
     # instalador — `svc.anythingllm-provider`, `svc.rag-masking` — que hoy se listaban como
