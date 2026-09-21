@@ -4,8 +4,9 @@
 
 **Created**: 2026-09-21
 
-**Status**: 🟢 Implementada y verificada en ambas superficies (Guardian y Hub) — ver sección de
-implementación.
+**Status**: 🟢 **Cerrada** — implementada, verificada en ambas superficies (Guardian y Hub) y
+**desplegada en el servidor de producción del cliente** (21-sep). Handoff a Sentinel escrito
+(`HANDOFF-elea-a-sentinel.md`, esta carpeta).
 
 **Repos que toca**: `cluna-8/elea` (`backend/src/models/user.py`, `backend/src/api/users.py`,
 `backend/alembic/versions/`, `frontend/src/App.tsx`, `frontend/src/pages/UserPortal.tsx`,
@@ -190,3 +191,32 @@ lo repita levantando contenedores sueltos a mano.
   negocio fuera de lo descrito arriba); la verificación fue end-to-end manual, en línea con la
   exigencia de la regla del equipo de no declarar un cambio probado sin una prueba idéntica al
   uso real del cliente.
+
+## Despliegue a producción (21-sep)
+
+Imágenes reconstruidas y publicadas con `ONLY="backend frontend rag-client"
+./deploy/release/publish-elea.sh` (las 3 que tocó este cambio — `engine`, `nlp` y `tabular` no se
+tocaron). Confirmado que las 3 quedan descargables sin credenciales (chequeo anónimo contra
+`ghcr.io`, HTTP 200) antes de tocar el servidor.
+
+En el servidor del cliente (`eleavdmia`, `172.16.0.120`): `git pull` (sin cambios — el repo del
+instalador no se tocó, solo las imágenes) + `./install.sh`, mismo comando de siempre. Confirmado
+que corrió como **actualización**, no como instalación desde cero — los usuarios reales
+preexistentes (`egrytsenko`, `nalvez`, `ncarone`, `nmansilla`, `scanepa`, entre otros) conservaron
+su `created_at` original, nada se perdió. La contraseña de admin que imprime el script al final
+es simplemente la que ya estaba en `.env`, no una nueva — el mensaje de "no se vuelve a mostrar"
+es genérico del script, no indica que se haya regenerado.
+
+**Verificación post-deploy contra el servidor real** (con la VPN del dueño del producto, acceso
+directo a `172.16.0.120` desde esta sesión):
+1. `admin` (usuario real) logueó con `must_change_password: false` — cero impacto.
+2. Se creó un usuario de verificación (`verif.055.temp`), se confirmó el modal obligatorio en el
+   Hub real (`172.16.0.120:8095`, branding real de Eleia), se completó el cambio, y se dio de
+   baja al terminar.
+3. Repetido una segunda vez en Chrome real del dueño del producto (a través de su VPN, no el
+   navegador integrado), con un segundo usuario de verificación (`demo.chrome.055`) para que lo
+   viera en vivo — mismo resultado, dado de baja al terminar.
+4. Guardian (`:8090`) y el Hub (`:8095`) respondieron sanos durante toda la verificación.
+
+Ningún usuario de verificación quedó activo tras el cierre de esta spec (el producto no tiene
+borrado físico de usuarios — ambos quedaron dados de baja por `DELETE /users/{id}`, baja lógica).
