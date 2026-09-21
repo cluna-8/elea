@@ -277,6 +277,37 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
+// Cambio de la propia contraseña (voluntario u obligatorio tras alta/reseteo por un admin
+// — ver `must_change_password` en la respuesta de login). Proxy directo al mismo endpoint
+// que usa Guardian (`POST /users/me/password`, backend/src/api/users.py) — sin lógica
+// propia de validación, el backend es la única autoridad sobre la política de contraseñas.
+app.post('/api/auth/change-password', async (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'Sin sesión activa.' });
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: 'Contraseña actual y nueva son obligatorias.' });
+  }
+  try {
+    const r = await eleaFetch(session.token, '/users/me/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password, new_password })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return res.status(r.status).json({ error: data.detail || 'No se pudo cambiar la contraseña.' });
+    }
+    // El JWT sigue siendo válido (el cambio de contraseña no lo revoca), pero el flag
+    // forzado debe apagarse en la sesión del Hub para no volver a pedirlo en el próximo
+    // `/api/user/current` — reflejamos acá lo que el backend ya hizo en `users.must_change_password`.
+    session.user = { ...session.user, must_change_password: false };
+    setSession(req, session);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(502).json({ error: 'No se pudo contactar al backend de Guardian. Intentá de nuevo en unos minutos.' });
+  }
+});
+
 // Marca en runtime, pública (necesaria ANTES del login — el logo también se muestra en la
 // pantalla de login). Mismo criterio que `frontend`: la instancia decide su marca por env,
 // el código del Hub no tiene ninguna atada.

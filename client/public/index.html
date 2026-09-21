@@ -456,6 +456,49 @@
     </div>
   </div>
 
+  <!-- CAMBIO DE CONTRASEÑA — mismo endpoint que Guardian (POST /users/me/password, vía
+       proxy /api/auth/change-password). Dos modos: voluntario (botón "Contraseña" del
+       header, con cierre normal) y obligatorio (la contraseña la fijó un admin en el alta o
+       un reseteo — sin botón de cierre, encima de TODO con z-index alto, ver
+       enforcePasswordChangeIfNeeded()). -->
+  <div class="modal-backdrop" id="modal-change-password" style="z-index:600;">
+    <div class="modal-box" style="width:420px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="modal-title" id="change-password-title">Cambiar mi contraseña</div>
+        <button class="modal-close-x" id="change-password-close-x" onclick="closeChangePasswordModal()">✕</button>
+      </div>
+      <div id="change-password-forced-notice" style="display:none; font-size:12.5px; color:var(--text-mid); background:#f7f8fb; border-radius:9px; padding:10px 12px;">
+        Su contraseña fue definida por un administrador. Debe cambiarla antes de continuar.
+      </div>
+      <form id="change-password-form" style="display:flex; flex-direction:column; gap:12px;" onsubmit="return handleChangePassword(event)">
+        <div>
+          <div class="modal-label">Contraseña actual</div>
+          <input type="password" id="cp-current" class="modal-input" autocomplete="current-password" required>
+        </div>
+        <div>
+          <div class="modal-label">Contraseña nueva</div>
+          <input type="password" id="cp-new" class="modal-input" autocomplete="new-password" required minlength="12">
+          <div class="help-text">Mínimo 12 caracteres. Nadie más tiene por qué conocerla.</div>
+        </div>
+        <div>
+          <div class="modal-label">Repetir la nueva</div>
+          <input type="password" id="cp-repeat" class="modal-input" autocomplete="new-password" required minlength="12">
+        </div>
+        <div id="change-password-error" style="color:var(--accent-red); font-size:12.5px; display:none;"></div>
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button type="button" class="modal-cancel-btn" id="change-password-cancel-btn" onclick="closeChangePasswordModal()">Cancelar</button>
+          <button type="submit" class="send-action-btn wide" id="change-password-submit-btn">Cambiar contraseña</button>
+        </div>
+      </form>
+      <div id="change-password-success-box" style="display:none; flex-direction:column; gap:14px;">
+        <div style="color:var(--accent, #2e7d32); font-size:12.5px;">Contraseña actualizada. La próxima vez que inicie sesión, use la nueva.</div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button type="button" class="send-action-btn wide" onclick="document.getElementById('modal-change-password').classList.remove('active')">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- TOP NAVBAR -->
   <div class="top-navbar">
     <div class="brand-section">
@@ -496,6 +539,7 @@
     <!-- Action Buttons -->
     <div style="display:flex; gap:6px;">
       <button class="action-icon-btn" id="btn-open-unassigned" style="display:none;" onclick="openUnassignedModal()" title="Espacios heredados sin miembros">Sin asignar</button>
+      <button class="action-icon-btn" onclick="openChangePasswordModal()" title="Cambiar mi contraseña">Contraseña</button>
       <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">Salir</button>
     </div>
   </div>
@@ -1016,6 +1060,11 @@
       currentBudget = state.budget;
       maskingDeterminismSince = state.maskingDeterminismSince || null;
       renderUserHeader();
+      // Contraseña fijada por un admin (alta o reseteo): mismo criterio que Guardian
+      // (frontend/src/App.tsx) — se abre el modal obligatorio antes de dejar operar. El
+      // resto del boot sigue igual: el candado es visual (overlay encima de todo), no
+      // bloquea las llamadas de abajo, que igual son inofensivas sin acción del usuario.
+      if (currentUser.must_change_password) openChangePasswordModal(true);
       loadFeatures();
       await Promise.all([loadModels(), loadWorkspaces()]);
       await ensurePersonalWorkspace();
@@ -1059,6 +1108,76 @@
       } catch (err) {
         errBox.innerText = 'No se pudo contactar al servidor.';
         errBox.style.display = 'block';
+      }
+      return false;
+    }
+
+    // ── Cambio de contraseña (voluntario u obligatorio) ────────────────────────────────
+    function openChangePasswordModal(forced) {
+      const modal = document.getElementById('modal-change-password');
+      const notice = document.getElementById('change-password-forced-notice');
+      const closeX = document.getElementById('change-password-close-x');
+      const cancelBtn = document.getElementById('change-password-cancel-btn');
+      const title = document.getElementById('change-password-title');
+      modal.dataset.forced = forced ? '1' : '';
+      title.innerText = forced ? 'Debe cambiar su contraseña para continuar' : 'Cambiar mi contraseña';
+      notice.style.display = forced ? 'block' : 'none';
+      // Sin cierre cuando es obligatorio: la única salida es cambiarla con éxito
+      // (handleChangePassword cierra el modal al terminar).
+      closeX.style.display = forced ? 'none' : '';
+      cancelBtn.style.display = forced ? 'none' : '';
+      document.getElementById('change-password-error').style.display = 'none';
+      document.getElementById('change-password-success-box').style.display = 'none';
+      document.getElementById('change-password-form').style.display = 'flex';
+      document.getElementById('cp-current').value = '';
+      document.getElementById('cp-new').value = '';
+      document.getElementById('cp-repeat').value = '';
+      modal.classList.add('active');
+    }
+
+    function closeChangePasswordModal() {
+      // El backdrop obligatorio no tiene botón de cierre, pero por si algo lo invoca
+      // igual (p.ej. Escape del navegador) no se cierra mientras el flag siga activo.
+      if (document.getElementById('modal-change-password').dataset.forced === '1') return;
+      document.getElementById('modal-change-password').classList.remove('active');
+    }
+
+    async function handleChangePassword(event) {
+      event.preventDefault();
+      const current = document.getElementById('cp-current').value;
+      const nueva = document.getElementById('cp-new').value;
+      const repetida = document.getElementById('cp-repeat').value;
+      const errBox = document.getElementById('change-password-error');
+      errBox.style.display = 'none';
+      if (nueva !== repetida) {
+        errBox.innerText = 'Las dos contraseñas nuevas no coinciden.';
+        errBox.style.display = 'block';
+        return false;
+      }
+      const submitBtn = document.getElementById('change-password-submit-btn');
+      submitBtn.disabled = true;
+      try {
+        const res = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_password: current, new_password: nueva })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errBox.innerText = data.error || 'No se pudo cambiar la contraseña.';
+          errBox.style.display = 'block';
+          return false;
+        }
+        currentUser.must_change_password = false;
+        document.getElementById('modal-change-password').dataset.forced = '';
+        document.getElementById('change-password-form').style.display = 'none';
+        document.getElementById('change-password-success-box').style.display = 'flex';
+        showToast('Contraseña actualizada.');
+      } catch (err) {
+        errBox.innerText = 'No se pudo contactar al servidor.';
+        errBox.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
       }
       return false;
     }

@@ -81,12 +81,14 @@ Lo único que hay que mirar para saber qué falta en Eleia.
 | [052 Generación multimedia](052-generacion-multimedia/) | 🔬 **Investigación pendiente** | **Tarea abierta: investigar** imagen, audio y video. Arranca por relevar **qué proyectos ya lo hacen** — el patrón de este producto es integrar, no construir. "No lo hacemos acá" es un cierre válido. Sin implementación comprometida; no entra en el piloto. |
 | [053 Integridad de costos y restricción tabular](053-integridad-costos-restriccion-tabular/) | US1 y US3 🟢 **implementadas** (17-sep), US2 Draft | Mail de Tomás Mc Nally (16-sep). US1 (atribución + precio de respaldo desalineado) y US3 (restricción `.csv`/`.xlsx` en el chat RAG) verificadas con tests y EN VIVO contra el stack real. Queda US2 (tarifario: precio manual al alta, reload periódico del cost map). Sin `plan.md` ni `tasks.md` todavía. |
 | [054 Baja de equipos](054-baja-de-equipos/) | 🟢 **Implementada** (17-sep) | Hallazgo probando la 053 en vivo: un equipo se podía crear pero nunca dar de baja. Mismo patrón que la baja de usuario (spec 043 US5) — `is_active`/`deactivated_at` en `Group`, migración con id por hash. Sin `plan.md` ni `tasks.md`. |
+| [055 Cambio obligatorio de contraseña en el primer ingreso](055-cambio-obligatorio-password-primer-ingreso/) | 🟢 **Implementada y verificada** (21-sep) | Pedido directo del dueño. `must_change_password` en `User`, se prende en alta/reseteo admin y se apaga al cambiar voluntariamente. Implementada primero solo en Guardian (`frontend/`); el dueño aclaró que los usuarios reales nunca entran ahí, solo por **Eleia Hub** (`client/`) — se agregó una segunda ronda ahí (endpoint + modal propios, el Hub no comparte código de UI con Guardian). Verificado en vivo en ambas superficies. Sin `plan.md` ni `tasks.md`. |
 
 **Total contable en la línea Eleia: 12 tareas** (043: 3, 044: 9 — el hallazgo del CBU de 040 se
 cerró el 15-sep), más los 7 puntos de 050 que no están como tareas, más **2 investigaciones
 pendientes de arrancar**: convertir la [051](051-historial-planillas/) en plan, e **investigar la
-[052](052-generacion-multimedia/) (imagen, audio, video)** — más la [053](053-integridad-costos-restriccion-tabular/)
-y la [054](054-baja-de-equipos/), recién creadas, todavía sin convertir a tareas.
+[052](052-generacion-multimedia/) (imagen, audio, video)** — más la [053](053-integridad-costos-restriccion-tabular/),
+la [054](054-baja-de-equipos/) y la [055](055-cambio-obligatorio-password-primer-ingreso/), recién
+creadas, todavía sin convertir a tareas.
 
 ### Pendientes de 050 (los que importan hoy)
 
