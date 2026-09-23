@@ -300,6 +300,8 @@ carpeta al cerrar.
 | Login SSO del Hub | `client/server.js`, `client/public/index.html` | **Específico de esta línea**, igual que en la 055. En Sentinel se porta el **enfoque** (el Hub hace de intermediario con la API de Guardian y guarda el token del lado del servidor), no el diff, y solo si Sentinel tiene una superficie de usuarios equivalente. Si sus usuarios entran por el panel, alcanza con el SSO que el panel ya tiene. |
 | Guía de registro en Entra | `docs/docs/install-deploy/sso.md` | Base, sin marca: redactar con "Guardian" y marcadores para el nombre de la instalación. |
 
+**Estado del porte (23-sep)**: la spec espejo ya existe en Sentinel, `specs/067-porte-elea-sso-entra-hub/` (cluna-8/sentinel#24). Allí también está el plan de prueba simultánea: directorio personal para Eleia y directorio de Evidenze para Sentinel. Backend y panel se escriben una sola vez y se cherry-pickean.
+
 **Reglas de diseño para que el port sea directo** (se verifican en el analyze):
 
 - Sin strings de Elea ni Eleia en lógica. Textos visibles tomados de la marca configurada de la
