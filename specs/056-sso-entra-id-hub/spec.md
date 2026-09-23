@@ -7,6 +7,7 @@
 **Status**: Draft (especificada; sin plan ni tareas todavía)
 
 **Repos que toca (previsto)**: `cluna-8/elea` (`client/server.js`, `client/public/index.html`,
+`frontend/src/pages/UsersPage.tsx`,
 `backend/src/sso/` solo si se pide SSO también en el panel, `docs/`), `cluna-8/elea-installer`
 (`docker-compose.yml`, `.env.example`, `install.sh`), más una licencia nueva con el permiso `sso`.
 
@@ -89,28 +90,36 @@ funcionando.
 
 ---
 
-### User Story 3 - El operador activa Entra en una instalación (Priority: P2)
+### User Story 3 - El admin de Elea activa Entra desde el panel de su server (Priority: P1)
 
-Quien instala o actualiza Eleia recibe del IT de Elea el tenant, el identificador de la
-aplicación y su secreto. Los carga en un paso del instalador, que deja el SSO activo sin
-editar código ni la base a mano.
+La activación se hace **en el server de Elea, desde el panel Eleia Guardian**, no desde nuestra
+infraestructura. El admin carga el tenant, el identificador de la aplicación y el secreto, y
+enciende o apaga el ingreso con Microsoft sin editar archivos ni la base a mano. El secreto lo
+puede tipear el propio IT de Elea, así nunca pasa por nosotros.
 
-**Why this priority**: sin esto, cada activación depende de pasos manuales y frágiles. Pero
-no bloquea probar la US1 en desarrollo.
+**Why this priority**: es la forma pedida para activarlo (23-sep). Hoy la pestaña
+"Autenticación & SSO" (`frontend/src/pages/UsersPage.tsx`) solo muestra el estado y dice
+"contacte a soporte": la configuración se carga únicamente por API (`PUT /api/v1/auth/sso/config`,
+que ya existe). Falta el formulario. El interruptor además es la **vuelta atrás inmediata**.
 
-**Independent Test**: en una instalación desde cero, cargar los datos de Entra en el paso del
-instalador y confirmar que el botón de Microsoft aparece y funciona. Actualizar esa instalación
-y confirmar que la configuración se conserva.
+**Independent Test**: en una instalación con la licencia correcta, cargar los datos desde el
+panel, confirmar que el botón de Microsoft aparece en el Hub y funciona, apagarlo desde el panel
+y confirmar que desaparece sin reiniciar nada. Actualizar la instalación y confirmar que la
+configuración se conserva.
 
 **Acceptance Scenarios**:
 
-1. **Given** los datos de Entra y la dirección pública HTTPS del Hub, **When** el operador
-   corre el paso de activación, **Then** el SSO queda configurado y el secreto queda cifrado,
-   sin guardarse en claro en archivos del repo.
-2. **Given** una instalación ya activada, **When** se actualiza con el instalador, **Then** la
+1. **Given** un admin en el panel, **When** carga tenant, identificador y secreto y activa el
+   interruptor, **Then** el SSO queda activo y el secreto queda cifrado. El panel nunca vuelve a
+   mostrar el secreto: solo indica que está cargado.
+2. **Given** SSO activo, **When** el admin lo desactiva, **Then** el botón de Microsoft
+   desaparece del Hub en el próximo ingreso y el login con contraseña sigue igual.
+3. **Given** una instalación ya activada, **When** se actualiza con el instalador, **Then** la
    configuración de SSO se conserva.
-3. **Given** que el operador no carga datos de Entra, **When** instala, **Then** la instalación
-   queda sin SSO y sin errores.
+4. **Given** que nadie cargó datos de Entra, **When** se instala o se actualiza, **Then** la
+   instalación queda sin SSO y sin errores.
+5. **Given** un usuario que no es `super_admin` ni `tenant_admin`, **When** entra al panel,
+   **Then** no puede ver ni cambiar la configuración de SSO.
 
 ---
 
@@ -179,11 +188,15 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 - **FR-008**: Los usuarios que ingresan por SSO MUST NOT quedar sujetos al cambio obligatorio de
   contraseña (spec 055), y el Hub MUST NOT ofrecerles "cambiar contraseña" si no tienen
   contraseña local.
-- **FR-009**: El instalador MUST permitir activar el SSO con tres datos (tenant, identificador de
-  la aplicación y secreto) más la dirección pública del Hub. El secreto MUST guardarse cifrado y
-  nunca en claro en archivos versionados. La activación MUST sobrevivir a una actualización.
-- **FR-010**: La instalación MUST servir el Hub por HTTPS en la dirección registrada como retorno
-  en Entra.
+- **FR-009**: El panel Eleia Guardian MUST permitir que un admin (`super_admin` o
+  `tenant_admin`) cargue, cambie, active y desactive la configuración de Entra (tenant,
+  identificador de la aplicación y secreto) usando la API de configuración SSO que ya existe. El
+  secreto MUST guardarse cifrado, MUST NOT volver a mostrarse y MUST NOT quedar en claro en
+  archivos. La configuración MUST sobrevivir a una actualización.
+- **FR-009b**: El instalador MUST pasar al backend la dirección de retorno del Hub
+  (`SENTINEL_SSO_REDIRECT_URI`) desde `.env`. Si está vacía, la instalación arranca igual y sin SSO.
+- **FR-010**: La instalación MUST servir el Hub por HTTPS en el nombre registrado como retorno en
+  Entra, y el server MUST poder salir por HTTPS a `login.microsoftonline.com`.
 - **FR-011**: La licencia de Elea MUST incluir el permiso `sso`. Sin él, FR-001 y FR-006 aplican
   (sin botón y sin errores).
 - **FR-012**: Todo ingreso por SSO, aceptado o rechazado, MUST quedar en la auditoría de
@@ -217,7 +230,7 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   reales de Elea.
 - **SC-003**: El recorrido de regresión (login con contraseña, cambio obligatorio de la 055,
   cuatro motores, presupuestos) pasa completo con SSO activo y con SSO roto a propósito.
-- **SC-004**: El operador activa SSO en una instalación nueva en menos de 15 minutos una vez que
+- **SC-004**: El admin de Elea activa o desactiva SSO desde el panel en menos de 5 minutos una vez que
   tiene los datos de Entra, sin editar código ni la base a mano.
 - **SC-005**: El cambio se porta a Sentinel sin reescribir lógica: solo configuración, licencia
   y, si corresponde, adaptar la pantalla de ingreso de su superficie de usuarios.
@@ -252,16 +265,23 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 | Baja automática desde Entra (SCIM) | +3 a 5 |
 | Sesiones del Hub persistentes (hoy en memoria) | aparte, no bloquea |
 
-**Estimación de la fase 1: 4 a 6 días de dev.**
+**Estimación de la fase 1: 5 a 7,5 días de dev** (suma el formulario del panel y el versionado para volver atrás, pedidos el 23-sep).
 
 | Tarea | Días |
 |---|---|
 | Licencia con `sso` | 0,25 |
-| Cableado del instalador y paso de activación | 0,5 |
+| Cableado del instalador (`SENTINEL_SSO_REDIRECT_URI`) | 0,25 |
+| Formulario de configuración SSO en el panel (usa la API existente) | 0,5 a 1 |
+| Vuelta atrás real: tag de imagen fijable en el instalador (`ELEA_TAG`), publicar candidatas sin mover `latest`, licencia montada desde el host | 0,5 |
 | HTTPS (según la red de Elea) | 0,5 a 2 |
 | SSO en el Hub | 1,5 a 2 |
 | Prueba de punta a punta con el tenant real y regresión | 1 |
 | Guía para IT y docs | 0,5 |
+
+## Despliegue y vuelta atrás
+
+Procedimiento completo en [DESPLIEGUE-Y-REVERSION.md](DESPLIEGUE-Y-REVERSION.md). Lo que Elea tiene
+que preparar está en [SOLICITUD-A-ELEA.md](SOLICITUD-A-ELEA.md).
 
 ## Preparación para Sentinel
 
@@ -275,9 +295,12 @@ carpeta al cerrar.
 | SSO del backend (proveedor Entra, alta automática, config cifrada, callback) | `backend/src/sso/` | **Base, ya existe** (spec 017). Confirmar que Sentinel tenga la migración `017_sso_providers` y la misma versión de `sso/`. |
 | Permiso `sso` en licencia | licencias firmadas | Base. Cada línea emite la suya con su clave. |
 | Lista de URIs de retorno (solo si se pide SSO en el panel) | `backend/src/sso/api.py` | Base, retrocompatible: si no hay lista, se usa la variable única de hoy. |
-| Variables de SSO en compose, `.env.example` y paso de activación | `elea-installer/` | Base en enfoque. Portar al instalador de Sentinel con nombres de variable **iguales**. |
+| Variable `SENTINEL_SSO_REDIRECT_URI` en compose y `.env.example` | `elea-installer/` | Base en enfoque. Portar al instalador de Sentinel con nombres de variable **iguales**. |
+| Formulario de configuración SSO en el panel | `frontend/src/pages/UsersPage.tsx` (pestaña "Autenticación & SSO") | **Base**: es el mismo `frontend/` que comparten las dos líneas. Portable tal cual, confirmando antes el diff (mismo caveat que la 054 y la 055). |
 | Login SSO del Hub | `client/server.js`, `client/public/index.html` | **Específico de esta línea**, igual que en la 055. En Sentinel se porta el **enfoque** (el Hub hace de intermediario con la API de Guardian y guarda el token del lado del servidor), no el diff, y solo si Sentinel tiene una superficie de usuarios equivalente. Si sus usuarios entran por el panel, alcanza con el SSO que el panel ya tiene. |
 | Guía de registro en Entra | `docs/docs/install-deploy/sso.md` | Base, sin marca: redactar con "Guardian" y marcadores para el nombre de la instalación. |
+
+**Estado del porte (23-sep)**: la spec espejo ya existe en Sentinel, `specs/067-porte-elea-sso-entra-hub/` (cluna-8/sentinel#24). Allí también está el plan de prueba simultánea: directorio personal para Eleia y directorio de Evidenze para Sentinel. Backend y panel se escriben una sola vez y se cherry-pickean.
 
 **Reglas de diseño para que el port sea directo** (se verifican en el analyze):
 
