@@ -774,6 +774,31 @@ def _write_engine_config(config_data: dict) -> None:
     )
 
 
+def _is_hidden_entry(entry) -> bool:
+    """¿La entrada del catálogo pertenece a un plugin (`model_info.plugin_owner`)?
+
+    Un plugin puede declarar en el config del motor entradas propias que sirven a SU
+    servicio y no son del admin. Esas entradas quedan fuera de la consola: no se listan,
+    no las ve el auto-router, y los escritores no las borran, editan ni usan de respaldo.
+    Basta con que `plugin_owner` tenga cualquier valor no vacío; su contenido es del plugin.
+    """
+    if not isinstance(entry, dict):
+        return False
+    info = entry.get("model_info")
+    return isinstance(info, dict) and bool(info.get("plugin_owner"))
+
+
+def _visible_entries(config_data: dict) -> list:
+    """Entradas del catálogo que administra la consola (todas menos las de plugins)."""
+    return [m for m in (config_data.get("model_list") or [])
+            if isinstance(m, dict) and not _is_hidden_entry(m)]
+
+
+def _hidden_model_names(config_data: dict) -> set:
+    return {m.get("model_name") for m in (config_data.get("model_list") or [])
+            if _is_hidden_entry(m)}
+
+
 def _catalog_model_names(config_data: Optional[dict] = None):
     """`model_name`s del catálogo del motor, o `None` si el config no se pudo leer.
 
@@ -786,8 +811,7 @@ def _catalog_model_names(config_data: Optional[dict] = None):
     datos = _read_engine_config() if config_data is None else config_data
     if not datos:
         return None
-    return {m.get("model_name") for m in (datos.get("model_list") or [])
-            if isinstance(m, dict) and m.get("model_name")}
+    return {m.get("model_name") for m in _visible_entries(datos) if m.get("model_name")}
 
 
 # Providers que identifican un modelo LOCAL (self-hosted del cliente) en el catálogo del
@@ -807,7 +831,7 @@ def _is_local_entry(entry: dict) -> bool:
 
 def _local_models(config_data: dict) -> list:
     """Entradas locales del catálogo, en el orden en que están declaradas."""
-    return [m for m in (config_data.get("model_list") or []) if _is_local_entry(m)]
+    return [m for m in _visible_entries(config_data) if _is_local_entry(m)]
 
 
 def _router_config_safe() -> dict:
@@ -2199,7 +2223,7 @@ async def list_available_models():
                 "is_eu_compliant": True,
             })
 
-        for m in config_data.get("model_list", []):
+        for m in _visible_entries(config_data):
             if m.get("model_name") == embedding_model:
                 continue
             params = m.get("litellm_params", {})
@@ -2341,8 +2365,10 @@ async def delete_model(model_name: str):
     if "model_list" not in config_data:
         raise HTTPException(status_code=404, detail="No models configured")
 
+    # Las entradas de plugins no se borran desde la consola: para el admin no existen (404).
     original_len = len(config_data["model_list"])
-    config_data["model_list"] = [m for m in config_data["model_list"] if m.get("model_name") != model_name]
+    config_data["model_list"] = [m for m in config_data["model_list"]
+                                 if m.get("model_name") != model_name or _is_hidden_entry(m)]
     if len(config_data["model_list"]) == original_len:
         raise HTTPException(status_code=404, detail="Model not found")
 
@@ -2385,7 +2411,7 @@ async def update_model_credential(model_name: str, body: ModelCredentialSchema):
 
     found = False
     engine_params = body.resolved_engine_params()
-    for m in config_data.get("model_list", []):
+    for m in _visible_entries(config_data):
         if m.get("model_name") == model_name:
             if engine_params:
                 # `litellm_params` acá adentro es el nombre real de la clave del
@@ -2425,8 +2451,11 @@ async def get_fallbacks():
             config_data = yaml.safe_load(f) or {}
         raw = config_data.get("router_settings", {}).get("fallbacks", [])
         result: dict = {}
+        ocultas = _hidden_model_names(config_data)
         for item in raw:
             for k, v in item.items():
+                if k in ocultas:
+                    continue
                 result[k] = v[0] if v else None
         return result
     except Exception:
@@ -2453,6 +2482,11 @@ async def set_fallback(model_name: str, body: FallbackBody):
             config_data = yaml.safe_load(f) or {}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to read config")
+
+    # Ni origen ni destino pueden ser entradas de plugins: para la consola no existen.
+    ocultas = _hidden_model_names(config_data)
+    if model_name in ocultas or (body.fallback_model and body.fallback_model in ocultas):
+        raise HTTPException(status_code=404, detail="Model not found")
 
     if body.fallback_model:
         origen = next((m for m in (config_data.get("model_list") or [])
@@ -2493,7 +2527,9 @@ async def get_models_pricing():
 
     result = []
     for m in data.get("data", []):
-        info = m.get("model_info", {})
+        info = m.get("model_info", {}) or {}
+        if info.get("plugin_owner"):
+            continue
         input_cost = info.get("input_cost_per_token", 0) or 0
         output_cost = info.get("output_cost_per_token", 0) or 0
         result.append({
