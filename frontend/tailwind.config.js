@@ -3,6 +3,12 @@ export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
+    // Páginas de plugins (src/plugins/registry.ts): viven fuera de src/ cuando el build fija
+    // VITE_PLUGIN_PAGES_DIR; sin escanear su árbol, las clases que sólo usan ellas no existen.
+    // Se escanea el directorio PADRE del de páginas (los helpers del plugin viven al lado).
+    ...(process.env.VITE_PLUGIN_PAGES_DIR
+      ? [`${process.env.VITE_PLUGIN_PAGES_DIR.replace(/\/+$/, "")}/../**/*.{ts,tsx}`]
+      : []),
   ],
   theme: {
     extend: {

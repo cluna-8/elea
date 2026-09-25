@@ -1,12 +1,24 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'node:path'
 
 // El repo no traía vite.config: dev funcionaba con los defaults de Vite. Para el build
 // de prod fijamos el plugin de React (JSX runtime automático) y outDir=dist. base='/'
 // porque el SPA se sirve en la raíz del dominio y la API va por /api/v1 (mismo origen).
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   base: '/',
+  // Páginas de plugins (src/plugins/registry.ts): `@plugin-pages` apunta al directorio que
+  // diga VITE_PLUGIN_PAGES_DIR (relativo a este archivo o absoluto) o, por defecto, a
+  // `src/plugins/pages/`, vacío → build sin plugins. `dedupe` hace que un plugin que vive
+  // fuera de este árbol use el MISMO React de la consola y no uno propio.
+  resolve: {
+    alias: {
+      '@plugin-pages': path.resolve(__dirname,
+        loadEnv(mode, process.cwd(), 'VITE_').VITE_PLUGIN_PAGES_DIR || 'src/plugins/pages'),
+    },
+    dedupe: ['react', 'react-dom'],
+  },
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1500,
@@ -29,4 +41,4 @@ export default defineConfig({
       '/gw': { target: process.env.BACKEND_URL || `http://${process.env.BACKEND_HOST || 'backend'}:8000`, changeOrigin: true },
     },
   },
-})
+}))
