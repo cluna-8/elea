@@ -397,6 +397,40 @@ def detect_tool(user_agent: Optional[str]) -> str:
     return "Desconocido"
 
 
+# ── Decisión de ruteo con procedencia del motor (audit_logs.routing_decision) ────────
+#
+# El metadata-home que lee el logger de auditoría es la fusión de `litellm_metadata` y
+# `metadata`, y `metadata` es un campo del BODY: lo escribe el cliente (hallazgo A3 de la
+# 027). Una clave "interna" no alcanza — el cliente puede mandar la misma. La marca de
+# procedencia es el TIPO: el cliente solo puede producir JSON (dict/list/str/número), jamás
+# una instancia de esta clase; el código del motor, sí. Es subclase de dict para que
+# sobreviva un `deepcopy` y serialice como JSON si el motor vuelca la metadata a un log.
+ROUTING_DECISION_KEY = "_internal_routing_decision"
+
+
+class EngineRoutingDecision(dict):
+    """Decisión de ruteo escrita por código del motor (no falsificable desde el body)."""
+
+
+def mark_routing_decision(home: dict, decision: dict) -> None:
+    """Deja la decisión en el metadata-home del pedido, SOBRESCRIBIENDO cualquier valor
+    que el cliente haya sembrado bajo la misma clave. Solo para código del motor."""
+    if isinstance(home, dict) and isinstance(decision, dict):
+        home[ROUTING_DECISION_KEY] = EngineRoutingDecision(decision)
+
+
+def trusted_routing_decision(*homes) -> Optional[dict]:
+    """La decisión del motor si alguno de los homes la trae con su marca; si no, None.
+
+    Se mira cada home POR SEPARADO: en la fusión `metadata` (cliente) gana sobre
+    `litellm_metadata`, y un valor plano del cliente taparía el del motor."""
+    for home in homes:
+        value = home.get(ROUTING_DECISION_KEY) if isinstance(home, dict) else None
+        if isinstance(value, EngineRoutingDecision):
+            return dict(value)
+    return None
+
+
 async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
     """Analyzer PII por regex — SOLO fallback explícito de dev/demo cuando no hay
     `NLP_ANALYZER_URL` configurada. NUNCA es el detector del camino de producción

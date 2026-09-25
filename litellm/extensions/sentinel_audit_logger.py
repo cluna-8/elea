@@ -49,10 +49,11 @@ _INSERT_AUDIT_SQL = """
 INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
-    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer
+    compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
+    routing_decision
 ) VALUES (
     gen_random_uuid(), $1::uuid, NOW(), $2::uuid, $3::uuid, $4,
-    $5, $6, $7, $8, $9::jsonb, $10, $11, $12::uuid, $13::jsonb, $14
+    $5, $6, $7, $8, $9::jsonb, $10, $11, $12::uuid, $13::jsonb, $14, $15::jsonb
 )
 """
 
@@ -329,11 +330,15 @@ class SentinelAuditLogger(CustomLogger):
             return
 
         request_md = {}
+        homes = []
         for key in ("litellm_metadata", "metadata"):
             home = kwargs.get(key) or data.get(key)
             if isinstance(home, dict):
+                homes.append(home)
                 request_md.update(home)
         request_md = _scrub(request_md)
+        # Solo la que escribió código del motor (marca de tipo); jamás un valor del body.
+        routing_decision = policy.trusted_routing_decision(*homes)
 
         usage = getattr(response_obj, "usage", None)
         prompt_tokens = completion_tokens = 0
@@ -391,6 +396,9 @@ class SentinelAuditLogger(CustomLogger):
             # Nally 16-sep: "mi usuario sigue en 0... el grupo no aparece").
             "acted_for_user_id": sentinel.get("acted_for_user_id"),
         }
+        # Ausente ⇒ la clave no viaja: el payload (y la fila) quedan idénticos a los de antes.
+        if routing_decision is not None:
+            entry["routing_decision"] = routing_decision
         # Emisión por el punto ÚNICO (reusado por el rechazo por presupuesto del motor, #176):
         # el reintento y el contador de pérdidas viven adentro, acá no hay nada que tragar.
         await emitir_fila_durable(entry, masked, applied_layers, blocked_by_layer)
@@ -427,6 +435,8 @@ class SentinelAuditLogger(CustomLogger):
                 entry["compliance_status"], entry["latency_ms"], entry["user_group_id"],
                 json.dumps(applied_layers) if applied_layers is not None else None,
                 blocked_by_layer,
+                (json.dumps(entry["routing_decision"])
+                 if entry.get("routing_decision") is not None else None),
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("INSERT de auditoría falló — EVENTO NO REGISTRADO (modo=%s): %s",

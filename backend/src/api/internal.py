@@ -203,14 +203,15 @@ INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
     compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
-    acted_for_user_id
+    acted_for_user_id, routing_decision
 ) VALUES (
     gen_random_uuid(), CAST(:tenant_id AS uuid), NOW(), CAST(:user_id AS uuid),
     CAST(:api_key_id AS uuid), :model,
     :prompt_tokens, :completion_tokens, :cost_usd, :pii_detected,
     CAST(:masked_entities AS jsonb),
     :compliance_status, :latency_ms, CAST(:user_group_id AS uuid),
-    CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid)
+    CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid),
+    CAST(:routing_decision AS jsonb)
 )
 """)
 
@@ -253,6 +254,29 @@ class AuditEntry(BaseModel):
     # nunca a la persona real, porque este modelo (y el INSERT de abajo) no tenían la
     # columna. `custom_auth.py` ya la calcula; `sentinel_guardrail.py` ahora la manda.
     acted_for_user_id: Optional[str] = None
+    # Decisión de ruteo del motor (spec 030, data-model §2). El logger solo la manda si la
+    # escribió código del motor (`sentinel_guardian_policy.trusted_routing_decision`); acá se
+    # sanea igual por vocabulario cerrado (C1). Ausente ⇒ NULL = "no pasó por un router".
+    routing_decision: Optional[dict] = None
+
+
+_ROUTING_TEXTO = ("requested", "route", "model_selected", "reason")
+
+
+def _routing_saneado(decision: Optional[dict]) -> Optional[dict]:
+    """Solo las claves de data-model §2 con su tipo: texto acotado (etiquetas de config,
+    jamás prompt), `score` numérico (no bool) y `degraded` bool. Lo demás se descarta."""
+    if not isinstance(decision, dict):
+        return None
+    limpio = {k: decision[k][:128] for k in _ROUTING_TEXTO
+              if isinstance(decision.get(k), str)}
+    limpio.update({k: None for k in _ROUTING_TEXTO if k in decision and decision[k] is None})
+    score = decision.get("score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        limpio["score"] = float(score)
+    if isinstance(decision.get("degraded"), bool):
+        limpio["degraded"] = decision["degraded"]
+    return limpio or None
 
 
 def _entidades_saneadas(items: list) -> list:
@@ -316,6 +340,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
             "[sentinel-internal] el emisor declaró el literal reservado de la cadena de licencias "
             "como modelo; la fila se registra con el centinela %s (tenant=%s user=%s)",
             MODELO_CADENA_USURPADA, entry.tenant_id, entry.user_id)
+    routing = _routing_saneado(entry.routing_decision)
     db.execute(_INSERT_AUDIT_SQL, {
         "tenant_id": entry.tenant_id or str(DEFAULT_TENANT_ID),
         "user_id": entry.user_id,
@@ -334,6 +359,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         "applied_layers": json.dumps(entry.applied_layers) if entry.applied_layers is not None else None,
         "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
         "acted_for_user_id": entry.acted_for_user_id,
+        "routing_decision": json.dumps(routing) if routing is not None else None,
     })
     db.commit()
 
