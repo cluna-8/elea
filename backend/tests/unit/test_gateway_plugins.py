@@ -255,6 +255,41 @@ def test_map_error_traduce_el_error_del_destino(espias, stream):
         assert r.headers["retry-after"] == "7"
 
 
+def test_map_response_reescribe_la_respuesta_no_stream_exitosa(espias):
+    """byok y suscripción: el primer plugin que devuelve algo gana; los errores no pasan."""
+    visto = []
+
+    class P:
+        def map_response(self, ctx, status, body):
+            visto.append((ctx.mode, status))
+            return 200, b'{"reescrito": true}', {"X-Rw": "1"}
+
+    class Q:
+        def map_response(self, ctx, status, body):
+            raise AssertionError("gana el primero")
+
+    gp.register_gateway_plugin(P())
+    gp.register_gateway_plugin(Q())
+    for h in ({"Authorization": f"Bearer {KEY}"}, {}):
+        r = espias["client"].post("/gw/v1/messages", content=json.dumps(BODY).encode(), headers=h)
+        assert r.status_code == 200 and r.json() == {"reescrito": True}
+        assert r.headers["x-rw"] == "1"
+    assert [m for m, _ in visto] == ["byok", "subscription"]
+
+
+def test_map_response_no_corre_en_errores(espias):
+    _Fake.status = 500
+
+    class P:
+        def map_response(self, ctx, status, body):
+            raise AssertionError("no debería correr con status >= 400")
+
+    gp.register_gateway_plugin(P())
+    r = espias["client"].post("/gw/v1/messages", content=json.dumps(BODY).encode(),
+                              headers={"Authorization": f"Bearer {KEY}"})
+    assert r.status_code == 500
+
+
 def test_wrap_stream_envuelve_los_bytes_en_byok(espias):
     class P:
         def wrap_stream(self, ctx, it):

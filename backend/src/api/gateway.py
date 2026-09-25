@@ -1558,9 +1558,11 @@ async def _plugins_pre_engine(ctx, request: Request, raw: Optional[bytes], heade
 
 async def _respuesta_destino(ctx, status: int, content: bytes, media_type: str) -> Response:
     """Respuesta al cliente con lo que contestó el destino; un error (>= 400) pasa antes por
-    ``map_error`` de los plugins, que puede reescribir estado, cuerpo y headers."""
-    if ctx is not None and status >= 400:
-        mapped = await gp.run_map_error(ctx, status, content)
+    ``map_error`` de los plugins y una respuesta exitosa por ``map_response``: cualquiera de
+    los dos puede reescribir estado, cuerpo y headers."""
+    if ctx is not None:
+        run = gp.run_map_error if status >= 400 else gp.run_map_response
+        mapped = await run(ctx, status, content)
         if mapped is not None:
             status, content, headers = mapped
             return Response(content=content, status_code=status, headers=headers or None,
