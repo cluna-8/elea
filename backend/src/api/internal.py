@@ -20,7 +20,9 @@ servicios YA tienen (`SENTINEL_ENGINE_MASTER_KEY`) — no hay un secreto nuevo q
 import hmac
 import json
 import logging
+import math
 import os
+import re
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
@@ -272,10 +274,59 @@ def _routing_saneado(decision: Optional[dict]) -> Optional[dict]:
               if isinstance(decision.get(k), str)}
     limpio.update({k: None for k in _ROUTING_TEXTO if k in decision and decision[k] is None})
     score = decision.get("score")
-    if isinstance(score, (int, float)) and not isinstance(score, bool):
+    if isinstance(score, (int, float)) and not isinstance(score, bool) \
+            and math.isfinite(score):
         limpio["score"] = float(score)
     if isinstance(decision.get("degraded"), bool):
         limpio["degraded"] = decision["degraded"]
+    extensiones = _extensiones_saneadas(decision.get("extensions"))
+    if extensiones:
+        limpio["extensions"] = extensiones
+    return limpio or None
+
+
+# `extensions`: decisiones de ruteo de extensiones del motor, genéricas y acotadas —
+# `{<namespace>: {<clave>: escalar}}`. Lo que excede se DESCARTA (nunca un 4xx: la fila ya
+# es un hecho y perderla es peor que recortarla).
+_EXT_NOMBRE = re.compile(r"[a-z0-9_]{1,32}")
+_EXT_MAX_NAMESPACES = 8
+_EXT_MAX_CLAVES = 24
+_EXT_MAX_STR = 128
+_EXT_MAX_BYTES = 4096
+
+
+def _escalar_ok(valor) -> bool:
+    if isinstance(valor, str):
+        return len(valor) <= _EXT_MAX_STR
+    if isinstance(valor, float):
+        return math.isfinite(valor)  # NaN/inf no son JSON válido: el INSERT jsonb fallaría
+    return valor is None or isinstance(valor, (bool, int))
+
+
+def _extensiones_saneadas(ext) -> Optional[dict]:
+    """Namespaces y claves `[a-z0-9_]{1,32}`, máx. 8 namespaces × 24 claves, valores
+    escalares (str ≤128, int, float, bool, null) y ≤4 KB serializado en total. Se recorre en
+    orden de llegada y se descarta cada entrada que no cumpla o que no entre en el tope."""
+    if not isinstance(ext, dict):
+        return None
+    limpio: dict = {}
+    for ns, claves in ext.items():
+        if len(limpio) >= _EXT_MAX_NAMESPACES:
+            break
+        if not (isinstance(ns, str) and _EXT_NOMBRE.fullmatch(ns) and isinstance(claves, dict)):
+            continue
+        destino: dict = {}
+        for clave, valor in claves.items():
+            if len(destino) >= _EXT_MAX_CLAVES:
+                break
+            if not (isinstance(clave, str) and _EXT_NOMBRE.fullmatch(clave)
+                    and _escalar_ok(valor)):
+                continue
+            if len(json.dumps({**limpio, ns: {**destino, clave: valor}})) > _EXT_MAX_BYTES:
+                continue
+            destino[clave] = valor
+        if destino:
+            limpio[ns] = destino
     return limpio or None
 
 

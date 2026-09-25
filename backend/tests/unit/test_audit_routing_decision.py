@@ -214,3 +214,79 @@ def test_backend_sanea_por_vocabulario_cerrado():
     assert len(guardada["route"]) == 128
     assert "score" not in guardada and "degraded" not in guardada
     assert guardada["model_selected"] == "modelo-a"
+
+
+# ── Sub-objeto `extensions`: decisiones de ruteo de extensiones, genérico y acotado ──
+
+EXT = {"mi_router": {"ruta": "rapida", "peso": 3, "umbral": 0.5, "activo": True,
+                     "nota": None}}
+
+
+def test_backend_conserva_extensions_valido():
+    guardada = json.loads(_registrar(
+        routing_decision={**DECISION, "extensions": EXT})["routing_decision"])
+    assert guardada["extensions"] == EXT
+    assert guardada["model_selected"] == "modelo-a"
+
+
+def test_backend_recorta_extensions_al_exceder_sin_fallar():
+    ext = {f"ns_{i}": {f"k_{j}": j for j in range(30)} for i in range(10)}
+    ext["Mal-Nombre"] = {"a": 1}                       # namespace fuera de [a-z0-9_]
+    ext["ns_0"]["CLAVE"] = 1                           # clave fuera de [a-z0-9_]
+    ext["ns_0"]["x" * 33] = 1                          # clave > 32
+    ext["ns_1"]["anidado"] = {"no": "escalar"}         # valor no escalar
+    ext["ns_1"]["lista"] = [1, 2]
+    ext["ns_2"]["largo"] = "y" * 129                   # str > 128
+    ext["ns_2"]["nan"] = float("nan")                  # no es JSON válido para jsonb
+    guardada = json.loads(_registrar(
+        routing_decision={**DECISION, "extensions": ext})["routing_decision"])
+    out = guardada["extensions"]
+    assert len(out) <= 8
+    assert all(len(claves) <= 24 for claves in out.values())
+    assert "Mal-Nombre" not in out
+    assert "CLAVE" not in out["ns_0"] and "x" * 33 not in out["ns_0"]
+    assert "anidado" not in out.get("ns_1", {}) and "lista" not in out.get("ns_1", {})
+    assert "largo" not in out.get("ns_2", {}) and "nan" not in out.get("ns_2", {})
+    assert len(json.dumps(out)) <= 4096
+
+
+def test_backend_extensions_respeta_el_tope_de_4kb():
+    ext = {f"ns_{i}": {f"k_{j}": "z" * 128 for j in range(24)} for i in range(8)}
+    guardada = json.loads(_registrar(
+        routing_decision={**DECISION, "extensions": ext})["routing_decision"])
+    assert 0 < len(json.dumps(guardada["extensions"])) <= 4096
+
+
+def test_backend_extensions_invalido_se_descarta_sin_fallar():
+    guardada = json.loads(_registrar(
+        routing_decision={**DECISION, "extensions": "no-es-dict"})["routing_decision"])
+    assert "extensions" not in guardada
+
+
+@pytest.mark.asyncio
+async def test_extensions_del_motor_viaja_hasta_el_post(posts):
+    home: dict = {}
+    policy.mark_routing_decision(home, {**DECISION, "extensions": EXT})
+    await _loguear(litellm_metadata=home)
+    assert posts[0]["routing_decision"]["extensions"] == EXT
+
+
+@pytest.mark.asyncio
+async def test_cliente_no_puede_inyectar_extensions(posts):
+    await _loguear(metadata={policy.ROUTING_DECISION_KEY: {**FALSA, "extensions": EXT}})
+    assert "routing_decision" not in posts[0]
+
+
+@pytest.mark.asyncio
+async def test_cliente_no_puede_agregar_extensions_a_la_del_motor(posts):
+    home: dict = {}
+    policy.mark_routing_decision(home, DECISION)
+    await _loguear(metadata={policy.ROUTING_DECISION_KEY: {"extensions": EXT}},
+                   litellm_metadata=home)
+    assert "extensions" not in posts[0]["routing_decision"]
+
+
+def test_backend_score_no_finito_se_descarta():
+    guardada = json.loads(_registrar(
+        routing_decision={**DECISION, "score": float("inf")})["routing_decision"])
+    assert "score" not in guardada
