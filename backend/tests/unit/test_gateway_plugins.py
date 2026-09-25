@@ -255,41 +255,6 @@ def test_map_error_traduce_el_error_del_destino(espias, stream):
         assert r.headers["retry-after"] == "7"
 
 
-def test_map_response_reescribe_la_respuesta_no_stream_exitosa(espias):
-    """byok y suscripción: el primer plugin que devuelve algo gana; los errores no pasan."""
-    visto = []
-
-    class P:
-        def map_response(self, ctx, status, body):
-            visto.append((ctx.mode, status))
-            return 200, b'{"reescrito": true}', {"X-Rw": "1"}
-
-    class Q:
-        def map_response(self, ctx, status, body):
-            raise AssertionError("gana el primero")
-
-    gp.register_gateway_plugin(P())
-    gp.register_gateway_plugin(Q())
-    for h in ({"Authorization": f"Bearer {KEY}"}, {}):
-        r = espias["client"].post("/gw/v1/messages", content=json.dumps(BODY).encode(), headers=h)
-        assert r.status_code == 200 and r.json() == {"reescrito": True}
-        assert r.headers["x-rw"] == "1"
-    assert [m for m, _ in visto] == ["byok", "subscription"]
-
-
-def test_map_response_no_corre_en_errores(espias):
-    _Fake.status = 500
-
-    class P:
-        def map_response(self, ctx, status, body):
-            raise AssertionError("no debería correr con status >= 400")
-
-    gp.register_gateway_plugin(P())
-    r = espias["client"].post("/gw/v1/messages", content=json.dumps(BODY).encode(),
-                              headers={"Authorization": f"Bearer {KEY}"})
-    assert r.status_code == 500
-
-
 def test_wrap_stream_envuelve_los_bytes_en_byok(espias):
     class P:
         def wrap_stream(self, ctx, it):
@@ -372,3 +337,37 @@ def test_audit_pasa_routing_decision_al_escritor(monkeypatch):
     capturado.clear()
     gateway._audit({}, "m", 0, 0, "passed", [], 1, None)
     assert capturado["routing_decision"] is None
+
+
+@pytest.mark.parametrize("byok", [True, False])
+def test_map_response_reescribe_la_respuesta_no_stream_exitosa(espias, byok):
+    class P:
+        def map_response(self, ctx, status, content):
+            return 201, b'{"reescrito": true}', {"X-Plugin": "r"}
+
+    class Nada:
+        def map_response(self, ctx, status, content):
+            return None  # no opina: pasa al siguiente
+
+    gp.register_gateway_plugin(Nada())
+    gp.register_gateway_plugin(P())
+    h = {"Authorization": f"Bearer {KEY}"} if byok else {}
+    r = espias["client"].post("/gw/v1/messages", json=BODY, headers=h)
+    assert r.status_code == 201 and r.json() == {"reescrito": True}
+    assert r.headers["x-plugin"] == "r"
+
+
+def test_map_response_no_toca_errores_ni_streams_ni_passthroughs(espias):
+    class P:
+        def map_response(self, ctx, status, content):
+            raise AssertionError("no debía llamarse")
+
+    gp.register_gateway_plugin(P())
+    raws = json.dumps({**BODY, "stream": True}).encode()
+    for h in ({"Authorization": f"Bearer {KEY}"}, {}):
+        assert espias["client"].post("/gw/v1/messages", content=raws, headers=h).status_code == 200
+        assert espias["client"].post("/gw/v1/messages/count_tokens", json=BODY,
+                                     headers=h).status_code == 200
+    _Fake.status = 429
+    for h in ({"Authorization": f"Bearer {KEY}"}, {}):
+        assert espias["client"].post("/gw/v1/messages", json=BODY, headers=h).status_code == 429

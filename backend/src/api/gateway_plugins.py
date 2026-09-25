@@ -18,8 +18,8 @@ Hooks (todos opcionales; un plugin implementa sólo los que necesita, sync o asy
 * ``wrap_stream(ctx, iterator) -> iterator``: envuelve los bytes del streaming.
 * ``models_filter(ctx, listing) -> listing``: sobre la respuesta de ``/v1/models``.
 * ``map_error(ctx, status, body) -> (status, body, headers) | None``: el primero no-None gana.
-* ``map_response(ctx, status, body) -> (status, body, headers) | None``: igual que
-  ``map_error`` pero para la respuesta NO-stream exitosa (status < 400); el primero no-None gana.
+* ``map_response(ctx, status, content) -> (status, content, headers) | None``: igual que
+  ``map_error`` pero para la respuesta NO-stream exitosa (< 400) de ``/v1/messages``.
 * ``forward_headers_allowlist(ctx) -> set[str]``: headers extra a reenviar en byok.
 * ``post_mask(ctx, report) -> None | Response``: después del enmascarado del gateway.
 
@@ -135,9 +135,9 @@ async def run_map_error(ctx: GatewayContext, status: int, body: bytes):
     return None
 
 
-async def run_map_response(ctx: GatewayContext, status: int, body: bytes):
+async def run_map_response(ctx: GatewayContext, status: int, content: bytes):
     for hook in _hooks("map_response"):
-        mapped = await _call(hook, ctx, status, body)
+        mapped = await _call(hook, ctx, status, content)
         if mapped is not None:
             return mapped
     return None

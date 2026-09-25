@@ -1556,13 +1556,18 @@ async def _plugins_pre_engine(ctx, request: Request, raw: Optional[bytes], heade
     return (json.dumps(body).encode("utf-8") if raw else raw), headers
 
 
-async def _respuesta_destino(ctx, status: int, content: bytes, media_type: str) -> Response:
+async def _respuesta_destino(ctx, status: int, content: bytes, media_type: str,
+                             exito_mapeable: bool = False) -> Response:
     """Respuesta al cliente con lo que contestó el destino; un error (>= 400) pasa antes por
-    ``map_error`` de los plugins y una respuesta exitosa por ``map_response``: cualquiera de
-    los dos puede reescribir estado, cuerpo y headers."""
-    if ctx is not None:
-        run = gp.run_map_error if status >= 400 else gp.run_map_response
-        mapped = await run(ctx, status, content)
+    ``map_error`` de los plugins, que puede reescribir estado, cuerpo y headers.
+
+    ``exito_mapeable`` marca los dos call-sites donde una respuesta exitosa (< 400) pasa por
+    ``map_response``: el no-stream de ``/v1/messages`` en byok y en suscripción. Los streams
+    ya tienen ``wrap_stream`` y ``/v1/models`` su ``models_filter``; abrir el hook ahí
+    daría dos formas de tocar la misma respuesta."""
+    if ctx is not None and (status >= 400 or exito_mapeable):
+        mapped = await (gp.run_map_error(ctx, status, content) if status >= 400
+                        else gp.run_map_response(ctx, status, content))
         if mapped is not None:
             status, content, headers = mapped
             return Response(content=content, status_code=status, headers=headers or None,
@@ -1622,7 +1627,8 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
             except Exception as exc:  # noqa: BLE001
                 return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
             return await _respuesta_destino(ctx, up.status_code, up.content,
-                                            up.headers.get("content-type", "application/json"))
+                                            up.headers.get("content-type", "application/json"),
+                                            exito_mapeable=True)
 
         # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS. El
         # read es el de `SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS` y NO los 60 s del passthrough: aquel
@@ -1943,7 +1949,8 @@ async def gw_messages(
         _publish_monitor(ident, tool, model, final_status, masked_entities, preview,
                          attribution=attribution)
         return await _respuesta_destino(ctx, up.status_code, content_out,
-                                        up.headers.get("content-type", "application/json"))
+                                        up.headers.get("content-type", "application/json"),
+                                        exito_mapeable=True)
 
     # ── streaming (SSE) ──
     # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS:
