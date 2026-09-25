@@ -35,6 +35,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
 from . import gateway
+from . import gateway_plugins as gp
 from .gateway import (
     MODELO_CADENA_USURPADA,
     sanear_modelo_declarado,
@@ -120,8 +121,27 @@ async def gw_chat_completions(
         # El saneo ya lo neutralizó; se responde honesto en vez de auditar un literal falso.
         return _openai_error("[Sentinel Gateway] Nombre de modelo no admitido.", 400)
 
+    # Plugins de pasarela (costura S2, mismo cableado que la ruta de mensajes): SÓLO si hay
+    # alguno se construye el contexto — sin plugins esta ruta no resuelve identidad (la
+    # resuelve el motor) y el proxy recibe exactamente lo de siempre. `pre_request` puede
+    # cortar (y el corte se registra, porque el pedido no llega al motor); `pre_engine`,
+    # `wrap_stream`, `map_error` y `map_response` corren dentro de `_byok_proxy` con `ctx`.
+    # `models_filter` no aplica: esta puerta no lista modelos (el listado es `/v1/models`).
+    ctx = None
+    if gp.active():
+        ctx = gp.GatewayContext(route="/v1/chat/completions", request_headers=request.headers,
+                                mode="byok", ident=gateway._resolve_attribution(sentinel_key),
+                                model=model)
+        corte = await gp.run_pre_request(ctx)
+        if corte is not None:
+            gateway._audit(ctx.ident, model, 0, 0, gp.STATUS_PLUGIN_BLOCK, [],
+                           int((time.time() - start) * 1000), None,
+                           routing_decision=ctx.routing_decision)
+            return corte
+
+    kw = {"ctx": ctx} if ctx is not None else {}
     return await gateway._byok_proxy(
         request, enviado, sentinel_key, is_stream,
         model=modelo_al_motor, start=start,
-        ruta_motor="/v1/chat/completions", error_fn=_openai_error,
+        ruta_motor="/v1/chat/completions", error_fn=_openai_error, **kw,
     )

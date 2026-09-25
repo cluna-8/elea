@@ -19,6 +19,7 @@ import json
 
 import pytest
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from src.api import gateway, gateway_openai
@@ -131,3 +132,58 @@ def test_los_defaults_dejan_la_ruta_de_mensajes_como_estaba():
     p = inspect.signature(gateway._byok_proxy).parameters
     assert p["ruta_motor"].default == "/v1/messages"
     assert p["error_fn"].default is None
+
+
+# ── 5. cableado de los hooks de plugins de pasarela (costura S2, spec 068 T016/T017) ──
+
+@pytest.fixture
+def sin_plugins():
+    from src.api import gateway_plugins as gp
+    gp.clear_gateway_plugins()
+    yield gp
+    gp.clear_gateway_plugins()
+
+
+def test_sin_plugins_el_proxy_no_recibe_contexto(client, sin_plugins):
+    """Sin plugins, la llamada al proxy es exactamente la de antes: ni `ctx` ni identidad."""
+    c, visto = client
+    c.post(RUTA, json=_body(), headers={"Authorization": f"Bearer {KEY}"})
+    assert "ctx" not in visto
+
+
+def test_con_plugin_el_proxy_recibe_el_contexto_con_la_identidad(client, sin_plugins, monkeypatch):
+    gp = sin_plugins
+    monkeypatch.setattr(gateway, "_resolve_attribution", lambda k: {"tenant_id": "t1", "k": k})
+
+    class P:
+        def pre_request(self, ctx):
+            ctx.state["visto"] = (ctx.route, ctx.mode, ctx.model)
+
+    gp.register_gateway_plugin(P())
+    c, visto = client
+    c.post(RUTA, json=_body(), headers={"Authorization": f"Bearer {KEY}"})
+    ctx = visto["ctx"]
+    assert ctx.state["visto"] == ("/v1/chat/completions", "byok", "nix-us-fast")
+    assert ctx.ident == {"tenant_id": "t1", "k": KEY}
+
+
+def test_con_plugin_el_corte_de_pre_request_se_registra_y_no_llega_al_proxy(client, sin_plugins,
+                                                                            monkeypatch):
+    gp = sin_plugins
+    filas = []
+    monkeypatch.setattr(gateway, "_resolve_attribution", lambda k: {"tenant_id": "t1"})
+    monkeypatch.setattr(gateway, "_audit", lambda *a, **k: filas.append((a, k)) or True)
+
+    class P:
+        def pre_request(self, ctx):
+            ctx.routing_decision = {"extensions": {"x": {"y": 1}}}
+            return JSONResponse(status_code=404, content={"error": {"code": "model_not_found"}})
+
+    gp.register_gateway_plugin(P())
+    c, visto = client
+    r = c.post(RUTA, json=_body(), headers={"Authorization": f"Bearer {KEY}"})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "model_not_found"
+    assert not visto
+    (args, kw), = filas
+    assert args[4] == gp.STATUS_PLUGIN_BLOCK
+    assert kw["routing_decision"] == {"extensions": {"x": {"y": 1}}}
