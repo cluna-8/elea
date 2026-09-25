@@ -35,8 +35,12 @@ def _run_alembic_upgrade_head() -> None:
         backend_root = Path(__file__).resolve().parent.parent
         cfg = Config(str(backend_root / "alembic.ini"))
         cfg.set_main_option("script_location", str(backend_root / "alembic"))
-        command.upgrade(cfg, "head")
-        logger.info("Alembic migrations applied (upgrade head).")
+        # `heads` sólo con ramas de extensiones (ALEMBIC_EXTRA_VERSION_LOCATIONS); si no, `head`.
+        from .migration_locations import upgrade_target
+
+        target = upgrade_target()
+        command.upgrade(cfg, target)
+        logger.info("Alembic migrations applied (upgrade %s).", target)
     except Exception as e:
         # Do not crash startup: log loudly so ops notice. Inference will still fail fast
         # on schema mismatch, which is preferable to silent drift.
