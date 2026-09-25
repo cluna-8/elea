@@ -123,6 +123,13 @@ from .api.internal import router as internal_router  # noqa: E402
 
 app.include_router(internal_router, prefix="/api/v1")
 
+# Routers de plugins externos (PLUGIN_PACKAGES, ver src/plugins.py): sin la env no monta
+# nada. Un plugin declarado y roto levanta PluginLoadError y el arranque se cae (fail-loud).
+# Va después de todos los routers del core y antes de CORS (ADAPT-022 de Sentinel).
+from .plugins import mount_plugin_routers  # noqa: E402
+
+mount_plugin_routers(app)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
