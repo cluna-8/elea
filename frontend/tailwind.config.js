@@ -7,7 +7,8 @@ export default {
     // VITE_PLUGIN_PAGES_DIR; sin escanear su árbol, las clases que sólo usan ellas no existen.
     // Se escanea el directorio PADRE del de páginas (los helpers del plugin viven al lado).
     ...(process.env.VITE_PLUGIN_PAGES_DIR
-      ? [`${process.env.VITE_PLUGIN_PAGES_DIR.replace(/\/+$/, "")}/../**/*.{ts,tsx}`]
+      ? [`${process.env.VITE_PLUGIN_PAGES_DIR.replace(/\/+$/, "")}/../**/*.{ts,tsx}`,
+         `!${process.env.VITE_PLUGIN_PAGES_DIR.replace(/\/+$/, "")}/../**/node_modules/**`]
       : []),
   ],
   theme: {
