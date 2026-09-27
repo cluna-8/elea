@@ -2120,8 +2120,9 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
     if gp.active():
         # La identidad del contexto es la de la llave DETECTADA (header de auth o X-Sentinel-Key),
         # igual que en /v1/messages: Claude Desktop manda la virtual key en `Authorization`, y
-        # con el `ident` que llega (solo X-Sentinel-Key) el plugin quedaba sin tenant ni llave.
-        if sentinel_key and not (ident or {}).get("tenant_id"):
+        # con el `ident` que llega (solo X-Sentinel-Key) el plugin recibía el tenant por defecto
+        # sin llave (`api_key_id` None): se re-resuelve con la llave detectada.
+        if sentinel_key and not (ident or {}).get("api_key_id"):
             ident = _resolve_attribution(sentinel_key)
         ctx = gp.GatewayContext(route=path, request_headers=request.headers, ident=ident,
                                 mode="byok" if mode == "byok" else "subscription")

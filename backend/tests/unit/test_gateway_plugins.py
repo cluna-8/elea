@@ -379,7 +379,9 @@ def test_passthroughs_resuelven_la_identidad_de_la_llave_del_header_de_auth(espi
     el plugin tiene que ver la identidad de ESA llave también en /v1/models y count_tokens,
     igual que en /v1/messages (si no, no puede armar la vista de modelos por alcance)."""
     monkeypatch.setattr(gateway, "_resolve_attribution",
-                        lambda key: {"tenant_id": f"t-{key}", "api_key_id": "k"} if key else {})
+                        # forma REAL del anónimo: tenant por defecto y api_key_id None (no {})
+                        lambda key: {"tenant_id": f"t-{key}", "api_key_id": "k"} if key
+                        else {"tenant_id": "tenant-por-defecto", "api_key_id": None})
     vistos = []
 
     class P:
