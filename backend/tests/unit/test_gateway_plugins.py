@@ -371,3 +371,25 @@ def test_map_response_no_toca_errores_ni_streams_ni_passthroughs(espias):
     _Fake.status = 429
     for h in ({"Authorization": f"Bearer {KEY}"}, {}):
         assert espias["client"].post("/gw/v1/messages", json=BODY, headers=h).status_code == 429
+
+
+@pytest.mark.parametrize("ruta", ["/gw/v1/models", "/gw/v1/messages/count_tokens"])
+def test_passthroughs_resuelven_la_identidad_de_la_llave_del_header_de_auth(espias, monkeypatch, ruta):
+    """Claude Desktop manda la virtual key en `Authorization: Bearer` (no en X-Sentinel-Key):
+    el plugin tiene que ver la identidad de ESA llave también en /v1/models y count_tokens,
+    igual que en /v1/messages (si no, no puede armar la vista de modelos por alcance)."""
+    monkeypatch.setattr(gateway, "_resolve_attribution",
+                        lambda key: {"tenant_id": f"t-{key}", "api_key_id": "k"} if key else {})
+    vistos = []
+
+    class P:
+        def pre_request(self, ctx):
+            vistos.append(dict(ctx.ident or {}))
+
+    gp.register_gateway_plugin(P())
+    h = {"Authorization": f"Bearer {KEY}"}
+    if ruta.endswith("models"):
+        espias["client"].get(ruta, headers=h)
+    else:
+        espias["client"].post(ruta, headers=h, content=json.dumps(BODY).encode())
+    assert vistos and vistos[0].get("tenant_id") == f"t-{KEY}"
