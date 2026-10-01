@@ -25,6 +25,11 @@ export type PluginPage = {
   // Roles (legacy, los de `SessionUser.role`) que ven la página. Fail-closed: sin
   // declarar, sólo `admin` — un plugin no se abre a toda la consola por omisión.
   roles?: string[];
+  // `id` de un ítem BASE del nav al que esta página sustituye (p. ej. "models"): el ítem base se oculta
+  // para TODOS los roles y la entrada del plugin ocupa su lugar para quienes la pueden ver (quien no
+  // tiene permiso sobre la página no ve la pantalla: es la decisión de roles de la spec). Sin el plugin
+  // instalado no se oculta nada: la consola nunca queda sin esa pantalla. Un id que no existe se ignora.
+  replaces?: string;
 };
 
 const DEFAULT_ROLES = ["admin"];
@@ -33,7 +38,8 @@ function isPluginPage(value: unknown): value is PluginPage {
   if (!value || typeof value !== "object") return false;
   const v = value as Partial<PluginPage>;
   const componentOk = typeof v.Component === "function" || (typeof v.Component === "object" && v.Component !== null);
-  return typeof v.path === "string" && v.path.startsWith("/") && v.path.length > 1 && componentOk;
+  const replacesOk = v.replaces === undefined || typeof v.replaces === "string";
+  return typeof v.path === "string" && v.path.startsWith("/") && v.path.length > 1 && componentOk && replacesOk;
 }
 
 /** Normaliza los módulos que devuelve `import.meta.glob` (eager) en páginas válidas.
@@ -66,12 +72,28 @@ export function canSeePluginPage(page: PluginPage, role: string): boolean {
   return (page.roles ?? DEFAULT_ROLES).includes(role);
 }
 
-/** Inserta cada `item` después del ítem cuyo `id` es su `section` (o al final). */
-export function mergeNav<T extends { id: string }>(base: T[], extra: { item: T; section?: string }[]): T[] {
+/** Ids base que sustituye algún plugin instalado (para cualquier rol). */
+export function replacedBaseIds(pages: PluginPage[]): Set<string> {
+  return new Set(pages.flatMap(p => (p.replaces ? [p.replaces] : [])));
+}
+
+/** Inserta cada `item` después del ítem cuyo `id` es su `section` (o al final). Un `item` con
+ *  `replaces` ocupa el lugar del ítem base con ese id (el primero que lo pide gana; si el id no existe,
+ *  se trata como un `item` normal). */
+export function mergeNav<T extends { id: string }>(
+  base: T[], extra: { item: T; section?: string; replaces?: string }[],
+): T[] {
   const out = [...base];
   // Varios plugins en la misma `section` quedan en su orden, no invertidos.
   const lastAfter = new Map<string, string>();
-  for (const { item, section } of extra) {
+  for (const { item, section, replaces } of extra) {
+    if (replaces) {
+      const at = out.findIndex(n => n.id === replaces);
+      if (at !== -1) {
+        out.splice(at, 1, item);
+        continue;
+      }
+    }
     const anchor = section ? lastAfter.get(section) ?? section : undefined;
     const idx = anchor ? out.findIndex(n => n.id === anchor) : -1;
     if (idx === -1) {

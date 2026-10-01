@@ -23,7 +23,7 @@ import { authStorage, SessionUser, ROLE_LABELS } from "./services/auth";
 // declara el GRUPO DE SUPERFICIE que representa y se muestra si el rol puede VERLO (`canView`).
 import { canView, SurfaceGroup } from "./services/roleMatrix";
 // Páginas de plugins resueltas en build (`@plugin-pages`); sin plugins es `[]` y nada cambia.
-import { pluginPages, canSeePluginPage, mergeNav } from "./plugins/registry";
+import { pluginPages, canSeePluginPage, mergeNav, replacedBaseIds } from "./plugins/registry";
 
 // Agregar una sección son TRES ediciones sincronizadas en este archivo: este union, el item
 // de `navigation` y el render condicional de abajo. Si falta una, el usuario hace click y
@@ -63,7 +63,7 @@ export const App: React.FC = () => {
     // POST/PATCH/DELETE = require_role("admin","developer")). Mapearlo a config_producto le
     // quitaba el nav a `developer`, que el backend SÍ deja gestionar = under-permit. Gate
     // explícito = comportamiento previo, cero regresión. Pendiente decisión de contrato (follow-up).
-    { id: "models", name: "Modelos & Ollama", icon: Boxes, surface: null, legacyRoles: ["admin", "developer"] },
+    { id: "models", name: "Modelos", icon: Boxes, surface: null, legacyRoles: ["admin", "developer"] },
     { id: "costs", name: "Costos", icon: Wallet, surface: "vitrinas_lectura" },
     { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, surface: "gestion_iam" },
     // Spec 044 (T044): mismo grupo de superficie que Usuarios — es gestión de identidad/
@@ -135,6 +135,9 @@ export const App: React.FC = () => {
   }
 
   const visiblePlugins = pluginPages.filter(p => canSeePluginPage(p, currentUser.role));
+  // Un plugin con `replaces` ocupa el lugar del ítem base (spec 069); el ítem base se oculta para TODO rol
+  // (quien no ve la página nueva no ve esa pantalla). Sin plugin, `replaced` es vacío y nada cambia.
+  const replaced = replacedBaseIds(pluginPages);
   const visibleNav = mergeNav(
     navigation.filter(item =>
       item.legacyRoles
@@ -144,8 +147,9 @@ export const App: React.FC = () => {
     visiblePlugins.filter(p => p.menu).map(p => ({
       item: { id: `plugin:${p.path}` as Page, name: p.menu!.label, icon: (p.menu!.icon ?? Puzzle) as typeof LayoutDashboard, surface: null },
       section: p.menu!.section,
+      replaces: p.replaces,
     })),
-  );
+  ).filter(item => !replaced.has(item.id));
 
   return (
     <div className="flex h-screen bg-canvas overflow-hidden font-sans">
@@ -213,7 +217,7 @@ export const App: React.FC = () => {
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "playground" && <PlaygroundPage />}
         {currentPage === "firewall" && <FirewallMonitorPage />}
-        {currentPage === "models" && <ModelsPage />}
+        {currentPage === "models" && !replaced.has("models") && <ModelsPage />}
         {currentPage === "costs" && <CostsPage />}
         {currentPage === "users" && <UsersPage />}
         {currentPage === "workspaces-unassigned" && <WorkspacesUnassignedPage />}
