@@ -1,0 +1,47 @@
+{
+  "_doc": "Patrón: implementar tareas de una spec ya planificada. dev -> qa -> integrar (compuerta humana antes del PR). Reemplazar todo {{...}}.",
+  "objetivo": "{{NNN-slug}}: implementar {{tramo}} de specs/{{NNN-slug}}/tasks.md",
+  "rama_base": "origin/main",
+  "tareas": [
+    {
+      "clave": "dev",
+      "titulo": "{{NNN}} {{tramo}}: implementación",
+      "rol": "senior",
+      "depende_de": [],
+      "worktree": "nuevo",
+      "rama": "{{NNN-slug}}-{{tramo}}",
+      "alcance": "specs/{{NNN-slug}}/tasks.md tareas {{Txxx-Tyyy}}; contratos en specs/{{NNN-slug}}/contracts/",
+      "cambio": "{{qué queda hecho, en términos observables}}",
+      "restricciones": "<invariantes propios de esta spec: FR, decisiones del research, límites>",
+      "propiedad": "{{qué puede editar este worker}}",
+      "rutas": ["{{ruta propia}}/*", "specs/{{NNN-slug}}/tasks.md"],
+      "aceptacion": "<tests que pasan de rojo a verde, comando exacto; tareas marcadas [x] con evidencia>"
+    },
+    {
+      "clave": "qa",
+      "titulo": "{{NNN}} {{tramo}}: QA",
+      "rol": "qa",
+      "depende_de": ["dev"],
+      "worktree": "de:dev",
+      "alcance": "La rama del worker dev (mismo worktree) contra specs/{{NNN-slug}}/spec.md y tasks.md",
+      "cambio": "Correr la suite afectada y los linters; contrastar el diff con la aceptación de la tarea dev; reportar desvíos.",
+      "restricciones": "Solo lectura y ejecución.",
+      "propiedad": "Ninguna edición de código. Puede escribir un reporte en specs/{{NNN-slug}}/qa-{{tramo}}.md y commitearlo.",
+      "rutas": ["specs/{{NNN-slug}}/qa-*.md"],
+      "aceptacion": "Reporte con comandos y salidas; outcome failed si algo no pasa."
+    },
+    {
+      "clave": "integrar",
+      "titulo": "{{NNN}} {{tramo}}: integrar y PR",
+      "rol": "atlas",
+      "depende_de": ["qa"],
+      "compuerta": {
+        "pregunta": "¿Se aprueba abrir/mergear el PR de {{NNN}} {{tramo}} con el resultado de dev y QA?",
+        "opciones": ["aprobado", "requiere_cambios", "descartar"]
+      },
+      "alcance": "Rama {{NNN-slug}}-{{tramo}}",
+      "cambio": "Atlas verifica (.atlas/orquestar.sh verificar), pushea la rama y abre el PR.",
+      "aceptacion": "PR abierto con CI verde."
+    }
+  ]
+}

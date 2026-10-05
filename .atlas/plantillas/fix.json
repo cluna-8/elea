@@ -1,0 +1,47 @@
+{
+  "_doc": "Patrón: fix de causa clara, sin spec (AGENTS.md: rama corta). Un worker escribe el test que reproduce y el arreglo; QA confirma; Atlas abre el PR tras la compuerta. Reemplazar todo {{...}}.",
+  "objetivo": "fix: {{síntoma en una línea}}",
+  "rama_base": "origin/main",
+  "tareas": [
+    {
+      "clave": "dev",
+      "titulo": "fix: {{síntoma}}",
+      "rol": "senior",
+      "depende_de": [],
+      "worktree": "nuevo",
+      "rama": "fix/{{slug}}",
+      "alcance": "{{archivo:línea donde vive la causa}}",
+      "cambio": "Test de regresión que falla por la causa descrita, luego el arreglo mínimo que lo pone en verde.",
+      "restricciones": "Arreglo mínimo: sin refactors ni cambios de comportamiento fuera del síntoma.",
+      "propiedad": "{{archivos del fix y su test}}",
+      "rutas": ["{{ruta del fix}}", "{{ruta del test}}"],
+      "aceptacion": "El test nuevo falla antes y pasa después (salidas de ambas corridas); la suite del módulo sigue verde."
+    },
+    {
+      "clave": "qa",
+      "titulo": "fix: {{síntoma}} — QA",
+      "rol": "qa",
+      "depende_de": ["dev"],
+      "worktree": "de:dev",
+      "alcance": "Rama fix/{{slug}}",
+      "cambio": "Confirmar que el test reproduce la causa y que nada más cambió.",
+      "restricciones": "Solo lectura y ejecución.",
+      "propiedad": "Ninguna edición.",
+      "rutas": [],
+      "aceptacion": "Salidas de los tests; outcome failed si algo no pasa."
+    },
+    {
+      "clave": "integrar",
+      "titulo": "fix: {{síntoma}} — PR",
+      "rol": "atlas",
+      "depende_de": ["qa"],
+      "compuerta": {
+        "pregunta": "¿Se abre el PR del fix {{síntoma}}?",
+        "opciones": ["aprobado", "requiere_cambios", "descartar"]
+      },
+      "alcance": "Rama fix/{{slug}}",
+      "cambio": "Atlas verifica, pushea y abre el PR.",
+      "aceptacion": "PR abierto con CI verde."
+    }
+  ]
+}
