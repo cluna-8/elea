@@ -180,20 +180,6 @@
         "title": "BlockedWordSchema",
         "type": "object"
       },
-      "Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post": {
-        "properties": {
-          "doc_file": {
-            "format": "binary",
-            "title": "Doc File",
-            "type": "string"
-          }
-        },
-        "required": [
-          "doc_file"
-        ],
-        "title": "Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post",
-        "type": "object"
-      },
       "BudgetCreate": {
         "properties": {
           "group_id": {
@@ -1391,19 +1377,6 @@
         "title": "EstadoPorModoSchema",
         "type": "object"
       },
-      "ExactAnalysisWorkspaceCreate": {
-        "properties": {
-          "display_name": {
-            "title": "Display Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "display_name"
-        ],
-        "title": "ExactAnalysisWorkspaceCreate",
-        "type": "object"
-      },
       "FallbackBody": {
         "properties": {
           "fallback_model": {
@@ -1663,6 +1636,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "deactivated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deactivated At"
+          },
           "description": {
             "anyOf": [
               {
@@ -1689,6 +1674,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
           },
           "name": {
             "title": "Name",
@@ -2703,6 +2693,34 @@
         "title": "PropagacionSchema",
         "type": "object"
       },
+      "RagUsageReportSchema": {
+        "properties": {
+          "completion_tokens": {
+            "default": 0,
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "latency_ms": {
+            "default": 0,
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "title": "Prompt Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "RagUsageReportSchema",
+        "type": "object"
+      },
       "RetentionPolicyResponse": {
         "properties": {
           "id": {
@@ -3361,6 +3379,15 @@
               }
             ],
             "title": "Engine Slug"
+          },
+          "kind": {
+            "default": "rag",
+            "enum": [
+              "rag",
+              "exact_analysis"
+            ],
+            "title": "Kind",
+            "type": "string"
           }
         },
         "required": [
@@ -4875,6 +4902,64 @@
           }
         },
         "summary": "Update Model Credential",
+        "tags": [
+          "Playground Chat"
+        ]
+      }
+    },
+    "/api/v1/chat/rag-usage": {
+      "post": {
+        "description": "Registra el consumo (modelo y tokens) de un turno de chat de documentos, reportado por el Hub con la sesión de la persona.",
+        "operationId": "report_rag_usage_api_v1_chat_rag_usage_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RagUsageReportSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Report Rag Usage",
         "tags": [
           "Playground Chat"
         ]
@@ -6857,200 +6942,6 @@
         "summary": "Get Costs Summary",
         "tags": [
           "Costs"
-        ]
-      }
-    },
-    "/api/v1/exact-analysis/workspaces": {
-      "post": {
-        "operationId": "create_exact_analysis_workspace_api_v1_exact_analysis_workspaces_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExactAnalysisWorkspaceCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Exact Analysis Workspace",
-        "tags": [
-          "ExactAnalysis"
-        ]
-      }
-    },
-    "/api/v1/exact-analysis/workspaces/{workspace_id}/files": {
-      "post": {
-        "operationId": "upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_exact_analysis_file_api_v1_exact_analysis_workspaces__workspace_id__files_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Upload Exact Analysis File",
-        "tags": [
-          "ExactAnalysis"
-        ]
-      }
-    },
-    "/api/v1/exact-analysis/workspaces/{workspace_id}/query": {
-      "post": {
-        "description": "`body` espera `{\"question\": str, \"conv_uid\": str, \"select_param\": dict}` — `conv_uid` y\n`select_param` son los que devolvió `POST .../files` (FR-010: preguntas que cruzan varios\narchivos del mismo espacio son responsabilidad del Hub, que puede resubir/reusar el mismo\n`conv_uid` para más de un archivo — DB-GPT acumula contexto por conversación).",
-        "operationId": "query_exact_analysis_api_v1_exact_analysis_workspaces__workspace_id__query_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "workspace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Workspace Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "title": "Body",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Query Exact Analysis",
-        "tags": [
-          "ExactAnalysis"
         ]
       }
     },
@@ -9641,6 +9532,16 @@
         "operationId": "list_groups_api_v1_users_groups_get",
         "parameters": [
           {
+            "in": "query",
+            "name": "include_inactive",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Inactive",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "header",
             "name": "authorization",
             "required": false,
@@ -9741,6 +9642,64 @@
           }
         },
         "summary": "Create Group",
+        "tags": [
+          "Users"
+        ]
+      }
+    },
+    "/api/v1/users/groups/{group_id}": {
+      "delete": {
+        "description": "Baja de equipo (spec 054, 17-sep) — NO física, mismo criterio que\n`deactivate_user` (`DELETE /users/{id}`, más arriba): hasta esta spec un equipo se\npodía crear pero nunca dar de baja, \"un error grave\" reportado en vivo probando la\natribución de costos (spec 053) — se necesitaba un equipo descartable para probar y\nno había forma de sacarlo de encima.\n\nRevoca las Connections que cuelgan directo del grupo (`api_keys.group_id`, distinto\nde las que cuelgan de un usuario del grupo — esas ya las revoca `deactivate_user`\ncuando corresponda), y libera a los miembros actuales a \"sin equipo\" — mismo\ncriterio que `orphan_owned_workspaces` deja espacios \"sin asignar\" en vez de\nborrarlos. La auditoría histórica (`audit_logs.user_group_id`, `budgets.group_id`)\nNUNCA se toca — sigue visible bajo el nombre del grupo, igual que con un usuario\ndado de baja.",
+        "operationId": "deactivate_group_api_v1_users_groups__group_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deactivate Group",
         "tags": [
           "Users"
         ]
