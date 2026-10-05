@@ -1,0 +1,64 @@
+{
+  "_doc": "Catálogo de roles que despacha .atlas/orquestar.sh. Criterio de elección: .atlas/ORQUESTACION.md §2. modelo/esfuerzo null = el agente usa su propia config. El bootstrap reemplaza el marcador REGLAS_DEL_PROYECTO (entre llaves dobles) con las reglas reales del repo; el runner se niega a correr mientras quede un marcador.",
+  "reglas_comunes": "Reglas del proyecto (leé AGENTS.md / CLAUDE.md y .specify/memory/constitution.md si existen; mandan sobre esto): AGENTS.md de este repo: SDD cuando amerita, con los skills .agents/skills/speckit-* (nunca editar a mano spec/plan/tasks); TDD donde hay código nuevo; el trabajo termina en PR, jamás commits a main. Definition of Done: la doc de docs/docs/** es parte de la feature (marca neutra, leyenda 🟢/🟡/🔵 honesta) y make -C deploy check-docs en verde; si cambió la API o .env.example, make -C deploy docs-refs. Gate: make -C deploy check + docker compose run --rm --no-deps backend pytest tests/ -q verdes; Hub: cd client && npm test; panel: cd frontend && npm test. White-label: nada visible al cliente nombra componentes internos (motor de gateway, motores de documentos o presentaciones) ni usa nombres de deploy/release/checks/prohibited_names.txt; sin secretos en archivos versionados. Constitución (.specify/memory/constitution.md): auditoría metadata-only (jamás texto de prompt, PII, tokens ni secretos), multi-tenant, onboarding como datos (sumar un cliente nunca toca código), config + seed nunca fork. Migraciones con id por hash (alembic revision). Lo que es base Guardian se escribe genérico y sin strings de Elea/Eleia para portarlo a Sentinel (cluna-8/sentinel). Línea: Eleia es la adaptación para América de la base Guardian (perfil Argentina, Ley 25.326/AAIP) y sus actualizaciones vienen de cluna-8/sentinel; en este repo NO rigen GDPR ni la EU AI Act aunque la constitución heredada las nombre (en Sentinel sí; Sentinel tiene su propio coordinador y acá solo se le deja el HANDOFF): el Constitution Check las lee como la normativa del perfil de país. Por eso todo cambio a la base (backend/, frontend/) es mínimo y retrocompatible. Docker: todo se trabaja en local y NADA que use Docker (docker/docker compose, make -C deploy check/check-docs que construyen imágenes, la suite del backend en contenedor) corre sin aviso previo al owner, que prepara la PC: si la aceptación lo exige, preguntá con ask y esperá. Siempre: nunca commit a la rama principal ni push a remotos protegidos; TDD donde hay código nuevo; cada afirmación sobre el código lleva archivo:línea. Antes del worker_done corré TODAS las suites de tests del proyecto que tu cambio pueda tocar, no solo la de tu área (un cambio de despliegue puede romper un test de cableado de otro módulo). Al terminar: commit LOCAL en tu rama, sin push ni PR (los integra el coordinador), y worker_done con evidencia (comandos corridos y su salida resumida) y --outcome explícito.",
+  "roles": {
+    "atlas": {
+      "agente": null,
+      "para": "Pasos del coordinador en su propia sesión: integrar ramas, abrir PR, cerrar una compuerta. Nunca se despacha.",
+      "addenda": ""
+    },
+    "senior": {
+      "agente": "claude",
+      "modelo": "claude-sonnet-5-5",
+      "esfuerzo": "high",
+      "para": "Lógica central, seguridad, contratos de datos, migraciones, refactors que cruzan módulos.",
+      "addenda": "Si el spec deja una decisión de diseño abierta, preguntá con ask antes de elegir; no la cierres en silencio."
+    },
+    "junior": {
+      "agente": "opencode",
+      "modelo": null,
+      "esfuerzo": null,
+      "para": "Scaffolding, mocks, fixtures, cambios mecánicos y repetitivos con aceptación cerrada y rutas acotadas. NO spikes ni nada que exija juicio sobre seguridad.",
+      "addenda": "Tu alcance es exactamente el de este spec. Si algo no está escrito acá, preguntá con ask; no improvises ni amplíes. No toques archivos fuera de las rutas permitidas.",
+      "nota": "Probado el 2-oct-2026 con GLM-5.2: cumplió una tarea mecánica al pie de la letra. El primer despacho puede fallar con terminal_handle_stale con el agente vivo: reintentar sobre la misma terminal (ORQUESTACION §5)."
+    },
+    "spike": {
+      "agente": "claude",
+      "modelo": "claude-sonnet-5-5",
+      "esfuerzo": "high",
+      "para": "Investigación y prueba de viabilidad. Produce conclusiones en un documento, no código de producto.",
+      "addenda": "ES UN SPIKE: no correr speckit-specify/clarify, no crear spec ni numeración, no escribir código de producción. Prototipos desechables solo como evidencia, fuera de rutas de producto. Marcar cada afirmación [verificado] o [no verificado] y cerrar con una sección 'No verificado'."
+    },
+    "redactor-spec": {
+      "agente": "claude",
+      "modelo": "claude-opus-5-5",
+      "esfuerzo": "high",
+      "para": "Escribir o enmendar artefactos de Spec-Kit (spec, plan, tasks) cuando la decisión de hacer SDD ya está tomada.",
+      "addenda": "Los artefactos se generan con los skills/comandos speckit-* del proyecto, nunca editándolos a mano. Las preguntas de clarify se mandan al coordinador con ask; no se responden solas."
+    },
+    "qa": {
+      "agente": "antigravity",
+      "modelo": null,
+      "esfuerzo": null,
+      "para": "Primer nivel de verificación: correr tests y linters, revisar el diff contra la aceptación del spec.",
+      "addenda": "No modificás código de producto: solo corrés, leés y reportás. Si algo falla, el worker_done va con --outcome failed y la salida exacta.",
+      "nota": "Probado el 2-oct-2026: Antigravity funciona como worker (cumplió una prueba de humo al pie de la letra). Como OpenCode, el primer despacho puede fallar con terminal_handle_stale con el agente vivo: reintentar sobre la misma terminal (ORQUESTACION §5). Si no está instalado, el rol pasa a claude/claude-sonnet-5-5."
+    },
+    "qa-critico": {
+      "agente": "claude",
+      "modelo": "claude-sonnet-5-5",
+      "esfuerzo": "high",
+      "para": "Segundo nivel de QA cuando el cambio toca seguridad, datos sensibles, permisos o el dominio crítico del proyecto: lectura lógica contra la spec y la constitución.",
+      "addenda": "No modificás código de producto. Contrastá el comportamiento con la constitución y con los requisitos de la spec; cada hallazgo con archivo:línea y el requisito que viola."
+    },
+    "infra": {
+      "agente": "claude",
+      "modelo": "claude-opus-5-5",
+      "esfuerzo": "high",
+      "pausado": true,
+      "motivo": "En pausa hasta definir el manejo de secretos y despliegue de este proyecto. No se despacha.",
+      "para": "Setups iniciales, despliegues, pipelines, nube.",
+      "addenda": ""
+    }
+  }
+}
