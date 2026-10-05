@@ -54,9 +54,9 @@ Un coordinador (Atlas) recibe los pedidos ("resolvé este problema", "avanzá es
 convierte en un plan de tareas y los despacha a agentes workers en Orca, cada uno en su
 worktree. El procedimiento, los roles y la herramienta están en
 [`.atlas/ORQUESTACION.md`](.atlas/ORQUESTACION.md) (`.atlas/orquestar.sh`). Las features que
-tocan también el instalador (`cluna-8/elea-installer`) o se portan a Sentinel
-(`cluna-8/sentinel`, de donde esta línea saca las actualizaciones de la base) se coordinan
-desde acá, en el mismo plan.
+tocan también el instalador (`cluna-8/elea-installer`) se coordinan desde acá, en el mismo
+plan. Sentinel (`cluna-8/sentinel`, de donde esta línea saca las actualizaciones de la base)
+tiene su propio coordinador: desde acá solo se le entrega un `HANDOFF-elea-a-sentinel.md`.
 
 Reglas que todo agente respeta en este repo (además de las de arriba; el criterio de SDD es
 el de "SDD cuando amerita"):

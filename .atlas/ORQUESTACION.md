@@ -210,21 +210,19 @@ Antes de reconocer la entrega (`check --ack`) y liberar el worker:
   de cada Bash. Apuntaba a `$CLAUDE_PROJECT_DIR`, que en un worktree no tiene el script, y
   bloqueaba TODO Bash del worker. Se fijó a la ruta absoluta del checkout principal. Si un
   worker no puede correr Bash, mirar eso primero.
-- **Multi-repo.** Atlas coordina desde acá tres repos: `elea`, `elea-installer` y `SENTINEL`.
+- **Multi-repo.** Atlas coordina desde acá dos repos: `elea` y `elea-installer`.
   El instalador (`elea-installer`, registrado en Orca con ese nombre) no tiene
   Spec-Kit ni `.atlas/`: sus cambios salen de las specs de este repo y se despachan desde acá
   con `"repo": "elea-installer"`. Su gate no es el de este repo: `bash -n install.sh`,
   `docker compose config -q` con su `.env.example`, y la prueba de instalación desde cero
   cuando la tarea lo pida.
-- **Sentinel (`SENTINEL` en Orca, `cluna-8/sentinel`).** Es el upstream de esta línea: de ahí
-  salen las actualizaciones de la base, y a su vez Sentinel deriva de `cluna-8/guardian-secure`
-  (remotos `upstream`/`base-ro` en su checkout; **jamás se pushea a la base**). Eleia es esa base
-  localizada para América (perfil Argentina): acá **no rigen GDPR ni la EU AI Act** aunque la
-  constitución heredada las nombre; en Sentinel (Europa) sí. Las tareas de porte (p. ej. la
-  spec espejo 067 de la 056) se despachan desde acá con `"repo": "SENTINEL"` y
-  `"rama_base": "origin/main"`; sus reglas son las de su AGENTS.md (mismo acuerdo: Spec-Kit,
-  DoD de docs, gate `make -C deploy check` + pytest) y van en `restricciones`. Se porta por
-  cherry-pick de los commits de base (separados de los del Hub) más el `HANDOFF-elea-a-sentinel.md`.
+- **Sentinel (`cluna-8/sentinel`) NO se orquesta desde acá.** Es el upstream de esta línea (de
+  ahí salen las actualizaciones de la base; Sentinel a su vez deriva de `cluna-8/guardian-secure`)
+  y tiene su propio coordinador en Orca (workspace `SENTINEL/sentinel-coordinator`). Eleia es la
+  adaptación para América (perfil Argentina): acá **no rigen GDPR ni la EU AI Act** aunque la
+  constitución heredada las nombre; en Sentinel sí. Lo que se porta (p. ej. la spec espejo 067 de
+  la 056) sale de acá como `HANDOFF-elea-a-sentinel.md` en la carpeta de la spec, con los commits
+  de base separados de los del Hub; lo ejecuta el coordinador de Sentinel.
 - **Gate pesado.** `make -C deploy check` y la suite de backend en Docker son lentos y comparten
   puertos/volúmenes: no correrlos en paralelo desde dos workers; QA los corre una vez sobre la
   rama integrada.
