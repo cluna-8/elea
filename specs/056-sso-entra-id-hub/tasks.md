@@ -71,9 +71,14 @@ Elea: viaja a Sentinel por cherry-pick. `jit.py`, `entra.py`, `registry.py` y `a
 **Tramo A** · repo elea · 5 tareas · contrato: [guardian-sso-api.md](contracts/guardian-sso-api.md)
 
 - [ ] T004 [repo: elea] Tests de `return_origin` en `backend/tests/integration/test_sso_api.py`, junto a `test_available_*` (`:196-228`). Casos: URI `https` sin puerto, con puerto explícito, variable ausente, vacía o relativa → `null`; flag apagado sigue en 403; la respuesta sigue sin `config` ni secreto. Deben **fallar**
-- [ ] T005 [repo: elea] Tests de auditoría de rechazos de flujo en `backend/tests/integration/test_sso_api.py`, junto a `test_callback_sin_cookie_400` y siguientes (`:322-430`). Cada caso de la tabla de [guardian-sso-api.md](contracts/guardian-sso-api.md) §2 deja **exactamente un** `auth_sso_denied`, y ninguna columna del evento contiene el `state` ni el `code` usados. El status y el `detail` no cambian. Deben **fallar**
+- [ ] T005 [repo: elea] Tests de auditoría de rechazos de flujo en `backend/tests/integration/test_sso_api.py`, junto a `test_callback_sin_cookie_400` y siguientes (`:322-430`). Cada caso de la tabla de [guardian-sso-api.md](contracts/guardian-sso-api.md) §2 deja **exactamente un** `auth_sso_denied`, y ninguna columna del evento contiene el `state` ni el `code` usados. El status y el `detail` no cambian. Casos del **tope** (research D6, [guardian-sso-api.md](contracts/guardian-sso-api.md) §2):
+  - con el reloj de la ventana inyectado, `tope + 5` rechazos de flujo dejan exactamente `tope` eventos y un warning con el conteo omitido;
+  - la ventana siguiente vuelve a auditar;
+  - los rechazos de identidad no pasan por el tope.
+
+  Deben **fallar**
 - [ ] T006 [repo: elea] Implementar `return_origin` en `sso_available` (`backend/src/sso/api.py:179-200`). Helper que lee `SENTINEL_SSO_REDIRECT_URI` con `urllib.parse.urlsplit` y devuelve `esquema://host[:puerto]` o `None`. Va en los dos caminos (`enabled` true y false). T004 en verde
-- [ ] T007 [repo: elea] Emitir `auth_sso_denied` con `_auditar_denegado(db, tenant_id)` (`backend/src/sso/api.py:339-347`) antes de cada 400 de `sso_callback`: cookie ausente o inválida (`_leer_estado`, `:260`), `state` distinto (`:264-268`), `code` ausente (`:269-273`) y proveedor cambiado (`:276-282`). El veredicto no cambia si auditar falla. T005 en verde
+- [ ] T007 [repo: elea] Emitir `auth_sso_denied` con `_auditar_denegado(db, tenant_id)` (`backend/src/sso/api.py:339-347`) antes de cada 400 de `sso_callback`: cookie ausente o inválida (`_leer_estado`, `:260`), `state` distinto (`:264-268`), `code` ausente (`:269-273`) y proveedor cambiado (`:276-282`). Agregar el **tope** por proceso (constante `_TOPE_DENEGADOS_FLUJO_POR_MIN = 30`, ventana de 60 s, con reloj inyectable para el test) **solo** para estos rechazos de flujo. El excedente no escribe filas y se resume en un `logger.warning` metadata-only. El veredicto no cambia si auditar falla ni si se agota el tope. T005 en verde
 - [ ] T008 [repo: elea] Gate del tramo: `docker compose run --rm --no-deps backend pytest tests/ -q` en verde, incluidos `test_sso_api.py`, `test_sso_config_api.py` y `test_role_matrix.py`. Commit `base(sso): …` que **solo** contenga `backend/` y PR a `056-sso-entra-id-hub`
 
 **Checkpoint**: la API de base cumple su contrato; B y C pueden integrarse contra ella.
@@ -136,7 +141,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
 - [ ] T017 [US1] [repo: elea] Completar el camino feliz de `GET /sso/callback` y las rutas afectadas en `client/server.js`:
   - canje con `Cookie: sentinel_sso_state=…`;
   - **rotación de `sid`** (research D1, requisito 4) con los mismos atributos de cookie de `:93`; si el middleware ya puso un `Set-Cookie` en esta respuesta, se reemplaza: una sola cookie `elea_rag_sid` por respuesta;
-  - `setSession` con `auth_method:'sso'` y `302 /`; el cuerpo del backend nunca se loguea;
+  - `setSession` con el **mismo token** que emite Guardian (FR-002), `auth_method:'sso'` y `302 /`; el cuerpo del backend nunca se loguea;
   - `user.auth_method` en `GET /api/user/current` (`:318-333`);
   - 409 en `POST /api/auth/change-password` (`:284-309`) para sesiones SSO.
 
@@ -313,6 +318,7 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
     5. `release` e `instalador`, como enfoque para el wizard de la 065.
   - verificación previa en Sentinel: migración `017_sso_providers` y paridad de `backend/src/sso/`;
   - nombres de variable idénticos (`SENTINEL_SSO_REDIRECT_URI`, `SENTINEL_LICENSE_TOKEN_FILE`);
+  - nota de base: `sso/api.py` audita los rechazos de flujo con un tope por proceso contra la inundación (research D6); el valor del tope es una constante y se revisa si cambia la topología de Sentinel;
   - **deuda conocida**: la licencia de Elea sigue con firma dev y `SENTINEL_ALLOW_DEV_LICENSE=true`, y esta spec no la cambia (research D8);
   - el resultado de T041
 - [ ] T043 [repo: elea] Después del piloto en el server de Elea (Etapas 3 y 4 de DESPLIEGUE-Y-REVERSION.md, fuera de este repo), promover a `latest` con `VERSION=<fecha> deploy/release/publish-elea.sh` (`LATEST=1`). Anotar el tag en DESPLIEGUE-Y-REVERSION.md y el estado de cierre en el HANDOFF

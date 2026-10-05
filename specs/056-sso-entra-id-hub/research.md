@@ -136,17 +136,26 @@ email ni token) antes de cada 400. Es base genérica y viaja a Sentinel con `sso
 audita por su cuenta: siempre deriva el rechazo al backend (D1). Confirmada por el coordinador
 (2026-10-05).
 
-**Riesgo detectado por el analyze (pendiente de decisión, ask `msg_1a0a7ae7829a`)**: la auditoría
-de los rechazos de flujo la puede disparar cualquiera sin autenticarse. El backend publica `:8091`
-en la LAN (`elea-installer/docker-compose.yml:91-92`) y el callback es público cuando la licencia
-trae `sso`. Una petición basura escribe una fila de auditoría, así que se puede inundar la
-auditoría. Hoy los logins fallidos con contraseña no escriben eventos de auth
-(`backend/src/services/auth_events.py:19-20`). Opciones:
+**Tope contra la inundación de la auditoría** (riesgo detectado por el analyze; **elección final:
+A**, decidida por el owner vía coordinador el 2026-10-05):
 
-- **A (recomendada)**: tope fijo por minuto y por proceso, **solo** para los `auth_sso_denied` de
-  rechazo de flujo. El excedente no escribe filas y se resume en un log warning con el conteo.
-- **B**: sin tope, documentado como riesgo conocido.
-- **C**: tope solo en el Hub, que no cubre las llamadas directas a `:8091`.
+- **Problema**: la auditoría de los rechazos de flujo la puede disparar cualquiera sin autenticarse.
+  El backend publica `:8091` en la LAN (`elea-installer/docker-compose.yml:91-92`) y el callback es
+  público cuando la licencia trae `sso`, así que cada petición basura escribiría una fila.
+- **Decisión**: en `backend/src/sso/api.py`, un tope fijo por minuto y **por proceso**
+  (constante `~30/min`, ventana de 60 s), **solo** para los `auth_sso_denied` de rechazo de
+  flujo (`state` o `code`). Los rechazos de identidad (`api.py:302`, `:313`, `:379`) no se tocan:
+  exigen un canje real con el IdP y no se pueden fabricar en masa.
+- **Excedente**: no escribe filas. Se resume en un `logger.warning` con el conteo de rechazos
+  omitidos en la ventana. Es metadata-only, sin `state`, `code`, IP ni token.
+- **Respuesta HTTP**: no cambia (400 y el mismo `detail`). El tope limita la auditoría, nunca el
+  veredicto.
+- **Alcance**: cambio de base mínimo y genérico, con test. Viaja a Sentinel con `sso/`.
+
+Alternativas descartadas:
+
+- **B** (sin tope, documentarlo): deja abierta la inundación.
+- **C** (tope solo en el Hub): no cubre las llamadas directas a `:8091`.
 
 ## D7 — HTTPS delante del Hub (FR-010)
 

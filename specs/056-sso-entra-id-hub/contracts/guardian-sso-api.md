@@ -57,10 +57,26 @@ Metadata-only: el evento lleva solo tipo y `tenant_id`. **Nunca** `state`, `code
 cookie ni token. Auditar no puede cambiar el veredicto: si la escritura falla, el 400 sale igual
 (mismo `try/except` de `_auditar_denegado`).
 
+**Tope contra la inundación** (research D6, decisión del owner): los `auth_sso_denied` de esta
+tabla (rechazos de **flujo**) se emiten como máximo `_TOPE_DENEGADOS_FLUJO_POR_MIN` veces
+(constante, 30) por ventana de 60 s y por proceso. Los que exceden el tope:
+
+- no escriben filas;
+- se cuentan, y al cerrar la ventana se emite un solo `logger.warning` con el conteo omitido
+  (sin `state`, `code`, IP ni token);
+- no cambian el status ni el `detail`.
+
+Los rechazos de **identidad** (`api.py:302`, `:313`, `:379`) no pasan por el tope.
+
 Tests nuevos (junto a `test_callback_sin_cookie_400`, `test_callback_con_state_ajeno_400`,
 `test_callback_con_cookie_falsificada_400`, `test_callback_sin_code_400`, `test_sso_api.py:322-430`):
 cada caso de la tabla deja **exactamente un** evento `auth_sso_denied` y ninguna columna del
-evento contiene el `state` ni el `code` usados.
+evento contiene el `state` ni el `code` usados. Además:
+
+- con el reloj de la ventana inyectado, `tope + 5` rechazos de flujo dejan exactamente `tope`
+  eventos, todos con status 400 intacto, y un warning con el conteo omitido;
+- al abrirse la ventana siguiente se vuelve a auditar;
+- los rechazos de identidad siguen auditándose aunque el tope de flujo esté agotado.
 
 ## 3. Lo que el Hub consume (sin cambios de contrato)
 

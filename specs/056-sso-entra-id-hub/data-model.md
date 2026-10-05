@@ -64,5 +64,5 @@ nuevo, guarda la sesión bajo ese `sid`, borra cualquier sesión del `sid` viejo
 |---|---|---|---|
 | `auth_sso_login` | Ingreso aceptado | `target_user_id`, `new_role` (solo alta JIT), `tenant_id` | Sin cambio (`api.py:361-364`). |
 | `auth_sso_denied` | Identidad rechazada (firma, sin email, JIT) | `tenant_id` | Sin cambio (`api.py:302`, `:313`, `:379`). |
-| `auth_sso_denied` | **Nuevo**: `state` ausente, inválido o ajeno, `code` ausente, proveedor cambiado entre login y callback | `tenant_id` | Research D6. Sin `state`, `code`, email ni token. |
+| `auth_sso_denied` | **Nuevo**: `state` ausente, inválido o ajeno, `code` ausente, proveedor cambiado entre login y callback | `tenant_id` | Research D6. Sin `state`, `code`, email ni token. Con tope por proceso (~30/min); el excedente solo deja un warning con el conteo. |
 | `auth_sso_config_changed` | `PUT /auth/sso/config` | `actor_user_id`, `tenant_id` | Sin cambio (`admin_api.py:191-192`). El formulario del panel lo dispara por la misma API. |
