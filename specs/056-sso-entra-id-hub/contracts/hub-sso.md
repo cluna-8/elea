@@ -55,6 +55,12 @@ El Hub pasa `return_origin` tal cual. La regla del botón (§6) trata `return_or
      guarda (F5 del QA: los ingresos en curso se conservan);
    - responde `302 Location: <Location del backend>` con `Cache-Control: no-store` y
      `Referrer-Policy: no-referrer`.
+   - **Cookies sin pisarse**: en una primera visita sin `elea_rag_sid`, el middleware ya dejó un
+     `Set-Cookie` con el `sid` nuevo (`client/server.js:93`, `res.setHeader`). La cookie
+     `__Host-sso_flow` se **agrega** a ese encabezado (lista de `Set-Cookie`), nunca lo reemplaza:
+     si se pisara, el pendiente quedaría atado a un `sid` que el navegador nunca recibe y todo
+     ingreso desde una primera visita fallaría (el caso de quien llega por `http://IP:8095` y el
+     botón lo lleva al nombre HTTPS, D4).
 4. Cualquier otra cosa → `302 Location: /?sso_error=<código>` según §4. No guarda pendiente.
 
 ## 3. `GET /sso/callback?code=…&state=…` (retorno del directorio)
@@ -103,6 +109,9 @@ El texto visible lo arma `index.html` y siempre termina recordando el acceso con
 | `sso_sin_puestos` | callback: `402` `license_seat_limit_exceeded` o `403` `license_creation_blocked` | "No quedan puestos disponibles para usuarios nuevos. Consultá con el administrador." |
 | `sso_error` | cualquier otro caso | "No se pudo completar el ingreso con Microsoft." |
 
+Los textos de la tabla son la **base** de cada mensaje. `mensajeError` les agrega siempre el
+mismo sufijo, que recuerda que el acceso con usuario y contraseña sigue disponible (FR-006).
+
 `index.html` borra el parámetro de la barra con `history.replaceState` después de mostrarlo.
 Un código desconocido se trata como `sso_error`. La tabla código → texto vive en
 `client/public/sso-ui.js` (§6), no en el HTML. El valor de `sso_error` **nunca** se pinta:
@@ -149,7 +158,9 @@ Servidor, con el doble HTTP de `client/tests/mock-servers.js`:
 2. `/sso/login` guarda pendiente y redirige a la `Location` del backend; sin `Set-Cookie` →
    `sso_error`.
 3. `/sso/login` con retorno `https://` emite `__Host-sso_flow` con `Secure; HttpOnly; Path=/;
-   SameSite=Lax`; con retorno `http://localhost` no la emite.
+   SameSite=Lax`; con retorno `http://localhost` no la emite. Un pedido **sin** `elea_rag_sid`
+   y con retorno `https://` recibe **los dos** `Set-Cookie` (`sid` nuevo y atadura), y el
+   pendiente queda bajo ese `sid`.
 4. `/sso/login` pasado el límite de ritmo → `sso_reintentar` sin llamar al backend.
 5. Almacén lleno: un pendiente en curso sigue consumible y el login nuevo recibe `sso_reintentar`.
 6. Callback con el mismo `sid`, `state` y atadura correctos → sesión con `auth_method:'sso'`,

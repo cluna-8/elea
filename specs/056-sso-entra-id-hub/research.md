@@ -343,7 +343,20 @@ instalación.
 **Recomendación**: A, por la regla de base mínima. **Elección final**: ver la nota de cierre de
 esta sección.
 
-**Nota de cierre (D11, D12, D15 y alcance de F8)**: PENDIENTE_RESPUESTA_COORDINADOR
+**Nota de cierre (D11, D12, D15 y alcance de F8)**: aprobadas por el owner vía coordinador el
+2026-10-05 (`ask` del redactor, respuesta *"Sí, aprobadas por el owner"*). Quedan registradas
+como Clarifications de spec.md (Session 2026-10-05) y se traducen en FR-016:
+
+- **D11: elección final B** (almacén lleno → rechaza al que llega; límite de ritmo global de
+  `120/min` en `/sso/login`).
+- **D12: elección final C** (cookie de atadura `__Host-sso_flow` y `Secure` en el `sid` rotado,
+  solo con retorno `https://`; solo Hub, sin `trust proxy`).
+- **D15: elección final A** (texto neutro en el Hub y guía; la base no cambia).
+- **F8**: los `404 sso_no_configurado` y `500 sso_redirect_uri_no_configurado` del callback se
+  auditan como rechazos de flujo, dentro del tope de flujo (D6; contrato
+  [guardian-sso-api.md](contracts/guardian-sso-api.md) §2).
+- **F1**: el canje fallido usa un contador propio, con el mismo valor (`30/min`) y la misma
+  ventana que el de flujo (D6).
 
 ## Mejores prácticas consideradas
 
@@ -351,7 +364,8 @@ esta sección.
   backend), la URI se registra como plataforma **Web** (ya documentado en
   `docs/docs/install-deploy/sso.md`).
 - **Cookies**: la del Hub sigue `SameSite=Lax`, que viaja en el 302 de vuelta del IdP
-  (navegación de nivel superior por GET). Sin cambios en `elea_rag_sid`.
+  (navegación de nivel superior por GET). `elea_rag_sid` no cambia en el login con contraseña;
+  en el camino SSO con retorno `https://` la cookie rotada suma `Secure` (D12).
 - **Memoria del Hub**: el `Map` de pendientes tiene TTL de 10 min (el mismo del JWT de estado,
   `api.py:59`) y un tope de entradas, para que un cliente que pide `/sso/login` en bucle sin
   cookie no haga crecer la memoria sin límite. Lleno, rechaza al que llega y no expulsa a nadie
@@ -360,3 +374,31 @@ esta sección.
   identidad, no un componente interno) y toman la marca de `/api/branding`
   (`client/server.js:46-52`). `Microsoft` no está en
   `deploy/release/checks/prohibited_names.txt`.
+
+## Trazabilidad del QA
+
+Resolución de cada hallazgo de [qa-plan.md](qa-plan.md) (2026-10-05), con el `archivo:línea` del
+artefacto que lo resuelve. Rutas relativas a `specs/056-sso-entra-id-hub/`. Los IDs de tarea son
+los de tasks.md regenerado; los que cita qa-plan.md son los de la versión anterior.
+
+| # | Sev. | Resolución | Dónde queda resuelto |
+|---|---|---|---|
+| F1 | Alta | El tope de D6 se extiende al canje fallido (`api.py:297-302`), con contador propio y el mismo valor y ventana (30/min, 60 s). Pasado el tope no escribe fila ni llama al `token_endpoint`; el 401 no cambia. Los rechazos de identidad (`api.py:313`, `:379`) siguen sin tope. Se corrige la frase falsa de la versión anterior (research.md:149-151). Test pedido: cookie válida + `code` basura, `tope + 5` veces → `tope` eventos y `tope` llamadas al proveedor, 401 intacto | research.md:148-172 (corrección y decisión); spec.md:66-71 (Clarification) y spec.md:298-309 (FR-012); contracts/guardian-sso-api.md:75 y :83-99 (tabla y tope); data-model.md:82; tasks.md:95 (T005, el test) y tasks.md:111-115 (T008) |
+| F2 | Alta | La lógica de la pantalla va a un módulo puro, `client/public/sso-ui.js`, testeado con `node --test` y sin `jsdom` (D13). Cubre FR-001, FR-006, FR-008, US1 AS5 y US2 AS2/AS3, el `sso_error` con HTML y el cableado de `index.html` sin `innerHTML` | research.md:296-306 (D13); contracts/hub-sso.md:128-150 (§6) y :181-191 (tests 17 a 20); tasks.md:163-167 (T014) y tasks.md:204-210 (T021) |
+| F3 | Alta | Gate automático de marca blanca del Hub: `client/tests/unit/whitelabel-hub-056.test.js` (lista compartida, motores internos con lista local, `Elea`/`Eleia` en lo nuevo), en `npm test` y en `make -C deploy check` con el target `check-hub-whitelabel`. El panel lo cubre el test de vitest de T024 | research.md:308-329 (D14); contracts/hub-sso.md:193-201 (tests 21 y 22); contracts/instalador-y-release.md:87-98 (§6); tasks.md:168-172 (T015), tasks.md:258 (T024, panel) y tasks.md:368 (T042) |
+| F4 | Media | En el Hub, `return_origin: null` ⇒ sin botón. El panel conserva la regla retrocompatible | spec.md:258-262 (FR-001) y spec.md:317-326 (FR-015); contracts/guardian-sso-api.md:32-35; contracts/hub-sso.md:137; contracts/instalador-y-release.md:17; tasks.md:142 (T011) y tasks.md:164 (T014) |
+| F5 | Media | Almacén lleno → se rechaza al que llega, sin expulsar; límite de ritmo global de 120/min en `/sso/login`, sin llamar al backend (D11 = B, aprobada por el owner) | research.md:264-277 (D11) y research.md:346-359 (cierre); spec.md:81-85 (Clarification), spec.md:225-228 (Edge Case) y spec.md:327-333 (FR-016); contracts/hub-sso.md:40-55; data-model.md:37-53; tasks.md:135-138 (T010) y tasks.md:146 (T011) |
+| F6 | Media | Con retorno `https://`: cookie de atadura `__Host-sso_flow` exigida en el callback, agregada sin pisar el `Set-Cookie` del `sid`, y `Secure` en el `sid` rotado; con `http://localhost`, solo el `sid` (D12 = C, aprobada por el owner). Solo Hub, sin `trust proxy` | research.md:279-294 (D12) y research.md:346-359 (cierre); spec.md:86-91 (Clarification), spec.md:229-231 (Edge Case) y spec.md:327-333 (FR-016); contracts/hub-sso.md:47-51, :58-63, :71-78 y :83-87; data-model.md:25 y :63-67; tasks.md:144-145 (T011), tasks.md:155-162 (T013), tasks.md:183 (T018), tasks.md:189-195 (T019) y quickstart.md:90-106 (prueba en navegador) |
+| F7 | Media | spec.md enmendada con `speckit-clarify`: Clarifications de la sesión 2026-10-05 (D1 a D8, F1, F5, F6, F8, F10), FR-010 reformulado (documentar y verificar el HTTPS del proxy del cliente), FR-012 con la excepción del tope, FR-015 (`return_origin`) y FR-016 nuevos, cabecera y estimación actualizadas | spec.md:7-8 (Status), spec.md:38-96 (Clarifications), spec.md:291-295 (FR-010), spec.md:298-309 (FR-012), spec.md:317-326 (FR-015), spec.md:327-333 (FR-016), spec.md:401-404 (estimación); plan.md:6-15 |
+| F8 | Media | Los `404 sso_no_configurado` y `500 sso_redirect_uri_no_configurado` del callback se auditan como rechazos de flujo, dentro del tope de flujo. `_redirect_uri` se resuelve antes del `try` del canje | spec.md:77-80 (Clarification) y spec.md:298-309 (FR-012); contracts/guardian-sso-api.md:72 y :74; tasks.md:93 (T005) y tasks.md:106-108 (T007) |
+| F9 | Media | El tramo D es dueño de `deploy/Makefile` y suma el target `check-release-publish` a la lista de `check`; el tramo E suma `check-hub-whitelabel` después, nunca en paralelo | research.md:323-327 (D14); contracts/instalador-y-release.md:94; tasks.md:48 (propiedad del tramo D), tasks.md:298 (T031) y tasks.md:408-410 (orden D → E) |
+| F10 | Media | Texto neutro para `sso_identidad_no_verificada` en el Hub (más el sufijo común que recuerda la contraseña), que no culpa a la identidad; la guía dice qué esperar cuando vence el secreto y dónde ver la causa. Sin código nuevo ni cambio de base (D15 = A, aprobada por el owner) | research.md:331-344 (D15) y research.md:346-359 (cierre); spec.md:92-96 (Clarification) y spec.md:248-252 (Edge Case); contracts/hub-sso.md:106 y :112-113; quickstart.md:117-121; tasks.md:204 (T021) y tasks.md:345 (T039) |
+| B1 | Baja | Límite conocido documentado (guía, HANDOFF, quickstart). `prompt=select_account` queda fuera: es un cambio de base en `entra.py` | spec.md:235-238 (Edge Case); quickstart.md:82; tasks.md:346 (T039), tasks.md:387 (T047) y tasks.md:465-466 (riesgo aceptado) |
+| B2 | Baja | Checklist de activación: resetear o forzar el cambio de los usuarios con cambio obligatorio pendiente antes de activar | spec.md:239-241 (Edge Case); tasks.md:351 (T040) y tasks.md:359 (T041) |
+| B3 | Baja | La URL al backend se arma con `URLSearchParams`; test con `&`, `=` y `#` | contracts/hub-sso.md:90-92 y :175 (test 12); tasks.md:151 (T012) y tasks.md:193 (T019) |
+| B4 | Baja | Riesgo aceptado: solo corta un ingreso en curso, no da acceso | tasks.md:462-464 (Riesgos aceptados) |
+| B5 | Baja | `return_origin` con `scheme`, `hostname` y `port` (nunca `netloc`), sin el puerto por defecto y en minúsculas; casos en T004 | contracts/guardian-sso-api.md:22 y :45-48 (tests 3 y 4); tasks.md:85-87 (T004) y tasks.md:101 (T006) |
+| B6 | Baja | `Cache-Control: no-store` en `/api/auth/sso/available` del Hub, con test | contracts/hub-sso.md:32-33; data-model.md:74; tasks.md:142 (T011) y tasks.md:177 (T017) |
+| B7 | Baja | SC-002 con datos reales se cierra en el piloto (Etapa 4), anotado en DESPLIEGUE y en el HANDOFF | tasks.md:358 (T041) y tasks.md:390 (T048) |
+| B8 | Baja | (a) la sección del Hub en `sso.md` se marca "solo si hay Hub"; (b) `ELEA_TAG` se porta como enfoque (FR-014 lo exceptúa como nombre propio del instalador); (c) el tope por proceso se anota en el HANDOFF como `tope × workers` | research.md:173-177 (D6, alcance); spec.md:313-316 (FR-014); tasks.md:341 (T039), tasks.md:381-383 y tasks.md:386 (T047) |
+| B9 | Baja | El tramo 0 ignora en `.gitignore` la licencia y el compose de prueba local, y lo verifica con `git check-ignore`. La firma dev sigue como deuda declarada | tasks.md:44 (propiedad del tramo 0), tasks.md:64-67 (T003) y tasks.md:467-468 (riesgo aceptado) |

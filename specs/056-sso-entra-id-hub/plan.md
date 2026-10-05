@@ -4,13 +4,15 @@
 en `cluna-8/056-sso-entra-id-hub-plan-v2`) | **Date**: 2026-10-05 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/056-sso-entra-id-hub/spec.md`, enmendada por clarify
-el 2026-10-05 (§Clarifications: D1 a D8 y F1, más FR-010, FR-012 y FR-015 ajustados). Los
+el 2026-10-05 (§Clarifications: D1 a D8 del plan y F1, F5, F6, F8 y F10 del QA; FR-001,
+FR-006, FR-010 y FR-012 ajustados; FR-015 y FR-016 nuevos). Los
 supuestos a confirmar con Elea siguen en su §Assumptions. Documentos operativos de la misma
 carpeta: [DESPLIEGUE-Y-REVERSION.md](DESPLIEGUE-Y-REVERSION.md),
 [SOLICITUD-A-ELEA.md](SOLICITUD-A-ELEA.md), [GUIA-PRUEBA-LOCAL-SSO.md](GUIA-PRUEBA-LOCAL-SSO.md).
-Decisiones de diseño: [research.md](research.md), D1 a D10 confirmadas por el coordinador el
-2026-10-05 y D11 a D15 por el QA crítico ([qa-plan.md](qa-plan.md)). La trazabilidad de cada
-hallazgo del QA está al final de research.md.
+Decisiones de diseño: [research.md](research.md), D1 a D8 confirmadas por el coordinador el
+2026-10-05, D9 y D10 técnicas (sin alternativas en disputa); D11 a D15 salen del QA crítico ([qa-plan.md](qa-plan.md)), y D11, D12 y D15 los
+aprobó el owner vía coordinador el mismo día. La trazabilidad de cada hallazgo del QA está al
+final de research.md (§Trazabilidad del QA).
 
 ## Summary
 
@@ -83,7 +85,9 @@ Guardian) · FR-004 (el token nunca en una URL) · FR-005/006 (login con contras
 degrada el camino SSO) · FR-007 (reglas JIT de la 017 sin tocar: `backend/src/sso/jit.py` no se
 modifica) · FR-013/014 (sin nombres internos ni strings de Elea en código; textos del Hub desde
 `/api/branding`) · FR-012 (todo rechazo auditado; única excepción, el excedente del tope por
-proceso) · FR-015 (ninguna pantalla ofrece un botón que no puede completar) · auditoría
+proceso) · FR-015 (ninguna pantalla ofrece un botón que no puede completar) · FR-016 (ingreso
+atado al navegador; con retorno HTTPS, cookie `__Host-` y sesión `Secure`; una ráfaga no corta los
+ingresos en curso) · auditoría
 metadata-only · sesiones del Hub en memoria (un reinicio corta los ingresos en curso, que es el
 caso borde aceptado) · cambios de base mínimos y retrocompatibles (upstream: `cluna-8/sentinel`).
 
@@ -105,7 +109,7 @@ panel, tres variables en el instalador, un flag en el script de publicación y d
 | **VI. Motor nativo, sin parches** | No toca el motor. | PASS (N/A) |
 | **VII. Contenedores + white-label, config + seed, nunca fork** | Sin nombres de motor ni de componentes internos en lo visible; "Microsoft" es el proveedor de identidad elegido por el cliente y no está en `deploy/release/checks/prohibited_names.txt`. Textos con la marca de `/api/branding` (`client/server.js:46-52`). Verificado por gate: `check-hub-whitelabel` en `make -C deploy check` y el test de marca del panel (D14). Base y Hub separados para portar a Sentinel. | PASS |
 | **VIII. Transparencia del pipeline** | No toca el pipeline de requests. | PASS (N/A) |
-| **Security 3: fail-closed en identidad** | `/api/auth/sso/available` del Hub colapsa a "sin botón" ante cualquier cosa distinta de `200 enabled:true` con `return_origin` no nulo. Callback sin pendiente, con otro `sid`, sin la cookie de atadura (retorno `https://`) o con `state` distinto → rechazo. Almacén lleno o límite de ritmo → rechazo del nuevo, nunca expulsión. Tope de canje agotado → 401 sin llamar al directorio. El login con contraseña es fallback permanente declarado (FR-005), no fail-open. | PASS |
+| **Security 3: fail-closed en identidad** | `/api/auth/sso/available` del Hub colapsa a "sin botón" ante cualquier cosa distinta de `200 enabled:true` con `return_origin` no nulo. Callback sin pendiente, con otro `sid`, sin la cookie de atadura (retorno `https://`) o con `state` distinto → rechazo (FR-016). Almacén lleno o límite de ritmo → rechazo del nuevo, nunca expulsión. Tope de canje agotado → 401 sin llamar al directorio. El login con contraseña es fallback permanente declarado (FR-005), no fail-open. | PASS |
 | **Security 5: TLS en tránsito, Fernet en reposo** | El secreto del IdP se sigue cifrando con Fernet (`admin_api.py:155-169`) y el formulario nunca lo muestra. TLS: lo termina el proxy de Elea delante del Hub (D7-B, FR-010 enmendado). La sesión SSO con retorno `https://` lleva `Secure` (D12). El tramo Hub → backend es red interna de Docker, igual que hoy. | PASS, con nota: el TLS queda fuera del instalador por decisión del owner, se documenta y se verifica en la Etapa 3 (sin violación: la constraint pide TLS en tránsito, no quién lo termina) |
 | **Security 6: metadata-only** | Ver II. | PASS |
 | **Workflow: SDD, tests, docs vivas** | TDD por tramo (tests primero en cada fase de tasks.md), incluida la pantalla del Hub (D13); spec enmendada por clarify antes de implementar; docs de producto y HANDOFF en Polish; gate `make -C deploy check` (con los dos targets nuevos) + pytest + `npm test` de Hub y panel. | PASS |

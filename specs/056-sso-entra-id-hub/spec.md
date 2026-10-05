@@ -39,7 +39,8 @@ Sentinel por handoff (ver §Preparación para Sentinel).
 
 ### Session 2026-10-05
 
-Decisiones que el owner tomó durante el plan y el QA crítico, por medio del coordinador. Se
+Decisiones que el owner tomó durante el plan y el QA crítico, por medio del coordinador (D1 a
+D8 del plan; F1, F5, F6, F8 y F10 del QA, aprobadas el 2026-10-05). Se
 registran acá para que la spec, el plan y las tareas digan lo mismo. El detalle y las alternativas
 descartadas están en [research.md](research.md).
 
@@ -73,6 +74,26 @@ descartadas están en [research.md](research.md).
   verifica en la prueba (D7, opción B). → FR-010.
 - Q: ¿Con qué clave se firma la licencia con `sso`? → A: con la misma clave y el mismo `kid` que
   la licencia vigente. Pasar a una clave de producción es una decisión aparte (D8).
+- Q: ¿Se auditan también los rechazos del callback que hoy no están en la tabla de D6 (proveedor
+  apagado a mitad del ingreso, `404 sso_no_configurado`; dirección de retorno faltante, `500
+  sso_redirect_uri_no_configurado`)? → A: sí, como rechazos de flujo, dentro del tope (F8 del
+  QA). → FR-012.
+- Q: ¿Qué hace el Hub cuando alguien pide `/sso/login` en ráfaga y llena el almacén de ingresos
+  en curso? → A: con el almacén lleno rechaza al que llega ("volvé a intentar") sin expulsar a
+  ningún ingreso en curso, y además aplica un límite de ritmo global por proceso a `/sso/login`
+  (120 por minuto) que corta sin llamar al backend (D11, opción B, por F5 del QA). → FR-016,
+  Edge Cases.
+- Q: ¿Cómo se evita que una cookie de sesión plantada en el navegador de la víctima le abra una
+  sesión con la identidad del atacante (login CSRF)? → A: con retorno HTTPS, el Hub ata el
+  ingreso además a una cookie `__Host-` de un solo uso, que no se puede escribir desde HTTP ni
+  desde otro subdominio, y la cookie de sesión rotada lleva `Secure`. Con retorno HTTP
+  (desarrollo en `localhost`) el ingreso queda atado solo a la sesión del navegador, como en D1.
+  Solo Hub, sin cambio de base (D12, opción C, por F6 del QA). → FR-016.
+- Q: ¿Qué mensaje ve la persona cuando falla el canje con el directorio (secreto vencido,
+  directorio caído, respuesta vencida)? → A: un texto neutro que no culpa a la identidad: "No se
+  pudo confirmar el ingreso con Microsoft. Si se repite, avisá al administrador." La guía dice qué
+  esperar cuando vence el secreto y dónde ver la causa. Sin cambio de base ni código nuevo (D15,
+  opción A, por F10 del QA). → FR-006, Edge Cases.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -160,7 +181,8 @@ configuración se conserva.
 4. **Given** que nadie cargó datos de Entra, **When** se instala o se actualiza, **Then** la
    instalación queda sin SSO y sin errores.
 5. **Given** un usuario que no es `super_admin` ni `tenant_admin`, **When** entra al panel,
-   **Then** no puede ver ni cambiar la configuración de SSO.
+   **Then** el panel no le muestra ni le deja cambiar la configuración de SSO (ver el residual
+   de la API en Edge Cases).
 
 ---
 
@@ -200,6 +222,13 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   cada rechazo responde igual, pero pasado el tope por minuto (FR-012) deja de escribir filas y
   de llamar al directorio. Mientras dura la ráfaga, un ingreso legítimo puede fallar con el mismo
   mensaje. Solo se degrada el camino SSO: el login con contraseña sigue (FR-006).
+- **Ráfaga de pedidos de inicio contra el Hub** (`/sso/login` en bucle, sin sesión): pasado el
+  límite de ritmo, o con el almacén de ingresos en curso lleno, el que llega recibe "volvé a
+  intentar" sin que el Hub llame al backend. Los ingresos que ya estaban en curso no se pierden
+  (FR-016). El login con contraseña sigue.
+- **Cookie de sesión plantada en el navegador de la víctima** (por red o desde un subdominio
+  hermano) para que el ingreso de la víctima termine con la identidad de otro: con retorno HTTPS
+  el ingreso se rechaza con "volvé a intentar", porque falta la cookie de atadura (FR-016).
 - **El admin apaga el SSO, o falta la dirección de retorno, a mitad de un ingreso**: el ingreso
   termina con "no disponible", queda auditado (FR-012) y el login con contraseña sigue. Con la
   dirección de retorno vacía, el Hub no dibuja el botón (FR-001, FR-015).
@@ -210,10 +239,17 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 - **Usuario existente con cambio obligatorio pendiente (spec 055) que entra por SSO**: no se le
   pide el cambio (FR-008) y su contraseña temporal sigue valiendo para el login local. La
   checklist de activación indica resetear o forzar el cambio de esos usuarios antes de activar.
+- **Un `compliance_officer` consulta la configuración por API**: la API de la spec 017 le permite
+  leerla (tenant e identificador de la aplicación, nunca el secreto). El panel no se la muestra
+  (US3 AS5). Es un residual conocido de la base: cambiar la matriz de roles queda fuera de
+  alcance para no tocar la base.
 - **Un admin entra al Hub por Microsoft**: entra con su rol de admin actual, porque el SSO no
   cambia roles. El panel Eleia Guardian sigue con contraseña en la fase 1.
-- **Vence el secreto de la aplicación en Entra**: el botón de Microsoft falla con un error
-  claro y el login con contraseña sigue funcionando. La guía indica cómo renovarlo.
+- **Vence el secreto de la aplicación en Entra, o el directorio no responde durante el canje**:
+  el botón de Microsoft falla con "No se pudo confirmar el ingreso con Microsoft. Si se repite,
+  avisá al administrador.", que no culpa a la identidad de la persona. El login con contraseña
+  sigue funcionando. La guía indica qué mensaje esperar, dónde ver la causa en el log del backend
+  y cómo renovar el secreto.
 
 ## Requirements *(mandatory)*
 
@@ -261,7 +297,9 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   (sin botón y sin errores).
 - **FR-012**: Todo ingreso por SSO, aceptado o rechazado, MUST quedar en la auditoría de
   autenticación existente, solo con metadatos: sin tokens, secretos, `state`, `code` ni email.
-  "Rechazado" incluye los rechazos de **flujo** del callback: estado ausente, inválido o repetido,
+  Cubre lo que llega al callback del backend. Los cortes del Hub al **iniciar** el ingreso
+  (límite de ritmo o almacén lleno, FR-016) no llegan al backend ni son un ingreso: no se
+  auditan. "Rechazado" incluye los rechazos de **flujo** del callback: estado ausente, inválido o repetido,
   `code` ausente, proveedor cambiado, apagado o sin configurar a mitad del ingreso, dirección de
   retorno faltante. Incluye también el **canje fallido** con el directorio y los rechazos de
   **identidad**: sin email, usuario dado de baja, sin puestos. **Única excepción**: los rechazos
@@ -274,7 +312,8 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   regla vigente del producto.
 - **FR-014**: Todo lo nuevo MUST ser genérico y configurable, sin nombres, dominios, tenants ni
   marcas de Elea fijos en el código, para portarlo a Sentinel sin reescribir (ver §Preparación
-  para Sentinel).
+  para Sentinel). Aplica al código de base y del Hub. El instalador propio de la línea puede usar
+  nombres propios (p. ej. la variable del tag de imagen), y el HANDOFF lo porta como enfoque.
 - **FR-015**: La consulta pre-auth de disponibilidad de SSO MUST informar el **origen de
   retorno** (`return_origin`: esquema, host y puerto de la dirección de retorno configurada, sin
   ruta, query ni credenciales; nulo si falta o no es absoluta). Ninguna pantalla MUST ofrecer un
@@ -285,6 +324,13 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
     ese origen.
 
   El campo es opcional y retrocompatible: un cliente que lo ignora se comporta como hoy.
+- **FR-016**: El ingreso con Microsoft desde el Hub MUST quedar atado al navegador que lo inició:
+  validado contra el `state` guardado, de un solo uso y con la sesión del navegador renovada al
+  emitirla. Con dirección de retorno HTTPS, la atadura MUST incluir una cookie que no se pueda
+  escribir desde HTTP ni desde otro subdominio, y la cookie de sesión resultante MUST llevar
+  `Secure`. Una ráfaga de pedidos de inicio MUST NOT cortar los ingresos que ya están en curso:
+  el Hub rechaza al que llega (almacén lleno o límite de ritmo) en vez de expulsar a otro
+  (Clarifications, D1, D11 y D12).
 
 ### Key Entities
 
@@ -296,6 +342,11 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 - **Sesión del Hub** (ya existe, en memoria): guarda el token de Guardian del lado del
   servidor. Se usa igual venga del login con contraseña o del SSO.
 - **Licencia** (ya existe): el permiso `sso` habilita la funcionalidad.
+- **Ingreso en curso** (nuevo, en memoria del Hub): ata un ingreso con Microsoft al navegador
+  que lo inició (sesión del navegador, estado esperado y, con retorno HTTPS, cookie de atadura).
+  Vence a los 10 minutos y se usa una sola vez (FR-016).
+- **Contador de ritmo de inicio** (nuevo, en memoria del Hub): cuenta los inicios de ingreso por
+  minuto para cortar una ráfaga sin afectar a los que están en curso (FR-016).
 
 ## Success Criteria *(mandatory)*
 
@@ -315,15 +366,15 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 
 ## Assumptions
 
-**Supuestos a confirmar con Elea** (reemplazan a clarify; si alguno cae, cambia el costo):
+**Supuestos a confirmar con Elea** (clarify registró las decisiones de diseño, no estos supuestos; si alguno cae, cambia el costo):
 
 1. **El Active Directory de Elea está sincronizado con Entra ID** (Entra Connect / Microsoft 365).
    Si solo tienen AD local, sin Entra, esta spec no alcanza: haría falta ADFS con un proveedor
    OIDC genérico (+1 a 2 días) o LDAP (+3 a 5 días), en una spec aparte.
 2. **El UPN o email corporativo coincide con el email cargado en Guardian** para los usuarios
    existentes. Si no, se alinean antes de activar.
-3. **Elea puede dar un nombre DNS y un certificado** (CA interna o público) para servir el Hub
-   por HTTPS. Es el punto que más puede estirar el plazo y depende de su red.
+3. **Elea puede dar un nombre DNS, un certificado** (CA interna o público) **y un proxy TLS**
+   delante del Hub (FR-010, D7-B). Es el punto que más puede estirar el plazo y depende de su red.
 4. El IT de Elea registra la aplicación en Entra (≈1 h) y entrega tenant, identificador y secreto.
    El secreto vence (máximo 24 meses) y hay que renovarlo.
 

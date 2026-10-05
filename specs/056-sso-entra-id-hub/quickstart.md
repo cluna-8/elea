@@ -12,8 +12,9 @@ prueba, la licencia de desarrollo con `sso` y la carga de la config. Esta guía 
 ## 0. Prerrequisitos
 
 - Pasos 1 a 3 de GUIA-PRUEBA-LOCAL-SSO.md hechos:
-  - aplicación registrada con **dos** URIs Web: `http://localhost:8090/sso/callback` y
-    `http://localhost:8095/sso/callback`;
+  - aplicación registrada con **tres** URIs Web: `http://localhost:8090/sso/callback`,
+    `http://localhost:8095/sso/callback` y `https://localhost:8443/sso/callback` (esta última
+    solo para §3b);
   - usuarios `prueba.existente@…` y `prueba.nuevo@…`;
   - `~/.eleia-sso-prueba.env` con los datos;
   - licencia `dev-sso-local.lic` (no se commitea).
@@ -66,7 +67,7 @@ Con una ventana de incógnito por caso:
 | # | Acción | Esperado |
 |---|---|---|
 | 1 | Abrir `http://localhost:8095` | Aparece "Ingresar con Microsoft" junto al formulario de siempre |
-| 2 | Ingresar con `prueba.existente@…`, dado de alta antes en el panel con grupo y presupuesto | Llega al Hub con el mismo rol, grupo, presupuesto y espacios. Sin modal de cambio de contraseña y sin botón "Contraseña" |
+| 2 | Ingresar con `prueba.existente@…`, dado de alta antes en el panel con grupo y presupuesto. Cronometrar desde que se abre el Hub hasta que se ve el chat y contar las interacciones (SC-001: menos de 30 s y no más de 3) | Llega al Hub con el mismo rol, grupo, presupuesto y espacios. Sin modal de cambio de contraseña y sin botón "Contraseña" |
 | 3 | Revisar la barra de direcciones y el historial | La URL final es `/`. Ninguna URL contiene un token |
 | 4 | Usar chat, Documentos, Planillas y Presentaciones | Funcionan. El gasto se imputa a esa persona y a su grupo |
 | 5 | Ingresar con `prueba.nuevo@…` | Se crea como `client`, sin grupo, y ocupa un puesto |
@@ -86,6 +87,24 @@ comportamiento lo cubren los tests de contrato del Hub ([hub-sso.md](contracts/h
 tests 3, 6 y 8). En vivo se verifica en la Etapa 3 del server con el nombre HTTPS (FR-010):
 DevTools muestra `__Host-sso_flow` durante el ingreso y `elea_rag_sid` con `Secure` después.
 
+### 3b. Ingreso por HTTPS local (FR-010, FR-016)
+
+Con cualquier proxy TLS local delante de `:8095` (p. ej. `https://localhost:8443`), la URI
+`https://localhost:8443/sso/callback` registrada en el directorio de prueba y
+`SENTINEL_SSO_REDIRECT_URI` con ese valor:
+
+1. En una ventana de incógnito **nueva**, abrir `http://127.0.0.1:8095` y pulsar el botón. El
+   botón lleva al origen de retorno, `https://localhost:8443/sso/login`, que es el **primer**
+   pedido a ese host (las cookies no distinguen puerto, así que empezar por `localhost` ya
+   traería un `sid`). **Esperado**: DevTools muestra `elea_rag_sid` y `__Host-sso_flow` en la
+   **misma** respuesta de `/sso/login` (cookies sin pisarse, [hub-sso.md](contracts/hub-sso.md)
+   §2), y el ingreso termina bien.
+2. Después del ingreso, `elea_rag_sid` lleva `Secure` y `__Host-sso_flow` ya no está.
+3. Borrar `__Host-sso_flow` a mano entre pulsar el botón y volver de Microsoft. **Esperado**:
+   "Volvé a intentarlo" y no se abre sesión.
+4. Al terminar, volver `SENTINEL_SSO_REDIRECT_URI` a `http://localhost:8095/sso/callback` y
+   recrear el backend antes de §4.
+
 Auditoría: en el panel (eventos de autenticación) hay un `auth_sso_login` por cada ingreso
 aceptado y un `auth_sso_denied` por los casos 6, 7, 8, 9, 10 y 11, **sin** emails, `state`,
 `code` ni tokens en ninguna columna. El tope de auditoría (FR-012) no se prueba a mano: lo cubren
@@ -96,8 +115,8 @@ los tests del backend ([guardian-sso-api.md](contracts/guardian-sso-api.md) §2)
 1. `admin` y un `client` con contraseña, en el Hub y en el panel: igual que antes.
 2. Alta con cambio obligatorio de la 055: el modal aparece en el Hub como antes.
 3. Romper a propósito el secreto (guardar uno falso desde el panel) e ingresar por Microsoft:
-   mensaje "No se pudo confirmar el ingreso con Microsoft. Si se repite, avisá al administrador"
-   (research D15). El log del backend muestra la causa (`invalid_client`). El login con
+   mensaje "No se pudo confirmar el ingreso con Microsoft. Si se repite, avisá al administrador",
+   más el recordatorio del acceso con contraseña (research D15). El log del backend muestra la causa (`invalid_client`). El login con
    contraseña sigue funcionando. Es el mismo mensaje que va a ver un usuario cuando venza el
    secreto, y la guía lo dice.
 4. Apagar el interruptor en el panel: el botón desaparece del Hub en el próximo ingreso, sin
@@ -120,9 +139,13 @@ los tests del backend ([guardian-sso-api.md](contracts/guardian-sso-api.md) §2)
    **Esperado**: todo igual que antes; la pestaña SSO dice "No configurado".
 4. Licencia con `sso` en `./license/` y `SENTINEL_LICENSE_TOKEN_FILE=/app/config/licenses/host/<archivo>.lic`.
    **Esperado**: `/auth/sso/available` responde 200 (no 403).
+4b. Cargar y activar la config SSO desde el panel de esta instalación (como en §2), con
+   `SENTINEL_SSO_REDIRECT_URI` apuntando a su Hub. **Esperado**: el botón aparece en el Hub.
 5. Vuelta atrás de nivel 2: `ELEA_TAG=<fecha-anterior> ./install.sh`. **Esperado**: usuarios,
    historial y config SSO intactos. No hay migración que revertir.
-6. Repetir 3 → la configuración SSO cargada en el paso 2 se conserva (US3 AS3).
+6. Actualizar otra vez a `056-rc1` (`ELEA_TAG=056-rc1 ./install.sh`) conservando el `.env` del
+   paso 4b. **Esperado**: la configuración SSO cargada en el paso 4b se conserva y el botón sigue
+   en el Hub (US3 AS3).
 
 ## 6. Evidencia
 
