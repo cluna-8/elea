@@ -77,6 +77,9 @@ SSO está activo aunque su botón viva en el Hub.
    - guardar con secreto lo manda una vez y después el campo queda vacío;
    - errores del backend visibles;
    - `compliance_officer` sin formulario y sin llamada al `GET` de config;
-   - `403` sin formulario.
+   - `403` sin formulario;
+   - marca blanca (FR-013, FR-014; research D14): ningún texto visible del formulario ni de sus
+     errores contiene un nombre de `deploy/release/checks/prohibited_names.txt`, de los motores
+     internos de documentos o presentaciones, ni `Elea`/`Eleia`.
 2. `LoginPage.sso-origin.test.tsx`: botón visible con `return_origin` `null` o igual al origen,
    oculto con otro origen y oculto con `enabled:false` (regresión del fail-closed).

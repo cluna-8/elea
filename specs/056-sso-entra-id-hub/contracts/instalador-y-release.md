@@ -2,7 +2,8 @@
 
 Cubre FR-009b, FR-010 y FR-011, y las tareas previas de
 [DESPLIEGUE-Y-REVERSION.md](../DESPLIEGUE-Y-REVERSION.md) §"Cambios previos". Decisiones:
-[research.md](../research.md) D7 (opción B: sin servicio TLS), D8 y D9.
+[research.md](../research.md) D7 (opción B: sin servicio TLS), D8, D9 y D14 (gates en
+`make -C deploy check`, F9 del QA).
 
 **Base en enfoque**: los nombres de variable (`SENTINEL_SSO_REDIRECT_URI`,
 `SENTINEL_LICENSE_TOKEN_FILE`) son los mismos que usa Sentinel, para portar el enfoque a su
@@ -13,7 +14,7 @@ wizard (spec 065 allá) sin traducir nombres. `ELEA_TAG` es propio de este insta
 | Variable | Default | Efecto | Vacía / ausente |
 |---|---|---|---|
 | `ELEA_TAG` | `latest` | Tag de las seis imágenes propias (`elea-guardian-backend`, `-frontend`, `-engine`, `-nlp`, `elea-rag-client`, `elea-tabular`). | Se usa `latest`, igual que hoy. |
-| `SENTINEL_SSO_REDIRECT_URI` | *(vacía)* | Se pasa al servicio `backend`. Debe ser **byte a byte** la URI registrada en Entra: `https://<nombre-del-hub>/sso/callback`. | El backend arranca igual; `/auth/sso/login` corta con `sso_redirect_uri_no_configurado` y el Hub muestra `sso_no_disponible` (FR-009b, FR-006). |
+| `SENTINEL_SSO_REDIRECT_URI` | *(vacía)* | Se pasa al servicio `backend`. Debe ser **byte a byte** la URI registrada en Entra: `https://<nombre-del-hub>/sso/callback`. | El backend arranca igual y `/auth/sso/available` devuelve `return_origin: null`, así que el Hub **no dibuja el botón** (FR-001, FR-015, F4 del QA). Si alguien llega igual a `/sso/login`, corta con `sso_redirect_uri_no_configurado` y el Hub muestra `sso_no_disponible` (FR-009b, FR-006). Vaciarla es la vuelta atrás de nivel 1: el botón desaparece del Hub. |
 | `SENTINEL_LICENSE_TOKEN_FILE` | `/app/config/licenses/dev-demo.lic` | Licencia que lee el backend. Para usar la del host: `/app/config/licenses/host/<archivo>.lic`. | Se usa la horneada en la imagen, como hoy. |
 
 `.env.example` documenta las tres en un bloque comentado "Ingreso con Microsoft (opcional)" y
@@ -82,3 +83,16 @@ modos. El resto del script (chequeo de la imagen del backend, `PINNED …`) no c
 
 Verificación sin publicar: correr el script con `docker` sustituido por un *stub* en el `PATH`
 que registre los argumentos, y comprobar que con `LATEST=0` no aparece ningún `:latest`.
+
+## 6. Gates en `make -C deploy check` (`deploy/Makefile`, F3 y F9 del QA)
+
+`make -C deploy check` corre una lista explícita de targets (`deploy/Makefile:42`). Un script nuevo
+en `deploy/release/checks/` no corre solo. Se suman dos targets, ninguno usa Docker:
+
+| Target | Corre | Lo agrega | Protege |
+|---|---|---|---|
+| `check-release-publish` | `deploy/release/checks/test_publish_elea_latest.sh` (con el `docker` de prueba) | Tramo D | Que `LATEST=0` nunca mueva `:latest` (riesgo central del despliegue). |
+| `check-hub-whitelabel` | `node --test client/tests/unit/whitelabel-hub-056.test.js` (solo `node:fs`, sin `npm ci`) | Tramo E, con el Hub ya mergeado | FR-013 y FR-014 sobre lo visible del Hub ([hub-sso.md](hub-sso.md) §7, tests 21 y 22). |
+
+Los dos entran a la lista de `check` y a `.PHONY`. `deploy/Makefile` lo editan los tramos D y E,
+que no corren en paralelo.

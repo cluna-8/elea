@@ -77,22 +77,38 @@ Con una ventana de incógnito por caso:
 | 10 | Pulsar el botón, `docker compose restart client` y completar el ingreso | "Volvé a intentarlo" (caso borde de reinicio) |
 | 11 | Copiar la URL `/sso/callback?…` de un ingreso y abrirla en **otro** navegador | "Volvé a intentarlo". No se abre sesión (atadura al `sid`) |
 | 12 | Abrir el Hub por `http://127.0.0.1:8095` y pulsar el botón | Lo lleva a `http://localhost:8095/sso/login` (origen de retorno) y el ingreso termina bien |
+| 13 | Con `?sso_error=<img src=x onerror=alert(1)>` en la barra | Se ve el mensaje genérico. No se ejecuta nada ni se pinta el valor recibido |
+| 14 | Cerrar sesión en el Hub y volver a pulsar "Ingresar con Microsoft" en la misma ventana | Entra sin pedir credenciales mientras la sesión de Microsoft siga abierta. Es el límite conocido documentado en la guía, no un error |
+
+En local el retorno es `http://localhost`, así que el Hub **no** emite la cookie de atadura
+`__Host-sso_flow` y la sesión no lleva `Secure` (research D12). Con retorno `https://`, ese
+comportamiento lo cubren los tests de contrato del Hub ([hub-sso.md](contracts/hub-sso.md) §7,
+tests 3, 6 y 8). En vivo se verifica en la Etapa 3 del server con el nombre HTTPS (FR-010):
+DevTools muestra `__Host-sso_flow` durante el ingreso y `elea_rag_sid` con `Secure` después.
 
 Auditoría: en el panel (eventos de autenticación) hay un `auth_sso_login` por cada ingreso
 aceptado y un `auth_sso_denied` por los casos 6, 7, 8, 9, 10 y 11, **sin** emails, `state`,
-`code` ni tokens en ninguna columna.
+`code` ni tokens en ninguna columna. El tope de auditoría (FR-012) no se prueba a mano: lo cubren
+los tests del backend ([guardian-sso-api.md](contracts/guardian-sso-api.md) §2).
 
 ## 4. Regresión y degradación (US2, SC-003)
 
 1. `admin` y un `client` con contraseña, en el Hub y en el panel: igual que antes.
 2. Alta con cambio obligatorio de la 055: el modal aparece en el Hub como antes.
 3. Romper a propósito el secreto (guardar uno falso desde el panel) e ingresar por Microsoft:
-   mensaje "Microsoft no confirmó tu identidad" o "no pudimos contactar a Microsoft". El login
-   con contraseña sigue funcionando.
+   mensaje "No se pudo confirmar el ingreso con Microsoft. Si se repite, avisá al administrador"
+   (research D15). El log del backend muestra la causa (`invalid_client`). El login con
+   contraseña sigue funcionando. Es el mismo mensaje que va a ver un usuario cuando venza el
+   secreto, y la guía lo dice.
 4. Apagar el interruptor en el panel: el botón desaparece del Hub en el próximo ingreso, sin
    reiniciar nada (US3 AS2).
 5. Licencia **sin** `sso` (volver a `dev-demo.lic`): sin botón en el Hub ni en el panel, y sin
    errores (US2 AS3).
+6. Con la licencia con `sso` y el proveedor activo, vaciar `SENTINEL_SSO_REDIRECT_URI` y
+   recrear el backend (vuelta atrás de nivel 1). `available` devuelve `return_origin: null` y el
+   Hub **no** muestra el botón (FR-001, FR-015).
+7. Apagar el interruptor **entre** pulsar el botón y completar el ingreso en Microsoft: mensaje
+   "no está disponible", un `auth_sso_denied` en la auditoría y el login con contraseña intacto.
 
 ## 5. Instalador y vuelta atrás (Etapa 1 de DESPLIEGUE-Y-REVERSION.md)
 

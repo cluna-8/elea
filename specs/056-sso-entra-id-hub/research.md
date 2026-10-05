@@ -143,14 +143,38 @@ A**, decidida por el owner vía coordinador el 2026-10-05):
   El backend publica `:8091` en la LAN (`elea-installer/docker-compose.yml:91-92`) y el callback es
   público cuando la licencia trae `sso`, así que cada petición basura escribiría una fila.
 - **Decisión**: en `backend/src/sso/api.py`, un tope fijo por minuto y **por proceso**
-  (constante `~30/min`, ventana de 60 s), **solo** para los `auth_sso_denied` de rechazo de
-  flujo (`state` o `code`). Los rechazos de identidad (`api.py:302`, `:313`, `:379`) no se tocan:
-  exigen un canje real con el IdP y no se pueden fabricar en masa.
-- **Excedente**: no escribe filas. Se resume en un `logger.warning` con el conteo de rechazos
-  omitidos en la ventana. Es metadata-only, sin `state`, `code`, IP ni token.
-- **Respuesta HTTP**: no cambia (400 y el mismo `detail`). El tope limita la auditoría, nunca el
-  veredicto.
-- **Alcance**: cambio de base mínimo y genérico, con test. Viaja a Sentinel con `sso/`.
+  (constante `~30/min`, ventana de 60 s) para los `auth_sso_denied` de rechazo de flujo
+  (`state`, `code`, proveedor cambiado o sin configurar, URI de retorno faltante).
+- **Extensión al canje fallido** (F1 del QA, [qa-plan.md](qa-plan.md); decisión del owner vía
+  coordinador, 2026-10-05). La versión anterior de este punto afirmaba que los rechazos de
+  identidad *"exigen un canje real con el IdP y no se pueden fabricar en masa"*. **Era falso
+  para `api.py:302`**:
+  - `GET /auth/sso/login` es público y le entrega a cualquiera una cookie de estado válida
+    (`api.py:203-247`);
+  - con esa cookie y su `state`, un `code` inventado pasa las validaciones (`api.py:260-273`)
+    y dispara un `POST` real al `token_endpoint` del directorio (`entra.py:280`);
+  - el rechazo cae en `except Exception` (`api.py:297-302`): una fila y una llamada saliente por
+    intento.
+
+  Por eso el canje fallido entra al tope, con **el mismo valor y la misma ventana, pero contador
+  propio**. Así, una ráfaga de 400 sin cookie (la más barata) no consume el cupo de los canjes.
+  Pasado el tope de canjes fallidos de la ventana, el callback **no llama al `token_endpoint`**
+  (el chequeo va antes de `provider.exchange_code`, en `api.py`; `entra.py` no cambia), no
+  escribe fila y responde el mismo `401 sso_identidad_no_verificada`. Los rechazos que exigen
+  una identidad real del directorio (`api.py:313` sin email y `:379` JIT: baja o sin puestos)
+  **no** tienen tope.
+- **Excedente**: no escribe filas. Se resume en un `logger.warning` por ventana y por
+  categoría (flujo, canje), con el conteo omitido. Es metadata-only, sin `state`, `code`, IP ni
+  token.
+- **Respuesta HTTP**: no cambia (mismo status y mismo `detail`). El tope limita la auditoría y
+  las llamadas salientes, nunca el veredicto. Efecto aceptado: mientras dura una ráfaga, un
+  canje legítimo dentro de la misma ventana también recibe el 401. Solo se degrada el camino SSO
+  (FR-006).
+- **Alcance**: cambio de base mínimo y genérico, con test. Viaja a Sentinel con `sso/`. La
+  imagen del backend de Elea corre **un** proceso `uvicorn` (`backend/Dockerfile.standalone:35`),
+  así que ahí "por proceso" equivale a "por instalación". La imagen prod de la base arranca
+  `--workers ${WEB_CONCURRENCY:-2}` (`deploy/docker/entrypoint/backend.sh:38-41`): allí el tope
+  efectivo es `tope × workers`. Sigue acotado y se anota en el HANDOFF.
 
 Alternativas descartadas:
 
@@ -179,8 +203,11 @@ mano en el host, y se **documenta**:
     (`Location: /…`) o van a la URL que devuelve el backend, y la comparación de origen de D4 la
     hace el **navegador** (`window.location.origin`), así que no hace falta `trust proxy` ni una
     variable nueva. El proxy puede mandar esas cabeceras (es lo estándar) sin efecto en el Hub;
-  - la cookie `elea_rag_sid` conserva sus atributos actuales (sin `Secure`, porque la misma
-    instalación sigue sirviendo `http://…:8095`). Límite conocido, igual que hoy; se documenta;
+  - la cookie `elea_rag_sid` conserva sus atributos actuales en el login con contraseña (sin
+    `Secure`, porque la misma instalación sigue sirviendo `http://…:8095`). En el camino SSO con
+    retorno `https://`, la cookie rotada lleva `Secure` y el flujo se ata además a una cookie
+    `__Host-` (D12, por F6 del QA). Las dos cosas se deciden por el esquema del `redirect_uri`,
+    sin `trust proxy`;
   - el proxy de Elea reenvía **todas** las rutas (incluidas `/sso/login` y `/sso/callback`, con
     su query intacto) al puerto `8095` del Hub; no hace falta publicar el backend (H9).
 
@@ -228,6 +255,96 @@ backend (`sso_habilitado_sin_secreto`, `sso_cifrado_no_disponible`) se muestran 
 `super_admin`/`tenant_admin` ven el formulario (mismo criterio de la pestaña). Es base: viaja a
 Sentinel por cherry-pick.
 
+## Ajustes del QA crítico del plan (D11 a D15)
+
+Salen de [qa-plan.md](qa-plan.md) (2026-10-05). D11, D12 y D15 se consultaron al coordinador por
+`ask` porque eran decisiones de diseño nuevas. D13 y D14 son ajustes que no abren decisiones.
+Ninguno reabre D1 a D10.
+
+### D11 — Pendientes del Hub: almacén lleno y límite de ritmo (F5)
+
+**Problema**: con "expulsar el más viejo", quien pide `/sso/login` sin cookie unas 8 veces por
+segundo expulsa a todos los ingresos en curso. Cada `GET /sso/login` sin cookie crea un `sid` y
+un pendiente nuevos (`client/server.js:88-97`). Además, cada pedido cuesta en el backend una
+consulta a la base y un descifrado del secreto (`api.py:207`, `:176`). Un límite por IP no sirve:
+detrás del proxy del cliente todos los pedidos llegan desde la misma IP (D7).
+
+| Opción | Cómo | Evaluación |
+|---|---|---|
+| A. Rechazar al que llega | Lleno después de barrer vencidos → `sso_reintentar` y no guarda. | Protege a los que están a mitad de ingreso. No acota la carga en el backend. |
+| **B. A + límite de ritmo global** | Además, un contador global por proceso en `/sso/login` del Hub (`120/min`, ventana de 60 s, reloj inyectable). Pasado el límite → `sso_reintentar` sin llamar al backend. | Acota también la carga en el backend. Solo Hub. Durante una ráfaga, un ingreso nuevo puede tener que reintentar; la contraseña sigue (FR-006). |
+
+**Recomendación**: B. **Elección final**: ver la nota de cierre de esta sección.
+
+### D12 — Login CSRF por cookie `sid` inyectada (F6)
+
+**Problema**: la atadura al `sid` (D1) solo vale si el atacante no puede escribir `elea_rag_sid`
+en el navegador de la víctima. La cookie no lleva `Secure` ni prefijo. Quien tenga posición de
+red (un `http://<nombre>` antes del HTTPS) o un subdominio hermano puede fijar
+`elea_rag_sid=A`, donde `A` es el `sid` de un flujo que el atacante inició con su identidad. Así
+el callback de la víctima encuentra el pendiente del atacante y le abre una sesión con la
+identidad del atacante. La rotación ocurre después y no lo impide.
+
+| Opción | Cómo | Evaluación |
+|---|---|---|
+| A. Límite documentado | Como estaba. | No cierra nada. |
+| B. `Secure` en el `sid` rotado | Si el `redirect_uri` que devuelve el backend empieza con `https://`, la cookie rotada lleva `Secure`. | Evita que la sesión viaje en claro. No impide inyectar el `sid` **antes** del ingreso. |
+| **C. B + cookie de atadura `__Host-`** | En `/sso/login`, con retorno `https://`, el Hub emite `__Host-sso_flow` (aleatoria, `Secure; HttpOnly; Path=/; SameSite=Lax`, 10 min) y guarda su valor en el pendiente. El callback exige `sid` **y** atadura. Con retorno `http://` (desarrollo en `localhost`), solo `sid`, como en D1. | El prefijo `__Host-` impide que esa cookie se escriba desde `http://` o desde un subdominio, así que el atacante no puede plantar su atadura en la víctima. Solo Hub y sin `trust proxy`: el esquema sale del `redirect_uri`, que Entra respeta byte a byte. |
+
+**Recomendación**: C. **Elección final**: ver la nota de cierre de esta sección.
+
+### D13 — Pantalla del Hub testeable sin dependencias nuevas (F2)
+
+**Problema**: T018 del plan anterior cambiaba `client/public/index.html` sin ningún test. El Hub
+no tiene `jsdom` (`client/package.json:7-15`) y ningún test carga `index.html`.
+
+| Opción | Evaluación |
+|---|---|
+| **A. Módulo puro `client/public/sso-ui.js`** | Las tres decisiones de la pantalla (destino del botón, texto del error, ofrecer "Contraseña") van en funciones puras, testeadas con `node --test`. `index.html` solo las cablea, y un test estático verifica el cableado y que el error no se pinte con `innerHTML` (XSS reflejado por `?sso_error=`). Respeta "ninguna dependencia nueva" (plan, Technical Context). |
+| B. `jsdom` como devDependency | Cubre el DOM real, pero suma una dependencia y contradice el plan. |
+
+**Elección**: A (ajuste: no cambia la arquitectura y respeta una restricción ya escrita).
+
+### D14 — Gates automáticos: marca blanca del Hub y `LATEST` (F3, F9)
+
+- **Marca blanca del Hub (FR-013, FR-014)**: los gates de hoy no miran `client/`.
+  `test_no_engine_name.sh:19-31` revisa el bundle del panel y `deploy/branding`;
+  `test_docs_*` revisan el sitio. Se suma un test `client/tests/unit/whitelabel-hub-056.test.js`
+  (solo `node:fs`, corre en `npm test` del Hub) con dos alcances:
+  - archivos **nuevos** de la 056 (`client/sso.js`, `client/public/sso-ui.js`): ni la lista
+    compartida `deploy/release/checks/prohibited_names.txt`, ni los motores internos de
+    documentos y presentaciones (lista local del test), ni `Elea`/`Eleia`;
+  - `client/public/index.html` y `client/server.js` completos: solo la lista compartida.
+    `index.html:2258` ya nombra un motor interno en un comentario; sumarlo a la lista compartida
+    afectaría otros gates y es decisión del owner, así que queda fuera.
+
+  Se cablea a `make -C deploy check` con un target `check-hub-whitelabel` que corre ese archivo
+  con `node --test` (sin Docker ni `npm ci`).
+- **`LATEST` del script de publicación**: `make -C deploy check` corre una lista explícita
+  (`deploy/Makefile:42`); un script nuevo en `checks/` no entra solo. El tramo D suma el target
+  `check-release-publish` (con el `docker` de prueba, sin Docker real) y es dueño de
+  `deploy/Makefile`. El tramo E, que corre después y no en paralelo, suma
+  `check-hub-whitelabel`.
+- **Panel**: el bundle ya lo cubre `test_no_engine_name.sh`. Los textos nuevos del formulario se
+  verifican además en el test de vitest del tramo C.
+
+### D15 — Mensaje del canje fallido en el callback (F10)
+
+**Problema**: cualquier excepción del canje (directorio caído, `invalid_client` por secreto
+vencido, `code` vencido) sale como `401 sso_identidad_no_verificada` (`api.py:297-307`). El texto
+del Hub decía "Microsoft no confirmó tu identidad", que culpa a la persona cuando falló la
+instalación.
+
+| Opción | Evaluación |
+|---|---|
+| **A. Solo Hub** | Texto neutro: "No se pudo confirmar el ingreso con Microsoft. Si se repite, avisá al administrador." La guía dice qué mensaje esperar cuando vence el secreto y dónde ver la causa (log del backend, `entra.py:109`, `_causa`). La base no cambia. |
+| B. Cambio de base | El backend separa la falla de la instalación con un `detail` nuevo, y el Hub suma un código. Toca el contrato de la 017 y el comportamiento del panel. |
+
+**Recomendación**: A, por la regla de base mínima. **Elección final**: ver la nota de cierre de
+esta sección.
+
+**Nota de cierre (D11, D12, D15 y alcance de F8)**: PENDIENTE_RESPUESTA_COORDINADOR
+
 ## Mejores prácticas consideradas
 
 - **OIDC authorization code con cliente confidencial**: el canje lo hace un servidor (el
@@ -237,7 +354,8 @@ Sentinel por cherry-pick.
   (navegación de nivel superior por GET). Sin cambios en `elea_rag_sid`.
 - **Memoria del Hub**: el `Map` de pendientes tiene TTL de 10 min (el mismo del JWT de estado,
   `api.py:59`) y un tope de entradas, para que un cliente que pide `/sso/login` en bucle sin
-  cookie no haga crecer la memoria sin límite.
+  cookie no haga crecer la memoria sin límite. Lleno, rechaza al que llega y no expulsa a nadie
+  (D11).
 - **White-label**: los textos del Hub dicen "Ingresar con Microsoft" (nombre del proveedor de
   identidad, no un componente interno) y toman la marca de `/api/branding`
   (`client/server.js:46-52`). `Microsoft` no está en

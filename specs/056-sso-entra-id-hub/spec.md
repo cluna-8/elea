@@ -4,11 +4,13 @@
 
 **Created**: 2026-09-23
 
-**Status**: Draft (especificada; sin plan ni tareas todavía)
+**Status**: Draft, enmendada por clarify el 2026-10-05 después del plan y del QA crítico
+([qa-plan.md](qa-plan.md)). Plan: [plan.md](plan.md). Tareas: [tasks.md](tasks.md).
 
-**Repos que toca (previsto)**: `cluna-8/elea` (`client/server.js`, `client/public/index.html`,
-`frontend/src/pages/UsersPage.tsx`,
-`backend/src/sso/` solo si se pide SSO también en el panel, `docs/`), `cluna-8/elea-installer`
+**Repos que toca (previsto)**: `cluna-8/elea` (`client/server.js`, `client/sso.js`,
+`client/public/index.html`, `client/public/sso-ui.js`, `frontend/src/pages/UsersPage.tsx`,
+`frontend/src/pages/LoginPage.tsx`, `backend/src/sso/api.py` (base mínima: `return_origin` y
+auditoría con tope, ver Clarifications), `deploy/`, `docs/`), `cluna-8/elea-installer`
 (`docker-compose.yml`, `.env.example`, `install.sh`), más una licencia nueva con el permiso `sso`.
 
 **Input**: pedido del dueño del producto (23-sep-2026): *"analizar el costo en desarrollo que
@@ -32,6 +34,45 @@ funcionalidad y poder activar Entra ID"*. Después: *"creame la spec… para evi
 **Es código de la base (Guardian), no de la localización argentina.** El SSO del backend ya es base.
 Lo nuevo (login SSO en el Hub y cableado del instalador) se diseña genérico para portarlo a
 Sentinel por handoff (ver §Preparación para Sentinel).
+
+## Clarifications
+
+### Session 2026-10-05
+
+Decisiones que el owner tomó durante el plan y el QA crítico, por medio del coordinador. Se
+registran acá para que la spec, el plan y las tareas digan lo mismo. El detalle y las alternativas
+descartadas están en [research.md](research.md).
+
+- Q: ¿Cómo intermedia el Hub el login y el callback si la cookie de estado firmada la emite el
+  backend para su propio origen? → A: el flujo queda pendiente en el servidor del Hub, atado al
+  navegador (`sid`), con `state` validado, de un solo uso y con rotación del `sid` al emitir la
+  sesión (D1, opción A).
+- Q: ¿Cómo sabe el Hub si mostrar el botón? → A: con un proxy fail-closed de
+  `/auth/sso/available`. Solo un `200` con `enabled:true` lo muestra (D2, opción A).
+- Q: ¿Cómo viajan el token y los errores? → A: el token queda solo en el servidor del Hub. El error
+  vuelve a la pantalla como un código de una lista cerrada, sin copiar el `detail` del backend
+  (D3).
+- Q: Con una sola URI de retorno, ¿cómo evita cada pantalla mostrar un botón que no puede
+  completar? → A: `/auth/sso/available` informa `return_origin` (esquema, host y puerto de la
+  URI). El panel muestra su botón solo si `return_origin` es nulo o es su propio origen. El Hub lo
+  muestra solo si `return_origin` no es nulo, y si es otro origen el botón lleva a ese origen
+  (D4, opción A, más F4 del QA). → FR-001, FR-015.
+- Q: ¿Cómo se oculta "cambiar contraseña" a quien entró por SSO? → A: con una marca de sesión
+  `auth_method:'sso'` en el Hub, sin tocar el backend (D5, opción A).
+- Q: ¿Se auditan los rechazos de flujo, que hoy no dejan rastro? → A: sí. El callback emite
+  `auth_sso_denied` metadata-only antes de cada rechazo de flujo. El Hub no audita por su cuenta
+  (D6). → FR-012.
+- Q: ¿Cómo se acota la inundación de la auditoría desde afuera, sin autenticarse? → A: con un tope
+  fijo por minuto y por proceso (~30) en el backend, que cubre los rechazos de flujo y también el
+  **canje fallido** (`api.py:297-302`). Pasado el tope, ese rechazo no escribe fila, no llama al
+  `token_endpoint` del directorio y se resume en un warning con el conteo. El veredicto HTTP no
+  cambia. Los rechazos que exigen una identidad real del directorio (sin email, baja, sin puestos)
+  no tienen tope (D6, opción A, extendida por F1 del QA). → FR-012, Edge Cases.
+- Q: ¿Quién sirve el HTTPS delante del Hub? → A: el proxy TLS del cliente, o uno configurado a
+  mano en el host. El instalador **no** suma un servicio TLS. El requisito se documenta y se
+  verifica en la prueba (D7, opción B). → FR-010.
+- Q: ¿Con qué clave se firma la licencia con `sso`? → A: con la misma clave y el mismo `kid` que
+  la licencia vigente. Pasar a una clave de producción es una decisión aparte (D8).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -155,6 +196,20 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   memoria): el ingreso falla con un mensaje de "volvé a intentar", sin quedar a medias.
 - **Ingreso con Microsoft vencido o manipulado** (estado inválido, respuesta repetida): se
   rechaza y se registra como intento denegado.
+- **Ráfaga de ingresos falsos sin autenticarse** (estados o `code` inventados contra el callback):
+  cada rechazo responde igual, pero pasado el tope por minuto (FR-012) deja de escribir filas y
+  de llamar al directorio. Mientras dura la ráfaga, un ingreso legítimo puede fallar con el mismo
+  mensaje. Solo se degrada el camino SSO: el login con contraseña sigue (FR-006).
+- **El admin apaga el SSO, o falta la dirección de retorno, a mitad de un ingreso**: el ingreso
+  termina con "no disponible", queda auditado (FR-012) y el login con contraseña sigue. Con la
+  dirección de retorno vacía, el Hub no dibuja el botón (FR-001, FR-015).
+- **Cerrar sesión en el Hub no cierra la sesión corporativa de Microsoft**: en una PC compartida,
+  la persona siguiente que pulse "Ingresar con Microsoft" puede entrar con la cuenta anterior si
+  la sesión de Microsoft sigue abierta. Es el comportamiento estándar de SSO. Queda documentado
+  como límite conocido en la guía.
+- **Usuario existente con cambio obligatorio pendiente (spec 055) que entra por SSO**: no se le
+  pide el cambio (FR-008) y su contraseña temporal sigue valiendo para el login local. La
+  checklist de activación indica resetear o forzar el cambio de esos usuarios antes de activar.
 - **Un admin entra al Hub por Microsoft**: entra con su rol de admin actual, porque el SSO no
   cambia roles. El panel Eleia Guardian sigue con contraseña en la fase 1.
 - **Vence el secreto de la aplicación en Entra**: el botón de Microsoft falla con un error
@@ -166,7 +221,9 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 
 - **FR-001**: Eleia Hub MUST ofrecer "Ingresar con Microsoft" junto al login con usuario y
   contraseña **solo** cuando la instalación tiene SSO habilitado (licencia con permiso `sso` y
-  proveedor configurado y activo).
+  proveedor configurado y activo) **y** tiene configurada la dirección de retorno
+  (`return_origin` no nulo, FR-015). Sin dirección de retorno el flujo no puede arrancar, así que
+  el Hub no dibuja el botón.
 - **FR-002**: El ingreso con Microsoft desde el Hub MUST terminar en la misma sesión de Hub
   que el login con contraseña, con el mismo token emitido por Guardian. Así chat, Documentos,
   Planillas, Presentaciones, presupuestos y permisos de espacios funcionan sin cambios.
@@ -195,18 +252,39 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   archivos. La configuración MUST sobrevivir a una actualización.
 - **FR-009b**: El instalador MUST pasar al backend la dirección de retorno del Hub
   (`SENTINEL_SSO_REDIRECT_URI`) desde `.env`. Si está vacía, la instalación arranca igual y sin SSO.
-- **FR-010**: La instalación MUST servir el Hub por HTTPS en el nombre registrado como retorno en
-  Entra, y el server MUST poder salir por HTTPS a `login.microsoftonline.com`.
+- **FR-010**: El Hub MUST quedar accesible por HTTPS en el nombre registrado como retorno en
+  Entra, y el server MUST poder salir por HTTPS a `login.microsoftonline.com`. El TLS lo termina un
+  proxy del cliente delante del Hub (o uno configurado a mano en el host). El instalador no lo
+  sirve (Clarifications, D7-B). La entrega MUST **documentar** el requisito (qué publica el proxy,
+  a qué puerto reenvía y qué rutas) y **verificarlo** en la prueba de punta a punta.
 - **FR-011**: La licencia de Elea MUST incluir el permiso `sso`. Sin él, FR-001 y FR-006 aplican
   (sin botón y sin errores).
 - **FR-012**: Todo ingreso por SSO, aceptado o rechazado, MUST quedar en la auditoría de
-  autenticación existente, solo con metadatos (sin tokens ni secretos).
+  autenticación existente, solo con metadatos: sin tokens, secretos, `state`, `code` ni email.
+  "Rechazado" incluye los rechazos de **flujo** del callback: estado ausente, inválido o repetido,
+  `code` ausente, proveedor cambiado, apagado o sin configurar a mitad del ingreso, dirección de
+  retorno faltante. Incluye también el **canje fallido** con el directorio y los rechazos de
+  **identidad**: sin email, usuario dado de baja, sin puestos. **Única excepción**: los rechazos
+  de flujo y de canje fallido tienen un tope fijo por minuto y por proceso (Clarifications, D6 y
+  F1). Pasado el tope, el rechazo no escribe fila y se resume en un warning con el conteo
+  omitido. El canje fallido, además, deja de llamar al directorio. El veredicto que ve el usuario
+  no cambia. Los rechazos de identidad no tienen tope.
 - **FR-013**: Nada de lo visible para el cliente (pantallas, errores, guía) MUST exponer nombres
   de componentes internos (motor de gateway, motores de documentos o presentaciones), según la
   regla vigente del producto.
 - **FR-014**: Todo lo nuevo MUST ser genérico y configurable, sin nombres, dominios, tenants ni
   marcas de Elea fijos en el código, para portarlo a Sentinel sin reescribir (ver §Preparación
   para Sentinel).
+- **FR-015**: La consulta pre-auth de disponibilidad de SSO MUST informar el **origen de
+  retorno** (`return_origin`: esquema, host y puerto de la dirección de retorno configurada, sin
+  ruta, query ni credenciales; nulo si falta o no es absoluta). Ninguna pantalla MUST ofrecer un
+  botón de Microsoft que no pueda completar el ingreso:
+  - el panel lo muestra solo si `return_origin` es nulo (comportamiento de hoy) o es su propio
+    origen;
+  - el Hub lo muestra solo si `return_origin` no es nulo, y si es otro origen el botón lleva a
+    ese origen.
+
+  El campo es opcional y retrocompatible: un cliente que lo ignora se comporta como hoy.
 
 ### Key Entities
 
@@ -252,7 +330,11 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 **Decisiones de alcance (fase 1):**
 
 - SSO **solo en Eleia Hub**. El panel Eleia Guardian sigue con contraseña para los admins, y no
-  hace falta que el backend acepte dos URIs de retorno.
+  hace falta que el backend acepte dos URIs de retorno. El backend sí recibe dos cambios de base
+  chicos y retrocompatibles: `return_origin` en la consulta de disponibilidad (FR-015) y la
+  auditoría de los rechazos de flujo con tope (FR-012).
+- HTTPS por el proxy del cliente, solo documentado y verificado (FR-010). El instalador no
+  termina TLS.
 - Solo el proveedor Microsoft Entra (el que ya existe). Sin MFA propio: la MFA la aplica Entra si
   Elea la tiene configurada.
 
@@ -265,7 +347,10 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 | Baja automática desde Entra (SCIM) | +3 a 5 |
 | Sesiones del Hub persistentes (hoy en memoria) | aparte, no bloquea |
 
-**Estimación de la fase 1: 5 a 7,5 días de dev** (suma el formulario del panel y el versionado para volver atrás, pedidos el 23-sep).
+**Estimación de la fase 1: 5,25 a 6,25 días de dev**. Suma el formulario del panel y el versionado
+para volver atrás, pedidos el 23-sep. Se re-estimó el 2026-10-05: el HTTPS queda en el proxy del
+cliente (D7-B) y se suman el tope de auditoría, los tests de la pantalla del Hub y el gate de marca
+blanca (QA del plan).
 
 | Tarea | Días |
 |---|---|
@@ -273,8 +358,9 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 | Cableado del instalador (`SENTINEL_SSO_REDIRECT_URI`) | 0,25 |
 | Formulario de configuración SSO en el panel (usa la API existente) | 0,5 a 1 |
 | Vuelta atrás real: tag de imagen fijable en el instalador (`ELEA_TAG`), publicar candidatas sin mover `latest`, licencia montada desde el host | 0,5 |
-| HTTPS (según la red de Elea) | 0,5 a 2 |
-| SSO en el Hub | 1,5 a 2 |
+| HTTPS: documentar y verificar el proxy TLS del cliente (el tiempo de su red no es de dev) | 0,25 |
+| Base: `return_origin` y auditoría con tope | 0,25 a 0,5 |
+| SSO en el Hub, con tests de la pantalla y el gate de marca blanca | 1,75 a 2 |
 | Prueba de punta a punta con el tenant real y regresión | 1 |
 | Guía para IT y docs | 0,5 |
 
@@ -294,6 +380,7 @@ carpeta al cerrar.
 |---|---|---|
 | SSO del backend (proveedor Entra, alta automática, config cifrada, callback) | `backend/src/sso/` | **Base, ya existe** (spec 017). Confirmar que Sentinel tenga la migración `017_sso_providers` y la misma versión de `sso/`. |
 | Permiso `sso` en licencia | licencias firmadas | Base. Cada línea emite la suya con su clave. |
+| `return_origin` en `/auth/sso/available` y auditoría de los rechazos de flujo y del canje fallido con tope por proceso (FR-012, FR-015) | `backend/src/sso/api.py` | **Base**, mínima y retrocompatible: campo opcional nuevo, mismos status y `detail`. Viaja por cherry-pick con sus tests. El tope es una constante por proceso: se revisa si Sentinel corre más de un proceso. |
 | Lista de URIs de retorno (solo si se pide SSO en el panel) | `backend/src/sso/api.py` | Base, retrocompatible: si no hay lista, se usa la variable única de hoy. |
 | Variable `SENTINEL_SSO_REDIRECT_URI` en compose y `.env.example` | `elea-installer/` | Base en enfoque. Portar al instalador de Sentinel con nombres de variable **iguales**. |
 | Formulario de configuración SSO en el panel | `frontend/src/pages/UsersPage.tsx` (pestaña "Autenticación & SSO") | **Base**: es el mismo `frontend/` que comparten las dos líneas. Portable tal cual, confirmando antes el diff (mismo caveat que la 054 y la 055). |
@@ -302,7 +389,8 @@ carpeta al cerrar.
 
 **Estado del porte (23-sep)**: la spec espejo ya existe en Sentinel, `specs/067-porte-elea-sso-entra-hub/` (cluna-8/sentinel#24). Allí también está el plan de prueba simultánea: directorio personal para Eleia y directorio de Evidenze para Sentinel. Backend y panel se escriben una sola vez y se cherry-pickean.
 
-**Reglas de diseño para que el port sea directo** (se verifican en el analyze):
+**Reglas de diseño para que el port sea directo** (se verifican en el analyze y, las de marca,
+con el gate automático de marca blanca del Hub y los tests del panel):
 
 - Sin strings de Elea ni Eleia en lógica. Textos visibles tomados de la marca configurada de la
   instalación.
