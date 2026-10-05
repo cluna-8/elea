@@ -21,7 +21,7 @@ DECISIÓN del endpoint, no la calidad semántica del modelo de embeddings (eso e
 se mide contra el stack vivo en el checkpoint T010, no acá).
 """
 import json
-import shutil
+import copy
 import sys
 from pathlib import Path
 
@@ -44,12 +44,27 @@ DB = "sentinel_test_chat_auto_router"
 CHAT = "/api/v1/chat/completions"
 MODELOS = "/api/v1/chat/models"
 
-# Modelos que existen de verdad en el catálogo del motor (litellm/config.yaml): el router
-# valida el destino contra el catálogo real, así que un target inventado degradaría a
-# `target_missing` y el test estaría probando otra cosa.
+# Modelos de PRUEBA que el fixture `catalogo_temporal` inyecta en la copia del catálogo del
+# motor. El router valida el destino contra el catálogo (un target ausente degrada a
+# `target_missing`), pero el catálogo de dev (`litellm/config.yaml`) es solo Azure desde el
+# 31-ago (c9a98a8/484b5a9) y no tiene por qué traer un premium, un económico y un local: el
+# test no depende de su contenido, lo arma él.
 PREMIUM = "gpt-4o"
 ECONOMICO = "gpt-4o-mini"
 LOCAL = "ollama-qwen3-4b"
+
+# Entradas sintéticas del `model_list`, con la forma que el motor espera. El local lleva los
+# límites del runtime local (`max_parallel_requests: 20`, `num_retries: 0`, #134-②).
+_DEPLOYMENTS_DE_PRUEBA = [
+    {"model_name": PREMIUM,
+     "litellm_params": {"model": "openai/gpt-4o", "api_key": "os.environ/OPENAI_API_KEY"}},
+    {"model_name": ECONOMICO,
+     "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "os.environ/OPENAI_API_KEY"}},
+    {"model_name": LOCAL,
+     "litellm_params": {"model": "ollama_chat/qwen3:4b",
+                        "api_base": "http://host.docker.internal:11434",
+                        "max_parallel_requests": 20, "num_retries": 0}},
+]
 
 # Temas de los vectores falsos. El texto no importa semánticamente: lo que importa es que
 # la consulta comparta tema con las utterances de UNA sola ruta.
@@ -209,9 +224,14 @@ def router_config(monkeypatch, tmp_path):
     return escribir
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def catalogo_temporal(monkeypatch, tmp_path):
-    """Copia del `config.yaml` del motor en `tmp_path`, con el plano chat apuntando ahí.
+    """Catálogo del motor de PRUEBA en `tmp_path`, con el plano chat apuntando ahí.
+
+    Autocontenido: copia del `config.yaml` real + los tres deployments de `PREMIUM`,
+    `ECONOMICO` y `LOCAL` si el real no los trae (los agrega, no pisa). Así los tests no
+    dependen de qué modelos tenga el catálogo de dev. Es `autouse` porque el router lee el
+    catálogo en TODO pedido «auto» y en `GET /chat/models`, no solo en los tests de alta.
 
     Los tests de alta de modelos ESCRIBEN el catálogo: sin esta copia, correr la suite
     modificaría el `litellm/config.yaml` del repo (que en dev está montado dentro del
@@ -220,7 +240,12 @@ def catalogo_temporal(monkeypatch, tmp_path):
     from src.api import chat
 
     destino = tmp_path / "config.yaml"
-    shutil.copyfile(chat._get_config_path(), destino)
+    datos = yaml.safe_load(Path(chat._get_config_path()).read_text()) or {}
+    model_list = datos.setdefault("model_list", [])
+    presentes = {m.get("model_name") for m in model_list if isinstance(m, dict)}
+    model_list.extend(copy.deepcopy(d) for d in _DEPLOYMENTS_DE_PRUEBA
+                       if d["model_name"] not in presentes)
+    destino.write_text(yaml.safe_dump(datos, default_flow_style=False), encoding="utf-8")
     monkeypatch.setattr(chat, "_get_config_path", lambda: str(destino))
 
     def leer():
