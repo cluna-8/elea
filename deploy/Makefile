@@ -62,17 +62,27 @@ check-images:
 # que protegen el parser de `.env.example` —el que produce la página de
 # configuración que se le muestra al cliente— eran decoración. Stdlib pura, sin
 # Docker: cuesta menos de un segundo.
+# Cada paso corre aunque un paso anterior haya fallado, y el target sale != 0 si falló alguno
+# (D8 del diagnóstico del CI rojo, 5-oct-2026): con `&&` entre pasos —y con una línea de receta
+# por paso, que `make` corta en la primera que falla— un solo rojo escondía todos los demás
+# durante semanas. `run` imprime qué paso cayó; el resumen final los lista.
 check-docs: build-docs
-	cd $(REPO_ROOT) && python3 docs/test_gen_config_reference.py && python3 docs/tools/test_drift_gate.py && python3 docs/tools/drift_gate.py
-	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_image.sh
-	$(REPO_ROOT)/deploy/release/checks/test_docs_strict_build.sh
-	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_content.sh
-	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_neutral_naming.sh
-	$(REPO_ROOT)/deploy/release/checks/test_docs_whitelabel.sh
-	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_search_offline.sh
-	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_apiref.sh
-	$(REPO_ROOT)/deploy/release/checks/test_docs_structure.sh
-	DOCS_IMG=$(DOCS_IMG) $(REPO_ROOT)/deploy/release/checks/test_docs_versioning.sh
+	@cd $(REPO_ROOT); fallos=""; \
+	run() { echo "▶ $$*"; "$$@" || fallos="$$fallos\n  ✗ $$*"; }; \
+	run python3 docs/test_gen_config_reference.py; \
+	run python3 docs/tools/test_drift_gate.py; \
+	run python3 docs/tools/drift_gate.py; \
+	run env DOCS_IMG=$(DOCS_IMG) deploy/release/checks/test_docs_image.sh; \
+	run deploy/release/checks/test_docs_strict_build.sh; \
+	run env DOCS_IMG=$(DOCS_IMG) deploy/release/checks/test_docs_content.sh; \
+	run env DOCS_IMG=$(DOCS_IMG) deploy/release/checks/test_docs_neutral_naming.sh; \
+	run deploy/release/checks/test_docs_whitelabel.sh; \
+	run env DOCS_IMG=$(DOCS_IMG) deploy/release/checks/test_docs_search_offline.sh; \
+	run env DOCS_IMG=$(DOCS_IMG) deploy/release/checks/test_docs_apiref.sh; \
+	run deploy/release/checks/test_docs_structure.sh; \
+	run env DOCS_IMG=$(DOCS_IMG) deploy/release/checks/test_docs_versioning.sh; \
+	if [ -n "$$fallos" ]; then printf "\ncheck-docs FALLÓ en:$$fallos\n"; exit 1; fi; \
+	echo "check-docs OK"
 
 check-whitelabel:
 	$(REPO_ROOT)/deploy/release/checks/test_no_engine_name.sh
