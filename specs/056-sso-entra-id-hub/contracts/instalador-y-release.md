@@ -1,0 +1,84 @@
+# Contrato — Instalador (`cluna-8/elea-installer`) y publicación de imágenes
+
+Cubre FR-009b, FR-010 y FR-011, y las tareas previas de
+[DESPLIEGUE-Y-REVERSION.md](../DESPLIEGUE-Y-REVERSION.md) §"Cambios previos". Decisiones:
+[research.md](../research.md) D7 (opción B: sin servicio TLS), D8 y D9.
+
+**Base en enfoque**: los nombres de variable (`SENTINEL_SSO_REDIRECT_URI`,
+`SENTINEL_LICENSE_TOKEN_FILE`) son los mismos que usa Sentinel, para portar el enfoque a su
+wizard (spec 065 allá) sin traducir nombres. `ELEA_TAG` es propio de este instalador.
+
+## 1. Variables nuevas en `.env` / `.env.example`
+
+| Variable | Default | Efecto | Vacía / ausente |
+|---|---|---|---|
+| `ELEA_TAG` | `latest` | Tag de las seis imágenes propias (`elea-guardian-backend`, `-frontend`, `-engine`, `-nlp`, `elea-rag-client`, `elea-tabular`). | Se usa `latest`, igual que hoy. |
+| `SENTINEL_SSO_REDIRECT_URI` | *(vacía)* | Se pasa al servicio `backend`. Debe ser **byte a byte** la URI registrada en Entra: `https://<nombre-del-hub>/sso/callback`. | El backend arranca igual; `/auth/sso/login` corta con `sso_redirect_uri_no_configurado` y el Hub muestra `sso_no_disponible` (FR-009b, FR-006). |
+| `SENTINEL_LICENSE_TOKEN_FILE` | `/app/config/licenses/dev-demo.lic` | Licencia que lee el backend. Para usar la del host: `/app/config/licenses/host/<archivo>.lic`. | Se usa la horneada en la imagen, como hoy. |
+
+`.env.example` documenta las tres en un bloque comentado "Ingreso con Microsoft (opcional)" y
+"Versión de imágenes", **sin valores de Elea**: marcadores `<nombre-del-hub>`.
+
+## 2. `docker-compose.yml`
+
+```yaml
+# imágenes propias (6): antes `:latest` fijo
+image: ghcr.io/cluna-8/elea-guardian-backend:${ELEA_TAG:-latest}
+# … igual para frontend, engine, nlp, rag-client y tabular. postgres, redis, anythingllm y
+# presenton NO cambian: ya están fijadas o son de terceros.
+
+backend:
+  environment:
+    - SENTINEL_LICENSE_TOKEN_FILE=${SENTINEL_LICENSE_TOKEN_FILE:-/app/config/licenses/dev-demo.lic}
+    - SENTINEL_SSO_REDIRECT_URI=${SENTINEL_SSO_REDIRECT_URI:-}
+  volumes:
+    - ./license:/app/config/licenses/host:ro
+```
+
+- `SENTINEL_ALLOW_DEV_LICENSE=true` **se mantiene** (deuda conocida, research D8).
+- **No** se agrega `SENTINEL_SSO_COOKIE_INSECURE`: el Hub no la necesita
+  ([guardian-sso-api.md](guardian-sso-api.md) §3) y en producción la cookie del panel debe ser `Secure`.
+- **No** se agrega ningún servicio TLS ni proxy (D7-B).
+- `./license/` existe en el repo del instalador con un `.gitkeep` y una regla de `.gitignore`
+  para `*.lic`: la licencia de un cliente **nunca** se versiona.
+
+Verificación: `docker compose config` sin `.env` nuevo renderiza `:latest`, la licencia
+`dev-demo.lic` y `SENTINEL_SSO_REDIRECT_URI` vacía. Con `ELEA_TAG=056-rc1` renderiza ese tag en
+las seis imágenes.
+
+## 3. `install.sh`
+
+- El `docker pull` explícito del motor (`install.sh:56`) usa `${ELEA_TAG:-latest}`.
+- El resumen final imprime el tag en uso, por ejemplo `Versión de imágenes: 056-rc1`, para
+  anotarlo antes de la próxima actualización (vuelta atrás de nivel 2).
+- Si `SENTINEL_SSO_REDIRECT_URI` no está vacía y **no** empieza con `https://` (y tampoco es
+  `http://localhost…`), avisa sin cortar: "Microsoft solo acepta https salvo localhost".
+- Si `SENTINEL_LICENSE_TOKEN_FILE` apunta a `/app/config/licenses/host/…` y el archivo no está
+  en `./license/`, corta con un error claro antes de levantar el backend.
+
+## 4. HTTPS: proxy TLS de Elea (D7-B, solo documentación)
+
+El instalador no termina TLS. Lo que la documentación (README del instalador,
+`docs/docs/install-deploy/sso.md`, SOLICITUD y DESPLIEGUE) tiene que dejar claro:
+
+| Requisito | Detalle |
+|---|---|
+| Nombre DNS | `<nombre-del-hub>` resuelve al server. Es el mismo host de `SENTINEL_SSO_REDIRECT_URI` y de la URI registrada en Entra. |
+| Certificado | Confiable por las PC de los usuarios (CA interna distribuida por GPO o certificado público). |
+| Reenvío | `https://<nombre-del-hub>/*` → `http://<server>:8095/*`, **todas** las rutas, query intacto (incluye `/sso/login` y `/sso/callback`). |
+| Cabeceras | `Host`, `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`: las estándar. El Hub **no depende** de ellas (redirecciones relativas, research D7). |
+| Salida | El server sale por 443 a `login.microsoftonline.com`. La necesita el backend, no el Hub. |
+| Puerto 8095 | Puede seguir abierto en la LAN. Quien entre por ahí ve el botón, que lo lleva al nombre HTTPS (D4). |
+
+## 5. `deploy/release/publish-elea.sh` (repo `elea`)
+
+| Variable | Default | Efecto |
+|---|---|---|
+| `LATEST` | `1` | `1`: igual que hoy, etiqueta y empuja `:${VERSION}` **y** `:latest` (`publish-elea.sh:34`, `:42`). `0`: solo `:${VERSION}`. **No** construye ni empuja `:latest`. |
+
+Uso para candidatas: `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh`. Promoción en la
+Etapa 5: republicar con fecha y `LATEST=1`. El encabezado de uso del script documenta los dos
+modos. El resto del script (chequeo de la imagen del backend, `PINNED …`) no cambia.
+
+Verificación sin publicar: correr el script con `docker` sustituido por un *stub* en el `PATH`
+que registre los argumentos, y comprobar que con `LATEST=0` no aparece ningún `:latest`.
