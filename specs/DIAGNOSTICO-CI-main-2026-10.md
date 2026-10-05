@@ -468,3 +468,64 @@ neutro en `rag-usage` (si Sentinel adopta el endpoint); (4) los fixtures de cat�
 7. La causa de los 9 fallos **solo-locales** (`test_route_parity`, `test_surface_routing`).
 8. El resultado del run `37374302720` (merge del PR #4, 5-oct), que estaba en cola: no lo esperé. Como no hay cambios de código desde `ec03a6f`, se espera el mismo conjunto de fallos, pero no lo medí.
 9. Cuál es la política real de branch protection de `main` (no tengo acceso a esa configuración desde acá); D8 asume que `backend-tests` no es requerido.
+
+---
+
+## 12. Estado de los grupos (arreglos aplicados, 5-oct-2026)
+
+Decisiones del owner: se aprobaron todas las recomendaciones de la §9 (D1–D9). D6 (Docker) solo en una
+ventana final coordinada por Atlas. Un commit por grupo, en el orden de la §8 (grupo 1 antes de regenerar docs).
+
+| Grupo | Commit | Estado | Qué queda verificado | Qué queda para CI/ventana |
+|---|---|---|---|---|
+| 4 — policy latam_ar | `f71ccd6` | Arreglado | `pytest tests/test_policy_unit.py` → 290 passed (venv local) | — |
+| 2 — catálogo + auto-router | `2975234` | Arreglado | contract: `1 passed, 3 skipped` (skip por D2 i); lógica del fixture simulada sin DB | 7 de `test_chat_auto_router.py` (Postgres) |
+| 3 — migraciones | `05511a9` | Arreglado (7a + 7a' = 199fe429762a) | `alembic upgrade 020:head --sql` emite `IF NOT EXISTS`; un solo head | 7 archivos `test_migration_*.py` (Postgres) |
+| 1 — marca blanca | `266b644` | Arreglado | `test_branding_neutral_043.py` → 5 passed | `test_rag_usage_053.py` (Postgres) |
+| D8 — `check-docs` no se corta | `34fba21` | Hecho | mecanismo probado con un makefile de juguete | corrida real de `make -C deploy check-docs` |
+| 5 — referencias del sitio | `82f56b1` | Arreglado, **por confirmar con Docker** | `docs/test_gen_config_reference.py` (13 ok), `docs/tools/test_drift_gate.py` y `drift_gate.py` (VERDE, exit 0), `test_docs_structure.sh`, `test_engine_admission_wiring.sh` | `make -C deploy docs-refs` debe dejar `git diff` vacío; `make -C deploy check-docs` |
+
+Notas del grupo 5:
+- `openapi.json` se regeneró con el venv local (fastapi 0.111.0, pydantic 2.13.4: los pins de `backend/requirements.txt`)
+  y el diff contra el publicado fueron exactamente las 3 rutas + 2 schemas sobrantes y las 2 rutas + 1 schema
+  faltantes (+ `GroupResponse`/`WorkspaceCreate`), sin ruido en el resto. Que sea byte-idéntico al del contenedor sigue
+  siendo [no verificado] hasta la ventana.
+- Resuelto D5 (i): `configuration.md` ya sale por completo de `.env.example` (sección «Eleia Hub y motores» en un banner
+  con los datos que estaban solo en la doc: defaults del historial, puerto de plantillas, `SENTINEL_NLP_TIMEOUT_S=60`).
+- Residuos conocidos, **no tocados** (D4: no se toca `prohibited_names.txt` este ciclo): la página pública sigue
+  mostrando las variables `ANYTHINGLLM_API_KEY` y `PRESENTON_*` y el default `http://presenton:80` (antes estaba
+  en la descripción); el título de la sección RAG sigue diciendo «spec 040». Es el mismo tema aparte de D4.
+- Verificación local de la suite completa (venv, sin Postgres): `9 failed, 1554 passed, 115 skipped`. Los 9 son los
+  «solo-locales» de la §10 (`test_route_parity` ×6, `test_surface_routing` ×3: «could not translate host name db»),
+  los mismos de antes y fuera de este diagnóstico. Antes: `13 failed, 1552 passed, 112 skipped`.
+
+### Ventana con Docker (la coordina Atlas), comandos en orden
+
+```
+make -C deploy docs-refs                                   # regenera openapi.json y configuration.md; git diff debe quedar vacío
+make -C deploy check-docs                                  # ahora corre todos los pasos y lista todos los fallos
+make -C deploy check                                       # gate de artefactos
+docker compose run --rm --no-deps backend alembic upgrade head
+docker compose run --rm --no-deps backend pytest tests/ -q # suite completa con Postgres (migraciones, auto-router, rag-usage)
+```
+
+Si `docs-refs` deja diff en `openapi.json`, commitearlo (es lo que manda el contenedor). Si la suite deja rojo algo en la
+cadena de migraciones tras la 054/055, ver §11.3.
+
+## 13. Para el handoff a Sentinel
+
+Archivos **base** tocados (Atlas redacta `HANDOFF-elea-a-sentinel.md` «fix-ci-main»; Sentinel no debe importar las versiones anteriores):
+
+1. **Migraciones** (`backend/alembic/versions/`): `7a6fee614cfd_groups_deactivation.py` y
+   `199fe429762a_users_must_change_password.py` quedan con `ADD COLUMN IF NOT EXISTS` / `DROP COLUMN IF EXISTS`. Mismo id y
+   mismo `down_revision`; no-op en bases ya migradas. Ambas son «Base» en los handoffs de 054 y 055: traerlas con el arreglo.
+2. **`backend/src/api/chat.py`** (`report_rag_usage`, `POST /chat/rag-usage`): `description=` neutro en el decorador y el
+   docstring pasa a comentario `#`. Aplica solo si Sentinel adopta el endpoint (spec 053); retrocompatible.
+3. **Tests de base**: `backend/tests/test_policy_unit.py` (latam_ar con `⊇` en vez de igualdad: la tabla de Sentinel no
+   trae CBU y debe seguir verde); `backend/tests/integration/test_chat_auto_router.py` (fixture `catalogo_temporal` autouse y
+   autocontenido con deployments sintéticos); `backend/tests/contract/test_catalogo_motor_paralelismo.py` (skip si el
+   catálogo de dev no declara un `ollama_chat/`, con motivo que apunta a `test_engine_local_limits.sh`).
+4. **`.env.example` / `docs/`** son de Eleia, **no** base: la sección «Eleia Hub y motores» y `docs/docs/api-reference/*`
+   no se portan. `docs/gen_config_reference.py` y el drift gate no se tocaron.
+5. **`deploy/Makefile`** (`check-docs`): ya no corta en el primer fallo; si Sentinel comparte ese Makefile, conviene
+   adoptarlo, pero es de proceso y no cambia contratos.
