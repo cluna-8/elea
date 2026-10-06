@@ -387,6 +387,12 @@
       text-align: center;
     }
     .auth-title { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: var(--text-main); }
+    #sso-login-slot { display: flex; flex-direction: column; }
+    #sso-login-slot a {
+      display: block; padding: 10px 20px; border: 1px solid var(--border-color); border-radius: 12px;
+      font-size: 13px; font-weight: 600; color: var(--text-main); text-decoration: none; background: #ffffff;
+    }
+    #sso-login-slot a:hover { background: #f5f6fa; }
 
     /* MODALS */
     .modal-backdrop {
@@ -453,6 +459,8 @@
         <div id="login-error" style="color:var(--accent-red); font-size:12.5px; display:none;"></div>
         <button type="submit" class="send-action-btn wide" style="width:100%; justify-content:center;">Ingresar</button>
       </form>
+      <!-- Ingreso corporativo (spec 056): el botón lo dibuja sso-ui.js solo si hay un destino válido. -->
+      <div id="sso-login-slot"></div>
     </div>
   </div>
 
@@ -539,7 +547,7 @@
     <!-- Action Buttons -->
     <div style="display:flex; gap:6px;">
       <button class="action-icon-btn" id="btn-open-unassigned" style="display:none;" onclick="openUnassignedModal()" title="Espacios heredados sin miembros">Sin asignar</button>
-      <button class="action-icon-btn" onclick="openChangePasswordModal()" title="Cambiar mi contraseña">Contraseña</button>
+      <button class="action-icon-btn" id="btn-change-password" onclick="openChangePasswordModal()" title="Cambiar mi contraseña">Contraseña</button>
       <button class="action-icon-btn logout" onclick="handleLogout()" title="Cerrar Sesión">Salir</button>
     </div>
   </div>
@@ -973,6 +981,7 @@
 
   <div class="toast-msg" id="toast-notification">Acción completada</div>
 
+  <script src="/sso-ui.js"></script>
   <script>
     // Estado de la UI. `messages` es SOLO de esta pestaña (no se persiste ni se relee del
     // motor de documentos al recargar — limitación conocida, ver client/README.md).
@@ -1047,17 +1056,56 @@
       if (governanceLabel) governanceLabel.innerText = hubBrand.governanceLabel;
     }
 
+    // sso-056:inicio
+    // Ingreso corporativo (spec 056). Toda decisión y todo texto salen de `SsoUi` (sso-ui.js, módulo
+    // puro y testeado). Acá solo se cablea el DOM: nunca con HTML armado como texto ni con plantillas
+    // que lleven valores de la URL o de la respuesta (el botón con createElement + textContent, el
+    // error con textContent).
+    async function mostrarIngresoCorporativo() {
+      const slot = document.getElementById('sso-login-slot');
+      if (!slot) return;
+      slot.replaceChildren();
+      try {
+        const res = await fetch('/api/auth/sso/available', { cache: 'no-store' });
+        const destino = SsoUi.destinoBoton(await res.json(), window.location.origin);
+        if (!destino) return; // sin botón: ni deshabilitado ni aviso
+        const boton = document.createElement('a');
+        boton.id = 'sso-login-btn';
+        boton.href = destino;
+        boton.textContent = SsoUi.TEXTO_BOTON;
+        slot.appendChild(boton);
+      } catch (err) { /* el formulario con contraseña sigue operativo */ }
+    }
+    function mostrarErrorCorporativo() {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('sso_error')) return;
+      const box = document.getElementById('login-error');
+      box.textContent = SsoUi.mensajeError(params.get('sso_error'));
+      box.style.display = 'block';
+      params.delete('sso_error');
+      const resto = params.toString();
+      history.replaceState(null, '', window.location.pathname + (resto ? `?${resto}` : '') + window.location.hash);
+    }
+    function aplicarCambioContrasena() {
+      const btn = document.getElementById('btn-change-password');
+      if (btn) btn.style.display = SsoUi.ofrecerCambioContrasena(currentUser) ? '' : 'none';
+    }
+    // sso-056:fin
+
     // ── Arranque / sesión ──────────────────────────────────────────────────────────────
     async function boot() {
       const res = await fetch('/api/user/current');
       const state = await res.json();
       if (!state.isAuthenticated) {
         document.getElementById('auth-overlay').classList.add('active');
+        mostrarErrorCorporativo();
+        mostrarIngresoCorporativo();
         return;
       }
       document.getElementById('auth-overlay').classList.remove('active');
       currentUser = state.user;
       currentBudget = state.budget;
+      aplicarCambioContrasena();
       maskingDeterminismSince = state.maskingDeterminismSince || null;
       renderUserHeader();
       // Contraseña fijada por un admin (alta o reseteo): mismo criterio que Guardian
@@ -1114,6 +1162,7 @@
 
     // ── Cambio de contraseña (voluntario u obligatorio) ────────────────────────────────
     function openChangePasswordModal(forced) {
+      if (!SsoUi.ofrecerCambioContrasena(currentUser)) return; // ingresó con su cuenta corporativa (FR-008)
       const modal = document.getElementById('modal-change-password');
       const notice = document.getElementById('change-password-forced-notice');
       const closeX = document.getElementById('change-password-close-x');
@@ -1186,6 +1235,7 @@
       await fetch('/api/auth/logout', { method: 'POST' });
       currentUser = null; workspaces = []; currentWorkspace = null; messages = [];
       document.getElementById('auth-overlay').classList.add('active');
+      mostrarIngresoCorporativo();
     }
 
     // Roles admin del lado del Hub (ver también backend/src/api/workspaces.py

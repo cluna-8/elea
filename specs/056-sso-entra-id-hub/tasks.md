@@ -71,7 +71,7 @@ de despachar A a D.
 - [ ] T002 [repo: elea] Anotar la línea base de gates para comparar al cierre (T044):
   - **en local, sin Docker**: `cd client && npm test` y `cd frontend && npm test`, con sus conteos;
   - **partes con Docker** (`docker compose run --rm --no-deps backend pytest tests/ -q` y `make -C deploy check`): la línea base sale del **último run del CI de `main`**, run `35871397897`: **18 fallas conocidas** de la suite del backend más `check-docs` en rojo, que se arregla aparte. **No** se corren en local para la línea base. Anotar en la tarea los 18 tests que fallan (los nombres, del log del run), para que T044 compare contra esa lista y no contra cero
-- [ ] T003 [P] [repo: elea] Preparar el entorno de prueba de GUIA-PRUEBA-LOCAL-SSO.md §1 a §3:
+- [x] T003 [P] [repo: elea] Preparar el entorno de prueba de GUIA-PRUEBA-LOCAL-SSO.md §1 a §3:
   - directorio Entra **de prueba**, con las URIs Web `http://localhost:8090/sso/callback`, `http://localhost:8095/sso/callback` y `https://localhost:8443/sso/callback` (esta, para el ingreso por HTTPS local de quickstart §3b);
   - agregar a `.gitignore` las entradas `backend/config/licenses/dev-sso-local.lic` y `docker-compose.sso-local.yml` (B9 del QA: hoy no están ignoradas);
   - verificar con `git check-ignore -v` que las dos quedan ignoradas, y con `git status` que no aparecen.
@@ -147,20 +147,20 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
 
 ### Tests (escribir primero; deben fallar)
 
-- [ ] T010 [P] [US1] [repo: elea] Tests unitarios de `client/sso.js` en `client/tests/unit/sso-pendientes-056.test.js`:
+- [x] T010 [P] [US1] [repo: elea] Tests unitarios de `client/sso.js` en `client/tests/unit/sso-pendientes-056.test.js`:
   - almacén de pendientes: guardar por `sid` con `atadura` opcional, reemplazo del mismo `sid`, `tomar` que borra (un solo uso), vencimiento a los 10 min con reloj inyectable;
   - almacén **lleno** (F5 del QA, research D11, FR-016): barre vencidos y, si sigue lleno, **rechaza el nuevo** sin expulsar a ningún pendiente en curso;
   - límite de ritmo de `/sso/login`: `SSO_LOGIN_POR_MIN` aceptados por ventana, el siguiente rechazado, la ventana siguiente vuelve a aceptar;
   - comparación de `state` y de `atadura` con `timingSafeEqual`: largos distintos no coinciden y no lanzan;
   - mapeo status/`detail` → código de error de la tabla de [hub-sso.md](contracts/hub-sso.md) §4, completo, incluido el desconocido → `sso_error`
-- [ ] T011 [P] [US1] [repo: elea] Tests de contrato en `client/tests/contract/test_sso_hub_056.test.js` con el doble HTTP de `client/tests/mock-servers.js` ([hub-sso.md](contracts/hub-sso.md) §7, tests 1 a 5):
+- [x] T011 [P] [US1] [repo: elea] Tests de contrato en `client/tests/contract/test_sso_hub_056.test.js` con el doble HTTP de `client/tests/mock-servers.js` ([hub-sso.md](contracts/hub-sso.md) §7, tests 1 a 5):
   - `GET /api/auth/sso/available` fail-closed: 200 `enabled:true`, 200 `enabled:false`, 403, 500, cuerpo no JSON, backend caído; `return_origin` pasa tal cual, incluido `null` (F4); `Cache-Control: no-store` (B6); nunca expone `provider_type`;
   - `GET /sso/login` guarda el pendiente y responde 302 a la `Location` del backend con `Cache-Control: no-store` y `Referrer-Policy: no-referrer`;
   - con retorno `https://` emite `__Host-sso_flow` con `Secure; HttpOnly; Path=/; SameSite=Lax`; con retorno `http://localhost` no la emite (F6, research D12);
   - primera visita **sin** `elea_rag_sid` y con retorno `https://`: la respuesta trae los **dos** `Set-Cookie` (el `sid` nuevo del middleware y `__Host-sso_flow`) y el pendiente queda bajo ese `sid` ([hub-sso.md](contracts/hub-sso.md) §2);
   - pasado el límite de ritmo → `sso_reintentar` sin llamar al backend; con el almacén lleno → `sso_reintentar` y un pendiente previo sigue consumible (F5, FR-016);
   - sin `Set-Cookie` o con status ≠ 302 → `302 /?sso_error=…` según §4
-- [ ] T012 [P] [US1] [repo: elea] Tests de integración del camino feliz en `client/tests/integration/test_sso_flujo_056.test.js`:
+- [x] T012 [P] [US1] [repo: elea] Tests de integración del camino feliz en `client/tests/integration/test_sso_flujo_056.test.js`:
   - login → callback con el mismo `sid`, `state` y atadura → el backend recibe `Cookie: sentinel_sso_state=…`;
   - sesión con `auth_method:'sso'`, `sid` **rotado** (`Set-Cookie` nuevo, con `Secure` si el retorno es `https://`, y el `sid` viejo sin sesión) y `302 /`;
   - **cookies sin pisarse** (N8 del QA v2): con `getSetCookie()`, la respuesta del callback con retorno `https://` trae **exactamente** el `sid` rotado y el borrado de `__Host-sso_flow` (`Max-Age=0`), los dos, y el `sid` viejo no aparece en ningún `Set-Cookie`; lo mismo cuando el callback llega en una primera visita y el middleware ya puso su `Set-Cookie`;
@@ -168,7 +168,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - ningún cuerpo ni cabecera del Hub contiene el `access_token`;
   - `GET /api/user/current` trae `user.auth_method`;
   - `POST /api/auth/change-password` con sesión SSO → 409 sin llamar al backend (FR-008)
-- [ ] T013 [US1] [repo: elea] Tests de **atadura al navegador** (FR-016; research D1 y D12, CSRF de login) en `client/tests/integration/test_sso_flujo_056.test.js`:
+- [x] T013 [US1] [repo: elea] Tests de **atadura al navegador** (FR-016; research D1 y D12, CSRF de login) en `client/tests/integration/test_sso_flujo_056.test.js`:
   - callback desde **otro** `sid` → `sso_reintentar`, y el backend recibe la llamada **sin** cabecera `Cookie` (para auditar);
   - callback con el `sid` correcto pero **sin** la cookie `__Host-sso_flow`, o con otra (cookie `sid` inyectada, F6) → `sso_reintentar`, sin canje con cookie;
   - `state` distinto → no hay canje con cookie;
@@ -176,14 +176,14 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - pendiente vencido → falla;
   - `Map` vacío, como tras un reinicio → `sso_reintentar`;
   - `error=access_denied` del directorio → `sso_cancelado`
-- [ ] T014 [P] [US1] [repo: elea] Tests de la **pantalla** (F2 del QA, research D13) en `client/tests/unit/sso-ui-056.test.js`, con `node --test` sobre `client/public/sso-ui.js` ([hub-sso.md](contracts/hub-sso.md) §7, tests 17 a 20):
+- [x] T014 [P] [US1] [repo: elea] Tests de la **pantalla** (F2 del QA, research D13) en `client/tests/unit/sso-ui-056.test.js`, con `node --test` sobre `client/public/sso-ui.js` ([hub-sso.md](contracts/hub-sso.md) §7, tests 17 a 20):
   - `destinoBoton`: `enabled:false` → sin botón (US2 AS3); `enabled:true` + `return_origin:null` → sin botón (FR-001, F4); mismo origen → `/sso/login`; otro origen → `${return_origin}/sso/login`; origen que no es `http(s)` → sin botón;
   - `destinoBoton` con origen **mal formado** (N5 del QA v2) → sin botón: con comilla (`https://a"onmouseover=x`), espacio (`https://a b`), `<`, `\\`, credenciales (`https://u@hub.ejemplo.local`), ruta o barra final. Regla: `new URL(x).origin === x` y protocolo `http:`/`https:` ([hub-sso.md](contracts/hub-sso.md) §6);
   - `mensajeError`: cada código de §4 → su texto; desconocido, vacío y con HTML → el genérico, que no contiene el valor recibido; todos recuerdan el acceso con contraseña (FR-006, US2 AS2);
   - `ofrecerCambioContrasena`: `auth_method:'sso'` → `false` (FR-008, US1 AS5);
   - `TEXTO_BOTON` exportado y no vacío (N6 del QA v2);
   - lectura estática de `client/public/index.html`: carga `/sso-ui.js`, usa las tres funciones y `TEXTO_BOTON`, y ni el error de `sso_error` ni el botón se escriben con `innerHTML` (N5 del QA v2)
-- [ ] T015 [P] [US1] [repo: elea] Test de **marca blanca** del Hub (F3 del QA, FR-013, FR-014, research D14) en `client/tests/unit/whitelabel-hub-056.test.js`, solo con `node:fs` y sin dependencias:
+- [x] T015 [P] [US1] [repo: elea] Test de **marca blanca** del Hub (F3 del QA, FR-013, FR-014, research D14) en `client/tests/unit/whitelabel-hub-056.test.js`, solo con `node:fs` y sin dependencias:
   - `client/sso.js` y `client/public/sso-ui.js` no contienen ningún nombre de `deploy/release/checks/prohibited_names.txt`, de los motores internos de documentos y presentaciones (lista local del test) ni `Elea`/`Eleia`;
   - `client/public/index.html` y `client/server.js` no contienen ningún nombre de `prohibited_names.txt`;
   - `client/public/index.html` no contiene el literal "Ingresar con Microsoft" ni otro texto visible nuevo de la 056: todo sale de `sso-ui.js` (N6 del QA v2, [hub-sso.md](contracts/hub-sso.md) §7 test 23).
@@ -192,9 +192,9 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
 
 ### Implementación
 
-- [ ] T016 [US1] [repo: elea] Crear `client/sso.js` (CommonJS, sin dependencias nuevas): almacén de flujos pendientes con rechazo del nuevo cuando está lleno y límite de ritmo ([data-model.md](data-model.md) §Flujo SSO pendiente y §Contador de ritmo), comparación en tiempo constante y mapeo de errores de [hub-sso.md](contracts/hub-sso.md) §4. Sin strings de marca. T010 en verde
-- [ ] T017 [US1] [repo: elea] Implementar `GET /api/auth/sso/available` en `client/server.js`, junto a `/api/branding` (`:314-316`): proxy fail-closed con timeout de 3 s a `{ELEA_BACKEND_URL}/auth/sso/available`, respuesta `{enabled, return_origin}` con `Cache-Control: no-store`
-- [ ] T018 [US1] [repo: elea] Implementar `GET /sso/login` en `client/server.js` ([hub-sso.md](contracts/hub-sso.md) §2):
+- [x] T016 [US1] [repo: elea] Crear `client/sso.js` (CommonJS, sin dependencias nuevas): almacén de flujos pendientes con rechazo del nuevo cuando está lleno y límite de ritmo ([data-model.md](data-model.md) §Flujo SSO pendiente y §Contador de ritmo), comparación en tiempo constante y mapeo de errores de [hub-sso.md](contracts/hub-sso.md) §4. Sin strings de marca. T010 en verde
+- [x] T017 [US1] [repo: elea] Implementar `GET /api/auth/sso/available` en `client/server.js`, junto a `/api/branding` (`:314-316`): proxy fail-closed con timeout de 3 s a `{ELEA_BACKEND_URL}/auth/sso/available`, respuesta `{enabled, return_origin}` con `Cache-Control: no-store`
+- [x] T018 [US1] [repo: elea] Implementar `GET /sso/login` en `client/server.js` ([hub-sso.md](contracts/hub-sso.md) §2):
   - límite de ritmo primero;
   - `fetch` con `redirect:'manual'`;
   - `Headers.getSetCookie()` para extraer `sentinel_sso_state`;
@@ -205,14 +205,14 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - errores según §4.
 
   Tests de `/sso/login` de T011 en verde
-- [ ] T019 [US1] [repo: elea] Implementar en `GET /sso/callback` (`client/server.js`) la **atadura** (FR-016; research D1, requisitos 1 a 3, y D12):
+- [x] T019 [US1] [repo: elea] Implementar en `GET /sso/callback` (`client/server.js`) la **atadura** (FR-016; research D1, requisitos 1 a 3, y D12):
   - tomar y borrar el pendiente del `req.sid` siempre, y borrar `__Host-sso_flow` **agregando** su `Set-Cookie` a la lista de la respuesta, nunca con un `res.setHeader('Set-Cookie', …)` que pise otra cookie (N8 del QA v2);
   - validar `state` y, si el pendiente tiene `atadura`, la cookie `__Host-sso_flow`, con `client/sso.js`;
   - sin pendiente, vencido, con `state` o atadura distintos, o con `error=` del directorio: llamar al callback del backend **sin** cookie (o con la cookie válida si hubo `error=`), solo para que el backend audite, y redirigir con el código de §4;
   - armar la URL al backend con `URLSearchParams` (B3).
 
   T013 en verde
-- [ ] T020 [US1] [repo: elea] Completar el camino feliz de `GET /sso/callback` y las rutas afectadas en `client/server.js`:
+- [x] T020 [US1] [repo: elea] Completar el camino feliz de `GET /sso/callback` y las rutas afectadas en `client/server.js`:
   - canje con `Cookie: sentinel_sso_state=…`;
   - **rotación de `sid`** (research D1, requisito 4) con los mismos atributos de cookie de `:93`, más `Secure` si el pendiente tenía `atadura` (D12); si el middleware ya puso un `elea_rag_sid` en esta respuesta, se reemplaza **solo esa entrada** de la lista de `Set-Cookie`: una sola cookie `elea_rag_sid` por respuesta y el borrado de `__Host-sso_flow` de T019 se conserva (N8 del QA v2);
   - `setSession` con el **mismo token** que emite Guardian (FR-002), `auth_method:'sso'` y `302 /`; el cuerpo del backend nunca se loguea;
@@ -220,7 +220,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - 409 en `POST /api/auth/change-password` (`:284-309`) para sesiones SSO.
 
   `POST /api/auth/login` (`:258-273`) **no se toca en esta tarea**: su rotación de `sid` es T049, en commit aparte. T011 y T012 en verde
-- [ ] T021 [US1] [repo: elea] Crear `client/public/sso-ui.js` (módulo puro: `destinoBoton` con la regla de origen bien formado de N5, `mensajeError` con la tabla de §4 y el texto neutro de `sso_identidad_no_verificada` de research D15, `ofrecerCambioContrasena` y la constante `TEXTO_BOTON`; exporta por `module.exports` y por `window.SsoUi`) y cablearlo en `client/public/index.html` ([hub-sso.md](contracts/hub-sso.md) §6). **Todo** texto nuevo visible, incluida la etiqueta del botón, vive en `sso-ui.js` y no en `index.html` (N6 del QA v2):
+- [x] T021 [US1] [repo: elea] Crear `client/public/sso-ui.js` (módulo puro: `destinoBoton` con la regla de origen bien formado de N5, `mensajeError` con la tabla de §4 y el texto neutro de `sso_identidad_no_verificada` de research D15, `ofrecerCambioContrasena` y la constante `TEXTO_BOTON`; exporta por `module.exports` y por `window.SsoUi`) y cablearlo en `client/public/index.html` ([hub-sso.md](contracts/hub-sso.md) §6). **Todo** texto nuevo visible, incluida la etiqueta del botón, vive en `sso-ui.js` y no en `index.html` (N6 del QA v2):
   - `<script src="/sso-ui.js">` antes del script inline (`:976`);
   - al mostrar el overlay (`boot`, `:1051-1056`), consultar `/api/auth/sso/available` y dibujar el botón bajo el formulario (`:444-455`) solo si `destinoBoton` devuelve un destino. El botón se arma con `document.createElement`, la etiqueta con `textContent = SsoUi.TEXTO_BOTON` y el destino como propiedad, **nunca** con `innerHTML` ni con una plantilla de texto que lleve el origen (N5 del QA v2);
   - `?sso_error=` → `mensajeError` en `#login-error` con `textContent`, y limpiar la barra con `history.replaceState`;
@@ -239,7 +239,7 @@ degradable sin afectar el resto (FR-005, FR-006).
 
 **Independent Test**: suite del Hub en verde con los tests de regresión. En vivo: quickstart §4.
 
-- [ ] T022 [US2] [repo: elea] Tests de regresión y degradación en `client/tests/contract/test_sso_hub_056.test.js`:
+- [x] T022 [US2] [repo: elea] Tests de regresión y degradación en `client/tests/contract/test_sso_hub_056.test.js`:
   - `POST /api/auth/login` con status, cuerpo y datos de sesión idénticos a hoy, incluido `must_change_password` que pasa al `user`, y la cookie `elea_rag_sid` **sin** `Secure` (lo visible del camino con contraseña no cambia; el valor del `sid` sí puede cambiar por T049, así que este test no lo compara);
   - `change-password` con sesión de contraseña proxyado como hoy;
   - con licencia sin `sso` (backend 403) o backend caído, `available` → `enabled:false` y el login con contraseña sigue operativo;
@@ -247,12 +247,12 @@ degradable sin afectar el resto (FR-005, FR-006).
   - con el límite de ritmo agotado, `POST /api/auth/login` sigue operativo.
 
   **Excepción a "los tests fallan primero"**: son de regresión y deben pasar sin tocar código de producción. Si alguno falla, se corrige en `client/server.js` dentro de este tramo
-- [ ] T023 [US2] [repo: elea] Gate del tramo:
+- [x] T023 [US2] [repo: elea] Gate del tramo:
   - `cd client && npm test` en verde completo (incluye `smoke.test.js`, las suites de 044, 050, 051 y 053, y `whitelabel-hub-056.test.js`);
   - actualizar `client/README.md` (§Rutas con las tres rutas nuevas y `/sso-ui.js`; §Sesiones con flujos pendientes, atadura `__Host-`, límite de ritmo, rotación de `sid` en los dos caminos de ingreso (T020 y T049), cookie mal formada ignorada y "sin variables de entorno nuevas");
   - commit `hub(sso): …` que **solo** contenga `client/`, separado del commit `fix(hub): …` de T049, y PR a `056-sso-entra-id-hub`
 
-- [ ] T049 [US2] [repo: elea] **Fijación de sesión y cookie mal formada en el Hub** (N7 del QA v2, preexistente; decisión del owner del 2026-10-06; spec FR-005 y Clarifications; [hub-sso.md](contracts/hub-sso.md) §5 y tests 24 y 25). Va **después de T022 y antes del gate T023**, con commit aparte `fix(hub): …` que contiene solo `client/server.js` y su test:
+- [x] T049 [US2] [repo: elea] **Fijación de sesión y cookie mal formada en el Hub** (N7 del QA v2, preexistente; decisión del owner del 2026-10-06; spec FR-005 y Clarifications; [hub-sso.md](contracts/hub-sso.md) §5 y tests 24 y 25). Va **después de T022 y antes del gate T023**, con commit aparte `fix(hub): …` que contiene solo `client/server.js` y su test:
   - tests primero, en `client/tests/contract/test_login_sid_056.test.js` (nuevo), con el doble HTTP de `client/tests/mock-servers.js`. Deben **fallar**:
     - `POST /api/auth/login` exitoso con un `elea_rag_sid` plantado → `Set-Cookie` con un `sid` **distinto**, la sesión vive bajo el nuevo y el plantado no tiene sesión; status y cuerpo idénticos a hoy; la cookie sin `Secure`;
     - primera visita sin cookie → exactamente un `elea_rag_sid` en `getSetCookie()` (el rotado, no el del middleware);
