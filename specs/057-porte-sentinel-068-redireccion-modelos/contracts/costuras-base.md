@@ -62,6 +62,12 @@ nombrar el motor interno (FR-004); describe los modos con texto neutro.
   conversaciones ni personas; el destino sigue viendo solo marcadores; la restauración en la respuesta
   (incluido streaming y chunks OpenAI, `f8118e7`) no cambia; la auditoría registra
   `nonce_scope = conversation | request`, nunca el valor.
+- **Índice por valor**: `HMAC(HMAC(MASKING_NONCE_KEY, "idx" | tenant | llave | conversation_ref), tipo | valor | probe)`, de modo que el
+  marcador de un valor no depende del orden de aparición (un dato nuevo en el turno siguiente no mueve los viejos); los componentes van
+  separados por NUL. Una clave de menos de 32 caracteres cuenta como ausente.
+- **Quién escribe la referencia**: el enganche `pre_engine` de la extensión; la pasarela descarta la que mande el cliente (cuerpo,
+  `metadata`, `litellm_metadata`) antes de llamar a los enganches (`backend/src/api/gateway_plugins.py`). El informe del guardrail lleva
+  `nonce_scope = "conversation"` solo cuando rige S13 (los informes de siempre no cambian) y el guard lo copia a la decisión.
 - **Fallo**: si la derivación falla, se usa el sufijo aleatorio (la caché pierde eficacia, la
   protección no).
 
