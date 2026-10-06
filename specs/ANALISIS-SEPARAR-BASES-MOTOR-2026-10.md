@@ -310,3 +310,335 @@ Todo lo siguiente es `[no verificado]`:
 13. **Los bordes exactos de versión** de cada comportamiento del migrador (§1.2) y si el *default* de la última `litellm-proxy-extras` (0.4.105) sigue siendo v1.
 14. **Dónde y cuándo ocurrió el incidente** que dio origen a este spike (el log del brief): no lo vi; se asume el mecanismo de §1.
 15. **Cobertura de la documentación de producto** (`docs/docs/**`) y de los checks `make -C deploy check*`: **no se corrieron** (usan Docker y este spike solo agrega un archivo en `specs/`, fuera del sitio publicado y de cualquier scan de los checks revisados).
+
+---
+
+## §8. Ensayo con Docker (2026-10-06): ida y vuelta, instalación nueva y caso destructivo
+
+**Qué es**: el ensayo que §4/§6 (D6) pedían antes de tocar producción, ejecutado con la compuerta `ensayo-ok` del owner. Sigue siendo un spike: no hay código de producto; los scripts y salidas viven en el directorio temporal de la sesión (fuera del repo) y acá quedan los comandos y lo que devolvieron. **Convención de §8**: `[verificado]` = lo corrí y lo vi en este ensayo; `[no verificado]` = no lo corrí o la causa no se probó. Los tiempos son de pared, de una sola corrida cada uno (sin repeticiones ni desvío), en una PC de 4 núcleos y 11 GB de RAM compartida con otro trabajo: valen como orden de magnitud.
+
+### 8.0 Entorno y aislamiento
+
+- **Proyecto aislado** `COMPOSE_PROJECT_NAME=sepbd`, `STACK_PREFIX=sepbd`: contenedores `sepbd-*`, red/volumen `sepbd_*`, backend publicado en `18091` (no `8091`). No se tocó ningún otro stack ni volumen (había otros proyectos en el demonio, p. ej. `eleae2e-*`, detenidos). [verificado: `docker ps -a`, `volume ls`, `network ls` e `images` antes y después, ver 8.9]
+- **Cómo se levantó «como el instalador»**: copia del `docker-compose.yml` del instalador (`elea-installer@9754f13`; `container_name` en `:8`, `:49`; `DATABASE_URL` del motor en `:51`; backend con `alembic upgrade head` en `:90` y puerto `8091:8000` en `:92`) con **solo dos tipos de cambio**: `container_name: elea-…` → `sepbd-…` y `"8091:8000"` → `"18091:8000"` (`diff` de 12 líneas). `.env` generado desde `.env.example` con el mismo algoritmo de `install.sh` (secretos aleatorios nuevos) más las tres variables de Azure leídas de un `.env` local externo, sin imprimirlas ni copiarlas al repo; el `.env` del ensayo y los archivos de llaves se destruyeron con `shred` al terminar. [verificado]
+- **Stack mínimo**: `db`, `redis`, `nlp-analyzer`, `engine`, `backend`. **Sin** `client`, `frontend`, `tabular`, `presenton`, `anythingllm`: la RAM no alcanzaba para todo y no están en el camino de datos que se prueba (las cuentas y llaves `svc.*` se crean por la API del backend, igual que `install.sh` en su sección «Virtual keys de servicio»). **Por lo tanto no se probó que el Hub, planillas, presentaciones o el chat con documentos sigan funcionando**: solo que cada llave `svc.*` sigue autenticando contra el motor. [verificado el alcance; lo demás `[no verificado]`]
+- **Imágenes** (`docker pull` → «Image is up to date», no se descargó ni se borró ninguna): `elea-guardian-engine:latest` = `sha256:1928af9d1ef6…6189dafe` (la de §1.4); `elea-guardian-nlp` = `sha256:f4ca5d8aa9f4…`; `elea-guardian-backend` = `sha256:742981ff937d…`. Versión dentro del contenedor: `docker exec sepbd-engine python3 -c "import importlib.metadata as m; print(m.version('litellm'), m.version('litellm-proxy-extras'))"` → `1.92.0 0.4.74`. Confirma §1.4 para la imagen publicada; **no** dice qué corre el servidor de Elea. [verificado]
+- **Crédito real**: modelo `azure-gpt-5.4-mini`, `max_tokens: 16`, prompt «Responde solo: ok» (11 tokens de entrada, 4 de salida, ≈ 2.6×10⁻⁵ USD por pedido según el gasto registrado). **6 pedidos en total**: 1 de siembra (llave `svc.tabular`, directo al motor), 1 por cada fase de verificación V0, V1, V2 y V3, y 1 de una fase no planeada (Vx, 8.3.2); más uno previo que dio 404 por una ruta equivocada y no llegó al backend.
+- **Ruta del gateway**: `POST /api/v1/gw/v1/messages` con `Authorization: Bearer sk-sentinel-…` (formato Anthropic; una `sk-sentinel-…` en un header de auth enruta a byok, `backend/src/api/gateway.py:1249-1273`, regex `:154`; el router tiene `prefix="/gw"` en `:144`, la ruta es `:1636` y cuelga de `/api/v1` por `backend/src/api/__init__.py:25`). Mi primer intento fue `/gw/v1/messages` y dio 404. [verificado]
+
+### 8.1 Datos de prueba (mismo flujo que `install.sh`)
+
+Login de admin (el primer login lo crea), tres cuentas `svc.*` (usuario `role=client` + llave `tool_type=servicio`, con los mismos `can_act_on_behalf`/`rpm`/`tpm` de `install.sh`) y un usuario común con llave `claude-code`:
+
+```
+login admin: token_len=284
+svc.anythingllm-provider user_id=637d1f6f… key_len=44      (can_act_on_behalf=false, 120 rpm, 200000 tpm)
+svc.tabular              user_id=96647f9a… key_len=44      (can_act_on_behalf=true,  120 rpm, 200000 tpm)
+svc.presenton            user_id=7eb73f5a… key_len=44      (can_act_on_behalf=false, 300 rpm, 2000000 tpm)
+ensayo.usuario           id=74d833ca…   → llave ee894630-…  (tool_type=claude-code)
+```
+
+Gasto de siembra: un pedido de chat con la llave de `svc.tabular` directo al motor (`POST http://localhost:4000/v1/chat/completions`, ejecutado dentro de `sepbd-engine`, que no trae `curl`): `HTTP 200 usage {'completion_tokens': 4, 'prompt_tokens': 11, …}` (4,1 s). Más el pedido `/gw` de V0.
+
+**Hallazgo**: el gasto de la llave en `LiteLLM_VerificationToken` **no aparece al instante**: el motor lo vuelca por lotes. Justo después del pedido, `ensayo-claude-code` figuraba en 0; ~70 s después, en `2.625e-05`. Por eso V1–V3 esperan 70 s antes de leer el gasto. [verificado el retraso] Si un `docker stop` descarga el lote pendiente: `[no verificado]`. **En el corte real conviene esperar > 60 s desde el último tráfico antes de parar el motor** (acá el lote ya estaba volcado cuando se paró).
+
+### 8.2 Fase 0: la base compartida como la deja el instalador
+
+```
+$ docker compose up -d db redis nlp-analyzer engine        # 6,7 s hasta «Started»
+$ (esperar sepbd-engine healthy)                           # 77,1 s desde el up (primer arranque, 127 migraciones)
+$ docker compose up -d backend                             # 7,6 s hasta /health 200
+```
+
+`\dt` de `elea_gateway`: 66 tablas del motor (65 `LiteLLM_*` + `_prisma_migrations`) y 21 del backend (`alembic_version`, `users`, `api_keys`, `audit_logs`, `budgets`, `groups`, `guardians`…), `alembic_version=199fe429762a`. [verificado]
+
+Log del motor en este primer arranque (base nueva, motor primero): `Applying migration 20250326162113_baseline…` … `✅ Migration diff applied successfully` … `Post-migration sanity check completed`; **0** «creating baseline migration», **0** `P3005`. Es el caso «Base nueva, motor primero» de §1.3, comprobado: el sanity check **sí ejecuta** el diff, pero sobre una base con solo `LiteLLM_*` no hay nada que borrar. [verificado]
+
+Línea base funcional **V0** (las mismas comprobaciones en todas las fases; el script no imprime secretos):
+
+```
+login admin: OK (.32s)                       login ensayo.usuario: HTTP 200
+motor /v1/models con llave svc.anythingllm-provider / svc.tabular / svc.presenton / ensayo.usuario: HTTP 200 ×4
+pedido /api/v1/gw/v1/messages: HTTP 200 (.83s) usage={'input_tokens': 11, 'output_tokens': 4}
+audit_logs: 4 -> 5 (Δ=1)
+gasto (LiteLLM_VerificationToken, tras el lote): anythingllm-provider 0 | ensayo-claude-code 2.625e-05 | presenton 0 | tabular 2.625e-05
+panel (audit_logs, solo metadata): gpt-5.4-mini | 11 | 4 | passed | cost_usd 0.000026
+```
+
+(La fila `unknown | upstream_error` que aparece en el panel no es del ensayo funcional: la escribió un `curl` mío sin llave al buscar el prefijo correcto; una llamada sin credencial también deja fila de auditoría.)
+
+### 8.3 Ensayo A: producción en marcha, separar la base (ida)
+
+#### 8.3.1 Antes de la ventana (sin corte)
+
+```
+$ docker exec sepbd-db pg_dump -U $POSTGRES_USER -Fc $POSTGRES_DB > pre-split.dump
+  pg_dump -Fc completo: 0,31 s · 283 996 bytes · 578 entradas de TOC · 87 tablas       (base de 13 MB)
+$ docker exec -i sepbd-db pg_restore -l < pre-split.dump | head                         # copia legible [verificado]
+$ SELECT count(*) FROM pg_tables WHERE schemaname='public' AND (tablename LIKE 'LiteLLM\_%' OR tablename='_prisma_migrations')       → 66
+$ SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL                                      → 0
+tablas más grandes del motor: LiteLLM_DailyUserSpend/TagSpend/TeamSpend 144 kB · LiteLLM_SpendLogs 96 kB · _prisma_migrations 80 kB
+fotografía S0 (conteos por tabla con query_to_xml + llaves + libro): LiteLLM_VerificationToken 8 filas · LiteLLM_SpendLogs 2 · users 5 · api_keys 4 · audit_logs 5 · libro 127|0 · alembic 199fe429762a
+```
+
+Dos precisiones al §4.3 antes de seguir:
+
+- Las 8 filas de `LiteLLM_VerificationToken` son 4 llaves con alias más 4 llaves **sin alias** (una por usuario; `[inferido]` que las crea el motor al dar de alta cada usuario con `POST /user/new`, `backend/src/services/ai_engine_client.py:116`). La fotografía debe contarlas todas (`coalesce(key_alias,'-')`). [verificado]
+- **Los patrones de `pg_dump -t` no sirven para esto** (resuelve el ítem 5 de §7): `-t 'LiteLLM_*'`, `-t '"LiteLLM_*"'` y `-t 'public."LiteLLM_*"'` terminan los tres en `pg_dump: error: no matching tables were found` (con comillas el `*` es literal; sin ellas el nombre pasa a minúsculas). Hay que listar las tablas por nombre exacto desde el catálogo. [verificado]
+
+#### 8.3.2 Primer intento del corte: falla del procedimiento tal como está en §4.3 (hallazgo)
+
+Se siguió §4.3 al pie de la letra: parar el motor, `CREATE DATABASE elea_engine`, y `pg_dump -Fc` con un `-t 'public."<tabla>"'` por cada una de las 66 tablas (lista armada desde el catálogo) | `pg_restore -d elea_engine --no-owner --exit-on-error`:
+
+```
+[1] parar el motor ................ 3,9 s
+[2] CREATE DATABASE elea_engine ... 0,2 s
+[3] dump | restore ................ pg_restore: error: could not execute query: ERROR:  type "public.JobStatus" does not exist
+                                    LINE 4:     status public."JobStatus" DEFAULT 'INACTIVE'::public."JobStatus" NOT NULL,
+                                    Command was: CREATE TABLE public."LiteLLM_CronJob" (…)        rc=1 · 0,55 s
+[4] compuerta ..................... tablas del motor: compartida=66, elea_engine=13 · relation "_prisma_migrations" does not exist
+```
+
+**Causa**: `pg_dump -t` incluye la tabla pero **no los tipos** de los que depende. `public."JobStatus"` es un `ENUM` (el único del esquema: `typtype='e'` → `JobStatus | LiteLLM_CronJob`) y el restore abortó en la tabla 14 de 66. **Esto invalida el paso 3 de §4.3 tal como está escrito.** [verificado]
+
+**Mi script no cortó ahí** (la compuerta se imprimía pero no abortaba), así que siguió con los pasos 5-6 y arrancó el motor apuntando a esa `elea_engine` parcial. Fue un accidente útil: muestra qué pasa cuando la copia sale mal **estando ya separado**.
+
+- El motor entró por `P3005`: `Database schema is not empty, creating baseline migration` → `Generating migration diff between DB and schema.prisma` → `✅ Migration diff applied successfully` → una a una `Resolving migration: …` hasta `✅ All migrations resolved.` Empezó a las 06:40:32 UTC y terminó a las 07:00:32 UTC: **20 min exactos** (~9 s por cada una de las 128 migraciones); recién entonces pasó a `healthy`. En producción serían 20 minutos de motor caído por una copia mal hecha. [verificado]
+- **`elea_gateway` quedó idéntica a la fotografía S0** (`diff S0.txt S1_gateway.txt` vacío, también al terminar el baseline). El migrador solo tocó `elea_engine`, que reconstruyó con las 66 tablas. **Esa es la protección que da separar**, demostrada en vivo. [verificado]
+- Con la base del motor sin filas de llaves (el restore no llegó a `LiteLLM_VerificationToken`) se corrió **Vx**, que contesta el ítem 10 de §7: `login` 200; **las 4 llaves siguen autenticando 200 contra el motor** (la identidad sale del backend por `SENTINEL_IDENTITY_URL`); el pedido `/gw` responde 200 y deja **1 fila en `audit_logs`** (+1, por `SENTINEL_AUDIT_URL`). Pero el motor **no registra gasto** (no hay llave a la que sumarlo) y el `cost_usd` de esa fila del panel quedó en `0.00000000` (en V0 era 0.000026). Perder `elea_engine` no deja sin servicio a las llaves, pero **degrada el control de gasto**. [verificado la observación; la causa del `cost_usd=0` no, ver H5]
+
+Se volvió al estado de partida: override fuera, `docker compose up -d engine` sobre `elea_gateway` (**reinicio normal con libro completo: `healthy` en 59,1 s**, log `No pending migrations — skipping post-migration sanity check`, 0 baseline, 0 «diff applied») y `DROP DATABASE elea_engine`. [verificado]
+
+#### 8.3.3 Segundo intento: dump con `-T` (excluir las tablas del backend)
+
+Alternativa que funciona, probada primero en una base descartable `elea_try` (3,3 s, 66 tablas, conteos y llaves idénticos): en vez de listar las 66 tablas del motor con `-t`, **excluir las 21 del backend con `-T`**, que arrastra tipos, secuencias y vistas:
+
+```
+$ psql -At -c "SELECT tablename FROM pg_tables WHERE schemaname='public' AND NOT (tablename LIKE 'LiteLLM\_%' OR tablename='_prisma_migrations') ORDER BY 1"    # 21 tablas del backend
+$ pg_dump -U $U -d $POSTGRES_DB -Fc -T 'public."alembic_version"' -T 'public."api_keys"' … (21 -T) \
+    | pg_restore -U $U -d elea_engine --no-owner --exit-on-error                  # dentro de sepbd-db, vía `docker exec -i sepbd-db sh -s`
+```
+
+Ventana de corte. El script tiene una compuerta que **aborta** si algo no coincide. Su primer lanzamiento se cortó en el paso 4 por un detalle de mi `snap.sh` (devolvía error al leer `alembic_version`, que no existe en `elea_engine` y es lo esperado) y se retomó desde el paso 4, por eso el tiempo de pared del total incluye una pausa de mi lado; **la suma de los pasos es el dato fiable**:
+
+```
+[09:03:30] 1. docker compose stop engine ........................................ 3,3 s
+[2] CREATE DATABASE elea_engine OWNER $U ........................................ 0,12 s
+[3] pg_dump -Fc -T … | pg_restore --exit-on-error ............................... 3,05 s   rc=0
+[4] compuerta de integridad ..................................................... 0,74 s
+    tablas del motor: compartida=66  elea_engine=66 · líneas de diferencia en conteos=0
+    llaves/gasto/libro vs fotografía previa: líneas de diferencia=0
+    tablas ajenas en elea_engine=0 · secuencias=LiteLLM_ModelTable_id_seq · vistas=8 · libro(total|no terminadas)=127|0      → COMPUERTA OK
+[5] docker-compose.override.yml con 3 variables: DATABASE_URL→elea_engine, SENTINEL_IDENTITY_URL, SENTINEL_AUDIT_URL
+[6] docker compose up -d engine → healthy ...................................... 54,3 s
+    log: «prisma migrate deploy completed» · «No pending migrations — skipping post-migration sanity check»
+    marcas: baseline=0  diff_applied=0  no_pending=2
+SUMA de los pasos (stop→healthy) = 61,5 s        (tiempo de pared medido, con la pausa: 72,6 s)
+```
+
+[verificado]. Esto **responde al ítem 6 de §7**: las 8 vistas llegaron con el dump (`vistas=8`); no hubo que esperar a que el motor las recree. La compuerta de §4.3 paso 4 (conteos, llaves, libro) es correcta y detectó el problema del primer intento; lo que falla es el *comando* del paso 3.
+
+**V1: verificación tras el corte** (motor sobre `elea_engine`, identidad y auditoría por HTTP):
+
+```
+login admin: OK (.36s)                       login ensayo.usuario: HTTP 200
+motor /v1/models con las 4 llaves (3 svc.* + usuario): HTTP 200 ×4
+pedido /api/v1/gw/v1/messages: HTTP 200 (1,94 s) usage={'input_tokens': 11, 'output_tokens': 4}
+audit_logs: 6 -> 7 (Δ=1)
+gasto en elea_engine (tras 70 s): anythingllm-provider 0 | ensayo-claude-code 2.625e-05 | presenton 0 | tabular 2.625e-05      (== fotografía previa)
+marcas del migrador: creating baseline 0 · Migration diff applied 0 · No pending migrations 2 · P3005 0
+```
+
+`docker compose restart backend` después del corte: arranca, `alembic` no hace nada (solo `Context impl PostgresqlImpl` / `Will assume transactional DDL`), `alembic_version=199fe429762a`, y `elea_engine` sigue con 66 tablas. [verificado]
+
+**Matiz honesto de V1**: el pedido nuevo **no sumó gasto en el motor**: `ensayo-claude-code` quedó en `2.625e-05` en vez de `5.25e-05`; la fila de `LiteLLM_SpendLogs` de ese pedido tiene `spend=0` y modelo `gpt-5.4-mini` (las dos filas buenas, anteriores al primer reinicio del motor, dicen `azure/gpt-5.4-mini`), y `audit_logs.cost_usd` también quedó en `0.00000000`. **No es consecuencia de separar**: se reproduce idéntico tras la vuelta atrás (V2, base compartida con el motor viejo) y en el accidente Vx. Ver H5. [verificado el patrón; la causa no]
+
+#### 8.3.4 Vuelta atrás B (después del paso 6, copias viejas intactas)
+
+```
+$ mv docker-compose.override.yml …                  # revierte las 3 variables
+$ docker compose up -d engine                       # recrea el motor con la config original
+  engine healthy tras 51,4 s · VUELTA ATRÁS B total = 51,5 s
+  DATABASE_URL=…/elea_gateway · sin SENTINEL_IDENTITY_URL ni SENTINEL_AUDIT_URL (camino SQL compartido)
+  marcas: baseline=0 · diff_applied=0 · no_pending=2
+```
+
+**V2** sobre `elea_gateway`: `login` OK (0,36 s) y 200; las 4 llaves 200; `/gw` 200 (1,53 s); `audit_logs` 8→9 (Δ=1); gasto de las llaves **idéntico a la fotografía** (`ensayo-claude-code` 2.625e-05, `tabular` 2.625e-05); 0 baseline, 0 «diff applied», 0 `P3005`. [verificado] Lo que **no vuelve**: la fila de `LiteLLM_SpendLogs` de V1 (y todo gasto contado en `elea_engine` durante la ventana) quedó en `elea_engine`, no en `elea_gateway` (la «pérdida acotada» que anticipaba §4.3-B); `audit_logs` no se afecta porque vive en el backend. [verificado]
+
+#### 8.3.5 Vuelta atrás C (base dañada: restaurar la copia completa)
+
+```
+$ CREATE DATABASE elea_restore
+$ pg_restore -U $U -d elea_restore --no-owner --exit-on-error < pre-split.dump      rc=0 · 3,94 s
+$ diff S0.txt (elea_gateway) vs fotografía de elea_restore                           → solo difiere la línea de encabezado: IDÉNTICA
+$ docker compose run -d --no-deps --name sepbd-oneoff -e DATABASE_URL=…/elea_restore engine
+  one-off healthy tras 47,7 s · marcas: baseline=0 · diff_applied=0 · no_pending=2
+  elea_restore sin cambios tras arrancar el motor
+```
+
+Confirma §4.3-C («restaurar el dump completo trae `_prisma_migrations` y no dispara nada»). [verificado]
+
+**Vuelta atrás A** (antes del paso 5: reiniciar el motor viejo y `DROP DATABASE`): **no se ensayó como escalón propio**; es el mismo reinicio normal de 8.3.2 (59 s) más un `DROP DATABASE`. `[no verificado como escalón propio]`
+
+### 8.4 Ensayo B: el caso destructivo, comprobado (ítem 1 de §7)
+
+Sobre una base **descartable** `elea_victim` con **solo las tablas del backend y sin libro del motor** (lo que deja una restauración parcial: `pg_dump -t` de las 21 tablas del backend | `pg_restore`), se arrancó un motor de un solo uso apuntando a ella:
+
+```
+ANTES  : tablas=21  users=5  audit_logs=9  alembic=199fe429762a
+$ docker compose run -d --no-deps --name sepbd-oneoff -e DATABASE_URL=…/elea_victim engine
+  07:12:04 Running prisma migrate deploy
+  07:12:13 Database schema is not empty, creating baseline migration …
+  07:12:33 Generating migration diff between DB and schema.prisma…
+  07:12:42 Migration diff created at /tmp/litellm_migration_diff_…/migration.sql
+  07:12:54 prisma db execute stdout: Script executed successfully.   → ✅ Migration diff applied successfully     (≈ 83 s desde el arranque)
+DESPUÉS: tablas=66 · tablas del backend que sobreviven (users, audit_logs, alembic_version, api_keys, groups): 0
+         ERROR:  relation "users" does not exist
+```
+
+**El migrador del motor borra las tablas ajenas** (`users`, `audit_logs`, `alembic_version`, `api_keys`… desaparecen en ~80 s). Era el punto central de §1 y quedaba como «deducido del incidente»; ahora está reproducido. [verificado]
+
+### 8.5 Ensayo C: instalación nueva (base del motor aparte desde el primer arranque)
+
+**Compose nuevo** (`docker-compose.new.yml`) = el del instalador más lo propuesto en §4.2, tal como se probó:
+
+```diff
++  db-engine-init:          # servicio de un solo disparo, idempotente (§4.2-2)
++    image: postgres:16-alpine
++    restart: "no"
++    environment: { PGPASSWORD: ${POSTGRES_PASSWORD} }
++    command: [sh, -c, |
++      echo "SELECT 'CREATE DATABASE \"${ENGINE_DB:-elea_engine}\" OWNER \"${POSTGRES_USER:-elea_admin}\"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='${ENGINE_DB:-elea_engine}')\gexec" | psql -h db -U "${POSTGRES_USER:-elea_admin}" -d postgres -v ON_ERROR_STOP=1 ]
++    depends_on: { db: { condition: service_healthy } }
+   engine:
+-      - DATABASE_URL=postgresql://…@db:5432/${POSTGRES_DB:-elea_gateway}
++      - DATABASE_URL=postgresql://…@db:5432/${ENGINE_DB:-elea_engine}
++      - SENTINEL_IDENTITY_URL=http://backend:8000/api/v1/internal/identity
++      - SENTINEL_AUDIT_URL=http://backend:8000/api/v1/internal/audit
+     depends_on:
++      db-engine-init: { condition: service_completed_successfully }
+```
+
+(más `ENGINE_DB=elea_engine` en `.env`; el bloque de las dos URL es el de `deploy/docker/compose.prod.yml:207-219`). [verificado que el servicio funciona; la edición real va en el repo del instalador, no acá]
+
+**C1: control negativo.** Layout actual del instalador (base compartida) con `alembic` antes que el motor, volumen nuevo. Es la «carrera» del 22-jul de §1.3, forzada con `--no-deps` porque el compose real hace esperar al motor `healthy`:
+
+```
+$ docker compose up -d db redis nlp-analyzer                      # 11,3 s
+$ docker compose up -d --no-deps backend                          # 7,0 s sano · 21 tablas · alembic=199fe429762a · login OK · users=1
+$ docker compose up -d --no-deps engine                           # llega a «Migration diff applied successfully» a los 87,7 s
+  07:16:44 Database schema is not empty, creating baseline migration … · 07:17:25 prisma db execute … Script executed successfully.
+  elea_gateway: tablas=66 · tablas del Guardian=0 · «ERROR:  relation "users" does not exist» · login admin → token vacío
+  GET /health del backend → HTTP 200                              ← el health NO detecta el borrado
+```
+
+[verificado]: resuelve el ítem 12 de §7 (la carrera existe y borra). **Hallazgo adicional**: `/health` del backend sigue en 200 con la base vaciada, así que el borrado es silencioso para cualquier monitoreo basado en él.
+
+**C2: layout nuevo, mismo orden peligroso** (volumen nuevo, `alembic` primero y motor después, base propia):
+
+```
+$ docker compose up -d db db-engine-init redis nlp-analyzer       # db + init listos en 11,1 s
+  sepbd-db-engine-init: status=exited exit=0 · bases: elea_engine elea_gateway postgres
+$ docker compose up -d --no-deps backend                          # 6,9 s sano · elea_gateway: 21 tablas, alembic=199fe429762a
+$ docker compose up -d engine                                     # healthy tras 76,6 s (primer arranque, 127 migraciones)
+  marcas: baseline=0 · diff_applied=1 · sanity=1 · P3005=0        # el diff se aplica sobre elea_engine VACÍA: inocuo
+  elea_gateway: 21 tablas (0 del motor), alembic=199fe429762a     → INTACTA
+  elea_engine : 66 tablas (0 ajenas)                              → solo el motor
+  login admin: token OK · tiempo total db→motor sano: 95,7 s
+```
+
+[verificado]: **con base propia, el orden `alembic`→motor no borra nada**, aun en el orden que en el layout compartido destruye todo. **Idempotencia del init**: `docker compose up db-engine-init` por segunda vez, con la base ya creada, termina `exited with code 0` sin salida nueva (la consulta con `\gexec` no emite `CREATE DATABASE` si existe). [verificado]
+
+**V3: verificación funcional de la instalación nueva** (3 cuentas `svc.*` y el usuario creados por la API, igual que `install.sh`, y el mismo script de verificación):
+
+```
+login admin OK (.31s) · login ensayo.usuario 200 · motor /v1/models con las 4 llaves: 200 ×4
+pedido /gw/v1/messages: HTTP 200 (3,66 s) usage={'input_tokens': 11, 'output_tokens': 4} · audit_logs 2→3 (Δ=1)
+gasto en elea_engine (tras 70 s): ensayo-claude-code 2.625e-05 (el pedido) · panel cost_usd 0.000026
+marcas: baseline 0 · P3005 0 (diff applied 1: primer arranque sobre base vacía)
+```
+
+Acá **el gasto sí se registra** (primer arranque del motor, identidad y auditoría por HTTP, base propia): confirma que ni la separación ni las dos URL son la causa del `spend=0` de H5. [verificado]
+
+### 8.6 Tiempos medidos (resumen)
+
+| Operación | Tiempo | Notas |
+|---|---|---|
+| Primer arranque del motor sobre base vacía (127 migraciones) | 77 s (fase 0) · 76,6 s (instalación nueva) | hasta `healthy` |
+| Reinicio normal del motor, base compartida con libro completo | 59,1 s · 51,4 s | «No pending migrations — skipping…» |
+| `pg_dump -Fc` completo previo al corte (13 MB, 87 tablas) | 0,31 s | |
+| `pg_restore` del dump completo en base nueva (vuelta C) | 3,94 s | |
+| Corte: parar motor / `CREATE DATABASE` / dump\|restore / compuerta | 3,3 / 0,12 / 3,05 / 0,74 s | |
+| Corte: arrancar motor sobre `elea_engine` hasta `healthy` | 54,3 s | domina la ventana |
+| **Ventana de corte (motor parado), suma de pasos** | **≈ 62 s** | 72,6 s de pared con la pausa del reinicio del script |
+| Vuelta atrás B (override fuera → motor `healthy`) | 51,5 s | |
+| Motor de un solo uso sobre dump restaurado (vuelta C) | 47,7 s | |
+| **Camino `P3005` (baseline) hasta `healthy`** | **20 min** | base parcial con el motor ya en su base propia |
+| Camino `P3005` hasta ejecutar el diff destructivo | 83–88 s | `elea_victim` y control C1 |
+| Instalación nueva: db + init → backend → motor `healthy` | 11,1 + 6,9 + 76,6 = 95,7 s | |
+| Login admin | 0,31–0,50 s | |
+| Pedido `/gw/v1/messages` (Azure, 16 tokens) | 0,83 / 3,0 / 1,9 / 1,5 / 3,7 s | V0 / Vx / V1 / V2 / V3 |
+| **Escalado**: 1 000 000 filas sintéticas en `LiteLLM_SpendLogs` (tabla de 1 735 MB, base de 1 747 MB) | dump\|restore con `-T`: **39,1 s** · `pg_dump -Fc` completo: 10,8 s (23 MB) · carga sintética: 25,9 s | filas de relleno (`x`/`y`/`z` repetidos, sin contenido real) en una copia descartable |
+
+Lectura: con las tablas de este ensayo (≈ 13 MB) la ventana es **un minuto**, no los «5–10 min» estimados en §4.3; la domina el **arranque del motor (≈ 54 s)**, no la copia. Con una `LiteLLM_SpendLogs` de 1,7 GB la copia suma ~40 s: sigue en el orden del minuto. El tamaño real de las tablas del servidor de Elea sigue sin conocerse. [verificado para este hardware y estos tamaños; `[no verificado]` para el servidor]
+
+### 8.7 Criterio de aceptación: qué se pudo
+
+| Comprobación pedida | Resultado |
+|---|---|
+| Separar la base y verificar login, llaves `svc.*`, un pedido por el gateway, gasto registrado | **Sí** (V1): login 200; 3 `svc.*` + usuario con 200 contra el motor; `/gw` 200; `audit_logs` +1; **llaves y gasto idénticos a la fotografía previa** (0 diferencias). Salvedad: el pedido nuevo no sumó gasto en el motor (H5, no atribuible a la separación). |
+| Volver atrás y verificar lo mismo | **Sí** (V2, vuelta B; la vuelta C aparte): todo 200, gasto de las llaves idéntico, sin baseline. |
+| Instalación nueva con base del motor aparte desde el primer arranque | **Sí** (C2 + V3): `db-engine-init` crea la base, idempotente. |
+| Orden `alembic`→motor sin borrado | **Sí** (C2), con control negativo que sí borra (C1). |
+| Stack de ensayo eliminado | **Sí** (8.9). |
+
+### 8.8 Hallazgos nuevos y correcciones a §1–§7
+
+| # | Hallazgo | Efecto sobre lo escrito antes |
+|---|---|---|
+| H1 | **`pg_dump -t` por tabla no arrastra los tipos `ENUM`** (`public."JobStatus"`); `pg_restore --exit-on-error` aborta en la tabla 14/66 (8.3.2). | **Corrige §4.3 paso 3.** Usar `-T` (excluir las tablas del backend, 8.3.3). La variante `CREATE DATABASE … TEMPLATE elea_gateway` **no se probó**. |
+| H2 | Los comodines de `pg_dump -t 'LiteLLM_*'` no encuentran nada, con y sin comillas. | **Resuelve el ítem 5 de §7.** |
+| H3 | Sobre una base **vacía** el motor sí ejecuta el diff («Migration diff applied successfully» + «Post-migration sanity check completed») y es inocuo; en un reinicio con libro completo dice «No pending migrations — skipping post-migration sanity check». | **Afina §4.1/§4.3-6**: «el log no debe decir *diff applied*» es un criterio **falso en un primer arranque**. El criterio correcto es **sin `creating baseline migration`, sin `P3005` y sin la ristra `Resolving migration:`**. Resuelve el ítem 7 de §7 (el texto observado es «No pending migrations — skipping…»). |
+| H4 | El migrador **borra las tablas del backend** en una base compartida sin libro (21→0 en ~80 s) y `GET /health` del backend sigue en 200. | **Cierra los ítems 1 y 12 de §7** (reproducidos). Nuevo: el monitoreo por `/health` no lo ve. |
+| H5 | **Tras un reinicio del motor**, el pedido siguiente se registra con `spend=0` en `LiteLLM_SpendLogs`, modelo `gpt-5.4-mini` (sin `azure/`) y `audit_logs.cost_usd=0`. Los pedidos del primer arranque (siembra, V0 y V3) sí dan `2.625e-05` con `azure/gpt-5.4-mini`. Visto en Vx, V1 y V2 (base propia y compartida) y **no** en V3 (primer arranque). La config del motor declara costos (`litellm/config.yaml:55-59`, `input_cost_per_token`/`output_cost_per_token` de `azure-gpt-5.4-mini`) y `LiteLLM_ProxyModelTable` tiene 0 filas. | **No es efecto de separar** (se reproduce en la base compartida). Puede ser un problema de producción **independiente**: si el servidor de Elea reinicia el motor, el panel de costos (que lee `cost_usd`) y el gasto por llave dejarían de sumar. `[no verificado]`: la causa, si pasa igual con `chat/completions` tras un reinicio, y si ocurre en el servidor. **Conviene que alguien lo mire aparte.** |
+| H6 | El gasto de las llaves en el motor se escribe **por lotes** (~60–70 s después del pedido). | Para el corte: esperar > 60 s desde el último tráfico antes de parar el motor y leer el gasto de la fotografía después de ese lapso. `[no verificado]` si el `stop` lo descarga. |
+| H7 | Las 8 filas de `LiteLLM_VerificationToken` de un entorno con 4 usuarios incluyen **4 llaves sin alias** (las que el motor crea con cada usuario). | La fotografía previa de §4.3-3 debe listar también las filas sin alias. |
+| H8 | La ruta del gateway es `/api/v1/gw/v1/messages`, no `/gw/…`. | Aclara §4.1-iv («una llamada con una llave de `/gw`»). |
+| H9 | Ventana de corte **medida** ≈ 62 s con tablas chicas y **estimada** ≈ 100 s con 1,7 GB de `SpendLogs` (los 62 s medidos más los 39 s de dump\|restore medidos aparte; no se corrió el corte completo con esa tabla); domina el arranque del motor. El camino baseline (copia fallida estando ya separado) cuesta **20 min**. | Sustituye las estimaciones de §4.3 («5–10 min», «reservar 30 min») por mediciones; el margen de 30 min sigue siendo razonable por el peor caso del baseline. |
+| H10 | `docker compose restart backend` tras el corte no toca `elea_engine`. | Confirma el último punto de «Qué verificar tras el corte» de §4.3. |
+
+### 8.9 Limpieza y estado final
+
+```
+$ docker compose down -v          # solo el proyecto sepbd (primero con el compose del layout viejo; al final con el nuevo)
+ Volume sepbd_pgdata  Removed · Network sepbd_elea-net / sepbd_tabular-net / sepbd_presentations-net  Removed
+docker ps -a | grep -c sepbd          → 0
+docker volume ls | grep -c sepbd      → 0
+docker network ls | grep -c sepbd     → 0
+diff antes/después de: docker ps -a (nombres) · docker volume ls · docker network ls · docker images   → 0 líneas en las cuatro
+puerto 18091 libre
+```
+
+Las imágenes `ghcr.io/cluna-8/elea-guardian-{engine,nlp,backend}` y `postgres:16-alpine` ya estaban antes; no se descargó ni se borró ninguna. El `.env` del ensayo (con una copia de las credenciales de Azure) y los archivos de llaves se destruyeron con `shred`. Los demás archivos de apoyo (scripts y fotografías) quedaron solo en el directorio temporal de la sesión, **fuera del repo**. [verificado]
+
+### 8.10 Impacto en las decisiones de §6
+
+- **D1/D6**: el ensayo respalda separar y hacerlo en una ventana corta; la ida y las vueltas B y C funcionan en este entorno. Lo que falta para dar el visto bueno de producción es correrlo contra una **copia restaurada de la base real** (tamaño real, versión real del motor, `docker-compose.override.yml` real).
+- **D4**: el servicio de un solo disparo de §4.2 funciona tal cual y es idempotente [verificado]. `initdb` (solo volumen vacío) no se probó acá.
+- **D2/M1–M3**: **no se ensayó** `DISABLE_SCHEMA_UPDATE=true` (ítem 8 de §7), ni M4/`--use_v2_migration_resolver`, ni la actualización de imagen con libro presente y migraciones pendientes (caso «Actualización» de §1.3): no hay en el demonio una imagen con otro litellm que lo permita. Siguen `[no verificado]`: **la mitigación inmediata de §5 sigue sin respaldo experimental**, y H4 (el borrado es silencioso para `/health`) refuerza su urgencia.
+- **Corrección obligatoria al runbook (§4.3 paso 3)**: usar `-T` (H1) o probar `TEMPLATE`.
+- **Nuevo, fuera del alcance de la separación**: H5 (gasto y costo en 0 tras reinicio del motor).
+
+### 8.11 No verificado (§8)
+
+1. **Que el servidor de Elea se comporte igual**: versión real del motor, nombres reales de base/usuario/proyecto, `docker-compose.override.yml` preexistente y tamaño real de las tablas. Todo se ensayó con la imagen `:latest` publicada y datos de prueba.
+2. **Consumidores finales de las llaves `svc.*`**: no se levantaron el Hub, planillas, presentaciones ni el chat con documentos (ni `frontend`); solo se comprobó que cada llave autentica (200) contra el motor y que el usuario común atraviesa `/gw`. «Los motores siguen funcionando» **no está probado**.
+3. **La causa de H5** (`spend=0`/`cost_usd=0` tras reinicio), si ocurre en el servidor, si ocurre también con `chat/completions` tras un reinicio y su relación con el cambio de nombre de modelo (`azure/gpt-5.4-mini` → `gpt-5.4-mini`). No se hicieron pedidos adicionales (crédito real) para aislarla.
+4. **Que `docker stop` descargue el lote pendiente del gasto** (H6): el lote ya estaba volcado cuando se paró.
+5. **La vuelta atrás A como escalón propio** y la variante `CREATE DATABASE … TEMPLATE elea_gateway` (H1).
+6. **`DISABLE_SCHEMA_UPDATE=true` (M3), `--use_v2_migration_resolver` (M4) y la actualización de imagen con libro presente y migraciones pendientes**: no ensayados (el ítem 8 de §7 y el caso «Actualización» de §1.3 siguen abiertos).
+7. **El compose de desarrollo (`docker-compose.yml`, §4.1)** y **`deploy/docker/compose.prod.yml` con `initdb`**: no se ensayaron.
+8. **Reentrada backend→motor→backend bajo carga** (ítem 11 de §7): solo hubo pedidos secuenciales sueltos.
+9. **Repetibilidad de los tiempos**: una corrida cada uno, sin desvío; el escalado usó 1 M de filas sintéticas y no gasto real; la PC estaba compartida.
+10. **Versión menor de `pg_dump`/`pg_restore`** de la imagen `postgres:16-alpine` del ensayo (es la misma imagen que usa el instalador, pero la versión menor no se registró).
+11. **La suite de tests del proyecto, `make -C deploy check*` y `check-docs`**: no se corrieron; este cambio es solo `specs/…md`, sin código ni `docs/docs/**`.
