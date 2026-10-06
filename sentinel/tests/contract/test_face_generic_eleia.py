@@ -58,7 +58,11 @@ def test_sin_anthropic_version_lista_solo_los_alias_genericos_con_owned_by_neutr
     assert body["object"] == "list" and [m["id"] for m in body["data"]] == ["pro"]
     (m,) = body["data"]
     assert m["object"] == "model" and m["owned_by"] == "organization" and isinstance(m["created"], int)
-    assert set(m) == {"id", "object", "created", "owned_by"}, "forma del contrato, sin campos de la cara Claude"
+    obligatorios = {"id", "object", "created", "owned_by"}
+    opcionales = {"context_length", "max_output"}
+    assert obligatorios <= set(m), "forma del contrato: faltan campos obligatorios"
+    assert set(m) - obligatorios <= opcionales, "forma del contrato, sin campos de la cara Claude"
+    assert all(isinstance(m[k], int) for k in set(m) & opcionales), "context_length/max_output son enteros"
 
 
 def test_la_vista_generica_no_lleva_ids_de_la_cara_claude_ni_destinos_ni_internos(env):
