@@ -91,7 +91,11 @@ function parseCookies(header) {
   (header || '').split(';').forEach((part) => {
     const idx = part.indexOf('=');
     if (idx === -1) return;
-    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    // Una cookie con `%` mal formado se ignora como si no estuviera (spec 056, T049: antes
+    // `decodeURIComponent` lanzaba y cualquier ruta respondía 500); las demás se leen igual.
+    try {
+      out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    } catch (err) { /* cookie mal formada: se ignora */ }
   });
   return out;
 }
@@ -304,7 +308,9 @@ app.post('/api/auth/login', async (req, res) => {
     if (!ok) {
       return res.status(status).json({ error: data.detail || 'Credenciales incorrectas.' });
     }
-    setSession(req, { token: data.access_token, user: data.user });
+    // Spec 056 (T049, N7 del QA v2): el `sid` se renueva al emitir la sesión, así un `sid`
+    // plantado antes del ingreso no hereda la sesión. Lo visible no cambia: sin `Secure`.
+    emitirSesionRotada(req, res, { token: data.access_token, user: data.user });
     res.json({ success: true, user: data.user });
   } catch (err) {
     res.status(502).json({ error: 'No se pudo contactar al backend de Guardian. Intentá de nuevo en unos minutos.' });
