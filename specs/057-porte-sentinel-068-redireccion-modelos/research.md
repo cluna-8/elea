@@ -271,6 +271,12 @@ En `6a70855` solo se bloquea `provider == "deepseek"` (`sentinel:sentinel/catalo
     nace bloqueado y todo es configurable desde el panel; con listas vacías todo funciona (test
     obligatorio, T025). Las jurisdicciones de preocupación, si un cliente las quiere, son reglas
     `jurisdiction` cargadas como dato.
+  - **Alcance de una regla de empresa (decidido por el coordinador, opción A, durante T025/T027):** una regla de
+    habilitación de nivel empresa bloquea solo las entradas **de esa empresa**; las entradas de instalación las
+    bloquean únicamente las reglas de instalación (la empresa limita lo que ve con ofertas y perfiles de acceso).
+    **Mejora posible (opción B, sin tarea en el MVP):** que la regla de empresa bloquee también, solo para esa
+    empresa, las entradas de instalación que se le ofrecen; exigiría calcular `blocked_by_default` por empresa en la
+    instantánea del plano de datos y que `/enable` opere sobre la oferta (toca resolver e instantánea).
   - Opciones que se evaluaron para el seed: (a) listas vacías (**elegida**); (b) solo proveedores
     (`deepseek`, `zai`); (c) proveedores + hosts de APIs oficiales chinas; (d) (c) + jurisdicción `CN`.
     Cualquiera es solo dato: no toca código.

@@ -78,8 +78,9 @@ export function replacedBaseIds(pages: PluginPage[]): Set<string> {
 }
 
 /** Inserta cada `item` después del ítem cuyo `id` es su `section` (o al final). Un `item` con
- *  `replaces` ocupa el lugar del ítem base con ese id (el primero que lo pide gana; si el id no existe,
- *  se trata como un `item` normal). */
+ *  `replaces` sustituye al ítem base con ese id (el primero que lo pide gana; si el id no existe, se
+ *  trata como un `item` normal): ocupa su lugar, salvo que además declare una `section` distinta que
+ *  exista en el menú, en cuyo caso el ítem base se quita y la entrada va después de esa sección. */
 export function mergeNav<T extends { id: string }>(
   base: T[], extra: { item: T; section?: string; replaces?: string }[],
 ): T[] {
@@ -90,7 +91,14 @@ export function mergeNav<T extends { id: string }>(
     if (replaces) {
       const at = out.findIndex(n => n.id === replaces);
       if (at !== -1) {
-        out.splice(at, 1, item);
+        const anchorId = section ? lastAfter.get(section) ?? section : undefined;
+        if (!anchorId || anchorId === replaces || !out.some(n => n.id === anchorId)) {
+          out.splice(at, 1, item);
+          continue;
+        }
+        out.splice(at, 1);
+        out.splice(out.findIndex(n => n.id === anchorId) + 1, 0, item);
+        lastAfter.set(section as string, item.id);
         continue;
       }
     }

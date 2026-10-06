@@ -185,3 +185,14 @@ cli-build-admin:
 
 cli-check:
 	$(MAKE) -C $(REPO_ROOT)/cli test
+
+# 057 T020/T088/T091 — entrega de extensiones (S9/S11), `heads` en la imagen publicada (S4) y variantes
+# `-ext` de las imágenes. Los tres corren SIN Docker (lectura estática y dobles de `docker`/`alembic`).
+.PHONY: check-extension-delivery check-standalone-heads check-ext-images
+check: check-extension-delivery check-standalone-heads check-ext-images
+check-extension-delivery:
+	$(REPO_ROOT)/deploy/release/checks/test_extension_delivery.sh
+check-standalone-heads:
+	$(REPO_ROOT)/deploy/release/checks/test_standalone_heads.sh
+check-ext-images:
+	$(REPO_ROOT)/deploy/release/checks/test_ext_images.sh

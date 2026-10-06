@@ -45,6 +45,12 @@ def _run_alembic_upgrade_head() -> None:
         # Do not crash startup: log loudly so ops notice. Inference will still fail fast
         # on schema mismatch, which is preferable to silent drift.
         logger.error("Alembic auto-run failed (schema may be stale): %s", e)
+        # Con ramas de extensión (ALEMBIC_EXTRA_VERSION_LOCATIONS) servir con el esquema a medias
+        # es peor que no servir: la extensión activa leería tablas que no existen. Se aborta.
+        from .migration_locations import extra_version_locations
+
+        if extra_version_locations():
+            raise
 
 
 def _create_tables_legacy() -> None:

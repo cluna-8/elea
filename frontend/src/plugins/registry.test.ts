@@ -50,6 +50,28 @@ describe("registry de páginas de plugins", () => {
     expect(merged.map(n => n.id)).toEqual(["a", "plugin:/modelos", "c"]);
   });
 
+  // ── `replaces` + `section` (057 T029, FR-005): sustituye al ítem base Y va junto a otro ítem ──
+  it("con `replaces` y `section`, el ítem base se quita y la entrada va después de la sección", () => {
+    const base = [{ id: "a" }, { id: "models" }, { id: "c" }, { id: "governance" }, { id: "e" }];
+    const merged = mergeNav(base, [{ item: { id: "plugin:/modelos" }, replaces: "models", section: "governance" }]);
+    expect(merged.map(n => n.id)).toEqual(["a", "c", "governance", "plugin:/modelos", "e"]);
+  });
+
+  it("con `replaces` y `section` iguales o con una sección que no existe, ocupa el lugar del base como siempre", () => {
+    const base = [{ id: "a" }, { id: "models" }, { id: "c" }];
+    expect(mergeNav(base, [{ item: { id: "p" }, replaces: "models", section: "models" }]).map(n => n.id)).toEqual(["a", "p", "c"]);
+    expect(mergeNav(base, [{ item: { id: "p" }, replaces: "models", section: "no-existe" }]).map(n => n.id)).toEqual(["a", "p", "c"]);
+  });
+
+  it("dos plugins en la misma sección conservan su orden aunque uno de ellos use `replaces`", () => {
+    const base = [{ id: "models" }, { id: "governance" }, { id: "z" }];
+    const merged = mergeNav(base, [
+      { item: { id: "p1" }, replaces: "models", section: "governance" },
+      { item: { id: "p2" }, section: "governance" },
+    ]);
+    expect(merged.map(n => n.id)).toEqual(["governance", "p1", "p2", "z"]);
+  });
+
   it("`replaces` de un id que no existe en la base no oculta nada y la entrada se suma como siempre", () => {
     const base = [{ id: "a" }, { id: "b" }];
     const merged = mergeNav(base, [{ item: { id: "plugin:/x" }, replaces: "zzz", section: "a" }]);

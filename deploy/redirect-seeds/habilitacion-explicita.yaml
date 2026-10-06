@@ -1,0 +1,16 @@
+# [ELEIA] Reglas de habilitación explícita de la instalación (057 FR-029; research R14, opción (a)).
+#
+# Decisión del owner, 2026-10-06 (D1 del análisis legal): en Eleia NO se bloquea ningún destino por
+# defecto. Las tres listas se siembran VACÍAS: ninguna entrada del catálogo nace bloqueada y todo es
+# configurable desde el panel (pestaña «Habilitación» del catálogo). A todo destino redirigido le rige
+# igual la postura por defecto de la región (enmascarado forzado, FR-031).
+#
+# Cargar con `python -m sentinel.catalog.habilitacion deploy/redirect-seeds/habilitacion-explicita.yaml`
+# (idempotente; sin reglas no hace nada). Para sumar una regla, desde el panel o agregando acá:
+#   providers:     [<proveedor del catálogo>]            # p. ej. el nombre que usa el selector de proveedor
+#   api_hosts:     [<host>, <comodín de un nivel>]       # p. ej. "api.ejemplo.com" o "gw*.ejemplo.com"
+#   jurisdictions: [<código ISO o zona>]                 # compara inferencia, entidad y control de la ficha
+# La regla de paridad con Sentinel (su bloqueo fijo por proveedor) es `providers: [deepseek]`, solo allá.
+providers: []
+api_hosts: []
+jurisdictions: []
