@@ -13,6 +13,14 @@ responsables de seguridad TI en centros sanitarios.
     documentados · 🔵 **OBJETIVO** — roadmap explícito, no implementado. Nada marcado
     🔵 se describe como si existiera.
 
+!!! warning "Marco normativo de esta instalación"
+    En la línea América (perfil Argentina) rige la **Ley 25.326** y los criterios de la **AAIP**; el
+    GDPR y la EU AI Act **no rigen**. Los artículos y plazos de esos reglamentos que figuran en esta
+    página describen cómo está modelado el módulo en la base compartida, no obligaciones de esta
+    instalación; el mapeo a la ley argentina es 🔵 **OBJETIVO** (ver
+    [Compliance](index.md)). Los plazos y las regiones que cargues en el módulo son datos tuyos: definilos
+    con tu asesoría legal.
+
 ---
 
 ## Cómo se aplican los controles en cada llamada

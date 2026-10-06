@@ -89,6 +89,17 @@ Matriz de permisos vigente en la instancia:
 | Usar la IA por el gateway | ✅ | ✅ | ✅ |
 | Detalle de salud de licencia | ✅ | ✅ | ❌ |
 
+Con la [redirección de modelos](redireccionamiento.md) activa se suman estas acciones 🟡 (el
+super admin puede todas):
+
+| Acción | Tenant admin | Compliance officer | Client |
+|---|:---:|:---:|:---:|
+| Alta de destinos, ids publicados y reglas; encender la política por alcance | ✅ | ❌ (solo lectura) | ❌ |
+| Fijar regiones, la postura por defecto y las relajaciones del enmascarado forzado | ❌ | ✅ | ❌ |
+| Escribir en la ficha de un destino la entidad responsable, las jurisdicciones y la retención cero | ❌ | ✅ | ❌ |
+| Endurecer una postura de residencia (nunca relajarla) | ✅ | ✅ | ❌ |
+| Habilitar un destino bloqueado por una regla, con motivo | ✅ | ✅ | ❌ |
+
 !!! info "El rol «Auditor» de la consola"
     La pantalla de usuarios permite dar de alta a alguien con el rol **Auditor** —la opción
     se ofrece sólo a un *super admin*, que es quien puede asignarlo—: es el *compliance
@@ -518,7 +529,10 @@ intelectual del artefacto): [Licenciamiento offline](../install-deploy/licensing
   entre personas, gasto por usuario y qué avisa la interfaz sobre PII en documentos.
 - [Operaciones & troubleshooting](../operations/index.md) — chequeos de salud del stack
   (incluido el probe de licencia) y gotchas operativos verificados en despliegues reales.
-- [Compliance](../compliance/index.md) — el marco legal (GDPR / EU AI Act) que los modos
+- [Compliance](../compliance/index.md) — el marco normativo de la instalación (Ley 25.326 / AAIP) y
+  los controles de referencia (GDPR / EU AI Act) con los que está modelado el módulo, que los modos
   de la política de seguridad implementan.
+- [Redirección de modelos](redireccionamiento.md) — publicar modelos, mapear destinos y gobernar la
+  residencia y el enmascarado forzado.
 - [Integraciones](../integrations/index.md) — las superficies (CLI, IDE, extensión de
   navegador) que consumen las Connections gobernadas por estas políticas.

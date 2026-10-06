@@ -1,17 +1,34 @@
 # Compliance
 
-El producto incluye un módulo de compliance con los controles mínimos exigibles para
-desplegar un gateway de IA en entornos sanitarios europeos: proyectos con base legal GDPR,
-clasificación de riesgo del EU AI Act con enforcement real en el pipeline, registro de DPAs,
-derechos del interesado y retención — todo con evidencia auditada de solo metadatos.
+El producto incluye un módulo de compliance con controles técnicos para desplegar un gateway de
+IA donde se tratan datos personales y sensibles: proyectos con base legal y nivel de riesgo,
+registro de DPAs, derechos del interesado, retención y un gate de prácticas prohibidas — todo con
+evidencia auditada de solo metadatos. El módulo nació sobre marcos europeos (GDPR y EU AI Act) y
+sus nombres, campos y artículos siguen esa referencia; **el marco normativo de esta instalación es
+otro** (ver abajo).
 
 **Para quién**: administradores del sistema, DPO (Delegado de Protección de Datos) y
-responsables de seguridad TI en centros sanitarios.
+responsables de seguridad TI de la organización.
 
 !!! note "Leyenda de estado"
     🟢 **HOY** — funciona y está verificado · 🟡 **PARCIAL** — existe con límites
     documentados · 🔵 **OBJETIVO** — roadmap explícito, no implementado. Nada marcado
     🔵 se describe como si existiera.
+
+!!! warning "Marco normativo de esta instalación"
+    Esta instalación pertenece a la **línea América** (perfil Argentina): el marco normativo es la
+    **Ley 25.326 de Protección de Datos Personales** y los criterios de la **AAIP**. El Reglamento
+    General de Protección de Datos europeo (GDPR) y la Ley de IA de la Unión Europea (EU AI Act)
+    **no rigen** en esta línea. Donde esta página y la de [DPA · DSR · Retención](dpa-dsr-retention.md)
+    nombran artículos de esos reglamentos describen **cómo está modelado el módulo** que comparte la
+    base del producto, no obligaciones aplicables a esta instalación, y nada de lo que sigue afirma
+    que el uso del producto «cumpla» una norma. El **mapeo del módulo a la Ley 25.326** (derechos del
+    titular, registro de bases ante la AAIP) es 🔵 **OBJETIVO**: todavía no está hecho. La residencia
+    de los modelos de esta línea no se gobierna con el interruptor «Forzar región EU» sino por
+    región en la [redirección de modelos](../administration/redireccionamiento.md) (región
+    `AMERICAS`, criterio de riesgo y no de legalidad; el enmascarado es seudonimización reversible
+    de identificadores detectados). La base legal de las transferencias internacionales (Ley 25.326,
+    art. 12) la cubre quien opera la instalación, por fuera del sistema.
 
 Esta sección se organiza en dos páginas:
 
@@ -55,13 +72,15 @@ graph TD
     S --> PD
 ```
 
-Los marcos legales cubiertos:
+Los marcos de referencia sobre los que está modelado el módulo (la base compartida) y el de esta
+instalación:
 
 | Marco legal | Artículos clave | Qué cubre este módulo |
 |-------------|----------------|----------------------|
-| **GDPR (Reglamento UE 2016/679)** | Art. 5, 9, 12–22, 28, 35 | Base legal, DPAs, DSRs, retención, DPIA |
-| **EU AI Act (Reglamento UE 2024/1689)** | Art. 5, 50 | Bloqueo de prácticas prohibidas y notificación al usuario de interacción con IA |
+| GDPR (Reglamento UE 2016/679) — referencia del módulo, **no rige aquí** | Art. 5, 9, 12–22, 28, 35 | Base legal, DPAs, DSRs, retención, DPIA |
+| EU AI Act (Reglamento UE 2024/1689) — referencia del módulo, **no rige aquí** | Art. 5, 50 | Bloqueo de prácticas prohibidas y notificación al usuario de interacción con IA |
 | **ENS (Esquema Nacional de Seguridad)** | Medidas de trazabilidad | Retención mínima de eventos de seguridad (365 días) |
+| **Ley 25.326 y criterios de la AAIP** (el marco de esta instalación) | — | 🔵 Mapeo **pendiente**: el módulo todavía no modela sus derechos ni el registro de bases. Lo que sí aporta hoy son controles técnicos transversales: enmascarado como seudonimización reversible, auditoría de solo metadatos y retención configurable |
 
 La configuración del módulo (proyectos, DPAs, DSRs, retención) se gestiona con rol
 **tenant admin** o **compliance officer** — la matriz completa de permisos está en
@@ -74,6 +93,11 @@ La configuración del módulo (proyectos, DPAs, DSRs, retención) se gestiona co
 ---
 
 ## Niveles de riesgo del EU AI Act y qué hace el producto
+
+!!! note "Referencia, no obligación"
+    La EU AI Act no rige en esta línea (ver el aviso de arriba). Los niveles y el gate de prácticas
+    prohibidas son una **clasificación de riesgo de referencia** y un control técnico que la base
+    comparte; usalos como tales y no como una afirmación de cumplimiento.
 
 El EU AI Act clasifica los sistemas de IA en niveles de riesgo. El producto actúa distinto
 en cada nivel — dos son **enforcement duro** en runtime y dos son **transparencia y
@@ -156,7 +180,7 @@ orden: **Connection (virtual key) → usuario → grupo**. Gana la asignación m
 | **Categoría de datos** | Texto | Tipo de datos que maneja (ej: `health_data`, `administrative`) |
 | **Nivel de riesgo AI Act** | Selector | Clasifica el sistema según los Annexos del EU AI Act. Default de un proyecto nuevo: **Limitado** |
 | **Activo** | Boolean | Solo los proyectos activos aplican sus reglas al pipeline. Un proyecto nuevo nace **inactivo**: hay que activarlo explícitamente |
-| **Forzar región EU** | Boolean | Bloquea llamadas a modelos fuera de la UE |
+| **Forzar región EU** | Boolean | Control heredado de la base, pensado para perfiles europeos: bloquea llamadas a modelos fuera de la UE. **No es el control de residencia de esta línea**: la residencia de América se gobierna por región en la [redirección de modelos](../administration/redireccionamiento.md); no lo uses como sustituto |
 | **Notificación IA** | Boolean | Entrega aviso legal de uso de IA al usuario (Art. 50). **Activada por defecto** |
 | **Revisión humana** | Boolean | Genera token de revisión por cada respuesta para supervisión clínica. **Forzada automáticamente** en proyectos de alto riesgo |
 | **Referencia DPIA** | Texto | Número de documento de la evaluación de impacto (ej: `DPIA-2026-001`) |
@@ -185,7 +209,7 @@ un campo informativo, es el prerrequisito de todo lo demás.
 4. Nivel de riesgo: `Alto Riesgo — Annex III`
 5. Activar: **Notificación IA** y **Revisión humana** (con nivel alto, la revisión humana
    queda forzada aunque no la marques)
-6. Si los datos son sensibles: activar **Forzar región EU**
+6. Si los datos son sensibles y el perfil es europeo: activar **Forzar región EU** (en la línea América, la residencia se configura en la [redirección de modelos](../administration/redireccionamiento.md))
 7. Referencia DPIA: completar cuando el DPO entregue el documento
 8. Guardar → **Activar el proyecto**
 9. **Asignar el proyecto** al grupo (o a usuarios / Connections concretos) que debe regirse
@@ -202,6 +226,10 @@ un campo informativo, es el prerrequisito de todo lo demás.
 - 🟡 **Cobertura de detección** — el gate y los guardianes trabajan sobre lo que detectan;
   la detección por patrones es el default y un despliegue productivo con PHI exige el motor
   NLP de detección como precondición (ver [Overview](../overview/index.md)).
+- 🔵 **Mapeo a la Ley 25.326 / AAIP** — el módulo sigue modelado sobre marcos europeos; el mapeo a la
+  ley argentina (derechos del titular, registro de bases ante la AAIP) no está hecho.
+- 🟡 **Residencia de modelos redirigidos** — se gobierna por región en la
+  [redirección de modelos](../administration/redireccionamiento.md), 🟡 hasta la revisión legal.
 - 🟡 **Asignación de proyecto** — sin fallback global: las llamadas fuera de la jerarquía
   asignada no reciben controles de proyecto (ver arriba).
 
@@ -213,5 +241,7 @@ un campo informativo, es el prerrequisito de todo lo demás.
   gestión de solicitudes DSR con plazos GDPR, retención, panel DPO y checklist de producción.
 - [Administración](../administration/index.md) — roles RBAC que gestionan compliance, y las
   políticas de seguridad con sus modos GDPR / AI Act.
+- [Redirección de modelos](../administration/redireccionamiento.md) — la residencia por región y el
+  enmascarado forzado de esta línea, que reemplazan al interruptor «Forzar región EU».
 - [Overview & arquitectura](../overview/index.md) — dónde encaja el enforcement de
   compliance dentro del pipeline por request del producto.

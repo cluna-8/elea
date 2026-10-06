@@ -329,6 +329,8 @@ Los códigos **G#** refieren al detalle causa → fix en
 | Síntoma | Causa probable | Fix |
 |---|---|---|
 | Claude Code ignora la identidad (aparece admin/default) | No reinició `claude` tras editar `settings.json`; o falta `X-Sentinel-Key` | Reiniciar `claude`; verificar con `curl …/api/v1/gw/whoami -H "X-Sentinel-Key: …"` |
+| Claude Desktop muestra «Failed to authenticate» seguido de «Modelo no disponible para tu región.» 🟡 | Rechazo de residencia de la [redirección de modelos](#7-redireccion-de-modelos): la aplicación antepone ese texto a todo `403`; no es un problema de credenciales | Cumplimiento revisa la postura y la ficha del destino ([Redirección de modelos](../administration/redireccionamiento.md)) |
+| «El pedido no pudo protegerse para este destino y fue bloqueado» (`400` en la cara Claude, `403` en la genérica) 🟡 | Enmascarado forzado: adjunto no analizable, analizador caído o dato en una posición que no se puede reescribir | Quitar el adjunto o abrir otra conversación; la auditoría guarda el tipo de causa (`unanalyzable_kinds`), nunca el contenido |
 | Copilot 401 / no autentica | `x-api-key` vacío, `apiKey` ignorado (G2) | Poner la key en la URL: `…/api/v1/gw/v1/messages?k=sk-sentinel-…` |
 | Copilot loopea, tarjetas `in=0 out=NN` repetidas (G1) | Modo Agent/Edit con modelo no-Claude | Cambiar a **modo Ask** |
 | El nombre real sale en el título de Claude.ai (G3) | Endpoint `/title` con prompt crudo | Confirmar que el adapter matchea `/title`; recargar la extensión (↻) |
@@ -708,8 +710,148 @@ una base vacía, aplica sus migraciones sobre ella y no toca el producto.
       desde el host al puerto publicado llega con la IP del gateway del bridge, que está dentro de la
       subred que `auto` permite.
 
+## 7. Redirección de modelos: activación, salud y vuelta atrás { #7-redireccion-de-modelos }
+
+**Objetivo**: activar la extensión de redirección de modelos en una instalación, comprobar que quedó
+sana y saber volver atrás. La política de producto está en
+[Redirección de modelos](../administration/redireccionamiento.md); esta sección es la operación.
+
+!!! warning "Estado: 🟡 sin verificación en vivo"
+    La entrega por el instalador (`ELEA_REDIRECT=1`) y los perfiles de cliente están implementados
+    en este repositorio y probados **sin contenedores**; la activación por el instalador, su proxy y
+    la prueba en un servidor real son 🔵 **OBJETIVO** (en curso en el repositorio del instalador).
+    Hasta entonces, **no hay una instalación entregada con la extensión activa**, y nada de esta
+    sección se probó de punta a punta con contenedores.
+
+**Prerrequisitos**
+
+- La **base de datos del motor es propia** (§6.3) y existe un **respaldo reciente** (§6.2): una vez
+  aplicadas las migraciones de la extensión no se soporta volver a una imagen sin ella (abajo).
+- Las imágenes **`-ext`** del release (backend, panel y motor): derivan **del mismo digest** de las
+  imágenes publicadas, agregan solo los archivos de la extensión y el lector de PDF, llevan tag propio
+  (`<versión>-ext`) y **nunca mueven `latest`**. Las imágenes base no cambian.
+- Docker Compose **2.24 o superior** si se usa `EXTRA_ENV_FILE` (§ de entorno extra de
+  [Install / Deploy](../install-deploy/index.md)).
+- Un `FERNET_SECRET_KEY` ya definido: cifra las credenciales de los destinos.
+
+### 7.1 Cómo se activa
+
+**Nada se activa por estar en la imagen**: la extensión se enciende con variables de entorno. Sin
+ellas, las imágenes `-ext` se comportan como las base.
+
+| Camino | Cómo | Estado |
+|---|---|---|
+| **Instalador** | `ELEA_REDIRECT=1` elige las imágenes `-ext`, crea el archivo de entorno de la extensión **fuera del repositorio con modo 600**, genera las claves y consulta `GET /api/v1/redirect/health` al terminar (falla visible ante cualquier respuesta que no sea 200). **No activa** la extensión si falta el proxy delante del backend (§7.5) | 🔵 en curso |
+| **Perfil de cliente** (compose de producción) | `EXTRA_ENV_FILE=<archivo>` suma las variables al backend y al motor; `EXTRA_ENGINE_EXTENSIONS` copia al volumen de extensiones del motor (y al paquete air-gapped) los archivos extra; `PROFILE_FRAGMENTS` fusiona fragmentos YAML al `config.yaml` del motor renderizado (`model_list` y `guardrails` se agregan; un nombre duplicado hace **fallar** el render). Sin esas variables, la salida es idéntica byte a byte | 🟡 probado sin contenedores |
+| **Desarrollo** | Un override opcional de compose monta la extensión y sus seeds, con un script que prepara las extensiones del motor y el `config.yaml` fusionado. Plantilla de entorno **sin secretos**: `extensions.env.example` | 🟡 |
+
+**Variables** (las del backend, del motor o de ambos; valores de ejemplo en `extensions.env.example`
+y descripción de las comunes en la [referencia de configuración](../api-reference/configuration.md)):
+
+| Variable | Qué hace |
+|---|---|
+| `GATEWAY_PLUGINS`, `PLUGIN_PACKAGES`, `ALEMBIC_EXTRA_VERSION_LOCATIONS` | Encienden los enganches de la pasarela, los routers y las migraciones de la extensión. **Con la variable de migraciones, el backend migra a `heads` (una rama por extensión) y una migración fallida aborta el arranque** en lugar de seguir con un esquema a medias. Sin ella, igual que siempre |
+| `REDIRECT_INTERNAL_KEY` | Autorización interna pasarela → motor. Dedicada, ≥ 32 caracteres, en backend **y** motor |
+| `MASKING_NONCE_KEY` | Clave del servidor (≥ 32 caracteres, **distinta de las demás y propia de cada instalación**) de la que se derivan los marcadores estables por conversación, la referencia de conversación y la afinidad de sesión. La genera el release (`openssl rand -hex 32`); va a backend **y** motor; no se puede usar como credencial de un modelo. Sin ella (o más corta) los marcadores son aleatorios: la caché del proveedor rinde menos, la protección no cambia |
+| `SENTINEL_ENTITY_REGION` | Perfil de país de la instalación (`latam_ar` en esta línea). El compose lo fija con un valor por defecto de perfil europeo: **hay que pasarlo por el entorno** (ver §7.3) |
+| `REDIRECT_SEED_FILES` | Archivos de datos (región y reglas de habilitación) que la extensión carga **al arrancar** |
+| `REDIRECT_CRED_<NOMBRE>` | Credenciales de los destinos **de instalación** (una por destino); nunca se versionan |
+| `REDIRECT_CACHE_TTL_S`, `REDIRECT_FIDELITY_BUDGET_USD`, `REDIRECT_GATEWAY_URL`, `REDIRECT_BETA_ALLOWLIST` | Opcionales: caché de política (5 s), presupuesto de cada prueba de fidelidad (0,50 USD), dirección pública que llevan los kits, lista de cabeceras beta permitidas hacia destinos nativos |
+| `CATALOG_ALLOW_PRIVATE_API_BASE` | Apagada por defecto. Permite que una empresa cargue un modelo local (`http` o red interna). Solo para instalaciones de **una** empresa |
+| `FERNET_PREVIOUS_KEYS` | Rotación de la clave de cifrado: la anterior **solo descifra** |
+| `MASKING_ANALYSIS_CACHE_*`, `MASKING_EXEMPT_*`, `MASKING_PDF_*` | Opcionales del motor (caché de análisis, exenciones, topes de PDF); ver §7.4 |
+
+**No definir `REDIRECT_OPERATOR_TENANT`** en esta línea: daría autoridad de instalación a un
+administrador de empresa y desactivaría la garantía de quién relaja el enmascarado.
+
+### 7.2 Salud: `GET /api/v1/redirect/health`
+
+Sin sesión y sin datos de empresas; solo el estado de la extensión:
+
+| Respuesta | Significa | Fix |
+|---|---|---|
+| `200 {"status":"ok"}` | Hay una región cargada que resuelve el perfil de la instalación | — |
+| `503` con `reason: region_row_missing` | La región del perfil se conoce pero no hay fila que la resuelva (sin seeds, seed fallido, fila borrada) — **también** cuando el perfil resuelve a `eu` por el valor por defecto del compose de producción y no existe una fila para esa región. Rige el **respaldo en código**: todo lo redirigido sale enmascarado y solo hacia la región que el código asocia | Pasar `SENTINEL_ENTITY_REGION` y `REDIRECT_SEED_FILES` por el entorno y reiniciar; o sembrar la fila a mano |
+| `503` con `reason: region_unresolved` | La región del perfil no se puede determinar: **todo** lo redirigido se rechaza (`403`) | Definir `SENTINEL_ENTITY_REGION` |
+| `404` | La extensión no está activa (por ejemplo una imagen `-ext` sin variables) | Revisar `PLUGIN_PACKAGES` |
+
+El instalador y cualquier monitor deben tratar **todo lo que no sea 200** como falla.
+
+### 7.3 Seeds al arrancar
+
+La extensión carga sus archivos de datos **antes de servir el primer pedido** (enganche de arranque
+de la base: el `on_startup()` opcional de cada paquete de `PLUGIN_PACKAGES`, en el orden de la
+variable). Es **idempotente**, toma un cerrojo de la base para que dos procesos no compitan, **solo
+crea** (lo que un administrador cambió, por ejemplo la postura por defecto, no se pisa al reiniciar) y
+un archivo inválido se registra con su nombre sin frenar a los demás ni al arranque. Si la carga falla,
+rige el respaldo (§7.2). 🟡
+
+Datos de fábrica de esta línea: la región `AMERICAS` con postura por defecto **`masked_all`** y las
+reglas de habilitación **vacías**. El catálogo de ejemplo de Azure se carga aparte, con el cargador de
+datos de la extensión, y exige que el administrador complete en cada entrada las jurisdicciones y la
+entidad responsable (no se presumen).
+
+### 7.4 Topes del lector de PDF del enmascarado forzado
+
+Todas opcionales, del **motor**, leídas en cada pedido; un valor inválido cae al de la tabla. Un PDF
+que excede un tope no se envía: el pedido se bloquea (§ de causas en
+[Redirección de modelos](../administration/redireccionamiento.md)).
+
+| Variable | Por defecto | Qué limita |
+|---|---|---|
+| `MASKING_PDF_MAX_PAGES` / `MASKING_PDF_MAX_BYTES` | 200 / 20 MB | páginas y tamaño por PDF |
+| `MASKING_PDF_MAX_MEMORY_MB` / `MASKING_PDF_TIMEOUT_S` | 512 / 20 s | memoria del proceso de lectura y plazo (al vencer se elimina) |
+| `MASKING_PDF_MAX_CONCURRENCY` | 2 | lecturas simultáneas por proceso del motor |
+| `MASKING_PDF_MAX_STREAM_BYTES` / `MASKING_PDF_MAX_TEXT_CHARS` | 25 MB / 2 000 000 | expansión de cada flujo comprimido y texto extraído |
+| `MASKING_PDF_MAX_PER_REQUEST` / `MASKING_PDF_REQUEST_DEADLINE_S` | 5 / 30 s | PDF por pedido y plazo total (incluye la espera de turno) |
+| `MASKING_PDF_CACHE_ENTRIES` | 32 | PDF recordados **en memoria** por su huella (nunca en disco); 0 apaga |
+
+El PDF se lee en un **proceso aparte** con límites del sistema operativo, para que uno hostil no
+afecte al resto del servicio. Si el lector de PDF no está instalado en la imagen del motor, todo PDF
+se bloquea (`pdf_unavailable`).
+
+### 7.5 El canal interno nunca se publica
+
+`/api/v1/internal/*` (identidad, auditoría y catálogo entre el backend y el motor) **no se publica
+fuera de la red de compose**: lo niega el proxy delante del backend con `404`, exige el secreto
+compartido y acepta solo conexiones de `INTERNAL_ALLOWED_CIDRS` (ver §6.3). Las rutas de la
+extensión usan **la misma** comprobación. La ruta que entregaría una credencial descifrada devuelve
+`404` aunque el secreto sea correcto, salvo con `CATALOG_DIRECT_ENABLED` (vacía en esta línea).
+**Si el proxy no está, el instalador no activa la extensión.** Estado: la capa de origen está en el
+código de este repositorio 🟡; el proxy y su verificación en el instalador son 🔵 en curso.
+
+### 7.6 Base compartida con el motor y vuelta atrás
+
+- **Antes de activar**, respaldo de las dos bases (§6.2). La extensión suma una rama de migraciones
+  propia, con tablas propias (prefijo propio, claves foráneas solo hacia sus tablas y las de
+  empresas y grupos); **no** toca tablas ni el libro de migraciones del motor. Ninguna base nueva debe
+  arrancar con el backend antes que el motor.
+- `DISABLE_SCHEMA_UPDATE` en el motor **no se usa** salvo que la prueba específica sobre una base
+  existente lo haya validado (pendiente 🟡).
+- **Vuelta atrás, nivel 1 — apagar** (recomendado): política apagada para los alcances y sin
+  `GATEWAY_PLUGINS` ni `PLUGIN_PACKAGES`, **conservando la imagen `-ext` del backend y
+  `ALEMBIC_EXTRA_VERSION_LOCATIONS`**: con las migraciones aplicadas, la imagen base no arranca. La
+  pasarela vuelve a ser la de siempre (batería de no-regresión).
+- **Vuelta atrás, nivel 2 — volver a las imágenes base**: **solo** restaurando el respaldo previo a la
+  activación. **No hay downgrade de migraciones soportado.**
+
+### 7.7 Síntomas
+
+| Síntoma | Causa | Fix |
+|---|---|---|
+| El backend no arranca y el log nombra una migración | Con las migraciones de la extensión configuradas, un fallo de migración **aborta** el arranque a propósito | Corregir la migración o restaurar el respaldo; no quitar la variable con la base ya migrada |
+| `503 region_row_missing` justo tras instalar | Perfil `eu` por defecto o seeds sin cargar | §7.2 |
+| Todo lo redirigido sale `403` | Región sin resolver, o destino sin jurisdicción de inferencia | §7.2; completar la ficha del destino |
+| Pedidos grandes tardan y se bloquean en cadena | Un analizador de entidades lento y el análisis de alcance completo de todo el historial | La caché de análisis ayuda desde el segundo turno; medir con el analizador real (🟡: la cifra no existe todavía) |
+| El panel «Modelos» no muestra las pestañas de redirección | La extensión no está activa en el backend o en el panel | Comprobar `PLUGIN_PACKAGES` y la imagen del panel `-ext` |
+
+**Rollback y límites**: no hay downgrade de migraciones; la activación por el instalador, la prueba
+local con un destino real y el runbook del servidor son 🔵 hasta completarse.
+
 ## Relacionado
 
+- [Redirección de modelos](../administration/redireccionamiento.md) — la política, las posturas y las
+  causas de bloqueo detrás de la sección 7.
 - [Install / Deploy](../install-deploy/index.md) — el flujo de instalación de punta a punta, los
   deliverables (incluido el tarball air-gapped que piden los fixes de egress) y los mismos gotchas
   vistos desde el momento de instalar.
