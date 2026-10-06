@@ -37,6 +37,11 @@ REDIRECT_CACHE_TTL_S=5
 # de la pasarela que llevan los kits de cliente (default: la de la petición)
 REDIRECT_FIDELITY_BUDGET_USD=0.50
 REDIRECT_GATEWAY_URL=https://<host>/api/v1/gw
+# opcional (backend): cabeceras `anthropic-beta` que se reenvían a un destino NATIVO (separadas por coma, leídas en
+# cada pedido; sin definir o en blanco = el default acotado de `redirect/betas.py`; `none` = ninguna). Hacia un destino
+# traducido nunca se reenvía ninguna (FR-040). Las betas que suben el costo, guardan archivos en el proveedor o
+# ejecutan código no están en el default: se habilitan a propósito.
+REDIRECT_BETA_ALLOWLIST=
 ```
 
 - **Backend**: la imagen del release ya trae el paquete en `/opt/sentinel-ext` con

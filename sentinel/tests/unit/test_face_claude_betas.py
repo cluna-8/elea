@@ -51,8 +51,11 @@ def test_el_default_es_acotado_y_no_incluye_betas_de_retencion_o_facturacion():
 def test_el_override_por_entorno_reemplaza_el_default(monkeypatch):
     monkeypatch.setenv(betas.ENV, "una-beta-2026-01-01, otra-beta-2026-02-02,,   ")
     assert betas.allowlist() == frozenset({"una-beta-2026-01-01", "otra-beta-2026-02-02"})
-    monkeypatch.setenv(betas.ENV, "")                       # vacío = ninguna
+    monkeypatch.setenv(betas.ENV, "none")                   # ninguna, a propósito
     assert betas.allowlist() == frozenset()
+    for en_blanco in ("", "  "):                            # lo que deja `.env.example` sin tocar: el default
+        monkeypatch.setenv(betas.ENV, en_blanco)
+        assert betas.allowlist() == frozenset(betas.DEFAULT_ALLOWLIST)
     monkeypatch.setenv(betas.ENV, "ok-2026-01-01,con espacios,x" + "y" * 80)   # inválidas se ignoran
     assert betas.allowlist() == frozenset({"ok-2026-01-01"})
 

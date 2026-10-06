@@ -3,7 +3,7 @@
 Hacia un destino **nativo** solo viajan las betas de esta lista; hacia un traducido, ninguna. La lista
 es un dato de la extensión: el default es acotado (funciones que no cambian facturación ni retención)
 y la instalación lo reemplaza con `REDIRECT_BETA_ALLOWLIST` (valores separados por coma, leída en cada
-pedido; vacía = ninguna). Las betas que suben el costo (`context-1m-*`), guardan archivos en el
+pedido; sin definir o en blanco = el default, que es lo que deja `.env.example`; `none` = ninguna). Las betas que suben el costo (`context-1m-*`), guardan archivos en el
 proveedor (`files-api-*`), ejecutan código o usan la suscripción (`oauth-*`) no están en el default:
 se habilitan a propósito.
 """
@@ -24,6 +24,7 @@ DEFAULT_ALLOWLIST = (
     "prompt-caching-scope-2026-01-05",
 )
 _NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+NONE = "none"
 
 
 def parse(value: Optional[str]) -> list:
@@ -34,9 +35,9 @@ def parse(value: Optional[str]) -> list:
 def allowlist(environ: Optional[Mapping[str, str]] = None) -> frozenset:
     env = os.environ if environ is None else environ
     raw = env.get(ENV)
-    if raw is None:
+    if raw is None or not raw.strip():
         return frozenset(DEFAULT_ALLOWLIST)
-    return frozenset(v for v in parse(raw) if _NAME.match(v))
+    return frozenset(v for v in parse(raw) if _NAME.match(v) and v != NONE)      # `none` ⇒ ninguna
 
 
 def split_allowed(received: Iterable[str], allowed: frozenset) -> tuple:
