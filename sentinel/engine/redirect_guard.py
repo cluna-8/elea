@@ -177,6 +177,63 @@ def register_forced_masking_resolver() -> int:
 register_forced_masking_resolver()
 
 
+# ── stream sin `choices` (Azure) hacia la cara Claude ───────────────────────────────────────────────────────────
+_ADAPTER_MODULE = "litellm.llms.anthropic.experimental_pass_through.adapters.transformation"
+_FILTER_MARK = "_rdx_empty_choices_filter"
+
+
+def _has_choices(chunk: Any) -> bool:
+    choices = chunk.get("choices") if isinstance(chunk, dict) else getattr(chunk, "choices", True)
+    return bool(choices) if choices is not None else True
+
+
+class _WithChoices:
+    """Stream que no entrega los chunks con `choices` vacío (síncrono y asíncrono).
+
+    Azure OpenAI abre el stream con las anotaciones del filtro de contenido y lo cierra con el `usage`, ambos con
+    `choices=[]`; el stream de LiteLLM los deja pasar cuando hay `include_usage` (lo fija el adaptador de `/v1/messages`)
+    y el adaptador de Anthropic lee `chunk.choices[0]`: `IndexError`, la respuesta sale cortada y no se escribe la fila de
+    auditoría. Esos chunks no llevan contenido que el adaptador pueda traducir, así que se descartan sin tocar los demás."""
+
+    def __init__(self, stream: Any):
+        self._stream = stream
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+    def __iter__(self):
+        return (c for c in self._stream if _has_choices(c))
+
+    def __aiter__(self):
+        async def gen():
+            async for chunk in self._stream:
+                if _has_choices(chunk):
+                    yield chunk
+        return gen()
+
+
+def install_empty_choices_filter() -> bool:
+    """Hace que el adaptador de Anthropic del motor (`/v1/messages` hacia un destino traducido) reciba el stream sin los
+    chunks de `choices` vacío (idempotente). El motor lo fija M1 y no se parchea `site-packages`: se envuelve el método que
+    recibe el stream, desde la extensión. Devuelve False si el motor no tiene ese adaptador (fuera del motor, o una base
+    que lo movió): no hay nada que arreglar y el guard sigue funcionando."""
+    try:
+        import importlib
+        adapter = importlib.import_module(_ADAPTER_MODULE).AnthropicAdapter
+        original = adapter.translate_completion_output_params_streaming
+    except (ImportError, AttributeError):
+        return False
+    if getattr(original, _FILTER_MARK, False):
+        return True
+
+    def translate_completion_output_params_streaming(self, completion_stream, *args, **kwargs):
+        return original(self, _WithChoices(completion_stream), *args, **kwargs)
+
+    setattr(translate_completion_output_params_streaming, _FILTER_MARK, True)
+    adapter.translate_completion_output_params_streaming = translate_completion_output_params_streaming
+    return True
+
+
 def nonce_scope(report: Any) -> str:
     """`conversation` si el informe del guardrail dice que el sufijo de los marcadores se derivó por conversación (S13);
     `request` en cualquier otro caso. Solo el nombre del alcance, jamás el sufijo ni el identificador."""
@@ -568,6 +625,7 @@ class RedirectGuard(CustomGuardrail):
         super().__init__(**kwargs)
         self._catalog = None
         register_forced_masking_resolver()      # por si la copia plana de la política se cargó después del import
+        install_empty_choices_filter()          # stream de Azure (`choices=[]`) hacia la cara Claude
 
     def _catalog_direct(self):
         """Resolución por catálogo para clientes directos (069 T033). Perezoso: el módulo hermano
