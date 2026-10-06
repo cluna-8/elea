@@ -21,6 +21,11 @@ class AuditLog(Base):
     prompt_tokens = Column(Integer, nullable=False)
     completion_tokens = Column(Integer, nullable=False)
     cost_usd = Column(Numeric(10, 6), nullable=False)
+    # Cero real vs. cero mudo (specs/ANALISIS-GASTO-CERO §9): `cache_hit` = el motor sirvió el pedido
+    # desde su caché de respuestas (costo 0 real, no descuenta presupuesto); `cost_estimated` =
+    # el motor no informó costo y `cost_usd` es el del tarifario. Booleanos, metadata-only.
+    cache_hit = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    cost_estimated = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     cost_saved_usd = Column(Numeric(10, 6), default=0)  # Ahorro USD real por compresión (spec 012 US3)
     pii_detected = Column(Boolean, default=False)
     masked_entities = Column(JSONB, nullable=True) # e.g., [{"type": "PERSON", "count": 2}]
