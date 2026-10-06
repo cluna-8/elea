@@ -847,6 +847,53 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   al instalador y no a los perfiles de cliente ni al desarrollo. **Vuelve a Sentinel por HANDOFF** (T085): su
   `main.py` tiene el mismo `lifespan`.
 
+## R34. Caché de análisis por segmento del enmascarado forzado — S17 (decisión del owner, 2026-10-06; FR-027, FR-045, SC-010)
+
+- **Hechos**: el alcance completo de S14 analiza todo lo que sale hacia el destino (R29). Un pedido típico de Claude Code
+  (60 herramientas, 24 turnos, 125 KB) son **299 llamadas al analizador y ≈ 93 000 caracteres**
+  (`handoff-notas-tramo-e2.md`, medición informativa de `sentinel/tests/perf/test_masking_pdf_overhead.py`); a los 330
+  caracteres/s que declara `.env.example` para el analizador real son **≈ 280 s por turno** sin caché. La herramienta
+  reenvía el historial completo en cada turno, y el historial casi no cambia entre turno y turno: `litellm/extensions/sentinel_guardian_policy.py`
+  (`_FullScopeMasker.prefetch`) solo memoriza **dentro del pedido**, y el análisis previo de `sentinel_guardrail.py` (`inspect_text`,
+  tope `INSPECT_CAP` = 16 000) es un texto unido que cambia con cada turno mientras la conversación no pase el tope.
+- **Decisión del owner**: el enmascarado forzado **sigue con alcance completo por defecto**. **No** se reduce al último mensaje:
+  el cliente reenvía el historial en claro (lo que recibió ya restaurado) y los datos personales viven en los `tool_result`
+  (resultados de herramientas que leyeron archivos, bases o correos), no en lo que escribe la persona. La latencia se resuelve con una
+  **caché de análisis**, no con menos protección.
+- **Diseño [BASE], costura nueva S17** (retrocompatible; genérica, sin cadenas de Elea; vuelve a Sentinel por HANDOFF):
+  - **Qué se cachea**: el resultado de **analizar un segmento de texto** = solo detecciones `(inicio, fin, tipo de entidad, puntaje)`.
+    **Jamás** el texto, el valor detectado ni un placeholder; los placeholders se siguen generando en cada pedido con el sufijo de S13
+    (`PlaceholderMap`), así que la caché no puede romper la restauración ni la estabilidad de la conversación (R18).
+  - **Clave**: `SHA-256(versión de configuración | idioma | alcance | texto)`. La **versión de configuración** deriva (hash) de lo
+    que cambia el resultado del analizador: región, nombres y entidades propias de la empresa (`custom_names`, `custom_entities`), URL del analizador y la
+    sal manual `MASKING_ANALYSIS_CACHE_SALT` (para cuando cambian los reconocedores del analizador sin cambiar nada de lo anterior); cualquier cambio
+    **invalida** (otra clave, no se borra). El **alcance** es la empresa: dos empresas no comparten entradas aunque el texto coincida (el aviso
+    de que un segmento «ya se vio» no cruza empresas; sin esto la latencia sería un canal lateral para sondear texto ajeno).
+  - **Almacenamiento**: en proceso (sin Redis: nada de lo cacheado sale del proceso del motor y se pierde al reiniciar), LRU acotada por entradas
+    (`MASKING_ANALYSIS_CACHE_MAX_ENTRIES`, 20 000) y TTL (`MASKING_ANALYSIS_CACHE_TTL_S`, 3 600 s); `MASKING_ANALYSIS_CACHE_ENABLED=false` la apaga
+    (queda la memoria por pedido de siempre). Un segmento con más de 1 000 detecciones no se cachea (acota la memoria por entrada).
+  - **No se cachea lo que no es del analizador real**: una falla del analizador (`NlpUnavailableError`) no se cachea y pasa tal cual (el
+    fail-closed y `nlp_fail_mode` no cambian); el resultado del regex de respaldo del modo `degrade` tampoco (otro analizador, otra clave: no entra).
+  - **Análisis previo**: bajo forzado, el análisis previo por tipo (BLOCK vs MASK) se hace **por segmento y por la misma caché** (los mismos
+    segmentos que recorre el enmascarado), así que no suma una segunda pasada y un turno N+1 analiza solo lo nuevo; sin forzado queda como hoy.
+  - **Equivalencia**: el resultado del enmascarado es **idéntico con y sin caché** (test de equivalencia): la caché solo evita llamar de nuevo al
+    analizador con el mismo texto y la misma configuración.
+- **Excepción configurable (apagada por defecto)**: dos opciones del operador de la instalación, `MASKING_EXEMPT_SYSTEM_PROMPT` y
+  `MASKING_EXEMPT_TOOL_DEFINITIONS` (por defecto `false`), que suman posiciones **opacas** a la tabla `S14_EXEMPT_POSITIONS` de E2 (el `system` del
+  pedido y `tools`, en los dos formatos; en el formato OpenAI el `system` son los turnos `system`/`developer`). **Trade-off documentado**: con
+  la caché, analizar el `system` y las herramientas cuesta una sola vez por texto y por empresa, así que la exención solo ahorra el primer turno de
+  cada conversación nueva con otro `system`; a cambio, el `system` de las herramientas de código lleva datos personales reales (memoria del
+  usuario, correo de la cuenta, estado del repositorio con nombres) y las descripciones de herramientas pueden llevar ejemplos con datos. **Apagado = todo
+  se analiza.** Encenderlo es una decisión explícita de la instalación: el informe del enmascarado lista los nombres exentos (`exempt`, solo nombres) y el
+  guard los copia a la decisión de auditoría, así que queda registrado que el piso se relajó; no hay forma de encenderlo desde el pedido.
+- **Alternativas descartadas**: (a) enmascarar solo el último mensaje: deja en claro el historial y los `tool_result`, que es donde está el dato
+  (decisión del owner); (b) caché compartida en Redis: persistiría huellas de texto fuera del proceso y sumaría un salto de red por segmento, sin
+  necesidad (el costo de un arranque en frío es una conversación, no el servicio); (c) cachear el texto enmascarado: ataría la caché al sufijo de la
+  conversación y guardaría el texto (R18, Principio I).
+- **Medición** (T113, sin Docker, analizador simulado a 330 caracteres/s): conversación sintética de ≈ 93 000 caracteres; el turno 2 solo analiza lo
+  nuevo. La cifra real con el analizador activo la toma la corrida con Docker (T045/T083; 🐳).
+- **Por qué S17 y no dentro de S13/S14**: es una costura de base con su propio contrato, variables y test; no cambia ninguna garantía de S13 ni de S14.
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas

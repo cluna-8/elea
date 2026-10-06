@@ -1,9 +1,9 @@
-# Contrato — Costuras de base en Eleia (S1–S16)
+# Contrato — Costuras de base en Eleia (S1–S17)
 
 Todas [BASE]: genéricas, sin marca, retrocompatibles. **Regla común**: sin extensión registrada y sin
 la variable que la activa, el comportamiento es idéntico al actual y cada costura tiene su test
 «sin extensión ⇒ idéntico» (FR-001, SC-002). Las de Sentinel se traen por `cherry-pick -x` (research
-R1); S9, S11, S13, S14, S15 y S16 son nuevas de Eleia y vuelven por `HANDOFF-elea-a-sentinel.md`.
+R1); S9, S11, S13, S14, S15, S16 y S17 son nuevas de Eleia y vuelven por `HANDOFF-elea-a-sentinel.md`.
 
 | Costura | Activación | Contrato | Commit / origen | Test |
 |---|---|---|---|---|
@@ -23,6 +23,23 @@ R1); S9, S11, S13, S14, S15 y S16 son nuevas de Eleia y vuelven por `HANDOFF-ele
 | **S14** alcance completo del enmascarado forzado | metadata interna `sentinel_forced_masking` (solo la escribe la pasarela) o `governance_overrides.masking_scope = "full"` | ver abajo | **nueva** (Sentinel T074 sin hacer; QA B3) | `backend/tests/unit/test_masking_alcance_completo.py` |
 | **S15** origen del canal interno | `INTERNAL_ALLOWED_CIDRS` (lista de CIDR o `auto`) | `_require_internal_secret` exige además que el par de transporte (no `X-Forwarded-For`) esté en la lista; `auto` = subredes de las interfaces del contenedor sin su puerta de enlace; vacía ⇒ sin chequeo (igual que hoy) | **dependencia**: la entrega el arreglo de separación de bases para toda instalación (QA A10); la 057 verifica las rutas de la extensión (T089) | del arreglo de bases; `sentinel/tests/unit/test_internal_rutas_extension_origen.py` (T089) |
 | **S16** arranque de extensiones | `PLUGIN_PACKAGES` y un `on_startup()` opcional en el paquete | `run_plugin_startup()` de `backend/src/plugins.py`, llamado desde el `_lifespan` de `backend/src/main.py` antes del `yield`: corre el `on_startup()` de cada paquete en el orden de la variable, antes de servir; un fallo se registra y no tira el arranque; sin variable o sin `on_startup`, nada (QA v2 N1; research R33) | **nueva** (Eleia; Sentinel tiene el mismo `lifespan`) | `backend/tests/unit/test_plugin_startup.py` (contra `src.main:app` con su `lifespan` real) |
+| **S17** caché de análisis por segmento | `MASKING_ANALYSIS_CACHE_*` (activa por defecto; `…_ENABLED=false` la apaga) | ver abajo | **nueva** (Eleia; research R34, decisión del owner 2026-10-06) | `backend/tests/unit/test_masking_analysis_cache.py` |
+
+## S17 — contrato (research R34)
+
+- **Qué guarda**: por segmento de texto analizado, solo las detecciones `(inicio, fin, tipo de entidad, puntaje)`. Jamás el texto, el valor
+  detectado ni un placeholder (los placeholders los genera cada pedido con el sufijo de S13).
+- **Clave**: `SHA-256(versión de configuración | idioma | empresa | texto)`. La versión de configuración es un hash de la región, los nombres y
+  entidades propias de la empresa, la URL del analizador y `MASKING_ANALYSIS_CACHE_SALT`: un cambio en cualquiera da otra clave (invalida). Entre
+  empresas no se comparte.
+- **Variables** (todas opcionales; valor inválido ⇒ el de por defecto): `MASKING_ANALYSIS_CACHE_ENABLED` (`true`), `MASKING_ANALYSIS_CACHE_MAX_ENTRIES`
+  (`20000`; LRU), `MASKING_ANALYSIS_CACHE_TTL_S` (`3600`), `MASKING_ANALYSIS_CACHE_SALT` (vacía). En proceso: se pierde al reiniciar.
+- **Garantías**: el enmascarado es idéntico con y sin caché; una falla del analizador no se cachea y sube igual (fail-closed, `nlp_fail_mode`); el
+  regex de respaldo del modo `degrade` no entra; sin la caché (o apagada) el comportamiento es el de siempre. Bajo forzado, el análisis previo por tipo
+  corre por segmento y por esta misma caché.
+- **Exenciones opcionales de S14** (apagadas por defecto): `MASKING_EXEMPT_SYSTEM_PROMPT` y `MASKING_EXEMPT_TOOL_DEFINITIONS` suman posiciones
+  opacas a la tabla de S14 (`S14_EXEMPT_POSITIONS_OPTIONAL`: `system` y turnos `system`/`developer`; `tools`); el informe del enmascarado lleva `exempt`
+  (solo nombres) y el guard lo copia a la decisión (`masking_exempt`). Con ambas apagadas la tabla de S14 y su test de instantánea no cambian.
 
 **No se portan**: S10 (descartada, R13 de Sentinel), S5a `76ab37a` (cara Codex, choca con `f8118e7`),
 `9fe188f` (Eleia tiene `f8118e7`), `fd515ff` (modelo «auto», después).
