@@ -196,6 +196,19 @@ async def test_directo_quita_lo_marcado_y_lo_audita():
     assert d["metadata"]["_internal_routing_decision"]["extensions"]["redirect"]["dropped_params"] == "temperature,top_p"
 
 
+async def test_directo_chat_con_tools_y_razonamiento_va_por_responses():
+    """T193: la ruta directa del catálogo aplica el mismo puente que la redirección."""
+    tools = [{"type": "function", "function": {"name": "f"}}]
+    d = await _direct(ENTRY, tools=tools, reasoning_effort="high")
+    assert d["model"] == "openai/responses/gpt-6.1-sol" or d["model"].endswith("/responses/gpt-6.1-sol")
+    assert "chat->responses" in d["metadata"]["_internal_routing_decision"]["extensions"]["redirect"]["adjusted_params"]
+
+
+async def test_directo_sin_razonamiento_no_se_puentea():
+    d = await _direct(ENTRY, tools=[{"type": "function"}])
+    assert "responses/" not in d["model"]
+
+
 async def test_directo_conserva_precio_y_limites_aunque_la_lista_nombre_sus_campos():
     """H1: ni el costo del catálogo ni `timeout`/`num_retries` de la ficha se pueden quitar por la lista."""
     entry = dict(ENTRY, unsupported_params=PROTEGIDOS_DEL_GUARD + ["temperature"],

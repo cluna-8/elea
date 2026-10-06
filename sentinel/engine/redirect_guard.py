@@ -342,6 +342,22 @@ def raise_min_output_tokens(data: dict, provider: Any, call_type: Optional[str] 
     return adjusted
 
 
+def bridge_to_responses(data: dict, provider: Any, call_type: Optional[str] = None) -> list:
+    """T193: OpenAI rechaza por /chat/completions `tools` + `reasoning_effort` ≠ none en los gpt-6 (400). LiteLLM
+    solo puentea ese caso a Responses para nombres `gpt-5.4+`; acá se replica para cualquier nombre reescribiendo
+    `rdx-<familia>/<m>` → `rdx-<familia>/responses/<m>` (el comodín `rdx-*/*` pasa la `/` extra y LiteLLM quita
+    `responses/` y fija el modo). Fuera quedan `anthropic_messages`/`responses` (Claude Desktop ya va por Responses).
+    Va DESPUÉS de fijar `data["model"]`; devuelve los nombres ajustados."""
+    model = data.get("model")
+    if (provider not in COMPLETION_TOKENS_PROVIDERS or call_type in KEEP_MAX_TOKENS_CALL_TYPES
+            or not isinstance(model, str) or "/" not in model or "/responses/" in model
+            or not data.get("tools") or data.get("reasoning_effort") in (None, "none")):
+        return []
+    family, _, real = model.partition("/")
+    data["model"] = f"{family}/responses/{real}"
+    return ["chat->responses"]
+
+
 def _engine_cost_map() -> Mapping[str, Any]:
     try:
         import litellm
@@ -394,6 +410,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     # (credencial, costo) no puede ser alcanzado por la lista (H1 del QA del PR #78).
     dropped = strip_unsupported(data, grant.drop_params)
     adjusted = raise_min_output_tokens(data, grant.provider, call_type)
+    adjusted += bridge_to_responses(data, grant.provider, call_type)
     try:
         cred = credentials.resolve_env_refs(grant.credential, environ)
         data.update(credentials.to_litellm_params(grant.provider, cred, grant.api_base))

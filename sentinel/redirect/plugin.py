@@ -550,6 +550,7 @@ class RedirectPlugin:
             if isinstance(res, resolver.Resolved):
                 usable.append({**row, "destination_name": res.destination.get("name"),
                                "context_window": res.destination.get("context_window"),
+                               "max_output": res.destination.get("max_output"),
                                "without_images": self._missing(face, {"images"}, res.destination,
                                                                res.fidelity) is not None})
         if face == "claude":

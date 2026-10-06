@@ -20,8 +20,16 @@ def select_models_view(headers: Mapping[str, Any]) -> str:
 
 
 def models_view(rows: Iterable[Mapping[str, Any]], *, created: int) -> dict:
-    data = [{"id": r["public_id"], "object": "model", "created": int(r.get("created") or created),
-             "owned_by": OWNED_BY} for r in rows]
+    data = []
+    for r in rows:
+        m = {"id": r["public_id"], "object": "model", "created": int(r.get("created") or created),
+             "owned_by": OWNED_BY}
+        # T194: Hermes toma la ventana de `context_length`; sin el campo cae a 256K. Los SDK de OpenAI ignoran extras.
+        if r.get("context_window"):
+            m["context_length"] = int(r["context_window"])
+        if r.get("max_output"):
+            m["max_output"] = int(r["max_output"])
+        data.append(m)
     return {"object": "list", "data": sorted(data, key=lambda m: m["id"])}
 
 

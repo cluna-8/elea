@@ -49,3 +49,12 @@ def test_prepare_request():
     assert "api_key" not in out and "api_base" not in out
     assert out["max_tokens"] == 4096 and out["max_completion_tokens"] == 4096
     assert "client_credentials" in removed
+
+
+def test_models_view_trae_context_length_y_max_output_si_existen():
+    """T194: Hermes toma la ventana de `context_length`; sin el campo cae a 256K."""
+    rows = [{"public_id": "a", "context_window": 128000, "max_output": 32000},
+            {"public_id": "b", "context_window": None}]
+    data = {m["id"]: m for m in face.models_view(rows, created=1)["data"]}
+    assert data["a"]["context_length"] == 128000 and data["a"]["max_output"] == 32000
+    assert "context_length" not in data["b"] and "max_output" not in data["b"]

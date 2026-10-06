@@ -347,6 +347,63 @@ def test_max_tokens_de_la_cara_claude_y_responses_no_se_renombra(call_type):
     assert g.raise_min_output_tokens(data, "openai", call_type) == [] and data == {"max_tokens": 4096}
 
 
+# ── 069 T193: chat + tools + razonamiento hacia OpenAI/Azure se puentea a Responses ──────
+
+TOOLS = [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
+
+
+def _puente(provider, model, call_type=None, **extra):
+    cred = {"api_key": "sk-x", **({"api_version": "2025-04-01-preview"} if provider == "azure" else {})}
+    tok = token(provider=provider, model=model, credential=cred,
+                api_base="https://r.openai.azure.com" if provider == "azure" else None)
+    return apply(request(tok, model=model, **extra), call_type=call_type)
+
+
+def _adj(out):
+    return str(out.get("adjusted_params") or "") + repr(out.get("metadata")) + repr(out.get("litellm_metadata"))
+
+
+@pytest.mark.parametrize("provider,fam", [("openai", "rdx-openai"), ("azure", "rdx-azure")])
+def test_chat_con_tools_y_razonamiento_va_por_responses(provider, fam):
+    out = _puente(provider, f"{fam}/gpt-6-luna", "acompletion", tools=TOOLS, reasoning_effort="high")
+    assert out["model"] == f"{fam}/responses/gpt-6-luna"
+    assert out["reasoning_effort"] == "high" and out["tools"] == TOOLS
+    assert "chat->responses" in _adj(out)
+
+
+def test_el_puente_tambien_aplica_sin_call_type():
+    out = _puente("openai", "rdx-openai/gpt-6-luna", None, tools=TOOLS, reasoning_effort="medium")
+    assert out["model"] == "rdx-openai/responses/gpt-6-luna"
+
+
+@pytest.mark.parametrize("call_type", ["anthropic_messages", "responses", "aresponses"])
+def test_el_puente_no_toca_claude_desktop_ni_responses(call_type):
+    out = _puente("openai", "rdx-openai/gpt-6-luna", call_type, tools=TOOLS, reasoning_effort="high")
+    assert out["model"] == "rdx-openai/gpt-6-luna" and "chat->responses" not in _adj(out)
+
+
+@pytest.mark.parametrize("extra", [
+    {"reasoning_effort": "high"},
+    {"tools": [], "reasoning_effort": "high"},
+    {"tools": TOOLS},
+    {"tools": TOOLS, "reasoning_effort": "none"},
+    {"tools": TOOLS, "reasoning_effort": None},
+])
+def test_el_puente_exige_tools_y_razonamiento(extra):
+    out = _puente("openai", "rdx-openai/gpt-6-luna", "acompletion", **extra)
+    assert out["model"] == "rdx-openai/gpt-6-luna" and "chat->responses" not in _adj(out)
+
+
+def test_el_puente_no_aplica_a_openrouter():
+    out = apply(request(token(), tools=TOOLS, reasoning_effort="high"), call_type="acompletion")
+    assert out["model"] == MODEL and "chat->responses" not in _adj(out)
+
+
+def test_el_puente_es_idempotente():
+    data = {"model": "rdx-openai/responses/gpt-6-luna", "tools": TOOLS, "reasoning_effort": "high"}
+    assert g.bridge_to_responses(data, "openai", "acompletion") == [] and data["model"] == "rdx-openai/responses/gpt-6-luna"
+
+
 # ── 069 T070: la redirección suma su capa a la atribución confiable ──────────────────────
 
 def _atribucion(out):
