@@ -41,6 +41,9 @@ REDIS_HOST=redis
 JWT_SECRET_KEY=$(rand_b64url 48)
 FERNET_SECRET_KEY=$(python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
 SENTINEL_ENGINE_MASTER_KEY=sk-$(rand_hex 20)
+# Clave del servidor de los marcadores de enmascarado estables por conversación (S13; solo la usa la extensión de
+# redirección, que la pasa al backend y al motor; sin ella los marcadores son aleatorios como siempre). Una por instalación.
+MASKING_NONCE_KEY=$(rand_hex 32)
 EOF
 
 echo "✅ secretos generados en $OUT (600)"

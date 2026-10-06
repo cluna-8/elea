@@ -118,7 +118,7 @@ export const RedirectPage: React.FC<{ onOpenModels?: () => void }> = ({ onOpenMo
         <p className="text-sm text-text-tertiary">Cargando…</p>
       ) : (
         <div role="tabpanel">
-          {tab === "destinations" && <DestinationsTab perms={perms} destinations={data.destinations} rules={data.rules} onOpenModels={onOpenModels} />}
+          {tab === "destinations" && <DestinationsTab perms={perms} destinations={data.destinations} rules={data.rules} onOpenModels={onOpenModels} reload={reload} />}
           {tab === "published" && <PublishedTab perms={perms} published={data.published} lookups={data.lookups} reload={reload} />}
           {tab === "rules" && (
             <RulesTab perms={perms} rules={data.rules} published={data.published} destinations={data.destinations}

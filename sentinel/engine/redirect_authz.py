@@ -82,6 +82,9 @@ class Grant:
     # Opciones del destino que el guard necesita y no son credencial (057 FR-032): hoy, la lista de proveedores
     # permitidos de un destino `openrouter`. Viaja firmada: una autorización manipulada no vale.
     provider_options: dict = field(default_factory=dict)
+    # Identificador de afinidad de sesión ya derivado por la pasarela (057 FR-043): solo hacia un destino que lo declara; el
+    # guard lo manda al destino. Firmado como el resto de la autorización.
+    affinity: Optional[str] = None
 
 
 def _secret(key: Optional[str]) -> bytes:
@@ -114,7 +117,8 @@ def issue(*, request_id: str, scope: str, destination_id: str, model: str, provi
           key: Optional[str] = None, now: Optional[float] = None,
           price: Optional[Mapping[str, Any]] = None,
           drop_params: Optional[Any] = None,
-          provider_options: Optional[Mapping[str, Any]] = None) -> str:
+          provider_options: Optional[Mapping[str, Any]] = None,
+          affinity: Optional[str] = None) -> str:
     if not (0 < ttl <= MAX_TTL):
         raise ValueError(f"ttl fuera de rango (1..{MAX_TTL})")
     mac_key, fernet = _keys(key)
@@ -131,6 +135,8 @@ def issue(*, request_id: str, scope: str, destination_id: str, model: str, provi
         payload["drp"] = [str(n) for n in drop_params]
     if provider_options:
         payload["po"] = dict(provider_options)
+    if affinity:
+        payload["aff"] = str(affinity)
     body = _b64e(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
     signed = f"{VERSION}.{body}".encode()
     return f"{VERSION}.{body}.{_b64e(hmac.new(mac_key, signed, hashlib.sha256).digest())}"
@@ -160,7 +166,8 @@ def verify(token: Any, *, expected_model: Optional[str] = None, key: Optional[st
                       forced_masking=bool(p["fm"]), decision=dict(p.get("dec") or {}),
                       issued_at=iat, expires_at=exp, price=p.get("prc") or None,
                       drop_params=tuple(str(n) for n in (p.get("drp") or ())),
-                      provider_options=dict(p.get("po") or {}))
+                      provider_options=dict(p.get("po") or {}),
+                      affinity=(str(p["aff"]) if p.get("aff") else None))
     except (InvalidToken, KeyError, ValueError, TypeError, AttributeError):
         raise AuthzMalformed("contenido") from None
     now = time.time() if now is None else now

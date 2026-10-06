@@ -46,7 +46,7 @@ from starlette.responses import JSONResponse
 
 from sentinel.access import bridge
 
-from . import authz, betas, credentials, residency, resolver, stream, thinking, token_estimate
+from . import authz, betas, credentials, residency, resolver, session_ids, stream, thinking, token_estimate
 from .faces import claude as claude_face
 from .faces import generic as generic_face
 from .scopes import RequestScope, applicable
@@ -550,6 +550,7 @@ class RedirectPlugin:
             if isinstance(res, resolver.Resolved):
                 usable.append({**row, "destination_name": res.destination.get("name"),
                                "context_window": res.destination.get("context_window"),
+                               "max_output": res.destination.get("max_output"),
                                "without_images": self._missing(face, {"images"}, res.destination,
                                                                res.fidelity) is not None})
         if face == "claude":
@@ -630,12 +631,25 @@ class RedirectPlugin:
             out.pop(n)
         if dropped:
             plan.decision["dropped_params"] = ",".join(dropped)       # FR-033: solo nombres, escalar
+        # S13/FR-043 (057 T073/T074): referencia de conversación para los marcadores y afinidad de sesión, derivadas con la
+        # clave del servidor del identificador de sesión de la herramienta; el original no sale de la pasarela.
+        tenant = str(plan.scope_label).split("/", 1)[0]
+        session = session_ids.session_id(ctx.request_headers, body)
+        ref = session_ids.conversation_ref(tenant, session)
+        if ref:
+            home = "litellm_metadata" if plan.face == "claude" else "metadata"
+            meta = out.get(home)
+            out[home] = {**(meta if isinstance(meta, dict) else {}), session_ids.CONVERSATION_REF_KEY: ref}
+        affinity = None
+        profile = dest.get("capability_profile") or {}
+        if profile.get("session_affinity", dest.get("provider") == "openrouter"):   # OpenRouter la tiene por defecto
+            affinity = session_ids.affinity_id(tenant, session, session_ids.agent_id(ctx.request_headers))
         headers[authz.HEADER] = authz.issue(
             request_id=str(uuid.uuid4()), scope=plan.scope_label, destination_id=str(dest["id"]),
             model=plan.engine_model, provider=dest["provider"], credential=plan.credential,
             api_base=dest.get("api_base"), forced_masking=plan.forced_masking,
             decision=plan.decision, price=dest.get("price_override"), drop_params=drop,
-            provider_options=_signed_provider_options(dest))
+            provider_options=_signed_provider_options(dest), affinity=affinity)
         return out, headers
 
     def _apply_betas(self, ctx, plan: Plan, headers: dict) -> dict:
@@ -705,7 +719,15 @@ class RedirectPlugin:
             signer = lambda text: thinking.sign(dest_id, text)             # noqa: E731 — FR-036
         return stream.wrap_sse(iterator, public_model=plan.public_id,
                                face="claude" if plan.face == "claude" else "openai",
-                               ping_after=self.ping_after, thinking_signer=signer)
+                               ping_after=self.ping_after, thinking_signer=signer,
+                               usage_sink=lambda usage: self._note_cache_tokens(plan, usage))
+
+    @staticmethod
+    def _note_cache_tokens(plan: "Plan", usage) -> None:
+        """FR-046: suma a la decisión de auditoría (el dict que comparte con la pasarela, que escribe la fila al final) los
+        tokens de caché que informó el destino; si el stream los repite, queda el mayor. Solo enteros."""
+        for name, value in stream.cache_tokens(usage).items():
+            plan.decision[name] = max(value, plan.decision.get(name) or 0)
 
     def map_response(self, ctx, status, content):
         plan: Optional[Plan] = ctx.state.get(STATE_KEY)
@@ -717,6 +739,7 @@ class RedirectPlugin:
             return None
         if not isinstance(body, dict) or "model" not in body:
             return None
+        self._note_cache_tokens(plan, body.get("usage"))                  # FR-046: tokens de caché a la auditoría
         body = generic_face.rewrite_response_model(body, plan.public_id)
         if plan.face == "claude" and body.get("type") == "message":
             body["usage"] = stream.complete_usage(body.get("usage"))      # FR-039: los cuatro contadores

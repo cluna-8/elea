@@ -116,12 +116,10 @@ def _scrub_internal_header(data: dict) -> None:
 
 
 FULL_SCOPE = "full"
-# TODO(integración con S14, worker E2): el nombre exacto del campo entero opcional que el guardrail de la base agrega al
-# informe (`masking_report`) con la cantidad de detecciones dentro de bloques `thinking` firmados. Placeholder a alinear.
-SIGNED_THINKING_FIELD = "signed_thinking_detections"
+# Campo entero opcional que el guardrail de la base (S14) agrega al informe (`masking_report`) bajo forzado y solo si
+# es > 0: cantidad de bloques `thinking` con `signature` cuyo texto cambió al enmascarar. No suma a `unanalyzable`.
+SIGNED_THINKING_FIELD = "signed_thinking"
 NATIVE_FAMILY = "rdx-anthropic"       # destino NATIVO de la cara Claude: la firma de `thinking` no se reconstruye (R10)
-# TODO(integración con S14, worker E2): registrar acá, al importar, el resolver de forzado de enmascarado que expone la
-# base (verifica el `fm` firmado de `redirect_authz` y devuelve True). Hoy el guard verifica `grant.forced_masking` él mismo.
 
 
 def signed_thinking_blocks(report: Any, family: Optional[str]) -> bool:
@@ -132,6 +130,69 @@ def signed_thinking_blocks(report: Any, family: Optional[str]) -> bool:
         return False
     n = report.get(SIGNED_THINKING_FIELD)
     return isinstance(n, int) and not isinstance(n, bool) and n > 0
+
+
+_POLICY_MODULES = ("extensions.sentinel_guardian_policy", "sentinel_guardian_policy")
+
+
+def forced_masking_resolver(data: Any, user_api_key_dict: Any = None, call_type: Optional[str] = None) -> bool:
+    """Resolutor del enmascarado forzado que la base consulta antes de recorrer el pedido (S14, `fn(data,
+    user_api_key_dict, call_type) -> bool`). El guard corre DESPUÉS del guardrail de la base y este no ve el grant:
+    acá se verifica el token firmado (`x-redirect-authz`, campo `fm`) y la base pone la señal por tipo.
+
+    Solo vale para un modelo de la pasarela (`rdx-*`): en modo sombra la pasarela firma una decisión hipotética y el
+    pedido no cambia. Sin token, con un token inválido o de otro modelo ⇒ False (el guard rechaza o ignora más
+    adelante, como siempre). Sin la llave de la instalación no se puede verificar: la `AuthzKeyMissing` sube y la
+    base la cuenta como forzado (falla cerrado). Nunca registra contenido del pedido."""
+    if not isinstance(data, Mapping):
+        return False
+    model = data.get("model")
+    token = _headers_of(data).get(authz.HEADER)
+    if not token or not is_redirect_model(model):
+        return False
+    try:
+        return bool(authz.verify(token, expected_model=model).forced_masking)
+    except authz.AuthzKeyMissing:
+        raise
+    except authz.AuthzError:
+        return False
+
+
+def register_forced_masking_resolver() -> int:
+    """Registra `forced_masking_resolver` en la base (idempotente). Dentro del motor el guardrail base importa
+    `sentinel_guardian_policy` a secas y este guard puede haber cargado `extensions.sentinel_guardian_policy`: son
+    dos módulos con registros independientes, así que se registra en cada copia ya cargada. Devuelve cuántas.
+    Una base anterior a S14 (sin la API) no tiene nada que registrar: el guard sigue bloqueando el forzado."""
+    import sys
+    copias = {id(m): m for m in [_gpolicy] + [sys.modules.get(n) for n in _POLICY_MODULES] if m is not None}
+    n = 0
+    for mod in copias.values():
+        register = getattr(mod, "register_forced_masking_resolver", None)
+        if callable(register):
+            register(forced_masking_resolver)
+            n += 1
+    return n
+
+
+register_forced_masking_resolver()
+
+
+def nonce_scope(report: Any) -> str:
+    """`conversation` si el informe del guardrail dice que el sufijo de los marcadores se derivó por conversación (S13);
+    `request` en cualquier otro caso. Solo el nombre del alcance, jamás el sufijo ni el identificador."""
+    return "conversation" if isinstance(report, Mapping) and report.get("nonce_scope") == "conversation" else "request"
+
+
+MASKING_EXEMPT_NAMES = frozenset(("system_prompt", "tool_definitions"))     # nombres de las exenciones opcionales de S14
+
+
+def masking_exemptions(report: Any) -> str:
+    """Nombres de las exenciones opcionales de S14 que el informe dice vigentes, solo los conocidos y ordenados
+    (`a,b`); vacío si no hay ninguna. Nunca contenido."""
+    exempt = report.get("exempt") if isinstance(report, Mapping) else None
+    if not isinstance(exempt, (list, tuple)):
+        return ""
+    return ",".join(sorted({n for n in exempt if isinstance(n, str) and n in MASKING_EXEMPT_NAMES}))
 
 
 def masking_ok(report: Any, *, forced: bool = False) -> bool:
@@ -283,6 +344,31 @@ def apply_openrouter_prefs(data: dict, grant: authz.Grant) -> None:
     data["extra_body"] = extra
 
 
+AFFINITY_HEADER = "x-session-id"
+
+
+def apply_session_affinity(data: dict, grant: authz.Grant) -> bool:
+    """FR-043 (057 T074): el identificador de afinidad de sesión que la pasarela derivó con la clave del servidor y firmó en
+    la autorización (nunca el original de la herramienta) se manda al destino que lo declaró: `session_id` en el cuerpo de
+    OpenRouter y la cabecera `x-session-id` en los demás. Lo que mande el cliente se descarta siempre. Devuelve si se aplicó."""
+    extra = data.get("extra_body")
+    if isinstance(extra, dict) and "session_id" in extra:
+        extra = {k: v for k, v in extra.items() if k != "session_id"}
+        data["extra_body"] = extra
+    headers = data.get("extra_headers")
+    if isinstance(headers, dict):                              # `extra_headers` del cliente ya se quitó; por si la fijó el guard
+        headers = {k: v for k, v in headers.items() if str(k).lower() != AFFINITY_HEADER}
+        data["extra_headers"] = headers
+    aff = grant.affinity
+    if not aff or not isinstance(aff, str):
+        return False
+    if grant.provider == OPENROUTER:
+        data["extra_body"] = {**(data.get("extra_body") or {}), "session_id": aff}
+    else:
+        data["extra_headers"] = {**(data.get("extra_headers") or {}), AFFINITY_HEADER: aff}
+    return True
+
+
 DROPPED_KEY = "dropped_params"
 
 
@@ -342,6 +428,39 @@ def raise_min_output_tokens(data: dict, provider: Any, call_type: Optional[str] 
     return adjusted
 
 
+# Familias de razonamiento de OpenAI por nombre (respaldo cuando el pedido no trae la ficha: la autorización firmada
+# de la redirección no lleva `features`). Con la ficha a mano manda `features.thinking`.
+REASONING_MODEL_RE = re.compile(r"^(gpt-[5-9]|o\d)")
+
+
+def is_reasoning_model(real: str, thinking: Optional[bool] = None) -> bool:
+    return thinking is True or bool(REASONING_MODEL_RE.match(real.rsplit("/", 1)[-1].lower()))
+
+
+def bridge_to_responses(data: dict, provider: Any, call_type: Optional[str] = None,
+                        thinking: Optional[bool] = None) -> list:
+    """T193: OpenAI rechaza por /chat/completions `tools` en un modelo que razona (400 «Function tools with
+    reasoning_effort are not supported»). Verificado en el pin (LiteLLM 1.95.1): `OpenAIGPTConfig` (todo nombre que
+    no matchea `gpt-5`/`o<n>`, p. ej. gpt-6-*) NO lista `reasoning_effort` entre los params soportados, y con
+    `drop_params: true` lo descarta SIN avisar, incluido `"none"`; el modelo razona por defecto y OpenAI falla.
+    Además `responses_api_bridge_check` (main.py:982) solo puentea `gpt-5.4+` con tools + effort. Acá se puentea,
+    con tools y sin importar `reasoning_effort` (ausente, `none` u otro), todo modelo de razonamiento
+    (`features.thinking` de la ficha, o familias gpt-5+/o* por nombre) reescribiendo `rdx-<fam>/<m>` →
+    `rdx-<fam>/responses/<m>`; Responses sí transmite `reasoning.effort`, así que un `none` del cliente se respeta.
+    Fuera quedan `anthropic_messages`/`responses` (Claude Desktop ya va por Responses). Va DESPUÉS de fijar
+    `data["model"]`; devuelve los nombres ajustados."""
+    model = data.get("model")
+    if (provider not in COMPLETION_TOKENS_PROVIDERS or call_type in KEEP_MAX_TOKENS_CALL_TYPES
+            or not isinstance(model, str) or "/" not in model or "/responses/" in model
+            or not data.get("tools")):
+        return []
+    family, _, real = model.partition("/")
+    if not is_reasoning_model(real, thinking):
+        return []
+    data["model"] = f"{family}/responses/{real}"
+    return ["chat->responses"]
+
+
 def _engine_cost_map() -> Mapping[str, Any]:
     try:
         import litellm
@@ -394,6 +513,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     # (credencial, costo) no puede ser alcanzado por la lista (H1 del QA del PR #78).
     dropped = strip_unsupported(data, grant.drop_params)
     adjusted = raise_min_output_tokens(data, grant.provider, call_type)
+    adjusted += bridge_to_responses(data, grant.provider, call_type)
     try:
         cred = credentials.resolve_env_refs(grant.credential, environ)
         data.update(credentials.to_litellm_params(grant.provider, cred, grant.api_base))
@@ -408,6 +528,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     pricing, pricing_source = credentials.cost_params(
         grant.price, grant.provider, parts[1], _engine_cost_map() if cost_map is None else cost_map)
     data.update(pricing)
+    affinity_applied = apply_session_affinity(data, grant)
 
     decision = dict(grant.decision)
     _merge_dropped(decision, dropped)
@@ -415,11 +536,19 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
         decision[ADJUSTED_KEY] = ",".join(adjusted)
     if grant.provider == OPENROUTER:
         decision[OPENROUTER_ZDR_KEY] = True
+    if affinity_applied:
+        decision["session_affinity"] = True
+    decision["nonce_scope"] = nonce_scope(_masking_report(data, call_type))
+    if pricing_source != "none" and not all(p in pricing for p in credentials.CACHE_PRICE_PARAMS.values()):
+        decision["price_cache_missing"] = True            # FR-046: la caché se cobró a precio de entrada
     decision.update({"destination_id": grant.destination_id, "request_id": grant.request_id,
                      "scope": grant.scope, "forced_masking": grant.forced_masking,
                      "masking_verified": bool(grant.forced_masking), "pricing": pricing_source})
     if grant.forced_masking:
         decision["masking_scope"] = FULL_SCOPE            # verificado arriba: el informe lo dice y el guard lo exigió
+        exempt = masking_exemptions(_masking_report(data, call_type))
+        if exempt:
+            decision["masking_exempt"] = exempt           # la instalación relajó el piso (S14, opcional): queda registrado
     _write_decision(data, call_type, decision)
     return data
 
@@ -438,6 +567,7 @@ class RedirectGuard(CustomGuardrail):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._catalog = None
+        register_forced_masking_resolver()      # por si la copia plana de la política se cargó después del import
 
     def _catalog_direct(self):
         """Resolución por catálogo para clientes directos (069 T033). Perezoso: el módulo hermano

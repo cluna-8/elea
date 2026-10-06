@@ -33,6 +33,42 @@ _UPSTREAM_ERROR_KIND = {"overloaded_error": "overloaded", "rate_limit_error": "r
                         "invalid_request_error": "invalid_request"}
 
 
+def _count(value) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def cache_tokens(usage) -> dict:
+    """Tokens de caché que informó el destino en su `usage` (057 FR-046): `cache_read_tokens` y `cache_write_tokens`, solo los
+    que vienen como entero ≥ 0 (un cero informado cuenta: el destino dijo que no hubo aciertos). Cara Claude:
+    `cache_read_input_tokens` / `cache_creation_input_tokens`; chat OpenAI/OpenRouter: `prompt_tokens_details.cached_tokens` y
+    `cache_write_tokens`; Responses: `input_tokens_details`. Nunca contenido."""
+    if not isinstance(usage, dict):
+        return {}
+    out = {}
+    for name, direct, detail in (("cache_read_tokens", "cache_read_input_tokens", "cached_tokens"),
+                                 ("cache_write_tokens", "cache_creation_input_tokens", "cache_write_tokens")):
+        value = _count(usage.get(direct))
+        for details in ("prompt_tokens_details", "input_tokens_details"):
+            if value is None and isinstance(usage.get(details), dict):
+                value = _count(usage[details].get(detail))
+        if value is not None:
+            out[name] = value
+    return out
+
+
+def frame_usage(obj) -> list:
+    """Los `usage` que lleva un objeto de trama SSE: `message_start`/`message_delta` (cara Claude), el chunk final de chat y
+    `response.completed` (Responses)."""
+    if not isinstance(obj, dict):
+        return []
+    found = [obj.get("usage")]
+    if isinstance(obj.get("message"), dict):
+        found.append(obj["message"].get("usage"))
+    if isinstance(obj.get("response"), dict):
+        found.append(obj["response"].get("usage"))
+    return [u for u in found if isinstance(u, dict)]
+
+
 def complete_usage(usage) -> dict:
     """`usage` con los cuatro contadores: lo que el destino informó y 0 para lo demás (o nulo)."""
     usage = dict(usage) if isinstance(usage, dict) else {}
@@ -169,9 +205,20 @@ def upstream_error_kind(frame: bytes) -> Optional[str]:
 
 async def wrap_sse(source: AsyncIterator[bytes], *, public_model: str, face: str,
                    ping_after: Optional[float] = DEFAULT_PING_AFTER,
-                   thinking_signer: Optional[Callable[[str], str]] = None) -> AsyncIterator[bytes]:
+                   thinking_signer: Optional[Callable[[str], str]] = None,
+                   usage_sink: Optional[Callable[[dict], None]] = None) -> AsyncIterator[bytes]:
     """`face`: `claude` | `openai` (chat/completions y Responses). `thinking_signer`: solo cara Claude hacia
-    un destino traducido (ver `ThinkingSigner`)."""
+    un destino traducido (ver `ThinkingSigner`). `usage_sink`: recibe cada `usage` que pasa por el stream (tokens de caché para
+    la auditoría, 057 FR-046); no cambia ni reordena nada de lo que llega al cliente y una falla suya no corta el stream."""
+    def _tap(piece: bytes) -> None:
+        if usage_sink is None:
+            return
+        try:
+            for usage in frame_usage(_frame_object(piece)):
+                usage_sink(usage)
+        except Exception:  # noqa: BLE001 — la auditoría jamás afecta al stream
+            logger.warning("redirect: no se pudo leer el usage del stream", exc_info=True)
+
     keepalive = CLAUDE_PING if face == "claude" else OPENAI_KEEPALIVE
     signer = ThinkingSigner(thinking_signer) if thinking_signer is not None and face == "claude" else None
     it = source.__aiter__()
@@ -211,10 +258,12 @@ async def wrap_sse(source: AsyncIterator[bytes], *, public_model: str, face: str
                     yield b"".join(out)
                     return                                       # nada después de un error
                 for piece in (signer.process(frame) if signer is not None else [frame]):
+                    _tap(piece)
                     out.append(rewrite_frame(piece, public_model, face) + b"\n\n")
             if out:
                 yield b"".join(out)
         if buf:
+            _tap(buf)
             yield rewrite_frame(buf, public_model, face)
     finally:
         if pending is not None and not pending.done():

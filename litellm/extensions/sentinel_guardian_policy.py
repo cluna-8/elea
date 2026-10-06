@@ -803,6 +803,30 @@ def extract_inspect_text(body: dict, cap: int = INSPECT_CAP, *, scope: str = "us
     return "\n".join(parts)[:cap]
 
 
+# S13 (057 T072; research R18): referencia de conversación que solo escribe la pasarela y clave del servidor.
+CONVERSATION_REF_KEY = "sentinel_conversation_ref"
+NONCE_KEY_ENV = "MASKING_NONCE_KEY"
+_NONCE_KEY_MIN_CHARS = 32
+NONCE_SCOPE_CONVERSATION, NONCE_SCOPE_REQUEST = "conversation", "request"
+
+
+def new_placeholder_map(home: dict, identity: dict) -> Tuple["PlaceholderMap", str]:
+    """El `PlaceholderMap` de un pedido y su alcance (`conversation` | `request`, solo el nombre; nunca el valor).
+    Con `MASKING_NONCE_KEY` (≥ 32 caracteres) y la referencia de conversación del home, el sufijo y los índices son
+    estables por conversación; sin alguna de las dos, o si la derivación falla, aleatorio como siempre (la protección
+    no depende de esto, solo la eficacia de la caché del proveedor)."""
+    ref = home.get(CONVERSATION_REF_KEY) if isinstance(home, dict) else None
+    key = os.environ.get(NONCE_KEY_ENV, "")
+    if isinstance(ref, str) and ref and key:
+        try:
+            return (PlaceholderMap.for_conversation(
+                key, tenant=str(identity.get("tenant_id") or ""), key_id=str(identity.get("key_id") or ""), ref=ref),
+                NONCE_SCOPE_CONVERSATION)
+        except Exception:  # noqa: BLE001 — sin la derivación, aleatorio: la caché pierde eficacia, la protección no
+            logger.warning("masking: no se pudo derivar el sufijo por conversación; se usa el aleatorio")
+    return PlaceholderMap(), NONCE_SCOPE_REQUEST
+
+
 class PlaceholderMap:
     """Asignación consistente valor→placeholder para todo el request.
 
@@ -829,6 +853,9 @@ class PlaceholderMap:
 
     def __init__(self, nonce: Optional[str] = None, document_id: Optional[str] = None):
         self.document_id = document_id
+        # Clave del índice determinista: el `document_id` (043) o, con S13, la derivada por conversación. Sin ninguna,
+        # contador secuencial como siempre.
+        self._index_key: Optional[bytes] = document_id.encode() if document_id else None
         if document_id:
             # Determinista por documento: mismo document_id → mismo nonce siempre.
             self.nonce = nonce or hmac.new(
@@ -839,6 +866,24 @@ class PlaceholderMap:
         self.orig_to_ph: dict = {}
         self.ph_to_orig: dict = {}
         self._type_counts: dict = {}
+
+    @classmethod
+    def for_conversation(cls, key: str, *, tenant: str, key_id: str, ref: str) -> "PlaceholderMap":
+        """S13 (057 R18; contracts/costuras-base.md §S13): mapa con marcadores ESTABLES dentro de una conversación.
+
+        `nonce = HMAC(key, "nonce" | tenant | llave | ref)[:4]` y el índice por valor
+        `HMAC(HMAC(key, "idx" | tenant | llave | ref), tipo | valor | probe)`: el mismo valor en la misma conversación da el
+        mismo marcador en todos los pedidos y sin importar el orden de aparición; otra conversación, llave, empresa o
+        clave del servidor dan otro. `key` es el secreto del servidor (`MASKING_NONCE_KEY`, ≥ 32 caracteres): sin él el
+        sufijo no se puede reproducir. Los componentes van separados por NUL (sin ambigüedad entre campos). Lanza
+        `ValueError` ante una clave corta o una referencia vacía: el llamador cae al aleatorio."""
+        if not isinstance(key, str) or len(key) < _NONCE_KEY_MIN_CHARS or not ref:
+            raise ValueError("clave o referencia de conversación inválida")
+        k = key.encode("utf-8")
+        ctx = "\x00".join((str(tenant), str(key_id), str(ref))).encode("utf-8")
+        mapa = cls(nonce=hmac.new(k, b"nonce\x00" + ctx, hashlib.sha256).hexdigest()[:4])
+        mapa._index_key = hmac.new(k, b"idx\x00" + ctx, hashlib.sha256).digest()
+        return mapa
 
     def _deterministic_index(self, value: str, entity_type: str, probe: int = 0) -> int:
         """Índice derivado por HMAC(document_id, tipo|valor|probe) — no un contador
@@ -858,7 +903,7 @@ class PlaceholderMap:
         astronómicamente improbable, y si ocurriera, resuelta sin pisar el placeholder de
         otro valor."""
         digest = hmac.new(
-            self.document_id.encode(),
+            self._index_key,
             f"{entity_type}|{value}|{probe}".encode(),
             hashlib.sha256,
         ).digest()
@@ -867,7 +912,7 @@ class PlaceholderMap:
     def placeholder_for(self, value: str, entity_type: str) -> str:
         if value in self.orig_to_ph:
             return self.orig_to_ph[value]
-        if self.document_id:
+        if self._index_key:
             probe = 0
             idx = self._deterministic_index(value, entity_type, probe)
             ph = f"[{entity_type}_{idx}_{self.nonce}]"
@@ -1110,6 +1155,39 @@ def _build_position_index():
 
 
 _S14_INDEX, _S14_CONTAINERS = _build_position_index()
+
+# Exenciones OPCIONALES (057 T112; research R34): posiciones OPACAS que la instalación puede encender por variable de
+# entorno, APAGADAS por defecto (todo se analiza). Misma semántica que las opacas de arriba: ni se analizan ni se
+# reescriben. `@rol` = solo el contenido de los mensajes con ese `role`. Agregar o quitar una posición es un cambio de
+# contrato (contracts/costuras-base.md §S17) y de su test de instantánea; la tabla de arriba no cambia.
+S14_EXEMPT_POSITIONS_OPTIONAL = {
+    "system_prompt": {
+        "anthropic": ("system",),
+        "openai": ("messages.*.content@system", "messages.*.content@developer"),
+    },
+    "tool_definitions": {
+        "anthropic": ("tools",),
+        "openai": ("tools", "functions"),
+    },
+}
+_OPTIONAL_EXEMPT_ENV = {"system_prompt": "MASKING_EXEMPT_SYSTEM_PROMPT",
+                        "tool_definitions": "MASKING_EXEMPT_TOOL_DEFINITIONS"}
+
+
+def optional_exemptions() -> frozenset:
+    """Exenciones opcionales encendidas por la instalación (variables de entorno, leídas en cada uso; solo `1`, `true`,
+    `yes` u `on` encienden; cualquier otro valor ⇒ apagada). El pedido no interviene: no hay otra vía."""
+    return frozenset(nombre for nombre, var in _OPTIONAL_EXEMPT_ENV.items()
+                     if os.environ.get(var, "").strip().lower() in _TRUE_WORDS)
+
+
+def _optionally_exempt(fmt: str, exempt, path: str, nodo: dict) -> bool:
+    for opcion in exempt:
+        for ruta in S14_EXEMPT_POSITIONS_OPTIONAL.get(opcion, {}).get(fmt, ()):
+            ruta, _, rol = ruta.partition("@")
+            if path == ruta and (not rol or nodo.get("role") == rol):
+                return True
+    return False
 _TOOL_USE_TYPES = ("tool_use", "server_tool_use")
 
 
@@ -1363,7 +1441,7 @@ def _w_arguments(owner: dict, key: str, depth):
     owner[key] = json.dumps(nuevo, ensure_ascii=False)
 
 
-def _w_container(fmt, nodo, path, depth, skip=()):
+def _w_container(fmt, nodo, path, depth, skip=(), exempt=frozenset()):
     """Objeto de protocolo: sus claves son nombres de campo (se analizan, nunca se reescriben) y cada valor se
     trata según su POSICIÓN: opaco, estructural, esquema, contenedor conocido o subárbol libre."""
     containers = _S14_CONTAINERS[fmt]
@@ -1373,6 +1451,8 @@ def _w_container(fmt, nodo, path, depth, skip=()):
             continue
         valor = nodo[clave]
         cp = _cpath(path, clave)
+        if exempt and _optionally_exempt(fmt, exempt, cp, nodo):
+            continue                                              # exención opcional de la instalación (opaca)
         # Rutas de contenido (no son exenciones): system, contenido de mensajes, tool_result, arguments.
         if path == "" and clave == "system":
             nodo[clave] = yield from _w_blocks(fmt, valor, depth)
@@ -1400,12 +1480,12 @@ def _w_container(fmt, nodo, path, depth, skip=()):
             yield from _w_schema(valor, depth + 1)
             continue
         if cp in containers and isinstance(valor, dict):
-            yield from _w_container(fmt, valor, cp, depth + 1)
+            yield from _w_container(fmt, valor, cp, depth + 1, exempt=exempt)
             continue
         if cp in containers and isinstance(valor, list):
             for i, item in enumerate(valor):
                 if isinstance(item, dict):
-                    yield from _w_container(fmt, item, cp + ".*", depth + 1)
+                    yield from _w_container(fmt, item, cp + ".*", depth + 1, exempt=exempt)
                 else:
                     yield from _w_scan(item, depth + 1)
             continue
@@ -1416,10 +1496,10 @@ def _w_container(fmt, nodo, path, depth, skip=()):
         nodo[clave] = yield from _w_free(valor, depth + 1)
 
 
-def _w_body(fmt, body, skip=()):
+def _w_body(fmt, body, skip=(), exempt=frozenset()):
     """`skip`: claves de primer nivel que NO son del cliente (la metadata interna del motor y sus copias de
     registro): no se recorren, no se enmascaran y no cuentan."""
-    yield from _w_container(fmt, body, "", 0, skip=skip)
+    yield from _w_container(fmt, body, "", 0, skip=skip, exempt=exempt)
 
 
 def detect_body_format(body: dict) -> str:
@@ -1454,7 +1534,7 @@ async def _drive(gen, handler):
         return stop.value
 
 
-def _collect_texts(body: dict, fmt: str, *, with_scans: bool = False, skip=()) -> list:
+def _collect_texts(body: dict, fmt: str, *, with_scans: bool = False, skip=(), exempt=frozenset()) -> list:
     """Todo lo que el alcance completo analizaría (texto libre, claves libres, números), sin mutar `body`
     (el recorrido corre sobre una copia). `with_scans` suma también las posiciones estructurales: lo usa el
     conductor para analizar todo por adelantado; el texto de inspección (AI-Act, secretos) no las lleva."""
@@ -1477,7 +1557,7 @@ def _collect_texts(body: dict, fmt: str, *, with_scans: bool = False, skip=()) -
             return (None, "skip")
         return None
 
-    _drive_sync(_w_body(fmt, copy.deepcopy({k: v for k, v in body.items() if k not in skip}), ()), _handler)
+    _drive_sync(_w_body(fmt, copy.deepcopy({k: v for k, v in body.items() if k not in skip}), (), exempt), _handler)
     return partes
 
 
@@ -1660,6 +1740,145 @@ async def extract_pdf_text(raw: bytes, budget: PdfRequestBudget):
     return resultado
 
 
+# ═══════════════════════════════════════════════════════════════════════════════════
+# S17 — caché de análisis por segmento (057 T110; research R34; contracts/costuras-base.md §S17). BASE: genérico,
+# retrocompatible (apagada o ausente, el recorrido es el de siempre). Guarda SOLO detecciones (inicio, fin, tipo de
+# entidad, puntaje): jamás el texto, el valor detectado ni un placeholder, que cada pedido genera con su propio mapa.
+# ═══════════════════════════════════════════════════════════════════════════════════
+
+_ANALYSIS_CACHE_DEFAULTS = {"max_entries": 20_000, "ttl_s": 3600.0}
+_ANALYSIS_CACHE_MAX_DETECTIONS = 1_000        # un segmento con más detecciones no se cachea (acota la memoria por entrada)
+_TRUE_WORDS, _FALSE_WORDS = ("1", "true", "yes", "on"), ("0", "false", "no", "off")
+
+
+class AnalysisCacheConfig:
+    """Configuración de la caché, leída del entorno en cada uso (todas opcionales; valor inválido ⇒ el de por defecto)."""
+
+    def __init__(self):
+        crudo = os.environ.get("MASKING_ANALYSIS_CACHE_ENABLED", "").strip().lower()
+        self.enabled = crudo not in _FALSE_WORDS
+        self.max_entries = _env_number("MASKING_ANALYSIS_CACHE_MAX_ENTRIES", _ANALYSIS_CACHE_DEFAULTS["max_entries"], int, 1)
+        self.ttl_s = _env_number("MASKING_ANALYSIS_CACHE_TTL_S", _ANALYSIS_CACHE_DEFAULTS["ttl_s"], float, 0.001)
+        self.salt = os.environ.get("MASKING_ANALYSIS_CACHE_SALT", "")
+
+
+def analysis_cache_config() -> AnalysisCacheConfig:
+    return AnalysisCacheConfig()
+
+
+class AnalysisCache:
+    """LRU acotada por entradas, con TTL. En proceso (no sale del motor; se pierde al reiniciar).
+
+    Clave: hash hexadecimal de 64 caracteres (ver `analysis_key`). Valor: lista de `(inicio, fin, tipo, puntaje)`.
+    `get` devuelve una copia (el llamador puede mutarla); un acceso renueva la entrada."""
+
+    def __init__(self, max_entries: int = 20_000, ttl_s: float = 3600.0, clock=time.monotonic):
+        self.max_entries, self.ttl_s, self._clock = max_entries, ttl_s, clock
+        self._data: "OrderedDict[str, tuple]" = OrderedDict()      # clave → (vence, detecciones)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def get(self, key: str):
+        hit = self._data.get(key)
+        if hit is None:
+            return None
+        vence, detecciones = hit
+        if self._clock() >= vence:
+            del self._data[key]
+            return None
+        self._data.move_to_end(key)
+        return list(detecciones)
+
+    def put(self, key: str, detecciones) -> None:
+        if len(detecciones) > _ANALYSIS_CACHE_MAX_DETECTIONS:
+            return
+        self._data[key] = (self._clock() + self.ttl_s, tuple(tuple(d) for d in detecciones))
+        self._data.move_to_end(key)
+        while len(self._data) > self.max_entries:
+            self._data.popitem(last=False)
+
+    def clear(self) -> None:
+        self._data.clear()
+
+    def dump_for_tests(self) -> dict:
+        """Todo lo guardado (clave → detecciones), para que un test verifique que no hay texto ni valores."""
+        return {k: [list(d) for d in v[1]] for k, v in self._data.items()}
+
+
+_ANALYSIS_CACHE: Optional[AnalysisCache] = None
+_ANALYSIS_CACHE_SHAPE: Optional[tuple] = None
+
+
+def get_analysis_cache() -> AnalysisCache:
+    """La caché del proceso; se vuelve a crear (vacía) si cambian los topes configurados."""
+    global _ANALYSIS_CACHE, _ANALYSIS_CACHE_SHAPE
+    cfg = analysis_cache_config()
+    forma = (cfg.max_entries, cfg.ttl_s)
+    if _ANALYSIS_CACHE is None or _ANALYSIS_CACHE_SHAPE != forma:
+        _ANALYSIS_CACHE, _ANALYSIS_CACHE_SHAPE = AnalysisCache(cfg.max_entries, cfg.ttl_s), forma
+    return _ANALYSIS_CACHE
+
+
+def reset_analysis_cache() -> None:
+    """Vacía la caché del proceso (tests; también sirve para invalidar a mano sin reiniciar)."""
+    global _ANALYSIS_CACHE, _ANALYSIS_CACHE_SHAPE
+    _ANALYSIS_CACHE, _ANALYSIS_CACHE_SHAPE = None, None
+
+
+def analysis_config_version(*, region: str, custom_names=None, custom_entities=None, analyzer_url: str = "",
+                            salt: Optional[str] = None, language: str = "es") -> str:
+    """Huella de TODO lo que cambia el resultado del analizador para un mismo texto: los reconocedores que viajan en
+    cada `/analyze` (`build_ad_hoc_recognizers`), los nombres y entidades propias, la región, el idioma, la URL del
+    analizador y la sal manual (`MASKING_ANALYSIS_CACHE_SALT`: para cuando cambian los reconocedores DEL analizador sin
+    cambiar nada de esto). Cualquier cambio ⇒ otra versión ⇒ otras claves (se invalida sin borrar nada)."""
+    nombres = sorted(str(n) for n in (custom_names or []))
+    entidades = sorted(json.dumps(e, sort_keys=True, default=str) for e in (custom_entities or []))
+    ordenadas = sorted(custom_entities or [], key=lambda e: json.dumps(e, sort_keys=True, default=str))
+    reconocedores = json.dumps(build_ad_hoc_recognizers(nombres, region, ordenadas), sort_keys=True, default=str)
+    if salt is None:
+        salt = analysis_cache_config().salt
+    huella = json.dumps({"r": reconocedores, "names": nombres, "ents": entidades, "region": region, "lang": language,
+                         "url": analyzer_url, "salt": salt}, sort_keys=True)
+    return hashlib.sha256(huella.encode("utf-8")).hexdigest()[:16]
+
+
+def analysis_key(text: str, *, version: str, scope: str = "", language: str = "es") -> str:
+    """`SHA-256(versión | idioma | empresa | texto)`. El texto entra solo como hash."""
+    h = hashlib.sha256()
+    for parte in (version, language, scope):
+        h.update(parte.encode("utf-8"))
+        h.update(b"\x00")
+    h.update(text.encode("utf-8", "surrogatepass"))
+    return h.hexdigest()
+
+
+def cached_analyze(analyze: AnalyzeFn, *, cache: Optional[AnalysisCache], version: str, scope: str = "",
+                   language: str = "es") -> AnalyzeFn:
+    """Envuelve el analizador REAL del pedido con la caché. Una instancia por pedido: además de la caché del proceso
+    (`cache`, o ninguna si está apagada) lleva una memoria del propio pedido, así que un segmento repetido se analiza una
+    vez aunque la caché esté apagada. Lo que no se cachea: una falla del analizador (`NlpUnavailableError` u otra: sube tal
+    cual, sin guardar nada) y los segmentos con demasiadas detecciones. No envolver el regex de respaldo de `degrade`."""
+    local: dict = {}
+
+    async def _analyze(text: str) -> list:
+        if not text:
+            return await analyze(text)
+        key = analysis_key(text, version=version, scope=scope, language=language)
+        hit = local.get(key)
+        if hit is None and cache is not None:
+            hit = cache.get(key)
+        if hit is None:
+            raw = await analyze(text)
+            hit = [(e["start"], e["end"], e["entity_type"], float(e.get("score", 0.0))) for e in raw]
+            if cache is not None:
+                cache.put(key, hit)
+        local[key] = hit
+        return [{"start": d[0], "end": d[1], "entity_type": d[2], "score": d[3]} for d in hit]
+
+    return _analyze
+
+
 # ── Conductor de enmascarado ─────────────────────────────────────────────────────────
 
 _ANALYZE_CHUNK = 50_000       # un texto más largo se analiza por trozos (en saltos de línea cuando se puede)
@@ -1772,17 +1991,36 @@ class _FullScopeMasker:
         return None
 
 
+def inspect_segments(body: dict, fmt: Optional[str] = None, *, skip_keys=(), exempt=frozenset()) -> list:
+    """Los segmentos de texto que el alcance completo analiza (los mismos que `extract_inspect_text(scope="full")` une,
+    salvo las exenciones opcionales), sin unirlos ni recortarlos: cada uno es una clave de la caché de análisis (S17)."""
+    return _collect_texts(body, fmt or detect_body_format(body), skip=skip_keys, exempt=exempt)
+
+
+async def analyze_segments(segmentos: list, analyze: AnalyzeFn) -> list:
+    """Detecciones de cada segmento con el mismo troceo y la misma concurrencia que el recorrido de alcance completo
+    (`_FullScopeMasker.prefetch`). Con `analyze` envuelto por `cached_analyze`, lo que analiza acá queda en la caché y
+    el recorrido de enmascarado lo encuentra: el análisis previo por tipo no suma una segunda pasada (S17)."""
+    masker = _FullScopeMasker(analyze, PlaceholderMap(), MaskingTally())
+    unicos = list(dict.fromkeys(t for t in segmentos if t and t.strip()))
+    await masker.prefetch(unicos)
+    out: list = []
+    for t in unicos:
+        out.extend(await masker.entities(t))
+    return out
+
+
 async def _mask_body_full(body: dict, analyze: AnalyzeFn, pmap: "PlaceholderMap", fmt: str,
-                          tally: MaskingTally, skip=()) -> None:
+                          tally: MaskingTally, skip=(), exempt=frozenset()) -> None:
     masker = _FullScopeMasker(analyze, pmap, tally)
-    await masker.prefetch(_collect_texts(body, fmt, with_scans=True, skip=skip))
-    await _drive(_w_body(fmt, body, skip), masker.handle)
+    await masker.prefetch(_collect_texts(body, fmt, with_scans=True, skip=skip, exempt=exempt))
+    await _drive(_w_body(fmt, body, skip, exempt), masker.handle)
 
 
 async def mask_body(body: dict, analyze: AnalyzeFn,
                     pmap: Optional[PlaceholderMap] = None, *, scope: str = MASKING_SCOPE_USER,
                     fmt: Optional[str] = None, tally: Optional[MaskingTally] = None,
-                    skip_keys=()) -> Tuple[dict, dict]:
+                    skip_keys=(), exempt=frozenset()) -> Tuple[dict, dict]:
     """Enmascara la PII del request. Devuelve (body mutado, mapa placeholder→original).
 
     Sin `scope` (o `scope="user"`): solo los turnos USER, como siempre (no el system prompt ni las
@@ -1792,11 +2030,12 @@ async def mask_body(body: dict, analyze: AnalyzeFn,
     `S14_EXEMPT_POSITIONS`; los PDF con texto viajan como texto enmascarado y lo no analizable queda contado
     en `tally` (`MaskingTally`, solo conteos y nombres de tipo). `fmt` = `anthropic` | `openai`.
     `skip_keys`: claves de primer nivel internas del motor que no se recorren (metadata interna, copias de
-    registro de la pasarela)."""
+    registro de la pasarela). `exempt`: exenciones opcionales de la instalación (`optional_exemptions()`; solo con
+    `scope="full"`), por defecto ninguna."""
     pmap = pmap or PlaceholderMap()
     if scope == MASKING_SCOPE_FULL:
         await _mask_body_full(body, analyze, pmap, fmt or detect_body_format(body),
-                              tally if tally is not None else MaskingTally(), skip=skip_keys)
+                              tally if tally is not None else MaskingTally(), skip=skip_keys, exempt=exempt)
     else:
         messages = body.get("messages")
         for msg in messages if isinstance(messages, list) else []:

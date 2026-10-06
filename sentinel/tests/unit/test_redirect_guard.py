@@ -347,6 +347,87 @@ def test_max_tokens_de_la_cara_claude_y_responses_no_se_renombra(call_type):
     assert g.raise_min_output_tokens(data, "openai", call_type) == [] and data == {"max_tokens": 4096}
 
 
+# ── 069 T193: chat + tools + razonamiento hacia OpenAI/Azure se puentea a Responses ──────
+
+TOOLS = [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
+
+
+def _puente(provider, model, call_type=None, **extra):
+    cred = {"api_key": "sk-x", **({"api_version": "2025-04-01-preview"} if provider == "azure" else {})}
+    tok = token(provider=provider, model=model, credential=cred,
+                api_base="https://r.openai.azure.com" if provider == "azure" else None)
+    return apply(request(tok, model=model, **extra), call_type=call_type)
+
+
+def _adj(out):
+    return str(out.get("adjusted_params") or "") + repr(out.get("metadata")) + repr(out.get("litellm_metadata"))
+
+
+@pytest.mark.parametrize("provider,fam", [("openai", "rdx-openai"), ("azure", "rdx-azure")])
+def test_chat_con_tools_y_razonamiento_va_por_responses(provider, fam):
+    out = _puente(provider, f"{fam}/gpt-6-luna", "acompletion", tools=TOOLS, reasoning_effort="high")
+    assert out["model"] == f"{fam}/responses/gpt-6-luna"
+    assert out["reasoning_effort"] == "high" and out["tools"] == TOOLS
+    assert "chat->responses" in _adj(out)
+
+
+def test_el_puente_tambien_aplica_sin_call_type():
+    out = _puente("openai", "rdx-openai/gpt-6-luna", None, tools=TOOLS, reasoning_effort="medium")
+    assert out["model"] == "rdx-openai/responses/gpt-6-luna"
+
+
+@pytest.mark.parametrize("call_type", ["anthropic_messages", "responses", "aresponses"])
+def test_el_puente_no_toca_claude_desktop_ni_responses(call_type):
+    out = _puente("openai", "rdx-openai/gpt-6-luna", call_type, tools=TOOLS, reasoning_effort="high")
+    assert out["model"] == "rdx-openai/gpt-6-luna" and "chat->responses" not in _adj(out)
+
+
+@pytest.mark.parametrize("extra", [
+    {"reasoning_effort": "high"},
+    {"tools": [], "reasoning_effort": "high"},
+    {"tools": []},
+])
+def test_el_puente_exige_tools(extra):
+    out = _puente("openai", "rdx-openai/gpt-6-luna", "acompletion", **extra)
+    assert out["model"] == "rdx-openai/gpt-6-luna" and "chat->responses" not in _adj(out)
+
+
+@pytest.mark.parametrize("extra", [{}, {"reasoning_effort": "none"}, {"reasoning_effort": None}, {"reasoning_effort": "low"}])
+def test_con_tools_puentea_aunque_el_cliente_pida_none_o_no_diga_nada(extra):
+    # 6-oct: el Harness manda reasoning_effort='none' y LiteLLM lo descarta (gpt-6 no está en los params soportados)
+    out = _puente("openai", "rdx-openai/gpt-6-luna", "acompletion", tools=TOOLS, **extra)
+    assert out["model"] == "rdx-openai/responses/gpt-6-luna" and "chat->responses" in _adj(out)
+    assert out.get("reasoning_effort") == extra.get("reasoning_effort")      # 'none' se preserva para Responses
+
+
+@pytest.mark.parametrize("real", ["gpt-5.4", "gpt-6.1-sol", "o4-mini"])
+def test_el_puente_cubre_las_familias_de_razonamiento(real):
+    assert _puente("openai", f"rdx-openai/{real}", "acompletion", tools=TOOLS)["model"] == f"rdx-openai/responses/{real}"
+
+
+def test_el_puente_no_toca_modelos_que_no_razonan():
+    out = _puente("openai", "rdx-openai/gpt-4.1", "acompletion", tools=TOOLS)
+    assert out["model"] == "rdx-openai/gpt-4.1"
+
+
+def test_la_ficha_con_thinking_puentea_aunque_el_nombre_no_lo_diga():
+    d = {"model": "rdx-openai/modelo-raro", "tools": TOOLS}
+    assert g.bridge_to_responses(d, "openai", "acompletion", thinking=True) == ["chat->responses"]
+    assert d["model"] == "rdx-openai/responses/modelo-raro"
+    d = {"model": "rdx-openai/modelo-raro", "tools": TOOLS}
+    assert g.bridge_to_responses(d, "openai", "acompletion") == []
+
+
+def test_el_puente_no_aplica_a_openrouter():
+    out = apply(request(token(), tools=TOOLS, reasoning_effort="high"), call_type="acompletion")
+    assert out["model"] == MODEL and "chat->responses" not in _adj(out)
+
+
+def test_el_puente_es_idempotente():
+    data = {"model": "rdx-openai/responses/gpt-6-luna", "tools": TOOLS, "reasoning_effort": "high"}
+    assert g.bridge_to_responses(data, "openai", "acompletion") == [] and data["model"] == "rdx-openai/responses/gpt-6-luna"
+
+
 # ── 069 T070: la redirección suma su capa a la atribución confiable ──────────────────────
 
 def _atribucion(out):
@@ -459,3 +540,31 @@ def test_hacia_un_traducido_no_se_bloquea_porque_la_firma_se_reconstruye():
 def test_un_campo_ausente_cero_o_no_entero_no_bloquea_por_si_solo(valor):
     informe = {**GOOD_REPORT, g.SIGNED_THINKING_FIELD: valor}
     assert apply(_forzado_en("anthropic", informe))["api_key"] == "sk-destino"
+
+
+# ── exenciones opcionales de S14 en la auditoría (057 T111/T112; research R34) ─────────────────────
+
+def test_las_exenciones_del_informe_quedan_en_la_decision_solo_los_nombres_conocidos():
+    informe = {**GOOD_REPORT, "exempt": ["tool_definitions", "system_prompt", "inventada", 7]}
+    rd = _decision(apply(_forzado_en("openrouter", informe)))
+    assert rd["masking_exempt"] == "system_prompt,tool_definitions"
+
+
+@pytest.mark.parametrize("exempt", [None, [], "system_prompt", {"a": 1}, ["otra"]])
+def test_sin_exenciones_validas_la_decision_no_lleva_el_campo(exempt):
+    informe = dict(GOOD_REPORT)
+    if exempt is not None:
+        informe["exempt"] = exempt
+    assert "masking_exempt" not in _decision(apply(_forzado_en("openrouter", informe)))
+
+
+# ── alcance del sufijo de los marcadores en la auditoría (S13; 057 T073) ───────────────────────────
+
+@pytest.mark.parametrize("informe,esperado", [
+    ({**GOOD_REPORT, "nonce_scope": "conversation"}, "conversation"),
+    (dict(GOOD_REPORT), "request"),
+    ({**GOOD_REPORT, "nonce_scope": "otro"}, "request"),
+    ({**GOOD_REPORT, "nonce_scope": 1}, "request"),
+])
+def test_la_decision_registra_el_alcance_del_sufijo_solo_el_nombre(informe, esperado):
+    assert _decision(apply(_forzado_en("openrouter", informe)))["nonce_scope"] == esperado

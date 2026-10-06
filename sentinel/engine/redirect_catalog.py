@@ -32,6 +32,8 @@ except ImportError:
         import redirect_credentials as credentials  # type: ignore[no-redef]
         import redirect_guard as _guard  # type: ignore[no-redef]
 
+price_per_mtok = credentials.price_per_mtok            # una única fuente de precios (FR-049)
+
 Fetch = Callable[[str, Mapping[str, str]], Awaitable[tuple]]
 DEFAULT_TTL = 5.0
 # Tipo de llamada del motor → tipo de modelo que exige (FR-060, US11). Una llamada que no figura acá
@@ -169,7 +171,7 @@ class CatalogDirect:
                                         "Modelo no disponible temporalmente.") from None
         for k in credentials.CLIENT_CREDENTIAL_FIELDS:
             data.pop(k, None)
-        for k in ("input_cost_per_token", "output_cost_per_token"):
+        for k in ("input_cost_per_token", "output_cost_per_token", *credentials.CACHE_PRICE_PARAMS.values()):
             data.pop(k, None)                         # el costo lo fija el catálogo, nunca el cliente
         # parámetros que la ficha declara no soportados (069 enmienda): se quitan PRIMERO del pedido del cliente,
         # antes de que el catálogo escriba credencial, costo y límites (H1 del QA del PR #78); se audita solo el nombre
@@ -177,10 +179,10 @@ class CatalogDirect:
         dropped = _guard.strip_unsupported(data, names if isinstance(names, (list, tuple)) else ())
         adjusted = _guard.raise_min_output_tokens(data, provider, call_type)       # piso del proveedor (T183), mismo paso que la redirección
         data["model"] = engine_model
+        adjusted += _guard.bridge_to_responses(
+            data, provider, call_type, (entry.get("features") or {}).get("thinking") is True)  # T193
         data.update(params)
-        price = entry.get("price") or {}
-        per_mtok = ({"input_per_mtok": float(price["input"]) * 1e6, "output_per_mtok": float(price["output"]) * 1e6}
-                    if price.get("input") is not None and price.get("output") is not None else None)
+        per_mtok = price_per_mtok(entry.get("price"))
         pricing, source = credentials.cost_params(per_mtok, provider, entry["real_model"],
                                                   _guard._engine_cost_map())
         data.update(pricing)
@@ -192,6 +194,8 @@ class CatalogDirect:
         decision = {"source": "catalog", "role": role, "destination_id": entry.get("entry_id"),
                     "public_id": model, "semaforo": (entry.get("semaforo") or {}).get("estado"),
                     "pricing": source}
+        if source != "none" and not all(p in pricing for p in credentials.CACHE_PRICE_PARAMS.values()):
+            decision["price_cache_missing"] = True            # FR-046: la caché se cobró a precio de entrada
         _guard._merge_dropped(decision, dropped)
         if adjusted:
             decision[_guard.ADJUSTED_KEY] = ",".join(adjusted)

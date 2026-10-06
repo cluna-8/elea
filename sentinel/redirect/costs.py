@@ -89,12 +89,39 @@ class _Acc:
                 "estimated_real": self.estimated}
 
 
+def _count(value) -> Optional[int]:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+class _CacheAcc:
+    """Aprovechamiento de la caché de un destino (057 FR-046): suma lo que el plugin dejó en la decisión de cada pedido."""
+
+    def __init__(self):
+        self.requests = self.read = self.write = self.input = 0
+
+    def add(self, block: Mapping[str, Any], prompt: int) -> None:
+        read, write = _count(block.get("cache_read_tokens")), _count(block.get("cache_write_tokens"))
+        if read is None and write is None:
+            return                                       # el destino no informó caché en este pedido
+        read, write = read or 0, write or 0
+        self.requests += 1
+        self.read += read
+        self.write += write
+        # cara Claude = formato Anthropic (la entrada NO incluye la caché); el resto, formato OpenAI (ya la incluye)
+        self.input += prompt + read + write if block.get("face") == "claude" else prompt
+
+    def out(self) -> dict:
+        return {"cache_requests": self.requests, "cache_read_tokens": self.read, "cache_write_tokens": self.write,
+                "input_tokens": self.input, "cache_hit_rate": (self.read / self.input) if self.input else None}
+
+
 def compare(rows: Iterable[Mapping[str, Any]], *, published: Iterable[Mapping[str, Any]],
             destinations: Mapping[str, Mapping[str, Any]],
             price: Callable[[str, int, int], Decimal],
             scope: Optional[tuple] = None) -> dict:
     published = list(published)
     totals, by_dest, by_scope = _Acc(), {}, {}
+    cache_by_dest: dict = {}
     shadow = 0
     for row in rows:
         block = _redirect_block(row)
@@ -115,11 +142,12 @@ def compare(rows: Iterable[Mapping[str, Any]], *, published: Iterable[Mapping[st
         hypothetical = price(ref, prompt, completion) if ref else None
         totals.add(real, hypothetical, estimated)
         by_dest.setdefault(str(dest_id), _Acc()).add(real, hypothetical, estimated)
+        cache_by_dest.setdefault(str(dest_id), _CacheAcc()).add(block, prompt)
         by_scope.setdefault(_scope_of(row), _Acc()).add(real, hypothetical, estimated)
     return {
         "totals": totals.out(),
         "by_destination": [dict(destination_id=d, destination_name=(destinations.get(d) or {}).get("name"),
-                                **acc.out()) for d, acc in sorted(by_dest.items())],
+                                **acc.out(), **cache_by_dest[d].out()) for d, acc in sorted(by_dest.items())],
         "by_scope": [dict(scope_type=k[0], scope_value=k[1], **acc.out())
                      for k, acc in sorted(by_scope.items())],
         "shadow_requests": shadow,
