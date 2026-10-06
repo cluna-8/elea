@@ -30,6 +30,7 @@ from sentinel.engine import redirect_guard as guard  # noqa: E402
 from sentinel.redirect import authz  # noqa: E402
 from sentinel.redirect import models as rm  # noqa: E402
 from sentinel.redirect.plugin import RedirectPlugin  # noqa: E402
+from sentinel.catalog import models as cm  # noqa: E402
 from sentinel.redirect.store import RedirectStore, load_from_session  # noqa: E402
 from sentinel.tests import redirect_fixtures as fx  # noqa: E402
 from sentinel.tests.catalog_fixtures import T1, create_entry, make_api  # noqa: E402
@@ -86,6 +87,12 @@ def mundo(monkeypatch):
 
     def publicar(nombres, estrategia="order"):
         with api.Session() as s:
+            fx.seed_regions(s, [fx.ALLOW_EU_REGION])
+            # FR-028: un destino sin jurisdicción de inferencia se rechaza con cualquier postura; estos son de la
+            # API oficial de cada proveedor (China) o de un enrutador, y la ficha lo dice
+            for ficha in s.query(cm.ComplianceSheet):
+                ficha.inference_jurisdiction = ficha.entity_jurisdiction = ficha.control_jurisdiction = "CN"
+            s.flush()
             pub = rm.RedirectPublishedModel(
                 tenant_id=T1, face="claude", public_id=PUBLICO, family_tier="sonnet", is_family_default=True,
                 label_mode="destination", scope_type="tenant", scope_value="*")
@@ -139,10 +146,13 @@ def test_openrouter_se_declara_agregador_y_los_directos_no(mundo):
 
 # ── el guard los manda a la familia correcta, con la credencial y la base del destino ─────────────
 
+VALOR_DEL_CLIENTE = "valor-del-cliente-NO-USAR"          # lo que el cliente intenta colar: nunca debe llegar al destino
+
+
 @pytest.mark.parametrize("nombre,provider,real,base,familia,precio", DESTINOS, ids=IDS)
 def test_cada_destino_va_a_su_familia_con_su_credencial_y_su_base(mundo, nombre, provider, real, base, familia, precio):
     mundo.publicar([nombre])
-    r = mundo.pedir(api_base="http://atacante.example", api_key="valor-del-cliente-NO-USAR")
+    r = mundo.pedir(api_base="http://atacante.example", api_key=VALOR_DEL_CLIENTE)
     assert r.status_code == 200, r.text
     enviado = Engine.sent[-1]
     assert enviado["url"].endswith("/v1/messages") and enviado["body"]["model"] == f"{familia}/{real}"

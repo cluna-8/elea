@@ -47,6 +47,8 @@ class Snapshot:
     destinations: dict = field(default_factory=dict)   # id → dict (sin credencial)
     offers: tuple = ()
     credentials: dict = field(default_factory=dict, repr=False)  # id → blob cifrado
+    regions: tuple = ()          # filas de `sentinel_redirect_region` visibles (empresa + instalación; 057 FR-021)
+    relaxations: tuple = ()      # relajaciones por destino vigentes cuya ficha cumple las precondiciones (FR-031a)
 
     def empty(self) -> bool:
         return not (self.policy or self.postures)
@@ -98,7 +100,8 @@ def load_from_session(db, tenant_id: str, *, always: bool = False) -> Snapshot:
     policy = tuple(_scoped(r, state=r.state) for r in
                    db.query(m.RedirectPolicy).filter(m.RedirectPolicy.tenant_id == tid))
     postures = tuple(_scoped(r, mode=r.mode, jurisdictions=list(r.jurisdictions or []),
-                             accept_foreign_entity=bool(r.accept_foreign_entity))
+                             accept_foreign_entity=bool(r.accept_foreign_entity),
+                             created_by_role=r.created_by_role)
                      for r in db.query(m.RedirectPosture).filter(m.RedirectPosture.tenant_id == tid))
     if not (policy or postures) and not always:
         return EMPTY          # camino caliente del «apagado»: 2 lecturas y nada más
@@ -128,7 +131,46 @@ def load_from_session(db, tenant_id: str, *, always: bool = False) -> Snapshot:
             creds[str(d.id)] = d.credential_encrypted
     dests, offers, creds = _overlay_catalog(db, tid, dests, offers, creds)
     return Snapshot(policy=policy, postures=postures, published=published, rules=rules,
-                    destinations=dests, offers=offers, credentials=creds)
+                    destinations=dests, offers=offers, credentials=creds,
+                    regions=region_dicts(db, tid), relaxations=_valid_relaxations(db, tid))
+
+
+def region_dicts(db, tid) -> tuple:
+    """Filas de `sentinel_redirect_region` que ve `tid` (instalación + las de su empresa; la RLS acota en Postgres y
+    acá se vuelve a filtrar)."""
+    from . import models as m
+    return tuple({"id": _s(r.id), "level": r.level, "tenant_id": _s(r.tenant_id), "name": r.name,
+                  "jurisdictions": list(r.jurisdictions or []), "region_profiles": list(r.region_profiles or []),
+                  "default_posture": r.default_posture, "is_zone": bool(r.is_zone)}
+                 for r in db.query(m.RedirectRegion)
+                 if r.tenant_id is None or r.tenant_id == tid)
+
+
+def _valid_relaxations(db, tid) -> tuple:
+    """Relajaciones por destino **vigentes** (FR-031a) de instalación o de la empresa, solo las que su ficha todavía
+    cumple: una cuya ficha dejó de cumplir no tiene efecto al resolver aunque la fila siga sin revocar. Sin las
+    tablas del catálogo (migración sin aplicar), ninguna."""
+    from . import models as m
+    try:
+        from sentinel.catalog import models as cm
+        from sentinel.catalog.relaxation import unmet_preconditions
+        rows = [r for r in db.query(m.RedirectMaskingRelaxation).filter(m.RedirectMaskingRelaxation.revoked_at.is_(None))
+                if r.tenant_id is None or r.tenant_id == tid]
+        out = []
+        for r in rows:
+            entry = db.get(cm.CatalogEntry, r.entry_id)
+            if entry is None or entry.status != "active":
+                continue
+            if unmet_preconditions(entry, db.get(cm.ComplianceSheet, r.entry_id)):
+                continue
+            out.append({"entry_id": _s(r.entry_id), "level": r.level, "tenant_id": _s(r.tenant_id)})
+        return tuple(out)
+    except ImportError:
+        return ()
+    except Exception as exc:  # noqa: BLE001
+        if "ext_" in str(getattr(exc, "orig", exc)).lower() or _missing_table(exc):
+            return ()
+        raise
 
 
 def _overlay_catalog(db, tid, dests, offers, creds):

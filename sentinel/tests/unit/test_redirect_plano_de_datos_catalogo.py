@@ -44,6 +44,7 @@ def db():
     rm.RedirectBase.metadata.create_all(engine)
     cm.CatalogBase.metadata.create_all(engine)
     s = sessionmaker(bind=engine)()
+    fx.seed_regions(s)
     yield s
     s.close()
 

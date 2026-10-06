@@ -1,0 +1,58 @@
+# [ELEIA] Región del perfil de Eleia (057 data-model §1; research R13, R23): `AMERICAS`.
+#
+# Decisión del owner, 2026-10-06 (D2 del análisis legal): TODO el tráfico redirigido sale enmascarado por defecto,
+# dentro y fuera de AMERICAS (`default_posture: masked_all`), con el analizador en modo fail-closed. Solo cumplimiento
+# o el super-admin lo relajan, con motivo y registrado: cambiando `default_posture` a `masked_offregion` (relajación
+# por región) o con una relajación por destino (retención cero, ficha completa).
+#
+# AMERICAS es un criterio de RIESGO, no de legalidad (D3): que un destino esté en la región no quiere decir que la
+# transferencia sea lícita; el producto lo dice así en la pestaña Residencia y en la documentación.
+#
+# La lista y la postura son DATO editable desde el panel (pestaña Residencia); cambiarlas queda en el registro de
+# cambios con motivo y no toca código. Este archivo solo SIEMBRA la fila si no existe: una edición del panel o de la
+# API no se revierte al reiniciar. Se carga al arrancar con `REDIRECT_SEED_FILES` (costura S16) o a mano con
+# `python -m sentinel.redirect.regions_seed deploy/redirect-seeds/regions.americas.yaml`.
+regions:
+  - name: AMERICAS
+    level: installation
+    is_zone: true                     # `AMERICAS` se puede usar como código de zona en listas de jurisdicciones y fichas
+    region_profiles: [latam_ar, latam, us]
+    default_posture: masked_all
+    jurisdictions:
+      - US                            # Norte
+      - CA
+      - MX
+      - BZ                            # Centro
+      - CR
+      - SV
+      - GT
+      - HN
+      - NI
+      - PA
+      - AG                            # Caribe
+      - BS
+      - BB
+      - CU
+      - DM
+      - DO
+      - GD
+      - HT
+      - JM
+      - KN
+      - LC
+      - VC
+      - TT
+      - PR
+      - AR                            # Sur
+      - BO
+      - BR
+      - CL
+      - CO
+      - EC
+      - GY
+      - PY
+      - PE
+      - SR
+      - UY
+      - VE
+      - LATAM                         # zona existente: la cubre

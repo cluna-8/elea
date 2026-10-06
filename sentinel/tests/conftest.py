@@ -15,6 +15,13 @@ import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _region_de_la_instalacion(monkeypatch):
+    """Perfil `eu`, el de los tests heredados de la 068 (057 R28: el código ya no cae a `eu` si falta la variable,
+    así que los tests lo fijan; los que prueban «sin región» la borran con `delenv`)."""
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "eu")
+
+
+@pytest.fixture(autouse=True)
 def _puente_de_acceso_apagado():
     """Montar las rutas del catálogo registra el puente de acceso (estado global): ningún test lo hereda."""
     yield

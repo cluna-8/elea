@@ -188,11 +188,14 @@ cli-check:
 
 # 057 T020/T088/T091 — entrega de extensiones (S9/S11), `heads` en la imagen publicada (S4) y variantes
 # `-ext` de las imágenes. Los tres corren SIN Docker (lectura estática y dobles de `docker`/`alembic`).
-.PHONY: check-extension-delivery check-standalone-heads check-ext-images
-check: check-extension-delivery check-standalone-heads check-ext-images
+.PHONY: check-extension-delivery check-standalone-heads check-ext-images check-entity-region-default
+check: check-extension-delivery check-standalone-heads check-ext-images check-entity-region-default
 check-extension-delivery:
 	$(REPO_ROOT)/deploy/release/checks/test_extension_delivery.sh
 check-standalone-heads:
 	$(REPO_ROOT)/deploy/release/checks/test_standalone_heads.sh
 check-ext-images:
 	$(REPO_ROOT)/deploy/release/checks/test_ext_images.sh
+# Región por defecto: latam_ar solo en el override de desarrollo de la extensión; la base y producción conservan eu (057 T095).
+check-entity-region-default:
+	$(REPO_ROOT)/deploy/release/checks/test_entity_region_default.sh
