@@ -77,6 +77,12 @@ iterador ya recibe bytes SSE. Test rojo primero: `sentinel/tests/unit/test_guard
 **Auditoría en stream** (`audit_logs`, solo metadatos): 9 pedidos en stream → 9 filas, `compliance_status = passed`, `pii_detected = true`,
 `prompt_tokens 34264–35058`, `completion_tokens 64`, `cache_hit = false`.
 
+**Upstream y alternativas descartadas.** El defecto está presente en LiteLLM 1.92.0 (la versión que fija el motor). Una búsqueda web no encontró un issue ni un
+arreglo en BerriAI/litellm (sin verificar en el repositorio; queda para quien actualice el motor: si lo arreglaron, el filtro sobra y es inocuo). Sacar
+`include_usage` no es opción: lo fija el adaptador (`handler.py:474`) después de cualquier cosa que el guard ponga en el pedido. Caché en la fila: el destino
+no informó tokens de caché en estas corridas (`price_cache_missing: true` en la decisión de la fila); lo que se verificó es que la fila se escribe, con los tokens
+de entrada/salida. La medición de caché sigue en T083/T078.
+
 Una cosa que cambia al dejar de cortarse la respuesta: en algunas corridas el modelo cita el DNI del pedido («el identificador aparece
 anonimizado (`30123456`)») y el campo `dni_en_claro_en_respuesta` de `measure.py` sale `true`. Es el desenmascarado de la respuesta (el
 cliente recibe lo que él mismo envió; la política lo hace a propósito) y no determinista (en 4 de 9 corridas se cita); no es el cuerpo que sale
