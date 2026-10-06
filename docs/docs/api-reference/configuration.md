@@ -12,6 +12,7 @@
 | `POSTGRES_DB` | `sentinel_gateway` | Database Configuration |
 | `POSTGRES_USER` | `sentinel_admin` | — |
 | `POSTGRES_PASSWORD` | *(secreto — generado por instalación)* | — |
+| `ENGINE_DB` | `sentinel_engine` | Nombre de la base PROPIA del motor del gateway (default `sentinel_engine`), dentro del mismo Postgres. Tiene que ser distinta de POSTGRES_DB: el migrador del motor borra toda tabla ajena de la base a la que apunta. La crea un servicio de un solo disparo en desarrollo y el script de inicialización de la base en producción; el script de respaldo copia las dos bases en una sola copia. |
 
 ### ── Conexión a la base de datos y Redis (producción) ─────────────────────────────────
 

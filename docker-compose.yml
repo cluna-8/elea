@@ -63,6 +63,30 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  db-engine-init:
+    # Crea la base PROPIA del motor (ENGINE_DB) y termina. UN disparo, IDEMPOTENTE: en cada
+    # `up` pregunta si existe y solo la crea si falta, así que sirve igual con un volumen
+    # NUEVO que con uno que ya existe (donde el initdb de Postgres no corre nunca más).
+    # Es el mismo script que usa el compose de producción (deploy/docker/initdb/): el nombre
+    # no puede divergir entre los dos caminos. `engine` espera a que termine bien.
+    # Sin `container_name` a propósito: no es un servicio al que nadie haga `docker exec`, y
+    # scripts/check_stack_prefix.sh compara los nombres de los servicios de larga vida.
+    image: postgres:16-alpine
+    entrypoint: ["sh", "/init/01-engine-db.sh"]
+    environment:
+      - ENGINE_DB=${ENGINE_DB:-sentinel_engine}
+      - PGHOST=db
+      - POSTGRES_USER=${POSTGRES_USER:-sentinel_admin}
+      - PGPASSWORD=${POSTGRES_PASSWORD:-sentinelsecurepass123}
+    volumes:
+      - ./deploy/docker/initdb/01-engine-db.sh:/init/01-engine-db.sh:ro
+    networks:
+      - sentinel-network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   engine:
     # PIN por digest (spec 014 T004/FR-026, Principio VI): litellm 1.92.0.
     # Proceso de bump: cambiar el digest -> correr la suite de contract tests
@@ -73,7 +97,21 @@ services:
       # 4010 en el host: 4000 lo ocupa el litellm del repo demo (gatelite)
       - "4010:4000"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-sentinel_admin}:${POSTGRES_PASSWORD:-sentinelsecurepass123}@db:5432/${POSTGRES_DB:-sentinel_gateway}
+      # Base PROPIA del motor, jamás la del backend: su migrador Prisma aplica un diff
+      # «base viva → su schema» que DROPea toda tabla ajena como «drift» (primer arranque
+      # sin su libro de migraciones, o tras una actualización que traiga migraciones
+      # nuevas). Compartir base destruía el esquema del producto (ensayo 2026-07-22,
+      # reproducido de nuevo en 2026-10). La crea `db-engine-init` (abajo), con el mismo
+      # `${ENGINE_DB:-…}` que ese servicio.
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-sentinel_admin}:${POSTGRES_PASSWORD:-sentinelsecurepass123}@db:5432/${ENGINE_DB:-sentinel_engine}
+      # Con base propia el motor ya no ve las tablas del backend (api_keys, users,
+      # audit_logs…), así que identidad y auditoría van por HTTP al plano interno del
+      # backend, autenticado con el secreto compartido SENTINEL_ENGINE_MASTER_KEY. Las DOS
+      # variables o ninguna: con la base separada y sin ellas, todo byok/svc da 401 y el
+      # tráfico deja de auditarse en silencio. Si el backend está caído, la identidad falla
+      # cerrada (401), no abierta.
+      - SENTINEL_IDENTITY_URL=http://backend:8000/api/v1/internal/identity
+      - SENTINEL_AUDIT_URL=http://backend:8000/api/v1/internal/audit
       # ALIAS deliberado (#302): el operador escribe SENTINEL_ENGINE_MASTER_KEY en su `.env`;
       # DENTRO de ESTE contenedor la variable conserva el nombre de upstream. NO renombrar:
       # la imagen del motor la lee del env LITERAL (`proxy_server.py`, red del arranque si
@@ -120,6 +158,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # La base del motor tiene que existir ANTES de que el motor arranque.
+      db-engine-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       nlp-analyzer:

@@ -25,7 +25,7 @@ y backup/restore de los volúmenes durables en on-prem).
   (base de datos y cache gestionados) el profile se omite.
 - `curl` para los endpoints de salud; para el **tier detallado** del health de licencia hace
   falta además una **sesión con rol de operación** (admin / compliance).
-- Para la sección de backup: un **destino fuera del host** donde guardar los dumps.
+- Para la sección de backup: un **destino fuera del host** donde guardar la copia (que incluye **dos** bases de datos, ver [6.2](#62-backup-restore-de-volumenes-durables-on-prem)).
 
 ---
 
@@ -583,9 +583,43 @@ responsabilidad del operador. Los volúmenes durables del stack son tres:
 
 | Volumen | Contiene | Patrón de backup |
 |---|---|---|
-| **Postgres** | Configuración, tenants, usuarios/Connections, presupuestos y la auditoría durable | Dump lógico periódico: `docker exec <db-container> pg_dump -U <user> -d <db> > backup-$(date +%F).sql` |
+| **Postgres — base del producto** (`POSTGRES_DB`) | Configuración, tenants, usuarios/Connections, presupuestos y la auditoría durable | Dump lógico. Va **junto con la base del motor** en una sola copia (`backup.sh`, abajo) |
+| **Postgres — base del motor** (`ENGINE_DB`) | Llaves virtuales de las cuentas de servicio y de las Connections, contadores de gasto del motor y su libro de migraciones | Ídem: **no alcanza con copiar solo `POSTGRES_DB`** |
 | **Redis** | Estado de runtime (contadores, cache) | Snapshot del volumen (o `BGSAVE` y copiar el `dump.rdb`). Perderlo no pierde datos de negocio, pero reinicia contadores de runtime |
 | **Licencia** | El archivo de licencia firmada instalado | Copia simple del archivo/volumen de licencia junto con el resto del backup |
+
+**El respaldo de Postgres cubre dos bases, no una.** El motor del gateway tiene base propia
+(`ENGINE_DB`, ver [6.3](#63-base-propia-del-motor)) y un dump de `POSTGRES_DB` solo la deja afuera:
+sin ella se pierden las llaves virtuales y los contadores de gasto del motor. El script
+`backup.sh` (viaja en el paquete de instalación) vuelca las dos y las empaqueta en **una sola
+copia**: 🟡
+
+```bash
+# On-prem: el contenedor de la base lo da compose; las variables salen del env de la instalación
+DB_CONTAINER=$(docker compose --profile selfhosted ps -q db) \
+  ./backup.sh -o /ruta/fuera-del-host --env-file <instance.env>
+# -> /ruta/fuera-del-host/guardian-backup-<fecha-UTC>.tar   (modo 0600)
+#    gateway.dump   la base del producto (formato custom de pg_dump)
+#    engine.dump    la base del motor
+#    MANIFEST       nombres de las bases, hora y sha256 de cada dump (sin secretos)
+```
+
+Qué garantiza y qué no:
+
+- **Todo o nada**: la copia se arma aparte, cada dump se verifica (`pg_restore -l`) y recién
+  entonces se publica; si algo falla no queda un `.tar` a medias.
+- **Cada base es una foto transaccional; entre las dos no hay foto atómica** (Postgres no la
+  ofrece). El script vuelca **primero el producto y después el motor**, de modo que una llave
+  creada entre los dos volcados queda como huérfana inocua en el motor y nunca como referencia
+  colgada en el producto. Para una foto exacta, parar el motor durante el respaldo
+  (`docker compose --profile selfhosted stop engine`).
+- **El gasto del motor se escribe por lotes** (hasta ~1 minuto después del pedido): esperar
+  un minuto desde el último tráfico antes de un respaldo que deba reflejarlo.
+- Si la base del motor no existe, el script **falla con un mensaje claro** en vez de entregar
+  una copia incompleta.
+
+El script está probado con dobles (sin base real); su ejecución contra Postgres y el restore de
+la copia resultante son parte del ensayo de despliegue, **todavía pendiente**: 🟡.
 
 Reglas del patrón:
 
@@ -593,16 +627,68 @@ Reglas del patrón:
   para snapshot de volúmenes a nivel filesystem, detener el stack primero
   (`docker compose --profile selfhosted stop`).
 - **Guardar fuera del host**, con checksum, siguiendo la política de retención del cliente.
-- **Restore** = restaurar el volumen/dump en un stack limpio (`psql < backup.sql` para Postgres,
-  reponer el archivo de licencia) y levantar con `docker compose --profile selfhosted up -d`
+- **Restore** = restaurar el volumen/dump en un stack limpio (reponer el archivo de licencia y las
+  **dos** bases, ver abajo) y levantar con `docker compose --profile selfhosted up -d`
   (o exportar `COMPOSE_PROFILES=selfhosted`; sin el profile, db y redis no arrancan). El backend
   re-aplica sus migraciones al boot si hace falta.
 - **Probar el restore** periódicamente: un backup que nunca se restauró no es un backup.
+
+**Restaurar las dos bases** (stack limpio con la base del motor ya creada; ver 6.3):
+
+```bash
+tar -xf guardian-backup-<fecha>.tar -C /tmp/restore       # revisar MANIFEST y sha256
+docker exec -i <db-container> pg_restore -U <user> -d <POSTGRES_DB> --no-owner --exit-on-error < /tmp/restore/gateway.dump
+docker exec -i <db-container> pg_restore -U <user> -d <ENGINE_DB>   --no-owner --exit-on-error < /tmp/restore/engine.dump
+```
+
+!!! danger "Nunca restaurar solo las tablas del producto en la base del motor, ni al revés"
+    El migrador del motor borra toda tabla ajena de la base a la que apunta cuando no encuentra
+    su libro de migraciones (libro de migraciones ausente). Restaurar **cada dump completo en su
+    base** conserva ese libro y no dispara nada; restaurar tablas sueltas sí. El motor y el
+    producto **no deben compartir base**.
 
 !!! warning "Incluir la licencia en el backup"
     Como la licencia es fail-closed, un restore sin el archivo de licencia deja un stack que arranca
     pero rechaza la operación licenciada (sección 3). El archivo de licencia forma parte del backup,
     no un extra opcional.
+
+### 6.3 Base propia del motor
+
+El motor del gateway usa una **base de datos propia** dentro del mismo Postgres, nombrada por
+`ENGINE_DB` (default `sentinel_engine`; ver la [referencia de configuración](../api-reference/configuration.md)),
+**distinta** de `POSTGRES_DB`. El motivo es de seguridad de datos: el migrador del motor compara
+la base a la que apunta con su esquema y **elimina toda tabla ajena** como «deriva» — en el primer
+arranque sin su libro de migraciones o tras una actualización que traiga migraciones nuevas. En
+una base compartida eso borraba usuarios, llaves y auditoría del producto (reproducido en
+ensayo). Con base propia el peor caso queda acotado a la base del motor.
+
+| Pieza | Estado |
+|---|---|
+| Compose de producción (`--profile selfhosted`): `db` recibe `ENGINE_DB` y su script de inicialización crea la base **al inicializar un volumen vacío**; el motor apunta a ella | 🟡 cableado verificado por tests; ensayo con contenedores pendiente |
+| Compose de desarrollo: un servicio de un solo disparo crea la base en cada `up` si falta (sirve también con un volumen que ya existe) | 🟡 ídem |
+| **Identidad y auditoría del motor por HTTP interno** (`SENTINEL_IDENTITY_URL`, `SENTINEL_AUDIT_URL`, autenticadas con la clave maestra compartida): el motor ya no lee las tablas del producto | 🟢 en el código; 🟡 el ensayo de extremo a extremo con base separada está pendiente |
+| Cloud con Postgres gestionado: la base del motor **hay que crearla a mano** en la instancia antes de levantar el motor (el módulo IaC hoy solo provisiona la del producto) | 🔵 |
+
+**Volumen que ya existía** (el script de inicialización de Postgres solo corre al inicializar un
+volumen vacío, así que en un volumen anterior **no crea nada**): crear la base a mano, con el mismo
+script, **antes** de levantar el motor con la nueva configuración:
+
+```bash
+docker exec -i <db-container> env POSTGRES_USER=<user> ENGINE_DB=<ENGINE_DB> \
+  sh -s < initdb/01-engine-db.sh        # idempotente: si la base existe, no hace nada
+```
+
+Si el motor arranca con `ENGINE_DB` apuntando a una base que **no existe**, no arranca
+(`connection refused`/`database does not exist`): crearla y reiniciar el motor. Si arranca contra
+una base vacía, aplica sus migraciones sobre ella y no toca el producto.
+
+!!! warning "Las dos URL internas van juntas con la base separada"
+    Con el motor en su propia base, `SENTINEL_IDENTITY_URL` y `SENTINEL_AUDIT_URL` son
+    **obligatorias**: sin ellas el motor busca las llaves en una base donde no están (todo
+    tráfico con llave de Connection o de servicio responde `401`) y el tráfico deja de
+    auditarse sin ruido. El backend pasa a ser dependencia de tiempo de ejecución del motor: si
+    está caído, la identidad falla **cerrada** (`401`), nunca abierta. `GET /health` del backend
+    **no** detecta una base vaciada: no usarlo como prueba.
 
 ## Relacionado
 

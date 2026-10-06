@@ -642,3 +642,47 @@ Las imágenes `ghcr.io/cluna-8/elea-guardian-{engine,nlp,backend}` y `postgres:1
 9. **Repetibilidad de los tiempos**: una corrida cada uno, sin desvío; el escalado usó 1 M de filas sintéticas y no gasto real; la PC estaba compartida.
 10. **Versión menor de `pg_dump`/`pg_restore`** de la imagen `postgres:16-alpine` del ensayo (es la misma imagen que usa el instalador, pero la versión menor no se registró).
 11. **La suite de tests del proyecto, `make -C deploy check*` y `check-docs`**: no se corrieron; este cambio es solo `specs/…md`, sin código ni `docs/docs/**`.
+
+---
+
+## §9. Para el HANDOFF a Sentinel (D9): lo genérico de la separación de bases
+
+**Qué es**: lo que el cambio de implementación hecho en este repo (rama `cluna-8/fix-separar-bases-elea`) deja como **base Guardian**, escrito sin strings de Elea/Eleia para que se porte a `cluna-8/sentinel`. Sentinel tiene su propio coordinador: acá solo se entrega esta lista (D9); el `HANDOFF-elea-a-sentinel.md` se arma desde ella. **Convención**: `[verificado]` = lo leí o lo corrí sin Docker (tests con dobles, `docker compose config -q`); `[no verificado]` = requiere el ensayo con Docker, que no se corrió (compuerta del owner).
+
+### 9.1 Qué se porta (archivo → qué cambia)
+
+| # | Pieza | Archivo en este repo | Qué hace / qué cambia en Sentinel |
+|---|---|---|---|
+| 1 | **Init genérico de la base del motor** | `deploy/docker/initdb/01-engine-db.sh` (reemplaza a `01-engine-db.sql`) | Crea `ENGINE_DB` (default `sentinel_engine`) solo si no existe (`format('CREATE DATABASE %I', :'db') … WHERE NOT EXISTS … \gexec`); el nombre viaja como variable de `psql` (sin SQL concatenado); POSIX `sh`, todo en un subshell (sirve ejecutado y *sourceado* por el entrypoint de Postgres, y aborta la inicialización si falla). **Borrar** `01-engine-db.sql`: con los dos juntos habría dos bases. |
+| 2 | `ENGINE_DB` en el servicio `db` | `deploy/docker/compose.prod.yml:298-301` | El init necesita el nombre en el entorno de `db`; hoy el servicio no lo recibía (`§3`, «Qué NO se porta tal cual»). Mismo `${ENGINE_DB:-sentinel_engine}` que el `DATABASE_URL` del motor (`:210`). |
+| 3 | **Dev: servicio de un solo disparo** | `docker-compose.yml:66-88` (`db-engine-init`) | `postgres:16-alpine`, `restart: "no"`, corre el mismo `.sh` contra `db` por TCP en cada `up` ⇒ idempotente, sirve también con un volumen existente (donde `initdb` no corre). Sin `container_name` (el check `scripts/check_stack_prefix.sh` compara los nombres a mano). |
+| 4 | **Dev: motor en base propia + URLs internas** | `docker-compose.yml:106,113-114,162-163` | `DATABASE_URL` → `${ENGINE_DB:-sentinel_engine}`; `SENTINEL_IDENTITY_URL` y `SENTINEL_AUDIT_URL` (las **dos o ninguna**); `engine` espera a `db-engine-init` con `service_completed_successfully`. El backend sigue esperando al motor `healthy`. Sentinel dev hoy **comparte** `POSTGRES_DB` (`§3`, tabla). |
+| 5 | **Respaldo de las dos bases** | `deploy/release/backup.sh` (nuevo) | Una copia `.tar` (0600) con `gateway.dump` + `engine.dump` (`pg_dump -Fc`) + `MANIFEST` (nombres, hora, sha256; sin secretos). Orden fijo **backend → motor** (una llave creada entre los dos volcados queda huérfana en el motor, nunca colgada en el backend); todo-o-nada (se arma aparte, cada dump se verifica con `pg_restore -l`, se publica con `mv`); falla claro si la base del motor no existe; el `--env-file` se **parsea**, no se ejecuta. Sentinel hoy solo respalda `POSTGRES_DB` (`backup.sh:72`, `§3`/D7): este es el hallazgo del HANDOFF. |
+| 6 | `backup.sh` viaja en el bundle | `deploy/release/bundle.sh` (una línea tras `compose.prod.yml`) | On-prem no tiene el repo. |
+| 7 | `ENGINE_DB` documentada | `.env.example:9` | Con descripción inmediatamente arriba (el generador de la referencia la usa); `python3 docs/gen_config_reference.py` regenera `docs/docs/api-reference/configuration.md`. |
+| 8 | **Tests sin Docker** | `harness/tests/test_separar_bases_motor.py` (39) | Lint de los dos compose (base propia, URLs, orden, `restart: "no"`), init con un `psql` de mentira (nombre como variable, idempotencia por construcción, aborta al fallar *también sourceado*, no mata el shell del entrypoint, sin OWNER, sin password en argumentos) y respaldo con un `docker` de mentira (orden, todo-o-nada, 0600, sin secretos, env-file no ejecutado). Vive en `harness/` por la misma razón que `test_compose_entity_region_wiring.py`: el contenedor del backend no ve la raíz. Para portarlo solo hay que revisar los nombres de servicio si difieren (`engine`, `db`, `backend`). |
+| 9 | Documentación | `docs/docs/operations/index.md` §6.2 y §6.3, `docs/docs/install-deploy/index.md` (paso 5 y tabla de piezas) | Respaldo con dos bases, restauración dump-completo-por-base, advertencia de no restaurar tablas sueltas, base propia, volumen existente, las dos URL internas, y la leyenda 🟢/🟡/🔵. En Sentinel el equivalente es `docs/sentinel/01-COMO-FUNCIONA-SENTINEL.md:47,165` (`§3`). |
+
+### 9.2 Qué NO se porta (es de Elea)
+
+El instalador (`elea-installer`: su servicio de init, `.env.example` con `ENGINE_DB=elea_engine`, fijación del motor por digest, `install.sh`), el runbook de traslado de producción (§4.3 corregido con `-T`) y las mitigaciones M1–M3 del servidor de Elea. Son la otra tarea del plan de Atlas.
+
+### 9.3 Hallazgos que el HANDOFF debe llevar (los dos afectan también a Sentinel)
+
+1. **El módulo OpenTofu `database` NO crea la base del motor**: provisiona solo `db_name = "sentinel_gateway"` (`deploy/terraform/modules/database/main.tf:39`), pero el comentario de `compose.prod.yml` decía «en nube, el módulo OpenTofu provisiona ambas bases». Hoy, en nube, el motor apunta a una base que nadie crea (`ENGINE_DB` inexistente ⇒ el motor no arranca). Se corrigió el **comentario** (`compose.prod.yml:205-209`) y la doc lo declara 🔵 «hay que crearla a mano»; el módulo **no se tocó** (fuera del alcance de esta tarea). Decisión del owner: ¿se agrega una segunda base al módulo (variable + `postgresql_database` o equivalente)? [verificado por lectura]
+2. **`restore.sh` de Sentinel** (`restore.sh:69,82`, por `§3`) tiene el mismo hueco que `backup.sh`: restaura una sola base. Este repo **no tiene** `restore.sh` y no se escribió uno; la doc describe la restauración manual (`pg_restore --no-owner --exit-on-error` de cada dump en su base). Si Sentinel mantiene su `restore.sh`, debe restaurar las dos y **nunca** tablas sueltas en la base del motor (`§1.3`, «base restaurada»). [verificado por lectura de `§3`; `restore.sh` de Sentinel no releído]
+3. **`scripts/check_stack_prefix.sh` y `deploy/release/checks/test_redis_wiring.sh` ya estaban desactualizados** respecto del rename `litellm`→`engine` (`test_redis_wiring.sh` busca el servicio `litellm`, que no existe ni en `main`: falla con «no se pudo aislar el servicio 'litellm'»; es previo a este cambio y no se tocó por quedar fuera de la propiedad de la tarea). Si Sentinel arrastra el rename, arrastra el mismo check roto. [verificado: `git show main:docker-compose.yml | grep -c '^  litellm:'` → 0]
+
+### 9.4 Decisiones de diseño tomadas al implementar (el owner puede revertirlas)
+
+- **Orden de volcado backend → motor, sin parar el motor** (D7 pedía «una sola copia consistente»; Postgres no da foto atómica entre bases). La alternativa —parar el motor durante el respaldo— queda documentada como opción para quien necesite foto exacta, no impuesta.
+- **El init corre en cada `up` del compose de desarrollo** (idempotente) en vez de montar `initdb` en `db` de desarrollo: una sola vía que sirve con volumen nuevo y existente; `initdb` queda solo en producción (D4).
+- **`ENGINE_DB` y `POSTGRES_DB` iguales ⇒ `backup.sh` se niega** («el stack sigue con base compartida»): no entrega una copia que parezca de dos bases y sea de una.
+- **El `.sh` queda con bit de ejecución**; si un empaquetado lo pierde, el entrypoint lo *sourcea* y funciona igual (cubierto por test).
+
+### 9.5 No verificado (§9)
+
+1. **Nada se corrió con Docker/Postgres**: ni `db-engine-init` contra un Postgres real, ni `01-engine-db.sh` dentro del entrypoint de la imagen `postgres:16` (se simuló con `sh`/`bash` y un `psql` de mentira; `sh -s < 01-engine-db.sh` —el comando del runbook de volumen existente— también con el doble), ni `backup.sh` contra `pg_dump`/`pg_restore` reales, ni el motor arrancando sobre su base. Solo `docker compose config -q` (valida el archivo). Todo eso es el ensayo final con la compuerta del owner.
+2. **`make -C deploy check`, `check-docs` y la suite del backend en contenedor**: no se corrieron (usan Docker). Sí se corrieron los de solo-archivos listados en el reporte del worker.
+3. **El módulo OpenTofu** y la creación de la base del motor en nube: sin cambio, sin ensayo.
+4. **`restore.sh` de Sentinel** (§9.3-2): no se releyó su contenido actual.
