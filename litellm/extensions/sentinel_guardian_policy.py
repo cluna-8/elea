@@ -365,7 +365,9 @@ HIGH_RISK_PATTERNS = [
 
 # Secretos/keys (espejo de GuardianService)
 SECRET_PATTERNS = {
-    "OpenAI API Key": r"sk-[a-zA-Z0-9]{10,}",
+    # Límite izquierdo: sin él, `task-implementation` o `risk-assessment` (…`sk-` + 10 letras) eran «clave» y la capa
+    # rechazaba pedidos sin credencial (057 R37). Una clave real no va pegada a una letra o dígito anteriores.
+    "OpenAI API Key": r"(?<![a-zA-Z0-9])sk-[a-zA-Z0-9]{10,}",
     "Google API Key": r"AIzaSy[a-zA-Z0-9_-]{33}",
     "Generic Secret": r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}",
 }
