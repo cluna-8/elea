@@ -86,3 +86,6 @@ frontend/public/branding/
 
 # MCP local (cadena de conexión de la base de desarrollo, nunca la de producción)
 .mcp.json
+
+# Entrega en desarrollo de la extensión (057 T021): lo genera sentinel/docker/prepare-dev.sh
+sentinel/docker/.dev/
