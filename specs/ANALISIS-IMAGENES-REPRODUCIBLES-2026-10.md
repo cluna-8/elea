@@ -415,6 +415,197 @@ rebuild comparativo sí requiere Docker y **aviso previo al owner**.
 
 ---
 
+## §3. Dependencias instaladas en las imágenes publicadas vs lo que declara el repo
+
+> Medición del 2026-10-06, autorizada por el owner en el nivel «recomendado» de la sección anterior,
+> **con `curl` y sin Docker** (ni `docker pull`, ni `docker run`, ni `docker images`: no se usó el binario, así que no
+> hay imágenes locales que borrar). Los blobs se bajaron a `/tmp/claude-1000/medicion-imagenes` (fuera del repo) y **se borraron al terminar**.
+> Repo comparado: HEAD `83b57dd` (el `backend/`, `client/`, `frontend/`, `litellm/`, `tabular/`, `presidio-analyzer/` de este HEAD).
+
+### 3.0 Método y comandos (todo corrido en esta sesión)
+
+| Paso | Comando (resumido) | Resultado |
+|---|---|---|
+| Manifiestos y config de los 6 `:latest` | `curl` con token anónimo `ghcr.io/token?scope=repository:cluna-8/<img>:pull` → `/v2/<img>/manifests/latest` y `/blobs/<config>` | 6 manifiestos v2, capas 12/9/23/11/10/9 (igual que §2.2) |
+| Bajar capas | `curl -L -H "Authorization: Bearer …" /v2/<img>/blobs/sha256:<capa>` y `sha256sum` | el `sha256sum` del archivo bajado coincide con el digest de la capa en los 23 blobs completos bajados (5 grandes impresos al bajarlos, 18 re-verificados antes de borrar) [verificado] |
+| Leer contenido | `tar -tzf`, `tar -xzOf`, `tar -xzf --wildcards '*.dist-info/METADATA'`; `lib/apk/db/installed`; `node_modules/.package-lock.json` | ver 3.1–3.6 |
+| Diff contra el repo | `git ls-files <dir>` vs. lista de archivos de la capa, `cmp` archivo a archivo; `python3 -I` para comparar versiones | ver 3.1–3.6 |
+| «¿Qué resolvería un rebuild?» (sin Docker) | **Python:** `uv pip compile <requirements> --python-version 3.1x --python-platform x86_64-manylinux_2_28 [--exclude-newer <fecha>]`; **npm:** `npm install --package-lock-only --ignore-scripts [--before=<fecha>]` en un directorio vacío con solo `package.json`; **Alpine:** `APKINDEX.tar.gz` de `v3.23/{main,community}` | resolución «a la fecha del build» y «hoy» |
+
+**Validación del método de resolución** [verificado]: resolviendo con el corte en la fecha de cada capa de dependencias (`created` del config blob), el resultado
+reproduce **exactamente** lo instalado en las cuatro capas medidas: backend 94/94 paquetes Python (`--exclude-newer 2026-08-31T06:39:01Z`),
+Hub-pip 9/9 + `pypdf==6.16.2` (cortes 2026-08-26T10:30:29Z y 2026-08-31T15:14:14Z), Hub-npm 89/89 (`--before=2026-09-09T18:21:53Z`),
+frontend-npm 451/451 (`--before=2026-09-09T18:22:38Z`). Esto respalda usar la misma resolución con fecha de **hoy** como «lo que traería un rebuild hoy».
+Salvedades del método: usa `uv` y el `npm` 10.9.8/Node 22 de esta máquina, no el `pip`/`npm` del builder; resuelve solo ruedas (`manylinux_2_28` / `musllinux`), no
+reproduce la rama de compilación desde sdist ni los paquetes del sistema (`apt`/`apk`).
+
+**Volumen bajado:** ≈257 MB comprimidos (capas de dependencias del backend 126,3 MB y del Hub 76,8 MB; capas `COPY` de las 6 imágenes y del frontend 43,6 MB; más lecturas
+parciales por `Range` de 3 MB, dos veces, sobre la capa `npm install` del frontend para leer solo su `.package-lock.json`, y 2,2 MB de capas `COPY` de los tags viejos del backend).
+El owner autorizó ≈250 MB: el exceso (≈7 MB) son esas lecturas parciales y los tags viejos; **no** se bajó la capa `npm install` completa del frontend (139,5 MB), ni `pip` de
+tabular/nlp, ni `apt`/`gcc`/`build-essential`, ni el modelo spaCy.
+
+### 3.1 Resultado principal: qué hay dentro de las capas `COPY` (cierra los ◆ 1, 2 y 3 de «No verificado»)
+
+**Backend — capa `COPY backend/ .` (`e68527eb29a9…`, 1,06 MB; 320 entradas, 3 572 074 B sin comprimir) [verificado].** Prioridad 1 del owner:
+
+- **No contiene `scripts/license_out/`**; de `backend/scripts/` solo hay 6 entradas (los `.py` trackeados). **Solo hay un `.lic`: `config/licenses/dev-demo.lic`**
+  (499 B), con el mismo sha256 que el trackeado en el repo (`65e7b205ad50…`). **Ninguna clave privada**: el único `.pem` es `src/keys/sentinel_public_keys.pem`
+  (3 bloques de clave pública, 0 de clave privada); un `grep` por el marcador PEM de clave privada encontró 1 archivo, que es el falso positivo
+  `tests/integration/test_audit_tamper.py:113` (un `assert` negativo del propio test, no una clave). **Ningún `.env`**, ningún `*.p12/.pfx/id_rsa`, ningún `__pycache__`/`.pyc` (0).
+- **Es exactamente `backend/` de HEAD**: 297 archivos en la capa, 297 trackeados, **0 distintos, 0 sobrantes, 0 faltantes** (`git ls-files backend` vs capa, `cmp` de cada archivo).
+  Va dentro `tests/` completo (167 archivos): el código de pruebas se publica en la imagen de producción, además de `pytest`.
+- Misma revisión en los tags viejos: las capas `COPY backend/` de `2026-09-14` (`739e8b4281f6…`) y `2026-09-17` (`4c4a2f3b3a05…`) también tienen solo `dev-demo.lic` (mismo sha256) y `sentinel_public_keys.pem`
+  (0 claves privadas) [verificado]. Se leyeron las capas distintas de esos dos tags (4 por tag, 1,14 MB); **los demás tags/capas no se miraron**.
+- **Conclusión de la duda `license_out`:** en la publicación del 2026-09-21 (y 09-14, 09-17) **no se filtró nada**. Que `backend/.dockerignore:6-7` no aplique con contexto raíz sigue siendo
+  [no verificado] como mecanismo, pero **el efecto observado es el correcto**: el árbol del publicador no tenía `license_out/` ni otros `.lic`. El riesgo estructural sigue ahí: nada en el Dockerfile ni en el script lo impide.
+- `litellm/extensions/` (capa `124835a62b39…`), `config.yaml` y `auto_router.json` del backend: idénticos a `litellm/` de HEAD, sin `__pycache__` [verificado].
+
+**Frontend — capa `COPY . .` (`4bcdf12399a2…`, 43,55 MB; 18 020 entradas) [verificado].** Confirma la hipótesis de §1.2:
+
+- **17 857 de las 18 020 entradas son `app/node_modules/`** (el `node_modules` del equipo que publicó) y 89 son `app/dist/` (un build estático del host, que el servidor `vite` no usa). No hay `.env`, `.git`, `.pem`, `.key` ni `.lic` por nombre
+  (no se grepeó el contenido de los 17 857 archivos de `node_modules`: [no verificado] a ese nivel).
+- `package.json` y `package-lock.json` copiados son **idénticos** a `frontend/` de HEAD (`cmp`); `src/`, `tests/`, `e2e/`: 50 archivos, 0 distintos. Los archivos de configuración de raíz (`vite.config.ts`, etc.) no se comprobaron [no verificado: no los extraje].
+- El `.package-lock.json` oculto del `node_modules` del host lista **453 paquetes, todos con la misma versión que `frontend/package-lock.json`** del repo (453/453), y le faltan 46 binarios opcionales de otras plataformas (los de `@esbuild/*`, `@rollup/*`, `fsevents`); trae el binario `linux-x64` y el `linux-x64-musl` de rollup. Se infiere que el host es un Linux x64 con un `node_modules` instalado según el lock [inferido, no verificado]. Fecha de esos archivos: 2026-09-08.
+- **Consecuencia (la parte seria):** en la imagen coexisten **dos árboles**: el del `RUN npm install` (capa 8, 2026-09-09: 451 paquetes, **32 con versión distinta a la del lock**, todas más nuevas) y, encima, el `COPY . .` con el del host (lock). Docker superpone archivos: lo que está en las dos capas queda con el contenido del host. Las **32 colisiones** (p. ej. `react-router-dom` 6.30.6 npm install vs 6.30.4 host; `rollup` 4.63.1 vs 4.62.2; `postcss` 8.5.28 vs 8.5.20; `@babel/*` 7.29.8 vs 7.29.7) dejan directorios de paquete
+  con los archivos del host más lo que solo existía en la versión nueva [inferido de la semántica de capas de OCI; **[no verificado] a nivel de archivo** (no se abrió la capa 8 completa)]. La versión efectiva de cada uno de esos 32 paquetes no es la del lock ni la de `npm install`, sino una mezcla.
+- **Ese tamaño cambia en cada publicación** (§2.5): lo que va a producción depende de qué `node_modules` tenga en disco quien publica ese día.
+
+**Resto de las capas `COPY` [verificado]:**
+
+| Imagen | Capa | Contra HEAD | Observación |
+|---|---|---|---|
+| rag-client | `49ffeae01811…` (`COPY . .`, 36 entradas) | 29 archivos, **0 distintos, 0 sobrantes, 0 faltantes** | incluye `tests/`, `Dockerfile`, `.dockerignore` (el `.dockerignore` no excluye `tests/`). **Contenido = HEAD de `client/`, que ya incluye `ce2d4f5`** |
+| engine | `2be10b23d8ab…` (`extensions/`, 0,21 MB) y `7aee564e7c39…` (`config.yaml`) | 9 `.py` idénticos a `litellm/extensions` y `config.yaml` idéntico | **más 9 `.pyc` de `__pycache__` del host: 4 `cpython-312` y 5 `cpython-313`** (no hay `.dockerignore` en `litellm/`) |
+| tabular | `c22fa6b68db4…` (`app/`, 67 KB) | 7 `.py` idénticos | **más 7 `.pyc` de `app/__pycache__`** (`cpython-312`) aunque `tabular/.dockerignore:2-3` lista `__pycache__$` y `*.pyc$` (con `$` literal; el `.dockerignore` no es regex, y esas rutas no son de raíz). El patrón no funcionó [verificado el efecto; la causa exacta [no verificado]] |
+| nlp | `0d0e42859adc…` (`app.py`), `d8b6c5ce603f…` (`conf/`) | `app.py` idéntico; `conf/` idéntico | sin sorpresas |
+
+**Corrección a §2.2** [verificado]: `rag-client` se construyó a las 21:03 del 2026-09-21 y el commit `ce2d4f5` es de las 21:08; el contenido de la capa **ya es el de `ce2d4f5`** (0 diferencias con HEAD). Es decir, se construyó desde un
+árbol de trabajo **con el cambio sin commitear**, que se comiteó 5 minutos después. Cierra el ◆ 8 para `rag-client`: el `:latest` de `rag-client` equivale al árbol de `ce2d4f5`.
+
+### 3.2 backend (`elea-guardian-backend`) — Python
+
+**Instalado (capa `pip install`, `bd0475eeb14a…`, creada 2026-08-31T08:39+02:00):** 94 paquetes (`*.dist-info/METADATA` de `site-packages`), 20 con marca `REQUESTED` (los directos) [verificado].
+
+| Comparación | Resultado |
+|---|---|
+| Directos: `backend/requirements.txt:1-27` (20 pines `==`) vs instalado | **20/20 iguales** (0 versiones distintas, 0 faltantes; los 20 `REQUESTED` son exactamente los 20 declarados) |
+| Sobrantes (instalados, no declarados) | **74 transitivos**, ninguno con pin: p. ej. `starlette==0.37.2`, `litellm==1.95.1`, `openai==2.54.0`, `tokenizers==0.23.1`, `huggingface_hub==1.29.0`, `aiohttp==3.14.3`, `uvloop==0.22.1`, `websockets==17.1`, `ujson==5.13.0`, `filelock==3.32.4` |
+| Cosas que **no deberían estar en producción** | `pytest==8.2.2`, `pytest-asyncio==0.23.7` (declarados en `requirements.txt:26-27`) más `pluggy`, `iniconfig` |
+| Árbol grande que entra por un solo pin | `headroom-ai==0.30.0` (`requirements.txt:24`) declara `litellm>=1.86.2,<2.0` → trae `litellm`, `openai`, `tokenizers`, `huggingface_hub`, `hf-xet`, `ast-grep-cli`… **El backend lleva su propio LiteLLM 1.95.1 sin pin**, distinto del motor (que va por digest; su versión [no verificado], el compose dice 1.92.0, §1.2) |
+
+**¿Reconstruirla hoy cambiaría lo que corre?** **Sí.** Resolución de hoy vs lo instalado: **26 de 94 paquetes cambian** (28 %), 0 agregados, 0 quitados; **los 20 directos no cambian** (sus pines los frenan).
+Todos los cambios son transitivos:
+
+| Paquete | Instalado → hoy | Viene de |
+|---|---|---|
+| `filelock` | 3.32.4 → **4.0.12** (salto mayor) | `huggingface_hub` |
+| `ujson` | 5.13.0 → **6.0.0** (salto mayor) | `fastapi==0.111.0` |
+| `huggingface-hub` | 1.29.0 → 1.33.0 | `headroom-ai`, `tokenizers` |
+| `uvloop` | 0.22.1 → 0.23.0 | `uvicorn[standard]`, `litellm` |
+| `watchfiles` | 1.2.0 → 1.3.0 | `uvicorn[standard]` |
+| `websockets` | 17.1 → 17.2 | `uvicorn`, `openai`, `litellm` |
+| `aiohttp`, `urllib3`, `idna`, `charset-normalizer`, `regex`, `multidict`, `yarl`, `rpds-py`, `jiter`, `tokenizers`, `fsspec`, `Mako`, `MarkupSafe`, `greenlet`, `python-dotenv`, `opentelemetry-api`, `tqdm`, `rich-toolkit`, `zipp` | patches/minors (p. ej. `aiohttp` 3.14.3 → 3.14.4, `urllib3` 2.7.0 → 2.8.0, `MarkupSafe` 3.0.3 → 3.0.4, `Mako` 1.4.1 → 1.4.3) | varios |
+
+Además de los 26: la base cambia (`python:3.12-slim` hoy es Python **3.12.15** vs **3.12.13** en la imagen; 0 capas en común, §2.4) y el `apt-get install build-essential libpq-dev` (`Dockerfile.standalone:14-17`) sin versiones trae lo que haya hoy en Debian
+(la capa de 111,7 MB **no se bajó**: sus versiones [no verificado]). **Lo que más riesgo da:** `filelock` 4.x, `ujson` 6.x (usado por `fastapi` para `UJSONResponse`; que el backend lo ejecute [no verificado]) y los cambios en el trío de red (`uvloop`/`websockets`/`aiohttp`) que corre el servidor y las llamadas a proveedores.
+
+### 3.3 rag-client / Hub (`elea-rag-client`) — Node + Python + Alpine
+
+**Hallazgo central de esta imagen** [verificado]: **la rama `apk` del `||` de `client/Dockerfile:4-5` NO fue la que corrió; corrió la rama de respaldo `pip`.** Evidencia: la base de datos de `apk` de la capa (`lib/apk/db/installed`, 41 paquetes)
+tiene `python3 3.12.14-r0`, `py3-pip 25.1.1-r1`, `py3-setuptools 80.9.0-r2`, **pero ni `py3-docx` ni `py3-pandas`**, y `python-docx`, `pandas` y `openpyxl` figuran con `REQUESTED` (marca de `pip install` explícito) con `numpy`, `lxml`, etc. instalados como ruedas.
+Causa: **`py3-docx` no existe en Alpine 3.23** (`APKINDEX` de `v3.23/main` y `v3.23/community`: hay `py3-pandas 2.3.3-r0`, `py3-numpy 2.3.5-r0`, `py3-openpyxl 3.1.5-r0`, **no `py3-docx`**), así que `apk add` falla y se ejecuta el respaldo.
+Esto **corrige** §1.2/§2.3 («la capa de 72 MB sugiere la rama `apk`», ◆ 5): los 72 MB son las ruedas de PyPI. Por lo mismo, **hoy corre de nuevo el respaldo** (mismo motivo, [verificado] el índice de hoy).
+
+**Instalado (capas 5, 6, 9; creadas 2026-08-26, 2026-08-31 y 2026-09-09):**
+
+| Origen | Paquetes instalados | Qué declara el repo |
+|---|---|---|
+| `pip` (respaldo, capa 5) | `python-docx==1.2.0`, `pandas==3.0.5`, `openpyxl==3.1.5`, `numpy==2.5.2`, `lxml==6.1.2`, `python-dateutil==2.9.0.post0`, `et_xmlfile==2.0.0`, `six==1.17.0`, `typing_extensions==4.16.0` | **Nada con versión:** `client/Dockerfile:5` lista nombres sueltos (`python-docx pandas openpyxl`) |
+| `pip` (capa 6) | `pypdf==6.16.2` | `client/Dockerfile:6`, sin versión |
+| `apk` | `python3 3.12.14-r0`, `py3-pip 25.1.1-r1`, `py3-setuptools 80.9.0-r2`, `py3-packaging 25.0-r0`, `py3-parsing 3.2.5-r0` (41 paquetes `apk` en total en la DB, con `musl 1.2.5-r23`, `libcrypto3 3.5.6-r0`, …) | `client/Dockerfile:4-5`, sin versión |
+| `npm` (capa 9, `npm install --production`): `/app/node_modules/.package-lock.json` | **89 paquetes** | `client/package-lock.json` (111 paquetes con dev; **88 en producción**) y `client/package.json:10-17` |
+
+**Diff npm contra el repo** [verificado]: de los 89 instalados, **87 coinciden con el lock del repo**; difiere **`body-parser` 1.20.6 (lock) vs 1.20.8 (imagen)** y aparece un `qs` anidado `body-parser/node_modules/qs 6.16.0` que el lock no trae.
+Faltantes: 0. Los 22 paquetes del lock que no están en la imagen son todos de `supertest` (dev), correcto con `--production`. **El lock del repo está desfasado respecto de la imagen**: justamente porque el Dockerfile no lo usa.
+
+**¿Reconstruirla hoy cambiaría lo que corre?** **Sí, poco pero cierto:**
+
+| Capa | Instalado → hoy |
+|---|---|
+| npm | `express` 4.22.2 → **4.22.3**, `proxy-addr` 2.0.7 → 2.0.8, `qs` 6.15.3 → 6.16.0 (y desaparece el `qs` anidado de `body-parser`): **3 cambios, 1 quitado**; `body-parser` queda en 1.20.8 (igual) |
+| pip (respaldo) | `lxml` 6.1.2 → 6.1.3, `numpy` 2.5.2 → **2.5.3**, `pandas` 3.0.5 → **3.0.6**; `pypdf` 6.16.2 → **6.19.0** (`lxml`/`numpy`/`pandas` un parche cada uno; `pypdf` sube 3 menores) |
+| apk | `python3`, `py3-pip`, `musl`, `libcrypto3`…: **no resuelto** ([no verificado]; la base Alpine de hoy sí es la misma capa a capa, §2.4, pero el repo de Alpine tiene paquetes nuevos) |
+
+Los tres instaladores (apk / pip / npm) se resuelven cada uno por su lado el día del build y el lock se ignora; el resultado es estable mientras Alpine, PyPI y npm no se muevan, y hoy se mueven en 7 paquetes medidos (3 npm + 4 pip).
+
+### 3.4 frontend (panel) (`elea-guardian-frontend`) — Node
+
+**Instalado:** dos árboles superpuestos (3.1): `RUN npm install` (451 paquetes, capa 8 `3202e1fd8012…`, 2026-09-09T20:22:38+02:00; leído solo su `.package-lock.json` por lectura parcial) y `node_modules` del host (453 paquetes, 2026-09-08) en la capa `COPY . .` [verificado].
+**Declarado:** `frontend/package.json:13-42` (11 `dependencies` + 15 `devDependencies`, rangos caret) y `frontend/package-lock.json` (500 paquetes; `lockfileVersion` 3). El Dockerfile (`frontend/Dockerfile:5,7`) copia solo `package.json` y corre `npm install` **con devDependencies** (no hay `--omit=dev`), porque el servidor que ejecuta es `vite` (dev).
+
+| Comparación | Resultado |
+|---|---|
+| `npm install` (capa 8) vs `frontend/package-lock.json` | 451 paquetes: **419 iguales, 32 con versión más nueva que el lock** (`react-router`/`react-router-dom` 6.30.4 → 6.30.6, `@remix-run/router` 1.23.3 → 1.23.4, `rollup` 4.62.2 → 4.63.1, `postcss` 8.5.20 → 8.5.28, `@babel/{generator,parser,traverse,types}` 7.29.7 → 7.29.8, `acorn`, `browserslist`, `caniuse-lite`, `nanoid`, `js-yaml`, …); 0 sobrantes; 48 del lock no instalados (binarios opcionales de otras plataformas) |
+| `node_modules` del host vs lock | 453/453 iguales; faltan los 46 binarios opcionales ajenos al host (3.1) |
+| Superposición | 32 paquetes colisionan (los mismos 32), 2 solo del host (`@rollup/rollup-linux-x64-musl 4.62.2`, `pify 2.3.0`), 0 solo de la capa 8 |
+
+**¿Reconstruirla hoy cambiaría lo que corre?** **Sí, y de forma más impredecible que en las demás:** (a) `npm install` de hoy traería **51 versiones distintas** a las de la capa 8 (398 iguales), de las cuales 2 son directas (`jsdom` 30.0.1 → 30.1.2, `postcss` 8.5.28 → 8.5.29) y **9 de producción** (la cadena `micromark`/`mdast-util-*` que usa `react-markdown`: `micromark` 4.0.2 → 4.0.3, `mdast-util-from-markdown` 2.0.3 → 2.1.0, `mdast-util-to-markdown` 2.1.2 → 2.2.0, `micromark-factory-space` 2.0.1 → 2.1.0, …),
+más saltos mayores solo de test (`jsdom`→`data-urls` 7→8, `html-encoding-sniffer`, `tr46`, `w3c-xmlserializer`, `@asamuzakjp/*`); además `rollup` 4.63.1 → 4.64.0, `browserslist` 4.28.9 → 4.29.3, `undici` 8.10.2 → 8.11.2; un paquete nuevo (`micromark-util-edit-map`) y 2 que salen (`symbol-tree`, `whatwg-url` anidado);
+(b) lo que realmente se ejecuta depende del `node_modules` del equipo que publique (3.1): un rebuild en otra máquina **perdería** la mezcla actual de 32 paquetes y quedaría con el árbol de `npm install` puro, distinto de lo que corre hoy en las sedes.
+La base `node:20-slim` de hoy sí coincide capa a capa (§2.4).
+
+### 3.5 tabular y nlp — **solo la parte propia, sin instalado leído**
+
+Las capas `pip install` de `tabular` (84,1 MB) y `nlp` (78,6 MB + 85,3 MB del modelo) **no estaban en el nivel autorizado** y no se bajaron: el **instalado real es [no verificado]**. Lo que sí se midió es lo que resolvería cada fecha con el método validado en 3.0:
+
+| Imagen | Capa `pip` creada | Pines directos (repo) | Paquetes resueltos | Cambian entre «fecha del build» y hoy |
+|---|---|---|---|---|
+| tabular | 2026-09-12 | 8 en `tabular/requirements.txt:1-8` | 33 | **8**: `starlette` 1.6.0 → **1.7.0** (sin pin, lo trae `fastapi==0.141.1`), `uvloop` 0.22.1 → 0.23.0, `watchfiles` 1.2.0 → 1.3.0, `websockets` 17.1 → 17.2, `idna`, `python-dotenv`, `pytz`, `tzdata` |
+| nlp | **2026-07-20** (la capa `pip` y la del modelo; el `created` 2026-08-31 de §2.2 es de la última capa, no de las dependencias) | 5 en `presidio-analyzer/requirements.txt:1-5` | 68 | **28**: `websockets` 16.1.1 → **17.2**, `filelock` 3.31.1 → **4.0.12**, `ujson` 5.13.0 → **6.0.0**, `regex` 2026.7.19 → 2026.9.29, `setuptools` 83.0.0 → 84.0.0, `wrapt` 2.2.2 → 2.5.0, `typer`, `click`, `tldextract` 5.3.1 → 5.4.0, `cloudpathlib`, `srsly`, `anyio` 4.14.2 → 4.15.1, … |
+
+Modelo spaCy (`nlp`, `Dockerfile:13`): `python -m spacy download es_core_news_md` resuelve por `compatibility.json` de `explosion/spacy-models` a la versión compatible con la línea 3.7 de spaCy; **hoy esa línea apunta a `es_core_news_md 3.7.0`** como única versión
+(`.spacy["3.7"]["es_core_news_md"] = ["3.7.0"]`) [verificado el mapeo de hoy]; la versión efectivamente instalada en la imagen [no verificado] (no se leyó la capa de 85 MB; muy probablemente la misma).
+Estas dos filas son una **estimación por método** (validado en 4 capas, pero no en estas dos): marcadas [no verificado] como «instalado».
+Aun sin leer el instalado, el diagnóstico de base ya estaba (§2.4): 0 capas en común con la base de hoy (3.11.15 → **3.11.17**; tabular `python:3.12` → 3.12.15), así que ninguna de las dos se reconstruye igual.
+
+### 3.6 engine (`elea-guardian-engine`)
+
+Sin dependencias propias (§1.2); las 21 capas base son idénticas por `diff_id` a la base fijada por digest (§2.4), y las 2 propias se leyeron: `config.yaml` e `extensions/` **iguales a HEAD**, **más 9 `.pyc`** de `__pycache__` del host (3.1) [verificado].
+**¿Reconstruirla hoy cambiaría lo que corre?** **No en paquetes** (la base está por digest y no se instala nada) [verificado]; **sí en 9 `.pyc` incidentales** que dependen de qué Python tenga el publicador, y el digest de imagen cambiaría igual (timestamps, §1.2). Qué versión de LiteLLM/paquetes lleva la base: [no verificado] (no se bajaron las 21 capas, 361 MB).
+
+### 3.7 Tabla de conclusión por imagen
+
+| Imagen | Instalado leído | Directos: repo vs imagen | Qué cambia hoy en un rebuild | ¿Cambia lo que corre? |
+|---|---|---|---|---|
+| backend | **sí** (94 py) | 20/20 iguales | 26/94 py (2 saltos mayores: `filelock`, `ujson`); base 3.12.13 → 3.12.15; `apt` sin medir | **Sí** |
+| rag-client | **sí** (89 npm, 9+1 py, 41 apk) | npm: 87/89 = lock (`body-parser` 1.20.6/1.20.8); py/apk: **nada declarado con versión** | npm 3 (`express`, `proxy-addr`, `qs`), py 4 (`pandas`, `numpy`, `lxml`, `pypdf`), apk no medido | **Sí** (la rama `apk` ya no es la que corre, y no lo será) |
+| frontend | **parcial** (npm install: solo `.package-lock.json`; host `node_modules`: sí) | 32/451 más nuevos que el lock; 453/453 host = lock | 51 npm (2 directos, 9 de producción) | **Sí**, y depende del `node_modules` del publicador |
+| tabular | no | — | 8 py (estimado) + base | **Sí** [no verificado el instalado] |
+| nlp | no | — | 28 py (estimado) + base + modelo spaCy | **Sí** [no verificado el instalado] |
+| engine | no hace falta (base por digest) | n/a | nada en paquetes; 9 `.pyc` incidentales | **No** en paquetes |
+
+**Una sola frase por imagen que importa a la decisión:** las deps de **backend y Hub están en el repo solo por pines directos** (20/20), así que el repo **sí** describe lo que corre de lo declarado, pero **nada declara las 74 transitivas del backend** ni las transitivas `pip`/`apk` del Hub (el Hub no declara ninguna versión de Python/Alpine);
+**el panel es el caso grave** porque ni el lock ni `package.json` describen lo que corre (mezcla `npm install` + `node_modules` del host); **tabular y nlp** quedan con el diagnóstico de §2.4 y la estimación de 3.5.
+
+### 3.8 No verificado (§3)
+
+1. **Instalado real de `tabular` y `nlp`** (pip, modelo spaCy `es_core_news_md`): no se bajaron sus capas (fuera del nivel autorizado). Lo de 3.5 es resolución a fecha, no lectura.
+2. **Versiones `apt` del backend (`build-essential`, `libpq-dev`) y de `gcc` en `nlp`**, y el contenido de la capa `apk` de `rag-client` más allá de la DB de `apk`: la capa de 111,7 MB del backend no se bajó.
+3. **Versión efectiva de los 32 paquetes superpuestos del frontend** a nivel de archivo: se infirió por la semántica de capas (no se abrió la capa 8 de 139,5 MB, solo su `.package-lock.json` por lectura parcial).
+4. **Contenido (no nombres) de los 17 857 archivos de `node_modules` del host** dentro de la capa `COPY . .` del frontend; **archivos de configuración de raíz** de esa capa (`vite.config.ts`, etc.) contra HEAD.
+5. **Versión de LiteLLM del motor** y árbol Python completo de las 21 capas base (por digest). **Versión de `ujson`/`filelock` que el backend efectivamente carga en runtime.**
+6. **Alpine: qué versiones de `python3`/`py3-pip`/`musl` traería hoy** `apk` en `rag-client` (no se resolvió el índice de paquetes del sistema).
+7. **Contenido de los demás tags** del backend, y de los tags de las otras 5 imágenes (solo se leyó `:latest` de las 6 y los `COPY` distintos de `2026-09-14`/`2026-09-17` del backend). **Versiones huérfanas** sin tag (§2.5, ◆ 9).
+8. **Cuál es el digest que corre en la sede** (◆ 7 de §2): esta medición es de lo publicado, no de lo que las sedes tienen en disco.
+9. El método de resolución (`uv`/`npm` de esta máquina) reproduce 4/4 capas medidas; que reproduzca también `tabular`/`nlp` y el resto de capas es una extrapolación.
+10. **Causa por la que `tabular/.dockerignore:2-3` no filtró `__pycache__`** (el `$` literal o el patrón no recursivo).
+11. **Por qué `apk add python3 py3-pip py3-docx py3-pandas` falló al construir:** inferido de que `py3-docx` no existe en Alpine 3.23 hoy; no se tiene el log del build de 2026-08-26.
+
+Cierre de los ◆ de «No verificado»: **◆ 1 cerrado** (frontend `node_modules` del host, 3.1), **◆ 2 cerrado en el efecto** (sin `license_out`, solo `dev-demo.lic`, 3.1; el mecanismo `.dockerignore` sigue sin ejecutarse),
+**◆ 3 cerrado** para `litellm/extensions`, client, tabular y nlp (3.1), **◆ 5 cerrado** (rama `pip`, 3.3), **◆ 8 cerrado para `rag-client`** (3.1), **◆ 4 parcial** (3.2–3.5).
+
+---
+
 ## No verificado
 
 Se agrupa todo lo marcado [no verificado] arriba. Ninguno bloquea las conclusiones de §1 y §2, pero §3 debería cerrar los marcados con ◆.
