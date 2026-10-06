@@ -86,3 +86,7 @@ frontend/public/branding/
 
 # MCP local (cadena de conexión de la base de desarrollo, nunca la de producción)
 .mcp.json
+
+# 056: entorno de prueba local de SSO (licencia con `sso` y compose de prueba) — fuera de git
+backend/config/licenses/dev-sso-local.lic
+docker-compose.sso-local.yml
