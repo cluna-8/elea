@@ -65,16 +65,16 @@ todos los admins menos uno y dejarían inactivo (401) a un super_admin compartid
 
 ## 5. Qué verificar antes de portar / consecuencias a conocer
 
-- **No existe un camino que cree al primer `super_admin`**: `backend/src/models/user.py:97-98`
-  («NO se autogenera… se siembra aparte, solo cloud») y ningún script/instalador lo hace.
-  Con este cambio, en una instalación single-tenant sin un `super_admin` sembrado **nadie puede
-  dar de alta un Auditor** por API ni por panel (hasta ahora lo hacía el `tenant_admin`). Es
-  lo que pidió el fix, pero Sentinel debería decidir si agrega un alta guiada del primer
-  `super_admin` (comando del operador o variable de bootstrap) antes de publicar el cambio.
+- **El primer `super_admin` ahora lo provee un comando** (ver §6). Antes de este cambio no
+  existía camino alguno (`backend/src/models/user.py:97-98`: «se siembra aparte, solo cloud»),
+  y con la guarda una instalación single-tenant sin `super_admin` no podía dar de alta un
+  Auditor. El comando es genérico: en cloud, donde el `super_admin` se siembra aparte, no
+  hace falta correrlo (si ya hay uno, no hace nada).
 - **Herramientas que dan de alta auditores con la sesión admin**: el sembrador del arnés
-  (`harness/src/sentinel_harness/seeder/seed.py:292`, poblaciones `gate-*.yaml` con
-  `roles.compliance_officer`) llama `POST /users` con la sesión del admin de bootstrap: pasará a
-  recibir 403 para esos usuarios. Pendiente decidir si el arnés usa una sesión `super_admin`.
+  (`harness/src/sentinel_harness/seeder/seed.py`, poblaciones `gate-*.yaml` con
+  `roles.compliance_officer`) pasó a usar una sesión `super_admin` (§6). Cualquier otro
+  script o instalador que haga `POST /users` con `role=compliance_officer` desde la sesión del
+  admin de bootstrap recibirá 403: revisarlos al portar.
 - **Quedan fuera de este fix** (mismo patrón, otra superficie; sin tocar): (a) un `tenant_admin`
   puede resetear la contraseña de un `super_admin`/`compliance_officer` existente
   (`POST /users/{id}/password`, `backend/src/api/users.py:746`) y así tomar la cuenta;
@@ -85,13 +85,61 @@ todos los admins menos uno y dejarían inactivo (401) a un super_admin compartid
   dueño; el código (`ROLES_QUE_PRUEBAN_DUENO`, `users.py:43`) no lo cuenta desde 017/US1. Se
   corrigió la frase.
 
-## 6. Cómo verificar después de portar
+## 6. Primer `super_admin`: comando del operador (Elea → Sentinel)
+
+`python -m src.cli crear-super-admin --usuario <u> --email <e>`, dentro del contenedor del
+backend. Código de base, genérico (ningún string de Elea/Eleia).
+
+| Pieza | Dónde |
+|---|---|
+| Comando + `crear_super_admin(db, usuario, email)` (idempotente) | `backend/src/cli.py` (archivo nuevo) |
+| Evento `AUTH_BOOTSTRAP_SUPER_ADMIN = "auth_bootstrap_super_admin"` | `backend/src/services/auth_events.py:21` |
+| Comentario del modelo (`super_admin` ya no es «se siembra aparte, solo cloud») | `backend/src/models/user.py:97-98` |
+| Doc: «Cómo se provee el primer super admin» | `docs/docs/administration/index.md` (`#primer-super-admin`), `docs/docs/install-deploy/index.md` (paso 7) |
+| Sembrador del arnés con sesión `super_admin` | `harness/src/sentinel_harness/seeder/{client,seed,population}.py`, `RUNBOOK-examen.md` §5 |
+
+Comportamiento (decidido acá; Sentinel puede discutirlo):
+
+- **Idempotente**: si ya existe un `super_admin` (de cualquier cuenta), sale `0` sin crear nada y
+  lo avisa por stderr; usuario/email ocupados → rechaza (salida `1`) sin promover a nadie;
+  email que no cumple `EmailStr` → rechaza (el response de `GET /users` lo exige).
+- **Contraseña**: `secrets.token_urlsafe(24)` (192 bits, 32 caracteres, entra en los 72 bytes de
+  bcrypt), impresa **una sola vez** por stdout; stderr y logs no la llevan; en la base queda el
+  hash bcrypt. `must_change_password=True` (spec 055).
+- **Auditoría**: una fila `model='auth'` (`emit_auth_event`, metadata-only: id del target y
+  `new_role`) en la **misma transacción** que el insert. Evento propio y no `auth_bootstrap_admin`
+  para no confundirlos al auditar. Tenant: `DEFAULT_TENANT_ID` (una instancia por cliente).
+- **«Sólo si se lo invoca»**: ni el arranque, ni migraciones, ni endpoints lo llaman (lo
+  verifica un test).
+- **Carrera**: dos invocaciones simultáneas con usernames distintos podrían crear dos
+  `super_admin` (el chequeo «no hay ninguno» no es atómico); con el mismo username/email gana la
+  restricción UNIQUE y la otra se rechaza. Es un comando de operador, no un endpoint; si Sentinel
+  quiere cerrarlo, un `pg_advisory_xact_lock` al inicio de `crear_super_admin` alcanza.
+- **Orden respecto del bootstrap de `admin`**: `ROLES_QUE_PRUEBAN_DUENO` incluye `super_admin`
+  (`api/users.py:43`), así que crearlo **antes** del primer login de `admin` impide que ese login
+  cree el `tenant_admin`; el `super_admin` lo da de alta por `POST /users`. Documentado.
+
+**Arnés** (`harness/`): el seeder toma `SEED_SUPER_ADMIN_USERNAME`/`SEED_SUPER_ADMIN_PASSWORD` del
+**entorno** (no argv: quedaría en `ps`/historial). Los `compliance_officer` se crean con esa
+sesión (`SeedClient.create_user(..., como_super_admin=True)`, `BackendClient.login_super_admin`);
+el resto de los roles, con la del admin. Sin las variables, `seed` aborta **antes de crear
+nada** (`--verify-only` no las necesita). Si el `super_admin` ya existía y `admin` no, el
+seeder crea `admin` con esa sesión. Sentinel conserva el arnés propio: portar el enfoque.
+
+Tests: `backend/tests/unit/test_cli_crear_super_admin.py` (puro, sin Postgres),
+`backend/tests/integration/test_cli_crear_super_admin.py` (Postgres; **no se pudo correr en la
+máquina de desarrollo, sin Docker/Postgres**: correrlo en CI antes de dar por bueno el porte),
+`harness/tests/unit/test_seeder.py`.
+
+## 7. Cómo verificar después de portar
 
 ```bash
 cd backend
-python -m pytest tests/unit/test_roles_cumplimiento_solo_super_admin.py tests/test_rbac_compat.py -q
+python -m pytest tests/unit/test_roles_cumplimiento_solo_super_admin.py \
+  tests/unit/test_cli_crear_super_admin.py tests/test_rbac_compat.py -q
 # con Postgres (CI):
-python -m pytest tests/integration/test_alta_roles_cumplimiento.py tests/integration/test_auth_events.py \
+python -m pytest tests/integration/test_alta_roles_cumplimiento.py \
+  tests/integration/test_cli_crear_super_admin.py tests/integration/test_auth_events.py \
   tests/integration/test_rol_auditor.py tests/integration/test_seat_gate_users.py \
   tests/integration/test_users_lifecycle_043.py tests/contract/test_auth_credenciales.py -q
 cd ../frontend && npm test && npx tsc --noEmit

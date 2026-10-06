@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 AUTH_BOOTSTRAP_ADMIN = "auth_bootstrap_admin"
+# El primer super_admin creado por el comando `python -m src.cli crear-super-admin`.
+AUTH_BOOTSTRAP_SUPER_ADMIN = "auth_bootstrap_super_admin"
 AUTH_ROLE_CHANGED = "auth_role_changed"
 
 

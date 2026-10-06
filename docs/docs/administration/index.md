@@ -123,11 +123,34 @@ controla justo lo que a él le está vedado. El resto de los roles se asignan ig
   tampoco cambia.
 - **Queda auditado.** Todo cambio de rol deja su evento de auditoría (quién, a quién, de qué
   rol a cuál), igual que antes; sin datos personales ni contraseñas.
-- **Límite actual (🟡).** Como el super admin **no se crea automáticamente**, en una
-  instalación de un solo tenant sin un super admin sembrado nadie puede dar de alta un
-  Auditor desde el panel ni desde la API: hay que sembrar un super admin de forma explícita
-  (operación del operador sobre la base). Un camino de alta guiado para ese primer super
-  admin es 🔵 **OBJETIVO** de roadmap.
+
+#### Cómo se provee el primer super admin {#primer-super-admin}
+
+El super admin **no se crea automáticamente** (ninguna migración ni el arranque lo hacen) y
+sólo otro super admin puede dar de alta a uno. Para el primero, el operador corre un comando
+**dentro del contenedor del backend**: 🟢
+
+```bash
+docker compose exec backend python -m src.cli crear-super-admin \
+  --usuario <usuario> --email <email>
+```
+
+- **Contraseña.** La genera el comando (alta entropía) y la **imprime una sola vez** por la
+  salida estándar: no se guarda en ningún archivo ni registro, y en la base queda sólo su
+  hash. Copiala en ese momento a donde guardes los secretos de la instalación.
+- **Cambio obligatorio.** La cuenta nace con el cambio de contraseña forzado: en el primer
+  ingreso el panel pide una nueva antes de seguir.
+- **Idempotente.** Si ya existe un super admin, no hace nada y lo avisa (código de salida
+  `0`), así que es seguro dejarlo en un runbook de instalación. Si el usuario o el email ya
+  los usa otra cuenta, **rechaza** con un mensaje claro (código `1`) y no promueve a nadie.
+- **Sólo si se lo invoca.** Ni el arranque, ni las migraciones, ni ningún endpoint lo
+  ejecutan.
+- **Queda auditado.** Deja un evento de auditoría de autenticación
+  (`auth_bootstrap_super_admin`) con el identificador de la cuenta y el rol, sin usuario,
+  email ni contraseña.
+- **Orden respecto del primer admin.** Un super admin cuenta como dueño de la instalación:
+  si se crea **antes** del primer login de `admin`, ese login ya no crea el `tenant_admin`
+  y es el super admin quien lo da de alta. Si el `tenant_admin` ya existe, el orden no importa.
 
 !!! warning "Fail-closed en la administración"
     Todos los endpoints de administración exigen una **sesión JWT válida** de un usuario

@@ -94,7 +94,8 @@ class User(Base):
     email = Column(String, nullable=False)                 # UNIQUE compuesto (tenant_id, email)
     password_hash = Column(String, nullable=False)
     # Enum reconciliado (spec 013 US2, Constitución [D9]); CHECK en DB.
-    # super_admin NO se autogenera por migración: se siembra aparte, solo cloud.
+    # super_admin NO se autogenera por migración: el primero lo crea el operador con
+    # `python -m src.cli crear-super-admin` (src/cli.py); los demás, otro super_admin.
     role = Column(String, nullable=False)  # super_admin | tenant_admin | compliance_officer | client | lectura
     # Labels sectoriales legacy (clinician/developer) degradados a etiqueta de display
     display_label = Column(String, nullable=True)

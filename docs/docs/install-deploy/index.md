@@ -293,6 +293,12 @@ sequenceDiagram
    de `tofu output -raw admin_bootstrap` y se rota con `-replace`. **Rotar la credencial
    inmediatamente** con `POST /api/v1/users/me/password` o el botón *Cambiar mi contraseña*
    de la barra lateral ([gotcha](#gotcha-password)). 🟢
+
+    Para el **primer super admin** (quien asigna los roles de cumplimiento) el operador corre,
+    después del bootstrap, `docker compose exec backend python -m src.cli crear-super-admin
+    --usuario <usuario> --email <email>`: imprime la contraseña **una sola vez** y es
+    idempotente. Detalle y orden en
+    [Cómo se provee el primer super admin](../administration/index.md#primer-super-admin). 🟢
 8. **Seed de clients + branding.**
     - En un despliegue desde perfil, el seed corre **dentro del contenedor del backend** con
       el `seed.yaml` renderizado del perfil (`docker compose exec backend python
