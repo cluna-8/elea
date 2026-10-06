@@ -982,9 +982,31 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
 - **Alternativas descartadas**: (a) subir el largo mínimo: pierde claves de test cortas, que es lo que corrigió la spec 010 al bajarlo de 48 a 10; (b) no inspeccionar `system`
   del clasificador por nombre: exención por nombre y hueco para un secreto real en esa posición; (c) quitar la capa bajo forzado: los secretos no salen hacia ningún
   destino. **Fuera de alcance, anotado**: las claves modernas `sk-proj-…` (llevan guiones tras 4 caracteres) no las toma este patrón, mientras que `guardian_service.py:233`
-  (el camino de chat de la consola, configurable) sí y no tiene límite izquierdo; ninguna de las dos cosas se cambia acá.
+  (el camino de chat de la consola, configurable) sí y no tiene límite izquierdo; ninguna de las dos cosas se cambia acá (**lo cierra R38**).
 - **Tests**: `backend/tests/unit/test_secret_detection_limite_izquierdo.py` (73; 11 en rojo antes del cambio): palabras corrientes no son clave, la clave real se detecta en
   cada contexto, los otros patrones no cambian y, con la forma del pedido auxiliar real, el texto fijo pasa y una clave real en esa posición bloquea.
+
+## R38. Las llaves OpenAI actuales no se detectaban en el motor y los dos caminos tenían criterios distintos — cierra el «fuera de alcance» de R37 (2026-10-07; FR-027)
+
+- **Hechos**: el detector de secretos tenía **dos patrones distintos** para la misma llave. El del motor (`SECRET_PATTERNS["OpenAI API Key"]`,
+  `litellm/extensions/sentinel_guardian_policy.py:370`, tras R37) pedía `sk-` + 10 alfanuméricos **seguidos**: `sk-proj-…`, `sk-svcacct-…` y `sk-admin-…` llevan un guion
+  tras el prefijo, así que **no se detectaban** y salían hacia el destino. El del backend (`GuardianService`, camino de chat de la consola, `sk-(?:proj-)?[A-Za-z0-9_-]{20,}`)
+  sí las veía pero **sin límite izquierdo**: `task-implementation-of-the-risk-assessment` (…`sk-` + 20 caracteres con guiones) era «clave» en ese camino, el mismo falso positivo de R37.
+- **Causa**: dos literales que evolucionaron por separado (el del motor acaba de cambiar en R37; el del backend no) sin que nada obligara a que coincidieran.
+- **Decisión**: **un solo criterio**, `(?<![a-zA-Z0-9])sk-(?:[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{10,})`. La rama larga (guiones y guiones bajos, ≥ 20) va **primero** para que la
+  redacción cubra la llave entera y no se quede en el primer tramo alfanumérico; la corta conserva las `sk-<alfanumérico>` de 10 en adelante (las de test cortas que la spec 010
+  quiso seguir viendo). El límite izquierdo de R37 se mantiene. `GuardianService` ya no tiene literal propio: `OPENAI_KEY_PATTERN = policy.SECRET_PATTERNS["OpenAI API Key"]`
+  (`backend/src/services/guardian_service.py:13`; usado en `:236`), con `policy` ya importado de la librería compartida. Efecto: `sk-proj-`/`sk-svcacct-`/`sk-admin-` se detectan en
+  el motor; `task-`/`ask-`/`desk-` largas ya no son clave en el backend; el motor además ve lo que antes solo veía el backend (`sk-ant-…`, llaves con guiones). No baja ninguna
+  detección previa, salvo la de una llave pegada a una letra o dígito anteriores (decisión de R37, ahora también en el backend).
+- **Alternativas descartadas**: (a) arreglar solo el motor y dejar el literal del backend (queda la divergencia que causó esto; el test de paridad no tendría qué comparar);
+  (b) la rama corta primero (la alternancia toma la primera que casa: la redacción de `sk-proj-abc…` cubriría solo el tramo alfanumérico inicial y dejaría el resto de la llave en claro;
+  `test_motor_redacta_la_llave_moderna_completa` lo fija).
+- **Tests**: `backend/tests/unit/test_secret_detection_llaves_modernas.py` (165; 73 en rojo antes del cambio): las cinco formas modernas en el motor y en el backend, `task-`/`ask-`/`desk-`
+  largas que no son clave en ninguno, las viejas y toda detección previa se conservan, la redacción cubre la llave entera (`test_motor_redacta_…`, `test_backend_redacta_…`) y
+  `test_un_solo_criterio_en_los_dos_caminos` (paridad). Las llaves de los tests se generan con un `random.Random` con semilla: ninguna es una credencial real.
+  `test_secret_detection_limite_izquierdo.py` (R37, 73) y `test_pilot_fixes.py` (Bug 3) siguen verdes.
+- **Para Sentinel**: aplicar el mismo patrón en su `policy.py` y en su `guardian_service` (fila «Detector de secretos» del `HANDOFF-elea-a-sentinel.md`).
 
 ## Resolución del QA
 
