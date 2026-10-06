@@ -305,6 +305,151 @@ async def test_pedido_tipico_de_claude_code_con_ner_real_ya_no_se_bloquea():
     assert DNI not in _plano(cuerpo), "el DNI del primer mensaje sale enmascarado"
 
 
+# ── el pedido REAL de Claude Code (057, hallazgo del gate «claude -p»): números de los esquemas de herramientas ──────────────
+
+def _pedido_real_de_claude_code(minimo=1):
+    """La FORMA del pedido que `claude -p` manda por `/v1/messages` (capturada sin contenido real): `system` en tres bloques con
+    `cache_control`, un mensaje con `role: system` dentro de `messages`, campos del nivel superior que la base no conoce
+    (`thinking.display`, `output_config`, `context_management`, `safeguards`) y herramientas cuyos esquemas JSON llevan palabras
+    clave NUMÉRICAS (`minLength: 1`, `minimum: 0`, `maxLength: 256`, `maximum: 9007199254740991`). El NER real marca la cadena `1`
+    como LOCATION: 14 veces `minLength: 1` bloqueaban TODO pedido (`structural_entity`). Sin datos reales: solo la forma."""
+    efimero = {"type": "ephemeral"}
+    cadena = {"type": "string", "minLength": minimo, "maxLength": 256, "description": "Texto libre."}
+    esquema = {"type": "object", "additionalProperties": False, "required": ["file_path"], "properties": {
+        "file_path": cadena,
+        "offset": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "limit": {"type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
+        "paths": {"type": "array", "items": cadena, "maxItems": 256}}}
+    return {
+        "model": "claude-sonnet-5-5", "max_tokens": 128000, "stream": True,
+        "temperature": 1, "top_k": 1,
+        "thinking": {"type": "adaptive", "display": "omitted"},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+        "output_config": {"effort": "medium"},
+        "safeguards": [{"type": "text_classifier"}],
+        "system": [{"type": "text", "text": "Sos un asistente de código."},
+                   {"type": "text", "text": "Contexto del entorno.", "cache_control": efimero},
+                   {"type": "text", "text": "Reglas del proyecto.", "cache_control": efimero}],
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": f"Leé clientes.csv (el DNI {DNI} está en la fila 1)."},
+                                         {"type": "text", "text": "Contar las filas."}]},
+            {"role": "system", "content": [{"type": "text", "text": "Recordatorio del entorno.", "cache_control": efimero}]}],
+        "tools": [{"name": nombre, "description": f"Herramienta {nombre}.", "input_schema": esquema}
+                  for nombre in ("Read", "Bash", "Edit", "Grep")]}
+
+
+async def _ner_con_numeros(texto):
+    """Como `_ner`, más lo que el NER real hace con la cadena `1`: LOCATION (medido en el motor, 2026-10-06). El regex de respaldo
+    de la base toma `9007199254740991` (`Number.MAX_SAFE_INTEGER`, el `maximum` de los esquemas) por una tarjeta; el analizador real
+    no lo marca, así que acá tampoco."""
+    if texto == "9007199254740991":
+        return []
+    return await _ner(texto, {**SEMANTICAS, "1": "LOCATION"})
+
+
+@pytest.mark.asyncio
+async def test_pedido_real_de_claude_code_con_numeros_de_esquema_no_se_bloquea():
+    cuerpo, mapa, tally = await _enmascarar(_pedido_real_de_claude_code(), analizar=_ner_con_numeros)
+    assert tally.unanalyzable == 0 and tally.kinds == [], tally.kinds
+    assert DNI not in _plano(cuerpo), "el DNI del mensaje sale enmascarado (mensajes, tool_result, thinking y system se enmascaran)"
+    assert mapa, "hay reemplazos en el texto libre"
+    assert cuerpo["tools"][0]["input_schema"]["properties"]["file_path"]["minLength"] == 1, "los números estructurales no se reescriben"
+    assert cuerpo["temperature"] == 1 and cuerpo["top_k"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("campo", ["temperature", "top_k", "max_tokens"])
+async def test_numeros_de_parametros_del_pedido_tampoco_bloquean_por_tipo_semantico(campo):
+    cuerpo = {"model": "m", "max_tokens": 32, campo: 1, "messages": [{"role": "user", "content": "hola"}]}
+    _, _, tally = await _enmascarar(cuerpo, analizar=_ner_con_numeros)
+    assert tally.unanalyzable == 0, tally.kinds
+
+
+@pytest.mark.asyncio
+async def test_un_numero_estructural_con_un_patron_sigue_bloqueando():
+    """B se mantiene: en una posición estructural abierta se ignoran SOLO los tipos semánticos; un DNI como valor numérico bloquea."""
+    cuerpo = _pedido_real_de_claude_code(minimo=int(DNI))
+    _, _, tally = await _enmascarar(cuerpo, analizar=_ner_con_numeros)
+    assert tally.unanalyzable >= 1 and tally.kinds == ["structural_entity"]
+    cuerpo = {"model": "m", "max_tokens": int(DNI), "messages": [{"role": "user", "content": "hola"}]}
+    _, _, tally = await _enmascarar(cuerpo, analizar=_ner_con_numeros)
+    assert tally.kinds == ["structural_entity"]
+
+
+@pytest.mark.asyncio
+async def test_un_numero_en_texto_libre_sigue_enmascarandose_aunque_sea_semantico():
+    """Fuera de las posiciones estructurales (`tool_use.input`, `default`/`examples` del esquema) los números no cambian: se analizan y enmascaran."""
+    cuerpo = {"model": "m", "max_tokens": 32, "messages": [
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"limit": 1}}]},
+        {"role": "user", "content": "hola"}],
+        "tools": [{"name": "Read", "input_schema": {"type": "object", "properties": {"n": {"type": "integer", "default": 1}}}}]}
+    cuerpo, _, tally = await _enmascarar(cuerpo, analizar=_ner_con_numeros)
+    assert tally.unanalyzable == 0
+    assert cuerpo["messages"][0]["content"][0]["input"]["limit"] != 1, "el número del subárbol libre se reemplaza por su marcador"
+    assert cuerpo["tools"][0]["input_schema"]["properties"]["n"]["default"] != 1
+
+
+def _turno_2_real_de_claude_code():
+    """Turno 2 REAL de `claude -p` (misma sesión, después de que el destino respondió con una herramienta): el mismo cuerpo del turno 1
+    más el mensaje del modelo con su `tool_use` (id `call_…` del destino traducido) y el `tool_result` con el campo del protocolo
+    `is_error` (booleano), más un mensaje `role: system` con el contenido como CADENA. Sin datos reales: solo la forma."""
+    cuerpo = _pedido_real_de_claude_code()
+    cuerpo["messages"] += [
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "call_0123456789abcdefABCDEF01", "name": "Bash",
+                                           "input": {"command": "ls -la", "description": "Lista el directorio"}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_0123456789abcdefABCDEF01",
+                                      "content": f"clientes.csv (fila 1: {DNI})", "is_error": False}]},
+        {"role": "system", "content": "Recordatorio del entorno."}]
+    return cuerpo
+
+
+async def _ner_turno_2(texto):
+    """Como `_ner_con_numeros`, más lo que el NER real hace con el NOMBRE del campo `is_error`: LOCATION (medido en el motor)."""
+    if texto == "is_error":
+        return [{"start": 0, "end": len(texto), "entity_type": "LOCATION", "score": 0.85}]
+    if texto.startswith("call_"):
+        return [{"start": 0, "end": len(texto), "entity_type": "PERSON", "score": 0.85}]
+    return await _ner_con_numeros(texto)
+
+
+@pytest.mark.asyncio
+async def test_turno_2_real_con_is_error_y_ids_del_destino_no_se_bloquea():
+    cuerpo, mapa, tally = await _enmascarar(_turno_2_real_de_claude_code(), analizar=_ner_turno_2)
+    assert tally.unanalyzable == 0 and tally.kinds == [], tally.kinds
+    assert DNI not in _plano(cuerpo), "el DNI del tool_result sale enmascarado"
+    resultado = cuerpo["messages"][3]["content"][0]
+    assert resultado["is_error"] is False and "is_error" in resultado, "el campo del protocolo viaja intacto (no se renombra)"
+    assert resultado["tool_use_id"] == "call_0123456789abcdefABCDEF01" == cuerpo["messages"][2]["content"][0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_is_error_con_un_valor_que_no_es_booleano_se_sigue_analizando():
+    """El campo es del protocolo pero no es una exención del valor: un DNI ahí bloquea (la posición es estructural, no se reescribe)."""
+    cuerpo = _turno_2_real_de_claude_code()
+    cuerpo["messages"][3]["content"][0]["is_error"] = DNI
+    _, _, tally = await _enmascarar(cuerpo, analizar=_ner_turno_2)
+    assert tally.kinds == ["structural_entity"]
+
+
+@pytest.mark.asyncio
+async def test_un_campo_desconocido_cuyo_nombre_es_semantico_se_sigue_analizando_estricto():
+    """Sin cambios (contrato S14, punto 3): solo los campos del protocolo de la tabla están exentos; un campo desconocido, no."""
+    cuerpo = _turno_2_real_de_claude_code()
+    cuerpo["messages"][3]["content"][0]["campo_inventado"] = False
+
+    async def ner(texto):
+        if texto == "campo_inventado":
+            return [{"start": 0, "end": len(texto), "entity_type": "LOCATION", "score": 0.85}]
+        return await _ner_turno_2(texto)
+    _, _, tally = await _enmascarar(cuerpo, analizar=ner)
+    assert tally.kinds == ["structural_entity"]
+
+
+def test_el_prefetch_pide_al_analizador_los_numeros_estructurales():
+    textos = policy._collect_texts(_pedido_real_de_claude_code(), "anthropic", with_scans=True)
+    assert "1" in textos and "256" in textos and "9007199254740991" in textos
+
+
 # ── instantánea del contrato (contracts/costuras-base.md §S14 «Vocabulario cerrado y tipos semánticos») ──────────
 
 VOCABULARIO_DEL_CONTRATO = {

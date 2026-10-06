@@ -98,6 +98,44 @@ cuerpo saliente.
   8 casos nuevos) y la batería T003 `backend/tests/contract/test_gw_no_regresion_057.py`: **26 passed**.
 - Fuera de esta corrida: `make -C deploy check`/`check-docs` y la suite del backend en contenedor (el brief solo autorizó Docker para el motor).
 
+## 6b. `claude -p` real contra el motor: dos causas que el pedido sintético no tenía (2026-10-06, research R36)
+
+**Síntoma.** `claude -p 'Leé clientes.csv y decime cuántas filas tiene' --model claude-sonnet-5-5 --allowedTools Read` (`ANTHROPIC_BASE_URL=…/api/v1/gw`, llave virtual
+leída de un archivo local y nunca impresa, `CLAUDE_CONFIG_DIR` propio, directorio de prueba con un `clientes.csv` de 3 filas inventadas) daba **400 `masking_required`**
+con el motor `-ext` que ya pasaba el pedido sintético de 60 herramientas (§3). Los pedidos bloqueados no dejan fila con el informe del enmascarado, así que la causa
+no se leyó de la auditoría: se **capturó el pedido real** (servidor local en el scratchpad, sin Docker, fuera del repo; nada de ese contenido está en archivos versionados)
+y se lo repasó con el recorrido real (`_w_body`) y el analizador real del stack, registrando por cada no analizable la posición, el tipo de operación y los tipos de NER.
+
+| # | Pedido | No analizables | Posición | Qué es |
+|---|---|---|---|---|
+| 1 | turno 1 (21 herramientas, `system` en 3 bloques con `cache_control`, un mensaje `role: system`, `thinking.display`, `output_config`, `context_management`, `safeguards`) | **14** `structural_entity` | `tools[*].input_schema` | la cadena **`1`** (`minLength: 1`) clasificada LOCATION por el NER real: un escalar numérico estructural iba por el camino estricto |
+| 2 | turno 2 (con el `tool_use` del modelo y el `tool_result`) | **1** `structural_entity` | `messages[*].content[*].is_error` | la CLAVE `is_error` (booleano del protocolo en `tool_result`) clasificada LOCATION: no estaba en la tabla de posiciones ⇒ «campo desconocido» ⇒ clave analizada estricta |
+
+Descartados con el mismo método: el `system` largo, las descripciones de herramientas, `cache_control`, `metadata.user_id`, los campos nuevos del primer nivel, los tipos de bloque y
+los ids `call_…` del destino traducido (0 no analizables en esas posiciones).
+
+**Arreglo (dentro de A+B, sin relajar nada fuera).** (1) `_w_scan` emite los escalares numéricos como `scan_open` (`litellm/extensions/sentinel_guardian_policy.py`,
+rama numérica de `_w_scan`): vocabulario abierto ⇒ se ignoran los tipos semánticos y un patrón (un DNI como `minLength`) sigue bloqueando; el texto libre y los números de
+subárboles libres no cambian. (2) `….is_error@tool_result` entra en las posiciones estructurales (S14_EXEMPT_POSITIONS, `anthropic.structural`): es un nombre de campo del
+protocolo; un valor no booleano ahí se sigue analizando y los campos desconocidos de verdad siguen estrictos. Contrato: `contracts/costuras-base.md` §S14 y research R36.
+**Test rojo primero**: `backend/tests/unit/test_masking_vocabulario_estructural.py` (la forma del pedido y del turno 2 reales con un analizador que marca `1` e `is_error` como
+LOCATION; +10 casos (21 → 31); el de turno 2 y el de números fallaron antes del cambio) y la instantánea de posiciones en `test_masking_posiciones_exentas.py`.
+
+**En vivo.** `free -h`: 2,5 GiB disponibles (≥ 1,5). Imagen `…:057-gate-ext` reconstruida (la capa de `litellm/` cambió, así que primero `litellm/Dockerfile` como tag temporal
+`…:057-claude-code-base` y encima `sentinel/docker/engine.Dockerfile`; el archivo trae `is_error@tool_result`) y `elea057-engine` recreado con `--no-deps engine`, el mismo override y los mismos
+`--env-file`: `healthy`. Con solo el arreglo (1) el turno 1 pasaba y el turno 2 seguía en 400 (la causa 2 se vio recién ahí); con ambos, `claude -p` responde («el archivo `clientes.csv`
+tiene 4 filas»: el encabezado y 3 filas), ~70 s en frío por el NER (cada turno pasa por el analizador).
+
+**Auditoría de esa corrida** (`audit_logs`, solo metadatos): 4 filas del pedido real, todas `compliance_status = passed`, `blocked_by_layer` vacío, destino `gpt-5.1-chat`,
+`routing_decision.extensions.redirect` con `forced_masking: true`, `masking_scope: full`, `masking_verified: true`; `masked_entities` con DNI ×1 en el turno 1 y **×3 una vez leído el
+`clientes.csv`** (los tres DNI del archivo salen enmascarados hacia el destino), más PERSON/URL/LOCATION/EMAIL_ADDRESS/PHONE_NUMBER/DATE_TIME del `system` y de las herramientas.
+Otras dos filas del mismo instante: `blocked_by_policy` (`claude-sonnet-5`, sin regla) y `blocked_secret` (capa `secret_detection`, «OpenAI API Key», sobre `rdx-azure/gpt-5.1-chat`):
+son pedidos auxiliares del cliente, no el principal; el segundo **no se investigó** (queda para quien siga: qué cuerpo dispara el detector de secretos) y hubo `429` del destino en reintentos.
+
+**Tests (sin Docker, venv fuera del repo).** `backend/tests/unit` + `backend/tests/contract`: **1706 passed, 12 skipped, 6 failed** (`test_route_parity.py`, piden el host `db`: los mismos 6
+de la base; antes 1696 passed); `sentinel/tests`: **2446 passed, 13 skipped**; T003 `test_gw_no_regresion_057.py`: **26 passed**. `make -C deploy check`/`check-docs` y la suite del backend en
+contenedor **no se corrieron** (el brief solo autorizó Docker para el motor); no se tocó `docs/docs/**` ni la API ni `.env.example`.
+
 ## 7. Gate final (T082 y T086) — corrida con Docker, 2026-10-06
 
 Rama `cluna-8/057-gate-final` sobre `b5fafda`. Docker con OK del owner, **proyecto de compose propio** `-p elea057gate` (`STACK_PREFIX=elea057gate`,

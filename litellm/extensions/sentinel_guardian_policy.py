@@ -1099,7 +1099,7 @@ S14_EXEMPT_POSITIONS = {
             "thinking.type", "thinking.budget_tokens",
             "tool_choice.type", "tool_choice.name", "tool_choice.disable_parallel_tool_use",
             "messages.*.role",
-            "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result",
+            "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result", "….is_error@tool_result",
             "….source.type", "….source.media_type",
             "tools.*.name", "tools.*.type",
             "tools.*.input_schema#schema",
@@ -1313,7 +1313,8 @@ def _valid_cache_control(value) -> bool:
 def _w_scan(node, depth=0, mode=None):
     """Posición estructural: se analiza todo lo que hay adentro (claves incluidas), sin reescribir nada. `mode` (de
     `_scan_mode`) solo afecta a las cadenas: vocabulario cerrado (no se analiza lo que está dentro del conjunto) o
-    identificador (se ignoran los tipos de NER semántico); sin `mode`, todo se analiza estricto."""
+    identificador (se ignoran los tipos de NER semántico); sin `mode`, las cadenas se analizan estrictas. Los escalares
+    numéricos van siempre como identificador (valor abierto)."""
     if depth > _MAX_DEPTH:
         yield ("flag", "too_deep")
     elif isinstance(node, str) and mode is not None:
@@ -1321,7 +1322,12 @@ def _w_scan(node, depth=0, mode=None):
             yield ("scan_closed", (mode[1], node))
         else:
             yield ("scan_open", node)
-    elif isinstance(node, (str, int, float)) and not isinstance(node, bool):
+    elif isinstance(node, (int, float)) and not isinstance(node, bool):
+        # Escalar numérico estructural (`temperature`, `top_k`, `minLength`, `maxItems`…): su valor es abierto como el de un
+        # identificador, y el NER real marca la cadena `1` como LOCATION. Como en (B): se ignoran los tipos semánticos y un
+        # patrón (un DNI como valor) sigue bloqueando. El texto es el mismo con el que el prefetch lo pide al analizador.
+        yield ("scan_open", repr(node) if isinstance(node, float) else str(node))
+    elif isinstance(node, str):
         yield ("scan", node)
     elif isinstance(node, list):
         for item in node:

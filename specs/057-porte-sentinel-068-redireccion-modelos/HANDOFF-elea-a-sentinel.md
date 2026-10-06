@@ -115,6 +115,10 @@ bloquea” no tenía tarea»). Con `masked_all` y Claude Code, el cliente reenv�
   (`_FullScopeMasker.identifier_entities`): si no, un PERSON que cubre `leer 30123456` tapa al DNI. Mensajes, `tool_result`, `thinking`, `system` y
   los subárboles libres no cambian. Test: `backend/tests/unit/test_masking_vocabulario_estructural.py` (incluye la instantánea de las tablas);
   **Sentinel debe correr esa suite con su analizador real**: las suites con analizador simulado no veían el problema.
+  **Ampliación (research R36)**: el valor NUMÉRICO de una posición estructural (`temperature`, `top_k`, `max_tokens`, `minLength`, `maxItems`…) es
+  también vocabulario abierto: `_w_scan` lo emite como `scan_open` (mismo descarte de tipos semánticos, patrón sigue bloqueando). Con el NER real la
+  cadena `1` sale LOCATION y los esquemas de herramientas de Claude Code (`minLength: 1`, 14 veces) bloqueaban todo pedido. Test:
+  `test_pedido_real_de_claude_code_con_numeros_de_esquema_no_se_bloquea`.
 - **CUIT/CUIL sin guiones** en `latam_ar` (`policy.py:151`, `\b\d{2}-?\d{8}-?\d\b`): el paracaídas regex lo hereda. **Es del perfil `latam_ar`**: a
   Sentinel solo le sirve si usa ese perfil.
 
