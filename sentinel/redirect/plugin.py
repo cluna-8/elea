@@ -31,6 +31,7 @@ se evalúa contra la jurisdicción del proveedor original y puede responder 403;
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -191,6 +192,19 @@ def _decision(face: str, public_id: str, res, *, request_class, shadow: bool) ->
             for k, v in d.items()}
 
 
+_TIER_WORD = re.compile(r"(?<![a-z])(opus|sonnet|haiku|fable|mythos)(?![a-z])")
+
+
+def infer_tier(model_id: Any) -> Optional[str]:
+    """Tier de un id `claude-*` por su nombre (`claude-sonnet-4-5-20250929` → `sonnet`); `None` si no hay una
+    sola palabra de tier. Solo se usa para un id NO publicado (US1 esc. 4, FR-015): cae a la regla por tier."""
+    text = str(model_id or "").lower()
+    if not text.startswith("claude"):
+        return None
+    found = set(_TIER_WORD.findall(text))
+    return found.pop() if len(found) == 1 else None
+
+
 def _names_value(names, limit: int = 128) -> str:
     """Lista de nombres para un valor de `extensions` (el plano interno corta a 128 caracteres): los que no
     caben se resumen en `otros_<n>` en vez de quedar cortados a la mitad."""
@@ -301,8 +315,11 @@ class RedirectPlugin:
             return None                                   # count_tokens y otras: sin cambio
         # un id publicado con la redirección en `on` se decide por sus destinos (más abajo); todo lo
         # demás que el catálogo gobierna se corta acá
-        redirected = (state == "on" and bool(ctx.model)
-                      and resolver.find_published(snap.published, scope, face, ctx.model) is not None)
+        published = resolver.find_published(snap.published, scope, face, ctx.model) if ctx.model else None
+        inferred = None
+        if published is None and self._tier_fallback_applies(ctx, face, state):
+            inferred = self._inferred_row(ctx, scope)             # US1 esc. 4: cae a la regla por tier
+        redirected = state == "on" and bool(ctx.model) and (published is not None or inferred is not None)
         cut = self._access_cut(ctx, face, permitidos, governed, redirected=redirected)
         if cut is not None:
             return cut
@@ -321,11 +338,15 @@ class RedirectPlugin:
             return verdict
         if state == "off" or not ctx.model:
             return None                                   # postura sin redirección: US2 (motor)
-        published = resolver.find_published(snap.published, scope, face, ctx.model)
+        extra = {}
         if published is None:
-            return None                                   # no es un id publicado: camino normal
+            if inferred is None:
+                return None                               # no es un id publicado: camino normal
+            snap = dataclasses.replace(snap, published=tuple(snap.published) + (inferred,))
+            if inferred.get("family_tier"):
+                extra["tier_inferred"] = inferred["family_tier"]
         try:
-            cut = await self._resolve(ctx, snap, scope, face, state, permitidos)
+            cut = await self._resolve(ctx, snap, scope, face, state, permitidos, extra=extra)
             if cut is None and ctx.route == COUNT_TOKENS_ROUTE:
                 cut = self._count_tokens(ctx)
             return cut
@@ -369,7 +390,22 @@ class RedirectPlugin:
         return residency.effective_posture(snap.postures, scope, redirected=redirected,
                                            tenant_region=tenant_region(ident))
 
-    async def _resolve(self, ctx, snap, scope, face, state, permitidos=None):
+    @staticmethod
+    def _tier_fallback_applies(ctx, face, state) -> bool:
+        """Solo un id `claude-*` en la cara Claude con la política encendida y la llave del producto: un modelo de
+        la base sigue su camino (FR-002) y la suscripción personal también."""
+        return (face == "claude" and state == "on" and ctx.mode == "byok" and bool(ctx.model)
+                and str(ctx.model).lower().startswith("claude"))
+
+    @staticmethod
+    def _inferred_row(ctx, scope) -> dict:
+        """Id publicado «virtual» para el id pedido, con el tier inferido de su nombre (sin tier ⇒ sin regla)."""
+        tier = infer_tier(ctx.model)
+        return {"id": f"inferred:{tier or 'unknown'}", "tenant_id": scope.tenant_id, "scope_type": "tenant",
+                "scope_value": "*", "face": "claude", "public_id": ctx.model, "family_tier": tier,
+                "is_family_default": False, "label_mode": "destination"}
+
+    async def _resolve(self, ctx, snap, scope, face, state, permitidos=None, extra=None):
         request_class = ctx.request_headers.get(REQUEST_CLASS_HEADER) if ctx.request_headers else None
         posture = self._posture(snap, scope, ctx.ident, redirected=True)
         res = resolver.resolve(scope=scope, face=face, public_id=ctx.model,
@@ -378,6 +414,7 @@ class RedirectPlugin:
                                offers=snap.offers, posture=posture, permitidos=permitidos)
         shadow = state == "shadow"
         decision = _decision(face, ctx.model, res, request_class=request_class, shadow=shadow)
+        decision.update(extra or {})
         ctx.routing_decision = _audit_block(decision)
         if shadow:
             ctx.state[STATE_KEY] = Plan(face=face, public_id=ctx.model, decision=decision,

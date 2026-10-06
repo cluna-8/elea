@@ -85,6 +85,9 @@ class Engine:
         Engine.sent.append({"url": url, "headers": dict(headers or {}), "body": body})
         if url.split("?")[0].endswith("/v1/models"):
             return _Resp(200, json.dumps(Engine.models).encode())
+        if str(body.get("model", "")).startswith("rdx-rejected/"):
+            # el rechazo propio de la pasarela: sin autorización, el guard del motor corta siempre
+            return _Resp(403, b'{"error": {"message": "{\'code\': \'authz_missing\'}"}}')
         if Engine.status != 200:
             return _Resp(Engine.status, Engine.error_body, headers=Engine.error_headers)
         if url.split("?")[0].endswith("/count_tokens"):

@@ -75,6 +75,9 @@ def models_view(rows: Iterable[Mapping[str, Any]], *, limit: int = 1000, after_i
 # --- errores -------------------------------------------------------------------------
 
 CAPABILITY_MESSAGES = {
+    "web_search": "Este modelo no puede buscar en la web por su cuenta. Quitá esa herramienta o elegí otro modelo.",
+    "web_fetch": "Este modelo no puede abrir páginas web por su cuenta. Quitá esa herramienta o elegí otro modelo.",
+    "code_execution": "Este modelo no puede ejecutar código por su cuenta. Quitá esa herramienta o elegí otro modelo.",
     "images": "Este modelo no acepta imágenes. Quitá la imagen de este mensaje o elegí otro modelo.",
     "documents_pdf": "Este modelo no acepta documentos. Quitá el documento de este mensaje o elegí "
                      "otro modelo.",
@@ -176,6 +179,10 @@ MAX_DROPPED_NAMES = 20                  # la auditoría lleva nombres, acotados:
 _SAFE_FIELD_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
 _INVALID_FIELD_NAME = "campo_no_valido"
 
+# Funciones que ejecuta el PROVEEDOR ORIGINAL (herramientas del servidor): un destino traducido no las tiene y
+# no se ignoran en silencio (FR-035). Prefijo del `type` de la herramienta → función que se informa.
+_PROVIDER_ONLY_TOOLS = (("web_search", "web_search"), ("web_fetch", "web_fetch"), ("code_execution", "code_execution"))
+
 _EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high", "xhigh": "high"}
 _BLOCK_CAPABILITY = {"document": "documents_pdf", "image": "images"}
 
@@ -237,6 +244,15 @@ def current_turn_needs(body: Mapping[str, Any]) -> frozenset:
     content = msgs[last].get("content") if last >= 0 else None
     return frozenset(_BLOCK_CAPABILITY[b["type"]] for b in (content if isinstance(content, list) else ())
                      if isinstance(b, dict) and b.get("type") in _BLOCK_CAPABILITY)
+
+
+def _check_provider_only_tools(tools: Any) -> None:
+    """Una herramienta del servidor del proveedor original hacia un destino traducido ⇒ `CapabilityRejected`."""
+    for tool in tools if isinstance(tools, list) else ():
+        kind = str(tool.get("type") or "") if isinstance(tool, dict) else ""
+        for prefix, capability in _PROVIDER_ONLY_TOOLS:
+            if kind.startswith(prefix):
+                raise CapabilityRejected(capability)
 
 
 def _check_blocks(messages: list, profile: Mapping[str, Any]) -> list:
@@ -361,6 +377,7 @@ def normalize_for_translated(body: Mapping[str, Any], profile: Mapping[str, Any]
         _strip_cache_control(out)
         removed.append("cache_control")
 
+    _check_provider_only_tools(out.get("tools"))
     msgs = out.get("messages") or []
     msgs, n_dropped, n_replayed = _rebuild_history_reasoning(msgs, history_reasoning)
     if "messages" in out:
