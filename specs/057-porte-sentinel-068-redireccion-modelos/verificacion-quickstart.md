@@ -52,17 +52,48 @@ El pedido llegó a Azure (`gpt-5.1-chat`, `200 OK` en el log del motor); el cuer
 | DNI como clave de `properties` del esquema | **400** (bloquea) |
 | email como nombre de herramienta | **400** (bloquea) |
 
-## 5. Hallazgo aparte (no es de esta enmienda)
+## 5. Hallazgo aparte: `IndexError` en el stream hacia Azure — arreglado (2026-10-06)
 
-Con stream, el motor registra `IndexError: list index out of range` en `litellm/llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py:611`
-(`chunk.choices[0]`): un chunk del destino llega con `choices` vacío (hipótesis, sin verificar: anotaciones de filtro de contenido de Azure) y el adaptador
-de Anthropic del motor fijado lo desreferencia. El cliente recibe 200 con la respuesta cortada (≈ 2,6 KB) y **no se escribe fila de auditoría** del pedido en stream (la fila se
-escribe al cerrar el stream). Ocurre después de enmascarar y de salir hacia el destino; es del adaptador del motor, no de la política. Queda para
-T083/T078 (medición de caché y auditoría en stream) y para el coordinador.
+**Causa (verificada en el motor, LiteLLM 1.92.0).** `/v1/messages` hacia un destino traducido fija `stream_options.include_usage`
+(`adapters/handler.py:474`). Con eso el stream de LiteLLM devuelve los chunks sin `choices` (`streaming_handler.py`, rama
+`include_usage` → `model_response.choices = []`) y Azure manda uno al inicio (anotaciones del filtro de contenido) y otro con el `usage`
+al final. El adaptador de Anthropic lee `chunk.choices[0]` (`adapters/streaming_iterator.py:611` y `:856`): `IndexError`, 200 con la respuesta
+cortada (≈ 2,6 KB) y sin fila de auditoría del pedido en stream (la fila se escribe al cerrar el stream). Los chunks con `usage` y
+`choices` vacío no llegan al adaptador (el stream les quita el `usage` y descarta los vacíos), así que lo único que se pierde al
+filtrar es lo que el adaptador no puede traducir.
+
+**Arreglo (nuestro código, motor sin tocar).** `sentinel/engine/redirect_guard.py`: `install_empty_choices_filter()` envuelve
+`AnthropicAdapter.translate_completion_output_params_streaming` y le pasa el stream sin los chunks de `choices` vacío (sync y async;
+idempotente; devuelve `False` si el motor no tiene ese adaptador). Lo instala el constructor de `RedirectGuard`. Es el punto equivalente al
+pedido: los hooks de stream por chunk de LiteLLM (`async_post_call_streaming_deployment_hook`) solo corren en el chunk final, y el hook de
+iterador ya recibe bytes SSE. Test rojo primero: `sentinel/tests/unit/test_guard_stream_choices_vacios.py` (8 casos; el que reproduce el
+`IndexError` con un stream estilo Azure `choices=[]` al inicio y al final por el adaptador falso con el contrato del real).
+
+**En vivo.** Imagen `…:057-gate-ext` reconstruida solo en su capa `-ext` sobre `…:057-gate-new-base` (`litellm/` no cambió desde `3d327c4`;
+`free -h`: 2,7 GiB disponibles) y `elea057-engine` recreado con `--no-deps engine`, mismo override y mismos `--env-file`: `healthy`.
+`measure.py` (stream, 24/26 turnos, 60 herramientas): 3 × **200**, 13,8 s en frío y 3,3–3,6 s después, respuesta **8,6 KB** completa (antes
+≈ 2,6 KB cortada). Una sonda con el parseo del SSE: `message_start` → 62 `content_block_delta` → `message_delta` (`stop_reason: max_tokens`,
+`input_tokens 34264`, `output_tokens 64`) → `message_stop`. `docker logs` del motor desde la recreación: **0** `IndexError`/`Traceback`.
+**Auditoría en stream** (`audit_logs`, solo metadatos): 9 pedidos en stream → 9 filas, `compliance_status = passed`, `pii_detected = true`,
+`prompt_tokens 34264–35058`, `completion_tokens 64`, `cache_hit = false`.
+
+**Upstream y alternativas descartadas.** El defecto está presente en LiteLLM 1.92.0 (la versión que fija el motor). Una búsqueda web no encontró un issue ni un
+arreglo en BerriAI/litellm (sin verificar en el repositorio; queda para quien actualice el motor: si lo arreglaron, el filtro sobra y es inocuo). Sacar
+`include_usage` no es opción: lo fija el adaptador (`handler.py:474`) después de cualquier cosa que el guard ponga en el pedido. Caché en la fila: el destino
+no informó tokens de caché en estas corridas (`price_cache_missing: true` en la decisión de la fila); lo que se verificó es que la fila se escribe, con los tokens
+de entrada/salida. La medición de caché sigue en T083/T078.
+
+Una cosa que cambia al dejar de cortarse la respuesta: en algunas corridas el modelo cita el DNI del pedido («el identificador aparece
+anonimizado (`30123456`)») y el campo `dni_en_claro_en_respuesta` de `measure.py` sale `true`. Es el desenmascarado de la respuesta (el
+cliente recibe lo que él mismo envió; la política lo hace a propósito) y no determinista (en 4 de 9 corridas se cita); no es el cuerpo que sale
+hacia el destino, que no se reabrió en esta pasada. El campo del script ya no sirve como prueba de «no sale en claro»: eso se mide en el
+cuerpo saliente.
 
 ## 6. Tests (sin Docker)
 
 - `backend/tests/unit/test_masking_vocabulario_estructural.py`: **21 passed** (el descarte previo a los solapes se encontró con un test que falló primero).
 - `backend/tests/unit` + `backend/tests/contract`: 1696 passed, 12 skipped, **6 failed** (`test_route_parity.py`, piden el host `db`; los mismos 6 de la base).
 - `sentinel/tests`: **2438 passed, 13 skipped** (los 13 de siempre, con motivo).
+  Tras el arreglo del stream (§5), con un venv fuera del repo (`backend/requirements.txt` + `pytest-asyncio`, sin Docker): **2446 passed, 13 skipped** (los
+  8 casos nuevos) y la batería T003 `backend/tests/contract/test_gw_no_regresion_057.py`: **26 passed**.
 - Fuera de esta corrida: `make -C deploy check`/`check-docs` y la suite del backend en contenedor (el brief solo autorizó Docker para el motor).
