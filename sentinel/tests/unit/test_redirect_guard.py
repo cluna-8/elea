@@ -556,3 +556,15 @@ def test_sin_exenciones_validas_la_decision_no_lleva_el_campo(exempt):
     if exempt is not None:
         informe["exempt"] = exempt
     assert "masking_exempt" not in _decision(apply(_forzado_en("openrouter", informe)))
+
+
+# ── alcance del sufijo de los marcadores en la auditoría (S13; 057 T073) ───────────────────────────
+
+@pytest.mark.parametrize("informe,esperado", [
+    ({**GOOD_REPORT, "nonce_scope": "conversation"}, "conversation"),
+    (dict(GOOD_REPORT), "request"),
+    ({**GOOD_REPORT, "nonce_scope": "otro"}, "request"),
+    ({**GOOD_REPORT, "nonce_scope": 1}, "request"),
+])
+def test_la_decision_registra_el_alcance_del_sufijo_solo_el_nombre(informe, esperado):
+    assert _decision(apply(_forzado_en("openrouter", informe)))["nonce_scope"] == esperado

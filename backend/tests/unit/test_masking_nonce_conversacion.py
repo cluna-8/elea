@@ -162,7 +162,7 @@ async def test_el_informe_dice_el_alcance_del_sufijo_sin_valores(monkeypatch):
     assert d1["litellm_metadata"]["masking_report"]["nonce_scope"] == "conversation"
     d2 = _pedido(_historial(), ref=None)
     await _hook(d2)
-    assert d2["litellm_metadata"]["masking_report"]["nonce_scope"] == "request"
+    assert "nonce_scope" not in d2["litellm_metadata"]["masking_report"]      # sin S13 el informe es el de siempre
     assert REF not in json.dumps(d1["litellm_metadata"]["masking_report"])
 
 
@@ -175,7 +175,7 @@ async def test_si_la_derivacion_falla_se_usa_el_aleatorio_y_el_pedido_sigue(monk
     d = _pedido(_historial())
     salida = await _hook(d)
     assert DNI_PUNTOS not in _mensajes(salida)
-    assert d["litellm_metadata"]["masking_report"]["nonce_scope"] == "request"
+    assert "nonce_scope" not in d["litellm_metadata"]["masking_report"]
 
 
 # ── 4. el valor del cliente se descarta ────────────────────────────────────────────────────────

@@ -1980,18 +1980,27 @@ async def gw_messages(
         except Exception:  # noqa: BLE001
             pass
         final_status = status if up.status_code == 200 else "upstream_error"
-        latency = int((time.time() - start) * 1000)
-        # El booleano se ignora A PROPÓSITO acá: el proveedor ya respondió y la plata ya se
-        # gastó, así que un 503 tardío no des-serviría nada — sólo escondería la respuesta
-        # que el cliente ya pagó. El contrato (§closed) lo dice literal: el pre-check corta
-        # ANTES; lo que falle después es retry + contador. Mismo criterio en el streaming.
-        _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency, attribution,
-               routing_decision=gp.routing_of(ctx))
-        _publish_monitor(ident, tool, model, final_status, masked_entities, preview,
-                         attribution=attribution)
-        return await _respuesta_destino(ctx, up.status_code, content_out,
-                                        up.headers.get("content-type", "application/json"),
-                                        exito_mapeable=True)
+        # La fila se escribe DESPUÉS de `map_response`/`map_error` de los plugins y en un `finally` (057 T076): un plugin
+        # que lee el `usage` de la respuesta (tokens de caché) lo suma a su `routing_decision` ahí, y la fila tiene que
+        # salir con eso; y si el enganche revienta la fila se escribe igual, con la decisión que haya y `upstream_error`
+        # (no hay respuesta que entregar). Sin plugins no hay enganches y la fila es la de siempre.
+        try:
+            return await _respuesta_destino(ctx, up.status_code, content_out,
+                                            up.headers.get("content-type", "application/json"),
+                                            exito_mapeable=True)
+        except Exception:
+            final_status = "upstream_error"
+            raise
+        finally:
+            latency = int((time.time() - start) * 1000)
+            # El booleano se ignora A PROPÓSITO acá: el proveedor ya respondió y la plata ya se
+            # gastó, así que un 503 tardío no des-serviría nada — sólo escondería la respuesta
+            # que el cliente ya pagó. El contrato (§closed) lo dice literal: el pre-check corta
+            # ANTES; lo que falle después es retry + contador. Mismo criterio en el streaming.
+            _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency, attribution,
+                   routing_decision=gp.routing_of(ctx))
+            _publish_monitor(ident, tool, model, final_status, masked_entities, preview,
+                             attribution=attribution)
 
     # ── streaming (SSE) ──
     # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS:

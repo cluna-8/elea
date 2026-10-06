@@ -177,6 +177,12 @@ def register_forced_masking_resolver() -> int:
 register_forced_masking_resolver()
 
 
+def nonce_scope(report: Any) -> str:
+    """`conversation` si el informe del guardrail dice que el sufijo de los marcadores se derivó por conversación (S13);
+    `request` en cualquier otro caso. Solo el nombre del alcance, jamás el sufijo ni el identificador."""
+    return "conversation" if isinstance(report, Mapping) and report.get("nonce_scope") == "conversation" else "request"
+
+
 MASKING_EXEMPT_NAMES = frozenset(("system_prompt", "tool_definitions"))     # nombres de las exenciones opcionales de S14
 
 
@@ -532,6 +538,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
         decision[OPENROUTER_ZDR_KEY] = True
     if affinity_applied:
         decision["session_affinity"] = True
+    decision["nonce_scope"] = nonce_scope(_masking_report(data, call_type))
     if pricing_source != "none" and not all(p in pricing for p in credentials.CACHE_PRICE_PARAMS.values()):
         decision["price_cache_missing"] = True            # FR-046: la caché se cobró a precio de entrada
     decision.update({"destination_id": grant.destination_id, "request_id": grant.request_id,

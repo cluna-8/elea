@@ -37,7 +37,11 @@ export interface Destination {
 
 /** Precio del destino en USD por millón de tokens (D23 de la 069). Sin precio propio, el motor usa
  *  su mapa de precios si conoce el modelo; si no, el gasto no se descuenta del presupuesto. */
-export interface Price { input_per_mtok: number; output_per_mtok: number }
+export interface Price {
+  input_per_mtok: number; output_per_mtok: number;
+  /** Precio de lectura y escritura de caché (057 FR-046), opcionales: sin ellos la caché se cobra a precio de entrada. */
+  cache_read_per_mtok?: number; cache_write_per_mtok?: number;
+}
 
 export interface PublishedModel {
   id: string;
@@ -342,6 +346,45 @@ export function priceLabel(d: Destination): string {
   return d.price_override
     ? `Precio: ${usd(d.price_override.input_per_mtok)} / ${usd(d.price_override.output_per_mtok)} USD por millón (entrada / salida)`
     : "Precio: automático (si el motor conoce el modelo)";
+}
+
+// ── caché del proveedor (057 FR-043, FR-044, FR-046) ──────────────────────────
+// `cache_control`: las marcas de caché de la herramienta se reenvían al destino (FR-044). `session_affinity`: el destino agrupa
+// por sesión y recibe un identificador estable derivado con la clave del servidor (FR-043); sin declarar, OpenRouter lo tiene
+// encendido (lo mismo que decide el servidor).
+
+export interface CacheFlags { cache_control: boolean; session_affinity: boolean }
+
+export function cacheFlags(d: { provider?: string; capability_profile?: Record<string, unknown> | null }): CacheFlags {
+  const p = d.capability_profile ?? {};
+  return {
+    cache_control: p.cache_control === true,
+    session_affinity: typeof p.session_affinity === "boolean" ? p.session_affinity : d.provider === "openrouter",
+  };
+}
+
+/** El PATCH de `features` reemplaza el perfil entero: se fusiona con el que ya tiene para no borrar otras claves. */
+export function buildCacheFeatures(prev: Record<string, unknown> | null | undefined,
+  patch: Partial<CacheFlags>): Record<string, unknown> {
+  return { ...(prev ?? {}), ...patch };
+}
+
+/** Texto del precio de caché: lectura y escritura si el destino los tiene; si no, el aviso de que se cobra a precio de entrada. */
+export function cachePriceLabel(d: Destination): string | null {
+  const p = d.price_override;
+  if (!p) return null;
+  const has = (n?: number) => typeof n === "number";
+  if (!has(p.cache_read_per_mtok) && !has(p.cache_write_per_mtok)) {
+    return "Sin precio de caché: se cobra a precio de entrada";
+  }
+  const part = (n?: number) => (has(n) ? usd(n as number) : "—");
+  return `Precio de caché: lectura ${part(p.cache_read_per_mtok)} / escritura ${part(p.cache_write_per_mtok)} USD por millón`;
+}
+
+/** USD por millón → USD por token (lo que guarda el catálogo). Vacío = no cambia. */
+export function parseCachePrice(text: string): { perToken: number | null; error?: string } {
+  const r = parsePrice(text);
+  return r.error ? { perToken: null, error: r.error } : { perToken: r.value === null ? null : r.value / 1e6 };
 }
 
 // ── capacidades del destino ─────────────────────────────────────────────────

@@ -719,7 +719,15 @@ class RedirectPlugin:
             signer = lambda text: thinking.sign(dest_id, text)             # noqa: E731 — FR-036
         return stream.wrap_sse(iterator, public_model=plan.public_id,
                                face="claude" if plan.face == "claude" else "openai",
-                               ping_after=self.ping_after, thinking_signer=signer)
+                               ping_after=self.ping_after, thinking_signer=signer,
+                               usage_sink=lambda usage: self._note_cache_tokens(plan, usage))
+
+    @staticmethod
+    def _note_cache_tokens(plan: "Plan", usage) -> None:
+        """FR-046: suma a la decisión de auditoría (el dict que comparte con la pasarela, que escribe la fila al final) los
+        tokens de caché que informó el destino; si el stream los repite, queda el mayor. Solo enteros."""
+        for name, value in stream.cache_tokens(usage).items():
+            plan.decision[name] = max(value, plan.decision.get(name) or 0)
 
     def map_response(self, ctx, status, content):
         plan: Optional[Plan] = ctx.state.get(STATE_KEY)
@@ -731,6 +739,7 @@ class RedirectPlugin:
             return None
         if not isinstance(body, dict) or "model" not in body:
             return None
+        self._note_cache_tokens(plan, body.get("usage"))                  # FR-046: tokens de caché a la auditoría
         body = generic_face.rewrite_response_model(body, plan.public_id)
         if plan.face == "claude" and body.get("type") == "message":
             body["usage"] = stream.complete_usage(body.get("usage"))      # FR-039: los cuatro contadores
