@@ -116,12 +116,10 @@ def _scrub_internal_header(data: dict) -> None:
 
 
 FULL_SCOPE = "full"
-# TODO(integración con S14, worker E2): el nombre exacto del campo entero opcional que el guardrail de la base agrega al
-# informe (`masking_report`) con la cantidad de detecciones dentro de bloques `thinking` firmados. Placeholder a alinear.
-SIGNED_THINKING_FIELD = "signed_thinking_detections"
+# Campo entero opcional que el guardrail de la base (S14) agrega al informe (`masking_report`) bajo forzado y solo si
+# es > 0: cantidad de bloques `thinking` con `signature` cuyo texto cambió al enmascarar. No suma a `unanalyzable`.
+SIGNED_THINKING_FIELD = "signed_thinking"
 NATIVE_FAMILY = "rdx-anthropic"       # destino NATIVO de la cara Claude: la firma de `thinking` no se reconstruye (R10)
-# TODO(integración con S14, worker E2): registrar acá, al importar, el resolver de forzado de enmascarado que expone la
-# base (verifica el `fm` firmado de `redirect_authz` y devuelve True). Hoy el guard verifica `grant.forced_masking` él mismo.
 
 
 def signed_thinking_blocks(report: Any, family: Optional[str]) -> bool:
@@ -132,6 +130,51 @@ def signed_thinking_blocks(report: Any, family: Optional[str]) -> bool:
         return False
     n = report.get(SIGNED_THINKING_FIELD)
     return isinstance(n, int) and not isinstance(n, bool) and n > 0
+
+
+_POLICY_MODULES = ("extensions.sentinel_guardian_policy", "sentinel_guardian_policy")
+
+
+def forced_masking_resolver(data: Any, user_api_key_dict: Any = None, call_type: Optional[str] = None) -> bool:
+    """Resolutor del enmascarado forzado que la base consulta antes de recorrer el pedido (S14, `fn(data,
+    user_api_key_dict, call_type) -> bool`). El guard corre DESPUÉS del guardrail de la base y este no ve el grant:
+    acá se verifica el token firmado (`x-redirect-authz`, campo `fm`) y la base pone la señal por tipo.
+
+    Solo vale para un modelo de la pasarela (`rdx-*`): en modo sombra la pasarela firma una decisión hipotética y el
+    pedido no cambia. Sin token, con un token inválido o de otro modelo ⇒ False (el guard rechaza o ignora más
+    adelante, como siempre). Sin la llave de la instalación no se puede verificar: la `AuthzKeyMissing` sube y la
+    base la cuenta como forzado (falla cerrado). Nunca registra contenido del pedido."""
+    if not isinstance(data, Mapping):
+        return False
+    model = data.get("model")
+    token = _headers_of(data).get(authz.HEADER)
+    if not token or not is_redirect_model(model):
+        return False
+    try:
+        return bool(authz.verify(token, expected_model=model).forced_masking)
+    except authz.AuthzKeyMissing:
+        raise
+    except authz.AuthzError:
+        return False
+
+
+def register_forced_masking_resolver() -> int:
+    """Registra `forced_masking_resolver` en la base (idempotente). Dentro del motor el guardrail base importa
+    `sentinel_guardian_policy` a secas y este guard puede haber cargado `extensions.sentinel_guardian_policy`: son
+    dos módulos con registros independientes, así que se registra en cada copia ya cargada. Devuelve cuántas.
+    Una base anterior a S14 (sin la API) no tiene nada que registrar: el guard sigue bloqueando el forzado."""
+    import sys
+    copias = {id(m): m for m in [_gpolicy] + [sys.modules.get(n) for n in _POLICY_MODULES] if m is not None}
+    n = 0
+    for mod in copias.values():
+        register = getattr(mod, "register_forced_masking_resolver", None)
+        if callable(register):
+            register(forced_masking_resolver)
+            n += 1
+    return n
+
+
+register_forced_masking_resolver()
 
 
 def masking_ok(report: Any, *, forced: bool = False) -> bool:
@@ -472,6 +515,7 @@ class RedirectGuard(CustomGuardrail):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._catalog = None
+        register_forced_masking_resolver()      # por si la copia plana de la política se cargó después del import
 
     def _catalog_direct(self):
         """Resolución por catálogo para clientes directos (069 T033). Perezoso: el módulo hermano

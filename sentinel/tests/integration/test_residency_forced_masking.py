@@ -12,9 +12,8 @@ pasarela al guard del motor:
 
 Lo que corre **en el guardrail del motor** —la batería de formatos del perfil `latam_ar` (DNI con y sin puntos,
 CUIT/CUIL con y sin guiones, CBU de 22 dígitos), `system`, herramientas, adjuntos, no analizable— es la costura S14
-(T096/T097, otro worker): su estado se vigila en `test_el_guardrail_del_motor_lee_la_senal_de_s14` (queda en `xfail`
-hasta que se integre; la señal en `pre_engine` y el contrato son de esa tarea). Mientras tanto un pedido forzado con
-un guardrail anterior a S14 **se bloquea** (informe sin `scope`): falla cerrado, nunca abierto."""
+(T096/T097, ya integrada; el recorrido de punta a punta está en `test_residency_forced_masking_multiturno.py`). Un
+pedido forzado con un guardrail anterior a S14 **se bloquea** (informe sin `scope`): falla cerrado, nunca abierto."""
 import json
 from pathlib import Path
 
@@ -177,16 +176,15 @@ async def test_el_forzado_por_la_postura_por_defecto_exige_lo_mismo_que_el_de_un
             al_guard(token, {**REPORTE_OK, "scope": "user"})
 
 
-# ── lo que es del guardrail del motor (S14, T096/T097) ──────────────────────────────────────────────
+# ── lo que es del guardrail del motor (S14, T096/T097; el recorrido de punta a punta, en el archivo `…_multiturno`) ──
 
-@pytest.mark.xfail(strict=False, reason="S14 (T096/T097, otro worker): el guardrail lee `sentinel_forced_masking` y su alcance completo")
 def test_el_guardrail_del_motor_lee_la_senal_de_s14():
     texto = (ROOT / "litellm" / "extensions" / "sentinel_guardrail.py").read_text(encoding="utf-8")
     assert "sentinel_forced_masking" in texto and "unanalyzable" in texto
 
 
-@pytest.mark.xfail(strict=False, reason="T097 (otro worker): patrón de CUIT/CUIL sin guiones del perfil latam_ar (hoy solo con guiones)")
 def test_el_patron_de_cuit_sin_guiones_existe_en_el_perfil_latam_ar():
+    import re
     from extensions import sentinel_guardian_policy as policy
-    detectado = policy.detect_entities("mi cuit es 20301234567", region="latam_ar") if hasattr(policy, "detect_entities") else []
-    assert detectado
+    patron = policy.STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["CUIL"][0]
+    assert re.search(patron, "mi cuit es 20301234567") and re.search(patron, "mi cuit es 20-30123456-7")
