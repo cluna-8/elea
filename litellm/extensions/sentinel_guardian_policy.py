@@ -1156,6 +1156,88 @@ def _build_position_index():
 
 _S14_INDEX, _S14_CONTAINERS = _build_position_index()
 
+# ── Posiciones estructurales con el NER real: vocabulario cerrado e identificadores (057 T083) ───────────────────
+#
+# Decisión del owner, 2026-10-06 (enmienda de N8; contracts/costuras-base.md §S14 «Vocabulario cerrado y tipos
+# semánticos»). Medido con el analizador real: `assistant`, `tool_use`, `Read`, `file_path` o un id `toolu_…` salen como
+# PERSON/LOCATION y, como una posición estructural no se reescribe, TODO pedido con un mensaje `assistant` o con
+# herramientas se bloqueaba. Dos reglas, solo bajo el enmascarado forzado y solo sobre las posiciones «structural» de arriba:
+#   (A) VOCABULARIO CERRADO: el valor de una posición cuyo conjunto de valores lo fija el protocolo (rol, tipo de bloque,
+#       `tool_choice.type`, …) y que está dentro de ese conjunto NO se analiza; uno fuera del conjunto se analiza como siempre.
+#   (B) IDENTIFICADORES (vocabulario abierto: nombres de herramienta, ids, claves y nombres del esquema): se ignoran SOLO los
+#       tipos de NER semántico de `STRUCTURAL_IGNORED_ENTITY_TYPES`; los de patrón (DNI, CUIT, CBU, email, teléfono, tarjeta,
+#       IBAN…) y los propios de la empresa o desconocidos siguen siendo `structural_entity`.
+# El texto de mensajes, `tool_result`, `thinking`, `system` y los subárbol libres no cambian. Agregar o quitar un valor o una
+# posición es un cambio de contrato (§S14) y de su test de instantánea.
+_MIME_RE = re.compile(r"[a-z]+/[a-z0-9][a-z0-9.+-]{0,99}")
+_ANTHROPIC_TOOL_TYPE_RE = re.compile(r"(custom|[a-z][a-z0-9_]*_\d{8})")
+_ANTHROPIC_BLOCK_TYPES = frozenset((
+    "text", "image", "document", "tool_use", "server_tool_use", "tool_result", "thinking", "redacted_thinking",
+    "search_result", "web_search_tool_result", "web_search_result"))
+_OPENAI_PART_TYPES = frozenset(("text", "refusal", "image_url", "input_audio", "file"))
+
+S14_CLOSED_VOCABULARY = {
+    "anthropic": {
+        "messages.*.role": frozenset(("user", "assistant")),
+        "….type": _ANTHROPIC_BLOCK_TYPES,
+        "….source.type": frozenset(("base64", "url", "text", "file", "content")),
+        "….source.media_type": _MIME_RE,
+        "thinking.type": frozenset(("enabled", "disabled", "adaptive")),
+        "tool_choice.type": frozenset(("auto", "any", "tool", "none")),
+        "tools.*.type": _ANTHROPIC_TOOL_TYPE_RE,
+    },
+    "openai": {
+        "messages.*.role": frozenset(("system", "developer", "user", "assistant", "tool", "function")),
+        "messages.*.tool_calls.*.type": frozenset(("function",)),
+        "….type": _OPENAI_PART_TYPES,
+        "response_format.type": frozenset(("text", "json_object", "json_schema")),
+        "tool_choice": frozenset(("none", "auto", "required")),
+        "tool_choice.type": frozenset(("function", "allowed_tools", "custom")),
+        "tools.*.type": frozenset(("function", "custom")),
+    },
+}
+S14_OPEN_IDENTIFIERS = {
+    "anthropic": ("tool_choice.name", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result", "tools.*.name"),
+    "openai": ("messages.*.tool_call_id", "messages.*.tool_calls.*.id", "messages.*.tool_calls.*.function.name",
+               "tool_choice.function.name", "tools.*.function.name", "response_format.json_schema.name"),
+}
+# Tipos de NER SEMÁNTICO (los que una cadena corta y común dispara por parecerse a un nombre, un lugar o una URL). Lista
+# CERRADA: un tipo que no esté acá (patrón, propio de la empresa o desconocido) sigue bloqueando.
+STRUCTURAL_IGNORED_ENTITY_TYPES = frozenset(("PERSON", "LOCATION", "ORGANIZATION", "NRP", "URL", "DATE_TIME"))
+_MODE_CLOSED, _MODE_OPEN = "closed", "open"
+
+
+def _build_mode_index():
+    index = {}
+    for fmt in S14_EXEMPT_POSITIONS:
+        entradas = {}
+        for ruta, vocab in S14_CLOSED_VOCABULARY.get(fmt, {}).items():
+            entradas[(ruta, None)] = (_MODE_CLOSED, vocab)
+        for ruta in S14_OPEN_IDENTIFIERS.get(fmt, ()):
+            ruta, _, tipo = ruta.partition("@")
+            entradas[(ruta, tipo or None)] = (_MODE_OPEN, None)
+        index[fmt] = entradas
+    return index
+
+
+_S14_MODE_INDEX = _build_mode_index()
+
+
+def _scan_mode(fmt: str, path: str, block_type=None):
+    """Modo de análisis de una posición estructural: `("closed", vocabulario)`, `("open", None)` o `None` (estricta)."""
+    index = _S14_MODE_INDEX[fmt]
+    if block_type in _TOOL_USE_TYPES:
+        block_type = "tool_use"
+    if block_type is not None and (path, block_type) in index:
+        return index[(path, block_type)]
+    return index.get((path, None))
+
+
+def _in_vocabulary(vocab, value) -> bool:
+    if isinstance(vocab, frozenset):
+        return value in vocab
+    return len(value) <= 128 and vocab.fullmatch(value) is not None
+
 # Exenciones OPCIONALES (057 T112; research R34): posiciones OPACAS que la instalación puede encender por variable de
 # entorno, APAGADAS por defecto (todo se analiza). Misma semántica que las opacas de arriba: ni se analizan ni se
 # reescriben. `@rol` = solo el contenido de los mensajes con ese `role`. Agregar o quitar una posición es un cambio de
@@ -1221,20 +1303,29 @@ def _valid_cache_control(value) -> bool:
 #   ("text", s)  → texto libre: el conductor devuelve el texto enmascarado
 #   ("num", n)   → escalar numérico libre: devuelve n, o el marcador (cadena) si hay detección
 #   ("scan", v)  → posición estructural: se analiza, jamás se reescribe (detección ⇒ structural_entity)
+#   ("scan_closed", (vocabulario, v)) → estructural de vocabulario cerrado: dentro del conjunto no se analiza; fuera, como "scan"
+#   ("scan_open", v) → estructural de vocabulario abierto (identificador): como "scan", ignorando los tipos de NER semántico
 #   ("flag", k)  → no analizable de tipo `k`
 #   ("pdf", b64) → (texto|None, tipo_de_falla|None)
 #   ("signed_thinking", None) → un `thinking` con firma cambió de texto
 # El conductor de enmascarado (`_mask_body_full`) es async; el de inspección (`_collect_texts`) es síncrono.
 
-def _w_scan(node, depth=0):
-    """Posición estructural: se analiza todo lo que hay adentro (claves incluidas), sin reescribir nada."""
+def _w_scan(node, depth=0, mode=None):
+    """Posición estructural: se analiza todo lo que hay adentro (claves incluidas), sin reescribir nada. `mode` (de
+    `_scan_mode`) solo afecta a las cadenas: vocabulario cerrado (no se analiza lo que está dentro del conjunto) o
+    identificador (se ignoran los tipos de NER semántico); sin `mode`, todo se analiza estricto."""
     if depth > _MAX_DEPTH:
         yield ("flag", "too_deep")
+    elif isinstance(node, str) and mode is not None:
+        if mode[0] == _MODE_CLOSED:
+            yield ("scan_closed", (mode[1], node))
+        else:
+            yield ("scan_open", node)
     elif isinstance(node, (str, int, float)) and not isinstance(node, bool):
         yield ("scan", node)
     elif isinstance(node, list):
         for item in node:
-            yield from _w_scan(item, depth + 1)
+            yield from _w_scan(item, depth + 1, mode)
     elif isinstance(node, dict):
         for key, value in node.items():
             yield from _w_scan(key, depth + 1)
@@ -1279,6 +1370,20 @@ _SCHEMA_SUBSCHEMA_KEYS = frozenset((
 _SCHEMA_SUBSCHEMA_LISTS = frozenset(("allOf", "anyOf", "oneOf", "prefixItems"))
 _SCHEMA_NAME_MAPS = frozenset(("properties", "$defs", "definitions", "patternProperties",
                                "dependentSchemas", "dependentRequired", "dependencies"))
+# Vocabulario cerrado del esquema (057 T083): sus palabras clave, los tipos de JSON y los formatos estándar. Todo lo demás
+# (un nombre de propiedad, un `$ref`, una palabra clave inventada) es un identificador o se analiza estricto.
+_SCHEMA_KEYWORDS = (_SCHEMA_SCALAR_KEYS | _SCHEMA_SUBSCHEMA_KEYS | _SCHEMA_SUBSCHEMA_LISTS | _SCHEMA_NAME_MAPS
+                    | frozenset(("required", "description", "title", "enum", "const", "default", "examples", "pattern",
+                                 "$comment", "contentMediaType", "contentEncoding")))
+_SCHEMA_JSON_TYPES = frozenset(("object", "array", "string", "number", "integer", "boolean", "null"))
+_SCHEMA_FORMATS = frozenset((
+    "date-time", "time", "date", "duration", "email", "idn-email", "hostname", "idn-hostname", "ipv4", "ipv6", "uri",
+    "uri-reference", "iri", "iri-reference", "uuid", "uri-template", "json-pointer", "relative-json-pointer", "regex",
+    "binary", "byte", "int32", "int64", "float", "double", "password"))
+_SCHEMA_REF_KEYS = frozenset(("$ref", "$id", "$anchor", "$dynamicRef", "$dynamicAnchor", "$schema"))
+_SCHEMA_KEYWORD_MODE = (_MODE_CLOSED, _SCHEMA_KEYWORDS)
+_SCHEMA_VALUE_MODE = {"type": (_MODE_CLOSED, _SCHEMA_JSON_TYPES), "format": (_MODE_CLOSED, _SCHEMA_FORMATS)}
+_IDENTIFIER_MODE = (_MODE_OPEN, None)
 
 
 def _w_schema(node, depth=0):
@@ -1293,9 +1398,15 @@ def _w_schema(node, depth=0):
         yield from _w_scan(node, depth + 1)
         return node
     for key, value in node.items():
-        yield from _w_scan(key, depth + 1)                    # la palabra clave es estructural
+        yield from _w_scan(key, depth + 1, _SCHEMA_KEYWORD_MODE)   # la palabra clave es estructural
         if key in _SCHEMA_SCALAR_KEYS or key == "required":
-            yield from _w_scan(value, depth + 1)
+            if key == "required":
+                modo = _IDENTIFIER_MODE
+            elif key in _SCHEMA_REF_KEYS:
+                modo = _IDENTIFIER_MODE
+            else:
+                modo = _SCHEMA_VALUE_MODE.get(key)
+            yield from _w_scan(value, depth + 1, modo)
         elif key in _SCHEMA_SUBSCHEMA_KEYS:
             yield from _w_schema(value, depth + 1)
         elif key in _SCHEMA_SUBSCHEMA_LISTS and isinstance(value, list):
@@ -1303,11 +1414,11 @@ def _w_schema(node, depth=0):
                 yield from _w_schema(sub, depth + 1)
         elif key in _SCHEMA_NAME_MAPS and isinstance(value, dict):
             for nombre, sub in value.items():
-                yield from _w_scan(nombre, depth + 1)         # el nombre de la propiedad es estructural
+                yield from _w_scan(nombre, depth + 1, _IDENTIFIER_MODE)   # el nombre de la propiedad es estructural
                 if isinstance(sub, (dict, list)) and key != "dependentRequired":
                     yield from _w_schema(sub, depth + 1)
                 else:
-                    yield from _w_scan(sub, depth + 1)
+                    yield from _w_scan(sub, depth + 1, _IDENTIFIER_MODE)
         else:                                                 # description, title, enum, const, default,
             node[key] = yield from _w_free(value, depth + 1)  # examples, pattern, $comment y desconocidos
     return node
@@ -1490,7 +1601,7 @@ def _w_container(fmt, nodo, path, depth, skip=(), exempt=frozenset()):
                     yield from _w_scan(item, depth + 1)
             continue
         if cls == _CLASS_STRUCT:
-            yield from _w_scan(valor, depth + 1)
+            yield from _w_scan(valor, depth + 1, _scan_mode(fmt, cp, tipo_bloque))
             continue
         yield from _w_scan(clave, depth + 1)
         nodo[clave] = yield from _w_free(valor, depth + 1)
@@ -1552,6 +1663,14 @@ def _collect_texts(body: dict, fmt: str, *, with_scans: bool = False, skip=(), e
             if with_scans:
                 partes.append(valor if isinstance(valor, str) else (
                     repr(valor) if isinstance(valor, float) else str(valor)))
+            return None
+        if tipo == "scan_closed":
+            if with_scans and not _in_vocabulary(*valor):      # dentro del vocabulario cerrado: no se analiza
+                partes.append(valor[1])
+            return None
+        if tipo == "scan_open":
+            if with_scans:
+                partes.append(valor)
             return None
         if tipo == "pdf":
             return (None, "skip")
@@ -1934,6 +2053,19 @@ class _FullScopeMasker:
             base += len(trozo)
         return out
 
+    async def identifier_entities(self, text: str) -> list:
+        """Detecciones de un identificador (posición estructural de vocabulario abierto): las de patrón y las propias de la
+        empresa. Los tipos de NER semántico se descartan ANTES de resolver solapes: una detección semántica que cubre a
+        todo el identificador (`leer 30123456` como PERSON) no puede tapar al patrón que va adentro (el DNI)."""
+        if not text or not text.strip():
+            return []
+        out, base = [], 0
+        for trozo in _split_for_analysis(text):
+            crudas = [e for e in await self.analyze(trozo) if e.get("entity_type") not in STRUCTURAL_IGNORED_ENTITY_TYPES]
+            out.extend({**e, "start": e["start"] + base, "end": e["end"] + base} for e in resolve_overlaps(crudas))
+            base += len(trozo)
+        return out
+
     async def prefetch(self, textos: list) -> None:
         """Analiza de a varios a la vez los textos que el recorrido va a pedir (el resultado queda en la
         memoria): un Claude Code típico trae cientos de cadenas cortas y una llamada por cadena en serie suma."""
@@ -1966,6 +2098,17 @@ class _FullScopeMasker:
             if not ents:
                 return valor
             return await self.mask_str(texto)
+        if tipo == "scan_closed":
+            vocab, valor = valor
+            if _in_vocabulary(vocab, valor):               # vocabulario cerrado del protocolo: nada que analizar
+                return None
+            tipo = "scan"                                  # fuera del vocabulario: posición estructural normal
+        if tipo == "scan_open":
+            ents = await self.identifier_entities(valor)
+            if ents:
+                self.tally.detected += len(ents)
+                self.tally.flag("structural_entity")
+            return None
         if tipo == "scan":
             ents = await self.entities(valor if isinstance(valor, str) else (
                 repr(valor) if isinstance(valor, float) else str(valor)))

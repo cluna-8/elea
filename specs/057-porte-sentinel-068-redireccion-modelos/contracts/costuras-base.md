@@ -97,6 +97,35 @@ nombrar el motor interno (FR-004); describe los modos con texto neutro.
 
   La tabla vive en el guardrail como dato; un test la compara con esta tabla: agregar o quitar una posición es un
   cambio de contrato con test.
+- **Vocabulario cerrado y tipos semánticos** (enmienda de N8 por decisión del owner, 2026-10-06; research R35). Con el analizador real el
+  NER marca como nombre, lugar o URL cadenas del protocolo y de las herramientas, y toda detección en una posición estructural bloquea; por eso,
+  **solo bajo la señal y solo en las posiciones estructurales de la tabla**:
+  1. **Vocabulario cerrado** (el valor dentro del conjunto no se analiza; fuera del conjunto se analiza como antes):
+
+     | Posición | Anthropic Messages | OpenAI chat |
+     |---|---|---|
+     | `messages[*].role` | `user`, `assistant` | `system`, `developer`, `user`, `assistant`, `tool`, `function` |
+     | `type` de bloque (`…type`) | `text`, `image`, `document`, `tool_use`, `server_tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `search_result`, `web_search_tool_result`, `web_search_result` | `text`, `refusal`, `image_url`, `input_audio`, `file` |
+     | `…source.type` / `…source.media_type` | `base64`, `url`, `text`, `file`, `content` / patrón `tipo/subtipo` MIME | — |
+     | `thinking.type` | `enabled`, `disabled`, `adaptive` | — |
+     | `tool_choice.type` | `auto`, `any`, `tool`, `none` | `function`, `allowed_tools`, `custom` (y `tool_choice` cadena: `none`, `auto`, `required`) |
+     | `tools[*].type` | `custom` o `nombre_AAAAMMDD` (herramientas del servidor) | `function`, `custom` |
+     | `messages[*].tool_calls[*].type`, `response_format.type` | — | `function` / `text`, `json_object`, `json_schema` |
+     | en `input_schema`, `parameters`, `json_schema.schema` | palabras clave del JSON Schema, `type` de JSON (`object`, `array`, `string`, `number`, `integer`, `boolean`, `null`) y `format` estándar | ídem |
+
+  2. **Identificadores de vocabulario abierto** (se ignoran **solo** los tipos `PERSON`, `LOCATION`, `ORGANIZATION`, `NRP`, `URL` y
+     `DATE_TIME`; cualquier otro tipo —DNI, CUIT, CBU, email, teléfono, tarjeta, IBAN, propios de la empresa, desconocidos— sigue siendo
+     `structural_entity`): Anthropic: `tools[*].name`, `tool_choice.name`, `id` y `name` de `tool_use`, `tool_use_id` de `tool_result`; OpenAI:
+     `tools[*].function.name`, `tool_choice.function.name`, `messages[*].tool_call_id`, `messages[*].tool_calls[*].id` y `.function.name`,
+     `response_format.json_schema.name`; en los dos, las claves de `properties` (y demás mapas de nombres), `required[*]` y `$ref`/`$id`/`$anchor`.
+     El descarte va **antes** de resolver solapes (una detección semántica larga no puede tapar a un patrón que va adentro).
+  3. **Sin cambios**: texto de mensajes, `tool_result`, `thinking`, `system`, `tool_use.input`, descripciones y todo subárbol libre (se enmascaran
+     también los tipos semánticos); una palabra clave de esquema fuera del vocabulario y los campos desconocidos se analizan estrictos; la clase
+     de cada posición (estructural: no se reescribe) y el resto de S14.
+
+  Las tablas viven en el guardrail como dato (`S14_CLOSED_VOCABULARY`, `S14_OPEN_IDENTIFIERS`, `STRUCTURAL_IGNORED_ENTITY_TYPES`) y un test las
+  compara con esta sección (`backend/tests/unit/test_masking_vocabulario_estructural.py`): agregar o quitar un valor, una posición o un tipo es un
+  cambio de contrato con test.
 - **PDF**: `document` con PDF en base64 (OpenAI: parte `file` con PDF) ⇒ texto con `pypdf`, enmascarado,
   reemplazado por un bloque de texto. Topes `MASKING_PDF_MAX_PAGES` (200) y `MASKING_PDF_MAX_BYTES` (20 MB).
   **Fuera del bucle de eventos** (QA v2 N4; research R29 3b): un proceso hijo por PDF con `RLIMIT_AS` =

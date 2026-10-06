@@ -253,6 +253,22 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   cuando la siembra es condición del fail-closed de la postura por defecto, el estado de la
   extensión lo informa (FR-031). Vuelve a Sentinel por `HANDOFF`.
 
+### Session 2026-10-06 (gate: vocabulario estructural con el NER real)
+
+<!-- Hallazgo del gate con el analizador real (no el simulado). Decisión del owner; enmienda N8 (QA v2) y no reabre ninguna
+     otra. Pregunta resuelta por el coordinador a partir de la decisión del owner. -->
+
+- Q: Con el NER real, `assistant`, `tool_use`, `Read`, `file_path` o un id `toolu_…` salen como PERSON/LOCATION y, como una
+  posición estructural no se reescribe, TODO pedido con un mensaje `assistant` o con herramientas se bloquea con
+  `structural_entity` (un Claude Code de 60 herramientas y 24 turnos: 206). ¿Qué se hace con las posiciones estructurales (N8)?
+  → A: Dos reglas, solo bajo el enmascarado forzado y solo en las posiciones estructurales de la tabla de S14. (A) Los valores
+  del **vocabulario cerrado del protocolo** (roles, `type` de bloque, `tool_choice.type`, `thinking.type`, `source.type` y
+  `media_type`) no se analizan si están dentro del conjunto; uno fuera del conjunto se analiza como siempre. (B) En las posiciones
+  de **vocabulario abierto** (nombres de herramienta, claves y nombres del esquema, ids y nombres de `tool_use`/`tool_result`) se
+  ignoran solo los tipos de NER **semántico** (`PERSON`, `LOCATION`, `ORGANIZATION`, `NRP`, `URL`, `DATE_TIME`); los de patrón (DNI,
+  CUIT, CBU, email, teléfono, tarjeta, IBAN…) y los propios de la empresa siguen bloqueando. Mensajes, `tool_result`, `thinking`,
+  `system` y los subárboles libres no cambian. Vuelve a Sentinel por `HANDOFF` (costura S14, retrocompatible).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Claude Desktop y Claude Code con el modelo que elige la empresa (Priority: P1)

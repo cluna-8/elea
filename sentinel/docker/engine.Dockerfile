@@ -20,7 +20,11 @@ COPY sentinel/engine/redirect_*.py /app/extensions/
 COPY deploy/release/fragment_merge.py /tmp/ext/fragment_merge.py
 COPY sentinel/engine/profile-fragment.yaml /tmp/ext/profile-fragment.yaml
 COPY sentinel/docker/engine-requirements.txt /tmp/ext/engine-requirements.txt
+# El Python de la base es un venv creado con `uv` y no trae pip: se arranca con `ensurepip` (viene con
+# el intérprete, sin red) y se desinstala al terminar, para no dejar una herramienta que la base no tiene.
 RUN python3 /tmp/ext/fragment_merge.py /app/config.yaml /tmp/ext/profile-fragment.yaml \
+    && python3 -m ensurepip --default-pip \
     && python3 -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/ext/engine-requirements.txt \
     && python3 -c "import pypdf; from pypdf import Configuration" \
+    && python3 -m pip uninstall -y pip \
     && rm -rf /tmp/ext

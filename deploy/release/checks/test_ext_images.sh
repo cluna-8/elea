@@ -168,6 +168,15 @@ if not any(x[0] == "sentinel/docker/engine-requirements.txt" for x in copias_e):
 inst = [i for i in e if i.startswith("RUN ") and "pip" in i and "install" in i]
 if not inst or not all("--require-hashes" in i and "engine-requirements.txt" in i for i in inst):
     mal("motor: pypdf se instala con `pip install --require-hashes -r …engine-requirements.txt`")
+# El Python de la base es un venv creado con `uv` y NO trae pip (verificado en la imagen real, T086):
+# el RUN tiene que arrancar pip con `ensurepip` antes de instalar, y sacarlo después para no dejar
+# en la imagen una herramienta que la base no trae.
+for i in inst:
+    pos_ensure, pos_pip = i.find("ensurepip"), i.find("-m pip install")
+    if pos_ensure < 0 or (pos_pip >= 0 and pos_ensure > pos_pip):
+        mal("motor: el venv de la base no trae pip; el RUN debe correr `python3 -m ensurepip` ANTES de `pip install`")
+    if "pip uninstall" not in i:
+        mal("motor: el RUN debe desinstalar pip al terminar (`python3 -m pip uninstall -y pip`): la base no lo trae")
 if any(i.startswith("ENTRYPOINT ") or i.startswith("CMD ") for i in e):
     mal("motor: no redefine ENTRYPOINT/CMD (los de la base)")
 

@@ -894,6 +894,49 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   nuevo. La cifra real con el analizador activo la toma la corrida con Docker (T045/T083; 🐳).
 - **Por qué S17 y no dentro de S13/S14**: es una costura de base con su propio contrato, variables y test; no cambia ninguna garantía de S13 ni de S14.
 
+## R35. Posiciones estructurales con el NER real: vocabulario cerrado y tipos semánticos — enmienda de N8 sobre S14 (decisión del owner, 2026-10-06; FR-027, SC-006)
+
+- **Hechos** (gate de la 057, analizador real: spaCy `es` + reconocedores de patrón): R29.2 manda que una detección en una posición
+  **estructural** (no se reescribe, porque cambiarla rompería el pedido) sea `structural_entity` ⇒ no analizable ⇒ bloqueo. Con el
+  analizador simulado de las suites no se veía; con el real, el NER marca como PERSON/LOCATION/ORGANIZATION/URL cadenas del protocolo y
+  de las herramientas: `assistant`, `tool_use`, `Read`, `file_path`, `Herramienta3`, `toolu_01A09…`, `0.py`. Resultado medido: un
+  pedido `user`/`assistant`/`user` ya se bloqueaba (`assistant` como PERSON) y el pedido sintético de Claude Code (60 herramientas,
+  24 turnos, ≈ 93 000 caracteres) daba **206 `structural_entity`**: el forzado completo era inusable para el caso que justifica S14.
+- **Decisión del owner**: **no** se vuelve a eximir por nombre de clave ni se apaga el bloqueo de lo estructural (N8 sigue en pie). Se
+  separa lo que fija el protocolo de lo que elige el cliente:
+  - **(A) Vocabulario cerrado**: el valor de una posición cuyo conjunto de valores lo fija el protocolo (`messages[*].role`, `type` de bloque,
+    `…source.type`, `…source.media_type`, `thinking.type`, `tool_choice.type`, `tools[*].type`; en OpenAI además `response_format.type`,
+    `tool_choice` cadena, `tool_calls[*].type`) y que **está dentro de ese conjunto** no se analiza. Uno fuera del conjunto (un rol
+    `Juan Pérez`, un DNI como rol) se analiza como siempre ⇒ sigue bloqueando. En el esquema de herramientas, las palabras clave del
+    JSON Schema, los `type` de JSON y los `format` estándar son el mismo caso.
+  - **(B) Vocabulario abierto** (el cliente elige la cadena: `tools[*].name`, `tool_choice.name`, `id` y `name` de `tool_use`,
+    `tool_use_id` de `tool_result`, claves de `properties`, `required[*]`, `$ref`; en OpenAI `tool_call_id`, `tool_calls[*].id`,
+    `…function.name`, `response_format.json_schema.name`): se ignoran **solo** los tipos de una lista cerrada de NER semántico
+    (`STRUCTURAL_IGNORED_ENTITY_TYPES`: PERSON, LOCATION, ORGANIZATION, NRP, URL, DATE_TIME). Los de patrón y los propios de la empresa
+    (`custom_entities`) o desconocidos siguen siendo `structural_entity`.
+  - **Solo bajo el enmascarado forzado y solo en esas posiciones**: el texto de los mensajes, `tool_result`, `thinking`, `system`,
+    `tool_use.input`, las descripciones y los subárboles libres se analizan y enmascaran como antes (los tipos semánticos se siguen
+    enmascarando ahí). Una palabra clave de esquema fuera del vocabulario o un campo desconocido de primer nivel se analiza estricto.
+- **Detalle que importa (hallado con TDD)**: el descarte de los tipos semánticos va **antes** de resolver solapes. El solapamiento se
+  resuelve por la detección más larga (`resolve_overlaps`, FR-009): si el NER marca `leer 30123456` entero como PERSON, esa detección
+  larga tapa al DNI que va adentro, y filtrar después la dejaría pasar. Por eso los identificadores se analizan con
+  `identifier_entities` (filtra y recién entonces resuelve). Reusa el mismo análisis cacheado de S17 (mismo texto ⇒ mismo resultado
+  del analizador, sin llamada nueva).
+- **Qué no cambia**: el contrato de S14 (señal, alcance, tabla de posiciones, informe, restauración), la clase de cada posición
+  (siguen «estructurales»: no se reescriben) y la garantía de que ningún dato personal viaja en claro: lo único que deja de bloquear es
+  una cadena del protocolo o un identificador que el NER confunde con un nombre propio. Los secretos (`SECRET_PATTERNS`) no son un tipo
+  del analizador sino un detector aparte: no cambian.
+- **Alternativas descartadas**: (a) eximir las posiciones estructurales por completo: un DNI en el nombre de una herramienta saldría en
+  claro (reabre N8); (b) reescribir los identificadores enmascarados: rompe el pedido (el destino no reconoce la herramienta);
+  (c) listas de nombres propios exentos («Read», «Bash»…): es exención por nombre; (d) bajar el puntaje de NER: no es determinista ni
+  explicable; (e) filtrar los tipos semánticos después de resolver solapes: ver «Detalle que importa».
+- **Costo/riesgo**: un identificador con un nombre de persona real (`tools[*].name = "juan_perez"`) pasa sin bloquear porque el tipo es
+  semántico: es el trade-off aceptado por el owner (un nombre de herramienta no es un dato personal del titular; si lleva un DNI, un
+  email, un teléfono, una tarjeta o un IBAN, bloquea).
+- **Tests**: `backend/tests/unit/test_masking_vocabulario_estructural.py` (rol `assistant`, 24 turnos con 60 herramientas, vocabulario
+  fuera del conjunto, DNI/CUIT/CBU/email/tarjeta/IBAN/teléfono en cada posición abierta, tipo propio de la empresa, texto libre
+  intacto, instantánea de las tablas del contrato).
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas
@@ -1002,7 +1045,7 @@ D5, D10, D12, la enmienda del 403, P1–P5).
 | N5 — el default `eu` en tres sitios | Bajo | Un único `tenant_region()` para el tráfico, `list_postures` y `run_fidelity` | research.md:605 (R28.6); tasks.md:219 (T060); tasks.md:214 (T094) |
 | N6 — T100 no enumeraba las variables que activan la extensión | Bajo | Lista completa de HANDOFF §2.1 en el test; el instalador falla ante cualquier no-200 de la salud (también 404) | tasks.md:277 (T100) |
 | N7 — contexto de build de las `-ext` | Bajo | Contexto = raíz del repo, verificado por `test_ext_images.sh` | tasks.md:125 (T091) |
-| N8 — S14: exención por nombre, claves y números | Medio | Exenciones por posición del protocolo (tabla cerrada en el contrato, opacas/estructurales/libres); detección en posición estructural ⇒ `structural_entity` ⇒ bloqueo; claves y números analizados en subárboles libres; test de colisiones, claves, números, contrabando e instantánea de la tabla | research.md:639 (R29.2); contracts/costuras-base.md:66 (S14); tasks.md:217 (T106); tasks.md:226 (T097); tasks.md:215 (T096) |
+| N8 — S14: exención por nombre, claves y números (enmendada por R35 con el NER real) | Medio | Exenciones por posición del protocolo (tabla cerrada en el contrato, opacas/estructurales/libres); detección en posición estructural ⇒ `structural_entity` ⇒ bloqueo; claves y números analizados en subárboles libres; test de colisiones, claves, números, contrabando e instantánea de la tabla | research.md:639 (R29.2); contracts/costuras-base.md:66 (S14); tasks.md:217 (T106); tasks.md:226 (T097); tasks.md:215 (T096) |
 | N9 — `compose.prod.yml` inyecta `eu`: el estado es `region_row_missing`, no `region_unresolved` | Bajo | Precisión en R28; T094 lo prueba; T080/T081 lo describen | research.md:600 (R28.5); tasks.md:214 (T094); tasks.md:294 (T080); tasks.md:295 (T081) |
 | Observación — T045 mide antes de S14 | — | T045 aclara que su conteo no es la medida de A4 (lo es T083) | tasks.md:162 (T045) |
 | §2b(1) — 403 de residencia con «Failed to authenticate» en Claude Desktop | — | Síntoma conocido en la guía de Desktop | tasks.md:293 (T079) |
