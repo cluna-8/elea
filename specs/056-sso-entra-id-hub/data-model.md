@@ -58,7 +58,7 @@ Un reinicio del Hub vacía el `Map`: el callback no encuentra pendiente y respon
 |---|---|
 | `token` | Sin cambio: el JWT de Guardian, solo del lado del servidor. En el camino SSO llega en el cuerpo de la respuesta del callback del backend (`backend/src/sso/api.py:324-336`). |
 | `user` | Sin cambio de forma: `{id, username, role, display_label, email}` del callback. No trae `must_change_password` (research H11), así que el modal obligatorio no se abre (FR-008). |
-| `auth_method` | **Nuevo**, `'password'` \| `'sso'`. Ausente en sesiones creadas por `POST /api/auth/login` (= `'password'`, sin cambiar ese camino: FR-005). `'sso'` solo lo pone `GET /sso/callback`. Lo expone `GET /api/user/current` como `user.auth_method`. |
+| `auth_method` | **Nuevo**, `'password'` \| `'sso'`. Ausente en sesiones creadas por `POST /api/auth/login` (= `'password'`, sin cambiar lo visible de ese camino: FR-005; desde T049 ese login también rota el `sid`, N7 del QA v2). `'sso'` solo lo pone `GET /sso/callback`. Lo expone `GET /api/user/current` como `user.auth_method`. |
 
 **Rotación de `sid`** (research D1, requisito 4): al emitir una sesión SSO el Hub genera un `sid`
 nuevo, guarda la sesión bajo ese `sid`, borra cualquier sesión del `sid` viejo y responde con

@@ -104,7 +104,7 @@ error. El panel tendría un botón roto (la spec dice que el panel sigue con con
 
 | Opción | Cómo | Evaluación |
 |---|---|---|
-| **A. `/available` informa el origen de retorno** | `GET /auth/sso/available` suma `return_origin` = esquema+host+puerto de `SENTINEL_SSO_REDIRECT_URI` (o `null` si no está). El panel muestra el botón solo si `return_origin` es `null`/ausente (retrocompatible) o igual a `window.location.origin`. El Hub hace lo mismo y, si está en otro origen (p. ej. `http://172.16.0.120:8095`), el botón lleva a `${return_origin}/sso/login`. | Cero configuración nueva, automático en las dos líneas (en Sentinel la URI puede seguir apuntando al panel). Además resuelve el caso "el usuario entró por la IP y el retorno vuelve al nombre DNS" (cookies distintas por origen). Lo que expone pre-auth (el nombre público del Hub) ya lo ve cualquiera que pulse el botón: va en el `redirect_uri` de la URL de Microsoft. Cambio de base chico, con test. |
+| **A. `/available` informa el origen de retorno** | `GET /auth/sso/available` suma `return_origin` = esquema+host+puerto de `SENTINEL_SSO_REDIRECT_URI` (o `null` si no está). El panel muestra el botón solo si `return_origin` es `null`/ausente (retrocompatible) o igual a `window.location.origin`. El Hub hace lo mismo y, si está en otro origen (p. ej. `http://172.16.0.120:8095`), el botón lleva a `${return_origin}/sso/login`. | Cero configuración nueva, automático en las dos líneas (en Sentinel la URI puede seguir apuntando al panel). Además resuelve el caso "el usuario entró por la IP y el retorno vuelve al nombre DNS" (cookies distintas por origen). Lo que expone pre-auth (el nombre público del Hub) ya lo ve cualquiera que pulse el botón: va en el `redirect_uri` de la URL de Microsoft. Por eso se informa **solo con `enabled:true`**; con `enabled:false` es `null`, y una variable mal formada también da `null`, nunca un 500 (N3 del QA v2, respuesta 3 de clarify). Cambio de base chico, con test. |
 | B. Variable `SENTINEL_SSO_PANEL_LOGIN=false` | `/available` suma `panel_login`; el instalador de Elea la pone en `false`. | Una variable más que mantener coherente a mano con la URI; no ayuda al caso IP vs nombre. |
 | C. Lista de URIs permitidas en el backend | `SENTINEL_SSO_REDIRECT_URIS` y elegir según origen. | Es "SSO también en el panel" (fuera de alcance, +0,5 a 1 día). |
 | D. No hacer nada y documentarlo | El botón del panel falla con "volvé a intentar". | Botón roto visible para admins; contradice FR-006 en el espíritu. |
@@ -167,9 +167,16 @@ A**, decidida por el owner vía coordinador el 2026-10-05):
   categoría (flujo, canje), con el conteo omitido. Es metadata-only, sin `state`, `code`, IP ni
   token.
 - **Respuesta HTTP**: no cambia (mismo status y mismo `detail`). El tope limita la auditoría y
-  las llamadas salientes, nunca el veredicto. Efecto aceptado: mientras dura una ráfaga, un
-  canje legítimo dentro de la misma ventana también recibe el 401. Solo se degrada el camino SSO
-  (FR-006).
+  las llamadas salientes, nunca el veredicto. **Efecto aceptado (límite conocido, N1 del QA
+  v2)**: no es una ráfaga pasajera. La cookie de estado vale 10 minutos (`api.py:59`, `:95`), así
+  que con **una** cookie alcanza mandar 30 canjes con `code` basura al inicio de cada ventana de
+  60 s (0,5 pedidos/s sostenidos) para que **todo** canje legítimo de esa ventana reciba el 401
+  sin llegar al directorio. Un tercero con acceso de red al backend puede mantener fuera de
+  servicio el ingreso con Microsoft mientras sostenga ese ritmo. Solo se degrada el camino SSO:
+  el login con contraseña no se afecta (FR-006). El owner acepta el trueque, que es el lado
+  fail-closed (constitución, Security 3), y el diseño no cambia. Cómo se distingue del directorio
+  caído: filas `auth_sso_denied` hasta el tope y después un `logger.warning` con el conteo omitido
+  por ventana (guía de T039, caso de diagnóstico de T046).
 - **Alcance**: cambio de base mínimo y genérico, con test. Viaja a Sentinel con `sso/`. La
   imagen del backend de Elea corre **un** proceso `uvicorn` (`backend/Dockerfile.standalone:35`),
   así que ahí "por proceso" equivale a "por instalación". La imagen prod de la base arranca
@@ -244,6 +251,23 @@ es una decisión aparte del dueño.
   explícito (H15) y lo anota en el resumen final.
 - `.env.example` del instalador documenta `ELEA_TAG` y `SENTINEL_SSO_REDIRECT_URI` (vacía = sin
   SSO, FR-009b).
+- **Promover a `latest` = re-etiquetar, no reconstruir** (N2 del QA v2, fijado por el owner en
+  el brief del 2026-10-05). `publish-elea.sh` hace `docker build` cada vez (`:34`) y empuja lo
+  recién construido (`:41-42`). Si la Etapa 5 republicara con `LATEST=1`, el cliente recibiría
+  bits distintos de los que se probaron en la Etapa 1 y ya corren en el server de producción de
+  Elea, donde los usó el grupo piloto de 2 o 3 usuarios en la Etapa 4. Por eso el
+  script suma el modo `PROMOTE_FROM=<tag>`: `pull` de la candidata, `tag` a `:${VERSION}` y
+  `:latest`, y `push`, **sin** `build`. Los digests publicados son los de la candidata y se
+  comparan con las líneas `PINNED …` (`:43`) anotadas al publicarla
+  ([instalador-y-release.md](contracts/instalador-y-release.md) §5).
+- **Residual, provisorio** (respuesta del coordinador a la pregunta 2 de clarify, 2026-10-06;
+  **sujeto a la política de dependencias e imágenes reproducibles que va a definir el owner**, a
+  partir de un análisis aparte con medición de la imagen en producción): `client/Dockerfile:10-11`
+  copia solo `package.json` y corre `npm install --production`, aunque `client/package-lock.json`
+  existe, y las capas `apk`/`pip` de `:4-6` no están fijadas. Con el re-etiquetado eso **no**
+  afecta lo que se entrega en la Etapa 5 (mismos digests), pero una reconstrucción posterior (por
+  ejemplo un hotfix) puede traer otras versiones. Esta spec no suma tarea en el tramo B; se anota
+  también en el HANDOFF (T047).
 
 ## D10 — Formulario de configuración en el panel (US3)
 
@@ -272,7 +296,7 @@ detrás del proxy del cliente todos los pedidos llegan desde la misma IP (D7).
 | Opción | Cómo | Evaluación |
 |---|---|---|
 | A. Rechazar al que llega | Lleno después de barrer vencidos → `sso_reintentar` y no guarda. | Protege a los que están a mitad de ingreso. No acota la carga en el backend. |
-| **B. A + límite de ritmo global** | Además, un contador global por proceso en `/sso/login` del Hub (`120/min`, ventana de 60 s, reloj inyectable). Pasado el límite → `sso_reintentar` sin llamar al backend. | Acota también la carga en el backend. Solo Hub. Durante una ráfaga, un ingreso nuevo puede tener que reintentar; la contraseña sigue (FR-006). |
+| **B. A + límite de ritmo global** | Además, un contador global por proceso en `/sso/login` del Hub (`120/min`, ventana de 60 s, reloj inyectable). Pasado el límite → `sso_reintentar` sin llamar al backend. | Acota también la carga en el backend. Solo Hub. Efecto aceptado (N1 del QA v2): 2 pedidos/s **sostenidos** sin autenticarse dejan el botón en `sso_reintentar` para todos mientras dure; la contraseña sigue (FR-006). El valor `120/min` no sale de un dato medido: tras un reinicio del Hub (sesiones en memoria) el reingreso masivo legítimo también lo puede alcanzar. |
 
 **Recomendación**: B. **Elección final**: ver la nota de cierre de esta sección.
 
@@ -399,6 +423,29 @@ los de tasks.md regenerado; los que cita qa-plan.md son los de la versión anter
 | B4 | Baja | Riesgo aceptado: solo corta un ingreso en curso, no da acceso | tasks.md:462-464 (Riesgos aceptados) |
 | B5 | Baja | `return_origin` con `scheme`, `hostname` y `port` (nunca `netloc`), sin el puerto por defecto y en minúsculas; casos en T004 | contracts/guardian-sso-api.md:22 y :45-48 (tests 3 y 4); tasks.md:85-87 (T004) y tasks.md:101 (T006) |
 | B6 | Baja | `Cache-Control: no-store` en `/api/auth/sso/available` del Hub, con test | contracts/hub-sso.md:32-33; data-model.md:74; tasks.md:142 (T011) y tasks.md:177 (T017) |
-| B7 | Baja | SC-002 con datos reales se cierra en el piloto (Etapa 4), anotado en DESPLIEGUE y en el HANDOFF | tasks.md:358 (T041) y tasks.md:390 (T048) |
+| B7 | Baja | SC-002 con datos reales se cierra en el server de producción de Elea (Etapa 4: grupo piloto de 2 o 3 usuarios y después el resto), anotado en DESPLIEGUE y en el HANDOFF | tasks.md:358 (T041) y tasks.md:390 (T048) |
 | B8 | Baja | (a) la sección del Hub en `sso.md` se marca "solo si hay Hub"; (b) `ELEA_TAG` se porta como enfoque (FR-014 lo exceptúa como nombre propio del instalador); (c) el tope por proceso se anota en el HANDOFF como `tope × workers` | research.md:173-177 (D6, alcance); spec.md:313-316 (FR-014); tasks.md:341 (T039), tasks.md:381-383 y tasks.md:386 (T047) |
 | B9 | Baja | El tramo 0 ignora en `.gitignore` la licencia y el compose de prueba local, y lo verifica con `git check-ignore`. La firma dev sigue como deuda declarada | tasks.md:44 (propiedad del tramo 0), tasks.md:64-67 (T003) y tasks.md:467-468 (riesgo aceptado) |
+
+**Nota sobre las citas de la tabla anterior**: sus `archivo:línea` corresponden a los artefactos
+del commit `5d689b5`. La enmienda del QA v2 insertó líneas en spec.md, tasks.md y los contratos;
+las citas vigentes de esa enmienda están en la tabla siguiente.
+
+## Trazabilidad del QA v2
+
+Resolución de cada hallazgo nuevo de [qa-plan-v2.md](qa-plan-v2.md) §Hallazgos nuevos, con
+`archivo:línea` de la enmienda (2026-10-05 y 2026-10-06; preguntas de `speckit-clarify`
+contestadas por el coordinador). Rutas relativas a `specs/056-sso-entra-id-hub/`. tasks.md **no se
+renumeró**: N7 suma la tarea T049 al tramo B.
+
+| # | Sev. | Resolución | Dónde queda resuelto |
+|---|---|---|---|
+| N1 | Media | Clarify 1 = A (owner): límite conocido aceptado, sin cambio de diseño (D6 y D11 siguen). Ya no se dice "ráfaga": un ritmo **sostenido** de 0,5 pedidos/s (callback del backend, una sola cookie de estado) a 2 pedidos/s (`/sso/login` del Hub), sin autenticarse, deja sin SSO a todos mientras dure; la contraseña sigue. `120/min` no sale de un dato medido. Guía, HANDOFF y un caso de diagnóstico en la prueba | spec.md:98-107 (Clarification), spec.md:255-262 y :263-270 (Edge Cases); research.md:169-178 (D6) y research.md:299 (D11); contracts/guardian-sso-api.md:109-115; contracts/hub-sso.md:46-50; quickstart.md:131-137 (§4 caso 8); tasks.md:378 (T039), tasks.md:410 (T046), tasks.md:421 (T047) y tasks.md:505-509 (Riesgos aceptados) |
+| N2 | Media | Promover a `latest` = re-etiquetar y empujar **los mismos digests** de la candidata, sin `build` (modo `PROMOTE_FROM`), con comparación de las líneas `PINNED`. Clarify 2 = A **provisorio**: el lockfile de `client/Dockerfile:10-11` queda como residual, sujeto a la política de imágenes reproducibles del owner, sin tarea nueva. Vocabulario del owner: el server de Elea es producción; "piloto" es el grupo de 2 o 3 usuarios | spec.md:114-119 (Clarification); research.md:254-261 (D9) y research.md:263-270 (residual); contracts/instalador-y-release.md:74-107 (§5) y :116 (gate); quickstart.md:141-145 (§5 paso 1) y :163-165; tasks.md:324-329 (T030), tasks.md:330 (T031), tasks.md:390-391 (T041), tasks.md:409 (T045), tasks.md:423 (T047, residual) y tasks.md:426 (T048) |
+| N3 | Baja | Clarify 3 = A: `return_origin` es `null` con `enabled:false`; `try/except ValueError` → `null` (puerto inválido o fuera de rango, IPv6 mal cerrado), nunca 500; corchetes para IPv6 | spec.md:120-124 (Clarification) y spec.md:364-367 (FR-015); research.md:107 (D4); contracts/guardian-sso-api.md:22, :24-25 y :50-57 (tests 5b, 7 y 8); tasks.md:97-101 (T004) y tasks.md:115 (T006) |
+| N4 | Baja | El tope de canje **reserva** el lugar antes de llamar (incrementa y compara atómico), lo devuelve si el canje sale bien, y el contador se toca desde el event loop o con `threading.Lock`; test concurrente con un doble lento | contracts/guardian-sso-api.md:98-104; tasks.md:109 (T005) y tasks.md:126-128 (T008) |
+| N5 | Baja | `destinoBoton` exige un origen bien formado (`new URL(x).origin === x`, `http:`/`https:`); casos con comilla, espacio, `<`, `\\`, credenciales, ruta y barra; botón con `createElement` + `textContent`, nunca `innerHTML` | contracts/hub-sso.md:151, :158-164 (§6, cableado), :212-217 (test 17) y :220-222 (test 20); tasks.md:181 y :185 (T014), tasks.md:223 y :225 (T021) |
+| N6 | Baja | Todo texto nuevo visible, incluida la etiqueta del botón (`TEXTO_BOTON`), vive en `sso-ui.js`; test 23 de lectura estática de `index.html`. Límite honesto: `client/server.js:19` ya contiene `ELEA_*`, así que sus rutas nuevas no se verifican contra FR-014 por lectura | contracts/hub-sso.md:152 y :233-238 (test 23); tasks.md:184 (T014), tasks.md:189-191 (T015) y tasks.md:223 (T021) |
+| N7 | Baja (preexistente) | Clarify 4 = B (owner, 2026-10-06): se arregla en la 056. Tarea **nueva T049** del tramo B, commit aparte `fix(hub)`: rotar el `sid` en `POST /api/auth/login` (`client/server.js:258-273`) y `parseCookies` (`:78-86`) con `try` (cookie mala ignorada, nunca 500). FR-005 se mantiene: lo visible no cambia | spec.md:125-130 (Clarification), spec.md:273-275 (Edge Case) y spec.md:315-319 (FR-005); contracts/hub-sso.md:14-17, :139-140 (§5) y :200-208 (tests 16, 24 y 25); data-model.md:61; tasks.md:54 (propiedad), tasks.md:222 (T020), tasks.md:243 (T022), tasks.md:253 (T023), tasks.md:255-261 (T049), tasks.md:416 (T047) y tasks.md:451, :459 (orden) |
+| N8 | Baja | La respuesta del callback lleva **exactamente** el `sid` rotado y el borrado de `__Host-sso_flow`, los dos (lista de `Set-Cookie`, se reemplaza solo la entrada `elea_rag_sid`); test con `getSetCookie()` | contracts/hub-sso.md:95-99 (§3) y :184-189 (test 6); tasks.md:166 (T012), tasks.md:209 (T019) y tasks.md:217 (T020) |
+| T002 | — | La línea base de las partes con Docker sale del último run del CI de `main` (run `35871397897`: 18 fallas conocidas + `check-docs`, que se arregla aparte) y no se corre en local | tasks.md:71-73 (T002) |

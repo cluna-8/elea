@@ -128,11 +128,20 @@ los tests del backend ([guardian-sso-api.md](contracts/guardian-sso-api.md) §2)
    Hub **no** muestra el botón (FR-001, FR-015).
 7. Apagar el interruptor **entre** pulsar el botón y completar el ingreso en Microsoft: mensaje
    "no está disponible", un `auth_sso_denied` en la auditoría y el login con contraseña intacto.
+8. **Corte por tope** (N1 del QA v2, límite conocido): con una sola cookie de estado del backend,
+   mandar más de 30 callbacks con `code` inventado dentro del mismo minuto y, en ese minuto,
+   intentar un ingreso real. **Esperado**: el ingreso real ve "No se pudo confirmar el ingreso
+   con Microsoft…"; en el panel hay 30 `auth_sso_denied` de ese minuto y no más; en el log del
+   backend, un warning con el conteo omitido (sin `state`, `code` ni IP). El login con contraseña
+   funciona igual. Al minuto siguiente el ingreso real entra. Así se distingue el corte por tope
+   de un secreto vencido o un directorio caído (caso 3), que no deja el warning de conteo.
 
 ## 5. Instalador y vuelta atrás (Etapa 1 de DESPLIEGUE-Y-REVERSION.md)
 
 1. Imágenes candidatas: `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh`.
-   **Esperado**: en el registro existe `:056-rc1` y `:latest` no se movió.
+   **Esperado**: en el registro existe `:056-rc1` y `:latest` no se movió. Anotar las líneas
+   `PINNED …` que imprime el script: la promoción de la Etapa 5 (`PROMOTE_FROM=056-rc1`, sin
+   reconstruir) tiene que publicar esos mismos digests (N2 del QA v2).
 2. Instalación desde cero con el instalador en el tag anterior (`ELEA_TAG=<fecha-anterior>`),
    con algunos usuarios e historial.
 3. Actualizar con `ELEA_TAG=056-rc1 ./install.sh`, **sin** `SENTINEL_SSO_REDIRECT_URI`.
@@ -151,5 +160,6 @@ los tests del backend ([guardian-sso-api.md](contracts/guardian-sso-api.md) §2)
 
 Anotar resultados y capturas en `RESULTADOS-PRUEBA-LOCAL.md` en esta carpeta (como pide
 GUIA-PRUEBA-LOCAL-SSO.md §6) y marcar la fila `login-real` del runbook de la 017. **Listo para
-el server de Elea** = §1 a §5 en verde. **Listo de verdad** = un ingreso real de un piloto de
-Elea en su Hub (Etapa 4, regla del equipo).
+el server de Elea** = §1 a §5 en verde. **Listo de verdad** = un ingreso real de un usuario del
+grupo piloto (2 o 3 personas de Elea) en el Hub del server de producción (Etapa 4, regla del
+equipo).

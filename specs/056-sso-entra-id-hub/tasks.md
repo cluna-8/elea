@@ -13,6 +13,14 @@ clarify el 2026-10-05), [research.md](research.md) (D1 a D15), [data-model.md](d
 renumeraron. Los IDs que cita qa-plan.md son los de la versión anterior. La correspondencia de
 cada hallazgo con su tarea nueva está en research.md, §Trazabilidad del QA.
 
+**Enmendado el 2026-10-05** por el QA v2 ([qa-plan-v2.md](qa-plan-v2.md)), **sin renumerar**:
+N1 (efecto de los topes, límite conocido) en T039, T046, T047 y Riesgos aceptados; N2 (promover
+= re-etiquetar) en T030, T031, T041, T045 y T048; N3 a N6 y N8 como casos de test dentro de T004
+a T008, T012 a T015 y T019 a T021; N7 (preexistente, decisión del owner del 2026-10-06) como
+tarea **nueva T049** del tramo B, agregada al final para no renumerar; línea base de Docker desde
+el CI en T002. Resolución con
+`archivo:línea` en research.md, §Trazabilidad del QA v2.
+
 **Tests**: **obligatorios** (AGENTS.md: TDD donde hay código nuevo). En cada tramo los tests se
 escriben primero y **tienen que fallar** antes de la implementación. Eso incluye la pantalla del
 Hub (research D13) y la marca blanca (research D14).
@@ -43,7 +51,7 @@ igual al de hoy. Los tramos B y D (Hub e instalador) pueden divergir de Sentinel
 |---|---|---|---|---|---|
 | **0** Setup | 1 | T001–T003 (3) | elea | rama; `.gitignore` (solo las dos entradas de prueba local). Licencia y compose de prueba quedan fuera de git | — (va primero) |
 | **A** Base Guardian | 2 | T004–T009 (6) | elea | `backend/src/sso/api.py`, `backend/tests/integration/test_sso_api.py` | B, C, D |
-| **B** Hub | 3, 4 | T010–T023 (14) | elea | `client/sso.js` (nuevo), `client/server.js`, `client/public/sso-ui.js` (nuevo), `client/public/index.html`, `client/README.md`, `client/tests/unit/sso-pendientes-056.test.js`, `client/tests/unit/sso-ui-056.test.js`, `client/tests/unit/whitelabel-hub-056.test.js`, `client/tests/contract/test_sso_hub_056.test.js`, `client/tests/integration/test_sso_flujo_056.test.js` | A, C, D |
+| **B** Hub | 3, 4 | T010–T023 + T049 (15) | elea | `client/sso.js` (nuevo), `client/server.js`, `client/public/sso-ui.js` (nuevo), `client/public/index.html`, `client/README.md`, `client/tests/unit/sso-pendientes-056.test.js`, `client/tests/unit/sso-ui-056.test.js`, `client/tests/unit/whitelabel-hub-056.test.js`, `client/tests/contract/test_sso_hub_056.test.js`, `client/tests/integration/test_sso_flujo_056.test.js`, `client/tests/contract/test_login_sid_056.test.js` (nuevo, T049) | A, C, D |
 | **C** Panel | 5 | T024–T029 (6) | elea | `frontend/src/services/api.ts`, `frontend/src/pages/LoginPage.tsx`, `frontend/src/pages/UsersPage.tsx`, `frontend/tests/contract/UsersPage.sso-config.test.tsx`, `frontend/tests/contract/LoginPage.sso-origin.test.tsx` | A, B, D |
 | **D** Instalador y release | 6 | T030–T038 (9) | elea-installer + elea | `elea-installer/{docker-compose.yml,.env.example,install.sh,README.md,.gitignore,license/.gitkeep}`, `deploy/release/publish-elea.sh`, `deploy/release/checks/test_publish_elea_latest.sh` (nuevo), `deploy/Makefile` (target `check-release-publish`) | A, B, C |
 | **E** Guía, docs y cierre | 7, 8 | T039–T048 (10) | elea | `docs/docs/install-deploy/sso.md`, `docs/docs/api-reference/openapi.json` (generado), `deploy/Makefile` (target `check-hub-whitelabel`; E corre después de D, nunca en paralelo), `specs/056-sso-entra-id-hub/{SOLICITUD-A-ELEA.md,DESPLIEGUE-Y-REVERSION.md,RESULTADOS-PRUEBA-LOCAL.md,HANDOFF-elea-a-sentinel.md}`, `specs/017-auth-rbac-sso/RUNBOOK-e2e-sso.md` | — (va al final) |
@@ -60,7 +68,9 @@ se valida en el tramo E (T046).
 de despachar A a D.
 
 - [ ] T001 [repo: elea] Crear la rama `056-sso-entra-id-hub` desde `main` con los artefactos de `specs/056-sso-entra-id-hub/` (sin commits a `main`; cada tramo trabaja en su rama hija y termina en PR contra esta rama)
-- [ ] T002 [repo: elea] Correr la línea base de gates y anotar los conteos para comparar al cierre: `cd client && npm test`, `cd frontend && npm test`, `docker compose run --rm --no-deps backend pytest tests/ -q`, `make -C deploy check`. Los comandos con Docker se corren **solo con aviso previo al owner**, que prepara la PC
+- [ ] T002 [repo: elea] Anotar la línea base de gates para comparar al cierre (T044):
+  - **en local, sin Docker**: `cd client && npm test` y `cd frontend && npm test`, con sus conteos;
+  - **partes con Docker** (`docker compose run --rm --no-deps backend pytest tests/ -q` y `make -C deploy check`): la línea base sale del **último run del CI de `main`**, run `35871397897`: **18 fallas conocidas** de la suite del backend más `check-docs` en rojo, que se arregla aparte. **No** se corren en local para la línea base. Anotar en la tarea los 18 tests que fallan (los nombres, del log del run), para que T044 compare contra esa lista y no contra cero
 - [ ] T003 [P] [repo: elea] Preparar el entorno de prueba de GUIA-PRUEBA-LOCAL-SSO.md §1 a §3:
   - directorio Entra **de prueba**, con las URIs Web `http://localhost:8090/sso/callback`, `http://localhost:8095/sso/callback` y `https://localhost:8443/sso/callback` (esta, para el ingreso por HTTPS local de quickstart §3b);
   - agregar a `.gitignore` las entradas `backend/config/licenses/dev-sso-local.lic` y `docker-compose.sso-local.yml` (B9 del QA: hoy no están ignoradas);
@@ -86,6 +96,9 @@ Genérico y sin strings de Elea: viaja a Sentinel por cherry-pick. `jit.py`, `en
   - mayúsculas en esquema y host → minúsculas;
   - credenciales en la URI → nunca aparecen;
   - variable ausente, vacía o relativa → `null`;
+  - variable mal escrita (N3 del QA v2): puerto no numérico (`:abc`), fuera de rango (`:99999`) o IPv6 mal cerrado (`https://[::1/x`) → `200` con `return_origin: null`, nunca 500;
+  - IPv6 con y sin puerto → origen con corchetes (`http://[::1]:8095`, `https://[::1]`);
+  - variable bien puesta y proveedor apagado o sin configurar (`enabled:false`) → `return_origin: null` (N3 del QA v2);
   - flag apagado sigue en 403;
   - la respuesta sigue sin `config` ni secreto.
 
@@ -93,12 +106,13 @@ Genérico y sin strings de Elea: viaja a Sentinel por cherry-pick. `jit.py`, `en
 - [ ] T005 [repo: elea] Tests de auditoría y tope en `backend/tests/integration/test_sso_api.py`, junto a `test_callback_sin_cookie_400` y siguientes (`:322-430`). Cada caso de la tabla de [guardian-sso-api.md](contracts/guardian-sso-api.md) §2 deja **exactamente un** `auth_sso_denied`, incluidos el `404 sso_no_configurado` y el `500 sso_redirect_uri_no_configurado` del callback (F8 del QA). Ninguna columna del evento contiene el `state` ni el `code` usados, y el status y el `detail` no cambian. Casos del **tope**, con el reloj de la ventana inyectado:
   - **flujo**: `tope + 5` rechazos de flujo dejan exactamente `tope` eventos y un warning con el conteo omitido;
   - **canje** (F1 del QA): cookie válida + `code` basura, `tope + 5` veces → exactamente `tope` eventos y `tope` llamadas al proveedor (el doble del proveedor cuenta las llamadas), los `tope + 5` con `401 sso_identidad_no_verificada` intacto, y un warning con el conteo omitido;
+  - **canje concurrente** (N4 del QA v2): `asyncio.gather` de `tope + 10` canjes con un doble del proveedor **lento** (que espera antes de fallar) → exactamente `tope` llamadas al proveedor y `tope` eventos; un canje que sale bien devuelve su lugar (después de uno exitoso, entra uno más);
   - **contadores independientes**: agotar el de flujo no impide un canje, y agotar el de canje no impide auditar un rechazo de flujo;
   - la ventana siguiente vuelve a auditar y a llamar al proveedor;
   - los rechazos de identidad (`api.py:313`, `:379`) se auditan con los dos topes agotados.
 
   Deben **fallar**
-- [ ] T006 [repo: elea] Implementar `return_origin` en `sso_available` (`backend/src/sso/api.py:179-200`). Helper que lee `SENTINEL_SSO_REDIRECT_URI` con `urllib.parse.urlsplit` y arma el origen con `scheme`, `hostname` y `port` (**nunca** `netloc`), en minúsculas y sin el puerto por defecto; si no, `None`. Va en los dos caminos (`enabled` true y false). `enabled` no cambia de regla. T004 en verde
+- [ ] T006 [repo: elea] Implementar `return_origin` en `sso_available` (`backend/src/sso/api.py:179-200`). Helper que lee `SENTINEL_SSO_REDIRECT_URI` con `urllib.parse.urlsplit` y arma el origen con `scheme`, `hostname` y `port` (**nunca** `netloc`), en minúsculas y sin el puerto por defecto; si no, `None`. Envuelve el cálculo en `try/except ValueError` → `None` y vuelve a poner corchetes si el host contiene `:` (N3 del QA v2). Con `enabled:false` devuelve `return_origin: None` (N3 del QA v2; respuesta 3 de clarify). `enabled` no cambia de regla. T004 en verde
 - [ ] T007 [repo: elea] Auditar los rechazos de flujo de `sso_callback` con `_auditar_denegado(db, tenant_id)` (`backend/src/sso/api.py:339-347`) **antes** de levantar el error:
   - cookie ausente o inválida (`_leer_estado`, `:260`);
   - `state` distinto (`:264-268`);
@@ -109,11 +123,12 @@ Genérico y sin strings de Elea: viaja a Sentinel por cherry-pick. `jit.py`, `en
 
   Sumar el **tope de flujo**: constante `_TOPE_DENEGADOS_POR_MIN = 30`, ventana de 60 s, por proceso, reloj inyectable. El excedente no escribe filas y se resume en un `logger.warning` metadata-only. El veredicto no cambia si auditar falla ni si se agota el tope. Casos de flujo de T005 en verde
 - [ ] T008 [repo: elea] Implementar el **tope de canje** (research D6 + F1) en `sso_callback` (`backend/src/sso/api.py:286-307`). Usa la misma constante y la misma ventana que T007, con **contador propio**:
-  - antes de `provider.exchange_code`, si los canjes fallidos de la ventana ya llegaron al tope: no llama al proveedor, no escribe fila, suma al conteo omitido y responde el mismo `401 sso_identidad_no_verificada`;
-  - si el canje falla dentro del tope: suma al contador y audita como hoy (`:302`).
+  - antes de `provider.exchange_code`, **reserva** un lugar: incrementa y compara en un solo paso atómico (N4 del QA v2). Sin lugar: no llama al proveedor, no escribe fila, suma al conteo omitido y responde el mismo `401 sso_identidad_no_verificada`;
+  - si el canje falla con el lugar reservado: audita como hoy (`:302`); si sale bien, **devuelve** el lugar;
+  - el contador se toca siempre desde el event loop o bajo un `threading.Lock`, nunca sin protección desde el threadpool (`exchange_code` corre en el threadpool, `api.py:288-294`).
 
   `entra.py` no se toca. T005 completo en verde
-- [ ] T009 [repo: elea] Gate del tramo: `docker compose run --rm --no-deps backend pytest tests/ -q` en verde (con aviso previo al owner), incluidos `test_sso_api.py`, `test_sso_config_api.py` y `test_role_matrix.py`. Commit `base(sso): …` que **solo** contenga `backend/` y PR a `056-sso-entra-id-hub`
+- [ ] T009 [repo: elea] Gate del tramo: `docker compose run --rm --no-deps backend pytest tests/ -q` (con aviso previo al owner) con `test_sso_api.py`, `test_sso_config_api.py` y `test_role_matrix.py` en verde y **ninguna falla fuera de las 18 conocidas** de la línea base de T002 (si su arreglo aparte ya entró, la suite completa en verde). Declarar en el PR qué fallas conocidas quedan. Commit `base(sso): …` que **solo** contenga `backend/` y PR a `056-sso-entra-id-hub`
 
 **Checkpoint**: la API de base cumple su contrato; B y C pueden integrarse contra ella.
 
@@ -128,7 +143,7 @@ FR-013 a FR-016).
 **Independent Test**: con la config cargada, un usuario existente entra por Microsoft y usa chat,
 Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quickstart §3, casos 1 a 5).
 
-**Tramo B** (fases 3 y 4) · repo elea · 14 tareas · contrato: [hub-sso.md](contracts/hub-sso.md)
+**Tramo B** (fases 3 y 4) · repo elea · 15 tareas (T010–T023 y T049) · contrato: [hub-sso.md](contracts/hub-sso.md)
 
 ### Tests (escribir primero; deben fallar)
 
@@ -148,6 +163,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
 - [ ] T012 [P] [US1] [repo: elea] Tests de integración del camino feliz en `client/tests/integration/test_sso_flujo_056.test.js`:
   - login → callback con el mismo `sid`, `state` y atadura → el backend recibe `Cookie: sentinel_sso_state=…`;
   - sesión con `auth_method:'sso'`, `sid` **rotado** (`Set-Cookie` nuevo, con `Secure` si el retorno es `https://`, y el `sid` viejo sin sesión) y `302 /`;
+  - **cookies sin pisarse** (N8 del QA v2): con `getSetCookie()`, la respuesta del callback con retorno `https://` trae **exactamente** el `sid` rotado y el borrado de `__Host-sso_flow` (`Max-Age=0`), los dos, y el `sid` viejo no aparece en ningún `Set-Cookie`; lo mismo cuando el callback llega en una primera visita y el middleware ya puso su `Set-Cookie`;
   - `code` y `state` con `&`, `=` y `#` llegan al backend como un valor cada uno (B3 del QA);
   - ningún cuerpo ni cabecera del Hub contiene el `access_token`;
   - `GET /api/user/current` trae `user.auth_method`;
@@ -162,14 +178,17 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - `error=access_denied` del directorio → `sso_cancelado`
 - [ ] T014 [P] [US1] [repo: elea] Tests de la **pantalla** (F2 del QA, research D13) en `client/tests/unit/sso-ui-056.test.js`, con `node --test` sobre `client/public/sso-ui.js` ([hub-sso.md](contracts/hub-sso.md) §7, tests 17 a 20):
   - `destinoBoton`: `enabled:false` → sin botón (US2 AS3); `enabled:true` + `return_origin:null` → sin botón (FR-001, F4); mismo origen → `/sso/login`; otro origen → `${return_origin}/sso/login`; origen que no es `http(s)` → sin botón;
+  - `destinoBoton` con origen **mal formado** (N5 del QA v2) → sin botón: con comilla (`https://a"onmouseover=x`), espacio (`https://a b`), `<`, `\\`, credenciales (`https://u@hub.ejemplo.local`), ruta o barra final. Regla: `new URL(x).origin === x` y protocolo `http:`/`https:` ([hub-sso.md](contracts/hub-sso.md) §6);
   - `mensajeError`: cada código de §4 → su texto; desconocido, vacío y con HTML → el genérico, que no contiene el valor recibido; todos recuerdan el acceso con contraseña (FR-006, US2 AS2);
   - `ofrecerCambioContrasena`: `auth_method:'sso'` → `false` (FR-008, US1 AS5);
-  - lectura estática de `client/public/index.html`: carga `/sso-ui.js`, usa las tres funciones y no escribe el error de `sso_error` con `innerHTML`
+  - `TEXTO_BOTON` exportado y no vacío (N6 del QA v2);
+  - lectura estática de `client/public/index.html`: carga `/sso-ui.js`, usa las tres funciones y `TEXTO_BOTON`, y ni el error de `sso_error` ni el botón se escriben con `innerHTML` (N5 del QA v2)
 - [ ] T015 [P] [US1] [repo: elea] Test de **marca blanca** del Hub (F3 del QA, FR-013, FR-014, research D14) en `client/tests/unit/whitelabel-hub-056.test.js`, solo con `node:fs` y sin dependencias:
   - `client/sso.js` y `client/public/sso-ui.js` no contienen ningún nombre de `deploy/release/checks/prohibited_names.txt`, de los motores internos de documentos y presentaciones (lista local del test) ni `Elea`/`Eleia`;
-  - `client/public/index.html` y `client/server.js` no contienen ningún nombre de `prohibited_names.txt`.
+  - `client/public/index.html` y `client/server.js` no contienen ningún nombre de `prohibited_names.txt`;
+  - `client/public/index.html` no contiene el literal "Ingresar con Microsoft" ni otro texto visible nuevo de la 056: todo sale de `sso-ui.js` (N6 del QA v2, [hub-sso.md](contracts/hub-sso.md) §7 test 23).
 
-  Debe **fallar** mientras los dos archivos nuevos no existan
+  Límite honesto, sin tarea: `client/server.js` ya contiene `Elea`/`ELEA_*` (`client/server.js:19`), así que sus rutas nuevas no se verifican contra FR-014 por lectura de marca; las cubre la revisión del PR. Debe **fallar** mientras los dos archivos nuevos no existan
 
 ### Implementación
 
@@ -187,7 +206,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
 
   Tests de `/sso/login` de T011 en verde
 - [ ] T019 [US1] [repo: elea] Implementar en `GET /sso/callback` (`client/server.js`) la **atadura** (FR-016; research D1, requisitos 1 a 3, y D12):
-  - tomar y borrar el pendiente del `req.sid` siempre, y borrar `__Host-sso_flow`;
+  - tomar y borrar el pendiente del `req.sid` siempre, y borrar `__Host-sso_flow` **agregando** su `Set-Cookie` a la lista de la respuesta, nunca con un `res.setHeader('Set-Cookie', …)` que pise otra cookie (N8 del QA v2);
   - validar `state` y, si el pendiente tiene `atadura`, la cookie `__Host-sso_flow`, con `client/sso.js`;
   - sin pendiente, vencido, con `state` o atadura distintos, o con `error=` del directorio: llamar al callback del backend **sin** cookie (o con la cookie válida si hubo `error=`), solo para que el backend audite, y redirigir con el código de §4;
   - armar la URL al backend con `URLSearchParams` (B3).
@@ -195,15 +214,15 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   T013 en verde
 - [ ] T020 [US1] [repo: elea] Completar el camino feliz de `GET /sso/callback` y las rutas afectadas en `client/server.js`:
   - canje con `Cookie: sentinel_sso_state=…`;
-  - **rotación de `sid`** (research D1, requisito 4) con los mismos atributos de cookie de `:93`, más `Secure` si el pendiente tenía `atadura` (D12); si el middleware ya puso un `Set-Cookie` en esta respuesta, se reemplaza: una sola cookie `elea_rag_sid` por respuesta;
+  - **rotación de `sid`** (research D1, requisito 4) con los mismos atributos de cookie de `:93`, más `Secure` si el pendiente tenía `atadura` (D12); si el middleware ya puso un `elea_rag_sid` en esta respuesta, se reemplaza **solo esa entrada** de la lista de `Set-Cookie`: una sola cookie `elea_rag_sid` por respuesta y el borrado de `__Host-sso_flow` de T019 se conserva (N8 del QA v2);
   - `setSession` con el **mismo token** que emite Guardian (FR-002), `auth_method:'sso'` y `302 /`; el cuerpo del backend nunca se loguea;
   - `user.auth_method` en `GET /api/user/current` (`:318-333`);
   - 409 en `POST /api/auth/change-password` (`:284-309`) para sesiones SSO.
 
-  `POST /api/auth/login` (`:258-273`) **no se toca**. T011 y T012 en verde
-- [ ] T021 [US1] [repo: elea] Crear `client/public/sso-ui.js` (módulo puro: `destinoBoton`, `mensajeError` con la tabla de §4 y el texto neutro de `sso_identidad_no_verificada` de research D15, `ofrecerCambioContrasena`; exporta por `module.exports` y por `window.SsoUi`) y cablearlo en `client/public/index.html` ([hub-sso.md](contracts/hub-sso.md) §6):
+  `POST /api/auth/login` (`:258-273`) **no se toca en esta tarea**: su rotación de `sid` es T049, en commit aparte. T011 y T012 en verde
+- [ ] T021 [US1] [repo: elea] Crear `client/public/sso-ui.js` (módulo puro: `destinoBoton` con la regla de origen bien formado de N5, `mensajeError` con la tabla de §4 y el texto neutro de `sso_identidad_no_verificada` de research D15, `ofrecerCambioContrasena` y la constante `TEXTO_BOTON`; exporta por `module.exports` y por `window.SsoUi`) y cablearlo en `client/public/index.html` ([hub-sso.md](contracts/hub-sso.md) §6). **Todo** texto nuevo visible, incluida la etiqueta del botón, vive en `sso-ui.js` y no en `index.html` (N6 del QA v2):
   - `<script src="/sso-ui.js">` antes del script inline (`:976`);
-  - al mostrar el overlay (`boot`, `:1051-1056`), consultar `/api/auth/sso/available` y dibujar "Ingresar con Microsoft" bajo el formulario (`:444-455`) solo si `destinoBoton` devuelve un destino;
+  - al mostrar el overlay (`boot`, `:1051-1056`), consultar `/api/auth/sso/available` y dibujar el botón bajo el formulario (`:444-455`) solo si `destinoBoton` devuelve un destino. El botón se arma con `document.createElement`, la etiqueta con `textContent = SsoUi.TEXTO_BOTON` y el destino como propiedad, **nunca** con `innerHTML` ni con una plantilla de texto que lleve el origen (N5 del QA v2);
   - `?sso_error=` → `mensajeError` en `#login-error` con `textContent`, y limpiar la barra con `history.replaceState`;
   - `ofrecerCambioContrasena` gobierna el botón "Contraseña" (`:542`) y el modal (`:1067`).
 
@@ -221,7 +240,7 @@ degradable sin afectar el resto (FR-005, FR-006).
 **Independent Test**: suite del Hub en verde con los tests de regresión. En vivo: quickstart §4.
 
 - [ ] T022 [US2] [repo: elea] Tests de regresión y degradación en `client/tests/contract/test_sso_hub_056.test.js`:
-  - `POST /api/auth/login` con status, cuerpo y sesión idénticos a hoy, incluido `must_change_password` que pasa al `user`, y la cookie `elea_rag_sid` **sin** `Secure` (el camino con contraseña no cambia);
+  - `POST /api/auth/login` con status, cuerpo y datos de sesión idénticos a hoy, incluido `must_change_password` que pasa al `user`, y la cookie `elea_rag_sid` **sin** `Secure` (lo visible del camino con contraseña no cambia; el valor del `sid` sí puede cambiar por T049, así que este test no lo compara);
   - `change-password` con sesión de contraseña proxyado como hoy;
   - con licencia sin `sso` (backend 403) o backend caído, `available` → `enabled:false` y el login con contraseña sigue operativo;
   - backend caído durante `/sso/login` → `sso_proveedor_caido` sin afectar otras rutas;
@@ -230,8 +249,16 @@ degradable sin afectar el resto (FR-005, FR-006).
   **Excepción a "los tests fallan primero"**: son de regresión y deben pasar sin tocar código de producción. Si alguno falla, se corrige en `client/server.js` dentro de este tramo
 - [ ] T023 [US2] [repo: elea] Gate del tramo:
   - `cd client && npm test` en verde completo (incluye `smoke.test.js`, las suites de 044, 050, 051 y 053, y `whitelabel-hub-056.test.js`);
-  - actualizar `client/README.md` (§Rutas con las tres rutas nuevas y `/sso-ui.js`; §Sesiones con flujos pendientes, atadura `__Host-`, límite de ritmo, rotación de `sid` y "sin variables de entorno nuevas");
-  - commit `hub(sso): …` que **solo** contenga `client/`, y PR a `056-sso-entra-id-hub`
+  - actualizar `client/README.md` (§Rutas con las tres rutas nuevas y `/sso-ui.js`; §Sesiones con flujos pendientes, atadura `__Host-`, límite de ritmo, rotación de `sid` en los dos caminos de ingreso (T020 y T049), cookie mal formada ignorada y "sin variables de entorno nuevas");
+  - commit `hub(sso): …` que **solo** contenga `client/`, separado del commit `fix(hub): …` de T049, y PR a `056-sso-entra-id-hub`
+
+- [ ] T049 [US2] [repo: elea] **Fijación de sesión y cookie mal formada en el Hub** (N7 del QA v2, preexistente; decisión del owner del 2026-10-06; spec FR-005 y Clarifications; [hub-sso.md](contracts/hub-sso.md) §5 y tests 24 y 25). Va **después de T022 y antes del gate T023**, con commit aparte `fix(hub): …` que contiene solo `client/server.js` y su test:
+  - tests primero, en `client/tests/contract/test_login_sid_056.test.js` (nuevo), con el doble HTTP de `client/tests/mock-servers.js`. Deben **fallar**:
+    - `POST /api/auth/login` exitoso con un `elea_rag_sid` plantado → `Set-Cookie` con un `sid` **distinto**, la sesión vive bajo el nuevo y el plantado no tiene sesión; status y cuerpo idénticos a hoy; la cookie sin `Secure`;
+    - primera visita sin cookie → exactamente un `elea_rag_sid` en `getSetCookie()` (el rotado, no el del middleware);
+    - login fallido (401 del backend) → sin rotación ni sesión;
+    - `Cookie: x=%E0%A4%A; elea_rag_sid=<válido>` contra `/api/user/current`, `/api/branding` y `/sso/callback` → nunca 500; la cookie mala se ignora y el `sid` válido se respeta;
+  - implementación en `client/server.js`: rotar el `sid` en `POST /api/auth/login` (`:258-273`) con los atributos de `:93` y sin `Secure`, reemplazando solo la entrada `elea_rag_sid` de la lista de `Set-Cookie`; y en `parseCookies` (`:78-86`), `decodeURIComponent` dentro de `try` (si lanza, esa cookie se ignora). Tests en verde y suite completa del Hub en verde
 
 **Checkpoint**: US1 y US2 completas del lado del Hub.
 
@@ -294,8 +321,13 @@ vivo: quickstart §5.
 **Tramo D** · repos elea-installer y elea · 9 tareas · contrato:
 [instalador-y-release.md](contracts/instalador-y-release.md)
 
-- [ ] T030 [P] [US3] [repo: elea] Test `deploy/release/checks/test_publish_elea_latest.sh`. Pone un `docker` *stub* en el `PATH` que registra argumentos, corre `deploy/release/publish-elea.sh` con `ONLY=rag-client` y verifica que con `LATEST=0` no aparece ningún `:latest` en `build`/`push` y que con el default sí. Debe **fallar**. Después implementar `LATEST` (default `1`) en `deploy/release/publish-elea.sh` (`:34`, `:42`) y documentar los dos modos en su encabezado de uso. Test en verde. Commit `release: …` aparte
-- [ ] T031 [US3] [repo: elea] `deploy/Makefile` (F9 del QA, research D14): target `check-release-publish` que corre `deploy/release/checks/test_publish_elea_latest.sh`, agregado a `.PHONY` y a la lista de `check` (`:42`), con un comentario del porqué al estilo de los demás targets. Verificar con `make -C deploy check-release-publish` (sin Docker real). Va en el mismo commit `release: …` que T030
+- [ ] T030 [P] [US3] [repo: elea] Test `deploy/release/checks/test_publish_elea_latest.sh`. Pone un `docker` *stub* en el `PATH` que registra argumentos y devuelve un digest fijo en `inspect`, corre `deploy/release/publish-elea.sh` con `ONLY=rag-client` y verifica ([instalador-y-release.md](contracts/instalador-y-release.md) §5):
+  - con `LATEST=0` no aparece ningún `:latest` en `build`/`push`, y con el default sí;
+  - **promoción por re-etiquetado** (N2 del QA v2): con `PROMOTE_FROM=056-rc1` no hay **ningún** `docker build` ni `docker run`; hay `pull …:056-rc1`, `tag …:056-rc1 …:latest` (y `…:${VERSION}`) y `push …:latest`; la línea `PINNED` sale del digest de la candidata;
+  - con `PROMOTE_FROM` y un `pull` que falla (el stub sale con error), no hay ningún `push`.
+
+  Debe **fallar**. Después implementar en `deploy/release/publish-elea.sh` `LATEST` (default `1`, `:34`, `:42`) y `PROMOTE_FROM` (vacía = construir como hoy; con valor, `pull` + `tag` + `push` sin `build` ni el chequeo de `:35-40`), y documentar los tres modos (publicar, candidata y promoción) en su encabezado de uso. Test en verde. Commit `release: …` aparte
+- [ ] T031 [US3] [repo: elea] `deploy/Makefile` (F9 del QA, research D14): target `check-release-publish` que corre `deploy/release/checks/test_publish_elea_latest.sh`, agregado a `.PHONY` y a la lista de `check` (`:42`), con un comentario del porqué al estilo de los demás targets (que `LATEST=0` no mueva `:latest` y que `PROMOTE_FROM` no construya: se entrega lo que se probó y ya corre en producción). Verificar con `make -C deploy check-release-publish` (sin Docker real). Va en el mismo commit `release: …` que T030
 - [ ] T032 [P] [US3] [repo: elea-installer] `docker-compose.yml`: las seis imágenes propias pasan a `:${ELEA_TAG:-latest}` (`elea-guardian-nlp`, `-engine`, `-backend`, `-frontend`, `elea-rag-client`, `elea-tabular`). Postgres, redis y los motores de terceros no cambian
 - [ ] T033 [US3] [repo: elea-installer] `docker-compose.yml`, servicio `backend` (`:87-128`):
   - `SENTINEL_LICENSE_TOKEN_FILE=${SENTINEL_LICENSE_TOKEN_FILE:-/app/config/licenses/dev-demo.lic}`;
@@ -343,7 +375,7 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
   - qué registrar: plataforma Web, `https://<nombre-del-hub>/sso/callback`, `openid profile email` + `User.Read`, consentimiento, vencimiento del secreto, "asignación requerida" recomendada;
   - el cruce UPN ↔ email antes de activar;
   - qué mensaje ve el usuario cuando vence el secreto o el directorio no responde ("No se pudo confirmar el ingreso con Microsoft…") y dónde ver la causa en el log del backend (research D15, F10);
-  - límites conocidos: baja en Entra sin SCIM y sesión vigente hasta 24 h; reinicio del Hub; cerrar sesión en el Hub no cierra la de Microsoft en una PC compartida (B1); la cookie de sesión lleva `Secure` solo en el camino SSO con HTTPS (D12); `return_origin`; durante una ráfaga de ingresos falsos el botón puede fallar para todos (tope de FR-012).
+  - límites conocidos: baja en Entra sin SCIM y sesión vigente hasta 24 h; reinicio del Hub; cerrar sesión en el Hub no cierra la de Microsoft en una PC compartida (B1); la cookie de sesión lleva `Secure` solo en el camino SSO con HTTPS (D12); `return_origin`; **topes globales** (N1 del QA v2, spec Clarifications): un tercero con acceso de red al backend o al Hub puede mantener fuera de servicio el botón de Microsoft para todos con pocos pedidos por segundo sostenidos (0,5/s contra el callback del backend, 2/s contra `/sso/login` del Hub), mientras dure; el login con contraseña no se afecta. Tras un reinicio del Hub, el reingreso masivo legítimo también puede tocar el límite de 120/min. Cómo distinguirlo de una falla del directorio: filas `auth_sso_denied` en el panel hasta el tope y, en el log del backend, un warning por minuto con el conteo omitido.
 
   Solo "Guardian", "Hub" y marcadores: sin nombres de Elea ni de componentes internos
 - [ ] T040 [US4] [repo: elea] `docs/docs/install-deploy/sso.md`, dos secciones más:
@@ -355,9 +387,11 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
   - el HTTPS lo pone el proxy de Elea o se configura a mano en el host; qué tiene que reenviar y a qué puerto (SOLICITUD punto 3, DESPLIEGUE Etapa 3); en la Etapa 3, verificar `__Host-sso_flow` y `Secure` en la sesión con el nombre HTTPS (FR-010);
   - `SENTINEL_SSO_REDIRECT_URI` con el nombre HTTPS;
   - la licencia en `./license/` con el `lic_id` de T038;
-  - el cruce de la lista de UPN antes de la Etapa 4 (SC-002, que se cierra en el piloto: B7);
+  - el cruce de la lista de UPN antes de la Etapa 4 (SC-002, que se cierra en el server de producción, con el grupo piloto y después el resto: B7);
+  - **vocabulario del owner** (2026-10-06): el server de Elea es **producción**, no un piloto; "piloto" nombra solo al grupo de 2 o 3 usuarios que prueban el SSO primero (Etapa 4). Ajustar el texto de los dos documentos donde diga lo contrario
   - checklist de activación: usuarios con cambio obligatorio pendiente (B2);
-  - en la sección "Qué falta para que volver atrás sea real", marcar `ELEA_TAG` como resuelto y aclarar que el nivel 1 (vaciar la URI) oculta el botón del Hub
+  - en la sección "Qué falta para que volver atrás sea real", marcar `ELEA_TAG` como resuelto y aclarar que el nivel 1 (vaciar la URI) oculta el botón del Hub;
+  - **Etapa 5** (N2 del QA v2): "promover `056-rc1` a `latest`" pasa a ser `PROMOTE_FROM=056-rc1 VERSION=<fecha> deploy/release/publish-elea.sh`, que re-etiqueta y empuja los **mismos digests** sin reconstruir; reemplaza "republicar con fecha" (`DESPLIEGUE-Y-REVERSION.md:110`) y suma la comparación de las líneas `PINNED` con las de T045
 
 **Checkpoint**: la guía alcanza para registrar la aplicación y activar sin ayuda.
 
@@ -367,27 +401,29 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
 
 - [ ] T042 [repo: elea] `deploy/Makefile` (F3 del QA, research D14): target `check-hub-whitelabel` que corre `cd $(REPO_ROOT) && node --test client/tests/unit/whitelabel-hub-056.test.js` (sin Docker ni `npm ci`), agregado a `.PHONY` y a la lista de `check`, con su comentario, que anota que el gate necesita `node` en el `PATH`. Verificar con `make -C deploy check-hub-whitelabel`. Commit `release: …` aparte
 - [ ] T043 [repo: elea] **Sitio de docs de producto (OBLIGATORIO, DoD)**. Las páginas de `docs/docs/**` que toca la feature (`docs/docs/install-deploy/sso.md`, y cualquier página que cite el aviso "contacte a soporte" o el SSO solo en la consola) quedan con curado marca-neutro, template de `docs/README.md` y leyenda 🟢/🟡/🔵 honesta: 🟢 solo para lo mergeado. Correr `make -C deploy docs-refs`, porque cambió la respuesta de `/auth/sso/available`, y después `make -C deploy check-docs` en verde (los dos con Docker: aviso previo al owner). Revisar los textos de docs nuevos contra `deploy/release/checks/prohibited_names.txt` y la regla de componentes internos (FR-013); Hub y panel ya los cubren T015, T024 y T042
-- [ ] T044 [repo: elea] Gate completo del release sobre `056-sso-entra-id-hub` con A a D integrados, todo verde y comparado contra la línea base de T002 (los comandos con Docker, con aviso previo al owner). Pegar el resumen en el PR:
+- [ ] T044 [repo: elea] Gate completo del release sobre `056-sso-entra-id-hub` con A a D integrados, comparado contra la línea base de T002 (los comandos con Docker, con aviso previo al owner): verde, salvo que las 18 fallas conocidas de `main` y `check-docs` (run `35871397897`) sigan sin su arreglo aparte; en ese caso, exactamente esas y **ninguna nueva**, declaradas en el PR, y el merge espera ese arreglo o el OK del owner (AGENTS.md: el gate del release es la verdad). Pegar el resumen en el PR:
   - `make -C deploy check` (incluye `check-release-publish` y `check-hub-whitelabel`);
   - `docker compose run --rm --no-deps backend pytest tests/ -q`;
   - `cd client && npm test`;
   - `cd frontend && npm test`
-- [ ] T045 [repo: elea] Publicar candidatas `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh` (depende de T030 y T044) y verificar en el registro que existe `:056-rc1` y que `:latest` **no** se movió
-- [ ] T046 [repo: elea] Ejecutar [quickstart.md](quickstart.md) §1 a §5 contra el directorio de prueba: ingreso real por el Hub, atadura al navegador, **ingreso por HTTPS local** (§3b: `__Host-sso_flow` y `Secure` en un navegador real, FR-010 y FR-016), regresión (incluido vaciar la URI y apagar a mitad del ingreso), apagado desde el panel, instalación desde cero con la config SSO cargada, actualización a `056-rc1` y vuelta atrás con `ELEA_TAG`. Medir SC-001 (tiempo e interacciones, §3 caso 2) y SC-004. El registro de la aplicación en el directorio de prueba lo hace, solo con la guía de T039 y T040, alguien que no participó del desarrollo (US4, test independiente). Volcar resultados y capturas en `specs/056-sso-entra-id-hub/RESULTADOS-PRUEBA-LOCAL.md` y marcar la fila `login-real` de `specs/017-auth-rbac-sso/RUNBOOK-e2e-sso.md`
+- [ ] T045 [repo: elea] Publicar candidatas `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh` (depende de T030 y T044) y verificar en el registro que existe `:056-rc1` y que `:latest` **no** se movió. Copiar las seis líneas `PINNED <imagen>=…@sha256:…` que imprime el script (`publish-elea.sh:43`) a `specs/056-sso-entra-id-hub/RESULTADOS-PRUEBA-LOCAL.md`: son los digests que T048 tiene que volver a ver (N2 del QA v2)
+- [ ] T046 [repo: elea] Ejecutar [quickstart.md](quickstart.md) §1 a §5 contra el directorio de prueba: ingreso real por el Hub, atadura al navegador, **ingreso por HTTPS local** (§3b: `__Host-sso_flow` y `Secure` en un navegador real, FR-010 y FR-016), regresión (incluido vaciar la URI y apagar a mitad del ingreso), apagado desde el panel, instalación desde cero con la config SSO cargada, actualización a `056-rc1` y vuelta atrás con `ELEA_TAG`. Medir SC-001 (tiempo e interacciones, §3 caso 2) y SC-004. Caso de diagnóstico de los topes (N1 del QA v2, quickstart §4 caso 8): con el doble o con pedidos a mano, agotar el tope de canje y verificar que se ve como corte por tope (filas `auth_sso_denied` hasta el tope y después el warning con el conteo omitido) y no como falla del directorio. El registro de la aplicación en el directorio de prueba lo hace, solo con la guía de T039 y T040, alguien que no participó del desarrollo (US4, test independiente). Volcar resultados y capturas en `specs/056-sso-entra-id-hub/RESULTADOS-PRUEBA-LOCAL.md` y marcar la fila `login-real` de `specs/017-auth-rbac-sso/RUNBOOK-e2e-sso.md`
 - [ ] T047 [repo: elea] Crear `specs/056-sso-entra-id-hub/HANDOFF-elea-a-sentinel.md` para `cluna-8/sentinel` (spec espejo 067). Contenido:
   - **orden de cherry-pick con los commits de base separados de los del Hub**:
     1. `base(sso)` (backend `sso/api.py` + tests);
     2. `base(panel)` (`frontend/`);
     3. docs `sso.md`, con la sección del Hub marcada "solo si hay Hub" (B8);
-    4. aparte, `hub(sso)` (`client/`), que se porta como **enfoque** y no como diff, confirmando antes el diff del Hub de Sentinel;
+    4. aparte, `hub(sso)` (`client/`), que se porta como **enfoque** y no como diff, confirmando antes el diff del Hub de Sentinel; y `fix(hub)` de T049 (rotación de `sid` en el login con contraseña y `parseCookies` sin 500), también como enfoque, a verificar si el Hub de Sentinel tiene el mismo defecto;
     5. `release` e `instalador`, como enfoque para el wizard de la 065 (`ELEA_TAG` no es portable; los gates nuevos de `deploy/Makefile` sí, como enfoque).
   - verificación previa en Sentinel: migración `017_sso_providers` y paridad de `backend/src/sso/`;
   - nombres de variable idénticos (`SENTINEL_SSO_REDIRECT_URI`, `SENTINEL_LICENSE_TOKEN_FILE`);
   - nota de base: `sso/api.py` audita los rechazos de flujo y los canjes fallidos con un tope por proceso (research D6 + F1). Con la imagen prod de la base (`--workers ${WEB_CONCURRENCY:-2}`), el tope efectivo es `tope × workers`;
+  - **límite conocido de los topes** (N1 del QA v2): con un ritmo sostenido de 0,5 pedidos/s sin autenticarse contra el callback, el ingreso con Microsoft queda fuera de servicio para todos mientras dure; la contraseña sigue. Se anotan también la reserva de lugar en el contador de canje (N4) y que el valor `120/min` del Hub no sale de un dato medido;
   - límite conocido: cerrar sesión no cierra la del directorio; `prompt=select_account` sería un cambio de base en `entra.py` (B1);
+  - **residual provisorio de imágenes reproducibles** (pregunta 2 de clarify, research D9): `client/Dockerfile:10-11` no usa `client/package-lock.json`. Con la promoción por re-etiquetado no afecta lo entregado, pero una reconstrucción posterior puede cambiar dependencias. **Sujeto a la política de dependencias e imágenes reproducibles que va a definir el owner**;
   - **deuda conocida**: la licencia de Elea sigue con firma dev y `SENTINEL_ALLOW_DEV_LICENSE=true`, y esta spec no la cambia (research D8; B9 del QA);
   - el resultado de T046
-- [ ] T048 [repo: elea] Después del piloto en el server de Elea (Etapas 3 y 4 de DESPLIEGUE-Y-REVERSION.md, fuera de este repo), promover a `latest` con `VERSION=<fecha> deploy/release/publish-elea.sh` (`LATEST=1`). Anotar el tag en DESPLIEGUE-Y-REVERSION.md y el estado de cierre (incluido SC-002 con datos reales) en el HANDOFF
+- [ ] T048 [repo: elea] Después de la activación en el server de producción de Elea (Etapas 3 y 4 de DESPLIEGUE-Y-REVERSION.md, fuera de este repo; en la Etapa 4 el grupo piloto de 2 o 3 usuarios entra primero), promover a `latest` **por re-etiquetado** (N2 del QA v2): `PROMOTE_FROM=056-rc1 VERSION=<fecha> deploy/release/publish-elea.sh` (`LATEST=1`), **nunca** reconstruir. Verificar que las seis líneas `PINNED` son idénticas a las que anotó T045; si alguna difiere, la promoción no se da por buena. Anotar el tag en DESPLIEGUE-Y-REVERSION.md y el estado de cierre (incluido SC-002 con datos reales) en el HANDOFF
 
 ---
 
@@ -398,7 +434,7 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
 ```text
 Tramo 0 (T001–T003)
    ├──► Tramo A (T004–T009)  base Guardian ──────────┐
-   ├──► Tramo B (T010–T023)  Hub, contra el contrato ─┤
+   ├──► Tramo B (T010–T023+T049) Hub, contra contrato ┤
    ├──► Tramo C (T024–T029)  panel, contra el contrato┼──► Tramo E (T039–T048)
    └──► Tramo D (T030–T038)  instalador + release ────┘
 ```
@@ -412,7 +448,7 @@ Tramo 0 (T001–T003)
 ### Por historia
 
 - **US1 (P1)**: T010–T021. Depende del contrato de A, no de su merge.
-- **US2 (P1)**: T022–T023 (Hub). Más T027 del panel, que evita su botón roto, y T044/T046 en vivo.
+- **US2 (P1)**: T022, T049 y T023 (Hub). Más T027 del panel, que evita su botón roto, y T044/T046 en vivo.
 - **US3 (P1)**: T024–T029 (panel) y T030–T038 (instalador y release).
 - **US4 (P3)**: T039–T041.
 
@@ -420,7 +456,7 @@ Tramo 0 (T001–T003)
 
 Tests antes que implementación, y los tests fallan primero. En A: T006 → T007 → T008 (mismo
 archivo, en orden). En B: `sso.js` (T016) antes que las rutas (T017–T020); `server.js` antes que
-`sso-ui.js` e `index.html` (T021); regresión (T022) antes del gate (T023). En D: T030 antes que
+`sso-ui.js` e `index.html` (T021); regresión (T022), después T049 (`fix(hub)`, N7) y al final el gate (T023). En D: T030 antes que
 T031. En E: T039 → T040 → T041 → T042 → T043 (los docs antes de su check) → T044 a T048 en orden.
 Las tareas sin [P] del mismo archivo van en el orden de su ID.
 
@@ -429,7 +465,7 @@ Las tareas sin [P] del mismo archivo van en el orden de su ID.
 ```bash
 # Cuatro workers en paralelo después del Tramo 0:
 Worker A: "Tramo A — T004..T009 (backend/src/sso/api.py + test_sso_api.py)"
-Worker B: "Tramo B — T010..T023 (client/)"
+Worker B: "Tramo B — T010..T023 + T049 (client/)"
 Worker C: "Tramo C — T024..T029 (frontend/)"
 Worker D: "Tramo D — T030..T038 (elea-installer/ + deploy/release/ + deploy/Makefile)"
 
@@ -466,6 +502,11 @@ esté C (GUIA-PRUEBA-LOCAL-SSO.md §4).
   documenta en T039 y en el HANDOFF (T047).
 - **B9** (parcial): la licencia de desarrollo sigue siendo la deuda declarada (research D8).
   Esta spec solo ignora los archivos de prueba local (T003).
+- **N1** (QA v2, límite conocido aceptado por el owner): los topes globales (30/min de canje en
+  el backend, 120/min de `/sso/login` en el Hub) dejan el ingreso con Microsoft fuera de servicio
+  para todos con un ritmo **sostenido** de 0,5 a 2 pedidos/s sin autenticarse, mientras dure. La
+  contraseña sigue (FR-006). El diseño no cambia (D6, D11). Se documenta en la guía (T039) y el
+  HANDOFF (T047), y se prueba el diagnóstico en T046.
 
 ## Notes
 

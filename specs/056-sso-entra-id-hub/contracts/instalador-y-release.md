@@ -76,13 +76,35 @@ El instalador no termina TLS. Lo que la documentación (README del instalador,
 | Variable | Default | Efecto |
 |---|---|---|
 | `LATEST` | `1` | `1`: igual que hoy, etiqueta y empuja `:${VERSION}` **y** `:latest` (`publish-elea.sh:34`, `:42`). `0`: solo `:${VERSION}`. **No** construye ni empuja `:latest`. |
+| `PROMOTE_FROM` | *(vacía)* | **Promoción por re-etiquetado** (N2 del QA v2). Vacía: el script construye como hoy. Con un tag (p. ej. `056-rc1`), **no construye**: por cada imagen de `ONLY` hace `docker pull <imagen>:${PROMOTE_FROM}`, la etiqueta `:${VERSION}` y, si `LATEST=1`, `:latest`, y empuja esas etiquetas. El digest publicado es **el mismo** de la candidata. Tampoco corre el chequeo de la imagen del backend (`:35-40`), que ya pasó al publicar la candidata. Si el `pull` falla, corta sin empujar nada de esa imagen. |
 
-Uso para candidatas: `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh`. Promoción en la
-Etapa 5: republicar con fecha y `LATEST=1`. El encabezado de uso del script documenta los dos
-modos. El resto del script (chequeo de la imagen del backend, `PINNED …`) no cambia.
+**Qué significa "promover a `latest`"**: re-etiquetar y empujar la candidata **probada** en la
+Etapa 1, la misma que ya corre en el server de producción de Elea y que usó el grupo piloto de 2
+o 3 usuarios en la Etapa 4, con los mismos digests. **Nunca** reconstruir: un `build` nuevo
+produce bits distintos de los probados (el `npm install` sin lockfile de
+`client/Dockerfile:10-11` y las capas `apk`/`pip` sin fijar de `:4-6` pueden traer otras versiones)
+y rompe los principios 1 y 4 de DESPLIEGUE-Y-REVERSION.md.
+
+Usos:
+
+- Candidatas (Etapa 1): `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh`. Se anotan las
+  líneas `PINNED <imagen>=<repo>@sha256:…` que imprime el script (`publish-elea.sh:43`).
+- Promoción (Etapa 5): `PROMOTE_FROM=056-rc1 VERSION=<fecha> deploy/release/publish-elea.sh`. Las
+  líneas `PINNED` que imprime tienen que ser **idénticas** a las de la candidata; si alguna
+  difiere, la promoción no se da por buena.
+
+El encabezado de uso del script documenta los tres modos (publicar, candidata y promoción). El
+resto del script no cambia.
 
 Verificación sin publicar: correr el script con `docker` sustituido por un *stub* en el `PATH`
-que registre los argumentos, y comprobar que con `LATEST=0` no aparece ningún `:latest`.
+que registre los argumentos y devuelva un digest fijo en `inspect`, y comprobar:
+
+- con `LATEST=0` no aparece ningún `:latest`;
+- con el default sí aparece;
+- con `PROMOTE_FROM=056-rc1` **no** hay ningún `docker build` ni `docker run`, hay
+  `pull …:056-rc1`, `tag …:056-rc1 …:latest` y `push …:latest`, y la línea `PINNED` sale del
+  digest de la candidata;
+- con `PROMOTE_FROM` y un `pull` que falla (el stub sale con error), no hay ningún `push`.
 
 ## 6. Gates en `make -C deploy check` (`deploy/Makefile`, F3 y F9 del QA)
 
@@ -91,7 +113,7 @@ en `deploy/release/checks/` no corre solo. Se suman dos targets, ninguno usa Doc
 
 | Target | Corre | Lo agrega | Protege |
 |---|---|---|---|
-| `check-release-publish` | `deploy/release/checks/test_publish_elea_latest.sh` (con el `docker` de prueba) | Tramo D | Que `LATEST=0` nunca mueva `:latest` (riesgo central del despliegue). |
+| `check-release-publish` | `deploy/release/checks/test_publish_elea_latest.sh` (con el `docker` de prueba) | Tramo D | Que `LATEST=0` nunca mueva `:latest` y que `PROMOTE_FROM` nunca construya (riesgo central del despliegue: lo que se entrega es lo que se probó y ya corre en producción). |
 | `check-hub-whitelabel` | `node --test client/tests/unit/whitelabel-hub-056.test.js` (solo `node:fs`, sin `npm ci`) | Tramo E, con el Hub ya mergeado | FR-013 y FR-014 sobre lo visible del Hub ([hub-sso.md](hub-sso.md) §7, tests 21 y 22). |
 
 Los dos entran a la lista de `check` y a `.PHONY`. `deploy/Makefile` lo editan los tramos D y E,

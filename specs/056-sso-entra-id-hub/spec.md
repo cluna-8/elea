@@ -40,7 +40,8 @@ Sentinel por handoff (ver §Preparación para Sentinel).
 ### Session 2026-10-05
 
 Decisiones que el owner tomó durante el plan y el QA crítico, por medio del coordinador (D1 a
-D8 del plan; F1, F5, F6, F8 y F10 del QA, aprobadas el 2026-10-05). Se
+D8 del plan; F1, F5, F6, F8 y F10 del QA, aprobadas el 2026-10-05; N1 del QA v2, aprobada el
+mismo día). Se
 registran acá para que la spec, el plan y las tareas digan lo mismo. El detalle y las alternativas
 descartadas están en [research.md](research.md).
 
@@ -94,6 +95,39 @@ descartadas están en [research.md](research.md).
   pudo confirmar el ingreso con Microsoft. Si se repite, avisá al administrador." La guía dice qué
   esperar cuando vence el secreto y dónde ver la causa. Sin cambio de base ni código nuevo (D15,
   opción A, por F10 del QA). → FR-006, Edge Cases.
+- Q: ¿Qué efecto real tienen los topes globales (30/min de canje fallido en el backend, 120/min de
+  `/sso/login` en el Hub) y cómo se registra? → A: no se trata de una "ráfaga" pasajera. Un ritmo
+  **sostenido** de 0,5 pedidos/s contra el callback del backend (con una sola cookie de estado,
+  que vale 10 minutos) o de 2 pedidos/s contra `/sso/login` del Hub, sin autenticarse, deja el
+  ingreso con Microsoft fuera de servicio **para todos** mientras dure. El login con contraseña
+  no se afecta (FR-006). Se acepta como límite conocido y el diseño no cambia: D6 y D11 siguen
+  igual. El valor de 120/min no sale de un dato medido; tras un reinicio del Hub, el reingreso
+  masivo con tráfico legítimo también lo puede alcanzar. La guía y la prueba muestran cómo
+  distinguir el corte por tope de una falla del directorio (N1 del QA v2,
+  [qa-plan-v2.md](qa-plan-v2.md)). → FR-012, FR-016, Edge Cases.
+
+### Session 2026-10-06
+
+Preguntas del QA v2 que quedaron para el día siguiente, contestadas por el coordinador (las
+marcadas "provisorio" quedan pendientes de una decisión del owner).
+
+- Q: Si "promover a `latest`" pasa a ser re-etiquetar y empujar los mismos digests de la
+  candidata probada (N2 del QA v2, fijado por el owner), ¿hace falta además que la imagen del Hub
+  se construya con su lockfile? → A: **provisorio**: no en esta spec. Se anota como residual
+  (research D9 y HANDOFF), sujeto a la política de dependencias e imágenes reproducibles que va a
+  definir el owner. El server de Elea es **producción**; "piloto" nombra solo al grupo de 2 o 3
+  usuarios que prueba el SSO primero. → US3 AS3, §Despliegue y vuelta atrás.
+- Q: ¿`return_origin` se informa también cuando el SSO no está habilitado (`enabled:false`), y
+  qué pasa si la dirección de retorno está mal escrita? → A: con `enabled:false` es nulo: sin
+  proveedor activo nadie puede pulsar el botón y no hace falta revelar el nombre del Hub. Una
+  dirección mal formada (puerto inválido o IPv6 mal cerrado) también da nulo, nunca un error
+  de la consulta. Un host IPv6 conserva sus corchetes (N3 del QA v2). → FR-015.
+- Q: El login con contraseña del Hub guarda la sesión bajo el `sid` que trae el navegador, sin
+  renovarlo, y una cookie con `%` mal formado hace fallar todas las rutas para ese navegador
+  (preexistente, N7 del QA v2). ¿Se corrige en esta spec? → A: sí, por decisión del owner
+  (2026-10-06). El login con contraseña del Hub renueva el `sid` al emitir la sesión, igual que
+  el camino SSO, y una cookie mal formada se ignora en vez de dar error. FR-005 se mantiene: lo
+  que ve la persona en el login con contraseña no cambia. → FR-005, Edge Cases.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -218,17 +252,27 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   memoria): el ingreso falla con un mensaje de "volvé a intentar", sin quedar a medias.
 - **Ingreso con Microsoft vencido o manipulado** (estado inválido, respuesta repetida): se
   rechaza y se registra como intento denegado.
-- **Ráfaga de ingresos falsos sin autenticarse** (estados o `code` inventados contra el callback):
-  cada rechazo responde igual, pero pasado el tope por minuto (FR-012) deja de escribir filas y
-  de llamar al directorio. Mientras dura la ráfaga, un ingreso legítimo puede fallar con el mismo
-  mensaje. Solo se degrada el camino SSO: el login con contraseña sigue (FR-006).
-- **Ráfaga de pedidos de inicio contra el Hub** (`/sso/login` en bucle, sin sesión): pasado el
+- **Ingresos falsos sostenidos sin autenticarse** (estados o `code` inventados contra el
+  callback): cada rechazo responde igual, pero pasado el tope por minuto (FR-012) deja de
+  escribir filas y de llamar al directorio. Con una sola cookie de estado alcanza un ritmo
+  sostenido de 0,5 pedidos/s (30 canjes falsos al inicio de cada minuto) para que **todo**
+  ingreso legítimo reciba el mismo mensaje de falla mientras dure. Un tercero con acceso de red
+  al backend puede mantener fuera de servicio el ingreso con Microsoft. Es un límite conocido y
+  aceptado (Clarifications, N1). Solo se degrada el camino SSO: el login con contraseña sigue
+  (FR-006).
+- **Pedidos de inicio sostenidos contra el Hub** (`/sso/login` en bucle, sin sesión): pasado el
   límite de ritmo, o con el almacén de ingresos en curso lleno, el que llega recibe "volvé a
-  intentar" sin que el Hub llame al backend. Los ingresos que ya estaban en curso no se pierden
-  (FR-016). El login con contraseña sigue.
+  intentar" sin que el Hub llame al backend. Con 2 pedidos/s sostenidos el botón falla para
+  todos mientras dure; un tercero con acceso de red al Hub alcanza. Lo mismo puede pasar sin
+  ataque, si muchas personas reingresan juntas tras un reinicio del Hub. Los ingresos que ya
+  estaban en curso no se pierden (FR-016). El login con contraseña sigue. Límite conocido y
+  aceptado (Clarifications, N1).
 - **Cookie de sesión plantada en el navegador de la víctima** (por red o desde un subdominio
   hermano) para que el ingreso de la víctima termine con la identidad de otro: con retorno HTTPS
   el ingreso se rechaza con "volvé a intentar", porque falta la cookie de atadura (FR-016).
+- **Cookie de sesión plantada antes de un login con contraseña** (para conocer la sesión que
+  abra la víctima): el Hub renueva la cookie al ingresar, así que la plantada no sirve. Una
+  cookie mal formada se ignora y el Hub sigue respondiendo (FR-005, Clarifications N7).
 - **El admin apaga el SSO, o falta la dirección de retorno, a mitad de un ingreso**: el ingreso
   termina con "no disponible", queda auditado (FR-012) y el login con contraseña sigue. Con la
   dirección de retorno vacía, el Hub no dibuja el botón (FR-001, FR-015).
@@ -269,7 +313,10 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
 - **FR-004**: El token de sesión MUST NOT viajar en la URL del navegador en ningún paso. Queda
   del lado del servidor del Hub, igual que hoy.
 - **FR-005**: El login con usuario y contraseña del Hub y del panel MUST seguir disponible y sin
-  cambios de comportamiento. SSO es un camino adicional, nunca un reemplazo.
+  cambios de comportamiento visibles para la persona (mismas respuestas, mensajes y cambio
+  obligatorio de la 055). SSO es un camino adicional, nunca un reemplazo. Única excepción,
+  interna e invisible: el login con contraseña del Hub renueva la cookie de sesión al ingresar,
+  y el Hub ignora una cookie mal formada en vez de fallar (Clarifications, N7).
 - **FR-006**: Si el proveedor falla, no está configurado o la licencia no lo habilita, MUST
   degradarse solo el camino SSO, con un mensaje que recuerde que el acceso con contraseña sigue
   disponible.
@@ -316,7 +363,8 @@ tenant de prueba siguiendo solo la guía, y el login funciona.
   nombres propios (p. ej. la variable del tag de imagen), y el HANDOFF lo porta como enfoque.
 - **FR-015**: La consulta pre-auth de disponibilidad de SSO MUST informar el **origen de
   retorno** (`return_origin`: esquema, host y puerto de la dirección de retorno configurada, sin
-  ruta, query ni credenciales; nulo si falta o no es absoluta). Ninguna pantalla MUST ofrecer un
+  ruta, query ni credenciales; nulo si falta, no es absoluta, está mal formada o el SSO no está
+  habilitado). Ninguna pantalla MUST ofrecer un
   botón de Microsoft que no pueda completar el ingreso:
   - el panel lo muestra solo si `return_origin` es nulo (comportamiento de hoy) o es su propio
     origen;

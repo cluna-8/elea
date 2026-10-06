@@ -19,10 +19,10 @@ Respuesta (sin cambios de status: 403 sin flag `sso`, 200 en los demás casos, `
 | Campo | Regla |
 |---|---|
 | `enabled`, `provider_type` | Sin cambio. |
-| `return_origin` | **Nuevo.** Origen (`esquema://host[:puerto]`) de `SENTINEL_SSO_REDIRECT_URI`, calculado con `urllib.parse.urlsplit` a partir de `scheme`, `hostname` y `port` (**nunca** `netloc`, que arrastraría credenciales `usuario:clave@`). Normalización igual a la de `window.location.origin`: esquema y host en minúsculas; el puerto se incluye solo si la URI lo trae **y** no es el por defecto del esquema (`https://host:443/…` → `https://host`; `http://host:80/…` → `http://host`). `null` si la variable falta, está vacía o no es absoluta (`http`/`https` con host). Nunca incluye ruta, query, fragmento ni credenciales. Se devuelve también con `enabled:false`. |
+| `return_origin` | **Nuevo.** Origen (`esquema://host[:puerto]`) de `SENTINEL_SSO_REDIRECT_URI`, calculado con `urllib.parse.urlsplit` a partir de `scheme`, `hostname` y `port` (**nunca** `netloc`, que arrastraría credenciales `usuario:clave@`). Normalización igual a la de `window.location.origin`: esquema y host en minúsculas; el puerto se incluye solo si la URI lo trae **y** no es el por defecto del esquema (`https://host:443/…` → `https://host`; `http://host:80/…` → `http://host`). `null` si la variable falta, está vacía o no es absoluta (`http`/`https` con host), y también si `urlsplit` o `.port` lanzan `ValueError` (puerto no numérico o fuera de rango, IPv6 mal cerrado): `/available` **nunca** responde 500 por un error de tipeo en la variable (N3 del QA v2; hoy esa ruta no mira la variable, `api.py:179-200`). Un host IPv6 vuelve a llevar corchetes (`hostname` los quita: `http://[::1]:8095/…` → `http://[::1]:8095`). Nunca incluye ruta, query, fragmento ni credenciales. **Con `enabled:false` es siempre `null`** (N3 del QA v2): sin proveedor activo nadie puede pulsar el botón, así que no hace falta revelar el nombre del Hub, y la rama `enabled:false` sigue igual que hoy más un campo `null`. |
 
-**Por qué es seguro pre-auth**: el mismo valor viaja en el `redirect_uri` de la URL de
-Microsoft que ve cualquiera que pulse el botón. No expone `config`, `client_id`, tenant del
+**Por qué es seguro pre-auth**: solo se informa con `enabled:true`, y en ese caso el mismo
+valor viaja en el `redirect_uri` de la URL de Microsoft que ve cualquiera que pulse el botón. No expone `config`, `client_id`, tenant del
 directorio ni el secreto (la regla de `api.py:189-192` se mantiene).
 
 **Uso** (spec FR-015):
@@ -47,7 +47,14 @@ Tests nuevos (junto a `backend/tests/integration/test_sso_api.py:196-228`):
 4. Con credenciales en la URI (`https://u:p@hub.ejemplo.local/sso/callback`) →
    `"https://hub.ejemplo.local"`: nunca aparecen `u` ni `p`.
 5. Sin variable, vacía o relativa → `null`, y `enabled` sigue su regla de siempre.
+5b. Con la variable bien puesta y el proveedor apagado o sin configurar (`enabled:false`) →
+    `return_origin: null` (N3 del QA v2).
 6. Con flag apagado → sigue siendo 403 (el gate preempta, `test_el_gate_preempta_al_handler`).
+7. Con puerto no numérico (`https://hub.ejemplo.local:abc/sso/callback`), fuera de rango
+   (`:99999`) o IPv6 mal cerrado (`https://[::1/sso/callback`) → `200` con `return_origin: null`,
+   nunca 500 (N3 del QA v2).
+8. Con IPv6 → corchetes: `http://[::1]:8095/sso/callback` → `"http://[::1]:8095"`;
+   `https://[::1]/sso/callback` → `"https://[::1]"`.
 7. La respuesta sigue sin `config` ni secreto (`test_available_no_filtra_la_config_del_tenant`).
 
 ## 2. `GET /api/v1/auth/sso/callback` — auditoría de los rechazos de flujo y tope
@@ -86,17 +93,26 @@ contadores independientes**, uno por categoría (`flujo` y `canje`), y reloj iny
 tests.
 
 - **Flujo**: pasado el tope, el rechazo no escribe fila.
-- **Canje**: el contador suma cada canje fallido. Antes de llamar a `provider.exchange_code`, el
-  callback mira el contador: si ya llegó al tope en la ventana, **no llama** al `token_endpoint`,
-  no escribe fila y responde `401 sso_identidad_no_verificada` con el mismo `detail`. `entra.py`
-  no cambia.
+- **Canje**: el contador cuenta los canjes fallidos de la ventana. Antes de llamar a
+  `provider.exchange_code`, el callback **reserva** un lugar en el contador: incrementa y compara
+  en un solo paso atómico (N4 del QA v2). Si ya no hay lugar en la ventana, **no llama** al
+  `token_endpoint`, no escribe fila y responde `401 sso_identidad_no_verificada` con el mismo
+  `detail`. Si el canje sale bien, **devuelve** el lugar reservado. Así, N canjes concurrentes con
+  un directorio lento nunca superan `tope` llamadas al proveedor. El contador se toca siempre
+  desde el event loop o bajo un `threading.Lock`, nunca sin protección desde el threadpool.
+  `entra.py` no cambia.
 - En las dos categorías el excedente se cuenta, y al cerrar la ventana se emite un solo
   `logger.warning` por categoría con el conteo omitido (sin `state`, `code`, IP ni token). El
   status y el `detail` no cambian.
 
 Los rechazos que exigen una identidad real del directorio (`api.py:313`, `:379`) no pasan por el
-tope. Efecto aceptado: durante una ráfaga, un canje legítimo de la misma ventana también recibe el
-401. Solo se degrada el camino SSO (FR-006).
+tope. **Efecto aceptado, límite conocido** (spec, Clarifications N1; research D6): no se trata
+de una ráfaga pasajera. La cookie de estado vale 10 minutos (`api.py:59`, `:95`): con **una** sola,
+30 canjes con `code` basura al inicio de cada ventana (0,5 pedidos/s sostenidos) bastan para que
+**todo** canje legítimo de la ventana reciba el 401 sin llegar al directorio, mientras se
+sostenga ese ritmo. Solo se degrada el camino SSO: el login con contraseña no se afecta (FR-006).
+Para distinguirlo de una falla del directorio: hasta el tope hay filas `auth_sso_denied` y después
+un `logger.warning` por ventana con el conteo omitido.
 
 Tests nuevos (junto a `test_callback_sin_cookie_400`, `test_callback_con_state_ajeno_400`,
 `test_callback_con_cookie_falsificada_400` y `test_callback_sin_code_400`,
