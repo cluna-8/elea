@@ -1,0 +1,12 @@
+# Dependencias que la imagen -ext del motor suma a la base (spec 057 T091, research R29 3b). Se instalan
+# con `pip install --no-deps --require-hashes -r`: versión exacta y hash de cada archivo publicado.
+#
+# pypdf 6.19.0 (verificada el 2026-10-06 contra PyPI): trae `pypdf.Configuration` con los límites de
+# descompresión por flujo que el extractor de PDF de S14 baja (MASKING_PDF_MAX_STREAM_BYTES). Sin
+# dependencias obligatorias en Python ≥ 3.11 (`typing_extensions` solo para 3.9–3.10): `--no-deps` da
+# por hecho que el Python del motor es ≥ 3.11, algo que se confirma en la verificación real de la
+# imagen (la corrida con Docker del tramo), no acá.
+# Para subirla: `curl https://pypi.org/pypi/pypdf/<versión>/json` y copiar el sha256 de la rueda y del fuente.
+pypdf==6.19.0 \
+    --hash=sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14 \
+    --hash=sha256:bbc43aca292369ccc6cbc8a921991ecf2538a3587ab5a116eff06c321d647155
