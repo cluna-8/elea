@@ -128,9 +128,10 @@ def _sesion(client, username, password):
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-def _payload(username, password, role="compliance_officer"):
-    """Rol administrativo a propósito: no es seat, así el alta no depende del tope de la
-    licencia de la suite (lo que se mide acá es la credencial)."""
+def _payload(username, password, role="lectura"):
+    """Rol NO-client a propósito: no es seat, así el alta no depende del tope de la licencia
+    de la suite (lo que se mide acá es la credencial). `lectura` y no `compliance_officer`:
+    éste sólo lo asigna un super_admin, y quien da de alta acá es el tenant_admin."""
     return {"username": username, "email": f"{username}@sentinel.com.ar", "role": role,
             "password": password}
 

@@ -8,6 +8,12 @@ from .tenant import DEFAULT_TENANT_ID
 
 VALID_ROLES = {"super_admin", "tenant_admin", "compliance_officer", "client", "lectura"}
 
+# Roles que SÓLO un `super_admin` puede asignar (alta o cambio de rol). Son los dos que
+# controlan lo que el administrador de empresa no debe poder tocar (cumplimiento y
+# cross-tenant): si el `tenant_admin` pudiera crearlos, se designaría a sí mismo a quien
+# relaja lo que a él le está vedado. Ver `auth.rbac.exigir_super_admin_para_rol`.
+ROLES_SOLO_SUPER_ADMIN = frozenset({"compliance_officer", "super_admin"})
+
 # Mapeo de roles legacy → (rol canónico, display_label), espejo del backfill de la
 # migración 010 (spec 013 US2, [D9]). Lo usan los bordes de la API para aceptar
 # payloads legacy sin violar el CHECK ck_users_role.

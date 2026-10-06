@@ -282,8 +282,9 @@ sequenceDiagram
    bootstrap es `admin@sentinel.com.ar` — un TLD reservado tipo `.local` rompía la validación, ver
    [el gotcha](#gotcha-email). El bootstrap **sólo corre mientras la instalación no tenga
    dueño**, es decir mientras no exista ningún usuario cuya existencia pruebe que hubo un
-   administrador (`tenant_admin`, `super_admin` o `compliance_officer`: ninguno se puede crear
-   sin sesión admin): es lo que evita que en un despliegue ya poblado cualquiera que llegue al
+   administrador (`tenant_admin` o `super_admin`: ninguno se puede crear sin sesión admin; el
+   `compliance_officer` no cuenta, es un auditor y su sola existencia no prueba que hubo un
+   dueño): es lo que evita que en un despliegue ya poblado cualquiera que llegue al
    login se cree un `tenant_admin` y se apropie del tenant. Los clients sembrados por el
    perfil (paso 8) **no** cuentan como dueño —los siembra la config, no una persona—, así que
    el orden 7→8 no bloquea la instalación; el orden importa por otra razón: mientras no exista
