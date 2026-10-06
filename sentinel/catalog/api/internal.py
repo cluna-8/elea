@@ -101,6 +101,15 @@ def direct_enabled() -> bool:
     return os.environ.get("CATALOG_DIRECT_ENABLED", "").strip().lower() in ("1", "true", "yes")
 
 
+def _require_direct_enabled() -> None:
+    """Sin la ruta directa (`CATALOG_DIRECT_ENABLED`), la credencial **descifrada** no sale por HTTP: el mismo 404
+    que sin secreto, aun con el secreto interno correcto (057 QA A10; FR-013). La llamada en proceso del chat de la
+    consola (`chat_route`) invoca la función directamente y no pasa por esta dependencia."""
+    from fastapi import HTTPException
+    if not direct_enabled():
+        raise HTTPException(404, "Not Found")
+
+
 def _dpa(db, e, sheet):
     prev = (admin.DPA_LOOKUP, admin.TODAY)
     admin.DPA_LOOKUP = DPA_LOOKUP or admin.DPA_LOOKUP
@@ -146,11 +155,12 @@ def model_access(response: Response, tenant: uuid.UUID = Query(), user: str | No
     return {"restringe": True, "permitidos": sorted(permitidos)}
 
 
-@router.get("/model-credential", dependencies=[Depends(_require_internal_secret)])
+@router.get("/model-credential", dependencies=[Depends(_require_internal_secret), Depends(_require_direct_enabled)])
 def model_credential(response: Response, tenant: uuid.UUID = Query(), entry_id: uuid.UUID = Query()):
     """Credencial descifrada de UNA entrada servida, solo para el guard del motor (red interna + secreto
-    compartido). Nunca cacheable. Las referencias a variables del servidor viajan como referencia
-    (`env:…`): solo las resuelve el motor."""
+    compartido), y **solo con la ruta directa encendida** (`CATALOG_DIRECT_ENABLED`; apagada en Eleia, donde la
+    credencial viaja en la autorización firmada). Nunca cacheable. Las referencias a variables del servidor viajan
+    como referencia (`env:…`): solo las resuelve el motor."""
     from fastapi import HTTPException
     from .. import credentials as cr
     response.headers["Cache-Control"] = "no-store"

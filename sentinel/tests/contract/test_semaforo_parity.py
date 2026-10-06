@@ -60,6 +60,7 @@ def api(monkeypatch):
     monkeypatch.setattr(admin, "STORE", ver)
     monkeypatch.setattr(internal, "VERSION", ver)
     monkeypatch.setenv("SENTINEL_ENGINE_MASTER_KEY", INTERNAL)
+    monkeypatch.setenv("CATALOG_DIRECT_ENABLED", "1")     # la ruta de la credencial solo existe con la ruta directa (057 T090)
     app = FastAPI()
     assert mount_plugin_routers(app, "sentinel.catalog.api") == 6      # admin + interno
     who = {"user": None}
