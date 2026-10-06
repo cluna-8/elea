@@ -97,6 +97,11 @@ async def _lifespan(_app: FastAPI):
     # compuerta propia: queda APAGADA salvo SENTINEL_PURGE_ENABLED=true, porque un job
     # que hace DELETE retroactivo no se enciende con un pull de imagen.
     retention_scheduler.start_scheduler()
+    # S16: arranque de extensiones (`on_startup()` opcional de cada PLUGIN_PACKAGES, src/plugins.py) antes
+    # de servir; sin la variable o sin enganche no hace nada. Un fallo se registra y no tira el arranque.
+    from .plugins import run_plugin_startup
+
+    await run_plugin_startup()
     try:
         yield
     finally:

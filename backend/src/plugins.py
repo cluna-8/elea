@@ -9,6 +9,15 @@ Cada módulo expone:
     def get_routers() -> list[tuple[APIRouter, str]]:   # (router, prefix)
         return [(router, "/api/v1/mi-plugin")]
 
+Un módulo puede exponer además, opcional, el enganche de arranque (S16):
+
+    def on_startup() -> None:            # síncrona, o `async def` (se espera)
+        ...
+
+`run_plugin_startup()` lo llama desde el `lifespan` de la app, antes de servir, una vez por proceso (con
+varios workers corre una vez por worker y a la vez: tiene que ser idempotente y seguro ante concurrencia).
+No depende de `APIRouter(on_startup=[...])`, que bajo `lifespan` no corre en todas las versiones de FastAPI.
+
 Decisiones:
 - Sin la env (o vacía) no se importa nada: rutas y OpenAPI idénticos al core.
 - Fail-LOUD: un módulo que no importa, sin `get_routers` o que devuelve otra forma levanta
@@ -16,10 +25,14 @@ Decisiones:
   despliegue; arrancar sin él serviría una API distinta a la que el operador pidió.
 - Todo o nada: se validan TODOS los plugins antes de montar el primero.
 - Se montan después de los routers del core, en el orden de la env.
+- `on_startup()` es opcional y NO es fail-loud: un fallo se registra con el nombre del paquete y el
+  arranque sigue (el plugin decide su respaldo). Sin env o sin `on_startup`, no se hace nada.
 """
 from __future__ import annotations
 
+import asyncio
 import importlib
+import inspect
 import logging
 import os
 
@@ -86,3 +99,27 @@ def mount_plugin_routers(app: FastAPI, raw: str | None = None) -> int:
     if routers:
         logger.info("Plugins montados: %s (%d routers)", ", ".join(plugin_packages(raw)), len(routers))
     return len(routers)
+
+
+async def run_plugin_startup(raw: str | None = None) -> int:
+    """S16: corre el `on_startup()` opcional de cada paquete de `PLUGIN_PACKAGES`, en el orden de la env.
+
+    Una función síncrona corre en un hilo (no bloquea el bucle de eventos); una corrutina se espera. Un fallo se
+    registra con el nombre del paquete y no tira el arranque ni impide que corran los demás. Devuelve cuántos
+    `on_startup()` terminaron sin error."""
+    corridos = 0
+    for nombre in plugin_packages(raw):
+        try:
+            on_startup = getattr(importlib.import_module(nombre), "on_startup", None)
+            if not callable(on_startup):
+                continue
+            if inspect.iscoroutinefunction(on_startup):
+                await on_startup()
+            else:
+                resultado = await asyncio.to_thread(on_startup)
+                if inspect.isawaitable(resultado):
+                    await resultado
+            corridos += 1
+        except Exception as e:  # noqa: BLE001 — el arranque no cae por un enganche
+            logger.error("plugin '%s': on_startup() falló: %s", nombre, e)
+    return corridos
