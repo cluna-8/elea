@@ -12,8 +12,8 @@ todavía, así que nada se ejecutó (ni suites, ni Docker). Lo que depende de co
 ## Veredicto
 
 **B1, B2 y B3: cerrados.** **A2–A10: cerrados**, con A10 cerrado solo en lo que la 057 implementa (capa 1, T090): las capas 2 y 3 son una dependencia sin código en
-ninguna rama (N2). **M1–M15 y B-1/B-2: cerrados** o aceptados con motivo. **No hay altos nuevos.** Hay **4 medios nuevos** (N1–N4) y 3 bajos (N5–N7); ninguno reabre una decisión
-del owner (D1, D2, D3, D5, D10, D12, la enmienda del 403, P1–P5). Se corrigen por `speckit-plan`/`speckit-tasks` (no a mano), N1 y N4 antes de despachar T-E, N2 antes de despachar T-A.
+ninguna rama (N2). **M1–M15 y B-1/B-2: cerrados** o aceptados con motivo. **No hay altos nuevos.** Hay **5 medios nuevos** (N1–N4, N8) y 4 bajos (N5–N7, N9); ninguno reabre una decisión
+del owner (D1, D2, D3, D5, D10, D12, la enmienda del 403, P1–P5). Se corrigen por `speckit-plan`/`speckit-tasks` (no a mano), N1, N4 y N8 antes de despachar T-E, N2 antes de despachar T-A.
 **worker_done: succeeded** (B1–B3 cerrados, sin altos nuevos).
 
 ---
@@ -95,7 +95,8 @@ Severidad: **Alto** = viola una FR/SC o abre una vía de fuga sin barrera; **Med
 - **Falla**: la dependencia es una promesa, no un artefacto. T089 (gate de T-A: «si no está integrado, parar y escalar») va a **detener T-A**; y si el arreglo se cierra solo con el proxy, S15 nunca existe y T089/T101 verifican algo que no está.
   El riesgo de fondo (identidad/auditoría del motor alcanzables por la LAN con la llave maestra, `ENSAYO:171-184`) es previo a la 057; la credencial de proveedor ya queda cerrada por T090.
 - **Viola**: FR-013 (en la parte de dependencia), coherencia del plan (`plan.md:273`).
-- **Corrección**: confirmar con el coordinador que el arreglo de bases incluye proxy y S15 (con su ensayo de `auto` en el compose real) y reflejarlo en su alcance; si solo incluye el proxy, bajar S15 a «opcional» en R31/`costuras-base.md`/T089 para que el gate no sea imposible.
+- **Corrección**: (a) confirmar con el coordinador que el arreglo de bases incluye proxy y S15 (con su ensayo de `auto` en el compose real) y que el texto de `spec.md:238` («verificó la exposición» sí; «entrega» no) se corrige por `speckit-clarify`;
+  (b) **mover el gate de T089 de T-A a T-H**: la 057 no empeora la exposición previa (la credencial de proveedor queda cerrada por T090; las rutas `/model-catalog` y `/model-access` no devuelven secretos), de modo que bloquear la base entera por una dependencia del instalador es desproporcionado; lo que sí debe exigirse es que **`ELEA_REDIRECT=1` (T100) no se active** si el proxy/S15 no están; (c) si solo llega el proxy, bajar S15 a «opcional» en R31/`costuras-base.md`.
 
 ### N3 — Medio — La separación de funciones de FR-023 (A6–A8) es por rol, y el admin de empresa puede crear un `compliance_officer` o un `super_admin`
 - **Evidencia**: `POST /users` exige solo `require_role("admin")` (`backend/src/api/users.py:413-414`), acepta cualquier rol de `VALID_ROLES` (`backend/src/models/user.py:9`:
@@ -131,9 +132,48 @@ Severidad: **Alto** = viola una FR/SC o abre una vía de fuga sin barrera; **Med
   fuera de esos contextos (el `backend.Dockerfile` de Sentinel ya exige «la RAÍZ del repo»). T091 (`tasks.md:116`) no dice que el contexto de las tres `-ext` es la raíz.
 - **Corrección**: precisarlo en T091 y en su `test_ext_images.sh`.
 
+### N8 — Medio — S14: la lista de campos estructurales es cerrada en el papel, pero tiene tres huecos de implementación (foco extra del coordinador, punto 4)
+- **Evidencia**: la regla general de R29 (`research.md:596-656`, punto 2), `contracts/costuras-base.md` §S14 y T096 (`tasks.md:206`) enmascaran «todo **valor de texto**» salvo `model`, `role`, `type`, `id`, `tool_use_id`, `tool_call_id`, nombres de herramienta, `media_type`, `cache_control`, `signature`, `stream` y **«las claves de objeto»**.
+  La lista es cerrada y agregar un campo exige «cambio de contrato con test» (bien). Pero:
+  1. **Exención por nombre vs. por posición**: `id`, `name`, `type`, `role` también son nombres de campos **libres** dentro de `tool_use.input`, de los resultados JSON de herramientas, de `metadata` y de `input_schema` (`default`/`enum`/`examples`);
+     una herramienta de consulta recibe `{"name": "Juan Pérez", "id": "30123456"}`. Si el guardrail exime por nombre de clave, eso sale en claro. T096 prueba «un DNI en `metadata`, `stop_sequences`…» pero no una **colisión de nombres** dentro de un subárbol libre.
+  2. **Claves de objeto exentas**: en subárboles libres (`tool_use.input`, `metadata`) las claves pueden llevar datos (mapas `{ruta|correo|DNI: valor}`); la exención solo se justifica en los esquemas de protocolo, no en datos.
+  3. **Valores no textuales**: «valor de texto» deja fuera números y booleanos; `{"dni": 30123456}` o un teléfono entero en `tool_use.input` (lo escribe el modelo, que suele usar enteros para ids) pasa sin analizar, contra «todo lo que sale» (`spec.md:728`) y SC-006 (`spec.md:986`).
+- **Falla** **[por lectura; confirmar con test]**: salida en claro de identificadores del perfil por tres vías que la batería de T056/T096 no ejerce. La parte de **seguridad** de la lista (que un campo estructural no se corrompa) está bien; la que falla es la de **cobertura**.
+- **Viola**: FR-027 («todo lo que sale»), SC-006 («100 %»).
+- **Corrección** (T096/T097 por `speckit-tasks`): exenciones **por posición del protocolo** (ruta del campo), nunca por nombre de clave; dentro de los subárboles libres no se exime nada, claves incluidas; los escalares numéricos se analizan como texto (p. ej. enteros de ≥ 7 dígitos) o el subárbol libre se serializa y se analiza; tests de colisión de nombres y de números. Consecuencia aceptada y decidida (no hallazgo): toda imagen o PDF escaneado en el historial bloquea la conversación entera bajo `masked_all` (T080 lo documenta; OCR queda como fase siguiente).
+
+### N9 — Bajo — Precisión de R28 sobre `compose.prod.yml` (foco extra, punto 2)
+- **Evidencia**: R28 punto 5 y T095 dicen que un perfil de `deploy/clients/*` que active la extensión «sin fijar la región cae en el respaldo con `/health` 503 `region_unresolved`». Pero `deploy/docker/compose.prod.yml:112,201` **inyecta** `SENTINEL_ENTITY_REGION: "${SENTINEL_ENTITY_REGION:-eu}"`: la variable nunca está sin definir ahí, la región resuelve a `eu`,
+  no hay fila de región para `eu` (el seed es `AMERICAS`) y el estado real es `region_row_missing` con alcance `{EU}`, no `region_unresolved`.
+- **Efecto**: fail-closed igual (forzado en todo destino, destinos fuera de `{EU}` ⇒ 403): **no hay fuga**; solo el diagnóstico y el texto difieren. T094 debe probar también «región `eu` sin fila» y T080/T081 describir ese caso.
+
 ### Observación (no es hallazgo): T045 mide antes de S14
 T045 (`tasks.md:153`) cuenta falsos positivos con el alcance **actual** (solo `user`), antes de que T097 amplíe el enmascarado a `system`/herramientas; el número que importa para SC-004/SC-011 es el de T083 (`tasks.md:285`), que ya se repite con el default real.
 El plan lo dice; solo conviene no tomar el conteo de T045 como medida del riesgo A4.
+
+---
+
+## 2b. Foco extra pedido por el coordinador (5 decisiones del redactor)
+
+**(1) «La cara Claude bloquea con 400, no 403»** — **Correcto; no contradice la enmienda ni FR-026.** La enmienda aprobada (R21, `research.md:383-390`; T001 `tasks.md:67`; D13 de la constitución de Sentinel, `6a70855:.specify/memory/constitution.md:10-14,234-237`)
+fija el 403 `permission_error` para los **rechazos de residencia** («no 503, que Claude reintenta en bucle»); no menciona el bloqueo por enmascarado. FR-026 (`spec.md:719-721`) también es de residencia (allowlist). Los contratos lo respetan: residencia ⇒ **403** en las tres filas (`contracts/cara-claude.md:69-71`),
+y el bloqueo por enmascarado ⇒ **400 en la cara Claude** (`cara-claude.md:72`) y **403 `masking_required` en la genérica** (`cara-generica.md:23`), tal cual el código de Sentinel: 400 con la razón «Claude Desktop antepone “Failed to authenticate” a todo 403» (`sentinel:redirect/faces/claude.py:94-98`, 069 FR-008d) y 403 en `faces/generic.py:40-42`.
+Un 400 tampoco se reintenta, así que el objetivo de la enmienda se cumple. Dos precisiones: (a) si el owner **quiso** que la enmienda cubra también el enmascarado (como dice el brief), el texto aprobado no lo dice y habría que cambiar la cara copiada y el contrato; es decisión suya, no del plan; (b) por la misma razón, los 403 de **residencia** sí mostrarán «Failed to authenticate» en Claude Desktop:
+T079 debe listarlo entre los «síntomas conocidos» de la guía de Desktop (hoy `tasks.md:281` dice «síntomas conocidos» sin ese caso).
+
+**(2) `latam_ar` solo en `compose.dev.yml`** — **El fail-closed de B2 queda cubierto en producción y en el instalador**, porque no depende de ningún default de compose: es el respaldo en código (R28, T094). Instalador: `docker-compose.yml` de `main` fija `${ENTITY_REGION:-latam_ar}` en motor y backend (`:64`, `:112`) y T100 lo escribe también en el archivo de entorno.
+`docker-compose.yml:101,217` (CI) y `deploy/docker/compose.prod.yml:112,201` conservan `eu` a propósito (los perfiles europeos de `bundle.sh:58`); con `eu` y sin fila, rige el respaldo (forzado en todo destino, alcance `{EU}`), más estricto que hoy. Reservas: **N9** (el estado es `region_row_missing`, no `region_unresolved`) y **N1**, que sí pega aquí: el instalador depende de «seeds al arrancar» para salir del respaldo, y como ese enganche no existe en S1, `ELEA_REDIRECT=1` quedaría en 503 permanente y T100 lo haría fallar. Alternativa barata a N1: que el instalador ejecute el cargador `python -m sentinel.redirect.regions_seed` (T064) dentro del contenedor tras el arranque.
+
+**(3) `count_tokens` no se reenvía bajo forzado** — **No rompe Claude Code**; es el comportamiento que Sentinel ya definió para los traducidos y el contrato lo cubre: `200 {"input_tokens": N}` estimado localmente o `404 not_found_error` (`cara-claude.md:34-41`, `research.md:214-224`: «un 404 funciona»). Lo local es seguro: no sale nada (el cuerpo no se enmascara para estimar y no viaja).
+Lo único de riesgo es la **fidelidad**: la estimación usa `cl100k_base` (`backend/src/services/token_counter.py:17`) aunque el destino tenga otro tokenizador, y puede desviar la compactación; el efecto «compacta sin “prompt demasiado largo”» solo se ve en vivo (T045, US4.5 ◐). **[No verificable por lectura: cómo reacciona Claude Code a un 404 o a una cifra desviada; lo cubre T045/T102.]** Sin hallazgo.
+
+**(4) S14 y la lista de campos estructurales** — **cerrada y segura en lo que protege el protocolo, pero con huecos de cobertura**: ver **N8** (exención por nombre vs. por posición, claves de objeto, escalares numéricos).
+
+**(5) Proxy y S15 como dependencia del arreglo de bases** — **Mal expresada**: ver **N2**. El texto dice que el arreglo «entrega» proxy y S15, pero en el código el arreglo solo los **propone** (`ENSAYO-SEPARAR-BASES.md:189-195`, «no aplicada») y S15 `auto` contradice lo que ese ensayo dice sobre el origen de los puertos publicados. Falta además fijar *qué* se verifica y *cuándo* se corta:
+mi recomendación es que el gate de T089 pase a T-H (activación del instalador), no a T-A.
+
+**Dato del coordinador (M2)**: «`gpt-5.6-luna` EXISTE en Azure (verificado contra la API hoy)». Lo registro como dato **no verificado por mí** (sin red a Azure). Con él, M2 pasa a **resuelto en el fondo**: conviene que `speckit-clarify` lo registre y T023 (`tasks.md:108`), T045 (`tasks.md:153`), `quickstart.md:65` y `research.md:184` dejen de decir «a confirmar»; T022 lo vuelve a comprobar de todos modos al dar de alta la entrada.
 
 ---
 
@@ -159,7 +199,7 @@ El plan lo dice; solo conviene no tomar el conteo de T045 como medida del riesgo
 
 ## 5. Para el coordinador
 
-1. **N2 primero**: confirmar el alcance real del arreglo de bases (proxy y S15) antes de despachar T-A; T089 lo va a frenar.
-2. **N1 y N4 antes de T-E**: mecanismo de arranque del seed (con `lifespan`) y topes de tiempo/memoria del PDF.
+1. **N2 primero**: confirmar el alcance real del arreglo de bases (proxy y S15) y mover el gate de T089 a T-H; hoy T089 frena T-A por algo que no existe en ninguna rama.
+2. **N1, N4 y N8 antes de T-E**: mecanismo de arranque del seed (con `lifespan`), topes de tiempo/memoria del PDF y las exenciones de S14 por posición.
 3. **N3**: decisión del owner (redactar la garantía honestamente o limitar el alta de roles de cumplimiento/super).
-4. N5–N7: ediciones menores de T060/T094, T100 y T091 por `speckit-tasks`.
+4. N5–N7 y N9: ediciones menores de T060/T094, T100, T091 y R28 por `speckit-tasks`/`speckit-clarify`. Registrar el dato de `gpt-5.6-luna` (M2).
