@@ -97,6 +97,19 @@ fi
 # REPO, que en la sede del cliente no existe.
 mkdir -p "$OUT/engine-extensions"
 cp "$REPO_ROOT"/litellm/extensions/*.py "$OUT/engine-extensions/"
+# Extensiones extra (costura S9): EXTRA_ENGINE_EXTENSIONS = rutas de archivos .py separadas por
+# espacios (absolutas, o relativas a la raíz del repo) que viajan en el MISMO directorio: el
+# install.sh de abajo copia engine-extensions/*.py completo al volumen del motor. Vacía o sin
+# definir ⇒ el paquete queda idéntico. Un archivo que repite el nombre de uno del motor (o de
+# otro extra) es un error: pisaría la política de la base en silencio.
+for ext in ${EXTRA_ENGINE_EXTENSIONS:-}; do
+  case "$ext" in /*) ;; *) ext="$REPO_ROOT/$ext" ;; esac
+  [ -f "$ext" ] || { echo "❌ EXTRA_ENGINE_EXTENSIONS: no existe $ext"; exit 2; }
+  [ ! -e "$OUT/engine-extensions/$(basename "$ext")" ] \
+    || { echo "❌ EXTRA_ENGINE_EXTENSIONS: $(basename "$ext") pisaría otro archivo de engine-extensions/"; exit 2; }
+  cp "$ext" "$OUT/engine-extensions/"
+  echo "── extensión extra del motor incluida: $(basename "$ext")"
+done
 
 # Kit de confianza del certificado (issue #51). Cuando el ingress termina TLS con su CA
 # interna (LAN sin dominio público), cada puesto tiene que confiar en esa CA o la

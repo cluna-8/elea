@@ -29,6 +29,23 @@ PROFILE_VARS="$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$PROFILE/client.env" \
 envsubst "$PROFILE_VARS" < "$PROFILE/config.yaml.tmpl" > "$OUT/config.yaml"
 grep -q '\${' "$OUT/config.yaml" && { echo "❌ variables sin resolver en config.yaml"; exit 1; } || true
 
+# Fragmentos de perfil (costura S11): PROFILE_FRAGMENTS = rutas de YAML separadas por espacios
+# (absolutas, o relativas a la raíz del repo). Se fusionan AL FINAL de model_list y guardrails
+# del config ya renderizado —el guardrail del fragmento queda después del de la base— y un
+# model_name o guardrail_name repetido hace fallar el render. Se leen literales: el envsubst de
+# arriba ya corrió. Vacía o sin definir ⇒ ni se invoca el fusionador y el config.yaml queda
+# idéntico byte a byte. Si la fusión falla se borra el config: un config sin la extensión que el
+# operador pidió no debe poder desplegarse por error.
+FRAGMENTS=()
+for frag in ${PROFILE_FRAGMENTS:-}; do
+  case "$frag" in /*) ;; *) frag="$REPO_ROOT/$frag" ;; esac
+  FRAGMENTS+=("$frag")
+done
+if [ "${#FRAGMENTS[@]}" -gt 0 ]; then
+  python3 "$REPO_ROOT/deploy/release/fragment_merge.py" "$OUT/config.yaml" "${FRAGMENTS[@]}" \
+    || { rm -f "$OUT/config.yaml"; echo "❌ no se pudieron fusionar los PROFILE_FRAGMENTS en config.yaml"; exit 1; }
+fi
+
 # Rutas del auto-router (spec 030): NO se templa —los target_model ya son nombres
 # finales del catálogo—, pero tiene que quedar en rendered/ porque el bundle air-gapped
 # empaqueta rendered/, no el perfil (bundle.sh:59). Sin esta copia el seed de rutas

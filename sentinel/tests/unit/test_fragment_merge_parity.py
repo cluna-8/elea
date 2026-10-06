@@ -13,7 +13,7 @@ from sentinel.engine import fragment_merge as fm
 ROOT = Path(__file__).resolve().parents[3]
 FRAGMENT = ROOT / "sentinel" / "engine" / "profile-fragment.yaml"
 NIX_TMPL = ROOT / "deploy" / "clients" / "nix" / "config.yaml.tmpl"
-BASE_SCRIPT = ROOT / "deploy" / "release" / "merge_profile_fragments.py"   # costura S11
+BASE_SCRIPT = ROOT / "deploy" / "release" / "fragment_merge.py"   # costura S11 (T020)
 
 
 def _cfg():
@@ -77,7 +77,7 @@ def test_cli_sobre_el_perfil_de_nix(tmp_path):
 
 
 @pytest.mark.skipif(not BASE_SCRIPT.exists(),
-                    reason="la costura S11 (merge_profile_fragments.py) aún no está en este árbol")
+                    reason="la costura S11 (deploy/release/fragment_merge.py) no está en este árbol")
 def test_paridad_con_el_script_de_la_base(tmp_path):
     cfg = yaml.safe_dump(_cfg(), sort_keys=False)
     a, b = tmp_path / "a.yaml", tmp_path / "b.yaml"
