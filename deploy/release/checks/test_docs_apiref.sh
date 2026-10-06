@@ -13,6 +13,11 @@ fail() { echo "❌ $1"; exit 1; }
 
 # (a) deriva del API reference
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"; docker rm -f sentinel-docs-apiref-check >/dev/null 2>&1 || true' EXIT
+# Construir ANTES, con todo su progreso a stderr: con la imagen del backend sin construir, el
+# `docker compose run` la construye en el medio y el progreso de BuildKit se cuela por stdout dentro
+# del JSON → falso "DESACTUALIZADO" en frío (gate 057, 2026-10-06; mismo motivo que `make docs-refs`).
+(cd "$REPO_ROOT" && docker compose build backend >&2) \
+    || fail "no pude construir la imagen del backend (docker compose build backend)"
 (cd "$REPO_ROOT" && docker compose run --rm --no-deps -e BRAND_NAME="AI Gateway" backend python scripts/export_openapi.py 2>/dev/null) > "$tmp/openapi.json" \
     || fail "no pude exportar el OpenAPI del backend"
 diff -q "$tmp/openapi.json" "$REPO_ROOT/docs/docs/api-reference/openapi.json" >/dev/null \

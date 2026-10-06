@@ -97,3 +97,52 @@ cuerpo saliente.
   Tras el arreglo del stream (§5), con un venv fuera del repo (`backend/requirements.txt` + `pytest-asyncio`, sin Docker): **2446 passed, 13 skipped** (los
   8 casos nuevos) y la batería T003 `backend/tests/contract/test_gw_no_regresion_057.py`: **26 passed**.
 - Fuera de esta corrida: `make -C deploy check`/`check-docs` y la suite del backend en contenedor (el brief solo autorizó Docker para el motor).
+
+## 7. Gate final (T082 y T086) — corrida con Docker, 2026-10-06
+
+Rama `cluna-8/057-gate-final` sobre `b5fafda`. Docker con OK del owner, **proyecto de compose propio** `-p elea057gate` (`STACK_PREFIX=elea057gate`,
+solo `db` y `redis`, **sin puerto publicado al host** con un override fuera del repo: `db: ports: !reset []`); el stack `elea057`, `sentinel-frontend` y el
+puerto 5433 no se tocaron. `free -h` antes de cada build/suite: disponible 2,3–2,6 GiB (≥ 1,5 GiB). Sin `.env` en el worktree (la suite lo cubre:
+`backend/tests/conftest.py:29-31` fija un `JWT_SECRET_KEY` de suite).
+
+| Paso | Comando | Resultado |
+|---|---|---|
+| Suite del backend en contenedor, Postgres real | `docker compose -p elea057gate -f docker-compose.yml -f <override> run --rm --no-deps backend pytest tests/ -q` | **3314 passed, 25 skipped**, exit 0, 388,97 s |
+| Gate de artefactos | `make -C deploy check` | **exit 0**: imágenes, white-label, secretos, tofu, **check-docs OK** (12 pasos), trust-kit, Redis, admisión, límites locales, category_file, EXTRA_ENV_FILE, **entrega de extensiones (T020), `heads` (T088), variantes `-ext` (T091), región por defecto (T095: 4 mutaciones detectadas)** |
+| Deriva de references | `make -C deploy docs-refs` | `openapi.json` idéntico (git sin cambios) y `configuration.md` 51 variables sin cambios: **no hay deriva real** |
+| Hub | `cd client && npm ci && npm test` | 43 passed, 0 fallos |
+| Panel | `cd frontend && npm ci && npm test` | 9 archivos, **36 passed** |
+| Consola de la extensión | `cd sentinel/frontend && npx vitest run` y `npx tsc -p .` (`node_modules` → `frontend/node_modules`) | **25 archivos, 264 passed**; `tsc` sin errores |
+| Extensión (Python) | contenedor del backend + `litellm[proxy]==1.92.0` y `pypdf` (pip resolvió `litellm 1.95.1` con el pin del backend como restricción) y `fastapi==0.111.0`/`starlette==0.37.2` (los pines del backend), `PYTHONPATH=.:backend LITELLM_MODE=PRODUCTION`, contra el mismo Postgres: `pytest sentinel/tests -q -rs` | **2446 passed, 13 skipped**, exit 0 |
+| T104–T106 | `pytest tests/unit/test_masking_pdf_hostil.py test_masking_alcance_completo.py test_plugin_startup.py` en el contenedor, sin y con `pypdf 6.19.0` | **64 passed, 0 skipped** en ambos casos |
+| Redacción (D10, R26) | `grep -rniE 'anonimiz\|cumple con\|conforme a\|transferencia l[ií]cita' docs/docs sentinel/frontend` | 3 coincidencias nuevas, **las tres niegan** («no es anonimización»: `integrations/index.md:436`, `administration/redireccionamiento.md:245`, `overview/index.md:292`); el resto (`compliance/dpa-dsr-retention.md`, `compliance/index.md`) es anterior a la 057, derechos del interesado y escenarios, no el enmascarado |
+
+Los 13 skips de `sentinel/tests` son los mismos de T017/T030, ninguno de migraciones, RLS, resolución ni credenciales: 6 por `deploy/clients/nix/**` o
+`release.yml` de Sentinel (no existen en Eleia), 2 por `src.services.model_route_hook` (el chat por catálogo, que esta base no trae; `sentinel/tests/unit/test_chat_route.py:15`
+y `test_unsupported_params.py:248`), 3 por `trusted_attribution`/`mark_attribution`, 1 por `residency_heuristic` y 1 por `fd515ff`. Los 25 del backend
+son de esa suite (hay marcas `skipif`/`importorskip` en `test_chat_smoke.py`, `test_gw_info_neutral.py` y `e2e/test_guardrail_behavior_e2e.py`); no se listaron los motivos uno por uno en esta corrida (sin `-rs`).
+
+### Hallazgos del gate
+
+1. **`test_docs_apiref.sh` daba «openapi.json DESACTUALIZADO» en frío (causa clara, arreglado).** Con la imagen del backend sin construir, el
+   `docker compose run` del check la construía en el medio y el progreso de BuildKit se colaba por stdout dentro del JSON; con la imagen ya construida el mismo
+   check pasaba y `docs-refs` regeneraba un archivo idéntico. Es el defecto que ya tenía `docs-refs` (comentario del `Makefile`, ensayo 2026-10-06 §6.3), que
+   construye antes. `deploy/release/checks/test_docs_apiref.sh` ahora hace `docker compose build backend >&2` antes del export. Rojo → verde: primera
+   corrida de `make check` (falló solo ese paso), después la imagen borrada y el check solo → verde, y `make -C deploy check` completo → exit 0.
+   Como el check cortaba el `make` en `check-docs`, los checks siguientes no habían corrido en la primera pasada; corrieron todos en la segunda.
+2. **`sentinel/tests` desde el servicio `backend` del compose falla 9 tests si no se borran dos variables (entorno, no código).** El servicio cablea
+   `NLP_ANALYZER_URL=http://nlp-analyzer:3000` (`docker-compose.yml:251`) e `INTERNAL_ALLOWED_CIDRS=auto` (`:206`); `backend/tests/conftest.py` las borra pero
+   `sentinel/tests/conftest.py` no. Sin el sidecar, la pasarela cierra en falso (`blocked_nlp_unavailable`, 400 en vez de 200: 1 test del contrato y 8 de la
+   batería de no regresión). Con `unset NLP_ANALYZER_URL INTERNAL_ALLOWED_CIDRS` (como en el venv del T086) pasa todo. No se tocó `sentinel/tests/conftest.py`
+   (viene de Sentinel); queda anotado para quien corra esta suite en el contenedor.
+
+### Qué queda de T086 (no cerrado)
+
+T086 sigue **abierto**: lo de esta máquina está verde, pero el ítem «los tests del instalador (T100, T101, T103, en su repo)» no se puede dar por cumplido desde
+acá: esas tres tareas siguen sin marcar y se trabajan en `cluna-8/elea-installer` (worktree `057-tramo-h`). Tampoco están hechas T083/T102 (con Azure) ni las salidas
+resumidas en el PR. T082 sí queda cerrada.
+
+### Limpieza
+
+`docker compose -p elea057gate … down` (contenedores, red y volumen del proyecto propio), imagen `elea057gate-backend` y la creada por `docker compose` sin `-p`
+desde los checks (`057-gate-final-backend`, redes `057-gate-final_*`), todas creadas por esta corrida.
