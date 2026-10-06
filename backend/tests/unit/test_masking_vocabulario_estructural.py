@@ -203,6 +203,39 @@ async def test_b_los_tipos_de_patron_siguen_bloqueando_en_cada_posicion_abierta(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("dato", ["4111111111111111", "ES9121000418450200051332", "+54 9 11 2345-6789"],
+                         ids=["tarjeta", "iban", "telefono"])
+async def test_b_tarjeta_iban_y_telefono_en_nombres_y_claves_siguen_bloqueando(dato):
+    # los demás tipos de patrón de la decisión del owner (el DNI, el CUIT, el CBU y el email están arriba). Los secretos
+    # (`SECRET_PATTERNS`) no son un tipo del analizador sino un detector aparte que no pasa por esta regla: no cambia.
+    casos = {
+        "anthropic/nombre_de_herramienta": ({"model": "m", "messages": [], "tools": [
+            {"name": dato, "input_schema": {"type": "object"}}]}, "anthropic"),
+        "anthropic/clave_de_schema": ({"model": "m", "messages": [], "tools": [
+            {"name": "t", "input_schema": {"type": "object", "properties": {dato: {"type": "string"}}}}]}, "anthropic"),
+        "anthropic/nombre_de_tool_use": ({"model": "m", "messages": [{"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t", "name": dato, "input": {}}]}]}, "anthropic"),
+        "openai/nombre_de_funcion": ({"model": "m", "messages": [], "tools": [
+            {"type": "function", "function": {"name": dato, "parameters": {"type": "object"}}}]}, "openai"),
+    }
+    for donde, (cuerpo, fmt) in casos.items():
+        _, _, tally = await _enmascarar(cuerpo, fmt=fmt)
+        assert tally.kinds == ["structural_entity"], f"{donde}: {dato!r} debe seguir bloqueando"
+
+
+@pytest.mark.asyncio
+async def test_b_un_dato_personal_en_un_identificador_con_semantica_tambien_bloquea():
+    # el NER marca la cadena entera como PERSON (ignorado) pero el patrón de DNI la marca también: manda el patrón
+    async def _ambos(texto):
+        salida = await policy.default_analyze(texto, region="latam_ar")
+        return salida + [{"start": 0, "end": len(texto), "entity_type": "PERSON", "score": 0.85}]
+
+    cuerpo = {"model": "m", "messages": [], "tools": [{"name": f"leer {DNI}", "input_schema": {"type": "object"}}]}
+    _, _, tally = await _enmascarar(cuerpo, analizar=_ambos)
+    assert tally.kinds == ["structural_entity"]
+
+
+@pytest.mark.asyncio
 async def test_b_un_tipo_propio_de_la_empresa_o_desconocido_sigue_bloqueando_en_un_identificador():
     # solo los tipos semánticos de una lista CERRADA se ignoran; todo lo demás (incluidos los de la empresa) bloquea
     async def _propio(texto):

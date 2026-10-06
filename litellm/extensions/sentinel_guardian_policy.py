@@ -2053,6 +2053,19 @@ class _FullScopeMasker:
             base += len(trozo)
         return out
 
+    async def identifier_entities(self, text: str) -> list:
+        """Detecciones de un identificador (posición estructural de vocabulario abierto): las de patrón y las propias de la
+        empresa. Los tipos de NER semántico se descartan ANTES de resolver solapes: una detección semántica que cubre a
+        todo el identificador (`leer 30123456` como PERSON) no puede tapar al patrón que va adentro (el DNI)."""
+        if not text or not text.strip():
+            return []
+        out, base = [], 0
+        for trozo in _split_for_analysis(text):
+            crudas = [e for e in await self.analyze(trozo) if e.get("entity_type") not in STRUCTURAL_IGNORED_ENTITY_TYPES]
+            out.extend({**e, "start": e["start"] + base, "end": e["end"] + base} for e in resolve_overlaps(crudas))
+            base += len(trozo)
+        return out
+
     async def prefetch(self, textos: list) -> None:
         """Analiza de a varios a la vez los textos que el recorrido va a pedir (el resultado queda en la
         memoria): un Claude Code típico trae cientos de cadenas cortas y una llamada por cadena en serie suma."""
@@ -2091,8 +2104,7 @@ class _FullScopeMasker:
                 return None
             tipo = "scan"                                  # fuera del vocabulario: posición estructural normal
         if tipo == "scan_open":
-            ents = [e for e in await self.entities(valor)
-                    if e.get("entity_type") not in STRUCTURAL_IGNORED_ENTITY_TYPES]
+            ents = await self.identifier_entities(valor)
             if ents:
                 self.tally.detected += len(ents)
                 self.tally.flag("structural_entity")

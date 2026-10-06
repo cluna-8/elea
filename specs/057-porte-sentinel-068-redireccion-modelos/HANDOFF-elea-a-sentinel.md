@@ -103,6 +103,18 @@ bloquea” no tenía tarea»). Con `masked_all` y Claude Code, el cliente reenv�
   `governance_overrides["masking_scope"] = "full"` enmascara todo y **bloquea** lo no analizable: 400 con la forma de Anthropic y el texto
   del guard (`MASKING_REQUIRED_MESSAGE`, `policy.py:514`), fila `blocked_residency` atribuida a la capa `pii_masking`. Sin el override, la
   llamada es idéntica a la de siempre.
+- **Vocabulario cerrado y tipos semánticos en las posiciones estructurales** (enmienda de N8, decisión del owner de Elea 2026-10-06; research R35;
+  `contracts/costuras-base.md` §S14; `policy.py` `S14_CLOSED_VOCABULARY`, `S14_OPEN_IDENTIFIERS`, `STRUCTURAL_IGNORED_ENTITY_TYPES`) ⚠ **cambia el
+  comportamiento de S14 con el NER real**: con el analizador real, `assistant`, `tool_use`, `Read`, `file_path` o un id `toolu_…` salen como
+  PERSON/LOCATION y, como una posición estructural no se reescribe, TODO pedido con un mensaje `assistant` o con herramientas se bloqueaba
+  (60 herramientas, 24 turnos: 206 `structural_entity`). Ahora, solo bajo el forzado y solo en las posiciones estructurales: **(A)** el valor de
+  vocabulario cerrado del protocolo (roles, `type` de bloque, `tool_choice.type`, `thinking.type`, `source.type`/`media_type`, palabras clave y
+  `type`/`format` del esquema) dentro del conjunto no se analiza (fuera del conjunto, como antes); **(B)** en los identificadores (nombres de
+  herramienta, claves de esquema, ids y nombres de `tool_use`/`tool_result`) se ignoran solo los tipos semánticos (PERSON, LOCATION, ORGANIZATION,
+  NRP, URL, DATE_TIME) y bloquean los de patrón y los propios de la empresa. El descarte va **antes** de resolver solapes
+  (`_FullScopeMasker.identifier_entities`): si no, un PERSON que cubre `leer 30123456` tapa al DNI. Mensajes, `tool_result`, `thinking`, `system` y
+  los subárboles libres no cambian. Test: `backend/tests/unit/test_masking_vocabulario_estructural.py` (incluye la instantánea de las tablas);
+  **Sentinel debe correr esa suite con su analizador real**: las suites con analizador simulado no veían el problema.
 - **CUIT/CUIL sin guiones** en `latam_ar` (`policy.py:151`, `\b\d{2}-?\d{8}-?\d\b`): el paracaídas regex lo hereda. **Es del perfil `latam_ar`**: a
   Sentinel solo le sirve si usa ese perfil.
 
