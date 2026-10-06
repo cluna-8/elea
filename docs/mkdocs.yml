@@ -98,10 +98,14 @@ nav:
       - Administración: administration/index.md
       - "Eleia Hub: espacios, presupuesto y documentos": administration/eleia-hub-workspaces.md
       - Gobernanza del firewall: administration/gobernanza.md
+      - Redirección de modelos: administration/redireccionamiento.md
       - Purga de retención: administration/purga-retencion.md
   - Integraciones & matriz:
       - Integraciones & matriz: integrations/index.md
       - Modelo propio / local: integrations/modelo-propio.md
+      - Claude Desktop: integrations/claude-desktop.md
+      - Claude Code: integrations/claude-code.md
+      - CLI de formato estándar: integrations/cli-formato-openai.md
       - Gotchas verificados: integrations/gotchas.md
   - API reference:
       - API reference: api-reference/index.md

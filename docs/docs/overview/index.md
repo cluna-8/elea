@@ -60,12 +60,21 @@ reversible que nunca la abandona.
 - **Detección con motor NLP** 🟡 — la detección por patrones es el default actual (apta para pilotos
   y entornos sin PHI real); un despliegue productivo con PHI exige activar el **motor NLP** de
   detección, y esa activación es una precondición documentada de producción.
-- **Compliance GDPR + EU AI Act** 🟢 — en dos niveles que el producto no confunde: *enforcement duro*
-  que bloquea en runtime (prácticas prohibidas del AI Act Art. 5, entidades marcadas `BLOCK`,
-  secretos/credenciales, residencia de datos EU en el flujo proxy) y *evidencia auditada* que no
-  bloquea pero queda registrada (base legal, DPA, Data Subject Requests Art. 15-22, consentimiento
-  versionado, retención, DPIA, reporting RoPA Art. 30). La auditoría es **metadata-only**: jamás se
-  persiste texto de prompt ni PII cruda.
+- **Compliance — controles de la base** 🟢 — en dos niveles que el producto no confunde:
+  *enforcement duro* que bloquea en runtime (prácticas prohibidas del AI Act Art. 5, entidades
+  marcadas `BLOCK`, secretos/credenciales, residencia de datos EU en el flujo proxy) y *evidencia
+  auditada* que no bloquea pero queda registrada (base legal, DPA, Data Subject Requests Art. 15-22,
+  consentimiento versionado, retención, DPIA, reporting RoPA Art. 30). El módulo está modelado sobre
+  esos marcos europeos, que son la **referencia de la base compartida**: en la línea América (perfil
+  Argentina) el marco normativo es la **Ley 25.326 y los criterios de la AAIP**, y el GDPR y la EU AI
+  Act **no rigen** (ver [Compliance](../compliance/index.md); el mapeo del módulo a la ley argentina
+  es 🔵). La auditoría es **metadata-only**: jamás se persiste texto de prompt ni PII cruda.
+- **Redirección de modelos** 🟡 — una política, apagada por defecto y activable por alcance, que
+  sirve lo que pide una herramienta (Claude Desktop, Claude Code, CLI de formato de chat estándar)
+  con **otro modelo** elegido por el administrador, con **enmascarado forzado de alcance completo** y
+  residencia por región (`AMERICAS` en esta línea; criterio de riesgo, no de legalidad). Implementada
+  y con pruebas automatizadas con proveedor simulado; **sin verificación en vivo todavía**. Ver
+  [Redirección de modelos](../administration/redireccionamiento.md).
 - **Gobernanza de costes** 🟢 — ninguna request pasa sin una key válida (fail-closed: nada cae a un
   usuario por defecto). Presupuestos en USD con corte **HTTP 402 pre-request** y contabilidad
   post-request, en doble capa persona → grupo, con techo duro y límites rpm/tpm como red de
@@ -149,7 +158,8 @@ Toda la superficie del gateway vive bajo **`/api/v1/gw`** (en desarrollo,
 | `GET /api/v1/gw` | Descubrimiento y estado de la puerta |
 | `POST /api/v1/gw/v1/messages` | Superficie de mensajes — passthrough con streaming SSE |
 | `POST /api/v1/gw/v1/messages/count_tokens` | Conteo de tokens de un payload de mensajes |
-| `GET /api/v1/gw/v1/models` | Modelos disponibles para la conexión |
+| `GET /api/v1/gw/v1/models` | Modelos disponibles para la conexión (con la redirección de modelos, los ids publicados) |
+| `POST /api/v1/gw/v1/chat/completions` | Puerta de formato de chat estándar — solo con llave virtual (🟡, sin verificación en vivo) |
 | `GET /api/v1/gw/whoami` | Identidad resuelta de la key — tenant, cliente, herramienta |
 | `POST /api/v1/gw/inspect` | Inspección de contenido contra el pipeline |
 | `GET /api/v1/gw/events` | Eventos por request para auditoría y monitor |
@@ -267,7 +277,7 @@ configurables**, no roles del sistema. La administración del día a día está 
 | **Distribuidor** | Instalar el producto con tu marca y entregarlo a tus clientes | [Install / Deploy](../install-deploy/index.md) |
 | **Operador** | Administrar tenants, personas, políticas y presupuestos del día a día | [Administración](../administration/index.md) y [Operaciones](../operations/index.md) |
 | **Integrador** | Conectar herramientas de IA al gateway y conocer la matriz de compatibilidad | [Integraciones](../integrations/index.md) |
-| **DPO / Compliance** | Evidencia GDPR / EU AI Act, auditoría y derechos de los interesados | [Compliance](../compliance/index.md) |
+| **DPO / Compliance** | Evidencia de compliance (marco de la instalación y controles de la base), auditoría y derechos de los interesados; residencia de modelos | [Compliance](../compliance/index.md) y [Redirección de modelos](../administration/redireccionamiento.md) |
 
 ## Límites conocidos
 
@@ -277,6 +287,9 @@ configurables**, no roles del sistema. La administración del día a día está 
   Ningún modo garantiza un recall del 100 %.
 - 🟡 **Row-Level Security**: cableado en PostgreSQL, pero el contexto por request aún no se
   establece — el aislamiento efectivo es a nivel de aplicación.
+- 🟡 **Redirección de modelos**: implementada y probada con proveedor simulado; sin verificación en
+  vivo. El enmascarado es seudonimización reversible de identificadores detectados, no
+  anonimización, y la residencia por región es 🟡 hasta la revisión legal.
 - 🟡 **Modo interceptación** (herramientas que operan dentro de su propio cliente): el enrutado de
   residencia EU no aplica ahí — la garantía se traslada a masking, auditoría y allowlist de
   herramientas y modelos. Detalle en [gotchas de integración](../integrations/gotchas.md).

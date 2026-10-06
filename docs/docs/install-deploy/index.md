@@ -100,6 +100,7 @@ Los tres actores y su frontera de responsabilidad:
 | Bootstrap de admin | Primer login `admin` crea `tenant_admin` **sólo mientras la instalación no tenga dueño** (ningún usuario con rol administrativo) y con un mínimo de 12 caracteres; email `admin@sentinel.com.ar`. En el camino IaC la credencial inicial se emite **una sola vez** como output sensible | Igual + rotación de credencial obligatoria post-instalación | 🟢 (rotación por API/UI: `POST /users/me/password` y reseteo de admin `POST /users/{id}/password`) |
 | Branding white-label | Naming neutro en el código (`AIEngineClient`/`engine_*`, errores del motor reescritos a naming neutro); el render del perfil produce el `brand.json` del cliente | Branding pack (nombre/logo/paleta) por cliente como **config-as-data en runtime** (sin recompilar) | 🟡 |
 | Licenciamiento offline | **Implementado fail-closed**: verificación Ed25519 offline al arranque; gate de seats en las altas (`402` seats agotados / `403` licencia no activa); estados `active`/`grace`/`expired`; `SENTINEL_LICENSE_HARD_BLOCK` corta las rutas de servicio; `GET /api/v1/health/license`; auditoría hash-chained + true-up firmado; sin phone-home | Igual | 🟢 |
+| Redirección de modelos (extensión opcional) | Imágenes **`-ext`** derivadas de las publicadas (mismo digest, tag propio `<versión>-ext`, sin tocar `latest`), entrega por perfil de cliente (`EXTRA_ENV_FILE`, `EXTRA_ENGINE_EXTENSIONS`, `PROFILE_FRAGMENTS`) y arranque que **aborta** ante una migración fallida; probado **sin contenedores**. Apagada por defecto y sin efecto en una instalación que no la activa | Activación opt-in por el instalador (`ELEA_REDIRECT=1`) detrás del proxy del canal interno, con prueba local y runbook de servidor; ver [Operaciones §7](../operations/index.md#7-redireccion-de-modelos) | 🟡 (entrega) / 🔵 (instalador y servidor) |
 | Bundle air-gapped | Herramienta de bundle en el árbol de release: tarball autocontenido con **todas** las imágenes + compose de producción + perfil renderizado + checks + manifiesto con digests; validada en el gate del release | Igual, por release; v2 con bundle firmado para k8s | 🟢 |
 
 ---
@@ -348,6 +349,21 @@ sequenceDiagram
       secretos default en runtime, sin secretos en claro en el state, y todos los recursos
       en región EU.
 
+11. **(Opcional) Redirección de modelos.** Apagada por defecto: una instalación que no la activa
+    queda **idéntica** (misma pasarela, mismas respuestas, mismas filas de auditoría). Para activarla
+    hacen falta las imágenes **`-ext`** del release, el entorno de la extensión (por
+    `EXTRA_ENV_FILE`, con `MASKING_NONCE_KEY` y `REDIRECT_INTERNAL_KEY` generadas por instalación,
+    fuera del repositorio y con modo 600), el perfil de país de la línea América
+    (`SENTINEL_ENTITY_REGION=latam_ar`: el compose lo fija en `eu` si no se pasa, y entonces la
+    extensión informa `region_row_missing`), un **respaldo previo de las dos bases** y el proxy del
+    canal interno delante del backend. Verificación: `GET /api/v1/redirect/health` debe responder
+    `200`. **No hay downgrade de migraciones**: la vuelta atrás es apagar la política (conservando la
+    imagen `-ext`) o restaurar el respaldo. Detalle, variables y síntomas en
+    [Operaciones §7](../operations/index.md#7-redireccion-de-modelos) y, para qué hace, en
+    [Redirección de modelos](../administration/redireccionamiento.md). 🟡 La activación por el
+    instalador y el runbook de servidor son 🔵 (en curso); nada se probó todavía de punta a punta
+    con contenedores.
+
 ---
 
 ## Gotchas de instalación verificados
@@ -483,6 +499,8 @@ La imagen del motor se **fija por tag+digest**. Para actualizar el motor:
 
 ## Relacionado
 
+- [Redirección de modelos](../administration/redireccionamiento.md) — qué hace la extensión opcional que
+  el paso 11 activa: política, residencia y enmascarado forzado.
 - [Infraestructura](infrastructure.md) — la topología objetivo detrás del módulo IaC: red, datos gestionados, secretos, TLS/DNS y el camino on-prem.
 - [Licenciamiento](licensing.md) — cómo funciona el enforcement fail-closed de seats, los estados de licencia y la cadena de auditoría cuya génesis se registra en la instalación.
 - [Inicio de sesión con el directorio (SSO)](sso.md) — la operatoria de instalación del acceso con Microsoft Entra ID: los datos que aporta el cliente, el registro de la URI de retorno en su directorio y el acceso local como respaldo permanente.
