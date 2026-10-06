@@ -228,6 +228,22 @@ usuario/grupo), con:
 (`GET /api/v1/keys/{id}/spend`), por usuario (`GET /api/v1/users/{id}/spend`) y por grupo
 (`GET /api/v1/users/groups/{id}/spend`).
 
+**Costo cero, costo desconocido y respuestas en caché** 🟡 — el gasto de las herramientas se
+descuenta con el costo que informa el motor del gateway, y la auditoría distingue tres casos
+que antes se veían todos como «0»:
+
+| Caso | Qué registra la auditoría | Qué descuenta el presupuesto |
+|---|---|---|
+| **Respuesta servida desde la caché del motor** | marca `cache_hit`; costo 0 (no costó nada) | **nada** (ni USD ni tokens) |
+| **Costo no informado** (modelo sin precio conocido por el motor) | costo calculado con la tabla de precios de respaldo del backend, marca `cost_estimated` | ese mismo costo calculado: la fila de auditoría y el contador cierran |
+| **Costo 0 informado** (p. ej. modelo local) | costo 0 | 0 en USD |
+
+La marca no contiene texto de las consultas ni datos personales (son indicadores booleanos).
+La tabla de precios de respaldo es una aproximación: un modelo que el motor no conoce
+conviene darlo de alta con su precio. 🟡 aplica al tráfico de herramientas cuando el motor
+reporta sus eventos al backend (despliegues de producción); el panel de costes todavía no
+presenta el ahorro por respuestas en caché como indicador propio. 🔵
+
 **A nivel tenant** — como el despliegue opera con un tenant único, el agregado del tenant
 es la suma de la instancia y se observa en el panel de analítica y costes; no existe hoy
 un tope de gasto *tenant-wide* como objeto propio (los topes se definen por key, usuario
