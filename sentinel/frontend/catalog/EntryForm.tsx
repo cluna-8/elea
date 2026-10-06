@@ -70,7 +70,6 @@ export const EntryFormFields: React.FC<{
           value={form.provider}
           onChange={v => setForm(withProvider(form, v as Provider))}
           options={PROVIDERS.map(p => ({ value: p, label: PROVIDER_LABELS[p] }))}
-          hint={form.provider === "deepseek" ? "Queda bloqueado hasta que cumplimiento lo habilite." : undefined}
         />
         <Field label="Modelo real" value={form.real_model} onChange={e => set({ real_model: e.target.value })}
           error={errors.real_model} hint="El nombre exacto del modelo en el proveedor." />

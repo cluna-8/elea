@@ -8,7 +8,7 @@ import { EmptyRow, Notice, ReasonDialog, tableClass, tdClass, thClass } from "..
 import { catalogApi } from "./api";
 import { EntryFormFields } from "./EntryForm";
 import {
-  buildCreatePayload, buildPatchPayload, canEditSheet, canWriteEntry, CAPABILITY_LABELS, CredentialRow,
+  buildCreatePayload, buildPatchPayload, canEditSheet, canEnableEntry, canWriteEntry, CAPABILITY_LABELS, CredentialRow,
   EntryForm, entryStatus, entryToForm, EntryView, FEATURE_LABELS, FEATURES, isStale, levelLabel,
   newEntryForm, Permissions,
 } from "./helpers";
@@ -16,7 +16,7 @@ import { SheetDialog } from "./SheetDialog";
 import { Modal, ModalButtons, SemaforoBadge } from "./ui";
 
 type Dialog =
-  | { kind: "edit" | "archive" | "offers" | "sheet"; entry: EntryView }
+  | { kind: "edit" | "archive" | "offers" | "sheet" | "enable"; entry: EntryView }
   | null;
 
 const CreateEntry: React.FC<{
@@ -198,6 +198,9 @@ export const ModelsTab: React.FC<{
                             setTenantsText((e.offered_to ?? []).join(", ")); setDialog({ kind: "offers", entry: e });
                           }}>Ofrecer</Button>
                         )}
+                        {canEnableEntry(perms, e) && (
+                          <Button size="sm" variant="secondary" aria-label={`Habilitar ${e.name}`} onClick={() => setDialog({ kind: "enable", entry: e })}>Habilitar</Button>
+                        )}
                         {writable && (
                           <Button size="sm" variant="danger" aria-label={`Archivar ${e.name}`} onClick={() => setDialog({ kind: "archive", entry: e })}>Archivar</Button>
                         )}
@@ -218,6 +221,15 @@ export const ModelsTab: React.FC<{
       {dialog?.kind === "edit" && (
         <EditEntry entry={dialog.entry} perms={perms} credentials={credentials}
           onCancel={() => setDialog(null)} onDone={done} />
+      )}
+      {dialog?.kind === "enable" && (
+        <ReasonDialog
+          title={`Habilitar «${dialog.entry.name}»`}
+          description="Una regla de habilitación bloqueó este modelo. Habilitarlo exige un motivo y queda en el registro de cambios; no relaja la residencia."
+          confirmLabel="Habilitar"
+          onCancel={() => setDialog(null)}
+          onConfirm={async reason => { await catalogApi.enableEntry(dialog.entry.id, reason); await done(`«${dialog.entry.name}» habilitado.`); }}
+        />
       )}
       {dialog?.kind === "archive" && (
         <ReasonDialog

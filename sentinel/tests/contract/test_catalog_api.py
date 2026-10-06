@@ -437,7 +437,16 @@ def test_la_vista_trae_vigencia_y_region_del_dpa_pero_no_el_documento(api):
     assert "secreto-interno" not in json.dumps(r)
 
 
+def _regla_de_paridad(api):
+    """Paridad con Sentinel (057 data-model §2): su bloqueo fijo por proveedor es hoy una regla de datos."""
+    from sentinel.catalog import habilitacion
+    with api.Session() as s:
+        habilitacion.seed_rules(s, {"providers": ["deepseek"]})
+        s.commit()
+
+
 def test_entrada_bloqueada_por_defecto_se_habilita_con_motivo(api):
+    _regla_de_paridad(api)
     d = _create(api, provider="deepseek", name="DS", real_model="m", credential={"new": {"name": "k", "value": "x"}})
     assert d["blocked_by_default"] is True and d["enabled_at"] is None
     assert api.call("POST", f"/entries/{d['id']}/enable", "tenant_admin", json={}).status_code == 422
@@ -452,6 +461,7 @@ def test_habilitar_una_no_bloqueada_es_409(api):
 
 
 def test_organizacion_habilita_la_de_instalacion_solo_en_su_oferta(api):
+    _regla_de_paridad(api)
     d = _create(api, role="super_admin", level="installation", provider="deepseek", name="DS inst",
                 real_model="m", credential={"new": {"name": "k", "value": "x"}})
     api.call("PUT", f"/entries/{d['id']}/offers", "super_admin", json={"tenants": [str(T2)]})

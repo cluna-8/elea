@@ -207,7 +207,16 @@ def test_credencial_literal_con_el_mismo_nombre_sigue_siendo_conflicto(api):
     assert r.status_code == 409
 
 
+def _regla_de_paridad(api):
+    """Paridad con Sentinel (057 data-model §2): su bloqueo fijo por proveedor es hoy una regla de datos."""
+    from sentinel.catalog import habilitacion
+    with api.Session() as s:
+        habilitacion.seed_rules(s, {"providers": ["deepseek"]})
+        s.commit()
+
+
 def test_deepseek_nace_bloqueado_por_defecto(api):
+    _regla_de_paridad(api)
     d = api.call("POST", "/legacy-models/deepseek-chat/adopt", "super_admin").json()
     assert d["blocked_by_default"] is True
 

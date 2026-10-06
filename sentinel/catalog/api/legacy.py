@@ -26,6 +26,7 @@ from sentinel.redirect import credentials as rc
 from sentinel.redirect.api.admin import _is_super
 
 from .. import credentials as cr
+from .. import habilitacion as hb
 from .. import models as cm
 from .. import store as cs
 from . import admin as _a
@@ -154,7 +155,8 @@ def _adopt_one(user, config: dict, model_name: str) -> dict:
             is_aggregator=provider == "openrouter", role="text", capability="standard",
             features={}, provider_options={},
             max_output=(entry.get("model_info") or {}).get("max_output_tokens"),
-            blocked_by_default=provider == "deepseek", status="active", source="migrated_yaml",
+            blocked_by_default=hb.is_blocked(db, tenant, provider=provider, api_base=api_base),
+            status="active", source="migrated_yaml",
             created_by=user.id, updated_by=user.id)
         db.add(e)
         db.flush()

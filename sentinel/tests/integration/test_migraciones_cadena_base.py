@@ -14,6 +14,7 @@ Lo que fija:
    todas sus tablas llevan prefijo `sentinel_redirect_` o `ext_` y sus FKs apuntan solo a
    `tenants`, `groups` o tablas propias.
 """
+import ast
 import io
 import re
 from pathlib import Path
@@ -134,9 +135,15 @@ def test_las_migraciones_no_tocan_tablas_del_motor(monkeypatch):
     assert not re.search(r"litellm_|_prisma_migrations", sql, re.IGNORECASE), (
         "una migración de la extensión toca tablas del motor"
     )
-    # además del SQL, el código fuente (por si un op dinámico no llegara al modo offline)
+    # además del SQL, el código (por si un op dinámico no llegara al modo offline): literales y nombres,
+    # sin la docstring del módulo, que puede nombrar justamente lo que la migración no toca
     for f in sorted(MIGR.glob("*.py")):
-        assert not re.search(r"litellm_|_prisma_migrations", f.read_text(), re.IGNORECASE), f.name
+        arbol = ast.parse(f.read_text())
+        if arbol.body and isinstance(arbol.body[0], ast.Expr) and isinstance(arbol.body[0].value, ast.Constant):
+            arbol.body.pop(0)
+        textos = [n.value for n in ast.walk(arbol) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        textos += [n.id for n in ast.walk(arbol) if isinstance(n, ast.Name)]
+        assert not [t for t in textos if re.search(r"litellm_|_prisma_migrations", t, re.IGNORECASE)], f.name
 
 
 def test_todas_las_tablas_y_fks_son_propias_o_de_tenants_y_groups(monkeypatch):

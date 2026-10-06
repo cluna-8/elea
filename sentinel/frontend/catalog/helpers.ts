@@ -85,6 +85,30 @@ export interface EntryView {
   offered_to?: string[];
 }
 
+// ── reglas de habilitación explícita (057 FR-029) ──────────────────────────────────
+
+export const RULE_KINDS = ["provider", "api_host", "jurisdiction"] as const;
+export type RuleKind = (typeof RULE_KINDS)[number];
+export const RULE_KIND_LABELS: Record<RuleKind, string> = {
+  provider: "Proveedor", api_host: "Host de la API", jurisdiction: "Jurisdicción",
+};
+export const RULE_KIND_HINTS: Record<RuleKind, string> = {
+  provider: "El proveedor tal como figura en el catálogo.",
+  api_host: "Host exacto o con comodín en el primer nivel, p. ej. dashscope*.ejemplo.com.",
+  jurisdiction: "Código ISO o zona. Compara la jurisdicción de inferencia, de entidad y de control de la ficha.",
+};
+
+export interface EnablementRule {
+  id: string;
+  kind: RuleKind;
+  value: string;
+  level: EntryLevel;
+  tenant_id: string | null;
+  reason: string;
+  created_by_role: string;
+  created_at: string | null;
+}
+
 export interface CredentialRow {
   id: string;
   name: string;
@@ -184,6 +208,17 @@ export function permissionsFor(role: string, operator = false): Permissions {
     canSheetRole: adminRole || role === "compliance_officer",
   };
 }
+
+/** Habilitar una entrada bloqueada por defecto: administración o cumplimiento, con motivo (el backend lo exige). */
+export const canEnableEntry = (p: Permissions, e: Pick<EntryView, "status" | "blocked_by_default" | "enabled_at">) =>
+  p.canSheetRole && e.status === "active" && e.blocked_by_default && !e.enabled_at;
+
+/** Agregar una regla: administración o cumplimiento (de su organización; el operador, también de instalación). */
+export const canAddRule = (p: Permissions) => p.canSheetRole;
+
+/** Quitar una regla: la de instalación, el operador; la de la organización, cumplimiento (o el operador). */
+export const canDeleteRule = (p: Permissions, r: Pick<EnablementRule, "level">) =>
+  r.level === "installation" ? p.operator : p.operator || (p.canSheetRole && !p.canAdmin);   // cumplimiento: ficha sí, administración no
 
 export const canWriteEntry = (p: Permissions, e: Pick<EntryView, "level" | "status">) =>
   p.canAdmin && e.status !== "archived" && (e.level === "tenant" || p.operator);

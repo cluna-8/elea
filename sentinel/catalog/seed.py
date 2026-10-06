@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from . import habilitacion as hb
 from . import models as cm
 from .store import SHEET_FIELDS
 
@@ -83,7 +84,8 @@ def seed_catalog(db, seed: Mapping[str, Any]) -> dict:
                 max_output=e.get("max_output"),
                 price_input=None if ppm_in is None else float(ppm_in) / 1e6,
                 price_output=None if ppm_out is None else float(ppm_out) / 1e6,
-                price_source=e.get("price_source"), blocked_by_default=e["provider"] == "deepseek",
+                price_source=e.get("price_source"),
+                blocked_by_default=hb.is_blocked(db, None, provider=e["provider"], api_base=e.get("api_base")),
                 source="seed", status="active")
             db.add(row)
             db.flush()

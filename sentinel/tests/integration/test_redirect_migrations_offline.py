@@ -22,6 +22,7 @@ BACKEND = ROOT / "backend"
 TABLES = ("sentinel_redirect_policy", "sentinel_redirect_posture", "sentinel_redirect_destination",
           "sentinel_redirect_offer", "sentinel_redirect_published_model", "sentinel_redirect_rule",
           "sentinel_redirect_config_audit", "sentinel_redirect_fidelity_report")
+ELEIA_TABLES = ("sentinel_redirect_region", "sentinel_redirect_masking_relaxation")   # 057 T026 (89a92524eef6)
 
 alembic = pytest.importorskip("alembic")
 from alembic import command  # noqa: E402
@@ -154,4 +155,4 @@ def test_modelos_orm_y_migracion_tienen_las_mismas_columnas(sql):
                                                                         "UNIQUE", "FOREIGN", "CHECK"}
         cols |= set(re.findall(rf"ALTER TABLE {table.name} ADD COLUMN (\w+) ", sql))   # migraciones posteriores
         assert cols == {c.name for c in table.columns}, table.name
-    assert set(models.TABLES) == set(TABLES)
+    assert set(models.TABLES) == set(TABLES) | set(ELEIA_TABLES)

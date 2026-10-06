@@ -14,6 +14,7 @@ from alembic.script import ScriptDirectory  # noqa: E402
 
 NEW = "e4a9c15b7d30"
 TABLES = ("ext_credential", "ext_catalog_entry", "ext_catalog_offer", "ext_compliance_sheet")
+ELEIA_TABLES = ("ext_catalog_enablement_rule",)          # 057 T026 (migración 89a92524eef6)
 
 
 @pytest.fixture
@@ -41,7 +42,9 @@ def test_misma_rama_que_la_068_y_una_sola_cabeza_propia(tmp_path):
     assert "d5b8e3a1c742" not in script.get_heads()
     # parámetros no soportados de la ficha (069 enmienda) cuelgan de ella y son la cabeza actual
     assert script.get_revision("f7a3c1d9e508").down_revision == "d5b8e3a1c742"
-    assert "f7a3c1d9e508" in script.get_heads()
+    # en Eleia la sigue la migración de región y habilitación (057 T026), que es la cabeza de la extensión
+    assert script.get_revision("89a92524eef6").down_revision == "f7a3c1d9e508"
+    assert "f7a3c1d9e508" not in script.get_heads() and "89a92524eef6" in script.get_heads()
 
 
 def test_crea_las_tablas_despues_de_las_de_la_068(sql):
@@ -100,7 +103,7 @@ def test_modelos_orm_y_migracion_tienen_las_mismas_columnas(sql):
                                                                         "UNIQUE", "FOREIGN", "CHECK"}
         cols |= set(re.findall(rf"ALTER TABLE {table.name} ADD COLUMN (\w+) ", sql))   # migraciones posteriores
         assert cols == {c.name for c in table.columns}, table.name
-    assert set(models.TABLES) == set(TABLES)
+    assert set(models.TABLES) == set(TABLES) | set(ELEIA_TABLES)
 
 
 def test_estrategia_de_la_regla(sql):

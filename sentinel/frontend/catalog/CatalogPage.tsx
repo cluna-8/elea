@@ -9,13 +9,15 @@ import { sessionRole } from "../redirect/helpers";
 import { Notice } from "../redirect/ui";
 import { catalogApi } from "./api";
 import { CredentialsTab } from "./CredentialsTab";
+import { EnablementTab } from "./EnablementTab";
 import { CredentialRow, EntryView, permissionsFor } from "./helpers";
 import { ModelsTab } from "./ModelsTab";
 
-type Tab = "models" | "credentials";
+type Tab = "models" | "credentials" | "enablement";
 const TABS: { id: Tab; label: string }[] = [
   { id: "models", label: "Modelos" },
   { id: "credentials", label: "Credenciales" },
+  { id: "enablement", label: "Habilitación" },
 ];
 
 export const CatalogPage: React.FC = () => {
@@ -87,6 +89,7 @@ export const CatalogPage: React.FC = () => {
             <ModelsTab perms={perms} entries={entries} credentials={credentials} showArchived={showArchived}
               setShowArchived={setShowArchived} reload={reload} />
           )}
+          {tab === "enablement" && <EnablementTab perms={perms} reload={reload} />}
           {tab === "credentials" && (perms.canAdmin
             ? <CredentialsTab perms={perms} credentials={credentials} entries={entries} reload={reload} />
             : <Notice tone="info">Las credenciales las administra el rol de administración. Acá solo ves, en cada modelo, si tiene una credencial guardada.</Notice>)}

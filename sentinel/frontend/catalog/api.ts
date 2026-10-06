@@ -3,7 +3,7 @@
 // Las credenciales son solo escritura: ninguna respuesta trae un valor, solo huella.
 import { authStorage } from "../../../frontend/src/services/auth";
 import { describeApiError } from "../redirect/helpers";
-import type { CredentialRow, DpaRow, EntryView } from "./helpers";
+import type { CredentialRow, DpaRow, EnablementRule, EntryView } from "./helpers";
 
 const API = "/api/v1/catalog";
 
@@ -47,6 +47,14 @@ export const catalogApi = {
   createEntry: (body: Record<string, unknown>) => call<EntryView>("/entries", json("POST", body)),
   patchEntry: (id: string, body: Record<string, unknown>) => call<EntryView>(`/entries/${id}`, json("PATCH", body)),
   archiveEntry: (id: string, reason: string) => call<EntryView>(`/entries/${id}/archive`, json("POST", { reason })),
+  /** Habilita una entrada bloqueada por defecto (motivo obligatorio; queda en el registro de cambios). */
+  enableEntry: (id: string, reason: string) => call<EntryView>(`/entries/${id}/enable`, json("POST", { reason })),
+  /** Reglas de habilitación explícita: las de instalación y las de la organización (057 FR-029). */
+  enablementRules: () => call<{ data: EnablementRule[] }>("/enablement-rules").then(r => r.data ?? []),
+  createEnablementRule: (body: { kind: string; value: string; level: string; reason: string }) =>
+    call<EnablementRule & { changed: number }>("/enablement-rules", json("POST", body)),
+  deleteEnablementRule: (id: string) =>
+    call<{ id: string; changed: number }>(`/enablement-rules/${id}`, { method: "DELETE" }),
   /** Devuelve la vista completa con el semáforo recalculado por el backend. */
   putSheet: (id: string, body: Record<string, unknown>) => call<EntryView>(`/entries/${id}/sheet`, json("PUT", body)),
   putOffers: (id: string, tenants: string[], reason: string) =>

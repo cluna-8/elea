@@ -30,6 +30,7 @@ from sentinel.redirect import models as rm
 from sentinel.redirect.api.admin import _is_super  # autoridad de instalación (operador)
 
 from .. import credentials as cr
+from .. import habilitacion as hb
 from .. import models as cm
 from .. import store as cs
 from .. import validation as cv
@@ -167,6 +168,15 @@ def _audit(db, user, *, entity: str, entity_id, action: str, before=None, after=
         entity_id=str(entity_id) if entity_id is not None else None, action=action,
         before=before, after=after, actor_id=getattr(user, "id", None),
         actor_role=getattr(user, "role", None), reason=reason))
+
+
+def _audit_rule_changes(db, user, changed) -> None:
+    """Una fila por entrada que una regla (o un cambio de su proveedor, host o ficha) bloqueó o desbloqueó."""
+    for e, what in changed:
+        _audit(db, user, entity="catalog_entry", entity_id=e.id,
+               action="block_by_rule" if what == "block" else "unblock_by_rule",
+               before={"blocked_by_default": what == "unblock"},
+               after={"blocked_by_default": what == "block"}, tenant_id=e.tenant_id)
 
 
 def _bump(tenant_id=None):
@@ -500,7 +510,8 @@ def _create_one(db, user, body: EntryIn, cred_of) -> dict:
         price_tiers=body.price_tiers, limits=body.limits, base_model=body.base_model,
         advanced=body.advanced, unsupported_params=unsupported,
         price_source=body.price_source, price_at=_today() if priced else None,
-        blocked_by_default=body.provider == "deepseek",      # FR-017 de la 068
+        # FR-029: nace bloqueada solo si una regla de habilitación aplicable coincide (sin reglas, nunca)
+        blocked_by_default=hb.is_blocked(db, tenant, provider=body.provider, api_base=body.api_base),
         status="active", source="console", created_by=user.id, updated_by=user.id)
     db.add(e)
     db.flush()
@@ -563,6 +574,7 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
                 _err(409, "ya hay una entrada con ese id público")
         before = _audit_view(_view(db, user, e))
         stale = any(k in changes and changes[k] != getattr(e, k) for k in _STALE_FIELDS)
+        identity_before = (e.provider, e.api_base)
         price_changed = any(k in changes for k in ("price_input", "price_output", "price_cache_read",
                                                    "price_cache_write", "price_tiers"))
         for k, v in changes.items():
@@ -580,8 +592,13 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
             sheet = cs.sheet_of(db, e.id)
             if sheet is not None:
                 sheet.classification_version = cs.STALE
+        # FR-029: cambiar proveedor o `api_base` re-evalúa las reglas de habilitación de la entrada
+        moved = hb.reapply(db, e, hb.load_rules(db), sheet=cs.sheet_of(db, e.id),
+                           identity_changed=(e.provider, e.api_base) != identity_before)
         db.flush()
         after = _view(db, user, e)
+        if moved:
+            _audit_rule_changes(db, user, [(e, moved)])
         _audit(db, user, entity="catalog_entry", entity_id=e.id, action="update", before=before,
                after=_audit_view(after), reason=reason, tenant_id=e.tenant_id)
         tenant = e.tenant_id
@@ -635,6 +652,95 @@ def enable_entry(entry_id: str, body: Reason, user=Depends(require_role("admin",
     return after
 
 
+# ── reglas de habilitación explícita (057 FR-029; contracts/admin-api.md) ───────────────────────
+
+class RuleIn(_Body):
+    kind: str
+    value: str = Field(min_length=1, max_length=256)
+    level: str = "tenant"
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+def _rule_view(r: cm.EnablementRule) -> dict:
+    return {"id": str(r.id), "kind": r.kind, "value": r.value, "level": r.level,
+            "tenant_id": None if r.tenant_id is None else str(r.tenant_id), "reason": r.reason,
+            "created_by_role": r.created_by_role,
+            "created_at": r.created_at.isoformat() if r.created_at else None}
+
+
+def _visible_rules(db, user) -> list:
+    """Las de instalación y las de la empresa del usuario; las de otra empresa nunca (defensa en profundidad
+    además de la RLS)."""
+    rows = [r for r in db.query(cm.EnablementRule)
+            if r.tenant_id is None or r.tenant_id == user.tenant_id]
+    return sorted(rows, key=lambda r: (r.level, r.kind, r.value))
+
+
+@router.get("/enablement-rules")
+def list_enablement_rules(user=Depends(require_role("admin", "compliance_officer"))):
+    with _db(user) as db:
+        return {"data": [_rule_view(r) for r in _visible_rules(db, user)]}
+
+
+@router.post("/enablement-rules", status_code=201)
+def create_enablement_rule(body: RuleIn, user=Depends(require_role("admin", "compliance_officer"))):
+    """Agrega una regla y re-evalúa las entradas afectadas (devuelve cuántas cambiaron). La empresa solo agrega
+    reglas propias (endurece); las de instalación son del operador."""
+    if body.level not in cm.LEVELS:
+        _err(422, "nivel desconocido")
+    installation = body.level == "installation"
+    if installation and not _is_super(user):
+        _err(403, "las reglas de instalación son del operador de la instalación")
+    try:
+        value = hb.validate(body.kind, body.value)
+    except ValueError as exc:
+        _err(422, str(exc))
+    tenant = None if installation else user.tenant_id
+    with _db(user, bypass=installation) as db:
+        dup = db.query(cm.EnablementRule).filter(
+            cm.EnablementRule.tenant_id == tenant if tenant is not None else cm.EnablementRule.tenant_id.is_(None),
+            cm.EnablementRule.kind == body.kind, cm.EnablementRule.value == value).first()
+        if dup is not None:
+            _err(409, "ya hay una regla igual")
+        row = cm.EnablementRule(id=uuid.uuid4(), level=body.level, tenant_id=tenant, kind=body.kind, value=value,
+                                reason=body.reason, created_by=user.id,
+                                created_by_role=str(getattr(user, "role", None) or "admin")[:32])
+        db.add(row)
+        db.flush()
+        changed = hb.reevaluate(db, tenant_id=tenant, only_tenant=not installation)
+        view = _rule_view(row)
+        _audit(db, user, entity="enablement_rule", entity_id=row.id, action="create",
+               after={k: view[k] for k in ("kind", "value", "level")} | {"changed": len(changed)},
+               reason=body.reason, tenant_id=tenant)
+        _audit_rule_changes(db, user, changed)
+    _bump(tenant)
+    return view | {"changed": len(changed)}
+
+
+@router.delete("/enablement-rules/{rule_id}")
+def delete_enablement_rule(rule_id: str, user=Depends(require_role("admin", "compliance_officer"))):
+    """Quita una regla (devuelve cuántas entradas se desbloquearon). Instalación: el operador; empresa:
+    cumplimiento de esa empresa (el admin de empresa agrega pero no quita)."""
+    with _db(user, bypass=_is_super(user)) as db:
+        r = db.get(cm.EnablementRule, _uuid(rule_id, "regla"))
+        if r is None or (r.tenant_id is not None and r.tenant_id != user.tenant_id):
+            _err(404, "regla inexistente")
+        if r.tenant_id is None and not _is_super(user):
+            _err(403, "las reglas de instalación son del operador de la instalación")
+        if r.tenant_id is not None and not (_is_super(user) or "compliance_officer" in effective_roles(user)):
+            _err(403, "quitar una regla de la empresa es de cumplimiento")
+        tenant, view = r.tenant_id, _rule_view(r)
+        db.delete(r)
+        db.flush()
+        changed = hb.reevaluate(db, tenant_id=tenant, only_tenant=tenant is not None)
+        _audit(db, user, entity="enablement_rule", entity_id=rule_id, action="delete",
+               before={k: view[k] for k in ("kind", "value", "level")}, after={"changed": len(changed)},
+               reason=None, tenant_id=tenant)
+        _audit_rule_changes(db, user, changed)
+    _bump(tenant)
+    return {"id": view["id"], "changed": len(changed)}
+
+
 # ── registro de DPAs (selector de la ficha) ────────────────────────────────────
 
 @router.get("/dpas")
@@ -684,6 +790,7 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
             sheet = cm.ComplianceSheet(entry_id=e.id)
             db.add(sheet)
         before = {"sheet": cs.sheet_view(sheet), "semaforo": cs.semaforo_of(e, sheet, _dpa(db, e, sheet), _today())}
+        juris_before = tuple(getattr(sheet, f, None) for f in hb.JURISDICTION_FIELDS)
         for f in cs.SHEET_FIELDS:
             setattr(sheet, f, getattr(body, f))
         sheet.dpa_registry_id = dpa_id
@@ -694,8 +801,13 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
         sheet.classification_version = _next_version(sheet.classification_version)
         sheet.classified_by, sheet.classified_at = user.id, datetime.now(timezone.utc)
         e.updated_by = user.id
+        # FR-029: las jurisdicciones de la ficha entran en las reglas de habilitación
+        moved = hb.reapply(db, e, hb.load_rules(db), sheet=sheet, identity_changed=tuple(
+            getattr(sheet, f, None) for f in hb.JURISDICTION_FIELDS) != juris_before)
         db.flush()
         after = _view(db, user, e)
+        if moved:
+            _audit_rule_changes(db, user, [(e, moved)])
         _audit(db, user, entity="catalog_sheet", entity_id=e.id, action="update", before=before,
                after={"sheet": after["sheet"], "semaforo": after["semaforo"]}, tenant_id=e.tenant_id)
         tenant = e.tenant_id

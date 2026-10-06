@@ -39,6 +39,8 @@ SOURCES = ("console", "seed", "migrated_yaml", "migrated_068")
 CREDENTIAL_KINDS = ("secret", "env_ref")
 CREDENTIAL_STATUS = ("active", "revoked")
 TRANSFER_MECHANISMS = ("n/a", "dpf", "scc", "none", "unknown")
+# Reglas de habilitación explícita (057 FR-029, research R14): qué hace que una entrada nazca bloqueada.
+RULE_KINDS = ("provider", "api_host", "jurisdiction")
 # Capacidades funcionales por entrada (FR-008a); la clave ausente = no declarada = sin la capacidad.
 FEATURES = ("images", "documents_pdf", "tools", "thinking", "cache_control", "mid_system_messages")
 
@@ -150,6 +152,9 @@ class ComplianceSheet(CatalogBase):
                       primary_key=True)
     provider_legal_entity = Column(String(256))
     entity_jurisdiction = Column(String(8))                       # compat. 068 (FR-018)
+    # Jurisdicción de quien posee el 50 % o más de la entidad o la controla (057 FR-028a, D12); NULL = sin cargar
+    # (no cuenta como «en región»).
+    control_jurisdiction = Column(String(8))
     inference_jurisdiction = Column(String(16), nullable=False, default="unknown")
     logs_jurisdiction = Column(String(16), nullable=False, default="unknown")
     zero_data_retention = Column(Boolean)                         # NULL = desconocido
@@ -163,4 +168,21 @@ class ComplianceSheet(CatalogBase):
     classified_at = Column(DateTime(timezone=True))
 
 
-TABLES = tuple(m.__tablename__ for m in (Credential, CatalogEntry, CatalogOffer, ComplianceSheet))
+class EnablementRule(CatalogBase):
+    """`ext_catalog_enablement_rule` (057 data-model §2): una entrada nace `blocked_by_default` si alguna regla
+    aplicable coincide con su proveedor, el host de su `api_base` o una jurisdicción de su ficha. Nivel instalación
+    (`tenant_id` NULL, la ven y aplican a todas las empresas) o empresa (solo esa empresa, y solo endurece)."""
+    __tablename__ = "ext_catalog_enablement_rule"
+    id = _pk()
+    level = Column(String(16), nullable=False)
+    tenant_id = Column(UUID(as_uuid=True), index=True)           # NULL ⇔ level=installation
+    kind = Column(String(16), nullable=False)
+    value = Column(String(256), nullable=False)
+    reason = Column(Text, nullable=False)
+    created_by = Column(UUID(as_uuid=True))
+    created_by_role = Column(String(32), nullable=False)
+    created_at, updated_at = _stamps()
+
+
+TABLES = tuple(m.__tablename__ for m in (Credential, CatalogEntry, CatalogOffer, ComplianceSheet,
+                                         EnablementRule))

@@ -40,7 +40,10 @@ FAMILY_TIERS = ("opus", "sonnet", "haiku", "fable", "mythos")
 LABEL_MODES = ("destination", "requested", "custom")
 REQUEST_CLASSES = ("main", "subagent", "workflow", "compaction", "auxiliary")
 AUDIT_ENTITIES = ("policy", "posture", "destination", "offer", "published_model", "rule",
-                  "label", "kit_key")
+                  "label", "kit_key", "region", "masking_relaxation")
+# Postura por defecto de una región para el tráfico redirigido sin fila de postura (057 FR-031; research R23).
+DEFAULT_POSTURES = ("reject_offregion", "masked_offregion", "masked_all", "allow")
+RELAXATION_ROLES = ("compliance_officer", "super_admin")
 
 
 def _pk():
@@ -172,6 +175,43 @@ class RedirectConfigAudit(RedirectBase):
     at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class RedirectRegion(RedirectBase):
+    """Región del perfil como dato (057 FR-021, FR-030, FR-031; data-model §1): jurisdicciones, los perfiles de
+    país que resuelven a ella y la postura por defecto del tráfico redirigido. Nivel instalación (`tenant_id`
+    NULL) o empresa (gana la de la empresa). Nada de contenido de pedidos."""
+    __tablename__ = "sentinel_redirect_region"
+    id = _pk()
+    level = Column(String(16), nullable=False)
+    tenant_id = Column(UUID(as_uuid=True), index=True)           # NULL ⇔ level=installation
+    name = Column(String(64), nullable=False)                    # mayúsculas, sin espacios (p. ej. AMERICAS)
+    jurisdictions = Column(JSONB, nullable=False, default=list)  # zonas o países ISO-3166 alfa-2; no vacía
+    region_profiles = Column(JSONB, nullable=False, default=list)  # perfiles de país que resuelven a esta fila
+    default_posture = Column(String(24), nullable=False, default="reject_offregion",
+                             server_default="reject_offregion")
+    is_zone = Column(Boolean, nullable=False, default=False)
+    created_by = Column(UUID(as_uuid=True))
+    updated_by = Column(UUID(as_uuid=True))
+    created_at, updated_at = _stamps()
+
+
+class RedirectMaskingRelaxation(RedirectBase):
+    """Relajación del enmascarado forzado por destino (057 FR-031a; data-model §3): solo cumplimiento o
+    super-admin, con motivo, y solo si la ficha del destino cumple las precondiciones. La baja no borra la fila.
+    La llave foránea a `ext_catalog_entry` vive en la migración (otra metadata)."""
+    __tablename__ = "sentinel_redirect_masking_relaxation"
+    id = _pk()
+    level = Column(String(16), nullable=False)
+    tenant_id = Column(UUID(as_uuid=True), index=True)           # NULL ⇔ level=installation
+    entry_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    reason = Column(Text, nullable=False)
+    created_by = Column(UUID(as_uuid=True))
+    created_by_role = Column(String(32), nullable=False)
+    revoked_at = Column(DateTime(timezone=True))
+    revoked_by = Column(UUID(as_uuid=True))
+    revoke_reason = Column(Text)
+    created_at, updated_at = _stamps()
+
+
 class RedirectFidelityReport(RedirectBase):
     """Informe de una prueba de fidelidad (data-model §8; FR-031). Solo metadatos y resultados por
     capacidad: el corpus es sintético y nunca se guarda contenido de respuestas."""
@@ -194,4 +234,4 @@ class RedirectFidelityReport(RedirectBase):
 
 TABLES = tuple(m.__tablename__ for m in (
     RedirectPolicy, RedirectPosture, RedirectDestination, RedirectOffer, RedirectPublishedModel,
-    RedirectRule, RedirectConfigAudit, RedirectFidelityReport))
+    RedirectRule, RedirectConfigAudit, RedirectFidelityReport, RedirectRegion, RedirectMaskingRelaxation))
