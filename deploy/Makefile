@@ -106,10 +106,19 @@ check-whitelabel:
 # Gate white-label de la EXTENSIÓN (028 US7): renderiza el zip del partner y verifica
 # que no re-filtre la marca del fabricante ni el motor (allowlist interna respetada).
 # Fuente única de la marca: deploy/clients/$(EXT_BRAND)/brand.extension.json.
+# Esta línea (Eleia) podó extension/ A PROPÓSITO (fa3065c): sin fuente no hay entregable que
+# renderizar ni verificar, así que el check se SALTA con un mensaje explícito en vez de fallar
+# con "no existe extension/". El skip depende SÓLO de la ausencia del directorio: si extension/
+# existe, el gate corre entero y cualquier fallo es fallo (no se relaja nada). Se conserva en
+# lugar de sacarlo de `check` para que la base Guardian, que sí la lleva, siga cubierta.
 check-extension-whitelabel:
-	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(EXT_BRAND) \
-		$(REPO_ROOT)/deploy/clients/$(EXT_BRAND)/brand.extension.json
-	$(REPO_ROOT)/deploy/release/checks/test_extension_whitelabel.sh $(EXT_BRAND)
+	@if [ ! -d "$(REPO_ROOT)/extension" ]; then \
+		echo "⏭️  check-extension-whitelabel SALTADO: no hay extension/ en esta línea (podada a propósito, fa3065c); no hay entregable de extensión que verificar"; \
+	else \
+		$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(EXT_BRAND) \
+			$(REPO_ROOT)/deploy/clients/$(EXT_BRAND)/brand.extension.json \
+		&& $(REPO_ROOT)/deploy/release/checks/test_extension_whitelabel.sh $(EXT_BRAND); \
+	fi
 
 check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh
