@@ -50,10 +50,10 @@ INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
     compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
-    routing_decision
+    routing_decision, cache_hit
 ) VALUES (
     gen_random_uuid(), $1::uuid, NOW(), $2::uuid, $3::uuid, $4,
-    $5, $6, $7, $8, $9::jsonb, $10, $11, $12::uuid, $13::jsonb, $14, $15::jsonb
+    $5, $6, $7, $8, $9::jsonb, $10, $11, $12::uuid, $13::jsonb, $14, $15::jsonb, $16
 )
 """
 
@@ -242,6 +242,18 @@ async def emitir_fila_durable(entry: dict, masked: list,
             entry, masked, applied_layers, blocked_by_layer)
 
 
+def _es_acierto_de_cache(kwargs: dict) -> bool:
+    """¿El motor sirvió el pedido desde su caché de respuestas?
+
+    Lectura defensiva: litellm expone `cache_hit` en los kwargs del callback y, según la
+    versión, dentro de `standard_logging_object`; no está verificado cuál trae el hook de la
+    imagen en uso (§9.7 del análisis), así que se miran los dos y solo `True` cuenta."""
+    if kwargs.get("cache_hit") is True:
+        return True
+    slo = kwargs.get("standard_logging_object")
+    return isinstance(slo, dict) and slo.get("cache_hit") is True
+
+
 def _scrub(metadata: dict) -> dict:
     """Devuelve metadata sin material sensible: pii_tokens (mapa reversible) y
     cualquier texto crudo NUNCA se auditan."""
@@ -347,7 +359,17 @@ class SentinelAuditLogger(CustomLogger):
             prompt_tokens = get("prompt_tokens") or get("input_tokens") or 0
             completion_tokens = get("completion_tokens") or get("output_tokens") or 0
 
-        cost = kwargs.get("response_cost") or 0
+        # «Sin costo informado» (None) NO es «costo 0» (specs/ANALISIS-GASTO-CERO §9): el motor
+        # fija 0.0 en un acierto de caché de respuestas (cero REAL) y deja None cuando no
+        # conoce el modelo. Colapsarlos con `or 0` hacía que el presupuesto en USD nunca se
+        # descontara para un modelo sin precio y que el acierto de caché no dejara marca.
+        # Con consumo y sin costo informado el evento viaja con `cost_usd=None` +
+        # `cost_missing` y el backend resuelve el tarifario; sin consumo no hay nada que tarifar.
+        cache_hit = _es_acierto_de_cache(kwargs)
+        cost = kwargs.get("response_cost")
+        cost_missing = cost is None and not cache_hit and bool(prompt_tokens or completion_tokens)
+        if cost is None and not cost_missing:
+            cost = 0
         try:
             latency_ms = int((end_time - start_time).total_seconds() * 1000)
         except Exception:
@@ -378,7 +400,10 @@ class SentinelAuditLogger(CustomLogger):
             "model": kwargs.get("model") or data.get("model") or "desconocido",
             "prompt_tokens": int(prompt_tokens or 0),
             "completion_tokens": int(completion_tokens or 0),
-            "cost_usd": float(cost),
+            "cost_usd": None if cost_missing else float(cost),
+            # Metadata-only (booleanos): el acierto de caché y el costo que el motor no informó.
+            "cost_missing": cost_missing,
+            "cache_hit": cache_hit,
             "pii_detected": bool(masked),
             "masked_entities": masked,
             "compliance_status": compliance,
@@ -431,12 +456,15 @@ class SentinelAuditLogger(CustomLogger):
                 _INSERT_AUDIT_SQL,
                 entry["tenant_id"], entry["user_id"], entry["api_key_id"],
                 entry["model"], entry["prompt_tokens"], entry["completion_tokens"],
-                entry["cost_usd"], entry["pii_detected"], json.dumps(masked),
+                # La columna es NOT NULL y este camino no tiene tarifario: sin costo → 0.
+                entry["cost_usd"] if entry["cost_usd"] is not None else 0.0,
+                entry["pii_detected"], json.dumps(masked),
                 entry["compliance_status"], entry["latency_ms"], entry["user_group_id"],
                 json.dumps(applied_layers) if applied_layers is not None else None,
                 blocked_by_layer,
                 (json.dumps(entry["routing_decision"])
                  if entry.get("routing_decision") is not None else None),
+                bool(entry.get("cache_hit")),
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("INSERT de auditoría falló — EVENTO NO REGISTRADO (modo=%s): %s",

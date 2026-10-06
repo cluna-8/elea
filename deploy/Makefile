@@ -42,10 +42,26 @@ build-extension-brand:
 check: check-images check-whitelabel check-extension-whitelabel check-secrets check-tofu check-docs check-trust-kit check-redis-wiring check-engine-admission check-engine-local-limits check-policy-files
 
 # Regenera los references single-source del sitio (022 US5): OpenAPI + config/env.
+# El export se escribe a un .tmp y SOLO reemplaza al openapi.json si es JSON válido. Antes:
+# con la imagen del backend sin construir, `docker compose run` la construía en el medio y el
+# progreso de BuildKit se colaba por stdout dentro del JSON (ensayo 2026-10-06, §6.3).
+# Por eso (1) se construye ANTES, con todo su progreso a stderr, y (2) se valida la salida.
+# Cualquier fallo sale con qué hacer y deja openapi.json como estaba.
+OPENAPI_JSON = docs/docs/api-reference/openapi.json
 docs-refs:
+	cd $(REPO_ROOT) && docker compose build backend >&2 || { \
+		echo "docs-refs: no se pudo construir la imagen del backend. Corré 'docker compose build backend' desde la raíz del repo, arreglá el error y reintentá. $(OPENAPI_JSON) no se tocó." >&2; \
+		exit 1; }
 	cd $(REPO_ROOT) && docker compose run --rm --no-deps -e BRAND_NAME="AI Gateway" backend \
-		python scripts/export_openapi.py 2>/dev/null > docs/docs/api-reference/openapi.json.tmp \
-		&& mv docs/docs/api-reference/openapi.json.tmp docs/docs/api-reference/openapi.json
+		python scripts/export_openapi.py 2>/dev/null > $(OPENAPI_JSON).tmp || { \
+		rm -f $(OPENAPI_JSON).tmp; \
+		echo "docs-refs: falló el export de OpenAPI (corré a mano 'docker compose run --rm --no-deps backend python scripts/export_openapi.py' para ver el error). $(OPENAPI_JSON) no se tocó." >&2; \
+		exit 1; }
+	cd $(REPO_ROOT) && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' $(OPENAPI_JSON).tmp || { \
+		rm -f $(OPENAPI_JSON).tmp; \
+		echo "docs-refs: la salida del export no es JSON válido (¿algo escribió a stdout además del esquema?). $(OPENAPI_JSON) no se tocó." >&2; \
+		exit 1; }
+	cd $(REPO_ROOT) && mv $(OPENAPI_JSON).tmp $(OPENAPI_JSON)
 	cd $(REPO_ROOT) && python3 docs/gen_config_reference.py
 
 check-images:
@@ -90,10 +106,19 @@ check-whitelabel:
 # Gate white-label de la EXTENSIÓN (028 US7): renderiza el zip del partner y verifica
 # que no re-filtre la marca del fabricante ni el motor (allowlist interna respetada).
 # Fuente única de la marca: deploy/clients/$(EXT_BRAND)/brand.extension.json.
+# Esta línea (Eleia) podó extension/ A PROPÓSITO (fa3065c): sin fuente no hay entregable que
+# renderizar ni verificar, así que el check se SALTA con un mensaje explícito en vez de fallar
+# con "no existe extension/". El skip depende SÓLO de la ausencia del directorio: si extension/
+# existe, el gate corre entero y cualquier fallo es fallo (no se relaja nada). Se conserva en
+# lugar de sacarlo de `check` para que la base Guardian, que sí la lleva, siga cubierta.
 check-extension-whitelabel:
-	$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(EXT_BRAND) \
-		$(REPO_ROOT)/deploy/clients/$(EXT_BRAND)/brand.extension.json
-	$(REPO_ROOT)/deploy/release/checks/test_extension_whitelabel.sh $(EXT_BRAND)
+	@if [ ! -d "$(REPO_ROOT)/extension" ]; then \
+		echo "⏭️  check-extension-whitelabel SALTADO: no hay extension/ en esta línea (podada a propósito, fa3065c); no hay entregable de extensión que verificar"; \
+	else \
+		$(REPO_ROOT)/deploy/release/render_extension_brand.sh $(EXT_BRAND) \
+			$(REPO_ROOT)/deploy/clients/$(EXT_BRAND)/brand.extension.json \
+		&& $(REPO_ROOT)/deploy/release/checks/test_extension_whitelabel.sh $(EXT_BRAND); \
+	fi
 
 check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh

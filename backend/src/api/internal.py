@@ -13,20 +13,28 @@ instalador), así que agregar `asyncpg` obligaba a derivar la imagen. HTTP no cu
 `httpx` ya viene en la imagen. Y además pone el SQL donde vive el esquema que consulta —
 el backend es el dueño de estas tablas, el motor sólo necesita el resultado.
 
-Seguridad: el ingress niega /api/v1/internal/* con 404 (Caddyfile.ingress), así que esto
-sólo se alcanza por la red de compose. Encima se exige el secreto compartido que ambos
-servicios YA tienen (`SENTINEL_ENGINE_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
+Seguridad, en tres capas (cada una cubre el fallo de la anterior):
+
+1. El ingress niega /api/v1/internal/* con 404 (Caddyfile.ingress), así que esto sólo se
+   alcanza por la red de compose.
+2. Se exige el secreto compartido que ambos servicios YA tienen (`SENTINEL_ENGINE_MASTER_KEY`)
+   — no hay un secreto nuevo que provisionar.
+3. Se exige que el ORIGEN de la conexión esté en `INTERNAL_ALLOWED_CIDRS` (ver
+   `_require_internal_origen`): un secreto filtrado, usado desde fuera de la red, no sirve.
 """
 import hmac
+import ipaddress
 import json
 import logging
 import math
 import os
 import re
+import socket
+import struct
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -43,7 +51,6 @@ from .gateway import MODELO_CADENA_USURPADA, sanear_modelo_declarado
 
 logger = logging.getLogger("sentinel-secure-gateway.internal")
 
-router = APIRouter(prefix="/internal", tags=["Internal"], include_in_schema=False)
 
 # Mismo SQL que vivía en litellm/extensions/custom_auth.py (_IDENTITY_SQL). Se mueve acá
 # porque consulta tablas de ESTA base: una sola copia, del lado del dueño del esquema.
@@ -128,6 +135,107 @@ def _require_internal_secret(x_sentinel_internal: str = Header(default="")) -> N
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
 
+# Variable de la capa de origen. Vacía/ausente = sin chequeo (retrocompatible); lista de CIDR
+# separados por coma; `auto` = las subredes conectadas de este contenedor (ver `_redes_auto`).
+_ENV_ORIGENES = "INTERNAL_ALLOWED_CIDRS"
+_TABLA_DE_RUTAS = "/proc/net/route"
+
+
+def _leer_tabla_de_rutas() -> str:
+    """Tabla de rutas del kernel (Linux). Función aparte para que los tests la sustituyan."""
+    try:
+        with open(_TABLA_DE_RUTAS, encoding="ascii") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _redes_conectadas(tabla: str) -> list:
+    """Subredes IPv4 CONECTADAS (ruta sin gateway, no loopback) de `/proc/net/route`.
+
+    Las direcciones están en hexadecimal little-endian. Se descartan la ruta por defecto y
+    el loopback: lo que se quiere es «la red de compose a la que este contenedor está
+    enchufado», no «todo lo que el contenedor sabe rutear». Línea ilegible → se ignora."""
+    redes = []
+    for linea in tabla.splitlines()[1:]:
+        col = linea.split()
+        if len(col) < 8 or col[0] == "lo":
+            continue
+        try:
+            destino, gateway, mascara = (int(col[1], 16), int(col[2], 16), int(col[7], 16))
+            if gateway != 0 or destino == 0:
+                continue
+            red = ipaddress.ip_network(
+                (socket.inet_ntoa(struct.pack("<L", destino)),
+                 socket.inet_ntoa(struct.pack("<L", mascara))), strict=False)
+        except (ValueError, struct.error, OverflowError):
+            continue
+        if red not in redes:
+            redes.append(red)
+    return redes
+
+
+def _redes_permitidas() -> Optional[list]:
+    """`None` = sin chequeo de origen; lista = origen permitido si cae en alguna red.
+
+    Fail-closed ante todo lo que no se entiende: una entrada inválida o un `auto` sin rutas
+    legibles devuelven lista VACÍA (no pasa nadie) y lo dicen en el log. Ignorar la entrada y
+    seguir con las demás convertiría un typo del operador en una puerta más abierta de la que
+    pidió; tumbar el arranque, en cambio, no tiene sentido para algo que se lee por pedido."""
+    crudo = os.environ.get(_ENV_ORIGENES, "").strip()
+    if not crudo:
+        return None
+    redes = []
+    for token in (t.strip() for t in crudo.split(",")):
+        if not token:
+            continue
+        if token.lower() == "auto":
+            auto = _redes_conectadas(_leer_tabla_de_rutas())
+            if not auto:
+                logger.error("[sentinel-internal] %s=auto pero no se pudieron leer las subredes "
+                             "de este contenedor: el plano interno queda cerrado", _ENV_ORIGENES)
+            redes.extend(auto)
+            continue
+        try:
+            redes.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            logger.error("[sentinel-internal] %s tiene una entrada inválida (%r): el plano "
+                         "interno queda cerrado hasta corregirla", _ENV_ORIGENES, token)
+            return []
+    return redes
+
+
+def _require_internal_origen(request: Request,
+                             _secreto: None = Depends(_require_internal_secret)) -> None:
+    """Capa 2 de la defensa del plano interno: además del secreto, el ORIGEN de la conexión.
+
+    Va declarada a nivel de ROUTER (una ruta nueva no puede olvidarla) y depende del secreto
+    para que éste se evalúe PRIMERO: sin secreto, el endpoint «no existe» (404); el 403 sólo
+    lo ve quien ya conoce el secreto, y a ese ya no hay nada que ocultarle.
+
+    El origen es `request.client.host`, el par TCP real. No se mira `X-Forwarded-For`: lo
+    escribe cualquiera, y uvicorn sólo lo honra de proxies de confianza. Un origen que no es
+    una IP (el «testclient» de los tests, un socket unix) se niega cuando hay lista."""
+    redes = _redes_permitidas()
+    if redes is None:
+        return
+    host = request.client.host if request.client else ""
+    try:
+        ip = ipaddress.ip_address(host)
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+    except ValueError:
+        ip = None
+    if ip is None or not any(ip.version == red.version and ip in red for red in redes):
+        logger.warning("[sentinel-internal] origen %r fuera de %s: rechazado",
+                       host or "desconocido", _ENV_ORIGENES)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+router = APIRouter(prefix="/internal", tags=["Internal"], include_in_schema=False,
+                   dependencies=[Depends(_require_internal_origen)])
+
+
 def _a_float(valor) -> Optional[float]:
     """`Numeric` de Postgres llega como `Decimal`; el contrato con el motor habla en
     floats de JSON. `None` se preserva (significa "no hay presupuesto"), no se colapsa a 0:
@@ -205,7 +313,7 @@ INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
     compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
-    acted_for_user_id, routing_decision
+    acted_for_user_id, routing_decision, cache_hit, cost_estimated
 ) VALUES (
     gen_random_uuid(), CAST(:tenant_id AS uuid), NOW(), CAST(:user_id AS uuid),
     CAST(:api_key_id AS uuid), :model,
@@ -213,7 +321,7 @@ INSERT INTO audit_logs (
     CAST(:masked_entities AS jsonb),
     :compliance_status, :latency_ms, CAST(:user_group_id AS uuid),
     CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid),
-    CAST(:routing_decision AS jsonb)
+    CAST(:routing_decision AS jsonb), :cache_hit, :cost_estimated
 )
 """)
 
@@ -242,7 +350,12 @@ class AuditEntry(BaseModel):
     model: str = "desconocido"
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    cost_usd: float = 0.0
+    # `None` = el motor NO informó costo (≠ 0, que es un cero real: caché, modelo local).
+    # Un motor viejo que no manda el campo sigue cayendo al 0.0 de siempre.
+    cost_usd: Optional[float] = 0.0
+    cost_missing: bool = False
+    # El motor sirvió el pedido desde su caché de respuestas (metadata-only, un booleano).
+    cache_hit: bool = False
     pii_detected: bool = False
     masked_entities: list = []
     compliance_status: str = "passed"
@@ -343,7 +456,27 @@ def _entidades_saneadas(items: list) -> list:
     return limpias
 
 
-def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
+def _costo_del_evento(entry: "AuditEntry") -> "tuple[Decimal, bool]":
+    """Costo con el que se registra el evento y se descuenta el presupuesto, y si fue
+    ESTIMADO (tarifario) en vez de informado por el motor.
+
+    «Sin costo informado» (`cost_usd=None`/`cost_missing`) no es «costo 0»: un cero real lo
+    informa el motor (acierto de caché, modelo local) y se respeta; la ausencia con consumo
+    cae a `calculate_cost`, UNA sola vez, y ese valor vale para la fila y para el presupuesto
+    (cierran). Es el mismo respaldo que ya usa el plano del chat. Un acierto de caché es un
+    cero real aunque el motor no mande el número. Sin consumo no hay nada que tarifar.
+    """
+    if entry.cache_hit:
+        return Decimal("0"), False
+    if entry.cost_usd is not None and not entry.cost_missing:
+        return Decimal(str(entry.cost_usd)), False
+    if not (entry.prompt_tokens or entry.completion_tokens):
+        return Decimal("0"), False
+    return BudgetService.calculate_cost(
+        entry.model, entry.prompt_tokens, entry.completion_tokens), True
+
+
+def _acumular_gasto(db: Session, entry: "AuditEntry", costo: Decimal) -> None:
     """Descuenta el pedido del presupuesto aplicable (issue #76, mitad "contador").
 
     El plano chat ya lo hace en su camino feliz (chat.py:1353) con el MISMO servicio; el
@@ -352,12 +485,17 @@ def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
     Se reusa `BudgetService.update_budget` (nada de SQL duplicado): así la precedencia
     personal→grupo, el reset y el conteo de tokens son los mismos en los dos planos.
 
-    El coste que se acumula es el del EVENTO, no el de la tabla local de precios: lo
-    calculó el motor contra la respuesta real del proveedor. Que el presupuesto y la suma
-    de `cost_usd` de `audit_logs` cierren es un requisito de auditoría — si acá
-    recalculáramos con `MODEL_PRICING`, la fila diría una cosa y el contador otra.
+    El coste que se acumula es el del EVENTO (`_costo_del_evento`): el que calculó el motor
+    contra la respuesta real del proveedor o, si no lo informó, el del tarifario ya resuelto
+    para la fila. Que el presupuesto y la suma de `cost_usd` de `audit_logs` cierren es un
+    requisito de auditoría.
+
+    Un acierto de caché no se descuenta (decisión de producto, 2026-10-06): no costó nada
+    al proveedor, ni dólares ni tokens; queda marcado en la fila (`cache_hit`).
     """
-    if not (entry.cost_usd or entry.prompt_tokens or entry.completion_tokens):
+    if entry.cache_hit:
+        return
+    if not (costo or entry.prompt_tokens or entry.completion_tokens):
         return  # fila de bloqueo (0/0/0): no hubo consumo que cargarle a nadie
     BudgetService.update_budget(
         db=db,
@@ -366,7 +504,7 @@ def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
         prompt_tokens=entry.prompt_tokens,
         completion_tokens=entry.completion_tokens,
         model=entry.model,
-        override_cost=Decimal(str(entry.cost_usd or 0)),
+        override_cost=costo,
     )
 
 
@@ -386,6 +524,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     # un bloqueo sin identidad resoluble no desapareciera por un 422) y el que la 018 protege.
     # El rechazo tiene sentido en la puerta, donde todavía hay un pedido que rechazar.
     modelo = sanear_modelo_declarado(entry.model)
+    costo, costo_estimado = _costo_del_evento(entry)
     if modelo != entry.model:
         logger.warning(
             "[sentinel-internal] el emisor declaró el literal reservado de la cadena de licencias "
@@ -399,7 +538,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         "model": modelo[:128],
         "prompt_tokens": entry.prompt_tokens,
         "completion_tokens": entry.completion_tokens,
-        "cost_usd": entry.cost_usd,
+        "cost_usd": costo,
         "pii_detected": entry.pii_detected,
         "masked_entities": json.dumps(entidades),
         "compliance_status": entry.compliance_status[:64],
@@ -411,6 +550,8 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
         "acted_for_user_id": entry.acted_for_user_id,
         "routing_decision": json.dumps(routing) if routing is not None else None,
+        "cache_hit": entry.cache_hit,
+        "cost_estimated": costo_estimado,
     })
     db.commit()
 
@@ -419,13 +560,13 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     # traga en silencio —la 031 existe para terminar con eso—: queda en el log del servicio
     # con nivel de error y traza.
     try:
-        _acumular_gasto(db, entry)
+        _acumular_gasto(db, entry, costo)
     except Exception:
         db.rollback()
         logger.exception(
             "[sentinel-internal] la fila de auditoría se registró pero el presupuesto NO se "
             "actualizó (tenant=%s user=%s modelo=%s coste=%s)",
-            entry.tenant_id, entry.user_id, entry.model, entry.cost_usd)
+            entry.tenant_id, entry.user_id, entry.model, costo)
     return {"ok": True}
 
 

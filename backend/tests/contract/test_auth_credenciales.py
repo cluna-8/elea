@@ -128,9 +128,10 @@ def _sesion(client, username, password):
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-def _payload(username, password, role="compliance_officer"):
-    """Rol administrativo a propósito: no es seat, así el alta no depende del tope de la
-    licencia de la suite (lo que se mide acá es la credencial)."""
+def _payload(username, password, role="lectura"):
+    """Rol NO-client a propósito: no es seat, así el alta no depende del tope de la licencia
+    de la suite (lo que se mide acá es la credencial). `lectura` y no `compliance_officer`:
+    éste sólo lo asigna un super_admin, y quien da de alta acá es el tenant_admin."""
     return {"username": username, "email": f"{username}@sentinel.com.ar", "role": role,
             "password": password}
 
@@ -589,6 +590,7 @@ async def test_create_user_no_retiene_conexion_del_pool_en_sus_awaits(monkeypatc
 
     from src.api import users as users_api
     from src.auth import passwords
+    from src.models.user import User
     from src.schemas.user import UserCreate
     from src.services import ai_engine_client
 
@@ -613,11 +615,17 @@ async def test_create_user_no_retiene_conexion_del_pool_en_sus_awaits(monkeypatc
     # por una contraseña de fixture (`CLAVE_VALIDA`, de una DB de test efímera). De paso, el
     # nombre se usa dos veces y acá se escribe una.
     usuario = "alta-pool"
+    # Llamada directa: `actor` (Depends(require_role)) no se resuelve fuera de FastAPI, así
+    # que va explícito. Es un User transitorio que nunca toca la sesión, o sea no suma una
+    # conexión al pool y el `checkedout()` sigue midiendo sólo al handler. Un admin alcanza:
+    # el rol del alta es `admin`, que no exige super_admin.
+    actor = User(id=uuid.uuid4(), username="actor-alta-pool", email="actor@sentinel.com.ar",
+                 password_hash="x", role="admin")
     try:
         creado = await users_api.create_user(
             UserCreate(username=usuario, email=f"{usuario}@sentinel.com.ar",
                        role="admin", password=CLAVE_VALIDA),
-            db,
+            actor=actor, db=db,
         )
         # Los dos awaits se ejercieron de verdad: sin esto, un handler que dejara de hashear
         # o de provisionar pasaría el test por ausencia en vez de por invariante.

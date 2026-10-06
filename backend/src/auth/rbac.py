@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models.user import User
+from ..models.user import ROLES_SOLO_SUPER_ADMIN, User
 from .session import get_current_user
 
 # ── (T006, spec 017) `PERMISSIONS`/`ROLE_HIERARCHY` borrados: eran dead code ──
@@ -32,6 +32,21 @@ def effective_roles(user: User) -> set:
     if user.role == "client" and label in _CLIENT_LABEL_EQUIVALENTS:
         roles.add(label)
     return roles
+
+
+def exigir_super_admin_para_rol(actor: User, rol_nuevo: str) -> None:
+    """403 si `rol_nuevo` es de los que sólo asigna un `super_admin` y el actor no lo es.
+
+    Mira el rol REAL del actor (`actor.role`), NO `effective_roles`: éste expande
+    `tenant_admin` y `super_admin` a `admin` y no los distingue, que es justo lo que acá
+    hay que distinguir. Se SUMA a `require_role("admin")` del endpoint, no lo reemplaza.
+    Los demás roles pasan sin cambios. Recibe el rol YA normalizado (canónico)."""
+    if rol_nuevo in ROLES_SOLO_SUPER_ADMIN and actor.role != "super_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(f"Sólo un super_admin puede asignar el rol '{rol_nuevo}'. "
+                    "Pedíselo a quien administre la instalación."),
+        )
 
 
 def require_role(*roles: str) -> Callable:

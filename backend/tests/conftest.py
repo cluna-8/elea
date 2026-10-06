@@ -25,7 +25,12 @@ for _shared in (BACKEND_ROOT / "litellm_config", BACKEND_ROOT.parent / "litellm"
 
 # Unit tests need a JWT secret; fail-closed behaviour is tested explicitly by
 # clearing this env in the relevant test.
-os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-with-at-least-32-chars-xxx")
+# `setdefault` no alcanza: el servicio `backend` del compose pasa `JWT_SECRET_KEY=${JWT_SECRET_KEY}`,
+# y sin `.env` eso llega como cadena VACÍA (presente, así que `setdefault` no la pisa) → centenares
+# de `JWT_SECRET_KEY is missing or too short` en la recolección (ensayo 2026-10-06, §6.2). Un
+# valor ausente, vacío o corto se reemplaza por el de la suite; uno real (>= 32) se respeta.
+if len(os.environ.get("JWT_SECRET_KEY", "")) < 32:
+    os.environ["JWT_SECRET_KEY"] = "test-jwt-secret-with-at-least-32-chars-xxx"
 os.environ.setdefault("FERNET_SECRET_KEY", "")  # encryption off in unit tests
 
 # Headroom module is optional/fail-open; tests that need it set the env themselves.
@@ -42,6 +47,13 @@ os.environ.setdefault("COMPRESSION_HEADROOM_ENABLED", "true")
 # tests del guardrail del motor con `_PRESIDIO_URL`. Un doble global escondería qué test
 # depende del NLP y cuál no.
 os.environ.pop("NLP_ANALYZER_URL", None)
+
+# Capa de origen del plano interno (`INTERNAL_ALLOWED_CIDRS`): el compose la fija en `auto` en
+# el servicio `backend`, y los tests de ese plano llegan con el origen «testclient» del
+# `TestClient`, que no es una IP de la red de compose → con la variable puesta TODOS recibirían
+# 403 y la suite mediría la configuración del contenedor en vez del contrato. La suite arranca
+# SIN la variable (comportamiento de siempre); los tests de la capa la setean ELLOS.
+os.environ.pop("INTERNAL_ALLOWED_CIDRS", None)
 
 # Reconciliación de seats (spec 021 US3): scheduler APAGADO en la suite. Los
 # tests que usan `with TestClient(app)` disparan el lifespan, y el scheduler

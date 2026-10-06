@@ -12,6 +12,7 @@
 | `POSTGRES_DB` | `sentinel_gateway` | Database Configuration |
 | `POSTGRES_USER` | `sentinel_admin` | — |
 | `POSTGRES_PASSWORD` | *(secreto — generado por instalación)* | — |
+| `ENGINE_DB` | `sentinel_engine` | Nombre de la base PROPIA del motor del gateway (default `sentinel_engine`), dentro del mismo Postgres. Tiene que ser distinta de POSTGRES_DB: el migrador del motor borra toda tabla ajena de la base a la que apunta. La crea un servicio de un solo disparo en desarrollo y el script de inicialización de la base en producción; el script de respaldo copia las dos bases en una sola copia. |
 
 ### ── Conexión a la base de datos y Redis (producción) ─────────────────────────────────
 
@@ -29,6 +30,7 @@ En producción la base y el Redis son gestionados/externos: el compose de prod N
 | `FERNET_PREVIOUS_KEYS` | — | Rotación de FERNET_SECRET_KEY: claves anteriores, separadas por coma. SOLO descifran: lo nuevo se cifra siempre con FERNET_SECRET_KEY y lo ya cifrado con una clave anterior sigue legible. Vacío (el default) = una sola clave, sin cambio de comportamiento. Una clave con formato inválido se ignora con un aviso en el log. |
 | `SENTINEL_BCRYPT_WORKERS` | — | Hilos del executor dedicado de bcrypt del LOGIN (#167). bcrypt es CPU-bound y lento a propósito; una ráfaga de logins corriendo en el threadpool anyio compartido le comía los hilos al gateway (auditoría/rechazo por run_in_threadpool) y disparaba el fail-closed del NLP sobre tráfico legítimo. Este executor ACOTADO y SEPARADO lo evita. Es POR PROCESO: el total de la instalación es el valor por WEB_CONCURRENCY. Vacío = default min(cpu, 4) (bcrypt libera el GIL, pero más hilos que CPUs sólo agrega contención; el techo es 4). Un valor ausente/vacío/malformado/fuera de rango cae al default — un typo no debe voltear el login. |
 | `SENTINEL_ENGINE_MASTER_KEY` | *(secreto — generado por instalación)* | Configuración del motor del gateway |
+| `INTERNAL_ALLOWED_CIDRS` | `auto` | Segunda capa del plano interno (/api/v1/internal/*, el que usa el motor para resolver identidad y auditar): además del secreto compartido, sólo acepta conexiones cuyo origen esté en esta lista de redes CIDR separadas por coma (ej. 172.18.0.0/16,10.0.0.0/8). `auto` toma la subred de la red de compose a la que está enchufado el backend (el default de los dos compose). Vacía, no chequea el origen (queda sólo el secreto). Una entrada mal escrita cierra el plano en vez de abrirlo. |
 
 ### ── Admisión hacia el motor de IA: el tope que protege al producto ENTERO (nodo C1) ──
 

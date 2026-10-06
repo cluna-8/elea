@@ -278,7 +278,7 @@ cmd_despachar() {
     esac; shift
   done
   [ -f "$estado" ] && [ -n "$k" ] || die "uso: despachar <plan.estado.json> <clave> [--dry-run] [--setup run|skip]"
-  local t rol perfil tid status
+  local t rol perfil tid status desde=""
   t="$(tarea_plan "$estado" "$k")"; [ -n "$t" ] || die "no hay tarea $k en el plan"
   rol="$(echo "$t" | jq -r .rol)"; perfil="$(rol_de "$rol")"
   [ "$rol" != atlas ] || die "$k es un paso de Atlas: no se despacha (se hace en la sesión del coordinador y se cierra con 'cerrar')"
@@ -307,6 +307,9 @@ cmd_despachar() {
       [ -n "$ruta" ] && [ -d "$ruta" ] || die "no encuentro el worktree de $origen (¿se borró?)"
     fi
     args+=(--worktree "path:$ruta")
+    # Commit de arranque: 'verificar' de esta tarea compara desde acá, no desde la base del
+    # plan (si no, le atribuye los cambios de la tarea dueña del worktree).
+    $dry || desde="$(git -C "$ruta" rev-parse HEAD)"
   fi
 
   if $dry; then printf '%q ' "${ORCA:-orca-ide}" "${args[@]}"; echo; return; fi
@@ -315,6 +318,7 @@ cmd_despachar() {
     echo "$out" | jq . 2>/dev/null || echo "$out"
     die "worker-start no llegó a ready: NO relanzar; leer failedStage/residualResources (referencia recovery-and-cleanup de Orca)"; }
   local w; w="$(worker_de "$estado" "$k")"
+  [ -n "${desde:-}" ] && estado_set "$estado" '.tareas[$k].desde = $c' --arg k "$k" --arg c "$desde"
   estado_set "$estado" '.tareas[$k].dispatch = $d | .tareas[$k].worktree = $w' --arg k "$k" \
     --arg d "$(echo "$w" | jq -r .dispatchId)" --arg w "$(echo "$w" | jq -r '.resource.worktreeId // "" | split("::")[1] // ""')"
   info "$k despachado: $(echo "$w" | jq -r '"\(.dispatchId) · \(.workerState) · \(.resource.worktreeId | split("::")[1])"')"
@@ -393,9 +397,12 @@ cmd_verificar() {
     [ -f "$estado" ] && [ -n "$k" ] || die "uso: verificar <plan.estado.json> <clave> | --worktree <ruta> [--base <ref>] [--rutas 'g1,g2']"
     local t; t="$(tarea_plan "$estado" "$k")"
     local w; w="${wt:-$(echo "$t" | jq -r '.worktree // "nuevo"')}"
-    [[ "$w" == de:* ]] && k="${w#de:}"
-    wt="$(ruta_worktree_de "$estado" "$k")"
+    # El worktree puede ser el de otra tarea (de:<clave>), pero las rutas, la base y el repo son
+    # los de ESTA tarea: con de:X se verificaban contra las rutas de X (falso positivo, 6-oct-2026).
+    local origen="$k"; [[ "$w" == de:* ]] && origen="${w#de:}"
+    wt="$(ruta_worktree_de "$estado" "$origen")"
     local to; to="$(tarea_plan "$estado" "$k")"
+    base="${base:-$(estado_get "$estado" ".tareas[\"$k\"].desde // empty")}"
     base="${base:-$(base_de_tarea "$to" "$(plan_de "$estado")")}"
     rutas="${rutas:-$(echo "$to" | jq -r '(.rutas // []) | join(",")')}"
     [ -n "$(echo "$to" | jq -r '.repo // empty')" ] && otro_repo=true

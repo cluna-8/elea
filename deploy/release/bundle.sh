@@ -75,6 +75,11 @@ for rel in $(grep -oE '\./[A-Za-z0-9_./-]+' "$REPO_ROOT/deploy/docker/compose.pr
   cp -R "$src" "$OUT/${rel#./}"
 done
 
+# Respaldo de las DOS bases (producto + motor) en una sola copia. Tiene que viajar con el
+# bundle: on-prem el operador no tiene el repo, y un `pg_dump` de una sola base deja afuera
+# las llaves virtuales y el gasto del motor (base propia ENGINE_DB).
+cp "$REPO_ROOT/deploy/release/backup.sh" "$OUT/backup.sh" && chmod +x "$OUT/backup.sh"
+
 # Entregable white-label de la EXTENSIÓN (028 US1/US7): si el cliente tiene brand-pack,
 # lo renderizamos y viaja en el bundle (edge case simétrico al de las imágenes: un
 # artefacto fuera del tarball = fetch en runtime = install roto sin egress).

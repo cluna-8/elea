@@ -28,7 +28,8 @@ for _dir in (_TESTS, _TESTS / "integration"):
         sys.path.insert(0, str(_dir))
 
 from migration_harness import require_postgres  # noqa: E402
-from seat_gate_harness import admin_headers, build_app_client, mock_engine  # noqa: E402
+from seat_gate_harness import (admin_headers, build_app_client, headers_for_role,  # noqa: E402
+                               mock_engine)
 
 require_postgres()
 
@@ -103,6 +104,15 @@ def admin(harness):
     return admin_headers(client)
 
 
+@pytest.fixture(scope="module")
+def super_admin(harness, admin):
+    """Quien da de alta los usuarios `compliance_officer` de estos tests: ese rol sólo lo
+    asigna un `super_admin`. Depende de `admin` para que el bootstrap corra primero."""
+    from src.auth.matrix import Rol
+    client, factory = harness
+    return headers_for_role(client, factory, Rol.SUPER_ADMIN)
+
+
 # ── Bootstrap del primer admin ────────────────────────────────────────────────────
 
 
@@ -124,12 +134,12 @@ def test_bootstrap_admin_deja_una_fila_con_target(harness, admin):
 # ── Cambio de rol con actor ────────────────────────────────────────────────────────
 
 
-def test_cambio_de_rol_deja_una_fila_con_actor_y_old_new(harness, admin):
+def test_cambio_de_rol_deja_una_fila_con_actor_y_old_new(harness, admin, super_admin):
     """``PUT /users/{id}`` que cambia el rol deja EXACTAMENTE una fila
     ``auth_role_changed`` con el actor (el admin que hizo el PUT) y old/new correctos.
     El ``new_role`` es el canónico (``admin`` legacy → ``tenant_admin``)."""
     client, factory = harness
-    uid, uname, email = _crear_usuario(client, admin, "compliance_officer")
+    uid, uname, email = _crear_usuario(client, super_admin, "compliance_officer")
     antes = len(_auth_events(factory, "auth_role_changed"))
 
     resp = client.put(f"/api/v1/users/{uid}", headers=admin,
@@ -146,12 +156,12 @@ def test_cambio_de_rol_deja_una_fila_con_actor_y_old_new(harness, admin):
     assert ev["new_role"] == "tenant_admin"
 
 
-def test_put_sin_cambio_de_rol_no_audita(harness, admin):
+def test_put_sin_cambio_de_rol_no_audita(harness, admin, super_admin):
     """El emit está detrás del guard ``nuevo != anterior``: un PUT que toca otro campo
     (o repite el mismo rol) NO debe dejar rastro de ``auth_role_changed``. Sin esto, la
     bitácora se llenaría de cambios que no ocurrieron."""
     client, factory = harness
-    uid, uname, email = _crear_usuario(client, admin, "compliance_officer")
+    uid, uname, email = _crear_usuario(client, super_admin, "compliance_officer")
     antes = len(_auth_events(factory, "auth_role_changed"))
 
     base = {"username": uname, "email": email, "role": "compliance_officer"}
@@ -169,14 +179,14 @@ def test_put_sin_cambio_de_rol_no_audita(harness, admin):
 # ── C1: metadata-only ──────────────────────────────────────────────────────────────
 
 
-def test_c1_las_filas_auth_solo_llevan_ids_y_roles(harness, admin):
+def test_c1_las_filas_auth_solo_llevan_ids_y_roles(harness, admin, super_admin):
     """C1: cada fila auth lleva EXACTAMENTE {event_type, actor_user_id, target_user_id,
     old_role, new_role, ts} — sólo ids/literales — y ninguna password que pasó por el
     flujo aparece en ningún valor. El canal es el mismo que audita PII: una fuga acá es
     regresión silenciosa."""
     client, factory = harness
     # Aseguramos ambos tipos presentes (bootstrap ya ocurrió; forzamos un role-change).
-    uid, uname, email = _crear_usuario(client, admin, "compliance_officer")
+    uid, uname, email = _crear_usuario(client, super_admin, "compliance_officer")
     client.put(f"/api/v1/users/{uid}", headers=admin,
                json={"username": uname, "email": email, "role": "admin"})
 

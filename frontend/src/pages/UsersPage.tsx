@@ -21,7 +21,7 @@ import {
   cn,
 } from "../components/ui";
 import type { BadgeTone } from "../components/ui";
-import { ROLE_LABELS, authStorage } from "../services/auth";
+import { ROLE_LABELS, authStorage, canAssignComplianceRoles } from "../services/auth";
 
 const LEGAL_BASIS_SHORT: Record<string, string> = {
   art_9_2_h: "Art. 9(2)(h) Sanitario",
@@ -159,6 +159,9 @@ export const UsersPage: React.FC = () => {
   // T043 (US4): rol de QUIEN MIRA el panel — nunca el rol de la fila que se está
   // renderizando. Determina si se ofrecen acciones destructivas/de edición.
   const miRol = authStorage.getUser()?.role;
+  // «Auditor» (`compliance_officer`) sólo lo asigna un super_admin: al resto no se le ofrece
+  // una opción que el backend le va a rechazar con 403.
+  const puedeAsignarAuditor = canAssignComplianceRoles(authStorage.getUser());
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [users, setUsers] = useState<User[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -1652,7 +1655,7 @@ export const UsersPage: React.FC = () => {
                 {/* Mismo valor que guarda la base (`compliance_officer`): acá sólo se le
                     pone el nombre con el que lo pide el cliente. No se inventa un rol
                     nuevo ni se cambia ningún permiso. */}
-                <option value={ROL_AUDITOR}>Auditor</option>
+                {puedeAsignarAuditor && <option value={ROL_AUDITOR}>Auditor</option>}
                 {/* `lectura` (017): rol de SOLO-vitrinas — ve auditoría/monitor/costes/RAT y
                     nada más (ni gestión, ni config, ni chat). Valor canónico que guarda la base. */}
                 <option value={ROL_LECTURA}>Solo Lectura</option>
@@ -1874,7 +1877,11 @@ export const UsersPage: React.FC = () => {
             <Field label="Rol">
               <select value={editUserRole} onChange={(e) => setEditUserRole(e.target.value)} className={selectClass}>
                 <option value="tenant_admin">Administrador</option>
-                <option value={ROL_AUDITOR}>Auditor</option>
+                {/* Quien YA es Auditor lo conserva visible (el select necesita su valor
+                    actual); asignarlo a otro sólo lo ofrece a un super_admin. */}
+                {(puedeAsignarAuditor || editUser.role === ROL_AUDITOR) && (
+                  <option value={ROL_AUDITOR}>Auditor</option>
+                )}
                 <option value="client">Cliente</option>
                 <option value={ROL_LECTURA}>Solo Lectura</option>
               </select>

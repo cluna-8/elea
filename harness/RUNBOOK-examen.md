@@ -172,6 +172,20 @@ manda el tráfico y el orquestador le habla por `/control` — una sola app.
 
 El pool es **material de run**: 0600, fuera del repo, y no se publica con la evidencia.
 
+Los `compliance_officer` los crea una sesión **super_admin** (el backend le da 403 a un
+`tenant_admin`). Antes del seed, una vez por instalación, creá el primero (en el host del SUT) **dentro del
+contenedor del backend** (imprime la contraseña UNA sola vez como `PASSWORD=<valor>`; si ya hay uno, sale 3 y no hace nada; si se pierde: `resetear-super-admin`):
+
+```bash
+$DC exec backend python -m src.cli crear-super-admin --username itv-root --email itv-root@example.com
+export SEED_SUPER_ADMIN_USERNAME=itv-root
+export SEED_SUPER_ADMIN_PASSWORD='<la que imprimió el comando>'   # sólo en el entorno, nunca en argv
+```
+
+El seeder la usa **sólo** para los `compliance_officer` (y para crear el `admin` si el
+super_admin ya estaba y el login de `admin` no puede bootstrapearse). Sin esas variables
+aborta antes de crear nada. `--verify-only` no las necesita.
+
 ```bash
 cd harness
 install -d -m 700 /run/itv
@@ -186,6 +200,7 @@ echo "exit=$?"      # tiene que ser 0
 | Salida | Qué significa | Qué hacer |
 |---|---|---|
 | `exit 0` | 119 seats + 6 cuentas admin creados, pool con `sentinel_key` en todas las identidades de extensión/coding | seguir |
+| `❌ falta la sesión super_admin` | no están `SEED_SUPER_ADMIN_USERNAME`/`SEED_SUPER_ADMIN_PASSWORD` | crear el super_admin (arriba) y exportarlas |
 | `❌ licencia insuficiente` | la licencia no da para 119 seats | rehacer 4b con más `--max-seats` |
 | `❌ … sentinel_key` (exit 3) | las Connections ya existían: la key en claro **no** es recuperable | `$DC down -v && $DC up -d`, repetir 4b y 5 |
 | `❌ … OTRA semilla` | la DB fue sembrada con otro `--seed` | `$DC down -v` y repetir con la semilla del run |

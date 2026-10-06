@@ -23,12 +23,31 @@ from sentinel_harness.seeder import (
     load_population_by_gate,
     plan_members,
     precheck_seats,
-    seed,
+    seed as _seed,
     validate_population,
 )
 from sentinel_harness.seeder.client import BackendError
 
 GATES = (125, 250, 500)
+
+# Sesión super_admin de los tests: `compliance_officer` sólo lo crea un super_admin
+# (backend `auth.rbac.exigir_super_admin_para_rol`), así que `seed` la pide. Los tests que
+# no hablan de eso la reciben por default; los que la miden llaman a `_seed` directo.
+SUPER = {"super_admin_username": "root-test", "super_admin_password": "super-pass-de-prueba"}
+
+
+def seed(pop, client, **kw):
+    for k, v in SUPER.items():
+        kw.setdefault(k, v)
+    return _seed(pop, client, **kw)
+
+
+@pytest.fixture(autouse=True)
+def _super_admin_en_el_entorno(monkeypatch):
+    """El CLI toma la sesión super_admin del entorno (la contraseña no va por argv)."""
+    monkeypatch.setenv("SEED_SUPER_ADMIN_USERNAME", SUPER["super_admin_username"])
+    monkeypatch.setenv("SEED_SUPER_ADMIN_PASSWORD", SUPER["super_admin_password"])
+
 # Distribución canónica de R5 (client_total, tenant_admins, compliance, licencia).
 EXPECTED = {
     125: {"clients": 119, "admins": 4, "comp": 2, "license": 300,
@@ -50,7 +69,8 @@ class FakeBackendClient:
     (Connection), y ``list_*`` refleja el estado — para que el re-seed converja."""
 
     def __init__(self, *, max_seats=300, seats_used=0, admin_detail=True,
-                 key_error_status=None, budget_error=None, whoami_ok=True):
+                 key_error_status=None, budget_error=None, whoami_ok=True,
+                 super_admin_presente=False, super_admin_login_ok=True):
         self.max_seats = max_seats
         self.seats_used = seats_used
         self.admin_detail = admin_detail
@@ -65,6 +85,13 @@ class FakeBackendClient:
         self.events: list[tuple] = []  # log ordenado ("user"/"key"/"budget", clave)
         self._n = 0
         self.token = None
+        # Instalación con un super_admin ya provisionado (comando `crear-super-admin`): el
+        # login de `admin` NO lo bootstrapea (hay dueño), así que sin cuenta `admin` da 401.
+        self.super_admin_presente = super_admin_presente
+        self.super_admin_login_ok = super_admin_login_ok
+        self.super_token = None
+        self.super_logins: list = []
+        self.creados_como_super: list = []
 
     def _nid(self) -> str:
         self._n += 1
@@ -79,8 +106,24 @@ class FakeBackendClient:
 
     # -- protocolo --
     def bootstrap_admin(self, username, password):
+        u = self.users.get(username)
+        if u is not None and u.get("password") != password:
+            raise BackendError(401, "Credenciales incorrectas.")
+        if u is None and self.super_admin_presente:
+            raise BackendError(401, "Credenciales incorrectas.")
+        if u is None:  # instalación sin dueño: el login de `admin` lo crea (tenant_admin)
+            uid = self._nid()
+            self.users[username] = {"id": uid, "role": "tenant_admin", "client_type": None,
+                                    "engine_user_id": None, "password": password}
         self.token = "tok"
         return self.token
+
+    def login_super_admin(self, username, password):
+        self.super_logins.append(username)
+        if not self.super_admin_login_ok:
+            raise BackendError(401, "Credenciales incorrectas.")
+        self.super_token = "tok-super"
+        return self.super_token
 
     def verify_credential(self, username, password):
         # Modela POST /login de sólo-comprobación: True si la password guardada coincide.
@@ -109,7 +152,13 @@ class FakeBackendClient:
     def list_budgets(self):
         return list(self.budgets.values())
 
-    def create_user(self, *, username, email, password, role, client_type=None):
+    def create_user(self, *, username, email, password, role, client_type=None,
+                    como_super_admin=False):
+        # Modela `exigir_super_admin_para_rol`: sólo una sesión super_admin asigna estos roles.
+        if role in ("compliance_officer", "super_admin") and not como_super_admin:
+            raise BackendError(403, f"Sólo un super_admin puede asignar el rol '{role}'.")
+        if como_super_admin and self.super_token is None:
+            raise AssertionError("se pidió la sesión super_admin sin haber iniciado sesión")
         if username in self.users:
             raise BackendError(400, "Username already registered")
         if role == "client" and self.seats_used >= self.max_seats:
@@ -118,6 +167,8 @@ class FakeBackendClient:
         self.users[username] = {"id": uid, "role": role, "client_type": client_type,
                                 "engine_user_id": f"eng-{uid}", "password": password}
         self.events.append(("user", username))
+        if como_super_admin:
+            self.creados_como_super.append(username)
         return {"id": uid, "username": username, "role": role}
 
     def create_key(self, *, name, user_id, tool_type):
@@ -256,8 +307,8 @@ def test_precheck_excede_seats_falla_antes_de_crear():
     with pytest.raises(SeedError) as ei:
         seed(pop, client, seed=1)
     assert "insuficiente" in str(ei.value)
-    # Fail-fast: NO se creó NADA.
-    assert client.users == {}
+    # Fail-fast: NO se creó NADA (sólo el admin que el login de bootstrap crea solo).
+    assert set(client.users) <= {pop.admin_username}
     assert client.keys == {}
     assert client.budgets == {}
 
@@ -474,6 +525,109 @@ def test_FIX3_cli_sin_aviso_con_semilla_explicita(monkeypatch, capsys):
     seedmod.main(["--gate", "125", "--verify-only", "--seed", "12345"])
     err = capsys.readouterr().err
     assert "semilla de DEV" not in err
+
+
+# ── compliance_officer lo crea una sesión super_admin ─────────────────────────────────
+
+def test_compliance_officer_se_crea_con_la_sesion_super_admin_y_el_resto_con_la_de_admin():
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300)
+
+    _seed(pop, client, seed=7, **SUPER)
+
+    assert client.super_logins == [SUPER["super_admin_username"]]
+    cmp_users = sorted(u for u, v in client.users.items() if v["role"] == "compliance_officer")
+    assert len(cmp_users) == pop.compliance_officers
+    assert sorted(client.creados_como_super) == cmp_users, \
+        "sólo los compliance_officer van por la sesión super_admin (mínimo privilegio)"
+
+
+def test_sin_sesion_super_admin_falla_ANTES_de_crear_nada_con_mensaje_accionable():
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300)
+
+    with pytest.raises(SeedError) as exc:
+        _seed(pop, client, seed=7)
+
+    msg = str(exc.value)
+    assert "super_admin" in msg and "crear-super-admin" in msg
+    assert "SEED_SUPER_ADMIN_PASSWORD" in msg
+    assert client.users == {} and client.events == []  # ni el admin: ni se tocó el backend
+
+
+def test_login_super_admin_incorrecto_es_accionable_y_no_crea_nada():
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300, super_admin_login_ok=False)
+
+    with pytest.raises(SeedError, match="super_admin"):
+        _seed(pop, client, seed=7, **SUPER)
+
+    assert client.events == []
+
+
+def test_verify_only_no_necesita_ni_abre_la_sesion_super_admin():
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300)
+    _seed(pop, client, seed=7, **SUPER)
+    client.super_logins.clear()
+
+    report = _seed(pop, client, seed=7, verify_only=True)  # sin credenciales super_admin
+
+    assert report.state == "verified" and client.super_logins == []
+
+
+def test_instalacion_con_super_admin_provisionado_primero_crea_el_admin_con_esa_sesion():
+    """Orden realista: el comando `crear-super-admin` corre ANTES del seeder. Hay dueño, así
+    que el login de `admin` no lo bootstrapea: el seeder lo crea con la sesión super_admin."""
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300, super_admin_presente=True)
+
+    report = _seed(pop, client, seed=7, **SUPER)
+
+    assert report.state == "seeded"
+    assert pop.admin_username in client.users
+    assert client.users[pop.admin_username]["role"] == "tenant_admin"
+    assert pop.admin_username in client.creados_como_super
+
+
+def test_admin_existente_con_otra_password_sigue_dando_el_mensaje_de_semilla_ajena():
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300, super_admin_presente=True)
+    client.users[pop.admin_username] = {"id": "x", "role": "tenant_admin", "client_type": None,
+                                        "engine_user_id": None, "password": "otra-distinta-123"}
+
+    with pytest.raises(SeedError, match="OTRA password"):
+        _seed(pop, client, seed=7, **SUPER)
+
+
+def test_cli_toma_la_sesion_super_admin_del_entorno_y_sale_0(monkeypatch):
+    import importlib
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
+    fake = FakeBackendClient(max_seats=300)
+    monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
+
+    assert seedmod.main(["--gate", "125", "--seed", "7"]) == 0
+    assert fake.super_logins == [SUPER["super_admin_username"]]
+
+
+def test_cli_sin_la_contrasena_super_admin_sale_2_y_no_crea_nada(monkeypatch, capsys):
+    import importlib
+    seedmod = importlib.import_module("sentinel_harness.seeder.seed")
+    fake = FakeBackendClient(max_seats=300)
+    monkeypatch.setattr(seedmod, "BackendClient", lambda *a, **k: fake)
+    monkeypatch.delenv("SEED_SUPER_ADMIN_PASSWORD")
+
+    assert seedmod.main(["--gate", "125", "--seed", "7"]) == 2
+    assert "SEED_SUPER_ADMIN_PASSWORD" in capsys.readouterr().err
+    assert fake.events == []
+
+
+def test_la_contrasena_super_admin_no_va_al_pool_ni_al_summary():
+    pop = load_population_by_gate(125)
+    client = FakeBackendClient(max_seats=300)
+    report = _seed(pop, client, seed=7, **SUPER)
+    assert SUPER["super_admin_password"] not in json.dumps(report.credentials)
+    assert SUPER["super_admin_password"] not in report.summary()
 
 
 def test_FIX4_verify_reporta_budget_drift():
@@ -729,3 +883,52 @@ def test_verify_only_con_pool_corrupto_no_lo_pisa(tmp_path):
 
     # Que NO exista es otra cosa: primer run, se sigue sin material.
     assert _read_pool(tmp_path / "no-existe.json") is None
+
+
+# ── BackendClient real: DOS sesiones, cada una donde corresponde ──────────────────────
+
+def _client_http(rol_super="super_admin"):
+    import httpx
+    from sentinel_harness.seeder.client import BackendClient
+
+    vistos: list = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        vistos.append((req.method, req.url.path, req.headers.get("authorization")))
+        if req.url.path.endswith("/users/login"):
+            quien = json.loads(req.content)["username"]
+            rol = rol_super if quien == "root" else "tenant_admin"
+            return httpx.Response(200, json={"access_token": f"jwt-{quien}",
+                                             "user": {"role": rol}})
+        return httpx.Response(201, json={"id": "u1"})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    return BackendClient("http://backend", client=http), vistos
+
+
+def test_cliente_real_usa_la_sesion_super_admin_solo_cuando_se_pide():
+    client, vistos = _client_http()
+    client.bootstrap_admin("admin", "pw-admin-12345")
+    client.login_super_admin("root", "pw-super-12345")
+
+    client.create_user(username="c1", email="c1@x.example", password="p" * 12,
+                       role="compliance_officer", como_super_admin=True)
+    client.create_user(username="t1", email="t1@x.example", password="p" * 12,
+                       role="tenant_admin")
+
+    posts = [auth for m, path, auth in vistos if m == "POST" and path.endswith("/users")]
+    assert posts == ["Bearer jwt-root", "Bearer jwt-admin"]
+
+
+def test_cliente_real_rechaza_una_cuenta_que_no_es_super_admin():
+    client, _ = _client_http(rol_super="tenant_admin")
+    with pytest.raises(BackendError) as ei:
+        client.login_super_admin("root", "pw-super-12345")
+    assert ei.value.status_code == 403
+
+
+def test_cliente_real_sin_login_super_admin_no_improvisa():
+    client, _ = _client_http()
+    with pytest.raises(RuntimeError):
+        client.create_user(username="c1", email="c1@x.example", password="p" * 12,
+                           role="compliance_officer", como_super_admin=True)

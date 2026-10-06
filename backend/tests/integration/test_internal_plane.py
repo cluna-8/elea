@@ -478,3 +478,58 @@ def test_el_gasto_registrado_es_el_del_evento_no_el_de_la_tabla_local(harness):
     estado = presupuesto_de(factory, ids["user_id"])
     assert estado["gasto"] == Decimal("0.0100")
     assert estado["gasto"] == fila["cost_usd"]
+
+
+# ── Gasto en cero: None ≠ 0 y el acierto de caché marcado (specs/ANALISIS-GASTO-CERO §9) ──
+
+
+def _marcas_de(factory, modelo):
+    from sqlalchemy import text
+    db = factory()
+    try:
+        return db.execute(text(
+            "SELECT cost_usd, cache_hit, cost_estimated FROM audit_logs WHERE model = :m"),
+            {"m": modelo}).one()
+    finally:
+        db.close()
+
+
+def test_sin_costo_informado_la_fila_y_el_presupuesto_usan_el_tarifario(harness):
+    """Reproduce §9.5 contra la base real: antes los tokens subían y los dólares no."""
+    client, factory = harness
+    ids = sembrar_connection(factory, sufijo="sin-costo", con_presupuesto="10.0000")
+
+    resp = client.post(AUDIT, headers=CABECERA, json={
+        "tenant_id": "00000000-0000-0000-0000-000000000001",
+        "user_id": ids["user_id"], "api_key_id": ids["key_id"],
+        "model": "gpt-4o-mini", "prompt_tokens": 100000, "completion_tokens": 50000,
+        "cost_usd": None, "cost_missing": True, "compliance_status": "passed",
+        "latency_ms": 300, "user_group_id": ids["group_id"],
+    })
+
+    assert resp.status_code == 200, resp.text
+    # 100000/1e6*0.15 + 50000/1e6*0.60 = 0.045
+    estado = presupuesto_de(factory, ids["user_id"])
+    marcas = _marcas_de(factory, "gpt-4o-mini")
+    assert estado["gasto"] == Decimal("0.04500000") and estado["tokens"] == 150000
+    assert Decimal(marcas.cost_usd) == Decimal("0.045000"), "fila y contador cierran"
+    assert marcas.cost_estimated is True and marcas.cache_hit is False
+
+
+def test_acierto_de_cache_queda_marcado_y_no_descuenta(harness):
+    client, factory = harness
+    ids = sembrar_connection(factory, sufijo="acierto-cache", con_presupuesto="10.0000")
+
+    resp = client.post(AUDIT, headers=CABECERA, json={
+        "tenant_id": "00000000-0000-0000-0000-000000000001",
+        "user_id": ids["user_id"], "api_key_id": ids["key_id"],
+        "model": "modelo-acierto-de-cache", "prompt_tokens": 11, "completion_tokens": 4,
+        "cost_usd": 0.0, "cache_hit": True, "compliance_status": "passed",
+        "latency_ms": 0, "user_group_id": ids["group_id"],
+    })
+
+    assert resp.status_code == 200, resp.text
+    marcas = _marcas_de(factory, "modelo-acierto-de-cache")
+    assert marcas.cache_hit is True and marcas.cost_estimated is False
+    assert Decimal(marcas.cost_usd) == 0
+    assert presupuesto_de(factory, ids["user_id"]) == {"gasto": Decimal("0"), "tokens": 0}

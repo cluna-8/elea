@@ -11,6 +11,7 @@ from migration_harness import require_postgres
 from seat_gate_harness import (
     admin_headers,
     build_app_client,
+    headers_for_role,
     clear_license,
     current_seats,
     mock_engine,
@@ -84,7 +85,9 @@ def test_admin_roles_are_not_seats(harness, monkeypatch, tmp_path):
                           json=_user_payload("client-officer-probe", "client"))
     assert blocked.status_code == 402, "precondición: el tope debe estar lleno"
 
-    resp = client.post("/api/v1/users", headers=headers,
+    # `compliance_officer` sólo lo da de alta un super_admin (el tenant_admin recibe 403).
+    from src.auth.matrix import Rol
+    resp = client.post("/api/v1/users", headers=headers_for_role(client, factory, Rol.SUPER_ADMIN),
                        json=_user_payload("officer-1", "compliance_officer"))
 
     assert resp.status_code == 201, resp.text

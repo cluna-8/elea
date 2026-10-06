@@ -96,6 +96,11 @@ services:
       SENTINEL_PURGE_BATCH_PAUSE_MS: "${SENTINEL_PURGE_BATCH_PAUSE_MS:-200}"
       # El alta de usuarios crea la identidad en el motor con la master key.
       SENTINEL_ENGINE_MASTER_KEY: "${SENTINEL_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
+      # Plano interno (/api/v1/internal/*), capa de ORIGEN además del secreto de arriba: sólo
+      # responde a conexiones desde estas redes. `auto` = la subred de la red de compose a la
+      # que está enchufado este contenedor (por donde llega el motor). Lista de CIDR separada
+      # por coma para una red fija; vacío desactiva el chequeo (queda sólo el secreto).
+      INTERNAL_ALLOWED_CIDRS: "${INTERNAL_ALLOWED_CIDRS-auto}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
       SENTINEL_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
       # Solo pilotos/demos con licencia dev (kid sentinel-dev-*): opt-in explícito.
@@ -216,8 +221,11 @@ services:
       # Base PROPIA del motor (jamás la del backend): su migrador Prisma aplica
       # un diff DB↔schema en el primer arranque que DROPea tablas ajenas como
       # "drift" — compartir base destruía el esquema del producto (ensayo
-      # 2026-07-22). En selfhosted la crea initdb/01-engine-db.sql; en nube,
-      # el módulo OpenTofu provisiona ambas bases.
+      # 2026-07-22). En selfhosted la crea initdb/01-engine-db.sh con el MISMO
+      # ENGINE_DB (el servicio `db` lo recibe abajo). En nube NADIE la crea todavía:
+      # el módulo OpenTofu `database` provisiona solo POSTGRES_DB, así que el operador
+      # tiene que crear ENGINE_DB en la instancia gestionada antes de levantar el motor
+      # (hallazgo abierto, specs/ANALISIS-SEPARAR-BASES-MOTOR-2026-10.md §9).
       DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT:-5432}/${ENGINE_DB:-sentinel_engine}"
       # Identidad de las Connections: vive en la base del BACKEND, no en la del motor.
       # Sin esta línea `custom_auth` consulta sentinel_engine, no encuentra api_keys y TODO
@@ -306,9 +314,16 @@ services:
       POSTGRES_DB: "${POSTGRES_DB:?}"
       POSTGRES_USER: "${POSTGRES_USER:?}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?}"
+      # Nombre de la base del motor para initdb/01-engine-db.sh. Mismo `${ENGINE_DB:-…}`
+      # que el DATABASE_URL del motor: si cambia el nombre cambia en los dos sitios, y la
+      # base que se crea es la que el motor va a buscar.
+      ENGINE_DB: "${ENGINE_DB:-sentinel_engine}"
     volumes:
       - pgdata:/var/lib/postgresql/data        # DURABLE (adiós pgdata efímero de dev)
-      - ./initdb:/docker-entrypoint-initdb.d:ro  # crea la base del motor (solo 1er init)
+      # Crea la base del motor. initdb corre SOLO al inicializar un volumen VACÍO: en un
+      # volumen que ya existe no hace nada (ver docs/docs/operations/index.md, respaldo
+      # y separación de bases, para crearla a mano con el mismo script).
+      - ./initdb:/docker-entrypoint-initdb.d:ro
 
   redis:
     profiles: ["selfhosted"]
