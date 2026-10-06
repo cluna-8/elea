@@ -47,7 +47,7 @@ describe("pantalla de redirección", () => {
   it("la redirección ya no es una página aparte: la absorbe la pantalla única «Modelos»", () => {
     const pages = collectPluginPages(import.meta.glob("../../pages/*.tsx", { eager: true }));
     expect(pages.find(p => p.path === "/redireccion")).toBeUndefined();
-    expect(pages.find(p => p.path === "/modelos")).toMatchObject({ menu: { label: "Modelos", section: "playground" } });
+    expect(pages.find(p => p.path === "/modelos")).toMatchObject({ menu: { label: "Modelos", section: "governance" } });
   });
 
   it("Destinos es una vista del catálogo: lista los modelos, con el enlace a Modelos y sin formulario ni acciones", async () => {

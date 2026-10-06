@@ -80,7 +80,7 @@ describe("pantalla única «Modelos»", () => {
     const pages = collectPluginPages(import.meta.glob("../../pages/*.tsx", { eager: true }));
     expect(pages.map(p => p.path)).toEqual(["/modelos"]);
     expect(pages[0]).toMatchObject({
-      menu: { label: "Modelos", section: "playground" }, roles: ["admin", "compliance_officer", "lectura"], replaces: "models",
+      menu: { label: "Modelos", section: "governance" }, roles: ["admin", "compliance_officer", "lectura"], replaces: "models",
     });
   });
 

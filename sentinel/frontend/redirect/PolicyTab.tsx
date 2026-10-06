@@ -1,7 +1,7 @@
-// Pestaña «Política»: estado apagada / sombra / encendida por alcance, con motivo.
+// Pestaña «Política»: estado apagada / encendida por alcance, con motivo (el estado «sombra» no se ofrece en el MVP, FR-010).
 import React, { useState } from "react";
 import { Button, Card, Field, StatusBadge } from "../../../frontend/src/components/ui";
-import { POLICY_STATES, POLICY_STATE_LABELS, PolicyState, ScopeType } from "./catalog";
+import { OFFERED_POLICY_STATES, POLICY_STATE_LABELS, PolicyState, ScopeType } from "./catalog";
 import { buildPolicyRequest, FieldErrors, Lookups, Permissions, PolicyRow, scopeLabel } from "./helpers";
 import { redirectApi } from "./api";
 import { EmptyRow, Notice, ScopePicker, SelectField, tableClass, tdClass, thClass } from "./ui";
@@ -15,7 +15,7 @@ export const PolicyTab: React.FC<{
   reload: () => Promise<void>;
 }> = ({ perms, policy, lookups, reload }) => {
   const [form, setForm] = useState<{ scope_type: ScopeType; scope_value: string; state: PolicyState; reason: string }>(
-    { scope_type: "tenant", scope_value: "", state: "shadow", reason: "" });
+    { scope_type: "tenant", scope_value: "", state: "off", reason: "" });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
@@ -42,8 +42,7 @@ export const PolicyTab: React.FC<{
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
       <Notice tone="info">
         Sin ninguna fila la política está apagada. Gana el alcance más específico (conexión, usuario,
-        grupo, organización). En sombra los pedidos se sirven igual y solo se registra qué destino
-        habría servido.
+        grupo, organización).
       </Notice>
       {perms.canAdmin && (
         <Card title="Cambiar el estado" className="mb-6">
@@ -51,7 +50,7 @@ export const PolicyTab: React.FC<{
             onChange={(scope_type, scope_value) => setForm({ ...form, scope_type, scope_value })} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <SelectField label="Estado" value={form.state} onChange={v => setForm({ ...form, state: v as PolicyState })}
-              options={POLICY_STATES.map(s => ({ value: s, label: POLICY_STATE_LABELS[s] }))} />
+              options={OFFERED_POLICY_STATES.map(s => ({ value: s, label: POLICY_STATE_LABELS[s] }))} />
             <Field label="Motivo" value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} error={errors.reason} />
           </div>
           <div className="flex justify-end mt-4">

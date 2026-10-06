@@ -1,5 +1,7 @@
 // Página de plugin de la consola (costura S3, `@plugin-pages`): la pantalla única «Modelos» ocupa el
-// lugar del ítem base `models` (`replaces`) y absorbe el catálogo y la redirección como pestañas.
+// lugar del ítem base `models` (`replaces`) y absorbe el catálogo y la redirección como pestañas. Va en el
+// menú junto a Gobernanza (`section`, FR-005): con `replaces` + `section` el ítem base se quita y la
+// entrada se enlaza después de esa sección.
 // Roles legacy de la sesión: `admin` cubre tenant_admin y super_admin; cumplimiento y lectura
 // consultan (cumplimiento además completa fichas). En este directorio va SOLO el módulo de entrada:
 // el registry importa todo `*.ts(x)` de acá.
@@ -9,7 +11,7 @@ import { ModelsIcon } from "../models/icon";
 export default {
   path: "/modelos",
   Component: ModelsScreen,
-  menu: { label: "Modelos", section: "playground", icon: ModelsIcon },
+  menu: { label: "Modelos", section: "governance", icon: ModelsIcon },
   roles: ["admin", "compliance_officer", "lectura"],
   replaces: "models",
 };

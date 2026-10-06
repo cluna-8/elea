@@ -143,6 +143,9 @@ export const SCOPE_TYPE_LABELS: Record<ScopeType, string> = {
 
 export const POLICY_STATES = ["off", "shadow", "on"] as const;
 export type PolicyState = (typeof POLICY_STATES)[number];
+/** Estados que la pantalla OFRECE en el MVP (FR-010): *sombra* queda reservado para la fase F6 y no se
+ *  elige desde el panel; una fila que ya viniera en sombra se sigue mostrando con su etiqueta. */
+export const OFFERED_POLICY_STATES = ["off", "on"] as const satisfies readonly PolicyState[];
 export const POLICY_STATE_LABELS: Record<PolicyState, string> = {
   off: "Apagada",
   shadow: "Sombra (solo registra)",
