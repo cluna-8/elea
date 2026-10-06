@@ -965,6 +965,27 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   forma del pedido real y un analizador que marca `1` como LOCATION; parámetros `temperature`/`top_k`/`max_tokens`; un DNI numérico sigue bloqueando;
   números de texto libre siguen enmascarándose; el prefetch pide los números al analizador).
 
+## R37. El detector de secretos sin límite izquierdo bloqueaba pedidos auxiliares de Claude Code — hallazgo del gate «claude -p» (2026-10-07; FR-027)
+
+- **Hechos** (fila `blocked_secret`, capa `secret_detection`, modelo `rdx-azure/gpt-5.1-chat`, en `audit_logs` de la corrida de R36; la fila solo trae metadatos, así
+  que el cuerpo se **recapturó**): `claude -p` real (Claude Code 2.1.292) por un proxy local del scratchpad hacia la pasarela, 16 pedidos. Repasados con
+  `extract_inspect_text` de alcance completo y `detect_secrets`: **3 pedidos auxiliares** (sin herramientas; `max_tokens` 2112 los dos del clasificador del modo auto y 64 el de un
+  modelo sin regla, que se rechaza antes por política) llevan en `system[1].text` (un texto FIJO de Claude Code, no del usuario) una palabra inglesa compuesta `task-<palabra>`
+  (15 caracteres desde `sk-`, solo letras minúsculas). El patrón `sk-[a-zA-Z0-9]{10,}` (`litellm/extensions/sentinel_guardian_policy.py`, `SECRET_PATTERNS`) la toma como
+  «OpenAI API Key». Los pedidos principales (21 herramientas) llevan la misma palabra en `tools[19].description`, pero **después** de los primeros `INSPECT_CAP` = 16 000
+  caracteres que entregan los detectores, y por eso pasaban: el bloqueo dependía de la posición, no de la credencial.
+- **Causa**: el patrón no mira qué hay antes de `sk-`; cualquier palabra que termine en `sk` (`task`, `risk`, `disk`, `ask`, `desk`, `mask`) seguida de un guion y diez
+  letras es «clave». Nada que ver con S14, el NER ni el enmascarado.
+- **Decisión**: límite izquierdo `(?<![a-zA-Z0-9])` antes de `sk-`. Es el cambio mínimo que no quita ninguna clave real: una credencial va sola, tras `=`, `:`, comillas, paréntesis,
+  `Bearer`, salto de línea o guion bajo, nunca pegada a una letra o dígito anteriores (el test lo fija con 20 contextos y tres largos de clave). Se mantiene el resto del
+  patrón (10 alfanuméricos mínimo; `redact_secrets` usa la misma tabla, así que previews y monitor siguen coherentes).
+- **Alternativas descartadas**: (a) subir el largo mínimo: pierde claves de test cortas, que es lo que corrigió la spec 010 al bajarlo de 48 a 10; (b) no inspeccionar `system`
+  del clasificador por nombre: exención por nombre y hueco para un secreto real en esa posición; (c) quitar la capa bajo forzado: los secretos no salen hacia ningún
+  destino. **Fuera de alcance, anotado**: las claves modernas `sk-proj-…` (llevan guiones tras 4 caracteres) no las toma este patrón, mientras que `guardian_service.py:233`
+  (el camino de chat de la consola, configurable) sí y no tiene límite izquierdo; ninguna de las dos cosas se cambia acá.
+- **Tests**: `backend/tests/unit/test_secret_detection_limite_izquierdo.py` (73; 11 en rojo antes del cambio): palabras corrientes no son clave, la clave real se detecta en
+  cada contexto, los otros patrones no cambian y, con la forma del pedido auxiliar real, el texto fijo pasa y una clave real en esa posición bloquea.
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas
@@ -1073,7 +1094,7 @@ D5, D10, D12, la enmienda del 403, P1–P5).
 | N5 — el default `eu` en tres sitios | Bajo | Un único `tenant_region()` para el tráfico, `list_postures` y `run_fidelity` | research.md:605 (R28.6); tasks.md:219 (T060); tasks.md:214 (T094) |
 | N6 — T100 no enumeraba las variables que activan la extensión | Bajo | Lista completa de HANDOFF §2.1 en el test; el instalador falla ante cualquier no-200 de la salud (también 404) | tasks.md:277 (T100) |
 | N7 — contexto de build de las `-ext` | Bajo | Contexto = raíz del repo, verificado por `test_ext_images.sh` | tasks.md:125 (T091) |
-| N8 — S14: exención por nombre, claves y números (enmendada por R35 con el NER real) | Medio | Exenciones por posición del protocolo (tabla cerrada en el contrato, opacas/estructurales/libres); detección en posición estructural ⇒ `structural_entity` ⇒ bloqueo; claves y números analizados en subárboles libres; test de colisiones, claves, números, contrabando e instantánea de la tabla | research.md:639 (R29.2); contracts/costuras-base.md:66 (S14); tasks.md:217 (T106); tasks.md:226 (T097); tasks.md:215 (T096) |
+| N8 — S14: exención por nombre, claves y números (enmendada por R35 y R36 con el NER real) | Medio | Exenciones por posición del protocolo (tabla cerrada en el contrato, opacas/estructurales/libres); detección en posición estructural ⇒ `structural_entity` ⇒ bloqueo; claves y números analizados en subárboles libres; test de colisiones, claves, números, contrabando e instantánea de la tabla | research.md:639 (R29.2); contracts/costuras-base.md:66 (S14); tasks.md:217 (T106); tasks.md:226 (T097); tasks.md:215 (T096) |
 | N9 — `compose.prod.yml` inyecta `eu`: el estado es `region_row_missing`, no `region_unresolved` | Bajo | Precisión en R28; T094 lo prueba; T080/T081 lo describen | research.md:600 (R28.5); tasks.md:214 (T094); tasks.md:294 (T080); tasks.md:295 (T081) |
 | Observación — T045 mide antes de S14 | — | T045 aclara que su conteo no es la medida de A4 (lo es T083) | tasks.md:162 (T045) |
 | §2b(1) — 403 de residencia con «Failed to authenticate» en Claude Desktop | — | Síntoma conocido en la guía de Desktop | tasks.md:293 (T079) |

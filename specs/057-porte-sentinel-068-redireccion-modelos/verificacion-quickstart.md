@@ -1,7 +1,7 @@
 # Verificación en vivo del quickstart (T083) — parte 1: vocabulario estructural con el NER real
 
 **Estado de T083: abierta.** Este documento registra solo la parte del gate que cerró la enmienda de N8
-(research R35; `contracts/costuras-base.md` §S14 «Vocabulario cerrado y tipos semánticos»; T114–T115). La corrida completa del
+(research R35 y R36; `contracts/costuras-base.md` §S14 «Vocabulario cerrado y tipos semánticos»; T114–T116) y el falso positivo del detector de secretos que apareció en la misma corrida (research R37; T117). La corrida completa del
 quickstart (SC-003, SC-004, SC-009 con la postura por defecto, falsos positivos A4/A9) sigue pendiente.
 
 Fecha: 2026-10-06. Sin credenciales ni contenido en este archivo; la llave de prueba se lee de un archivo local (modo 600) y nunca se imprime.
@@ -135,6 +135,27 @@ son pedidos auxiliares del cliente, no el principal; el segundo **no se investig
 **Tests (sin Docker, venv fuera del repo).** `backend/tests/unit` + `backend/tests/contract`: **1706 passed, 12 skipped, 6 failed** (`test_route_parity.py`, piden el host `db`: los mismos 6
 de la base; antes 1696 passed); `sentinel/tests`: **2446 passed, 13 skipped**; T003 `test_gw_no_regresion_057.py`: **26 passed**. `make -C deploy check`/`check-docs` y la suite del backend en
 contenedor **no se corrieron** (el brief solo autorizó Docker para el motor); no se tocó `docs/docs/**` ni la API ni `.env.example`.
+
+## 6c. El `blocked_secret` del pedido auxiliar: palabras como `task-…` contaban como clave (2026-10-07, research R37, T117)
+
+**Síntoma.** En la corrida de §6b, dos filas del mismo instante eran `blocked_by_policy` y `blocked_secret` (capa `secret_detection`, tipo genérico); la segunda quedó sin investigar. La fila
+trae solo metadatos, así que se **recapturó** el pedido: `claude -p` con el mismo comando de §6b, `CLAUDE_CONFIG_DIR` propio, proxy local en el scratchpad (fuera del repo) hacia
+la pasarela; 16 pedidos, todos con `status` registrado.
+
+| Pedidos | `max_tokens` | Herramientas | Posición de lo detectado | Qué es |
+|---|---|---|---|---|
+| 3 auxiliares (el clasificador del modo auto ×2 y uno con un modelo sin regla) | 2112 / 64 | 0 | `system[1].text`, desde el carácter 2470 | una palabra inglesa compuesta `task-<palabra>`: 15 caracteres desde `sk-`, solo letras; texto fijo de Claude Code |
+| 13 principales (21 herramientas) | 128000 | 21 | `tools[19].description`, carácter 171 | la misma palabra, **fuera** de los 16 000 primeros caracteres que miran los detectores: no bloqueaba |
+
+**Veredicto: falso positivo, no un secreto.** Ningún valor detectado es una credencial (letras minúsculas de un diccionario, sin dígitos) y el texto es el del programa, no el del usuario.
+Causa en `SECRET_PATTERNS` (`litellm/extensions/sentinel_guardian_policy.py`): `sk-[a-zA-Z0-9]{10,}` sin límite izquierdo. Arreglo: `(?<![a-zA-Z0-9])` (research R37).
+**Test rojo primero**: `backend/tests/unit/test_secret_detection_limite_izquierdo.py` (11 de 73 fallaron antes). Con el arreglo, `detect_secrets` sobre los 16 pedidos capturados: **0 detecciones**
+(antes: los 16 contenían la cadena y 3 caían dentro de lo inspeccionado).
+
+**No se reconstruyó el motor** (el brief solo lo permitía si hacía falta): el efecto en vivo requiere la imagen `-ext` con este archivo; hasta entonces el motor corriendo sigue con el patrón viejo.
+
+**Tests (sin Docker, venv fuera del repo).** `backend/tests/unit` + `backend/tests/contract`: **1779 passed, 12 skipped, 6 failed** (`test_route_parity.py`, piden el host `db`: los mismos 6 de la base; antes 1706 passed);
+`sentinel/tests`: **2446 passed, 13 skipped**; no se tocó `docs/docs/**`, la API ni `.env.example`; `make -C deploy check`/`check-docs` y la suite del backend en contenedor **no se corrieron** (sin aviso previo para Docker).
 
 ## 7. Gate final (T082 y T086) — corrida con Docker, 2026-10-06
 
