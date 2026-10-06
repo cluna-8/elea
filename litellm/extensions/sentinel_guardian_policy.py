@@ -37,15 +37,21 @@ un placeholder sin resolver como error 500).
 """
 from __future__ import annotations
 
+import asyncio
+import base64
+import copy
 import hashlib
 import hmac
+import importlib.util
 import json
 import logging
 import os
 import re
+import signal
 import sys
 import time
 import uuid
+from collections import OrderedDict
 from typing import Awaitable, Callable, Optional, Tuple
 
 import httpx
@@ -140,7 +146,9 @@ STRUCTURED_ID_PATTERNS_BY_REGION = {
     # LATAM (a habilitar cuando haya despliegues en la región — no activo por default).
     "latam_ar": {
         "DNI": (r"\b\d{2}\.?\d{3}\.?\d{3}\b", 0.85, ["dni", "documento"]),
-        "CUIL": (r"\b\d{2}-\d{8}-\d\b", 0.9, ["cuil", "cuit"]),
+        # CUIT/CUIL con o sin guiones (`20-30123456-7` y `20301234567`): el perfil argentino los escribe de las
+        # dos formas y solo la primera se detectaba (057 T097, QA M7). 11 dígitos entre fronteras de palabra.
+        "CUIL": (r"\b\d{2}-?\d{8}-?\d\b", 0.9, ["cuil", "cuit"]),
         "PASSPORT": (r"\b[A-Z]{3}\d{6}\b", 0.75, ["pasaporte"]),
         # CBU (Clave Bancaria Uniforme): 22 dígitos corridos, sin separador estándar.
         # Solo formato (como DNI/CUIL acá arriba, sin checksum mod-10 de las dos
@@ -501,6 +509,11 @@ NLP_FAIL_MODE_KEY = "nlp_fail_mode"
 STATUS_NLP_BLOCKED = "blocked_nlp_unavailable"
 STATUS_NLP_DEGRADED = "degraded_nlp_regex"
 
+# Rechazo del enmascarado forzado de alcance completo (S14): algo del pedido no se pudo analizar. Copia
+# verbatim del rechazo del guard de la extensión (cara Claude, 400): no dice qué ni dónde (sin contenido).
+MASKING_REQUIRED_MESSAGE = ("El pedido no pudo protegerse para este destino y fue bloqueado. "
+                            "Probá en una conversación nueva.")
+
 # Mensaje único del rechazo fail-closed (lo emiten el motor y el gateway, verbatim).
 NLP_BLOCK_MESSAGE = ("Petición bloqueada: el motor de detección de datos personales "
                      "no está disponible. No se procesa sin garantía de protección de PII/PHI.")
@@ -765,9 +778,16 @@ def redact_secrets(text: str) -> str:
     return text
 
 
-def extract_inspect_text(body: dict, cap: int = INSPECT_CAP) -> str:
+def extract_inspect_text(body: dict, cap: int = INSPECT_CAP, *, scope: str = "user",
+                         fmt: Optional[str] = None, skip_keys=()) -> str:
     """Texto de los turnos user (str o bloques text/tool_result) para los detectores.
-    Mismo alcance que el masking: el system prompt no se inspecciona acá."""
+    Mismo alcance que el masking: sin la señal de forzado, el system prompt no se inspecciona acá.
+
+    Con `scope="full"` (S14) es el mismo alcance completo del enmascarado: todo valor de texto del cuerpo
+    salvo las posiciones estructurales (el recorrido es el mismo; ver `_w_body`)."""
+    if scope == MASKING_SCOPE_FULL:
+        partes = _collect_texts(body, fmt or detect_body_format(body), skip=skip_keys)
+        return "\n".join(partes)[:cap]
     parts = []
     messages = body.get("messages")
     for msg in messages if isinstance(messages, list) else []:
@@ -882,11 +902,7 @@ async def mask_text(text: str, analyze: AnalyzeFn, pmap: PlaceholderMap) -> str:
     if not text:
         return text
     entities = resolve_overlaps(await analyze(text))
-    out = text
-    for e in sorted(entities, key=lambda x: x["start"], reverse=True):
-        value = text[e["start"]:e["end"]]
-        out = out[: e["start"]] + pmap.placeholder_for(value, e["entity_type"]) + out[e["end"]:]
-    return out
+    return _replace_entities(text, entities, pmap)
 
 
 async def _mask_content(content, analyze: AnalyzeFn, pmap: PlaceholderMap):
@@ -911,16 +927,882 @@ async def _mask_content(content, analyze: AnalyzeFn, pmap: PlaceholderMap):
     return content
 
 
-async def mask_body(body: dict, analyze: AnalyzeFn,
-                    pmap: Optional[PlaceholderMap] = None) -> Tuple[dict, dict]:
-    """Enmascara la PII de los turnos USER del request (no el system prompt/tools —
-    mismo alcance que el demo). Devuelve (body mutado, mapa placeholder→original)."""
-    pmap = pmap or PlaceholderMap()
-    messages = body.get("messages")
-    for msg in messages if isinstance(messages, list) else []:
-        if not isinstance(msg, dict) or msg.get("role") != "user":
+# ═══════════════════════════════════════════════════════════════════════════════════
+# S14 — alcance completo del enmascarado forzado (057 T097; QA B3, QA v2 N4/N8; research R29;
+# contracts/costuras-base.md §S14). BASE: genérico, sin nombres de ninguna localización; retrocompatible
+# (sin la señal, `mask_body` y `extract_inspect_text` hacen exactamente lo de siempre).
+# ═══════════════════════════════════════════════════════════════════════════════════
+#
+# La señal: metadata interna `sentinel_forced_masking = {"scope": "full"}` que SOLO escribe la pasarela (en
+# `pre_engine` de una extensión) con la misma marca de procedencia por TIPO que la decisión de ruteo: el
+# cliente solo produce JSON, jamás una instancia de `ForcedMaskingSignal`. La que mande el cliente se descarta.
+FORCED_MASKING_KEY = "sentinel_forced_masking"
+MASKING_SCOPE_USER = "user"
+MASKING_SCOPE_FULL = "full"
+
+
+class ForcedMaskingSignal(dict):
+    """Señal de enmascarado forzado escrita por código del motor (no falsificable desde el body)."""
+
+
+def mark_forced_masking(home: dict, scope: str = MASKING_SCOPE_FULL) -> None:
+    """Deja la señal en el metadata-home del pedido, sobrescribiendo lo que el cliente haya sembrado."""
+    if isinstance(home, dict):
+        home[FORCED_MASKING_KEY] = ForcedMaskingSignal({"scope": scope})
+
+
+def trusted_forced_masking(*homes) -> bool:
+    """True si algún home trae la señal CON su marca de procedencia y alcance completo.
+
+    Se mira cada home por separado (en la fusión, `metadata` —campo del body— tapa a `litellm_metadata`)."""
+    for home in homes:
+        value = home.get(FORCED_MASKING_KEY) if isinstance(home, dict) else None
+        if isinstance(value, ForcedMaskingSignal) and value.get("scope") == MASKING_SCOPE_FULL:
+            return True
+    return False
+
+
+# Resolutores del forzado (S14, decisión del coordinador): el forzado viaja hacia el motor en un token firmado
+# que verifica el guard de una EXTENSIÓN, y ese guard corre DESPUÉS del guardrail base; el base no ve el grant.
+# La extensión registra acá, al importarse en el motor, una función que decide si ESTE pedido es forzado
+# (p. ej. verificando la cabecera firmada) y el guardrail base marca la señal por tipo. La base no sabe nada
+# de cómo se decide: solo que alguien registrado dice que sí.
+_FORCED_MASKING_RESOLVERS: list = []
+
+
+def register_forced_masking_resolver(resolver) -> None:
+    """`resolver(data, user_api_key_dict, call_type) -> bool`. Idempotente (el mismo objeto no se duplica)."""
+    if callable(resolver) and resolver not in _FORCED_MASKING_RESOLVERS:
+        _FORCED_MASKING_RESOLVERS.append(resolver)
+
+
+def clear_forced_masking_resolvers() -> None:
+    """Solo para tests."""
+    _FORCED_MASKING_RESOLVERS.clear()
+
+
+def resolve_forced_masking(data: dict, user_api_key_dict, call_type) -> bool:
+    """True si algún resolutor registrado dice que el pedido es forzado.
+
+    FALLA CERRADO: un resolutor que lanza cuenta como «forzado» (se enmascara de más, nunca de menos) y se
+    registra el error sin el contenido del pedido."""
+    for resolver in list(_FORCED_MASKING_RESOLVERS):
+        try:
+            if resolver(data, user_api_key_dict, call_type):
+                return True
+        except Exception:  # noqa: BLE001 — sin la decisión, la postura segura es enmascarar todo
+            logger.error("forced_masking: el resolutor %s falló; el pedido se trata como forzado",
+                         getattr(resolver, "__name__", "?"), exc_info=True)
+            return True
+    return False
+
+
+def discard_untrusted_forced_masking(*containers) -> None:
+    """Quita la señal que NO lleva la marca de procedencia (la mandó el cliente: cuerpo, `metadata`)."""
+    for container in containers:
+        if isinstance(container, dict) and not isinstance(
+                container.get(FORCED_MASKING_KEY), ForcedMaskingSignal):
+            container.pop(FORCED_MASKING_KEY, None)
+
+
+class MaskingTally:
+    """Cuentas del enmascarado de alcance completo — solo conteos y NOMBRES DE TIPO, jamás contenido.
+
+    `detected`: detecciones en todo lo analizado (incluidas las de posiciones estructurales, que no se
+    reescriben); `masked`: reemplazos hechos; `unanalyzable`: bloques/posiciones que no se pudieron
+    analizar (cada uno con su nombre de tipo en `kinds`)."""
+
+    def __init__(self):
+        self.detected = 0
+        self.masked = 0
+        self.unanalyzable = 0
+        self._kinds: set = set()
+        self.signed_thinking_masked = 0
+
+    @property
+    def kinds(self) -> list:
+        return sorted(self._kinds)
+
+    def flag(self, kind: str) -> None:
+        self.unanalyzable += 1
+        self._kinds.add(kind)
+
+
+# ── Tabla de posiciones exentas (QA v2 N8) ─────────────────────────────────────────────
+#
+# Lista CERRADA por formato; `*` = cualquier índice (o cualquier clave, al final de la ruta); `…` = un bloque de
+# contenido a cualquier profundidad de `messages[*].content[*]` o `system[*]`, incluidos los bloques anidados en
+# `tool_result.content[*]`; `@tipo` = solo para bloques de ese tipo; `#schema` = la posición lleva un JSON
+# Schema (sus palabras clave, `type`/`format`/`$ref`, las claves de `properties` y `required[*]` son
+# estructurales; los valores libres del esquema se enmascaran). FUERA de estas rutas no hay exención, aunque la
+# clave se llame `id`, `name`, `type` o `role`. Agregar o quitar una posición es un cambio de contrato
+# (contracts/costuras-base.md §S14) y de su test de instantánea.
+#
+#   opaque     — ni se analiza ni se reescribe (el valor no viaja como lo mandó el cliente o no es texto).
+#   structural — se analiza, no se reescribe: una detección ahí es no analizable (`structural_entity`).
+S14_EXEMPT_POSITIONS = {
+    "anthropic": {
+        "opaque": (
+            "model",
+            "….signature",
+            "….source.data",
+            "….cache_control",
+            "tools.*.cache_control",
+        ),
+        "structural": (
+            "stream", "max_tokens", "temperature", "top_p", "top_k",
+            "thinking.type", "thinking.budget_tokens",
+            "tool_choice.type", "tool_choice.name", "tool_choice.disable_parallel_tool_use",
+            "messages.*.role",
+            "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result",
+            "….source.type", "….source.media_type",
+            "tools.*.name", "tools.*.type",
+            "tools.*.input_schema#schema",
+        ),
+    },
+    "openai": {
+        "opaque": (
+            "model",
+            "….file.file_data",
+            "….image_url.url",
+        ),
+        "structural": (
+            "stream", "stream_options.*", "max_tokens", "max_completion_tokens", "temperature", "top_p", "n",
+            "seed", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs",
+            "parallel_tool_calls", "response_format.type", "response_format.json_schema.name",
+            "tool_choice", "tool_choice.type", "tool_choice.function.name",
+            "messages.*.role", "messages.*.tool_call_id",
+            "messages.*.tool_calls.*.id", "messages.*.tool_calls.*.type",
+            "messages.*.tool_calls.*.function.name",
+            "….type",
+            "tools.*.type", "tools.*.function.name", "tools.*.function.strict",
+            "tools.*.function.parameters#schema", "response_format.json_schema.schema#schema",
+        ),
+    },
+}
+
+_CLASS_OPAQUE, _CLASS_STRUCT, _CLASS_SCHEMA, _CLASS_CACHE = "opaque", "struct", "schema", "cache"
+_BLOCK = "…"
+# Bloques de contenido: de `system[*]` y de `messages[*].content[*]` (y los anidados en `tool_result`).
+_BLOCK_ROOTS = ("system.*", "messages.*.content.*")
+_MAX_DEPTH = 100
+
+
+def _build_position_index():
+    index, containers = {}, {}
+    for fmt, clases in S14_EXEMPT_POSITIONS.items():
+        entries, prefixes = {}, set()
+        for clase, rutas in clases.items():
+            for ruta in rutas:
+                cls = _CLASS_OPAQUE if clase == "opaque" else _CLASS_STRUCT
+                if ruta.endswith("#schema"):
+                    ruta, cls = ruta[:-len("#schema")], _CLASS_SCHEMA
+                elif ruta.endswith("cache_control"):
+                    cls = _CLASS_CACHE
+                ruta, _, tipo = ruta.partition("@")
+                entries[(ruta, tipo or None)] = cls
+                partes = ruta.split(".")
+                for i in range(1, len(partes)):
+                    prefixes.add(".".join(partes[:i]))
+        index[fmt] = entries
+        containers[fmt] = prefixes
+    return index, containers
+
+
+_S14_INDEX, _S14_CONTAINERS = _build_position_index()
+_TOOL_USE_TYPES = ("tool_use", "server_tool_use")
+
+
+def _cpath(path: str, key) -> str:
+    return key if path == "" else f"{path}.{key}"
+
+
+def _class_of(fmt: str, path: str, block_type=None):
+    """Clase exenta de una ruta (None = no exenta: subárbol libre). Por posición, nunca por nombre."""
+    index = _S14_INDEX[fmt]
+    if block_type in _TOOL_USE_TYPES:
+        block_type = "tool_use"
+    if block_type is not None and (path, block_type) in index:
+        return index[(path, block_type)]
+    if (path, None) in index:
+        return index[(path, None)]
+    padre, _, _ = path.rpartition(".")
+    return index.get((padre + ".*", None)) if padre else None
+
+
+def _valid_cache_control(value) -> bool:
+    """Forma del protocolo: solo `type` (= ephemeral) y `ttl` (5m | 1h)."""
+    if not isinstance(value, dict) or set(value) - {"type", "ttl"}:
+        return False
+    return value.get("type") == "ephemeral" and value.get("ttl", "5m") in ("5m", "1h")
+
+
+# ── Recorrido del cuerpo: UNA fuente para enmascarar e inspeccionar ─────────────────────
+#
+# Los recorridos son generadores que piden operaciones al «conductor» y reciben su resultado:
+#   ("text", s)  → texto libre: el conductor devuelve el texto enmascarado
+#   ("num", n)   → escalar numérico libre: devuelve n, o el marcador (cadena) si hay detección
+#   ("scan", v)  → posición estructural: se analiza, jamás se reescribe (detección ⇒ structural_entity)
+#   ("flag", k)  → no analizable de tipo `k`
+#   ("pdf", b64) → (texto|None, tipo_de_falla|None)
+#   ("signed_thinking", None) → un `thinking` con firma cambió de texto
+# El conductor de enmascarado (`_mask_body_full`) es async; el de inspección (`_collect_texts`) es síncrono.
+
+def _w_scan(node, depth=0):
+    """Posición estructural: se analiza todo lo que hay adentro (claves incluidas), sin reescribir nada."""
+    if depth > _MAX_DEPTH:
+        yield ("flag", "too_deep")
+    elif isinstance(node, (str, int, float)) and not isinstance(node, bool):
+        yield ("scan", node)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _w_scan(item, depth + 1)
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from _w_scan(key, depth + 1)
+            yield from _w_scan(value, depth + 1)
+
+
+def _w_free(node, depth=0):
+    """Subárbol libre: se enmascara todo valor de texto, las CLAVES de objeto y los escalares numéricos;
+    booleanos y `null` no llevan datos."""
+    if depth > _MAX_DEPTH:
+        yield ("flag", "too_deep")
+        return node
+    if isinstance(node, str):
+        return (yield ("text", node))
+    if isinstance(node, bool) or node is None:
+        return node
+    if isinstance(node, (int, float)):
+        return (yield ("num", node))
+    if isinstance(node, list):
+        for i, item in enumerate(node):
+            node[i] = yield from _w_free(item, depth + 1)
+        return node
+    if isinstance(node, dict):
+        items = list(node.items())
+        node.clear()
+        for key, value in items:
+            nueva = (yield ("text", key)) if isinstance(key, str) else key
+            node[nueva] = yield from _w_free(value, depth + 1)
+        return node
+    return node
+
+
+# JSON Schema (`input_schema`, `parameters`): palabras clave y nombres estructurales; valores libres.
+_SCHEMA_SCALAR_KEYS = frozenset((
+    "type", "format", "$ref", "$schema", "$id", "$anchor", "$dynamicRef", "$dynamicAnchor", "minimum", "maximum",
+    "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems",
+    "uniqueItems", "minProperties", "maxProperties", "minContains", "maxContains", "nullable", "readOnly",
+    "writeOnly", "deprecated"))
+_SCHEMA_SUBSCHEMA_KEYS = frozenset((
+    "items", "additionalProperties", "additionalItems", "not", "if", "then", "else", "contains",
+    "propertyNames", "unevaluatedProperties", "unevaluatedItems", "contentSchema"))
+_SCHEMA_SUBSCHEMA_LISTS = frozenset(("allOf", "anyOf", "oneOf", "prefixItems"))
+_SCHEMA_NAME_MAPS = frozenset(("properties", "$defs", "definitions", "patternProperties",
+                               "dependentSchemas", "dependentRequired", "dependencies"))
+
+
+def _w_schema(node, depth=0):
+    if depth > _MAX_DEPTH:
+        yield ("flag", "too_deep")
+        return node
+    if isinstance(node, list):             # `items` en forma de tupla (draft-07)
+        for item in node:
+            yield from _w_schema(item, depth + 1)
+        return node
+    if not isinstance(node, dict):
+        yield from _w_scan(node, depth + 1)
+        return node
+    for key, value in node.items():
+        yield from _w_scan(key, depth + 1)                    # la palabra clave es estructural
+        if key in _SCHEMA_SCALAR_KEYS or key == "required":
+            yield from _w_scan(value, depth + 1)
+        elif key in _SCHEMA_SUBSCHEMA_KEYS:
+            yield from _w_schema(value, depth + 1)
+        elif key in _SCHEMA_SUBSCHEMA_LISTS and isinstance(value, list):
+            for sub in value:
+                yield from _w_schema(sub, depth + 1)
+        elif key in _SCHEMA_NAME_MAPS and isinstance(value, dict):
+            for nombre, sub in value.items():
+                yield from _w_scan(nombre, depth + 1)         # el nombre de la propiedad es estructural
+                if isinstance(sub, (dict, list)) and key != "dependentRequired":
+                    yield from _w_schema(sub, depth + 1)
+                else:
+                    yield from _w_scan(sub, depth + 1)
+        else:                                                 # description, title, enum, const, default,
+            node[key] = yield from _w_free(value, depth + 1)  # examples, pattern, $comment y desconocidos
+    return node
+
+
+def _w_cache_control(owner: dict, key: str):
+    if not _valid_cache_control(owner.get(key)):
+        yield ("flag", "cache_control")
+
+
+def _w_blocks(fmt, content, depth):
+    """Contenido de un mensaje o de `system`/`tool_result`: cadena, o lista de bloques."""
+    if isinstance(content, str):
+        return (yield ("text", content))
+    if isinstance(content, list):
+        for i, blk in enumerate(content):
+            if isinstance(blk, str):
+                content[i] = yield ("text", blk)
+            else:
+                yield from _w_block(fmt, blk, depth + 1)
+    elif content is not None and not isinstance(content, bool):
+        yield from _w_free(content, depth + 1)
+    return content
+
+
+def _w_pdf_block(blk: dict, b64_data, keep_cache):
+    """Bloque PDF → bloque de texto con el texto extraído (que el conductor enmascara) o no analizable."""
+    texto, falla = yield ("pdf", b64_data)
+    if falla is not None:
+        yield ("flag", falla)
+        return
+    masked = yield ("text", texto)
+    nuevo = {"type": "text", "text": masked}
+    if keep_cache is not None and _valid_cache_control(keep_cache):
+        nuevo["cache_control"] = keep_cache
+    blk.clear()
+    blk.update(nuevo)
+
+
+def _w_block(fmt, blk, depth=0):
+    if depth > _MAX_DEPTH:
+        yield ("flag", "too_deep")
+        return
+    if not isinstance(blk, dict):
+        yield from _w_free(blk, depth)
+        return
+    tipo = blk.get("type")
+    if fmt == "anthropic":
+        if tipo == "image":
+            yield ("flag", "image")
+            return
+        if tipo == "redacted_thinking":
+            yield ("flag", "redacted_thinking")
+            return
+        if tipo == "document":
+            yield from _w_document_anthropic(blk, depth)
+            return
+        if tipo not in ("text", "tool_use", "server_tool_use", "tool_result", "thinking"):
+            yield ("flag", "unknown_block")
+            return
+    else:
+        if tipo == "image_url":
+            yield ("flag", "image")
+            return
+        if tipo == "input_audio":
+            yield ("flag", "audio")
+            return
+        if tipo == "file":
+            yield from _w_file_openai(blk, depth)
+            return
+        if tipo not in ("text", "refusal"):
+            yield ("flag", "unknown_block")
+            return
+    antes = blk.get("thinking") if tipo == "thinking" else None
+    yield from _w_container(fmt, blk, _BLOCK, depth)
+    if tipo == "thinking" and blk.get("signature") is not None and blk.get("thinking") != antes:
+        yield ("signed_thinking", None)
+
+
+def _w_document_anthropic(blk, depth):
+    fuente = blk.get("source")
+    if not isinstance(fuente, dict):
+        yield ("flag", "unknown_block")
+        return
+    tipo = fuente.get("type")
+    if tipo == "base64" and fuente.get("media_type") == "application/pdf" and isinstance(fuente.get("data"), str):
+        yield from _w_pdf_block(blk, fuente["data"], blk.get("cache_control"))
+        return
+    if tipo in ("url", "file"):
+        yield ("flag", "document_url")
+        return
+    if tipo == "text" and isinstance(fuente.get("data"), str):
+        # Texto plano en el cuerpo: es texto, no base64 opaco. Más estricto que la tabla, no menos.
+        fuente["data"] = yield ("text", fuente["data"])
+        yield from _w_container("anthropic", blk, _BLOCK, depth)
+        return
+    if tipo == "content":
+        yield from _w_blocks("anthropic", fuente.get("content"), depth)
+        yield from _w_container("anthropic", blk, _BLOCK, depth, skip=("source",))
+        return
+    yield ("flag", "document")
+
+
+def _w_file_openai(blk, depth):
+    archivo = blk.get("file")
+    if not isinstance(archivo, dict):
+        yield ("flag", "unknown_block")
+        return
+    datos = archivo.get("file_data")
+    if isinstance(datos, str) and datos.startswith("data:application/pdf;base64,"):
+        yield from _w_pdf_block(blk, datos.split(",", 1)[1], None)
+    elif archivo.get("file_id") is not None or (isinstance(datos, str) and not datos.startswith("data:")):
+        yield ("flag", "document_url")
+    else:
+        yield ("flag", "document")
+
+
+def _w_arguments(owner: dict, key: str, depth):
+    """`tool_calls[*].function.arguments` (OpenAI): JSON parseado (subárbol libre); si no es JSON válido,
+    se analiza y se enmascara como texto."""
+    valor = owner[key]
+    if not isinstance(valor, str):
+        owner[key] = yield from _w_free(valor, depth + 1)
+        return
+    try:
+        parseado = json.loads(valor)
+    except ValueError:
+        owner[key] = yield ("text", valor)
+        return
+    nuevo = yield from _w_free(parseado, depth + 1)
+    owner[key] = json.dumps(nuevo, ensure_ascii=False)
+
+
+def _w_container(fmt, nodo, path, depth, skip=()):
+    """Objeto de protocolo: sus claves son nombres de campo (se analizan, nunca se reescriben) y cada valor se
+    trata según su POSICIÓN: opaco, estructural, esquema, contenedor conocido o subárbol libre."""
+    containers = _S14_CONTAINERS[fmt]
+    tipo_bloque = nodo.get("type") if path == _BLOCK else None
+    for clave in list(nodo):
+        if clave in skip:
             continue
-        msg["content"] = await _mask_content(msg.get("content"), analyze, pmap)
+        valor = nodo[clave]
+        cp = _cpath(path, clave)
+        # Rutas de contenido (no son exenciones): system, contenido de mensajes, tool_result, arguments.
+        if path == "" and clave == "system":
+            nodo[clave] = yield from _w_blocks(fmt, valor, depth)
+            continue
+        if path == "messages.*" and clave == "content":
+            nodo[clave] = yield from _w_blocks(fmt, valor, depth)
+            continue
+        if path == _BLOCK and clave == "content" and tipo_bloque == "tool_result":
+            nodo[clave] = yield from _w_blocks(fmt, valor, depth)
+            continue
+        if path == "messages.*.tool_calls.*.function" and clave == "arguments":
+            yield from _w_arguments(nodo, clave, depth)
+            continue
+        cls = _class_of(fmt, cp, tipo_bloque)
+        if cls is None and cp not in containers:
+            yield from _w_scan(clave, depth + 1)                 # campo desconocido: la clave se analiza
+            nodo[clave] = yield from _w_free(valor, depth + 1)   # y su valor se enmascara
+            continue
+        if cls == _CLASS_OPAQUE:
+            continue
+        if cls == _CLASS_CACHE:
+            yield from _w_cache_control(nodo, clave)
+            continue
+        if cls == _CLASS_SCHEMA:
+            yield from _w_schema(valor, depth + 1)
+            continue
+        if cp in containers and isinstance(valor, dict):
+            yield from _w_container(fmt, valor, cp, depth + 1)
+            continue
+        if cp in containers and isinstance(valor, list):
+            for i, item in enumerate(valor):
+                if isinstance(item, dict):
+                    yield from _w_container(fmt, item, cp + ".*", depth + 1)
+                else:
+                    yield from _w_scan(item, depth + 1)
+            continue
+        if cls == _CLASS_STRUCT:
+            yield from _w_scan(valor, depth + 1)
+            continue
+        yield from _w_scan(clave, depth + 1)
+        nodo[clave] = yield from _w_free(valor, depth + 1)
+
+
+def _w_body(fmt, body, skip=()):
+    """`skip`: claves de primer nivel que NO son del cliente (la metadata interna del motor y sus copias de
+    registro): no se recorren, no se enmascaran y no cuentan."""
+    yield from _w_container(fmt, body, "", 0, skip=skip)
+
+
+def detect_body_format(body: dict) -> str:
+    """`openai` | `anthropic` según la forma del cuerpo (el guardrail pasa el formato por `call_type`)."""
+    for msg in body.get("messages") if isinstance(body.get("messages"), list) else []:
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") in ("system", "developer", "tool") or "tool_calls" in msg:
+            return "openai"
+        contenido = msg.get("content")
+        for blk in contenido if isinstance(contenido, list) else []:
+            if isinstance(blk, dict) and blk.get("type") in ("image_url", "input_audio", "file"):
+                return "openai"
+    return "anthropic"
+
+
+def _drive_sync(gen, handler):
+    try:
+        op = next(gen)
+        while True:
+            op = gen.send(handler(op))
+    except StopIteration as stop:
+        return stop.value
+
+
+async def _drive(gen, handler):
+    try:
+        op = next(gen)
+        while True:
+            op = gen.send(await handler(op))
+    except StopIteration as stop:
+        return stop.value
+
+
+def _collect_texts(body: dict, fmt: str, *, with_scans: bool = False, skip=()) -> list:
+    """Todo lo que el alcance completo analizaría (texto libre, claves libres, números), sin mutar `body`
+    (el recorrido corre sobre una copia). `with_scans` suma también las posiciones estructurales: lo usa el
+    conductor para analizar todo por adelantado; el texto de inspección (AI-Act, secretos) no las lleva."""
+    partes: list = []
+
+    def _handler(op):
+        tipo, valor = op
+        if tipo == "text":
+            partes.append(valor)
+            return valor
+        if tipo == "num":
+            partes.append(repr(valor) if isinstance(valor, float) else str(valor))
+            return valor
+        if tipo == "scan":
+            if with_scans:
+                partes.append(valor if isinstance(valor, str) else (
+                    repr(valor) if isinstance(valor, float) else str(valor)))
+            return None
+        if tipo == "pdf":
+            return (None, "skip")
+        return None
+
+    _drive_sync(_w_body(fmt, copy.deepcopy({k: v for k, v in body.items() if k not in skip}), ()), _handler)
+    return partes
+
+
+# ── Extracción de PDF en un proceso hijo (QA v2 N4; research R29 3b) ───────────────────
+
+class PdfConfig:
+    """Topes del extractor, leídos del entorno en cada pedido (todas opcionales; valor inválido ⇒ default)."""
+
+    def __init__(self):
+        self.max_pages = _env_number("MASKING_PDF_MAX_PAGES", 200, int, 1)
+        self.max_bytes = _env_number("MASKING_PDF_MAX_BYTES", 20 * 1024 * 1024, int, 1)
+        self.max_memory_mb = _env_number("MASKING_PDF_MAX_MEMORY_MB", 512, int, 1)
+        self.timeout_s = _env_number("MASKING_PDF_TIMEOUT_S", 20.0, float, 0.001)
+        self.max_concurrency = _env_number("MASKING_PDF_MAX_CONCURRENCY", 2, int, 1)
+        self.max_stream_bytes = _env_number("MASKING_PDF_MAX_STREAM_BYTES", 25 * 1024 * 1024, int, 1)
+        self.max_text_chars = _env_number("MASKING_PDF_MAX_TEXT_CHARS", 2_000_000, int, 1)
+        self.max_per_request = _env_number("MASKING_PDF_MAX_PER_REQUEST", 5, int, 1)
+        self.request_deadline_s = _env_number("MASKING_PDF_REQUEST_DEADLINE_S", 30.0, float, 0.001)
+        self.cache_entries = _env_number("MASKING_PDF_CACHE_ENTRIES", 32, int, 0)
+
+
+def _env_number(nombre, default, cast, minimo):
+    try:
+        valor = cast(os.environ.get(nombre, default))
+    except (TypeError, ValueError):
+        return default
+    return valor if valor >= minimo else default
+
+
+def pdf_config() -> PdfConfig:
+    return PdfConfig()
+
+
+class PdfRequestBudget:
+    """Presupuesto de UN pedido: cuántos PDF lleva y cuándo vence su plazo total (incluye la espera)."""
+
+    def __init__(self):
+        self.count = 0
+        self.deadline = None
+
+
+# SHA-256 de los bytes → ("text", texto) | ("fail", tipo). Solo en memoria del proceso, acotada; JAMÁS se
+# persiste ni se registra: el historial que las herramientas reenvían en cada turno no re-extrae el mismo PDF.
+_PDF_CACHE: "OrderedDict" = OrderedDict()
+_PDF_SEM: dict = {}
+
+
+def reset_pdf_state() -> None:
+    _PDF_CACHE.clear()
+    _PDF_SEM.clear()
+
+
+def _pypdf_disponible() -> bool:
+    return importlib.util.find_spec("pypdf") is not None
+
+
+def _pdf_child_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "sentinel_pdf_extract.py")
+
+
+def _pdf_child_argv(cfg: PdfConfig, timeout_s: float) -> list:
+    """`python -I <hijo> <memoria_mb> <cpu_s> <páginas> <flujo> <texto>`. Se lanza por RUTA y no con `-m`: con
+    `-I` (aislado) el directorio de las extensiones no está en `sys.path`, y el hijo no importa nada del motor."""
+    cpu_s = int(timeout_s) + 5
+    return [sys.executable or "python3", "-I", _pdf_child_path(), str(cfg.max_memory_mb), str(cpu_s),
+            str(cfg.max_pages), str(cfg.max_stream_bytes), str(cfg.max_text_chars)]
+
+
+def _pdf_child_env() -> dict:
+    """Sin credenciales: el hijo no hereda el entorno del motor, solo lo mínimo para arrancar."""
+    return {k: os.environ[k] for k in ("PATH", "LD_LIBRARY_PATH", "LANG", "LC_ALL") if k in os.environ}
+
+
+async def _spawn_pdf_child(argv: list):
+    return await asyncio.create_subprocess_exec(
+        *argv, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL, env=_pdf_child_env(), close_fds=True, start_new_session=True)
+
+
+def _pdf_semaphore(cfg: PdfConfig) -> asyncio.Semaphore:
+    """Semáforo por proceso del motor (y por bucle de eventos: un `Semaphore` queda atado al bucle)."""
+    loop = asyncio.get_running_loop()
+    if _PDF_SEM.get("loop") is not loop or _PDF_SEM.get("size") != cfg.max_concurrency:
+        _PDF_SEM.clear()
+        _PDF_SEM.update(loop=loop, size=cfg.max_concurrency, sem=asyncio.Semaphore(cfg.max_concurrency))
+    return _PDF_SEM["sem"]
+
+
+# Salida del hijo (ver `sentinel_pdf_extract`): 0 ok, 3 tope, 4 protegido, 5 error, 6 sin pypdf.
+_CHILD_FAILS = {3: "pdf_resource_limit", 4: "pdf_error", 5: "pdf_error", 6: "pdf_unavailable"}
+
+
+def _classify_child_exit(codigo: int, salida: bytes):
+    """(texto, None) | (None, tipo). Una señal de CPU es plazo; memoria/aborto/violación de segmento, tope."""
+    if codigo == 0:
+        texto = salida.decode("utf-8", errors="replace")
+        return (texto, None) if texto.strip() else (None, "pdf_no_text")
+    if codigo in _CHILD_FAILS:
+        return None, _CHILD_FAILS[codigo]
+    if codigo == -signal.SIGXCPU:
+        return None, "pdf_timeout"
+    if codigo in (-signal.SIGKILL, -signal.SIGABRT, -signal.SIGSEGV, -signal.SIGBUS):
+        return None, "pdf_resource_limit"
+    return None, "pdf_error"
+
+
+async def _run_pdf_child(raw: bytes, cfg: PdfConfig, timeout_s: float):
+    """Lanza el hijo, le pasa el PDF y espera con plazo; al vencer (o si se cancela), lo mata. Devuelve
+    (código, salida) o (None, b"") si venció el plazo."""
+    proc = await _spawn_pdf_child(_pdf_child_argv(cfg, timeout_s))
+    try:
+        try:
+            salida, _ = await asyncio.wait_for(proc.communicate(raw), timeout_s)
+        except asyncio.TimeoutError:
+            return None, b""
+        return proc.returncode, salida
+    finally:
+        if proc.returncode is None:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                proc.kill()
+            await asyncio.shield(proc.wait())
+
+
+def _cache_put(sha: str, valor: tuple, cfg: PdfConfig) -> None:
+    if cfg.cache_entries <= 0:
+        return
+    _PDF_CACHE[sha] = valor
+    _PDF_CACHE.move_to_end(sha)
+    while len(_PDF_CACHE) > cfg.cache_entries:
+        _PDF_CACHE.popitem(last=False)
+
+
+async def extract_pdf_text(raw: bytes, budget: PdfRequestBudget):
+    """Texto de un PDF o su nombre de tipo de no analizable: `(texto, None)` | `(None, tipo)`.
+
+    Nunca corre en el bucle de eventos: un proceso hijo por PDF con límites del sistema operativo y plazo.
+    Cualquier fallo ⇒ no analizable; sin `pypdf`, todo PDF lo es (falla cerrado)."""
+    cfg = pdf_config()
+    budget.count += 1
+    if not _pypdf_disponible():
+        return None, "pdf_unavailable"
+    if len(raw) > cfg.max_bytes:
+        return None, "pdf_resource_limit"
+    if budget.count > cfg.max_per_request:
+        return None, "pdf_request_limit"
+    sha = hashlib.sha256(raw).hexdigest()
+    previo = _PDF_CACHE.get(sha)
+    if previo is not None:
+        _PDF_CACHE.move_to_end(sha)
+        return (previo[1], None) if previo[0] == "text" else (None, previo[1])
+    ahora = time.monotonic()
+    if budget.deadline is None:
+        budget.deadline = ahora + cfg.request_deadline_s
+    restante = budget.deadline - ahora
+    if restante <= 0:
+        return None, "pdf_request_limit"
+    sem = _pdf_semaphore(cfg)
+    try:
+        await asyncio.wait_for(sem.acquire(), restante)
+    except asyncio.TimeoutError:
+        return None, "pdf_request_limit"
+    try:
+        restante = budget.deadline - time.monotonic()
+        if restante <= 0:
+            return None, "pdf_request_limit"
+        plazo = min(cfg.timeout_s, restante)
+        codigo, salida = await _run_pdf_child(raw, cfg, plazo)
+    finally:
+        sem.release()
+    if codigo is None:
+        # Venció el plazo del PDF (hijo matado) o el total del pedido, lo que llegara primero.
+        if restante < cfg.timeout_s:
+            return None, "pdf_request_limit"
+        resultado = (None, "pdf_timeout")
+    else:
+        resultado = _classify_child_exit(codigo, salida)
+    _cache_put(sha, ("text", resultado[0]) if resultado[1] is None else ("fail", resultado[1]), cfg)
+    return resultado
+
+
+# ── Conductor de enmascarado ─────────────────────────────────────────────────────────
+
+_ANALYZE_CHUNK = 50_000       # un texto más largo se analiza por trozos (en saltos de línea cuando se puede)
+_PREFETCH_CONCURRENCY = 8
+
+
+def _split_for_analysis(text: str) -> list:
+    if len(text) <= _ANALYZE_CHUNK:
+        return [text]
+    trozos, inicio = [], 0
+    while inicio < len(text):
+        fin = min(inicio + _ANALYZE_CHUNK, len(text))
+        if fin < len(text):
+            corte = max(text.rfind("\n", inicio, fin), text.rfind(" ", inicio, fin))
+            fin = corte + 1 if corte > inicio else fin
+        trozos.append(text[inicio:fin])
+        inicio = fin
+    return trozos
+
+
+def _replace_entities(text: str, entities: list, pmap: "PlaceholderMap") -> str:
+    out = text
+    for e in sorted(entities, key=lambda x: x["start"], reverse=True):
+        value = text[e["start"]:e["end"]]
+        out = out[: e["start"]] + pmap.placeholder_for(value, e["entity_type"]) + out[e["end"]:]
+    return out
+
+
+class _FullScopeMasker:
+    """Conductor async del recorrido de alcance completo: analiza (con memoria por texto dentro del
+    pedido), reemplaza por marcadores y cuenta."""
+
+    def __init__(self, analyze: AnalyzeFn, pmap: "PlaceholderMap", tally: MaskingTally):
+        self.analyze, self.pmap, self.tally = analyze, pmap, tally
+        self.budget = PdfRequestBudget()
+        self._memo: dict = {}
+
+    async def entities(self, text: str) -> list:
+        if not text or not text.strip():
+            return []
+        if text not in self._memo:
+            self._memo[text] = await self._analyze_text(text)
+        return self._memo[text]
+
+    async def _analyze_text(self, text: str) -> list:
+        trozos = _split_for_analysis(text)
+        if len(trozos) == 1:
+            return resolve_overlaps(await self.analyze(text))
+        out, base = [], 0
+        for trozo in trozos:
+            for e in resolve_overlaps(await self.analyze(trozo)):
+                out.append({**e, "start": e["start"] + base, "end": e["end"] + base})
+            base += len(trozo)
+        return out
+
+    async def prefetch(self, textos: list) -> None:
+        """Analiza de a varios a la vez los textos que el recorrido va a pedir (el resultado queda en la
+        memoria): un Claude Code típico trae cientos de cadenas cortas y una llamada por cadena en serie suma."""
+        pendientes = [t for t in dict.fromkeys(textos) if t and t.strip() and t not in self._memo]
+        if len(pendientes) < 2:
+            return
+        sem = asyncio.Semaphore(_PREFETCH_CONCURRENCY)
+
+        async def _uno(t):
+            async with sem:
+                self._memo[t] = await self._analyze_text(t)
+
+        await asyncio.gather(*[_uno(t) for t in pendientes])
+
+    async def mask_str(self, text: str) -> str:
+        ents = await self.entities(text)
+        self.tally.detected += len(ents)
+        if not ents:
+            return text
+        self.tally.masked += len(ents)
+        return _replace_entities(text, ents, self.pmap)
+
+    async def handle(self, op):
+        tipo, valor = op
+        if tipo == "text":
+            return await self.mask_str(valor)
+        if tipo == "num":
+            texto = repr(valor) if isinstance(valor, float) else str(valor)
+            ents = await self.entities(texto)
+            if not ents:
+                return valor
+            return await self.mask_str(texto)
+        if tipo == "scan":
+            ents = await self.entities(valor if isinstance(valor, str) else (
+                repr(valor) if isinstance(valor, float) else str(valor)))
+            if ents:
+                self.tally.detected += len(ents)
+                self.tally.flag("structural_entity")
+            return None
+        if tipo == "flag":
+            self.tally.flag(valor)
+            return None
+        if tipo == "pdf":
+            # Tope de tamaño ANTES de decodificar: no se materializan 75 MB de un base64 de 100 MB.
+            if len(valor) > (pdf_config().max_bytes * 4) // 3 + 8:
+                return None, ("pdf_resource_limit" if _pypdf_disponible() else "pdf_unavailable")
+            try:
+                raw = base64.b64decode(valor, validate=False)
+            except (ValueError, TypeError):
+                return None, "pdf_error"
+            return await extract_pdf_text(raw, self.budget)
+        if tipo == "signed_thinking":
+            self.tally.signed_thinking_masked += 1
+            return None
+        return None
+
+
+async def _mask_body_full(body: dict, analyze: AnalyzeFn, pmap: "PlaceholderMap", fmt: str,
+                          tally: MaskingTally, skip=()) -> None:
+    masker = _FullScopeMasker(analyze, pmap, tally)
+    await masker.prefetch(_collect_texts(body, fmt, with_scans=True, skip=skip))
+    await _drive(_w_body(fmt, body, skip), masker.handle)
+
+
+async def mask_body(body: dict, analyze: AnalyzeFn,
+                    pmap: Optional[PlaceholderMap] = None, *, scope: str = MASKING_SCOPE_USER,
+                    fmt: Optional[str] = None, tally: Optional[MaskingTally] = None,
+                    skip_keys=()) -> Tuple[dict, dict]:
+    """Enmascara la PII del request. Devuelve (body mutado, mapa placeholder→original).
+
+    Sin `scope` (o `scope="user"`): solo los turnos USER, como siempre (no el system prompt ni las
+    herramientas — mismo alcance que el demo). Con `scope="full"` (S14, enmascarado forzado): TODO valor de
+    texto que sale hacia el destino —`system`, todos los turnos, `tool_use`, `tool_result`, `thinking`,
+    descripciones de herramientas y todo campo desconocido—, salvo las posiciones estructurales de
+    `S14_EXEMPT_POSITIONS`; los PDF con texto viajan como texto enmascarado y lo no analizable queda contado
+    en `tally` (`MaskingTally`, solo conteos y nombres de tipo). `fmt` = `anthropic` | `openai`.
+    `skip_keys`: claves de primer nivel internas del motor que no se recorren (metadata interna, copias de
+    registro de la pasarela)."""
+    pmap = pmap or PlaceholderMap()
+    if scope == MASKING_SCOPE_FULL:
+        await _mask_body_full(body, analyze, pmap, fmt or detect_body_format(body),
+                              tally if tally is not None else MaskingTally(), skip=skip_keys)
+    else:
+        messages = body.get("messages")
+        for msg in messages if isinstance(messages, list) else []:
+            if not isinstance(msg, dict) or msg.get("role") != "user":
+                continue
+            msg["content"] = await _mask_content(msg.get("content"), analyze, pmap)
     if PII_VAULT_ENABLED:
         await persist_placeholder_map(pmap.ph_to_orig)
     return body, pmap.ph_to_orig
@@ -1021,7 +1903,10 @@ def unmask_deep(obj, ph_to_orig):
     if isinstance(obj, list):
         return [unmask_deep(x, ph_to_orig) for x in obj]
     if isinstance(obj, dict):
-        return {k: unmask_deep(v, ph_to_orig) for k, v in obj.items()}
+        # Las CLAVES también (S14: bajo el enmascarado forzado una clave con datos sale como marcador y el
+        # modelo la repite en su `tool_use`); una clave sin marcador no cambia.
+        return {(unmask_text(k, ph_to_orig) if isinstance(k, str) else k): unmask_deep(v, ph_to_orig)
+                for k, v in obj.items()}
     return obj
 
 

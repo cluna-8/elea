@@ -27,7 +27,16 @@ el mapa no puede fugar; verificado en ``validate_anthropic_api_metadata``) o en
 audit logger lo scrubbea explícitamente.
 
 ``masking_report`` (en el mismo metadata-home que ``sentinel_compliance``): resumen SIEMPRE
-presente del paso de PII — ``{completed, degraded, detected, masked}``, solo conteos.
+presente del paso de PII — ``{completed, degraded, detected, masked, scope, unanalyzable,
+unanalyzable_kinds}``, solo conteos y nombres de tipo (S5b + S14).
+
+**Enmascarado forzado de alcance completo (S14, 057)**: con la señal ``sentinel_forced_masking`` en la
+metadata interna —solo la escribe la pasarela, con marca de procedencia por tipo; la que mande el cliente se
+descarta— el guardrail enmascara TODO lo que sale (``system``, todos los turnos, herramientas, resultados,
+``thinking`` y todo valor de texto salvo las posiciones estructurales del protocolo), con el enmascarado
+encendido y ``nlp_fail_mode = block`` aunque la empresa diga otra cosa; los PDF con texto viajan como texto
+enmascarado (extracción en un proceso hijo con topes) y lo que no se puede analizar queda contado en el
+informe para que el guard de la extensión bloquee. Sin la señal, todo igual que antes (``scope = "user"``).
 
 GOTCHAS aplicados (research T005): NO definir ``apply_guardrail`` (redirigiría todo
 al unified_guardrail); el override del streaming hook debe estar en ESTA clase hoja.
@@ -59,6 +68,12 @@ logger = logging.getLogger("sentinel-guardrail")
 
 # call_types con body de mensajes que esta política inspecciona/enmascara
 _TEXT_CALL_TYPES = {"completion", "acompletion", "atext_completion", "anthropic_messages"}
+
+# Claves de primer nivel que el motor/la pasarela agregan al cuerpo y NO son del cliente: el alcance completo
+# no las recorre (registro, identidad, el propio informe). La metadata del cliente en la ruta Anthropic
+# (`metadata.user_id`) sí se enmascara; en las rutas OpenAI `metadata` ES el home interno (y el motor no la
+# reenvía), así que ahí también se salta.
+_INTERNAL_BODY_KEYS = ("litellm_metadata", "proxy_server_request", "secret_fields")
 
 # spec 016: motor de detección NLP real. Sin esta env var, el guardrail degrada a
 # `default_analyze` (regex) — modo dev/demo EXPLÍCITO, nunca el default de prod
@@ -472,12 +487,26 @@ class SentinelGuardrail(CustomGuardrail):
             return None
 
         inicio = time.monotonic()
+        # S14: la señal de forzado vale solo con la marca de procedencia (la escribe la pasarela); la que
+        # mande el cliente, en el cuerpo o en cualquier `metadata`, se descarta ANTES de todo lo demás.
+        forzado = policy.trusted_forced_masking(data.get("litellm_metadata"), data.get("metadata"))
+        policy.discard_untrusted_forced_masking(data, data.get("metadata"), data.get("litellm_metadata"))
         home = _metadata_home(data, call_type)
+        if not forzado and policy.resolve_forced_masking(data, user_api_key_dict, call_type):
+            # Lo decide un resolutor registrado por una extensión (el token firmado del grant); la marca por
+            # tipo la pone ESTE código, dentro del motor.
+            policy.mark_forced_masking(home)
+            forzado = True
         # Resumen del paso de PII, SIEMPRE presente (y sobrescrito: un valor sembrado por el
-        # cliente con esta clave no sobrevive). Solo conteos, jamás valores (C1). Se muta en
-        # el lugar a medida que avanza el hook; `completed` solo al final del camino feliz.
-        reporte = {"completed": False, "degraded": False, "detected": 0, "masked": 0}
+        # cliente con esta clave no sobrevive). Solo conteos y nombres de tipo, jamás valores (C1). Se
+        # muta en el lugar a medida que avanza el hook; `completed` solo al final del camino feliz.
+        reporte = {"completed": False, "degraded": False, "detected": 0, "masked": 0,
+                   "scope": policy.MASKING_SCOPE_FULL if forzado else policy.MASKING_SCOPE_USER,
+                   "unanalyzable": 0, "unanalyzable_kinds": []}
         home["masking_report"] = reporte
+        fmt = "anthropic" if call_type == "anthropic_messages" else "openai"
+        # Lo que el alcance completo no recorre: lo interno, y el home interno aunque se llame `metadata`.
+        saltear = _INTERNAL_BODY_KEYS + (("metadata",) if "litellm_metadata" not in data else ())
 
         async def _bloquear(mensaje: str, *, status: str, capa: str,
                             entidades: Optional[list] = None,
@@ -497,7 +526,9 @@ class SentinelGuardrail(CustomGuardrail):
             return _AUDIT_UNAVAILABLE_MSG
 
         identity = _sentinel_identity(user_api_key_dict)
-        inspect_text = policy.extract_inspect_text(data)
+        inspect_text = (policy.extract_inspect_text(data, scope=policy.MASKING_SCOPE_FULL, fmt=fmt,
+                                                    skip_keys=saltear)
+                        if forzado else policy.extract_inspect_text(data))
 
         # 1) Enforcement duro: AI-Act Art.5 (400) — real hoy, nivel 1 de [D3]
         verdict = policy.evaluate_ai_act(inspect_text)
@@ -560,8 +591,9 @@ class SentinelGuardrail(CustomGuardrail):
             )
             _analyze = _analyze_regex
 
-        if not identity.get("redact_enabled", True):
-            # Redact desactivado: solo se CUENTA lo detectado. Sin cambio de
+        if not forzado and not identity.get("redact_enabled", True):
+            # Redact desactivado: solo se CUENTA lo detectado. (Bajo el forzado de S14 el enmascarado se
+            # enciende aunque la empresa lo haya apagado: la señal solo puede AGREGAR protección.) Sin cambio de
             # comportamiento: jamás bloquea ni degrada por un NLP caído — el reporte
             # queda `completed=False` (no se sabe qué había).
             try:
@@ -576,7 +608,7 @@ class SentinelGuardrail(CustomGuardrail):
         # `pii_masking`, igual que `custom_names`), así los DOS planos obedecen la misma
         # decisión del admin. Ausente ⇒ `block`: el comportamiento de la 016 no cambia
         # para ninguna instalación existente.
-        nlp_fail_mode = policy.resolve_nlp_fail_mode(identity)
+        nlp_fail_mode = policy.NLP_FAIL_BLOCK if forzado else policy.resolve_nlp_fail_mode(identity)
 
         def _contando(analyze):
             """El analyzer del masking, contando las entidades que reemplaza."""
@@ -653,8 +685,16 @@ class SentinelGuardrail(CustomGuardrail):
         # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
         # volver y saldrían crudos al cliente.
         pmap = policy.PlaceholderMap()
+        tally = policy.MaskingTally() if forzado else None
         try:
-            data, ph_to_orig = await policy.mask_body(data, _contando(_analyze), pmap)
+            if forzado:
+                # Alcance completo (S14): el recorrido cuenta él mismo lo detectado, lo reemplazado y lo no
+                # analizable (un `_contando` sumaría como enmascaradas las detecciones estructurales).
+                data, ph_to_orig = await policy.mask_body(
+                    data, _analyze, pmap, scope=policy.MASKING_SCOPE_FULL, fmt=fmt, tally=tally,
+                    skip_keys=saltear)
+            else:
+                data, ph_to_orig = await policy.mask_body(data, _contando(_analyze), pmap)
         except policy.NlpUnavailableError:
             if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
                 # Fail-closed (FR-004, default): sin detección NLP confiable no hay
@@ -667,9 +707,20 @@ class SentinelGuardrail(CustomGuardrail):
             home["pii_tokens"] = ph_to_orig
             home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
 
-        # El preview mira el texto inspeccionado (con cap); el masking recorre el body
-        # entero, así que puede encontrar más. Lo enmascarado también fue detectado.
-        reporte["detected"] = max(reporte["detected"], reporte["masked"])
+        if forzado:
+            # La verdad del forzado es lo que el recorrido analizó pedazo por pedazo (el preview es un solo
+            # texto unido y con tope): `detected == masked` solo si nada quedó sin reescribir.
+            reporte.update(detected=tally.detected, masked=tally.masked, unanalyzable=tally.unanalyzable,
+                           unanalyzable_kinds=tally.kinds)
+            if tally.signed_thinking_masked:
+                # Opcional: `thinking` con firma cuyo texto cambió al enmascarar. NO suma a `unanalyzable`:
+                # hacia un destino traducido la extensión reconstruye la firma (R10); el guard bloquea solo
+                # si el destino es nativo (enmascararlo invalida la firma).
+                reporte["signed_thinking"] = tally.signed_thinking_masked
+        else:
+            # El preview mira el texto inspeccionado (con cap); el masking recorre el body
+            # entero, así que puede encontrar más. Lo enmascarado también fue detectado.
+            reporte["detected"] = max(reporte["detected"], reporte["masked"])
         reporte["completed"] = True
         return data
 

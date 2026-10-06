@@ -414,7 +414,8 @@ def _verdict(decision: str, count: Optional[int] = None) -> dict:
 
 
 async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] = None,
-                                  document_id: Optional[str] = None):
+                                  document_id: Optional[str] = None,
+                                  masking_scope: str = policy.MASKING_SCOPE_USER):
     """Aplica la política Sentinel a un body Anthropic, en el MISMO orden que el guardrail
     del motor: (1) AI-Act Art.5 → block, (2) secretos → block, (3) PII → detección
     (piso) → enmascarado reversible **solo si** el perfil lo tiene encendido.
@@ -440,14 +441,23 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
     enmascara un documento en varios chunks (Eleia Hub). Con él, el mismo valor recibe el
     mismo placeholder en TODOS los chunks del mismo documento (ver docstring de
     ``PlaceholderMap``); sin él, comportamiento idéntico al actual — sin regresión para
-    otros clientes del despliegue compartido (FR-021)."""
+    otros clientes del despliegue compartido (FR-021).
+
+    ``masking_scope`` (S14, 057): ``"full"`` lo pide un plugin de pasarela con
+    ``governance_overrides["masking_scope"] = "full"`` (enmascarado forzado de la suscripción):
+    enmascara TODO lo que sale (system, todos los turnos, herramientas, resultados, PDF con texto) y, si
+    algo no se pudo analizar —imagen, PDF ilegible, tipo desconocido, dato en una posición estructural—,
+    BLOQUEA (``blocked_residency``, el mismo estado que el bloqueo por residencia). Sin él, comportamiento
+    idéntico al de siempre."""
     profile = _as_profile(profile)
+    forzado_total = masking_scope == policy.MASKING_SCOPE_FULL
     analyze, _usa_nlp = _build_analyze(nlp)
     # El piso `interception_audit` es la propiedad que hace del producto un firewall:
     # llegado este punto el pedido está interceptado y va a auditarse, así que su
     # veredicto es afirmable siempre.
     verdicts: dict = {"interception_audit": _verdict(VERDICT_ALLOW)}
-    inspect_text = policy.extract_inspect_text(body)
+    inspect_text = (policy.extract_inspect_text(body, scope=policy.MASKING_SCOPE_FULL, fmt="anthropic")
+                    if forzado_total else policy.extract_inspect_text(body))
 
     verdict = policy.evaluate_ai_act(inspect_text)
     if verdict["status"] == "blocked_prohibited":
@@ -468,17 +478,23 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
     status = verdict["status"]  # passed | flagged_high_risk
     ph_to_orig: dict = {}
     masked_entities: list = []
-    if profile.is_on("pii_masking"):
+    if profile.is_on("pii_masking") or forzado_total:
         # El `PlaceholderMap` se crea acá —y no dentro de `mask_body`— porque el camino de
         # degradación del #63 continúa con el MISMO mapa: `mask_body` recorre los turnos de a
         # uno, así que una caída del analyzer a mitad de camino deja parte del body ya
         # enmascarada. Con un mapa nuevo (otro nonce) esos placeholders no tendrían original
         # al que volver y saldrían CRUDOS al cliente en el unmask de la respuesta.
         pmap = policy.PlaceholderMap(document_id=document_id)
+        tally = policy.MaskingTally() if forzado_total else None
         try:
-            _, ph_to_orig = await policy.mask_body(body, analyze, pmap)
+            if forzado_total:
+                _, ph_to_orig = await policy.mask_body(
+                    body, analyze, pmap, scope=policy.MASKING_SCOPE_FULL, fmt="anthropic", tally=tally)
+            else:
+                _, ph_to_orig = await policy.mask_body(body, analyze, pmap)
         except policy.NlpUnavailableError:
-            fail_mode = policy.resolve_nlp_fail_mode(nlp)
+            fail_mode = (policy.NLP_FAIL_BLOCK if forzado_total
+                         else policy.resolve_nlp_fail_mode(nlp))
             if fail_mode == policy.NLP_FAIL_BLOCK:
                 # Fail-closed (default, y lo que ya hacía el motor desde la 016): sin
                 # detección NLP confiable no hay garantía de protección. El bloqueo se
@@ -516,6 +532,14 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
             # que ver en la columna. El flag de AI-Act no se pierde — sigue en
             # `applied_layers` como veredicto `flag` de `ai_act_evaluation`.
             status = policy.STATUS_NLP_DEGRADED
+        if forzado_total and tally.unanalyzable:
+            # Fail-closed (S14): lo que no se pudo analizar no sale hacia el destino. Solo conteos y
+            # nombres de tipo en el log; jamás el contenido.
+            logger.warning("gateway: enmascarado forzado — %d elemento(s) no analizable(s): %s",
+                           tally.unanalyzable, ",".join(tally.kinds))
+            verdicts["pii_masking"] = _verdict(VERDICT_BLOCK, tally.unanalyzable)
+            return (policy.MASKING_REQUIRED_MESSAGE, "blocked_residency", {}, [],
+                    build_attribution(profile, verdicts))
         if ph_to_orig:
             masked_entities = _entity_counts(ph_to_orig)
         detected: Optional[int] = len(ph_to_orig)
@@ -1799,8 +1823,12 @@ async def gw_messages(
     # enmascarado, fail mode `block`), misma regla que `X-Sentinel-Redact` — un plugin puede subir
     # la protección del pedido, jamás bajar la postura que resolvió el administrador.
     overrides = ctx.governance_overrides if ctx is not None else {}
-    profile = _resolve_governance_profile(ident, tool, x_sentinel_redact,
-                                          force_masking=overrides.get("pii_masking") is True)
+    masking_scope = (policy.MASKING_SCOPE_FULL
+                     if overrides.get("masking_scope") == policy.MASKING_SCOPE_FULL
+                     else policy.MASKING_SCOPE_USER)
+    profile = _resolve_governance_profile(
+        ident, tool, x_sentinel_redact,
+        force_masking=overrides.get("pii_masking") is True or masking_scope == policy.MASKING_SCOPE_FULL)
 
     # ── política: bloquear/enmascarar (misma librería que el motor) ──
     # `ident["nlp"]` (issue #63) lleva el contexto de detección del tenant: con
@@ -1810,7 +1838,10 @@ async def gw_messages(
     if overrides.get("nlp_fail_mode") == policy.NLP_FAIL_BLOCK:
         nlp_ctx = {**nlp_ctx, "nlp_fail_mode": policy.NLP_FAIL_BLOCK}
     block_reason, status, ph_to_orig, masked_entities, attribution = \
-        await evaluate_request_policy(body, profile, nlp_ctx)
+        await evaluate_request_policy(
+            body, profile, nlp_ctx,
+            # Solo cuando el plugin lo pide: sin él, la llamada es idéntica a la de siempre.
+            **({"masking_scope": masking_scope} if masking_scope == policy.MASKING_SCOPE_FULL else {}))
     # Preview SIEMPRE display-masked (contrato evento §10): se construye sobre un mapa
     # desechable + scrub de secretos pase lo que pase con las capas. Es load-bearing en el
     # camino de bloqueo, donde el bloqueo ocurre ANTES de que corra el enmascarado y el
