@@ -203,14 +203,15 @@ INSERT INTO audit_logs (
     id, tenant_id, timestamp, user_id, api_key_id, model,
     prompt_tokens, completion_tokens, cost_usd, pii_detected, masked_entities,
     compliance_status, latency_ms, user_group_id, applied_layers, blocked_by_layer,
-    acted_for_user_id
+    acted_for_user_id, cache_hit, cost_estimated
 ) VALUES (
     gen_random_uuid(), CAST(:tenant_id AS uuid), NOW(), CAST(:user_id AS uuid),
     CAST(:api_key_id AS uuid), :model,
     :prompt_tokens, :completion_tokens, :cost_usd, :pii_detected,
     CAST(:masked_entities AS jsonb),
     :compliance_status, :latency_ms, CAST(:user_group_id AS uuid),
-    CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid)
+    CAST(:applied_layers AS jsonb), :blocked_by_layer, CAST(:acted_for_user_id AS uuid),
+    :cache_hit, :cost_estimated
 )
 """)
 
@@ -239,7 +240,12 @@ class AuditEntry(BaseModel):
     model: str = "desconocido"
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    cost_usd: float = 0.0
+    # `None` = el motor NO informó costo (≠ 0, que es un cero real: caché, modelo local).
+    # Un motor viejo que no manda el campo sigue cayendo al 0.0 de siempre.
+    cost_usd: Optional[float] = 0.0
+    cost_missing: bool = False
+    # El motor sirvió el pedido desde su caché de respuestas (metadata-only, un booleano).
+    cache_hit: bool = False
     pii_detected: bool = False
     masked_entities: list = []
     compliance_status: str = "passed"
@@ -268,7 +274,27 @@ def _entidades_saneadas(items: list) -> list:
     return limpias
 
 
-def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
+def _costo_del_evento(entry: "AuditEntry") -> "tuple[Decimal, bool]":
+    """Costo con el que se registra el evento y se descuenta el presupuesto, y si fue
+    ESTIMADO (tarifario) en vez de informado por el motor.
+
+    «Sin costo informado» (`cost_usd=None`/`cost_missing`) no es «costo 0»: un cero real lo
+    informa el motor (acierto de caché, modelo local) y se respeta; la ausencia con consumo
+    cae a `calculate_cost`, UNA sola vez, y ese valor vale para la fila y para el presupuesto
+    (cierran). Es el mismo respaldo que ya usa el plano del chat. Un acierto de caché es un
+    cero real aunque el motor no mande el número. Sin consumo no hay nada que tarifar.
+    """
+    if entry.cache_hit:
+        return Decimal("0"), False
+    if entry.cost_usd is not None and not entry.cost_missing:
+        return Decimal(str(entry.cost_usd)), False
+    if not (entry.prompt_tokens or entry.completion_tokens):
+        return Decimal("0"), False
+    return BudgetService.calculate_cost(
+        entry.model, entry.prompt_tokens, entry.completion_tokens), True
+
+
+def _acumular_gasto(db: Session, entry: "AuditEntry", costo: Decimal) -> None:
     """Descuenta el pedido del presupuesto aplicable (issue #76, mitad "contador").
 
     El plano chat ya lo hace en su camino feliz (chat.py:1353) con el MISMO servicio; el
@@ -277,12 +303,17 @@ def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
     Se reusa `BudgetService.update_budget` (nada de SQL duplicado): así la precedencia
     personal→grupo, el reset y el conteo de tokens son los mismos en los dos planos.
 
-    El coste que se acumula es el del EVENTO, no el de la tabla local de precios: lo
-    calculó el motor contra la respuesta real del proveedor. Que el presupuesto y la suma
-    de `cost_usd` de `audit_logs` cierren es un requisito de auditoría — si acá
-    recalculáramos con `MODEL_PRICING`, la fila diría una cosa y el contador otra.
+    El coste que se acumula es el del EVENTO (`_costo_del_evento`): el que calculó el motor
+    contra la respuesta real del proveedor o, si no lo informó, el del tarifario ya resuelto
+    para la fila. Que el presupuesto y la suma de `cost_usd` de `audit_logs` cierren es un
+    requisito de auditoría.
+
+    Un acierto de caché no se descuenta (decisión de producto, 2026-10-06): no costó nada
+    al proveedor, ni dólares ni tokens; queda marcado en la fila (`cache_hit`).
     """
-    if not (entry.cost_usd or entry.prompt_tokens or entry.completion_tokens):
+    if entry.cache_hit:
+        return
+    if not (costo or entry.prompt_tokens or entry.completion_tokens):
         return  # fila de bloqueo (0/0/0): no hubo consumo que cargarle a nadie
     BudgetService.update_budget(
         db=db,
@@ -291,7 +322,7 @@ def _acumular_gasto(db: Session, entry: "AuditEntry") -> None:
         prompt_tokens=entry.prompt_tokens,
         completion_tokens=entry.completion_tokens,
         model=entry.model,
-        override_cost=Decimal(str(entry.cost_usd or 0)),
+        override_cost=costo,
     )
 
 
@@ -311,6 +342,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     # un bloqueo sin identidad resoluble no desapareciera por un 422) y el que la 018 protege.
     # El rechazo tiene sentido en la puerta, donde todavía hay un pedido que rechazar.
     modelo = sanear_modelo_declarado(entry.model)
+    costo, costo_estimado = _costo_del_evento(entry)
     if modelo != entry.model:
         logger.warning(
             "[sentinel-internal] el emisor declaró el literal reservado de la cadena de licencias "
@@ -323,7 +355,7 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         "model": modelo[:128],
         "prompt_tokens": entry.prompt_tokens,
         "completion_tokens": entry.completion_tokens,
-        "cost_usd": entry.cost_usd,
+        "cost_usd": costo,
         "pii_detected": entry.pii_detected,
         "masked_entities": json.dumps(entidades),
         "compliance_status": entry.compliance_status[:64],
@@ -334,6 +366,8 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
         "applied_layers": json.dumps(entry.applied_layers) if entry.applied_layers is not None else None,
         "blocked_by_layer": entry.blocked_by_layer[:64] if entry.blocked_by_layer else None,
         "acted_for_user_id": entry.acted_for_user_id,
+        "cache_hit": entry.cache_hit,
+        "cost_estimated": costo_estimado,
     })
     db.commit()
 
@@ -342,13 +376,13 @@ def record_audit(entry: AuditEntry, db: Session = Depends(get_db)):
     # traga en silencio —la 031 existe para terminar con eso—: queda en el log del servicio
     # con nivel de error y traza.
     try:
-        _acumular_gasto(db, entry)
+        _acumular_gasto(db, entry, costo)
     except Exception:
         db.rollback()
         logger.exception(
             "[sentinel-internal] la fila de auditoría se registró pero el presupuesto NO se "
             "actualizó (tenant=%s user=%s modelo=%s coste=%s)",
-            entry.tenant_id, entry.user_id, entry.model, entry.cost_usd)
+            entry.tenant_id, entry.user_id, entry.model, costo)
     return {"ok": True}
 
 
