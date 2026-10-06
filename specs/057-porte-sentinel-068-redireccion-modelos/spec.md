@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-06
 
-**Status**: Draft (especificada y clarificada; sin plan ni tareas)
+**Status**: Draft (especificada y clarificada; plan y tareas escritos; enmendada por `speckit-clarify` con las decisiones legales del owner del 2026-10-06)
 
 **Spec de origen**: Sentinel `specs/068-politica-redireccionamiento-modelos/` (`origin/main`
 6a70855): `spec.md`, `contracts/cara-claude.md`, `contracts/cara-generica.md`,
@@ -109,7 +109,9 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
 5. **Caché del proveedor** (decisión del owner en el clarify): afinidad de sesión, marcas de
    caché, determinismo del enmascarado por conversación y precio y registro de tokens de caché.
 6. **Residencia para América** (región `AMERICAS`, entidades de datos personales del perfil
-   `latam_ar`): *solo jurisdicciones permitidas* o *fuera de región con enmascarado forzado*. Sentinel no la terminó (Diagnóstico #22): lo que Eleia
+   `latam_ar`): *solo jurisdicciones permitidas* o *fuera de región con enmascarado forzado*, más la
+   postura por defecto de la región (en Eleia, enmascarado forzado en todo destino) y sus
+   relajaciones explícitas de cumplimiento. Sentinel no la terminó (Diagnóstico #22): lo que Eleia
    construya en el mecanismo se escribe genérico y vuelve por `HANDOFF`.
 
 **Fases siguientes (fuera del MVP, anotadas para no perderlas)**:
@@ -140,11 +142,15 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   cualquier instalación de la línea América. Los destinos en esos países se usan sin enmascarado
   forzado; la UE y el resto quedan fuera de la región. El mecanismo de Sentinel no cambia, solo
   lo que Eleia siembra (corrección del owner, que reemplaza la respuesta inicial «Argentina +
-  países adecuados AAIP») (FR-030).
+  países adecuados AAIP») (FR-030). *Enmendada por D2 y D3 (Session 2026-10-06, decisiones
+  legales): por defecto el redirigido sale enmascarado también dentro de `AMERICAS`, que es
+  criterio de riesgo y no de legalidad.*
 - Q: Sin postura explícita, ¿a qué destinos va un pedido redirigido? → A: A los de la región del
   perfil (`AMERICAS`); fuera de ella, enmascarado forzado o rechazo según la postura. La
   correspondencia región → jurisdicciones pasa a ser un dato del perfil de país, genérico, y
-  vuelve a Sentinel por `HANDOFF` (cierra su D19 punto 2) (FR-031).
+  vuelve a Sentinel por `HANDOFF` (cierra su D19 punto 2) (FR-031). *Enmendada por D2 (Session
+  2026-10-06, decisiones legales): en Eleia la postura por defecto es enmascarado forzado en todo
+  destino; la correspondencia región → jurisdicciones como dato se mantiene.*
 - Q: ¿La caché del proveedor (068 FR-038–FR-042) entra en el MVP? → A: Sí, completa, decisión
   del owner («el cache es para ahorro, sí o sí va, y el enmascarado es de seguridad»): afinidad
   de sesión, marcas de caché, determinismo del enmascarado por conversación con la costura S13 y
@@ -155,6 +161,37 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   (traducido para la cara Claude, nativo para la genérica). La parte nativa de SC-004 y los
   demás proveedores portados quedan 🟡 en la documentación hasta tener credencial (FR-011,
   SC-004).
+
+### Session 2026-10-06 (decisiones legales)
+
+<!-- Decisiones del owner del 6-oct-2026 sobre `specs/ANALISIS-TRANSFERENCIAS-AMERICA-2026-10.md`
+     §5 (rama `cluna-8/spike-transferencias-america`, a5a88e2). Preguntas al coordinador por
+     `orca orchestration ask`; reemplazan solo el texto que contradecían. -->
+
+- Q: ¿Se bloquean por defecto las APIs de primera mano de proveedores chinos (D1)? → A: No. El
+  mecanismo de bloqueo por datos se mantiene (proveedor, host, jurisdicción), pero Eleia siembra
+  las listas **vacías**: ningún destino nace bloqueado y todo es configurable desde el panel
+  (FR-029).
+- Q: ¿Cuál es la postura por defecto del tráfico redirigido sin postura explícita (D2)? → A:
+  **Enmascarado forzado con analizador fail-closed para todo destino**, dentro y fuera de
+  `AMERICAS`. Cumplimiento lo relaja de forma explícita y registrada por destino o por región; se
+  rechaza solo lo que no tiene jurisdicción de inferencia registrada. Ningún override del cliente
+  lo relaja, y mientras el forzado rija no se relaja el fail-closed (FR-027, FR-031, FR-031a).
+- Q: ¿Cómo se tratan los modelos chinos de pesos abiertos alojados en América (D5)? → A: En
+  alojadores nombrados y con retención cero, cumplimiento **puede** configurarlos sin enmascarado
+  forzado con una relajación explícita por destino; nunca es el default (FR-031a).
+- Q: ¿Qué registra el catálogo para que una nube de una entidad de otra jurisdicción, con
+  servidores en América, no pase como «en región» (D12)? → A: Por destino, además de la
+  jurisdicción de inferencia: la **entidad responsable**, la **jurisdicción de la entidad** y la
+  **jurisdicción de control** (la de quien posee ≥ 50 % o controla la entidad), todo como dato y
+  genérico. Un destino cuenta como en región solo si las tres jurisdicciones están dentro; con el
+  control sin cargar no cuenta como en región, pero sigue usable con el enmascarado por defecto.
+  Las jurisdicciones de preocupación son dato (reglas de FR-029) y en Eleia se siembran vacías
+  (FR-028a).
+- Q: ¿Cómo se nombra el enmascarado y la región en panel y documentación (D3, D10)? → A:
+  «Seudonimización reversible de identificadores detectados», nunca «anonimización» ni «cumple
+  con X»; `AMERICAS` es criterio de riesgo, no de legalidad; leyenda 🟡 en lo de residencia hasta
+  la revisión legal (FR-030, Assumptions «Base legal»).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -283,8 +320,10 @@ por el principal con enmascarado verificado; con el analizador caído, el segund
    jurisdicción, **Then** el pedido se bloquea aunque la instalación diga «degradar»
    (← 068 US2 esc. 4, FR-016; constitución [D10]).
 5. **Given** un intento de relajar el enmascarado por cualquier override (conexión, cabecera,
-   configuración de la llave), **When** el pedido va a otra jurisdicción, **Then** sale
-   enmascarado o se bloquea; nunca sale sin enmascarar (← 068 US2 esc. 5, FR-016).
+   configuración de la llave), **When** el pedido va a un destino con enmascarado forzado,
+   **Then** sale enmascarado o se bloquea; nunca sale sin enmascarar. Solo una relajación
+   explícita y registrada de cumplimiento, por destino o por región, quita el forzado (← 068 US2
+   esc. 5, FR-016; Clarifications D2, FR-031a).
 6. **Given** un usuario que entra con su suscripción personal (reenvío tal cual al proveedor
    original), **When** tiene postura, **Then** la redirección no aplica pero la postura sí, con
    la jurisdicción de ese proveedor (← 068 FR-001b).
@@ -292,12 +331,24 @@ por el principal con enmascarado verificado; con el analizador caído, el segund
    relajar una postura fijada por cumplimiento, **Then** no puede; sí puede agregar una más
    estricta (← 068 FR-014a, data-model §1b).
 8. **Given** una empresa de Eleia sin postura explícita y la redirección encendida, **When** un
-   tier apunta a un destino Azure en una región de EE. UU. o de Brasil, **Then** se sirve sin
-   enmascarado forzado (está en `AMERICAS`); **When** apunta a un destino en una región de la UE,
-   **Then** se rechaza con «Modelo no disponible para tu región» hasta que cumplimiento fije una
-   postura *fuera de región con enmascarado forzado* (← 068 FR-014; Clarifications P2, P3).
+   tier apunta a un destino Azure en una región de EE. UU. o de Brasil, o a uno en una región de
+   la UE, **Then** en los dos casos se sirve con enmascarado forzado y, con el analizador caído,
+   se bloquea (postura por defecto); **When** apunta a un destino sin jurisdicción de inferencia
+   registrada, **Then** se rechaza con «Modelo no disponible para tu región» sin nombrar destinos
+   (← 068 FR-014; Clarifications P2, P3, D2).
 9. **Given** la misma empresa con la redirección apagada y sin postura, **When** usa la pasarela,
    **Then** nada cambia respecto de hoy (← 068 FR-002, FR-014).
+10. **Given** un modelo de pesos abiertos alojado en EE. UU. por un alojador nombrado, con
+    jurisdicciones de inferencia, entidad y control cargadas y retención cero declarada, **When**
+    cumplimiento registra una relajación con motivo para ese destino, **Then** sus pedidos salen
+    sin enmascarado forzado; **When** falta alguno de esos datos, **Then** la relajación se
+    rechaza y el destino sigue con el enmascarado por defecto (Clarifications D5; FR-031a).
+11. **Given** un destino con inferencia en EE. UU. operado por una entidad cuya jurisdicción de
+    control está fuera de `AMERICAS` (o sin cargar), **When** cumplimiento relajó el forzado por
+    la región `AMERICAS` o fijó *solo jurisdicciones permitidas* = `AMERICAS`, **Then** ese
+    destino no cuenta como en región: con la relajación por región sigue enmascarado; con la lista
+    no se alcanza, salvo aceptación registrada de cumplimiento (Clarifications D12; FR-028,
+    FR-028a).
 
 ---
 
@@ -409,8 +460,16 @@ catálogo; un usuario de otro grupo no ve los alias.
 - Dos conversaciones distintas (de la misma o de otra persona) con los mismos datos personales:
   sus marcadores no coinciden; solo son estables dentro de cada conversación (← 068 FR-040;
   Clarifications P4).
-- Un destino sin jurisdicción cargada: no satisface ninguna postura *solo jurisdicciones
-  permitidas* (← 068 FR-019a).
+- Un destino sin jurisdicción de inferencia cargada: no satisface ninguna postura *solo
+  jurisdicciones permitidas* y, con la postura por defecto, se rechaza; ninguna relajación lo
+  habilita (← 068 FR-019a; Clarifications D2).
+- Una nube operada por una entidad cuya jurisdicción de control está fuera de la región, con
+  servidores en la región: no cuenta como en región para una lista ni para una relajación por
+  región (FR-028a; Clarifications D12).
+- El administrador de la empresa agrega una postura explícita (p. ej. *solo jurisdicciones
+  permitidas*) mientras rige el enmascarado forzado en todo destino: la postura restringe a qué
+  destinos se llega, pero no quita el forzado; solo una relajación de cumplimiento lo quita
+  (FR-023, FR-031, FR-031a).
 - Una empresa con perfil Argentina y otra con otro perfil en la misma instalación: cada una
   resuelve con sus jurisdicciones sin afectar a la otra (← 068 Edge Cases).
 - Una costura de base que no se puede portar tal cual porque la base de Eleia difiere de la de
@@ -568,42 +627,83 @@ commits de Sentinel según HANDOFF §1(a))
 - **FR-026** [BASE]: Con *solo jurisdicciones permitidas*, ningún pedido DEBE llegar a un
   destino de otra jurisdicción; se usa el primer fallback que cumpla o se rechaza con categoría
   de permiso sin nombrar destinos. (← 068 FR-015, contrato cara-claude §Errores 403, D19 punto 1)
-- **FR-027** [BASE]: Con *fuera de región con enmascarado forzado*, el enmascarado DEBE estar
-  activo y en modo bloqueo ante caída del analizador para todo pedido a otra jurisdicción, sin
-  que ningún override pueda relajarlo; la garantía se verifica donde ocurre el enmascarado y
-  cubre texto, resultados de herramientas y adjuntos; lo no analizable bloquea. (← 068 FR-016,
-  FR-016a, D16)
+- **FR-027** [BASE]: Siempre que el enmascarado sea forzado (postura *fuera de región con
+  enmascarado forzado* para todo pedido a otra jurisdicción, o la postura por defecto de FR-031),
+  el enmascarado DEBE estar activo y en modo bloqueo ante caída del analizador, sin que ningún
+  override del cliente, de la conexión, de las cabeceras ni de la llave pueda relajarlo; solo
+  cumplimiento puede quitar el forzado, de forma explícita y registrada, por destino o por
+  región (FR-031a), y mientras el forzado rija el fail-closed no se relaja. La garantía se
+  verifica donde ocurre el enmascarado y cubre texto, resultados de herramientas y adjuntos; lo
+  no analizable bloquea. (← 068 FR-016, FR-016a, D16; Clarifications D2)
 - **FR-028** [BASE]: Cada destino DEBE registrar su jurisdicción de inferencia y la de su entidad
-  responsable; sin jurisdicción de inferencia, no satisface ninguna lista; la categoría
-  «procesado en región, entidad de otra jurisdicción» no satisface una lista salvo aceptación
-  registrada de cumplimiento. (← 068 FR-018, FR-019, FR-019a)
-- **FR-029** [BASE]: Los destinos de proveedores que procesan sin garantías equivalentes (en
-  particular la API oficial de DeepSeek) DEBEN quedar bloqueados por defecto y requerir
-  habilitación explícita y registrada con motivo. [ELEIA] En Eleia el bloqueo por defecto se
-  mantiene tal cual (no se lee con GDPR); además, como esos destinos procesan fuera de
-  `AMERICAS`, les rige la postura (FR-031). (← 068 FR-017)
+  responsable; sin jurisdicción de inferencia, no satisface ninguna lista y, con la postura por
+  defecto, se rechaza; la categoría «procesado en región, entidad de otra jurisdicción» no
+  satisface una lista salvo aceptación registrada de cumplimiento, y no cuenta como en región
+  para una relajación por región.
+  (← 068 FR-018, FR-019, FR-019a; Clarifications D2)
+- **FR-028a** [BASE]: Cada destino DEBE registrar, como dato, su **entidad responsable** (quien
+  opera la inferencia), la **jurisdicción de esa entidad** y su **jurisdicción de control** (la de
+  quien posee el 50 % o más de la entidad o la controla), además de la jurisdicción de inferencia.
+  Un destino cuenta como «en región» solo si las jurisdicciones de inferencia, de entidad y de
+  control están dentro de la región; si la de inferencia está dentro pero la de entidad o la de
+  control está fuera, o la de control no está cargada, cae en la categoría «procesado en región,
+  entidad de otra jurisdicción» de FR-028 y sigue usable con la postura por defecto. Ningún código fija una jurisdicción de preocupación: son dato (reglas de
+  FR-029). (Sin FR en la 068; decisión del owner D12, Clarifications 2026-10-06; vuelve a
+  Sentinel por `HANDOFF`)
+- **FR-029** [BASE]: Los destinos de proveedores que procesan sin garantías equivalentes DEBEN
+  poder quedar bloqueados por defecto mediante reglas por datos (proveedor, host de la API o
+  jurisdicción de inferencia, de entidad o de control) y requerir habilitación explícita y
+  registrada con motivo; la paridad con Sentinel es la regla `provider: deepseek`. [ELEIA] En
+  Eleia las reglas se siembran **vacías**: ningún destino nace bloqueado y todo es configurable
+  desde el panel; a todo destino redirigido le rige la postura por defecto (FR-031). (← 068
+  FR-017; Clarifications D1)
 - **FR-030** [ELEIA]: En la línea América, «mi región» DEBE ser el **continente americano
   completo** (Norte, Centro, Caribe y Sur: Argentina, Colombia, EE. UU., Brasil, México y el
   resto de América), sembrado como **lista de jurisdicciones editable** (dato, no código) bajo un
   nombre genérico, `AMERICAS`, que sirve a cualquier instalación de la línea y no solo a
   Argentina. El panel usa esa lista para pre-completar las posturas *solo jurisdicciones
-  permitidas*. Los destinos de esos países se usan sin enmascarado forzado; la UE y el resto del
-  mundo quedan fuera de la región. Las entidades de datos personales siguen siendo las del perfil
-  `latam_ar` (Diagnóstico #14). El mecanismo de Sentinel no cambia (listas de jurisdicciones
-  como dato, FR-021). El marco normativo mostrado en el panel y en la documentación es la Ley
-  25.326/AAIP. (← 068 FR-013, FR-014, data-model §0; Clarifications P2)
+  permitidas*, y es la región de la relajación por región (FR-031a); por defecto, el tráfico
+  redirigido sale enmascarado también hacia destinos de la región (FR-031). `AMERICAS` es un **criterio de
+  riesgo, no de legalidad**: el panel y la documentación no la presentan como cobertura legal ni
+  dicen «cumple con X», llaman al enmascarado «seudonimización reversible de identificadores
+  detectados» (nunca «anonimización») y marcan la residencia 🟡 hasta la revisión legal. Las
+  entidades de datos personales siguen siendo las del perfil `latam_ar` (Diagnóstico #14). El
+  mecanismo de Sentinel no cambia (listas de jurisdicciones como dato, FR-021). El marco
+  normativo mostrado en el panel y en la documentación es la Ley 25.326/AAIP. (← 068 FR-013,
+  FR-014, data-model §0; Clarifications P2, D3, D10)
 - **FR-030a** [BASE]: El indicador de admisibilidad del catálogo (semáforo y ficha del destino)
   DEBE evaluarse contra la residencia del perfil de país de la instalación o de la empresa, no
   contra una regla fija «admisible UE» (Diagnóstico #21). [ELEIA] En Eleia se evalúa contra la
   región `AMERICAS`. (← 068 FR-013; HANDOFF §4.2; el cambio al mecanismo vuelve por `HANDOFF`)
 - **FR-031** [BASE + ELEIA]: Sin postura explícita, el tráfico no redirigido queda *apagado*
-  (FR-007) y los pedidos redirigidos quedan en *solo la jurisdicción de la región de la empresa*
-  (si no tiene, la de la instalación); fuera de ella, enmascarado forzado o rechazo según la
-  postura que fije cumplimiento. [BASE] La correspondencia región → jurisdicciones DEBE leerse de
-  un dato del perfil de país, no de una tabla fija en el código (hoy `latam_ar` → `{AR, LATAM}`,
-  Diagnóstico #22); el cambio es genérico y vuelve a Sentinel por `HANDOFF`, donde cierra el D19
-  punto 2 que quedó diferido a su 069. [ELEIA] En Eleia, la región del perfil resuelve a la lista
-  `AMERICAS` de FR-030. (← 068 FR-014, D19 punto 2, data-model §0; Clarifications P3)
+  (FR-007) y los pedidos redirigidos se rigen por la **postura por defecto** de la región de la
+  empresa (si no tiene, la de la instalación). [BASE] La postura por defecto es un dato
+  configurable de la región: *rechazo fuera de región* (solo la jurisdicción de la región; el
+  valor de fábrica, paridad con Sentinel), *enmascarado forzado fuera de región*, *enmascarado
+  forzado en todo destino* o *permitido*; la fija y cambia solo cumplimiento o el super-admin, con
+  registro (FR-008, FR-023). Una postura explícita la reemplaza en a qué destinos se llega, pero
+  **no quita el enmascarado forzado** que la postura por defecto impone: ese forzado es un piso que
+  solo quita una relajación (FR-031a); así, agregar una postura explícita nunca relaja. Con
+  cualquier valor, un destino sin jurisdicción de inferencia registrada se rechaza. La correspondencia región →
+  jurisdicciones DEBE leerse de un dato del perfil de país, no de una tabla fija en el código (hoy
+  `latam_ar` → `{AR, LATAM}`, Diagnóstico #22); el cambio es genérico y vuelve a Sentinel por
+  `HANDOFF`, donde cierra el D19 punto 2 que quedó diferido a su 069. [ELEIA] En Eleia, la región
+  del perfil resuelve a la lista `AMERICAS` de FR-030 y su postura por defecto es **enmascarado
+  forzado en todo destino**, con analizador fail-closed, dentro y fuera de `AMERICAS`. (← 068
+  FR-014, D19 punto 2, data-model §0; Clarifications P3, D2)
+- **FR-031a** [BASE]: Cumplimiento o el super-admin DEBEN poder relajar el enmascarado forzado
+  (el de la postura por defecto y, por destino, también el de una postura explícita) de forma
+  explícita, con motivo y registrada (FR-008): **por región** (cambiar la postura por defecto de
+  la región, de la instalación o de una empresa, de *enmascarado forzado en todo destino* a
+  *enmascarado forzado fuera de región*: los destinos en región según FR-028a salen sin forzado) o
+  **por destino** (una relajación sobre una entrada del catálogo). La relajación por destino DEBE
+  exigir jurisdicciones de inferencia, de entidad y de control cargadas, retención cero declarada en la ficha y, en
+  destinos agregadores, una lista de proveedores permitidos no vacía; nunca es un default. Ninguna
+  relajación habilita un destino sin jurisdicción de inferencia, relaja el fail-closed mientras el
+  forzado rija, ni vuelve alcanzable un destino fuera de una postura *solo jurisdicciones
+  permitidas*. El administrador de la empresa no puede relajar (FR-023). [ELEIA] El caso típico en
+  Eleia son los modelos de pesos abiertos alojados en América por alojadores nombrados con
+  retención cero. (Sin FR en la 068; Clarifications D2, D5; vuelve a Sentinel por `HANDOFF`)
 - **FR-032** [BASE]: Para destinos vía OpenRouter, el sistema DEBE exigir en cada pedido cero
   retención de datos y la lista de proveedores permitidos del administrador. (← 068 FR-018)
 
@@ -722,19 +822,24 @@ Se heredan de la 068 (§Key Entities y `data-model.md`) sin cambios de forma [BA
 
 - **Política de redireccionamiento**: estado (apagada / encendida; sombra reservada) por alcance.
 - **Destino**: modelo real en un proveedor; nivel (instalación o empresa) y empresas a las que
-  se ofrece; credencial (referencia cifrada), jurisdicción de inferencia y de entidad, familia de
-  protocolo, capacidades declaradas, ventana de contexto, precio (incluido el de caché).
+  se ofrece; credencial (referencia cifrada), jurisdicción de inferencia, entidad responsable y
+  jurisdicciones de entidad y de control (FR-028a), familia de protocolo, capacidades declaradas, ventana de contexto, precio (incluido
+  el de caché).
 - **Oferta**: un destino de instalación ofrecido a una o todas las empresas.
 - **Id público**: nombre visible por cara (en la cara Claude, con tier; en la genérica, alias
   neutro); etiqueta y modo de etiqueta, alcance.
 - **Regla de mapeo**: id público o tier → destino principal + fallbacks, por alcance.
 - **Perfil de capacidades**: qué funciones de la cara soporta un destino (base de la fidelidad).
 - **Postura de residencia**: modo y lista de jurisdicciones, por alcance, con autor, rol y motivo.
+- **Regla de habilitación explícita**: proveedor, host de la API o jurisdicción que hace nacer
+  bloqueado a un destino (FR-029); vacías en Eleia.
+- **Relajación del enmascarado forzado**: por empresa o instalación y por destino, con autor, rol
+  y motivo (FR-031a).
 - **Registro de cambios de configuración**: antes/después sin secretos, autor, rol, momento.
 - **Evento de redirección**: metadata de auditoría del pedido redirigido.
 
 - **Región del perfil** [BASE]: dato del perfil de país que dice qué jurisdicciones forman «mi
-  región» (FR-031); reemplaza la tabla fija región → código.
+  región» y cuál es su postura por defecto (FR-031); reemplaza la tabla fija región → código.
 
 [ELEIA] Datos propios, sin entidades nuevas: la lista de jurisdicciones `AMERICAS` (FR-030), la
 región del perfil de Eleia apuntando a ella y los destinos de ejemplo del catálogo de Azure de la
@@ -760,9 +865,10 @@ instalación de demo (FR-020).
   nativa) y queda 🟡 hasta poder medirla (Clarifications P5). (← 068 SC-003, SC-004)
 - **SC-005** [BASE]: El 0 % de los pedidos de usuarios con *solo jurisdicciones permitidas*
   llega a un destino fuera de esas jurisdicciones (verificable en auditoría). (← 068 SC-005)
-- **SC-006** [BASE]: El 100 % de los pedidos con enmascarado forzado hacia otra jurisdicción
-  sale sin los datos personales detectables de la batería de prueba (incluidos los del perfil
-  Argentina: DNI, CUIT/CUIL, CBU), y el 100 % se bloquea con el analizador caído. (← 068 SC-006;
+- **SC-006** [BASE]: El 100 % de los pedidos con enmascarado forzado (hacia otra jurisdicción
+  con postura explícita, o hacia cualquier destino con la postura por defecto *enmascarado
+  forzado en todo destino*) sale sin los datos personales detectables de la batería de prueba
+  (incluidos los del perfil Argentina: DNI, CUIT/CUIL, CBU), y el 100 % se bloquea con el analizador caído. (← 068 SC-006;
   [ELEIA] la batería incluye los identificadores del perfil `latam_ar`)
 - **SC-007** [BASE]: Ninguna sesión de streaming de la batería se corta por inactividad mientras
   el destino sigue procesando. (← 068 SC-007)
@@ -795,7 +901,13 @@ instalación de demo (FR-020).
 - **Base legal de las transferencias**: la base legal de las transferencias internacionales de
   datos personales (Ley 25.326 art. 12: cláusulas contractuales o consentimiento) la cubre Elea
   por fuera del sistema. El sistema solo decide, según la postura, si un pedido sale, si sale
-  enmascarado o si se rechaza (Clarifications P2/P3).
+  enmascarado o si se rechaza (Clarifications P2/P3, D2). El enmascarado es **seudonimización
+  reversible** de los identificadores detectados, no anonimización: para quien guarda la
+  correspondencia el dato sigue siendo personal, así que reduce el riesgo pero no reemplaza la
+  base legal ni el instrumento de transferencia. `AMERICAS` es criterio de riesgo, no de
+  legalidad, y nada de lo visible dice «cumple con X»; la documentación de residencia queda 🟡
+  hasta la revisión legal (Clarifications D3, D10; `specs/ANALISIS-TRANSFERENCIAS-AMERICA-2026-10.md`
+  §2.3 y §5, rama `cluna-8/spike-transferencias-america`).
 - **Riesgo — cara genérica sin verificación en vivo**: está implementada y con tests en Sentinel
   pero nunca se probó en vivo (HANDOFF Anexo A); la prueba de Eleia será la primera. En el ensayo
   de Sentinel sobre un clon de Eleia, el e2e de la redirección dio 26/27: el fallo es el listado

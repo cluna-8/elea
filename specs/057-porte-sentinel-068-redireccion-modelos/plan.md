@@ -2,7 +2,7 @@
 
 **Branch**: `057-porte-sentinel-068-redireccion-modelos` (plan escrito en `cluna-8/057-plan`) | **Date**: 2026-10-06 | **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `specs/057-porte-sentinel-068-redireccion-modelos/spec.md` (aprobada).
+**Input**: Feature specification from `specs/057-porte-sentinel-068-redireccion-modelos/spec.md` (aprobada; enmendada el 2026-10-06 por `speckit-clarify` con las decisiones legales del owner).
 **Fuentes de solo lectura**: Sentinel `origin/main` `6a70855` (spec 068, paquete `sentinel/`) y el
 HANDOFF `specs/HANDOFF-068-sentinel-a-elea.md` de la rama `docs/handoff-068-elea` (`8c525db`, con el
 Anexo A de la cara genérica). Donde este plan dice «HANDOFF §x», se refiere a ese documento.
@@ -18,10 +18,10 @@ tramos chicos y secuenciales:
 | Tramo | Qué entrega | Origen |
 |---|---|---|
 | **T-A** | Enmienda constitucional aprobada (403 de residencia) y costuras de base por `cherry-pick -x`: los 16 commits de HANDOFF §1(a), después `9c17500` y `efb2c94` (Anexo A), y los dos archivos de ADAPT-024; con la suite verde y la pasarela idéntica sin extensión | HANDOFF §1(a), Anexo A |
-| **T-B** | Paquete `sentinel/` copiado de `6a70855` (redirect, common, catalog, access), sus migraciones como segunda cabeza junto a `199fe429762a`, S9/S11 en el despliegue de Eleia, catálogo de Azure y la base del requisito de modelos chinos y económicos | HANDOFF §1(b), §1(c), §2.1 |
+| **T-B** | Paquete `sentinel/` copiado de `6a70855` (redirect, common, catalog, access), sus migraciones como segunda cabeza junto a `199fe429762a`, S9/S11 en el despliegue de Eleia, catálogo de Azure, entidad responsable y jurisdicción de control en la ficha (FR-028a, D12) y la base del requisito de modelos chinos y económicos | HANDOFF §1(b), §1(c), §2.1 |
 | **T-C** | Cara Claude endurecida para Claude Code: T139 (campos desconocidos, `safeguards`), T094 (betas por lista permitida), T093 (`count_tokens`), stream y errores, más la prueba en vivo | 068 Phase 5, HANDOFF §2.4 |
 | **T-D** | Cara OpenAI genérica sobre `/gw/v1/chat/completions` con alias, y su primera prueba en vivo | Anexo A, 068 contrato `cara-generica.md` |
-| **T-E** | Residencia `AMERICAS` como dato del perfil de país, postura y semáforo por perfil, enmascarado forzado fuera de región y OpenRouter con cero retención | 068 Phase 4, HANDOFF §4.2 |
+| **T-E** | Residencia `AMERICAS` como dato del perfil de país con su postura por defecto (en Eleia, enmascarado forzado en todo destino, D2), relajaciones explícitas de cumplimiento por región o por destino (D5), regla «en región» con entidad y control (D12), semáforo por perfil y OpenRouter con cero retención | 068 Phase 4, HANDOFF §4.2; decisiones legales del owner |
 | **T-F** | Caché del proveedor completa con la costura S13 (marcadores estables por conversación) | 068 Phase 9, research D22 |
 | **T-G** | Documentación de producto, quickstart con Azure y HANDOFF de vuelta a Sentinel | DoD de `AGENTS.md`, spec FR-003 |
 
@@ -31,16 +31,21 @@ económicos en Claude Desktop y Claude Code). Queda con tarea y test explícitos
 
 1. El catálogo admite destinos compatibles con OpenAI (DeepSeek, Qwen, GLM, Kimi, MiniMax…) y vía
    OpenRouter, y una regla puede elegir el más barato (T024).
-2. La API oficial de proveedores chinos puede quedar **bloqueada por defecto** y habilitarse desde el
+2. La API oficial de proveedores chinos **puede** quedar bloqueada por defecto y habilitarse desde el
    panel con motivo registrado (FR-029): el **mecanismo** es por datos (listas editables de proveedores,
-   hosts de `api_base` y jurisdicciones; T025–T027). El **valor que siembra Eleia queda pendiente del
-   análisis legal** que pidió el owner (T028); con listas vacías todo tiene que andar (T025).
-3. Fuera de `AMERICAS` rige la postura: con *fuera de región con enmascarado forzado*, sale
-   enmascarado y, con el analizador caído, se bloquea (FR-027). Sin postura explícita rige un
-   **default configurable** por región (`reject` · `masked` · `allow`; de fábrica `reject`, como dicen
-   FR-031 y US3 esc. 8); el valor de Eleia queda pendiente del mismo análisis (research R23; T053, T064).
+   hosts de `api_base` y jurisdicciones; T025–T027). **En Eleia las listas se siembran vacías** (D1 del
+   análisis legal, decidida por el owner el 2026-10-06; T028): ningún destino nace bloqueado (T025).
+3. Sin postura explícita rige la **postura por defecto** de la región, configurable
+   (`reject_offregion` · `masked_offregion` · `masked_all` · `allow`; de fábrica `reject_offregion`, paridad
+   con Sentinel). **En Eleia, `masked_all`** (D2): todo el tráfico redirigido sale con enmascarado
+   forzado y analizador fail-closed, dentro y fuera de `AMERICAS`; se rechaza solo lo que no tiene
+   jurisdicción de inferencia (FR-027, FR-031; research R23; T053, T064).
 4. Los mismos modelos alojados en América (por ejemplo, en Azure o AWS en EE. UU., o por OpenRouter
-   con proveedores de EE. UU.) se usan sin enmascarado forzado (FR-030, T057).
+   con proveedores de EE. UU.) **pueden** usarse sin enmascarado forzado solo con una relajación
+   explícita de cumplimiento por destino, que exige alojador nombrado, jurisdicciones de inferencia,
+   entidad y control cargadas y retención cero (D5; FR-031a; research R24; T053, T057). Una nube de una
+   entidad controlada desde fuera de la región no cuenta como en región (D12; FR-028a; research R25;
+   T087).
 5. Para OpenRouter, cada pedido exige cero retención y la lista de proveedores permitidos (FR-032, T058).
 6. La prueba real con esos proveedores queda 🟡 hasta tener credencial; la aceptación del MVP es solo
    con Azure (Clarifications P5).
@@ -86,10 +91,13 @@ de ~150 archivos copiado; 7 migraciones de la extensión más una nueva (researc
 tareas.
 
 **NEEDS CLARIFICATION**: ninguna abierta en el plan. Las cuatro decisiones de diseño con opciones
-(D1–D4: research R13–R16) las respondió el owner el 2026-10-06 (D2, D3, D4 = A; D1 = mecanismo A). Dos
-**valores de Eleia** quedan como dato pendiente de un análisis legal (bloqueo por defecto de APIs
-chinas, R14; default de postura fuera de región, R23): el plan no se frena, las tareas de sembrado
-(T028, T064) leen la decisión y el código funciona con cualquier valor.
+(D1–D4 del plan: research R13–R16) las respondió el owner el 2026-10-06 (D2, D3, D4 = A; D1 = mecanismo
+A). Los dos **valores de Eleia** que quedaban pendientes del análisis legal
+(`specs/ANALISIS-TRANSFERENCIAS-AMERICA-2026-10.md`, rama `cluna-8/spike-transferencias-america`) los
+decidió el owner el mismo día y la spec los recoge por `speckit-clarify` (Session 2026-10-06, decisiones
+legales): reglas de bloqueo **vacías** (D1 del análisis, R14, T028) y postura por defecto **`masked_all`**
+(D2 del análisis, R23, T064). Las decisiones D5 (relajación por destino, R24), D12 (entidad y control,
+R25) y D3/D10 (textos, R26) agregan requisitos FR-028a y FR-031a.
 
 ## Constitution Check
 
@@ -100,10 +108,10 @@ el Principio II se lee como la normativa del **perfil de país** (Ley 25.326 / A
 
 | Principio | Cómo lo cumple el plan | Estado |
 |---|---|---|
-| I. Masking-first | El enmascarado reversible no cambia de dueño (guardrail del motor). S5b deja el informe de enmascarado que el guard de la extensión verifica (D16 de la 068); la postura forzada no se puede relajar con overrides (FR-027). S13 (T-F) hace determinista el sufijo **por conversación** con clave del servidor: sigue impredecible para el usuario y no se comparte entre conversaciones ni personas (FR-045, research R18). Sin conversación, sufijo aleatorio como hoy | ✅ |
-| II. Compliance (perfil de país) | Residencia como dato (FR-021), región `AMERICAS` editable (FR-030), postura más restrictiva gana (FR-024). El texto dice «violación de residencia … → 503»; la 068 y esta spec usan **403** `permission_error` para los rechazos de residencia de esta política (Sentinel lo enmendó en su 2.4.0). **Enmienda aprobada por el owner el 2026-10-06** (research R21); la aplica T001 con `speckit-constitution`, primera tarea y gate antes de integrar T-B | ✅ (enmienda aprobada, pendiente de aplicar) |
+| I. Masking-first | El enmascarado reversible no cambia de dueño (guardrail del motor). S5b deja el informe de enmascarado que el guard de la extensión verifica (D16 de la 068); el forzado no se puede relajar con overrides del cliente (FR-027) y en Eleia es el **default de todo el tráfico redirigido** (`masked_all`, D2); solo cumplimiento lo quita, explícito y registrado (FR-031a), y nunca el fail-closed mientras rige. **Precedencia**: mientras el forzado rige, gana sobre `nlp_fail_mode=degrade` y `redact_enabled=false` de la instalación y la empresa ([D10] de la constitución), igual que la postura forzada de la 068 (D16); es más estricto, no una excepción, y la enmienda de T001 lo deja escrito. S13 (T-F) hace determinista el sufijo **por conversación** con clave del servidor: sigue impredecible para el usuario y no se comparte entre conversaciones ni personas (FR-045, research R18). Sin conversación, sufijo aleatorio como hoy | ✅ |
+| II. Compliance (perfil de país) | Residencia como dato (FR-021), región `AMERICAS` editable (FR-030), postura más restrictiva gana (FR-024); `AMERICAS` se presenta como criterio de riesgo, no de legalidad, y el enmascarado como seudonimización reversible (D3, D10; research R26). El texto dice «violación de residencia … → 503»; la 068 y esta spec usan **403** `permission_error` para los rechazos de residencia de esta política (Sentinel lo enmendó en su 2.4.0). **Enmienda aprobada por el owner el 2026-10-06** (research R21); la aplica T001 con `speckit-constitution`, primera tarea y gate antes de integrar T-B | ✅ (enmienda aprobada, pendiente de aplicar) |
 | III. Multi-tenant | Todas las tablas nuevas con `tenant_id` y RLS con el patrón de `010` (068 data-model); datos de instalación visibles a una empresa solo por oferta (FR-051) | ✅ |
-| IV. Onboarding como datos | Destinos, ids públicos, reglas, posturas, región `AMERICAS`, reglas de bloqueo y los destinos de Azure de la demo son **datos** (seed + panel), nunca código (FR-020, FR-030) | ✅ |
+| IV. Onboarding como datos | Destinos, ids públicos, reglas, posturas, región `AMERICAS` con su postura por defecto, reglas de bloqueo (vacías en Eleia), relajaciones, entidad y jurisdicción de control de cada destino y los destinos de Azure de la demo son **datos** (seed + panel), nunca código; ningún código nombra un país de preocupación (FR-020, FR-028a, FR-029, FR-030) | ✅ |
 | V. Costos honestos | Precio único por destino, con lectura y escritura de caché; sin precio de caché se cobra a precio de entrada y se marca (FR-046, FR-049) | ✅ |
 | VI. LiteLLM-native | Familias comodín `rdx-*` y guardrail `pre_call` (puntos de extensión documentados), sin parchear el motor; versión fijada sin cambios; el spike D14 se repite sobre esta versión (gate de re-plan, T019) | ✅ |
 | VII. Container y white-label | Extensión entregada por imagen/montaje y variables (S1, S2, S4, S9, S11, S12), sin fork; respuestas neutras (FR-004, FR-050); los nombres internos `sentinel_*` de la extensión se conservan por paridad y no son visibles (spec §Assumptions «Nombres internos»); la aclaración de §VII (nombres de proveedor solo como datos del administrador o donde el protocolo los exige) entra en la misma enmienda aprobada (T001) | ✅ |
@@ -111,11 +119,14 @@ el Principio II se lee como la normativa del **perfil de país** (Ley 25.326 / A
 | Security C-3 (sin fallback de auth) | `/v1/models` y `count_tokens` resuelven la identidad de la llave (66dfa61, 0669e03); sin llave válida no hay redirección | ✅ |
 | Security C-5 (Fernet) | ADAPT-024: MultiFernet con rotación y descifrado estricto para las credenciales del catálogo | ✅ |
 
-**Re-check post-diseño (Phase 1)**: sin violaciones nuevas. El data-model agrega una tabla de región y
-una de reglas de habilitación explícita (D2-A y D1-A, decididas), ambas con `tenant_id` + RLS, sin
-contenido de pedidos, en una sola migración nueva de la extensión. El default configurable de postura
-fuera de región (R23) no relaja nada que una postura explícita fije: cumplimiento siempre gana. El
-único desvío era el 403 de residencia: enmienda aprobada por el owner, la aplica T001.
+**Re-check post-diseño (Phase 1)**: sin violaciones nuevas. El data-model agrega una tabla de región
+(con `default_posture`), una de reglas de habilitación explícita, una de relajaciones del enmascarado
+forzado y una columna `control_jurisdiction` en la ficha del catálogo (D2-A y D1-A del plan; D2, D5 y
+D12 del análisis legal), todas con `tenant_id` + RLS donde corresponde, sin contenido de pedidos, en una
+sola migración nueva de la extensión. La postura por defecto de Eleia (`masked_all`) endurece el
+Principio I; las relajaciones son explícitas, con motivo, de cumplimiento y auditadas (metadata-only).
+El único desvío era el 403 de residencia: enmienda aprobada por el owner, la aplica T001. Re-check del
+2026-10-06 tras las decisiones legales: sin violaciones nuevas.
 
 ## Project Structure
 
@@ -123,9 +134,9 @@ fuera de región (R23) no relaja nada que una postura explícita fije: cumplimie
 
 ```text
 specs/057-porte-sentinel-068-redireccion-modelos/
-├── spec.md              # aprobada (no se reabre)
+├── spec.md              # aprobada; solo la enmiendan decisiones del owner por speckit-clarify (2026-10-06, decisiones legales)
 ├── plan.md              # este archivo
-├── research.md          # Phase 0: decisiones R1–R23 (D1–D4 con opciones y respuesta del owner)
+├── research.md          # Phase 0: decisiones R1–R26 (D1–D4 del plan con respuesta del owner; decisiones legales en R14, R23–R26)
 ├── data-model.md        # Phase 1: herencia de la 068 + deltas de Eleia
 ├── quickstart.md        # Phase 1: validación de punta a punta con Azure
 ├── contracts/
@@ -168,13 +179,13 @@ deploy/
 ├── release/checks/test_extension_delivery.sh                         # T-B (nuevo)
 └── redirect-seeds/                                                   # [ELEIA] datos de ejemplo
     ├── catalog-seed.azure-demo.yaml      # T-B: destinos de Azure de la demo (FR-020)
-    ├── habilitacion-explicita.yaml       # T-B: reglas de bloqueo por defecto (FR-029, D1; valor pendiente legal)
-    └── regions.americas.yaml             # T-E: lista AMERICAS (FR-030; offregion_default pendiente legal)
+    ├── habilitacion-explicita.yaml       # T-B: reglas de bloqueo por defecto, vacías en Eleia (FR-029; D1 del análisis legal)
+    └── regions.americas.yaml             # T-E: lista AMERICAS con default_posture masked_all (FR-030, FR-031; D2 del análisis legal)
 sentinel/                          # T-B: copia de 6a70855 (sin onboarding/ ni la migración del wizard)
 ├── redirect/{plugin,resolver,residency,store,stream,regions_seed,…}.py, faces/{claude,generic}.py, api/
 ├── engine/{redirect_guard,redirect_authz,redirect_credentials,redirect_catalog,fragment_merge}.py, profile-fragment.yaml
 ├── catalog/ (incluye habilitacion.py nuevo), access/, common/
-├── migrations/                    # rama `sentinel_redirect` (cabeza f7a3c1d9e508 → +1 en T-B: región y habilitación)
+├── migrations/                    # rama `sentinel_redirect` (cabeza f7a3c1d9e508 → +1 en T-B: región, habilitación, relajaciones, control)
 ├── frontend/                      # pantalla única «Modelos» (replaces: models)
 ├── docker/{backend,frontend}.Dockerfile, docker/compose.dev.yml (nuevo, T-B), extensions.env.example (nuevo, T-B)
 └── tests/                         # tests de la extensión + los nuevos de Eleia
@@ -195,12 +206,12 @@ Orden obligatorio: **A → B → C → D → E → F → G**. T-A y T-B son prer
 | Tramo | Archivos que **solo** ese tramo modifica (entre los tramos que pueden correr a la vez) | Gate de salida |
 |---|---|---|
 | T-A | `.specify/memory/constitution.md` (por `speckit-constitution`, T001), `backend/src/{main.py, plugins.py, migration_locations.py}`, `backend/src/api/{gateway.py, gateway_plugins.py, gateway_openai.py, chat.py, internal.py}`, `backend/src/services/encryption_service.py`, `backend/alembic/env.py`, `backend/Dockerfile`, `backend/tests/**` (de las costuras), `litellm/extensions/{sentinel_guardrail.py, sentinel_audit_logger.py, sentinel_guardian_policy.py}`, `frontend/src/{App.tsx, plugins/**}`, `frontend/{tailwind.config.js, vite.config.ts, vitest.config.ts}`, `deploy/docker/{compose.prod.yml, entrypoint/backend.sh}`, `deploy/Makefile`, `deploy/release/{INSTALL-CAMARA.md, checks/test_compose_extra_env_file.sh}`, `.env.example`, `docs/docs/api-reference/{configuration.md, openapi.json}`, `docs/docs/install-deploy/index.md` | suite backend + panel + Hub verdes; `make -C deploy check` (Docker, con aviso) |
-| T-B | `sentinel/**` (copia + ajustes de catálogo, acceso y panel), `sentinel/migrations/<hash>_redirect_region_y_habilitacion.py` (nueva), `deploy/release/{populate_volumes.sh, bundle.sh, render_profile.sh, fragment_merge.py}`, `deploy/release/checks/test_extension_delivery.sh`, `deploy/redirect-seeds/{catalog-seed.azure-demo.yaml, habilitacion-explicita.yaml}`, `specs/057…/verificacion-d14.md` | suites de la extensión verdes; spike D14 ok |
+| T-B | `sentinel/**` (copia + ajustes de catálogo, acceso y panel, incluida la ficha con entidad y control de T087), `sentinel/migrations/<hash>_redirect_region_y_habilitacion.py` (nueva), `deploy/release/{populate_volumes.sh, bundle.sh, render_profile.sh, fragment_merge.py}`, `deploy/release/checks/test_extension_delivery.sh`, `deploy/redirect-seeds/{catalog-seed.azure-demo.yaml, habilitacion-explicita.yaml}`, `specs/057…/verificacion-d14.md` | suites de la extensión verdes; spike D14 ok |
 | T-C | `sentinel/redirect/{faces/claude.py, plugin.py, stream.py}`, `sentinel/tests/{fixtures/harness_corpus/claude/**, unit/test_face_claude_*.py, unit/test_guard_azure_parametros.py, contract/test_face_claude_*.py, integration/test_face_claude_stream.py, perf/**}`, `specs/057…/verificacion-cara-claude.md` | prueba en vivo con Claude Code y Claude Desktop sobre Azure |
 | T-D | `sentinel/redirect/faces/generic.py`, `sentinel/tests/{contract,integration}/test_face_generic_*.py`, `backend/tests/contract/test_gateway_openai_policy_off_057.py`, `specs/057…/verificacion-cara-generica.md` | prueba en vivo con 2 harness sobre Azure |
 | T-E | `sentinel/redirect/{residency.py, store.py, api/admin.py, regions_seed.py}`, `sentinel/redirect/plugin.py` (solo el camino de suscripción, después de T-C), `sentinel/engine/redirect_guard.py`, `sentinel/engine/redirect_credentials.py` (solo `CLIENT_CREDENTIAL_FIELDS`), `sentinel/catalog/{semaforo.py, store.py}`, `sentinel/frontend/{redirect/ResidencyTab.tsx, catalog/**}`, `deploy/redirect-seeds/regions.americas.yaml`, `sentinel/tests/**/test_residency_*.py`, `sentinel/tests/unit/{test_semaforo_region.py, test_guard_openrouter_zdr.py, test_redirect_residency.py, test_redirect_posture_roles.py}` | SC-005/SC-006 verificables en auditoría |
-| T-F | `litellm/extensions/{sentinel_guardrail.py, sentinel_guardian_policy.py}` (S13), `sentinel/engine/{redirect_guard.py, redirect_credentials.py}` (después de T-E), `sentinel/redirect/{faces/claude.py, plugin.py}` (después de T-C), `sentinel/frontend/redirect/{DestinationsTab.tsx, __tests__/DestinationsTab.cache.test.tsx}`, `.env.example` y `sentinel/docker/compose.dev.yml` (solo `MASKING_NONCE_KEY`, después de T-A y T-B), `backend/tests/unit/test_masking_nonce_conversacion.py`, `sentinel/tests/**/test_*cache*.py`, `sentinel/tests/unit/test_redirect_session_affinity.py`, `specs/057…/verificacion-cache.md` | SC-011/SC-012 medidos sobre Azure |
-| T-G | `docs/docs/**` (salvo lo de T-A), `specs/057…/{CHANGELOG.md, HANDOFF-elea-a-sentinel.md, verificacion-quickstart.md}` | `make -C deploy check-docs` verde (Docker, con aviso) |
+| T-F | `litellm/extensions/{sentinel_guardrail.py, sentinel_guardian_policy.py}` (S13), `sentinel/engine/{redirect_guard.py, redirect_credentials.py}` (después de T-E), `sentinel/redirect/{faces/claude.py, plugin.py}` (después de T-C), `sentinel/frontend/redirect/{DestinationsTab.tsx, __tests__/DestinationsTab.cache.test.tsx}`, `sentinel/catalog/models.py` (solo `FEATURES`, después de T-B), `.env.example` y `sentinel/docker/compose.dev.yml` (solo `MASKING_NONCE_KEY`, después de T-A y T-B), `backend/tests/unit/test_masking_nonce_conversacion.py`, `sentinel/tests/**/test_*cache*.py`, `sentinel/tests/unit/test_redirect_session_affinity.py`, `specs/057…/verificacion-cache.md` | SC-011/SC-012 medidos sobre Azure |
+| T-G | `docs/docs/**` (incluido `docs/docs/install-deploy/index.md`, re-tocado después de T-A), `specs/057…/{CHANGELOG.md, HANDOFF-elea-a-sentinel.md, verificacion-quickstart.md}` | `make -C deploy check-docs` verde (Docker, con aviso) |
 
 Los archivos que se re-tocan en serie (marcados «después de …») nunca están abiertos en dos tramos a
 la vez: el tramo posterior arranca recién cuando el anterior está integrado.
@@ -215,12 +226,14 @@ la vez: el tramo posterior arranca recién cuando el anterior está integrado.
 | Cara genérica nunca probada en vivo (Anexo A) | T-D hace la primera prueba en vivo con dos harness; hasta entonces 🟡 |
 | `test_listado_generico_suma_auto_para_los_servicios` falla sin `fd515ff` (Anexo A §A.4) | T017 lo marca `skip` con motivo y referencia a `fd515ff` (fuera del MVP) |
 | Bug latente `ApiKey` en `sentinel/access/api/admin.py` (HANDOFF §1(b)) | T017 lo corrige genérico con test; vuelve por HANDOFF |
-| Valores de Eleia pendientes del análisis legal (bloqueo de APIs chinas, default fuera de región) | Mecanismo por datos; T028 y T064 siembran lo que decida el análisis y, mientras tanto, listas vacías y `reject` de fábrica, con test de que todo funciona con listas vacías (T025) |
+| Valores de Eleia del análisis legal (bloqueo de APIs chinas, postura por defecto) | **Cerrado** el 2026-10-06: el owner decidió listas vacías (D1) y `masked_all` (D2); son datos del seed (T028, T064), con test de que todo funciona con listas vacías (T025) y con cada valor de `default_posture` (T053) |
+| Que la documentación prometa cumplimiento legal | Textos con «seudonimización reversible», `AMERICAS` como criterio de riesgo, residencia 🟡 hasta la revisión legal (D3, D10; research R26; T080, T086) |
+| Fichas sin jurisdicción de control al portar la regla «en región» a Sentinel | Cambio de comportamiento explicado en el HANDOFF (T085), con la sugerencia de cargar el dato antes de adoptarlo (research R25) |
 
 ## Complexity Tracking
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | Rechazo de residencia con 403 en lugar del 503 del Principio II | Las herramientas reintentan un 503 (`x-should-retry`) y un rechazo de residencia no es reintentable; la 068 y Sentinel 2.4.0 ya lo usan | Mantener 503 haría que Claude Code y Desktop reintenten en bucle un pedido que nunca va a salir. Enmienda aprobada por el owner el 2026-10-06; la aplica T001 con `speckit-constitution` antes de integrar T-B |
-| Una migración nueva en la rama de la extensión (región y reglas de habilitación, D2-A y D1-A decididas por el owner) | La región, su default fuera de región y el bloqueo por defecto tienen que ser datos editables (FR-021, FR-029, FR-030, Principio IV, research R23) | Un archivo de datos sin tabla no es editable desde el panel (research R13 opción B) |
+| Una migración nueva en la rama de la extensión (región, reglas de habilitación, relajaciones y jurisdicción de control; D2-A y D1-A del plan, D2/D5/D12 del análisis legal) | La región, su postura por defecto, el bloqueo por defecto, las relajaciones y la jurisdicción de control tienen que ser datos editables (FR-021, FR-028a, FR-029, FR-030, FR-031a, Principio IV, research R23–R25) | Un archivo de datos sin tabla no es editable desde el panel (research R13 opción B) |
 | Costura S13 nueva en la base | La caché del proveedor exige el mismo historial enmascarado byte a byte dentro de una conversación (FR-045, decisión del owner) | Desactivar el enmascarado para cachear rompe el Principio I; un sufijo fijo por persona crearía un seudónimo estable entre conversaciones |

@@ -32,13 +32,14 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
 
 1. Región: `python -m sentinel.redirect.regions_seed deploy/redirect-seeds/regions.americas.yaml`
    (T064). **Esperado**: región `AMERICAS` de instalación con `region_profiles` ⊇ `latam_ar` y
-   `offregion_default` = el valor sembrado (pendiente del análisis legal; de fábrica `reject`).
+   `default_posture = masked_all` (D2 del análisis legal: todo el redirigido sale enmascarado).
 2. Reglas de habilitación explícita:
    `python -m sentinel.catalog.habilitacion deploy/redirect-seeds/habilitacion-explicita.yaml` (T027).
-   **Esperado**: mientras el análisis legal no esté, listas vacías y ningún destino bloqueado.
+   **Esperado**: listas vacías (D1) y ningún destino bloqueado.
 3. Catálogo de Azure: `python -m sentinel.catalog.seed deploy/redirect-seeds/catalog-seed.azure-demo.yaml` y,
-   en «Modelos», completar en cada entrada la **jurisdicción de inferencia y de entidad** de la región
-   real del recurso de Azure (dato que no se presume). Destinos:
+   en «Modelos», completar en cada entrada la **jurisdicción de inferencia** (la región real del recurso
+   de Azure), la **entidad responsable** y las **jurisdicciones de entidad y de control** (FR-028a; datos
+   que no se presumen). Sin jurisdicción de inferencia el destino se rechaza. Destinos:
 
    | Entrada | `real_model` (despliegue de Azure) | Nota |
    |---|---|---|
@@ -57,8 +58,8 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
    `claude-haiku-4-5`.
 2. Reglas sugeridas: **opus → gpt-5.6-luna**, **sonnet → gpt-5.1-chat**, **haiku → gpt-5.4-mini**
    (fallback de haiku: gpt-4o-mini).
-3. Residencia: si la región de Azure está en `AMERICAS` no hace falta postura. Si no, fijar
-   *fuera de región con enmascarado forzado* desde Cumplimiento.
+3. Residencia: no hace falta postura; rige la postura por defecto (enmascarado forzado en todo destino).
+   Para probar sin enmascarado, Cumplimiento registra una relajación por región o por destino (§7).
 4. Política: **Encendida** para el alcance.
 5. **Medir SC-003**: del paso 1 al 4, menos de 15 minutos sin ayuda técnica.
 
@@ -94,14 +95,22 @@ conversación con streaming y herramientas; `model` = alias; un usuario de otro 
 
 ## 7. Residencia (US3)
 
-Con un destino Azure marcado en una jurisdicción fuera de `AMERICAS` (p. ej. una región de la UE):
+Con un destino Azure en `AMERICAS` (p. ej. EE. UU.) y otro marcado fuera (p. ej. una región de la UE):
 
 | Postura | Esperado |
 |---|---|
-| ninguna, `offregion_default = reject` | 403 «Modelo no disponible para tu región.» |
-| *fuera de región con enmascarado forzado* | DNI, CUIT/CUIL y CBU salen enmascarados y vuelven restaurados (SC-006) |
-| la misma, con el analizador caído | el pedido se bloquea aunque la instalación diga «degradar» |
+| ninguna (`default_posture = masked_all`), destino en EE. UU. o en la UE | DNI, CUIT/CUIL y CBU salen enmascarados y vuelven restaurados (SC-006); `default_posture_applied = masked_all` |
+| la misma, con el analizador caído | el pedido se bloquea (403 «El pedido no pudo protegerse…») aunque la instalación diga «degradar» |
+| ninguna, destino sin jurisdicción de inferencia | 403 «Modelo no disponible para tu región.» |
+| relajación por región: Cumplimiento crea una región de nivel empresa con `region_profiles` ⊇ `latam_ar` y `default_posture = masked_offregion` (o el super-admin cambia la de instalación) | el destino de EE. UU. (inferencia, entidad y control en `AMERICAS`) sale sin forzado; el de la UE, enmascarado; `masking_relaxation = region` |
+| el mismo cambio intentado por el admin de la empresa | 403: solo Cumplimiento relaja |
+| con `masked_all`, el admin de la empresa agrega *solo jurisdicciones permitidas* = `AMERICAS` | el destino de la UE deja de alcanzarse (o responde un fallback); el de EE. UU. **sigue enmascarado** (piso) |
+| relajación por destino sobre el de EE. UU. sin retención cero declarada | 422 con el motivo; el destino sigue enmascarado |
 | *solo jurisdicciones permitidas* con fallback en `AMERICAS` | responde el fallback y la auditoría registra la sustitución |
+| `default_posture` cambiado a `reject_offregion` (prueba del mecanismo) | destino de la UE: 403 «Modelo no disponible para tu región.» |
+
+Panel y documentación: «seudonimización reversible», nunca «anonimización» ni «cumple con»; la región
+aparece como criterio de riesgo y la residencia con 🟡 (D3, D10).
 
 ## 8. Modelos chinos y económicos 🟡 (hasta tener credencial)
 
@@ -112,8 +121,8 @@ Mismo flujo, con entradas `deepseek`, `openai_compatible` (Qwen, Kimi, MiniMax c
 | Caso | Esperado |
 |---|---|
 | Regla con estrategia «más barato» entre varios destinos | elige el de menor precio del catálogo; el costo registrado es el del destino real |
-| API oficial china con una regla de habilitación explícita que la cubre | nace bloqueada; se habilita desde «Modelos» con motivo (queda en el registro) |
-| Con listas de habilitación vacías | ninguna entrada bloqueada; todo funciona |
-| API oficial china habilitada, fuera de `AMERICAS` | según la postura y el `offregion_default` (§7) |
-| El mismo modelo alojado en América (Azure/AWS en EE. UU., o OpenRouter con proveedores de EE. UU.) | se usa sin enmascarado forzado |
+| Con listas de habilitación vacías (seed de Eleia, D1) | ninguna entrada bloqueada; la API oficial china se da de alta y sale **enmascarada** por la postura por defecto |
+| Una regla `jurisdiction` cargada desde el panel que cubre la entrada | nace bloqueada; se habilita desde «Modelos» con motivo (queda en el registro) |
+| El mismo modelo alojado en América (Azure/AWS en EE. UU., o OpenRouter con lista de proveedores de EE. UU.) | por defecto, enmascarado; sin forzado solo con una relajación por destino de Cumplimiento (alojador nombrado, jurisdicciones cargadas, retención cero; D5) |
+| Una nube con servidores en EE. UU. y jurisdicción de control fuera de `AMERICAS` (o sin cargar) | no cuenta como en región: una relajación por región no le quita el forzado (D12) |
 | OpenRouter | cada pedido sale con cero retención, sin recolección de datos y solo a la lista de proveedores permitidos; `openrouter_zdr: true` en la auditoría |

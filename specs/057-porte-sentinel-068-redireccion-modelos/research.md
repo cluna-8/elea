@@ -7,11 +7,27 @@ este repo.
 
 Formato: **Decisión** · **Por qué** · **Alternativas**. Las decisiones D1–D4 (R13–R16) tenían opciones
 abiertas y se preguntaron al coordinador. **Respuesta del owner (2026-10-06)**: D2 = A, D3 = A, D4 = A;
-D1 = mecanismo A (todo por datos), pero el **valor por defecto** que siembra Eleia queda **pendiente de
-un análisis legal** (si en América, sobre todo en Sudamérica, se pueden usar modelos globales o chinos;
-postura del owner: «por qué bloqueo, si América está permitido y no tiene GDPR»). Por la misma razón, el
-default de postura para destinos fuera de región sin postura explícita pasa a ser **configurable**
-(R23). El plan no se frena por esto.
+D1 = mecanismo A (todo por datos); el **valor por defecto** que siembra Eleia quedó pendiente de un
+análisis legal, y por la misma razón el default de postura sin postura explícita pasó a ser
+**configurable** (R23).
+
+**Decisiones del owner sobre el análisis legal (2026-10-06)** — `specs/ANALISIS-TRANSFERENCIAS-AMERICA-2026-10.md`
+§5 (rama `cluna-8/spike-transferencias-america`, `a5a88e2`), volcadas en la spec por `speckit-clarify`
+(Clarifications, Session 2026-10-06, decisiones legales):
+
+| Decisión del análisis | Qué decidió el owner | Dónde queda |
+|---|---|---|
+| D1 | Sin bloqueo de APIs chinas por defecto: el mecanismo por datos queda y las listas de Eleia se siembran **vacías** | spec FR-029; R14; T028 |
+| D2 | Todo el tráfico redirigido sale **enmascarado por defecto** (enmascarado forzado con analizador fail-closed, dentro y fuera de `AMERICAS`); cumplimiento lo relaja por destino o por región; se rechaza solo lo que no tiene jurisdicción de inferencia | spec FR-027, FR-031, FR-031a, US3 esc. 5 y 8; R23, R24; T053, T064 |
+| D5 | Modelos chinos alojados en América, en alojadores nombrados y con retención cero: configurables **sin** enmascarado forzado por relajación explícita, nunca por defecto | spec FR-031a, US3 esc. 10; R24; T057 |
+| D12 | El catálogo registra entidad responsable y jurisdicción de control (≥ 50 % o control), además de la de inferencia; «en región» exige las tres | spec FR-028a, US3 esc. 11; R25; T087, T054, T060 |
+| D3, D10 | «Seudonimización reversible», nunca «anonimización» ni «cumple con X»; `AMERICAS` es criterio de riesgo, no de legalidad; leyenda 🟡 hasta la revisión legal | spec FR-030, Assumptions «Base legal»; R26; T079, T080 |
+
+**Convención de nombres**: en este documento, «D1–D4» a secas son las decisiones de diseño del plan
+(R13–R16); las del análisis legal se citan «D1 legal», «D2 legal», etc. (en la spec, en la tabla de
+arriba y en R23–R26 siempre son las legales). Con esto se cierran los dos valores que el plan dejaba
+pendientes (R14 y R23). Las decisiones D1–D4 del
+plan (R13–R16) y la enmienda del 403 (R21) no se reabren.
 
 ---
 
@@ -213,7 +229,7 @@ En `6a70855` solo se bloquea `provider == "deepseek"` (`sentinel:sentinel/catalo
 `seed.py:86`, `api/legacy.py:157`); Qwen (DashScope), Kimi (Moonshot) y MiniMax entran como
 `openai_compatible` y GLM como `zai`, **sin bloqueo**. La habilitación con motivo ya existe
 (`blocked_by_default`, `enabled_at`, `enabled_by`, `enable_reason` en
-`sentinel:sentinel/catalog/models.py:118-123`; control en `sentinel:sentinel/redirect/resolver.py:156`).
+`sentinel:sentinel/catalog/models.py:120-123`; control en `sentinel:sentinel/redirect/resolver.py:156-157`).
 
 - **Opción A (recomendada)**: regla **por datos**: una entrada nace `blocked_by_default` si su
   proveedor está en una lista, o el host de su `api_base` coincide con una lista sembrada y editable,
@@ -224,18 +240,20 @@ En `6a70855` solo se bloquea `provider == "deepseek"` (`sentinel:sentinel/catalo
 - **Recomendación**: A — cubre las tres vías de alta sin depender de un solo dato.
 - **Estado**: **mecanismo A decidido** por el owner (2026-10-06): listas editables de proveedores, hosts
   de `api_base` y jurisdicciones, genéricas, con migración en la rama de la extensión (junto con R13).
-  **El valor por defecto de Eleia queda PENDIENTE del análisis legal**: el código no presume bloqueo.
-  - La regla de Sentinel (`provider == "deepseek"` fijo) se reemplaza por la lectura de las listas;
-    para no cambiar el comportamiento de Sentinel, su seed de paridad es `providers: [deepseek]`.
-  - Eleia siembra sus listas desde `deploy/redirect-seeds/habilitacion-explicita.yaml`, que se escribe
-    **con la decisión del análisis legal** (tarea T028). Mientras el análisis no esté, el archivo
-    queda con las tres listas **vacías** y un encabezado «pendiente del análisis legal»; con listas
-    vacías ningún destino nace bloqueado y todo funciona (test obligatorio, T025).
-  - Opciones que el análisis puede elegir para el seed de Eleia: (a) listas vacías (nada bloqueado por
-    defecto); (b) solo proveedores (`deepseek`, `zai`); (c) proveedores + hosts de APIs oficiales
-    chinas (`api.deepseek.com`, `dashscope*.aliyuncs.com`, `open.bigmodel.cn`, `api.moonshot.cn`,
-    `api.moonshot.ai`, `api.minimax*`); (d) (c) + jurisdicción `CN`. Cualquiera es solo dato: no toca
-    código.
+  La regla `jurisdiction` compara contra las jurisdicciones de inferencia, de entidad y de control de
+  la ficha (R25).
+  - La regla de Sentinel (`provider == "deepseek"` fijo en `sentinel:sentinel/catalog/api/admin.py:503`,
+    `seed.py:86` y `api/legacy.py:157`; `migrate.py:101` copia el valor de origen) se reemplaza por la
+    lectura de las listas; para no cambiar el comportamiento de Sentinel, su seed de paridad es
+    `providers: [deepseek]`.
+  - **Valor de Eleia: decidido (D1 del owner, 2026-10-06) — opción (a), listas vacías**. Eleia siembra
+    `deploy/redirect-seeds/habilitacion-explicita.yaml` con las tres listas vacías (T028): ningún destino
+    nace bloqueado y todo es configurable desde el panel; con listas vacías todo funciona (test
+    obligatorio, T025). Las jurisdicciones de preocupación, si un cliente las quiere, son reglas
+    `jurisdiction` cargadas como dato.
+  - Opciones que se evaluaron para el seed: (a) listas vacías (**elegida**); (b) solo proveedores
+    (`deepseek`, `zai`); (c) proveedores + hosts de APIs oficiales chinas; (d) (c) + jurisdicción `CN`.
+    Cualquiera es solo dato: no toca código.
 
 ## R15. D3 — Panel: pantalla única «Modelos» (FR-011)
 
@@ -256,7 +274,9 @@ y sus estados son `eu_ok | standard | unclassified`.
 
 - **Opción A (recomendada)**: parametrizar la regla con las jurisdicciones de la región del perfil
   (R13) y **conservar el valor interno `eu_ok`** por paridad de API y tests; la etiqueta visible sale
-  de la región («Admisible AMERICAS»).
+  de la región. Por D3 legal (2026-10-06) la etiqueta dice «Dentro de AMERICAS», nunca «Admisible» ni
+  «Cumple»: la región es criterio de riesgo, no de legalidad (R26). La comparación usa la regla «en
+  región» de R25 (inferencia, entidad y control).
 - **Opción B**: renombrar el estado a `region_ok` en API, panel y tests (rompe la paridad).
 - **Estado**: **decidida A** por el owner (2026-10-06).
 
@@ -269,16 +289,18 @@ y sus estados son `eu_ok | standard | unclassified`.
      `redirect_credentials.py` `PROVIDER_FAMILY`). T024 lo prueba para DeepSeek, Qwen, GLM y Kimi
      (directos) y para los mismos vía OpenRouter, con la regla `cheapest`
      (`d5b8e3a1c742_redirect_regla_estrategia`) eligiendo el más barato por precio del catálogo.
-  2. **Bloqueo por defecto** de la API oficial: mecanismo por datos (R14); el valor de Eleia es
-     **pendiente del análisis legal**, y la variante con listas vacías tiene que andar.
-  3. **Residencia**: con la postura explícita *fuera de región con enmascarado forzado*, un destino
-     fuera de `AMERICAS` sale enmascarado y, con el analizador caído, se bloquea (FR-027). Sin postura
-     explícita rige el **default configurable de postura fuera de región** (R23): de fábrica, rechazo
-     (FR-031, spec US3 esc. 8); el valor de Eleia es **pendiente del análisis legal**.
-  4. **Alojados en América**: los mismos modelos servidos por proveedores con inferencia y entidad en
-     `AMERICAS` (Azure AI Foundry o AWS en EE. UU./Brasil, o OpenRouter con proveedores de EE. UU.) se
-     usan sin enmascarado forzado (`evaluate` con `inside=True`,
-     `sentinel:sentinel/redirect/residency.py:122-135`).
+  2. **Bloqueo por defecto** de la API oficial: mecanismo por datos (R14); en Eleia las listas se
+     siembran **vacías** (D1): ningún destino chino nace bloqueado.
+  3. **Residencia**: sin postura explícita rige la **postura por defecto** de la región (R23); en Eleia,
+     `masked_all` (D2): todo destino redirigido, chino o no, dentro o fuera de `AMERICAS`, sale con
+     enmascarado forzado y, con el analizador caído, se bloquea (FR-027, FR-031); un destino sin
+     jurisdicción de inferencia se rechaza.
+  4. **Alojados en América** (D5): los mismos modelos servidos por alojadores nombrados (Azure AI Foundry
+     o AWS en EE. UU./Brasil, o OpenRouter con lista de proveedores de EE. UU.) con jurisdicciones de
+     inferencia, entidad y control en `AMERICAS` y retención cero declarada **pueden** usarse sin
+     enmascarado forzado, solo con una relajación explícita de cumplimiento (R24); por defecto salen
+     enmascarados. Una nube de una entidad controlada desde fuera de `AMERICAS` no cuenta como en región
+     (R25).
   5. **OpenRouter**: R19.
   6. **Prueba real**: 🟡 hasta tener credencial; los tests usan un upstream falso
      (`sentinel:specs/068-…/spike053/fake_upstream.py` como base).
@@ -337,8 +359,10 @@ documento de la 043 deriva el sufijo con HMAC **usando el `document_id` como cla
   el protocolo de la herramienta los exige; (3) default de residencia por región del perfil de país
   (FR-031). **Estado: enmienda aprobada, pendiente de aplicar**: la aplica T001 con
   `speckit-constitution` como **primera tarea**, antes de que T-B entre a `main`.
-- **Alcance**: la enmienda **no** fija los valores pendientes del análisis legal (bloqueo por defecto de
-  APIs chinas, R14; default de postura fuera de región, R23).
+- **Alcance**: la enmienda **no** fija los valores de Eleia del análisis legal (bloqueo por defecto de
+  APIs chinas, R14; postura por defecto, R23): son datos del seed, decididos por el owner el 2026-10-06
+  (D1, D2). El punto (3) de la enmienda se redacta genérico («postura por defecto por región del perfil
+  de país, configurable»), sin fijar `reject` ni `masked_all`.
 - **Por qué**: spec §Assumptions «Constitución»; el CRITICAL de `speckit-analyze` por el 503 del
   Principio II queda cerrado como «enmienda aprobada, pendiente de aplicar».
 
@@ -351,31 +375,106 @@ corren sin Docker (venv del backend con `PYTHONPATH` y Vitest). Ids públicos de
 versión instalada de Claude Code / Desktop reconoce (Claude Code rechaza en el cliente ids que no
 conoce, HANDOFF §2.4), por ejemplo `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-4-5`.
 
-## R23. Default de postura para destinos fuera de región sin postura explícita (pendiente del análisis legal)
+## R23. Postura por defecto del tráfico redirigido sin postura explícita (FR-031; D2 del owner)
 
-Pedido del owner (2026-10-06): la lectura «una API china habilitada sin postura explícita se rechaza
-con 403» queda como **comportamiento configurable**, no fija.
+Pedido del owner (2026-10-06, al aprobar el plan): la lectura «una API china habilitada sin postura
+explícita se rechaza con 403» pasa a ser **comportamiento configurable**. Decisión del owner sobre el
+análisis legal (D2, mismo día): en Eleia, **todo el tráfico redirigido sale enmascarado por defecto**.
 
-- **Decisión (mecanismo)**: cada región del perfil (R13) lleva un dato `offregion_default` que
+- **Decisión (mecanismo [BASE])**: cada región del perfil (R13) lleva un dato `default_posture` que
   `effective_posture` (`sentinel:sentinel/redirect/residency.py:90-120`) usa **solo** cuando el pedido
-  es redirigido y no hay ninguna fila de postura para el alcance:
+  es redirigido y no hay ninguna fila de postura para el alcance (hoy devuelve `allowlist[región]`,
+  `:95-98`):
 
-  | Valor | Qué pasa con un destino fuera de la región | Dentro de la región |
+  | Valor | Destino en región (regla de R25) | Destino fuera de región |
   |---|---|---|
-  | `reject` (**default de fábrica**) | rechazo 403 «Modelo no disponible para tu región» (FR-031 y US3 esc. 8 tal como están escritos) | se sirve sin forzado |
-  | `masked` | se sirve con enmascarado forzado y bloqueo si el analizador cae (equivale a `offregion_masked` implícito) | se sirve sin forzado |
-  | `allow` | se sirve sin forzado (equivale a postura `off` para los redirigidos) | se sirve sin forzado |
+  | `reject_offregion` (**fábrica**, paridad con Sentinel) | sin forzado | rechazo 403 «Modelo no disponible para tu región» |
+  | `masked_offregion` | sin forzado | enmascarado forzado, fail-closed |
+  | `masked_all` (**valor de Eleia**, D2) | enmascarado forzado, fail-closed | enmascarado forzado, fail-closed |
+  | `allow` | sin forzado | sin forzado |
 
-  Una postura explícita de cumplimiento siempre gana sobre este default; el tráfico **no** redirigido
-  sigue en `off` sin postura (FR-007). Cambiar el dato queda en el registro de configuración (FR-008) y
-  solo pueden hacerlo cumplimiento o el super-admin (FR-023).
-- **Valor para Eleia**: **pendiente del análisis legal** (tarea T064 lo siembra desde
-  `deploy/redirect-seeds/regions.americas.yaml` con lo que decida el análisis). Hasta entonces la región
-  `AMERICAS` se siembra con el default de fábrica `reject`, que es lo que dicen la spec y Sentinel.
-- **Nota de alcance**: si el análisis elige `masked` o `allow` como valor de Eleia, el texto de FR-031 y
-  del escenario 8 de US3 describe solo el default de fábrica; el coordinador decide si hace falta una
-  enmienda de la spec (no se reabre en este plan).
-- **Por qué**: la base legal de las transferencias la cubre el cliente fuera del sistema (spec
-  §Assumptions); el sistema solo tiene que poder expresar la decisión como dato.
-- **Alternativas**: dejar el rechazo fijo (lo que pide cambiar el owner); default por empresa en vez de
-  por región (posible a futuro con la misma columna en el nivel empresa de la tabla de regiones).
+  Con cualquier valor, un destino sin jurisdicción de inferencia se rechaza (FR-028). Con filas de
+  postura explícitas, la postura efectiva sale de las filas (068 FR-024), pero el forzado de
+  `masked_all`/`masked_offregion` es un **piso** que las filas no quitan (`forced = filas OR piso`;
+  data-model §1): así una `allowlist` restringe el alcance sin quitar el enmascarado y agregar filas
+  sigue siendo endurecer (FR-023). El piso solo lo quitan las relajaciones (R24). El tráfico **no**
+  redirigido sigue en `off` sin postura (FR-007). Cambiar el dato queda en
+  el registro de configuración (FR-008) y solo pueden hacerlo cumplimiento o el super-admin (FR-023).
+  `masked_all` se implementa como `offregion_masked` con `home = ∅`: reusa la verificación del
+  enmascarado forzado y el fail-closed de la 068 (D16) sin un modo nuevo.
+- **Valor para Eleia**: **`masked_all`** (D2). T064 lo siembra en `deploy/redirect-seeds/regions.americas.yaml`.
+- **Efecto sobre la spec**: FR-031 y US3 esc. 8 se enmendaron por `speckit-clarify` (Session
+  2026-10-06, decisiones legales); la nota de alcance que dejaba esto al coordinador queda cerrada.
+- **Por qué**: el análisis (§2.3 y §4.2) muestra que ninguna jurisdicción revisada trata a América
+  como zona de libre circulación (EE. UU. no es adecuado para Argentina ni Brasil), así que el owner
+  eligió la postura más prudente como default y dejar la relajación en manos de cumplimiento.
+- **Alternativas**: el valor `masked_offregion` (recomendación inicial del análisis: forzado solo fuera
+  de `AMERICAS`), descartado por el owner; dejar el rechazo fijo (lo que pidió cambiar); default por
+  empresa en vez de por región (posible a futuro con la misma columna en el nivel empresa).
+
+## R24. Relajación del enmascarado forzado por cumplimiento (FR-031a; D2, D5 del owner)
+
+- **Decisión [BASE]**: dos vías, ambas explícitas, con motivo, solo cumplimiento o super-admin y
+  registradas (FR-008):
+  1. **Por región**: cambiar `default_posture` de la región (fila de empresa o de instalación) de
+     `masked_all` a `masked_offregion`. Los destinos en región (R25) salen sin forzado; el resto, con
+     forzado. No se hace con una fila de postura, porque las filas no quitan el piso (R23).
+  2. **Por destino**: una fila en `sentinel_redirect_masking_relaxation` (data-model §3) sobre una entrada
+     del catálogo. Precondiciones: ficha con jurisdicciones de inferencia, entidad y control cargadas,
+     `zero_data_retention = true` (`sentinel:sentinel/catalog/models.py:155`) y, en `openrouter`, lista
+     de proveedores no vacía (D5 legal: «alojadores nombrados y con retención cero»; sin comodines de
+     enrutado). Si la ficha deja de cumplir, la relajación deja de tener efecto al resolver (T060) y la
+     API del catálogo la revoca al guardar la ficha (T087).
+- **Límites** (respuesta del coordinador en el clarify): ninguna relajación habilita un destino sin
+  jurisdicción de inferencia, relaja el fail-closed del analizador mientras el forzado rija, ni vuelve
+  alcanzable un destino fuera de una postura *solo jurisdicciones permitidas*. Ningún override del
+  cliente, la conexión, las cabeceras o la llave relaja el forzado (FR-027).
+- **Admin de empresa**: no puede relajar: no escribe regiones ni relajaciones, y las filas de postura
+  que sí puede agregar no quitan el piso de enmascarado (R23).
+- **Dónde se evalúa**: `evaluate` (`sentinel:sentinel/redirect/residency.py:122-135`) recibe el
+  conjunto de relajaciones vigentes de la instantánea (`sentinel/redirect/store.py`); el guard del
+  motor (`sentinel/engine/redirect_guard.py`) sigue verificando el `masking_report` (S5b) cuando el
+  forzado rige.
+- **Por qué**: D5 pide poder usar modelos de pesos abiertos alojados en América sin enmascarado, pero
+  como decisión registrada de cumplimiento, no como default.
+- **Alternativas**: una bandera booleana en la entrada del catálogo (no distingue empresas en un destino
+  de instalación ofrecido a varias, ni guarda autor y motivo de la relajación).
+
+## R25. Entidad responsable y jurisdicción de control en el catálogo (FR-028a; D12 del owner)
+
+- **Hecho**: la ficha `ext_compliance_sheet` (`sentinel:sentinel/catalog/models.py:146-163`) ya tiene
+  `provider_legal_entity` (`:151`), `entity_jurisdiction` (`:152`), `inference_jurisdiction` (`:153`) y
+  `zero_data_retention` (`:155`); `evaluate` mira solo inferencia y entidad
+  (`sentinel:sentinel/redirect/residency.py:122-135`). No hay dato de propiedad o control.
+- **Decisión [BASE]**: una columna nueva `control_jurisdiction` (`String(16)`, nullable) en la ficha,
+  en la migración nueva de T026; `provider_legal_entity` pasa a ser la «entidad responsable» de FR-028a
+  y el panel la muestra junto a las tres jurisdicciones. Regla «en región»: inferencia **y** entidad
+  **y** control satisfacen el conjunto. Control NULL o fuera ⇒ bajo `allowlist`, `foreign_entity`
+  (solo con `accept_foreign_entity`); bajo `offregion_masked`, fuera de región (forzado). La misma regla
+  la usa el semáforo (R16) y la regla `jurisdiction` de habilitación (R14).
+- **Genérico**: ningún código nombra un país de preocupación; las jurisdicciones de preocupación son
+  reglas `jurisdiction` (R14), vacías en Eleia (D1).
+- **Impacto en Sentinel**: fichas sin `control_jurisdiction` dejan de contar como en región bajo
+  `allowlist` y `offregion_masked`. Va en el HANDOFF con la sugerencia de cargar el dato antes de
+  adoptar el cambio.
+- **Por qué**: el análisis (§3.3 punto 2) muestra que una nube de una entidad de la RPC (o controlada
+  ≥ 50 % desde allí) con región en América pasaría hoy como «en región» si solo se mira el país del
+  servidor.
+- **Alternativas**: un booleano «propiedad ≥ 50 % RPC» (específico de un país, no portable a Sentinel);
+  solo nombre y jurisdicción de la entidad (no cubre la entidad local de una nube extranjera).
+
+## R26. Textos de producto sobre enmascarado y región (D3, D10 del owner)
+
+- **Decisión [ELEIA]**: en panel, errores, documentación (`docs/docs/**`) y HANDOFF:
+  - el enmascarado se llama «seudonimización reversible de identificadores detectados»; nunca
+    «anonimización», «anonimizado» ni «datos anónimos»;
+  - nada dice «cumple con X», «conforme a X» ni «transferencia lícita»;
+  - `AMERICAS` se presenta como **criterio de riesgo del producto, no de legalidad**: «dentro de la
+    región» no significa base legal resuelta (la cubre Elea por fuera del sistema, spec §Assumptions);
+  - toda la sección de residencia de la documentación queda **🟡** hasta la revisión legal (D11 del
+    análisis, no decidida aquí).
+- **Verificación**: T080 lo exige y T082 corre `make -C deploy check-docs`; además, en el gate de T-G
+  (T086), un `grep` de `anonimiz|cumple con|conforme a|transferencia lícita` sobre lo nuevo, revisado a mano (una frase como
+  «no es anonimización» es válida; una que describa el producto así, no).
+- **Por qué**: el análisis §2.3 punto 4: tiene consecuencias legales distintas (solo lo irreversible
+  sale del régimen en Chile y Perú) y la documentación se vende por su honestidad (AGENTS.md, DoD).

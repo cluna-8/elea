@@ -65,7 +65,9 @@ copiado; T-C solo lo prueba con Azure).
 
 | Situación | HTTP | `error.type` | Texto |
 |---|---|---|---|
-| Destino fuera de la región sin postura y `offregion_default = reject` (R23) | 403 | `permission_error` | «Modelo no disponible para tu región.» |
+| Destino fuera de la región sin postura y `default_posture = reject_offregion` (R23) | 403 | `permission_error` | «Modelo no disponible para tu región.» |
+| Destino sin jurisdicción de inferencia registrada, con la postura por defecto (cualquier valor; FR-028, FR-031) | 403 | `permission_error` | «Modelo no disponible para tu región.» |
+| Enmascarado forzado (postura por defecto `masked_all` o explícita) con informe de enmascarado incompleto o degradado: analizador caído o contenido no analizable (FR-027) | 403 | `permission_error` | «El pedido no pudo protegerse para este destino y fue bloqueado.» (motivo interno `masking_required`; lo hace el guard copiado, `sentinel:sentinel/engine/redirect_guard.py:328-330`, sin cambios) |
 | Destino bloqueado por defecto sin habilitar (FR-029) | 404 | `not_found_error` | «Modelo no disponible para tu organización.» (no revela el motivo) |
 | Despliegue de Azure inexistente detectado en el pedido | 400 | `invalid_request_error` | `capability_rejected: destino no disponible` (el detalle va al panel, no al cliente) |
 
