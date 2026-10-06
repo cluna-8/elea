@@ -146,7 +146,7 @@ def _chat(c, model="pro", stream=False, **extra):
 def _messages(c, model="claude-sonnet-4-5", stream=False):
     return c.post("/gw/v1/messages", headers={"Authorization": f"Bearer {VK}",
                                               "anthropic-version": "2023-06-01",
-                                              "anthropic-beta": "algo-2025"},
+                                              "anthropic-beta": "interleaved-thinking-2025-05-14,algo-2025"},
                   json={"model": model, "max_tokens": 16, "stream": stream,
                         "messages": [{"role": "user", "content": "hola"}]})
 
@@ -281,7 +281,8 @@ def test_cara_claude_nativa_reenvia_anthropic_beta(env, monkeypatch):
     _messages(env["client"])
     sent = Engine.sent[-1]
     assert sent["body"]["model"] == "rdx-anthropic/claude-real"
-    assert {k.lower(): v for k, v in sent["headers"].items()}["anthropic-beta"] == "algo-2025"
+    # T094 de Sentinel: solo las betas de la lista permitida (`algo-2025` no está)
+    assert {k.lower(): v for k, v in sent["headers"].items()}["anthropic-beta"] == "interleaved-thinking-2025-05-14"
 
 
 def test_cara_claude_listado_anthropic(env):

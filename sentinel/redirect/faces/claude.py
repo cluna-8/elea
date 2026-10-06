@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 from typing import Any, Iterable, Mapping, Optional
 
 from .. import credentials
@@ -159,6 +160,17 @@ class CapabilityRejected(ValueError):
         self.capability = capability
 
 
+# T139 de Sentinel (FR-035, research R10): hacia un destino traducido solo pasan los campos de primer
+# nivel de esta lista (contracts/cara-claude.md §1). Una lista negra (`safeguards`) se rompe con el
+# próximo campo nuevo de la herramienta; los que adapta el normalizador no cuentan como desconocidos.
+FIELD_ALLOWLIST = ("model", "messages", "system", "max_tokens", "stop_sequences", "stream", "temperature",
+                   "top_p", "top_k", "tools", "tool_choice", "metadata")
+_ADAPTED_FIELDS = frozenset({"thinking", "output_config", "context_management"})
+DROPPED_FIELD_PREFIX = "dropped_field:"
+MAX_DROPPED_NAMES = 20                  # la auditoría lleva nombres, acotados: nunca valores
+_SAFE_FIELD_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
+_INVALID_FIELD_NAME = "campo_no_valido"
+
 _EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high", "xhigh": "high"}
 _BLOCK_CAPABILITY = {"document": "documents_pdf", "image": "images"}
 
@@ -252,14 +264,34 @@ def _check_blocks(messages: list, profile: Mapping[str, Any]) -> list:
     return labels
 
 
+def _dropped_field_entries(names: Iterable[str]) -> list:
+    """Nombres de campo a ajustes `dropped_field:<nombre>`: ordenados, sin duplicados y acotados
+    (largo, caracteres y cantidad); un nombre que no es un identificador corto se reemplaza."""
+    safe = sorted({n if _SAFE_FIELD_NAME.match(n) else _INVALID_FIELD_NAME for n in names})
+    if len(safe) > MAX_DROPPED_NAMES:
+        safe = safe[:MAX_DROPPED_NAMES - 1] + [f"otros_{len(safe) - MAX_DROPPED_NAMES + 1}"]
+    return [DROPPED_FIELD_PREFIX + n for n in safe]
+
+
+def dropped_field_names(removed: Iterable[str]) -> list:
+    """Los nombres de los campos descartados que `normalize_for_translated` dejó en sus ajustes."""
+    return [r[len(DROPPED_FIELD_PREFIX):] for r in removed if r.startswith(DROPPED_FIELD_PREFIX)]
+
+
 def normalize_for_translated(body: Mapping[str, Any], profile: Mapping[str, Any], *, max_output: int):
-    """→ (cuerpo nuevo, lista de ajustes aplicados). No muta la entrada."""
+    """→ (cuerpo nuevo, lista de ajustes aplicados). No muta la entrada. Los campos de primer nivel
+    fuera de `FIELD_ALLOWLIST` se quitan sin error; sus nombres van como `dropped_field:<nombre>`."""
     out = copy.deepcopy(dict(body))
     removed = []
 
     out, cred_fields = credentials.strip_client_credentials(out)
     if cred_fields:
         removed.append("client_credentials")
+
+    unknown = [k for k in out if isinstance(k, str) and k not in FIELD_ALLOWLIST and k not in _ADAPTED_FIELDS]
+    for k in unknown:
+        out.pop(k)
+    removed += _dropped_field_entries(unknown)
 
     thinking = out.pop("thinking", None)
     oc = out.get("output_config")

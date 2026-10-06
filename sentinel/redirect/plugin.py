@@ -45,7 +45,7 @@ from starlette.responses import JSONResponse
 
 from sentinel.access import bridge
 
-from . import authz, credentials, residency, resolver, stream
+from . import authz, betas, credentials, residency, resolver, stream
 from .faces import claude as claude_face
 from .faces import generic as generic_face
 from .scopes import RequestScope, applicable
@@ -61,6 +61,7 @@ ROUTE_FACE = {"/v1/messages": "claude", "/v1/chat/completions": "openai_generic"
 # Proveedor del camino de suscripción (credencial personal reenviada tal cual). Dato del
 # producto: inferencia y entidad en EE. UU. — lo único que la postura necesita saber de él.
 SUBSCRIPTION_PROVIDER = {"inference_jurisdiction": "US", "entity_jurisdiction": "US"}
+SUBSCRIPTION_PROVIDER_NAME = "anthropic"     # proveedor al que sirve la credencial personal (FR-042)
 REQUEST_CLASS_HEADER = "x-request-class"
 # Ajustes del normalizador que el administrador tiene que ver en la auditoría: contenido del
 # usuario o de una herramienta que el destino no recibió (el resto son campos de protocolo).
@@ -187,6 +188,19 @@ def _decision(face: str, public_id: str, res, *, request_class, shadow: bool) ->
             for k, v in d.items()}
 
 
+def _names_value(names, limit: int = 128) -> str:
+    """Lista de nombres para un valor de `extensions` (el plano interno corta a 128 caracteres): los que no
+    caben se resumen en `otros_<n>` en vez de quedar cortados a la mitad."""
+    out, used = [], 0
+    for i, name in enumerate(names):
+        if used + len(name) + 1 > limit - len("otros_99") - 1 and i < len(names):
+            out.append(f"otros_{len(names) - i}")
+            break
+        out.append(name)
+        used += len(name) + 1
+    return ",".join(out)
+
+
 def _audit_block(decision: dict) -> dict:
     return {"extensions": {"redirect": decision}}
 
@@ -284,6 +298,9 @@ class RedirectPlugin:
         if state == "off" and not postures:
             return None
         if ctx.mode == "subscription":
+            foreign = self._subscription_foreign(ctx, snap, scope, face, state, permitidos)
+            if foreign is not None:
+                return foreign
             return self._subscription_posture(ctx, snap, scope, face) if postures else None
         if state == "off" or not ctx.model:
             return None                                   # postura sin redirección: US2 (motor)
@@ -363,6 +380,27 @@ class RedirectPlugin:
                                     alternatives=res.alternatives, snap=snap, fidelity=res.fidelity)
         return None
 
+    def _subscription_foreign(self, ctx, snap, scope, face, state, permitidos):
+        """FR-042: con la política encendida, una credencial de suscripción personal no sirve para un
+        destino de otro proveedor (la pasarela no la reenvía ni la cambia por la del destino): 401, texto
+        neutro, sin nombrar el destino. Un destino del mismo proveedor, o un modelo que ninguna regla
+        redirige, sigue su camino."""
+        if state != "on" or face != "claude" or not ctx.model:
+            return None
+        if resolver.find_published(snap.published, scope, face, ctx.model) is None:
+            return None
+        res = resolver.resolve(scope=scope, face=face, public_id=ctx.model,
+                               request_class=(ctx.request_headers or {}).get(REQUEST_CLASS_HEADER),
+                               published_rows=snap.published, rules=snap.rules,
+                               destinations=snap.destinations, offers=snap.offers,
+                               posture=self._posture(snap, scope, ctx.ident, redirected=True),
+                               permitidos=permitidos)
+        if not isinstance(res, resolver.Resolved) or res.destination.get("provider") == SUBSCRIPTION_PROVIDER_NAME:
+            return None
+        ctx.routing_decision = _audit_block({"face": face, "path": "subscription", "public_id": ctx.model,
+                                             "rejected": "subscription_credential"})
+        return _error(face, "auth")
+
     def _subscription_posture(self, ctx, snap, scope, face):
         posture = self._posture(snap, scope, ctx.ident, redirected=False)
         verdict = residency.evaluate(posture, SUBSCRIPTION_PROVIDER)
@@ -431,6 +469,7 @@ class RedirectPlugin:
         dest = plan.destination
         max_output = dest.get("max_output")
         if plan.face == "claude":
+            headers = self._apply_betas(ctx, plan, headers)
             out, _ = credentials.strip_client_credentials(dict(body))
             if resolver.fidelity("claude", dest) == "translated":
                 try:
@@ -446,6 +485,11 @@ class RedirectPlugin:
                 omitted = [r for r in removed if r in OMITTED_AUDIT]
                 if omitted:
                     plan.decision["omitted"] = ",".join(omitted)
+                # T139 de Sentinel: campos que la herramienta mandó y el destino no conoce (p. ej.
+                # `safeguards`): solo sus nombres, acotados (FR-033, FR-035)
+                dropped_fields = claude_face.dropped_field_names(removed)
+                if dropped_fields:
+                    plan.decision["dropped_fields"] = _names_value(dropped_fields)
             out["model"] = plan.engine_model
         else:
             out, _ = generic_face.prepare_request(body, engine_model=plan.engine_model,
@@ -464,6 +508,24 @@ class RedirectPlugin:
             api_base=dest.get("api_base"), forced_masking=plan.forced_masking,
             decision=plan.decision, price=dest.get("price_override"), drop_params=drop)
         return out, headers
+
+    def _apply_betas(self, ctx, plan: Plan, headers: dict) -> dict:
+        """T094 de Sentinel (FR-040): hacia un nativo, `anthropic-beta` por lista permitida; hacia un
+        traducido, ninguna. Se decide acá, con el destino final (una sustitución por capacidad puede cambiar
+        la fidelidad después de que la pasarela calculó las cabeceras a reenviar)."""
+        received = betas.parse((ctx.request_headers or {}).get(betas.HEADER))
+        headers = {k: v for k, v in headers.items() if k.lower() != betas.HEADER}
+        if not received:
+            return headers
+        if resolver.fidelity("claude", plan.destination) == "native":
+            kept, dropped = betas.split_allowed(received, betas.allowlist())
+            if kept:
+                headers[betas.HEADER] = ",".join(kept)
+        else:
+            dropped = len(received)
+        if dropped:
+            plan.decision["betas_dropped"] = dropped          # FR-033: solo la cantidad
+        return headers
 
     # ── resolución por capacidad (069 FR-008b) ────────────────────────────────
     def _missing(self, face: str, needs, dest: dict, fidelity: str) -> Optional[str]:
@@ -496,8 +558,10 @@ class RedirectPlugin:
                                      fidelity=alt.fidelity, residency_mode=alt.residency_mode,
                                      jurisdiction_served=alt.jurisdiction_served,
                                      substitution_reason="capability")
-                plan.decision = {k: (str(v) if v is not None and not isinstance(v, (bool, int, float, str)) else v)
-                                 for k, v in plan.decision.items()}
+                # en el lugar: `ctx.routing_decision` comparte este dict y lo que se agrega después
+                # (`omitted`, `dropped_fields`, `betas_dropped`) tiene que llegar a la auditoría
+                plan.decision.update({k: str(v) for k, v in plan.decision.items()
+                                      if v is not None and not isinstance(v, (bool, int, float, str))})
                 plan.alternatives = ()
                 return None
         return first_missing
