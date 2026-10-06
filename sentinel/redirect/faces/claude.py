@@ -229,6 +229,8 @@ def _omit_unsupported(content: list, profile: Mapping[str, Any], notes: Mapping[
         cap = _BLOCK_CAPABILITY.get(blk.get("type"))
         if cap and not profile.get(cap, False):
             content[i] = {"type": "text", "text": notes[cap]}
+            if blk.get("cache_control") is not None:         # FR-044: la marca de caché del bloque pasa a la nota
+                content[i]["cache_control"] = blk["cache_control"]
             omitted.add(cap)
         elif isinstance(blk.get("content"), list):          # tool_result con bloques anidados
             omitted |= _omit_unsupported(blk["content"], profile, notes)

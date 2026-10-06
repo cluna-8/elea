@@ -51,9 +51,7 @@ def _credential(tenant: str, entry_id: str) -> dict:
 
 
 def _per_mtok(price) -> Optional[dict]:
-    if isinstance(price, dict) and price.get("input") is not None and price.get("output") is not None:
-        return {"input_per_mtok": float(price["input"]) * 1e6, "output_per_mtok": float(price["output"]) * 1e6}
-    return None
+    return rc.price_per_mtok(price)                # una única fuente de precios (FR-049)
 
 
 def _tenant_of(tenant_id) -> Optional[str]:

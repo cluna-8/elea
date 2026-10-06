@@ -42,7 +42,7 @@ TRANSFER_MECHANISMS = ("n/a", "dpf", "scc", "none", "unknown")
 # Reglas de habilitación explícita (057 FR-029, research R14): qué hace que una entrada nazca bloqueada.
 RULE_KINDS = ("provider", "api_host", "jurisdiction")
 # Capacidades funcionales por entrada (FR-008a); la clave ausente = no declarada = sin la capacidad.
-FEATURES = ("images", "documents_pdf", "tools", "thinking", "cache_control", "mid_system_messages")
+FEATURES = ("images", "documents_pdf", "tools", "thinking", "cache_control", "mid_system_messages", "session_affinity")
 
 
 def slugify(name: str) -> str:

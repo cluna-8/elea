@@ -338,6 +338,31 @@ def apply_openrouter_prefs(data: dict, grant: authz.Grant) -> None:
     data["extra_body"] = extra
 
 
+AFFINITY_HEADER = "x-session-id"
+
+
+def apply_session_affinity(data: dict, grant: authz.Grant) -> bool:
+    """FR-043 (057 T074): el identificador de afinidad de sesión que la pasarela derivó con la clave del servidor y firmó en
+    la autorización (nunca el original de la herramienta) se manda al destino que lo declaró: `session_id` en el cuerpo de
+    OpenRouter y la cabecera `x-session-id` en los demás. Lo que mande el cliente se descarta siempre. Devuelve si se aplicó."""
+    extra = data.get("extra_body")
+    if isinstance(extra, dict) and "session_id" in extra:
+        extra = {k: v for k, v in extra.items() if k != "session_id"}
+        data["extra_body"] = extra
+    headers = data.get("extra_headers")
+    if isinstance(headers, dict):                              # `extra_headers` del cliente ya se quitó; por si la fijó el guard
+        headers = {k: v for k, v in headers.items() if str(k).lower() != AFFINITY_HEADER}
+        data["extra_headers"] = headers
+    aff = grant.affinity
+    if not aff or not isinstance(aff, str):
+        return False
+    if grant.provider == OPENROUTER:
+        data["extra_body"] = {**(data.get("extra_body") or {}), "session_id": aff}
+    else:
+        data["extra_headers"] = {**(data.get("extra_headers") or {}), AFFINITY_HEADER: aff}
+    return True
+
+
 DROPPED_KEY = "dropped_params"
 
 
@@ -497,6 +522,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     pricing, pricing_source = credentials.cost_params(
         grant.price, grant.provider, parts[1], _engine_cost_map() if cost_map is None else cost_map)
     data.update(pricing)
+    affinity_applied = apply_session_affinity(data, grant)
 
     decision = dict(grant.decision)
     _merge_dropped(decision, dropped)
@@ -504,6 +530,10 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
         decision[ADJUSTED_KEY] = ",".join(adjusted)
     if grant.provider == OPENROUTER:
         decision[OPENROUTER_ZDR_KEY] = True
+    if affinity_applied:
+        decision["session_affinity"] = True
+    if pricing_source != "none" and not all(p in pricing for p in credentials.CACHE_PRICE_PARAMS.values()):
+        decision["price_cache_missing"] = True            # FR-046: la caché se cobró a precio de entrada
     decision.update({"destination_id": grant.destination_id, "request_id": grant.request_id,
                      "scope": grant.scope, "forced_masking": grant.forced_masking,
                      "masking_verified": bool(grant.forced_masking), "pricing": pricing_source})

@@ -164,8 +164,12 @@ def _price_override(entry: cm.CatalogEntry) -> Optional[dict]:
     """USD por millón de tokens (forma de la 068); en el catálogo se guarda por token."""
     if entry.price_input is None and entry.price_output is None:
         return None
-    return {"input_per_mtok": round(float(entry.price_input or 0) * 1e6, 6),
-            "output_per_mtok": round(float(entry.price_output or 0) * 1e6, 6)}
+    out = {"input_per_mtok": round(float(entry.price_input or 0) * 1e6, 6),
+           "output_per_mtok": round(float(entry.price_output or 0) * 1e6, 6)}
+    for attr, name in (("price_cache_read", "cache_read_per_mtok"), ("price_cache_write", "cache_write_per_mtok")):
+        if getattr(entry, attr, None) is not None:                 # FR-046: precio de caché del destino (opcional)
+            out[name] = round(float(getattr(entry, attr)) * 1e6, 6)
+    return out
 
 
 def entry_to_destination(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
