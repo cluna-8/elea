@@ -1,0 +1,56 @@
+# Fragmento de perfil de capa 2 (spec 068, research D14/D15/D21). Lo agrega S11 al config
+# renderizado (model_list y guardrails se agregan AL FINAL; duplicados ⇒ error de render).
+# Ningún template de perfil se edita.
+#
+# Familias estables con comodín, SIN credencial: el guard `redirect-guard` fija credencial y
+# base por pedido desde la autorización interna. Sin autorización válida, todo `rdx-*` se
+# rechaza (aun con la política apagada). `plugin_owner` las oculta de listados y del catálogo
+# del auto-router (S6).
+model_list:
+  - model_name: "rdx-openai/*"          # OpenAI real (API Responses)
+    litellm_params: {model: "openai/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-azure/*"
+    litellm_params: {model: "azure/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-azure-ai/*"
+    litellm_params: {model: "azure_ai/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-anthropic/*"
+    litellm_params: {model: "anthropic/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-bedrock/*"
+    litellm_params: {model: "bedrock/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-vertex/*"
+    litellm_params: {model: "vertex_ai/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-deepseek/*"
+    litellm_params: {model: "deepseek/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-gemini/*"
+    litellm_params: {model: "gemini/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-groq/*"
+    litellm_params: {model: "groq/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-zai/*"             # 069: GLM (Z.AI)
+    litellm_params: {model: "zai/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-nvidia/*"          # 069: Nemotron (NVIDIA NIM)
+    litellm_params: {model: "nvidia_nim/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-mistral/*"         # 069
+    litellm_params: {model: "mistral/*"}
+    model_info: {plugin_owner: redirect}
+  - model_name: "rdx-chatcompat/*"      # compatibles-OpenAI solo-chat: Ollama, vLLM, OpenRouter
+    litellm_params: {model: "hosted_vllm/*"}
+    model_info: {plugin_owner: redirect}
+
+guardrails:
+  # Después del guardrail de la base (orden de declaración): ve su `masking_report` (D16).
+  - guardrail_name: redirect-guard
+    litellm_params:
+      guardrail: extensions.redirect_guard.RedirectGuard
+      mode: pre_call
+      default_on: true

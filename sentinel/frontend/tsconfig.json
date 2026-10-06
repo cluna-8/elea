@@ -1,0 +1,6 @@
+{
+  // Chequeo de tipos de las páginas de capa 2 con las reglas de la consola (`npx tsc -p .`).
+  "extends": "../../frontend/tsconfig.json",
+  "compilerOptions": { "types": ["vite/client", "vitest/globals"] },
+  "include": ["pages", "redirect", "catalog", "models", "routing", "test-setup.ts"]
+}

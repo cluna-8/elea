@@ -1,0 +1,539 @@
+"""Plugin de pasarela de la política de redireccionamiento (costura S2; T038/T054/T055/T057–T059).
+
+Registro: `GATEWAY_PLUGINS=sentinel.redirect.plugin` (el backend importa este módulo y toma
+`gateway_plugin`). Requiere que el paquete `sentinel` sea importable en el backend (imagen o
+volumen + `PYTHONPATH`, ver `sentinel/README.md`).
+
+Contrato de identidad (FR-002): `models_filter` corre SIEMPRE y solo oculta `rdx-*`; todo lo
+demás sale temprano si para el alcance del pedido la redirección está `off` y no hay filas de
+postura. Sin filas en la base, la pasarela se comporta como sin plugin (salvo re-serializar el
+JSON, que la costura hace con cualquier plugin).
+
+Flujo con política `on` (byok, `/v1/messages` = cara Claude, `/v1/chat/completions` = cara
+genérica), solo para ids **publicados** — un modelo no publicado sigue su camino normal:
+1. `pre_request`: resuelve alcance → regla → destino elegible (resolver puro + residencia) y
+   aplica FR-010a (lista de modelos de la llave evaluada sobre el id PÚBLICO: la costura no deja
+   responder desde `pre_engine`, así que la evaluación ocurre aquí, antes de reescribir nada).
+   Sin destino ⇒ error de cara (404 / 403 residencia) y fila de auditoría del corte.
+2. `pre_engine`: quita credenciales/destinos del cliente, normaliza para destinos traducidos,
+   reescribe `model = rdx-<familia>/<real>` y agrega `x-redirect-authz` (autorización interna
+   firmada con la credencial cifrada, D14/D15).
+3. `wrap_stream` (ping + `model` público), `map_response` (no-stream: `model` público) y
+   `map_error` (categoría por cara).
+
+Modo `shadow`: el pedido sale igual que con `off`; la decisión hipotética viaja firmada para
+el MISMO modelo y el guard del motor solo la registra (`routing_decision.extensions.redirect`
+con `shadow=true`). Una falla en sombra nunca afecta al pedido.
+
+Postura en el camino de suscripción (FR-001b, parcial en este MVP): si hay filas de postura,
+se evalúa contra la jurisdicción del proveedor original y puede responder 403; con
+`offregion_masked` fuera de región fuerza el enmascarado de la pasarela y `nlp_fail_mode=block`.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import JSONResponse
+
+from sentinel.access import bridge
+
+from . import authz, credentials, residency, resolver, stream
+from .faces import claude as claude_face
+from .faces import generic as generic_face
+from .scopes import RequestScope, applicable
+from .store import RedirectStore, StoreUnavailable, default_store
+
+logger = logging.getLogger("sentinel.redirect.plugin")
+
+STATE_KEY = "sentinel.redirect"
+ACCESS_KEY = "sentinel.access"
+RDX_PREFIX = "rdx-"
+REJECTED_MODEL = "rdx-rejected/capability"     # sin autorización ⇒ el guard lo corta siempre
+ROUTE_FACE = {"/v1/messages": "claude", "/v1/chat/completions": "openai_generic"}
+# Proveedor del camino de suscripción (credencial personal reenviada tal cual). Dato del
+# producto: inferencia y entidad en EE. UU. — lo único que la postura necesita saber de él.
+SUBSCRIPTION_PROVIDER = {"inference_jurisdiction": "US", "entity_jurisdiction": "US"}
+REQUEST_CLASS_HEADER = "x-request-class"
+# Ajustes del normalizador que el administrador tiene que ver en la auditoría: contenido del
+# usuario o de una herramienta que el destino no recibió (el resto son campos de protocolo).
+# Mismo literal que el corte de un plugin (ya inventariado en el clasificador de retención).
+STATUS_REJECTED = "blocked_by_policy"
+OMITTED_AUDIT = ("images_in_history", "images_in_tool_result", "documents_in_tool_result")
+
+
+@dataclass
+class Plan:
+    face: str
+    public_id: str
+    decision: dict
+    shadow: bool = False
+    engine_model: Optional[str] = None
+    destination: dict = field(default_factory=dict)
+    credential: dict = field(default_factory=dict, repr=False)
+    forced_masking: bool = False
+    scope_label: str = ""
+    rejected: Optional[str] = None
+    rejection_audited: bool = False
+    alternatives: tuple = ()          # destinos elegibles tras el elegido (resolución por capacidad)
+    snap: Any = field(default=None, repr=False)
+    fidelity: str = "native"
+
+
+# ── utilidades ────────────────────────────────────────────────────────────────
+
+def hide_rdx(listing: Any) -> Any:
+    """`rdx-*` jamás se lista (FR-006a, R13: el motor expande el comodín con todo el catálogo)."""
+    if isinstance(listing, dict) and isinstance(listing.get("data"), list):
+        data = [m for m in listing["data"]
+                if not (isinstance(m, dict) and str(m.get("id", "")).startswith(RDX_PREFIX))]
+        if len(data) != len(listing["data"]):
+            listing = dict(listing)
+            listing["data"] = data
+            if "first_id" in listing or "last_id" in listing:
+                listing["first_id"] = data[0].get("id") if data else None
+                listing["last_id"] = data[-1].get("id") if data else None
+    return listing
+
+
+def hide_not_allowed(listing: Any, permitidos: Optional[frozenset], governed: frozenset) -> Any:
+    """Perfil de acceso (069 FR-012): el listado solo muestra lo que la identidad puede usar. Solo se
+    ocultan los modelos que el catálogo gobierna; el resto del listado queda intacto."""
+    if permitidos is None or not (isinstance(listing, dict) and isinstance(listing.get("data"), list)):
+        return listing
+    data = [m for m in listing["data"]
+            if not (isinstance(m, dict) and m.get("id") in governed and m.get("id") not in permitidos)]
+    if len(data) == len(listing["data"]):
+        return listing
+    listing = dict(listing)
+    listing["data"] = data
+    if "first_id" in listing or "last_id" in listing:
+        listing["first_id"] = data[0].get("id") if data else None
+        listing["last_id"] = data[-1].get("id") if data else None
+    return listing
+
+
+def request_scope(ident: dict) -> Optional[RequestScope]:
+    tenant = ident.get("tenant_id")
+    if not tenant:
+        return None
+    group = ident.get("group_id")
+    return RequestScope(tenant_id=str(tenant),
+                        connection_id=str(ident["api_key_id"]) if ident.get("api_key_id") else None,
+                        user_id=str(ident["user_id"]) if ident.get("user_id") else None,
+                        group_ids=(str(group),) if group else ())
+
+
+def tenant_region(ident: dict) -> str:
+    """Región del tenant (su `pii_masking.config.region`) o la de la instalación."""
+    region = (ident.get("nlp") or {}).get("region")
+    return region or os.environ.get("SENTINEL_ENTITY_REGION", "eu")
+
+
+def _error(face: str, kind: str, **kw) -> JSONResponse:
+    if face == "claude":
+        status, headers, body = claude_face.error_response(kind, **kw)
+    else:
+        status, headers, body = generic_face.error_response(kind, **kw)
+    return JSONResponse(status_code=status, content=body, headers=headers or None)
+
+
+# Códigos que emite el guard del motor (`sentinel/engine/redirect_guard.py`): son rechazos de
+# Sentinel, no fallas del proveedor, y nunca se presentan como reintentables (069 FR-008d). El
+# motor los devuelve dentro del mensaje (repr de Python) o en `provider_specific_fields` (JSON).
+_GUARD_CODE_RE = re.compile(r"""['"]code['"]\s*:\s*['"](masking_required|authz_[a-z_]+|family_mismatch|destination_misconfigured)['"]""")
+_GUARD_KIND = {"masking_required": "masking_blocked", "destination_misconfigured": "destination_misconfigured"}
+
+
+def guard_rejection_kind(content) -> Optional[str]:
+    text = content.decode("utf-8", "replace") if isinstance(content, (bytes, bytearray)) else str(content or "")
+    m = _GUARD_CODE_RE.search(text)
+    if not m:
+        return None
+    code = m.group(1)
+    return _GUARD_KIND.get(code, "policy_blocked")
+
+
+def _error_bytes(face: str, kind: str, **kw):
+    resp = _error(face, kind, **kw)
+    return resp.status_code, resp.body, {k: v for k, v in resp.headers.items()
+                                         if k.lower() not in ("content-length", "content-type")}
+
+
+def _decision(face: str, public_id: str, res, *, request_class, shadow: bool) -> dict:
+    """Solo metadata (FR-033): claves cortas y escalares (S7 `extensions`)."""
+    d = {"public_id": public_id, "face": face, "request_class": request_class,
+         "shadow": shadow}
+    if isinstance(res, resolver.Resolved):
+        d["strategy"] = res.strategy
+    if isinstance(res, resolver.Resolved):
+        dest = res.destination
+        d.update(destination_id=dest.get("id"), destination_name=dest.get("name"),
+                 fidelity=res.fidelity, rule_id=res.rule_id, residency_mode=res.residency_mode,
+                 jurisdiction_served=res.jurisdiction_served,
+                 substitution_reason=res.substitution_reason)
+        if shadow:
+            d["shadow_destination_id"] = d.pop("destination_id")
+    else:
+        d.update(unavailable=res.kind, error_class=res.error_class, rule_id=res.rule_id)
+    return {k: (str(v) if v is not None and not isinstance(v, (bool, int, float, str)) else v)
+            for k, v in d.items()}
+
+
+def _audit_block(decision: dict) -> dict:
+    return {"extensions": {"redirect": decision}}
+
+
+def _access_block(model: str) -> dict:
+    return {"extensions": {"access": {"blocked": "profile_not_allowed", "requested": model}}}
+
+
+# ── el plugin ─────────────────────────────────────────────────────────────────
+
+class RedirectPlugin:
+    def __init__(self, store: Optional[RedirectStore] = None, *, ping_after: float = stream.DEFAULT_PING_AFTER,
+                 clock=time.time, audit=None):
+        self._store = store
+        self.ping_after = ping_after
+        self._clock = clock
+        self._audit = audit                     # escritor de filas de la pasarela; None ⇒ el del backend
+
+    def _audit_rejection(self, ctx, plan: Plan) -> None:
+        """Fila de auditoría del rechazo por capacidad (069 FR-008c): motivo, modelo pedido y
+        destino evaluado, sin contenido. El rechazo se decide en `pre_engine` y el motor lo corta
+        antes de llamar a nadie: el logger del motor corre solo en éxito y el gateway byok no
+        audita los errores del motor, así que sin esto no quedaba rastro. Una sola vez por pedido
+        y NUNCA propaga: el rechazo al cliente sale igual, como con la fila del 402 del motor."""
+        if plan.rejection_audited:
+            return
+        plan.rejection_audited = True
+        try:
+            writer = self._audit
+            if writer is None:
+                from src.api import gateway               # el backend: import perezoso, como el motor
+                writer = gateway._audit
+            writer(ctx.ident or {}, str(ctx.model or plan.public_id), 0, 0, STATUS_REJECTED, [], 0, None,
+                   routing_decision=_audit_block(plan.decision))
+        except Exception:  # noqa: BLE001
+            logger.exception("redirect: no se pudo auditar el rechazo por capacidad (%s)", plan.rejected)
+
+    @property
+    def store(self) -> RedirectStore:
+        return self._store if self._store is not None else default_store()
+
+    async def _snapshot(self, tenant_id: str):
+        return await run_in_threadpool(self.store.snapshot, tenant_id)
+
+    # models_filter: SIEMPRE (FR-002 / FR-006a)
+    def models_filter(self, ctx, listing):
+        listing = hide_rdx(listing)
+        view = ctx.state.get(STATE_KEY + ".models_view")
+        if view is not None:
+            return view
+        return hide_not_allowed(listing, *ctx.state.get(ACCESS_KEY, (None, frozenset())))
+
+    async def pre_request(self, ctx):
+        scope = request_scope(ctx.ident or {})
+        if scope is None:
+            return None
+        face = ROUTE_FACE.get(ctx.route)
+        permitidos, governed = None, frozenset()
+        if face is not None or ctx.route == "/v1/models":
+            # Perfil de acceso (069 US2): SIEMPRE, aunque la redirección esté apagada. Si no se pueden
+            # resolver los permitidos, el pedido no se sirve (fail-closed, FR-014a).
+            try:
+                permitidos, governed = await run_in_threadpool(bridge.allowed_for_ident, ctx.ident or {})
+            except Exception:  # noqa: BLE001
+                logger.exception("acceso: no se pudieron resolver los modelos permitidos")
+                return _error(face or generic_face.select_models_view(ctx.request_headers or {}),
+                              "policy_unavailable")
+            if permitidos is not None:
+                ctx.state[ACCESS_KEY] = (permitidos, governed)
+        try:
+            snap = await self._snapshot(scope.tenant_id)
+        except StoreUnavailable as exc:
+            return self._access_cut(ctx, face, permitidos, governed, redirected=False) \
+                or self._store_down(ctx, scope, exc)
+        if snap.empty():
+            return self._access_cut(ctx, face, permitidos, governed, redirected=False)
+        try:
+            state = resolver.effective_state(snap.policy, scope)
+        except ValueError:                                # fila corrupta ⇒ fail-closed
+            return self._fail_closed(ctx) if ROUTE_FACE.get(ctx.route) else None
+        postures = applicable(snap.postures, scope)
+        if ctx.route == "/v1/models":
+            if state == "on":
+                self._build_models_view(ctx, snap, scope, permitidos)
+            return None
+        if face is None:
+            return None                                   # count_tokens y otras: sin cambio
+        # un id publicado con la redirección en `on` se decide por sus destinos (más abajo); todo lo
+        # demás que el catálogo gobierna se corta acá
+        redirected = (state == "on" and bool(ctx.model)
+                      and resolver.find_published(snap.published, scope, face, ctx.model) is not None)
+        cut = self._access_cut(ctx, face, permitidos, governed, redirected=redirected)
+        if cut is not None:
+            return cut
+        if state == "off" and not postures:
+            return None
+        if ctx.mode == "subscription":
+            return self._subscription_posture(ctx, snap, scope, face) if postures else None
+        if state == "off" or not ctx.model:
+            return None                                   # postura sin redirección: US2 (motor)
+        published = resolver.find_published(snap.published, scope, face, ctx.model)
+        if published is None:
+            return None                                   # no es un id publicado: camino normal
+        try:
+            return await self._resolve(ctx, snap, scope, face, state, permitidos)
+        except Exception:  # noqa: BLE001
+            if state == "shadow":
+                logger.exception("redirect: falla en sombra (el pedido sigue igual)")
+                return None
+            logger.exception("redirect: falla resolviendo con política on")
+            return self._fail_closed(ctx)
+
+    def _access_cut(self, ctx, face, permitidos, governed, *, redirected: bool):
+        """Corte por perfil de un modelo del catálogo que no es un id publicado servido por la
+        redirección. La pasarela audita el corte con `ctx.routing_decision`. Un modelo que el catálogo
+        no conoce no está en `governed` y no se gobierna (límite documentado)."""
+        model = ctx.model
+        if face is None or redirected or permitidos is None or not model:
+            return None
+        if model not in governed or model in permitidos:
+            return None
+        ctx.routing_decision = _access_block(model)
+        return _error(face, "model_not_allowed")
+
+    def _store_down(self, ctx, scope, exc):
+        last = self.store.last_known(scope.tenant_id)
+        logger.error("redirect: no se pudo leer la política (%s)", exc)
+        if last is None or last.empty():
+            return None
+        try:
+            was_on = resolver.effective_state(last.policy, scope) == "on"
+        except ValueError:
+            was_on = True
+        if was_on and ROUTE_FACE.get(ctx.route) and ctx.mode == "byok":
+            return self._fail_closed(ctx)
+        return None
+
+    def _fail_closed(self, ctx):
+        face = ROUTE_FACE.get(ctx.route, "openai_generic")
+        return _error(face, "policy_unavailable")
+
+    def _posture(self, snap, scope, ident, *, redirected: bool):
+        return residency.effective_posture(snap.postures, scope, redirected=redirected,
+                                           tenant_region=tenant_region(ident))
+
+    async def _resolve(self, ctx, snap, scope, face, state, permitidos=None):
+        request_class = ctx.request_headers.get(REQUEST_CLASS_HEADER) if ctx.request_headers else None
+        posture = self._posture(snap, scope, ctx.ident, redirected=True)
+        res = resolver.resolve(scope=scope, face=face, public_id=ctx.model,
+                               request_class=request_class, published_rows=snap.published,
+                               rules=snap.rules, destinations=snap.destinations,
+                               offers=snap.offers, posture=posture, permitidos=permitidos)
+        shadow = state == "shadow"
+        decision = _decision(face, ctx.model, res, request_class=request_class, shadow=shadow)
+        ctx.routing_decision = _audit_block(decision)
+        if shadow:
+            ctx.state[STATE_KEY] = Plan(face=face, public_id=ctx.model, decision=decision,
+                                        shadow=True, scope_label=scope.label())
+            return None
+        if isinstance(res, resolver.Unavailable):
+            if res.error_class == "not_allowed":
+                ctx.routing_decision["extensions"].update(_access_block(ctx.model)["extensions"])
+                return _error(face, "model_not_allowed")
+            return _error(face, "region" if res.error_class == "residency" else "not_available")
+        allowed = await run_in_threadpool(self.store.key_allowed_models, (ctx.ident or {}).get("api_key_id"))
+        if allowed and ctx.model not in allowed:                  # FR-010a sobre el id público
+            decision["unavailable"] = "key_model_not_allowed"
+            return _error(face, "not_available")
+        dest = res.destination
+        cred = await run_in_threadpool(self.store.credential, snap, dest["id"])
+        ctx.state[STATE_KEY] = Plan(face=face, public_id=ctx.model, decision=decision,
+                                    engine_model=res.engine_model, destination=dest, credential=cred,
+                                    forced_masking=res.forced_masking, scope_label=scope.label(),
+                                    alternatives=res.alternatives, snap=snap, fidelity=res.fidelity)
+        return None
+
+    def _subscription_posture(self, ctx, snap, scope, face):
+        posture = self._posture(snap, scope, ctx.ident, redirected=False)
+        verdict = residency.evaluate(posture, SUBSCRIPTION_PROVIDER)
+        decision = {"face": face, "path": "subscription", "residency_mode": verdict.mode,
+                    "jurisdiction_served": verdict.jurisdiction_served,
+                    "forced_masking": verdict.forced_masking}
+        ctx.routing_decision = _audit_block(decision)
+        if not verdict.allowed:
+            return _error(face, "region")
+        if verdict.forced_masking:
+            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block")
+        return None
+
+    def _build_models_view(self, ctx, snap, scope, permitidos=None):
+        face = generic_face.select_models_view(ctx.request_headers or {})
+        rows = resolver.published_models(snap.published, scope, face)
+        if not rows:
+            return
+        posture = self._posture(snap, scope, ctx.ident, redirected=True)
+        usable = []
+        for row in rows:
+            res = resolver.resolve(scope=scope, face=face, public_id=row["public_id"],
+                                   request_class="main", published_rows=snap.published,
+                                   rules=snap.rules, destinations=snap.destinations,
+                                   offers=snap.offers, posture=posture, permitidos=permitidos)
+            if isinstance(res, resolver.Resolved):
+                usable.append({**row, "destination_name": res.destination.get("name"),
+                               "context_window": res.destination.get("context_window"),
+                               "without_images": self._missing(face, {"images"}, res.destination,
+                                                               res.fidelity) is not None})
+        if face == "claude":
+            view = claude_face.models_view(usable, now_iso=time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                                         time.gmtime(self._clock())))
+        else:
+            view = generic_face.models_view(usable, created=int(self._clock()))
+        ctx.state[STATE_KEY + ".models_view"] = view
+
+    # hooks sobre el pedido
+    def forward_headers_allowlist(self, ctx):
+        plan = ctx.state.get(STATE_KEY)
+        if plan and not plan.shadow and plan.face == "claude" and \
+                resolver.fidelity("claude", plan.destination) == "native":
+            return {"anthropic-beta"}
+        return set()
+
+    def pre_engine(self, ctx, body, headers):
+        plan: Optional[Plan] = ctx.state.get(STATE_KEY)
+        if plan is None or not isinstance(body, dict):
+            return body, headers
+        headers = {k: v for k, v in headers.items() if k.lower() != authz.HEADER}
+        if plan.shadow:
+            try:
+                token = authz.issue(request_id=str(uuid.uuid4()), scope=plan.scope_label,
+                                    destination_id=str(plan.decision.get("shadow_destination_id") or ""),
+                                    model=str(body.get("model")), provider="shadow", credential={},
+                                    decision=plan.decision)
+                headers[authz.HEADER] = token
+            except Exception:  # noqa: BLE001 — la sombra jamás afecta el pedido
+                logger.warning("redirect: sombra sin firma (¿REDIRECT_INTERNAL_KEY ausente?)")
+            return body, headers
+        missing = self._select_by_capability(plan, body)
+        if missing is not None:
+            plan.rejected = missing
+            plan.decision["rejected"] = missing
+            return {"model": REJECTED_MODEL, "messages": [], "max_tokens": 1}, headers
+        dest = plan.destination
+        max_output = dest.get("max_output")
+        if plan.face == "claude":
+            out, _ = credentials.strip_client_credentials(dict(body))
+            if resolver.fidelity("claude", dest) == "translated":
+                try:
+                    out, removed = claude_face.normalize_for_translated(
+                        out, dest.get("capability_profile") or {}, max_output=max_output or 0)
+                except claude_face.CapabilityRejected as exc:
+                    plan.rejected = exc.capability
+                    plan.decision["rejected"] = exc.capability
+                    out = {"model": REJECTED_MODEL, "messages": [], "max_tokens": 1}
+                    return out, headers
+                # imágenes/documentos reemplazados por una nota: quedan en la decisión (la de la
+                # pasarela comparte el dict; la del motor viaja firmada abajo) — FR-033: escalar
+                omitted = [r for r in removed if r in OMITTED_AUDIT]
+                if omitted:
+                    plan.decision["omitted"] = ",".join(omitted)
+            out["model"] = plan.engine_model
+        else:
+            out, _ = generic_face.prepare_request(body, engine_model=plan.engine_model,
+                                                  max_output=max_output)
+        # Parámetros que la ficha del destino declara no soportados (069 enmienda): se quitan acá, en las
+        # dos caras, y la lista viaja firmada para que el guard del motor haga lo mismo con lo que se cuele.
+        drop = tuple(dest.get("unsupported_params") or ())
+        dropped = [n for n in drop if n in out]
+        for n in dropped:
+            out.pop(n)
+        if dropped:
+            plan.decision["dropped_params"] = ",".join(dropped)       # FR-033: solo nombres, escalar
+        headers[authz.HEADER] = authz.issue(
+            request_id=str(uuid.uuid4()), scope=plan.scope_label, destination_id=str(dest["id"]),
+            model=plan.engine_model, provider=dest["provider"], credential=plan.credential,
+            api_base=dest.get("api_base"), forced_masking=plan.forced_masking,
+            decision=plan.decision, price=dest.get("price_override"), drop_params=drop)
+        return out, headers
+
+    # ── resolución por capacidad (069 FR-008b) ────────────────────────────────
+    def _missing(self, face: str, needs, dest: dict, fidelity: str) -> Optional[str]:
+        """Primera capacidad que el pedido necesita y el destino no tiene. Un destino nativo de la
+        cara la acepta toda; en la cara genérica solo cuenta lo declarado explícitamente falso."""
+        profile = dest.get("capability_profile") or {}
+        if face == "claude":
+            if fidelity != "translated":
+                return None
+            return next((c for c in sorted(needs) if not profile.get(c, False)), None)
+        return generic_face.missing_capability(needs, profile)
+
+    def _select_by_capability(self, plan: Plan, body) -> Optional[str]:
+        """Si el pedido adjunta imágenes/PDF y el destino elegido no los tiene, pasa al siguiente destino
+        de la regla que sí. Devuelve la capacidad faltante si NINGUNO la tiene (⇒ rechazo)."""
+        face_mod = claude_face if plan.face == "claude" else generic_face
+        needs = face_mod.current_turn_needs(body)
+        if not needs:
+            return None
+        first_missing = self._missing(plan.face, needs, plan.destination, plan.fidelity)
+        if first_missing is None:
+            return None
+        for alt in plan.alternatives:
+            if self._missing(plan.face, needs, alt.destination, alt.fidelity) is None:
+                plan.destination, plan.engine_model, plan.fidelity = alt.destination, alt.engine_model, alt.fidelity
+                plan.forced_masking = alt.forced_masking
+                plan.credential = self.store.credential(plan.snap, alt.destination["id"])
+                plan.decision.update(destination_id=alt.destination.get("id"),
+                                     destination_name=alt.destination.get("name"),
+                                     fidelity=alt.fidelity, residency_mode=alt.residency_mode,
+                                     jurisdiction_served=alt.jurisdiction_served,
+                                     substitution_reason="capability")
+                plan.decision = {k: (str(v) if v is not None and not isinstance(v, (bool, int, float, str)) else v)
+                                 for k, v in plan.decision.items()}
+                plan.alternatives = ()
+                return None
+        return first_missing
+
+    def wrap_stream(self, ctx, iterator):
+        plan: Optional[Plan] = ctx.state.get(STATE_KEY)
+        if plan is None or plan.shadow or plan.rejected:
+            return iterator
+        return stream.wrap_sse(iterator, public_model=plan.public_id,
+                               face="claude" if plan.face == "claude" else "openai",
+                               ping_after=self.ping_after)
+
+    def map_response(self, ctx, status, content):
+        plan: Optional[Plan] = ctx.state.get(STATE_KEY)
+        if plan is None or plan.shadow:
+            return None
+        try:
+            body = json.loads(content)
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(body, dict) or "model" not in body:
+            return None
+        body = generic_face.rewrite_response_model(body, plan.public_id)
+        return status, json.dumps(body, ensure_ascii=False).encode(), None
+
+    def map_error(self, ctx, status, content):
+        plan: Optional[Plan] = ctx.state.get(STATE_KEY)
+        if plan is None or plan.shadow:
+            return None
+        if plan.rejected:
+            self._audit_rejection(ctx, plan)
+            return _error_bytes(plan.face, "capability", capability=plan.rejected)
+        kind = guard_rejection_kind(content)
+        if kind is not None:
+            return _error_bytes(plan.face, kind)
+        return _error_bytes(plan.face, claude_face.map_upstream_status(int(status)))
+
+
+gateway_plugin = RedirectPlugin()
