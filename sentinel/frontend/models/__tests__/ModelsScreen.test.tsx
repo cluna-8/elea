@@ -136,7 +136,7 @@ describe("pantalla única «Modelos»", () => {
     expect(screen.getByText("Región UE")).toBeInTheDocument();
     expect(screen.getByText("Fuera de la UE")).toBeInTheDocument();
     expect(screen.getAllByText("Región sin determinar")).toHaveLength(2);   // el modelo sin dato y la fila heredada
-    expect(screen.getByLabelText("Semáforo: Admisible UE")).toBeInTheDocument();
+    expect(screen.getByLabelText("Semáforo: Dentro de la región")).toBeInTheDocument();
     expect(screen.getByText("Embeddings")).toBeInTheDocument();
     const legacyRow = (await screen.findByText("gpt-heredado")).closest("tr") as HTMLElement;
     expect(within(legacyRow).getByText("Heredado del motor")).toBeInTheDocument();

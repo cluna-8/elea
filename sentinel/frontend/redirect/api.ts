@@ -42,7 +42,20 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
 
 export const redirectApi = {
-  capabilities: () => call<{ operator: boolean }>("/redirect/capabilities"),
+  capabilities: () => call<{ operator: boolean; manages_regions?: boolean }>("/redirect/capabilities"),
+
+  /** Región del perfil y postura por defecto (057 FR-030, FR-031). Una instalación sin estas rutas responde 404. */
+  regionEffective: () => call<RegionEffective>("/redirect/regions/effective"),
+  regions: () => call<{ data: Region[] }>("/redirect/regions").then(r => r.data),
+  createRegion: (body: Record<string, unknown>) => call<Region>("/redirect/regions", json("POST", body)),
+  patchRegion: (id: string, body: Record<string, unknown>) => call<Region>(`/redirect/regions/${id}`, json("PATCH", body)),
+
+  /** Relajaciones del enmascarado forzado por destino (057 FR-031a): alta y baja (con motivo) solo de cumplimiento. */
+  maskingRelaxations: () => call<{ data: MaskingRelaxation[] }>("/redirect/masking-relaxations").then(r => r.data),
+  createRelaxation: (body: { entry_id: string; level: string; reason: string }) =>
+    call<MaskingRelaxation>("/redirect/masking-relaxations", json("POST", body)),
+  revokeRelaxation: (id: string, reason: string) =>
+    call<unknown>(`/redirect/masking-relaxations/${id}`, json("DELETE", { reason })),
   destinations: () => call<{ data: Destination[] }>("/redirect/destinations").then(r => r.data),
   // Los destinos son las entradas del catálogo (069 E3): se escriben con `catalogApi` (Modelos); acá solo se leen.
 
@@ -80,6 +93,38 @@ export const redirectApi = {
     };
   },
 };
+
+export type DefaultPosture = "reject_offregion" | "masked_offregion" | "masked_all" | "allow" | "code_fallback";
+
+export interface Region {
+  id: string;
+  name: string;
+  level: "installation" | "tenant";
+  jurisdictions: string[];
+  region_profiles: string[];
+  default_posture: Exclude<DefaultPosture, "code_fallback">;
+  is_zone: boolean;
+}
+
+export interface RegionEffective {
+  source: "tenant" | "installation" | "fallback" | "unresolved";
+  region: Region | null;
+  jurisdictions: string[];
+  default_posture: DefaultPosture;
+  health: "ok" | "region_row_missing" | "region_unresolved";
+}
+
+export interface MaskingRelaxation {
+  id: string;
+  entry_id: string;
+  entry_name?: string | null;
+  level: "installation" | "tenant";
+  reason: string;
+  created_by_role: string | null;
+  created_at: string | null;
+  revoked_at: string | null;
+  revoke_reason: string | null;
+}
 
 export interface PreviewResult {
   state: string;

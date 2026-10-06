@@ -123,7 +123,7 @@ export const EntryFormFields: React.FC<{
         onChange={e => set({ unsupported: e.target.value })}
         error={errors.unsupported_params}
         placeholder="temperature, top_p"
-        hint="Opcional. Parámetros del pedido que este modelo rechaza: Sentinel los quita antes de llegar al proveedor y deja constancia de sus nombres en la auditoría."
+        hint="Opcional. Parámetros del pedido que este modelo rechaza: La pasarela los quita antes de llegar al proveedor y deja constancia de sus nombres en la auditoría."
       />
 
       <fieldset>

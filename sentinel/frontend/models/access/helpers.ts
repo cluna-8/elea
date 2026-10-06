@@ -19,7 +19,7 @@ export const KIND_LABELS: Record<ProfileKind, string> = {
 
 /** Valores sugeridos por selector (los demás se escriben o se eligen del catálogo). */
 export const VALUE_LABELS: Partial<Record<RuleSelector, Record<string, string>>> = {
-  semaforo: { eu_ok: "admisible UE", standard: "estándar", unclassified: "sin clasificar" },
+  semaforo: { eu_ok: "dentro de la región", standard: "estándar", unclassified: "sin clasificar" },
   capacidad: { small: "pequeña", standard: "estándar", frontier: "de frontera" },
 };
 
@@ -41,7 +41,7 @@ export function valueLabel(selector: RuleSelector, value: string, entryName?: (i
   return VALUE_LABELS[selector]?.[value] ?? value;
 }
 
-/** «Incluye: semáforo = admisible UE». */
+/** «Incluye: semáforo = dentro de la región». */
 export function describeRule(r: ProfileRule, entryName?: (id: string) => string | undefined): string {
   return `${EFFECT_LABELS[r.effect]}: ${SELECTOR_LABELS[r.selector] ?? r.selector} = ${valueLabel(r.selector, r.value, entryName)}`;
 }

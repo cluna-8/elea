@@ -10,7 +10,8 @@ import { Built, CredentialFieldSpec, credentialFields, FieldErrors, parseTokens 
 // ── tipos de la API (contracts/admin-catalogo.md; vista: sentinel/catalog/store.py::entry_view) ──
 
 export type SemaforoState = "eu_ok" | "standard" | "unclassified";
-export interface Semaforo { estado: SemaforoState; motivos: string[] }
+/** `region_label`: nombre de la región del perfil contra la que se evaluó (057 FR-030a); aditivo, ausente en servidores viejos. */
+export interface Semaforo { estado: SemaforoState; motivos: string[]; region_label?: string | null }
 
 export interface SheetView {
   /** Entidad responsable: quien opera la inferencia (057 FR-028a). */
@@ -81,6 +82,8 @@ export interface EntryView {
   deployment_check?: { status: "ok" | "not_found" | "error"; checked_at: string; message?: string } | null;
   /** Inferencia, entidad y control de la ficha están en la región efectiva (057 FR-028a); ausente en servidores viejos. */
   in_region?: boolean;
+  /** Nombre de la región efectiva contra la que se evalúan el semáforo y `in_region` (057 FR-030a). */
+  region_label?: string | null;
   status: EntryStatus;
   source: string;
   has_credential: boolean;
@@ -130,7 +133,7 @@ export interface CredentialRow {
 // ── semáforo ────────────────────────────────────────────────────────────────
 
 export const SEMAFORO_LABELS: Record<SemaforoState, string> = {
-  eu_ok: "Admisible UE",
+  eu_ok: "Dentro de la región",   // valor interno `eu_ok`; con `region_label` es «Dentro de <región>» (nunca «Admisible»)
   standard: "Estándar",
   unclassified: "Sin clasificar",
 };
@@ -157,11 +160,14 @@ const MOTIVO_LABELS: Record<string, string> = {
   dpa_vencido: "DPA vencido",
   sin_dpa: "Sin DPA",
   agregador: "Agregador: no cubre al proveedor final",
-  inferencia_fuera_ue: "Inferencia fuera de la UE",
-  registros_fuera_ue: "Registros fuera de la UE",
+  inferencia_fuera_ue: "Inferencia fuera de la región",
+  inferencia_fuera_region: "Inferencia fuera de la región",
+  registros_fuera_ue: "Registros fuera de la región",
+  registros_fuera_region: "Registros fuera de la región",
   entrena_con_datos: "Entrena con datos",
   transferencia_sin_mecanismo: "Transferencia sin mecanismo de garantía",
-  dpa_region_no_ue: "El DPA no fija procesamiento en la UE",
+  dpa_region_no_ue: "El DPA no fija procesamiento en la región",
+  dpa_region_no_region: "El DPA no fija procesamiento en la región",
   dpa_inactivo: "DPA inactivo",
   ficha_desactualizada: "Ficha desactualizada: cambió el proveedor o el modelo",
 };
@@ -174,8 +180,15 @@ export function motivoLabel(motivo: string): string {
   return MOTIVO_LABELS[motivo] ?? motivo;
 }
 
-export const semaforoLabel = (s: Semaforo | undefined | null): string =>
-  s ? SEMAFORO_LABELS[s.estado] ?? s.estado : SEMAFORO_LABELS.unclassified;
+/** Etiqueta del semáforo; `eu_ok` se lee «Dentro de <región>» con el nombre que trae la API (o el de la entrada). */
+export const semaforoLabel = (s: Semaforo | undefined | null, regionLabel?: string | null): string => {
+  if (!s) return SEMAFORO_LABELS.unclassified;
+  if (s.estado === "eu_ok") {
+    const name = (regionLabel ?? s.region_label ?? "").trim();
+    return name ? (/^dentro de /i.test(name) ? name : `Dentro de ${name}`) : SEMAFORO_LABELS.eu_ok;
+  }
+  return SEMAFORO_LABELS[s.estado] ?? s.estado;
+};
 
 export const isStale = (e: Pick<EntryView, "sheet" | "semaforo">): boolean =>
   e.sheet?.classification_version === "stale" || (e.semaforo?.motivos ?? []).includes("ficha_desactualizada");

@@ -4,17 +4,18 @@ import React, { useEffect, useId } from "react";
 import { Button, Field, StatusBadge, cn, inputBaseClass } from "../../../frontend/src/components/ui";
 import type { CredentialFieldSpec, FieldErrors } from "../redirect/helpers";
 import {
-  motivoLabel, SEMAFORO_LABELS, SEMAFORO_TONES, Semaforo,
+  motivoLabel, semaforoLabel, SEMAFORO_TONES, Semaforo,
 } from "./helpers";
 
 /** Insignia del semáforo; con `detail`, lista los motivos en castellano debajo. */
-export const SemaforoBadge: React.FC<{ semaforo: Semaforo; detail?: boolean }> = ({ semaforo, detail }) => {
+export const SemaforoBadge: React.FC<{ semaforo: Semaforo; detail?: boolean; regionLabel?: string | null }> = ({ semaforo, detail, regionLabel }) => {
   const estado = semaforo?.estado ?? "unclassified";
+  const label = semaforoLabel(semaforo, regionLabel);
   const motivos = semaforo?.motivos ?? [];
   return (
     <div className="flex flex-col gap-1">
-      <StatusBadge tone={SEMAFORO_TONES[estado]} dot aria-label={`Semáforo: ${SEMAFORO_LABELS[estado]}`}>
-        {SEMAFORO_LABELS[estado]}
+      <StatusBadge tone={SEMAFORO_TONES[estado]} dot aria-label={`Semáforo: ${label}`}>
+        {label}
       </StatusBadge>
       {motivos.length > 0 && (
         detail ? (
