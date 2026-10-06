@@ -3,8 +3,8 @@
 #
 # issue #63 (hallazgo del review adversarial): el motor ESCRIBE en Redis claves que el
 # backend LEE — el contador de eventos de auditoría perdidos (`sentinel:audit:*`, spec 031) y la
-# marca de degradación de la detección NLP (`sentinel:nlp:*`) —, pero el servicio `litellm` del
-# compose de producción NO recibía `REDIS_HOST`. En el perfil de NUBE, donde Redis es
+# marca de degradación de la detección NLP (`sentinel:nlp:*`) —, pero el servicio del motor (entonces
+# `litellm`, hoy `engine`) del compose de producción NO recibía `REDIS_HOST`. En el perfil de NUBE, donde Redis es
 # gestionado y no existe ningún host llamado `redis`, el motor escribía al vacío y
 # `GET /api/v1/health` reportaba CERO degradaciones mientras el tráfico se servía con regex:
 # la promesa central del issue ("degradar nunca es silencioso") se caía justo en el perfil
@@ -16,8 +16,10 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-PROD="$REPO_ROOT/deploy/docker/compose.prod.yml"
-DEV="$REPO_ROOT/docker-compose.yml"
+# Overrides para el test de casos negativos (test_redis_wiring_negative.sh): permiten apuntar
+# el check a composes de fixture sin tocar los reales.
+PROD="${REDIS_WIRING_PROD:-$REPO_ROOT/deploy/docker/compose.prod.yml}"
+DEV="${REDIS_WIRING_DEV:-$REPO_ROOT/docker-compose.yml}"
 
 fail=0
 
@@ -30,6 +32,33 @@ bloque_servicio() {
         dentro && /^  [a-zA-Z_-]+:$/ { dentro = 0 }
         dentro { print }
     ' "$1"
+}
+
+# El servicio del MOTOR se identifica por su imagen, no por su nombre de servicio (el nombre ya
+# cambió una vez —`litellm` → `engine`— y el check se quedó mirando un servicio inexistente).
+# Criterio: el `image:` del servicio es la imagen del motor, ya sea literal (`…/litellm:…`, dev)
+# o por la variable del perfil (`${SENTINEL_ENGINE_IMAGE…}`, prod). Imprime los nombres que
+# cumplen, uno por línea.
+servicios_motor() {
+    awk '
+        /^  [a-zA-Z_-]+:$/ { svc = $1; sub(/:$/, "", svc); next }
+        /^[a-zA-Z]/ { svc = "" }
+        svc != "" && /^    image:/ && ($0 ~ /litellm/ || $0 ~ /SENTINEL_ENGINE_IMAGE/) { print svc }
+    ' "$1" | sort -u
+}
+
+# Resuelve el servicio del motor de UN compose. Cero o más de uno = fallo ruidoso (nunca se
+# adivina cuál verificar). Imprime el nombre por stdout.
+resolver_motor() {
+    local fichero="$1" etiqueta="$2" encontrados cantidad
+    encontrados="$(servicios_motor "$fichero")"
+    cantidad="$(grep -c . <<<"$encontrados" || true)"
+    if [ "$cantidad" != 1 ]; then
+        echo "❌ $etiqueta: se esperaba UN servicio con la imagen del motor y hay $cantidad" \
+             "(${encontrados:-ninguno}) — ¿cambió la estructura?" >&2
+        return 1
+    fi
+    printf '%s' "$encontrados"
 }
 
 verificar() {
@@ -51,9 +80,17 @@ verificar() {
 }
 
 verificar "$PROD" backend "compose.prod.yml"
-verificar "$PROD" litellm "compose.prod.yml"
+if MOTOR_PROD="$(resolver_motor "$PROD" "compose.prod.yml")"; then
+    verificar "$PROD" "$MOTOR_PROD" "compose.prod.yml"
+else
+    fail=1
+fi
 verificar "$DEV"  backend "docker-compose.yml (dev)"
-verificar "$DEV"  litellm "docker-compose.yml (dev)"
+if MOTOR_DEV="$(resolver_motor "$DEV" "docker-compose.yml (dev)")"; then
+    verificar "$DEV" "$MOTOR_DEV" "docker-compose.yml (dev)"
+else
+    fail=1
+fi
 
 # El default del código es la red de seguridad del cableado: si los dos planos default-ean a
 # hosts distintos, un despliegue que olvide la variable vuelve al mismo split-brain.
