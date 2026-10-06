@@ -70,6 +70,7 @@ REQUEST_CLASS_HEADER = "x-request-class"
 # Ajustes del normalizador que el administrador tiene que ver en la auditoría: contenido del
 # usuario o de una herramienta que el destino no recibió (el resto son campos de protocolo).
 # Mismo literal que el corte de un plugin (ya inventariado en el clasificador de retención).
+MASKING_SCOPE_FULL = "full"       # S14 (QA B3): con el forzado vigente, el enmascarado alcanza todo el cuerpo
 STATUS_REJECTED = "blocked_by_policy"
 STATUS_PASSED = "passed"        # tráfico que la política resolvió sin impedirlo (inventariado en el clasificador de retención)
 OMITTED_AUDIT = ("images_in_history", "images_in_tool_result", "documents_in_tool_result")
@@ -452,7 +453,8 @@ class RedirectPlugin:
         if res.forced_masking:
             # FR-027: el forzado enciende el enmascarado del plano de la pasarela (sin bajar jamás lo que la
             # empresa configuró) y la verificación fail-closed; el guard del motor la exige con `masking_report`
-            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block")
+            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block", masking_scope=MASKING_SCOPE_FULL)
+            decision["masking_scope"] = MASKING_SCOPE_FULL           # S14: alcance completo (lo verifica el guard)
         ctx.state[STATE_KEY] = Plan(face=face, public_id=ctx.model, decision=decision,
                                     engine_model=res.engine_model, destination=dest, credential=cred,
                                     forced_masking=res.forced_masking, scope_label=scope.label(),
@@ -529,7 +531,8 @@ class RedirectPlugin:
         if not verdict.allowed:
             return _error(face, "region")
         if verdict.forced_masking:
-            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block")
+            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block", masking_scope=MASKING_SCOPE_FULL)
+            decision["masking_scope"] = MASKING_SCOPE_FULL
         return None
 
     def _build_models_view(self, ctx, snap, scope, permitidos=None):

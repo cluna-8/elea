@@ -43,6 +43,12 @@
 
 ## Pendiente que no es de este tramo (E2: S14)
 
+- **Cableado acordado con el coordinador** (a alinear al integrar): el guard bloquea `thinking` firmado con detecciones solo hacia un destino NATIVO
+  (`rdx-anthropic`) leyendo el campo entero opcional `signed_thinking_detections` del informe (`redirect_guard.SIGNED_THINKING_FIELD`: **nombre
+  provisional**, a alinear con el de E2); `masking_scope = "full"` sale en `governance_overrides` y en `routing_decision.extensions.redirect`
+  (`plugin.py`, camino redirigido y de suscripción); el registro al importar del resolver de forzado de la base queda como `TODO` explícito en
+  `engine/redirect_guard.py` (la API de E2 no está en esta base).
+
 - El guardrail del motor aún no emite `scope`, `unanalyzable` ni `unanalyzable_kinds` ni lee `sentinel_forced_masking`: **mientras E2 no se
   integre, todo pedido forzado se bloquea con `masking_required`** (falla cerrado). La señal en `pre_engine` y `masking_scope` en el camino de
   suscripción son de T097; `masking_scope` del guard ya sale en la decisión cuando el forzado se verificó.

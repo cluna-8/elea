@@ -88,7 +88,8 @@ async def test_la_auditoria_lleva_metadatos_nunca_texto_ni_valores():
 
 async def test_el_forzado_enciende_el_enmascarado_y_el_modo_bloqueo():
     _, c = await resolver(snapshot("masked_all"))
-    assert c.governance_overrides == {"pii_masking": True, "nlp_fail_mode": "block"}
+    assert c.governance_overrides == {"pii_masking": True, "nlp_fail_mode": "block", "masking_scope": "full"}
+    assert c.routing_decision["extensions"]["redirect"]["masking_scope"] == "full"
 
 
 async def test_sin_forzado_la_pasarela_no_toca_la_configuracion_de_la_empresa():

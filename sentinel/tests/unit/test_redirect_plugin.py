@@ -281,7 +281,7 @@ async def test_suscripcion_offregion_masked_fuerza_enmascarado():
                 "mode": "offregion_masked", "jurisdictions": []}]
     c = fx.ctx(route="/v1/messages", model="claude-x", mode="subscription")
     assert await plugin(fx.snapshot("off", postures=posture)).pre_request(c) is None
-    assert c.governance_overrides == {"pii_masking": True, "nlp_fail_mode": "block"}
+    assert c.governance_overrides == {"pii_masking": True, "nlp_fail_mode": "block", "masking_scope": "full"}
 
 
 async def test_cache_se_invalida_con_bump():

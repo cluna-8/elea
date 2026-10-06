@@ -431,3 +431,31 @@ def test_el_forzado_por_la_postura_por_defecto_exige_lo_mismo():
 def test_el_cache_no_se_apoya_en_el_alcance():
     """`_no_masking_map` (caché de respuestas) usa la verificación base: sin `scope` no cambia su decisión."""
     assert g._no_masking_map({"completed": True, "degraded": False, "detected": 0, "masked": 0}) is True
+
+
+# ── thinking firmado con detecciones (S14, R10; coordinación con E2) ──────────────────────────────────
+
+def _forzado_en(provider, report):
+    modelo = g.credentials.PROVIDER_FAMILY[provider] + "/m"
+    data = request(token(forced_masking=True, provider=provider, model=modelo,
+                         credential={"api_key": "sk-destino"}, api_base=None), model=modelo)
+    data["metadata"]["masking_report"] = report
+    return data
+
+
+def test_thinking_firmado_con_detecciones_hacia_un_destino_nativo_se_bloquea():
+    informe = {**GOOD_REPORT, g.SIGNED_THINKING_FIELD: 2}
+    with pytest.raises(g.GuardRejection) as e:
+        apply(_forzado_en("anthropic", informe))
+    assert e.value.code == "masking_required"
+
+
+def test_hacia_un_traducido_no_se_bloquea_porque_la_firma_se_reconstruye():
+    informe = {**GOOD_REPORT, g.SIGNED_THINKING_FIELD: 2}
+    assert apply(_forzado_en("openrouter", informe))["api_key"] == "sk-destino"
+
+
+@pytest.mark.parametrize("valor", [0, None, "2", True, 1.5])
+def test_un_campo_ausente_cero_o_no_entero_no_bloquea_por_si_solo(valor):
+    informe = {**GOOD_REPORT, g.SIGNED_THINKING_FIELD: valor}
+    assert apply(_forzado_en("anthropic", informe))["api_key"] == "sk-destino"

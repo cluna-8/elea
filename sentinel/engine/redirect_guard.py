@@ -116,6 +116,22 @@ def _scrub_internal_header(data: dict) -> None:
 
 
 FULL_SCOPE = "full"
+# TODO(integración con S14, worker E2): el nombre exacto del campo entero opcional que el guardrail de la base agrega al
+# informe (`masking_report`) con la cantidad de detecciones dentro de bloques `thinking` firmados. Placeholder a alinear.
+SIGNED_THINKING_FIELD = "signed_thinking_detections"
+NATIVE_FAMILY = "rdx-anthropic"       # destino NATIVO de la cara Claude: la firma de `thinking` no se reconstruye (R10)
+# TODO(integración con S14, worker E2): registrar acá, al importar, el resolver de forzado de enmascarado que expone la
+# base (verifica el `fm` firmado de `redirect_authz` y devuelve True). Hoy el guard verifica `grant.forced_masking` él mismo.
+
+
+def signed_thinking_blocks(report: Any, family: Optional[str]) -> bool:
+    """`thinking` firmado con detecciones hacia un destino NATIVO ⇒ bloqueo (S14, R10): el destino nativo verifica la
+    firma sobre el texto original y un `thinking` enmascarado la rompería. Hacia un traducido no se bloquea: la firma se
+    reconstruye. Campo ausente o no entero ⇒ 0 (los demás chequeos del informe siguen rigiendo)."""
+    if family != NATIVE_FAMILY or not isinstance(report, Mapping):
+        return False
+    n = report.get(SIGNED_THINKING_FIELD)
+    return isinstance(n, int) and not isinstance(n, bool) and n > 0
 
 
 def masking_ok(report: Any, *, forced: bool = False) -> bool:
@@ -360,9 +376,11 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     if parts is None or credentials.PROVIDER_FAMILY.get(grant.provider) != parts[0]:
         raise GuardRejection(403, "family_mismatch", authz.AuthzError.public_message)
 
-    if grant.forced_masking and not masking_ok(_masking_report(data, call_type), forced=True):
-        raise GuardRejection(403, "masking_required",
-                             "El pedido no pudo protegerse para este destino y fue bloqueado.")
+    if grant.forced_masking:
+        report = _masking_report(data, call_type)
+        if not masking_ok(report, forced=True) or signed_thinking_blocks(report, parts[0]):
+            raise GuardRejection(403, "masking_required",
+                                 "El pedido no pudo protegerse para este destino y fue bloqueado.")
 
     for k in credentials.CLIENT_CREDENTIAL_FIELDS:
         data.pop(k, None)

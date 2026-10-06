@@ -76,8 +76,9 @@ async def test_la_zona_de_datos_tambien_vale_para_el_proveedor_original():
 async def test_una_offregion_masked_con_casa_fuera_de_eeuu_fuerza_el_enmascarado_de_la_pasarela():
     c = ctx()
     assert await plugin("masked_all", [fila("offregion_masked", ["AR"])]).pre_request(c) is None
-    assert c.governance_overrides == {"pii_masking": True, "nlp_fail_mode": "block"}
-    assert c.routing_decision["extensions"]["redirect"]["forced_masking"] is True
+    assert c.governance_overrides == {"pii_masking": True, "nlp_fail_mode": "block", "masking_scope": "full"}
+    red = c.routing_decision["extensions"]["redirect"]
+    assert red["forced_masking"] is True and red["masking_scope"] == "full"
 
 
 async def test_con_la_casa_en_eeuu_no_se_fuerza():
