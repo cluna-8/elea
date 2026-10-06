@@ -32,4 +32,6 @@ COPY litellm/auto_router.json /app/litellm_config/auto_router.json
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000"]
+# `heads` sólo con migraciones de extensiones (ALEMBIC_EXTRA_VERSION_LOCATIONS); si no, `head` como
+# siempre. La misma lógica que backend/Dockerfile y deploy/docker/entrypoint/backend.sh.
+CMD ["sh", "-c", "t=head; [ -n \"$ALEMBIC_EXTRA_VERSION_LOCATIONS\" ] && t=heads; alembic upgrade $t && uvicorn src.main:app --host 0.0.0.0 --port 8000"]
