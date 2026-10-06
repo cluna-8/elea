@@ -4,6 +4,13 @@ Una sola regla, pública y pura: la usan la API del catálogo, el bloqueo de res
 los perfiles de acceso y `/internal/model-catalog`. Nunca se almacena ni se escribe: se deriva en
 lectura, así un DPA que vence cambia el estado sin que nadie edite nada.
 
+La región contra la que se evalúa es un parámetro (057 FR-030a; research R16): por defecto la UE de siempre, y con la
+región del perfil (`region`: las jurisdicciones de «mi región», de `sentinel_redirect_region`) lo que la inferencia, los
+registros y el DPA deben cumplir es estar *dentro de esa región*. El valor interno `eu_ok` se conserva (paridad de API
+y de tests): la etiqueta que ve el cliente sale de la región («Dentro de <región>»), y el servidor no la arma. Con la
+región de una fila (`region_strict`) «dentro» exige también entidad responsable y jurisdicción de control (R25); un dato
+sin cargar deja la entrada sin clasificar. Sin región resuelta (`region` vacía) nada está dentro: nunca cae a la UE.
+
 Orden de la regla (FR-003): primero *sin clasificar* —cualquier dato que la regla necesita
 desconocido o sin cargar—, después *estándar* —alguna condición incumplida— y, si no, *admisible UE*.
 Una ficha a medio llenar no se trata como «clasificada estándar»: sigue sin clasificar (y por eso
@@ -13,11 +20,12 @@ que por sí sola hace admisible a la entrada y no necesita ningún otro dato.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sentinel.redirect.residency import satisfies
 
 ESTADOS = ("eu_ok", "standard", "unclassified")
+EU_REGION = frozenset({"EU"})
 _TRANSFER_OK = {"n/a", "dpf", "scc"}
 _DESCONOCIDO = {None, "", "unknown"}
 
@@ -44,16 +52,22 @@ def _fecha(v: Any) -> Optional[date]:
     return date.fromisoformat(str(v)[:10])
 
 
-def _ue_o_local(code: Optional[str]) -> Optional[bool]:
+def _dentro_o_local(code: Optional[str], region: frozenset) -> Optional[bool]:
     if code is None:
         return None
-    return code == "local" or satisfies(code, {"EU"})
+    return code == "local" or satisfies(code, region)
 
 
 def semaforo(ficha: Mapping[str, Any], dpa: Optional[Mapping[str, Any]] = None, *,
              es_agregador: bool = False, hoy: Optional[date] = None,
-             desactualizada: bool = False) -> dict:
+             desactualizada: bool = False, region: Optional[Iterable[str]] = None,
+             region_strict: bool = False) -> dict:
     """→ `{"estado": eu_ok|standard|unclassified, "motivos": [...]}`.
+
+    `region`: jurisdicciones de la región contra la que se evalúa (`None` = la UE, como siempre; vacía = región sin
+    resolver, nada está dentro). `region_strict`: la región viene de una fila de `sentinel_redirect_region` y «dentro»
+    exige también entidad y control (R25). Los motivos conservan sus nombres de siempre (`*_ue`) cuando la región es
+    la UE y pasan a `*_region` con cualquier otra.
 
     `ficha`: campos de `ext_compliance_sheet`. `dpa`: fila del registro de DPAs asociada (o `None`).
     `hoy`: fecha UTC; se inyecta para que la función sea pura y testeable.
@@ -63,6 +77,9 @@ def semaforo(ficha: Mapping[str, Any], dpa: Optional[Mapping[str, Any]] = None, 
     if desactualizada:
         return {"estado": "unclassified", "motivos": ["ficha_desactualizada"]}
     hoy = hoy or datetime.utcnow().date()
+    codes = EU_REGION if region is None else frozenset(c for c in (_norm(x) for x in region) if c)
+    codes = frozenset(c.upper() for c in codes)
+    suf = "ue" if codes == EU_REGION else "region"
     inf = _juris(ficha.get("inference_jurisdiction"))
     falsos: list[str] = []
     desconocidos: list[str] = []
@@ -84,12 +101,17 @@ def semaforo(ficha: Mapping[str, Any], dpa: Optional[Mapping[str, Any]] = None, 
             return {"estado": "eu_ok", "motivos": ["local"]}
         return _resultado(falsos, desconocidos)
 
-    exige(None if inf is None else satisfies(inf, {"EU"}), "inferencia_fuera_ue",
-          "inference_jurisdiction")
+    exige(None if inf is None else satisfies(inf, codes), f"inferencia_fuera_{suf}", "inference_jurisdiction")
+
+    if region_strict:                       # R25: la entidad responsable y quien la controla también dentro
+        for campo, motivo in (("entity_jurisdiction", "entidad_fuera_region"),
+                              ("control_jurisdiction", "control_fuera_region")):
+            code = _juris(ficha.get(campo))
+            exige(None if code is None else satisfies(code, codes), motivo, campo)
 
     logs = _juris(ficha.get("logs_jurisdiction"))
-    exige(None if logs is None else (logs == "none" or bool(_ue_o_local(logs))),
-          "registros_fuera_ue", "logs_jurisdiction")
+    exige(None if logs is None else (logs == "none" or bool(_dentro_o_local(logs, codes))),
+          f"registros_fuera_{suf}", "logs_jurisdiction")
 
     entrena = ficha.get("trains_on_data")
     exige(None if entrena is None else not bool(entrena), "entrena_con_datos", "trains_on_data")
@@ -110,9 +132,9 @@ def semaforo(ficha: Mapping[str, Any], dpa: Optional[Mapping[str, Any]] = None, 
         vence = _fecha(dpa.get("expiration_date"))
         if vence is not None and hoy > vence:           # vigente hasta el final del día, inclusive
             falsos.append("dpa_vencido")
-        region = _juris(dpa.get("processing_region"))
-        if region is None or not satisfies(region, {"EU"}):
-            falsos.append("dpa_region_no_ue")
+        procesa = _juris(dpa.get("processing_region"))
+        if procesa is None or not satisfies(procesa, codes):
+            falsos.append(f"dpa_region_no_{suf}")
 
     return _resultado(falsos, desconocidos)
 

@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from src.api.internal import _require_internal_secret
 
 from .. import models as cm
+from .. import region as cregion
 from .. import store as cs
 from . import admin
 
@@ -72,6 +73,7 @@ def build(tenant: str) -> dict:
     tid = uuid.UUID(str(tenant))
     entries: dict = {}
     with _session(tid) as db:
+        region = cregion.effective_region(db, tid)          # el semáforo se evalúa contra la región de la empresa
         # las de instalación primero: la entrada propia con el mismo id público las reemplaza
         rows = sorted(cs.visible_entries(db, tid, operator=False), key=lambda e: e.tenant_id is not None)
         for e in rows:
@@ -84,7 +86,7 @@ def build(tenant: str) -> dict:
                 "entry_id": str(e.id), "name": e.name, "provider": e.provider,
                 "real_model": e.real_model, "api_base": e.api_base,
                 "protocol_family": e.protocol_family, "level": e.level,
-                "semaforo": cs.semaforo_of(e, sheet, dpa, _today()),
+                "semaforo": cs.semaforo_of(e, sheet, dpa, _today(), region),
                 "jurisdiccion": cs.sheet_view(sheet)["inference_jurisdiction"],
                 "capability": e.capability, "features": dict(e.features or {}),
                 "role": e.role, "limits": dict(e.limits or {}), "base_model": e.base_model,

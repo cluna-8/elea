@@ -45,6 +45,11 @@ class _Version:
 
 @pytest.fixture
 def api(monkeypatch):
+    # el semáforo se evalúa contra la región del perfil (057 FR-030a): estos tests fijan el perfil `eu` sin fila de
+    # región, que es la regla de siempre («admisible UE»)
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "eu")
+    # modelos locales on-prem de la organización (ollama en una red interna): interruptor de instalación (057 H1)
+    monkeypatch.setenv("CATALOG_ALLOW_PRIVATE_API_BASE", "true")
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     cm.CatalogBase.metadata.create_all(engine)
     rm.RedirectBase.metadata.create_all(engine)
