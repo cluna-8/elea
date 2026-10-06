@@ -1,7 +1,8 @@
 # Análisis: «gasto cero» tras reiniciar el motor — causa, impacto y arreglo (spike)
 
-**Fecha**: 2026-10-06 · **Rama**: `cluna-8/spike-gasto-cero` · **Naturaleza**: spike de lectura. No hay código de
-producto, ni spec, ni numeración, ni Docker. Sentinel se leyó **solo lectura**, con `git show`/`git grep` sobre sus refs.
+**Fecha**: 2026-10-06 · **Rama**: `cluna-8/spike-gasto-cero` · **Naturaleza**: spike. No hay código de producto, ni
+spec, ni numeración. §1–§8 son de lectura (sin Docker); **§9 es el experimento de §8, corrido el mismo día con la
+compuerta del owner** y es lo que manda donde difiera de §0–§8. Sentinel se leyó **solo lectura**, con `git show`/`git grep` sobre sus refs.
 **Origen**: el hallazgo **H5** del ensayo de `specs/ANALISIS-SEPARAR-BASES-MOTOR-2026-10.md` §8 (rama
 `origin/cluna-8/spike-separar-bases-motor`, commit `f398b1a`): tras reiniciar el motor, el pedido siguiente queda con
 `spend=0` en el motor y `audit_logs.cost_usd=0`.
@@ -25,9 +26,9 @@ proyecto de esta PC (`harness-guardian/.venv/.../litellm`, solo lectura). Esas c
    Redis. Cuando litellm sirve una respuesta desde caché, **fija el costo en 0** (litellm 1.98) y el logger de Elea
    transporta ese 0 sin marcarlo (`sentinel_audit_logger.py:345,376`). El backend lo acepta tal cual y **no cae a su
    tabla de precios** (`internal.py:294`, `budget_service.py:216`). El patrón del ensayo calza con esto: «primer pedido
-   de cada contenido sí cuesta, los repetidos dentro de la hora, no» (§4). **Confianza: media-alta, sin confirmar** con
-   el motor corriendo. Lo que falta es una consulta de una columna (`cache_hit`) que el ensayo no hizo, y el stack
-   ya se borró (`ensayo:` §8.9).
+   de cada contenido sí cuesta, los repetidos dentro de la hora, no» (§4). **Confianza al escribir §0–§8: media-alta, sin confirmar.**
+   **Actualización (§9): confirmada como mecanismo reproducible** con el motor corriendo; ver §9.4 para qué queda
+   abierto y para las tres diferencias con lo que esta sección predecía.
 2. **No es un precio perdido en un reinicio** (H2/H5 de la hipótesis del encargo): los precios viven en el archivo
    `litellm/config.yaml:55-59` horneado en la imagen (`litellm/Dockerfile:8`), no en memoria ni en tabla;
    `LiteLLM_ProxyModelTable` tenía 0 filas (`ensayo:603`); el backend nunca llama `/model/new` (§3.3). Además los tres
@@ -38,13 +39,15 @@ proyecto de esta PC (`harness-guardian/.venv/.../litellm`, solo lectura). Esas c
    consola, en cambio, el mismo caso cae al precio genérico de **$5/$15** (`chat.py:1741`). Dos planos, dos
    respuestas para el mismo hecho. No explica el ensayo (el modelo del ensayo sí tenía precio), pero es la otra forma de
    «gasto cero» que el código permite.
+   **Cero de byok (H3): confirmado en vivo** con un modelo desconocido para litellm 1.92 (§9.5), con la salvedad de que no
+   se produce con los tres deployments reales de Azure (§9.5).
 4. **Arreglo mínimo propuesto** (§6): (A) decisión de configuración sin código: `cache: false`, como ya hacen los perfiles
    `camara-comercio` e `itv-examen`; (B) si se conserva la caché, **marcar** el acierto de caché y **separar `None` de
    `0`** en el logger, ambos cambios genéricos y retrocompatibles para portar a Sentinel.
 5. **La 057 no lo arregla** (§7): trae precio por entrada del catálogo, que resuelve «modelo servido por comodín sin
    precio» (el cero de la 069-S1), no el cero por caché. Pero sí **toca la caché** (su FR-034 de la 068), así que es
    el lugar natural para decidir la política.
-6. **Experimento** (§8) listo para correr con la compuerta del owner: ~12 pedidos, ≈ 3×10⁻⁴ USD, stack aislado.
+6. **Experimento** (§8): **corrido** (§9): 23 pedidos, ≈ 7,5×10⁻⁴ USD, stack aislado `gcero`, bajado con `down -v`.
 
 ---
 
@@ -239,7 +242,7 @@ hacerlo con el dato actual.
 perfiles de cliente `camara-comercio` y `itv-examen` **no están expuestos a H1**: `cache: false`
 (`deploy/clients/camara-comercio/config.yaml.tmpl:21`, `deploy/clients/itv-examen/config.yaml.tmpl:24`, ambos «issue #30»);
 `deploy/clients/example/config.yaml.tmpl:20` sí tiene `cache: true`. **Incidencia real en el servidor de Elea: no
-verificada** (no se accedió; ver §9). **Colateral que conviene mirar** (no es de este spike): la clave de caché es el
+verificada** (no se accedió; ver §10). **Colateral que conviene mirar** (no es de este spike): la clave de caché es el
 contenido y no menciona tenant/llave (`specs/024…/research.md:92`); entre tenants distintos, un acierto sirve una respuesta
 ajena `[no verificado en 1.92]`.
 
@@ -330,7 +333,7 @@ es una compuerta de producto, no técnica.
 
 ## 8. Experimento de confirmación (con Docker; **requiere la compuerta del owner**)
 
-**No se corrió.** Es el diseño exacto para una sesión posterior. Modelo y costos como en `ensayo:326`: ~12 pedidos de
+**Diseño. Se corrió el 2026-10-06; el resultado está en §9** (con las desviaciones del diseño, §9.0). Lo que sigue es el diseño original, sin tocar. Modelo y costos como en `ensayo:326`: ~12 pedidos de
 11 tokens ≈ 3×10⁻⁴ USD de crédito real. Todo en un **stack aislado** (mismo método que `ensayo:` §8.0), nada de otros
 proyectos del demonio.
 
@@ -384,27 +387,259 @@ está confirmada sin reiniciar nada; E2 y E3 son para sellarla.
 
 ---
 
-## 9. No verificado (todo lo que sigue es una pregunta abierta, no un hallazgo)
+## 9. Resultado del experimento (2026-10-06)
 
-1. **Que la caché sea la causa.** H1 es la hipótesis más consistente, no una causa probada. El ensayo no registró
-   `cache_hit` ni `request_id` y el stack se borró. Se confirma con el experimento (§8, E1–E3).
-2. **Que la imagen publicada lleve `cache: true`.** Se verificó el repo (`litellm/config.yaml:20`) y que la imagen hornea
-   ese archivo, no su contenido real (E0).
-3. **La ventana de 3600 s** entre V0 y V2 del ensayo: no hay tiempos para reconstruirla (§3.H1).
+**Convención de §9**: `[verificado]` = lo corrí y lo vi en este experimento (o lo leí en el código de la imagen, dentro del
+contenedor); `[no verificado]` = deducido o no corrido. Las horas son UTC. Una sola corrida de cada paso (sin repeticiones).
+Los pedidos salieron con `docker exec gcero-engine python3` + `urllib` (el motor no trae `curl`) y, para el camino `/gw`, con `curl`
+desde el host; cada pedido guardó status, tiempo y los headers `x-litellm-response-cost`, `x-litellm-cache-key` y `x-litellm-call-id`.
+
+**Resultado en una línea**: **H1 confirmada como mecanismo** (un pedido repetido dentro de la hora se sirve desde Redis, el motor
+registra `spend=0` y `cache_hit=True`, y `audit_logs.cost_usd=0` **sin ninguna marca**; sobrevive al reinicio del motor; con prompt
+nuevo tras reiniciar el costo es normal; con `cache: false` no aparece). **El cero latente de byok (`None → 0`) también
+queda confirmado** en vivo, pero solo con un modelo que litellm no conoce: con los tres deployments reales de Azure no se produce.
+
+### 9.0 Entorno, aislamiento y desviaciones del diseño de §8
+
+- **Antes de arrancar**: `docker ps` sin ningún contenedor corriendo; `docker ps -a` solo con los `eleae2e-*` en `Exited` (ninguno
+  `sepbd-*` ni de ensayo del instalador). `[verificado]`
+- **Proyecto aislado**: `COMPOSE_PROJECT_NAME=gcero`, `STACK_PREFIX=gcero`; contenedores `gcero-*`, redes y volumen `gcero_*`, backend
+  publicado en `18092`. Compose = copia del del instalador (`elea-installer@9754f13`) con **solo** dos tipos de cambio:
+  `container_name: elea-…` → `gcero-…` y `"8091:8000"` → `"18092:8000"` (`diff` de 12 líneas, todas de esos dos tipos). Servicios
+  levantados: `db`, `redis`, `nlp-analyzer`, `engine`, `backend` (sin `client`, `frontend`, `tabular`, `presenton`, `anythingllm`).
+  `docker compose up -d --pull never`: no se bajó ni se borró ninguna imagen. `[verificado]`
+- **Imágenes** (locales): `ghcr.io/cluna-8/elea-guardian-engine:latest` con `RepoDigest` `sha256:1928af9d1ef6bc63…6189dafe`
+  (el mismo del ensayo, `ensayo:` §1.4); backend `…-backend:latest` (id local `7cf1910a6060`); nlp `…-nlp:latest` (id local
+  `b383ad4af2ce`). El digest del backend y del nlp no se leyó, así que **no** se compara con el ensayo. `[verificado]`
+- **Credenciales**: las tres variables de Azure se copiaron de `/home/drexgen/Documents/ELEA/LLMADMIN-Elea/elea/.env` a un `.env` del
+  stack **en el directorio temporal de la sesión (fuera del repo)**, sin imprimirlas; los demás secretos son aleatorios nuevos.
+  Al terminar, `.env`, llaves y token de admin se borraron con `shred -u`. `[verificado]`
+- **Datos de prueba** (como `install.sh`): login de admin (`token_len=284`), cuenta `svc.tabular` con llave `tool_type=servicio`
+  (`can_act_on_behalf=true`) y usuario `ensayo.usuario` con llave `claude-code`. Para E6 se le puso un presupuesto
+  (`max_spend_usd=1.0`, `max_tokens=1000000`, mensual). `[verificado]`
+- **Crédito real**: modelo `azure-gpt-5.4-mini`, `max_tokens: 16`, prompt P = «Responde solo: ok» (11 tokens de entrada, 4 de
+  salida, 2,625×10⁻⁵ USD). **23 pedidos enviados**: 14 cobraron en Azure, 6 fueron aciertos de caché, 1 lo atendió el servidor falso
+  de E6 (sin crédito) y 2 fallaron con 400/APIError (sin cobro). Gasto total registrado: `sum(spend)` = **7,515×10⁻⁴ USD**
+  (`audit_logs`: 7,53×10⁻⁴ por redondeo a 6 decimales), unas 2,5 veces los ≈ 3×10⁻⁴ estimados en §8, por los pedidos de más de abajo. `[verificado]`
+
+**Desviaciones del diseño de §8 (todas honestas y sin cambios de código)**
+
+| # | Desviación | Por qué |
+|---|---|---|
+| 1 | E3 tal como estaba escrito (`FLUSHALL` sin reiniciar) **no vacía la caché** → se agregó **E3'** (`FLUSHALL` + reinicio del motor) | R6 y R6b siguieron siendo aciertos tras el `FLUSHALL` (§9.1) |
+| 2 | Se agregó el camino **`/gw`** (G1–G3), que era el del ensayo; el diseño usaba solo el motor directo | Para reproducir el `V0` del ensayo y el modelo sin `azure/` de `ensayo:454` |
+| 3 | **E6** no se pudo hacer con la config sugerida (`base_model` inexistente) y se rehízo con un **servidor falso** OpenAI-compatible | Con `base_model` inexistente el motor igual cobró (§9.5) |
+| 4 | En E6 se le puso `SENTINEL_AUDIT_URL` al motor | Sin esa variable el logger inserta por Prisma y **no pasa por** `_acumular_gasto` (§9.5) |
+| 5 | **Error mío**: `E6b` iba a ser un pedido al modelo sin precio, pero `MODEL=… send` no llega al contenedor (`docker exec` no hereda la variable): fue un pedido normal a `azure-gpt-5.4-mini` con llave `svc.tabular`. Se anota tal cual | Se rehízo como `E6d` |
+| 6 | E7 (header del chat) **no** se corrió por la consola; se leyó el header directo del motor en los aciertos (§9.2) | El header es lo que lee `chat.py:1535`; el chat en sí no se ejercitó |
+
+### 9.1 E0–E5: comandos, salidas y lectura
+
+**E0** `[verificado]`
+```
+$ docker run --rm --entrypoint cat ghcr.io/cluna-8/elea-guardian-engine:latest /app/config.yaml | grep -n -A6 cache
+20:  cache: true
+21-  cache_params:
+22-    host: os.environ/REDIS_HOST
+23-    port: 6379
+24-    ttl: 3600
+25-    type: redis
+26-  drop_params: true
+$ docker run --rm --entrypoint python3 ghcr.io/cluna-8/elea-guardian-engine:latest -c "import importlib.metadata as m; print(m.version('litellm'), m.version('litellm-proxy-extras'))"
+1.92.0 0.4.74
+```
+La imagen publicada **sí** lleva `cache: true` (cierra el hueco de §3.H1) y la versión es la 1.92.0 que asumía el ensayo.
+
+**Stack**: `docker compose up -d --pull never db redis nlp-analyzer engine` → los tres `Healthy` y `engine` `healthy` a los 70 s; después `up -d backend` →
+`/health` a los 9 s. `[verificado]`
+
+**Lo que dio cada pedido** (H = header del motor; SL = fila de `LiteLLM_SpendLogs`; AL = fila de `audit_logs`; `—` = el header no vino):
+
+| Paso | Pedido | ms | `x-litellm-response-cost` (H) | `x-litellm-cache-key` (H) | SL: `spend` / `cache_hit` | AL: `cost_usd` (tokens) |
+|---|---|---:|---|---|---|---|
+| E1 | **R1** P | 3759 | 2,625e-05 | — | 2,625e-05 / `None` | 0,000026 (11+4) |
+| E1 | **R2** P repetido | **41** | 2,625e-05 | `91ef280b58b5` | **0 / `True`** | **0,000000 (11+4)**, `latency_ms=0` |
+| E1 | **R3** P′ (sufijo único) | 963 | 7,35e-05 | — | 7,35e-05 / `None` | 0,000074 (20+13) |
+| E2 | `docker compose restart engine` (45 s a `healthy`; `DBSIZE` de Redis = 3) | | | | | |
+| E2 | **R4** P″ nuevo, tras reiniciar | 2683 | 7,35e-05 | — | 7,35e-05 / `None` | **0,000074 (20+13)** |
+| E2 | **R5** P, tras reiniciar | **41** | 2,625e-05 | `91ef280b58b5` | **0 / `True`** | **0,000000 (11+4)** |
+| E3 | `redis-cli FLUSHALL` (sin reiniciar) → **R6** P | **42** | 2,625e-05 | `91ef280b58b5` | **0 / `True`** | **0,000000** |
+| E3 | **R6b** P | **38** | 2,625e-05 | `91ef280b58b5` | **0 / `True`** | **0,000000** |
+| E4 | **R7** P con `"cache": {"no-cache": true}` | 1056 | 2,625e-05 | — | 2,625e-05 / `None` | 0,000026 |
+| E4 | **R7b** P con `no-cache` | 890 | 2,625e-05 | — | 2,625e-05 / `None` | 0,000026 |
+| E3' | `FLUSHALL` + `restart engine` (40 s) → **R6c** P | 2487 | 2,625e-05 | — | 2,625e-05 / `None` | **0,000026** |
+| E3' | **R6d** P | **39** | 2,625e-05 | `91ef280b58b5` | **0 / `True`** | **0,000000** |
+| E5 | motor recreado con `cache: false` montado sobre `/app/config.yaml` (`grep -n cache: /app/config.yaml` → `20:  cache: false`) → **R8** P | 3589 | 2,625e-05 | — | 2,625e-05 / `None` | 0,000026 |
+| E5 | **R9** P | 781 | 2,625e-05 | — | 2,625e-05 / `None` | 0,000026 |
+
+Los aciertos devuelven el **mismo** `id` de respuesta que el pedido original (`chatcmpl-EVwHv…` en R2, R5, R6, R6b; `chatcmpl-EVwLO…` en R6d). `[verificado]`
+
+**Lectura contra las predicciones de §8**
+
+| | Predicción H1 | Predicción «reinicio» | Observado |
+|---|---|---|---|
+| E1 R2 | 0 | normal | **0** → H1 |
+| E1 R3 | > 0 | — | > 0 ✔ |
+| E2 R4 (prompt nuevo tras reiniciar) | **> 0** | **0** | **> 0** → **el reinicio no causa el cero** |
+| E2 R5 (P repetido tras reiniciar) | 0 | — | **0** (la clave sobrevivió en Redis) ✔ |
+| E3 R6 (`FLUSHALL` solo) | > 0 | 0 | **0**, ninguna de las dos: hay una capa de caché en el proceso del motor delante de Redis `[inferido: R6 y R6b acertaron sin Redis y sin reiniciar; no leí el código de la caché en 1.92]` |
+| E3' R6c (Redis vacío **y** motor reiniciado) | > 0 | 0 | **> 0** ✔ |
+| E4 (`no-cache` por pedido) | > 0 | = 0 | **> 0** ✔ |
+| E5 (`cache: false`) | ambos > 0 | ambos = 0 | **ambos > 0**, sin ningún acierto en las 2 filas ✔ |
+
+Con `cache: false` las claves viejas que seguían en Redis (de antes) **no** produjeron aciertos: R8 es P y P estaba cacheada. `[verificado]`
+
+**Consulta tras esperar > 70 s después de cada bloque** (`q.sh`; 23 filas en `LiteLLM_SpendLogs`, 24 en `audit_logs`) `[verificado]`:
+```
+SELECT count(*) filas, count(*) FILTER (WHERE cache_hit='True') aciertos, sum(spend) FROM "LiteLLM_SpendLogs";
+ filas | aciertos | gasto_total_usd
+    23 |        6 | 0.0007515
+SELECT count(*), count(*) FILTER (WHERE cost_usd=0 AND (prompt_tokens+completion_tokens)>0) ceros_con_tokens, sum(cost_usd) FROM audit_logs;
+ count | ceros_con_tokens | sum
+    24 |                7 | 0.000753
+```
+Los 7 ceros con tokens de `audit_logs` = los 6 aciertos de caché + el pedido al modelo sin precio de E6 (§9.5). Las otras 3 filas de `audit_logs`
+son de modelo `license` (2) y `auth` (1), sin tokens.
+
+### 9.2 `/gw`, el `request_id` y el header de costo: tres cosas que §0–§8 predecían mal o no sabían
+
+1. **`/gw` reproduce el patrón del ensayo, incluida la rareza del modelo.** Con la llave `claude-code` por `POST /api/v1/gw/v1/messages` `[verificado]`:
+   - **G1** P: `http=200`, 1874 ms, **no fue acierto** aunque P ya estaba cacheada por el camino directo (R6c/R6d) → SL `2,625e-05 / None`, AL `0,000026`.
+   - **G2** P repetido: `http=200`, 50 ms, mismo `id` que G1 → SL **`0 / True`** con modelo **`gpt-5.4-mini` (sin `azure/`)**, AL **`0,000000`**, `latency_ms=0`.
+   - **G3** P′: SL `7,35e-05`, AL `0,000074`.
+
+   O sea: el cuerpo que arma `/gw` da **otra clave** de caché que el chat directo (por eso `V0` del ensayo no fue acierto, §3.H1 «En contra»), y el acierto **por `/gw`** reproduce
+   `spend=0` + modelo `gpt-5.4-mini` sin `azure/` de `ensayo:454`. *(Lo que esta sección de §3 predecía —«modelo sin `azure/` en las filas de cero»— vale **solo por `/gw`**: los 5 aciertos por el motor directo guardaron `azure/gpt-5.4-mini` en `SpendLogs`.)* `[verificado]`. **Qué campo del cuerpo cambia la clave: `[no verificado]`.**
+2. **El `request_id` del acierto sí lleva `_cache_hit`**: `chatcmpl-EVwHveLA6x5SajBJwyjU60y5TdrZf_cache_hit<marca de tiempo>` en los 3 primeros aciertos consultados (R2, R5, R6). `[verificado]`.
+   Está en el código de la 1.92 de la imagen: `proxy/spend_tracking/spend_tracking_utils.py:374-377` (`id = f"{id}_cache_hit{time.time()}"`, comentario «SpendLogs does not allow duplicate request_id»).
+3. **El header `x-litellm-response-cost` en un acierto NO es 0: trae el costo del pedido original** (`2,625e-05` en R2, R5, R6, R6b, R6d). El `spend` registrado sí es 0. `[verificado]`.
+   Consecuencia para §2.4/§5 («Chat de la consola»): el chat de la consola lee ese header (`chat.py:1535`), así que **cobraría el acierto al precio original** y no daría 0 ni caería a $5/$15. Es la **asimetría de planos de la caché**: plano de agentes cuenta 0, chat probablemente cobra completo.
+   `[verificado el header; no verificado el comportamiento del chat de la consola, que no se corrió]`.
+4. **Una huella en `audit_logs` que ya existe, sin columna nueva**: en los 6 aciertos, la fila tiene `cost_usd=0`, `latency_ms=0` y tokens > 0 (R2, R5, R6, R6b, R6d, G2); la del modelo sin precio (E6s1) tiene `cost_usd=0` pero `latency_ms=550`. Es un indicio útil para la consulta de diagnóstico del owner (§10.7), **no una regla**: se vio en 6 de 6 aciertos de este stack. `[verificado en este stack; no verificado fuera de él]`.
+
+### 9.3 Criterio de parada de §8
+
+«Si E1 ya muestra R2 = 0 y R3 > 0, H1 está confirmada sin reiniciar nada»: **se cumplió en E1** (R2 = 0 con `cache_hit=True`, R3 > 0). E2, E3' y E5 se corrieron igual, como pedía §8, para sellarla.
+
+### 9.4 Veredicto sobre H1 y qué queda abierto
+
+**H1 — confirmada como mecanismo reproducible.** Con la imagen publicada y su config tal cual (`cache: true`, Redis, `ttl: 3600`), un pedido repetido se sirve de la caché y deja `spend=0`, `cache_hit=True`,
+`audit_logs.cost_usd=0.000000` con tokens > 0 y **ninguna marca** que lo distinga de un cero «malo» (salvo `latency_ms=0`, §9.2.4). La clave sobrevive al reinicio del motor (R5); un prompt nuevo tras reiniciar
+**cuesta** (R4), de modo que **el reinicio por sí mismo no causa el cero** y la hipótesis «pérdida al reiniciar» queda descartada **para este mecanismo**. Con Redis vaciado y motor reiniciado el costo vuelve (R6c);
+con `no-cache` por pedido (E4) o `cache: false` (E5) no aparece. `[verificado]`
+
+**Lo que NO queda probado**:
+- Que **esa** haya sido la causa de los `spend=0` del ensayo del 06-oct. El experimento reproduce **cada rasgo** que el ensayo midió (cero por pedido repetido tras reiniciar, `cost_usd=0.00000000` en `audit_logs`, modelo `gpt-5.4-mini` sin `azure/` por `/gw`),
+  pero no es el mismo stack y el ensayo no guardó `cache_hit` ni `request_id`. Es una inferencia retrospectiva **fuerte**, no una prueba. `[no verificado]`
+- La grieta de la ventana de 3600 s (§3.H1): no se esperó una hora para ver vencer la clave. `[no verificado]`
+- Que el vaciado de Redis no alcance por la capa en proceso (E3): es inferido (§9.1).
+
+### 9.5 Cero latente de byok (`None → 0`, H3, E6): confirmado, con condiciones
+
+**Primero lo que NO funcionó, porque cambia cómo leer H3** `[verificado]`:
+- **E6c / E6d** (llave `ensayo.usuario` directo al motor, `max_tokens: null` y `max_completion_tokens: 16`): `azure-gpt-5.4-mini` → header `9,15e-05` (26+16 tokens); `azure-sin-precio`
+  (deployment `azure/gpt-5.4-mini` con `model_info.base_model: azure/gcero-modelo-inexistente`, sin precio) → header **`9,075e-05`** (25+16 tokens), o sea **cobrado igual**: 25×7,5×10⁻⁷ + 16×4,5×10⁻⁶ = 9,075×10⁻⁵.
+  litellm 1.92 cae al nombre del modelo de la **respuesta** (`gpt-5.4-mini`), que sí está en su mapa. **Con los tres deployments reales de Azure no se produce `None`**, así que el cero de H3 solo puede salir de un modelo que
+  litellm no conozca de ninguna manera (un proveedor propio, un modelo local nuevo, un deployment con nombre propio cuya respuesta no devuelva un modelo mapeado).
+- **E6a** (el mismo `azure-sin-precio` por `/gw`): `http=400` — con un `base_model` que el motor no reconoce no traduce `max_tokens` a `max_completion_tokens` y Azure lo rechaza. No llegó a facturar.
+- **E6s2** (modelo desconocido por `/gw`): `http=200` pero con cuerpo de error (`litellm.APIError … OpenAIException`: el adaptador de formato Anthropic no aceptó la respuesta del servidor falso). Sin evidencia de costo.
+  Por eso la prueba que vale es la de E6s1, directa al motor. Es el mismo plano de agentes: el logger del motor emite al backend el mismo evento para cualquier ruta de entrada con llave.
+
+**El caso que sí se produjo (E6s1)**: servidor falso `gcero-stub` (`python:3.12-slim` con un `http.server` de 20 líneas en el directorio temporal, en la red del stack, que responde siempre
+`model: "gcero-sin-precio"`, 26 tokens de entrada y 4 de salida), declarado en la config como `openai/gcero-sin-precio` **sin precio** (`model_name: sin-precio-stub`). Pedido con la llave de `ensayo.usuario` (usuario con presupuesto) `[verificado]`:
+```
+E6s1  status=200  header x-litellm-response-cost = (ausente)   cache_key = (ausente)
+LiteLLM_SpendLogs : model=openai/gcero-sin-precio  spend=0  cache_hit=None  prompt_tokens=26  completion_tokens=4
+audit_logs        : model=gcero-sin-precio  prompt_tokens=26 completion_tokens=4  cost_usd=0.000000  latency_ms=550
+```
+**Presupuesto del usuario** (`SELECT current_spend_usd, current_tokens FROM budgets`) `[verificado]`:
+
+| Momento | `current_spend_usd` | `current_tokens` |
+|---|---:|---:|
+| Recién creado | 0,00000000 | 0 |
+| Tras **C1** (`/gw`, `azure-gpt-5.4-mini`, 20+13 tokens) | 0,00007350 | 33 |
+| Tras **E6c** y **E6d** (cobrados, 26+16 y 25+16) | 0,00025575 | 116 |
+| Tras **E6s1** (modelo sin precio, 26+4) | **0,00025575 (sin cambio)** | **146 (+30)** |
+
+El motor entrega `response_cost=None` (header ausente), el logger lo convierte en `0` (`sentinel_audit_logger.py:345`), el backend acepta el `Decimal(0)` y **no cae a `MODEL_PRICING`** (`internal.py:294`,
+`budget_service.py:216`): **los tokens suben y los dólares no**. Es exactamente la secuencia de §3.H3, ahora medida. En la 1.92 el código que lo produce está en la imagen: `litellm_core_utils/litellm_logging.py:2456-2460`
+(`except litellm.NotFoundError: … Setting 'response_cost' to None`). El mensaje de ese warning **no** apareció en `docker logs gcero-engine`, así que que se haya ejecutado **esa** rama es una inferencia a partir del header ausente y del `spend=0`. `[inferido]`
+
+**Asimetría con el chat de la consola** (§3.H3): el header que lee `chat.py:1535` **viene ausente** para este caso `[verificado]`; por lectura de `chat.py:1741` y `budget_service.py:53-62`, el chat cae entonces a `MODEL_PRICING["default"]` ($5/$15). **El chat no se corrió**: `[no verificado]`.
+
+**Hallazgo colateral, de lectura, que cambia el alcance** `[verificado el código; no verificado en vivo]`: el logger solo pasa por `_acumular_gasto` (la que descuenta el presupuesto) si el motor tiene `SENTINEL_AUDIT_URL`
+(`sentinel_audit_logger.py:236-241`; `_acumular_gasto` solo se llama desde `/internal/audit`, `internal.py:345`). **Esa variable no está** en el compose del instalador (`elea-installer@9754f13:docker-compose.yml:49-72`, bloque `engine`;
+`grep SENTINEL_AUDIT_URL` sin resultados) **ni** en el `docker-compose.yml` de desarrollo de este repo; **solo** en `deploy/docker/compose.prod.yml:219`. Sin ella, el logger inserta por Prisma (`_insertar_por_prisma`,
+`sentinel_audit_logger.py:402-422`) y el presupuesto de agentes **no se descuenta con ningún costo**, ni el bueno. En este experimento la fijé a mano (§9.0, desviación 4) para poder ver el contador; la variante del instalador **no se
+ejercitó** (la tabla `budgets` estaba vacía en esa parte). Si el servidor de Elea corre el compose del instalador, la pregunta de fondo no es «el cero» sino «¿el presupuesto en USD de agentes se descuenta alguna vez?». **Hay que verificarlo en el servidor antes de afirmarlo.**
+
+### 9.6 Código de litellm 1.92 (el de la imagen), verificado dentro del contenedor
+
+Cierra la salvedad de versión de la cabecera `[verificado]` para estos puntos (los números de línea son de `litellm 1.92.0` en `/app/.venv/lib/python3.13/site-packages/litellm/`):
+
+| Qué | Dónde (1.92) | En §2/§3 se había citado (1.98) |
+|---|---|---|
+| Un acierto de caché fija el costo en 0 | `cost_calculator.py:1757-1758` (`if cache_hit is not None and cache_hit is True: response_cost = 0.0`) | `cost_calculator.py:1770-1771` |
+| La fila de gasto lleva `cache_hit` y un `request_id` con `_cache_hit` | `proxy/spend_tracking/spend_tracking_utils.py:240,374-377,395,405` (`spend=kwargs.get("response_cost", 0)`) | `:380-383,401,411` |
+| Modelo no mapeado → `response_cost = None` | `litellm_core_utils/litellm_logging.py:2456-2460` (`NotFoundError` → «Setting 'response_cost' to None») | `litellm_logging.py:2642-2644` |
+
+El **mapa de costos** de la 1.92 no se comparó con el de la 1.98 (`[no verificado]`); basta para H3 que, en la 1.92, `azure/gpt-5.4-mini` está mapeado por el nombre del modelo de la respuesta (§9.5).
+
+### 9.7 Qué cambia en §6 (propuesta; la decide el owner, no el spike)
+
+- **A (`cache: false`)**: **validada**: con esa config ningún pedido repetido dio cero (E5, R8/R9), aunque Redis seguía teniendo la clave. Costo confirmado: se pierde el acierto (41 ms contra 0,8–3,7 s de R1/R8). Sigue siendo decisión de producto.
+- **B.1 (marcar el acierto)**: sigue haciendo falta: el único rastro hoy es `cost_usd=0` + `latency_ms=0` (§9.2.4), una huella frágil. Que el hook del logger reciba `cache_hit` en sus `kwargs` **no se verificó** (el campo existe donde se arma la fila de gasto, `spend_tracking_utils.py:240`). `[no verificado]`
+- **B.2 (separar `None` de `0`)**: **confirmada la necesidad** (§9.5). Sirve igual para el cero por caché (que es un `0.0` real) y para el modelo sin precio (un `None`).
+- **Nuevo**: B.1/B.2 resuelven el cero, pero la asimetría **chat vs agentes** también se da en el acierto de caché (el header del motor trae el costo original, §9.2.3). Si se quiere una sola respuesta para los dos planos, hay que decidirla (¿el acierto se cobra o no?) — no es del arreglo mínimo.
+- **Nuevo**: antes de tocar el logger, **verificar en el servidor de Elea** si el motor tiene `SENTINEL_AUDIT_URL` (§9.5, hallazgo colateral); si no la tiene, el arreglo de B.2 no se vería en los presupuestos.
+
+### 9.8 Limpieza y estado final
+
+```
+antes de bajar:   contenedores gcero-*: 6   volúmenes gcero*: 1   redes gcero*: 3   (más gcero-stub, aparte)
+$ docker rm -f gcero-stub
+$ docker compose -f docker-compose.yml -f override-e6.yml down -v --remove-orphans
+  → Container gcero-{backend,engine,nlp-analyzer,redis,db} Removed · Volume gcero_pgdata Removed · Network gcero_{elea,presentations,tabular}-net Removed
+después:          contenedores gcero*: 0   volúmenes gcero*: 0   redes gcero*: 0   docker ps (corriendo): 0
+$ docker ps -a    → solo los eleae2e-* en Exited, igual que antes
+```
+`.env`, llaves y token de admin: `shred -u`; directorio temporal del stack borrado. No se descargó ninguna imagen (todas locales, `--pull never`); `python:3.12-slim`, ya presente, se usó para el servidor falso. `git status` limpio salvo este documento. `[verificado]`
+
+---
+
+## 10. No verificado (lo que sigue es una pregunta abierta, no un hallazgo; las ya resueltas por §9 están marcadas)
+
+1. **Que la caché sea la causa.** *(Resuelto en parte por §9.4)*: el mecanismo está confirmado y es reproducible; que
+   **esa** haya sido la causa de los ceros del 06-oct sigue siendo inferencia retrospectiva (el ensayo no registró
+   `cache_hit` ni `request_id` y el stack se borró).
+2. **Que la imagen publicada lleve `cache: true`.** *(Resuelto por §9.1, E0)*: la imagen local con digest `1928af9d…` trae `cache: true` en `/app/config.yaml:20`.
+3. **La ventana de 3600 s** entre V0 y V2 del ensayo: no hay tiempos para reconstruirla (§3.H1). *(Sigue abierto; §9 tampoco
+   esperó 3600 s para ver vencer una clave.)*
 4. **Por qué V0 no fue acierto** si la siembra llevaba el mismo texto: se supone una clave de caché distinta por el cuerpo
-   que arma el `/gw`, no se midió.
-5. **Todo lo de litellm 1.98** (`cache_hit→0`, `_cache_hit` en `request_id`, `None` en modelo desconocido, mapa de costos) vale
+   que arma el `/gw`, no se midió. *(Resuelto en el comportamiento por §9.2: G1, primer pedido por `/gw`, no fue acierto aunque
+   el mismo texto ya estaba cacheado por el camino directo; G2, el repetido por `/gw`, sí. Qué campo del cuerpo cambia la clave: no se midió.)*
+5. **Todo lo de litellm 1.98** *(Resuelto para lo citado en §9.6: `cache_hit→0`, sufijo `_cache_hit` y `None` por modelo no mapeado están en el código de 1.92 de la imagen; el mapa de costos no se comparó)*: (`cache_hit→0`, `_cache_hit` en `request_id`, `None` en modelo desconocido, mapa de costos) vale
    para **1.92.0** (la imagen) solo si no cambió entre versiones.
 6. **Qué manda el motor en `x-litellm-response-cost` en un acierto de caché** y por tanto qué hace el chat de la consola.
+   *(Header resuelto por §9.2: manda el costo **original**, no 0. Lo que hace el chat de la consola con él **no** se corrió.)*
 7. **La incidencia en el servidor de Elea**: si reinicia el motor, si su config lleva `cache: true`, si hay ya filas con
    `cost_usd=0` y tokens > 0 repetidas. Consulta de diagnóstico para el owner (solo lectura):
    `SELECT date_trunc('day', timestamp) d, count(*) FILTER (WHERE cost_usd=0 AND prompt_tokens>0) AS ceros, count(*) FROM
    audit_logs GROUP BY 1 ORDER BY 1;` — daría la magnitud y la fecha real de inicio. `[no corrida]`
-8. **H3 en vivo**: no se probó un deployment sin precio ni la asimetría entre planos; es lectura de código.
+8. **H3 en vivo**: *(Resuelto por §9.5 para el plano de agentes, con modelo desconocido simulado; la asimetría con el chat de la
+   consola sigue siendo lectura de código: el chat de la consola no se ejercitó.)*
 9. **Aislamiento entre tenants de la caché** (colateral de §5).
 10. **El efecto de la 057 sobre la clave de caché** (§7.3) y si `make -C deploy docs-refs` haría falta (§6.C).
 11. **Qué hace Sentinel** más allá de lo leído: solo se leyó la rama `069-enmienda-pantalla-modelos` por `git show`; no
     se ejecutó nada y no se miró si su motor de producción reinicia con el mismo patrón.
+12. *(Nuevo, de §9)* **Que los ceros del ensayo del 06-oct fueran aciertos de caché**: el mecanismo está confirmado, la atribución de **esos** ceros es retrospectiva (§9.4).
+13. *(Nuevo)* **Qué campo del cuerpo de `/gw` cambia la clave de caché** respecto del chat directo (G1 no fue acierto con P ya cacheado; §9.2.1), y **si el logger recibe `cache_hit` en sus `kwargs`** (§9.7).
+14. *(Nuevo)* **Que haya una capa de caché en el proceso del motor delante de Redis** (R6/R6b acertaron tras `FLUSHALL` sin reiniciar): es una deducción; no se leyó el código de la caché de la 1.92 (§9.1).
+15. *(Nuevo)* **Vencimiento a los 3600 s**: no se esperó una hora.
+16. *(Nuevo)* **El chat de la consola** no se ejercitó: ni con acierto de caché (el header trae el costo original, §9.2.3) ni con modelo sin precio (header ausente, §9.5); lo que hace `chat.py:1587,1741` con eso es lectura de código.
+17. *(Nuevo)* **El cero de H3 con un modelo real de un cliente**: se simuló con un servidor falso OpenAI-compatible; con los tres deployments de Azure del repo **no** se reproduce (§9.5). Además el `warning` «Setting 'response_cost' to None» no apareció en el log del motor: que esa rama sea la que corrió es inferido.
+18. *(Nuevo)* **`SENTINEL_AUDIT_URL` en el servidor de Elea** (§9.5, hallazgo colateral): si el motor corre el compose del instalador, el presupuesto de agentes podría no descontarse con ningún costo. Se leyó en código y compose; la variante **sin** la variable no se ejercitó en vivo.
+19. *(Nuevo)* **Las rutas por la consola (frontend/`client`)**, el **camino de `tabular`/`presenton`** y la **suite de tests del repo**: no se levantaron ni corrieron (stack mínimo de 5 servicios; no hay código de producto que probar en un spike de documentación).
 
 ---
 
