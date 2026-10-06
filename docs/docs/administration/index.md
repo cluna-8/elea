@@ -132,17 +132,19 @@ sólo otro super admin puede dar de alta a uno. Para el primero, el operador cor
 
 ```bash
 docker compose exec backend python -m src.cli crear-super-admin \
-  --usuario <usuario> --email <email>
+  --username <usuario> --email <email>
 ```
 
 - **Contraseña.** La genera el comando (alta entropía) y la **imprime una sola vez** por la
-  salida estándar: no se guarda en ningún archivo ni registro, y en la base queda sólo su
-  hash. Copiala en ese momento a donde guardes los secretos de la instalación.
+  salida estándar, en una línea `PASSWORD=<valor>` (el resto de los mensajes van por la salida
+  de error): no se guarda en ningún archivo ni registro, y en la base queda sólo su hash.
+  Copiala en ese momento a donde guardes los secretos de la instalación.
 - **Cambio obligatorio.** La cuenta nace con el cambio de contraseña forzado: en el primer
   ingreso el panel pide una nueva antes de seguir.
-- **Idempotente.** Si ya existe un super admin, no hace nada y lo avisa (código de salida
-  `0`), así que es seguro dejarlo en un runbook de instalación. Si el usuario o el email ya
-  los usa otra cuenta, **rechaza** con un mensaje claro (código `1`) y no promueve a nadie.
+- **Idempotente.** Si ya existe **cualquier** super admin, no hace nada y lo avisa (código de
+  salida `3`, que un script distingue de un error), así que es seguro dejarlo en un runbook de
+  instalación. Si el usuario o el email ya los usa otra cuenta, **rechaza** con un mensaje
+  claro (código `1`) y no promueve a nadie. Creado: código `0`.
 - **Sólo si se lo invoca.** Ni el arranque, ni las migraciones, ni ningún endpoint lo
   ejecutan.
 - **Queda auditado.** Deja un evento de auditoría de autenticación
@@ -151,6 +153,22 @@ docker compose exec backend python -m src.cli crear-super-admin \
 - **Orden respecto del primer admin.** Un super admin cuenta como dueño de la instalación:
   si se crea **antes** del primer login de `admin`, ese login ya no crea el `tenant_admin`
   y es el super admin quien lo da de alta. Si el `tenant_admin` ya existe, el orden no importa.
+
+#### Recuperar la contraseña de un super admin {#resetear-super-admin}
+
+Si se pierde la contraseña y **no hay otro super admin** que pueda resetearla, el operador
+genera una nueva desde el servidor: 🟢
+
+```bash
+docker compose exec backend python -m src.cli resetear-super-admin --username <usuario>
+```
+
+Mismo contrato que el alta: la contraseña nueva sale **una sola vez** como `PASSWORD=<valor>`,
+la cuenta vuelve a quedar con el cambio obligatorio en el próximo ingreso y el reseteo deja su
+evento de auditoría (`auth_super_admin_password_reset`, sin contraseña ni datos personales).
+Sale `0` si reseteó y `1` si el usuario no existe **o no es super admin** (el comando nunca
+resetea cuentas de otro rol). No tiene otra autorización que el acceso al servidor: quien puede
+ejecutar comandos dentro del contenedor ya controla la instalación.
 
 !!! warning "Fail-closed en la administración"
     Todos los endpoints de administración exigen una **sesión JWT válida** de un usuario

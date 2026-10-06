@@ -296,8 +296,9 @@ sequenceDiagram
 
     Para el **primer super admin** (quien asigna los roles de cumplimiento) el operador corre,
     después del bootstrap, `docker compose exec backend python -m src.cli crear-super-admin
-    --usuario <usuario> --email <email>`: imprime la contraseña **una sola vez** y es
-    idempotente. Detalle y orden en
+    --username <usuario> --email <email>`: imprime la contraseña **una sola vez**
+    (`PASSWORD=<valor>`) y es idempotente (sale `3` si ya hay un super admin). Si se pierde, se
+    regenera con `resetear-super-admin`. Detalle y orden en
     [Cómo se provee el primer super admin](../administration/index.md#primer-super-admin). 🟢
 8. **Seed de clients + branding.**
     - En un despliegue desde perfil, el seed corre **dentro del contenedor del backend** con

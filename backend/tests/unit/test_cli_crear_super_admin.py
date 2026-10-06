@@ -1,4 +1,4 @@
-"""`python -m src.cli crear-super-admin`: el primer `super_admin` del tenant, por comando.
+"""`python -m src.cli crear-super-admin` / `resetear-super-admin`: el `super_admin` por comando.
 
 `POST /users` ya no deja a un `tenant_admin` crear `super_admin` ni `compliance_officer`
 (`auth.rbac.exigir_super_admin_para_rol`), y `super_admin` no lo autogenera ninguna
@@ -8,7 +8,7 @@ la invoca.
 
 Unit tests sin Postgres: la `Session` es un doble y el contrato que se mide es el de la
 fila que se inserta, el evento de auditoría y lo que sale por stdout. El camino completo
-contra Postgres lo cubre `tests/integration/test_cli_crear_super_admin.py`.
+contra Postgres lo cubre `tests/integration/test_alta_primer_super_admin.py`.
 """
 import uuid
 from pathlib import Path
@@ -62,6 +62,13 @@ def evento(monkeypatch):
     emit = MagicMock()
     monkeypatch.setattr(cli, "emit_auth_event", emit)
     return emit
+
+
+def _password_de(out):
+    """La línea `PASSWORD=<valor>` de stdout (contrato con el instalador)."""
+    lineas = [l for l in out.splitlines() if l.startswith("PASSWORD=")]
+    assert len(lineas) == 1, out
+    return lineas[0].split("=", 1)[1]
 
 
 def _existente(role="client", username="otro", email="otro@example.com"):
@@ -201,44 +208,53 @@ def sesion(monkeypatch):
     return db
 
 
-def test_la_contrasena_sale_UNA_vez_por_stdout_y_nunca_por_stderr(sesion, ocupacion, evento,
-                                                                 capsys):
-    rc = cli._main(["crear-super-admin", "--usuario", USUARIO, "--email", EMAIL])
+def test_la_contrasena_sale_UNA_vez_por_stdout_como_PASSWORD_y_nunca_por_stderr(
+        sesion, ocupacion, evento, capsys):
+    rc = cli._main(["crear-super-admin", "--username", USUARIO, "--email", EMAIL])
 
     salida = capsys.readouterr()
     assert rc == 0
-    password = next(l.split(": ", 1)[1] for l in salida.out.splitlines()
-                    if l.startswith("contraseña: "))
+    password = _password_de(salida.out)
+    assert salida.out == f"PASSWORD={password}\n", "stdout lleva SÓLO esa línea"
     assert salida.out.count(password) == 1, "se imprime una sola vez"
     assert password not in salida.err
     assert verify_password(password, sesion.agregados[0].password_hash)
-    assert f"usuario: {USUARIO}" in salida.out
 
 
 def test_la_contrasena_no_va_a_los_logs(sesion, ocupacion, evento, caplog, capsys):
     caplog.set_level("DEBUG")
-    cli._main(["crear-super-admin", "--usuario", USUARIO, "--email", EMAIL])
-    password = next(l.split(": ", 1)[1] for l in capsys.readouterr().out.splitlines()
-                    if l.startswith("contraseña: "))
-    assert password not in caplog.text
+    cli._main(["crear-super-admin", "--username", USUARIO, "--email", EMAIL])
+    assert _password_de(capsys.readouterr().out) not in caplog.text
 
 
-def test_ya_existente_sale_0_con_mensaje_y_sin_contrasena(sesion, ocupacion, evento, capsys):
+def test_usuario_sigue_aceptado_como_alias_de_username(sesion, ocupacion, evento):
+    assert cli._main(["crear-super-admin", "--usuario", USUARIO, "--email", EMAIL]) == 0
+    assert sesion.agregados[0].username == USUARIO
+
+
+def test_ya_existente_sale_3_con_mensaje_y_sin_contrasena(sesion, ocupacion, evento, capsys):
     ocupacion["hay_super_admin"] = True
 
-    rc = cli._main(["crear-super-admin", "--usuario", USUARIO, "--email", EMAIL])
+    rc = cli._main(["crear-super-admin", "--username", USUARIO, "--email", EMAIL])
 
     salida = capsys.readouterr()
-    assert rc == 0, "idempotente: re-correrlo en cada despliegue no es un error"
+    assert rc == cli.SALIDA_YA_EXISTE == 3, "el instalador distingue «ya existe» de un error"
     assert "ya existe un super_admin" in salida.err.lower()
-    assert "contraseña" not in salida.out
+    assert salida.out == ""
     assert sesion.agregados == []
+
+
+def test_ya_existente_es_cualquier_super_admin_no_solo_el_username_dado(sesion, ocupacion,
+                                                                       evento):
+    ocupacion["hay_super_admin"] = True
+    assert cli._main(["crear-super-admin", "--username", "otro-nombre",
+                      "--email", "x@example.com"]) == 3
 
 
 def test_rechazo_sale_distinto_de_0_con_mensaje_claro(sesion, ocupacion, evento, capsys):
     ocupacion["ocupado"] = "email"
 
-    rc = cli._main(["crear-super-admin", "--usuario", USUARIO, "--email", EMAIL])
+    rc = cli._main(["crear-super-admin", "--username", USUARIO, "--email", EMAIL])
 
     salida = capsys.readouterr()
     assert rc == 1
@@ -246,12 +262,95 @@ def test_rechazo_sale_distinto_de_0_con_mensaje_claro(sesion, ocupacion, evento,
     assert salida.out == ""
 
 
-def test_usuario_y_email_son_obligatorios(sesion):
+def test_username_y_email_son_obligatorios(sesion):
     with pytest.raises(SystemExit) as exc:
-        cli._main(["crear-super-admin", "--usuario", USUARIO])
+        cli._main(["crear-super-admin", "--username", USUARIO])
     assert exc.value.code == 2
     with pytest.raises(SystemExit):
         cli._main([])
+
+
+# ── resetear-super-admin ────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def super_admin(monkeypatch):
+    user = User(id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, username=USUARIO, email=EMAIL,
+                password_hash=cli.hash_password("contraseña-vieja-2026"), role="super_admin",
+                is_active=True, must_change_password=False)
+    encontrados = [user]
+    monkeypatch.setattr(cli, "_super_admins_con_username", lambda db, u: list(encontrados))
+    return user, encontrados
+
+
+def test_resetear_cambia_el_hash_fuerza_el_cambio_y_audita(super_admin, evento):
+    user, _ = super_admin
+    db = _DB()
+
+    password = cli.resetear_super_admin(db, usuario=USUARIO)
+
+    assert verify_password(password, user.password_hash)
+    assert not verify_password("contraseña-vieja-2026", user.password_hash)
+    assert user.must_change_password is True
+    assert db.commits == 1
+    args, kwargs = evento.call_args
+    assert args == (db, auth_events.AUTH_SUPER_ADMIN_PASSWORD_RESET)
+    assert kwargs["target_user_id"] == str(user.id)
+    assert kwargs["tenant_id"] == user.tenant_id
+    valores = " ".join(str(v) for v in (*args[1:], *kwargs.values()))
+    assert password not in valores and USUARIO not in valores and EMAIL not in valores
+
+
+def test_resetear_genera_contrasenas_de_alta_entropia_y_distintas(super_admin, evento):
+    passwords = {cli.resetear_super_admin(_DB(), usuario=USUARIO) for _ in range(10)}
+    assert len(passwords) == 10
+    assert all(len(p) >= 32 and len(p.encode()) <= 72 for p in passwords)
+
+
+def test_resetear_usuario_inexistente_o_que_no_es_super_admin_se_rechaza(monkeypatch, evento):
+    monkeypatch.setattr(cli, "_super_admins_con_username", lambda db, u: [])
+    db = _DB()
+    with pytest.raises(cli.AltaRechazada, match="super_admin"):
+        cli.resetear_super_admin(db, usuario="tenant-admin-o-nadie")
+    assert db.commits == 0
+    evento.assert_not_called()
+
+
+def test_resetear_username_ambiguo_no_resetea_ninguno(super_admin, evento):
+    user, encontrados = super_admin
+    encontrados.append(User(id=uuid.uuid4(), username=USUARIO, role="super_admin",
+                            password_hash="x", email="b@example.com"))
+    db = _DB()
+    hash_antes = user.password_hash
+    with pytest.raises(cli.AltaRechazada, match="más de un"):
+        cli.resetear_super_admin(db, usuario=USUARIO)
+    assert user.password_hash == hash_antes and db.commits == 0
+
+
+def test_resetear_por_cli_imprime_PASSWORD_una_vez_y_sale_0(sesion, super_admin, evento,
+                                                            capsys):
+    rc = cli._main(["resetear-super-admin", "--username", USUARIO])
+
+    salida = capsys.readouterr()
+    assert rc == 0
+    password = _password_de(salida.out)
+    assert salida.out == f"PASSWORD={password}\n" and password not in salida.err
+    assert verify_password(password, super_admin[0].password_hash)
+
+
+def test_resetear_por_cli_rechazo_sale_1_sin_stdout(sesion, monkeypatch, evento, capsys):
+    monkeypatch.setattr(cli, "_super_admins_con_username", lambda db, u: [])
+
+    rc = cli._main(["resetear-super-admin", "--username", "nadie"])
+
+    salida = capsys.readouterr()
+    assert rc == 1 and salida.out == "" and "nadie" in salida.err
+
+
+def test_resetear_exige_username(sesion):
+    with pytest.raises(SystemExit) as exc:
+        cli._main(["resetear-super-admin"])
+    assert exc.value.code == 2
 
 
 def test_nada_de_la_app_invoca_el_comando():

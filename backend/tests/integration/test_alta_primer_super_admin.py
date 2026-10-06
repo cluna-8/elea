@@ -110,3 +110,27 @@ def test_un_usuario_existente_no_se_asciende(harness):
         assert db.query(User).filter(User.role == "super_admin").count() == 0
     finally:
         db.close()
+
+
+def test_resetear_cambia_la_contrasena_y_vuelve_a_forzar_el_cambio(harness):
+    client, factory = harness
+    from src import cli
+    from src.models.audit import AuditLog
+    from src.models.user import User
+
+    db = factory()
+    try:
+        db.query(User).filter(User.username == USUARIO).update(
+            {"role": "super_admin", "must_change_password": False})
+        db.commit()
+        nueva = cli.resetear_super_admin(db, usuario=USUARIO)
+        assert db.query(User).filter(User.username == USUARIO).one().must_change_password is True
+        eventos = [r.guardian_events[0] for r in db.query(AuditLog).filter(AuditLog.model == "auth")]
+    finally:
+        db.close()
+
+    login = client.post("/api/v1/users/login", json={"username": USUARIO, "password": nueva})
+    assert login.status_code == 200, login.text
+    assert login.json()["user"]["must_change_password"] is True
+    assert [e for e in eventos if e["event_type"] == "auth_super_admin_password_reset"]
+    assert nueva not in str(eventos)

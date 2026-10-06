@@ -174,10 +174,10 @@ El pool es **material de run**: 0600, fuera del repo, y no se publica con la evi
 
 Los `compliance_officer` los crea una sesión **super_admin** (el backend le da 403 a un
 `tenant_admin`). Antes del seed, una vez por instalación, creá el primero (en el host del SUT) **dentro del
-contenedor del backend** (imprime la contraseña UNA sola vez; si ya hay uno, no hace nada):
+contenedor del backend** (imprime la contraseña UNA sola vez como `PASSWORD=<valor>`; si ya hay uno, sale 3 y no hace nada; si se pierde: `resetear-super-admin`):
 
 ```bash
-$DC exec backend python -m src.cli crear-super-admin --usuario itv-root --email itv-root@example.com
+$DC exec backend python -m src.cli crear-super-admin --username itv-root --email itv-root@example.com
 export SEED_SUPER_ADMIN_USERNAME=itv-root
 export SEED_SUPER_ADMIN_PASSWORD='<la que imprimió el comando>'   # sólo en el entorno, nunca en argv
 ```
