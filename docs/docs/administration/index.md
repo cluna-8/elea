@@ -65,7 +65,7 @@ La plataforma define cuatro roles canónicos:
 
 | Rol | Alcance | Qué puede hacer |
 |---|---|---|
-| **Super admin** | Cross-tenant | Operación por encima de los tenants (solo tiene sentido en modo cloud multi-tenant). No se crea automáticamente: se siembra de forma explícita. Dentro de un tenant equivale a un tenant admin. |
+| **Super admin** | Cross-tenant | Operación por encima de los tenants (solo tiene sentido en modo cloud multi-tenant). No se crea automáticamente: se siembra de forma explícita. Dentro de un tenant equivale a un tenant admin, y **es el único rol que puede asignar los roles de cumplimiento** (ver [abajo](#quien-asigna-los-roles-de-cumplimiento)). |
 | **Tenant admin** | Su tenant (= la instancia) | Administración completa: usuarios y grupos, Connections, presupuestos, políticas de seguridad, compliance, auditoría y salud de la licencia. Es el rol del operador. |
 | **Compliance officer** (en la consola: **Auditor**) | Su tenant | Ver y editar políticas de seguridad y configuración de compliance, ver auditoría, exportar reportes, aprobar revisiones humanas y consultar el detalle de salud de la licencia. **No** gestiona usuarios, grupos, Connections ni presupuestos, y **no** ve guardianes ni gobernanza. |
 | **Client** | Su propio uso | Usuario final que consume IA a través de sus Connections. El rol en sí no consume seat: los seats los consumen sus **Connections activas** (ver [Licencias y seats](#licencias-y-seats)). |
@@ -90,8 +90,9 @@ Matriz de permisos vigente en la instancia:
 | Detalle de salud de licencia | ✅ | ✅ | ❌ |
 
 !!! info "El rol «Auditor» de la consola"
-    La pantalla de usuarios permite dar de alta a alguien con el rol **Auditor**: es el
-    *compliance officer* de la tabla de arriba, con el nombre que usan los clientes. 🟢
+    La pantalla de usuarios permite dar de alta a alguien con el rol **Auditor** —la opción
+    se ofrece sólo a un *super admin*, que es quien puede asignarlo—: es el *compliance
+    officer* de la tabla de arriba, con el nombre que usan los clientes. 🟢
     Sirve para el caso de uso habitual, mostrarle la auditoría y el compliance a dirección
     sin entregarle el panel entero: ve los logs de auditoría y sus exportaciones, el tablero
     y los reportes de compliance, el consumo y las conexiones en vivo, y no puede crear
@@ -103,6 +104,71 @@ Matriz de permisos vigente en la instancia:
     (incluso desactivar la que está activa), cambiar los plazos de conservación de los
     registros, ajustar la configuración de costos y usar el chat interno. Un rol de
     auditoría **estrictamente de solo lectura** es 🔵 **OBJETIVO** de roadmap.
+
+### Quién asigna los roles de cumplimiento {#quien-asigna-los-roles-de-cumplimiento}
+
+Crear un usuario con rol **compliance officer** (Auditor) o **super admin**, o cambiarle el
+rol a uno de esos, lo puede hacer **sólo un super admin**. Un tenant admin que lo intente
+recibe `403` con el mensaje *«Sólo un super_admin puede asignar el rol '…'»* y no se
+modifica nada. 🟢 Aplica al alta (`POST /api/v1/users`) y al cambio de rol
+(`PUT`/`PATCH /api/v1/users/{id}`).
+
+Por qué: el compliance officer es quien define el piso de lo que el administrador de empresa
+no puede relajar. Si el tenant admin pudiera crearlo, se designaría a sí mismo a quien
+controla justo lo que a él le está vedado. El resto de los roles se asignan igual que antes.
+
+- **Lo que no cambia.** Los usuarios que ya tienen esos roles siguen igual: no se tocan datos,
+  y editar otro campo de uno de ellos (email, estado) sigue permitido a un tenant admin,
+  porque el rol no se está asignando de nuevo. El bootstrap del primer administrador
+  tampoco cambia.
+- **Queda auditado.** Todo cambio de rol deja su evento de auditoría (quién, a quién, de qué
+  rol a cuál), igual que antes; sin datos personales ni contraseñas.
+
+#### Cómo se provee el primer super admin {#primer-super-admin}
+
+El super admin **no se crea automáticamente** (ninguna migración ni el arranque lo hacen) y
+sólo otro super admin puede dar de alta a uno. Para el primero, el operador corre un comando
+**dentro del contenedor del backend**: 🟢
+
+```bash
+docker compose exec backend python -m src.cli crear-super-admin \
+  --username <usuario> --email <email>
+```
+
+- **Contraseña.** La genera el comando (alta entropía) y la **imprime una sola vez** por la
+  salida estándar, en una línea `PASSWORD=<valor>` (el resto de los mensajes van por la salida
+  de error): no se guarda en ningún archivo ni registro, y en la base queda sólo su hash.
+  Copiala en ese momento a donde guardes los secretos de la instalación.
+- **Cambio obligatorio.** La cuenta nace con el cambio de contraseña forzado: en el primer
+  ingreso el panel pide una nueva antes de seguir.
+- **Idempotente.** Si ya existe **cualquier** super admin, no hace nada y lo avisa (código de
+  salida `3`, que un script distingue de un error), así que es seguro dejarlo en un runbook de
+  instalación. Si el usuario o el email ya los usa otra cuenta, **rechaza** con un mensaje
+  claro (código `1`) y no promueve a nadie. Creado: código `0`.
+- **Sólo si se lo invoca.** Ni el arranque, ni las migraciones, ni ningún endpoint lo
+  ejecutan.
+- **Queda auditado.** Deja un evento de auditoría de autenticación
+  (`auth_bootstrap_super_admin`) con el identificador de la cuenta y el rol, sin usuario,
+  email ni contraseña.
+- **Orden respecto del primer admin.** Un super admin cuenta como dueño de la instalación:
+  si se crea **antes** del primer login de `admin`, ese login ya no crea el `tenant_admin`
+  y es el super admin quien lo da de alta. Si el `tenant_admin` ya existe, el orden no importa.
+
+#### Recuperar la contraseña de un super admin {#resetear-super-admin}
+
+Si se pierde la contraseña y **no hay otro super admin** que pueda resetearla, el operador
+genera una nueva desde el servidor: 🟢
+
+```bash
+docker compose exec backend python -m src.cli resetear-super-admin --username <usuario>
+```
+
+Mismo contrato que el alta: la contraseña nueva sale **una sola vez** como `PASSWORD=<valor>`,
+la cuenta vuelve a quedar con el cambio obligatorio en el próximo ingreso y el reseteo deja su
+evento de auditoría (`auth_super_admin_password_reset`, sin contraseña ni datos personales).
+Sale `0` si reseteó y `1` si el usuario no existe **o no es super admin** (el comando nunca
+resetea cuentas de otro rol). No tiene otra autorización que el acceso al servidor: quien puede
+ejecutar comandos dentro del contenedor ya controla la instalación.
 
 !!! warning "Fail-closed en la administración"
     Todos los endpoints de administración exigen una **sesión JWT válida** de un usuario

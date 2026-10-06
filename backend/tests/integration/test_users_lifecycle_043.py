@@ -7,7 +7,8 @@ import uuid
 import pytest
 
 from migration_harness import require_postgres
-from seat_gate_harness import admin_headers, build_app_client, mock_engine, restore_suite_license, set_license
+from seat_gate_harness import (admin_headers, build_app_client, headers_for_role, mock_engine,
+                               restore_suite_license, set_license)
 
 require_postgres()
 
@@ -20,6 +21,18 @@ def harness():
     headers = admin_headers(client)
     yield client, factory, headers
     cleanup()
+
+
+@pytest.fixture
+def super_admin(harness):
+    """`compliance_officer` sólo lo asigna un `super_admin`: los tests que ascienden a
+    alguien a ese rol lo hacen con esta sesión (el `tenant_admin` del bootstrap recibe 403).
+    De FUNCIÓN y no de módulo a propósito: los tests de «último admin» de este archivo dan de
+    baja a todos los admins salvo uno, y un super_admin compartido quedaría inactivo (401)
+    para los tests que vienen después."""
+    from src.auth.matrix import Rol
+    client, factory, _ = harness
+    return headers_for_role(client, factory, Rol.SUPER_ADMIN)
 
 
 @pytest.fixture(autouse=True)
@@ -40,11 +53,11 @@ def _crear_usuario(client, headers, monkeypatch, tmp_path, *, role="client"):
     return r.json()["id"], r.json()["username"], r.json()["email"]
 
 
-def test_patch_un_solo_campo_no_toca_el_resto(harness, monkeypatch, tmp_path):
+def test_patch_un_solo_campo_no_toca_el_resto(harness, super_admin, monkeypatch, tmp_path):
     client, factory, headers = harness
     user_id, username, email = _crear_usuario(client, headers, monkeypatch, tmp_path)
 
-    r = client.patch(f"/api/v1/users/{user_id}", headers=headers,
+    r = client.patch(f"/api/v1/users/{user_id}", headers=super_admin,
                      json={"role": "compliance_officer"})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -185,13 +198,14 @@ def test_patch_no_puede_dar_de_baja_al_ultimo_admin(harness, monkeypatch, tmp_pa
     assert r.status_code in (409, 401, 403)
 
 
-def test_patch_is_active_false_no_toca_la_edicion_de_otros_campos(harness, monkeypatch, tmp_path):
+def test_patch_is_active_false_no_toca_la_edicion_de_otros_campos(harness, super_admin,
+                                                                  monkeypatch, tmp_path):
     """La guarda solo debe activarse cuando el PATCH efectivamente intenta APAGAR
     is_active — editar rol/email de alguien sigue andando igual que antes del fix."""
     client, factory, headers = harness
     user_id, _username, _email = _crear_usuario(client, headers, monkeypatch, tmp_path)
 
-    r = client.patch(f"/api/v1/users/{user_id}", headers=headers,
+    r = client.patch(f"/api/v1/users/{user_id}", headers=super_admin,
                      json={"role": "compliance_officer", "is_active": True})
     assert r.status_code == 200, r.text
     assert r.json()["role"] == "compliance_officer"

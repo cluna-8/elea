@@ -286,8 +286,9 @@ sequenceDiagram
    bootstrap es `admin@sentinel.com.ar` — un TLD reservado tipo `.local` rompía la validación, ver
    [el gotcha](#gotcha-email). El bootstrap **sólo corre mientras la instalación no tenga
    dueño**, es decir mientras no exista ningún usuario cuya existencia pruebe que hubo un
-   administrador (`tenant_admin`, `super_admin` o `compliance_officer`: ninguno se puede crear
-   sin sesión admin): es lo que evita que en un despliegue ya poblado cualquiera que llegue al
+   administrador (`tenant_admin` o `super_admin`: ninguno se puede crear sin sesión admin; el
+   `compliance_officer` no cuenta, es un auditor y su sola existencia no prueba que hubo un
+   dueño): es lo que evita que en un despliegue ya poblado cualquiera que llegue al
    login se cree un `tenant_admin` y se apropie del tenant. Los clients sembrados por el
    perfil (paso 8) **no** cuentan como dueño —los siembra la config, no una persona—, así que
    el orden 7→8 no bloquea la instalación; el orden importa por otra razón: mientras no exista
@@ -296,6 +297,13 @@ sequenceDiagram
    de `tofu output -raw admin_bootstrap` y se rota con `-replace`. **Rotar la credencial
    inmediatamente** con `POST /api/v1/users/me/password` o el botón *Cambiar mi contraseña*
    de la barra lateral ([gotcha](#gotcha-password)). 🟢
+
+    Para el **primer super admin** (quien asigna los roles de cumplimiento) el operador corre,
+    después del bootstrap, `docker compose exec backend python -m src.cli crear-super-admin
+    --username <usuario> --email <email>`: imprime la contraseña **una sola vez**
+    (`PASSWORD=<valor>`) y es idempotente (sale `3` si ya hay un super admin). Si se pierde, se
+    regenera con `resetear-super-admin`. Detalle y orden en
+    [Cómo se provee el primer super admin](../administration/index.md#primer-super-admin). 🟢
 8. **Seed de clients + branding.**
     - En un despliegue desde perfil, el seed corre **dentro del contenedor del backend** con
       el `seed.yaml` renderizado del perfil (`docker compose exec backend python

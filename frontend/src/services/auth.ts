@@ -10,6 +10,10 @@ export interface SessionUser {
     | "admin" | "compliance_officer" | "clinician" | "developer" // legacy (pre-013)
     | "super_admin" | "tenant_admin" | "client" | "lectura"; // canónicos post-013 (lectura: 017)
   display_label?: string | null;
+  /** Rol canónico que devolvió el backend, SIN colapsar: `role` pasa por `toLegacyRole` y
+   *  tenant_admin/super_admin quedan los dos como `admin`. Sólo el canónico los distingue
+   *  (quién puede asignar «Auditor» o `super_admin`). Ausente en sesiones guardadas antes. */
+  canonical_role?: string;
   email: string;
   /** Contraseña fijada por un admin (alta o reseteo), no por el propio dueño: la UI debe
    *  forzar el cambio antes de dejar usar el resto del panel. */
@@ -28,10 +32,21 @@ export function toLegacyRole(user: { role: string; display_label?: string | null
   return user.role as SessionUser["role"];
 }
 
+/** ¿Puede esta sesión asignar los roles de cumplimiento (`compliance_officer`/`super_admin`)?
+ *  Sólo un super_admin: el backend le da 403 a cualquier otro. Falla cerrado: sin rol
+ *  canónico (sesión vieja) o sin sesión, no. Espejo de `auth/rbac.py::exigir_super_admin_para_rol`. */
+export function canAssignComplianceRoles(user: Pick<SessionUser, "canonical_role"> | null | undefined): boolean {
+  return user?.canonical_role === "super_admin";
+}
+
 export const authStorage = {
   save: (token: string, user: SessionUser) => {
     localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify({ ...user, role: toLegacyRole(user) }));
+    // `canonical_role ?? role`: al RE-guardar una sesión ya normalizada (cambio de contraseña)
+    // el `role` ya viene colapsado y el canónico guardado no se pisa.
+    localStorage.setItem(USER_KEY, JSON.stringify({
+      ...user, role: toLegacyRole(user), canonical_role: user.canonical_role ?? user.role,
+    }));
   },
   clear: () => {
     localStorage.removeItem(TOKEN_KEY);
