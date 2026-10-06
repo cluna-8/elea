@@ -151,6 +151,16 @@ def _bump(tenant_id=None):
         pass
 
 
+def _bump_region(tenant_id=None):
+    """Una región cambia lo que dicen el plano de datos **y** el semáforo del catálogo (FR-030a): sube las dos versiones."""
+    _bump(tenant_id)
+    try:
+        from sentinel.catalog.runtime import catalog_version
+        catalog_version().bump(str(tenant_id) if tenant_id is not None else None)
+    except Exception:  # noqa: BLE001 — rige el TTL
+        pass
+
+
 def _scope_ok(scope_type: str, scope_value: str):
     if scope_type not in m.SCOPE_TYPES:
         _err(422, f"alcance desconocido: {scope_type}")
@@ -832,7 +842,7 @@ def create_region(body: RegionIn, user=Depends(require_role(*READERS))):
         after = _row(r, _REGION_FIELDS)
         _audit(db, user, entity="region", entity_id=r.id, action="create", after=after, reason=body.reason,
                tenant_id=tenant_id)
-    _bump(tenant_id)
+    _bump_region(tenant_id)
     return after
 
 
@@ -869,7 +879,7 @@ def update_region(region_id: str, body: RegionPatch, user=Depends(require_role(*
         tenant_id = r.tenant_id
         _audit(db, user, entity="region", entity_id=r.id, action="update", before=before, after=after, reason=reason,
                tenant_id=tenant_id)
-    _bump(tenant_id)
+    _bump_region(tenant_id)
     return after
 
 
@@ -886,7 +896,7 @@ def delete_region(region_id: str, body: Reason, user=Depends(require_role(*READE
         db.delete(r)
         _audit(db, user, entity="region", entity_id=region_id, action="delete", before=before, reason=body.reason,
                tenant_id=tenant_id)
-    _bump(tenant_id)
+    _bump_region(tenant_id)
     return {"deleted": region_id}
 
 
