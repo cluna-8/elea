@@ -9,7 +9,9 @@ Habla la API REST REAL del producto — el seed ES el primer mini-examen del pla
 - ``GET  /api/v1/health/license``  pre-check de seats: con sesión admin devuelve
   ``max_seats``/``seats_used`` (``backend/src/api/health.py:44``).
 - ``POST /api/v1/users``           alta de usuario, admin-only; el seat gate corre en
-  alta de rol ``client`` (``backend/src/api/users.py:137`` → ``enforce_seat_gate``).
+  alta de rol ``client`` (``backend/src/api/users.py:137`` → ``enforce_seat_gate``). Los
+  roles ``compliance_officer``/``super_admin`` sólo los asigna una sesión ``super_admin``
+  (``auth.rbac.exigir_super_admin_para_rol``): por eso el cliente lleva DOS sesiones.
 - ``POST /api/v1/keys``            crea la Connection/APIKey por ``tool_type``; el seat =
   llave activa; 409 si el user ya tiene una activa para esa herramienta
   (``backend/src/api/keys.py:124``). La respuesta (``KeyGeneratedResponse``) trae
@@ -64,6 +66,7 @@ class SeedClient(Protocol):
     ``BackendClient`` real y el cliente falso de los tests."""
 
     def bootstrap_admin(self, username: str, password: str) -> str: ...
+    def login_super_admin(self, username: str, password: str) -> str: ...
     def verify_credential(self, username: str, password: str) -> bool: ...
     def verify_sentinel_key(self, sentinel_key: str) -> bool: ...
     def license_health(self) -> dict: ...
@@ -71,7 +74,8 @@ class SeedClient(Protocol):
     def list_keys(self) -> list[dict]: ...
     def list_budgets(self) -> list[dict]: ...
     def create_user(self, *, username: str, email: str, password: str, role: str,
-                     client_type: Optional[str] = None) -> dict: ...
+                     client_type: Optional[str] = None,
+                     como_super_admin: bool = False) -> dict: ...
     def create_key(self, *, name: str, user_id: str, tool_type: str) -> dict: ...
     def create_budget(self, *, user_id: str, max_spend_usd: float, max_tokens: int,
                        reset_period: str) -> dict: ...
@@ -85,6 +89,8 @@ class BackendClient:
                  client: Optional[httpx.Client] = None):
         self.base_url = base_url.rstrip("/")
         self._token: Optional[str] = None
+        # Sesión super_admin, aparte de la del admin: sólo se usa donde el backend la exige.
+        self._super_token: Optional[str] = None
         # Se acepta un ``httpx.Client`` inyectado (tests de transporte con MockTransport).
         self._http = client or httpx.Client(timeout=timeout)
         self._owns_http = client is None
@@ -101,12 +107,14 @@ class BackendClient:
             self._http.close()
 
     # -- transporte ---------------------------------------------------------------------
-    def _headers(self) -> dict:
-        return {"Authorization": f"Bearer {self._token}"} if self._token else {}
+    def _headers(self, token: Optional[str] = None) -> dict:
+        token = token or self._token
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
-    def _request(self, method: str, path: str, *, json: Any = None) -> Any:
+    def _request(self, method: str, path: str, *, json: Any = None,
+                 token: Optional[str] = None) -> Any:
         url = f"{self.base_url}{API_PREFIX}{path}"
-        resp = self._http.request(method, url, json=json, headers=self._headers())
+        resp = self._http.request(method, url, json=json, headers=self._headers(token))
         if resp.status_code >= 400:
             raise BackendError(resp.status_code, _extract_detail(resp), method=method, url=url)
         if resp.status_code == 204 or not resp.content:
@@ -122,6 +130,22 @@ class BackendClient:
                              json={"username": username, "password": password})
         self._token = body["access_token"]
         return self._token
+
+    def login_super_admin(self, username: str, password: str) -> str:
+        """``POST /users/login`` de la cuenta ``super_admin`` (la que provee el comando
+        ``crear-super-admin`` del backend). Guarda su bearer APARTE del del admin y lo
+        devuelve. Una cuenta que autentica pero no es ``super_admin`` se rechaza acá: sería
+        un 403 recién al crear el primer ``compliance_officer``, a mitad del seed."""
+        url = f"{self.base_url}{API_PREFIX}/users/login"
+        resp = self._http.request("POST", url, json={"username": username, "password": password})
+        if resp.status_code >= 400:
+            raise BackendError(resp.status_code, _extract_detail(resp), method="POST", url=url)
+        body = resp.json()
+        if body.get("user", {}).get("role") != "super_admin":
+            raise BackendError(403, f"la cuenta {username!r} no es super_admin",
+                               method="POST", url=url)
+        self._super_token = body["access_token"]
+        return self._super_token
 
     def verify_credential(self, username: str, password: str) -> bool:
         """``POST /users/login`` de sólo-comprobación: True si autentica, False si 401.
@@ -165,7 +189,12 @@ class BackendClient:
         return self._request("GET", "/budgets") or []
 
     def create_user(self, *, username: str, email: str, password: str, role: str,
-                     client_type: Optional[str] = None) -> dict:
+                     client_type: Optional[str] = None,
+                     como_super_admin: bool = False) -> dict:
+        """``POST /users``. ``como_super_admin`` usa la sesión de ``login_super_admin`` (la
+        que el backend exige para ``compliance_officer``/``super_admin``)."""
+        if como_super_admin and self._super_token is None:
+            raise RuntimeError("login_super_admin() antes de crear con la sesión super_admin")
         payload: dict = {"username": username, "email": email, "password": password,
                          "role": role, "is_active": True}
         # client_type viaja best-effort: hoy el schema UserCreate no lo declara y Pydantic
@@ -173,7 +202,8 @@ class BackendClient:
         # forward-compatible si el borde lo acepta más adelante. Ver README del perfil.
         if client_type is not None:
             payload["client_type"] = client_type
-        return self._request("POST", "/users", json=payload)
+        return self._request("POST", "/users", json=payload,
+                             token=self._super_token if como_super_admin else None)
 
     def create_key(self, *, name: str, user_id: str, tool_type: str) -> dict:
         return self._request("POST", "/keys",

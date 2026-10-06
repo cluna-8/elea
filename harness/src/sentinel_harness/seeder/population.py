@@ -27,8 +27,12 @@ import yaml
 POPULATIONS_DIR = Path(__file__).resolve().parent / "populations"
 
 # Roles canónicos que el seed siembra (enum verificado en backend/src/models/user.py:9;
-# super_admin NO se siembra — se genera aparte, solo cloud).
+# super_admin NO está en la población: lo provee el comando `crear-super-admin` del backend
+# y el seeder sólo usa su sesión).
 SEED_ROLES: tuple[str, ...] = ("tenant_admin", "compliance_officer", "client")
+# Roles que el backend deja asignar SÓLO a una sesión super_admin
+# (backend/src/models/user.py ROLES_SOLO_SUPER_ADMIN): el seeder los crea con esa sesión.
+ROLES_SOLO_SUPER_ADMIN: frozenset[str] = frozenset({"compliance_officer", "super_admin"})
 # client_type válidos (CHECK ck_users_client_type en el modelo).
 CLIENT_TYPES: frozenset[str] = frozenset({"base_url", "desktop", "chat_ui"})
 # reset_period aceptado por el schema de budget (backend/src/schemas/budget.py:12).

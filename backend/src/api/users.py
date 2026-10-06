@@ -22,7 +22,7 @@ from ..auth.session import create_session_token, get_current_user
 # Se sigue importando con el mismo nombre porque hay tests que lo toman de este módulo.
 from ..auth.passwords import (hash_password, hash_password_async, necesita_rehash,
                               validar_password, verify_password, verify_password_async)
-from ..auth.rbac import require_role
+from ..auth.rbac import exigir_super_admin_para_rol, require_role
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -309,7 +309,7 @@ def deactivate_group(group_id: UUID, db: Session = Depends(get_db)):
 # conexión, pero un `refresh()` posterior la vuelve a tomar.
 
 
-def _validar_alta(db: Session, user_in: UserCreate) -> tuple:
+def _validar_alta(db: Session, user_in: UserCreate, actor: User) -> tuple:
     """Fase DB del pre-check del alta: unicidad de username, existencia del grupo y gate de
     licencia. Devuelve `(role, display_label)` y LIBERA la conexión al salir, para que no
     quede retenida a través del bcrypt (#239). Corre en `run_in_threadpool`.
@@ -321,6 +321,10 @@ def _validar_alta(db: Session, user_in: UserCreate) -> tuple:
     ADENTRO a propósito: su 422 va entre el 404 del grupo y el gate de licencia, y sacarlo
     de esta fase le cambiaría la precedencia a los errores (un rol inválido con username
     duplicado devolvería 422 donde hoy devuelve 400).
+
+    Alta de `compliance_officer`/`super_admin`: sólo si el `actor` es `super_admin` (403 si
+    no). Va justo después del 422 —necesita el rol canónico— y ANTES del gate de licencia y
+    del bcrypt, así un alta rechazada no quema ni el executor ni el motor.
     """
     try:
         if db.query(User).filter(User.username == user_in.username).first():
@@ -336,6 +340,7 @@ def _validar_alta(db: Session, user_in: UserCreate) -> tuple:
             role, display_label = normalize_legacy_role(user_in.role)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+        exigir_super_admin_para_rol(actor, role)
         if role == "client":
             # Gate de licencia (spec 021 US2, FR-009): sólo los Clients son seats;
             # los roles administrativos no consumen licencia. ANTES de crear el
@@ -410,9 +415,9 @@ def _borrar_usuario(db: Session, user_id: UUID) -> None:
         db.rollback()
 
 
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(require_role("admin"))])
-async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(user_in: UserCreate, actor: User = Depends(require_role("admin")),
+                      db: Session = Depends(get_db)):
     # Primero la contraseña: es lo único que no se puede corregir después sin que el usuario
     # quede con una credencial conocida. El alta sin contraseña ya no existe (había un
     # `or "sentinel123"` acá, y una cadena vacía pasaba el `if` del schema).
@@ -422,7 +427,7 @@ async def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail=str(exc))
 
     # Fase DB (threadpool, conexión liberada al volver): unicidad, grupo, rol y licencia.
-    role, display_label = await run_in_threadpool(_validar_alta, db, user_in)
+    role, display_label = await run_in_threadpool(_validar_alta, db, user_in, actor)
 
     # El bcrypt, en el executor dedicado y SIN conexión retenida (#239 + P1 de la r2 del #167).
     password_hash = await hash_password_async(user_in.password)
@@ -540,6 +545,9 @@ def update_user(user_id: UUID, user_in: UserBase,
             raise HTTPException(status_code=422, detail=str(exc))
         if label:
             data.setdefault("display_label", label)
+        # Sólo si el rol CAMBIA: re-mandar el vigente (PUT lo exige) no es una asignación.
+        if data["role"] != rol_anterior:
+            exigir_super_admin_para_rol(actor, data["role"])
     for field, value in data.items():
         setattr(user, field, value)
     # Sólo si el rol efectivamente cambió (el normalizado != el anterior). El emit va ANTES
@@ -614,6 +622,8 @@ def patch_user(user_id: UUID, user_in: UserPatch,
             raise HTTPException(status_code=422, detail=str(exc))
         if label:
             data.setdefault("display_label", label)
+        if data["role"] != rol_anterior:
+            exigir_super_admin_para_rol(actor, data["role"])
 
     # Unicidad por tenant (username/email) — mismo criterio que el índice
     # uq_users_tenant_username/uq_users_tenant_email, chequeado ANTES de tocar la fila

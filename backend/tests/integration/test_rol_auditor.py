@@ -57,7 +57,8 @@ for _dir in (_TESTS, _TESTS / "integration"):
         sys.path.insert(0, str(_dir))
 
 from migration_harness import require_postgres  # noqa: E402
-from seat_gate_harness import admin_headers, build_app_client, mock_engine  # noqa: E402
+from seat_gate_harness import (admin_headers, build_app_client, headers_for_role,  # noqa: E402
+                               mock_engine)
 
 require_postgres()
 
@@ -123,6 +124,16 @@ def admin(harness):
     return admin_headers(client)
 
 
+@pytest.fixture(scope="module")
+def super_admin(harness, admin):
+    """Quien da de alta al Auditor: desde que `compliance_officer` sólo lo asigna un
+    `super_admin`, el `tenant_admin` del bootstrap (`admin`) ya no puede. Depende de `admin`
+    para que el bootstrap del primer dueño corra antes de mintear al super_admin."""
+    from src.auth.matrix import Rol
+    client, factory = harness
+    return headers_for_role(client, factory, Rol.SUPER_ADMIN)
+
+
 def _alta(client, headers, rol=ROL_AUDITOR):
     nombre = f"auditor-{uuid.uuid4().hex[:8]}"
     resp = client.post("/api/v1/users", headers=headers, json={
@@ -133,7 +144,7 @@ def _alta(client, headers, rol=ROL_AUDITOR):
 
 
 @pytest.fixture(scope="module")
-def auditor(harness, admin):
+def auditor(harness, super_admin):
     """Un Auditor dado de alta por la MISMA vía que usa la consola, y su sesión."""
     client, _ = harness
     # El fixture es de módulo y `motor` es de función: se monta el doble a mano para el
@@ -146,7 +157,7 @@ def auditor(harness, admin):
 
     ai_engine_client.create_user = _fake
     try:
-        nombre, resp = _alta(client, admin)
+        nombre, resp = _alta(client, super_admin)
     finally:
         ai_engine_client.create_user = real
     assert resp.status_code == 201, resp.text
@@ -160,11 +171,11 @@ def auditor(harness, admin):
 # ── El alta: la opción nueva de la consola crea de verdad este rol ────────────────
 
 
-def test_el_alta_con_rol_auditor_crea_el_usuario(harness, admin):
+def test_el_alta_con_rol_auditor_crea_el_usuario(harness, super_admin):
     """La opción «Auditor» del formulario manda este valor; si el backend lo rechazara, la
     opción sería decorativa."""
     client, factory = harness
-    nombre, resp = _alta(client, admin)
+    nombre, resp = _alta(client, super_admin)
 
     assert resp.status_code == 201, resp.text
     assert resp.json()["role"] == ROL_AUDITOR
@@ -180,11 +191,11 @@ def test_el_alta_con_rol_auditor_crea_el_usuario(harness, admin):
         db.close()
 
 
-def test_el_auditor_entra_y_su_sesion_declara_el_rol(harness, admin):
+def test_el_auditor_entra_y_su_sesion_declara_el_rol(harness, super_admin):
     """El frontend gatea el menú con el rol que devuelve el login: si viniera normalizado a
     otra cosa, el Auditor vería el menú de otro rol."""
     client, _ = harness
-    nombre, resp = _alta(client, admin)
+    nombre, resp = _alta(client, super_admin)
     assert resp.status_code == 201, resp.text
 
     login = client.post("/api/v1/users/login",

@@ -171,8 +171,10 @@ async def test_camino_de_desarrollo_por_prisma_lleva_la_columna(monkeypatch):
     await inst._insertar_por_prisma(dict(entry), [], None, None)
     await inst._insertar_por_prisma({**entry, "routing_decision": DECISION}, [], None, None)
     sql, sin = llamadas[0]
-    assert "routing_decision" in sql and sin[-1] is None
-    assert json.loads(llamadas[1][1][-1]) == DECISION
+    # Orden de los últimos parámetros: …, routing_decision ($15), cache_hit ($16).
+    assert "routing_decision" in sql and "cache_hit" in sql
+    assert sin[-2] is None and sin[-1] is False
+    assert json.loads(llamadas[1][1][-2]) == DECISION
 
 
 # ── Plano interno del backend ────────────────────────────────────────────────────────

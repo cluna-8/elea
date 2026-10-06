@@ -5,6 +5,13 @@ SECUENCIA de R5 y con las guardas que la spec pide:
 
   bootstrap admin  →  PRE-CHECK de seats (fail-fast)  →  users  →  keys  →  budgets
 
+- **Sesión super_admin**: ``compliance_officer`` sólo lo crea un ``super_admin`` (el backend
+  responde 403 a un ``tenant_admin``). El primer ``super_admin`` lo provee el operador con
+  ``python -m src.cli crear-super-admin`` (backend); sus credenciales llegan por
+  ``SEED_SUPER_ADMIN_USERNAME``/``SEED_SUPER_ADMIN_PASSWORD`` y se usan SÓLO para esos
+  alta (y para crear el ``admin`` si la instalación ya tenía super_admin y no hay quien
+  bootstrapee). Sin ellas, el seed aborta ANTES de crear nada.
+
 - **Pre-check de seats**: lee ``GET /health/license`` (max_seats/seats_used) y, si el
   headroom vivo no alcanza para las llaves planificadas, ABORTA antes de crear nada, con
   un mensaje accionable. Cubre el edge case "licencia insuficiente detectada tarde"
@@ -40,8 +47,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .client import BackendClient, BackendError, SeedClient
-from .population import (Member, Population, derive_password, load_population,
-                        load_population_by_gate, plan_members)
+from .population import (ROLES_SOLO_SUPER_ADMIN, Member, Population, derive_password,
+                        load_population, load_population_by_gate, plan_members)
 
 # Semilla por defecto: fija para que "seedear una vez por despliegue" sea reproducible.
 # Cambiarla cambia TODAS las passwords derivadas → exige DB fresca (down -v). Ver README.
@@ -173,7 +180,8 @@ def precheck_seats(client: SeedClient, net_seats_needed: int) -> dict:
 
 def seed(pop: Population, client: SeedClient, *, seed: Union[int, str] = DEFAULT_SEED,
          verify_only: bool = False, admin_password: Optional[str] = None,
-         pool_previo: Optional[list] = None) -> SeedReport:
+         pool_previo: Optional[list] = None, super_admin_username: Optional[str] = None,
+         super_admin_password: Optional[str] = None) -> SeedReport:
     """Ejecuta (o verifica) el seed de ``pop`` contra ``client``.
 
     ``client`` es cualquier cosa que cumpla ``SeedClient`` (el ``BackendClient`` real o el
@@ -183,24 +191,60 @@ def seed(pop: Population, client: SeedClient, *, seed: Union[int, str] = DEFAULT
     las ``sentinel_key`` — el backend no las devuelve dos veces. Se validan contra
     ``/gw/whoami`` sobre una muestra, mismo criterio que ``_assert_seed_matches``.
 
+    ``super_admin_username``/``super_admin_password``: la cuenta ``super_admin`` con la que se
+    crean los ``compliance_officer``. Obligatorias si la población los lleva y no es
+    ``verify_only`` (que no crea nada): sin ellas ``SeedError`` ANTES de tocar el backend.
+
     OJO: ``report.keys_sin_material`` no vacío significa que el examen NO puede correr
     completo (extensión/coding sin autenticación). El CLI lo convierte en EXIT ≠ 0; un
     llamador programático DEBE mirarlo."""
     members = plan_members(pop, seed)
     admin_pwd = admin_password or derive_password(seed, pop.admin_username)
 
+    # 0) Sesión super_admin: se exige ANTES de crear nada. `compliance_officer` sólo lo asigna
+    #    un super_admin; descubrirlo a mitad del seed dejaría una población a medias.
+    necesita_super = not verify_only and any(m.role in ROLES_SOLO_SUPER_ADMIN for m in members)
+    if necesita_super:
+        if not (super_admin_username and super_admin_password):
+            raise SeedError(
+                "falta la sesión super_admin: los compliance_officer sólo los crea un "
+                "super_admin. Creá el primero con `python -m src.cli crear-super-admin "
+                "--usuario <u> --email <e>` dentro del contenedor del backend (imprime la "
+                "contraseña UNA vez) y pasá SEED_SUPER_ADMIN_USERNAME y "
+                "SEED_SUPER_ADMIN_PASSWORD en el entorno. No se creó nada.")
+        try:
+            client.login_super_admin(super_admin_username, super_admin_password)
+        except BackendError as e:
+            raise SeedError(
+                f"no se pudo iniciar sesión como super_admin ({e.status_code}: {e.detail}). "
+                "Revisá SEED_SUPER_ADMIN_USERNAME/SEED_SUPER_ADMIN_PASSWORD (si cambió la "
+                "contraseña tras el primer ingreso, usá la vigente). No se creó nada.") from e
+
     # 1) Bootstrap del primer admin (o login si ya existe) — habilita el resto.
     #    FIX-7: si el admin ya existe con OTRA password (DB de otra semilla), el login da
     #    401 → abortamos ruidoso en vez de seguir con una sesión que no vamos a obtener.
+    otra_password = SeedError(
+        "el admin de bootstrap ya existe con OTRA password: esta instalación fue "
+        "sembrada con otra semilla (o con --admin-password distinto). Hacé `down -v` "
+        "y re-seedeá, o pasá la semilla/password original. No se creó nada.")
     try:
         client.bootstrap_admin(pop.admin_username, admin_pwd)
     except BackendError as e:
-        if e.status_code == 401:
-            raise SeedError(
-                "el admin de bootstrap ya existe con OTRA password: esta instalación fue "
-                "sembrada con otra semilla (o con --admin-password distinto). Hacé `down -v` "
-                "y re-seedeá, o pasá la semilla/password original. No se creó nada.") from e
-        raise
+        if e.status_code != 401:
+            raise
+        if not necesita_super:
+            raise otra_password from e
+        # Con un super_admin provisionado primero la instalación YA tiene dueño: el login de
+        # `admin` no se bootstrapea solo (401 si la cuenta no existe). Se crea con esa sesión.
+        try:
+            client.create_user(username=pop.admin_username,
+                               email=f"{pop.admin_username}@sentinel.com.ar",
+                               password=admin_pwd, role="tenant_admin", como_super_admin=True)
+        except BackendError as e2:
+            if e2.is_duplicate:  # existe, y con otra password
+                raise otra_password from e
+            raise
+        client.bootstrap_admin(pop.admin_username, admin_pwd)
 
     report = SeedReport(gate=pop.gate,
                         state="verified" if verify_only else "seeded",
@@ -290,7 +334,8 @@ def _create_or_converge_user(client: SeedClient, m: Member,
         return existing
     try:
         resp = client.create_user(username=m.username, email=m.email, password=m.password,
-                                  role=m.role, client_type=m.client_type)
+                                  role=m.role, client_type=m.client_type,
+                                  como_super_admin=m.role in ROLES_SOLO_SUPER_ADMIN)
         report.users_created += 1
         uid = str(resp["id"])
         users_map[m.username] = uid
@@ -571,6 +616,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                         "dos veces) y se validan contra /gw/whoami")
     p.add_argument("--timeout", type=float, default=30.0, help="timeout HTTP en segundos")
     args = p.parse_args(argv)
+    # La sesión super_admin (la crea el comando `crear-super-admin` del backend) viaja por el
+    # entorno: una contraseña en argv queda en `ps` y en el historial del shell.
+    super_user = os.environ.get("SEED_SUPER_ADMIN_USERNAME")
+    super_pass = os.environ.get("SEED_SUPER_ADMIN_PASSWORD")
 
     pop = _load_population_arg(args)
 
@@ -593,7 +642,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         with BackendClient(args.backend_url, timeout=args.timeout) as client:
             report = seed(pop, client, seed=seed_value, verify_only=args.verify_only,
-                          admin_password=args.admin_password, pool_previo=pool_previo)
+                          admin_password=args.admin_password, pool_previo=pool_previo,
+                          super_admin_username=super_user, super_admin_password=super_pass)
     except SeedError as e:
         print(f"❌ {e}", file=sys.stderr)
         return 2

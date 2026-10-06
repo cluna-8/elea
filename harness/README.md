@@ -154,6 +154,12 @@ python -m sentinel_harness.seeder.seed --gate 125 --backend-url https://<sut>/ -
   --emit-credentials /run/itv/pool-g125.json
 ```
 
+> Los `compliance_officer` los crea una sesión **super_admin**: el primero lo provee
+> `python -m src.cli crear-super-admin` (en el contenedor del backend) y el seeder toma sus
+> credenciales de `SEED_SUPER_ADMIN_USERNAME`/`SEED_SUPER_ADMIN_PASSWORD` (entorno, no argv).
+> Sin ellas aborta antes de crear nada; `--verify-only` no las necesita. Ver
+> [`RUNBOOK-examen.md`](RUNBOOK-examen.md) §5.
+
 > La **semilla** se fija una vez por despliegue: cambiarla cambia todas las passwords
 > derivadas y exige DB fresca (`down -v`). Las credenciales (`--emit-credentials`) son
 > material de RUN: van a un archivo 0600 fuera del repo, nunca se commitean.
