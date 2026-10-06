@@ -937,6 +937,34 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   fuera del conjunto, DNI/CUIT/CBU/email/tarjeta/IBAN/teléfono en cada posición abierta, tipo propio de la empresa, texto libre
   intacto, instantánea de las tablas del contrato).
 
+## R36. Escalares numéricos en posiciones estructurales con el NER real — hallazgo del gate «claude -p» sobre R35 (2026-10-06; FR-027, SC-006)
+
+- **Hechos** (pedido REAL de Claude Code 2.x por `/v1/messages?beta=true`, capturado con un servidor local; 21 herramientas, 3 bloques de `system`
+  con `cache_control`, un mensaje `role: system` en `messages`, `thinking.display`, `output_config`, `context_management`, `safeguards`; ≈ 75 KB):
+  con R35 aplicada el pedido seguía dando 400 `masking_required`. Se repasó el pedido con el recorrido real y el analizador real (sidecar
+  del stack): **14 `structural_entity`, todos la misma cadena `1`**, clasificada LOCATION (0,85), en `tools[*].input_schema`: las palabras clave
+  numéricas `minLength: 1` de los esquemas. Los demás números (`0`, `256`, `9007199254740991`, `128000`, `0.5`) no se marcan. No era ni el `system`,
+  ni las descripciones, ni `cache_control`, ni `metadata.user_id` (no interviene: el pedido real pasa con él), ni los campos nuevos del primer nivel (clave y valor
+  pasan sin detección), ni el tipo de bloque.
+- **Causa**: R35 cubrió el vocabulario cerrado y los identificadores **de texto**; un escalar numérico en una posición estructural seguía por el
+  camino estricto (`("scan", n)`, cualquier detección ⇒ `structural_entity`). El mismo defecto estaba latente en `temperature: 1`, `top_k: 1` y
+  `max_tokens: 1`.
+- **Decisión**: el valor numérico de una posición estructural es de vocabulario abierto (cualquier número es válido para el protocolo), así que se le
+  aplica **la regla (B) tal cual**: se ignoran los tipos semánticos y siguen bloqueando los de patrón y los propios de la empresa. No se exime nada
+  nuevo: un DNI como valor numérico sigue bloqueando; el texto de los mensajes, `tool_result`, `thinking`, `system`, `tool_use.input`, descripciones,
+  `default`/`examples` y los números de subárboles libres (que se enmascaran como marcador) no cambian.
+- **Segunda causa (turno 2 de la misma sesión)**: con los números arreglados, el turno 1 pasaba (DNI enmascarado hacia el destino) y el turno 2
+  —el que lleva el `tool_use` del modelo y el `tool_result`— daba 1 `structural_entity`: la CLAVE `is_error` del bloque `tool_result` (booleano que
+  manda Claude Code), clasificada LOCATION. No estaba en la tabla de posiciones, así que era «campo desconocido» (clave analizada estricta). Es un
+  campo del protocolo, no un dato: se agrega `….is_error@tool_result` a las posiciones estructurales (vocabulario cerrado del protocolo, A). Los campos
+  desconocidos de verdad siguen estrictos (S14 punto 3, sin cambios); un valor no booleano en `is_error` también se analiza.
+- **Alternativas descartadas**: (a) eximir `minLength` y compañía por nombre de palabra clave: es exención por nombre; (b) tratar el `1` como
+  vocabulario cerrado: los números no tienen conjunto cerrado; (c) bajar el puntaje del NER: no es determinista; (d) no analizar los números
+  estructurales: un DNI en un `max_tokens` saldría en claro.
+- **Tests**: `backend/tests/unit/test_masking_vocabulario_estructural.py` (`test_pedido_real_de_claude_code_con_numeros_de_esquema_no_se_bloquea` con la
+  forma del pedido real y un analizador que marca `1` como LOCATION; parámetros `temperature`/`top_k`/`max_tokens`; un DNI numérico sigue bloqueando;
+  números de texto libre siguen enmascarándose; el prefetch pide los números al analizador).
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas

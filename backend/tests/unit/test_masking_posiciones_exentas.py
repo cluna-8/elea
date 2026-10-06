@@ -319,7 +319,7 @@ POSICIONES_DEL_CONTRATO = {
             "thinking.type", "thinking.budget_tokens",
             "tool_choice.type", "tool_choice.name", "tool_choice.disable_parallel_tool_use",
             "messages.*.role",
-            "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result",
+            "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result", "….is_error@tool_result",
             "….source.type", "….source.media_type",
             "tools.*.name", "tools.*.type",
             "tools.*.input_schema#schema",
