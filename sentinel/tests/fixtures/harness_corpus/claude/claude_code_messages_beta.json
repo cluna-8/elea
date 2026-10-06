@@ -1,0 +1,136 @@
+{
+  "name": "claude-code-messages-beta",
+  "tool": "claude_code",
+  "synthetic": true,
+  "descripcion": "Claude Code (CLI) contra /gw/v1/messages?beta=true: stream, herramientas, razonamiento, gestión de contexto, marcas de caché, safeguards y betas (evidencia de elea del 6-oct).",
+  "method": "POST",
+  "path": "/v1/messages",
+  "query": {
+    "beta": "true"
+  },
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05",
+    "x-app": "cli",
+    "user-agent": "claude-cli/2.1.0 (external, cli)",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 32000,
+    "stream": true,
+    "temperature": 1,
+    "system": [
+      {
+        "type": "text",
+        "text": "Sos un asistente de programación. Trabajás sobre el repositorio de ejemplo.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Revisá el archivo principal y decime qué hace."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Voy a leerlo."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01A",
+            "name": "Read",
+            "input": {
+              "file_path": "app/main.py"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01A",
+            "content": "def main():\n    print('hola')\n",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "Read",
+        "description": "Lee un archivo del proyecto",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "Bash",
+        "description": "Ejecuta un comando",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ]
+        },
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto"
+    },
+    "metadata": {
+      "user_id": "user_0000000000000000000000000000000000000000_account__session_00000000-0000-0000-0000-000000000000"
+    },
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 8000
+    },
+    "output_config": {
+      "effort": "high"
+    },
+    "context_management": {
+      "edits": [
+        {
+          "type": "clear_tool_uses_20250919"
+        }
+      ]
+    },
+    "safeguards": {
+      "policy": "default",
+      "mode": "enforce"
+    },
+    "campo_futuro_de_la_herramienta": {
+      "x": 1
+    }
+  }
+}

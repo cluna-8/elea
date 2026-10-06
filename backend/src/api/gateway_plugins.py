@@ -57,6 +57,10 @@ class GatewayContext:
     state: dict = field(default_factory=dict)
     governance_overrides: dict = field(default_factory=dict)
     routing_decision: Optional[dict] = None
+    # Cuerpo JSON ya interpretado, solo en las rutas con cuerpo que no son ``/v1/messages``
+    # (``count_tokens``): ahí el plugin decide por el cuerpo —estimarlo sin reenviarlo, por ejemplo—
+    # antes de que el pedido salga. ``None`` si la ruta no lo trae o no es un objeto JSON.
+    body: Optional[dict] = None
 
 
 def register_gateway_plugin(plugin: Any) -> None:

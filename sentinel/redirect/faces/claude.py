@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import re
 from typing import Any, Iterable, Mapping, Optional
 
 from .. import credentials
@@ -74,6 +75,9 @@ def models_view(rows: Iterable[Mapping[str, Any]], *, limit: int = 1000, after_i
 # --- errores -------------------------------------------------------------------------
 
 CAPABILITY_MESSAGES = {
+    "web_search": "Este modelo no puede buscar en la web por su cuenta. Quitá esa herramienta o elegí otro modelo.",
+    "web_fetch": "Este modelo no puede abrir páginas web por su cuenta. Quitá esa herramienta o elegí otro modelo.",
+    "code_execution": "Este modelo no puede ejecutar código por su cuenta. Quitá esa herramienta o elegí otro modelo.",
     "images": "Este modelo no acepta imágenes. Quitá la imagen de este mensaje o elegí otro modelo.",
     "documents_pdf": "Este modelo no acepta documentos. Quitá el documento de este mensaje o elegí "
                      "otro modelo.",
@@ -84,6 +88,11 @@ _ERRORS = {  # kind → (status, error.type, mensaje neutro, reintentar)
     "region": (403, "permission_error", "Modelo no disponible para tu región.", False),
     "capability": (400, "invalid_request_error", "capability_rejected: {capability}", False),
     "invalid_request": (400, "invalid_request_error", "El pedido no es válido para este modelo.", False),
+    # `count_tokens` sin estimación local: la herramienta estima sola (contracts/cara-claude.md §3)
+    "count_unavailable": (404, "not_found_error", "El conteo de tokens no está disponible para este "
+                          "modelo.", False),
+    "upstream_failed": (502, "api_error", "El modelo no pudo completar la respuesta. Reintentá en unos "
+                        "segundos.", True),
     "overloaded": (529, "overloaded_error", "El modelo está saturado. Reintentá en unos segundos.", True),
     "rate_limit": (429, "rate_limit_error", "Límite de uso alcanzado. Reintentá en unos segundos.", False),
     "policy_unavailable": (503, "api_error", "Servicio no disponible temporalmente.", True),
@@ -159,6 +168,21 @@ class CapabilityRejected(ValueError):
         self.capability = capability
 
 
+# T139 de Sentinel (FR-035, research R10): hacia un destino traducido solo pasan los campos de primer
+# nivel de esta lista (contracts/cara-claude.md §1). Una lista negra (`safeguards`) se rompe con el
+# próximo campo nuevo de la herramienta; los que adapta el normalizador no cuentan como desconocidos.
+FIELD_ALLOWLIST = ("model", "messages", "system", "max_tokens", "stop_sequences", "stream", "temperature",
+                   "top_p", "top_k", "tools", "tool_choice", "metadata")
+_ADAPTED_FIELDS = frozenset({"thinking", "output_config", "context_management"})
+DROPPED_FIELD_PREFIX = "dropped_field:"
+MAX_DROPPED_NAMES = 20                  # la auditoría lleva nombres, acotados: nunca valores
+_SAFE_FIELD_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
+_INVALID_FIELD_NAME = "campo_no_valido"
+
+# Funciones que ejecuta el PROVEEDOR ORIGINAL (herramientas del servidor): un destino traducido no las tiene y
+# no se ignoran en silencio (FR-035). Prefijo del `type` de la herramienta → función que se informa.
+_PROVIDER_ONLY_TOOLS = (("web_search", "web_search"), ("web_fetch", "web_fetch"), ("code_execution", "code_execution"))
+
 _EFFORT = {"low": "low", "medium": "medium", "high": "high", "max": "high", "xhigh": "high"}
 _BLOCK_CAPABILITY = {"document": "documents_pdf", "image": "images"}
 
@@ -222,6 +246,15 @@ def current_turn_needs(body: Mapping[str, Any]) -> frozenset:
                      if isinstance(b, dict) and b.get("type") in _BLOCK_CAPABILITY)
 
 
+def _check_provider_only_tools(tools: Any) -> None:
+    """Una herramienta del servidor del proveedor original hacia un destino traducido ⇒ `CapabilityRejected`."""
+    for tool in tools if isinstance(tools, list) else ():
+        kind = str(tool.get("type") or "") if isinstance(tool, dict) else ""
+        for prefix, capability in _PROVIDER_ONLY_TOOLS:
+            if kind.startswith(prefix):
+                raise CapabilityRejected(capability)
+
+
 def _check_blocks(messages: list, profile: Mapping[str, Any]) -> list:
     """Imágenes/documentos sin soporte. Turnos anteriores: se reemplazan por una nota (la
     herramienta reenvía la historia entera; rechazar dejaba el chat inservible, 069 FR-008e).
@@ -252,14 +285,74 @@ def _check_blocks(messages: list, profile: Mapping[str, Any]) -> list:
     return labels
 
 
-def normalize_for_translated(body: Mapping[str, Any], profile: Mapping[str, Any], *, max_output: int):
-    """→ (cuerpo nuevo, lista de ajustes aplicados). No muta la entrada."""
+def _dropped_field_entries(names: Iterable[str]) -> list:
+    """Nombres de campo a ajustes `dropped_field:<nombre>`: ordenados, sin duplicados y acotados
+    (largo, caracteres y cantidad); un nombre que no es un identificador corto se reemplaza."""
+    safe = sorted({n if _SAFE_FIELD_NAME.match(n) else _INVALID_FIELD_NAME for n in names})
+    if len(safe) > MAX_DROPPED_NAMES:
+        safe = safe[:MAX_DROPPED_NAMES - 1] + [f"otros_{len(safe) - MAX_DROPPED_NAMES + 1}"]
+    return [DROPPED_FIELD_PREFIX + n for n in safe]
+
+
+def adjustment_count(removed: Iterable[str], prefix: str) -> int:
+    """Cantidad que lleva un ajuste `<prefijo><n>` (0 si no está)."""
+    return sum(int(r[len(prefix):]) for r in removed if r.startswith(prefix) and r[len(prefix):].isdigit())
+
+
+def dropped_field_names(removed: Iterable[str]) -> list:
+    """Los nombres de los campos descartados que `normalize_for_translated` dejó en sus ajustes."""
+    return [r[len(DROPPED_FIELD_PREFIX):] for r in removed if r.startswith(DROPPED_FIELD_PREFIX)]
+
+
+THINKING_DROPPED = "thinking_dropped:"
+THINKING_REPLAYED = "thinking_replayed:"
+
+
+def _rebuild_history_reasoning(messages: list, rebuild) -> tuple:
+    """Bloques de razonamiento de los turnos del asistente (T084 de Sentinel, FR-036): `rebuild(bloque)` devuelve
+    el bloque a conservar o `None` para descartarlo (sin rastros). Sin `rebuild` se descartan todos. Un turno que
+    queda sin contenido se quita. → (mensajes nuevos, descartados, reconstruidos)"""
+    dropped = replayed = 0
+    out = []
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if not (isinstance(msg, dict) and msg.get("role") == "assistant" and isinstance(content, list)
+                and any(isinstance(b, dict) and b.get("type") in ("thinking", "redacted_thinking") for b in content)):
+            out.append(msg)
+            continue
+        kept = []
+        for blk in content:
+            if isinstance(blk, dict) and blk.get("type") in ("thinking", "redacted_thinking"):
+                new = rebuild(blk) if rebuild is not None else None
+                if new is None:
+                    dropped += 1
+                else:
+                    replayed += 1
+                    kept.append(new)
+            else:
+                kept.append(blk)
+        if kept:
+            out.append({**msg, "content": kept})
+    return out, dropped, replayed
+
+
+def normalize_for_translated(body: Mapping[str, Any], profile: Mapping[str, Any], *, max_output: int,
+                             history_reasoning=None):
+    """→ (cuerpo nuevo, lista de ajustes aplicados). No muta la entrada. Los campos de primer nivel
+    fuera de `FIELD_ALLOWLIST` se quitan sin error; sus nombres van como `dropped_field:<nombre>`.
+    El razonamiento de la historia pasa por `history_reasoning` (ver `thinking.history_filter`); sin
+    él, se descarta todo: nunca se le manda a un destino el razonamiento de otro."""
     out = copy.deepcopy(dict(body))
     removed = []
 
     out, cred_fields = credentials.strip_client_credentials(out)
     if cred_fields:
         removed.append("client_credentials")
+
+    unknown = [k for k in out if isinstance(k, str) and k not in FIELD_ALLOWLIST and k not in _ADAPTED_FIELDS]
+    for k in unknown:
+        out.pop(k)
+    removed += _dropped_field_entries(unknown)
 
     thinking = out.pop("thinking", None)
     oc = out.get("output_config")
@@ -284,7 +377,15 @@ def normalize_for_translated(body: Mapping[str, Any], profile: Mapping[str, Any]
         _strip_cache_control(out)
         removed.append("cache_control")
 
+    _check_provider_only_tools(out.get("tools"))
     msgs = out.get("messages") or []
+    msgs, n_dropped, n_replayed = _rebuild_history_reasoning(msgs, history_reasoning)
+    if "messages" in out:
+        out["messages"] = msgs
+    if n_dropped:
+        removed.append(f"{THINKING_DROPPED}{n_dropped}")
+    if n_replayed:
+        removed.append(f"{THINKING_REPLAYED}{n_replayed}")
     removed += _check_blocks(msgs, profile)
     if not profile.get("mid_system_messages") and any(m.get("role") == "system" for m in msgs):
         extra = [b for m in msgs if m.get("role") == "system" for b in _as_blocks(m.get("content"))]
