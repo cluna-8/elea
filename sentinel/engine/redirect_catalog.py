@@ -177,7 +177,8 @@ class CatalogDirect:
         dropped = _guard.strip_unsupported(data, names if isinstance(names, (list, tuple)) else ())
         adjusted = _guard.raise_min_output_tokens(data, provider, call_type)       # piso del proveedor (T183), mismo paso que la redirección
         data["model"] = engine_model
-        adjusted += _guard.bridge_to_responses(data, provider, call_type)           # T193, mismo punto de paso
+        adjusted += _guard.bridge_to_responses(
+            data, provider, call_type, (entry.get("features") or {}).get("thinking") is True)  # T193
         data.update(params)
         price = entry.get("price") or {}
         per_mtok = ({"input_per_mtok": float(price["input"]) * 1e6, "output_per_mtok": float(price["output"]) * 1e6}

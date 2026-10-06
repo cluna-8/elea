@@ -342,18 +342,35 @@ def raise_min_output_tokens(data: dict, provider: Any, call_type: Optional[str] 
     return adjusted
 
 
-def bridge_to_responses(data: dict, provider: Any, call_type: Optional[str] = None) -> list:
-    """T193: OpenAI rechaza por /chat/completions `tools` + `reasoning_effort` ≠ none en los gpt-6 (400). LiteLLM
-    solo puentea ese caso a Responses para nombres `gpt-5.4+`; acá se replica para cualquier nombre reescribiendo
-    `rdx-<familia>/<m>` → `rdx-<familia>/responses/<m>` (el comodín `rdx-*/*` pasa la `/` extra y LiteLLM quita
-    `responses/` y fija el modo). Fuera quedan `anthropic_messages`/`responses` (Claude Desktop ya va por Responses).
-    Va DESPUÉS de fijar `data["model"]`; devuelve los nombres ajustados."""
+# Familias de razonamiento de OpenAI por nombre (respaldo cuando el pedido no trae la ficha: la autorización firmada
+# de la redirección no lleva `features`). Con la ficha a mano manda `features.thinking`.
+REASONING_MODEL_RE = re.compile(r"^(gpt-[5-9]|o\d)")
+
+
+def is_reasoning_model(real: str, thinking: Optional[bool] = None) -> bool:
+    return thinking is True or bool(REASONING_MODEL_RE.match(real.rsplit("/", 1)[-1].lower()))
+
+
+def bridge_to_responses(data: dict, provider: Any, call_type: Optional[str] = None,
+                        thinking: Optional[bool] = None) -> list:
+    """T193: OpenAI rechaza por /chat/completions `tools` en un modelo que razona (400 «Function tools with
+    reasoning_effort are not supported»). Verificado en el pin (LiteLLM 1.95.1): `OpenAIGPTConfig` (todo nombre que
+    no matchea `gpt-5`/`o<n>`, p. ej. gpt-6-*) NO lista `reasoning_effort` entre los params soportados, y con
+    `drop_params: true` lo descarta SIN avisar, incluido `"none"`; el modelo razona por defecto y OpenAI falla.
+    Además `responses_api_bridge_check` (main.py:982) solo puentea `gpt-5.4+` con tools + effort. Acá se puentea,
+    con tools y sin importar `reasoning_effort` (ausente, `none` u otro), todo modelo de razonamiento
+    (`features.thinking` de la ficha, o familias gpt-5+/o* por nombre) reescribiendo `rdx-<fam>/<m>` →
+    `rdx-<fam>/responses/<m>`; Responses sí transmite `reasoning.effort`, así que un `none` del cliente se respeta.
+    Fuera quedan `anthropic_messages`/`responses` (Claude Desktop ya va por Responses). Va DESPUÉS de fijar
+    `data["model"]`; devuelve los nombres ajustados."""
     model = data.get("model")
     if (provider not in COMPLETION_TOKENS_PROVIDERS or call_type in KEEP_MAX_TOKENS_CALL_TYPES
             or not isinstance(model, str) or "/" not in model or "/responses/" in model
-            or not data.get("tools") or data.get("reasoning_effort") in (None, "none")):
+            or not data.get("tools")):
         return []
     family, _, real = model.partition("/")
+    if not is_reasoning_model(real, thinking):
+        return []
     data["model"] = f"{family}/responses/{real}"
     return ["chat->responses"]
 

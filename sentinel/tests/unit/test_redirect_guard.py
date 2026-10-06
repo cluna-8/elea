@@ -385,13 +385,37 @@ def test_el_puente_no_toca_claude_desktop_ni_responses(call_type):
 @pytest.mark.parametrize("extra", [
     {"reasoning_effort": "high"},
     {"tools": [], "reasoning_effort": "high"},
-    {"tools": TOOLS},
-    {"tools": TOOLS, "reasoning_effort": "none"},
-    {"tools": TOOLS, "reasoning_effort": None},
+    {"tools": []},
 ])
-def test_el_puente_exige_tools_y_razonamiento(extra):
+def test_el_puente_exige_tools(extra):
     out = _puente("openai", "rdx-openai/gpt-6-luna", "acompletion", **extra)
     assert out["model"] == "rdx-openai/gpt-6-luna" and "chat->responses" not in _adj(out)
+
+
+@pytest.mark.parametrize("extra", [{}, {"reasoning_effort": "none"}, {"reasoning_effort": None}, {"reasoning_effort": "low"}])
+def test_con_tools_puentea_aunque_el_cliente_pida_none_o_no_diga_nada(extra):
+    # 6-oct: el Harness manda reasoning_effort='none' y LiteLLM lo descarta (gpt-6 no está en los params soportados)
+    out = _puente("openai", "rdx-openai/gpt-6-luna", "acompletion", tools=TOOLS, **extra)
+    assert out["model"] == "rdx-openai/responses/gpt-6-luna" and "chat->responses" in _adj(out)
+    assert out.get("reasoning_effort") == extra.get("reasoning_effort")      # 'none' se preserva para Responses
+
+
+@pytest.mark.parametrize("real", ["gpt-5.4", "gpt-6.1-sol", "o4-mini"])
+def test_el_puente_cubre_las_familias_de_razonamiento(real):
+    assert _puente("openai", f"rdx-openai/{real}", "acompletion", tools=TOOLS)["model"] == f"rdx-openai/responses/{real}"
+
+
+def test_el_puente_no_toca_modelos_que_no_razonan():
+    out = _puente("openai", "rdx-openai/gpt-4.1", "acompletion", tools=TOOLS)
+    assert out["model"] == "rdx-openai/gpt-4.1"
+
+
+def test_la_ficha_con_thinking_puentea_aunque_el_nombre_no_lo_diga():
+    d = {"model": "rdx-openai/modelo-raro", "tools": TOOLS}
+    assert g.bridge_to_responses(d, "openai", "acompletion", thinking=True) == ["chat->responses"]
+    assert d["model"] == "rdx-openai/responses/modelo-raro"
+    d = {"model": "rdx-openai/modelo-raro", "tools": TOOLS}
+    assert g.bridge_to_responses(d, "openai", "acompletion") == []
 
 
 def test_el_puente_no_aplica_a_openrouter():

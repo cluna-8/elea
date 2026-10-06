@@ -204,9 +204,21 @@ async def test_directo_chat_con_tools_y_razonamiento_va_por_responses():
     assert "chat->responses" in d["metadata"]["_internal_routing_decision"]["extensions"]["redirect"]["adjusted_params"]
 
 
-async def test_directo_sin_razonamiento_no_se_puentea():
-    d = await _direct(ENTRY, tools=[{"type": "function"}])
-    assert "responses/" not in d["model"]
+async def test_directo_con_tools_y_effort_none_o_ausente_va_por_responses():
+    """6-oct: el cliente pide `none` y LiteLLM lo descarta en gpt-6; con tools se puentea igual."""
+    for extra in ({}, {"reasoning_effort": "none"}):
+        d = await _direct(ENTRY, tools=[{"type": "function"}], **extra)
+        assert d["model"].endswith("/responses/gpt-6.1-sol") and d.get("reasoning_effort") == extra.get("reasoning_effort")
+
+
+async def test_directo_usa_features_thinking_de_la_ficha():
+    entry = dict(ENTRY, real_model="modelo-raro", features={"thinking": True})
+    assert (await _direct(entry, tools=[{"type": "function"}]))["model"].endswith("/responses/modelo-raro")
+
+
+async def test_directo_sin_razonamiento_ni_tools_no_se_puentea():
+    assert "responses/" not in (await _direct(ENTRY))["model"]
+    assert "responses/" not in (await _direct(dict(ENTRY, real_model="gpt-4.1"), tools=[{"type": "function"}]))["model"]
 
 
 async def test_directo_conserva_precio_y_limites_aunque_la_lista_nombre_sus_campos():
