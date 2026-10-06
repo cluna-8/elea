@@ -10,8 +10,8 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
 - Usar la base de desarrollo **existente** (con el libro de migraciones del motor ya creado) o bases
   separadas. **Nunca** una base nueva arrancando el backend antes que el motor (research R5; spike
   `ANALISIS-SEPARAR-BASES-MOTOR-2026-10.md` §1.3).
-- No cambiar la imagen del motor (`litellm/Dockerfile:6`). El override de la extensión fija
-  `DISABLE_SCHEMA_UPDATE=true` en el motor durante la prueba.
+- No cambiar la versión ni el digest base del motor (`litellm/Dockerfile:6`; la variante `-ext` deriva de él). `DISABLE_SCHEMA_UPDATE=true` en el motor es
+  una hipótesis sin ensayar (research R5): no se usa hasta que T019 la valide.
 - Copia de la base antes de aplicar las migraciones de la extensión: volver a una versión sin la
   extensión después de aplicarlas no está soportado (FR-004b).
 
@@ -21,17 +21,36 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
    `PLUGIN_PACKAGES=sentinel.redirect.api,sentinel.catalog.api`,
    `ALEMBIC_EXTRA_VERSION_LOCATIONS=/opt/sentinel-ext/sentinel/migrations`,
    `REDIRECT_INTERNAL_KEY=<openssl rand -base64 48>`, `REDIRECT_CACHE_TTL_S=5`,
-   `SENTINEL_ENTITY_REGION=latam_ar`, `FERNET_SECRET_KEY` (ya existente), `MASKING_NONCE_KEY` (T-F).
-   Plantilla sin secretos: `sentinel/extensions.env.example`.
+   `SENTINEL_ENTITY_REGION=latam_ar`, `FERNET_SECRET_KEY` (ya existente), `MASKING_NONCE_KEY` (T-F),
+   `REDIRECT_SEED_FILES` (regiones y reglas de habilitación de `deploy/redirect-seeds/`; el catálogo de Azure se carga aparte, §2.3). `INTERNAL_ALLOWED_CIDRS=auto` ya viene del arreglo de separación de bases.
+   **No** definir `REDIRECT_OPERATOR_TENANT` (research R30). Plantilla sin secretos:
+   `sentinel/extensions.env.example`.
 2. Levantar con el override: `docker compose -f docker-compose.yml -f sentinel/docker/compose.dev.yml up -d`.
 3. **Esperado**: el backend arranca con `upgrade heads` y quedan dos cabezas, `199fe429762a` y la de la
-   extensión; `GET /api/v1/gw` no nombra componentes internos; el panel muestra «Modelos» con las
-   pestañas de redirección en lugar del ítem base.
+   extensión; **después de T-E** (T060, T064, T095), además, los seeds quedan cargados al arrancar y
+   `GET /api/v1/redirect/health` = 200 (antes de T-E esa ruta no existe y T045 trabaja con una postura
+   explícita, §3); `GET /api/v1/gw`
+   no nombra componentes internos; el panel muestra «Modelos» con las pestañas de redirección en lugar
+   del ítem base.
+
+### 1b. Con el instalador, en local (T102, antes del servidor)
+
+1. Imágenes `-ext` publicadas por `deploy/release/publish-elea.sh` (T091) con su tag propio.
+2. Instalador `cluna-8/elea-installer` en la PC del owner con `ELEA_REDIRECT=1` (T100): elige las `-ext`,
+   escribe el entorno de la extensión (modo 600); el proxy delante del backend y
+   `INTERNAL_ALLOWED_CIDRS=auto` vienen del arreglo de separación de bases (dependencia; T101 lo verifica).
+3. **Esperado**: lo mismo que §1 paso 3; además `curl http://<host>:8091/api/v1/internal/identity` desde la
+   LAN ⇒ 404 y `GET /api/v1/gw` ⇒ responde; sin `ELEA_REDIRECT`, `docker compose config` idéntico al de la instalación ya corregida por el arreglo de
+   separación de bases.
+4. Claude Desktop y Claude Code de la PC contra la pasarela local, destino Azure (§3–§4); evidencia en
+   `verificacion-instalador-local.md`. Recién después, el runbook del servidor (T103), con su vuelta atrás.
 
 ## 2. Cargar los datos
 
-1. Región: `python -m sentinel.redirect.regions_seed deploy/redirect-seeds/regions.americas.yaml`
-   (T064). **Esperado**: región `AMERICAS` de instalación con `region_profiles` ⊇ `latam_ar` y
+Paso 1, **después de T-E** (antes no existe el cargador de regiones); pasos 2 y 3, desde T-B.
+
+1. Región: se carga sola al arrancar con `REDIRECT_SEED_FILES` (T095); a mano,
+   `python -m sentinel.redirect.regions_seed deploy/redirect-seeds/regions.americas.yaml` (T064). **Esperado**: región `AMERICAS` de instalación con `region_profiles` ⊇ `latam_ar` y
    `default_posture = masked_all` (D2 del análisis legal: todo el redirigido sale enmascarado).
 2. Reglas de habilitación explícita:
    `python -m sentinel.catalog.habilitacion deploy/redirect-seeds/habilitacion-explicita.yaml` (T027).
@@ -43,7 +62,7 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
 
    | Entrada | `real_model` (despliegue de Azure) | Nota |
    |---|---|---|
-   | gpt-5.6-luna | `gpt-5.6-luna` | no está en `litellm/config.yaml`: solo en el catálogo |
+   | gpt-5.6-luna | `gpt-5.6-luna` | **a confirmar con el owner** que el despliegue existe (research R9); si no, opus → gpt-5.1-chat |
    | gpt-5.1-chat | `gpt-5.1-chat` | |
    | gpt-5.4-mini | `gpt-5.4-mini` | |
    | gpt-4o-mini | `gpt-4o-mini` | |
@@ -58,8 +77,11 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
    `claude-haiku-4-5`.
 2. Reglas sugeridas: **opus → gpt-5.6-luna**, **sonnet → gpt-5.1-chat**, **haiku → gpt-5.4-mini**
    (fallback de haiku: gpt-4o-mini).
-3. Residencia: no hace falta postura; rige la postura por defecto (enmascarado forzado en todo destino).
-   Para probar sin enmascarado, Cumplimiento registra una relajación por región o por destino (§7).
+3. Residencia: **antes de T-E** (prueba de T045), Cumplimiento carga una postura explícita
+   *fuera de región con enmascarado forzado* sin jurisdicciones para el alcance (fuerza el enmascarado hacia
+   Azure en EE. UU., como lo hará el default); **después de T-E** no hace falta postura: rige la postura por
+   defecto (enmascarado forzado en todo destino; research R32, A9). Para probar sin enmascarado, Cumplimiento
+   registra una relajación por región o por destino (§7).
 4. Política: **Encendida** para el alcance.
 5. **Medir SC-003**: del paso 1 al 4, menos de 15 minutos sin ayuda técnica.
 
@@ -72,7 +94,7 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
 | Escenario | Esperado |
 |---|---|
 | Lista de modelos | un modelo por tier con «Sonnet · servido por gpt-5.1-chat» y la ventana real (US1 esc. 1) |
-| Conversación con herramientas y streaming en Claude Code (`?beta=true`) | responde el destino; `model` = id público; sin «Unrecognized request argument supplied: safeguards» (T139); auditoría con id pedido, destino, cara y fidelidad, sin contenido (US1 esc. 2, esc. 7) |
+| Conversación con herramientas y streaming en Claude Code (`?beta=true`) | responde el destino; `model` = id público; sin «Unrecognized request argument supplied: safeguards» (T139 de Sentinel); auditoría con id pedido, destino, cara y fidelidad, sin contenido (US1 esc. 2, esc. 7) |
 | Sondeo de arranque de Desktop (`max_tokens: 1`) | responde; `adjusted_params` registra el piso de 16 y `max_completion_tokens` (US1 esc. 8) |
 | Cambiar sonnet → gpt-5.4-mini en el panel | los pedidos siguientes los sirve el nuevo destino en < 1 min (SC-009) |
 | Id no publicado | 404 «Modelo no disponible para tu organización.» (US1 esc. 4) |
@@ -100,12 +122,17 @@ Con un destino Azure en `AMERICAS` (p. ej. EE. UU.) y otro marcado fuera (p. ej.
 | Postura | Esperado |
 |---|---|
 | ninguna (`default_posture = masked_all`), destino en EE. UU. o en la UE | DNI, CUIT/CUIL y CBU salen enmascarados y vuelven restaurados (SC-006); `default_posture_applied = masked_all` |
-| la misma, con el analizador caído | el pedido se bloquea (403 «El pedido no pudo protegerse…») aunque la instalación diga «degradar» |
+| la misma, con el analizador caído | el pedido se bloquea («El pedido no pudo protegerse…»: 400 en la cara Claude, 403 en la genérica) aunque la instalación diga «degradar» |
 | ninguna, destino sin jurisdicción de inferencia | 403 «Modelo no disponible para tu región.» |
 | relajación por región: Cumplimiento crea una región de nivel empresa con `region_profiles` ⊇ `latam_ar` y `default_posture = masked_offregion` (o el super-admin cambia la de instalación) | el destino de EE. UU. (inferencia, entidad y control en `AMERICAS`) sale sin forzado; el de la UE, enmascarado; `masking_relaxation = region` |
 | el mismo cambio intentado por el admin de la empresa | 403: solo Cumplimiento relaja |
 | con `masked_all`, el admin de la empresa agrega *solo jurisdicciones permitidas* = `AMERICAS` | el destino de la UE deja de alcanzarse (o responde un fallback); el de EE. UU. **sigue enmascarado** (piso) |
 | relajación por destino sobre el de EE. UU. sin retención cero declarada | 422 con el motivo; el destino sigue enmascarado |
+| el admin de la empresa crea una postura *apagada* | 422 `posture_less_strict`; nada cambia |
+| el admin de la empresa edita la jurisdicción de control o la retención cero de una ficha | 403; solo Cumplimiento o super-admin |
+| sin postura, `system` con DNI/CUIT/CBU, un PDF con texto y la respuesta del asistente reenviada en el 2.º turno | todo sale enmascarado (el PDF como texto) y vuelve restaurado; `masking_scope = full` |
+| sin postura, una imagen o un PDF escaneado | bloqueo «El pedido no pudo protegerse…»; `unanalyzable_kinds` en la auditoría |
+| borrar la región `AMERICAS` **por SQL en la base de prueba** (la API lo impide con 409) y reiniciar sin `REDIRECT_SEED_FILES` | respaldo en código: hacia un destino en `LATAM/AR`, enmascarado; hacia Azure en EE. UU., 403 «Modelo no disponible para tu región.»; `GET /api/v1/redirect/health` = 503 `region_row_missing` |
 | *solo jurisdicciones permitidas* con fallback en `AMERICAS` | responde el fallback y la auditoría registra la sustitución |
 | `default_posture` cambiado a `reject_offregion` (prueba del mecanismo) | destino de la UE: 403 «Modelo no disponible para tu región.» |
 

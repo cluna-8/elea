@@ -59,8 +59,15 @@ Reglas:
 
 - **Resolución de «mi región»**: `resolve_region` (tenant > instalación,
   `litellm/extensions/sentinel_guardian_policy.py:510`) → región del perfil (`latam_ar`) → fila cuya
-  `region_profiles` la contiene (empresa > instalación) → `jurisdictions`. Sin fila: respaldo fijo de
-  `region_codes` (comportamiento de Sentinel hoy).
+  `region_profiles` la contiene (empresa > instalación) → `jurisdictions`. Sin fila: `region_codes` fijo
+  da las jurisdicciones (comportamiento de Sentinel hoy), pero la **postura** del redirigido es la de
+  respaldo en código (abajo). `tenant_region` sin valor en la identidad ni en `SENTINEL_ENTITY_REGION`
+  ⇒ región **sin resolver** (no cae a `eu`; R28).
+- **Respaldo en código** (FR-031, R28; QA B2): pedido redirigido sin fila de región que lo resuelva ⇒
+  `offregion_masked` con `home = ∅` (forzado y fail-closed en todo destino) **y** alcance limitado a
+  `region_codes(región)` (los destinos fuera se rechazan con 403); región sin resolver ⇒ 403
+  `region_not_allowed` a todo lo redirigido. `default_posture_applied = code_fallback` en la auditoría y
+  `GET /api/v1/redirect/health` responde 503 `region_row_missing`/`region_unresolved`.
 - **Postura efectiva sin filas** (cambia `effective_posture`,
   `sentinel:sentinel/redirect/residency.py:90-120`, que hoy devuelve `allowlist[región]` para redirigido,
   `:95-98`): no redirigido ⇒ `off` (igual que hoy); redirigido ⇒ según `default_posture`:
@@ -72,29 +79,56 @@ Reglas:
   | `masked_all` (**Eleia**, D2) | `offregion_masked` con `home` = ∅ | enmascarado forzado, fail-closed | enmascarado forzado, fail-closed |
   | `allow` | `off` | sin forzado | sin forzado |
 
-  Con **cualquier** valor, un destino sin `inference_jurisdiction` cargada (`unknown` o vacía) se
-  rechaza con 403 (FR-028, FR-031).
+  Con **cualquier** valor, con cualquier fila de postura y con cualquier relajación, un pedido
+  redirigido a un destino sin `inference_jurisdiction` cargada (`unknown` o vacía) se rechaza con 403
+  (FR-028, FR-031; QA A8).
 
   **Glosario** (no confundir valores con modos): los valores de `default_posture` son de la región;
   los **modos** de postura de la 068 son `off`, `offregion_masked` y `allowlist`
   (`sentinel:sentinel/redirect/residency.py:19`). `reject_offregion` ⇒ modo `allowlist`;
   `masked_offregion` y `masked_all` ⇒ modo `offregion_masked` (con `home` = región o ∅); `allow` ⇒ modo
   `off`.
-- **Piso de enmascarado con filas explícitas** (FR-031): con filas, la postura efectiva sale de las
-  filas como en la 068 (FR-024: la más restrictiva gana), pero si `default_posture` es `masked_all` o
-  `masked_offregion`, el forzado que esa postura impondría a un destino **se mantiene** aunque la fila
-  no lo pida (`forced = forced_por_filas OR forced_por_piso`). Una fila explícita restringe el alcance,
-  nunca quita el forzado; por eso agregar filas sigue siendo endurecer y el admin de empresa conserva su
-  permiso de solo agregar (FR-023). El piso solo lo quitan una relajación por destino (§3) o un cambio de
-  `default_posture` (relajación por región, FR-031a).
+- **Postura efectiva con filas** (FR-023, FR-024, FR-031; R30; QA A8). Las filas de postura de la 068
+  (`sentinel_redirect_posture`) ya guardan `created_by_role` (`sentinel:sentinel/redirect/models.py:79`):
+  1. **Base** = la más estricta entre las filas de `compliance_officer`/`super_admin` aplicables (068
+     FR-024); si no hay ninguna, la postura que da `default_posture` (o el respaldo en código).
+  2. **Efectiva** = la más estricta entre la base y las filas de `tenant_admin` aplicables (las del admin
+     de empresa solo restringen: una `off` suya no tiene efecto; una `allowlist` suya interseca).
+  3. **Piso de enmascarado**: si `default_posture` es `masked_all` o `masked_offregion`, el forzado que
+     esa postura impondría a un destino **se mantiene** aunque las filas no lo pidan
+     (`forced = forced_por_base OR forced_por_filas_admin OR forced_por_piso`, donde `forced_por_base` es el
+     forzado que la base del paso 1 le impone al destino —p. ej. una fila de cumplimiento
+     `offregion_masked` con `home` = [AR]— y se calcula **antes** de combinar con las filas del admin: una
+     `allowlist` del admin de empresa restringe el alcance pero nunca quita el forzado que impone la base;
+     QA re-análisis U5). Si rige el **respaldo en código** (sin fila de
+     región), el piso es forzado en **todo** destino y ninguna fila, de ningún rol, lo quita (QA re-análisis
+     U1) ni una relajación por destino (§3; QA re-análisis M2); el alcance del respaldo (`region_codes`)
+     tampoco lo amplía una fila.
+  4. **Sin jurisdicción de inferencia** ⇒ 403, siempre.
+  La API rechaza con 422 `posture_less_strict` una fila de `tenant_admin` **menos estricta** que la
+  efectiva de su alcance; una igual o más estricta se acepta (FR-023: endurecer). Orden (QA re-análisis
+  C2): entre modos, el de la 068 (`off < offregion_masked < allowlist`); dentro del mismo modo,
+  `allowlist` A es al menos tan estricta como B si `jurisdicciones(A) ⊆ jurisdicciones(B)`, y
+  `offregion_masked` A es al menos tan estricta como B si `home(A) ⊆ home(B)` (menos jurisdicciones «en
+  casa» = más destinos forzados; `masked_all` equivale a `home = ∅`). Se compara siempre el `home`
+  **resuelto**: una fila `offregion_masked` sin jurisdicciones resuelve `home` a las de la región, como en
+  la 068 (QA re-análisis A1). Entre dos filas de cumplimiento rige el orden de la 068 tal cual (una
+  `allowlist` de grupo gana sobre un `offregion_masked` de empresa y su forzado no se conserva): es paridad
+  intencional, y en Eleia el piso de `masked_all` lo cubre. Dos filas no comparables (p. ej.
+  listas que se solapan sin inclusión) se tratan como menos estricta ⇒ 422. Con `default_posture = allow`
+  (efectiva `off`), cualquier fila del admin es más estricta y se acepta. Una fila de cumplimiento o super-admin puede ampliar el alcance respecto
+  del default (068 FR-014a), pero nunca quita el piso: el piso solo lo quitan una relajación por destino
+  (§3) o un cambio de `default_posture` (relajación por región, FR-031a).
 - **Pre-completado del panel**: la postura *solo jurisdicciones permitidas* nueva se pre-completa con la
   lista de la región (FR-030).
 - **Relajación por región** (FR-031a): cumplimiento (fila de nivel empresa, que gana sobre la de
   instalación) o super-admin (nivel instalación) cambia `default_posture` de `masked_all` a
   `masked_offregion` (o a otro valor), con motivo; queda registrada.
-- **Quién escribe**: cumplimiento (nivel empresa) y super-admin (nivel instalación) (FR-023); el admin
-  de empresa solo lee; cambios registrados en `sentinel_redirect_config_audit` con `entity = region`
-  (FR-008).
+- **Quién escribe**: cumplimiento (nivel empresa) y super-admin (nivel instalación) **por rol real**
+  (FR-023; R30): la autoridad de instalación derivada de `REDIRECT_OPERATOR_TENANT`
+  (`sentinel:sentinel/redirect/api/admin.py:83-100`) no alcanza para escribir regiones, `default_posture`
+  ni relajaciones, y Eleia no define esa variable; el admin de empresa solo lee; cambios registrados en
+  `sentinel_redirect_config_audit` con `entity = region` (FR-008).
 
 **Dato [ELEIA]** (`deploy/redirect-seeds/regions.americas.yaml`, sembrado por T064; decisión del owner
 D2 del 2026-10-06):
@@ -178,7 +212,8 @@ Reglas:
 - **Efecto**: con una relajación vigente para la empresa del pedido (empresa > instalación), ese
   destino sale **sin enmascarado forzado**, venga el forzado del piso de `default_posture` o de una fila
   `offregion_masked`. No vuelve alcanzable un destino fuera de una `allowlist` ni habilita un destino sin
-  `inference_jurisdiction` (sigue rechazado).
+  `inference_jurisdiction` (sigue rechazado). **Mientras rige el respaldo en código** (sin fila de región,
+  §1), ninguna relajación tiene efecto: el pedido sale enmascarado y fail-closed (QA re-análisis M2).
 - **Re-evaluación**: (a) al resolver cada pedido, una relajación cuya ficha ya no cumple las
   precondiciones no tiene efecto (T060, desde la instantánea); (b) al guardar la ficha, la API del
   catálogo marca `revoked_at` con `revoke_reason = precondicion_incumplida` y lo registra (FR-008; T087).
@@ -193,9 +228,14 @@ Reglas:
 |---|---|---|
 | `provider_legal_entity` | ya existe (`:151`) | **entidad responsable** de FR-028a (quien opera la inferencia) |
 | `entity_jurisdiction` | ya existe (`:152`) | jurisdicción de la entidad |
-| `control_jurisdiction` | **nueva**, `String(16)`, nullable | jurisdicción de quien posee el 50 % o más de la entidad o la controla; NULL = sin cargar |
+| `control_jurisdiction` | **nueva**, `String(8)` (mismo tipo que `entity_jurisdiction`, `sentinel:sentinel/catalog/models.py:152`; QA B-1), nullable | jurisdicción de quien posee el 50 % o más de la entidad o la controla; NULL = sin cargar |
 | `inference_jurisdiction` | ya existe (`:153`, default `unknown`) | jurisdicción de inferencia |
 | `zero_data_retention` | ya existe (`:155`, NULL = desconocido) | precondición de la relajación por destino (§3) |
+
+**Quién escribe la ficha** [BASE] (FR-023; R30; QA A7): `provider_legal_entity`, `entity_jurisdiction`,
+`control_jurisdiction`, `inference_jurisdiction` y `zero_data_retention` solo `compliance_officer` y
+`super_admin` (hoy `SHEET_WRITERS = ("admin","compliance_officer")`, `sentinel:sentinel/catalog/api/admin.py:41`);
+el admin de empresa edita el resto de la ficha y recibe 403 si el cuerpo cambia alguno de esos campos.
 
 **Regla «en región»** [BASE] (cambia `evaluate`, `sentinel:sentinel/redirect/residency.py:122-135`, que
 hoy mira solo inferencia y entidad): un destino está dentro de un conjunto de jurisdicciones solo si
@@ -223,12 +263,14 @@ solo metadata, acotada por S7:
 
 | Campo | Tipo | Cuándo |
 |---|---|---|
-| `dropped_fields` | lista de **nombres** de campo | T139: campos quitados hacia un traducido |
-| `betas_dropped` | entero | T094: cantidad de cabeceras beta descartadas |
-| `count_tokens_mode` | `forwarded` · `estimated` · `not_found` | T093 |
+| `dropped_fields` | lista de **nombres** de campo | T139 de Sentinel: campos quitados hacia un traducido |
+| `betas_dropped` | entero | T094 de Sentinel: cantidad de cabeceras beta descartadas |
+| `count_tokens_mode` | `forwarded` · `estimated` · `not_found` | T093 de Sentinel |
 | `adjusted_params` | lista (ya existe en Sentinel) | piso de 16 tokens, `max_completion_tokens` |
-| `default_posture_applied` | `reject_offregion` · `masked_offregion` · `masked_all` · `allow` · null | R23: solo si no hubo postura explícita |
-| `masking_relaxation` | `region` · `destination` · null | R24: `destination` si una relajación por destino quitó el forzado; `region` si el destino está en región y la región efectiva tiene `default_posture = masked_offregion` con una fila de empresa o un cambio registrado desde `masked_all` (no se marca cuando la región se sembró así) |
+| `default_posture_applied` | `reject_offregion` · `masked_offregion` · `masked_all` · `allow` · `code_fallback` · null | R23: solo si no hubo postura explícita; `code_fallback` = respaldo en código sin fila de región (R28; nombre distinto de los fallbacks de las reglas de mapeo) |
+| `masking_scope` | `full` · `user` · null | R29: alcance del enmascarado del pedido (S14) |
+| `unanalyzable_kinds` | lista de **nombres de tipo** (`image`, `pdf_no_text`, `redacted_thinking`, …) | R29: solo cuando hubo bloqueo por no analizable; nunca contenido |
+| `masking_relaxation` | `region` · `destination` · null | R24: `destination` si una relajación por destino quitó el forzado; `region` siempre que el destino está en región y la fila de región efectiva tiene `default_posture = masked_offregion` (decidible en el pedido, sin historial; QA re-análisis L1) |
 | `in_region` | bool | FR-028a: resultado de la regla «en región» (sin nombres de entidad) |
 | `openrouter_zdr` | bool | R19 |
 | `cache_read_tokens` / `cache_write_tokens` | entero | T-F, FR-046 |
@@ -239,11 +281,12 @@ solo metadata, acotada por S7:
 
 | Clave (metadata interna del pedido al motor) | Quién la escribe | Qué contiene |
 |---|---|---|
-| `sentinel_conversation_ref` | solo la pasarela (`pre_engine` de la extensión); la que mande el cliente se descarta | identificador de conversación ya derivado: `HMAC(clave del servidor, id de sesión de la herramienta)`, nunca el original |
+| `sentinel_conversation_ref` | solo la pasarela (`pre_engine` de la extensión); la que mande el cliente se descarta | identificador de conversación ya derivado: `HMAC(MASKING_NONCE_KEY, "conv" \| tenant \| id de sesión de la herramienta)` (research R18), nunca el original; sin la clave, no se escribe |
 
 El guardrail, con esa clave presente y `MASKING_NONCE_KEY` configurada, deriva
-`nonce = HMAC(MASKING_NONCE_KEY, tenant | llave | conversation_ref)[:4]` y los índices por valor con la
-misma clave; sin alguna de las dos, `PlaceholderMap()` aleatorio como hoy
+`nonce = HMAC(MASKING_NONCE_KEY, "nonce" | tenant | llave | conversation_ref)` truncado a **4 caracteres
+hexadecimales** (`hexdigest()[:4]`, el mismo ancho que el sufijo aleatorio de hoy; QA re-análisis A1) y los
+índices por valor con la misma clave; sin alguna de las dos, `PlaceholderMap()` aleatorio como hoy
 (`litellm/extensions/sentinel_guardian_policy.py:784`). Detalle en
 [contracts/costuras-base.md §S13](./contracts/costuras-base.md).
 

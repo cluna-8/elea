@@ -19,8 +19,8 @@
 | `GET /gw/v1/models` sin `anthropic-version` | `{"object":"list","data":[{"id":"<alias>","object":"model","created":<ts>,"owned_by":"organization"}]}` solo con alias `face=openai_generic` publicados para el alcance (FR-055) |
 | `POST …/chat/completions` con alias publicado | se reescribe al destino; stream y no-stream; tools; `model` de la respuesta = alias (FR-054) |
 | alias inexistente para el alcance | `404`, `error.code = model_not_found`, texto neutro |
-| ningún destino cumple la postura, `default_posture = reject_offregion` fuera de región, o destino sin jurisdicción de inferencia | `403`, `error.code = region_not_allowed`, sin nombrar destinos |
-| enmascarado forzado (piso `masked_all` o postura explícita) con el analizador caído o contenido no analizable | `403`, `error.code = masking_required`, «El pedido no pudo protegerse para este destino y fue bloqueado.» (ya en la cara copiada, `sentinel:sentinel/redirect/faces/generic.py:41`) |
+| ningún destino cumple la postura, `default_posture = reject_offregion` fuera de región, destino sin jurisdicción de inferencia (con cualquier fila), o respaldo en código sin región resuelta o fuera de `region_codes` (R28) | `403`, `error.code = region_not_allowed`, sin nombrar destinos |
+| enmascarado forzado (piso `masked_all` o postura explícita) con el analizador caído o contenido no analizable | `403`, `error.code = masking_required`, «El pedido no pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.» (texto y código tal cual la cara copiada, `sentinel:sentinel/redirect/faces/generic.py:40-42`; QA M8); incluye el respaldo en código y lo no analizable de S14 |
 | silencio del destino en stream | comentario `: keep-alive` cada ≤ 15 s (FR-056) |
 | `max_tokens` hacia gpt-5+ en Azure/OpenAI | el guard lo pasa a `max_completion_tokens` y aplica el piso de 16 (HANDOFF §A.5) |
 

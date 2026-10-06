@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-06
 
-**Status**: Draft (especificada y clarificada; plan y tareas escritos; enmendada por `speckit-clarify` con las decisiones legales del owner del 2026-10-06)
+**Status**: Draft (especificada y clarificada; plan y tareas escritos; enmendada por `speckit-clarify` con las decisiones legales del owner y con las correcciones del QA crítico del plan, ambas del 2026-10-06)
 
 **Spec de origen**: Sentinel `specs/068-politica-redireccionamiento-modelos/` (`origin/main`
 6a70855): `spec.md`, `contracts/cara-claude.md`, `contracts/cara-generica.md`,
@@ -68,7 +68,7 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
 | 2 | Costura S1 (routers de extensión) | No existe: los routers se montan fijos (`backend/src/main.py:105`, `:113`, `:120`). |
 | 3 | Costura S2 (enganches de pasarela `pre_request`, `pre_engine`, `wrap_stream`, `models_filter`, `map_error`) | No existe: ninguna referencia en `backend/src/`. |
 | 4 | Costura S3 (páginas del panel por registro) | No existe: agregar una página son tres ediciones en `frontend/src/App.tsx` (comentario `:25-28`). |
-| 5 | Costura S4 (migraciones adicionales con `upgrade heads`) | No existe: `upgrade head` fijo en `backend/src/main.py:38`, `backend/Dockerfile:19`, `deploy/docker/entrypoint/backend.sh:30`, `.github/workflows/ci.yml:50`, `deploy/release/checks/test_profile_renders.sh:26`; `backend/alembic/env.py` sin ubicaciones extra. |
+| 5 | Costura S4 (migraciones adicionales con `upgrade heads`) | No existe: `upgrade head` fijo en `backend/src/main.py:38`, `backend/Dockerfile:19`, `backend/Dockerfile.standalone:35` (la imagen que publica `deploy/release/publish-elea.sh:25` y baja el instalador), `deploy/docker/entrypoint/backend.sh:30`, `.github/workflows/ci.yml:50`, `deploy/release/checks/test_profile_renders.sh:26`; `backend/alembic/env.py` sin ubicaciones extra; `backend/src/main.py:40-43` registra el fallo de migración sin abortar el arranque. |
 | 6 | Costura S5 (respuestas + informe de enmascarado) | No existe: el guardrail declara que `/v1/responses` no se inspecciona (`litellm/extensions/sentinel_guardrail.py:20`) y no deja informe de enmascarado en la metadata interna (`:467-495`). |
 | 7 | Costura S6 (entradas ocultas del motor) | No existe: sin `plugin_owner` en `backend/` ni `litellm/`. |
 | 8 | Costura S7 (decisión de ruteo confiable desde el motor) | Parcial: la columna `audit_logs.routing_decision` existe (`backend/src/models/audit.py:47`, escritor en `backend/src/services/audit_service.py:422`) pero solo la usa el chat de la consola; el logger del motor (`litellm/extensions/sentinel_audit_logger.py`) y la ingesta interna (`backend/src/api/internal.py`) no la transportan. |
@@ -83,11 +83,11 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
 | 17 | Chat de la consola fuera de alcance (068 FR-001) | El chat de la consola rechaza por residencia con un texto que dice «exige procesamiento en la UE» (`backend/src/api/chat.py:1402`), lo que no corresponde a una instalación con perfil Argentina. Queda **fuera de esta spec** y se anota como hallazgo. |
 | 18 | Roles de la 068 (FR-014b) | Existen: `super_admin`, `tenant_admin`, `compliance_officer`, `client`, `lectura` (`backend/src/models/user.py:9`). |
 | 19 | Cara OpenAI genérica sobre la puerta de chat estándar (068 contrato `cara-generica.md`) | En Eleia **no existe** la puerta `/gw/v1/chat/completions`: no hay `backend/src/api/gateway_openai.py` y la pasarela solo publica `/gw/v1/messages`, `count_tokens` y `models` (`backend/src/api/gateway.py:2053`). En Sentinel esa puerta es de su spec 045 (archivo propio del fork, ADAPT-017) y su cableado de enganches es el commit `efb2c94`; el Anexo A del HANDOFF la agrega: commits `9c17500` (la puerta) y `efb2c94` (enganches), después de los 16 de costuras; **no** se traen `9fe188f` (Eleia ya tiene su equivalente `f8118e7` de la spec 050) ni `fd515ff` (modelo «auto», va después). Sin migraciones ni variables nuevas; hay que regenerar la referencia de la API. **No está verificada en vivo en Sentinel**: la prueba de Eleia sería la primera. |
-| 20 | Claude Code contra la pasarela (068 US3) | Evidencia del 6-oct, sin redirección (HANDOFF §2.4): `?beta=true` → 404 con un modelo de Azure; el respaldo falla con «Unrecognized request argument supplied: safeguards»; Claude Code rechaza en el cliente ids que no conoce. En Sentinel faltan el filtro de campos desconocidos hacia traducidos (T139), la lista permitida de cabeceras beta (T094) y `count_tokens` para traducidos (T093). |
+| 20 | Claude Code contra la pasarela (068 US3) | Evidencia del 6-oct, sin redirección (HANDOFF §2.4): `?beta=true` → 404 con un modelo de Azure; el respaldo falla con «Unrecognized request argument supplied: safeguards»; Claude Code rechaza en el cliente ids que no conoce. En Sentinel faltan el filtro de campos desconocidos hacia traducidos (su T139), la lista permitida de cabeceras beta (su T094) y `count_tokens` para traducidos (su T093). |
 | 21 | Destinos de la redirección | Desde la 069 de Sentinel, **los destinos son las entradas del catálogo** (`sentinel/catalog`); `sentinel.access` es necesario por import y `sentinel.common` por la versión de instantánea (HANDOFF §1(b)). El semáforo y la ficha del catálogo están escritos para «admisible UE» y en Eleia mostrarían todo como «fuera de UE» (HANDOFF §4.2). |
 | 22 | Residencia para América en Sentinel | **No está hecha** (068 Phase 4: 2/12 tareas). El código ya resuelve `latam_ar` a `{LATAM, AR}`; sin postura, el redirigido solo alcanza destinos LATAM/AR (HANDOFF §4.2). |
 | 23 | Migraciones | Del backend de Sentinel no se porta ninguna (los ids `019`/`020` coinciden con los de Eleia con otro contenido). La extensión trae su propia rama con etiqueta, colgada de `010`: sin la variable, una sola cabeza (`199fe429762a`); con ella, dos (`199fe429762a` + `f7a3c1d9e508`) y arranque con `upgrade heads` (HANDOFF §1(c)). |
-| 24 | Costuras S9 y S11 | Siguen **sin hacer también en Sentinel** (T008, T010); allí las reemplaza su propio script de despliegue (HANDOFF §1(a)). |
+| 24 | Costuras S9 y S11 | Siguen **sin hacer también en Sentinel** (sus T008, T010); allí las reemplaza su propio script de despliegue (HANDOFF §1(a)). |
 
 ## Alcance
 
@@ -96,8 +96,9 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
 1. **Costuras de base** que la extensión necesita (Phase 0 de la 068, en el orden del HANDOFF
    §1(a)): S1, S2 (con sus agregados), S3, S4, S5b, S6, S7, S12, las adaptaciones de cifrado
    (ADAPT-024) y de reemplazo de menú (ADAPT-026), y el equivalente de S9/S11 en el camino de
-   despliegue de Eleia, más la costura nueva S13 (marcadores estables por conversación, para la
-   caché del proveedor). S5a (política sobre `/v1/responses`) queda para la cara Codex.
+   despliegue de Eleia, más las costuras nuevas S13 (marcadores estables por conversación, para la
+   caché del proveedor) y S14 (alcance completo del enmascarado forzado); S15 (origen del canal
+   interno) es una dependencia que entrega el arreglo de separación de bases (tabla C-1). S5a (política sobre `/v1/responses`) queda para la cara Codex.
 2. **Política de redirección ON/OFF** por empresa, grupo, usuario o conexión, con catálogo de
    destinos, ids públicos por tier o alias, reglas con fallbacks y auditoría.
 3. **Cara Claude**: Claude Desktop (Chat, Cowork, Code) y Claude Code contra
@@ -193,6 +194,53 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   con X»; `AMERICAS` es criterio de riesgo, no de legalidad; leyenda 🟡 en lo de residencia hasta
   la revisión legal (FR-030, Assumptions «Base legal»).
 
+### Session 2026-10-06 (QA del plan)
+
+<!-- Correcciones de seguridad y entrega que pidió el QA crítico del plan (`qa-plan.md`, 3537847:
+     B1–B3, A6–A8, A10). Preguntas al coordinador por `orca orchestration ask`, respondidas por él
+     con el owner. No reabren P1–P5, D1–D4, D1/D2/D5/D12 legales ni la enmienda del 403. -->
+
+- Q: ¿Cómo llega la extensión a lo que Eleia publica y al instalador (B1)? → A: Imágenes
+  **derivadas** del backend, del panel y del motor (variantes con tag propio, sin mover el de las
+  imágenes base), publicadas por el mismo camino de release; las imágenes base no cambian salvo
+  que el backend publicado aplica las migraciones adicionales cuando la variable está y **no
+  arranca** si esa migración falla. El instalador gana una variable opt-in que elige las
+  variantes, escribe el entorno de la extensión (modo 600) y siembra; sin ella, todo idéntico. Hay
+  una prueba local con el mismo instalador antes del runbook del servidor, y el runbook incluye la
+  vuelta atrás (FR-004c, FR-004d).
+- Q: ¿Qué pasa con lo redirigido si falta el seed de la región o la región no se resuelve (B2)? →
+  A: Respaldo **en código**: sin fila de región, enmascarado forzado en todo destino con
+  analizador fail-closed y alcance limitado a la región del perfil si se conoce; sin región
+  resuelta, se rechaza todo lo redirigido y el estado de la extensión lo informa; la región de la
+  instalación no cae a un valor de otra línea; el seed se carga al arrancar cuando la extensión
+  está activa. Con el seed rige `masked_all` (D2) sin cambios (FR-031).
+- Q: ¿Qué cubre el enmascarado forzado y qué es «no analizable» (B3)? → A: Bajo forzado se
+  analiza y enmascara **todo**: instrucciones de sistema (texto y bloques), todos los turnos
+  (usuario y asistente: texto, entradas y resultados de herramientas, razonamiento) y las
+  descripciones de herramientas. Los PDF se convierten a texto, se enmascaran y viajan al
+  destino como texto enmascarado; un PDF sin texto extraíble (escaneado, protegido o corrupto),
+  las imágenes y los tipos desconocidos son no analizables y se bloquean (sin OCR en el MVP: fase
+  siguiente). Un razonamiento firmado con detecciones hacia un destino nativo se bloquea
+  (FR-027, SC-006).
+- Q: ¿Puede el administrador de la empresa, con filas de postura o con la ficha del destino,
+  quitar el piso de la postura por defecto (A6, A7, A8)? → A: No. Sus filas solo restringen (rige
+  la más estricta; una fila suya menos estricta se rechaza); un destino sin jurisdicción de
+  inferencia se rechaza con **cualquier** fila; regiones, postura por defecto y relajaciones
+  exigen el rol real de cumplimiento o super-admin (no una autoridad derivada de una variable de
+  entorno, que Eleia no define); los campos de residencia y retención de la ficha los escriben
+  solo cumplimiento y super-admin (FR-023, FR-028, FR-031).
+- Q: ¿Desde dónde puede alcanzarse el canal interno por el que el motor pide identidad,
+  catálogo y credenciales (A10)? → A: Solo desde la red interna de la instalación, en tres capas:
+  la ruta que entrega credenciales descifradas responde «no encontrado» salvo que la ruta directa
+  del catálogo esté encendida; el backend exige, además del secreto compartido, que el origen sea
+  la red interna; y el instalador pone delante del backend un proxy que niega el canal interno y
+  deja pasar la pasarela, el panel y el Hub, que siguen alcanzables desde la LAN (FR-013).
+  *Precisión del coordinador (re-análisis, mismo día): el proxy y el chequeo de origen se aplican a
+  **toda** instalación, con o sin la extensión, y los entrega el arreglo de separación de bases del
+  instalador (`cluna-8/fix-separar-bases-motor`, que verificó la exposición de `/api/v1/internal/*`
+  por el puerto publicado y va antes que esta feature); esta spec depende de él y solo agrega el
+  cierre de la ruta de credenciales.*
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Claude Desktop y Claude Code con el modelo que elige la empresa (Priority: P1)
@@ -240,7 +288,7 @@ lo único verificado en vivo en Sentinel, el 4-oct; Claude Code no: HANDOFF §2.
 7. **Given** Claude Code manda campos o cabeceras beta que un destino traducido no conoce
    (p. ej. `safeguards`, Diagnóstico #20), **When** el pedido va a ese destino, **Then** esos
    campos no llegan al destino y la conversación funciona; hacia un destino nativo, las
-   cabeceras beta pasan por lista permitida (← 068 FR-022, FR-026; tasks T139, T094).
+   cabeceras beta pasan por lista permitida (← 068 FR-022, FR-026; tasks de Sentinel T139, T094).
 8. **Given** Claude Desktop abre con su sondeo de un token de salida, **When** el destino exige
    un mínimo mayor o un nombre de parámetro distinto (modelos recientes de Azure), **Then** el
    sondeo responde bien y la auditoría anota el ajuste (← 068 FR-022; 069 de Sentinel T183,
@@ -271,7 +319,7 @@ de auditoría idénticas con la extensión montada y la política apagada, y tam
    lista de modelos (← 068 US1 esc. 1, FR-002, SC-001).
 2. **Given** la base con las costuras y **sin** extensión registrada, **When** corre la suite de
    la base, **Then** queda verde sin cambios de tests existentes (← 068 D13 «sin plugin ⇒
-   comportamiento idéntico», tasks T001–T011).
+   comportamiento idéntico», tasks de Sentinel T001–T011).
 3. **Given** destinos registrados por otra empresa, **When** un usuario de esta empresa lista
    modelos, **Then** no aparecen (← 068 FR-002, FR-006a).
 4. **Given** un usuario de un grupo sin la política, **When** pide un id publicado solo para
@@ -470,11 +518,24 @@ catálogo; un usuario de otro grupo no ve los alias.
   permitidas*) mientras rige el enmascarado forzado en todo destino: la postura restringe a qué
   destinos se llega, pero no quita el forzado; solo una relajación de cumplimiento lo quita
   (FR-023, FR-031, FR-031a).
+- El administrador de la empresa crea una postura *apagada* o *fuera de región con enmascarado
+  forzado* menos estricta que la vigente: se rechaza y, si existiera, no amplía el alcance ni
+  quita el forzado (FR-023).
+- Bajo enmascarado forzado llega un PDF escaneado sin texto, una imagen o un bloque de tipo
+  desconocido: el pedido se bloquea como no analizable; un PDF con texto sale convertido a texto
+  enmascarado (FR-027).
+- En el segundo turno la herramienta reenvía la respuesta del asistente ya restaurada (con los
+  datos personales en claro): bajo forzado, ese turno se vuelve a enmascarar antes de salir
+  (FR-027).
+- La instalación arranca con la extensión activa sin la región sembrada o sin región del
+  perfil: lo redirigido sale con enmascarado forzado o se rechaza, nunca en claro (FR-031).
+- Alguien en la red local intenta alcanzar el canal interno del backend saltándose la pasarela:
+  no responde (FR-013).
 - Una empresa con perfil Argentina y otra con otro perfil en la misma instalación: cada una
   resuelve con sus jurisdicciones sin afectar a la otra (← 068 Edge Cases).
 - Una costura de base que no se puede portar tal cual porque la base de Eleia difiere de la de
   Sentinel: se registra como adaptación con plan de salida y se informa por `HANDOFF`; no se
-  bifurca en silencio (← 068 tasks T012).
+  bifurca en silencio (← 068 tasks de Sentinel T012).
 
 ## Requirements *(mandatory)*
 
@@ -486,17 +547,19 @@ catálogo; un usuario de otro grupo no ve los alias.
   desde los commits de Sentinel en el orden del HANDOFF §1(a), cada una sin marca ni nombres de
   Eleia y retrocompatible: sin extensión registrada y sin la variable que la activa, el
   comportamiento DEBE ser idéntico al actual, demostrado por un test de no-regresión por
-  costura. (ELEIA-057 ← SENTINEL-068 research D13; tasks T001–T007, T011; HANDOFF §1(a) filas 1–17)
+  costura. (ELEIA-057 ← SENTINEL-068 research D13; tasks de Sentinel T001–T007, T011; HANDOFF §1(a) filas 1–17)
 - **FR-002** [BASE]: La costura S10 NO DEBE portarse; la lista de modelos permitidos de la llave
   se resuelve en la pasarela (FR-016). S5a (política sobre `/v1/responses`) NO entra en el MVP:
   es de la cara Codex y choca con el arreglo propio de Eleia de la spec 050. (← 068 research
-  R13, tasks T009; HANDOFF §1(a) «No hacen falta para el mínimo»)
+  R13, tasks de Sentinel T009; HANDOFF §1(a) «No hacen falta para el mínimo»)
 - **FR-003** [BASE]: Toda costura o adaptación que no pueda portarse tal cual DEBE quedar
   registrada en el registro de cambios propio de Eleia (el de Sentinel no existe aquí) con plan
   de salida, y lo que Eleia escriba de nuevo en la base compartida (S9/S11, S13, filtro de campos de
-  Claude Code, residencia América, región → jurisdicciones como dato, semáforo por perfil) DEBE entregarse a Sentinel en
+  Claude Code, residencia América, región → jurisdicciones como dato, semáforo por perfil, alcance
+  completo del enmascarado forzado y bloqueo de lo no analizable, respaldo en código de la postura
+  por defecto, permisos de filas y ficha, cierre del canal interno) DEBE entregarse a Sentinel en
   `HANDOFF-elea-a-sentinel.md`; ningún archivo del repositorio de Sentinel se edita desde Eleia.
-  (← 068 tasks T012; HANDOFF §4.3)
+  (← 068 tasks de Sentinel T012; HANDOFF §4.3)
 - **FR-004** [BASE]: Las respuestas de la pasarela que esta feature toca, incluida su pantalla
   de descubrimiento, NO DEBEN nombrar componentes internos (Diagnóstico #16). (← 068 FR-035)
 - **FR-004a** [BASE]: El paquete de la extensión DEBE portarse **tal cual** desde Sentinel
@@ -508,12 +571,23 @@ catálogo; un usuario de otro grupo no ve los alias.
   y aplicarse solo con la variable que la habilita; sin ella la cadena de la base conserva una
   sola cabeza. No se porta ninguna migración del backend de Sentinel. Volver a una versión sin la
   extensión después de aplicarla no está soportado y la documentación de operación lo advierte.
-  (← 068 tasks T004, T028; HANDOFF §1(c), riesgo de rollback)
+  (← 068 tasks de Sentinel T004, T028; HANDOFF §1(c), riesgo de rollback)
 - **FR-004c** [BASE]: El camino de despliegue de Eleia DEBE entregar las extensiones del motor y
   fusionar el fragmento de perfil de la extensión (equivalente de S9 y S11, que Sentinel tampoco
   hizo y reemplaza con su script propio), con el contrato de fusión de la 068 (agregar al final;
   duplicados ⇒ error); sin la extensión activada, el render y el paquete quedan idénticos.
-  (← 068 research D13 S9/S11, tasks T008, T010, T015, T019; HANDOFF §2.1)
+  (← 068 research D13 S9/S11, tasks de Sentinel T008, T010, T015, T019; HANDOFF §2.1)
+- **FR-004d** [BASE + ELEIA]: Lo que Eleia publica DEBE poder llevar la extensión a una
+  instalación hecha con su instalador: variantes derivadas de las imágenes del backend, del panel
+  y del motor, con tag propio y sin cambiar las imágenes base; el backend publicado DEBE aplicar
+  las migraciones adicionales cuando la variable que las habilita está definida y NO DEBE
+  arrancar si esa migración falla (sin la variable, igual que hoy). [ELEIA] El instalador DEBE
+  ofrecer una activación opt-in que elija las variantes, escriba el entorno de la extensión sin
+  secretos versionados y con permisos restringidos, y cargue los datos sembrados; sin la
+  activación, la instalación queda idéntica (el proxy delante del backend y el chequeo de origen
+  del canal interno, que rigen para toda instalación, no son parte de la activación: FR-013). La entrega se valida primero en local con el mismo
+  instalador y después en el servidor, con un procedimiento de vuelta atrás escrito
+  (Clarifications, QA del plan, B1).
 
 **Tabla C-1 — Costuras requeridas** (todas [BASE]; contrato genérico de la 068 research D13;
 commits de Sentinel según HANDOFF §1(a))
@@ -532,6 +606,8 @@ commits de Sentinel según HANDOFF §1(a))
 | S12 | Pasar variables de entorno propias a backend y motor sin listarlas en la base | Diagnóstico #11 | `933c513`, `891d4d0` (doc) |
 | Cifrado | Cifrado con rotación de claves y descifrado estricto, que usa el catálogo para las credenciales | — | `14edbc7`, solo dos archivos (ADAPT-024) |
 | S13 | Que el sufijo de los marcadores de enmascarado sea estable dentro de una conversación (por un identificador de conversación que provee la extensión) sin dejar de ser impredecible | No existe | sin commit en Sentinel (068 research D22, Phase 9); nueva, vuelve por `HANDOFF` (FR-045) |
+| S14 | Que, cuando una extensión pide enmascarado forzado, el guardrail cubra todo el pedido (sistema, todos los turnos, herramientas, PDF convertidos a texto) e informe lo no analizable | Solo turnos del usuario (`litellm/extensions/sentinel_guardian_policy.py:880-892`) | sin commit en Sentinel (068 tasks de Sentinel T074 abierta); nueva, vuelve por `HANDOFF` (FR-027) |
+| S15 | Que el canal interno del backend exija, además del secreto, un origen de la red interna | Solo el secreto (`backend/src/api/internal.py:120-127`) | **dependencia**: la entrega el arreglo de separación de bases (para toda instalación); vuelve por `HANDOFF` (FR-013) |
 
 **B. Interruptor y alcance**
 
@@ -573,7 +649,15 @@ commits de Sentinel según HANDOFF §1(a))
   mapeos a su fallback o los deja inactivos con aviso. (← 068 FR-005a, FR-005b)
 - **FR-013** [BASE]: Las credenciales de destino DEBEN guardarse cifradas, no aparecer en claro en
   la configuración del motor, logs, respuestas de API ni pantallas después de cargadas, y poder
-  rotarse o revocarse con efecto inmediato. (← 068 FR-005c, FR-006)
+  rotarse o revocarse con efecto inmediato. El canal interno por el que el motor pide identidad,
+  catálogo o credenciales al backend DEBE ser alcanzable solo desde la red interna de la
+  instalación y con el secreto compartido; la ruta que entrega una credencial descifrada DEBE
+  responder «no encontrado» salvo que la ruta directa del catálogo esté encendida, y ningún
+  despliegue publica ese canal fuera de la red interna (Clarifications, QA del plan, A10). El
+  chequeo de origen y el proxy del instalador son una **dependencia** (los entrega el arreglo de
+  separación de bases para toda instalación); esta feature agrega el cierre de la ruta de
+  credenciales y verifica que la variante con la extensión no salte esas capas.
+  (← 068 FR-005c, FR-006)
 - **FR-014** [BASE]: Un destino NO DEBE ser alcanzable nombrándolo directamente con ninguna
   llave, también con la política apagada; ningún dato del cliente (dirección de proveedor,
   credenciales, cabeceras de autenticación) puede cambiar a dónde ni con qué credencial sale un
@@ -614,8 +698,16 @@ commits de Sentinel según HANDOFF §1(a))
   de región con enmascarado forzado*. (← 068 FR-014)
 - **FR-023** [BASE]: Solo el responsable de cumplimiento o el super-admin DEBEN poder fijar o
   relajar una postura; el administrador de la empresa solo puede endurecerla (agregar filas);
-  todo cambio lleva autor y motivo. Permisos por acción según 068 FR-014b. (← 068 FR-014a,
-  FR-014b)
+  todo cambio lleva autor y motivo. Permisos por acción según 068 FR-014b. Una fila del
+  administrador de la empresa solo restringe: la postura efectiva es la más estricta entre la
+  que fijan cumplimiento o el super-admin (o la postura por defecto, si no fijaron ninguna) y las
+  filas del administrador, y una fila suya menos estricta que la efectiva de ese alcance se
+  rechaza; tampoco quita el enmascarado forzado que impone la postura de cumplimiento o del
+  super-admin (restringe el alcance, nunca el forzado). Regiones, postura por defecto y relajaciones exigen el rol real de cumplimiento o de
+  super-admin, nunca una autoridad de instalación derivada de una variable de entorno; la
+  entidad responsable, las jurisdicciones de inferencia, de entidad y de control y la retención
+  cero de la ficha del destino solo las escriben cumplimiento y el super-admin
+  (Clarifications, QA del plan, A6–A8). (← 068 FR-014a, FR-014b)
 - **FR-024** [BASE]: La postura DEBE aplicarse a todo el tráfico de pasarela del alcance, con la
   redirección encendida o apagada; si varios alcances definen postura, rige la más restrictiva
   (apagada < fuera de región con enmascarado forzado < solo jurisdicciones permitidas; entre
@@ -633,14 +725,24 @@ commits de Sentinel según HANDOFF §1(a))
   override del cliente, de la conexión, de las cabeceras ni de la llave pueda relajarlo; solo
   cumplimiento puede quitar el forzado, de forma explícita y registrada, por destino o por
   región (FR-031a), y mientras el forzado rija el fail-closed no se relaja. La garantía se
-  verifica donde ocurre el enmascarado y cubre texto, resultados de herramientas y adjuntos; lo
-  no analizable bloquea. (← 068 FR-016, FR-016a, D16; Clarifications D2)
+  verifica donde ocurre el enmascarado y cubre **todo lo que sale hacia el destino** (todo valor de
+  texto del pedido, salvo una lista cerrada de campos estructurales como el modelo, los roles, los
+  tipos, los identificadores y los nombres de herramientas): las
+  instrucciones de sistema (texto y bloques), todos los turnos de la conversación (del usuario y
+  del asistente, incluido lo que la herramienta reenvía ya restaurado), las entradas y los
+  resultados de herramientas, el razonamiento, las descripciones de herramientas y los
+  adjuntos. Los PDF se convierten a texto, se enmascaran y salen como texto enmascarado; lo no
+  analizable (PDF sin texto extraíble, imágenes, tipos desconocidos, o un razonamiento firmado
+  con identificadores hacia un destino nativo, que no se puede enmascarar sin invalidar la firma)
+  bloquea el pedido (Clarifications, QA del plan, B3; el reconocimiento de texto en imágenes es
+  una fase siguiente). (← 068 FR-016, FR-016a, D16; Clarifications D2)
 - **FR-028** [BASE]: Cada destino DEBE registrar su jurisdicción de inferencia y la de su entidad
   responsable; sin jurisdicción de inferencia, no satisface ninguna lista y, con la postura por
   defecto, se rechaza; la categoría «procesado en región, entidad de otra jurisdicción» no
   satisface una lista salvo aceptación registrada de cumplimiento, y no cuenta como en región
-  para una relajación por región.
-  (← 068 FR-018, FR-019, FR-019a; Clarifications D2)
+  para una relajación por región. Un pedido redirigido a un destino sin jurisdicción de
+  inferencia se rechaza con cualquier postura, fila o relajación (Clarifications, QA del plan,
+  A8). (← 068 FR-018, FR-019, FR-019a; Clarifications D2)
 - **FR-028a** [BASE]: Cada destino DEBE registrar, como dato, su **entidad responsable** (quien
   opera la inferencia), la **jurisdicción de esa entidad** y su **jurisdicción de control** (la de
   quien posee el 50 % o más de la entidad o la controla), además de la jurisdicción de inferencia.
@@ -681,10 +783,19 @@ commits de Sentinel según HANDOFF §1(a))
   configurable de la región: *rechazo fuera de región* (solo la jurisdicción de la región; el
   valor de fábrica, paridad con Sentinel), *enmascarado forzado fuera de región*, *enmascarado
   forzado en todo destino* o *permitido*; la fija y cambia solo cumplimiento o el super-admin, con
-  registro (FR-008, FR-023). Una postura explícita la reemplaza en a qué destinos se llega, pero
+  registro (FR-008, FR-023). Una postura explícita de cumplimiento o del super-admin la reemplaza
+  en a qué destinos se llega (una del administrador de la empresa solo restringe, FR-023), pero
   **no quita el enmascarado forzado** que la postura por defecto impone: ese forzado es un piso que
   solo quita una relajación (FR-031a); así, agregar una postura explícita nunca relaja. Con
-  cualquier valor, un destino sin jurisdicción de inferencia registrada se rechaza. La correspondencia región →
+  cualquier valor, un destino sin jurisdicción de inferencia registrada se rechaza. **Respaldo en
+  código** [BASE]: si para un pedido redirigido no hay región del perfil cargada que lo resuelva
+  (sin datos sembrados o con la fila borrada), rige enmascarado forzado en todo destino, con
+  analizador fail-closed y el alcance limitado a las jurisdicciones que el código asocia a la región
+  del perfil (p. ej., `latam_ar` ⇒ LATAM y AR) si la región se conoce; si la región del perfil no se resuelve, todo lo redirigido se rechaza y el estado de la
+  extensión lo informa; nunca sale en claro por falta de datos; mientras rige el respaldo, ninguna
+  postura explícita, de ningún rol, quita el forzado ni amplía ese alcance (Clarifications, QA del
+  plan, B2).
+  La correspondencia región →
   jurisdicciones DEBE leerse de un dato del perfil de país, no de una tabla fija en el código (hoy
   `latam_ar` → `{AR, LATAM}`, Diagnóstico #22); el cambio es genérico y vuelve a Sentinel por
   `HANDOFF`, donde cierra el D19 punto 2 que quedó diferido a su 069. [ELEIA] En Eleia, la región
@@ -723,7 +834,7 @@ commits de Sentinel según HANDOFF §1(a))
   el destino nunca recibe un pedido inválido por esa causa. Esto incluye no reenviar a un destino
   traducido campos que no conoce (p. ej. `safeguards`, Diagnóstico #20), subir el mínimo de
   tokens de salida cuando el destino lo exige y usar el nombre de parámetro de límite de salida
-  que el destino espera, dejando el ajuste en la auditoría. (← 068 FR-022; tasks T089, T139; 069
+  que el destino espera, dejando el ajuste en la auditoría. (← 068 FR-022; tasks de Sentinel T089, T139; 069
   de Sentinel T183, T192; HANDOFF §2.2, §2.4. T139 no está hecha en Sentinel: se escribe genérica
   y vuelve por `HANDOFF`)
 - **FR-036** [BASE]: El sistema DEBE mantener la continuidad de la conversación entre turnos
@@ -741,10 +852,13 @@ commits de Sentinel según HANDOFF §1(a))
 - **FR-040** [BASE]: Para destinos nativos, el sistema NO DEBE degradar funciones que el destino
   soporta, incluida la caché de prompts, y DEBE reenviar las cabeceras beta por lista permitida;
   hacia traducidos, las cabeceras beta se descartan. (← 068 FR-026, contrato cara-claude §Rutas
-  auxiliares; tasks T094, no hecha en Sentinel)
+  auxiliares; tasks de Sentinel T094, no hecha en Sentinel)
 - **FR-041** [BASE]: El conteo de tokens DEBE reenviarse para destinos nativos y, para
   traducidos, estimarse localmente o responder «no encontrado» para que la herramienta estime.
-  (← 068 contrato cara-claude §count_tokens; tasks T093, no hecha en Sentinel)
+  Mientras rige el enmascarado forzado, el conteo **nunca** se reenvía (tampoco a nativos ni en el
+  camino de suscripción): se estima localmente o responde «no encontrado», porque su cuerpo es la
+  conversación entera (FR-027; QA re-análisis U2).
+  (← 068 contrato cara-claude §count_tokens; tasks de Sentinel T093, no hecha en Sentinel)
 - **FR-042** [BASE]: Con la política encendida, una credencial de suscripción personal hacia un
   destino de otro proveedor DEBE rechazarse como error de autenticación. (← 068 contrato
   cara-claude §Errores 401)
@@ -868,7 +982,10 @@ instalación de demo (FR-020).
 - **SC-006** [BASE]: El 100 % de los pedidos con enmascarado forzado (hacia otra jurisdicción
   con postura explícita, o hacia cualquier destino con la postura por defecto *enmascarado
   forzado en todo destino*) sale sin los datos personales detectables de la batería de prueba
-  (incluidos los del perfil Argentina: DNI, CUIT/CUIL, CBU), y el 100 % se bloquea con el analizador caído. (← 068 SC-006;
+  (incluidos los del perfil Argentina: DNI, CUIT/CUIL, CBU, en los formatos que la batería fija)
+  en ninguna de sus partes (sistema, turnos del usuario y del asistente, herramientas, adjuntos
+  PDF), el 100 % de los pedidos con contenido no analizable se bloquea y el 100 % se bloquea con
+  el analizador caído. (← 068 SC-006;
   [ELEIA] la batería incluye los identificadores del perfil `latam_ar`)
 - **SC-007** [BASE]: Ninguna sesión de streaming de la batería se corta por inactividad mientras
   el destino sigue procesando. (← 068 SC-007)
@@ -877,7 +994,8 @@ instalación de demo (FR-020).
 - **SC-009** [BASE]: Cambiar el destino de un tier surte efecto para todos los usuarios del
   alcance sin tocar ningún equipo, en menos de un minuto. (← 068 SC-009)
 - **SC-010** [BASE]: Con la política encendida, la demora añadida por la pasarela hasta el primer
-  contenido (sin contar el tiempo del destino) es de 50 ms o menos en el percentil 95. (← 068
+  contenido (sin contar el tiempo del destino ni el del análisis del enmascarado forzado, que se mide
+  aparte de forma informativa) es de 50 ms o menos en el percentil 95. (← 068
   SC-011)
 - **SC-011** [BASE]: En una tarea de Cowork de al menos 10 pasos contra un destino con caché
   implícita, al menos el 60 % de los tokens de entrada desde el segundo paso sale de la caché,
@@ -925,7 +1043,9 @@ instalación de demo (FR-020).
   en una capa de extensión separada de la base y portada tal cual; la base (`backend/`,
   `frontend/`) solo recibe las costuras, mínimas y retrocompatibles. El paquete se copia con su
   estructura y nombre de Sentinel (HANDOFF §1(b); ver «Nombres internos»); el detalle de entrega
-  (imágenes, montaje en desarrollo, activación por variables) se decide en el plan.
+  (imágenes, montaje en desarrollo, activación por variables) se decide en el plan, dentro de lo
+  que fija FR-004d (variantes derivadas de las imágenes publicadas y activación opt-in en el
+  instalador).
 - **Constitución**: la de Eleia (2.2.0) es la heredada; su Principio II se lee como la normativa
   del perfil de país (Ley 25.326/AAIP). Los puntos de la enmienda D19 de la 068 que Sentinel ya
   aplicó (403 para rechazos de residencia de esta política; aclaración de §VII) y el default de
