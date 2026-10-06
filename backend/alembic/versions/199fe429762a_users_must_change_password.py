@@ -5,6 +5,10 @@ reseteo), el usuario debe poder/deber cambiarla en su próximo ingreso. `server_
 para que ningún usuario ya existente quede forzado por este release — el flag solo se prende
 desde el código, hacia adelante, en alta (`create_user`) y reseteo admin (`reset_user_password`).
 
+Idempotente (`ADD COLUMN IF NOT EXISTS`, mismo patrón que la 015): el mismo defecto que
+tenía la 7a6fee614cfd, que quedaba oculto detrás de ella en la cadena. Mismo id y mismo
+`down_revision`; en bases ya migradas es un no-op.
+
 Revision ID: 199fe429762a
 Revises: 7a6fee614cfd
 Create Date: 2026-09-21 00:00:00.000000
@@ -13,7 +17,6 @@ Create Date: 2026-09-21 00:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = '199fe429762a'
@@ -23,9 +26,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('must_change_password', sa.Boolean(), nullable=False,
-                                      server_default=sa.false()))
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password "
+               "BOOLEAN NOT NULL DEFAULT false")
 
 
 def downgrade() -> None:
-    op.drop_column('users', 'must_change_password')
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS must_change_password")

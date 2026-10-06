@@ -7,6 +7,11 @@ a diferencia de `users` (`is_active`/`deactivated_at`, migración base). Mismo c
 que la baja de usuario: NO es baja física — la auditoría histórica del grupo
 (`audit_logs.user_group_id`, `budgets.group_id`) sigue intacta y visible bajo su nombre.
 
+Idempotente (`ADD COLUMN IF NOT EXISTS`, mismo patrón que la 015): los tests de
+idempotencia re-corren el cuerpo de las migraciones posteriores sobre un esquema ya
+migrado, y una base con la versión adelantada no debe abortar el arranque. Mismo id y
+mismo `down_revision`; en bases ya migradas es un no-op.
+
 Revision ID: 7a6fee614cfd
 Revises: 020
 Create Date: 2026-09-17 10:40:10.117091
@@ -15,7 +20,6 @@ Create Date: 2026-09-17 10:40:10.117091
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = '7a6fee614cfd'
@@ -25,11 +29,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('groups', sa.Column('is_active', sa.Boolean(), nullable=False,
-                                       server_default=sa.true()))
-    op.add_column('groups', sa.Column('deactivated_at', sa.DateTime(), nullable=True))
+    op.execute("ALTER TABLE groups ADD COLUMN IF NOT EXISTS is_active "
+               "BOOLEAN NOT NULL DEFAULT true")
+    op.execute("ALTER TABLE groups ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMP")
 
 
 def downgrade() -> None:
-    op.drop_column('groups', 'deactivated_at')
-    op.drop_column('groups', 'is_active')
+    op.execute("ALTER TABLE groups DROP COLUMN IF EXISTS deactivated_at")
+    op.execute("ALTER TABLE groups DROP COLUMN IF EXISTS is_active")

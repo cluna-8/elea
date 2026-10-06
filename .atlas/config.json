@@ -1,0 +1,18 @@
+{
+  "_doc": "Config del proyecto para .atlas/orquestar.sh. base_protegida: código de terceros que no se toca (fork de un upstream, vendor); ref null = no hay. recordatorios: avisos de verificar cuando el diff toca ciertas rutas (regex sobre la ruta).",
+  "proyecto": "elea",
+  "rama_principal": "main",
+  "orca_cli": null,
+  "base_protegida": {
+    "ref": null,
+    "registro": null
+  },
+  "recordatorios": [
+    { "patron": "^docs/docs/", "mensaje": "toca docs/docs/**: make -C deploy check-docs tiene que estar verde (AGENTS.md, Definition of Done)" },
+    { "patron": "(^|/)\\.env\\.example$|^backend/src/.*/(api|admin_api)\\.py$", "mensaje": "toca la API o .env.example: correr make -C deploy docs-refs (el check de deriva lo exige)" },
+    { "patron": "^backend/alembic/versions/", "mensaje": "migración nueva: id por hash (alembic revision), no secuencial — choque de numeración Base/Sentinel/Eleia (specs/README.md)" },
+    { "patron": "^client/", "mensaje": "toca Eleia Hub: cd client && npm test (es específico de esta línea; para Sentinel se porta el enfoque, no el diff)" },
+    { "patron": "^frontend/", "mensaje": "toca el panel (base compartida con Sentinel): cd frontend && npm test; anotar en el HANDOFF de la spec para el cherry-pick" },
+    { "patron": "^backend/src/sso/|^backend/src/auth", "mensaje": "toca identidad/SSO: cambio de seguridad → pide QA de segundo nivel (rol qa-critico)" }
+  ]
+}

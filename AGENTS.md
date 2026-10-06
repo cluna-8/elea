@@ -45,3 +45,22 @@ producto que se vende por su honestidad = bug de severidad alta.
 pytest tests/ -q` (suite) verdes antes de pedir merge. Los checks de white-label
 (naming neutro, lista compartida `deploy/release/checks/prohibited_names.txt`) y de
 secretos aplican a TODO artefacto publicado, docs incluida.
+
+## Coordinación con agentes (Atlas)
+
+Un coordinador (Atlas) recibe los pedidos ("resolvé este problema", "avanzá esta spec"), los
+convierte en un plan de tareas y los despacha a agentes workers en Orca, cada uno en su
+worktree. El procedimiento, los roles y la herramienta están en
+[`.atlas/ORQUESTACION.md`](.atlas/ORQUESTACION.md) (`.atlas/orquestar.sh`). Las features que
+tocan también el instalador (`cluna-8/elea-installer`) se coordinan desde acá, en el mismo
+plan. Sentinel (`cluna-8/sentinel`, de donde esta línea saca las actualizaciones de la base)
+tiene su propio coordinador: desde acá solo se le entrega un `HANDOFF-elea-a-sentinel.md`.
+
+Reglas que todo agente respeta en este repo (además de las de arriba; el criterio de SDD es
+el de "SDD cuando amerita"):
+
+- **El trabajo termina en PR.** Nunca commits directos a la rama principal. Los workers
+  commitean local; el coordinador integra y abre el PR; el merge lo decide el owner.
+- **Una compuerta la decide el owner**, no el coordinador.
+- **Exploración ≠ spec.** Un spike no abre spec ni numeración: sus conclusiones van a un
+  documento de análisis o como borrador de enmienda.
