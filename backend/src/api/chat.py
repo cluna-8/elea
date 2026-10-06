@@ -2051,38 +2051,45 @@ class RagUsageReportSchema(BaseModel):
     latency_ms: int = 0
 
 
-@router.post("/rag-usage")
+# Nota para mantenedores (comentario y NO docstring a propósito: FastAPI publica el
+# docstring como `description` en el OpenAPI público, y este texto nombra componentes
+# internos que no deben verse del lado del cliente — Constitución VII, spec 043).
+#
+# Registra el costo real de un turno de chat que pasó por el motor de DOCUMENTOS
+# (AnythingLLM), reportado por el Hub — spec 053 (US1, hallazgo en vivo 17-sep).
+#
+# Por qué existe: `AuditService.log_transaction`/`sentinel_audit_logger.py` esperan la
+# identidad "en nombre de quién" vía `X-Guardian-Acting-User`, un header propio de
+# Guardian (`custom_auth.py::_verify_acting_user`). Ese header solo lo manda el motor
+# tabular (`tabular/app/llm.py`) — AnythingLLM es de terceros y no tiene forma de saberlo,
+# así que para el chat de documentos esa identidad nunca llegaba a existir en primer
+# lugar. El fix de la atribución en `sentinel_audit_logger.py` (mismo día) era correcto
+# pero no alcanzaba para este camino: no hay nada que leer si nadie lo escribió.
+#
+# La solución NO es enseñarle el header a un producto externo. El Hub ya sabe con
+# certeza quién es la persona (su propia sesión JWT, la misma que autentica este POST) y
+# ya recibe de AnythingLLM, en `metrics`, los tokens reales y el modelo que contestó
+# (verificado en vivo contra AnythingLLM real: `prompt_tokens`/`completion_tokens`/
+# `model`) — así que el Hub reporta ese consumo acá, con la MISMA identidad verificada
+# que usa cualquier otro endpoint de sesión, sin depender de que el motor de documentos
+# reenvíe nada. Mismo patrón que ya usa `chat_completions` para "chat directo": el plano
+# que originó el tráfico escribe su propia fila.
+#
+# Autenticado por sesión (no virtual key): solo alguien logueado como esa persona puede
+# reportar en su nombre, igual que el resto de los endpoints de usuario. El costo se
+# calcula acá, con `BudgetService.calculate_cost` (mismo tarifario que todo el resto del
+# producto) — el Hub NUNCA manda un costo en dólares, solo tokens y modelo, para que no
+# haya un segundo lugar donde el precio pueda desalinearse.
+@router.post(
+    "/rag-usage",
+    description="Registra el consumo (modelo y tokens) de un turno de chat de documentos, "
+                "reportado por el Hub con la sesión de la persona.",
+)
 async def report_rag_usage(
     body: RagUsageReportSchema,
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
-    """Registra el costo real de un turno de chat que pasó por el motor de DOCUMENTOS
-    (AnythingLLM), reportado por el Hub — spec 053 (US1, hallazgo en vivo 17-sep).
-
-    Por qué existe: `AuditService.log_transaction`/`sentinel_audit_logger.py` esperan la
-    identidad "en nombre de quién" vía `X-Guardian-Acting-User`, un header propio de
-    Guardian (`custom_auth.py::_verify_acting_user`). Ese header solo lo manda el motor
-    tabular (`tabular/app/llm.py`) — AnythingLLM es de terceros y no tiene forma de saberlo,
-    así que para el chat de documentos esa identidad nunca llegaba a existir en primer
-    lugar. El fix de la atribución en `sentinel_audit_logger.py` (mismo día) era correcto
-    pero no alcanzaba para este camino: no hay nada que leer si nadie lo escribió.
-
-    La solución NO es enseñarle el header a un producto externo. El Hub ya sabe con
-    certeza quién es la persona (su propia sesión JWT, la misma que autentica este POST) y
-    ya recibe de AnythingLLM, en `metrics`, los tokens reales y el modelo que contestó
-    (verificado en vivo contra AnythingLLM real: `prompt_tokens`/`completion_tokens`/
-    `model`) — así que el Hub reporta ese consumo acá, con la MISMA identidad verificada
-    que usa cualquier otro endpoint de sesión, sin depender de que el motor de documentos
-    reenvíe nada. Mismo patrón que ya usa `chat_completions` para "chat directo": el plano
-    que originó el tráfico escribe su propia fila.
-
-    Autenticado por sesión (no virtual key): solo alguien logueado como esa persona puede
-    reportar en su nombre, igual que el resto de los endpoints de usuario. El costo se
-    calcula acá, con `BudgetService.calculate_cost` (mismo tarifario que todo el resto del
-    producto) — el Hub NUNCA manda un costo en dólares, solo tokens y modelo, para que no
-    haya un segundo lugar donde el precio pueda desalinearse.
-    """
     if not (authorization and authorization.startswith("Bearer ")):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión requerida.")
 

@@ -82,27 +82,6 @@ Enforcement FAIL-CLOSED: sin token válido no se crean Connections/Clients nuevo
 | `SENTINEL_LICENSE_TOKEN_FILE` | — | Ruta al .lic DENTRO del contenedor. El bundle de producción ya la fija (/app/config/licenses/client.lic) y el compose de dev/demo trae su propio default, así que esta variable es para despliegues que arman su propio compose. Vacía = el default del compose. |
 | `SENTINEL_LICENSE_TOKEN` | — | Alternativa a la anterior: el contenido del .lic inline (JSON). Cuando trae contenido el backend la prefiere sobre SENTINEL_LICENSE_TOKEN_FILE. Ninguno de los dos composes que se shipean la pasa al contenedor: es para despliegues que inyectan el env por su cuenta. |
 
-### ── Eleia Hub y motores (perfiles `rag`, `tabular`, `presentations`; spec 050) ────────────
-
-Guardian es firewall + base de usuarios; el Hub es un conector; cada motor corre en su contenedor,
-sin puertos, y sale a los modelos únicamente por `engine:4000/v1` con su propia llave `svc.*`.
-
-| Variable | Default | Descripción |
-|---|---|---|
-| `TABULAR_URL` | — | URL del motor de planillas para el Hub (`http://tabular:8090`). Vacía = la sección no aparece. |
-| `TABULAR_INTERNAL_TOKEN` | — | Token interno Hub → tabular (cadena aleatoria; lo genera el instalador). |
-| `TABULAR_ENGINE_VIRTUAL_KEY` | — | Llave virtual de `svc.tabular` (`tool_type=servicio`, `can_act_on_behalf=true`). |
-| `TABULAR_MODEL` | `azure-gpt-5.4-mini` | Modelo real del catálogo para SQL y redacción (5/5 con planillas reales de Elea; 4o-mini 3/5). |
-| `TABULAR_HISTORY_WINDOW` | `5` | Spec 051: últimos turnos del hilo que ve el modelo en cada pregunta. |
-| `TABULAR_HISTORY_SUMMARY_EVERY` | `5` | Spec 051: cada cuántos turnos viejos el motor pide a Guardian un resumen acumulado del hilo. |
-| `TABULAR_HISTORY_ROWS` | `50` | Spec 051: filas de resultado guardadas por turno (las que usa "Crear presentación" desde el historial). |
-| `PRESENTON_URL` | — | URL del motor de presentaciones para el Hub (`http://presenton:80`). Vacía = sin presentaciones. |
-| `PRESENTON_ENGINE_VIRTUAL_KEY` | — | Llave virtual de `svc.presenton` (rpm 300 / tpm 2.000.000: manda varias diapositivas con imagen en paralelo). |
-| `PRESENTON_MODEL` | `azure-gpt-5.4-mini` | Modelo para Presenton. `azure-gpt-5.1-chat` no sirve (rate limit de Azure con 6 pedidos con imagen). |
-| `PRESENTON_ADMIN_PORT` | — | Puerto (8097) donde el Hub publica la pantalla de plantillas de Presenton, solo para admins con sesión. |
-| `SENTINEL_NLP_TIMEOUT_S` | `15` | (engine) Tiempo máximo de una llamada al analyzer NLP. 60 en instalaciones con motores de generación: el analyzer procesa ~330 chars/s y los prompts de Presenton son largos. |
-| `SENTINEL_ENGINE_MASTER_KEY` | — | Nunca para un motor: la llave maestra saltea tenant, presupuesto y auditoría. |
-
 ### ── Cliente RAG de Elea (perfil `rag`, spec 040) ──────────────────────────────────────
 
 Ver client/README.md para cómo generar cada valor. ELEA_SERVICE_USERNAME/ELEA_SERVICE_PASSWORD: quitadas (09-sep) — server.js ya no las lee desde que el presupuesto pasó a autoservicio (sesión propia de cada persona, no una cuenta de admin de fondo); habían quedado declaradas acá sin que ningún plano las consumiera.
@@ -110,4 +89,18 @@ Ver client/README.md para cómo generar cada valor. ELEA_SERVICE_USERNAME/ELEA_S
 | Variable | Default | Descripción |
 |---|---|---|
 | `ANYTHINGLLM_API_KEY` | — | API key de la instancia de AnythingLLM (se genera una vez, no la de ejemplo del código heredado — esa estaba filtrada en texto plano). |
+
+### ── Eleia Hub y motores (perfiles `rag`, `tabular`, `presentations`) ───────────────────
+
+Guardian es firewall + base de usuarios; el Hub es un conector; cada motor corre en su contenedor, sin puertos, y sale a los modelos únicamente por `engine:4000/v1` con su propia llave `svc.*`. La llave maestra del motor (`SENTINEL_ENGINE_MASTER_KEY`) no va nunca a un motor: saltea tenant, presupuesto y auditoría. El motor de planillas lleva el historial por hilo con valores por defecto de 5 turnos visibles al modelo, un resumen acumulado cada 5 turnos viejos y 50 filas de resultado guardadas por turno (las que usa "Crear presentación" desde el historial). El Hub publica la pantalla de administración de plantillas de presentaciones en el puerto 8097, solo para admins con sesión. En instalaciones con motores de generación el compose fija `SENTINEL_NLP_TIMEOUT_S=60` (el default del código es 15): el analizador de entidades procesa ~330 caracteres/s y los prompts largos de esos motores superaban los 15 s.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `TABULAR_INTERNAL_TOKEN` | — | Token interno Hub → motor de planillas (cadena larga aleatoria, ej. `openssl rand -hex 32`; lo genera el instalador). |
+| `TABULAR_URL` | `http://tabular:8090` | URL del motor de planillas para el Hub. Vacía = el Hub oculta la sección de planillas. |
+| `TABULAR_ENGINE_VIRTUAL_KEY` | — | Llave virtual de la cuenta de servicio `svc.tabular` (tool_type=servicio, can_act_on_behalf=true), creada con POST /api/v1/users + POST /api/v1/keys. Nunca la maestra. |
+| `TABULAR_MODEL` | `azure-gpt-5.4-mini` | Modelo real del catálogo para SQL y redacción (5/5 con planillas reales de Elea; 4o-mini 3/5). |
+| `PRESENTON_URL` | `http://presenton:80` | URL del motor de presentaciones para el Hub. Vacía = el Hub oculta el botón de presentaciones. |
+| `PRESENTON_ENGINE_VIRTUAL_KEY` | — | Llave virtual de la cuenta de servicio del motor de presentaciones (tool_type=servicio). Nunca la maestra. Con rpm 300 / tpm 2.000.000: manda varias diapositivas con imagen en paralelo. |
+| `PRESENTON_MODEL` | `azure-gpt-5.4-mini` | Modelo del motor de presentaciones. `azure-gpt-5.1-chat` no sirve (rate limit de Azure con 6 pedidos con imagen). |
 

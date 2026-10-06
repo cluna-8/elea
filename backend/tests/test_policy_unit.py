@@ -346,7 +346,19 @@ def test_build_ad_hoc_recognizers_adds_deny_list_when_names_present():
 def test_build_ad_hoc_recognizers_latam_region_adds_dni_cuil():
     recognizers = policy.build_ad_hoc_recognizers([], region="latam_ar")
     entities = {r["supported_entity"] for r in recognizers}
-    assert entities == {"DNI", "CUIL", "PASSPORT"}
+    # Subconjunto, no igualdad: el perfil argentino mínimo es DNI/CUIL/PASSPORT; la línea
+    # Eleia suma CBU (c9a98a8) y Sentinel no. Igual criterio que el test del paracaídas.
+    assert {"DNI", "CUIL", "PASSPORT"} <= entities
+
+
+def test_build_ad_hoc_recognizers_latam_region_cbu_si_la_tabla_lo_trae():
+    """Si el perfil declara CBU, el reconocedor lo emite con su patrón de 22 dígitos."""
+    tabla = policy.STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]
+    if "CBU" not in tabla:               # perfil sin CBU (Sentinel hoy): nada que afirmar
+        return
+    recognizers = policy.build_ad_hoc_recognizers([], region="latam_ar")
+    cbu = next(r for r in recognizers if r["supported_entity"] == "CBU")
+    assert re.search(cbu["patterns"][0]["regex"], "CBU 0170099220000012345678")
 
 
 def test_build_ad_hoc_recognizers_unknown_region_is_empty():
