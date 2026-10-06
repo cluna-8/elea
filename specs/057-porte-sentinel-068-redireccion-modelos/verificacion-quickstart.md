@@ -157,6 +157,39 @@ Causa en `SECRET_PATTERNS` (`litellm/extensions/sentinel_guardian_policy.py`): `
 **Tests (sin Docker, venv fuera del repo).** `backend/tests/unit` + `backend/tests/contract`: **1779 passed, 12 skipped, 6 failed** (`test_route_parity.py`, piden el host `db`: los mismos 6 de la base; antes 1706 passed);
 `sentinel/tests`: **2446 passed, 13 skipped**; no se tocó `docs/docs/**`, la API ni `.env.example`; `make -C deploy check`/`check-docs` y la suite del backend en contenedor **no se corrieron** (sin aviso previo para Docker).
 
+## 6d. Llaves OpenAI actuales (`sk-proj-`, `sk-svcacct-`, `sk-admin-`) y un solo criterio en los dos caminos (2026-10-07, research R38)
+
+**Hallazgo.** Los dos caminos del detector de secretos tenían patrones distintos para la misma llave: el motor (`SECRET_PATTERNS["OpenAI API Key"]`,
+`litellm/extensions/sentinel_guardian_policy.py:370`) pedía `sk-` + 10 alfanuméricos seguidos, así que `sk-proj-…` (guion tras `proj`) **no se detectaba**; el backend
+(`backend/src/services/guardian_service.py`, `sk-(?:proj-)?[A-Za-z0-9_-]{20,}`) sí la veía pero **sin límite izquierdo**, y `task-implementation-of-the-risk-assessment`
+(…`sk-` + 20 caracteres con guiones) era «clave» en ese camino.
+
+**Cambio.** Un patrón: `(?<![a-zA-Z0-9])sk-(?:[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{10,})` (rama larga primero: la redacción cubre la llave entera). El backend lo toma de la librería
+compartida (`OPENAI_KEY_PATTERN = policy.SECRET_PATTERNS["OpenAI API Key"]`, `guardian_service.py:13`, que ya importaba `policy`): ya no hay un segundo literal.
+No baja ninguna detección previa salvo la de una llave pegada a una letra o dígito anteriores (el límite de R37, ahora también en el backend); el motor detecta además lo
+que antes solo veía el backend (`sk-ant-…`, llaves con guiones). Sin llaves reales: los tests las generan con un `random.Random` con semilla.
+
+**Test rojo primero**: `backend/tests/unit/test_secret_detection_llaves_modernas.py` (165): **73 fallaban** antes (las 5 formas modernas en el motor; `task-…`/`ask-…`/`desk-…` largas
+en el backend; `sk-ant-…` y `sk-<10>` en el camino que no las veía; la redacción completa; la paridad). Con el cambio: 165 passed, y `test_secret_detection_limite_izquierdo.py` (73) y
+`test_pilot_fixes.py` (Bug 3) siguen verdes.
+
+**Docker (con OK del owner; `free -h` antes de cada build: disponible 2,5 / 2,6 / 3,4 GiB).** Motor: `litellm/` → `…/elea-guardian-engine:057-gate-new-base`, luego
+`sentinel/docker/engine.Dockerfile` → `:057-gate-ext`; `elea057-engine` recreado solo, mismo `-p elea057`, `STACK_PREFIX`, `--env-file` y `-f` de §2 más el override de la imagen `-ext`
+sin bind mounts: `healthy`. Backend (cambió): `backend/Dockerfile.standalone` → `…/elea-guardian-backend:057-secretos-base`, luego `sentinel/docker/backend.Dockerfile` →
+`:057-secretos-ext`; `elea057-backend` recreado solo con un override equivalente (imagen `-ext`, `volumes: !reset []`: antes montaba `backend/`, `litellm/`, `sentinel/` y los seeds del worktree
+`057-gate`; ahora 0 montajes; mismo `environment`/`env_file`, puerto 8091): arrancó (`/health` 200, `alembic` sin cambios). `db`, `redis`, `nlp-analyzer` y `sentinel-frontend` no se tocaron.
+En vivo, dentro de los contenedores recreados: el motor detecta las cuatro formas (`sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-` vieja) y no `task-…`/`ask-…`/`desk-…` largas; el patrón del backend
+detecta `sk-proj-…` y no `task-implementation-of-the-risk-assessment`.
+
+**`claude -p` real** (`CLAUDE_CONFIG_DIR` propio, `ANTHROPIC_BASE_URL=http://localhost:8091/api/v1/gw`, llave virtual leída de `~/.elea057-gate/virtual.key` sin imprimirla,
+`--model claude-sonnet-5-5 --allowedTools Read`, `clientes.csv` de 3 filas inventadas en un directorio de prueba): respondió («clientes.csv tiene 4 filas»: encabezado + 3), exit 0.
+Auditoría de los 8 minutos siguientes (solo metadatos: `compliance_status` y `blocked_by_layer` de `audit_logs`): **4 filas `passed`, 0 bloqueadas, ninguna `blocked_secret`**.
+
+**Tests (sin Docker, venv fuera del repo).** `backend/tests/unit` + `backend/tests/contract` (incluye T003, `test_gw_no_regresion_057.py`): **1944 passed, 12 skipped, 6 failed** (`test_route_parity.py`,
+piden el host `db`: los mismos 6; antes 1779 passed + los 165 nuevos); `sentinel/tests` (con `litellm[proxy]==1.95.1`, `fastapi==0.111.0`, `starlette==0.37.2`, sin `NLP_ANALYZER_URL`/`INTERNAL_ALLOWED_CIDRS`):
+**2446 passed, 13 skipped**. Con `litellm 1.92.0` y `fastapi 0.142` un test de `sentinel/tests` falla también en `HEAD` (las rutas `/api/v1/redirect` no se montan): es del entorno, no del cambio.
+No se tocó `docs/docs/**` (ninguna página describe el patrón de llaves), la API ni `.env.example`; `make -C deploy check`/`check-docs` y la suite del backend en contenedor **no se corrieron** en este tramo.
+
 ## 7. Gate final (T082 y T086) — corrida con Docker, 2026-10-06
 
 Rama `cluna-8/057-gate-final` sobre `b5fafda`. Docker con OK del owner, **proyecto de compose propio** `-p elea057gate` (`STACK_PREFIX=elea057gate`,
