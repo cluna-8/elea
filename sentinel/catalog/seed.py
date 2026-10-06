@@ -5,6 +5,10 @@ El deploy es dueño de la plantilla y del fragmento; la consola, de las tablas. 
 ficha tampoco, aunque la semilla cambie (nunca pisa lo que alguien editó). Sin credenciales: las carga
 el operador desde la consola. Todo o nada: una semilla inválida falla fuerte y no siembra nada.
 
+Credencial **adoptada** (057 FR-020): una entrada puede traer `credential_ref: {name, env: {campo: VARIABLE}}`. Solo
+referencias a variables del servidor (fuera de la lista negra): `{"api_key": "env:AZURE_API_KEY", …}`; ningún valor
+literal. La credencial de instalación se crea una vez por `name` y la comparten las entradas que la nombran.
+
 Uso: `python -m sentinel.catalog.seed <catalog-seed.yaml>` (idempotente).
 """
 from __future__ import annotations
@@ -21,7 +25,7 @@ from .store import SHEET_FIELDS
 
 _ENTRY_KEYS = {"name", "public_id", "provider", "real_model", "protocol_family", "api_base", "aggregator", "role",
                "capability", "features", "context_window", "max_output", "price_input_per_mtok",
-               "price_output_per_mtok", "price_source", "sheet"}
+               "price_output_per_mtok", "price_source", "sheet", "credential_ref"}
 
 
 def load_seed_file(path) -> dict:
@@ -54,7 +58,48 @@ def _validate(seed: Mapping[str, Any]) -> list[dict]:
         bad = set(e.get("sheet") or {}) - set(SHEET_FIELDS)
         if bad:
             raise ValueError(f"{where}.sheet: campos no admitidos: {', '.join(sorted(bad))}")
+        if "credential_ref" in e:
+            _credential_ref(e["provider"], e["credential_ref"], where)
     return entries
+
+
+def _credential_ref(provider: str, ref: Any, where: str) -> dict:
+    """`{campo: "env:VARIABLE"}` listo para guardar. Solo variables del servidor: un valor literal (que podría ser un
+    secreto) falla fuerte, igual que la clave `credential`."""
+    from sentinel.redirect import credentials as rc
+    if not isinstance(ref, Mapping) or not ref.get("name") or not isinstance(ref.get("env"), Mapping) or not ref["env"] \
+            or set(ref) - {"name", "env"}:
+        raise ValueError(f"{where}.credential_ref: se espera {{name, env: {{campo: VARIABLE}}}}")
+    cred = {}
+    for field, var in ref["env"].items():
+        if not isinstance(var, str) or var.startswith(rc.ENV_PREFIX) or not rc.env_name_allowed(var):
+            raise ValueError(f"{where}.credential_ref.env.{field}: se espera el nombre de una variable del servidor "
+                             "permitida (nunca un valor)")
+        cred[str(field)] = rc.ENV_PREFIX + var
+    try:
+        rc.validate_credential(provider, cred, level="installation", allow_any_env=True)
+    except rc.CredentialError as exc:
+        raise ValueError(f"{where}.credential_ref: {exc}") from None
+    return cred
+
+
+def _seed_credential(db, name: str, cred: dict, encrypt):
+    """La credencial de instalación `name` (se reutiliza si ya existe; nunca se pisa)."""
+    from . import credentials as cr
+    row = db.query(cm.Credential).filter(cm.Credential.tenant_id.is_(None), cm.Credential.name == name,
+                                         cm.Credential.status == "active").first()
+    if row is None:
+        row = cr.create(db, level="installation", tenant_id=None, name=name, kind="secret", value=cred,
+                        encrypt=encrypt or _default_encrypt)
+    return row
+
+
+def _default_encrypt(text: str) -> str:
+    from src.services import encryption_service
+    blob = encryption_service.encrypt(text)
+    if not blob:
+        raise ValueError("cifrado no disponible (clave de cifrado del backend ausente)")
+    return blob
 
 
 def _version(e: Mapping[str, Any]) -> str:
@@ -62,7 +107,7 @@ def _version(e: Mapping[str, Any]) -> str:
     return "seed:" + hashlib.sha256(canon.encode()).hexdigest()[:8]
 
 
-def seed_catalog(db, seed: Mapping[str, Any]) -> dict:
+def seed_catalog(db, seed: Mapping[str, Any], *, encrypt=None) -> dict:
     entries = _validate(seed)
     created, skipped = [], []
     now = datetime.now(timezone.utc)
@@ -72,6 +117,9 @@ def seed_catalog(db, seed: Mapping[str, Any]) -> dict:
         if row is None:
             ppm_in, ppm_out = e.get("price_input_per_mtok"), e.get("price_output_per_mtok")
             from .migrate import free_public_id
+            cred = (_seed_credential(db, e["credential_ref"]["name"],
+                                     _credential_ref(e["provider"], e["credential_ref"], e["name"]), encrypt)
+                    if "credential_ref" in e else None)
             row = cm.CatalogEntry(
                 level="installation", tenant_id=None, name=e["name"],
                 public_id=e.get("public_id") or free_public_id(db, None, e["name"]),
@@ -84,7 +132,7 @@ def seed_catalog(db, seed: Mapping[str, Any]) -> dict:
                 max_output=e.get("max_output"),
                 price_input=None if ppm_in is None else float(ppm_in) / 1e6,
                 price_output=None if ppm_out is None else float(ppm_out) / 1e6,
-                price_source=e.get("price_source"),
+                price_source=e.get("price_source"), credential_id=cred.id if cred is not None else None,
                 blocked_by_default=hb.is_blocked(db, None, provider=e["provider"], api_base=e.get("api_base")),
                 source="seed", status="active")
             db.add(row)
