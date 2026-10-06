@@ -85,6 +85,11 @@ _ERRORS = {  # kind → (status, error.type, mensaje neutro, reintentar)
     "region": (403, "permission_error", "Modelo no disponible para tu región.", False),
     "capability": (400, "invalid_request_error", "capability_rejected: {capability}", False),
     "invalid_request": (400, "invalid_request_error", "El pedido no es válido para este modelo.", False),
+    # `count_tokens` sin estimación local: la herramienta estima sola (contracts/cara-claude.md §3)
+    "count_unavailable": (404, "not_found_error", "El conteo de tokens no está disponible para este "
+                          "modelo.", False),
+    "upstream_failed": (502, "api_error", "El modelo no pudo completar la respuesta. Reintentá en unos "
+                        "segundos.", True),
     "overloaded": (529, "overloaded_error", "El modelo está saturado. Reintentá en unos segundos.", True),
     "rate_limit": (429, "rate_limit_error", "Límite de uso alcanzado. Reintentá en unos segundos.", False),
     "policy_unavailable": (503, "api_error", "Servicio no disponible temporalmente.", True),

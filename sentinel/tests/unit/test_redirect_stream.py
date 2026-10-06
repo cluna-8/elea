@@ -116,11 +116,13 @@ async def test_trailing_partial_flushed():
 
 
 async def test_upstream_error_propagates():
+    """Cara genérica: la falla sigue propagando. En la cara Claude pasa a `event: error` (T036/T042 de la
+    057, `test_face_claude_stream.py`)."""
     async def boom():
-        yield MSG_START
+        yield b'data: {"model":"x"}\n\n'
         raise RuntimeError("corte")
 
-    it = wrap_sse(boom(), public_model="pub", face="claude")
+    it = wrap_sse(boom(), public_model="pub", face="openai")
     got = [await it.__anext__()]
     try:
         await it.__anext__()

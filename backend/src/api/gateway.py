@@ -2106,6 +2106,18 @@ async def gw_messages(
 
 # ── passthroughs finos que Claude Code también llama (verbatim, sin política) ─────
 
+async def _cuerpo_para_plugins(request: Request):
+    """→ (cuerpo JSON como objeto, modelo declarado saneado) o (None, None) si no es un objeto JSON:
+    en ese caso el plugin no decide nada y el destino contesta su error, como siempre."""
+    try:
+        body = json.loads(await request.body())
+    except ValueError:
+        return None, None
+    if not isinstance(body, dict):
+        return None, None
+    return body, sanear_modelo_declarado(body.get("model", "unknown"))
+
+
 async def _plain_passthrough(request: Request, path: str, method: str, ident: dict,
                              x_sentinel_upstream: Optional[str] = None,
                              x_sentinel_key: Optional[str] = None):
@@ -2136,6 +2148,10 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
             ident = _resolve_attribution(sentinel_key)
         ctx = gp.GatewayContext(route=path, request_headers=request.headers, ident=ident,
                                 mode="byok" if mode == "byok" else "subscription")
+        if method != "GET":
+            # count_tokens: el plugin ve el modelo y el cuerpo para poder estimar sin reenviar (el
+            # cuerpo es la conversación entera). Solo con plugins; el destino recibe el cuerpo tal cual.
+            ctx.body, ctx.model = await _cuerpo_para_plugins(request)
         corte = await gp.run_pre_request(ctx)  # p.ej. un count_tokens estimado localmente
         if corte is not None:
             return corte

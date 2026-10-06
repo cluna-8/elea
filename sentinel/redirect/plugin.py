@@ -45,7 +45,7 @@ from starlette.responses import JSONResponse
 
 from sentinel.access import bridge
 
-from . import authz, betas, credentials, residency, resolver, stream
+from . import authz, betas, credentials, residency, resolver, stream, token_estimate
 from .faces import claude as claude_face
 from .faces import generic as generic_face
 from .scopes import RequestScope, applicable
@@ -57,7 +57,9 @@ STATE_KEY = "sentinel.redirect"
 ACCESS_KEY = "sentinel.access"
 RDX_PREFIX = "rdx-"
 REJECTED_MODEL = "rdx-rejected/capability"     # sin autorización ⇒ el guard lo corta siempre
-ROUTE_FACE = {"/v1/messages": "claude", "/v1/chat/completions": "openai_generic"}
+COUNT_TOKENS_ROUTE = "/v1/messages/count_tokens"
+ROUTE_FACE = {"/v1/messages": "claude", COUNT_TOKENS_ROUTE: "claude",
+              "/v1/chat/completions": "openai_generic"}
 # Proveedor del camino de suscripción (credencial personal reenviada tal cual). Dato del
 # producto: inferencia y entidad en EE. UU. — lo único que la postura necesita saber de él.
 SUBSCRIPTION_PROVIDER = {"inference_jurisdiction": "US", "entity_jurisdiction": "US"}
@@ -67,6 +69,7 @@ REQUEST_CLASS_HEADER = "x-request-class"
 # usuario o de una herramienta que el destino no recibió (el resto son campos de protocolo).
 # Mismo literal que el corte de un plugin (ya inventariado en el clasificador de retención).
 STATUS_REJECTED = "blocked_by_policy"
+STATUS_PASSED = "passed"        # tráfico que la política resolvió sin impedirlo (inventariado en el clasificador de retención)
 OMITTED_AUDIT = ("images_in_history", "images_in_tool_result", "documents_in_tool_result")
 
 
@@ -213,11 +216,25 @@ def _access_block(model: str) -> dict:
 
 class RedirectPlugin:
     def __init__(self, store: Optional[RedirectStore] = None, *, ping_after: float = stream.DEFAULT_PING_AFTER,
-                 clock=time.time, audit=None):
+                 clock=time.time, audit=None, estimator=None):
         self._store = store
+        self._estimator = estimator or token_estimate.estimate    # `count_tokens` local (T093 de Sentinel)
         self.ping_after = ping_after
         self._clock = clock
         self._audit = audit                     # escritor de filas de la pasarela; None ⇒ el del backend
+
+    def _write_row(self, ctx, model, status: str, decision: dict, what: str) -> None:
+        """Escribe una fila metadata-only con el escritor de la pasarela (`routing_decision`, sin
+        contenido). NUNCA propaga: la respuesta al cliente sale igual."""
+        try:
+            writer = self._audit
+            if writer is None:
+                from src.api import gateway               # el backend: import perezoso, como el motor
+                writer = gateway._audit
+            writer(ctx.ident or {}, str(model), 0, 0, status, [], 0, None,
+                   routing_decision=_audit_block(decision))
+        except Exception:  # noqa: BLE001
+            logger.exception("redirect: no se pudo auditar %s", what)
 
     def _audit_rejection(self, ctx, plan: Plan) -> None:
         """Fila de auditoría del rechazo por capacidad (069 FR-008c): motivo, modelo pedido y
@@ -228,15 +245,8 @@ class RedirectPlugin:
         if plan.rejection_audited:
             return
         plan.rejection_audited = True
-        try:
-            writer = self._audit
-            if writer is None:
-                from src.api import gateway               # el backend: import perezoso, como el motor
-                writer = gateway._audit
-            writer(ctx.ident or {}, str(ctx.model or plan.public_id), 0, 0, STATUS_REJECTED, [], 0, None,
-                   routing_decision=_audit_block(plan.decision))
-        except Exception:  # noqa: BLE001
-            logger.exception("redirect: no se pudo auditar el rechazo por capacidad (%s)", plan.rejected)
+        self._write_row(ctx, ctx.model or plan.public_id, STATUS_REJECTED, plan.decision,
+                        f"el rechazo por capacidad ({plan.rejected})")
 
     @property
     def store(self) -> RedirectStore:
@@ -259,9 +269,10 @@ class RedirectPlugin:
             return None
         face = ROUTE_FACE.get(ctx.route)
         permitidos, governed = None, frozenset()
-        if face is not None or ctx.route == "/v1/models":
+        if (face is not None and ctx.route != COUNT_TOKENS_ROUTE) or ctx.route == "/v1/models":
             # Perfil de acceso (069 US2): SIEMPRE, aunque la redirección esté apagada. Si no se pueden
-            # resolver los permitidos, el pedido no se sirve (fail-closed, FR-014a).
+            # resolver los permitidos, el pedido no se sirve (fail-closed, FR-014a). `count_tokens` no se
+            # gobierna por perfil (069: no sirve un modelo; test_count_tokens_y_otras_rutas_no_se_tocan).
             try:
                 permitidos, governed = await run_in_threadpool(bridge.allowed_for_ident, ctx.ident or {})
             except Exception:  # noqa: BLE001
@@ -301,14 +312,23 @@ class RedirectPlugin:
             foreign = self._subscription_foreign(ctx, snap, scope, face, state, permitidos)
             if foreign is not None:
                 return foreign
-            return self._subscription_posture(ctx, snap, scope, face) if postures else None
+            if not postures:
+                return None
+            verdict = self._subscription_posture(ctx, snap, scope, face)
+            if verdict is None and ctx.route == COUNT_TOKENS_ROUTE and ctx.governance_overrides.get("pii_masking"):
+                # FR-041: bajo enmascarado forzado el conteo no se reenvía ni a la suscripción
+                return self._count_response(ctx, ctx.routing_decision["extensions"]["redirect"], forced=True)
+            return verdict
         if state == "off" or not ctx.model:
             return None                                   # postura sin redirección: US2 (motor)
         published = resolver.find_published(snap.published, scope, face, ctx.model)
         if published is None:
             return None                                   # no es un id publicado: camino normal
         try:
-            return await self._resolve(ctx, snap, scope, face, state, permitidos)
+            cut = await self._resolve(ctx, snap, scope, face, state, permitidos)
+            if cut is None and ctx.route == COUNT_TOKENS_ROUTE:
+                cut = self._count_tokens(ctx)
+            return cut
         except Exception:  # noqa: BLE001
             if state == "shadow":
                 logger.exception("redirect: falla en sombra (el pedido sigue igual)")
@@ -379,6 +399,45 @@ class RedirectPlugin:
                                     forced_masking=res.forced_masking, scope_label=scope.label(),
                                     alternatives=res.alternatives, snap=snap, fidelity=res.fidelity)
         return None
+
+    def _count_tokens(self, ctx):
+        """T093 de Sentinel (FR-041): a un destino traducido, o con enmascarado forzado vigente (a cualquier
+        destino), el conteo no se reenvía: su cuerpo es la conversación entera. Se responde una estimación
+        local o 404. A un nativo sin forzado se reenvía (el id sale reescrito por `pre_engine`)."""
+        plan: Optional[Plan] = ctx.state.get(STATE_KEY)
+        if plan is None or plan.shadow:
+            return None
+        translated = resolver.fidelity("claude", plan.destination) == "translated"
+        if not (translated or plan.forced_masking):
+            plan.decision["count_tokens_mode"] = "forwarded"
+            return None
+        return self._count_response(ctx, plan.decision, forced=plan.forced_masking,
+                                    profile=(plan.destination.get("capability_profile") or {}) if translated else None)
+
+    def _count_response(self, ctx, decision: dict, *, forced: bool, profile=None):
+        body = ctx.body if isinstance(getattr(ctx, "body", None), dict) else None
+        tokens = None
+        if body is not None:
+            if profile is not None:                      # el destino recibe el cuerpo ya normalizado
+                try:
+                    body, _ = claude_face.normalize_for_translated(body, profile, max_output=0)
+                except claude_face.CapabilityRejected:
+                    pass                                 # el conteo no rechaza: se estima el pedido tal cual
+            try:
+                tokens = self._estimator(body)
+            except Exception:  # noqa: BLE001
+                logger.exception("redirect: falla estimando count_tokens")
+        if tokens is None:
+            decision["count_tokens_mode"] = "not_found"
+            status = STATUS_REJECTED if forced else STATUS_PASSED
+            response = _error("claude", "count_unavailable")
+        else:
+            decision["count_tokens_mode"] = "estimated"
+            status = STATUS_PASSED
+            response = JSONResponse({"input_tokens": int(tokens)})
+        # la pasarela no audita las respuestas tempranas de `count_tokens`: la fila la escribe el plugin
+        self._write_row(ctx, ctx.model or "unknown", status, decision, "count_tokens")
+        return response
 
     def _subscription_foreign(self, ctx, snap, scope, face, state, permitidos):
         """FR-042: con la política encendida, una credencial de suscripción personal no sirve para un
@@ -585,6 +644,8 @@ class RedirectPlugin:
         if not isinstance(body, dict) or "model" not in body:
             return None
         body = generic_face.rewrite_response_model(body, plan.public_id)
+        if plan.face == "claude" and body.get("type") == "message":
+            body["usage"] = stream.complete_usage(body.get("usage"))      # FR-039: los cuatro contadores
         return status, json.dumps(body, ensure_ascii=False).encode(), None
 
     def map_error(self, ctx, status, content):

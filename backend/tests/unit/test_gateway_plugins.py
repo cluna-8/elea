@@ -395,3 +395,72 @@ def test_passthroughs_resuelven_la_identidad_de_la_llave_del_header_de_auth(espi
     else:
         espias["client"].post(ruta, headers=h, content=json.dumps(BODY).encode())
     assert vistos and vistos[0].get("tenant_id") == f"t-{KEY}"
+
+
+# ── count_tokens: el plugin ve el modelo y el cuerpo (T041 de la 057, FR-041) ──────────────
+
+def _ver_ctx(espias, ruta, **kw):
+    vistos = []
+
+    class P:
+        def pre_request(self, ctx):
+            vistos.append({"model": ctx.model, "body": ctx.body, "route": ctx.route})
+
+    gp.register_gateway_plugin(P())
+    if ruta.endswith("models"):
+        espias["client"].get(ruta, headers={"Authorization": f"Bearer {KEY}"})
+    else:
+        espias["client"].post(ruta, headers={"Authorization": f"Bearer {KEY}"}, **kw)
+    return vistos
+
+
+def test_count_tokens_el_plugin_recibe_el_modelo_y_el_cuerpo(espias):
+    (visto,) = _ver_ctx(espias, "/gw/v1/messages/count_tokens", content=json.dumps(BODY).encode())
+    assert visto == {"model": "m-1", "body": BODY, "route": "/v1/messages/count_tokens"}
+
+
+def test_count_tokens_el_destino_sigue_recibiendo_el_cuerpo_tal_cual(espias):
+    raw = json.dumps(BODY).encode()
+    _ver_ctx(espias, "/gw/v1/messages/count_tokens", content=raw)
+    assert _Fake.enviados[-1]["content"] == raw
+
+
+@pytest.mark.parametrize("raw", [b"no es json", b"[1, 2]", b'"texto"', b"\xff\xfe"])
+def test_count_tokens_con_cuerpo_ilegible_el_plugin_ve_none_y_el_camino_sigue(espias, raw):
+    (visto,) = _ver_ctx(espias, "/gw/v1/messages/count_tokens", content=raw)
+    assert visto["body"] is None and visto["model"] is None
+    assert _Fake.enviados[-1]["content"] == raw        # lo contesta el destino con su error
+
+
+def test_count_tokens_sin_modelo_declara_unknown_y_el_literal_reservado_se_sanea(espias):
+    (visto,) = _ver_ctx(espias, "/gw/v1/messages/count_tokens", content=b'{"messages": []}')
+    assert visto["model"] == "unknown"
+    (visto,) = _ver_ctx(espias, "/gw/v1/messages/count_tokens",
+                        content=json.dumps({"model": gateway.MODELO_CADENA_LICENCIAS}).encode())
+    assert visto["model"] == gateway.MODELO_CADENA_USURPADA
+
+
+def test_models_no_lee_cuerpo_y_el_plugin_ve_none(espias):
+    (visto,) = _ver_ctx(espias, "/gw/v1/models")
+    assert visto["body"] is None and visto["model"] is None
+
+
+def test_count_tokens_un_plugin_puede_responder_sin_tocar_el_destino(espias):
+    class P:
+        def pre_request(self, ctx):
+            if ctx.route == "/v1/messages/count_tokens":
+                return JSONResponse({"input_tokens": len(json.dumps(ctx.body))})
+
+    gp.register_gateway_plugin(P())
+    n = len(_Fake.enviados)
+    r = espias["client"].post("/gw/v1/messages/count_tokens", json=BODY, headers={"Authorization": f"Bearer {KEY}"})
+    assert r.status_code == 200 and r.json()["input_tokens"] > 0 and len(_Fake.enviados) == n
+
+
+def test_sin_plugins_count_tokens_no_lee_ni_interpreta_el_cuerpo(espias, monkeypatch):
+    construidos = []
+    real = gp.GatewayContext
+    monkeypatch.setattr(gp, "GatewayContext", lambda *a, **k: construidos.append(1) or real(*a, **k))
+    raw = b"cuerpo que nadie interpreta"
+    r = espias["client"].post("/gw/v1/messages/count_tokens", content=raw, headers={"Authorization": f"Bearer {KEY}"})
+    assert r.status_code == 200 and not construidos and _Fake.enviados[-1]["content"] == raw
