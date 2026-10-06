@@ -31,6 +31,13 @@ class _Identidad:
 
 
 @pytest.fixture(autouse=True)
+def _sin_resolutores():
+    policy.clear_forced_masking_resolvers()
+    yield
+    policy.clear_forced_masking_resolvers()
+
+
+@pytest.fixture(autouse=True)
 def _sin_efectos_laterales(monkeypatch):
     async def _nada(*_a, **_k):
         return None
@@ -443,3 +450,99 @@ def test_patron_cuil_sin_guiones_en_la_tabla_principal():
     patron = policy.STRUCTURED_ID_PATTERNS_BY_REGION["latam_ar"]["CUIL"][0]
     assert re.search(patron, f"cuit {CUIT}") and re.search(patron, f"cuit {h.CUIT_SIN_GUIONES}")
     assert not re.search(patron, "cuit 2030123456"), "10 dígitos no es un CUIT"
+
+
+# ── 8. Resolutor registrado por una extensión (el grant firmado no lo ve el guardrail base) ──────
+
+@pytest.mark.asyncio
+async def test_un_resolutor_registrado_que_dice_si_activa_el_alcance_completo():
+    vistos = []
+
+    def _resolutor(data, user_api_key_dict, call_type):
+        vistos.append(call_type)
+        return True
+
+    policy.register_forced_masking_resolver(_resolutor)
+    policy.register_forced_masking_resolver(_resolutor)       # idempotente
+    data = _pedido_anthropic()
+    salida = await _hook(data, senal=False)
+    assert vistos == ["anthropic_messages"], "se consulta una vez por pedido"
+    assert data["litellm_metadata"]["masking_report"]["scope"] == "full"
+    _sin_pii(_cliente(salida))
+    # la marca la puso el guardrail, dentro del motor (no se puede forjar desde el cuerpo)
+    assert isinstance(data["litellm_metadata"][policy.FORCED_MASKING_KEY], policy.ForcedMaskingSignal)
+
+
+@pytest.mark.asyncio
+async def test_un_resolutor_que_dice_no_deja_el_alcance_de_hoy():
+    policy.register_forced_masking_resolver(lambda *_: False)
+    data = _pedido_anthropic()
+    salida = await _hook(data, senal=False)
+    assert data["litellm_metadata"]["masking_report"]["scope"] == "user"
+    assert DNI in salida["system"]
+
+
+@pytest.mark.asyncio
+async def test_un_resolutor_que_falla_cuenta_como_forzado_falla_cerrado():
+    def _roto(*_a):
+        raise RuntimeError("firma ilegible")
+
+    policy.register_forced_masking_resolver(_roto)
+    data = _pedido_anthropic()
+    salida = await _hook(data, senal=False)
+    assert data["litellm_metadata"]["masking_report"]["scope"] == "full"
+    _sin_pii(_cliente(salida))
+
+
+@pytest.mark.asyncio
+async def test_la_senal_del_cliente_no_activa_nada_aunque_haya_resolutores_que_dicen_no():
+    policy.register_forced_masking_resolver(lambda *_: False)
+    data = _pedido_anthropic()
+    data["metadata"] = {"sentinel_forced_masking": {"scope": "full"}}
+    await _hook(data, senal=False)
+    assert data["litellm_metadata"]["masking_report"]["scope"] == "user"
+
+
+# ── 9. `thinking` firmado: campo opcional, no suma a no analizables ──────────────────────
+
+@pytest.mark.asyncio
+async def test_el_informe_lleva_signed_thinking_solo_cuando_hubo_y_no_suma_a_unanalyzable():
+    data = {"model": "m", "messages": [{"role": "assistant", "content": [
+        {"type": "thinking", "thinking": f"DNI {DNI}", "signature": "firma=="}]}]}
+    await _hook(data)
+    informe = data["litellm_metadata"]["masking_report"]
+    assert informe["signed_thinking"] == 1
+    assert informe["unanalyzable"] == 0 and informe["unanalyzable_kinds"] == []
+
+    limpio = {"model": "m", "messages": [{"role": "assistant", "content": [
+        {"type": "thinking", "thinking": "sin datos", "signature": "firma=="}]}]}
+    await _hook(limpio)
+    assert "signed_thinking" not in limpio["litellm_metadata"]["masking_report"]
+
+
+# ── 10. Lo interno del motor no se recorre; lo del cliente sí ─────────────────────────
+
+@pytest.mark.asyncio
+async def test_la_metadata_del_cliente_se_enmascara_y_la_interna_del_motor_no_se_toca():
+    data = _pedido_anthropic()
+    data["metadata"] = {"user_id": f"dni-{DNI}"}
+    data["litellm_metadata"] = {"user_api_key_user_email": "operadora@ejemplo.es", "requester_ip": "10.0.0.7"}
+    data["proxy_server_request"] = {"headers": {"x-forwarded-for": "190.1.2.3"},
+                                    "body": {"raw": f"DNI {DNI}"}}
+    interna = copy.deepcopy(data["litellm_metadata"])
+    copia_de_registro = copy.deepcopy(data["proxy_server_request"])
+    salida = await _hook(data)
+    assert DNI not in _texto(salida["metadata"]), "metadata.user_id es del cliente: sale enmascarada"
+    for clave, valor in interna.items():
+        assert data["litellm_metadata"][clave] == valor, f"{clave}: la metadata interna no se enmascara"
+    assert data["proxy_server_request"] == copia_de_registro, "la copia de registro de la pasarela no se toca"
+
+
+@pytest.mark.asyncio
+async def test_en_las_rutas_openai_metadata_es_el_home_interno_y_no_se_recorre():
+    data = {"model": "m", "messages": [{"role": "user", "content": f"DNI {DNI}"}],
+            "metadata": {"user_api_key_user_email": "operadora@ejemplo.es"}}
+    salida = await _hook(data, call_type="acompletion")
+    assert DNI not in _texto(salida["messages"])
+    assert salida["metadata"]["user_api_key_user_email"] == "operadora@ejemplo.es"
+    assert salida["metadata"]["masking_report"]["scope"] == "full"

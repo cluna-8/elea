@@ -509,6 +509,11 @@ NLP_FAIL_MODE_KEY = "nlp_fail_mode"
 STATUS_NLP_BLOCKED = "blocked_nlp_unavailable"
 STATUS_NLP_DEGRADED = "degraded_nlp_regex"
 
+# Rechazo del enmascarado forzado de alcance completo (S14): algo del pedido no se pudo analizar. Copia
+# verbatim del rechazo del guard de la extensión (cara Claude, 400): no dice qué ni dónde (sin contenido).
+MASKING_REQUIRED_MESSAGE = ("El pedido no pudo protegerse para este destino y fue bloqueado. "
+                            "Probá en una conversación nueva.")
+
 # Mensaje único del rechazo fail-closed (lo emiten el motor y el gateway, verbatim).
 NLP_BLOCK_MESSAGE = ("Petición bloqueada: el motor de detección de datos personales "
                      "no está disponible. No se procesa sin garantía de protección de PII/PHI.")
@@ -953,6 +958,41 @@ def trusted_forced_masking(*homes) -> bool:
     for home in homes:
         value = home.get(FORCED_MASKING_KEY) if isinstance(home, dict) else None
         if isinstance(value, ForcedMaskingSignal) and value.get("scope") == MASKING_SCOPE_FULL:
+            return True
+    return False
+
+
+# Resolutores del forzado (S14, decisión del coordinador): el forzado viaja hacia el motor en un token firmado
+# que verifica el guard de una EXTENSIÓN, y ese guard corre DESPUÉS del guardrail base; el base no ve el grant.
+# La extensión registra acá, al importarse en el motor, una función que decide si ESTE pedido es forzado
+# (p. ej. verificando la cabecera firmada) y el guardrail base marca la señal por tipo. La base no sabe nada
+# de cómo se decide: solo que alguien registrado dice que sí.
+_FORCED_MASKING_RESOLVERS: list = []
+
+
+def register_forced_masking_resolver(resolver) -> None:
+    """`resolver(data, user_api_key_dict, call_type) -> bool`. Idempotente (el mismo objeto no se duplica)."""
+    if callable(resolver) and resolver not in _FORCED_MASKING_RESOLVERS:
+        _FORCED_MASKING_RESOLVERS.append(resolver)
+
+
+def clear_forced_masking_resolvers() -> None:
+    """Solo para tests."""
+    _FORCED_MASKING_RESOLVERS.clear()
+
+
+def resolve_forced_masking(data: dict, user_api_key_dict, call_type) -> bool:
+    """True si algún resolutor registrado dice que el pedido es forzado.
+
+    FALLA CERRADO: un resolutor que lanza cuenta como «forzado» (se enmascara de más, nunca de menos) y se
+    registra el error sin el contenido del pedido."""
+    for resolver in list(_FORCED_MASKING_RESOLVERS):
+        try:
+            if resolver(data, user_api_key_dict, call_type):
+                return True
+        except Exception:  # noqa: BLE001 — sin la decisión, la postura segura es enmascarar todo
+            logger.error("forced_masking: el resolutor %s falló; el pedido se trata como forzado",
+                         getattr(resolver, "__name__", "?"), exc_info=True)
             return True
     return False
 

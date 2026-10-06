@@ -492,6 +492,11 @@ class SentinelGuardrail(CustomGuardrail):
         forzado = policy.trusted_forced_masking(data.get("litellm_metadata"), data.get("metadata"))
         policy.discard_untrusted_forced_masking(data, data.get("metadata"), data.get("litellm_metadata"))
         home = _metadata_home(data, call_type)
+        if not forzado and policy.resolve_forced_masking(data, user_api_key_dict, call_type):
+            # Lo decide un resolutor registrado por una extensión (el token firmado del grant); la marca por
+            # tipo la pone ESTE código, dentro del motor.
+            policy.mark_forced_masking(home)
+            forzado = True
         # Resumen del paso de PII, SIEMPRE presente (y sobrescrito: un valor sembrado por el
         # cliente con esta clave no sobrevive). Solo conteos y nombres de tipo, jamás valores (C1). Se
         # muta en el lugar a medida que avanza el hook; `completed` solo al final del camino feliz.
@@ -707,6 +712,11 @@ class SentinelGuardrail(CustomGuardrail):
             # texto unido y con tope): `detected == masked` solo si nada quedó sin reescribir.
             reporte.update(detected=tally.detected, masked=tally.masked, unanalyzable=tally.unanalyzable,
                            unanalyzable_kinds=tally.kinds)
+            if tally.signed_thinking_masked:
+                # Opcional: `thinking` con firma cuyo texto cambió al enmascarar. NO suma a `unanalyzable`:
+                # hacia un destino traducido la extensión reconstruye la firma (R10); el guard bloquea solo
+                # si el destino es nativo (enmascararlo invalida la firma).
+                reporte["signed_thinking"] = tally.signed_thinking_masked
         else:
             # El preview mira el texto inspeccionado (con cap); el masking recorre el body
             # entero, así que puede encontrar más. Lo enmascarado también fue detectado.
