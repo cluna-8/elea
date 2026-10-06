@@ -181,8 +181,9 @@ plan (R13–R16) y la enmienda del 403 (R21) no se reabren.
     cargados con `python -m sentinel.catalog.seed` (idempotente). Destinos: `gpt-5.1-chat`,
     `gpt-5.4-mini`, `gpt-4o-mini` (tres modelos conversables de `litellm/config.yaml:35-74`; la cuarta
     entrada `azure/*` es `router-embeddings`, no conversable) y `gpt-5.6-luna`, que **no** está en el
-    repo ni hay evidencia de su despliegue en el recurso: queda **a confirmar con el owner** antes de
-    T045 (si no existe, opus → `gpt-5.1-chat`; QA M2). La jurisdicción de inferencia **no**
+    repo; el coordinador informó el 2026-10-06 que existe en Azure (dato no verificado por el QA v2, sin red
+    a Azure): se siembra y se usa solo si la verificación de despliegue de T022 lo confirma (si no, opus →
+    `gpt-5.1-chat`; QA M2). La verificación de T022 no filtra: siembra la entrada y la deja `inactive` si no existe. La jurisdicción de inferencia **no**
     se presume (spec §Assumptions): el seed la deja vacía y el quickstart obliga a cargarla.
 - **Por qué**: el síntoma del 6-oct («Resource not found», HANDOFF §2.4) es un `real_model` que no
   coincide con un despliegue (HANDOFF §4.1).
@@ -577,9 +578,18 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 2 
      `503 {"status": "degraded", "reason": "region_unresolved" | "region_row_missing"}` cuando rige el
      respaldo, `200` si no; el instalador y el runbook lo consultan (T100, T103). Se elige la ruta de la
      extensión en vez del `/health` de la base para no agregar una costura nueva.
-  4. Seeds al arrancar: con la extensión activa y `REDIRECT_SEED_FILES` (lista de archivos), un enganche
-     de arranque del router de la extensión (S1) carga regiones y reglas de habilitación de forma
-     idempotente antes de servir; si falla, se registra y rige el respaldo (2).
+  4. Seeds al arrancar: con la extensión activa y `REDIRECT_SEED_FILES` (lista de archivos), el enganche de
+     arranque de la extensión carga regiones y reglas de habilitación de forma idempotente antes de servir;
+     si falla, se registra y rige el respaldo (2). **Mecanismo** (QA v2 N1; research R33): S1 solo valida y
+     monta `(APIRouter, prefix)` (`sentinel:backend/src/plugins.py:9`, `:81-88`) y la app se crea con
+     `lifespan=_lifespan` (`backend/src/main.py:80-101`); con FastAPI 0.111.0 (`backend/requirements.txt:1`)
+     el `on_startup` de un router incluido **no corre** bajo `lifespan` (ensayado el 2026-10-06 con
+     `fastapi==0.111.0`/`starlette==0.37.2`; con FastAPI 0.135 sí corre, así que depender de él cambiaría con
+     una actualización). Por eso el enganche va por una costura nueva de base, **S16**, llamada desde el
+     `_lifespan` antes del `yield`; la extensión expone `on_startup()` en `sentinel.redirect.api` (el paquete
+     de `PLUGIN_PACKAGES`, `sentinel:sentinel/redirect/api/__init__.py:8`) y desde ahí corre
+     `sentinel/redirect/seed_on_startup.py`. Las migraciones de la extensión ya corrieron al importar
+     `main.py` (`backend/src/main.py:60-64`), así que las tablas existen cuando corre el enganche.
   5. `[ELEIA]`: el override de desarrollo de la extensión (`sentinel/docker/compose.dev.yml`) fija
      `SENTINEL_ENTITY_REGION=latam_ar` (como `.env.example:194` y el instalador), con check de release; el
      `docker-compose.yml` de la raíz no cambia (es el de la suite de CI y cambiarlo cambia la base para todos,
@@ -587,7 +597,16 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 2 
      perfil de cliente, incluidos los europeos, cuyo enmascarado depende de los patrones de `eu`
      (`litellm/extensions/sentinel_guardian_policy.py:131-137`); cambiarlo violaría FR-001/FR-007 para ellos.
      Un perfil de `deploy/clients/*` que active la extensión sin fijar la región cae en el respaldo
-     fail-closed de (2) con `/api/v1/redirect/health` en 503 (QA re-análisis F1).
+     fail-closed de (2) con `/api/v1/redirect/health` en 503 (QA re-análisis F1). Precisión (QA v2 N9):
+     `compose.prod.yml` **inyecta** `SENTINEL_ENTITY_REGION: "${SENTINEL_ENTITY_REGION:-eu}"` (`:112`, `:201`),
+     así que ahí la región nunca queda sin resolver: resuelve a `eu`, no hay fila de región para `eu` (el seed
+     de Eleia es `AMERICAS`) y el estado es `region_row_missing` con alcance `region_codes(eu)`, no
+     `region_unresolved`. Igual de fail-closed; cambian el diagnóstico y el texto (T094, T080, T081).
+  6. **Un único `tenant_region()`** (QA v2 N5): el default `eu` se repite en tres sitios de Sentinel
+     (`sentinel:sentinel/redirect/plugin.py:134-137`, `sentinel:sentinel/redirect/api/admin.py:571` en
+     `list_postures`, lo que muestra el panel, y `sentinel:sentinel/redirect/api/us5.py:197` en `run_fidelity`);
+     los tres pasan a usar la misma función sin caída a `eu`, para que el panel y la prueba de fidelidad digan
+     lo mismo que el tráfico (T060, T094).
 - **Por qué**: D2 queda garantizado aunque falte el dato; con el seed rige `masked_all` sin cambios. Para
   Sentinel es más estricto que hoy sin fila: el HANDOFF le indica sembrar su fila `reject_offregion`.
 - **Alternativas**: respaldo = `masked_all` exacto (abre fuera de región sin el dato); no arrancar con la
@@ -616,12 +635,34 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 3 
      `input_schema`; en OpenAI, `tools[].function.description`). **Regla general, fail-closed** (QA re-análisis
      U3): bajo la señal se analiza y enmascara **todo valor de texto** del cuerpo, en cualquier campo y a
      cualquier profundidad (incluidos `metadata`, `stop_sequences`, `enum`/`default`/`examples` de
-     `input_schema`, `user` y `name` de OpenAI y campos desconocidos), **salvo** una lista cerrada de campos
-     estructurales: `model`, `role`, `type`, `id`, `tool_use_id`, `tool_call_id`, el nombre de una herramienta
-     (`tools[].name`, `tool_use.name`, `function.name`, `tool_choice.name`), `media_type`, `cache_control`,
-     `signature`, `stream`, las claves de objeto y los datos base64 de bloques no textuales (que van por el
-     camino de PDF o cuentan como no analizables). Agregar un campo estructural es un cambio de contrato
-     con test.
+     `input_schema`, `user` y `name` de OpenAI y campos desconocidos), **salvo** una lista cerrada de
+     posiciones estructurales. **Exenciones por posición del protocolo, nunca por nombre de clave** (QA v2 N8):
+     la lista es una tabla de rutas (`contracts/costuras-base.md` §S14, «Posiciones exentas»), por formato
+     (Anthropic Messages y OpenAI chat), p. ej. `messages[*].role`, `messages[*].content[*].id` de un bloque
+     `tool_use`, `tools[*].name`, `messages[*].tool_calls[*].function.name`, `max_tokens`; un campo llamado
+     `id`, `name`, `type` o `role` en cualquier otra ruta no está exento. Dos clases:
+     - **Opacas** (no se analizan ni se reescriben, porque el valor no viaja como lo mandó el cliente o no es
+       texto): `model` (en el camino redirigido tiene que ser un id publicado y la extensión lo reemplaza por el del
+       destino; analizarlo daría falsos positivos con los ids fechados, `-20250929` cumple el patrón de DNI de
+       `latam_ar`, `litellm/extensions/sentinel_guardian_policy.py:142`), `signature`
+       de `thinking` (solo hacia nativos; hacia traducidos la extensión la reconstruye, R10), los datos base64
+       de `source.data`/`file_data` (van por el camino de PDF o son no analizables) y `cache_control` con forma
+       validada (solo `type`/`ttl` con valores del protocolo; otra forma ⇒ no analizable).
+     - **Estructurales** (se analizan pero **no se reescriben**, porque reescribirlas rompe el pedido): roles,
+       tipos de bloque, ids de bloques y llamadas, nombres de herramienta, `media_type`, los parámetros
+       numéricos del protocolo en su ruta (`max_tokens`, `temperature`, `top_p`, `top_k`,
+       `thinking.budget_tokens`, `seed`, …) y, dentro de `input_schema`/`parameters` (JSON Schema), las palabras
+       clave del esquema, los nombres de propiedad (claves de `properties`) y `required[*]`. Una detección en
+       una posición estructural **no** se enmascara: cuenta como no analizable (`structural_entity`) y el
+       pedido se bloquea (fail-closed; un id o un nombre de herramienta no pueden contrabandear un dato).
+     - **Subárboles libres** (todo lo demás, en particular `tool_use.input`, `tool_calls[].function.arguments`
+       parseados, `metadata`, los valores `description`/`title`/`enum`/`const`/`default`/`examples`/`pattern`
+       del esquema y los campos desconocidos): no se exime nada; **las claves de objeto se analizan y se
+       enmascaran** como cualquier valor; los **escalares numéricos** se analizan como su texto decimal (un
+       entero detectado se reemplaza por el marcador como cadena; la respuesta lo restaura como cadena); booleanos
+       y `null` no llevan datos y no se analizan.
+     La tabla de posiciones vive en el guardrail como dato con un test que la compara con el contrato: agregar
+     una posición es un cambio de contrato con test.
   2b. **`count_tokens` bajo forzado** (QA re-análisis U2; FR-041): no se reenvía a ningún destino ni por el
      camino de suscripción; se estima localmente (R12) o responde 404 `not_found_error`. Lo resuelve la
      extensión antes del motor (T041) y, en suscripción, el `pre_request` del camino de suscripción (T062). Bajo forzado, ningún tipo de entidad del perfil queda exento por la configuración de la
@@ -634,6 +675,22 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 3 
      URL; imágenes; audio; tipos desconocidos; `redacted_thinking`; un `thinking` firmado con detecciones
      hacia un destino nativo (enmascararlo invalida la firma). Sin `pypdf` instalado (imagen base del motor),
      todo PDF es no analizable: falla cerrado.
+  3b. **Aislamiento de la extracción** (QA v2 N4; la entrada es del cliente y `pypdf` es síncrono, mientras el
+     guardrail corre en el bucle asíncrono del motor): la extracción **nunca** corre en el bucle de eventos ni
+     en un hilo del motor (un hilo no se puede matar al vencer el plazo ni acotar en memoria). Corre en un
+     **proceso hijo** por PDF (`python -I -m` del módulo de base `litellm/extensions/sentinel_pdf_extract.py`, con el PDF por la entrada estándar y el texto por la
+     salida), con límites del sistema operativo fijados antes de importar `pypdf`: memoria `RLIMIT_AS` =
+     `MASKING_PDF_MAX_MEMORY_MB` (512) y CPU `RLIMIT_CPU` = plazo + 5 s; plazo de reloj `MASKING_PDF_TIMEOUT_S` (20 s), al
+     vencer el hijo se mata; concurrencia acotada por un semáforo `MASKING_PDF_MAX_CONCURRENCY` (2) por proceso
+     del motor; el bucle solo espera al hijo. **Por pedido** (análisis de la QA v2, M5): a lo sumo `MASKING_PDF_MAX_PER_REQUEST` (5) PDF y un plazo total `MASKING_PDF_REQUEST_DEADLINE_S` (30 s) que incluye la espera del semáforo; superarlos ⇒ no analizable `pdf_request_limit`. **Caché por hash**: el resultado (texto o veredicto de falla) se guarda en memoria del proceso por SHA-256 de los bytes, acotado (`MASKING_PDF_CACHE_ENTRIES`, 32), nunca persistido ni registrado, para que el historial que Claude Code y Desktop reenvían en cada turno no re-extraiga el mismo PDF (ni el hostil). **Tope de expansión**: el hijo baja los límites de
+     descompresión de `pypdf` (`pypdf.Configuration`, por flujo, 75 MB por defecto en la 6.19.0,
+     `pypdf/_configuration.py`) a `MASKING_PDF_MAX_STREAM_BYTES` (25 MB) y corta al superar
+     `MASKING_PDF_MAX_TEXT_CHARS` (2 000 000) de texto extraído. Plazo vencido, memoria agotada, salida no
+     cero, tope de expansión o de texto superado ⇒ **no analizable** (`pdf_timeout`, `pdf_resource_limit`,
+     `pdf_error`; correspondencia en contracts/costuras-base.md §S14) y el pedido se bloquea bajo forzado; el proceso del motor sigue sirviendo. `pypdf` se fija
+     en una versión con `pypdf.Configuration` y límites de descompresión (6.19.0 verificada el 2026-10-06), con
+     hash (T091); el test de PDF hostil (bomba de compresión y páginas densas) prueba los topes propios aunque
+     la librería cambie. Los valores por defecto son iniciales y los ajusta la medición de T097.
   4. **Informe S5b ampliado**: `masking_report` suma `scope` (`"user"` hoy, `"full"` con la señal),
      `unanalyzable` (entero) y `unanalyzable_kinds` (solo nombres de tipo, nunca contenido).
      `masking_ok` del guard exige además `unanalyzable == 0` y `scope == "full"` cuando el forzado rige;
@@ -646,9 +703,12 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 3 
   (T091). La extracción corre solo bajo forzado y solo con PDF: del orden de milisegundos por página de
   texto (decenas de ms en páginas densas), así que un PDF de decenas de páginas suma de cientos de ms a
   pocos segundos al pedido que lo trae; SC-010 (≤ 50 ms p95) se mide sin adjuntos y T097 agrega una medición
-  informativa con PDF y otra de un pedido típico de Claude Code de solo texto con alcance completo. Los topes de páginas y bytes acotan el peor caso (fallan cerrado). Riesgo de
-  seguridad del parser: se ejecuta en el motor, sin red, sobre bytes del propio cliente; los errores del
-  parser cuentan como no analizable.
+  informativa con PDF y otra de un pedido típico de Claude Code de solo texto con alcance completo. Los topes de páginas, bytes, tiempo, memoria y expansión acotan el peor caso
+  (fallan cerrado). Riesgo de seguridad del parser: corre en un proceso hijo del motor con límites (3b), sin
+  credenciales, sobre bytes del propio cliente; los errores del parser cuentan como no analizable y un PDF hostil no
+  bloquea el bucle del motor para el resto de la empresa. Costo del aislamiento: el arranque del hijo
+  (`python -I -c "import pypdf"`: 0,13–0,15 s medido el 2026-10-06 con `pypdf` 6.19.0 en Python 3.12, fuera
+  del motor; T097 lo mide dentro) se suma solo a los pedidos con PDF bajo forzado.
 - **Fase siguiente**: OCR de imágenes y PDF escaneados (fuera del MVP).
 - **Vuelve a Sentinel por HANDOFF** y cierra la T074 de Sentinel.
 - **Alternativas**: declarar `system`/tools como límite 🟡 (deja salir en claro lo que más datos de entorno
@@ -683,6 +743,14 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 4 
      empresa en esos campos; el resto de la ficha sigue igual); cada cambio en el registro (FR-008).
 - **Por qué**: D2 dice que el enmascarado por defecto lo relaja solo cumplimiento; sin esto, el admin de empresa lo
   relaja por tres vías.
+- **Límite conocido, fuera de la 057** (QA v2 N3): la separación es **por rol**, y hoy el admin de empresa puede
+  dar de alta un usuario con cualquier rol de `VALID_ROLES` (`backend/src/models/user.py:9`; `POST /users` exige
+  solo `require_role("admin")`, `backend/src/api/users.py:413-414`), incluidos `compliance_officer` y
+  `super_admin`. Es una propiedad previa de la base y la cierra un **arreglo aparte en la base** (otra tarea del
+  plan del coordinador, con su propio PR); la 057 no lo implementa ni lo duplica. Referencia en T055 y T080:
+  la documentación describe la garantía según el estado de ese arreglo al cerrar T-G (sin él, «no desde el rol
+  de administrador de empresa; quien administra usuarios puede designar al responsable de cumplimiento, y
+  queda en el registro»); nunca «el administrador no puede relajar» sin ese respaldo.
 - **Alternativas**: documentar A6/A7 como riesgo (deja la vía abierta); que el admin de empresa no cree filas
   (pierde el «endurecer» de FR-023).
 
@@ -716,6 +784,15 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   4. T081 documenta que `/api/v1/internal/*` no se publica fuera de la red de compose.
 - **Efecto sobre FR-004d** (QA re-análisis C1): «sin `ELEA_REDIRECT`, idéntico» se mide contra la instalación
   ya corregida por el arreglo de bases (proxy y chequeo de origen incluidos), no contra la de hoy.
+- **Dónde corta la dependencia** (QA v2 N2): en la rama del ensayo el arreglo solo **verificaba** la exposición
+  y dejaba el proxy como propuesta (`ENSAYO-SEPARAR-BASES.md:168-195` de `cluna-8/fix-separar-bases-motor`); el
+  coordinador confirmó que el proxy y `INTERNAL_ALLOWED_CIDRS` los entrega la **vuelta 2** del arreglo de bases,
+  que también es quien prueba `auto` contra el compose real (el ensayo advierte que lo publicado puede llegar
+  con la IP del puente de Docker, `:193-195`). La 057 no empeora la exposición previa: la credencial de
+  proveedor queda cerrada por la capa 1 (T090) y `/model-catalog` y `/model-access` no devuelven secretos. Por
+  eso la dependencia **no** bloquea T-A ni T-B: el gate pasa a **T-H** (T089, T100, T101): `ELEA_REDIRECT=1` no
+  se activa en una instalación sin el proxy y S15 de la vuelta 2, y T102 comprueba `/api/v1/internal/*` ⇒ 404
+  desde la LAN con la variante `-ext`. El «va antes que esta feature» de la precisión del coordinador (`spec.md:241`) se cumple así: la dependencia va antes de que la feature se **active** en una instalación (T-H).
 
 ## R32. Otros altos del QA (A2, A3, A4, A9)
 
@@ -740,6 +817,30 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   fuera de `LATAM/AR`, equivalente a `masked_all` para Azure en EE. UU.) y T083 repite la medición con el
   default real.
 
+## R33. Arranque de la extensión — S16 (QA v2 N1; FR-031, FR-004d)
+
+- **Hechos**: S1 monta routers y nada más (`sentinel:backend/src/plugins.py:9`, `:81-88`); Eleia y Sentinel crean
+  la app con `lifespan=_lifespan` (`backend/src/main.py:80-101`; `sentinel:backend/src/main.py:88`, `:108`); con
+  FastAPI 0.111.0 (`backend/requirements.txt:1`) un `APIRouter(on_startup=[…])` incluido no corre bajo `lifespan`
+  (ensayo del 2026-10-06 en un entorno aislado con `fastapi==0.111.0`, `starlette==0.37.2`: con `lifespan` solo
+  corrió el `lifespan`; sin él, el `on_startup` del router sí). El `_lifespan` ya arranca dos tareas de fondo con
+  compuerta propia (`backend/src/main.py:85-89`, `retention_scheduler`).
+- **Decisión [BASE], costura nueva S16** (retrocompatible): `backend/src/plugins.py` suma
+  `run_plugin_startup()`, que recorre los paquetes de `PLUGIN_PACKAGES` en su orden y llama a `on_startup()` de
+  los que lo exponen (opcional; una función síncrona corre con `asyncio.to_thread`, una corrutina se espera);
+  el `_lifespan` lo llama antes del `yield`, después de arrancar los schedulers, así que corre **antes de servir**
+  el primer pedido **de ese proceso**: con varios workers (`WEB_CONCURRENCY`, 2 en `deploy/docker/compose.prod.yml:115`) corre una vez por worker, a la vez, así que el `on_startup` de la extensión tiene que ser seguro ante concurrencia (cerrojo consultivo de Postgres alrededor de la siembra, más altas idempotentes; análisis de la QA v2, M3). Sin `PLUGIN_PACKAGES`, o sin `on_startup` en el paquete, no hace nada. Un `on_startup` que
+  falla se registra con el nombre del paquete y **no** tira el arranque (la extensión decide su respaldo: para
+  la redirección, el de R28, y como la siembra es condición de su fail-closed, `/api/v1/redirect/health` lo informa con el 503 del respaldo; registrado en la spec por `speckit-clarify`, Clarifications «QA v2», fila S16 de C-1 y FR-031). `sentinel.redirect.api` expone `on_startup()` → `sentinel/redirect/seed_on_startup.py`.
+- **Test**: contra `src.main:app` con su `lifespan` real (`TestClient` como gestor de contexto, con
+  `RUN_ALEMBIC_ON_STARTUP=false` para no migrar al importar), no contra un `FastAPI()` suelto: el test de un
+  `FastAPI()` sin `lifespan` pasaría aunque el enganche no corriera en la app real.
+- **Por qué S16 y no otra cosa**: es el único punto que corre antes de servir en la app real; carga perezosa en
+  el primer pedido o en `/health` deja la instalación en respaldo hasta que alguien pida y suma demora al primer
+  pedido; que el instalador corra `python -m sentinel.redirect.regions_seed` (T064) en el contenedor solo sirve
+  al instalador y no a los perfiles de cliente ni al desarrollo. **Vuelve a Sentinel por HANDOFF** (T085): su
+  `main.py` tiene el mismo `lifespan`.
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas
@@ -750,36 +851,36 @@ P1–P5, D1–D4, D1/D2/D5/D12 legales ni la enmienda del 403.
 
 | Hallazgo | Severidad | Resolución | Dónde (archivo:línea) |
 |---|---|---|---|
-| B1 — la extensión no llega a lo publicado ni al instalador; el backend publicado no arranca con la variable | Bloqueante | Variantes `-ext` derivadas, `Dockerfile.standalone` con `upgrade heads` condicional y arranque que aborta, opt-in `ELEA_REDIRECT=1`, prueba local antes del runbook con vuelta atrás; premisa de R6 corregida | spec.md:197 (Clarifications); spec.md:71 (Diagnóstico #5); spec.md:580 (FR-004d); research.md:146 (R6); research.md:512 (R27); plan.md:26 (T-H); plan.md:252 (riesgo); contracts/costuras-base.md:14 (S4); quickstart.md:36 (§1b); tasks.md:81 (T088); tasks.md:116 (T091); tasks.md:265 (T100); tasks.md:267 (T102); tasks.md:268 (T103) |
-| B2 — `masked_all` solo como dato sembrado; sin seed o región, sale sin forzado; región cae a `eu` | Bloqueante | Respaldo en código forzado y fail-closed con alcance a `region_codes`, sin región ⇒ 403, ninguna fila lo quita; `tenant_region` sin `eu`; seeds al arrancar; compose con `latam_ar`; `/api/v1/redirect/health` | spec.md:790 (FR-031); research.md:557 (R28); data-model.md:66 (§1); data-model.md:103 (piso); contracts/admin-api.md:30; tasks.md:205 (T094); tasks.md:208 (T060); tasks.md:213 (T095) |
-| B3 — el forzado no cubre `system`, turnos del asistente, herramientas ni adjuntos; «no analizable bloquea» sin tarea | Bloqueante | Costura S14: todo valor de texto salvo campos estructurales, PDF a texto con `pypdf`, no analizables ⇒ bloqueo, informe con `scope`/`unanalyzable`, guard que lo exige, `count_tokens` no se reenvía bajo forzado; cierra Sentinel T074 por HANDOFF | spec.md:728 (FR-027); spec.md:858 (FR-041); spec.md:986 (SC-006); research.md:596 (R29); contracts/costuras-base.md:50 (§S14); tasks.md:142 (T034); tasks.md:201 (T056); tasks.md:206 (T096); tasks.md:209 (T061); tasks.md:214 (T097) |
-| A2 — FR-016 sin prueba propia; T019 no corre todos los casos de R13 | Alto | Caso de `allowed_models` en T035; T019 corre todos los casos de R13 de Sentinel | research.md:720 (R32); tasks.md:104 (T019); tasks.md:143 (T035) |
-| A3 — `rdx-*` y orden de guardrails solo en vivo | Alto | Test offline de `rdx-*` en todos los `call_type`, orden efectivo y metadata del cliente que no relaja; T020 verifica el orden | research.md:720 (R32); tasks.md:105 (T020); tasks.md:117 (T092) |
-| A4 — sobre-enmascarado de Claude Desktop (Sentinel 069 T184) ausente | Alto | Registro de riesgos; T045/T083 miden falsos positivos con el forzado encendido; escalamiento si SC-004 no se alcanza; HANDOFF | plan.md:255 (riesgo); research.md:720 (R32); tasks.md:153 (T045); tasks.md:285 (T083); tasks.md:287 (T085) |
-| A5 — `DISABLE_SCHEMA_UPDATE=true` presentada como respaldada | Alto | Hipótesis; fuera del override hasta que T019 la ensaye | research.md:111 (R5); plan.md:256 (riesgo); quickstart.md:13 (§0); tasks.md:104 (T019); tasks.md:106 (T021) |
-| A6 — `REDIRECT_OPERATOR_TENANT` desarma FR-023 | Alto | Eleia no la define; regiones, `default_posture` y relajaciones por rol real; test con la variable definida | spec.md:701 (FR-023); research.md:657 (R30); data-model.md:127 (§1); contracts/admin-api.md:26; tasks.md:200 (T055); tasks.md:208 (T060) |
-| A7 — el admin de empresa puede falsear la ficha de la que depende la relajación | Alto | Campos de residencia y retención de la ficha solo de cumplimiento y super-admin (403) | spec.md:701 (FR-023); research.md:657 (R30); data-model.md:235 (§4); contracts/admin-api.md:76; tasks.md:118 (T099) |
-| A8 — una fila `off` del admin de empresa reemplaza el default | Alto | Postura efectiva en dos niveles, 422 `posture_less_strict` con orden total definido (entre modos y por inclusión), destino sin jurisdicción ⇒ 403 con cualquier fila | spec.md:701 (FR-023); spec.md:744 (FR-028); data-model.md:91 (§1); contracts/admin-api.md:21; tasks.md:207 (T098); tasks.md:208 (T060) |
-| A9 — T045, T047 y T051 dependen de T-E aunque el plan los ordenaba antes o en paralelo | Alto | Orden A → B → C → E → {D ∥ F} → H → G; T045 con postura explícita de prueba y T083 con el default real | plan.md:226 (orden); quickstart.md:80 (§3); tasks.md:162 (T-D); tasks.md:153 (T045); tasks.md:302 (dependencias) |
-| A10 — `/internal/model-credential` entrega credenciales descifradas con solo el secreto; el instalador publica el backend | Alto | Capa 1 en la 057 (404 sin ruta directa). Capas 2 (S15) y 3 (proxy) para **toda** instalación las entrega antes el arreglo de separación de bases (decisión del coordinador en el re-análisis): dependencia que T089 y T101 verifican; T081 lo documenta | spec.md:238 (Clarifications); spec.md:652 (FR-013); research.md:689 (R31); contracts/costuras-base.md:77 (§S15); tasks.md:82 (T089); tasks.md:115 (T090); tasks.md:266 (T101); tasks.md:283 (T081) |
-| M1 — gate de T-A con Docker | Medio | Sin cambio: T015 ya 🐳 con aviso al owner | tasks.md:83 (T015) |
-| M2 — «cuatro entradas `azure/*`» y `gpt-5.6-luna` sin evidencia | Medio | Tres conversables + embeddings; `gpt-5.6-luna` a confirmar con el owner, con alternativa | research.md:184 (R9); quickstart.md:65 (§2); tasks.md:108 (T023); tasks.md:153 (T045) |
-| M3 — S13 y la decisión sellada del 08-sep | Medio | Referencia agregada; T067 prueba que no es estable entre conversaciones | research.md:345 (R18); tasks.md:234 (T067) |
-| M4 — `masking_ok` exige `detected == masked` | Medio | Bajo forzado ningún tipo queda exento | research.md:596 (R29); tasks.md:201 (T056); tasks.md:214 (T097) |
-| M5 — FR-005/006/012/013/016 con test solo heredado | Medio | T030 lista los heredados (incluidos retiro de oferta y Hub) y exige que no queden saltados | tasks.md:120 (T030) |
+| B1 — la extensión no llega a lo publicado ni al instalador; el backend publicado no arranca con la variable | Bloqueante | Variantes `-ext` derivadas, `Dockerfile.standalone` con `upgrade heads` condicional y arranque que aborta, opt-in `ELEA_REDIRECT=1`, prueba local antes del runbook con vuelta atrás; premisa de R6 corregida | spec.md:197 (Clarifications); spec.md:71 (Diagnóstico #5); spec.md:592 (FR-004d); research.md:146 (R6); research.md:513 (R27); plan.md:26 (T-H); plan.md:258 (riesgo); contracts/costuras-base.md:14 (S4); quickstart.md:36 (§1b); tasks.md:90 (T088); tasks.md:125 (T091); tasks.md:277 (T100); tasks.md:279 (T102); tasks.md:280 (T103) |
+| B2 — `masked_all` solo como dato sembrado; sin seed o región, sale sin forzado; región cae a `eu` | Bloqueante | Respaldo en código forzado y fail-closed con alcance a `region_codes`, sin región ⇒ 403, ninguna fila lo quita; `tenant_region` sin `eu`; seeds al arrancar; compose con `latam_ar`; `/api/v1/redirect/health` | spec.md:803 (FR-031); research.md:558 (R28); data-model.md:66 (§1); data-model.md:103 (piso); contracts/admin-api.md:30; tasks.md:214 (T094); tasks.md:219 (T060); tasks.md:225 (T095) |
+| B3 — el forzado no cubre `system`, turnos del asistente, herramientas ni adjuntos; «no analizable bloquea» sin tarea | Bloqueante | Costura S14: todo valor de texto salvo campos estructurales, PDF a texto con `pypdf`, no analizables ⇒ bloqueo, informe con `scope`/`unanalyzable`, guard que lo exige, `count_tokens` no se reenvía bajo forzado; cierra Sentinel T074 por HANDOFF | spec.md:741 (FR-027); spec.md:872 (FR-041); spec.md:1000 (SC-006); research.md:615 (R29); contracts/costuras-base.md:51 (§S14); tasks.md:151 (T034); tasks.md:210 (T056); tasks.md:215 (T096); tasks.md:220 (T061); tasks.md:226 (T097) |
+| A2 — FR-016 sin prueba propia; T019 no corre todos los casos de R13 | Alto | Caso de `allowed_models` en T035; T019 corre todos los casos de R13 de Sentinel | research.md:797 (R32); tasks.md:113 (T019); tasks.md:152 (T035) |
+| A3 — `rdx-*` y orden de guardrails solo en vivo | Alto | Test offline de `rdx-*` en todos los `call_type`, orden efectivo y metadata del cliente que no relaja; T020 verifica el orden | research.md:797 (R32); tasks.md:114 (T020); tasks.md:126 (T092) |
+| A4 — sobre-enmascarado de Claude Desktop (Sentinel 069 T184) ausente | Alto | Registro de riesgos; T045/T083 miden falsos positivos con el forzado encendido; escalamiento si SC-004 no se alcanza; HANDOFF | plan.md:263 (riesgo); research.md:797 (R32); tasks.md:162 (T045); tasks.md:297 (T083); tasks.md:299 (T085) |
+| A5 — `DISABLE_SCHEMA_UPDATE=true` presentada como respaldada | Alto | Hipótesis; fuera del override hasta que T019 la ensaye | research.md:111 (R5); plan.md:264 (riesgo); quickstart.md:13 (§0); tasks.md:113 (T019); tasks.md:115 (T021) |
+| A6 — `REDIRECT_OPERATOR_TENANT` desarma FR-023 | Alto | Eleia no la define; regiones, `default_posture` y relajaciones por rol real; test con la variable definida | spec.md:714 (FR-023); research.md:717 (R30); data-model.md:127 (§1); contracts/admin-api.md:26; tasks.md:209 (T055); tasks.md:219 (T060) |
+| A7 — el admin de empresa puede falsear la ficha de la que depende la relajación | Alto | Campos de residencia y retención de la ficha solo de cumplimiento y super-admin (403) | spec.md:714 (FR-023); research.md:717 (R30); data-model.md:235 (§4); contracts/admin-api.md:76; tasks.md:127 (T099) |
+| A8 — una fila `off` del admin de empresa reemplaza el default | Alto | Postura efectiva en dos niveles, 422 `posture_less_strict` con orden total definido (entre modos y por inclusión), destino sin jurisdicción ⇒ 403 con cualquier fila | spec.md:714 (FR-023); spec.md:757 (FR-028); data-model.md:91 (§1); contracts/admin-api.md:21; tasks.md:218 (T098); tasks.md:219 (T060) |
+| A9 — T045, T047 y T051 dependen de T-E aunque el plan los ordenaba antes o en paralelo | Alto | Orden A → B → C → E → {D ∥ F} → H → G; T045 con postura explícita de prueba y T083 con el default real | plan.md:232 (orden); quickstart.md:80 (§3); tasks.md:171 (T-D); tasks.md:162 (T045); tasks.md:314 (dependencias) |
+| A10 — `/internal/model-credential` entrega credenciales descifradas con solo el secreto; el instalador publica el backend | Alto | Capa 1 en la 057 (404 sin ruta directa). Capas 2 (S15) y 3 (proxy) para **toda** instalación las entrega antes el arreglo de separación de bases (decisión del coordinador en el re-análisis): dependencia que T089 y T101 verifican; T081 lo documenta | spec.md:238 (Clarifications); spec.md:665 (FR-013); research.md:757 (R31); contracts/costuras-base.md:97 (§S15); tasks.md:91 (T089); tasks.md:124 (T090); tasks.md:278 (T101); tasks.md:295 (T081) |
+| M1 — gate de T-A con Docker | Medio | Sin cambio: T015 ya 🐳 con aviso al owner | tasks.md:92 (T015) |
+| M2 — «cuatro entradas `azure/*`» y `gpt-5.6-luna` sin evidencia | Medio | Tres conversables + embeddings; `gpt-5.6-luna` a confirmar con el owner, con alternativa | research.md:184 (R9); quickstart.md:65 (§2); tasks.md:117 (T023); tasks.md:162 (T045) |
+| M3 — S13 y la decisión sellada del 08-sep | Medio | Referencia agregada; T067 prueba que no es estable entre conversaciones | research.md:346 (R18); tasks.md:246 (T067) |
+| M4 — `masking_ok` exige `detected == masked` | Medio | Bajo forzado ningún tipo queda exento | research.md:615 (R29); tasks.md:210 (T056); tasks.md:226 (T097) |
+| M5 — FR-005/006/012/013/016 con test solo heredado | Medio | T030 lista los heredados (incluidos retiro de oferta y Hub) y exige que no queden saltados | tasks.md:129 (T030) |
 | M6 — absorbido por A8 | — | Ver A8 | — |
-| M7 — CUIT/CUIL solo con guiones | Medio | Batería con formatos fijados; patrón sin guiones | tasks.md:201 (T056); tasks.md:214 (T097) |
-| M8 — texto del bloqueo por enmascarado | Medio | Contratos alineados con las caras copiadas (400 cara Claude, 403 genérica) | contracts/cara-claude.md:72; contracts/cara-generica.md:23; contracts/costuras-base.md:72 |
-| M9 — habilitación de entradas bloqueadas por el admin | Medio | Sin cambio (rol de la 068/069; habilitar no relaja la residencia); con A7 el admin no cambia la ficha | data-model.md:179 (§2); tasks.md:118 (T099) |
-| M10 — `MASKING_NONCE_KEY` fuera de la lista negra; claves sin definir; release sin generarlas | Medio | Clave con separación de dominio y ancho fijo; `ENV_DENYLIST`, `gen_secrets.sh` y check; el instalador la genera | research.md:349 (R18); data-model.md:280 (§6); tasks.md:240 (T093); tasks.md:265 (T100) |
-| M11 — S5b cambia el camino de `redact_enabled=false` | Medio | Test del guardrail en T008 y anotación para el HANDOFF | tasks.md:74 (T008); tasks.md:287 (T085) |
-| M12 — gates sin Docker pueden pasar con tests saltados | Medio | `-rs` y 0 saltados entre los críticos | tasks.md:120 (T030); tasks.md:215 (T065); tasks.md:288 (T086) |
-| M13 — DoD de docs incompleta | Medio | T079 suma overview, release-notes y compliance (o los declara fuera con motivo) | tasks.md:281 (T079) |
-| M14 — estimador de tokens con red | Bajo | `cl100k_base` horneado en la `-ext` y respaldo `caracteres/4`, test offline | research.md:214 (R12); tasks.md:142 (T034); tasks.md:149 (T041); tasks.md:116 (T091) |
-| M15 — citas de ids de Sentinel; versión de la enmienda | Bajo | Ids rotulados «de Sentinel» en spec, plan, data-model, contratos y tasks; aviso de divergencia en T001 | spec.md:550; plan.md:22; contracts/cara-claude.md:11; tasks.md:67 (T001); tasks.md:130 (T-C) |
-| B-1 — `control_jurisdiction` `String(16)` vs `String(8)` | Bajo | Unificado a `String(8)` | data-model.md:231; research.md:479 (R25) |
+| M7 — CUIT/CUIL solo con guiones | Medio | Batería con formatos fijados; patrón sin guiones | tasks.md:210 (T056); tasks.md:226 (T097) |
+| M8 — texto del bloqueo por enmascarado | Medio | Contratos alineados con las caras copiadas (400 cara Claude, 403 genérica) | contracts/cara-claude.md:72; contracts/cara-generica.md:23; contracts/costuras-base.md:92 |
+| M9 — habilitación de entradas bloqueadas por el admin | Medio | Sin cambio (rol de la 068/069; habilitar no relaja la residencia); con A7 el admin no cambia la ficha | data-model.md:179 (§2); tasks.md:127 (T099) |
+| M10 — `MASKING_NONCE_KEY` fuera de la lista negra; claves sin definir; release sin generarlas | Medio | Clave con separación de dominio y ancho fijo; `ENV_DENYLIST`, `gen_secrets.sh` y check; el instalador la genera | research.md:350 (R18); data-model.md:280 (§6); tasks.md:252 (T093); tasks.md:277 (T100) |
+| M11 — S5b cambia el camino de `redact_enabled=false` | Medio | Test del guardrail en T008 y anotación para el HANDOFF | tasks.md:83 (T008); tasks.md:299 (T085) |
+| M12 — gates sin Docker pueden pasar con tests saltados | Medio | `-rs` y 0 saltados entre los críticos | tasks.md:129 (T030); tasks.md:227 (T065); tasks.md:300 (T086) |
+| M13 — DoD de docs incompleta | Medio | T079 suma overview, release-notes y compliance (o los declara fuera con motivo) | tasks.md:293 (T079) |
+| M14 — estimador de tokens con red | Bajo | `cl100k_base` horneado en la `-ext` y respaldo `caracteres/4`, test offline | research.md:215 (R12); tasks.md:151 (T034); tasks.md:158 (T041); tasks.md:125 (T091) |
+| M15 — citas de ids de Sentinel; versión de la enmienda | Bajo | Ids rotulados «de Sentinel» en spec, plan, data-model, contratos y tasks; aviso de divergencia en T001 | spec.md:562; plan.md:22; contracts/cara-claude.md:11; tasks.md:76 (T001); tasks.md:139 (T-C) |
+| B-1 — `control_jurisdiction` `String(16)` vs `String(8)` | Bajo | Unificado a `String(8)` | data-model.md:231; research.md:480 (R25) |
 | B-2 — cita de `gw_messages` aproximada | Bajo | Sin cambio: sin consecuencia | spec.md:67 |
-| §6 — cobertura de escenarios (US3.3, US1.6, US3.7, US3.8, SC-004, SC-006, SC-010) | — | US3.3/SC-006 por B3; US1.6 por A3 y por G1 del re-análisis (política apagada); US3.7 por A6–A8; US3.8 por B2; SC-004 bajo la postura real (A9); SC-010 aclarado | tasks.md:206 (T096); tasks.md:117 (T092); tasks.md:103 (T018); tasks.md:207 (T098); tasks.md:205 (T094); tasks.md:285 (T083); tasks.md:152 (T044) |
+| §6 — cobertura de escenarios (US3.3, US1.6, US3.7, US3.8, SC-004, SC-006, SC-010) | — | US3.3/SC-006 por B3; US1.6 por A3 y por G1 del re-análisis (política apagada); US3.7 por A6–A8; US3.8 por B2; SC-004 bajo la postura real (A9); SC-010 aclarado | tasks.md:215 (T096); tasks.md:126 (T092); tasks.md:112 (T018); tasks.md:218 (T098); tasks.md:214 (T094); tasks.md:297 (T083); tasks.md:161 (T044) |
 
 ### Re-análisis (`speckit-analyze`, solo lectura, 2026-10-06)
 
@@ -787,13 +888,13 @@ Primera corrida sobre esta resolución: 0 CRITICAL, 5 HIGH, 13 MEDIUM, 13 LOW. S
 
 | Hallazgo del análisis | Severidad | Resolución | Dónde (archivo:línea) |
 |---|---|---|---|
-| C1 — FR-004d «idéntico sin la variable» vs. proxy del instalador | HIGH | Pregunta al coordinador: proxy y chequeo de origen para toda instalación, entregados por el arreglo de bases (dependencia); «idéntico» se mide contra la instalación ya corregida | spec.md:238; spec.md:580; research.md:717 (R31); tasks.md:265 (T100); tasks.md:266 (T101) |
-| U1 — el respaldo en código no tenía piso frente a filas de cumplimiento | HIGH | Piso de forzado en todo destino bajo el respaldo, sin excepción de rol | data-model.md:103; tasks.md:205 (T094) |
-| C2 — T098 rechazaba filas más estrictas; orden dentro del mismo modo indefinido | HIGH | Orden total definido (inclusión de jurisdicciones o de `home`); 422 solo si es menos estricta | data-model.md:109; tasks.md:207 (T098) |
-| U2 — `count_tokens` reenviado bajo forzado | HIGH | Bajo forzado nunca se reenvía (estimado local o 404), también en suscripción | spec.md:858 (FR-041); research.md:625 (R29); contracts/cara-claude.md:38; tasks.md:142 (T034); tasks.md:149 (T041); tasks.md:210 (T062) |
-| U3 — «todo lo que sale» sin regla para campos fuera de la lista | HIGH | Regla general fail-closed: todo valor de texto salvo una lista cerrada de campos estructurales | spec.md:729 (FR-027); research.md:616 (R29); contracts/costuras-base.md:60; tasks.md:206 (T096) |
-| I1–I8, O1–O3, A1, G1 (medios) | MEDIUM | Ids de Sentinel rotulados; 400/403 por cara; alcance del respaldo = `region_codes`; borrado por SQL; quickstart marca qué vale antes de T-E; medición PDF en T097; S14 de docs en T080; imagen del motor «mismo digest base»; T050 escala si sale de `generic.py`; S1–S15; `conversation_ref` alineado; sufijo de 4 hex; FR-014 con política apagada en T018 | quickstart.md:50; tasks.md:41; tasks.md:175 (T050); tasks.md:282 (T080); tasks.md:214 (T097); tasks.md:103 (T018); data-model.md:287 |
-| L1–L11 (bajos) | LOW | `masking_relaxation=region` decidible; `unanalyzable_kinds` en S14; 403 en la ficha; `code_fallback`; FR-006/012/030/050 en T030/T079; archivos de test en las filas de tramo; vocabulario horneado; textos de tramos y fases. L12 y D1 (orden de FR/SC y repetición de la regla sin jurisdicción en la spec) se dejan: reordenar la spec cambiaría ids y citas sin efecto en la implementación | data-model.md:273; data-model.md:270; plan.md:238; tasks.md:16 |
+| C1 — FR-004d «idéntico sin la variable» vs. proxy del instalador | HIGH | Pregunta al coordinador: proxy y chequeo de origen para toda instalación, entregados por el arreglo de bases (dependencia); «idéntico» se mide contra la instalación ya corregida | spec.md:238; spec.md:592; research.md:785 (R31); tasks.md:277 (T100); tasks.md:278 (T101) |
+| U1 — el respaldo en código no tenía piso frente a filas de cumplimiento | HIGH | Piso de forzado en todo destino bajo el respaldo, sin excepción de rol | data-model.md:103; tasks.md:214 (T094) |
+| C2 — T098 rechazaba filas más estrictas; orden dentro del mismo modo indefinido | HIGH | Orden total definido (inclusión de jurisdicciones o de `home`); 422 solo si es menos estricta | data-model.md:109; tasks.md:218 (T098) |
+| U2 — `count_tokens` reenviado bajo forzado | HIGH | Bajo forzado nunca se reenvía (estimado local o 404), también en suscripción | spec.md:872 (FR-041); research.md:666 (R29); contracts/cara-claude.md:38; tasks.md:151 (T034); tasks.md:158 (T041); tasks.md:221 (T062) |
+| U3 — «todo lo que sale» sin regla para campos fuera de la lista | HIGH | Regla general fail-closed: todo valor de texto salvo una lista cerrada de campos estructurales | spec.md:742 (FR-027); research.md:635 (R29); contracts/costuras-base.md:61; tasks.md:215 (T096) |
+| I1–I8, O1–O3, A1, G1 (medios) | MEDIUM | Ids de Sentinel rotulados; 400/403 por cara; alcance del respaldo = `region_codes`; borrado por SQL; quickstart marca qué vale antes de T-E; medición PDF en T097; S14 de docs en T080; imagen del motor «mismo digest base»; T050 escala si sale de `generic.py`; S1–S15; `conversation_ref` alineado; sufijo de 4 hex; FR-014 con política apagada en T018 | quickstart.md:50; tasks.md:50; tasks.md:184 (T050); tasks.md:294 (T080); tasks.md:226 (T097); tasks.md:112 (T018); data-model.md:287 |
+| L1–L11 (bajos) | LOW | `masking_relaxation=region` decidible; `unanalyzable_kinds` en S14; 403 en la ficha; `code_fallback`; FR-006/012/030/050 en T030/T079; archivos de test en las filas de tramo; vocabulario horneado; textos de tramos y fases. L12 y D1 (orden de FR/SC y repetición de la regla sin jurisdicción en la spec) se dejan: reordenar la spec cambiaría ids y citas sin efecto en la implementación | data-model.md:273; data-model.md:270; plan.md:244; tasks.md:16 |
 
 ### Re-análisis, segunda corrida (`speckit-analyze`, solo lectura)
 
@@ -801,12 +902,12 @@ Sobre las correcciones de la primera corrida: 0 CRITICAL, 1 HIGH, 4 MEDIUM, 10 L
 
 | Hallazgo del análisis | Severidad | Resolución | Dónde (archivo:línea) |
 |---|---|---|---|
-| U5 — una `allowlist` del admin quitaba el forzado que impone una fila de cumplimiento | HIGH | El forzado de la base se calcula antes de combinar con las filas del admin y se conserva | data-model.md:99; spec.md:706 (FR-023); research.md:671 (R30); tasks.md:207 (T098) |
-| U4 — la regla U1 no estaba en FR-031 ni en R30 | MEDIUM | Agregada a FR-031 y R30 | spec.md:796 (FR-031); research.md:672 (R30) |
+| U5 — una `allowlist` del admin quitaba el forzado que impone una fila de cumplimiento | HIGH | El forzado de la base se calcula antes de combinar con las filas del admin y se conserva | data-model.md:99; spec.md:719 (FR-023); research.md:731 (R30); tasks.md:218 (T098) |
+| U4 — la regla U1 no estaba en FR-031 ni en R30 | MEDIUM | Agregada a FR-031 y R30 | spec.md:809 (FR-031); research.md:732 (R30) |
 | I1 — T-H en el resumen del plan seguía diciendo «proxy» | MEDIUM | Reescrito como verificación de la dependencia | plan.md:26 |
-| G1 — rutas de la extensión a través del proxy | MEDIUM | T101 exige `/api/v1/redirect/*`, `/api/v1/catalog/*` y la salud por el puerto publicado | tasks.md:266 (T101) |
-| G2 — demora del alcance completo sin medir | MEDIUM | Medición informativa de un pedido típico de Claude Code de solo texto en T097, junto a SC-010 | tasks.md:214 (T097); research.md:648 (R29) |
-| L1–L10 (bajos) | LOW | T097 en R29; fórmula del sufijo alineada; ids de Sentinel rotulados; `unanalyzable_kinds` en S5b; fila de forzado primero en `count_tokens`; línea suelta del plan; estado de la spec; archivo de perf en T-E; FR-006 → T030; precisión de C1 en el quickstart | research.md:339; contracts/cara-claude.md:39; spec.md:7; tasks.md:377; quickstart.md:25 |
+| G1 — rutas de la extensión a través del proxy | MEDIUM | T101 exige `/api/v1/redirect/*`, `/api/v1/catalog/*` y la salud por el puerto publicado | tasks.md:278 (T101) |
+| G2 — demora del alcance completo sin medir | MEDIUM | Medición informativa de un pedido típico de Claude Code de solo texto en T097, junto a SC-010 | tasks.md:226 (T097); research.md:705 (R29) |
+| L1–L10 (bajos) | LOW | T097 en R29; fórmula del sufijo alineada; ids de Sentinel rotulados; `unanalyzable_kinds` en S5b; fila de forzado primero en `count_tokens`; línea suelta del plan; estado de la spec; archivo de perf en T-E; FR-006 → T030; precisión de C1 en el quickstart | research.md:340; contracts/cara-claude.md:39; spec.md:7; tasks.md:393; quickstart.md:25 |
 
 ### Re-análisis, tercera corrida (`speckit-analyze`, solo lectura)
 
@@ -814,12 +915,12 @@ Sobre las correcciones de la segunda: 0 CRITICAL, 1 HIGH, 4 MEDIUM, 7 LOW; U5 y 
 
 | Hallazgo del análisis | Severidad | Resolución | Dónde (archivo:línea) |
 |---|---|---|---|
-| F1 — cambiar el default de región en `compose.prod.yml` afectaba a los perfiles de cliente europeos sin la extensión | HIGH | El default `latam_ar` solo en el compose de desarrollo de Eleia (el instalador ya lo usa); `compose.prod.yml` conserva `eu`; los perfiles que activen la extensión fijan la región | research.md:586 (R28); tasks.md:213 (T095); plan.md:192 |
-| C1 — R23 conservaba la fórmula previa a U5 | MEDIUM | Fórmula alineada con data-model §1 | research.md:428 (R23) |
-| C2 — T-H del plan aún listaba el proxy | MEDIUM | Quitado | plan.md:212 |
-| C3 — T056 bloqueaba con `redact_enabled=false` bajo forzado | MEDIUM | Bajo forzado sale enmascarado; bloquea solo con analizador caído/degradado o no analizable | tasks.md:201 (T056) |
-| A1 — `home` vacío en una fila vs. `masked_all` | MEDIUM | Se compara el `home` resuelto; ejemplo de T098 ajustado | data-model.md:114; tasks.md:207 (T098) |
-| U1, U2, A2, G1, T1–T3 (bajos) | LOW | Paridad 068 entre filas de cumplimiento declarada; contrato de posturas con la regla U5; SC-010 sin el costo del análisis forzado; test de roles del panel en T063; T139 rotulado; M10 → T093 en el encabezado; comentario del plan | data-model.md:116; contracts/admin-api.md:21; spec.md:997; tasks.md:211 (T063); tasks.md:31 |
+| F1 — cambiar el default de región en `compose.prod.yml` afectaba a los perfiles de cliente europeos sin la extensión | HIGH | El default `latam_ar` solo en el compose de desarrollo de Eleia (el instalador ya lo usa); `compose.prod.yml` conserva `eu`; los perfiles que activen la extensión fijan la región | research.md:596 (R28); tasks.md:225 (T095); plan.md:198 |
+| C1 — R23 conservaba la fórmula previa a U5 | MEDIUM | Fórmula alineada con data-model §1 | research.md:429 (R23) |
+| C2 — T-H del plan aún listaba el proxy | MEDIUM | Quitado | plan.md:218 |
+| C3 — T056 bloqueaba con `redact_enabled=false` bajo forzado | MEDIUM | Bajo forzado sale enmascarado; bloquea solo con analizador caído/degradado o no analizable | tasks.md:210 (T056) |
+| A1 — `home` vacío en una fila vs. `masked_all` | MEDIUM | Se compara el `home` resuelto; ejemplo de T098 ajustado | data-model.md:114; tasks.md:218 (T098) |
+| U1, U2, A2, G1, T1–T3 (bajos) | LOW | Paridad 068 entre filas de cumplimiento declarada; contrato de posturas con la regla U5; SC-010 sin el costo del análisis forzado; test de roles del panel en T063; T139 rotulado; M10 → T093 en el encabezado; comentario del plan | data-model.md:116; contracts/admin-api.md:21; spec.md:1011; tasks.md:222 (T063); tasks.md:31 |
 
 ### Re-análisis, cuarta corrida (`speckit-analyze`, solo lectura)
 
@@ -827,6 +928,40 @@ Sobre las correcciones de la tercera: **0 CRITICAL, 0 HIGH**, 2 MEDIUM, 5 LOW (F
 
 | Hallazgo del análisis | Severidad | Resolución | Dónde (archivo:línea) |
 |---|---|---|---|
-| M1 — el default `latam_ar` en el `docker-compose.yml` de la raíz cambiaba la región de la suite de CI | MEDIUM | El default va al override de desarrollo de la extensión; la raíz y `compose.prod.yml` no cambian | research.md:583 (R28); tasks.md:213 (T095); plan.md:237 |
-| M2 — ¿una relajación quita el forzado del respaldo en código? | MEDIUM | No: bajo el respaldo ninguna relajación tiene efecto | data-model.md:215 (§3); data-model.md:105 (§1); tasks.md:205 (T094) |
-| L1–L5 (bajos) | LOW | Riesgo con el origen correcto de «sin `eu`»; `plugin.py` de T-F después de T-E; test de roles del panel en la fila de T-E; contrato de la ficha alineado con FR-028; la cláusula sin marcador de T095 reemplazada por el respaldo fail-closed | plan.md:253; plan.md:238; contracts/admin-api.md:74 |
+| M1 — el default `latam_ar` en el `docker-compose.yml` de la raíz cambiaba la región de la suite de CI | MEDIUM | El default va al override de desarrollo de la extensión; la raíz y `compose.prod.yml` no cambian | research.md:593 (R28); tasks.md:225 (T095); plan.md:243 |
+| M2 — ¿una relajación quita el forzado del respaldo en código? | MEDIUM | No: bajo el respaldo ninguna relajación tiene efecto | data-model.md:215 (§3); data-model.md:105 (§1); tasks.md:214 (T094) |
+| L1–L5 (bajos) | LOW | Riesgo con el origen correcto de «sin `eu`»; `plugin.py` de T-F después de T-E; test de roles del panel en la fila de T-E; contrato de la ficha alineado con FR-028; la cláusula sin marcador de T095 reemplazada por el respaldo fail-closed | plan.md:259; plan.md:244; contracts/admin-api.md:74 |
+
+## Resolución del QA v2
+
+Resolución de `qa-plan-v2.md` (segunda vuelta del QA crítico, sobre `6e2ad55`) por `speckit-plan` y `speckit-tasks`, el
+2026-10-06, con el alcance que fijó el coordinador: N1, N4 y N8 con tarea y test; N2 como dependencia expresada en T089 y
+T-H (la cubre la vuelta 2 del arreglo de bases); N3 solo como referencia (arreglo aparte en la base); los bajos, absorbidos.
+Las referencias son de este directorio en el commit de esta resolución. Ninguna reabre una decisión del owner (D1, D2, D3,
+D5, D10, D12, la enmienda del 403, P1–P5).
+
+| Hallazgo | Severidad | Resolución | Dónde (archivo:línea) |
+|---|---|---|---|
+| N1 — «seeds al arrancar» sin enganche: S1 solo monta routers y la app usa `lifespan` | Medio | Costura nueva S16 (`run_plugin_startup()` desde el `_lifespan`, antes de servir); `on_startup()` de `sentinel.redirect.api`; tests contra `src.main:app` con su `lifespan` real. Confirmado por ensayo con FastAPI 0.111.0 (el `on_startup` de un router no corre bajo `lifespan`) | spec.md:244 (Clarifications, QA v2); spec.md:623 (C-1, S16); spec.md:810 (FR-031); research.md:583 (R28.4); research.md:820 (R33); contracts/costuras-base.md:25 (S16); plan.md:281 (complejidad); tasks.md:224 (T104); tasks.md:225 (T095); tasks.md:279 (T102) |
+| N2 — la dependencia del canal interno era una promesa y frenaba T-A | Medio | Proxy y `INTERNAL_ALLOWED_CIDRS` los entrega la vuelta 2 del arreglo de bases (dato del coordinador); el gate pasa de T-A a T-H; `ELEA_REDIRECT=1` no se activa sin ellos; T102 verifica el 404 desde la LAN | research.md:787 (R31); plan.md:265 (riesgo); tasks.md:91 (T089); tasks.md:277 (T100); tasks.md:278 (T101); tasks.md:279 (T102); quickstart.md:25 (§1) |
+| N3 — el admin de empresa puede crear un `compliance_officer` o un `super_admin` | Medio | Fuera de la 057: lo cierra un arreglo aparte en la base (otra tarea del plan del coordinador). Acá solo la referencia y la redacción honesta de la garantía | research.md:746 (R30); plan.md:262 (riesgo); tasks.md:209 (T055); tasks.md:294 (T080) |
+| N4 — extracción de PDF síncrona en el motor, sin plazo ni tope de memoria ni de expansión | Medio | Proceso hijo por PDF con `RLIMIT_AS`, plazo con kill, semáforo, `pypdf.Configuration` con tope por flujo y corte de texto; fallo ⇒ no analizable; `pypdf` fijado (6.19.0 verificada) con hash; test de PDF hostil | research.md:678 (R29 3b); contracts/costuras-base.md:79 (S14); plan.md:131 (constitución); plan.md:261 (riesgo); tasks.md:216 (T105); tasks.md:226 (T097); tasks.md:125 (T091); tasks.md:227 (T065) |
+| N5 — el default `eu` en tres sitios | Bajo | Un único `tenant_region()` para el tráfico, `list_postures` y `run_fidelity` | research.md:605 (R28.6); tasks.md:219 (T060); tasks.md:214 (T094) |
+| N6 — T100 no enumeraba las variables que activan la extensión | Bajo | Lista completa de HANDOFF §2.1 en el test; el instalador falla ante cualquier no-200 de la salud (también 404) | tasks.md:277 (T100) |
+| N7 — contexto de build de las `-ext` | Bajo | Contexto = raíz del repo, verificado por `test_ext_images.sh` | tasks.md:125 (T091) |
+| N8 — S14: exención por nombre, claves y números | Medio | Exenciones por posición del protocolo (tabla cerrada en el contrato, opacas/estructurales/libres); detección en posición estructural ⇒ `structural_entity` ⇒ bloqueo; claves y números analizados en subárboles libres; test de colisiones, claves, números, contrabando e instantánea de la tabla | research.md:639 (R29.2); contracts/costuras-base.md:66 (S14); tasks.md:217 (T106); tasks.md:226 (T097); tasks.md:215 (T096) |
+| N9 — `compose.prod.yml` inyecta `eu`: el estado es `region_row_missing`, no `region_unresolved` | Bajo | Precisión en R28; T094 lo prueba; T080/T081 lo describen | research.md:600 (R28.5); tasks.md:214 (T094); tasks.md:294 (T080); tasks.md:295 (T081) |
+| Observación — T045 mide antes de S14 | — | T045 aclara que su conteo no es la medida de A4 (lo es T083) | tasks.md:162 (T045) |
+| §2b(1) — 403 de residencia con «Failed to authenticate» en Claude Desktop | — | Síntoma conocido en la guía de Desktop | tasks.md:293 (T079) |
+| M2 — `gpt-5.6-luna` existe (dato del coordinador, no verificado por el QA) | — | Se siembra; la verificación de despliegue (T022) la deja `inactive` si no existe; la spec no lo nombra, sin `speckit-clarify` | research.md:184 (R9); tasks.md:117 (T023); tasks.md:162 (T045); quickstart.md:65 (§2) |
+
+### Re-análisis QA v2 (`speckit-analyze`, solo lectura, 2026-10-06)
+
+Sobre esta resolución: **0 CRITICAL, 0 HIGH**, 5 MEDIUM y 14 LOW (citas `archivo:línea` de esta tabla y de las anteriores verificadas
+tras el corrimiento de líneas). Corregidos en el lugar: M1 (caso de origen de T089 en la fila T-H del plan), M3 (siembra concurrente con
+varios workers: cerrojo consultivo y test de dos arranques simultáneos, R33 y T095), M4 (criterio determinista del gate en T100), M5 (tope
+de PDF por pedido, plazo total y caché por hash: R29 3b, contrato S14, T097, T105), L1–L4, L6–L9, L11, L12 y L14. **Quedan, con motivo**:
+M2 y L5 (el texto de la spec sobre «va antes que esta feature», la vuelta 2 y el alcance/estado): el coordinador acotó la enmienda de la
+spec a la fila S16 de C-1 y la referencia en FR-031; la lectura «antes de activar (T-H)» queda en R31; si se quiere en la spec, va por
+`speckit-clarify` con el coordinador. L10 (cita de la constitución) corregida a Principio I; L13 (T089 en dos partes bajo un solo id): se
+deja, las dos partes y sus tramos están explícitos en la tarea.

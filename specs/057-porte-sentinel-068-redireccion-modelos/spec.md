@@ -241,6 +241,18 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   por el puerto publicado y va antes que esta feature); esta spec depende de él y solo agrega el
   cierre de la ruta de credenciales.*
 
+### Session 2026-10-06 (QA v2)
+
+<!-- Segunda vuelta del QA crítico del plan (`qa-plan-v2.md`, N1). Pregunta al coordinador por
+     `orca orchestration ask`. No reabre ninguna decisión anterior. -->
+
+- Q: ¿Cómo se carga el seed «al arrancar» si la base monta las rutas de la extensión pero no le da
+  un punto de arranque y la app usa `lifespan` (N1)? → A: Con una costura nueva de base, **S16**:
+  al arrancar, antes de servir, la base corre el enganche de arranque opcional de cada extensión
+  declarada; sin extensión, nada cambia; si el enganche falla, se registra y la app arranca igual;
+  cuando la siembra es condición del fail-closed de la postura por defecto, el estado de la
+  extensión lo informa (FR-031). Vuelve a Sentinel por `HANDOFF`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Claude Desktop y Claude Code con el modelo que elige la empresa (Priority: P1)
@@ -608,6 +620,7 @@ commits de Sentinel según HANDOFF §1(a))
 | S13 | Que el sufijo de los marcadores de enmascarado sea estable dentro de una conversación (por un identificador de conversación que provee la extensión) sin dejar de ser impredecible | No existe | sin commit en Sentinel (068 research D22, Phase 9); nueva, vuelve por `HANDOFF` (FR-045) |
 | S14 | Que, cuando una extensión pide enmascarado forzado, el guardrail cubra todo el pedido (sistema, todos los turnos, herramientas, PDF convertidos a texto) e informe lo no analizable | Solo turnos del usuario (`litellm/extensions/sentinel_guardian_policy.py:880-892`) | sin commit en Sentinel (068 tasks de Sentinel T074 abierta); nueva, vuelve por `HANDOFF` (FR-027) |
 | S15 | Que el canal interno del backend exija, además del secreto, un origen de la red interna | Solo el secreto (`backend/src/api/internal.py:120-127`) | **dependencia**: la entrega el arreglo de separación de bases (para toda instalación); vuelve por `HANDOFF` (FR-013) |
+| S16 | Correr un enganche propio al arrancar, antes de servir el primer pedido (p. ej., cargar sus datos sembrados) | No existe: S1 solo monta rutas y la app arranca con `lifespan` (`backend/src/main.py:80-101`) | sin commit en Sentinel; nueva, vuelve por `HANDOFF` (FR-031; Clarifications, QA v2) |
 
 **B. Interruptor y alcance**
 
@@ -794,7 +807,8 @@ commits de Sentinel según HANDOFF §1(a))
   del perfil (p. ej., `latam_ar` ⇒ LATAM y AR) si la región se conoce; si la región del perfil no se resuelve, todo lo redirigido se rechaza y el estado de la
   extensión lo informa; nunca sale en claro por falta de datos; mientras rige el respaldo, ninguna
   postura explícita, de ningún rol, quita el forzado ni amplía ese alcance (Clarifications, QA del
-  plan, B2).
+  plan, B2). Con la extensión activa, el seed de la región se carga al arrancar por la costura S16;
+  si falla, rige el respaldo y el estado de la extensión lo informa (Clarifications, QA v2).
   La correspondencia región →
   jurisdicciones DEBE leerse de un dato del perfil de país, no de una tabla fija en el código (hoy
   `latam_ar` → `{AR, LATAM}`, Diagnóstico #22); el cambio es genérico y vuelve a Sentinel por

@@ -22,12 +22,12 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
    `ALEMBIC_EXTRA_VERSION_LOCATIONS=/opt/sentinel-ext/sentinel/migrations`,
    `REDIRECT_INTERNAL_KEY=<openssl rand -base64 48>`, `REDIRECT_CACHE_TTL_S=5`,
    `SENTINEL_ENTITY_REGION=latam_ar`, `FERNET_SECRET_KEY` (ya existente), `MASKING_NONCE_KEY` (T-F),
-   `REDIRECT_SEED_FILES` (regiones y reglas de habilitación de `deploy/redirect-seeds/`; el catálogo de Azure se carga aparte, §2.3). `INTERNAL_ALLOWED_CIDRS=auto` ya viene del arreglo de separación de bases.
+   `REDIRECT_SEED_FILES` (regiones y reglas de habilitación de `deploy/redirect-seeds/`; el catálogo de Azure se carga aparte, §2.3). `INTERNAL_ALLOWED_CIDRS=auto` viene de la vuelta 2 del arreglo de separación de bases (dependencia de T-H, no de este override; research R31).
    **No** definir `REDIRECT_OPERATOR_TENANT` (research R30). Plantilla sin secretos:
    `sentinel/extensions.env.example`.
 2. Levantar con el override: `docker compose -f docker-compose.yml -f sentinel/docker/compose.dev.yml up -d`.
 3. **Esperado**: el backend arranca con `upgrade heads` y quedan dos cabezas, `199fe429762a` y la de la
-   extensión; **después de T-E** (T060, T064, T095), además, los seeds quedan cargados al arrancar y
+   extensión; **después de T-E** (T060, T064, T095, T104), además, los seeds quedan cargados al arrancar por la costura S16 y
    `GET /api/v1/redirect/health` = 200 (antes de T-E esa ruta no existe y T045 trabaja con una postura
    explícita, §3); `GET /api/v1/gw`
    no nombra componentes internos; el panel muestra «Modelos» con las pestañas de redirección en lugar
@@ -38,7 +38,7 @@ Las evidencias van a `verificacion-cara-claude.md` (T045), `verificacion-cara-ge
 1. Imágenes `-ext` publicadas por `deploy/release/publish-elea.sh` (T091) con su tag propio.
 2. Instalador `cluna-8/elea-installer` en la PC del owner con `ELEA_REDIRECT=1` (T100): elige las `-ext`,
    escribe el entorno de la extensión (modo 600); el proxy delante del backend y
-   `INTERNAL_ALLOWED_CIDRS=auto` vienen del arreglo de separación de bases (dependencia; T101 lo verifica).
+   `INTERNAL_ALLOWED_CIDRS=auto` vienen de la vuelta 2 del arreglo de separación de bases (gate de T-H: sin ella T100 no activa; T089, T101).
 3. **Esperado**: lo mismo que §1 paso 3; además `curl http://<host>:8091/api/v1/internal/identity` desde la
    LAN ⇒ 404 y `GET /api/v1/gw` ⇒ responde; sin `ELEA_REDIRECT`, `docker compose config` idéntico al de la instalación ya corregida por el arreglo de
    separación de bases.
@@ -62,7 +62,7 @@ Paso 1, **después de T-E** (antes no existe el cargador de regiones); pasos 2 y
 
    | Entrada | `real_model` (despliegue de Azure) | Nota |
    |---|---|---|
-   | gpt-5.6-luna | `gpt-5.6-luna` | **a confirmar con el owner** que el despliegue existe (research R9); si no, opus → gpt-5.1-chat |
+   | gpt-5.6-luna | `gpt-5.6-luna` | el coordinador informó el 2026-10-06 que el despliegue existe; la verificación de despliegue (T022) la deja `inactive` si no existe (research R9); en ese caso, opus → gpt-5.1-chat |
    | gpt-5.1-chat | `gpt-5.1-chat` | |
    | gpt-5.4-mini | `gpt-5.4-mini` | |
    | gpt-4o-mini | `gpt-4o-mini` | |

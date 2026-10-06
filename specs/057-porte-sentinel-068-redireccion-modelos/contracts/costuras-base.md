@@ -1,9 +1,9 @@
-# Contrato — Costuras de base en Eleia (S1–S15)
+# Contrato — Costuras de base en Eleia (S1–S16)
 
 Todas [BASE]: genéricas, sin marca, retrocompatibles. **Regla común**: sin extensión registrada y sin
 la variable que la activa, el comportamiento es idéntico al actual y cada costura tiene su test
 «sin extensión ⇒ idéntico» (FR-001, SC-002). Las de Sentinel se traen por `cherry-pick -x` (research
-R1); S9, S11, S13, S14 y S15 son nuevas de Eleia y vuelven por `HANDOFF-elea-a-sentinel.md`.
+R1); S9, S11, S13, S14, S15 y S16 son nuevas de Eleia y vuelven por `HANDOFF-elea-a-sentinel.md`.
 
 | Costura | Activación | Contrato | Commit / origen | Test |
 |---|---|---|---|---|
@@ -22,6 +22,7 @@ R1); S9, S11, S13, S14 y S15 son nuevas de Eleia y vuelven por `HANDOFF-elea-a-s
 | **S13** marcadores estables por conversación | `MASKING_NONCE_KEY` + metadata `sentinel_conversation_ref` | ver abajo | **nueva** (Sentinel T131 sin hacer) | `backend/tests/unit/test_masking_nonce_conversacion.py` |
 | **S14** alcance completo del enmascarado forzado | metadata interna `sentinel_forced_masking` (solo la escribe la pasarela) o `governance_overrides.masking_scope = "full"` | ver abajo | **nueva** (Sentinel T074 sin hacer; QA B3) | `backend/tests/unit/test_masking_alcance_completo.py` |
 | **S15** origen del canal interno | `INTERNAL_ALLOWED_CIDRS` (lista de CIDR o `auto`) | `_require_internal_secret` exige además que el par de transporte (no `X-Forwarded-For`) esté en la lista; `auto` = subredes de las interfaces del contenedor sin su puerta de enlace; vacía ⇒ sin chequeo (igual que hoy) | **dependencia**: la entrega el arreglo de separación de bases para toda instalación (QA A10); la 057 verifica las rutas de la extensión (T089) | del arreglo de bases; `sentinel/tests/unit/test_internal_rutas_extension_origen.py` (T089) |
+| **S16** arranque de extensiones | `PLUGIN_PACKAGES` y un `on_startup()` opcional en el paquete | `run_plugin_startup()` de `backend/src/plugins.py`, llamado desde el `_lifespan` de `backend/src/main.py` antes del `yield`: corre el `on_startup()` de cada paquete en el orden de la variable, antes de servir; un fallo se registra y no tira el arranque; sin variable o sin `on_startup`, nada (QA v2 N1; research R33) | **nueva** (Eleia; Sentinel tiene el mismo `lifespan`) | `backend/tests/unit/test_plugin_startup.py` (contra `src.main:app` con su `lifespan` real) |
 
 **No se portan**: S10 (descartada, R13 de Sentinel), S5a `76ab37a` (cara Codex, choca con `f8118e7`),
 `9fe188f` (Eleia tiene `f8118e7`), `fd515ff` (modelo «auto», después).
@@ -60,11 +61,30 @@ nombrar el motor interno (FR-004); describe los modos con texto neutro.
   herramientas; y, como regla general fail-closed, **todo valor de texto** del cuerpo a cualquier profundidad
   (`metadata`, `stop_sequences`, `enum`/`default`/`examples` de `input_schema`, `user`/`name` de OpenAI,
   campos desconocidos) salvo la lista cerrada de campos estructurales de research R29 (`model`, `role`, `type`,
-  ids, nombres de herramienta, `media_type`, `cache_control`, `signature`, `stream`, claves de objeto).
+  ids, nombres de herramienta, `media_type`, `cache_control`, `signature`, `stream`, parámetros numéricos), que
+  se exime **por posición, nunca por nombre de clave** (ver «Posiciones exentas»).
+- **Posiciones exentas** (QA v2 N8; research R29), lista cerrada por formato; `*` = cualquier índice. Fuera de
+  estas rutas no hay exención, aunque la clave se llame `id`, `name`, `type` o `role`. `…` = un bloque de contenido a cualquier profundidad de `messages[*].content[*]` o `system[*]`, incluidos los bloques anidados en `tool_result.content[*]` (las mismas posiciones de bloque: `type`, `source.type`, `source.media_type`, `source.data`, `cache_control`); en la tabla de datos del guardrail cada ruta se escribe completa.
+
+  | Clase | Anthropic Messages | OpenAI chat |
+  |---|---|---|
+  | **Opaca** (ni se analiza ni se reescribe) | `model` (el camino redirigido lo reemplaza por el del destino; analizarlo daría falsos positivos con los ids fechados: `-20250929` cumple el patrón de DNI de `latam_ar`, `litellm/extensions/sentinel_guardian_policy.py:142`); `messages[*].content[*].signature` (`thinking`); `…source.data` (base64: camino de PDF o no analizable); `system[*].cache_control`, `messages[*].content[*].cache_control`, `tools[*].cache_control` con forma validada (`type`, `ttl` del protocolo; otra forma ⇒ no analizable) | `model`; `…file.file_data`, `…image_url.url` con `data:` (camino de PDF o no analizable) |
+  | **Estructural** (se analiza, no se reescribe; detección ⇒ no analizable `structural_entity` ⇒ bloqueo) | `stream`, `max_tokens`, `temperature`, `top_p`, `top_k`, `thinking.type`, `thinking.budget_tokens`, `tool_choice.type`, `tool_choice.name`, `tool_choice.disable_parallel_tool_use`; `messages[*].role`; `messages[*].content[*].type`, `.id` y `.name` de `tool_use`, `.tool_use_id` de `tool_result`, `.source.type`, `.source.media_type`; `system[*].type`; `tools[*].name`, `tools[*].type`; en `tools[*].input_schema` (JSON Schema, a cualquier profundidad): las palabras clave del esquema, `type`, `format`, `$ref`, las claves de `properties` y `required[*]` | `stream`, `stream_options.*`, `max_tokens`, `max_completion_tokens`, `temperature`, `top_p`, `n`, `seed`, `presence_penalty`, `frequency_penalty`, `logprobs`, `top_logprobs`, `parallel_tool_calls`, `response_format.type`, `response_format.json_schema.name`, `tool_choice` (cadena) y `tool_choice.type`, `tool_choice.function.name`; `messages[*].role`, `messages[*].tool_call_id`, `messages[*].tool_calls[*].id`, `.type`, `.function.name`; `messages[*].content[*].type`; `tools[*].type`, `tools[*].function.name`, `tools[*].function.strict`; en `tools[*].function.parameters` y `response_format.json_schema.schema`: lo mismo que en `input_schema` |
+  | **Libre** (se analiza y se enmascara todo, **claves de objeto incluidas**; los números se analizan como su texto decimal y, si hay detección, se reemplazan por el marcador como cadena; booleanos y `null` no se analizan) | todo lo demás; en particular `tool_use.input`, `metadata`, `stop_sequences`, `description`/`title`/`enum`/`const`/`default`/`examples`/`pattern` del esquema, el texto de `tool_result` y los campos desconocidos | todo lo demás; en particular `tool_calls[*].function.arguments` (parseados; si no son JSON válido, se analizan y enmascaran como texto), `user`, `messages[*].name`, `file.filename`, `metadata` y los campos desconocidos |
+
+  La tabla vive en el guardrail como dato; un test la compara con esta tabla: agregar o quitar una posición es un
+  cambio de contrato con test.
 - **PDF**: `document` con PDF en base64 (OpenAI: parte `file` con PDF) ⇒ texto con `pypdf`, enmascarado,
   reemplazado por un bloque de texto. Topes `MASKING_PDF_MAX_PAGES` (200) y `MASKING_PDF_MAX_BYTES` (20 MB).
+  **Fuera del bucle de eventos** (QA v2 N4; research R29 3b): un proceso hijo por PDF con `RLIMIT_AS` =
+  `MASKING_PDF_MAX_MEMORY_MB` (512), plazo `MASKING_PDF_TIMEOUT_S` (20 s, al vencer se mata), concurrencia
+  `MASKING_PDF_MAX_CONCURRENCY` (2), límites de descompresión de `pypdf.Configuration` bajados a
+  `MASKING_PDF_MAX_STREAM_BYTES` (25 MB), corte en `MASKING_PDF_MAX_TEXT_CHARS` (2 000 000), por pedido a lo sumo `MASKING_PDF_MAX_PER_REQUEST` (5) PDF y plazo total `MASKING_PDF_REQUEST_DEADLINE_S` (30 s, incluye la espera), y caché en memoria por SHA-256 (`MASKING_PDF_CACHE_ENTRIES`, 32; texto o veredicto de falla, nunca persistido ni registrado); hijo: `python -I -m` de `litellm/extensions/sentinel_pdf_extract.py`, `RLIMIT_CPU` = plazo + 5 s. Nombres de tipo: tope de expansión, de memoria o de texto ⇒ `pdf_resource_limit`; plazo vencido ⇒ `pdf_timeout`; salida no cero o PDF corrupto ⇒ `pdf_error`; tope por pedido o plazo total ⇒ `pdf_request_limit`; todas opcionales,
+  con esos valores por defecto.
 - **No analizable** (cuenta en `unanalyzable`, con su nombre de tipo en `unanalyzable_kinds`): PDF sin texto,
-  protegido, corrupto, sobre los topes o sin `pypdf` instalado; `document` por URL; `image`; audio; tipos
+  protegido, corrupto, sobre los topes, con plazo vencido, memoria agotada o expansión excesiva (`pdf_timeout`,
+  `pdf_resource_limit`, `pdf_error`, `pdf_request_limit`) o sin `pypdf` instalado; una detección en una posición estructural
+  (`structural_entity`); `document` por URL; `image`; audio; tipos
   desconocidos; `redacted_thinking`; `thinking` firmado con detecciones hacia un destino nativo.
 - **Informe**: `masking_report = {completed, degraded, detected, masked, scope, unanalyzable, unanalyzable_kinds}`
   (`unanalyzable_kinds`: solo nombres de tipo). El guard de la

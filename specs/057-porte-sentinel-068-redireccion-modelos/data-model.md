@@ -269,7 +269,7 @@ solo metadata, acotada por S7:
 | `adjusted_params` | lista (ya existe en Sentinel) | piso de 16 tokens, `max_completion_tokens` |
 | `default_posture_applied` | `reject_offregion` · `masked_offregion` · `masked_all` · `allow` · `code_fallback` · null | R23: solo si no hubo postura explícita; `code_fallback` = respaldo en código sin fila de región (R28; nombre distinto de los fallbacks de las reglas de mapeo) |
 | `masking_scope` | `full` · `user` · null | R29: alcance del enmascarado del pedido (S14) |
-| `unanalyzable_kinds` | lista de **nombres de tipo** (`image`, `pdf_no_text`, `redacted_thinking`, …) | R29: solo cuando hubo bloqueo por no analizable; nunca contenido |
+| `unanalyzable_kinds` | lista de **nombres de tipo** (`image`, `pdf_no_text`, `pdf_timeout`, `pdf_resource_limit`, `pdf_error`, `structural_entity`, `redacted_thinking`, …; QA v2 N4, N8) | R29: solo cuando hubo bloqueo por no analizable; nunca contenido |
 | `masking_relaxation` | `region` · `destination` · null | R24: `destination` si una relajación por destino quitó el forzado; `region` siempre que el destino está en región y la fila de región efectiva tiene `default_posture = masked_offregion` (decidible en el pedido, sin historial; QA re-análisis L1) |
 | `in_region` | bool | FR-028a: resultado de la regla «en región» (sin nombres de entidad) |
 | `openrouter_zdr` | bool | R19 |
