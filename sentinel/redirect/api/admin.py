@@ -289,6 +289,9 @@ def _check_published(face, public_id, family_tier, label_mode):
         _err(422, "cara desconocida")
     if public_id is not None and public_id.startswith("rdx-"):
         _err(422, "el prefijo rdx- es interno")
+    if face == "claude" and public_id is not None and not public_id.lower().startswith("claude"):
+        _err(422, "en la cara Claude el id publicado tiene que empezar con «claude»: Claude Code descarta del lado "
+                  "del cliente los modelos que no reconoce, así que otro id no lo usaría esa herramienta")
     if family_tier is not None and family_tier not in m.FAMILY_TIERS:
         _err(422, "tier desconocido")
     if label_mode is not None and label_mode not in m.LABEL_MODES:
