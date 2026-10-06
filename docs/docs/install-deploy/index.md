@@ -92,7 +92,7 @@ Los tres actores y su frontera de responsabilidad:
 | Orquestación | Compose de **producción**: backend, frontend, motor y docs; on-prem/air-gap se levanta con `--profile selfhosted` (suma db y redis). Existe además un **módulo IaC portable** (red/datos/cache/cómputo/secretos/ingress, workspace por cliente, guard de región EU) validado por checks estáticos; su aplicación e2e sobre un entorno real está pendiente. El compose dev es **sólo desarrollo** | Módulo IaC + compose de producción (v1) / k8s con bundle firmado (v2) | 🟡 |
 | Imágenes backend/frontend/docs | Imágenes de **producción** multi-stage: sin reload, deps pinneadas, frontend compilado servido estático, con checks. Build: `make -C deploy build`; validación: `make -C deploy check` | Igual, publicadas/empaquetadas por release | 🟢 |
 | Imagen del motor | Pinneada por **tag+digest** en el stack de referencia | Pin por digest en todos los despliegues | 🟡 |
-| Base de datos / cache | Contenedores `postgres:16-alpine` / `redis:7-alpine` con volumen local (perfil `selfhosted` del compose de producción) | Postgres y Redis **gestionados** (RDS/Cloud SQL/Azure DB · ElastiCache/MemoryStore) | 🔵 |
+| Base de datos / cache | Contenedores `postgres:16-alpine` / `redis:7-alpine` con volumen local (perfil `selfhosted` del compose de producción). **Dos bases** en el mismo Postgres: la del producto (`POSTGRES_DB`) y la propia del motor (`ENGINE_DB`); el respaldo copia las dos en una sola copia ([Operaciones §6.2](../operations/index.md#62-backup-restore-de-volumenes-durables-on-prem)) | Postgres y Redis **gestionados** (RDS/Cloud SQL/Azure DB · ElastiCache/MemoryStore); la base del motor hay que crearla en la instancia (el módulo IaC hoy solo provisiona la del producto) | 🔵 (gestionado) / 🟡 (dos bases en contenedor) |
 | Secretos | El módulo IaC **genera secretos por instalación** (aleatorios, fuertes, outputs sensibles; exige state remoto **cifrado**); la licencia y las keys de proveedor viajan aparte, **cifradas** en el perfil. En el camino compose: archivos env de la instalación (los defaults de desarrollo jamás salen a un cliente — hay un check que lo verifica) | Secrets manager gestionado (AWS SM / GCP SM / Vault) **o cifrado sin servidor** para v1/air-gapped, inyectando env al arrancar | 🟡 |
 | TLS + DNS | En el árbol de release: DNS por cliente derivado del slug + TLS terminado por **proxy auto-HTTPS en la VM**; pendiente la validación e2e aplicada. En dev: HTTP plano en puertos altos. En **LAN sin dominio público** el proxy emite con su **CA interna**, y entonces hay que distribuir esa CA a los puestos — el **kit de confianza** (`deploy/release/trust-kit/`) la exporta, la instala en el almacén de máquina y **verifica con un handshake real**; ver [Operaciones §5.1](../operations/index.md#51-confianza-del-certificado) | TLS terminado + DNS por cliente, región EU | 🟡 |
 | Onboarding de cliente | Perfil por cliente + seed idempotente desde YAML (`seed_clients_from_config(db, tenant_slug, path)`) | Igual, invocado por el flujo de instalación | 🟢 |
@@ -270,9 +270,13 @@ sequenceDiagram
    incluye checks de que no haya secretos default en runtime ni secretos en claro en el
    state. En el camino compose, los secretos van en el env de la instalación. 🟡
 5. **Arranque + migraciones.** El backend corre `alembic upgrade head` al bootear, creando
-   el esquema multi-tenant. El motor corre sus propias migraciones de base de datos. ⚠️ En
+   el esquema multi-tenant. El motor corre sus propias migraciones de base de datos, **sobre su
+   propia base** (`ENGINE_DB`, distinta de `POSTGRES_DB`; en el compose de producción la crea el
+   script de inicialización de `db` al inicializar el volumen; en desarrollo, un servicio de un
+   solo disparo) y consulta identidad y auditoría al backend por HTTP interno. 🟡 ⚠️ En
    el **primer boot** el motor puede reportarse `unhealthy` por timeout aunque haya
-   arrancado bien — ver [el gotcha](#gotcha-boot).
+   arrancado bien — ver [el gotcha](#gotcha-boot). Detalle y qué hacer con un volumen que ya
+   existía: [Operaciones §6.3](../operations/index.md#63-base-propia-del-motor).
 6. **Seed del tenant por slug.** Se crea el `Tenant` (name + `slug` +
    `deployment_mode=on_premise` para instalaciones single-tenant; el default determinista
    termina en `…0001`). El slug es la clave del despliegue por cliente. 🟢
