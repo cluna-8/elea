@@ -210,7 +210,7 @@ def _names_value(names, limit: int = 128) -> str:
     caben se resumen en `otros_<n>` en vez de quedar cortados a la mitad."""
     out, used = [], 0
     for i, name in enumerate(names):
-        if used + len(name) + 1 > limit - len("otros_99") - 1 and i < len(names):
+        if used + len(name) + 1 > limit - len("otros_99") - 1:
             out.append(f"otros_{len(names) - i}")
             break
         out.append(name)
@@ -312,7 +312,7 @@ class RedirectPlugin:
                 self._build_models_view(ctx, snap, scope, permitidos)
             return None
         if face is None:
-            return None                                   # count_tokens y otras: sin cambio
+            return None                                   # otras rutas: sin cambio
         # un id publicado con la redirección en `on` se decide por sus destinos (más abajo); todo lo
         # demás que el catálogo gobierna se corta acá
         published = resolver.find_published(snap.published, scope, face, ctx.model) if ctx.model else None
@@ -582,13 +582,14 @@ class RedirectPlugin:
                 omitted = [r for r in removed if r in OMITTED_AUDIT]
                 if omitted:
                     plan.decision["omitted"] = ",".join(omitted)
-                # T139 de Sentinel: campos que la herramienta mandó y el destino no conoce (p. ej.
-                # `safeguards`): solo sus nombres, acotados (FR-033, FR-035)
+                # razonamiento de la historia que se descartó o se reconstruyó (FR-036): solo cantidades
                 for label, prefix in (("thinking_dropped", claude_face.THINKING_DROPPED),
                                       ("thinking_replayed", claude_face.THINKING_REPLAYED)):
-                    count = claude_face.adjustment_count(removed, prefix)    # FR-036: solo cantidades
+                    count = claude_face.adjustment_count(removed, prefix)
                     if count:
                         plan.decision[label] = count
+                # T139 de Sentinel: campos que la herramienta mandó y el destino no conoce (p. ej.
+                # `safeguards`): solo sus nombres, acotados (FR-033, FR-035)
                 dropped_fields = claude_face.dropped_field_names(removed)
                 if dropped_fields:
                     plan.decision["dropped_fields"] = _names_value(dropped_fields)
