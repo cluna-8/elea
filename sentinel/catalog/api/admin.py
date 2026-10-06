@@ -396,6 +396,21 @@ def _check_provider_options(options) -> None:
         _err(422, f"provider_options.{DEPLOYMENT_KEY} es de la verificación del despliegue: no se escribe a mano")
 
 
+def _check_openrouter(provider, options) -> None:
+    """FR-032 (research R19): una entrada `openrouter` nombra a los proveedores permitidos (lista no vacía) y no acepta
+    ir en contra del cero retención. El guard fuerza `zdr`, `data_collection = deny` y la lista en cada pedido."""
+    if provider != "openrouter":
+        return
+    options = options if isinstance(options, dict) else {}
+    allow = options.get("providers_allowlist")
+    if not (isinstance(allow, list) and allow and all(isinstance(p, str) and p.strip() for p in allow)):
+        _err(422, "una entrada de este enrutador necesita provider_options.providers_allowlist: la lista de proveedores permitidos")
+    if "zdr" in options and options["zdr"] is not True:
+        _err(422, "provider_options.zdr solo puede ser true: el cero retención no se desactiva")
+    if "data_collection" in options and options["data_collection"] != "deny":
+        _err(422, "provider_options.data_collection solo puede ser deny")
+
+
 # ── cuerpos (extra=forbid: el semáforo y cualquier campo desconocido son 422) ──────
 
 class _Body(BaseModel):
@@ -572,6 +587,7 @@ def _create_one(db, user, body: EntryIn, cred_of) -> dict:
                  body.level)
     _check_extras(body.limits, body.advanced, body.price_tiers)
     _check_provider_options(body.provider_options)
+    _check_openrouter(body.provider, body.provider_options)
     unsupported = _unsupported(body.unsupported_params)
     tenant = None if body.level == "installation" else user.tenant_id
     if _name_taken(db, body.level, tenant, body.name):
@@ -683,6 +699,8 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
             e.credential_id = cred.id
         if cred_spec is not None or {"provider", "api_base"} & set(changes):
             _check_binding(e.provider, e.level, cred, e.api_base)
+        if {"provider", "provider_options"} & set(changes):
+            _check_openrouter(e.provider, e.provider_options)
         if e.provider != "azure" and DEPLOYMENT_KEY in (e.provider_options or {}):
             e.provider_options = {k: v for k, v in e.provider_options.items() if k != DEPLOYMENT_KEY}
         e.updated_by = user.id

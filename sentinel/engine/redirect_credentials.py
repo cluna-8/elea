@@ -97,6 +97,8 @@ CLIENT_CREDENTIAL_FIELDS = (
     "aws_profile_name", "aws_role_name", "aws_web_identity_token", "aws_bedrock_runtime_endpoint",
     "vertex_credentials", "vertex_project", "vertex_location", "vertex_ai_project",
     "vertex_ai_location", "litellm_credential_name", "custom_llm_provider", "user_config",
+    # preferencias de enrutamiento del proveedor (OpenRouter `provider`): las fija el guard (057 FR-032)
+    "provider",
 ) + (
     # precio: lo fija el guard desde el destino o el mapa del motor; un cliente que manda precio 0
     # esquivaría el presupuesto (D23 de la 069)

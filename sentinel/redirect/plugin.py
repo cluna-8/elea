@@ -234,6 +234,15 @@ def _access_block(model: str) -> dict:
 
 # ── el plugin ─────────────────────────────────────────────────────────────────
 
+def _signed_provider_options(dest: dict) -> Optional[dict]:
+    """Lo que del destino viaja firmado al guard: para `openrouter`, la lista de proveedores permitidos (FR-032)."""
+    if dest.get("provider") != "openrouter":
+        return None
+    allow = [str(p) for p in ((dest.get("provider_options") or {}).get("providers_allowlist") or ())
+             if isinstance(p, str) and p.strip()]
+    return {"providers_allowlist": allow}
+
+
 class RedirectPlugin:
     def __init__(self, store: Optional[RedirectStore] = None, *, ping_after: float = stream.DEFAULT_PING_AFTER,
                  clock=time.time, audit=None, estimator=None):
@@ -622,7 +631,8 @@ class RedirectPlugin:
             request_id=str(uuid.uuid4()), scope=plan.scope_label, destination_id=str(dest["id"]),
             model=plan.engine_model, provider=dest["provider"], credential=plan.credential,
             api_base=dest.get("api_base"), forced_masking=plan.forced_masking,
-            decision=plan.decision, price=dest.get("price_override"), drop_params=drop)
+            decision=plan.decision, price=dest.get("price_override"), drop_params=drop,
+            provider_options=_signed_provider_options(dest))
         return out, headers
 
     def _apply_betas(self, ctx, plan: Plan, headers: dict) -> dict:

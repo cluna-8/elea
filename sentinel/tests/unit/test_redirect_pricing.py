@@ -17,6 +17,7 @@ NOW = 1_800_000_000.0
 def token(**kw):
     args = dict(request_id="req-1", scope="t1/connection:k1", destination_id="d1", model=MODEL,
                 provider="openrouter", credential={"api_key": "sk-destino"}, api_base=None,
+                provider_options={"providers_allowlist": ["acme-us"]},
                 forced_masking=False, decision={"public_id": "pro", "face": "openai_generic"},
                 key=KEY, now=NOW)
     args.update(kw)

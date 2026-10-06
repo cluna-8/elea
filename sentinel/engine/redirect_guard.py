@@ -115,12 +115,24 @@ def _scrub_internal_header(data: dict) -> None:
                 hdrs.pop(k)
 
 
-def masking_ok(report: Any) -> bool:
+FULL_SCOPE = "full"
+
+
+def masking_ok(report: Any, *, forced: bool = False) -> bool:
+    """¿El informe del guardrail de la base (S5b) garantiza el enmascarado? Completo, no degradado y con todo lo
+    detectado enmascarado. Con el forzado vigente (`forced`, 057 S14; QA B3) además exige **alcance completo**
+    (`scope == "full"`) y nada no analizable (`unanalyzable == 0`): un informe sin esos campos (un guardrail
+    anterior a S14) no prueba que se hayan enmascarado `system`, herramientas ni adjuntos, así que bloquea."""
     if not isinstance(report, Mapping):
         return False
     try:
-        return (report.get("completed") is True and report.get("degraded") is False
-                and int(report.get("detected")) == int(report.get("masked")))
+        ok = (report.get("completed") is True and report.get("degraded") is False
+              and int(report.get("detected")) == int(report.get("masked")))
+        if ok and forced:
+            unanalyzable = report.get("unanalyzable")
+            ok = (report.get("scope") == FULL_SCOPE and not isinstance(unanalyzable, bool)
+                  and int(unanalyzable) == 0)
+        return ok
     except (TypeError, ValueError):
         return False
 
@@ -232,6 +244,29 @@ def _shadow_decision(data: dict, token: Any, call_type: Optional[str], key, now)
     _write_decision(data, call_type, decision)
 
 
+OPENROUTER = "openrouter"
+OPENROUTER_ZDR_KEY = "openrouter_zdr"
+# Claves del cuerpo que un cliente usaría para enrutar a otros proveedores o modelos de OpenRouter
+_OPENROUTER_CLIENT_ROUTING = ("provider", "route", "models")
+
+
+def apply_openrouter_prefs(data: dict, grant: authz.Grant) -> None:
+    """FR-032 (research R19): todo pedido a OpenRouter sale con cero retención, sin recolección de datos y solo a la
+    lista de proveedores permitidos de la entrada (`only`), sea lo que sea que mande el cliente. Sin lista, el pedido
+    no se sirve. Nombres de campo según la referencia de «Provider Routing» de OpenRouter (`zdr`, `data_collection`,
+    `only`); LiteLLM los pasa por `extra_body`."""
+    allow = [str(p).strip() for p in (grant.provider_options or {}).get("providers_allowlist") or ()
+             if isinstance(p, str) and p.strip()]
+    if not allow:
+        raise GuardRejection(503, "destination_misconfigured", "Modelo no disponible temporalmente.")
+    for k in _OPENROUTER_CLIENT_ROUTING:
+        data.pop(k, None)
+    extra = data.get("extra_body")
+    extra = {k: v for k, v in extra.items() if k not in _OPENROUTER_CLIENT_ROUTING} if isinstance(extra, dict) else {}
+    extra["provider"] = {"only": allow, "data_collection": "deny", "zdr": True}
+    data["extra_body"] = extra
+
+
 DROPPED_KEY = "dropped_params"
 
 
@@ -325,7 +360,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     if parts is None or credentials.PROVIDER_FAMILY.get(grant.provider) != parts[0]:
         raise GuardRejection(403, "family_mismatch", authz.AuthzError.public_message)
 
-    if grant.forced_masking and not masking_ok(_masking_report(data, call_type)):
+    if grant.forced_masking and not masking_ok(_masking_report(data, call_type), forced=True):
         raise GuardRejection(403, "masking_required",
                              "El pedido no pudo protegerse para este destino y fue bloqueado.")
 
@@ -349,6 +384,8 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
                              "Modelo no disponible temporalmente.") from None
     # La caché se decide con el informe del guardrail de la base; lo que mande el cliente en `cache`
     # (namespace, ttl, s-maxage, use-cache…) se reemplaza entero.
+    if grant.provider == OPENROUTER:
+        apply_openrouter_prefs(data, grant)
     data[CACHE_FIELD] = cache_control(grant, _masking_report(data, call_type))
     pricing, pricing_source = credentials.cost_params(
         grant.price, grant.provider, parts[1], _engine_cost_map() if cost_map is None else cost_map)
@@ -358,9 +395,13 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     _merge_dropped(decision, dropped)
     if adjusted:
         decision[ADJUSTED_KEY] = ",".join(adjusted)
+    if grant.provider == OPENROUTER:
+        decision[OPENROUTER_ZDR_KEY] = True
     decision.update({"destination_id": grant.destination_id, "request_id": grant.request_id,
                      "scope": grant.scope, "forced_masking": grant.forced_masking,
                      "masking_verified": bool(grant.forced_masking), "pricing": pricing_source})
+    if grant.forced_masking:
+        decision["masking_scope"] = FULL_SCOPE            # verificado arriba: el informe lo dice y el guard lo exigió
     _write_decision(data, call_type, decision)
     return data
 

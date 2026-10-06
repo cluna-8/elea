@@ -17,6 +17,7 @@ MODEL = "rdx-chatcompat/qwen"
 def token(**kw):
     args = dict(request_id="req-1", scope="t1/connection:k1", destination_id="d1", model=MODEL,
                 provider="openrouter", credential={"api_key": "sk-destino"}, api_base=None,
+                provider_options={"providers_allowlist": ["acme-us"]},
                 forced_masking=False, decision={"public_id": "pro", "face": "openai_generic",
                                                 "rule_id": "r1"}, key=KEY, now=NOW)
     args.update(kw)
@@ -185,7 +186,7 @@ def test_shadow_token_for_another_model_is_ignored():
     assert "x-redirect-authz" not in {k.lower() for k in out["proxy_server_request"]["headers"]}
 
 
-GOOD_REPORT = {"completed": True, "degraded": False, "detected": 3, "masked": 3}
+GOOD_REPORT = {"completed": True, "degraded": False, "detected": 3, "masked": 3, "unanalyzable": 0, "scope": "full"}
 
 
 @pytest.mark.parametrize("report,ok", [
@@ -194,6 +195,15 @@ GOOD_REPORT = {"completed": True, "degraded": False, "detected": 3, "masked": 3}
     ({**GOOD_REPORT, "completed": False}, False),
     ({**GOOD_REPORT, "masked": 2}, False),
     ({"completed": True}, False),
+    # 057 S14 (QA B3): con el forzado vigente, alcance completo y nada no analizable
+    ({**GOOD_REPORT, "unanalyzable": 1}, False),
+    ({**GOOD_REPORT, "scope": "user"}, False),
+    ({k: v for k, v in GOOD_REPORT.items() if k != "scope"}, False),            # informe viejo, sin `scope`
+    ({k: v for k, v in GOOD_REPORT.items() if k != "unanalyzable"}, False),
+    ({**GOOD_REPORT, "unanalyzable": "0"}, True),
+    ({**GOOD_REPORT, "unanalyzable": None}, False),
+    ({**GOOD_REPORT, "unanalyzable": True}, False),
+    ({**GOOD_REPORT, "scope": "FULL"}, False),
     (None, False),
     ("sí", False),
 ])
@@ -249,7 +259,7 @@ async def test_hook_passes_valid(monkeypatch):
     monkeypatch.setenv(authz.KEY_ENV, KEY)
     guard = g.RedirectGuard(guardrail_name="redirect-guard", event_hook="pre_call", default_on=True)
     tok = authz.issue(request_id="r", scope="s", destination_id="d1", model=MODEL, provider="openrouter",
-                      credential={"api_key": "sk-destino"})
+                      credential={"api_key": "sk-destino"}, provider_options={"providers_allowlist": ["acme-us"]})
     out = await guard.async_pre_call_hook(None, None, request(tok), "acompletion")
     assert out["api_key"] == "sk-destino"
 
@@ -390,3 +400,34 @@ def test_la_decision_completa_entra_en_el_limite_de_claves_del_saneo():
     assert saneada.keys() == guardada.keys(), "el saneo descartó claves: faltan " + str(
         set(guardada) - set(saneada))
     assert len(guardada) <= 24 - 2, "quedan menos de 2 claves de margen en `extensions`"
+
+
+def test_sin_forzado_el_informe_viejo_sigue_sin_hacer_falta():
+    """La verificación de alcance completo es solo del forzado: un destino sin forzado no pide informe."""
+    out = apply(request(token(forced_masking=False)))
+    assert "masking_scope" not in _decision(out)
+
+
+def test_con_forzado_la_decision_lleva_el_alcance_verificado_y_nunca_contenido():
+    out = apply(_forced_with(GOOD_REPORT))
+    d = _decision(out)
+    assert d["masking_scope"] == "full" and d["masking_verified"] is True
+
+
+def _forced_with(report):
+    data = request(token(forced_masking=True))
+    data["metadata"]["masking_report"] = report
+    return data
+
+
+def test_el_forzado_por_la_postura_por_defecto_exige_lo_mismo():
+    """Da igual de dónde venga el forzado (fila, piso de `default_posture` o respaldo): la autorización lo trae como
+    `forced_masking` y el guard verifica igual."""
+    with pytest.raises(g.GuardRejection) as e:
+        apply(_forced_with({**GOOD_REPORT, "scope": "user"}))
+    assert e.value.code == "masking_required"
+
+
+def test_el_cache_no_se_apoya_en_el_alcance():
+    """`_no_masking_map` (caché de respuestas) usa la verificación base: sin `scope` no cambia su decisión."""
+    assert g._no_masking_map({"completed": True, "degraded": False, "detected": 0, "masked": 0}) is True
