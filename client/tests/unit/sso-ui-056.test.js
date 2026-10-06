@@ -79,6 +79,48 @@ test('destinoBoton: origen MAL FORMADO → sin botón (N5 del QA v2)', () => {
   }
 });
 
+// O2 del QA del Tramo B: lado ACEPTADO de la lista blanca (FR-015, N3 de la spec, D4).
+test('destinoBoton: origen válido con IPv4 (con y sin puerto) → botón hacia ese origen (D4, O2)', () => {
+  const ip = 'http://172.16.0.120:8095';
+  assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: ip }, HUB), `${ip}/sso/login`);
+  assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: ip }, ip), '/sso/login');
+  assert.strictEqual(
+    SsoUi.destinoBoton({ enabled: true, return_origin: 'http://192.168.1.10' }, HUB),
+    'http://192.168.1.10/sso/login'
+  );
+});
+
+test('destinoBoton: origen válido con IPv6 entre corchetes (con y sin puerto) → botón (FR-015, N3, O2)', () => {
+  for (const o of ['https://[::1]:8443', 'https://[2001:db8::1]', 'http://[::1]:8095']) {
+    assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: o }, HUB), `${o}/sso/login`, o);
+    assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: o }, o), '/sso/login', o);
+  }
+});
+
+test('destinoBoton: puerto explícito distinto del defecto y puerto por defecto (sin puerto) → botón (O2)', () => {
+  for (const o of ['http://localhost:8095', 'https://hub.ejemplo.local:8443', 'http://hub.ejemplo.local:8080', 'https://hub.ejemplo.local', 'http://hub.ejemplo.local']) {
+    assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: o }, 'http://otro.ejemplo.local:9000'), `${o}/sso/login`, o);
+  }
+});
+
+test('destinoBoton: puerto por defecto escrito de forma explícita → sin botón (new URL lo normaliza: origin !== x)', () => {
+  for (const o of ['https://hub.ejemplo.local:443', 'http://hub.ejemplo.local:80']) {
+    assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: o }, HUB), null, o);
+  }
+});
+
+test("destinoBoton: ', ; y = en el host → sin botón (O2)", () => {
+  for (const o of ["https://a'b", 'https://a;b', 'https://a=b', "https://hub.ejemplo.local'", 'https://hub.ejemplo.local;x', 'https://a=b:8443', 'https://a%22b', 'https://a`b']) {
+    assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: o }, HUB), null, o);
+  }
+});
+
+test('destinoBoton: puerto y corchetes mal formados → sin botón (O2)', () => {
+  for (const o of ['https://hub.ejemplo.local:', 'https://hub.ejemplo.local:abc', 'https://hub.ejemplo.local:123456', 'https://hub.ejemplo.local:99999', 'https://[::1', 'https://::1', 'https://[::1]x', "https://[::1']"]) {
+    assert.strictEqual(SsoUi.destinoBoton({ enabled: true, return_origin: o }, HUB), null, o);
+  }
+});
+
 // ── TEXTO_BOTON ──────────────────────────────────────────────────────────────────────
 test('TEXTO_BOTON: exportado y no vacío (N6 del QA v2)', () => {
   assert.strictEqual(typeof SsoUi.TEXTO_BOTON, 'string');
