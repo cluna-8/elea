@@ -11,6 +11,8 @@
 >   solo manifiestos y *config blobs* (KB). Registry Docker Hub: solo manifiestos/config de las bases.
 > - Dos digests de esta nota (engine `:latest` y `node:20-slim`) están partidos en dos mitades dentro de sus backticks
 >   (hay que unirlas sin espacio): el escáner de secretos del repo los toma por tokens; son digests `sha256` públicos, no secretos.
+> - **§4 (política) y §5 (decisiones)** agregadas el 2026-10-06 por el worker del spike. Sus prototipos (`uv pip compile`, `npm ci`,
+>   consultas al registry) fueron descartables, corridos **sin Docker**, en el scratchpad y **fuera del repo**; solo quedan sus resultados acá.
 > - Marcas: **[verificado]** = observado directamente en archivo (con `archivo:línea`) o en la respuesta
 >   del registry en esta sesión. **[no verificado]** = inferencia o dato que no se pudo comprobar.
 >   Todo lo [no verificado] se repite en la sección final «No verificado».
@@ -34,6 +36,16 @@
    LiteLLM, heredado de la base [verificado]. Tampoco hay attestations/SBOM/provenance asociados (referrers = 0).
 5. **`:latest` es lo que consume el instalador** para las 6 imágenes propias (`docker-compose.yml` del instalador
    líneas 36, 48, 88, 131, 174, 217): un `pull` en una sede toma lo que esté en `latest` ese día [verificado].
+
+## Resumen de §4 y §5 (política y decisiones)
+
+1. **Se propone garantizar dos niveles, no tres:** dependencias reproducibles (locks con hashes, bases por digest, contexto de build limpio) y artefacto
+   inmutable y promovible (re-etiquetado, tag de release fijo, `ELEA_TAG`, SBOM por release). **No** se propone rebuild bit a bit.
+2. **Medido hoy, sin Docker:** los locks **de arranque** (resolución al corte de cada capa) reproducen lo que corre (94/94 en el backend); toda resolución del backend, tabular, nlp y Hub
+   es **solo con ruedas** (se pueden quitar `build-essential`/`gcc`, 111,7 + 68 MB, [no verificado al construir]); y **`python:3.12.13-slim-trixie` todavía es la base exacta** de backend y tabular (4/4 capas), así que pinearla **no cambia producción**. La de `nlp` ya no es alcanzable por tag.
+3. **El lock solo no alcanza:** el panel necesita además un contexto de build limpio (§3.1: 17 857 archivos del `node_modules` del host). Y adoptar tal cual el lock del Hub **bajaría** `body-parser`.
+4. **Adoptar no es reconstruir todo:** paso 0 = línea base por re-etiquetado (sin construir), luego cada imagen sale como candidata probada y se promueve por re-etiquetado (decisión de la 056).
+5. **Para el owner (§5):** 11 decisiones con recomendación; la más grande es el panel (D3: servidor de desarrollo vs. build estático, **aparte**). Da para **una spec acotada**, genérica para la base Guardian con un anexo de Eleia.
 
 ---
 
@@ -604,6 +616,260 @@ Sin dependencias propias (§1.2); las 21 capas base son idénticas por `diff_id`
 Cierre de los ◆ de «No verificado»: **◆ 1 cerrado** (frontend `node_modules` del host, 3.1), **◆ 2 cerrado en el efecto** (sin `license_out`, solo `dev-demo.lic`, 3.1; el mecanismo `.dockerignore` sigue sin ejecutarse),
 **◆ 3 cerrado** para `litellm/extensions`, client, tabular y nlp (3.1), **◆ 5 cerrado** (rama `pip`, 3.3), **◆ 8 cerrado para `rag-client`** (3.1), **◆ 4 parcial** (3.2–3.5).
 
+## §4. Propuesta de política
+
+> **Esto es una propuesta de un spike, no una decisión ni una spec.** No se implementó nada, no se tocó ningún Dockerfile ni script;
+> las decisiones están en §5. Los números de costo y de efecto salen de la medición de §1–§3 y de **prototipos descartables corridos
+> hoy (2026-10-06), sin Docker, en el scratchpad y fuera del repo** (`uv pip compile`, `npm ci`/`npm install --package-lock-only`,
+> consultas al registry con `curl`+`jq`); cada vez que un número sale de ahí lo digo. «Esfuerzo» (S ≤ ½ día, M 1–2 días, L ≥ 3 días) es
+> **estimación mía, [no verificado]**: no hay forma de medirlo sin implementarlo.
+> Todo lo que diga «construir», «el build pasa» o «la imagen resultante» es [no verificado]: no se construyó nada (sin Docker, a pedido).
+
+### 4.0 Qué se promete y qué no: tres niveles de «reproducible»
+
+Los tres niveles se confunden fácil; la propuesta elige explícitamente hasta dónde llega.
+
+| Nivel | Qué garantiza | Qué exige | ¿Se propone? |
+|---|---|---|---|
+| **A. Dependencias reproducibles** | Un rebuild hoy instala **las mismas versiones** de aplicación (pip/npm) y parte de la **misma base** que la imagen publicada | locks con hashes + `npm ci`, bases por digest, contexto de build limpio (P1–P3) | **Sí** |
+| **B. Artefacto inmutable, trazable y promovible** | Lo que se probó es **el mismo digest** que llega a la sede; se sabe de qué commit salió y qué contiene; se puede volver atrás | promoción por re-etiquetado, tag de release que no se reapunta, `ELEA_TAG`, label de revisión, SBOM archivado, digests anotados (P5–P7) | **Sí** |
+| **C. Rebuild idéntico bit a bit** | Mismo digest de imagen al reconstruir | `SOURCE_DATE_EPOCH`/timestamps reescritos, snapshots de `apt`/`apk`, sin `.pyc` | **No** |
+
+Por qué A+B y no C: la §2.5 muestra que la estabilidad histórica de las imágenes fue **la caché local del publicador**, no el Dockerfile; lo que
+necesita operación es «lo que se probó es lo que corre» (B) y que un hotfix no traiga sorpresas (A). C cuesta mucho (los paquetes de sistema
+`apt`/`apk` no tienen lock; Alpine no ofrece snapshots por fecha [no verificado]) y B ya hace que **no haga falta** reconstruir para entregar.
+**Residual aceptado tras A+B** (hay que escribirlo en la política, no esconderlo): los paquetes de sistema (`apt`/`apk`) y los timestamps; el SBOM de
+P7 los **registra** aunque no los fije.
+
+### 4.1 Los puntos
+
+#### P1. Lockfile obligatorio
+
+**Regla.** Ninguna imagen instala dependencias de aplicación sin lock en el build:
+
+- **npm:** `COPY package.json package-lock.json` + `npm ci` (`npm ci --omit=dev` donde no se ejecuta nada de desarrollo, p. ej. `client/`).
+- **pip:** `requirements.in` (los directos, lo que hoy está en `requirements.txt`) → `requirements.lock` **con hashes** generado con
+  `uv pip compile --generate-hashes`, e instalar con `pip install --require-hashes --only-binary=:all: -r requirements.lock` [no verificado: no se ejecutó `pip`, solo la resolución].
+  `uv` se usa **solo para generar el lock en una máquina de desarrollo/CI**; el Dockerfile sigue usando `pip`, así que el runtime no cambia.
+- **Lo que hoy es `pytest`/`pytest-asyncio` en `backend/requirements.txt:26-27`** pasa a un archivo de desarrollo aparte.
+- **Modelo spaCy** de `presidio-analyzer/Dockerfile:13` como rueda por URL con hash en el lock, no como `spacy download`.
+- **Sin `||`** en `client/Dockerfile:4-6`: un build no puede tener dos resultados posibles según qué falló.
+
+**Qué muestra la medición** (prototipos de hoy, todo [verificado] salvo lo marcado):
+
+| Hecho | Resultado |
+|---|---|
+| `uv pip compile --generate-hashes` del backend **al corte de la capa** (`--exclude-newer 2026-08-31T06:39:01Z`) | **94 paquetes**, los mismos 94 que §3.2 leyó dentro de la imagen; 2 920 líneas, 231 KB; **0,6 s** |
+| Mismo lock sin `pytest`/`pytest-asyncio` | **90 paquetes** (salen también `pluggy` e `iniconfig`); 2 630 hashes, 228 KB |
+| Resolución **solo con ruedas** (`--only-binary :all:`) | **backend 90/90**, **tabular 33/33**, **nlp 68/68**, **Hub (pip) 10/10 en `musllinux`**: ningún paquete exige compilar. (Tabular y nlp al corte de fecha de su capa `pip`, §3.5; 33 y 68 coinciden con los de §3.5) |
+| `npm ci --omit=dev` de `client/` con el lock del repo, directorio vacío | instala **88 paquetes** (la imagen tiene 89, §3.3) |
+| ¿El lock del repo está en sincronía con `package.json`? | `client/`: sí (`npm install --package-lock-only` no cambia nada). `npm ci` **aborta con `EUSAGE`** si `package.json` y lock difieren (probado cambiando un rango): el control se hace solo |
+| `client/` lock **de arranque** (`npm install --package-lock-only --before=2026-09-09T18:21:53Z`) vs lock del repo | difieren en **2 entradas**: `body-parser` 1.20.6 (repo) → **1.20.8** (lo que corre) y un `qs` anidado 6.16.0 |
+| `frontend/`: `npm ci` completo vs `--omit=dev` | **453 paquetes, 213 MB** vs **120 paquetes, 64 MB** (el panel hoy necesita los de desarrollo porque ejecuta `vite`, `frontend/Dockerfile:13`) |
+
+**Qué resuelve de §3:** las 74 transitivas sin pin del backend (§3.2), las 26 de 94 que hoy cambiarían en un rebuild, `filelock` 4.x / `ujson` 6.x,
+los 32 paquetes del panel más nuevos que el lock (§3.4), `express`/`proxy-addr`/`qs`/`body-parser` del Hub (§3.3), las 4 de PyPI del Hub
+(`pandas`, `numpy`, `lxml`, `pypdf`), y la rama `||` del Hub que corre «la otra» (§3.3). Los hashes agregan protección contra un paquete re-subido o
+reemplazado con el mismo número de versión; el costo marginal es ~0 porque se generan.
+
+**El lock de arranque tiene que congelar lo que corre, no lo que sale hoy.** Adoptar el lock del repo tal cual **bajaría** `body-parser` en el Hub
+(1.20.8 → 1.20.6, [verificado] arriba): sería un cambio de producción disfrazado de higiene. El método de §3.0 (resolver con corte en la fecha de la capa;
+reproduce 94/94, 9/9+1, 89/89, 451/451 en las cuatro capas medidas) sirve para **generar el lock inicial = el instalado**. Para `tabular` y `nlp` el
+instalado real es [no verificado] (§3.5): su lock inicial es una estimación por método hasta que alguien lea la capa.
+
+**Costo.** Esfuerzo M para las seis imágenes (cambia 4–5 Dockerfiles y se agregan ~4 locks). Costo permanente: (a) **ruido en los PRs** (el lock del backend
+son 2,6 mil líneas de hashes, hay que revisarlo por *diff* de versiones, no línea a línea); (b) **un paso más** al subir una dependencia
+(`uv pip compile`), que conviene verificar en CI sin Docker (regenerar y `git diff --exit-code`, 0,6 s); (c) si una dependencia no publica rueda para la plataforma, el build **falla fuerte** en
+vez de compilar (hoy 0 casos entre los cuatro conjuntos medidos).
+
+**Qué NO resuelve.** Los paquetes de sistema (`apt`/`apk`); que `COPY . .` pise lo instalado (§3.1: ver P2); que la base cambie (P3).
+
+**Dependencias de sistema que la resolución con ruedas deja sin razón de ser** (efecto probable, [no verificado] hasta construir sin ellas): `build-essential` y
+`libpq-dev` del backend (capa de **111,7 MB**, `backend/Dockerfile.standalone:14-17`; `psycopg2-binary` ya viene precompilado, `requirements.txt:4`), `gcc` de `nlp`
+(**68 MB**, `presidio-analyzer/Dockerfile:9`) y, en el Hub, `py3-docx`/`py3-pandas` de `apk` (la rama que **nunca corre**, §3.3): el Hub se reduce a `python3` + `py3-pip`.
+
+**Compartido con Sentinel / propio de Eleia.** Compartido (el mismo código existe en `cluna-8/sentinel`): `backend/requirements.txt`, `presidio-analyzer/`, `tabular/`, `client/`, `frontend/`
+[verificado en el árbol local de Sentinel `8b58ca3`: `client/Dockerfile:1,11` (`node:20-alpine`, `npm install --production`), `tabular/Dockerfile:3`,
+`presidio-analyzer/Dockerfile:5`, `backend/Dockerfile:1`, `frontend/Dockerfile:1`, todos con base flotante; árbol local, no el remoto]. Propio de Eleia: el modelo de «una imagen por
+Dockerfile publicada desde `publish-elea.sh`» y `backend/Dockerfile.standalone`.
+
+#### P2. Contexto de build limpio (complemento que el brief no listaba; sin él P1 no alcanza)
+
+**Por qué lo agrego.** §3.1 mostró que `npm ci` **no basta** en el panel: el `COPY . .` posterior (`frontend/Dockerfile:9`) deja encima **17 857 archivos del
+`node_modules` del equipo que publicó**. Lo mismo pasa, en chico, con 9 `.pyc` en el motor y 7 en tabular. Un lock no arregla un contexto sucio.
+
+**Regla.** Las imágenes se construyen desde un **export de un commit** (`git archive <sha>` a un directorio, o el *checkout* del CI), nunca del árbol de trabajo; `publish-elea.sh` rechaza
+publicar si `git status --porcelain` no está vacío o si el commit no está en la rama principal; y escribe `--label org.opencontainers.image.revision=<sha>`
+(más `source` y `created`). Además, `.dockerignore` donde faltan: `frontend/`, `litellm/`, y arreglar el de `tabular/`.
+
+**Qué muestra la medición.**
+- `git archive HEAD frontend` produce **71 entradas, 0 de `node_modules`, 0 `.pyc`**; el `COPY . .` publicado tiene 18 020 entradas [verificado]. `git archive HEAD litellm tabular`: 0 `.pyc`/`__pycache__` [verificado].
+- **`npm run build` (`tsc && vite build`) pasa en un export limpio** de `frontend/` con `npm ci` (Node 22 local, 11 s, `dist/` 2,5 MB) [verificado; no es Node 20 ni Docker]. (El comentario de `deploy/docker/frontend.prod.Dockerfile:11-14` dice que «nunca existió `tsconfig.json»; hoy existe `frontend/tsconfig.json` [verificado]: el comentario quedó viejo.)
+- **Corrección a §3.1 y al «No verificado» 10:** dije que `tabular/.dockerignore:2-3` lleva `$` literal. **Es falso**: el `$` era del `cat -A`; el archivo tiene `__pycache__` y `*.pyc` simples [verificado, `git show HEAD:tabular/.dockerignore`]. La causa más probable es otra:
+  esos patrones están **anclados a la raíz del contexto** y no matchean `app/__pycache__/*.pyc`; haría falta `**/__pycache__` y `**/*.pyc` [comportamiento documentado de Docker, **no ejecutado aquí**: [no verificado]]. El efecto sí es [verificado] (7 `.pyc` en la capa).
+- El exportar un commit **además cierra el riesgo estructural de `license_out/`/`*.lic`** (§1.2, §3.1: no se filtró nada, pero nada lo impedía): un export no tiene lo que no está trackeado.
+
+**Qué resuelve de §3:** la capa de 43,55 MB del panel que cambia en cada publicación (§2.5), los `.pyc` incidentales del motor (§3.6) y de tabular, el caso `rag-client` construido de un árbol sin commitear (§3.1), y da el `revision` que hoy no existe (§2.2).
+**Costo.** Esfuerzo S–M (≈ 15–20 líneas en `publish-elea.sh` + 2 `.dockerignore` + corregir el de tabular); permanente: **nadie publica «una cosa que acaba de arreglar» sin commitear**, que es justo el punto. **Compartido** (Sentinel tiene el mismo patrón: su `publish.sh` también construye del árbol, `deploy/release/publish.sh:16-25`); el nombre del script es propio de Eleia.
+
+#### P3. Imágenes base por digest, con un proceso de actualización
+
+**Regla.** Todo `FROM` de las imágenes publicadas lleva `@sha256:` (más el tag humano en un comentario, como ya hace `deploy/docker/backend.prod.Dockerfile:7`); y existe un **proceso explícito** de subida de pins.
+Un pin sin proceso se pudre: el propio pin del repo `python:3.12-slim` de `deploy/docker/backend.prod.Dockerfile:8,18` (resuelto 2026-07-20) ya no es ni el de hoy ni el de la imagen publicada (§2.4); **tres «versiones» de `python:3.12-slim` en menos de tres meses**.
+
+**Qué muestra la medición (consulta al registry de Docker Hub de hoy, [verificado], con el comparador de `diff_ids` de §2.4):**
+
+| Base | ¿Qué hay hoy en un tag de versión exacta? | Capas en común con la base de la imagen publicada | Consecuencia |
+|---|---|---|---|
+| `python:3.12.13-slim-trixie` (= `3.12.13-slim`) → index `sha256:229a2c5b…` | creada 2026-08-05 | **4 de 4** | **Existe un digest que reproduce exactamente la base de `backend` y `tabular`**: se puede pinear **sin cambiar lo que corre** |
+| `python:3.12-slim` hoy → `sha256:02108f5d…` (3.12.15) | creada 2026-10-01 | 0 de 4 | pinear «lo de hoy» sí cambiaría la base (§2.4) |
+| `python:3.11.15-slim-trixie` (= `3.11.15-slim`) → `sha256:90744cff…` | creada 2026-08-05 | **0 de 4** | **La base exacta de `nlp` ya no es alcanzable por tag** (misma versión de Python, Debian reconstruido): se probaron 3 tags; **no** se buscó por digest histórico |
+| `node:20-slim` → `sha256:2cf067cf…` y `node:20-alpine` → `sha256:fb4cd12c…` | las de hoy | 5/5 y 4/4 (§2.4) | pinear hoy **no cambia nada** |
+| `ghcr.io/berriai/litellm@sha256:80ea654c…` | ya pineada | 21/21 | nada que hacer |
+
+**Proceso de actualización propuesto** (no hay hoy ninguno: `ls .github` = `CODEOWNERS`, `PULL_REQUEST_TEMPLATE.md`, `workflows/`; sin `dependabot.yml` [verificado]):
+
+1. **Un chequeo sin Docker** en `make -C deploy check` que falle si algún `FROM` publicado no tiene `@sha256:` (mismo estilo que `deploy/release/checks/test_no_default_secrets.sh`: solo `grep`). Esfuerzo S.
+2. **Un script de deriva** `deploy/release/check_pins` que, por cada `FROM tag@digest`, consulta el registry y **imprime qué digest tiene hoy el tag** (el `curl`+`jq` de este spike lo hace en pocos segundos por base [verificado: los comandos de esta sección]). Informa, no cambia nada. Esfuerzo S.
+3. **Cadencia:** mensual y extraordinaria ante un aviso de seguridad; cada subida es un PR «bump pins» que dispara un **candidato** (P5), con **diff de SBOM** contra el release anterior (P7) y la suite; se promueve por re-etiquetado. Quién es el dueño: decisión §5 D6 (`deploy/` es de Install & Factory según `.github/CODEOWNERS:14`; los Dockerfiles de `backend/`, `frontend/` son del dueño por defecto) [verificado el archivo; el reparto es del owner].
+4. **Alternativa:** Dependabot (Docker/pip/npm). [no verificado que entienda los lock con hashes ni los `FROM` con tag y digest: no se probó]. Cuesta menos mantener, aporta ruido y una dependencia de plataforma; se recomienda empezar por el script (§5 D6).
+
+**Costo.** Esfuerzo S el pin inicial y el chequeo, M el script. **Permanente:** 1 PR de bump por mes por base (hoy son 4 bases + 1 motor).
+**Qué resuelve:** que el `FROM` flotante cambie lo que hay debajo sin que nadie lo decida (backend, tabular, nlp: 0 capas comunes hoy, §2.4). **Qué NO resuelve:** que `apt-get update` / `apk add` **dentro** del build traigan paquetes nuevos sobre una base fija (residual; con P1 desaparecen casi todos los de `apt` y quedan los de `apk` del Hub).
+**Compartido.** El script y el chequeo son genéricos (Sentinel tiene la misma deuda: `deploy/release/publish.sh:45` publica `presidio-analyzer` con base flotante, y su `deploy/docker/backend.prod.Dockerfile:8,18` lleva el mismo pin viejo `57cd7c3a…` [verificado, árbol local]). Propios de Eleia: los digests concretos y el motor `litellm` (`litellm/Dockerfile` no está entre los Dockerfiles trackeados en Sentinel [verificado, árbol local]).
+
+#### P4. Terceros por digest en el instalador
+
+**Regla.** Las cuatro imágenes de terceros de `elea-installer/docker-compose.yml` van por `imagen:tag@sha256:…` (el tag queda como comentario legible; Compose acepta la forma con tag y digest [documentado, no probado aquí]).
+
+| Servicio | Hoy (`docker-compose.yml`) | Propuesta |
+|---|---|---|
+| `presenton` (`:240`) | ya por digest | mantener |
+| `anythingllm` (`:156`) | `:1.16.1` (tag exacto pero **mutable**) | `@sha256:` (el de hoy es `05617e7b…`, creado 2026-08-27, §1.3) |
+| `db` (`:7`) | `postgres:16-alpine` | `@sha256:`; **tiene datos** (volumen `pgdata`) |
+| `redis` (`:24`) | `redis:7-alpine` | `@sha256:` |
+
+**Lo que hay que averiguar antes de pinear: qué digest corre en la sede.** Hoy el digest que corre es **[no verificado]** (§1.3, «No verificado» 7); para `postgres`/`redis` puede ser anterior al de hoy. La manera de averiguarlo es **pedirle a la sede** un `docker compose images` /
+`docker inspect --format '{{index .RepoDigests 0}}'` (el owner tiene acceso; yo no). Pinear «el de hoy» sin eso puede cambiar la menor de PostgreSQL en la sede en el próximo `pull`.
+**Costo.** Esfuerzo S (cuatro líneas). **Permanente:** sube junto con P3 (mismo proceso, mismo script). **Lo que resuelve:** que un `docker compose pull` en una sede traiga una menor distinta de la base de datos
+(§1.3). **Propio de Eleia** (el instalador y sus terceros son de este repo/instalador; Sentinel tiene el suyo).
+
+#### P5. Promoción por re-etiquetado (decisión ya tomada en la 056; se adopta como regla general)
+
+**Qué está decidido** (no lo reabro): «promover a `latest` = re-etiquetar y empujar **los mismos digests** de la candidata, sin `build`» (`specs/056-sso-entra-id-hub/research.md:254-261` y `contracts/instalador-y-release.md:79`, ramas
+`cluna-8/056-tramo-b-o2`; las tareas de implementación `T030`/`T031`/`T048` están sin marcar `[ ]`, `tasks.md:324-331,426`). En **este** árbol `publish-elea.sh` **no** tiene `PROMOTE_FROM` ni `LATEST` (`grep` = 0 coincidencias) [verificado]: la política lo da por hecho como entregable de la 056, no como existente.
+
+**Lo que propone la política encima de eso:**
+1. Después de la línea base (P8), **`:latest` solo se mueve por promoción**; el modo «construir y empujar `latest`» se retira (el default de `LATEST` pasa de `1` a `0` cuando se construye; solo `PROMOTE_FROM` mueve `latest`).
+2. Que `publish-elea.sh` **escriba** las líneas `PINNED` a un archivo versionado por release (hoy solo salen por stdout, `publish-elea.sh:43`): `deploy/release/releases/<tag>.digests`, 6 líneas.
+3. Un tag de release **no se reapunta nunca** (salvo `latest`): el script se niega si el tag ya existe en el registry. Hoy hay un precedente de lo contrario, inocuo pero ilustrativo: `elea-guardian-nlp:2026-09-14` es una construcción del 2026-08-31 re-etiquetada con la fecha del día (§2.2). Que GHCR pueda **imponer** inmutabilidad de tags: [no verificado]; se impone por convención y chequeo del script.
+4. La promoción compara las líneas `PINNED` contra las de la candidata (ya en la 056, `T048`); el chequeo `check-release-publish` (`T031`) prueba sin Docker real que **promover no construye**.
+
+**Qué resuelve de lo medido:** §2.2 (el `:latest` de `rag-client` salió de un árbol sin commitear y nadie lo podía saber), §2.5 (los tags fechados comparten capas de caché: nada garantizaba que lo probado fuera lo publicado), y el riesgo central de la 056 (lo que se entrega es lo que se probó).
+**Qué NO resuelve:** que **la candidata** sea reproducible (eso es P1–P3) ni que lo que se promovió sea bueno (eso es la prueba de la candidata).
+**Costo.** Esfuerzo S por lo que falta sobre la 056 (puntos 1–3). **Mecánica de re-etiquetado:** `pull`+`tag`+`push` según la 056; las seis imágenes son un único manifiesto `linux/amd64` (§2.0), así que el digest se conserva [esperado, **no verificado** empujando]; un re-etiquetado **del lado del registry** (sin bajar 1,4 GB) existe (`docker buildx imagetools create`, `crane tag`) [no verificado aquí: no hay `crane`/`syft` instalado, `which` vacío].
+**Compartido.** La regla («solo se promueve por re-etiquetado») es genérica; Sentinel ya tiene el primitivo `retag_upstream` en `deploy/release/publish.sh:29-39` [verificado]. `PROMOTE_FROM` y `publish-elea.sh` son de Eleia.
+
+#### P6. `ELEA_TAG` en el instalador
+
+**Qué está decidido** (056, `research.md:243-253`, `tasks.md:331,338-340`): las seis imágenes propias pasan a `:${ELEA_TAG:-latest}` y `install.sh` usa el mismo tag en su `docker pull` explícito. **Hoy no está:** el compose del instalador (`9754f13`) tiene `:latest` en las líneas 36, 48, 88, 131, 174 y 217 y `grep ELEA_TAG` = 0 [verificado]; `T032`/`T034` están `[ ]`.
+
+**Lo que propone la política encima de eso:**
+1. **Cuando exista el primer tag de release fijo (la línea base de P8), el default de `ELEA_TAG` deja de ser `latest`**: el instalador se entrega con el tag del release escrito. `latest` queda como alias de conveniencia que las sedes **no** usan.
+2. `install.sh` usa `ELEA_TAG` en `:56` (`docker pull` del motor), `:66`, `:78` y `:197` (los tres `docker compose pull`), y al terminar **compara el digest descargado de cada imagen con `releases/<tag>.digests`** y avisa si difiere (un solo `ELEA_TAG` no puede llevar seis digests; el tag es el selector y el digest es la verificación). Esfuerzo S–M (~15 líneas de `bash` + el archivo).
+3. Volver atrás pasa a ser `ELEA_TAG=<tag anterior>` + `docker compose up -d`: **hoy no existe** porque `:latest` es lo único que hay y se sobrescribe (§2.2: `latest` = tag del día en las seis).
+
+**Qué NO resuelve:** si el tag que elegiste está bien construido (P1–P3, P5). **Propio de Eleia** (el instalador es `cluna-8/elea-installer`; el nombre `ELEA_TAG` es de este repo; la 056 ya lo exceptúa como nombre propio, `research.md:427` (B8)). **Sentinel** necesita el equivalente con su nombre; el principio es genérico.
+
+#### P7. SBOM por release, archivado con cada tag
+
+**Regla.** Cada release (`<tag>`) archiva, **junto con `releases/<tag>.digests`**, un SBOM (CycloneDX o SPDX) **por imagen**, generado **sobre el digest publicado** (no sobre el repo), con una herramienta de escaneo de imágenes.
+
+**Qué muestra la medición.**
+- Hoy **no hay SBOM, attestation ni provenance**: `referrers` = 0 para las seis `:latest` (§2.0) [verificado]. En el repo la palabra aparece solo como promesa: «SBOM en v2 vía Zarf» (`docs/docs/install-deploy/licensing.md:262`, `infrastructure.md:283`, marcado 🔵) [verificado].
+- Un SBOM **del repo** no sirve: `npm sbom` sobre un árbol `--omit=dev` falla con `ESBOMPROBLEMS` (falta `supertest`, devDependency) [verificado, `client/`], y de todos modos no ve `apt`/`apk` ni la base.
+- Con los locks de P1, **el contenido Python/npm del SBOM es el lock** (los paquetes de cada lock, p. ej. 90 en el backend); lo único que el SBOM aporta sobre el lock es **lo que el lock no fija: capas de sistema y base**. Por eso su valor principal es el **diff de SBOM entre releases**, que es la forma práctica de ver «qué cambió» en un bump de pins (P3).
+- Herramientas: `syft`/`trivy` **no están instaladas** aquí [verificado, `which`]; si leen directamente del registry sin Docker [no verificado]; `docker buildx build --sbom=true` adjunta el SBOM al build pero **requiere Docker** [no verificado] y agrega attestations a un manifiesto que hoy es simple (§2.0).
+
+**Dónde archivarlo.** No en el repo (son MB por imagen): como **assets del release de GitHub** del tag, más los `digests` (6 líneas) **sí** en el repo, `deploy/release/releases/<tag>.digests`. Que cada digest de un release tenga además un **tag** en el registry (un manifiesto sin tag puede quedar huérfano [no verificado el comportamiento de retención de GHCR]).
+**White-label.** El SBOM completo **nombra componentes internos** (el backend lleva `litellm==1.95.1`, `headroom-ai`, §3.2). Por la regla del repo «nada visible al cliente nombra componentes internos», es **un artefacto interno** por defecto; entregarlo a un cliente exige curarlo y es otra decisión (§5 D9). No cambia el estado 🔵 de `licensing.md:262`: esta política **no** vuelve 🟢 lo del SBOM al cliente.
+**Costo.** Esfuerzo M (elegir herramienta, un paso en el script, convención de assets). Permanente: poco, corre en cada release. **Compartido** (genérico: herramienta, formato, convención); los nombres de release/asset son de Eleia.
+
+#### P8. Qué hacer con las imágenes cuyo rebuild hoy cambiaría producción
+
+**Principio.** **Adoptar la política no es reconstruir el mundo.** Cinco de las seis imágenes cambiarían contenido en un rebuild hoy (§3.7); si el primer paso fuera «reconstruir todo con las reglas nuevas», se estaría entregando a las sedes software **nunca probado** disfrazado de higiene (justo el riesgo que la 056 N2 quiere evitar).
+
+**Paso 0 — línea base (sin construir nada; operativo, sin código).** Con lo que ya está publicado: re-etiquetar cada `:latest` actual como `baseline-2026-10` (mismo digest, solo se agrega un tag) y registrar los seis digests en `deploy/release/releases/baseline-2026-10.digests`. Efecto: lo que corre en las sedes queda **nombrado, reproducible por pull y salvable** aunque `latest` se mueva. Lo que **no** dice: que ese contenido sea el bueno (solo que es el actual). [no verificado: es una operación de registry que no ejecuté.]
+Después, cada imagen sale de la base por **un release candidato deliberado** (`LATEST=0`, tag `…-rcN`), con SBOM, **diff de SBOM contra la línea base**, suite y prueba, y se **promueve por re-etiquetado** (P5). Estrategia por imagen:
+
+| Imagen | Qué cambiaría hoy (medido) | Estrategia |
+|---|---|---|
+| **backend** | base 3.12.13 → 3.12.15, 26/94 paquetes (§3.2) | Pinear la base **al digest recuperable** `3.12.13-slim-trixie` (4/4 capas, P3) y generar el lock **de arranque** (94/94, P1). El único cambio de contenido esperado queda en `pytest` (−4 paquetes), `apt` (sin medir) y los `COPY`. Sale como RC; el diff de SBOM lo confirma |
+| **tabular** | base y 8 paquetes (§3.5, estimado) | Igual que backend: misma base recuperable, lock de arranque. El instalado real de tabular **no se leyó** (§3.8): leer su capa `pip` (84 MB) **antes** de confiar en el lock de arranque |
+| **nlp** | base inalcanzable por tag (P3), 28 paquetes (estimado), modelo spaCy | **No reconstruir mientras no haga falta**: es la imagen menos tocada (sigue siendo la de 2026-08-31, §2.2); se promueve el digest actual. Cuando haga falta, el rebuild **sí** cambia la base (mismo Python 3.11.15, Debian reconstruido el 2026-08-05) y eso se acepta como cambio deliberado; el lock al corte de la capa (2026-07-20) **evita** `websockets` 16→17, `filelock` 3→4 y `ujson` 5→6 |
+| **rag-client** (Hub) | `express`, `qs`, `proxy-addr` (npm), 4 de pip, `apk` (§3.3) | Lock npm de arranque (el repo + `body-parser` 1.20.8), `pip` pineado con hashes y **sin** `||`. Cambios que **sí** introduce el primer rebuild: `python3`/`py3-pip` de `apk` flotan (sin medir), `tests/` sale de la imagen si se decide (§5) |
+| **frontend** (panel) | 51 paquetes npm + dependencia del `node_modules` del que publica (§3.4) | Primer rebuild desde un export limpio con `npm ci` del lock del repo. **Cambia a propósito**: sale la mezcla de 32 paquetes (hoy el `node_modules` del host, = lock, cubre esos archivos: el lock es lo más cercano a lo que corre, **inferido**, [no verificado a nivel de archivo]), salen 17 857 archivos del host y la capa de 43,55 MB. Decisión de fondo en §5 D3 (servidor de desarrollo vs. build estático) |
+| **engine** | nada en paquetes; 9 `.pyc` (§3.6) | Sin trabajo de política más allá de P2; ya está por digest |
+
+**Regla general para el futuro:** si al armar un RC el diff de SBOM contra el release anterior muestra algo distinto de lo que el cambio declara, **el RC no se promueve** hasta explicarlo.
+
+### 4.2 Orden de adopción sugerido
+
+| Fase | Contenido | ¿Cambia lo que corre en sedes? |
+|---|---|---|
+| **0** | Línea base: retag `baseline-2026-10` + `…digests` (P8); averiguar en la sede los digests de terceros (P4) | **No** |
+| **1** | Entregables de la 056 (`PROMOTE_FROM`, `LATEST`, `ELEA_TAG`); P2 (contexto limpio, labels, `.dockerignore`, rechazo de árbol sucio); chequeo de `FROM` sin digest | **No** (solo proceso y script) |
+| **2** | P1 + P3 por imagen, cada una como RC: backend → tabular → rag-client → frontend → (nlp y engine solo si hace falta) | **Sí**, **solo vía RC probado + promoción** |
+| **3** | P4 (terceros por digest) y `ELEA_TAG` por defecto fijo en el instalador; P7 (SBOM por release) desde la Fase 1 en adelante | Terceros: **sí si el digest difiere del que corre**; resto no |
+
+El orden no es de calendario, es de dependencia: nada de la Fase 2 se promueve sin las Fases 0–1 (sin P5/P6 no hay forma de entregar un RC ni de volver atrás).
+
+### 4.3 Qué se aplica también a Sentinel y qué es propio de Eleia
+
+Regla de escritura: lo compartido se redacta **genérico** (sin «Elea/Eleia» en los scripts, chequeos ni locks) para poder portarlo a `cluna-8/sentinel`; lo propio queda aparte. Verificación del lado Sentinel: lectura de su árbol **local** `sentinel-coordinator` `8b58ca3` (no del remoto).
+
+| Pieza | ¿Compartida? | Nota |
+|---|---|---|
+| Locks (`requirements.lock` con hashes, `package-lock.json` + `npm ci`) de `backend/`, `presidio-analyzer/`, `tabular/`, `client/`, `frontend/` | **Compartida** | Los mismos Dockerfiles con base flotante y `npm install` existen en Sentinel (P1) |
+| Contexto limpio + `.dockerignore` + label de revisión (P2) | **Compartida** (script de Eleia: `publish-elea.sh`; de Sentinel: `publish.sh`) | Cada uno aplica en su script |
+| Chequeo de `FROM` sin digest, script de deriva de pins, proceso mensual (P3) | **Compartida** | Sentinel ya tiene digests en `deploy/docker/*.prod.Dockerfile` pero con el pin viejo y sin proceso |
+| Promoción por re-etiquetado (P5) | Regla **compartida**; `PROMOTE_FROM`/`publish-elea.sh` **propios** | Sentinel tiene `retag_upstream` (`publish.sh:29-39`) |
+| SBOM por release (P7) | **Compartida** (herramienta, formato) | Assets y nombres de release: propios |
+| `ELEA_TAG`, `elea-installer`, terceros del instalador (P4, P6), `baseline-2026-10`, digests concretos, `litellm/Dockerfile`, `backend/Dockerfile.standalone`, `ghcr.io/cluna-8/elea-*`, `deploy/release/releases/*` | **Propio de Eleia** | Sentinel tiene su instalador y su coordinador: desde acá solo se le entrega un `HANDOFF-elea-a-sentinel.md` (AGENTS.md). **No lo escribo** aquí (ruta fuera de la permitida); queda como tarea del coordinador |
+
+---
+
+## §5. Decisiones para el owner
+
+Cada una con mi recomendación. **Una compuerta la decide el owner** (AGENTS.md); acá solo se propone. «Spec» = si el criterio de AGENTS.md («si la spec no obligaría a decidir nada, no se escribe») la justifica.
+
+| # | Decisión | Opciones | **Recomendación** | ¿Spec? |
+|---|---|---|---|---|
+| **D1** | **Alcance de la garantía** (§4.0) | A+B (dependencias + artefacto inmutable) · A+B+C (rebuild bit a bit) · solo B | **A+B.** C cuesta mucho para un beneficio que B ya cubre; el residual (`apt`/`apk`, timestamps) se documenta y lo registra el SBOM | Es lo que ordena la spec: sí |
+| **D2** | **Hashes en pip** (`--require-hashes`, solo ruedas) | con hashes · solo versiones exactas | **Con hashes.** Costo marginal ~0 (se generan), resolución 100 % con ruedas en las cuatro imágenes medidas (P1); a cambio, PRs de lock ruidosos y `uv` en el equipo | No (una línea de la spec de P1) |
+| **D3** | **Panel: ¿servidor de desarrollo o build estático?** Hoy se publica `frontend/Dockerfile` (`npm run dev`) en vez de `Dockerfile.standalone` (nginx + `dist/`) (`publish-elea.sh:25`) | seguir con `vite` · pasar a build estático (con Caddy: `deploy/docker/frontend.prod.Dockerfile`; o nginx: `frontend/Dockerfile.standalone`) | **Pasar a estático, pero como decisión de producto separada, no escondida en la política.** Medido: el build limpio pasa (P2: `tsc && vite build`, 11 s, 2,5 MB de `dist/`); el runtime pasaría de un árbol de **453 paquetes (213 MB en disco con `npm ci`)** a solo estáticos y un servidor web. **Pero cambia el instalador**: el mount de branding y el puerto cambian *juntos* (`docker-compose.yml:131-148`), y `Dockerfile.standalone` tampoco usa `npm ci` ni fija `nginx:alpine` (`:4-9,11`), así que le corresponde P1/P3 igual | **Sí, aparte** (impacta instalador, branding y puertos; no entra en una spec de reproducibilidad) |
+| **D4** | **Línea base `baseline-2026-10` sin rebuild** (P8, paso 0) | hacerla · reconstruir todo con las reglas nuevas | **Hacerla ya**: es gratis y deja lo que corre nombrado y salvable. No decide que ese contenido sea el bueno | No (operativo; no hay código) |
+| **D5** | **`nlp`: ¿congelar o reconstruir?** La base exacta publicada ya no es alcanzable por tag (P3) | promover el digest actual y no reconstruir · reconstruir con base nueva y lock al corte | **Congelar** hasta que haya un cambio de contenido que lo justifique. Si se reconstruye: lock al corte 2026-07-20 (evita 3 saltos mayores) y base nueva aceptada como cambio deliberado | No |
+| **D6** | **Proceso de actualización de pins: dueño y cadencia** (P3) | script + mensual (Install & Factory) · Dependabot · ad hoc | **Script de deriva + revisión mensual**, con el diff de SBOM como entrada. Dueño: `deploy/` es de Install & Factory (`CODEOWNERS:14`); los Dockerfiles de aplicación, del dueño por defecto: **lo reparte el owner** (el propio archivo exige que el reparto se actualice en el mismo PR). Dependabot, si el owner prefiere menos mantenimiento: [no verificado que entienda los locks con hashes] | Sí, sección de la spec |
+| **D7** | **`ELEA_TAG` por defecto en el instalador** (P6) | `latest` · tag de release fijo + verificación de digest | **Tag fijo + verificación de digest** a partir de la línea base. Es el cambio que más reduce la superficie de «una sede se actualiza sola». Va **junto** con los entregables de la 056 (`T032`/`T034`); el instalador es otro repo: **se coordina desde acá, en el mismo plan** (AGENTS.md) | Los entregables ya están en la 056; el *default fijo* y la verificación de digest se **suman** a ese plan |
+| **D8** | **Terceros por digest: ¿el de hoy o el de la sede?** (P4) | pinear los digests de hoy · pedir los de la sede y pinear esos | **Pedir los de la sede primero** (`docker compose images` / `docker inspect`); `postgres` tiene datos. Es una tarea del **owner** (acceso a la sede) | No |
+| **D9** | **SBOM: ¿interno o se entrega al cliente?** (P7) | archivo interno · entregable al cliente curado | **Interno por ahora.** El SBOM completo nombra componentes que la regla white-label prohíbe mostrar (`litellm`, `headroom-ai`). Entregarlo (lo promete 🔵 `licensing.md:262`) requiere un SBOM filtrado: otra decisión, **no** subir la leyenda 🔵→🟢 hasta que exista | No (decidir la audiencia antes de elegir herramienta) |
+| **D10** | **`tests/` dentro de las imágenes de producción** (167 archivos en el backend, `pytest`; `tests/` del Hub) (§3.1, §3.2) | dejarlos · sacarlos por `COPY` selectivo o `.dockerignore` | **Sacarlos** del backend (como ya hace `deploy/docker/backend.prod.Dockerfile:33-38`, `COPY backend/src`) y del Hub. Es **cambio de contenido de producción**: va por RC, no se mezcla con la línea base | No (fix de causa clara, rama corta) |
+| **D11** | **¿Hace falta una spec?** | una spec · ninguna, solo ramas cortas | **Una spec, acotada**, y **no** un spike más. Ver abajo | — |
+
+#### D11 en detalle: qué entra en una spec y qué no
+
+**Da para una spec** porque hay decisiones que hoy no se pueden resolver sin ella: D1 (alcance), D2 (hashes), D6 (dueño y cadencia), D7 (default del instalador) y D9 (audiencia del SBOM) son decisiones de diseño con costos permanentes y dos repos tocados (`elea` y `elea-installer`, más el *handoff* a Sentinel).
+**Alcance recomendado de esa spec** (una sola, **escrita genérica** para la base Guardian, con un anexo de Eleia):
+
+1. **Locks + `npm ci` + hashes** y el **contexto limpio** (P1, P2) en las cinco imágenes de aplicación (el motor solo recibe P2).
+2. **Bases por digest + chequeo + script de deriva + proceso** (P3).
+3. **Release** = tag inmutable + `releases/<tag>.digests` + SBOM como asset + promoción por re-etiquetado como **única** vía a `latest` (P5, P7), apoyándose en lo que la 056 ya entrega (`PROMOTE_FROM`, `LATEST`).
+4. **Anexo Eleia:** `ELEA_TAG` con default fijo y verificación de digest, terceros por digest, línea base y primera migración imagen por imagen (P4, P6, P8).
+
+**No entra en esa spec** (porque no obligaría a decidir nada o es de otra naturaleza): el paso 0 (línea base, D4) y la consulta a la sede (D8), que son operación; los `.dockerignore` y `tests/` fuera (D10), que son *fixes* de causa clara; el panel estático (D3), que es una decisión de producto con su propio alcance; y el *handoff* a Sentinel, que es un documento aparte.
+Como el spike no abre numeración (AGENTS.md, «Exploración ≠ spec»), **no propongo número**: lo asigna el owner/coordinador al abrir el ciclo, con los skills `speckit-*`.
+
 ---
 
 ## No verificado
@@ -632,3 +898,16 @@ Se agrupa todo lo marcado [no verificado] arriba. Ninguno bloquea las conclusion
     construyó nada (sin Docker, a pedido).
 13. **Que BuildKit/`docker build` del publicador sea el que dejó `history` con formatos `EXPOSE &{[…]}`** y otras particularidades del config: irrelevante
     para las conclusiones, anotado por completitud.
+
+### Agregado por §4 y §5
+
+14. **Todo lo que dependa de construir**: que el Dockerfile con locks, ruedas y base por digest **pase el build**, que `psycopg2-binary` funcione sin `libpq-dev`, que `pip install --require-hashes --only-binary=:all:` instale el lock tal cual (se verificó la **resolución** con `uv`, no la instalación con `pip`), y que se pueda quitar `build-essential`/`gcc`. Esfuerzos S/M/L de §4: estimaciones mías.
+15. **Instalado real de `tabular` y `nlp`** (ya era 1 de §3.8): los locks «de arranque» de ambas son resolución a fecha, no el instalado. Las fechas de corte que usé para el prototipo (`2026-09-12` y `2026-07-20`, fin de día) son de la fecha de la capa de §3.5, no la hora exacta.
+16. **Lock de arranque del Hub (pip)** con una sola fecha: el Hub instala `pip` en dos capas con fechas distintas (2026-08-26 y 2026-08-31, §3.3); el prototipo de hoy usó un corte único solo para probar que resuelve con ruedas `musllinux` (10 paquetes), no para reproducir las versiones instaladas.
+17. **Lock de arranque del panel** (`npm install --package-lock-only --before=…` vs lock del repo: **58 entradas distintas** de 499, que incluyen binarios opcionales de otras plataformas) **no es comparable** con los 32 paquetes de §3.4 medidos sobre lo realmente instalado; no se usó para ninguna conclusión.
+18. **Que la base exacta de `nlp` sea inalcanzable**: probé tres tags de Docker Hub (`3.11.15-slim-trixie`, `3.11.15-slim`, `3.11-slim`); no busqué por digest histórico ni en espejos. Tampoco hay SBOM/escáner instalado (`syft`/`trivy`/`crane`: `which` vacío), así que **cómo** se genera un SBOM sin Docker, y si GHCR impone inmutabilidad de tags o conserva manifiestos sin tag, **no se probó**.
+19. **Que `docker tag`+`push` de una imagen bajada conserve el digest** (esperado por ser un manifiesto simple), y que `docker buildx imagetools create`/`crane tag` lo hagan del lado del registry; **que Compose acepte `imagen:tag@sha256:…`** y que **Dependabot** entienda locks con hashes y `FROM` con digest.
+20. **Qué digest corre en la sede** para `postgres`, `redis`, `anythingllm` (ya era 7); **qué hay en la sede de las seis propias**.
+21. **Causa de que `tabular/.dockerignore` no filtrara los `.pyc`** (corrige 10 de §3.8): descarté el `$` literal [verificado, es el `cat -A`]; la hipótesis de patrones no recursivos es conocimiento de Docker, **no ejecutado**.
+22. **Estado de la 056 en `main`:** leí `PROMOTE_FROM`, `ELEA_TAG` y las tareas `T030`/`T031`/`T032`/`T034`/`T048` en las ramas locales `cluna-8/056-tramo-b-o2` (y `…-n1-n2`), no en `main`; en **este** árbol y en el instalador `9754f13` no existen. Si la 056 cambió desde, las referencias `archivo:línea` de P5/P6 pueden moverse.
+23. **El árbol local de Sentinel** (`8b58ca3`) puede ir por detrás o por delante de `cluna-8/sentinel` remoto; la tabla §4.3 se apoya en él.
