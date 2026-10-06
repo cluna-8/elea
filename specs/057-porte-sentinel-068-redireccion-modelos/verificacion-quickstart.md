@@ -55,8 +55,8 @@ El pedido llegó a Azure (`gpt-5.1-chat`, `200 OK` en el log del motor); el cuer
 ## 5. Hallazgo aparte (no es de esta enmienda)
 
 Con stream, el motor registra `IndexError: list index out of range` en `litellm/llms/anthropic/experimental_pass_through/adapters/streaming_iterator.py:611`
-(`chunk.choices[0]`): Azure manda un chunk con `choices` vacío (anotaciones de filtro de contenido) y el adaptador de Anthropic del motor fijado lo
-desreferencia. El cliente recibe 200 con la respuesta cortada (≈ 2,6 KB) y **no se escribe fila de auditoría** del pedido en stream (la fila se
+(`chunk.choices[0]`): un chunk del destino llega con `choices` vacío (hipótesis, sin verificar: anotaciones de filtro de contenido de Azure) y el adaptador
+de Anthropic del motor fijado lo desreferencia. El cliente recibe 200 con la respuesta cortada (≈ 2,6 KB) y **no se escribe fila de auditoría** del pedido en stream (la fila se
 escribe al cerrar el stream). Ocurre después de enmascarar y de salir hacia el destino; es del adaptador del motor, no de la política. Queda para
 T083/T078 (medición de caché y auditoría en stream) y para el coordinador.
 
