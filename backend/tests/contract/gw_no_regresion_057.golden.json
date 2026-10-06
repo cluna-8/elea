@@ -1,0 +1,1769 @@
+{
+  "byok_auto_se_reescribe_al_default": {
+    "auditoria": [],
+    "cuerpo": {
+      "content": [
+        {
+          "text": "listo",
+          "type": "text"
+        }
+      ],
+      "id": "msg_057",
+      "model": "claude-3-5-sonnet",
+      "role": "assistant",
+      "type": "message",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 3
+      }
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "modelo-por-defecto-057"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "byok_error_del_motor_pasa_verbatim": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "limite",
+        "type": "rate_limit_error"
+      },
+      "type": "error"
+    },
+    "estado": 429,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "byok_llave_en_authorization": {
+    "auditoria": [],
+    "cuerpo": {
+      "content": [
+        {
+          "text": "listo",
+          "type": "text"
+        }
+      ],
+      "id": "msg_057",
+      "model": "claude-3-5-sonnet",
+      "role": "assistant",
+      "type": "message",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 3
+      }
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "byok_mensajes_no_stream": {
+    "auditoria": [],
+    "cuerpo": {
+      "content": [
+        {
+          "text": "listo",
+          "type": "text"
+        }
+      ],
+      "id": "msg_057",
+      "model": "claude-3-5-sonnet",
+      "role": "assistant",
+      "type": "message",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 3
+      }
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "byok_mensajes_stream": {
+    "auditoria": [],
+    "cuerpo": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"listo\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{},\"usage\":{\"output_tokens\":3}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "estado": 200,
+    "monitor": [],
+    "tipo": "text/event-stream",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022",
+          "stream": true
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "byok_motor_caido": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] motor no disponible: boom",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 502,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "byok_sin_llave_es_401": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 401,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": []
+  },
+  "byok_stream_error_del_motor": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "motor ocupado",
+        "type": "api_error"
+      },
+      "type": "error"
+    },
+    "estado": 503,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022",
+          "stream": true
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages"
+      }
+    ]
+  },
+  "count_tokens_byok": {
+    "auditoria": [],
+    "cuerpo": {
+      "input_tokens": 9
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "POST",
+        "url": "http://engine:4000/v1/messages/count_tokens"
+      }
+    ]
+  },
+  "count_tokens_byok_sin_llave_es_401": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 401,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": []
+  },
+  "count_tokens_suscripcion": {
+    "auditoria": [],
+    "cuerpo": {
+      "input_tokens": 9
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages/count_tokens"
+      }
+    ]
+  },
+  "mensajes_cuerpo_no_json": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "Cuerpo JSON inválido.",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 400,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": []
+  },
+  "mensajes_modelo_reservado_de_la_cadena": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "passed",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "license__cliente",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    ],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] 'license' es un literal reservado de la auditoría —marca los eslabones de la cadena de evidencia de licencias— y no puede usarse como nombre de modelo. El intento quedó registrado.",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 422,
+    "monitor": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 0,
+        "estado": "passed",
+        "herramienta": "Claude Code",
+        "modelo": "license__cliente"
+      }
+    ],
+    "tipo": "application/json",
+    "upstream": []
+  },
+  "models_byok": {
+    "auditoria": [],
+    "cuerpo": {
+      "data": [
+        {
+          "display_name": "Claude 3.5 Sonnet",
+          "id": "claude-3-5-sonnet-20241022",
+          "type": "model"
+        }
+      ],
+      "first_id": null,
+      "has_more": false,
+      "last_id": null
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": null,
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "GET",
+        "url": "http://engine:4000/v1/models"
+      }
+    ]
+  },
+  "models_byok_sin_llave_es_401": {
+    "auditoria": [],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 401,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": []
+  },
+  "models_con_query_se_reenvia": {
+    "auditoria": [],
+    "cuerpo": {
+      "data": [
+        {
+          "display_name": "Claude 3.5 Sonnet",
+          "id": "claude-3-5-sonnet-20241022",
+          "type": "model"
+        }
+      ],
+      "first_id": null,
+      "has_more": false,
+      "last_id": null
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": null,
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer sk-sentinel-test-057-no-regresion",
+          "content-type": "application/json"
+        },
+        "metodo": "GET",
+        "url": "http://engine:4000/v1/models?limit=5"
+      }
+    ]
+  },
+  "models_suscripcion": {
+    "auditoria": [],
+    "cuerpo": {
+      "data": [
+        {
+          "display_name": "Claude 3.5 Sonnet",
+          "id": "claude-3-5-sonnet-20241022",
+          "type": "model"
+        }
+      ],
+      "first_id": null,
+      "has_more": false,
+      "last_id": null
+    },
+    "estado": 200,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": null,
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "GET",
+        "url": "https://api.anthropic.com/v1/models"
+      }
+    ]
+  },
+  "suscripcion_anonima": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "passed",
+        "extra": {},
+        "llave": null,
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 7,
+        "tokens_out": 3
+      }
+    ],
+    "cuerpo": {
+      "content": [
+        {
+          "text": "listo",
+          "type": "text"
+        }
+      ],
+      "id": "msg_057",
+      "model": "claude-3-5-sonnet",
+      "role": "assistant",
+      "type": "message",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 3
+      }
+    },
+    "estado": 200,
+    "monitor": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 0,
+        "estado": "passed",
+        "herramienta": "Desconocido",
+        "modelo": "claude-3-5-sonnet-20241022"
+      }
+    ],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "testclient"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages"
+      }
+    ]
+  },
+  "suscripcion_bloqueo_por_secreto": {
+    "auditoria": [
+      {
+        "bloqueada_por": "secret_detection",
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "pii_detection",
+            "status": "not_configured"
+          },
+          {
+            "count": 1,
+            "decision": "block",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "pii_masking",
+            "status": "not_configured"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "blocked_secret",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    ],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] Petición bloqueada: material secreto detectado (OpenAI API Key). Las credenciales nunca deben enviarse a un modelo.",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 400,
+    "monitor": [
+      {
+        "bloqueada_por": "secret_detection",
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "pii_detection",
+            "status": "not_configured"
+          },
+          {
+            "count": 1,
+            "decision": "block",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "pii_masking",
+            "status": "not_configured"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 0,
+        "estado": "blocked_secret",
+        "herramienta": "Claude Code",
+        "modelo": "claude-3-5-sonnet-20241022"
+      }
+    ],
+    "tipo": "application/json",
+    "upstream": []
+  },
+  "suscripcion_con_pii_se_enmascara_y_se_restituye": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "count": 1,
+            "decision": "flag",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "count": 1,
+            "decision": "mask",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [
+          "EMAIL_ADDRESS"
+        ],
+        "estado": "passed",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 7,
+        "tokens_out": 3
+      }
+    ],
+    "cuerpo": {
+      "content": [
+        {
+          "text": "listo",
+          "type": "text"
+        }
+      ],
+      "id": "msg_057",
+      "model": "claude-3-5-sonnet",
+      "role": "assistant",
+      "type": "message",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 3
+      }
+    },
+    "estado": 200,
+    "monitor": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "count": 1,
+            "decision": "flag",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "count": 1,
+            "decision": "mask",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 1,
+        "estado": "passed",
+        "herramienta": "Claude Code",
+        "modelo": "claude-3-5-sonnet-20241022"
+      }
+    ],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "mi correo es [EMAIL_ADDRESS_0_<sufijo>], resumí esto",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages"
+      }
+    ]
+  },
+  "suscripcion_error_del_proveedor": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "upstream_error",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    ],
+    "cuerpo": {
+      "error": {
+        "message": "saturado",
+        "type": "overloaded_error"
+      },
+      "type": "error"
+    },
+    "estado": 529,
+    "monitor": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 0,
+        "estado": "upstream_error",
+        "herramienta": "Claude Code",
+        "modelo": "claude-3-5-sonnet-20241022"
+      }
+    ],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages"
+      }
+    ]
+  },
+  "suscripcion_no_stream": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "passed",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 7,
+        "tokens_out": 3
+      }
+    ],
+    "cuerpo": {
+      "content": [
+        {
+          "text": "listo",
+          "type": "text"
+        }
+      ],
+      "id": "msg_057",
+      "model": "claude-3-5-sonnet",
+      "role": "assistant",
+      "type": "message",
+      "usage": {
+        "input_tokens": 7,
+        "output_tokens": 3
+      }
+    },
+    "estado": 200,
+    "monitor": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 0,
+        "estado": "passed",
+        "herramienta": "Claude Code",
+        "modelo": "claude-3-5-sonnet-20241022"
+      }
+    ],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages"
+      }
+    ]
+  },
+  "suscripcion_proveedor_caido": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "upstream_error",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 0,
+        "tokens_out": 0
+      }
+    ],
+    "cuerpo": {
+      "error": {
+        "message": "[Sentinel Gateway] No se pudo contactar el modelo upstream: boom",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "estado": 502,
+    "monitor": [],
+    "tipo": "application/json",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022"
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages"
+      }
+    ]
+  },
+  "suscripcion_stream": {
+    "auditoria": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": [],
+        "estado": "passed",
+        "extra": {},
+        "llave": "key-057",
+        "modelo": "claude-3-5-sonnet-20241022",
+        "tenant": "00000000-0000-0000-0000-000000000001",
+        "tokens_in": 7,
+        "tokens_out": 3
+      }
+    ],
+    "cuerpo": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7,\"output_tokens\":0}}}\n\nevent: content_block_delta\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"listo\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{},\"usage\":{\"output_tokens\":3}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "estado": 200,
+    "monitor": [
+      {
+        "bloqueada_por": null,
+        "capas": [
+          {
+            "decision": "allow",
+            "layer_code": "interception_audit",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "secret_detection",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "ai_act_evaluation",
+            "status": "applied"
+          },
+          {
+            "decision": "allow",
+            "layer_code": "pii_masking",
+            "status": "applied"
+          },
+          {
+            "decision": null,
+            "layer_code": "sensitive_routing",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "enforcement_tier_estricto",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_moderation",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "prompt_injection",
+            "status": "delegated"
+          },
+          {
+            "decision": null,
+            "layer_code": "content_safety",
+            "status": "skipped"
+          },
+          {
+            "decision": null,
+            "layer_code": "provider_guardrails",
+            "status": "skipped"
+          }
+        ],
+        "entidades": 0,
+        "estado": "passed",
+        "herramienta": "Claude Code",
+        "modelo": "claude-3-5-sonnet-20241022"
+      }
+    ],
+    "tipo": "text/event-stream",
+    "upstream": [
+      {
+        "cuerpo": {
+          "max_tokens": 64,
+          "messages": [
+            {
+              "content": "hola mundo",
+              "role": "user"
+            }
+          ],
+          "model": "claude-3-5-sonnet-20241022",
+          "stream": true
+        },
+        "headers": {
+          "accept-encoding": "identity",
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+          "authorization": "Bearer oauth-sub-tok-057",
+          "content-type": "application/json",
+          "user-agent": "claude-cli/1.0 (external)"
+        },
+        "metodo": "POST",
+        "url": "https://api.anthropic.com/v1/messages"
+      }
+    ]
+  }
+}

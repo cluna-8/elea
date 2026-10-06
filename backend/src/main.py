@@ -35,8 +35,12 @@ def _run_alembic_upgrade_head() -> None:
         backend_root = Path(__file__).resolve().parent.parent
         cfg = Config(str(backend_root / "alembic.ini"))
         cfg.set_main_option("script_location", str(backend_root / "alembic"))
-        command.upgrade(cfg, "head")
-        logger.info("Alembic migrations applied (upgrade head).")
+        # `heads` sólo con ramas de extensiones (ALEMBIC_EXTRA_VERSION_LOCATIONS); si no, `head`.
+        from .migration_locations import upgrade_target
+
+        target = upgrade_target()
+        command.upgrade(cfg, target)
+        logger.info("Alembic migrations applied (upgrade %s).", target)
     except Exception as e:
         # Do not crash startup: log loudly so ops notice. Inference will still fail fast
         # on schema mismatch, which is preferable to silent drift.
@@ -118,6 +122,20 @@ app.include_router(governance_router, prefix="/api/v1")
 from .api.internal import router as internal_router  # noqa: E402
 
 app.include_router(internal_router, prefix="/api/v1")
+
+# Puerta del formato de chat estándar (spec 045 US3). Se monta acá por la MISMA razón que
+# gobernanza y el plano interno: router nuevo, sin competir por `api/__init__.py`. El archivo
+# es un preámbulo delgado sobre el proxy byok que ya existe — no lleva política propia.
+from .api.gateway_openai import router as gateway_openai_router  # noqa: E402
+
+app.include_router(gateway_openai_router, prefix="/api/v1")
+
+# Routers de plugins externos (PLUGIN_PACKAGES, ver src/plugins.py): sin la env no monta
+# nada. Un plugin declarado y roto levanta PluginLoadError y el arranque se cae (fail-loud).
+# Va después de todos los routers del core y antes de CORS (ADAPT-022 de Sentinel).
+from .plugins import mount_plugin_routers  # noqa: E402
+
+mount_plugin_routers(app)
 
 # Configure CORS
 app.add_middleware(

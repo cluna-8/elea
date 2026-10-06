@@ -96,6 +96,17 @@ Endpoints auxiliares de la superficie `base_url`: `GET /api/v1/gw` responde el *
 (estas dos rutas auxiliares no enmascaran: el conteo de tokens necesita el texto real y el
 destino es el propio upstream de la sesión).
 
+🟡 **Formato de chat estándar del sector** — `POST /api/v1/gw/v1/chat/completions` es una
+segunda puerta, junto a `/v1/messages`, para las herramientas que hablan ese formato. Está
+**siempre montada**, pero **solo sirve con una virtual key** (`sk-sentinel-…`, modo `byok`): sin
+llave responde `401` en el formato de error de esa API (no hay passthrough de suscripción por
+esta ruta, porque ese upstream no habla este formato). No es un traductor ni una segunda
+política: aplica la misma política que las demás rutas (bloqueo, secretos, enmascarado
+reversible y auditoría) y, igual que ellas, no se atiende si el registro de auditoría no está
+disponible. Estado honesto: cubierta por pruebas de contrato, **sin verificación en vivo
+todavía** — no se la promete como 🟢 hasta confirmarla con una herramienta real. La pantalla de
+discovery (`GET /api/v1/gw`) no la lista.
+
 ---
 
 ## 2. Tabla de compatibilidad

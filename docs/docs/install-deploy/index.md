@@ -269,6 +269,11 @@ sequenceDiagram
    sensibles. **Los defaults de desarrollo jamás llegan a un cliente** — el gate del release
    incluye checks de que no haya secretos default en runtime ni secretos en claro en el
    state. En el camino compose, los secretos van en el env de la instalación. 🟡
+    - *Entorno extra (opcional)*: con `EXTRA_ENV_FILE=<fichero>`, el compose de producción
+      suma las variables de ese fichero al backend y al motor. Sin la variable (o si el
+      fichero no existe) el entorno efectivo es el de siempre. Lo declarado por el compose
+      **gana** sobre el fichero: sirve para agregar variables, no para pisar las del
+      producto. Requiere Docker Compose **2.24 o superior**. 🟢
 5. **Arranque + migraciones.** El backend corre `alembic upgrade head` al bootear, creando
    el esquema multi-tenant. El motor corre sus propias migraciones de base de datos. ⚠️ En
    el **primer boot** el motor puede reportarse `unhealthy` por timeout aunque haya

@@ -26,8 +26,12 @@ PYWAIT
 # 2) Alembic con REINTENTOS: en el primer arranque el motor corre SUS propias
 #    migraciones (Prisma, ~6-8 min) sobre la misma base — la contención de locks
 #    DDL puede tumbar un intento; reintentar es benigno (alembic es idempotente).
+#    Con ALEMBIC_EXTRA_VERSION_LOCATIONS (migraciones de extensiones) hay una rama por
+#    extensión y el target pasa a `heads`; sin la env, `head` como siempre.
+ALEMBIC_TARGET=head
+[ -n "${ALEMBIC_EXTRA_VERSION_LOCATIONS:-}" ] && ALEMBIC_TARGET=heads
 for intento in 1 2 3 4 5; do
-    if python -m alembic upgrade head; then
+    if python -m alembic upgrade "$ALEMBIC_TARGET"; then
         break
     fi
     echo "alembic: intento $intento falló (¿contención con las migraciones del motor?); reintento en 20s" >&2

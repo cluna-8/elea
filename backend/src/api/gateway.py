@@ -74,6 +74,7 @@ from sqlalchemy import or_
 from starlette.concurrency import run_in_threadpool
 
 from ..database import SessionLocal, tenant_context
+from . import gateway_plugins as gp
 from ..licensing.degraded import require_not_hard_blocked
 from ..models.budget import APIKey
 from ..models.tenant import DEFAULT_TENANT_ID, Tenant
@@ -832,7 +833,8 @@ def _tenant_atribuible(ident: dict) -> bool:
 
 def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
                                 redact_header: Optional[str],
-                                route: str = ROUTE_GATEWAY_PASSTHROUGH) -> Profile:
+                                route: str = ROUTE_GATEWAY_PASSTHROUGH,
+                                force_masking: bool = False) -> Profile:
     """Postura efectiva de ESTE pedido (spec 027 T026).
 
     - **Modo** desde el ruteo EFECTIVO, jamás desde ``upstream_mode`` crudo: acá solo llega
@@ -875,10 +877,14 @@ def _resolve_governance_profile(ident: dict, ua_tool: Optional[str],
     emitir la Connection, que es exactamente el dato del admin que la regla exige.
 
     No abre sesión: las filas ya vinieron con la identidad. Sin decisiones legibles, la
-    cascada resuelve los defaults de producto (piso + masking on)."""
+    cascada resuelve los defaults de producto (piso + masking on).
+
+    ``force_masking`` es la vía de un plugin de pasarela (``governance_overrides``): entra
+    por el MISMO nivel Connection que el header y con la misma regla — sólo puede agregar
+    protección, nunca apagarla."""
     surface, trusted = _resolve_surface(ident, ua_tool)
     overrides = dict(build_connection_overrides(ident.get("redact_enabled")))
-    if _redact_header_override(redact_header) == ON:
+    if force_masking or _redact_header_override(redact_header) == ON:
         overrides["pii_masking"] = ON
     profile = resolve_tenant_profile(
         None, ident.get("tenant_id"),
@@ -1041,7 +1047,8 @@ def sanear_modelo_declarado(declarado):
 def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
            masked_entities: list, latency_ms: int, attribution=None, *,
            acted_for_user_id=None, surface: Optional[str] = None,
-           event_type: str = "traffic", document_group_id=None) -> bool:
+           event_type: str = "traffic", document_group_id=None,
+           routing_decision: Optional[dict] = None) -> bool:
     """AuditLog metadata-only en sesión fresca, scopeada al tenant resuelto (el GUC de
     RLS se inyecta por ``tenant_context`` → correcto también bajo la 017). Nunca texto
     de prompt ni el mapa reversible (Constraint C1).
@@ -1088,6 +1095,10 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
     excepción que este mismo frame se traga: cero efecto observable y un acoplamiento nuevo.
     El chat sí se lo pasa porque ALLÁ la excepción es el mecanismo del 503 (su camino feliz
     bufferiza entero: cero ``StreamingResponse`` en `chat.py`, medido).
+
+    ``routing_decision`` viaja a la columna JSONB que ya llena el plano chat: en este plano
+    sólo la escribe un plugin (``GatewayContext.routing_decision``). Sin plugins es ``None``,
+    que es el default del escritor — la fila sale igual que siempre.
     """
     # Bug real encontrado en revisión (09-sep): `document_id` es "opcional, efímero,
     # generado por el cliente" (docstring de `PlaceholderMap`) — nunca se garantiza que
@@ -1130,6 +1141,7 @@ def _audit(ident: dict, model: str, in_tok: int, out_tok: int, status: str,
                 processing_purpose="coding-assistant",
                 applied_layers=(attribution.applied_layers if attribution else None),
                 blocked_by_layer=(attribution.blocked_by_layer if attribution else None),
+                routing_decision=routing_decision,
                 tenant_id=tid,
                 # Spec 043: kwargs nuevos, todos con default idéntico al comportamiento
                 # anterior — los 8 call-sites de este mismo archivo (passthrough byok) no
@@ -1344,7 +1356,7 @@ def _registrar_rechazo_por_capacidad(sentinel_key: Optional[str], model: str, to
 
 
 async def _rechazo_por_capacidad(request: Request, sentinel_key: Optional[str], model: str,
-                                 start: float):
+                                 start: float, *, error_fn=None):
     """503 AUDITADO del tope de admisión (nodo C1), para el camino byok de este plano.
 
     Registrar → rechazar, la misma secuencia que el bloqueo por política: fila durable
@@ -1379,7 +1391,10 @@ async def _rechazo_por_capacidad(request: Request, sentinel_key: Optional[str], 
     # contestar antes es otra decisión, con semántica de pérdida propia, y es de JF.
     await run_in_threadpool(_registrar_rechazo_por_capacidad, sentinel_key, model, tool, latency)
     logger.warning("gateway byok: pedido rechazado por capacidad (tool=%s model=%s)", tool, model)
-    return _anthropic_error(
+    # `error_fn`: la forma del error la pone la RUTA, no este helper. La ruta de mensajes
+    # usa el shape que parsean las coding tools; la de chat estándar necesita el suyo, o el
+    # cliente muestra "error de red" en vez del motivo. Default = el de siempre.
+    return (error_fn or _anthropic_error)(
         "[Sentinel Gateway] El modelo está a capacidad; el pedido no se encoló para no degradar "
         "el resto del producto. Reintentá en unos segundos.",
         503,
@@ -1519,13 +1534,64 @@ class _StreamConTurno(StreamingResponse):
                     await run_in_threadpool(self._auditoria)
 
 
+# ── plugins de pasarela (``gateway_plugins``): helpers de los call-sites ──────────────
+# Todos reciben ``ctx`` y con ``ctx=None`` (sin plugins registrados) hacen EXACTAMENTE lo que
+# el código hacía antes en línea: es la forma de que la costura no cambie un byte sin plugins.
+
+async def _plugins_pre_engine(ctx, request: Request, raw: Optional[bytes], headers: dict,
+                              byok: bool):
+    """Allowlist de headers (sólo byok) + ``pre_engine``. Devuelve ``(raw, headers)``.
+
+    La allowlist existe sólo en byok porque es el único modo que NO reenvía los headers del
+    cliente (manda 4 fijos al motor); en suscripción ya viaja todo menos lo de control. Se
+    le resta ``_HOP_BY_HOP`` y lo ya presente: un plugin puede sumar headers, no reabrir los
+    de control ni duplicar el ``Authorization`` de la virtual key con otra capitalización."""
+    if byok:
+        permitidos = gp.forward_headers_allowlist(ctx) - _HOP_BY_HOP
+        ya = {k.lower() for k in headers}
+        headers = {**headers, **{k: v for k, v in request.headers.items()
+                                 if k.lower() in permitidos and k.lower() not in ya}}
+    try:
+        body = json.loads(raw) if raw else {}
+    except ValueError:
+        return raw, headers  # cuerpo no-JSON (count_tokens): contesta el destino su error
+    body, headers = await gp.run_pre_engine(ctx, body, headers)
+    return (json.dumps(body).encode("utf-8") if raw else raw), headers
+
+
+async def _respuesta_destino(ctx, status: int, content: bytes, media_type: str,
+                             exito_mapeable: bool = False) -> Response:
+    """Respuesta al cliente con lo que contestó el destino; un error (>= 400) pasa antes por
+    ``map_error`` de los plugins, que puede reescribir estado, cuerpo y headers.
+
+    ``exito_mapeable`` marca los dos call-sites donde una respuesta exitosa (< 400) pasa por
+    ``map_response``: el no-stream de ``/v1/messages`` en byok y en suscripción. Los streams
+    ya tienen ``wrap_stream`` y ``/v1/models`` su ``models_filter``; abrir el hook ahí
+    daría dos formas de tocar la misma respuesta."""
+    if ctx is not None and (status >= 400 or exito_mapeable):
+        mapped = await (gp.run_map_error(ctx, status, content) if status >= 400
+                        else gp.run_map_response(ctx, status, content))
+        if mapped is not None:
+            status, content, headers = mapped
+            return Response(content=content, status_code=status, headers=headers or None,
+                            media_type=media_type)
+    return Response(content=content, status_code=status, media_type=media_type)
+
+
 async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str], is_stream: bool,
-                      *, model: str = "unknown", start: Optional[float] = None):
+                      *, model: str = "unknown", start: Optional[float] = None,
+                      ruta_motor: str = "/v1/messages", error_fn=None, ctx=None):
     """Router FINO al motor LiteLLM (spec 019 US2). El body va **verbatim** (el motor
     enmascara/bloquea/audita vía SentinelGuardrail); el gateway NO aplica política acá para
     no duplicarla. Límite conocido (spike 019 batch 1, issue #27): en rutas bridged
     (modelos no-Claude) el unmask de respuesta del motor NO corre hoy — la respuesta
     puede traer placeholders; fail-safe, fix-spec pendiente.
+
+    ``ruta_motor`` / ``error_fn`` (spec 045): lo ÚNICO que este router tiene acoplado a un
+    formato concreto es la URL del motor y la forma del error. El cuerpo va verbatim y no se
+    parsea, así que servir el formato de chat estándar es cambiar esos dos parámetros — no
+    escribir un traductor ni una segunda política. Los defaults dejan la ruta de mensajes
+    exactamente como estaba.
 
     **Tope de admisión (nodo C1):** este es el camino de este plano que va AL MOTOR, o sea el
     que comparte cola con el chat y el que puede quedarse esperando una generación local de
@@ -1535,7 +1601,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
     # F2 fail-closed: byok EXIGE una virtual key. Sin ella no se cae al master key del
     # motor (sería un bypass a PROXY_ADMIN saltando custom_auth/budgets/atribución).
     if not sentinel_key:
-        return _anthropic_error("[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).", 401)
+        return (error_fn or _anthropic_error)("[Sentinel Gateway] byok requiere una virtual key (sk-sentinel-…).", 401)
     if start is None:
         start = time.time()
 
@@ -1543,7 +1609,7 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
     try:
         await turno.adquirir()
     except EngineSaturatedError:
-        return await _rechazo_por_capacidad(request, sentinel_key, model, start)
+        return await _rechazo_por_capacidad(request, sentinel_key, model, start, error_fn=error_fn)
 
     # A partir de acá el turno YA está tomado, y todo lo que siga vive dentro de este `try`
     # (H8 del gate de #135). Antes, la URL, los headers y la construcción del cliente corrían
@@ -1556,8 +1622,10 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
     # error son varias y olvidarse en una es exactamente el bug.
     turno_traspasado = False
     try:
-        url = _with_query(f"{_LITELLM_UPSTREAM}/v1/messages", request)
+        url = _with_query(f"{_LITELLM_UPSTREAM}{ruta_motor}", request)
         headers = _byok_headers(request, sentinel_key)
+        if ctx is not None:
+            raw, headers = await _plugins_pre_engine(ctx, request, raw, headers, byok=True)
 
         if not is_stream:
             # Timeout PROPIO de este camino (`SENTINEL_GW_BYOK_TIMEOUT_SECONDS`, 150 s de default) y
@@ -1567,9 +1635,10 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
                 async with httpx.AsyncClient(timeout=GW_BYOK_TIMEOUT_SECONDS) as client:
                     up = await client.post(url, headers=headers, content=raw)
             except Exception as exc:  # noqa: BLE001
-                return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
-            return Response(content=up.content, status_code=up.status_code,
-                            media_type=up.headers.get("content-type", "application/json"))
+                return (error_fn or _anthropic_error)(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
+            return await _respuesta_destino(ctx, up.status_code, up.content,
+                                            up.headers.get("content-type", "application/json"),
+                                            exito_mapeable=True)
 
         # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS. El
         # read es el de `SENTINEL_GW_BYOK_READ_TIMEOUT_SECONDS` y NO los 60 s del passthrough: aquel
@@ -1583,13 +1652,13 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
             up = await client.send(req, stream=True)
         except Exception as exc:  # noqa: BLE001
             await client.aclose()
-            return _anthropic_error(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
+            return (error_fn or _anthropic_error)(f"[Sentinel Gateway] motor no disponible: {sanitize_engine_error(str(exc))}", 502)
         if up.status_code != 200:
             err = await up.aread()
             await up.aclose()
             await client.aclose()
-            return Response(content=err, status_code=up.status_code,
-                            media_type=up.headers.get("content-type", "application/json"))
+            return await _respuesta_destino(ctx, up.status_code, err,
+                                            up.headers.get("content-type", "application/json"))
 
         async def gen():
             try:
@@ -1613,7 +1682,8 @@ async def _byok_proxy(request: Request, raw: bytes, sentinel_key: Optional[str],
         # verdad. Soltarlo acá haría que el tope acotara "pedidos hasta el primer byte" en vez de
         # generaciones concurrentes — o sea, que no acotara nada. Y va en la respuesta y no en el
         # generador porque el generador puede no arrancar nunca (ver `_StreamConTurno`).
-        respuesta = _StreamConTurno(gen(), turno=turno, cierres=(up, client), status_code=200,
+        contenido = gen() if ctx is None else gp.wrap_stream(ctx, gen())
+        respuesta = _StreamConTurno(contenido, turno=turno, cierres=(up, client), status_code=200,
                                     media_type=up.headers.get("content-type",
                                                               "text/event-stream"))
         turno_traspasado = True
@@ -1665,6 +1735,22 @@ async def gw_messages(
     # ── ruteo de puerta única (spec 019): byok → motor (política del motor), else
     # passthrough de suscripción → Anthropic (política del gateway) ──
     mode, x_sentinel_key = _detect_mode_and_key(request, x_sentinel_upstream, x_sentinel_key)
+    # Plugins de pasarela: SÓLO si hay alguno se construye el contexto. En byok eso cuesta
+    # resolver la identidad acá (sin plugins el byok no la resuelve: la resuelve el motor),
+    # porque un plugin que decide por tenant la necesita en los dos modos.
+    ctx = None
+    if gp.active():
+        ctx = gp.GatewayContext(route="/v1/messages", request_headers=request.headers,
+                                mode="byok" if mode == "byok" else "subscription",
+                                ident=_resolve_attribution(x_sentinel_key), model=model)
+        corte = await gp.run_pre_request(ctx)
+        if corte is not None:
+            # Registrar → cortar (FR-001) también para el corte de un plugin, EN LOS DOS
+            # modos: en byok el pedido no llega al motor, así que si esta fila no se escribe
+            # acá no la escribe nadie.
+            _audit(ctx.ident, model, 0, 0, gp.STATUS_PLUGIN_BLOCK, [],
+                   int((time.time() - start) * 1000), None, routing_decision=ctx.routing_decision)
+            return corte
     if mode == "byok":
         # Modo `closed` (spec 031, FR-005): el corte por auditoría es del plano que TIENE la
         # sesión de base. El motor hace su propio pre-check contra `/internal/audit/probe`,
@@ -1697,9 +1783,9 @@ async def gw_messages(
             except Exception:  # noqa: BLE001 — jamás por un nombre para la auditoría
                 pass
         return await _byok_proxy(request, enviado, x_sentinel_key, is_stream,
-                                 model=modelo_al_motor, start=start)
+                                 model=modelo_al_motor, start=start, ctx=ctx)
 
-    ident = _resolve_attribution(x_sentinel_key)
+    ident = ctx.ident if ctx is not None else _resolve_attribution(x_sentinel_key)
     # La decisión servir/cortar de ESTE pedido (spec 038 T007), resuelta UNA vez y leída por
     # los tres puntos que la necesitan: el pre-check del camino feliz y los dos rechazos que
     # ya escriben fila (bloqueo y literal reservado). Una sola llamada y no tres: en `policy`
@@ -1709,13 +1795,20 @@ async def gw_messages(
     exige_registro = audit_exige_registro(ident.get("applied_risk_level"))
     tool = policy.detect_tool(request.headers.get("user-agent"))
     # Postura de gobernanza del tenant para (modo efectivo, superficie) — spec 027 T026.
-    profile = _resolve_governance_profile(ident, tool, x_sentinel_redact)
+    # `governance_overrides` de un plugin: se honran SÓLO en el sentido restrictivo (forzar el
+    # enmascarado, fail mode `block`), misma regla que `X-Sentinel-Redact` — un plugin puede subir
+    # la protección del pedido, jamás bajar la postura que resolvió el administrador.
+    overrides = ctx.governance_overrides if ctx is not None else {}
+    profile = _resolve_governance_profile(ident, tool, x_sentinel_redact,
+                                          force_masking=overrides.get("pii_masking") is True)
 
     # ── política: bloquear/enmascarar (misma librería que el motor) ──
     # `ident["nlp"]` (issue #63) lleva el contexto de detección del tenant: con
     # `NLP_ANALYZER_URL` configurada este plano usa el sidecar NLP —igual que el motor— en vez
     # del regex de dev que usaba siempre.
     nlp_ctx = ident.get("nlp") or {}
+    if overrides.get("nlp_fail_mode") == policy.NLP_FAIL_BLOCK:
+        nlp_ctx = {**nlp_ctx, "nlp_fail_mode": policy.NLP_FAIL_BLOCK}
     block_reason, status, ph_to_orig, masked_entities, attribution = \
         await evaluate_request_policy(body, profile, nlp_ctx)
     # Preview SIEMPRE display-masked (contrato evento §10): se construye sobre un mapa
@@ -1734,7 +1827,8 @@ async def gw_messages(
         latency = int((time.time() - start) * 1000)
         # Registrar → bloquear (FR-001): la fila durable se escribe ANTES de devolver el
         # rechazo, y con la 031 su resultado además decide la respuesta en modo `closed`.
-        registrado = _audit(ident, model, 0, 0, status, masked_entities, latency, attribution)
+        registrado = _audit(ident, model, 0, 0, status, masked_entities, latency, attribution,
+                            routing_decision=gp.routing_of(ctx))
         _publish_monitor(ident, tool, model, status, masked_entities, preview,
                          attribution=attribution)
         logger.info("gateway BLOCK (%s) tool=%s model=%s layer=%s registrado=%s",
@@ -1765,7 +1859,8 @@ async def gw_messages(
     # pedido acá dejaría el intento sin ninguna fila — exactamente lo que este orden prohíbe.
     if modelo_usurpado:
         latency = int((time.time() - start) * 1000)
-        registrado = _audit(ident, model, 0, 0, status, masked_entities, latency, attribution)
+        registrado = _audit(ident, model, 0, 0, status, masked_entities, latency, attribution,
+                            routing_decision=gp.routing_of(ctx))
         _publish_monitor(ident, tool, model, status, masked_entities, preview,
                          attribution=attribution)
         logger.warning("gateway 422 modelo reservado: el cliente declaró el literal de la "
@@ -1780,6 +1875,21 @@ async def gw_messages(
             f"[Sentinel Gateway] '{MODELO_CADENA_LICENCIAS}' es un literal reservado de la "
             "auditoría —marca los eslabones de la cadena de evidencia de licencias— y no "
             "puede usarse como nombre de modelo. El intento quedó registrado.", 422)
+
+    # `post_mask` de los plugins: ven el veredicto del gateway (y el body ya enmascarado) y
+    # pueden cortar. Va DESPUÉS de los bloqueos propios —el veredicto de las capas gana— y con
+    # el mismo orden registrar → cortar que ellos.
+    if ctx is not None:
+        corte = await gp.run_post_mask(ctx, {
+            "status": status, "masked_entities": masked_entities, "body": body,
+            "applied_layers": attribution.applied_layers})
+        if corte is not None:
+            latency = int((time.time() - start) * 1000)
+            registrado = _audit(ident, model, 0, 0, gp.STATUS_PLUGIN_BLOCK, masked_entities,
+                                latency, attribution, routing_decision=ctx.routing_decision)
+            _publish_monitor(ident, tool, model, gp.STATUS_PLUGIN_BLOCK, masked_entities,
+                             preview, attribution=attribution)
+            return _audit_no_disponible() if not registrado and exige_registro else corte
 
     # Pedido permitido: si exige registro, confirmar que se va a poder registrar ANTES de
     # gastar dinero en el proveedor (FR-005, literal). Si no lo exige —`open`, o `policy` con
@@ -1812,6 +1922,9 @@ async def gw_messages(
     send_raw = json.dumps(body).encode("utf-8") if ph_to_orig else raw
     url = _with_query(f"{_ANTHROPIC_UPSTREAM}/v1/messages", request)
     up_headers = _upstream_headers(request, ident)
+    if ctx is not None:
+        send_raw, up_headers = await _plugins_pre_engine(ctx, request, send_raw, up_headers,
+                                                         byok=False)
 
     # ── no-streaming ──
     if not is_stream:
@@ -1820,7 +1933,8 @@ async def gw_messages(
                 up = await client.post(url, headers=up_headers, content=send_raw)
         except Exception as exc:  # noqa: BLE001
             latency = int((time.time() - start) * 1000)
-            _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
+            _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution,
+                   routing_decision=gp.routing_of(ctx))
             return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {sanitize_engine_error(str(exc))}", 502)
 
         in_tok = out_tok = 0
@@ -1840,11 +1954,13 @@ async def gw_messages(
         # gastó, así que un 503 tardío no des-serviría nada — sólo escondería la respuesta
         # que el cliente ya pagó. El contrato (§closed) lo dice literal: el pre-check corta
         # ANTES; lo que falle después es retry + contador. Mismo criterio en el streaming.
-        _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency, attribution)
+        _audit(ident, model, in_tok, out_tok, final_status, masked_entities, latency, attribution,
+               routing_decision=gp.routing_of(ctx))
         _publish_monitor(ident, tool, model, final_status, masked_entities, preview,
                          attribution=attribution)
-        return Response(content=content_out, status_code=up.status_code,
-                        media_type=up.headers.get("content-type", "application/json"))
+        return await _respuesta_destino(ctx, up.status_code, content_out,
+                                        up.headers.get("content-type", "application/json"),
+                                        exito_mapeable=True)
 
     # ── streaming (SSE) ──
     # Total sin límite (los streams legítimos son largos) pero connect/read ACOTADOS:
@@ -1857,7 +1973,8 @@ async def gw_messages(
     except Exception as exc:  # noqa: BLE001
         await client.aclose()
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
+        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution,
+               routing_decision=gp.routing_of(ctx))
         return _anthropic_error(f"[Sentinel Gateway] No se pudo contactar el modelo upstream: {sanitize_engine_error(str(exc))}", 502)
 
     if up.status_code != 200:
@@ -1865,9 +1982,10 @@ async def gw_messages(
         await up.aclose()
         await client.aclose()
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution)
-        return Response(content=err_body, status_code=up.status_code,
-                        media_type=up.headers.get("content-type", "application/json"))
+        _audit(ident, model, 0, 0, "upstream_error", masked_entities, latency, attribution,
+               routing_decision=gp.routing_of(ctx))
+        return await _respuesta_destino(ctx, up.status_code, err_body,
+                                        up.headers.get("content-type", "application/json"))
 
     # Estado compartido entre el generador —que acumula los tokens vistos y marca cuándo drenó
     # entero— y la auditoría diferida, que corre en el `finally` de la RESPUESTA y no en el del
@@ -1904,7 +2022,8 @@ async def gw_messages(
         else:
             fin_status = STATUS_PASSTHROUGH_CANCELADO
         latency = int((time.time() - start) * 1000)
-        _audit(ident, model, in_tok, out_tok, fin_status, masked_entities, latency, attribution)
+        _audit(ident, model, in_tok, out_tok, fin_status, masked_entities, latency, attribution,
+               routing_decision=gp.routing_of(ctx))
         _publish_monitor(ident, tool, model, fin_status, masked_entities, preview,
                          attribution=attribution)
         logger.info("gateway PROXY %s tool=%s model=%s in=%d out=%d masked=%d",
@@ -1979,7 +2098,8 @@ async def gw_messages(
     # generador: `_StreamConTurno` los corre en su `finally`, que starlette ejecuta SIEMPRE —aun
     # si el generador nunca arranca (PEP 525) o lo cancelan a mitad—. `turno=None`: el passthrough
     # no gatea admisión (#134-③).
-    return _StreamConTurno(gen(), turno=None, cierres=(up, client),
+    return _StreamConTurno(gen() if ctx is None else gp.wrap_stream(ctx, gen()),
+                           turno=None, cierres=(up, client),
                            auditoria=_auditar_passthrough, status_code=200,
                            media_type=up.headers.get("content-type", "text/event-stream"))
 
@@ -2006,6 +2126,19 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
     proteger) y sin ahorrar dinero (no hay generación que pagar). El corte vive donde sí hay
     tráfico auditable y facturable: ``/v1/messages``."""
     mode, sentinel_key = _detect_mode_and_key(request, x_sentinel_upstream, x_sentinel_key)
+    ctx = None
+    if gp.active():
+        # La identidad del contexto es la de la llave DETECTADA (header de auth o X-Sentinel-Key),
+        # igual que en /v1/messages: Claude Desktop manda la virtual key en `Authorization`, y
+        # con el `ident` que llega (solo X-Sentinel-Key) el plugin recibía el tenant por defecto
+        # sin llave (`api_key_id` None): se re-resuelve con la llave detectada.
+        if sentinel_key and not (ident or {}).get("api_key_id"):
+            ident = _resolve_attribution(sentinel_key)
+        ctx = gp.GatewayContext(route=path, request_headers=request.headers, ident=ident,
+                                mode="byok" if mode == "byok" else "subscription")
+        corte = await gp.run_pre_request(ctx)  # p.ej. un count_tokens estimado localmente
+        if corte is not None:
+            return corte
     if mode == "byok":
         # F2: mismo fail-closed que /v1/messages — byok sin virtual key jamás usa el
         # master key del motor (evita el bypass a PROXY_ADMIN en count_tokens/models).
@@ -2016,16 +2149,28 @@ async def _plain_passthrough(request: Request, path: str, method: str, ident: di
     else:
         url = _with_query(f"{_ANTHROPIC_UPSTREAM}{path}", request)
         up_headers = _upstream_headers(request, ident)
+    contenido = None if method == "GET" else await request.body()
+    if ctx is not None:
+        contenido, up_headers = await _plugins_pre_engine(ctx, request, contenido, up_headers,
+                                                          byok=mode == "byok")
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             if method == "GET":
                 up = await client.get(url, headers=up_headers)
             else:
-                up = await client.post(url, headers=up_headers, content=await request.body())
-        return Response(content=up.content, status_code=up.status_code,
-                        media_type=up.headers.get("content-type", "application/json"))
+                up = await client.post(url, headers=up_headers, content=contenido)
     except Exception as exc:  # noqa: BLE001
         return _anthropic_error(f"[Sentinel Gateway] upstream: {sanitize_engine_error(str(exc))}", 502)
+    media = up.headers.get("content-type", "application/json")
+    # `models_filter` corre SIEMPRE que haya plugins (no sólo si alguno lo implementa): el
+    # catálogo re-serializado es el mismo con o sin filtro, y así la forma de la respuesta no
+    # depende de qué plugin esté cargado. Fuera del `try` a propósito: un plugin que revienta
+    # no es un «upstream» caído y no puede disfrazarse de 502.
+    if ctx is not None and path == "/v1/models" and up.status_code == 200:
+        listing = await gp.run_models_filter(ctx, up.json())
+        return Response(content=json.dumps(listing).encode("utf-8"), status_code=200,
+                        media_type=media)
+    return await _respuesta_destino(ctx, up.status_code, up.content, media)
 
 
 @router.post("/v1/messages/count_tokens", dependencies=_HARD_BLOCK)
@@ -2053,7 +2198,7 @@ async def gw_info():
         "endpoints": ["/gw/v1/messages", "/gw/v1/messages/count_tokens", "/gw/v1/models"],
         "modes": {
             "subscription-passthrough": "OAuth del cliente verbatim → api.anthropic.com (la suscripción paga); política del gateway.",
-            "byok": "virtual key sk-sentinel-… → motor LiteLLM (cost tracking + budgets); la política la aplica el motor.",
+            "byok": "virtual key sk-sentinel-… → motor de IA de la plataforma (control de costos y presupuestos); la política la aplica el motor.",
         },
         "routing": "auto: sk-sentinel-… en header de auth (excl. x-sentinel-*) o en ?k=… → byok; si no, passthrough. Override: X-Sentinel-Upstream.",
         # La entrada de X-Sentinel-Redact cambió con la 027: prometía un override 1/0 y hoy

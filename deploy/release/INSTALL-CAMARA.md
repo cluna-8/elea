@@ -97,7 +97,7 @@ máquina del cliente. Si tienen otro (o prefieren usar uno suyo), dos caminos:
 
 - **Antes de instalar** (si lo sabemos de antemano): editar `CLIENT_OLLAMA_MODEL` en el
   `client.env` del perfil y re-renderizar/re-bundlear — una línea.
-- **En la sede, por UI** (sin tocar ficheros): panel admin → **Modelos & Ollama →
+- **En la sede, por UI** (sin tocar ficheros): panel admin → **Modelos →
   + Agregar Modelo → + Modelo personalizado** → proveedor «Ollama (Local)», modelo exacto
   de `ollama list`, api base `http://IP-DEL-Z2:11434`, sin key → **Aplicar cambios del
   motor** → y en
@@ -116,11 +116,11 @@ ollama pull qwen3-embedding:0.6b
 
 Sin él, «Auto» sigue funcionando pero degrada todo al modelo por defecto (queda
 registrado como «ruteo degradado» en el Debugger y la auditoría — no rompe nada).
-El switch, las rutas y el modelo por defecto se gestionan en **Modelos & Ollama →
+El switch, las rutas y el modelo por defecto se gestionan en **Modelos →
 Ruteo inteligente** (aplican al instante, sin reiniciar el motor).
 
 🔴 **CLAVE — tras CADA alta de modelo por la UI, aplicar los cambios del motor:** panel
-**Modelos & Ollama → «Aplicar cambios del motor»** (spec 033; sólo rol admin). El supervisor
+**Modelos → «Aplicar cambios del motor»** (spec 033; sólo rol admin). El supervisor
 releé `config.yaml` y relanza el motor sin bajar el contenedor — el propio panel muestra el
 progreso (`Aplicando cambios…`) y, si falla, el motivo real del supervisor, no un mensaje
 genérico. Ya **no** hace falta `docker restart camara-litellm-1` a mano.
@@ -233,7 +233,7 @@ cd ~/sentinel-install/bundle-camara-comercio && docker compose -p camara -f comp
 
 | Síntoma | Causa |
 |---|---|
-| Playground «no hace nada» tras alta de modelo | Falta apretar «Aplicar cambios del motor» en Modelos & Ollama |
+| Playground «no hace nada» tras alta de modelo | Falta apretar «Aplicar cambios del motor» en Modelos |
 | Apreté «Aplicar cambios del motor» y no pasa nada / dice «Estado del motor no disponible» | `state: "unknown"` — no implica caja vieja por sí solo. Mirá el `last_error` que el panel pega debajo y confirmá el contenedor real con `docker ps` (nota de dos generaciones en el paso 2) antes de `docker restart` |
 | `Cannot connect to host host.docker.internal:11434` | Ollama sin `OLLAMA_HOST=0.0.0.0`, o stack en otra máquina → alta por UI con IP |
 | 401 en todo con clave válida | Motor sin `SENTINEL_IDENTITY_URL` |

@@ -1,17 +1,39 @@
 <!--
-SYNC IMPACT REPORT — Sentinel Guardian Constitution
-Version change: 2.1.0 -> 2.2.0 (MINOR: default nuevo [D10] + actualizacion factual de la regla (d)
-del Principio I, per Governance "defaults enmendables de una linea").
-Enmienda "D10 del #63" (decision sellada por el owner el 2026-08-07 en el issue #63; la pregunta
-abierta era la prioridad proteccion-vs-continuidad cuando el motor NLP cae — no estaba escrita).
+SYNC IMPACT REPORT — Sentinel Guardian Constitution (línea Eleia)
+Version change: 2.2.0 -> 2.3.0 (MINOR: guía materialmente ampliada de los Principios I, II y VII, y tres
+defaults nuevos [D13], [D14], [D15], per Governance "defaults enmendables de una línea").
+Enmienda de la spec 057 (porte de la redirección de modelos, Sentinel 068; research R21; tarea T001).
+Aprobada por el owner el 2026-10-06 (research R21). Alineada con la 2.4.0 de Sentinel (068/D19).
 
-- I. Privacy & PII/PHI Masking-First ....... regla (d) ACTUALIZADA (factual, sin cambio de mandato):
-    la señalizacion de degradacion que "se trackeaba en #63/#64" quedo resuelta para #63 — la
-    degradacion NLP ya no puede ser silenciosa en ningun plano y su postura es el default [D10].
-    #64 (packs regex por region) sigue abierto y se menciona como pendiente.
-- Decisiones: se agrega [D10] (nlp_fail_mode). Ningun principio cambia de mandato.
+AVISO DE DIVERGENCIA DE NUMERACIÓN: Sentinel ya tiene sus propias versiones 2.3.0 y 2.4.0
+(`6a70855:.specify/memory/constitution.md:3`) con su propio historial; esta línea no las trae enteras. La
+2.3.0 de Eleia NO es la 2.3.0 de Sentinel: la numeración de cada línea es independiente. Los defaults
+[D13] y [D14] conservan el número de Sentinel por paridad (mismo contenido, adaptado); [D11] y [D12] de
+Sentinel (texto enmascarado opcional, residencia apagable) no existen en Eleia y sus números quedan sin
+usar; [D15] es propio de Eleia (default de residencia por región y precedencia del forzado), y el punto 2 de
+068/D19 que Sentinel difirió se sincroniza con esta línea por HANDOFF, no al revés.
+
+- I. Privacy & PII/PHI Masking-First ....... AMPLIADO [D15]: mientras rige un enmascarado forzado (la
+    postura de la política de redirección de modelos), ese forzado gana sobre `nlp_fail_mode=degrade` [D10] y
+    sobre `redact_enabled=false` de la instalación y de la empresa. Es más estricto, no una excepción: el
+    mandato del Principio no cambia (la postura "no enmascarar" sigue siendo gobernable y jamás silenciosa
+    cuando el forzado no rige).
+- II. Compliance & Governance FIRST ....... AMPLIADO [D13] y [D15]: los rechazos por la postura de
+    residencia de la política de redirección de modelos responden 403 (`permission_error`), no 503 (el
+    503 de residencia del flujo proxy de la base no cambia); el default de residencia del tráfico
+    redirigido es un dato configurable por región del perfil de país, no una constante de código. La
+    normativa a la que remite el Principio II se lee como la del perfil de país activo (en Eleia: Ley
+    25.326/AAIP); GDPR y EU AI Act rigen solo en el perfil que los nombra.
+- VII. Containerized & White-Label ....... AMPLIADO [D14]: los datos que carga el administrador (ids
+    públicos de modelo, nombres de destino) y los literales que exige el protocolo de la herramienta
+    cliente quedan fuera de la prohibición de nombres de motor y proveedor.
+- Decisiones: se agregan [D13], [D14] y [D15]. La enmienda NO fija valores de Eleia (reglas de
+    bloqueo vacías, postura `masked_all`): son datos del seed, no de la constitución.
 - Secciones agregadas/quitadas: ninguna. Los 8 principios se conservan.
-- Informes anteriores (1.0.0 -> 2.0.0 -> 2.1.0): en la historia git.
+- Templates: plan-template (Constitution Check genérico), spec-template, tasks-template y
+    checklist-template revisados — sin referencias a códigos de residencia ni a la regla de nombres;
+    sin cambios necesarios (✅).
+- Informes anteriores (2.1.0 -> 2.2.0, 1.0.0 -> 2.0.0 -> 2.1.0): en la historia git.
 -->
 
 # Sentinel Guardian — Constitución
@@ -49,12 +71,20 @@ degradación es **ruidosa y gobernable** desde el #63, ver [D10]; los packs rege
 trackean en #64). La política de enmascaramiento
 (`entity_configs`) DEBE ser **scopeable por grupo con override por cliente** (reemplazando el
 singleton global actual).
+**Precedencia del enmascarado forzado [D15]:** cuando la política de redirección de modelos impone un
+enmascarado forzado (postura por defecto de la región o postura de residencia), ese forzado **gana** sobre
+`nlp_fail_mode=degrade` ([D10]) y sobre `redact_enabled=false` de la instalación y de la empresa, y el
+analizador cae en modo bloqueo (fail-closed): el pedido sale enmascarado de verdad o se rechaza, nunca
+sin enmascarar. Solo una relajación explícita y registrada de cumplimiento lo quita, por destino o por
+región, y mientras el forzado rige el fail-closed no se relaja. Es más estricto que la regla general, no
+una excepción a ella: sin forzado, rigen [D10] y `redact_enabled` como antes.
 
 ### II. Compliance & Governance FIRST (GDPR + EU AI Act)
 La compliance es la **propuesta de valor central** y opera en **dos niveles que la constitución no debe
 confundir**:
 1. **Enforcement duro (bloquea en runtime, real hoy):** prácticas prohibidas del EU AI Act Art.5 (→ HTTP 400),
-   entidades PII marcadas `BLOCK`, secretos/keys, y violación de residencia EU en el flujo proxy (→ 503).
+   entidades PII marcadas `BLOCK`, secretos/keys, y violación de residencia EU en el flujo proxy (→ 503;
+   la redirección de modelos responde 403, ver [D13] abajo).
 2. **Evidencia/accountability auditada (GDPR Art.5(2), NO bloquea en runtime, real como registro):**
    base legal, `ComplianceProject`, DPA registry, Data Subject Requests (Art.15-22), consent versionado,
    retention policy, DPIA, human-review ex-post, disclosure Art.50, panel DPO, reporting RoPA Art.30.
@@ -66,6 +96,14 @@ usuario opera *dentro* de su cliente (Claude Code, Copilot…) y nosotros interc
 lo que el **GDPR-routing es N/A** (forzar un endpoint EU rompería el flujo). Esto **no deroga** el principio
 de residencia: es una excepción documentada donde la garantía se traslada a otras capas (masking, audit,
 allowlist de herramientas/modelos permitidos). Endurecer los gates hoy "evidencia" es roadmap explícito [D3].
+**Código de rechazo de la redirección [D13]:** los rechazos por la postura de residencia **de la política
+de redirección de modelos** responden **403** (`permission_error`) en la pasarela; los errores propios de
+la base (su 503 de residencia del flujo proxy) no cambian.
+**Default de residencia de la redirección [D15]:** el tráfico redirigido se rige por una **postura por
+defecto por región del perfil de país**, un dato configurable (región → jurisdicciones y postura), no una
+constante de código; sin datos cargados rige el respaldo más estricto en código (enmascarado forzado y
+fail-closed). Los valores concretos de cada instalación (jurisdicciones, postura) son datos del perfil y del
+seed, nunca de esta constitución.
 
 ### III. Multi-Tenant by Design (forward-looking)
 **Requisito a construir, NO estado actual** (hoy el esquema es single-tenant: cero `tenant_id`, sin RLS).
@@ -117,7 +155,10 @@ de **suscripción** (que el motor no soporta) del módulo firewall — vive en e
 Backend, motor y frontend corren en **containers separados** (Docker Compose es la base de la verificación
 local). Ningún nombre de motor ni proveedor externo (LiteLLM, Anthropic, OpenAI, Azure, Meta, Presidio…)
 aparece en la API pública, mensajes de error, logs ni UI (naming neutro `AIEngineClient`/`engine_*`; strip de
-prefijos `litellm.*` → "Sentinel Gateway"). Cada demo/cliente = **configuración + seed** sobre el mismo código
+prefijos `litellm.*` → "Sentinel Gateway"). **Quedan fuera de la prohibición [D14]** los datos que carga el
+administrador (ids públicos de modelo, nombres de destino) y los campos literales que exige el protocolo
+de la herramienta cliente (p. ej. tipos de error o de evento que el harness valida); la prohibición rige
+para el texto que el producto genera. Cada demo/cliente = **configuración + seed** sobre el mismo código
 base, **nunca un fork** (el propio Sentinel Guardian nació de un fork que no debe repetirse).
 
 ### VIII. Pipeline Transparency & Explainability
@@ -191,6 +232,18 @@ es una enmienda de una línea:
   de postura queda registrado. Sin `NLP_ANALYZER_URL` configurada = modo dev/demo permitido pero
   visible. La granularidad por riesgo/rol NO vive aquí: se especifica junto con la política de
   auditoría (#72).
+- **[D13] Rechazo por residencia de la redirección = 403, no 503** (spec 057, research R21; paridad con
+  [D13] de Sentinel): el cliente recibe `permission_error`, un rechazo de política que no invita a
+  reintentar (Claude Code y Claude Desktop reintentan el 503 en bucle); el 503 de residencia de la base
+  queda como está.
+- **[D14] Nombres de proveedor: lo que carga el admin y lo que exige el protocolo no es naming del
+  producto** (spec 057, research R21; paridad con [D14] de Sentinel): un id público o un nombre de destino
+  cargado por el administrador, y un literal que la herramienta cliente exige para funcionar, pueden nombrar
+  a un proveedor sin violar el Principio VII.
+- **[D15] Default de residencia por región del perfil y precedencia del forzado** (spec 057, research R21,
+  FR-027, FR-031): la postura por defecto del tráfico redirigido es un dato configurable por región del
+  perfil de país (no fija `reject` ni `masked_all`: eso lo decide el seed de cada instalación), y mientras un
+  enmascarado forzado rige, gana sobre `nlp_fail_mode=degrade` y `redact_enabled=false`.
 
-**Versión**: 2.2.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Sentinel Secure AI Gateway" v1.0.0
-(2026-06-29) + feature/012 | **Última enmienda**: 2026-08-07 (D10 del #63: postura ante NLP caído)
+**Versión**: 2.3.0 | **Ratificada**: 2026-07-10 | **Basada en**: gatelite "Sentinel Secure AI Gateway" v1.0.0
+(2026-06-29) + feature/012 | **Última enmienda**: 2026-10-06 (spec 057: 403 de residencia de la redirección, alcance del naming neutro y default de residencia por región; antes, 2026-08-07, D10 del #63: postura ante NLP caído)

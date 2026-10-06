@@ -26,6 +26,9 @@ el mapa no puede fugar; verificado en ``validate_anthropic_api_metadata``) o en
 ``metadata`` (rutas openai, que el motor no reenvía). JAMÁS se persiste (C1): el
 audit logger lo scrubbea explícitamente.
 
+``masking_report`` (en el mismo metadata-home que ``sentinel_compliance``): resumen SIEMPRE
+presente del paso de PII — ``{completed, degraded, detected, masked}``, solo conteos.
+
 GOTCHAS aplicados (research T005): NO definir ``apply_guardrail`` (redirigiría todo
 al unified_guardrail); el override del streaming hook debe estar en ESTA clase hoja.
 
@@ -469,6 +472,12 @@ class SentinelGuardrail(CustomGuardrail):
             return None
 
         inicio = time.monotonic()
+        home = _metadata_home(data, call_type)
+        # Resumen del paso de PII, SIEMPRE presente (y sobrescrito: un valor sembrado por el
+        # cliente con esta clave no sobrevive). Solo conteos, jamás valores (C1). Se muta en
+        # el lugar a medida que avanza el hook; `completed` solo al final del camino feliz.
+        reporte = {"completed": False, "degraded": False, "detected": 0, "masked": 0}
+        home["masking_report"] = reporte
 
         async def _bloquear(mensaje: str, *, status: str, capa: str,
                             entidades: Optional[list] = None,
@@ -492,7 +501,6 @@ class SentinelGuardrail(CustomGuardrail):
 
         # 1) Enforcement duro: AI-Act Art.5 (400) — real hoy, nivel 1 de [D3]
         verdict = policy.evaluate_ai_act(inspect_text)
-        home = _metadata_home(data, call_type)
         home["sentinel_compliance"] = verdict
         if verdict["status"] == "blocked_prohibited":
             # str → HTTPException 400 (contrato del hook), con fila durable ya escrita.
@@ -518,126 +526,151 @@ class SentinelGuardrail(CustomGuardrail):
                 # el detalle vive en el mensaje al cliente, que no se persiste.
                 entidades=_conteo("SECRET", len(secrets)))
 
-        # 3) Mask PII reversible — toggle por Connection (NULL=heredar → True hoy)
-        if identity.get("redact_enabled", True):
-            custom_names = identity.get("custom_names") or []
-            custom_entities = identity.get("custom_entities") or []
+        # 3) PII — detección siempre (para `masking_report`); mask reversible según el
+        # toggle por Connection (NULL=heredar → True hoy).
+        custom_names = identity.get("custom_names") or []
+        custom_entities = identity.get("custom_entities") or []
 
-            # Región de patrones estructurados, por TENANT (spec 016 + extensión países
-            # reales, ADR pendiente). `SENTINEL_ENTITY_REGION` sigue siendo el default DE LA
-            # INSTALACIÓN (retrocompatible: una instalación existente que ya la fija
-            # sigue igual para todo tenant sin `region` propia); `identity.get("region")`
-            # la sobreescribe cuando el tenant tiene un país propio configurado — mismo
-            # mecanismo que `nlp_fail_mode` un poco más abajo.
-            region = policy.resolve_region(
-                identity, default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
+        # Región de patrones estructurados, por TENANT (spec 016 + extensión países
+        # reales, ADR pendiente). `SENTINEL_ENTITY_REGION` sigue siendo el default DE LA
+        # INSTALACIÓN (retrocompatible: una instalación existente que ya la fija
+        # sigue igual para todo tenant sin `region` propia); `identity.get("region")`
+        # la sobreescribe cuando el tenant tiene un país propio configurado — mismo
+        # mecanismo que `nlp_fail_mode` un poco más abajo.
+        region = policy.resolve_region(
+            identity, default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
 
-            async def _analyze_regex(texto: str) -> list:
-                """`default_analyze` con la región de ESTE tenant ya resuelta (H1 del gate
-                de #137): sin este binding, cualquier camino que caiga al regex de dev —sin
-                sidecar configurado, o degradado por el sidecar caído, más abajo— se
-                congelaba en `DEFAULT_REGION` (eu) aunque el NLP real ya resolviera por
-                tenant. Un degrade que pierde la región es la falla silenciosa clásica,
-                justo cuando el sistema ya está en problemas."""
-                return await policy.default_analyze(texto, region=region)
+        async def _analyze_regex(texto: str) -> list:
+            """`default_analyze` con la región de ESTE tenant ya resuelta (H1 del gate
+            de #137): sin este binding, cualquier camino que caiga al regex de dev —sin
+            sidecar configurado, o degradado por el sidecar caído, más abajo— se
+            congelaba en `DEFAULT_REGION` (eu) aunque el NLP real ya resolviera por
+            tenant. Un degrade que pierde la región es la falla silenciosa clásica,
+            justo cuando el sistema ya está en problemas."""
+            return await policy.default_analyze(texto, region=region)
 
-            if _PRESIDIO_URL:
-                async def _analyze(text: str) -> list:
-                    return await policy.presidio_analyze(
-                        text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
-            else:
-                logger.warning(
-                    "NLP_ANALYZER_URL no configurada — usando detección regex de "
-                    "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
-                )
-                _analyze = _analyze_regex
+        if _PRESIDIO_URL:
+            async def _analyze(text: str) -> list:
+                return await policy.presidio_analyze(
+                    text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
+        else:
+            logger.warning(
+                "NLP_ANALYZER_URL no configurada — usando detección regex de "
+                "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
+            )
+            _analyze = _analyze_regex
 
-            # Postura ante el analyzer CAÍDO (issue #63). Viaja con la identidad de la
-            # Connection (`custom_auth` la trae del `Guardian.config` del guardián
-            # `pii_masking`, igual que `custom_names`), así los DOS planos obedecen la misma
-            # decisión del admin. Ausente ⇒ `block`: el comportamiento de la 016 no cambia
-            # para ninguna instalación existente.
-            nlp_fail_mode = policy.resolve_nlp_fail_mode(identity)
-
-            async def _degradar_a_regex(texto_o_body, *, es_body: bool, pmap=None):
-                """Rehace la detección con el regex de dev y deja los tres rastros del #63.
-
-                `pmap` se REUSA a propósito cuando se degrada en medio de `mask_body`: si se
-                creara un mapa nuevo, los placeholders que el NLP ya alcanzó a insertar antes
-                de caerse quedarían huérfanos (otro nonce) y saldrían crudos al cliente en el
-                unmask. Reusarlo mantiene UN solo mapa reversible por request.
-                """
-                logger.error(
-                    "nlp: motor de detección NLP no disponible y la política de la "
-                    "instalación es `degrade` — este pedido se sirve con detección REGEX de "
-                    "dev (cobertura menor; Constraint SC-2). Queda marcado como %s.",
-                    policy.STATUS_NLP_DEGRADED)
-                await _marcar_nlp_degradado()
-                home["sentinel_compliance"] = {
-                    "status": policy.STATUS_NLP_DEGRADED, "risk_level": "unknown",
-                    "reason": "nlp_unavailable_degraded_regex",
-                }
-                if es_body:
-                    return await policy.mask_body(texto_o_body, _analyze_regex, pmap)
-                return await policy.default_analyze(texto_o_body, region=region)
-
-            # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
-            # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
-            # body — evita enmascarar parcialmente una request que después se
-            # bloquea, y evita una segunda ronda de red si hay que bloquear (spec
-            # 016 US2, FR-005/FR-006).
-            entity_configs = identity.get("entity_configs") or {}
+        if not identity.get("redact_enabled", True):
+            # Redact desactivado: solo se CUENTA lo detectado. Sin cambio de
+            # comportamiento: jamás bloquea ni degrada por un NLP caído — el reporte
+            # queda `completed=False` (no se sabe qué había).
             try:
-                preview_entities = await _analyze(inspect_text)
+                reporte["detected"] = len(await _analyze(inspect_text))
             except policy.NlpUnavailableError:
-                if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
-                    return await _bloquear(_nlp_unavailable_block(home),
-                                           status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
-                # `degrade`: se sigue, pero con el detector de dev y marcado en los tres
-                # canales. El resto del hook (BLOCK por tipo, mask) corre igual sobre estas
-                # entidades — degradar no puede además saltearse la política por tipo.
-                preview_entities = await _degradar_a_regex(inspect_text, es_body=False)
-                _analyze = _analyze_regex
+                return data
+            reporte["completed"] = True
+            return data
 
-            blocked_types = sorted({
-                e["entity_type"] for e in preview_entities
-                if policy.resolve_entity_action(e["entity_type"], entity_configs) == "BLOCK"
-            })
-            if blocked_types:
-                home["sentinel_compliance"] = {
-                    "status": "blocked_entity_type", "risk_level": "high",
-                    "reason": f"tipos bloqueados por política: {', '.join(blocked_types)}",
-                }
-                return await _bloquear(
-                    (f"Petición bloqueada: se detectaron datos personales cuya política "
-                     f"exige bloquear, no enmascarar ({', '.join(blocked_types)})."),
-                    status="blocked_entity_type", capa=_LAYER_PII,
-                    entidades=_conteos_de_entidades(preview_entities),
-                    # Detección confirmada: la fila dice "había datos personales" aunque no
-                    # se enmascarara nada (el pedido se rechazó antes) — D8/FR-002.
-                    pii_detected=True)
+        # Postura ante el analyzer CAÍDO (issue #63). Viaja con la identidad de la
+        # Connection (`custom_auth` la trae del `Guardian.config` del guardián
+        # `pii_masking`, igual que `custom_names`), así los DOS planos obedecen la misma
+        # decisión del admin. Ausente ⇒ `block`: el comportamiento de la 016 no cambia
+        # para ninguna instalación existente.
+        nlp_fail_mode = policy.resolve_nlp_fail_mode(identity)
 
-            # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
-            # El `PlaceholderMap` se crea ACÁ y no dentro de `mask_body` porque el camino de
-            # degradación (#63) necesita continuar con el MISMO mapa: `mask_body` recorre
-            # los turnos de a uno, así que una caída a mitad de camino deja parte del body ya
-            # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
-            # volver y saldrían crudos al cliente.
-            pmap = policy.PlaceholderMap()
-            try:
-                data, ph_to_orig = await policy.mask_body(data, _analyze, pmap)
-            except policy.NlpUnavailableError:
-                if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
-                    # Fail-closed (FR-004, default): sin detección NLP confiable no hay
-                    # garantía de protección — se rechaza en vez de degradar en silencio.
-                    return await _bloquear(_nlp_unavailable_block(home),
-                                           status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
-                data, ph_to_orig = await _degradar_a_regex(data, es_body=True, pmap=pmap)
+        def _contando(analyze):
+            """El analyzer del masking, contando las entidades que reemplaza."""
+            async def _analyze_y_contar(texto: str) -> list:
+                entidades = await analyze(texto)
+                reporte["masked"] += len(policy.resolve_overlaps(entidades))
+                return entidades
+            return _analyze_y_contar
 
-            if ph_to_orig:
-                home["pii_tokens"] = ph_to_orig
-                home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
+        async def _degradar_a_regex(texto_o_body, *, es_body: bool, pmap=None):
+            """Rehace la detección con el regex de dev y deja los tres rastros del #63.
 
+            `pmap` se REUSA a propósito cuando se degrada en medio de `mask_body`: si se
+            creara un mapa nuevo, los placeholders que el NLP ya alcanzó a insertar antes
+            de caerse quedarían huérfanos (otro nonce) y saldrían crudos al cliente en el
+            unmask. Reusarlo mantiene UN solo mapa reversible por request.
+            """
+            logger.error(
+                "nlp: motor de detección NLP no disponible y la política de la "
+                "instalación es `degrade` — este pedido se sirve con detección REGEX de "
+                "dev (cobertura menor; Constraint SC-2). Queda marcado como %s.",
+                policy.STATUS_NLP_DEGRADED)
+            await _marcar_nlp_degradado()
+            reporte["degraded"] = True
+            home["sentinel_compliance"] = {
+                "status": policy.STATUS_NLP_DEGRADED, "risk_level": "unknown",
+                "reason": "nlp_unavailable_degraded_regex",
+            }
+            if es_body:
+                return await policy.mask_body(texto_o_body, _contando(_analyze_regex), pmap)
+            return await policy.default_analyze(texto_o_body, region=region)
+
+        # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
+        # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
+        # body — evita enmascarar parcialmente una request que después se
+        # bloquea, y evita una segunda ronda de red si hay que bloquear (spec
+        # 016 US2, FR-005/FR-006).
+        entity_configs = identity.get("entity_configs") or {}
+        try:
+            preview_entities = await _analyze(inspect_text)
+        except policy.NlpUnavailableError:
+            if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
+                return await _bloquear(_nlp_unavailable_block(home),
+                                       status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
+            # `degrade`: se sigue, pero con el detector de dev y marcado en los tres
+            # canales. El resto del hook (BLOCK por tipo, mask) corre igual sobre estas
+            # entidades — degradar no puede además saltearse la política por tipo.
+            preview_entities = await _degradar_a_regex(inspect_text, es_body=False)
+            _analyze = _analyze_regex
+        reporte["detected"] = len(preview_entities)
+
+        blocked_types = sorted({
+            e["entity_type"] for e in preview_entities
+            if policy.resolve_entity_action(e["entity_type"], entity_configs) == "BLOCK"
+        })
+        if blocked_types:
+            home["sentinel_compliance"] = {
+                "status": "blocked_entity_type", "risk_level": "high",
+                "reason": f"tipos bloqueados por política: {', '.join(blocked_types)}",
+            }
+            return await _bloquear(
+                (f"Petición bloqueada: se detectaron datos personales cuya política "
+                 f"exige bloquear, no enmascarar ({', '.join(blocked_types)})."),
+                status="blocked_entity_type", capa=_LAYER_PII,
+                entidades=_conteos_de_entidades(preview_entities),
+                # Detección confirmada: la fila dice "había datos personales" aunque no
+                # se enmascarara nada (el pedido se rechazó antes) — D8/FR-002.
+                pii_detected=True)
+
+        # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
+        # El `PlaceholderMap` se crea ACÁ y no dentro de `mask_body` porque el camino de
+        # degradación (#63) necesita continuar con el MISMO mapa: `mask_body` recorre
+        # los turnos de a uno, así que una caída a mitad de camino deja parte del body ya
+        # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
+        # volver y saldrían crudos al cliente.
+        pmap = policy.PlaceholderMap()
+        try:
+            data, ph_to_orig = await policy.mask_body(data, _contando(_analyze), pmap)
+        except policy.NlpUnavailableError:
+            if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
+                # Fail-closed (FR-004, default): sin detección NLP confiable no hay
+                # garantía de protección — se rechaza en vez de degradar en silencio.
+                return await _bloquear(_nlp_unavailable_block(home),
+                                       status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
+            data, ph_to_orig = await _degradar_a_regex(data, es_body=True, pmap=pmap)
+
+        if ph_to_orig:
+            home["pii_tokens"] = ph_to_orig
+            home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
+
+        # El preview mira el texto inspeccionado (con cap); el masking recorre el body
+        # entero, así que puede encontrar más. Lo enmascarado también fue detectado.
+        reporte["detected"] = max(reporte["detected"], reporte["masked"])
+        reporte["completed"] = True
         return data
 
     async def async_post_call_success_hook(self, data: dict, user_api_key_dict, response):

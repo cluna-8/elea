@@ -137,6 +137,14 @@ check-tofu:
 check-policy-files:
 	$(REPO_ROOT)/deploy/release/checks/test_content_policy_files.sh
 
+# Entorno extra opcional (EXTRA_ENV_FILE) de backend/engine en compose.prod.yml. Sin
+# contenedores: estructura con python3 + PyYAML y, si hay plugin, `docker compose config`.
+# Se suma a `check` en su propia línea (make acumula prerequisitos).
+.PHONY: check-compose-extra-env
+check: check-compose-extra-env
+check-compose-extra-env:
+	$(REPO_ROOT)/deploy/release/checks/test_compose_extra_env_file.sh
+
 # 026 T005 — targets de sentinel-admin-signer/sentinel-admin, delegando a cli/Makefile.
 # cli-check NO esta en el `check` agregado de arriba todavia: sus sub-targets de
 # contract/offline/artifact-boundary/bundle-contents son placeholders hasta que
