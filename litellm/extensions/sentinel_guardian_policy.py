@@ -803,6 +803,30 @@ def extract_inspect_text(body: dict, cap: int = INSPECT_CAP, *, scope: str = "us
     return "\n".join(parts)[:cap]
 
 
+# S13 (057 T072; research R18): referencia de conversación que solo escribe la pasarela y clave del servidor.
+CONVERSATION_REF_KEY = "sentinel_conversation_ref"
+NONCE_KEY_ENV = "MASKING_NONCE_KEY"
+_NONCE_KEY_MIN_CHARS = 32
+NONCE_SCOPE_CONVERSATION, NONCE_SCOPE_REQUEST = "conversation", "request"
+
+
+def new_placeholder_map(home: dict, identity: dict) -> Tuple["PlaceholderMap", str]:
+    """El `PlaceholderMap` de un pedido y su alcance (`conversation` | `request`, solo el nombre; nunca el valor).
+    Con `MASKING_NONCE_KEY` (≥ 32 caracteres) y la referencia de conversación del home, el sufijo y los índices son
+    estables por conversación; sin alguna de las dos, o si la derivación falla, aleatorio como siempre (la protección
+    no depende de esto, solo la eficacia de la caché del proveedor)."""
+    ref = home.get(CONVERSATION_REF_KEY) if isinstance(home, dict) else None
+    key = os.environ.get(NONCE_KEY_ENV, "")
+    if isinstance(ref, str) and ref and key:
+        try:
+            return (PlaceholderMap.for_conversation(
+                key, tenant=str(identity.get("tenant_id") or ""), key_id=str(identity.get("key_id") or ""), ref=ref),
+                NONCE_SCOPE_CONVERSATION)
+        except Exception:  # noqa: BLE001 — sin la derivación, aleatorio: la caché pierde eficacia, la protección no
+            logger.warning("masking: no se pudo derivar el sufijo por conversación; se usa el aleatorio")
+    return PlaceholderMap(), NONCE_SCOPE_REQUEST
+
+
 class PlaceholderMap:
     """Asignación consistente valor→placeholder para todo el request.
 
@@ -829,6 +853,9 @@ class PlaceholderMap:
 
     def __init__(self, nonce: Optional[str] = None, document_id: Optional[str] = None):
         self.document_id = document_id
+        # Clave del índice determinista: el `document_id` (043) o, con S13, la derivada por conversación. Sin ninguna,
+        # contador secuencial como siempre.
+        self._index_key: Optional[bytes] = document_id.encode() if document_id else None
         if document_id:
             # Determinista por documento: mismo document_id → mismo nonce siempre.
             self.nonce = nonce or hmac.new(
@@ -839,6 +866,24 @@ class PlaceholderMap:
         self.orig_to_ph: dict = {}
         self.ph_to_orig: dict = {}
         self._type_counts: dict = {}
+
+    @classmethod
+    def for_conversation(cls, key: str, *, tenant: str, key_id: str, ref: str) -> "PlaceholderMap":
+        """S13 (057 R18; contracts/costuras-base.md §S13): mapa con marcadores ESTABLES dentro de una conversación.
+
+        `nonce = HMAC(key, "nonce" | tenant | llave | ref)[:4]` y el índice por valor
+        `HMAC(HMAC(key, "idx" | tenant | llave | ref), tipo | valor | probe)`: el mismo valor en la misma conversación da el
+        mismo marcador en todos los pedidos y sin importar el orden de aparición; otra conversación, llave, empresa o
+        clave del servidor dan otro. `key` es el secreto del servidor (`MASKING_NONCE_KEY`, ≥ 32 caracteres): sin él el
+        sufijo no se puede reproducir. Los componentes van separados por NUL (sin ambigüedad entre campos). Lanza
+        `ValueError` ante una clave corta o una referencia vacía: el llamador cae al aleatorio."""
+        if not isinstance(key, str) or len(key) < _NONCE_KEY_MIN_CHARS or not ref:
+            raise ValueError("clave o referencia de conversación inválida")
+        k = key.encode("utf-8")
+        ctx = "\x00".join((str(tenant), str(key_id), str(ref))).encode("utf-8")
+        mapa = cls(nonce=hmac.new(k, b"nonce\x00" + ctx, hashlib.sha256).hexdigest()[:4])
+        mapa._index_key = hmac.new(k, b"idx\x00" + ctx, hashlib.sha256).digest()
+        return mapa
 
     def _deterministic_index(self, value: str, entity_type: str, probe: int = 0) -> int:
         """Índice derivado por HMAC(document_id, tipo|valor|probe) — no un contador
@@ -858,7 +903,7 @@ class PlaceholderMap:
         astronómicamente improbable, y si ocurriera, resuelta sin pisar el placeholder de
         otro valor."""
         digest = hmac.new(
-            self.document_id.encode(),
+            self._index_key,
             f"{entity_type}|{value}|{probe}".encode(),
             hashlib.sha256,
         ).digest()
@@ -867,7 +912,7 @@ class PlaceholderMap:
     def placeholder_for(self, value: str, entity_type: str) -> str:
         if value in self.orig_to_ph:
             return self.orig_to_ph[value]
-        if self.document_id:
+        if self._index_key:
             probe = 0
             idx = self._deterministic_index(value, entity_type, probe)
             ph = f"[{entity_type}_{idx}_{self.nonce}]"

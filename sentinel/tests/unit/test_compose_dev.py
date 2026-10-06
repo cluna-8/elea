@@ -146,3 +146,20 @@ def test_prepare_dev_es_idempotente_y_no_arrastra_archivos_viejos(tmp_path):
     subprocess.run(["bash", str(DOCKER / "prepare-dev.sh")], check=True, capture_output=True, env=env)
     assert not (out / "extensions" / "viejo.py").exists()
     assert (out / "config.yaml").read_bytes() == primero          # sin duplicados: parte siempre del config de la base
+
+
+# ── S13: la clave de los marcadores estables llega a backend y motor, sin valor de ejemplo (057 T072/T093) ─────
+
+def test_la_clave_de_marcadores_estables_llega_al_backend_y_al_motor_sin_valor_por_defecto():
+    for servicio in ("backend", "engine"):
+        assert _env_dict(servicio)["MASKING_NONCE_KEY"] == "${MASKING_NONCE_KEY:-}", servicio
+
+
+def test_el_ejemplo_de_entorno_declara_la_clave_con_el_marcador_de_generar_y_nunca_con_un_valor():
+    valor = _example_vars()["MASKING_NONCE_KEY"]
+    assert valor == "<generar>"
+
+
+def test_la_clave_de_marcadores_no_esta_en_los_defaults_de_la_base():
+    base = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    assert "MASKING_NONCE_KEY" not in str(base)

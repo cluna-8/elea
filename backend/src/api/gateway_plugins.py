@@ -114,6 +114,13 @@ async def run_pre_request(ctx: GatewayContext):
 
 
 async def run_pre_engine(ctx: GatewayContext, body: dict, headers: dict):
+    # S13 (057 R18): la referencia de conversación del enmascarado la escribe SOLO la pasarela (un enganche, abajo); la
+    # que mande el cliente se descarta antes de llamarlos.
+    if isinstance(body, dict):
+        for _clave in ("metadata", "litellm_metadata"):
+            if isinstance(body.get(_clave), dict):
+                body[_clave].pop("sentinel_conversation_ref", None)
+        body.pop("sentinel_conversation_ref", None)
     for hook in _hooks("pre_engine"):
         body, headers = await _call(hook, ctx, body, headers)
     return body, headers

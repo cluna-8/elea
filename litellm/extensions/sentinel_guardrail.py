@@ -707,7 +707,7 @@ class SentinelGuardrail(CustomGuardrail):
         # los turnos de a uno, así que una caída a mitad de camino deja parte del body ya
         # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
         # volver y saldrían crudos al cliente.
-        pmap = policy.PlaceholderMap()
+        pmap, reporte["nonce_scope"] = policy.new_placeholder_map(home, identity)   # S13: estable por conversación
         tally = policy.MaskingTally() if forzado else None
         try:
             if forzado:

@@ -27,6 +27,9 @@ services:
         required: false
     environment:
       - PYTHONPATH=/opt/sentinel-ext
+      # S13: la deriva la pasarela (referencia de conversación) y la usa el motor (sufijo de los marcadores). Sin valor por
+      # defecto: la define sentinel/extensions.env; vacía o corta (< 32) ⇒ marcadores aleatorios.
+      - MASKING_NONCE_KEY=${MASKING_NONCE_KEY:-}
       # Eleia es la línea de América (perfil Argentina): la región de la instalación en dev es latam_ar.
       - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-latam_ar}
     volumes:
@@ -39,6 +42,7 @@ services:
         required: false
     environment:
       - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-latam_ar}
+      - MASKING_NONCE_KEY=${MASKING_NONCE_KEY:-}
     volumes:
       # Mismo destino que la base ⇒ reemplazan sus montajes. Se montan DIRECTORIOS generados y no
       # los archivos sueltos: un bind mount dentro de `./litellm/extensions` haría que Docker

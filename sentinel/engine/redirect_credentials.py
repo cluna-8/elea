@@ -80,8 +80,9 @@ ENV_ANY_RE = re.compile(r"^[A-Z][A-Z0-9_]*[A-Z0-9]$")
 # Variables que NUNCA se referencian como credencial de un modelo (lista negra común, 069 T142)
 ENV_DENYLIST = frozenset({"LITELLM_MASTER_KEY", "SENTINEL_ENGINE_MASTER_KEY", "FERNET_SECRET_KEY",
                           "FERNET_PREVIOUS_KEYS", "JWT_SECRET_KEY", "DATABASE_URL", "POSTGRES_PASSWORD",
-                          "REDIRECT_INTERNAL_KEY"})
-ENV_DENY_FRAGMENTS = ("MASTER_KEY", "PASSWORD", "DATABASE", "FERNET", "JWT", "POSTGRES", "INTERNAL_KEY")
+                          "REDIRECT_INTERNAL_KEY", "MASKING_NONCE_KEY"})
+ENV_DENY_FRAGMENTS = ("MASTER_KEY", "PASSWORD", "DATABASE", "FERNET", "JWT", "POSTGRES", "INTERNAL_KEY",
+                      "NONCE_KEY")
 
 
 def env_name_allowed(name: Any) -> bool:
@@ -103,6 +104,7 @@ CLIENT_CREDENTIAL_FIELDS = (
     # precio: lo fija el guard desde el destino o el mapa del motor; un cliente que manda precio 0
     # esquivaría el presupuesto (D23 de la 069)
     "input_cost_per_token", "output_cost_per_token", "input_cost_per_second", "output_cost_per_second",
+    "cache_read_input_token_cost", "cache_creation_input_token_cost",
 )
 
 # prefijo con el que el mapa de precios del motor nombra al modelo real de cada proveedor
@@ -110,35 +112,64 @@ PRICE_MAP_PREFIX = {"openrouter": "openrouter", "deepseek": "deepseek", "anthrop
                     "openai": "openai", "gemini": "gemini", "groq": "groq", "azure_ai": "azure_ai",
                     "bedrock": "bedrock", "vertex_ai": "vertex_ai"}
 PRICE_FIELDS = ("input_per_mtok", "output_per_mtok")
+# Precio de caché del destino (057 FR-046; opcional): lectura y escritura, USD por millón de tokens. Traducen a los parámetros
+# de precio por pedido que el motor honra al calcular el costo con los tokens de caché que informa el destino.
+CACHE_PRICE_PARAMS = {"cache_read_per_mtok": "cache_read_input_token_cost",
+                      "cache_write_per_mtok": "cache_creation_input_token_cost"}
 
 
 def validate_price(price: Any) -> None:
-    """Precio del destino en USD por millón de tokens: ambos campos, números ≥ 0, nada más."""
-    if not isinstance(price, Mapping) or set(price) != set(PRICE_FIELDS):
-        raise ValueError("el precio lleva input_per_mtok y output_per_mtok")
-    for k in PRICE_FIELDS:
+    """Precio del destino en USD por millón de tokens: entrada y salida (obligatorios) y, opcionales, lectura y escritura
+    de caché; números ≥ 0, nada más."""
+    if not isinstance(price, Mapping) or not set(PRICE_FIELDS) <= set(price) \
+            or set(price) - set(PRICE_FIELDS) - set(CACHE_PRICE_PARAMS):
+        raise ValueError("el precio lleva input_per_mtok y output_per_mtok (y opcionalmente cache_read_per_mtok y "
+                         "cache_write_per_mtok)")
+    for k in price:
         v = price[k]
         if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
             raise ValueError(f"{k} debe ser un número mayor o igual a 0")
+
+
+def price_per_mtok(view: Any) -> Optional[dict]:
+    """ÚNICA conversión del precio de una entrada del catálogo (USD por token: `input`, `output`, `cache_read`,
+    `cache_write`) al precio por millón de tokens que firma la autorización (FR-049). `None` sin entrada y salida."""
+    if not isinstance(view, Mapping) or view.get("input") is None or view.get("output") is None:
+        return None
+    out = {"input_per_mtok": float(view["input"]) * 1e6, "output_per_mtok": float(view["output"]) * 1e6}
+    for key, name in (("cache_read", "cache_read_per_mtok"), ("cache_write", "cache_write_per_mtok")):
+        if view.get(key) is not None:
+            out[name] = float(view[key]) * 1e6
+    return out
 
 
 def cost_params(price: Optional[Mapping[str, Any]], provider: str, real_model: str,
                 cost_map: Mapping[str, Any]) -> tuple:
     """Parámetros de precio por pedido y su fuente: el del destino, el del mapa del motor o ninguno.
 
+    Con precio de caché del destino (o del mapa) suma `cache_read_input_token_cost` y `cache_creation_input_token_cost`; sin
+    ellos el motor cobra la caché a precio de entrada y el guard lo marca (`price_cache_missing`).
     Sin precio el motor registra costo 0 para lo servido por comodín y el presupuesto no se
     descuenta (spike S1 de la 069)."""
     if price:
-        return ({"input_cost_per_token": float(price["input_per_mtok"]) / 1e6,
-                 "output_cost_per_token": float(price["output_per_mtok"]) / 1e6}, "destination")
+        params = {"input_cost_per_token": float(price["input_per_mtok"]) / 1e6,
+                  "output_cost_per_token": float(price["output_per_mtok"]) / 1e6}
+        for name, param in CACHE_PRICE_PARAMS.items():
+            if price.get(name) is not None:
+                params[param] = float(price[name]) / 1e6
+        return params, "destination"
     prefix = PRICE_MAP_PREFIX.get(provider)
     candidates = ([f"{prefix}/{real_model}"] if prefix else []) + ([real_model] if prefix else [])
     for name in candidates:
         entry = cost_map.get(name) if hasattr(cost_map, "get") else None
         if isinstance(entry, Mapping) and entry.get("input_cost_per_token") is not None \
                 and entry.get("output_cost_per_token") is not None:
-            return ({"input_cost_per_token": float(entry["input_cost_per_token"]),
-                     "output_cost_per_token": float(entry["output_cost_per_token"])}, "engine_map")
+            params = {"input_cost_per_token": float(entry["input_cost_per_token"]),
+                      "output_cost_per_token": float(entry["output_cost_per_token"])}
+            for param in CACHE_PRICE_PARAMS.values():
+                if entry.get(param) is not None:
+                    params[param] = float(entry[param])
+            return params, "engine_map"
     return {}, "none"
 
 
