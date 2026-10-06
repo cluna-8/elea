@@ -686,3 +686,51 @@ El instalador (`elea-installer`: su servicio de init, `.env.example` con `ENGINE
 2. **`make -C deploy check`, `check-docs` y la suite del backend en contenedor**: no se corrieron (usan Docker). Sí se corrieron los de solo-archivos listados en el reporte del worker.
 3. **El módulo OpenTofu** y la creación de la base del motor en nube: sin cambio, sin ensayo.
 4. **`restore.sh` de Sentinel** (§9.3-2): no se releyó su contenido actual.
+
+---
+
+## §10. Para el HANDOFF a Sentinel (D9), segunda tanda: la capa de origen del plano interno y dos arreglos del gate
+
+**Qué es**: lo que la rama `cluna-8/fix-separar-bases-elea-2` suma sobre §9, escrito genérico (sin strings de Elea/Eleia) para portarlo a `cluna-8/sentinel`. Mismas convenciones que §9: `[verificado]` = corrido sin Docker (venv local, dobles); `[no verificado]` = requiere el ensayo con Docker (compuerta del owner).
+
+### 10.1 Capa 2 de A10: `INTERNAL_ALLOWED_CIDRS` (el hallazgo de §9 que sí es código de la base)
+
+**Problema**: el plano `/api/v1/internal/*` (identidad y auditoría del motor, §2.2) se defendía con el ingress (404) y con el secreto compartido `SENTINEL_ENGINE_MASTER_KEY` (`backend/src/api/internal.py:_require_internal_secret`). Con la base separada ese plano es el **único** camino del motor hacia las tablas del producto, y un secreto filtrado servía desde cualquier red.
+
+| # | Pieza | Archivo:línea | Qué hace / qué cambia en Sentinel |
+|---|---|---|---|
+| 1 | Dependencia de origen, **a nivel de router** | `backend/src/api/internal.py:206` (`_require_internal_origen`) y `:233` (`dependencies=[Depends(...)]` en el `APIRouter`) | Compara `request.client.host` (el par TCP; **no** `X-Forwarded-For`) con la lista. Depende de `_require_internal_secret`, así que el secreto se evalúa **primero**: sin secreto, 404 como siempre; con secreto desde fuera de la lista, **403**. Una ruta nueva del router hereda la capa sin acordarse. |
+| 2 | Variable | `internal.py:138` (`INTERNAL_ALLOWED_CIDRS`), parseo en `:176` (`_redes_permitidas`) | Vacía/ausente = **sin chequeo** (retrocompatible: un Sentinel que no la fije se comporta como hoy). Lista de CIDR por coma (IP suelta = host; IPv6 e IPv4-mapeada soportadas). `auto` = subredes conectadas del propio contenedor, mezclable con CIDR explícitos. |
+| 3 | `auto` sin Docker API | `internal.py:142` (`_leer_tabla_de_rutas`) y `:151` (`_redes_conectadas`) | Lee `/proc/net/route` (rutas sin gateway, sin `lo`, sin la ruta por defecto). No usa el socket de Docker ni librerías nuevas. |
+| 4 | **Fail-closed** | `internal.py:176-203` | Entrada inválida → lista vacía (no pasa nadie) + `logger.error`; `auto` sin rutas legibles → ídem; origen que no es IP → 403. Un typo del operador nunca abre más de lo pedido. |
+| 5 | Los dos compose la fijan | `docker-compose.yml:206`, `deploy/docker/compose.prod.yml:93` (servicio `backend`) | `${INTERNAL_ALLOWED_CIDRS-auto}` — **sin dos puntos**: solo cae a `auto` si la variable no está definida; un valor vacío puesto a propósito (desactivar) se respeta. |
+| 6 | La suite la apaga | `backend/tests/conftest.py:56` | `os.environ.pop("INTERNAL_ALLOWED_CIDRS")`: el servicio `backend` del compose la hereda en `docker compose run backend pytest` y el origen del `TestClient` («testclient») no es una IP → sin esto TODOS los tests del plano darían 403. |
+| 7 | `.env.example` + referencia | `.env.example` (junto a `SENTINEL_ENGINE_MASTER_KEY`), `docs/docs/api-reference/configuration.md` (regenerado con `python3 docs/gen_config_reference.py`) | Con la descripción inmediatamente arriba (el generador la usa). |
+| 8 | Documentación | `docs/docs/operations/index.md` §6.3 (fila nueva de la tabla + nota «El plano interno solo responde a la red del stack») | Síntoma (401 de todo byok + log «origen … fuera de INTERNAL_ALLOWED_CIDRS»), fix, y los **límites** honestos (abajo). |
+| 9 | Tests | `backend/tests/unit/test_internal_origen_cidr.py` (26, sin Postgres ni Docker), `harness/tests/test_internal_origen_wiring.py` (4) | Pasa desde la red interna; 403 desde fuera aunque traiga el secreto; sin secreto → 404; sin variable/vacía → como hoy; lista mal escrita → cierra; cada ruta del router cubierta; `auto` con una tabla de rutas de ejemplo. |
+
+**Límites que la doc declara (no vender de más)**: valida el **origen de la conexión**, no la identidad del servicio — otro contenedor de la misma red que conozca el secreto sigue pasando (el ingress ya cubre el acceso externo). En desarrollo, una conexión desde el host al puerto publicado llega con la IP del **gateway del bridge**, que está dentro de la subred que `auto` permite; **decisión de diseño tomada**: no se excluyó (la consigna era «`auto` = la subred de la red de compose»); si el owner quiere cerrarlo, se descarta la IP de la ruta por defecto en `_redes_conectadas` (un cambio de una línea + un test). [decisión del owner pendiente]
+
+**No verificado [no verificado]**: que `auto` resuelva la subred correcta **dentro de un contenedor real** (el parser se probó contra el formato de `/proc/net/route` de Linux con un ejemplo, no contra un contenedor); que el motor llegue con una IP de esa subred en ambos compose (por construcción comparten red: dev `sentinel-network`, prod la red por defecto del proyecto); el efecto con un backend detrás de otro proxy con `--forwarded-allow-ips` ampliado (no se usa en estos Dockerfile: `deploy/docker/backend.prod.Dockerfile` y `backend/Dockerfile:19`).
+
+**Qué NO se porta**: nada de Elea. El instalador no se tocó: hereda el default `auto` del compose de producción (variable sin definir ⇒ `auto`); si algún `.env` del instalador la trajera vacía, el chequeo quedaría desactivado — conviene que el instalador **no** la escriba vacía.
+
+### 10.2 El gate de pytest que se colgaba sin base ni `.env` (§6.2 del ensayo del instalador) — también afecta a Sentinel
+
+**Causa** (releída con el código): ~100 módulos de integración llaman a `require_postgres()` **al importarse**; cada uno pagaba una sonda completa y, sin Postgres, el `connect_timeout=3` de libpq **no cubre la resolución del nombre `db`** (que en un proyecto aislado no existe), así que los costos se **sumaban** hasta dejar la recolección inmóvil minutos. Y sin `.env`, el compose pasa `JWT_SECRET_KEY=` **vacío**, que `os.environ.setdefault` no pisa → centenares de errores `JWT_SECRET_KEY is missing or too short`.
+
+| Pieza | Archivo:línea | Cambio |
+|---|---|---|
+| Sonda **única** y con techo duro | `backend/tests/migration_harness.py:59` (`_ESTADO_PG`), `:62` (`_TECHO_SONDA_S = 6.0`), `:65` (`_sondear_postgres`, hilo daemon), `:85` (`require_postgres`) | Una sonda por (host, puerto) y por sesión; si no vuelve en 6 s se da por fallida. Sin Postgres la suite de integración **se salta entera con el motivo** en segundos, no se cuelga. El motivo dice dónde miró, qué levantar (`docker compose up -d db`) y cómo apuntarla a otra base (`POSTGRES_HOST`/`POSTGRES_PORT`). Con Postgres, además, ahorra ~100 conexiones de sonda. |
+| JWT de la suite | `backend/tests/conftest.py:32` | Si `JWT_SECRET_KEY` falta, está vacío o mide < 32, se usa el de la suite; uno real se respeta. |
+| Tests | `backend/tests/unit/test_require_postgres_fail_fast.py` (3) | 20 módulos con una sonda colgada tardan < 3 s y **una** sola llamada; el motivo trae host:puerto y qué hacer; con Postgres disponible también se sonda una vez. |
+
+Elegido «**se salta con motivo**» sobre «falla rápido»: es el comportamiento que ya tenía el harness (el módulo se auto-saltaba), solo que nunca llegaba a saltarse a tiempo. Un gate que **falle** sin Postgres rompería a quien corre solo los tests unitarios. [decisión de diseño; reversible] **Consecuencia que el owner debe saber**: sin Postgres la suite sale **verde con muchos `skipped`**; el mensaje de skip lo dice, pero el gate de release (`make -C deploy check` + la suite en contenedor) **tiene que correr con la `db` del compose levantada** para que esos tests cuenten. [verificado: `pytest --co` con `JWT_SECRET_KEY=` vacío y `POSTGRES_HOST=db` sin Postgres recolecta 1615 tests en 18 s]
+
+### 10.3 `make -C deploy docs-refs` ya no ensucia `openapi.json` (§6.3 del ensayo)
+
+**Causa**: con la imagen sin construir, `docker compose run` la construía en el medio y el progreso de BuildKit salió por **stdout** dentro del JSON (`2>/dev/null` no lo captura). **Arreglo** (`deploy/Makefile:50-66`): (1) se construye **antes** (`docker compose build backend >&2`, progreso a stderr); (2) el export va a un `.tmp` y **solo** reemplaza al `openapi.json` si es JSON válido; (3) cada fallo sale por stderr con el comando a correr a mano y deja el archivo intacto (y no regenera la config sobre un export fallido). **Test sin Docker**: `harness/tests/test_docs_refs_make.py` (6) usa un `docker` de mentira en el `PATH` y un repo de juguete (`make REPO_ROOT=…`): camino feliz, build antes de run, progreso que no llega al JSON, stdout sucio, build roto, export roto. [verificado] **No verificado**: contra Docker real (compuerta del owner); la corrida con la imagen sin construir de verdad.
+
+### 10.4 Verificación de esta tanda (sin Docker)
+
+Venv local con `backend/requirements.txt`; tests nuevos de rojo a verde (los tres archivos de backend + los dos de `harness/`); `docker compose config -q` (dev y prod) y los chequeos de `check-docs` que no construyen imágenes (`test_gen_config_reference.py`, `test_drift_gate.py`, `drift_gate.py`, `test_docs_structure.sh`). `make -C deploy check`, `check-docs` completo y la suite del backend en contenedor **no se corrieron** (Docker, compuerta del owner).

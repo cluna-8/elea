@@ -13,18 +13,26 @@ instalador), así que agregar `asyncpg` obligaba a derivar la imagen. HTTP no cu
 `httpx` ya viene en la imagen. Y además pone el SQL donde vive el esquema que consulta —
 el backend es el dueño de estas tablas, el motor sólo necesita el resultado.
 
-Seguridad: el ingress niega /api/v1/internal/* con 404 (Caddyfile.ingress), así que esto
-sólo se alcanza por la red de compose. Encima se exige el secreto compartido que ambos
-servicios YA tienen (`SENTINEL_ENGINE_MASTER_KEY`) — no hay un secreto nuevo que provisionar.
+Seguridad, en tres capas (cada una cubre el fallo de la anterior):
+
+1. El ingress niega /api/v1/internal/* con 404 (Caddyfile.ingress), así que esto sólo se
+   alcanza por la red de compose.
+2. Se exige el secreto compartido que ambos servicios YA tienen (`SENTINEL_ENGINE_MASTER_KEY`)
+   — no hay un secreto nuevo que provisionar.
+3. Se exige que el ORIGEN de la conexión esté en `INTERNAL_ALLOWED_CIDRS` (ver
+   `_require_internal_origen`): un secreto filtrado, usado desde fuera de la red, no sirve.
 """
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import socket
+import struct
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -41,7 +49,6 @@ from .gateway import MODELO_CADENA_USURPADA, sanear_modelo_declarado
 
 logger = logging.getLogger("sentinel-secure-gateway.internal")
 
-router = APIRouter(prefix="/internal", tags=["Internal"], include_in_schema=False)
 
 # Mismo SQL que vivía en litellm/extensions/custom_auth.py (_IDENTITY_SQL). Se mueve acá
 # porque consulta tablas de ESTA base: una sola copia, del lado del dueño del esquema.
@@ -124,6 +131,107 @@ def _require_internal_secret(x_sentinel_internal: str = Header(default="")) -> N
     if not expected or not hmac.compare_digest(x_sentinel_internal, expected):
         # Mismo 404 que emite el ingress: desde fuera, este endpoint no existe.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+# Variable de la capa de origen. Vacía/ausente = sin chequeo (retrocompatible); lista de CIDR
+# separados por coma; `auto` = las subredes conectadas de este contenedor (ver `_redes_auto`).
+_ENV_ORIGENES = "INTERNAL_ALLOWED_CIDRS"
+_TABLA_DE_RUTAS = "/proc/net/route"
+
+
+def _leer_tabla_de_rutas() -> str:
+    """Tabla de rutas del kernel (Linux). Función aparte para que los tests la sustituyan."""
+    try:
+        with open(_TABLA_DE_RUTAS, encoding="ascii") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _redes_conectadas(tabla: str) -> list:
+    """Subredes IPv4 CONECTADAS (ruta sin gateway, no loopback) de `/proc/net/route`.
+
+    Las direcciones están en hexadecimal little-endian. Se descartan la ruta por defecto y
+    el loopback: lo que se quiere es «la red de compose a la que este contenedor está
+    enchufado», no «todo lo que el contenedor sabe rutear». Línea ilegible → se ignora."""
+    redes = []
+    for linea in tabla.splitlines()[1:]:
+        col = linea.split()
+        if len(col) < 8 or col[0] == "lo":
+            continue
+        try:
+            destino, gateway, mascara = (int(col[1], 16), int(col[2], 16), int(col[7], 16))
+            if gateway != 0 or destino == 0:
+                continue
+            red = ipaddress.ip_network(
+                (socket.inet_ntoa(struct.pack("<L", destino)),
+                 socket.inet_ntoa(struct.pack("<L", mascara))), strict=False)
+        except (ValueError, struct.error, OverflowError):
+            continue
+        if red not in redes:
+            redes.append(red)
+    return redes
+
+
+def _redes_permitidas() -> Optional[list]:
+    """`None` = sin chequeo de origen; lista = origen permitido si cae en alguna red.
+
+    Fail-closed ante todo lo que no se entiende: una entrada inválida o un `auto` sin rutas
+    legibles devuelven lista VACÍA (no pasa nadie) y lo dicen en el log. Ignorar la entrada y
+    seguir con las demás convertiría un typo del operador en una puerta más abierta de la que
+    pidió; tumbar el arranque, en cambio, no tiene sentido para algo que se lee por pedido."""
+    crudo = os.environ.get(_ENV_ORIGENES, "").strip()
+    if not crudo:
+        return None
+    redes = []
+    for token in (t.strip() for t in crudo.split(",")):
+        if not token:
+            continue
+        if token.lower() == "auto":
+            auto = _redes_conectadas(_leer_tabla_de_rutas())
+            if not auto:
+                logger.error("[sentinel-internal] %s=auto pero no se pudieron leer las subredes "
+                             "de este contenedor: el plano interno queda cerrado", _ENV_ORIGENES)
+            redes.extend(auto)
+            continue
+        try:
+            redes.append(ipaddress.ip_network(token, strict=False))
+        except ValueError:
+            logger.error("[sentinel-internal] %s tiene una entrada inválida (%r): el plano "
+                         "interno queda cerrado hasta corregirla", _ENV_ORIGENES, token)
+            return []
+    return redes
+
+
+def _require_internal_origen(request: Request,
+                             _secreto: None = Depends(_require_internal_secret)) -> None:
+    """Capa 2 de la defensa del plano interno: además del secreto, el ORIGEN de la conexión.
+
+    Va declarada a nivel de ROUTER (una ruta nueva no puede olvidarla) y depende del secreto
+    para que éste se evalúe PRIMERO: sin secreto, el endpoint «no existe» (404); el 403 sólo
+    lo ve quien ya conoce el secreto, y a ese ya no hay nada que ocultarle.
+
+    El origen es `request.client.host`, el par TCP real. No se mira `X-Forwarded-For`: lo
+    escribe cualquiera, y uvicorn sólo lo honra de proxies de confianza. Un origen que no es
+    una IP (el «testclient» de los tests, un socket unix) se niega cuando hay lista."""
+    redes = _redes_permitidas()
+    if redes is None:
+        return
+    host = request.client.host if request.client else ""
+    try:
+        ip = ipaddress.ip_address(host)
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+    except ValueError:
+        ip = None
+    if ip is None or not any(ip.version == red.version and ip in red for red in redes):
+        logger.warning("[sentinel-internal] origen %r fuera de %s: rechazado",
+                       host or "desconocido", _ENV_ORIGENES)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
+router = APIRouter(prefix="/internal", tags=["Internal"], include_in_schema=False,
+                   dependencies=[Depends(_require_internal_origen)])
 
 
 def _a_float(valor) -> Optional[float]:

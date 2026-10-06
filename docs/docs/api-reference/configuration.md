@@ -28,6 +28,7 @@ En producción la base y el Redis son gestionados/externos: el compose de prod N
 | `FERNET_SECRET_KEY` | — | — |
 | `SENTINEL_BCRYPT_WORKERS` | — | Hilos del executor dedicado de bcrypt del LOGIN (#167). bcrypt es CPU-bound y lento a propósito; una ráfaga de logins corriendo en el threadpool anyio compartido le comía los hilos al gateway (auditoría/rechazo por run_in_threadpool) y disparaba el fail-closed del NLP sobre tráfico legítimo. Este executor ACOTADO y SEPARADO lo evita. Es POR PROCESO: el total de la instalación es el valor por WEB_CONCURRENCY. Vacío = default min(cpu, 4) (bcrypt libera el GIL, pero más hilos que CPUs sólo agrega contención; el techo es 4). Un valor ausente/vacío/malformado/fuera de rango cae al default — un typo no debe voltear el login. |
 | `SENTINEL_ENGINE_MASTER_KEY` | *(secreto — generado por instalación)* | Configuración del motor del gateway |
+| `INTERNAL_ALLOWED_CIDRS` | `auto` | Segunda capa del plano interno (/api/v1/internal/*, el que usa el motor para resolver identidad y auditar): además del secreto compartido, sólo acepta conexiones cuyo origen esté en esta lista de redes CIDR separadas por coma (ej. 172.18.0.0/16,10.0.0.0/8). `auto` toma la subred de la red de compose a la que está enchufado el backend (el default de los dos compose). Vacía, no chequea el origen (queda sólo el secreto). Una entrada mal escrita cierra el plano en vez de abrirlo. |
 
 ### ── Admisión hacia el motor de IA: el tope que protege al producto ENTERO (nodo C1) ──
 

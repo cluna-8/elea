@@ -86,6 +86,11 @@ services:
       SENTINEL_PURGE_BATCH_PAUSE_MS: "${SENTINEL_PURGE_BATCH_PAUSE_MS:-200}"
       # El alta de usuarios crea la identidad en el motor con la master key.
       SENTINEL_ENGINE_MASTER_KEY: "${SENTINEL_ENGINE_MASTER_KEY:?generado por instalación (US5)}"
+      # Plano interno (/api/v1/internal/*), capa de ORIGEN además del secreto de arriba: sólo
+      # responde a conexiones desde estas redes. `auto` = la subred de la red de compose a la
+      # que está enchufado este contenedor (por donde llega el motor). Lista de CIDR separada
+      # por coma para una red fija; vacío desactiva el chequeo (queda sólo el secreto).
+      INTERNAL_ALLOWED_CIDRS: "${INTERNAL_ALLOWED_CIDRS-auto}"
       # Licencia (021): fail-closed — sin esto la creación de seats queda bloqueada.
       SENTINEL_LICENSE_TOKEN_FILE: "/app/config/licenses/client.lic"
       # Solo pilotos/demos con licencia dev (kid sentinel-dev-*): opt-in explícito.

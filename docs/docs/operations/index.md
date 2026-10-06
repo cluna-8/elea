@@ -667,6 +667,7 @@ ensayo). Con base propia el peor caso queda acotado a la base del motor.
 | Compose de producción (`--profile selfhosted`): `db` recibe `ENGINE_DB` y su script de inicialización crea la base **al inicializar un volumen vacío**; el motor apunta a ella | 🟡 cableado verificado por tests; ensayo con contenedores pendiente |
 | Compose de desarrollo: un servicio de un solo disparo crea la base en cada `up` si falta (sirve también con un volumen que ya existe) | 🟡 ídem |
 | **Identidad y auditoría del motor por HTTP interno** (`SENTINEL_IDENTITY_URL`, `SENTINEL_AUDIT_URL`, autenticadas con la clave maestra compartida): el motor ya no lee las tablas del producto | 🟢 en el código; 🟡 el ensayo de extremo a extremo con base separada está pendiente |
+| **Segunda capa del plano interno**: además de la clave maestra, el backend solo atiende `/api/v1/internal/*` desde las redes de `INTERNAL_ALLOWED_CIDRS` (default `auto` = la red del stack) | 🟢 en el código y en tests sin contenedores; 🟡 el valor `auto` dentro de un contenedor real está pendiente de ensayo |
 | Cloud con Postgres gestionado: la base del motor **hay que crearla a mano** en la instancia antes de levantar el motor (el módulo IaC hoy solo provisiona la del producto) | 🔵 |
 
 **Volumen que ya existía** (el script de inicialización de Postgres solo corre al inicializar un
@@ -689,6 +690,23 @@ una base vacía, aplica sus migraciones sobre ella y no toca el producto.
     auditarse sin ruido. El backend pasa a ser dependencia de tiempo de ejecución del motor: si
     está caído, la identidad falla **cerrada** (`401`), nunca abierta. `GET /health` del backend
     **no** detecta una base vaciada: no usarlo como prueba.
+
+!!! note "El plano interno solo responde a la red del stack (`INTERNAL_ALLOWED_CIDRS`)"
+    La identidad y la auditoría del motor viajan por `/api/v1/internal/*`. Esa ruta tiene **tres
+    capas**: el ingress la niega con `404`, exige la clave maestra compartida y, desde esta capa,
+    acepta solo conexiones cuyo **origen** esté en `INTERNAL_ALLOWED_CIDRS` (lista de redes CIDR
+    separadas por coma; `auto`, el default de los dos compose, toma la subred de la red del stack a
+    la que está enchufado el backend; vacía = sin chequeo de origen, como antes). Una clave filtrada,
+    usada desde fuera de la red, recibe `403`.
+
+    - **Síntoma de una lista que deja afuera al motor:** todo tráfico con llave de Connection responde
+      `401` y el backend registra `origen … fuera de INTERNAL_ALLOWED_CIDRS: rechazado`.
+    - **Fix:** agregar la red desde la que llega el motor (se ve en ese mismo log) o volver a `auto`.
+      Una entrada mal escrita **cierra** el plano (nada pasa) hasta corregirla; nunca lo abre.
+    - **Límites:** valida el origen de la conexión TCP, no la identidad del servicio: otro
+      contenedor de la misma red que conozca la clave sigue pasando. En desarrollo, una conexión
+      desde el host al puerto publicado llega con la IP del gateway del bridge, que está dentro de la
+      subred que `auto` permite.
 
 ## Relacionado
 

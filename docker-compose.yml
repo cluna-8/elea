@@ -200,6 +200,10 @@ services:
       - SENTINEL_PII_VAULT_TTL_SECONDS=${SENTINEL_PII_VAULT_TTL_SECONDS:-7776000}
       - SENTINEL_ENGINE_API_BASE=http://engine:4000
       - SENTINEL_ENGINE_MASTER_KEY=${SENTINEL_ENGINE_MASTER_KEY:-sentinel_master_key_9999}
+      # Plano interno (/api/v1/internal/*), capa de ORIGEN además del secreto: `auto` = la
+      # subred de la red de compose de este contenedor; lista de CIDR por coma; vacío = sin chequeo.
+      # La suite (`docker compose run backend pytest`) hereda esto y la conftest la borra.
+      - INTERNAL_ALLOWED_CIDRS=${INTERNAL_ALLOWED_CIDRS-auto}
       # ── Admisión hacia el motor (nodo C1, issue #151) ──────────────────────────
       # Passthrough con los MISMOS defaults del código: en dev no cambia nada de
       # comportamiento, pero las perillas del .env.example dejan de ser decorativas

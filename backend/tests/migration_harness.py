@@ -11,6 +11,7 @@ tests live del repo). Host: localhost:5433 (docker-compose de sentinel-guardian)
 POSTGRES_* cuando corren dentro del container backend.
 """
 import os
+import threading
 import uuid
 from pathlib import Path
 
@@ -29,7 +30,7 @@ ADMIN_USER = os.getenv("POSTGRES_USER", "sentinel_admin")
 ADMIN_PASSWORD = os.getenv("POSTGRES_PASSWORD", "sentinelsecurepass123")
 
 RLS_OWNER = "rls_owner"
-RLS_OWNER_PASSWORD = "rls-owner-secret"
+RLS_OWNER_PASSWORD = "rls-owner-secret"  # secret-scanner: allow (credencial del rol de test rls_owner, solo tests)
 
 DEFAULT_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
@@ -51,17 +52,52 @@ def url(user: str, password: str, dbname: str) -> str:
     return f"postgresql://{user}:{password}@{PG_HOST}:{PG_PORT}/{dbname}"
 
 
+# Resultado de la sonda por (host, puerto): "" = responde, otro texto = por qué no. ~100 módulos
+# llaman a `require_postgres()` al importarse; sin esta memoria cada uno pagaba su propia sonda
+# y, sin Postgres, los costos se sumaban hasta dejar la recolección inmóvil por minutos (el
+# `connect_timeout` de libpq no cubre la resolución del nombre `db` en un proyecto aislado).
+_ESTADO_PG: dict = {}
+# Techo DURO de la sonda, en segundos: la sonda corre en un hilo y, si no vuelve, se la da por
+# fallida (el hilo es daemon: no retiene la salida del proceso).
+_TECHO_SONDA_S = 6.0
+
+
+def _sondear_postgres() -> str:
+    resultado = []
+
+    def intento():
+        try:
+            engine = create_engine(url(ADMIN_USER, ADMIN_PASSWORD, "postgres"),
+                                   connect_args={"connect_timeout": 3})
+            with engine.connect():
+                pass
+            engine.dispose()
+            resultado.append("")
+        except Exception as exc:  # noqa: BLE001 — cualquier fallo = no disponible
+            resultado.append(type(exc).__name__)
+
+    hilo = threading.Thread(target=intento, daemon=True)
+    hilo.start()
+    hilo.join(_TECHO_SONDA_S)
+    return resultado[0] if resultado else f"sin respuesta en {_TECHO_SONDA_S:g} s"
+
+
 def require_postgres():
-    """Skip a nivel módulo si el Postgres de Compose no está levantado."""
-    try:
-        engine = create_engine(url(ADMIN_USER, ADMIN_PASSWORD, "postgres"),
-                               connect_args={"connect_timeout": 3})
-        with engine.connect():
-            pass
-        engine.dispose()
-    except Exception:
+    """Skip a nivel módulo si el Postgres de Compose no está levantado.
+
+    La sonda se hace UNA vez por (host, puerto) y por sesión; el resto de los módulos reusa
+    el resultado. Sin Postgres, la suite de integración se SALTA entera con este motivo en
+    segundos, en vez de colgarse."""
+    clave = (PG_HOST, PG_PORT)
+    if clave not in _ESTADO_PG:
+        _ESTADO_PG[clave] = _sondear_postgres()
+    motivo = _ESTADO_PG[clave]
+    if motivo:
         pytest.skip(
-            f"Postgres no disponible en {PG_HOST}:{PG_PORT} — levantar `docker compose up -d db`",
+            f"Postgres no disponible en {PG_HOST}:{PG_PORT} ({motivo}) — levantar "
+            "`docker compose up -d db` (dentro del contenedor backend el nombre `db` solo "
+            "existe si la `db` del compose está arriba) o apuntar POSTGRES_HOST/POSTGRES_PORT "
+            "a otra base",
             allow_module_level=True,
         )
 
