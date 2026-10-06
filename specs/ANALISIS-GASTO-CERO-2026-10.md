@@ -643,6 +643,52 @@ $ docker ps -a    → solo los eleae2e-* en Exited, igual que antes
 
 ---
 
+## 11. HANDOFF a Sentinel — arreglo genérico implementado (B.1 + B.2)
+
+**Decisiones del owner (2026-10-06)**: (1) la marca del acierto va en una **columna booleana** `audit_logs.cache_hit`
+(migración con id por hash, `NOT NULL DEFAULT false`); (2) con costo no informado el backend resuelve el tarifario
+**una sola vez** y lo usa para la fila **y** para el presupuesto, y la fila lleva `audit_logs.cost_estimated`;
+(3) un acierto de caché **no se descuenta** del presupuesto (ni USD ni tokens) y queda marcado. `SENTINEL_AUDIT_URL`
+ausente del compose del instalador (§9.5) lo agrega la rama `cluna-8/fix-separar-bases-motor`, no este arreglo.
+
+**Qué cambió (todo genérico, sin strings de Elea/Eleia; portable tal cual)**
+
+| Archivo | Cambio |
+|---|---|
+| `litellm/extensions/sentinel_audit_logger.py` | `_es_acierto_de_cache(kwargs)` (lee `kwargs["cache_hit"]` y `standard_logging_object["cache_hit"]`, solo `True` cuenta); `response_cost` ya no se colapsa con `or 0`: `None` con tokens y sin acierto → `cost_usd=None` + `cost_missing=True`; el evento suma `cache_hit`; el INSERT por prisma (desarrollo) agrega `cache_hit` y manda `0.0` si el costo falta (columna NOT NULL) |
+| `backend/src/api/internal.py` | `AuditEntry`: `cost_usd: Optional[float] = 0.0`, `cost_missing`, `cache_hit` (defaults = contrato viejo). `_costo_del_evento(entry)` → `(Decimal, estimado)`; `_acumular_gasto(db, entry, costo)` recibe el costo ya resuelto y **no hace nada** si `cache_hit`; el INSERT agrega `cache_hit`, `cost_estimated` |
+| `backend/src/models/audit.py` | columnas `cache_hit`, `cost_estimated` |
+| `backend/alembic/versions/3d1f1bd93c73_audit_cache_hit_cost_estimated.py` | `ADD COLUMN IF NOT EXISTS` ×2, idempotente. **En Sentinel hay que re-encadenarla sobre SU head** (acá `down_revision = 199fe429762a`) |
+| `docs/docs/administration/index.md` | tabla de los tres casos (caché / costo no informado / cero informado), 🟡 |
+
+**Reglas que fijan los tests** (`backend/tests/unit/test_audit_cost_cache_marks.py`, 17 tests; rojo→verde con el venv local):
+`None`≠`0`; acierto de caché = cero real aunque falte el número (no se marca faltante); sin tokens no se tarifa; `cost_usd=0.0`
+explícito nunca cae al tarifario (modelo local, ahorro por caché); fila y presupuesto cierran con el mismo valor.
+Además `backend/tests/integration/test_internal_plane.py` (2 casos nuevos) y `backend/tests/test_migration_audit_cache_hit.py`
+**necesitan Postgres: no corrieron en local, los verifica el CI del PR**.
+
+**Orden de despliegue (importa)**: **backend primero, motor después**. Un motor nuevo manda `cost_usd: null` y un backend
+viejo lo rechazaría con 422 (`float` obligatorio) — fila perdida (contada en `sentinel:audit:lost`). Motor viejo + backend
+nuevo es compatible (no manda las marcas; los defaults reproducen el comportamiento anterior).
+
+**Fuera de este arreglo (queda abierto, no se tocó)**
+- **Ahorro en reportes**: el owner decidió que el acierto «aparece como ahorro en reportes»; este arreglo solo deja el dato
+  (`cache_hit`, tokens y modelo en la fila). El cálculo y la vitrina (`backend/src/api/costs.py`) no están hechos; la
+  tabla `cost_saved_usd` existente es del ahorro por compresión (spec 012), no se reutilizó.
+- **Asimetría con el chat de la consola** (§9.2.3): el header `x-litellm-response-cost` de un acierto trae el costo
+  **original**, así que el chat (`chat.py:1535,1741`) cobraría el acierto completo mientras el plano de agentes lo deja en 0.
+  No se tocó el chat; hay que decidir si se alinea.
+- **Que el hook reciba `cache_hit`** en los `kwargs` de la imagen en uso sigue **sin verificarse en vivo** (§9.7): la lectura
+  es defensiva en los dos sitios conocidos; con el motor corriendo conviene repetir R2 de §9.1 y mirar `audit_logs.cache_hit`.
+- **A (`cache: false`)** sigue siendo decisión de producto, independiente de este arreglo.
+- **Doc del cache** (`docs/docs/integrations/gotchas.md:137`, `modelo-propio.md:88`): describen otro síntoma (placeholders
+  cacheados); no se modificaron.
+- **Verificación Docker**: `make -C deploy check` / `check-docs` completos y la suite del backend en contenedor **no se corrieron**
+  (sin Docker); sí las partes sin Docker de `check-docs` (ver el cierre del worker) y la regeneración del OpenAPI, idéntica
+  (`/internal/*` no está en el reference), por lo que `docs-refs` no hace falta.
+
+---
+
 ## Apéndice: evidencia leída (comandos, sin salida de secretos)
 
 - Repo: `litellm/config.yaml`, `litellm/Dockerfile`, `litellm/extensions/sentinel_audit_logger.py`, `custom_auth.py`;
