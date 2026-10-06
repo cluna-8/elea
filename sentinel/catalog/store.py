@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 from sentinel.redirect.residency import satisfies
 
 from . import models as cm
-from .region import in_region
+from .region import Region, in_region
 from .semaforo import semaforo
 
 STALE = "stale"
@@ -48,10 +48,13 @@ def sheet_view(sheet: Optional[cm.ComplianceSheet]) -> dict:
 
 
 def semaforo_of(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
-                dpa: Optional[Mapping[str, Any]], today: date) -> dict:
-    """La regla única (FR-003a): misma función para pantalla, residencia, perfiles y motor."""
+                dpa: Optional[Mapping[str, Any]], today: date, region: Optional[Region] = None) -> dict:
+    """La regla única (FR-003a): misma función para pantalla, residencia, perfiles y motor. `region` (la efectiva de
+    la empresa, `region.effective_region`) es contra lo que se evalúa (FR-030a); sin ella, la UE de siempre."""
     return semaforo(sheet_view(sheet), dpa, es_agregador=bool(entry.is_aggregator), hoy=today,
-                    desactualizada=bool(sheet and sheet.classification_version == STALE))
+                    desactualizada=bool(sheet and sheet.classification_version == STALE),
+                    region=None if region is None else region.codes,
+                    region_strict=bool(region is not None and region.from_row))
 
 
 def region_ue(sheet: Optional[cm.ComplianceSheet]) -> Optional[bool]:
@@ -72,9 +75,14 @@ def region_ue(sheet: Optional[cm.ComplianceSheet]) -> Optional[bool]:
 
 def entry_view(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
                credential: Optional[cm.Credential], dpa: Optional[Mapping[str, Any]], today: date,
-               *, owner: bool, region_codes: Optional[frozenset] = None) -> dict:
-    """Vista de una entrada. `owner`: quien la administra (ve la huella de la credencial). `region_codes`: las
-    jurisdicciones de «mi región» (`region.effective_codes`); si llegan, la vista suma `in_region` (FR-028a)."""
+               *, owner: bool, region_codes: Optional[frozenset] = None, region: Optional[Region] = None) -> dict:
+    """Vista de una entrada. `owner`: quien la administra (ve la huella de la credencial). `region`: la región
+    efectiva (`region.effective_region`): el semáforo se evalúa contra ella (FR-030a), la vista suma `in_region`
+    (FR-028a) y `region_label` (el nombre de la región, p. ej. `AMERICAS`; el panel muestra «Dentro de <región>» solo
+    con `eu_ok` y nunca «Admisible» ni «Cumple»; `null` si no hay región resuelta). `region_codes` queda por
+    compatibilidad y solo suma `in_region`."""
+    if region is not None:
+        region_codes = region.codes
     out = {
         "id": _s(entry.id), "level": entry.level, "tenant_id": _s(entry.tenant_id), "name": entry.name,
         "public_id": entry.public_id, "provider": entry.provider, "real_model": entry.real_model,
@@ -95,7 +103,7 @@ def entry_view(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
         "status": entry.status, "source": entry.source,
         "has_credential": entry.credential_id is not None and credential is not None
         and credential.status == "active",
-        "sheet": sheet_view(sheet), "semaforo": semaforo_of(entry, sheet, dpa, today),
+        "sheet": sheet_view(sheet), "semaforo": semaforo_of(entry, sheet, dpa, today, region),
         # solo lo que el semáforo necesita ver del DPA (vigencia y región), nunca el documento
         "dpa": None if dpa is None else {
             "expiration_date": _iso(dpa.get("expiration_date")),
@@ -105,6 +113,8 @@ def entry_view(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
         out["deployment_check"] = (entry.provider_options or {}).get("deployment_check")
     if region_codes is not None:
         out["in_region"] = in_region(sheet, region_codes)
+    if region is not None:
+        out["region_label"] = region.name
     if owner and credential is not None:
         out["credential"] = {"id": _s(credential.id), "name": credential.name,
                              "kind": credential.kind, "fingerprint": credential.fingerprint}

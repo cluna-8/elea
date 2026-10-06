@@ -57,7 +57,7 @@ export const CatalogPage: React.FC = () => {
     <div>
       <PageHeader
         title="Catálogo de modelos"
-        subtitle="Todos los modelos que podés usar, con qué credencial se sirven y qué tan admisibles son según su ficha de cumplimiento."
+        subtitle="Todos los modelos que podés usar, con qué credencial se sirven y si están dentro de tu región según su ficha de cumplimiento."
       />
       {!perms.canAdmin && !loading && !error && (
         <Notice tone="info">

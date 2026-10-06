@@ -79,6 +79,9 @@ class Grant:
     price: Optional[dict] = None    # {"input_per_mtok", "output_per_mtok"} del destino (D23 de la 069)
     # Parámetros del pedido que la ficha del destino declara «no soportados»: el guard los quita (069 enmienda)
     drop_params: tuple = ()
+    # Opciones del destino que el guard necesita y no son credencial (057 FR-032): hoy, la lista de proveedores
+    # permitidos de un destino `openrouter`. Viaja firmada: una autorización manipulada no vale.
+    provider_options: dict = field(default_factory=dict)
 
 
 def _secret(key: Optional[str]) -> bytes:
@@ -110,7 +113,8 @@ def issue(*, request_id: str, scope: str, destination_id: str, model: str, provi
           decision: Optional[Mapping[str, Any]] = None, ttl: int = DEFAULT_TTL,
           key: Optional[str] = None, now: Optional[float] = None,
           price: Optional[Mapping[str, Any]] = None,
-          drop_params: Optional[Any] = None) -> str:
+          drop_params: Optional[Any] = None,
+          provider_options: Optional[Mapping[str, Any]] = None) -> str:
     if not (0 < ttl <= MAX_TTL):
         raise ValueError(f"ttl fuera de rango (1..{MAX_TTL})")
     mac_key, fernet = _keys(key)
@@ -125,6 +129,8 @@ def issue(*, request_id: str, scope: str, destination_id: str, model: str, provi
         payload["prc"] = dict(price)
     if drop_params:
         payload["drp"] = [str(n) for n in drop_params]
+    if provider_options:
+        payload["po"] = dict(provider_options)
     body = _b64e(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
     signed = f"{VERSION}.{body}".encode()
     return f"{VERSION}.{body}.{_b64e(hmac.new(mac_key, signed, hashlib.sha256).digest())}"
@@ -153,7 +159,8 @@ def verify(token: Any, *, expected_model: Optional[str] = None, key: Optional[st
                       provider=p["prv"], credential=cred, api_base=p.get("base"),
                       forced_masking=bool(p["fm"]), decision=dict(p.get("dec") or {}),
                       issued_at=iat, expires_at=exp, price=p.get("prc") or None,
-                      drop_params=tuple(str(n) for n in (p.get("drp") or ())))
+                      drop_params=tuple(str(n) for n in (p.get("drp") or ())),
+                      provider_options=dict(p.get("po") or {}))
     except (InvalidToken, KeyError, ValueError, TypeError, AttributeError):
         raise AuthzMalformed("contenido") from None
     now = time.time() if now is None else now

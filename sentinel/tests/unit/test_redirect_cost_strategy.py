@@ -11,7 +11,8 @@ EU = Posture(mode="allowlist", jurisdictions=frozenset({"EU"}))
 
 def dest(did, price=None, **kw):
     d = {"id": did, "level": "tenant", "tenant_id": "t1", "status": "active", "has_credential": True,
-         "inference_jurisdiction": "EU", "entity_jurisdiction": "EU", "provider": "openrouter",
+         "inference_jurisdiction": "EU", "entity_jurisdiction": "EU", "control_jurisdiction": "EU",
+         "provider": "openrouter",
          "real_model": f"model-{did}", "blocked_by_default": False, "enabled_at": None,
          "protocol_family": "openai_chat", "api_base": "https://openrouter.ai/api/v1", "name": did, **kw}
     if price is not None:
@@ -69,7 +70,7 @@ def test_destino_no_elegible_no_entra_aunque_sea_el_mas_barato():
 
 
 def test_no_pisa_otro_motivo_de_sustitucion():
-    r = run(["a", "b", "c"], [dest("a", inference_jurisdiction="US", entity_jurisdiction="US"),
+    r = run(["a", "b", "c"], [dest("a", inference_jurisdiction="US", entity_jurisdiction="US", control_jurisdiction="US"),
                               dest("b", (3, 15)), dest("c", (1, 1))], "cheapest")
     assert ids(r) == ["c", "b"] and r.substitution_reason == "residency"
 

@@ -63,6 +63,8 @@ class _Store:
 
 @pytest.fixture
 def api(monkeypatch):
+    # modelos locales on-prem de la organización (ollama en una red interna): interruptor de instalación (057 H1)
+    monkeypatch.setenv("CATALOG_ALLOW_PRIVATE_API_BASE", "true")
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     cm.CatalogBase.metadata.create_all(engine)
     rm.RedirectBase.metadata.create_all(engine)

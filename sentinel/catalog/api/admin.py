@@ -29,6 +29,7 @@ from sentinel.redirect import credentials as rc
 from sentinel.redirect import models as rm
 from sentinel.redirect.api.admin import _is_super  # autoridad de instalación (operador)
 
+from .. import api_base as ab
 from .. import credentials as cr
 from .. import habilitacion as hb
 from .. import models as cm
@@ -225,7 +226,7 @@ def _view(db, user, e: cm.CatalogEntry) -> dict:
     cred = cs.credential_of(db, e)
     owner = e.tenant_id == user.tenant_id or (e.tenant_id is None and _is_super(user))
     out = cs.entry_view(e, sheet, cred, _dpa(db, e, sheet), _today(), owner=owner,
-                        region_codes=cregion.effective_codes(db, user.tenant_id))
+                        region=cregion.effective_region(db, user.tenant_id))
     if e.level == "installation" and _is_super(user):
         out["offered_to"] = cs.offered_tenants(db, e.id)
     return out
@@ -302,6 +303,19 @@ def _check_binding(provider: str, level: str, cred_row: Optional[cm.Credential],
             _err(422, str(exc))
     if rc.requires_api_base(provider) and not api_base:
         _err(422, "este proveedor requiere api_base")
+    _check_api_base(level, api_base)
+
+
+def _check_api_base(level: str, api_base: Optional[str]) -> None:
+    """H1: el motor llama a la `api_base` con la credencial de la entrada. La de una entrada de **empresa** tiene que
+    ser un host público por https (o, con el interruptor de instalación, uno privado para modelos locales); las de
+    instalación las carga el operador y no pasan por esta regla."""
+    if level == "installation":
+        return
+    try:
+        ab.check_api_base(api_base)
+    except ab.ApiBaseError as exc:
+        _err(422, str(exc))
 
 
 def _name_taken(db, level, tenant_id, name, *, except_id=None) -> bool:
@@ -356,6 +370,8 @@ def _verify_deployment(db, user, e: cm.CatalogEntry) -> dict:
     apaga (con el motivo legible); `ok` la enciende si estaba apagada por esa causa; `error` no cambia su estado."""
     cred_row = cs.credential_of(db, e)
     try:
+        if e.level != "installation":
+            ab.check_api_base(e.api_base)        # H1: una entrada de empresa con una base rechazada no se sondea
         cred = cr.resolve(cred_row, _decrypt) if cred_row is not None else {}
         out = (DEPLOYMENT_PROBE or default_deployment_probe)(e, cred) or {}
     except Exception:  # noqa: BLE001 — una prueba que falla no apaga ni enciende nada
@@ -378,6 +394,21 @@ def _verify_deployment(db, user, e: cm.CatalogEntry) -> dict:
 def _check_provider_options(options) -> None:
     if isinstance(options, dict) and DEPLOYMENT_KEY in options:
         _err(422, f"provider_options.{DEPLOYMENT_KEY} es de la verificación del despliegue: no se escribe a mano")
+
+
+def _check_openrouter(provider, options) -> None:
+    """FR-032 (research R19): una entrada `openrouter` nombra a los proveedores permitidos (lista no vacía) y no acepta
+    ir en contra del cero retención. El guard fuerza `zdr`, `data_collection = deny` y la lista en cada pedido."""
+    if provider != "openrouter":
+        return
+    options = options if isinstance(options, dict) else {}
+    allow = options.get("providers_allowlist")
+    if not (isinstance(allow, list) and allow and all(isinstance(p, str) and p.strip() for p in allow)):
+        _err(422, "una entrada de este enrutador necesita provider_options.providers_allowlist: la lista de proveedores permitidos")
+    if "zdr" in options and options["zdr"] is not True:
+        _err(422, "provider_options.zdr solo puede ser true: el cero retención no se desactiva")
+    if "data_collection" in options and options["data_collection"] != "deny":
+        _err(422, "provider_options.data_collection solo puede ser deny")
 
 
 # ── cuerpos (extra=forbid: el semáforo y cualquier campo desconocido son 422) ──────
@@ -556,6 +587,7 @@ def _create_one(db, user, body: EntryIn, cred_of) -> dict:
                  body.level)
     _check_extras(body.limits, body.advanced, body.price_tiers)
     _check_provider_options(body.provider_options)
+    _check_openrouter(body.provider, body.provider_options)
     unsupported = _unsupported(body.unsupported_params)
     tenant = None if body.level == "installation" else user.tenant_id
     if _name_taken(db, body.level, tenant, body.name):
@@ -650,6 +682,7 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
         before = _audit_view(_view(db, user, e))
         stale = any(k in changes and changes[k] != getattr(e, k) for k in _STALE_FIELDS)
         identity_before = (e.provider, e.api_base)
+        destination_before = crelax.identity_of(e)
         deployment_before = (e.provider, e.real_model, e.api_base)
         old_check = (e.provider_options or {}).get(DEPLOYMENT_KEY)
         price_changed = any(k in changes for k in ("price_input", "price_output", "price_cache_read",
@@ -666,6 +699,8 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
             e.credential_id = cred.id
         if cred_spec is not None or {"provider", "api_base"} & set(changes):
             _check_binding(e.provider, e.level, cred, e.api_base)
+        if {"provider", "provider_options"} & set(changes):
+            _check_openrouter(e.provider, e.provider_options)
         if e.provider != "azure" and DEPLOYMENT_KEY in (e.provider_options or {}):
             e.provider_options = {k: v for k, v in e.provider_options.items() if k != DEPLOYMENT_KEY}
         e.updated_by = user.id
@@ -679,6 +714,9 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
             sheet = cs.sheet_of(db, e.id)
             if sheet is not None:
                 sheet.classification_version = cs.STALE
+        # H2 / FR-031a: una relajación es de *ese* destino; si cambió su identidad deja de valer en el mismo cambio
+        crelax.revoke_for_identity_change(db, e, destination_before, user,
+                                          audit=lambda **kw: _audit(db, user, **kw))
         # FR-029: cambiar proveedor o `api_base` re-evalúa las reglas de habilitación de la entrada
         moved = hb.reapply(db, e, hb.load_rules(db), sheet=cs.sheet_of(db, e.id),
                            identity_changed=(e.provider, e.api_base) != identity_before)
@@ -719,6 +757,7 @@ def archive_entry(entry_id: str, body: Reason, user=Depends(require_role(*ADMIN)
         _can_write(user, e)
         before = _audit_view(_view(db, user, e))
         e.status, e.archived_reason, e.updated_by = "archived", body.reason, user.id
+        crelax.revoke_for_archive(db, e, user, audit=lambda **kw: _audit(db, user, **kw))
         db.flush()
         after = _view(db, user, e)
         _audit(db, user, entity="catalog_entry", entity_id=e.id, action="archive", before=before,
@@ -899,7 +938,9 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
         if changed and getattr(user, "role", None) not in RESIDENCY_WRITERS:
             _err(403, "los datos de residencia y retención de la ficha son de cumplimiento: solo cumplimiento o el "
                       f"super-admin pueden cambiar {', '.join(changed)}")
-        before = {"sheet": cs.sheet_view(sheet), "semaforo": cs.semaforo_of(e, sheet, _dpa(db, e, sheet), _today())}
+        region = cregion.effective_region(db, user.tenant_id)
+        before = {"sheet": cs.sheet_view(sheet),
+                  "semaforo": cs.semaforo_of(e, sheet, _dpa(db, e, sheet), _today(), region)}
         juris_before = tuple(getattr(sheet, f, None) for f in hb.JURISDICTION_FIELDS)
         try:
             control = cv.check_jurisdiction(body.control_jurisdiction)

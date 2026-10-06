@@ -115,7 +115,7 @@ describe("pestaña Acceso", () => {
       setup("admin");
       render(<AccessTab />);
       const ue = (await screen.findByText("Solo admisibles UE")).closest("li")!;
-      expect(within(ue).getByText("Incluye: semáforo = admisible UE")).toBeInTheDocument();
+      expect(within(ue).getByText("Incluye: semáforo = dentro de la región")).toBeInTheDocument();
       expect(within(ue).getByText("Excluye: capacidad = de frontera")).toBeInTheDocument();
       expect(within(ue).getByText("permite 1 modelo")).toBeInTheDocument();
       expect(within(ue).getByText("Sembrado")).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe("pestaña Acceso", () => {
       const dlg = screen.getByRole("dialog");
       fireEvent.click(within(dlg).getByRole("button", { name: "Agregar regla" }));
       const val = () => within(dlg).getByLabelText("Valor de la regla 1");
-      expect(within(val()).getByRole("option", { name: "admisible UE" })).toHaveValue("eu_ok");
+      expect(within(val()).getByRole("option", { name: "dentro de la región" })).toHaveValue("eu_ok");
       fireEvent.change(within(dlg).getByLabelText("Selector de la regla 1"), { target: { value: "capacidad" } });
       expect(within(val()).getByRole("option", { name: "de frontera" })).toHaveValue("frontier");
       fireEvent.change(within(dlg).getByLabelText("Selector de la regla 1"), { target: { value: "entrada" } });

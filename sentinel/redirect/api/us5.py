@@ -194,7 +194,8 @@ async def run_fidelity(body: FidelityIn, user=Depends(require_role(*TENANT_ADMIN
                          group_ids=((str(user.group_id),) if getattr(user, "group_id", None) else ()))
     try:
         posture = residency.effective_posture(snap.postures, scope, redirected=True,
-                                              tenant_region=os.environ.get("SENTINEL_ENTITY_REGION", "eu"))
+                                              tenant_region=residency.resolve_profile(), regions=snap.regions,
+                                              relaxations=snap.relaxations)
         dest = fidelity.ensure_allowed(str(dest_uuid), snap.destinations, offers=snap.offers,
                                        scope=scope, posture=posture)
     except ValueError as exc:

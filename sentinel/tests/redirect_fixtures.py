@@ -13,7 +13,7 @@ INTERNAL_KEY = "k" * 48
 DEST_CHAT = {  # destino traducido, compatible-OpenAI solo-chat (UE)
     "id": "d-chat", "level": "tenant", "tenant_id": TENANT, "name": "Qwen UE",
     "provider": "openai_compatible", "real_model": "qwen-destino", "protocol_family": "openai_chat",
-    "inference_jurisdiction": "DE", "entity_jurisdiction": "DE", "blocked_by_default": False,
+    "inference_jurisdiction": "DE", "entity_jurisdiction": "DE", "control_jurisdiction": "DE", "blocked_by_default": False,
     "enabled_at": None, "has_credential": True, "api_base": "http://destino.local/v1",
     "capability_profile": {"thinking": False, "cache_control": False, "images": False},
     "context_window": 128000, "max_output": 8192, "status": "active",
@@ -21,16 +21,42 @@ DEST_CHAT = {  # destino traducido, compatible-OpenAI solo-chat (UE)
 DEST_ANTHROPIC = {  # destino nativo de la cara Claude (EE. UU.)
     "id": "d-ant", "level": "installation", "tenant_id": None, "name": "Nativo",
     "provider": "anthropic", "real_model": "claude-real", "protocol_family": "anthropic_messages",
-    "inference_jurisdiction": "US", "entity_jurisdiction": "US", "blocked_by_default": False,
+    "inference_jurisdiction": "US", "entity_jurisdiction": "US", "control_jurisdiction": "US", "blocked_by_default": False,
     "enabled_at": None, "has_credential": True, "api_base": None, "capability_profile": {},
     "context_window": 200000, "max_output": 64000, "status": "active",
 }
+# Región de los tests heredados de la 068 (perfil `eu`): `reject_offregion` es la postura de fábrica y da la misma
+# allowlist de la región que daba la 068 sin filas (057 R23). Los tests de la 057 arman la suya (`residency_fixtures`).
+EU_REGION = {"id": "r-eu", "level": "installation", "tenant_id": None, "name": "EU", "jurisdictions": ["EU"],
+             "region_profiles": ["eu"], "default_posture": "reject_offregion", "is_zone": False}
+US_REGION = {"id": "r-us", "level": "installation", "tenant_id": None, "name": "US", "jurisdictions": ["US"],
+             "region_profiles": ["us"], "default_posture": "reject_offregion", "is_zone": False}
+LEGACY_REGIONS = (EU_REGION, US_REGION)
+# Para los tests que ya fijan su propia postura explícita: sin piso ni alcance que se sume a ella.
+ALLOW_EU_REGION = {**EU_REGION, "id": "r-eu-allow", "default_posture": "allow"}
+
+
+def seed_regions(db, regions=LEGACY_REGIONS):
+    """Inserta las filas de región de los tests heredados (perfiles `eu` y `us`, `reject_offregion`)."""
+    import uuid
+
+    from sentinel.redirect import models as rm
+    for r in regions:
+        if db.query(rm.RedirectRegion).filter_by(name=r["name"], level=r["level"]).first() is not None:
+            continue
+        db.add(rm.RedirectRegion(id=uuid.uuid4(), level=r["level"], tenant_id=None, name=r["name"],
+                                 jurisdictions=list(r["jurisdictions"]), region_profiles=list(r["region_profiles"]),
+                                 default_posture=r["default_posture"], is_zone=r["is_zone"]))
+    db.commit()
+
+
 CREDS = {"d-chat": json.dumps({"api_key": "sk-destino-chat"}),
          "d-ant": json.dumps({"api_key": "env:REDIRECT_CRED_ANT"})}
 
 
 def snapshot(state="on", *, postures=(), targets=("d-chat",), claude_targets=("d-chat",),
-             offers=({"destination_id": "d-ant", "tenant_id": "*", "enabled_at": None},)):
+             offers=({"destination_id": "d-ant", "tenant_id": "*", "enabled_at": None},),
+             regions=LEGACY_REGIONS, relaxations=()):
     policy = ({"tenant_id": TENANT, "scope_type": "tenant", "scope_value": "*", "state": state},) \
         if state else ()
     published = (
@@ -48,7 +74,8 @@ def snapshot(state="on", *, postures=(), targets=("d-chat",), claude_targets=("d
     )
     return Snapshot(policy=policy, postures=tuple(postures), published=published, rules=rules,
                     destinations={"d-chat": DEST_CHAT, "d-ant": DEST_ANTHROPIC},
-                    offers=tuple(offers), credentials=dict(CREDS))
+                    offers=tuple(offers), credentials=dict(CREDS), regions=tuple(regions),
+                    relaxations=tuple(relaxations))
 
 
 def store(snap=None, *, key_models=None):
@@ -80,11 +107,13 @@ def seed_entry(db, *, name="Qwen UE", level="tenant", tenant=TENANT, provider="o
                credential=None, inference="DE", entity="DE", context_window=128000, max_output=None,
                price=None, status="active", role="text", features=None, unsupported=None,
                offered_to=(), blocked_by_default=False, enabled_at=None, public_id=None, id=None,
-               credential_kind="secret", env_name=None):
+               credential_kind="secret", env_name=None, control="__entity__", zero_data_retention=None,
+               is_aggregator=False, provider_options=None):
     """Inserta una entrada del catálogo (con ficha y credencial) y devuelve `{"id": ..., ...}`.
 
     `price`: USD por millón de tokens, como lo escribía la 068 (`{"input_per_mtok", "output_per_mtok"}`).
-    `offered_to`: tenants (o `"*"`) a los que se ofrece una entrada de instalación."""
+    `offered_to`: tenants (o `"*"`) a los que se ofrece una entrada de instalación. `control`: jurisdicción de
+    control de la ficha (por defecto, la de la entidad; 057 FR-028a)."""
     import uuid
 
     from sentinel.catalog import models as cm
@@ -106,10 +135,13 @@ def seed_entry(db, *, name="Qwen UE", level="tenant", tenant=TENANT, provider="o
         price_output=None if not price else price["output_per_mtok"] / 1e6,
         unsupported_params=list(unsupported or []), blocked_by_default=blocked_by_default,
         enabled_at=enabled_at, status=status, source="console",
-        archived_reason="archivada" if status == "archived" else None)
+        archived_reason="archivada" if status == "archived" else None, is_aggregator=is_aggregator,
+        provider_options=dict(provider_options or {}))
     db.add(entry)
     db.add(cm.ComplianceSheet(entry_id=eid, inference_jurisdiction=inference or "unknown",
-                              entity_jurisdiction=entity, classification_version="console:0"))
+                              entity_jurisdiction=entity,
+                              control_jurisdiction=entity if control == "__entity__" else control,
+                              zero_data_retention=zero_data_retention, classification_version="console:0"))
     for t in offered_to:
         db.add(cm.CatalogOffer(id=uuid.uuid4(), entry_id=eid,
                                tenant_id=None if t == "*" else uuid.UUID(str(t))))

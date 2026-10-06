@@ -90,6 +90,8 @@ def entry_body(**kw):
             "credential": {"new": {"name": "or-key", "value": VALOR_SECRETO}},
             "capability": "standard", "role": "text", "context_window": 128000}
     body.update(kw)
+    if body["provider"] == "openrouter" and "provider_options" not in body:
+        body["provider_options"] = {"providers_allowlist": ["acme-us"]}      # FR-032: obligatoria y no vacía
     return body
 
 

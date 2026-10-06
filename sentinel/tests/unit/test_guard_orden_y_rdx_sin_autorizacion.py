@@ -28,7 +28,7 @@ DEPLOY_MERGE = ROOT / "deploy" / "release" / "fragment_merge.py"          # S9/S
 KEY = "k" * 48
 NOW = 1_800_000_000.0
 MODEL = "rdx-chatcompat/qwen"
-REPORTE_OK = {"completed": True, "degraded": False, "detected": 2, "masked": 2}
+REPORTE_OK = {"completed": True, "degraded": False, "detected": 2, "masked": 2, "unanalyzable": 0, "scope": "full"}      # con S14 el forzado exige alcance completo (057 QA B3)
 
 TEXTUALES = ["completion", "acompletion", "atext_completion", "anthropic_messages"]
 NO_TEXTUALES = ["embedding", "aembedding", "image_generation", "aimage_generation", "transcription", "atranscription",
@@ -39,6 +39,7 @@ NO_TEXTUALES = ["embedding", "aembedding", "image_generation", "aimage_generatio
 def _token(**kw):
     args = dict(request_id="req-1", scope="t1/connection:k1", destination_id="d1", model=MODEL, provider="openrouter",
                 credential={"api_key": "valor-inventado-del-destino"}, api_base=None, forced_masking=False,
+                provider_options={"providers_allowlist": ["acme-us"]},
                 decision={"public_id": "pro", "face": "openai_generic", "rule_id": "r1"}, key=KEY, now=NOW)
     args.update(kw)
     return authz.issue(**args)

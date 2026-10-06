@@ -19,8 +19,10 @@ def row(scope_type, scope_value, mode, jurisdictions=(), accept=False, tenant_id
             "mode": mode, "jurisdictions": list(jurisdictions), "accept_foreign_entity": accept}
 
 
-def dest(inf="EU", ent="EU"):
-    return {"id": "d1", "inference_jurisdiction": inf, "entity_jurisdiction": ent}
+def dest(inf="EU", ent="EU", ctrl="__ent__"):
+    """`ctrl` (jurisdicción de control, 057 FR-028a) sigue a la entidad salvo que el test la fije."""
+    return {"id": "d1", "inference_jurisdiction": inf, "entity_jurisdiction": ent,
+            "control_jurisdiction": ent if ctrl == "__ent__" else ctrl}
 
 
 # --- región → códigos -------------------------------------------------------
@@ -61,16 +63,26 @@ def test_default_off_for_non_redirected():
     assert p.mode == "off"
 
 
-def test_default_allowlist_region_for_redirected():
-    p = effective_posture([], SCOPE, redirected=True, tenant_region="latam_ar")
+def test_default_allowlist_region_for_redirected_con_reject_offregion():
+    """Paridad con la 068: la fila de región con la postura de fábrica `reject_offregion` da la allowlist de la región."""
+    region = {"level": "installation", "tenant_id": None, "name": "LATAM-AR", "jurisdictions": ["LATAM", "AR"],
+              "region_profiles": ["latam_ar"], "default_posture": "reject_offregion", "is_zone": False}
+    p = effective_posture([], SCOPE, redirected=True, tenant_region="latam_ar", regions=[region])
     assert p.mode == "allowlist"
     assert p.jurisdictions == frozenset({"LATAM", "AR"})
     assert p.explicit is False
 
 
+def test_default_redirected_sin_fila_de_region_rige_el_respaldo_en_codigo():
+    """Cambio respecto de la 068 (057 QA B2, R28): sin fila, enmascarado forzado y alcance de la región."""
+    p = effective_posture([], SCOPE, redirected=True, tenant_region="latam_ar")
+    assert p.code_fallback and p.mode == "offregion_masked" and p.cap == frozenset({"LATAM", "AR"})
+    assert p.explicit is False
+
+
 def test_default_redirected_without_region_is_fail_closed():
     p = effective_posture([], SCOPE, redirected=True, tenant_region=None)
-    assert p.mode == "allowlist" and p.jurisdictions == frozenset()
+    assert p.blocked
     assert not evaluate(p, dest("EU", "EU")).allowed
 
 
@@ -163,3 +175,83 @@ def test_effective_offregion_home_from_rows_or_region():
     assert p.home == frozenset({"US"})
     p2 = effective_posture([row("tenant", "*", "offregion_masked")], SCOPE, redirected=True, tenant_region="eu")
     assert p2.home == frozenset({"EU"})
+
+
+# --- T054 (057 FR-024, FR-026, FR-028, FR-028a; US3 esc. 1–2, 11): allowlist, entidad y control --------------
+
+def _mk(mode, **kw):
+    return Posture(mode=mode, redirected=True, **kw)
+
+
+def test_allowlist_sobre_el_destino_y_sobre_sus_fallbacks():
+    """Cada destino de una regla se evalúa por separado: el de afuera se salta y el siguiente en región sirve."""
+    p = _mk("allowlist", jurisdictions=frozenset({"EU"}))
+    assert not evaluate(p, dest("US", "US")).allowed
+    assert evaluate(p, dest("DE", "DE")).allowed
+
+
+def test_sin_jurisdiccion_de_inferencia_queda_fuera_de_toda_allowlist():
+    p = _mk("allowlist", jurisdictions=frozenset({"EU", "US"}))
+    for faltante in (None, "", "unknown"):
+        d = evaluate(p, dest(faltante, "EU"))
+        assert not d.allowed and d.reason == "residency"
+
+
+def test_la_mas_restrictiva_gana_e_interseccion_de_listas():
+    rows = [row("tenant", "*", "allowlist", ["EU", "US"]), row("group", "g1", "allowlist", ["US"])]
+    p = effective_posture(rows, SCOPE, redirected=True, tenant_region="eu")
+    assert p.jurisdictions == frozenset({"US"})
+    assert not evaluate(p, dest("DE", "DE")).allowed
+
+
+def test_entidad_ajena_y_su_aceptacion():
+    p = _mk("allowlist", jurisdictions=frozenset({"EU"}))
+    assert evaluate(p, dest("EU", "US", "US")).reason == "foreign_entity"
+    assert evaluate(_mk("allowlist", jurisdictions=frozenset({"EU"}), accept_foreign_entity=True),
+                    dest("EU", "US", "US")).allowed
+
+
+@pytest.mark.parametrize("control", [None, "", "unknown", "CN"])
+def test_control_fuera_de_la_lista_o_sin_cargar_es_entidad_ajena_bajo_allowlist(control):
+    p = _mk("allowlist", jurisdictions=frozenset({"EU"}))
+    d = evaluate(p, dest("EU", "EU", control))
+    assert not d.allowed and d.reason == "foreign_entity"
+    assert evaluate(_mk("allowlist", jurisdictions=frozenset({"EU"}), accept_foreign_entity=True),
+                    dest("EU", "EU", control)).allowed
+
+
+@pytest.mark.parametrize("control", [None, "unknown", "CN"])
+def test_control_fuera_o_sin_cargar_es_fuera_de_region_bajo_offregion_masked(control):
+    p = _mk("offregion_masked", home=frozenset({"EU"}))
+    assert evaluate(p, dest("EU", "EU", control)).forced_masking
+    assert not evaluate(p, dest("EU", "EU", "DE")).forced_masking        # el control en la zona sí cuenta como dentro
+
+
+def test_modelo_no_registrado_es_inalcanzable_con_allowlist():
+    """Un destino que la instantánea no tiene (`not_found`) nunca es elegible: la allowlist no lo vuelve alcanzable."""
+    from sentinel.redirect.resolver import check_target
+    p = _mk("allowlist", jurisdictions=frozenset({"EU"}))
+    assert check_target(None, [], SCOPE, p)[0] == "not_found"
+
+
+def test_el_resolver_salta_el_destino_fuera_de_region_y_sirve_el_fallback():
+    from sentinel.redirect import resolver
+    base = {"level": "tenant", "tenant_id": "t1", "status": "active", "provider": "azure_ai", "real_model": "m",
+            "protocol_family": "openai_chat", "has_credential": True, "api_base": "https://x.example.com", "role": "text"}
+    fuera = {**base, **dest("US", "US"), "id": "a"}
+    dentro = {**base, **dest("DE", "DE"), "id": "b"}
+    scope = SCOPE
+    pub = {"id": "p1", "tenant_id": "t1", "scope_type": "tenant", "scope_value": "*", "face": "openai_generic",
+           "public_id": "x", "family_tier": None}
+    rule = {"id": "r1", "tenant_id": "t1", "scope_type": "tenant", "scope_value": "*", "published_model_id": "p1",
+            "targets": ["a", "b"]}
+    p = _mk("allowlist", jurisdictions=frozenset({"EU"}))
+    res = resolver.resolve(scope=scope, face="openai_generic", public_id="x", request_class=None,
+                           published_rows=[pub], rules=[rule], destinations={"a": fuera, "b": dentro},
+                           offers=[], posture=p)
+    assert isinstance(res, resolver.Resolved) and res.destination["id"] == "b"
+    assert res.substitution_reason == "residency"
+    solo_fuera = resolver.resolve(scope=scope, face="openai_generic", public_id="x", request_class=None,
+                                  published_rows=[pub], rules=[{**rule, "targets": ["a"]}],
+                                  destinations={"a": fuera}, offers=[], posture=p)
+    assert isinstance(solo_fuera, resolver.Unavailable) and solo_fuera.error_class == "residency"

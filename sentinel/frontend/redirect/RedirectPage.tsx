@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader, cn } from "../../../frontend/src/components/ui";
 import { authStorage } from "../../../frontend/src/services/auth";
-import { redirectApi } from "./api";
+import { MaskingRelaxation, redirectApi, RegionEffective } from "./api";
 import { Destination, Lookups, permissionsFor, PolicyRow, PostureRow, PublishedModel, Rule, sessionRole } from "./helpers";
 import { DestinationsTab } from "./DestinationsTab";
 import { PublishedTab } from "./PublishedTab";
@@ -38,20 +38,26 @@ interface State {
   policy: PolicyRow[];
   postures: PostureRow[];
   effective: EffectivePosture | null;
+  region: RegionEffective | null;
+  relaxations: MaskingRelaxation[];
   lookups: Lookups;
 }
 
 const EMPTY: State = {
-  destinations: [], published: [], rules: [], policy: [], postures: [], effective: null,
+  destinations: [], published: [], rules: [], policy: [], postures: [], effective: null, region: null, relaxations: [],
   lookups: { groups: [], users: [], keys: [] },
 };
 
 export const RedirectPage: React.FC<{ onOpenModels?: () => void }> = ({ onOpenModels }) => {
   const role = useMemo(() => sessionRole(authStorage.getToken(), authStorage.getUser()?.role), []);
   const [operator, setOperator] = useState(false);
-  const perms = useMemo(() => permissionsFor(role, operator), [role, operator]);
+  const [managesRegions, setManagesRegions] = useState<boolean | null>(null);
+  const perms = useMemo(() => permissionsFor(role, operator, managesRegions), [role, operator, managesRegions]);
   useEffect(() => {
-    redirectApi.capabilities().then(c => setOperator(Boolean(c?.operator))).catch(() => setOperator(false));
+    redirectApi.capabilities().then(c => {
+      setOperator(Boolean(c?.operator));
+      setManagesRegions(typeof c?.manages_regions === "boolean" ? c.manages_regions : null);
+    }).catch(() => setOperator(false));
   }, []);
   const [tab, setTab] = useState<Tab>("destinations");
   const [data, setData] = useState<State>(EMPTY);
@@ -61,13 +67,15 @@ export const RedirectPage: React.FC<{ onOpenModels?: () => void }> = ({ onOpenMo
   const reload = useCallback(async () => {
     setError(null);
     try {
-      const [destinations, published, rules, policy, postures, lookups] = await Promise.all([
+      // región y relajaciones (057): un servidor sin esas rutas (404) deja la pestaña como antes
+      const [destinations, published, rules, policy, postures, lookups, region, relaxations] = await Promise.all([
         redirectApi.destinations(), redirectApi.published(), redirectApi.rules(), redirectApi.policy(),
         redirectApi.postures(), redirectApi.lookups(),
+        redirectApi.regionEffective().catch(() => null), redirectApi.maskingRelaxations().catch(() => []),
       ]);
       setData({
         destinations, published, rules, policy, postures: postures.data,
-        effective: postures.effective_tenant_redirected ?? null, lookups,
+        effective: postures.effective_tenant_redirected ?? null, region, relaxations, lookups,
       });
     } catch (e) {
       setError((e as Error).message);
@@ -118,7 +126,8 @@ export const RedirectPage: React.FC<{ onOpenModels?: () => void }> = ({ onOpenMo
           )}
           {tab === "policy" && <PolicyTab perms={perms} policy={data.policy} lookups={data.lookups} reload={reload} />}
           {tab === "residency" && (
-            <ResidencyTab perms={perms} postures={data.postures} effective={data.effective} lookups={data.lookups} reload={reload} />
+            <ResidencyTab perms={perms} postures={data.postures} effective={data.effective} lookups={data.lookups} reload={reload}
+              region={data.region} relaxations={data.relaxations} destinations={data.destinations} />
           )}
           {tab === "preview" && <PreviewTab published={data.published} destinations={data.destinations} lookups={data.lookups} />}
           {tab === "kits" && <KitsTab perms={perms} lookups={data.lookups} />}

@@ -45,6 +45,8 @@ class Resolved:
     # necesita una capacidad que el elegido no tiene, se pasa al siguiente que sí la tenga.
     alternatives: tuple = ()            # (Alternative, ...)
     strategy: str = "order"             # estrategia de la regla (069 US10): order | cheapest
+    in_region: Optional[bool] = None    # FR-028a: inferencia, entidad y control dentro de la región
+    masking_relaxation: Optional[str] = None   # region | destination (R24); `None` si el forzado rige
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,8 @@ class Alternative:
     residency_mode: str
     jurisdiction_served: Optional[str]
     target_index: int
+    in_region: Optional[bool] = None
+    masking_relaxation: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -240,9 +244,11 @@ def resolve(*, scope: RequestScope, face: str, public_id: str, request_class: Op
             forced_masking=decision.forced_masking, residency_mode=decision.mode,
             jurisdiction_served=decision.jurisdiction_served,
             substitution_reason=reason, skipped=tuple(skipped),
-            strategy="cheapest" if rule.get("strategy") == "cheapest" else "order")
+            strategy="cheapest" if rule.get("strategy") == "cheapest" else "order",
+            in_region=decision.in_region, masking_relaxation=decision.masking_relaxation)
         alternatives = [Alternative(d, mdl, fidelity(face, d), dec.forced_masking, dec.mode,
-                                    dec.jurisdiction_served, i) for i, d, mdl, dec in eligible[1:]]
+                                    dec.jurisdiction_served, i, dec.in_region, dec.masking_relaxation)
+                        for i, d, mdl, dec in eligible[1:]]
         return replace(first, alternatives=tuple(alternatives)) if alternatives else first
     all_residency = bool(skipped) and all(r in _RESIDENCY_REASONS for _, r in skipped)
     all_profile = bool(skipped) and all(r == "profile_not_allowed" for _, r in skipped)

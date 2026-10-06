@@ -44,6 +44,7 @@ def db():
     rm.RedirectBase.metadata.create_all(engine)
     cm.CatalogBase.metadata.create_all(engine)
     s = sessionmaker(bind=engine)()
+    fx.seed_regions(s)
     yield s
     s.close()
 
@@ -253,7 +254,8 @@ async def test_un_limite_normal_a_openai_no_se_toca(db):
 async def test_un_destino_openrouter_no_se_ajusta(db):
     glm = fx.seed_entry(db, name="GLM 5.2", provider="openrouter", real_model="z-ai/glm-5.2",
                         protocol_family="openai_chat", credential={"api_key": "sk-or"}, unsupported=[],
-                        context_window=200000, max_output=32000, price={"input_per_mtok": 1.0, "output_per_mtok": 2.0})
+                        context_window=200000, max_output=32000, price={"input_per_mtok": 1.0, "output_per_mtok": 2.0},
+                        provider_options={"providers_allowlist": ["acme-us"]})
     data, redirect = await _sale(db, glm, max_tokens=1)
     assert data["max_tokens"] == 1 and "adjusted_params" not in redirect
 

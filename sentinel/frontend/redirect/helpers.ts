@@ -132,11 +132,14 @@ export interface Permissions {
   canAddPosture: boolean;
   /** Editar/borrar posturas y aceptar entidades de otra jurisdicción. */
   canManagePosture: boolean;
+  /** Cambiar la postura por defecto de la región y crear o revocar relajaciones por destino (057 FR-023, FR-031a):
+   *  solo el rol REAL de cumplimiento o super-admin; el tenant operador por entorno no lo da. */
+  canManageRegion: boolean;
 }
 
 /** `operator`: la sesión es del tenant operador de la instalación (`GET /redirect/capabilities`,
  *  variable REDIRECT_OPERATOR_TENANT del servidor) — equivale a super_admin para la redirección. */
-export function permissionsFor(role: string, operator = false): Permissions {
+export function permissionsFor(role: string, operator = false, managesRegions?: boolean | null): Permissions {
   const isSuper = role === "super_admin" || operator;
   const canAdmin = isSuper || role === "tenant_admin" || role === "admin";
   const compliance = role === "compliance_officer";
@@ -146,6 +149,8 @@ export function permissionsFor(role: string, operator = false): Permissions {
     canEnable: isSuper || compliance,
     canAddPosture: canAdmin || compliance,
     canManagePosture: isSuper || compliance,
+    // `managesRegions` lo informa el servidor (`GET /redirect/capabilities`); sin él, decide el rol de la sesión
+    canManageRegion: managesRegions ?? (role === "super_admin" || compliance),
   };
 }
 
@@ -579,6 +584,9 @@ function validationMessage(d: { loc?: unknown[]; msg?: string; type?: string }):
   return nice ? `El campo «${nice}» no es válido.` : "Hay datos inválidos en el formulario.";
 }
 
+export const POSTURE_LESS_STRICT =
+  "Esa postura es menos estricta que la vigente; el administrador de empresa solo puede endurecer.";
+
 /** Mensaje para la persona: el `detail` del backend (ya en castellano) o una explicación por
  *  código. Nunca un volcado técnico. */
 export function describeApiError(status: number, body: unknown): string {
@@ -588,6 +596,12 @@ export function describeApiError(status: number, body: unknown): string {
   if (status === 403) {
     return typeof detail === "string" && !/not (enough|authenticated)|insufficient/i.test(detail)
       ? `No tenés permiso: ${detail}.` : "Tu rol no permite esta acción.";
+  }
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const d = detail as { code?: unknown; message?: unknown; motivo?: unknown };
+    if (d.code === "posture_less_strict") return POSTURE_LESS_STRICT;
+    const text = [d.message, d.motivo].find(v => typeof v === "string" && v.trim()) as string | undefined;
+    if (text) return `${text.trim().charAt(0).toUpperCase()}${text.trim().slice(1)}${/[.!?]$/.test(text.trim()) ? "" : "."}`;
   }
   if (Array.isArray(detail)) {
     const msgs = detail.map(d => (typeof d === "string" ? d : validationMessage(d ?? {})));

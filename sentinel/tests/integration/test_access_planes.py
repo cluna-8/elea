@@ -251,7 +251,8 @@ async def test_redireccion_sin_politica_de_acceso_es_identica(monkeypatch):
 def _resolver_call(snap, permitidos):
     scope = RequestScope(tenant_id=fx.TENANT)
     from sentinel.redirect import residency
-    posture = residency.effective_posture(snap.postures, scope, redirected=True, tenant_region="eu")
+    posture = residency.effective_posture(snap.postures, scope, redirected=True, tenant_region="eu",
+                                          regions=snap.regions)
     return resolver.resolve(scope=scope, face="openai_generic", public_id="pro", request_class=None,
                             published_rows=snap.published, rules=snap.rules,
                             destinations=snap.destinations, offers=snap.offers, posture=posture,

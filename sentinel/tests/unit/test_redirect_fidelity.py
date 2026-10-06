@@ -18,9 +18,10 @@ OFF = Posture(mode="off")
 
 DEST = {"id": "d1", "level": "tenant", "tenant_id": T1, "name": "Qwen UE", "provider": "openai_compatible",
         "real_model": "qwen", "protocol_family": "openai_chat", "inference_jurisdiction": "DE",
-        "entity_jurisdiction": "DE", "status": "active", "has_credential": True,
+        "entity_jurisdiction": "DE", "control_jurisdiction": "DE", "status": "active", "has_credential": True,
         "api_base": "http://destino/v1", "context_window": 32000, "max_output": 4096}
-US_DEST = dict(DEST, id="d-us", name="Nativo US", inference_jurisdiction="US", entity_jurisdiction="US")
+US_DEST = dict(DEST, id="d-us", name="Nativo US", inference_jurisdiction="US", entity_jurisdiction="US",
+               control_jurisdiction="US")
 FOREIGN = dict(DEST, id="d-x", tenant_id="otro-tenant")
 INST = dict(DEST, id="d-inst", level="installation", tenant_id=None)
 DESTS = {d["id"]: d for d in (DEST, US_DEST, FOREIGN, INST)}

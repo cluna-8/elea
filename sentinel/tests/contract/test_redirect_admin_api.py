@@ -32,6 +32,7 @@ from sentinel.redirect.api import admin  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "sentinel" / "tests"))
 from redirect_fixtures import seed_entry  # noqa: E402
+import redirect_fixtures as fx_regions  # noqa: E402
 
 T1 = uuid.UUID("11111111-1111-1111-1111-111111111111")
 T2 = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -56,6 +57,8 @@ def api(monkeypatch):
     m.RedirectBase.metadata.create_all(engine)
     cm.CatalogBase.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
+    with Session() as _s:
+        fx_regions.seed_regions(_s)                      # perfil `eu` con `reject_offregion` (paridad con la 068)
     store = _Store()
     monkeypatch.setattr(admin, "SESSION_FACTORY", Session)
     monkeypatch.setattr(admin, "STORE", store)
@@ -222,9 +225,13 @@ def test_posturas_reglas_de_rol(api):
                     json={"reason": "fin del piloto"}).status_code == 200
     assert [(e, a) for e, a, *_ in _audits(api)] == [("posture", "create"), ("posture", "update"),
                                                      ("posture", "delete")]
+    # región sin fila (la sembrada es `eu`): rige el respaldo en código, con el alcance de la región (057 R28)
     empty = api.call("GET", "/postures", "tenant_admin", params={"region": "latam_ar"}).json()
-    assert empty["effective_tenant_redirected"] == {"mode": "allowlist",
-                                                    "jurisdictions": ["AR", "LATAM"], "explicit": False}
+    assert empty["effective_tenant_redirected"] == {
+        "mode": "offregion_masked", "jurisdictions": [], "explicit": False, "default_applied": "code_fallback",
+        "region_status": "region_row_missing", "forced_everywhere": True, "scope_cap": ["AR", "LATAM"]}
+    eu = api.call("GET", "/postures", "tenant_admin").json()["effective_tenant_redirected"]    # la sembrada: paridad
+    assert (eu["mode"], eu["jurisdictions"], eu["explicit"]) == ("allowlist", ["EU"], False)
 
 
 # ── Tenant operador de la instalación (REDIRECT_OPERATOR_TENANT) ─────────────────────────
@@ -234,14 +241,15 @@ def test_posturas_reglas_de_rol(api):
 
 def test_sin_variable_el_tenant_admin_no_opera_la_instalacion(api, monkeypatch):
     monkeypatch.delenv("REDIRECT_OPERATOR_TENANT", raising=False)
-    assert api.call("GET", "/capabilities", role="tenant_admin").json() == {"operator": False}
-    assert api.call("GET", "/capabilities", role="super_admin").json() == {"operator": True}
+    assert api.call("GET", "/capabilities", role="tenant_admin").json() == {"operator": False, "manages_regions": False}
+    assert api.call("GET", "/capabilities", role="super_admin").json() == {"operator": True, "manages_regions": True}
 
 
 def test_el_tenant_operador_se_declara_por_entorno_y_otro_tenant_no(api, monkeypatch):
     monkeypatch.setenv("REDIRECT_OPERATOR_TENANT", str(T1))
-    assert api.call("GET", "/capabilities", role="tenant_admin").json() == {"operator": True}
-    assert api.call("GET", "/capabilities", role="tenant_admin", tenant=T2).json() == {"operator": False}
+    assert api.call("GET", "/capabilities", role="tenant_admin").json() == {"operator": True, "manages_regions": False}
+    assert api.call("GET", "/capabilities", role="tenant_admin", tenant=T2).json() == {"operator": False,
+                                                                                        "manages_regions": False}
 
 
 

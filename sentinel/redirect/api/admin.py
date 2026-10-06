@@ -37,7 +37,7 @@ from src.auth.rbac import effective_roles, require_role
 from .. import residency, resolver
 from .. import models as m
 from ..scopes import RequestScope
-from ..store import default_store, destination_dict, load_from_session
+from ..store import default_store, destination_dict, load_from_session, region_dicts
 
 router = APIRouter(prefix="/redirect", tags=["redirect"])
 
@@ -100,6 +100,26 @@ def _manages_postures(user) -> bool:
     return "compliance_officer" in _roles(user) or _is_super(user)
 
 
+def _real_role(user) -> Optional[str]:
+    """Rol **real** con autoridad para regiones, `default_posture` y relajaciones (057 FR-023; research R30):
+    `super_admin` o `compliance_officer`. El tenant operador declarado por entorno (`REDIRECT_OPERATOR_TENANT`) NO
+    cuenta: su `tenant_admin` sigue siendo admin de empresa para esto. Devuelve el rol (`super_admin` gana)."""
+    if getattr(user, "role", None) == "super_admin" or "super_admin" in _roles(user):
+        return "super_admin"
+    if "compliance_officer" in _roles(user):
+        return "compliance_officer"
+    return None
+
+
+def _authority_label(user) -> str:
+    """`created_by_role` de una fila de postura: con qué autoridad se escribió (data-model §1). El admin de empresa
+    escribe filas que solo restringen; cumplimiento, super-admin y el operador declarado escriben filas de base."""
+    real = _real_role(user)
+    if real:
+        return real
+    return "super_admin" if _is_super(user) else (getattr(user, "role", None) or "tenant_admin")
+
+
 def _now():
     return datetime.now(timezone.utc)
 
@@ -128,6 +148,16 @@ def _bump(tenant_id=None):
     try:
         _store().bump(str(tenant_id) if tenant_id is not None else None)
     except Exception:  # noqa: BLE001 — la caché corta vence sola (TTL)
+        pass
+
+
+def _bump_region(tenant_id=None):
+    """Una región cambia lo que dicen el plano de datos **y** el semáforo del catálogo (FR-030a): sube las dos versiones."""
+    _bump(tenant_id)
+    try:
+        from sentinel.catalog.runtime import catalog_version
+        catalog_version().bump(str(tenant_id) if tenant_id is not None else None)
+    except Exception:  # noqa: BLE001 — rige el TTL
         pass
 
 
@@ -269,6 +299,9 @@ def _check_published(face, public_id, family_tier, label_mode):
         _err(422, "cara desconocida")
     if public_id is not None and public_id.startswith("rdx-"):
         _err(422, "el prefijo rdx- es interno")
+    if face == "claude" and public_id is not None and not public_id.lower().startswith("claude"):
+        _err(422, "en la cara Claude el id publicado tiene que empezar con «claude»: Claude Code descarta del lado "
+                  "del cliente los modelos que no reconoce, así que otro id no lo usaría esa herramienta")
     if family_tier is not None and family_tier not in m.FAMILY_TIERS:
         _err(422, "tier desconocido")
     if label_mode is not None and label_mode not in m.LABEL_MODES:
@@ -563,21 +596,58 @@ def _check_posture(mode, jurisdictions, accept_foreign, user):
         _err(403, "aceptar entidades de otra jurisdicción es de cumplimiento o super_admin")
 
 
+def _less_strict_error():
+    _err(422, {"code": "posture_less_strict",
+               "message": "Esa postura es menos estricta que la vigente; el administrador de empresa solo puede endurecer."})
+
+
+def _candidate_scope(user, scope_type, scope_value) -> RequestScope:
+    tenant = str(user.tenant_id)
+    if scope_type == "connection":
+        return RequestScope(tenant_id=tenant, connection_id=scope_value)
+    if scope_type == "user":
+        return RequestScope(tenant_id=tenant, user_id=scope_value)
+    if scope_type == "group":
+        return RequestScope(tenant_id=tenant, group_ids=(scope_value,))
+    return RequestScope(tenant_id=tenant)
+
+
+def _check_not_less_strict(db, user, body) -> None:
+    """Una fila del admin de empresa menos estricta que la postura efectiva de su alcance se rechaza (FR-023, QA A8)."""
+    rows = [{**_row(r, _POSTURE_FIELDS), "tenant_id": str(user.tenant_id)}
+            for r in db.query(m.RedirectPosture).filter(m.RedirectPosture.tenant_id == user.tenant_id)]
+    eff = residency.effective_posture(
+        rows, _candidate_scope(user, body.scope_type, body.scope_value), redirected=True,
+        tenant_region=residency.resolve_profile(), regions=_region_dicts(db, user))
+    if residency.is_less_strict({"mode": body.mode, "jurisdictions": body.jurisdictions}, eff):
+        _less_strict_error()
+
+
+def _region_dicts(db, user) -> list:
+    return list(region_dicts(db, user.tenant_id))
+
+
+def _effective_view(eff) -> dict:
+    return {"mode": eff.mode, "jurisdictions": sorted(eff.jurisdictions), "explicit": eff.explicit,
+            "default_applied": eff.default_applied, "region_status": eff.region_status,
+            "forced_everywhere": any(not h for h in eff.forcers),
+            "scope_cap": None if eff.cap is None else sorted(eff.cap)}
+
+
 @router.get("/postures")
 def list_postures(region: Optional[str] = None, user=Depends(require_role(*READERS))):
     """Filas y postura efectiva del alcance tenant para tráfico redirigido (`region` = región
     del tenant; sin ella, la de la instalación)."""
-    import os
-    region = region or os.environ.get("SENTINEL_ENTITY_REGION", "eu")
+    profile = residency.resolve_profile(region)             # la misma resolución que el tráfico (R28): sin caída a eu
     with _db(user) as db:
         rows = [_row(r, _POSTURE_FIELDS) for r in db.query(m.RedirectPosture).filter(
             m.RedirectPosture.tenant_id == user.tenant_id)]
+        regions = _region_dicts(db, user)
     tenant_scope = RequestScope(tenant_id=str(user.tenant_id))
     eff = residency.effective_posture(
         [{**r, "tenant_id": str(user.tenant_id)} for r in rows if r["scope_type"] == "tenant"],
-        tenant_scope, redirected=True, tenant_region=region)
-    return {"data": rows, "effective_tenant_redirected": {
-        "mode": eff.mode, "jurisdictions": sorted(eff.jurisdictions), "explicit": eff.explicit}}
+        tenant_scope, redirected=True, tenant_region=profile, regions=regions)
+    return {"data": rows, "effective_tenant_redirected": _effective_view(eff)}
 
 
 @router.post("/postures", status_code=201)
@@ -587,11 +657,13 @@ def create_posture(body: PostureIn, user=Depends(require_role("admin", "complian
     _check_posture(body.mode, body.jurisdictions, body.accept_foreign_entity, user)
     _scope_ok(body.scope_type, body.scope_value)
     with _db(user) as db:
+        if not _manages_postures(user):
+            _check_not_less_strict(db, user, body)
         r = m.RedirectPosture(id=uuid.uuid4(), tenant_id=user.tenant_id, scope_type=body.scope_type,
                               scope_value=body.scope_value, mode=body.mode,
                               jurisdictions=[j.upper() for j in body.jurisdictions],
                               accept_foreign_entity=body.accept_foreign_entity, reason=body.reason,
-                              created_by=user.id, created_by_role=user.role)
+                              created_by=user.id, created_by_role=_authority_label(user))
         db.add(r)
         db.flush()
         after = _row(r, _POSTURE_FIELDS)
@@ -618,6 +690,7 @@ def update_posture(posture_id: str, body: PosturePatch,
         for k, v in changes.items():
             setattr(r, k, v)
         r.reason = reason
+        r.created_by_role = _authority_label(user)
         db.flush()
         after = _row(r, _POSTURE_FIELDS)
         _audit(db, user, entity="posture", entity_id=r.id, action="update", before=before,
@@ -641,6 +714,318 @@ def delete_posture(posture_id: str, body: Reason,
     return {"deleted": posture_id}
 
 
+# ── regiones del perfil (057 FR-021, FR-030, FR-031; contracts/admin-api.md; research R13, R23, R28, R30) ───────────
+# Escribir regiones y `default_posture` es de cumplimiento (nivel empresa) o super-admin (nivel instalación), por rol
+# REAL: `REDIRECT_OPERATOR_TENANT` no da esta autoridad. El admin de empresa solo lee.
+
+_REGION_FIELDS = ("id", "level", "tenant_id", "name", "jurisdictions", "region_profiles", "default_posture",
+                  "is_zone", "created_at", "updated_at")
+_CODE_RE = __import__("re").compile(r"^[A-Z][A-Z0-9_-]{0,15}$")
+_NAME_RE = __import__("re").compile(r"^[A-Z][A-Z0-9_-]{0,63}$")
+
+
+def _jurisdictions(values) -> list:
+    out = []
+    for v in values or ():
+        code = str(v or "").strip().upper()
+        if not code:
+            continue
+        if not _CODE_RE.match(code):
+            _err(422, f"jurisdicción inválida: {v!r}")
+        if code not in out:
+            out.append(code)
+    if not out:
+        _err(422, "la región necesita al menos una jurisdicción")
+    return out
+
+
+def _profiles(values) -> list:
+    out = []
+    for v in values or ():
+        p = str(v or "").strip().lower()
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+def _check_region_fields(name=None, jurisdictions=None, default_posture=None):
+    if name is not None and not _NAME_RE.match(name):
+        _err(422, "el nombre de la región va en mayúsculas, sin espacios")
+    if default_posture is not None and default_posture not in residency.DEFAULT_POSTURES:
+        _err(422, "default_posture desconocido")
+
+
+def _require_region_writer(user, level: str):
+    """403 salvo super_admin (cualquier nivel) o compliance_officer (su empresa)."""
+    real = _real_role(user)
+    if real == "super_admin" or (real == "compliance_officer" and level == "tenant"):
+        return real
+    _err(403, "las regiones y la postura por defecto las cambia cumplimiento (su empresa) o el super_admin")
+
+
+class RegionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    level: str = "installation"
+    jurisdictions: List[str] = Field(default_factory=list)
+    region_profiles: List[str] = Field(default_factory=list)
+    default_posture: str = "reject_offregion"
+    is_zone: bool = False
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+class RegionPatch(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    level: Optional[str] = None
+    jurisdictions: Optional[List[str]] = None
+    region_profiles: Optional[List[str]] = None
+    default_posture: Optional[str] = None
+    is_zone: Optional[bool] = None
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+def _region_visible(db, user):
+    return [r for r in db.query(m.RedirectRegion) if r.tenant_id is None or r.tenant_id == user.tenant_id]
+
+
+def _region_conflict(db, user, level, tenant_id, name, profiles, *, exclude=None):
+    for r in db.query(m.RedirectRegion):
+        if exclude is not None and r.id == exclude:
+            continue
+        if r.level != level or r.tenant_id != tenant_id:
+            continue
+        if r.name == name:
+            _err(409, "ya hay una región con ese nombre en ese nivel")
+        taken = {str(p).strip().lower() for p in (r.region_profiles or ())} & set(profiles)
+        if taken:
+            _err(409, "un perfil de país ya resuelve a otra región en ese nivel")
+
+
+@router.get("/regions")
+def list_regions(user=Depends(require_role(*READERS))):
+    with _db(user) as db:
+        rows = sorted((_row(r, _REGION_FIELDS) for r in _region_visible(db, user)),
+                      key=lambda r: (r["level"], r["name"]))
+    return {"data": rows}
+
+
+@router.get("/regions/effective")
+def effective_region(user=Depends(require_role(*READERS))):
+    """Región efectiva de quien pregunta (empresa > instalación > respaldo fijo) y su postura por defecto."""
+    with _db(user) as db:
+        rows = _region_dicts(db, user)
+    region = residency.resolve_region(residency.resolve_profile(), rows, str(user.tenant_id))
+    view = None
+    if region.row_found:
+        view = next((r for r in rows if r["name"] == region.name and r["level"] == region.level), None)
+    return {"source": ("tenant" if region.level == "tenant" else "installation") if region.row_found
+            else ("fallback" if region.profile else "unresolved"),
+            "region": view, "jurisdictions": sorted(region.codes),
+            "default_posture": region.default_posture or residency.CODE_FALLBACK, "health": region.status}
+
+
+@router.post("/regions", status_code=201)
+def create_region(body: RegionIn, user=Depends(require_role(*READERS))):
+    if body.level not in m.LEVELS:
+        _err(422, "nivel desconocido")
+    _require_region_writer(user, body.level)
+    _check_region_fields(body.name, None, body.default_posture)
+    jurisdictions, profiles = _jurisdictions(body.jurisdictions), _profiles(body.region_profiles)
+    tenant_id = None if body.level == "installation" else user.tenant_id
+    with _db(user, bypass=body.level == "installation") as db:
+        _region_conflict(db, user, body.level, tenant_id, body.name, profiles)
+        r = m.RedirectRegion(id=uuid.uuid4(), level=body.level, tenant_id=tenant_id, name=body.name,
+                             jurisdictions=jurisdictions, region_profiles=profiles,
+                             default_posture=body.default_posture, is_zone=body.is_zone,
+                             created_by=user.id, updated_by=user.id)
+        db.add(r)
+        db.flush()
+        after = _row(r, _REGION_FIELDS)
+        _audit(db, user, entity="region", entity_id=r.id, action="create", after=after, reason=body.reason,
+               tenant_id=tenant_id)
+    _bump_region(tenant_id)
+    return after
+
+
+def _own_region(db, user, region_id):
+    r = db.get(m.RedirectRegion, _uuid(region_id, "región"))
+    if r is None or (r.tenant_id is not None and r.tenant_id != user.tenant_id):
+        _err(404, "inexistente")
+    return r
+
+
+@router.patch("/regions/{region_id}")
+def update_region(region_id: str, body: RegionPatch, user=Depends(require_role(*READERS))):
+    changes = body.model_dump(exclude_unset=True)
+    reason = changes.pop("reason")
+    if "level" in changes:
+        _err(422, "el nivel de una región no se cambia")
+    _check_region_fields(changes.get("name"), None, changes.get("default_posture"))
+    with _db(user, bypass=True) as db:               # la fila de instalación la lee solo quien la puede escribir
+        r = _own_region(db, user, region_id)
+        _require_region_writer(user, r.level)
+        before = _row(r, _REGION_FIELDS)
+        if "jurisdictions" in changes:
+            changes["jurisdictions"] = _jurisdictions(changes["jurisdictions"])
+        if "region_profiles" in changes:
+            changes["region_profiles"] = _profiles(changes["region_profiles"])
+        if {"name", "region_profiles"} & set(changes):
+            _region_conflict(db, user, r.level, r.tenant_id, changes.get("name", r.name),
+                             changes.get("region_profiles", list(r.region_profiles or ())), exclude=r.id)
+        for k, v in changes.items():
+            setattr(r, k, v)
+        r.updated_by = user.id
+        db.flush()
+        after = _row(r, _REGION_FIELDS)
+        tenant_id = r.tenant_id
+        _audit(db, user, entity="region", entity_id=r.id, action="update", before=before, after=after, reason=reason,
+               tenant_id=tenant_id)
+    _bump_region(tenant_id)
+    return after
+
+
+@router.delete("/regions/{region_id}")
+def delete_region(region_id: str, body: Reason, user=Depends(require_role(*READERS))):
+    with _db(user, bypass=True) as db:
+        r = _own_region(db, user, region_id)
+        _require_region_writer(user, r.level)
+        profile = residency.resolve_profile()
+        if r.level == "installation" and profile and profile in {str(p).strip().lower() for p in (r.region_profiles or ())}:
+            _err(409, "es la región que resuelve el perfil de la instalación: cambiala o editala, no la borres")
+        before = _row(r, _REGION_FIELDS)
+        tenant_id = r.tenant_id
+        db.delete(r)
+        _audit(db, user, entity="region", entity_id=region_id, action="delete", before=before, reason=body.reason,
+               tenant_id=tenant_id)
+    _bump_region(tenant_id)
+    return {"deleted": region_id}
+
+
+@router.get("/health")
+def region_health():
+    """Estado de la región del perfil, sin sesión y sin datos de empresas (research R28): 200 si hay fila que la
+    resuelva; 503 `region_unresolved` (sin perfil) o `region_row_missing` (sin fila: rige el respaldo en código)."""
+    from fastapi.responses import JSONResponse
+    profile = residency.resolve_profile()
+    if profile is None:
+        reason = residency.STATUS_UNRESOLVED
+    else:
+        try:
+            from src.database import tenant_context
+            with tenant_context(None, bypass=True):
+                db = _session_factory()()
+                try:
+                    rows = [{"tenant_id": None, "name": r.name, "jurisdictions": list(r.jurisdictions or ()),
+                             "region_profiles": list(r.region_profiles or ()), "default_posture": r.default_posture,
+                             "is_zone": bool(r.is_zone), "level": r.level}
+                            for r in db.query(m.RedirectRegion)]
+                finally:
+                    db.close()
+            reason = residency.resolve_region(profile, rows, None).status
+        except Exception:  # noqa: BLE001 — sin la tabla (migración sin aplicar) rige el respaldo
+            reason = residency.STATUS_ROW_MISSING
+    if reason == residency.STATUS_OK:
+        return {"status": "ok"}
+    return JSONResponse(status_code=503, content={"status": "degraded", "reason": reason})
+
+
+# ── relajaciones del enmascarado forzado por destino (057 FR-031a; research R24) ───────────────────────────────
+
+_RELAX_FIELDS = ("id", "level", "tenant_id", "entry_id", "reason", "created_by", "created_by_role", "revoked_at",
+                 "revoked_by", "revoke_reason", "created_at")
+
+
+class RelaxationIn(BaseModel):
+    entry_id: str
+    level: str = "tenant"
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+class RevokeIn(BaseModel):
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+def _relaxation_writer(user, level: str):
+    real = _real_role(user)
+    if real == "super_admin" or (real == "compliance_officer" and level == "tenant"):
+        return real
+    _err(403, "las relajaciones del enmascarado las crea cumplimiento (su empresa) o el super_admin")
+
+
+@router.get("/masking-relaxations")
+def list_relaxations(user=Depends(require_role(*READERS))):
+    from sentinel.catalog import models as cm
+    with _db(user) as db:
+        rows = [r for r in db.query(m.RedirectMaskingRelaxation)
+                if r.tenant_id is None or r.tenant_id == user.tenant_id]
+        try:
+            from sentinel.catalog.store import visible_entries
+            names = {e.id: e.name for e in visible_entries(db, user.tenant_id, operator=False, include_archived=True)}
+        except Exception:  # noqa: BLE001
+            names = {}
+        data = []
+        for r in sorted(rows, key=lambda r: r.created_at or _now(), reverse=True):
+            row = _row(r, _RELAX_FIELDS)
+            row["entry_name"] = names.get(r.entry_id)
+            data.append(row)
+    return {"data": data}
+
+
+@router.post("/masking-relaxations", status_code=201)
+def create_relaxation(body: RelaxationIn, user=Depends(require_role(*READERS))):
+    if body.level not in m.LEVELS:
+        _err(422, "nivel desconocido")
+    real = _relaxation_writer(user, body.level)
+    entry_id = _uuid(body.entry_id, "destino")
+    from sentinel.catalog import models as cm
+    from sentinel.catalog.relaxation import unmet_preconditions
+    from sentinel.catalog.store import visible_entries
+    tenant_id = None if body.level == "installation" else user.tenant_id
+    with _db(user, bypass=body.level == "installation") as db:
+        visibles = {e.id: e for e in visible_entries(db, user.tenant_id, operator=body.level == "installation")}
+        entry = visibles.get(entry_id)
+        if entry is None:
+            _err(404, "destino inexistente")
+        if body.level == "installation" and entry.tenant_id is not None:
+            _err(422, "una relajación de instalación es sobre una entrada de instalación")
+        unmet = unmet_preconditions(entry, db.get(cm.ComplianceSheet, entry.id))
+        if unmet:
+            _err(422, {"code": "relaxation_preconditions", "motivo": unmet,
+                       "message": "La ficha del destino no cumple las condiciones para relajar el enmascarado."})
+        vigente = db.query(m.RedirectMaskingRelaxation).filter(
+            m.RedirectMaskingRelaxation.entry_id == entry.id, m.RedirectMaskingRelaxation.level == body.level,
+            m.RedirectMaskingRelaxation.revoked_at.is_(None)).all()
+        if any(r.tenant_id == tenant_id for r in vigente):
+            _err(409, "ya hay una relajación vigente para ese destino")
+        r = m.RedirectMaskingRelaxation(id=uuid.uuid4(), level=body.level, tenant_id=tenant_id, entry_id=entry.id,
+                                        reason=body.reason, created_by=user.id, created_by_role=real)
+        db.add(r)
+        db.flush()
+        after = _row(r, _RELAX_FIELDS)
+        _audit(db, user, entity="masking_relaxation", entity_id=r.id, action="create",
+               after={"entry_id": after["entry_id"], "level": body.level}, reason=body.reason, tenant_id=tenant_id)
+    _bump(tenant_id)
+    return after
+
+
+@router.delete("/masking-relaxations/{relaxation_id}")
+def revoke_relaxation(relaxation_id: str, body: RevokeIn, user=Depends(require_role(*READERS))):
+    with _db(user, bypass=True) as db:
+        r = db.get(m.RedirectMaskingRelaxation, _uuid(relaxation_id, "relajación"))
+        if r is None or (r.tenant_id is not None and r.tenant_id != user.tenant_id):
+            _err(404, "inexistente")
+        _relaxation_writer(user, r.level)
+        if r.revoked_at is not None:
+            _err(409, "la relajación ya está revocada")
+        r.revoked_at, r.revoked_by, r.revoke_reason = _now(), user.id, body.reason
+        db.flush()
+        after = _row(r, _RELAX_FIELDS)
+        _audit(db, user, entity="masking_relaxation", entity_id=r.id, action="revoke",
+               before={"entry_id": after["entry_id"], "level": r.level}, reason=body.reason, tenant_id=r.tenant_id)
+        tenant_id = r.tenant_id
+    _bump(tenant_id)
+    return after
+
+
 # ── vista previa de resolución ────────────────────────────────────────────────
 
 class PreviewIn(BaseModel):
@@ -656,7 +1041,7 @@ class PreviewIn(BaseModel):
 @router.get("/capabilities")
 def capabilities(user=Depends(require_role(*READERS))):
     """Qué puede operar la sesión (la pantalla decide qué muestra; la API manda igual)."""
-    return {"operator": _is_super(user)}
+    return {"operator": _is_super(user), "manages_regions": _real_role(user) is not None}
 
 
 @router.post("/resolve-preview")
@@ -671,7 +1056,8 @@ def resolve_preview(body: PreviewIn, user=Depends(require_role(*READERS))):
     try:
         state = resolver.effective_state(snap.policy, scope)
         posture = residency.effective_posture(snap.postures, scope, redirected=True,
-                                              tenant_region=body.tenant_region or "eu")
+                                              tenant_region=residency.resolve_profile(body.tenant_region),
+                                              regions=snap.regions, relaxations=snap.relaxations)
     except ValueError as exc:
         _err(409, f"configuración inválida: {exc}")
     # Perfil de acceso (069 US2): la vista previa usa los mismos permitidos que el plano de datos.
@@ -686,7 +1072,8 @@ def resolve_preview(body: PreviewIn, user=Depends(require_role(*READERS))):
                            rules=snap.rules, destinations=snap.destinations, offers=snap.offers,
                            posture=posture, permitidos=permitidos)
     out: dict[str, Any] = {"state": state, "posture": {"mode": posture.mode,
-                                                       "jurisdictions": sorted(posture.jurisdictions)},
+                                                       "jurisdictions": sorted(posture.jurisdictions),
+                                                       "default_applied": posture.default_applied},
                            "permitidos_origen": "perfil" if permitidos is not None else None}
     if isinstance(res, resolver.Resolved):
         out.update(result="resolved", destination_id=res.destination["id"],

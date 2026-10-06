@@ -19,7 +19,7 @@ AZURE_KEY = "sk-azure-de-prueba-del-recurso"      # secret-scanner: allow (valor
 DEST_AZURE = {
     "id": "d-azure", "level": "tenant", "tenant_id": fx.TENANT, "name": "gpt-5.4-mini", "provider": "azure",
     "real_model": "gpt-5.4-mini", "protocol_family": "openai_chat", "inference_jurisdiction": "US",
-    "entity_jurisdiction": "US", "blocked_by_default": False, "enabled_at": None, "has_credential": True,
+    "entity_jurisdiction": "US", "control_jurisdiction": "US", "blocked_by_default": False, "enabled_at": None, "has_credential": True,
     "api_base": "https://recurso.openai.azure.com", "provider_options": {},
     "capability_profile": {"tools": True, "images": True, "documents_pdf": False}, "context_window": 400000,
     "max_output": 128000, "status": "active",

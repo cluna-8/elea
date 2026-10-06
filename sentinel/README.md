@@ -42,6 +42,12 @@ REDIRECT_GATEWAY_URL=https://<host>/api/v1/gw
 # traducido nunca se reenvía ninguna (FR-040). Las betas que suben el costo, guardan archivos en el proveedor o
 # ejecutan código no están en el default: se habilitan a propósito.
 REDIRECT_BETA_ALLOWLIST=
+# opcional (backend): archivos de región y de habilitación que la extensión carga al arrancar por la costura S16
+# (`on_startup()` de `sentinel.redirect.api`; separados por coma, idempotente, con cerrojo ante varios workers). Solo
+# crea: no pisa lo que un administrador cambió. Sin la fila de región rige el respaldo en código (todo lo redirigido
+# sale enmascarado y solo a las jurisdicciones de la región; sin región resuelta, 403) y `GET /api/v1/redirect/health`
+# responde 503 (`region_row_missing` / `region_unresolved`). Formato: `redirect/regions_seed.py`.
+REDIRECT_SEED_FILES=
 ```
 
 - **Backend**: la imagen del release ya trae el paquete en `/opt/sentinel-ext` con

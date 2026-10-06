@@ -85,7 +85,7 @@ export const SheetDialog: React.FC<{
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
           {saved ? "Semáforo recalculado" : "Semáforo"}
         </div>
-        <SemaforoBadge semaforo={current.semaforo} detail />
+        <SemaforoBadge semaforo={current.semaforo} detail regionLabel={current.region_label} />
         <p className="mt-2 text-xs text-text-tertiary">Se calcula a partir de la ficha; no se edita a mano.</p>
         {current.is_aggregator && (
           <p className="mt-1 text-xs text-text-tertiary">

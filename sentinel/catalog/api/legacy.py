@@ -137,6 +137,7 @@ def _adopt_one(user, config: dict, model_name: str) -> dict:
             if _credential_ref(entry) == "env":
                 if rc.requires_api_base(provider) and not api_base:
                     _a._err(422, "este proveedor requiere api_base")
+                _a._check_api_base(level, api_base)
                 cred = _adopt_credential(db, user, level, tenant, kind="env_ref",
                                          env_name=key[len(ENV_REF_PREFIX):])
             elif _credential_ref(entry) == "literal":

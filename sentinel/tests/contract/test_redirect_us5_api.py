@@ -34,6 +34,7 @@ from sentinel.redirect.api import admin, us5  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "sentinel" / "tests"))
 from redirect_fixtures import seed_entry  # noqa: E402
+import redirect_fixtures as fx_regions  # noqa: E402
 
 T1 = uuid.UUID("11111111-1111-1111-1111-111111111111")
 T2 = uuid.UUID("22222222-2222-2222-2222-222222222222")
@@ -59,6 +60,8 @@ def api(monkeypatch):
     m.RedirectBase.metadata.create_all(engine)
     cm.CatalogBase.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
+    with Session() as _s:
+        fx_regions.seed_regions(_s)                      # perfil `eu` con `reject_offregion` (paridad con la 068)
     monkeypatch.setattr(admin, "SESSION_FACTORY", Session)
     monkeypatch.setattr(admin, "STORE", _Store())
     monkeypatch.setattr("sentinel.redirect.api.us5.decrypt_credential",

@@ -63,12 +63,14 @@ ROUTE_FACE = {"/v1/messages": "claude", COUNT_TOKENS_ROUTE: "claude",
               "/v1/chat/completions": "openai_generic"}
 # Proveedor del camino de suscripción (credencial personal reenviada tal cual). Dato del
 # producto: inferencia y entidad en EE. UU. — lo único que la postura necesita saber de él.
-SUBSCRIPTION_PROVIDER = {"inference_jurisdiction": "US", "entity_jurisdiction": "US"}
+SUBSCRIPTION_PROVIDER = {"inference_jurisdiction": "US", "entity_jurisdiction": "US",
+                         "control_jurisdiction": "US"}
 SUBSCRIPTION_PROVIDER_NAME = "anthropic"     # proveedor al que sirve la credencial personal (FR-042)
 REQUEST_CLASS_HEADER = "x-request-class"
 # Ajustes del normalizador que el administrador tiene que ver en la auditoría: contenido del
 # usuario o de una herramienta que el destino no recibió (el resto son campos de protocolo).
 # Mismo literal que el corte de un plugin (ya inventariado en el clasificador de retención).
+MASKING_SCOPE_FULL = "full"       # S14 (QA B3): con el forzado vigente, el enmascarado alcanza todo el cuerpo
 STATUS_REJECTED = "blocked_by_policy"
 STATUS_PASSED = "passed"        # tráfico que la política resolvió sin impedirlo (inventariado en el clasificador de retención)
 OMITTED_AUDIT = ("images_in_history", "images_in_tool_result", "documents_in_tool_result")
@@ -136,10 +138,11 @@ def request_scope(ident: dict) -> Optional[RequestScope]:
                         group_ids=(str(group),) if group else ())
 
 
-def tenant_region(ident: dict) -> str:
-    """Región del tenant (su `pii_masking.config.region`) o la de la instalación."""
-    region = (ident.get("nlp") or {}).get("region")
-    return region or os.environ.get("SENTINEL_ENTITY_REGION", "eu")
+def tenant_region(ident: dict) -> Optional[str]:
+    """Región del tenant (su `pii_masking.config.region`) o la de la instalación; **sin región ⇒ `None`**, nunca
+    `eu` (057 FR-031; research R28). Es `residency.resolve_profile`, la misma función que usan `list_postures` y la
+    prueba de fidelidad: el panel dice lo que hace el tráfico."""
+    return residency.resolve_profile((ident.get("nlp") or {}).get("region"))
 
 
 def _error(face: str, kind: str, **kw) -> JSONResponse:
@@ -183,7 +186,11 @@ def _decision(face: str, public_id: str, res, *, request_class, shadow: bool) ->
         d.update(destination_id=dest.get("id"), destination_name=dest.get("name"),
                  fidelity=res.fidelity, rule_id=res.rule_id, residency_mode=res.residency_mode,
                  jurisdiction_served=res.jurisdiction_served,
-                 substitution_reason=res.substitution_reason)
+                 substitution_reason=res.substitution_reason, forced_masking=res.forced_masking)
+        if res.in_region is not None:
+            d["in_region"] = res.in_region                     # FR-028a: sin nombres de entidad
+        if res.masking_relaxation:
+            d["masking_relaxation"] = res.masking_relaxation   # R24: region | destination
         if shadow:
             d["shadow_destination_id"] = d.pop("destination_id")
     else:
@@ -227,6 +234,15 @@ def _access_block(model: str) -> dict:
 
 
 # ── el plugin ─────────────────────────────────────────────────────────────────
+
+def _signed_provider_options(dest: dict) -> Optional[dict]:
+    """Lo que del destino viaja firmado al guard: para `openrouter`, la lista de proveedores permitidos (FR-032)."""
+    if dest.get("provider") != "openrouter":
+        return None
+    allow = [str(p) for p in ((dest.get("provider_options") or {}).get("providers_allowlist") or ())
+             if isinstance(p, str) and p.strip()]
+    return {"providers_allowlist": allow}
+
 
 class RedirectPlugin:
     def __init__(self, store: Optional[RedirectStore] = None, *, ping_after: float = stream.DEFAULT_PING_AFTER,
@@ -388,7 +404,8 @@ class RedirectPlugin:
 
     def _posture(self, snap, scope, ident, *, redirected: bool):
         return residency.effective_posture(snap.postures, scope, redirected=redirected,
-                                           tenant_region=tenant_region(ident))
+                                           tenant_region=tenant_region(ident), regions=snap.regions,
+                                           relaxations=snap.relaxations)
 
     @staticmethod
     def _tier_fallback_applies(ctx, face, state) -> bool:
@@ -414,6 +431,8 @@ class RedirectPlugin:
                                offers=snap.offers, posture=posture, permitidos=permitidos)
         shadow = state == "shadow"
         decision = _decision(face, ctx.model, res, request_class=request_class, shadow=shadow)
+        if posture.default_applied:
+            decision["default_posture_applied"] = posture.default_applied    # R23, R28: solo sin postura explícita
         decision.update(extra or {})
         ctx.routing_decision = _audit_block(decision)
         if shadow:
@@ -431,6 +450,11 @@ class RedirectPlugin:
             return _error(face, "not_available")
         dest = res.destination
         cred = await run_in_threadpool(self.store.credential, snap, dest["id"])
+        if res.forced_masking:
+            # FR-027: el forzado enciende el enmascarado del plano de la pasarela (sin bajar jamás lo que la
+            # empresa configuró) y la verificación fail-closed; el guard del motor la exige con `masking_report`
+            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block", masking_scope=MASKING_SCOPE_FULL)
+            decision["masking_scope"] = MASKING_SCOPE_FULL           # S14: alcance completo (lo verifica el guard)
         ctx.state[STATE_KEY] = Plan(face=face, public_id=ctx.model, decision=decision,
                                     engine_model=res.engine_model, destination=dest, credential=cred,
                                     forced_masking=res.forced_masking, scope_label=scope.label(),
@@ -507,7 +531,8 @@ class RedirectPlugin:
         if not verdict.allowed:
             return _error(face, "region")
         if verdict.forced_masking:
-            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block")
+            ctx.governance_overrides.update(pii_masking=True, nlp_fail_mode="block", masking_scope=MASKING_SCOPE_FULL)
+            decision["masking_scope"] = MASKING_SCOPE_FULL
         return None
 
     def _build_models_view(self, ctx, snap, scope, permitidos=None):
@@ -609,7 +634,8 @@ class RedirectPlugin:
             request_id=str(uuid.uuid4()), scope=plan.scope_label, destination_id=str(dest["id"]),
             model=plan.engine_model, provider=dest["provider"], credential=plan.credential,
             api_base=dest.get("api_base"), forced_masking=plan.forced_masking,
-            decision=plan.decision, price=dest.get("price_override"), drop_params=drop)
+            decision=plan.decision, price=dest.get("price_override"), drop_params=drop,
+            provider_options=_signed_provider_options(dest))
         return out, headers
 
     def _apply_betas(self, ctx, plan: Plan, headers: dict) -> dict:

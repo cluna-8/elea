@@ -24,8 +24,13 @@ export type ModelEntry = EntryView & { region_ue?: boolean | null };
 
 type Dialog = { kind: "edit" | "archive" | "offers" | "sheet"; entry: ModelEntry } | null;
 
-export const RegionBadge: React.FC<{ value: boolean | null | undefined }> = ({ value }) =>
-  value === true ? <StatusBadge tone="ok" dot>Región UE</StatusBadge>
+/** Marca de región de la lista. Con `inRegion` (057: regla de inferencia, entidad y control contra la región efectiva)
+ *  usa el nombre de la región; sin él (servidor viejo), `value` deriva de la jurisdicción de inferencia. */
+export const RegionBadge: React.FC<{ value: boolean | null | undefined; inRegion?: boolean; regionLabel?: string | null }> = ({ value, inRegion, regionLabel }) =>
+  inRegion !== undefined ? (
+    inRegion ? <StatusBadge tone="ok" dot>{`Dentro de ${regionLabel || "la región"}`}</StatusBadge>
+      : <StatusBadge tone="neutral" dot>{`Fuera de ${regionLabel || "la región"}`}</StatusBadge>
+  ) : value === true ? <StatusBadge tone="ok" dot>Región UE</StatusBadge>
     : value === false ? <StatusBadge tone="neutral" dot>Fuera de la UE</StatusBadge>
       : <span className="text-xs text-text-tertiary">Región sin determinar</span>;
 
@@ -163,10 +168,10 @@ export const ModelsList: React.FC<{
                         </div>
                       )}
                     </td>
-                    <td className={tdClass}><RegionBadge value={e.region_ue} /></td>
+                    <td className={tdClass}><RegionBadge value={e.region_ue} inRegion={e.in_region} regionLabel={e.region_label} /></td>
                     <td className={tdClass}><StatusBadge tone={st.tone} dot>{st.label}</StatusBadge></td>
                     <td className={tdClass}>
-                      <SemaforoBadge semaforo={e.semaforo} />
+                      <SemaforoBadge semaforo={e.semaforo} regionLabel={e.region_label} />
                       {isStale(e) && <div className="mt-1 text-xs text-warn">Ficha desactualizada</div>}
                     </td>
                     <td className={tdClass}>

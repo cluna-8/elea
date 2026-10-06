@@ -114,7 +114,7 @@ def destination(did, *, level="tenant", tenant_id="t1", status="active", has_cre
                 inf="EU", ent="EU", provider="openrouter", blocked=False, enabled_at=None,
                 protocol_family="openai_chat", api_base="https://openrouter.ai/api/v1", **kw):
     return {"id": did, "level": level, "tenant_id": tenant_id, "status": status,
-            "has_credential": has_credential, "inference_jurisdiction": inf, "entity_jurisdiction": ent,
+            "has_credential": has_credential, "inference_jurisdiction": inf, "entity_jurisdiction": ent, "control_jurisdiction": ent,
             "provider": provider, "real_model": f"model-{did}", "blocked_by_default": blocked,
             "enabled_at": enabled_at, "protocol_family": protocol_family, "api_base": api_base,
             "name": f"Destino {did}", **kw}

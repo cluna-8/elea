@@ -22,6 +22,7 @@ MASKED = {"completed": True, "degraded": False, "detected": 2, "masked": 2}
 def token(**kw):
     args = dict(request_id="req-1", scope="t1/connection:k1", destination_id="d1", model=MODEL,
                 provider="openrouter", credential={"api_key": "sk-destino"}, api_base=None,
+                provider_options={"providers_allowlist": ["acme-us"]},
                 forced_masking=False, decision={"public_id": "pro"}, key=KEY, now=NOW)
     args.update(kw)
     return authz.issue(**args)

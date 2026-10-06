@@ -10,6 +10,7 @@ conjunto; un dato sin cargar (`NULL`, vacío o `unknown`) no cuenta. Ningún có
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from sentinel.redirect import models as rm
@@ -23,26 +24,47 @@ def installation_profile() -> Optional[str]:
     return (os.environ.get(PROFILE_ENV) or "").strip().lower() or None
 
 
-def effective_codes(db, tenant_id, profile: Optional[str] = ...) -> frozenset:
-    """Jurisdicciones de «mi región» para `tenant_id` y `profile` (por defecto, el de la instalación)."""
+@dataclass(frozen=True)
+class Region:
+    """La región efectiva: su nombre (para la etiqueta del panel), sus jurisdicciones y de dónde sale.
+    `source`: `tenant` | `installation` (una fila de `sentinel_redirect_region`), `fallback` (el respaldo fijo del
+    perfil, sin fila) o `unresolved` (sin perfil: ninguna jurisdicción)."""
+    name: Optional[str]
+    codes: frozenset
+    source: str
+
+    @property
+    def from_row(self) -> bool:
+        return self.source in ("tenant", "installation")
+
+
+def effective_region(db, tenant_id, profile: Optional[str] = ...) -> Region:
+    """Región de `tenant_id` y `profile` (por defecto, el de la instalación): fila de la empresa > fila de la
+    instalación > respaldo fijo del perfil; sin perfil, sin resolver (nunca cae a otra región)."""
     profile = installation_profile() if profile is ... else (profile or "").strip().lower() or None
     if profile is None:
-        return frozenset()
+        return Region(None, frozenset(), "unresolved")
     memo = db.info.setdefault("region_codes", {})            # una consulta por sesión y empresa (las listas la repiten)
-    if (tenant_id, profile) in memo:
-        return memo[(tenant_id, profile)]
-    memo[(tenant_id, profile)] = codes = _codes(db, tenant_id, profile)
-    return codes
+    if (tenant_id, profile) not in memo:
+        memo[(tenant_id, profile)] = _region(db, tenant_id, profile)
+    return memo[(tenant_id, profile)]
 
 
-def _codes(db, tenant_id, profile: str) -> frozenset:
+def effective_codes(db, tenant_id, profile: Optional[str] = ...) -> frozenset:
+    """Jurisdicciones de «mi región» para `tenant_id` y `profile` (por defecto, el de la instalación)."""
+    return effective_region(db, tenant_id, profile).codes
+
+
+def _region(db, tenant_id, profile: str) -> Region:
     rows = [r for r in db.query(rm.RedirectRegion)
             if profile in {str(p).strip().lower() for p in (r.region_profiles or ())}
             and (r.tenant_id is None or r.tenant_id == tenant_id)]
     rows.sort(key=lambda r: r.tenant_id is None)               # la de la empresa gana sobre la de instalación
     if rows:
-        return frozenset(str(j).strip().upper() for j in (rows[0].jurisdictions or ()) if str(j).strip())
-    return region_codes(profile)
+        row = rows[0]
+        return Region(row.name, frozenset(str(j).strip().upper() for j in (row.jurisdictions or ()) if str(j).strip()),
+                      "installation" if row.tenant_id is None else "tenant")
+    return Region(profile.upper().replace("_", "-"), region_codes(profile), "fallback")
 
 
 def in_region(sheet: Any, codes) -> bool:

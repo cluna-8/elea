@@ -67,6 +67,8 @@ class _Store:
 
 @pytest.fixture
 def api(monkeypatch):
+    # modelos locales on-prem de la organización (ollama en una red interna): interruptor de instalación (057 H1)
+    monkeypatch.setenv("CATALOG_ALLOW_PRIVATE_API_BASE", "true")
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     cm.CatalogBase.metadata.create_all(engine)
     rm.RedirectBase.metadata.create_all(engine)
@@ -265,3 +267,11 @@ def test_el_motor_resuelve_el_env_ref_adoptado():
     from sentinel.engine import redirect_credentials as engine_rc
     ref = cr.env_ref_dict("ANTHROPIC_API_KEY", allow_any_env=True)
     assert engine_rc.resolve_env_refs(ref, {"ANTHROPIC_API_KEY": "sk-real"}) == {"api_key": "sk-real"}
+
+
+def test_adoptar_un_modelo_local_exige_el_interruptor_de_instalacion(api, monkeypatch):
+    """057 H1: una organización no apunta el motor a una dirección interna salvo que el operador lo permita."""
+    monkeypatch.delenv("CATALOG_ALLOW_PRIVATE_API_BASE")
+    r = api.call("POST", "/legacy-models/llama/adopt", "tenant_admin")
+    assert r.status_code == 422, r.text
+    assert api.call("POST", "/legacy-models/llama/adopt", "super_admin").status_code == 201   # el operador no pasa por la regla

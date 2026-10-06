@@ -87,7 +87,7 @@ describe("pantalla del catálogo", () => {
     expect(screen.getByText("Falta cargar: jurisdicción de inferencia")).toBeInTheDocument();
     expect(screen.getByLabelText("Semáforo: Estándar")).toBeInTheDocument();
     expect(screen.getByText("Agregador: no cubre al proveedor final · Sin DPA")).toBeInTheDocument();
-    expect(screen.getByText("Admisible UE")).toBeInTheDocument();
+    expect(screen.getByText("Dentro de la región")).toBeInTheDocument();
     expect(screen.getByText("Agregador")).toBeInTheDocument();
     expect(screen.getByText(/huella ab12/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(SECRET);

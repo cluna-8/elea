@@ -47,6 +47,9 @@ class _Store:
 
 @pytest.fixture
 def api(monkeypatch):
+    # el semáforo se evalúa contra la región del perfil (057 FR-030a): estos tests fijan el perfil `eu` sin fila de
+    # región, que es la regla de siempre («admisible UE»)
+    monkeypatch.setenv("SENTINEL_ENTITY_REGION", "eu")
     engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     cm.CatalogBase.metadata.create_all(engine)
     rm.RedirectBase.metadata.create_all(engine)
@@ -78,6 +81,8 @@ def _entry(**kw):
             "credential": {"new": {"name": "or-key", "value": SECRET}},
             "capability": "standard", "role": "text", "context_window": 128000}
     body.update(kw)
+    if body["provider"] == "openrouter" and "provider_options" not in body:
+        body["provider_options"] = {"providers_allowlist": ["acme-us"]}      # FR-032: obligatoria y no vacía
     return body
 
 
@@ -150,7 +155,8 @@ def test_proveedor_o_protocolo_desconocidos_son_422(api):
                     json=_entry(protocol_family="telepatia")).status_code == 422
 
 
-def test_proveedor_que_exige_credencial_o_base(api):
+def test_proveedor_que_exige_credencial_o_base(api, monkeypatch):
+    monkeypatch.setenv("CATALOG_ALLOW_PRIVATE_API_BASE", "true")        # vllm local de la organización (057 H1)
     assert api.call("POST", "/entries", "tenant_admin",
                     json=_entry(credential=None)).status_code == 422
     r = api.call("POST", "/entries", "tenant_admin",
