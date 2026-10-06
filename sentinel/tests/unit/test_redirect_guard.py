@@ -540,3 +540,19 @@ def test_hacia_un_traducido_no_se_bloquea_porque_la_firma_se_reconstruye():
 def test_un_campo_ausente_cero_o_no_entero_no_bloquea_por_si_solo(valor):
     informe = {**GOOD_REPORT, g.SIGNED_THINKING_FIELD: valor}
     assert apply(_forzado_en("anthropic", informe))["api_key"] == "sk-destino"
+
+
+# ── exenciones opcionales de S14 en la auditoría (057 T111/T112; research R34) ─────────────────────
+
+def test_las_exenciones_del_informe_quedan_en_la_decision_solo_los_nombres_conocidos():
+    informe = {**GOOD_REPORT, "exempt": ["tool_definitions", "system_prompt", "inventada", 7]}
+    rd = _decision(apply(_forzado_en("openrouter", informe)))
+    assert rd["masking_exempt"] == "system_prompt,tool_definitions"
+
+
+@pytest.mark.parametrize("exempt", [None, [], "system_prompt", {"a": 1}, ["otra"]])
+def test_sin_exenciones_validas_la_decision_no_lleva_el_campo(exempt):
+    informe = dict(GOOD_REPORT)
+    if exempt is not None:
+        informe["exempt"] = exempt
+    assert "masking_exempt" not in _decision(apply(_forzado_en("openrouter", informe)))

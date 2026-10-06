@@ -177,6 +177,18 @@ def register_forced_masking_resolver() -> int:
 register_forced_masking_resolver()
 
 
+MASKING_EXEMPT_NAMES = frozenset(("system_prompt", "tool_definitions"))     # nombres de las exenciones opcionales de S14
+
+
+def masking_exemptions(report: Any) -> str:
+    """Nombres de las exenciones opcionales de S14 que el informe dice vigentes, solo los conocidos y ordenados
+    (`a,b`); vacío si no hay ninguna. Nunca contenido."""
+    exempt = report.get("exempt") if isinstance(report, Mapping) else None
+    if not isinstance(exempt, (list, tuple)):
+        return ""
+    return ",".join(sorted({n for n in exempt if isinstance(n, str) and n in MASKING_EXEMPT_NAMES}))
+
+
 def masking_ok(report: Any, *, forced: bool = False) -> bool:
     """¿El informe del guardrail de la base (S5b) garantiza el enmascarado? Completo, no degradado y con todo lo
     detectado enmascarado. Con el forzado vigente (`forced`, 057 S14; QA B3) además exige **alcance completo**
@@ -497,6 +509,9 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
                      "masking_verified": bool(grant.forced_masking), "pricing": pricing_source})
     if grant.forced_masking:
         decision["masking_scope"] = FULL_SCOPE            # verificado arriba: el informe lo dice y el guard lo exigió
+        exempt = masking_exemptions(_masking_report(data, call_type))
+        if exempt:
+            decision["masking_exempt"] = exempt           # la instalación relajó el piso (S14, opcional): queda registrado
     _write_decision(data, call_type, decision)
     return data
 

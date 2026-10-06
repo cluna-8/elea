@@ -526,6 +526,12 @@ class SentinelGuardrail(CustomGuardrail):
             return _AUDIT_UNAVAILABLE_MSG
 
         identity = _sentinel_identity(user_api_key_dict)
+        # Exenciones opcionales de S14 (research R34): solo la INSTALACIÓN las enciende (variables de entorno) y solo
+        # bajo el forzado; apagadas por defecto. Lo exento no se analiza ni se reescribe, pero los secretos y la Ley de
+        # IA (abajo) siguen mirando todo. El informe lista los nombres.
+        exentas = policy.optional_exemptions() if forzado else frozenset()
+        if exentas:
+            reporte["exempt"] = sorted(exentas)
         inspect_text = (policy.extract_inspect_text(data, scope=policy.MASKING_SCOPE_FULL, fmt=fmt,
                                                     skip_keys=saltear)
                         if forzado else policy.extract_inspect_text(data))
@@ -581,9 +587,19 @@ class SentinelGuardrail(CustomGuardrail):
             return await policy.default_analyze(texto, region=region)
 
         if _PRESIDIO_URL:
-            async def _analyze(text: str) -> list:
+            async def _analyze_nlp(text: str) -> list:
                 return await policy.presidio_analyze(
                     text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
+
+            # S17 (research R34): un segmento que ya se analizó con esta misma configuración y para esta empresa no
+            # vuelve al analizador. Solo se envuelve el analizador real: el regex de respaldo de `degrade` no entra.
+            _cfg_cache = policy.analysis_cache_config()
+            _analyze = policy.cached_analyze(
+                _analyze_nlp, cache=policy.get_analysis_cache() if _cfg_cache.enabled else None,
+                version=policy.analysis_config_version(
+                    region=region, custom_names=custom_names, custom_entities=custom_entities,
+                    analyzer_url=_PRESIDIO_URL, salt=_cfg_cache.salt),
+                scope=str(identity.get("tenant_id") or ""))
         else:
             logger.warning(
                 "NLP_ANALYZER_URL no configurada — usando detección regex de "
@@ -648,7 +664,14 @@ class SentinelGuardrail(CustomGuardrail):
         # 016 US2, FR-005/FR-006).
         entity_configs = identity.get("entity_configs") or {}
         try:
-            preview_entities = await _analyze(inspect_text)
+            if forzado:
+                # Bajo el alcance completo el análisis previo por tipo corre por SEGMENTO (los mismos que recorre el
+                # enmascarado y por la misma caché, S17): sin una segunda pasada por un texto unido que cambia en
+                # cada turno, y sin el tope de `INSPECT_CAP` (el enmascarado analiza todo de todos modos).
+                preview_entities = await policy.analyze_segments(
+                    policy.inspect_segments(data, fmt, skip_keys=saltear, exempt=exentas), _analyze)
+            else:
+                preview_entities = await _analyze(inspect_text)
         except policy.NlpUnavailableError:
             if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
                 return await _bloquear(_nlp_unavailable_block(home),
@@ -692,7 +715,7 @@ class SentinelGuardrail(CustomGuardrail):
                 # analizable (un `_contando` sumaría como enmascaradas las detecciones estructurales).
                 data, ph_to_orig = await policy.mask_body(
                     data, _analyze, pmap, scope=policy.MASKING_SCOPE_FULL, fmt=fmt, tally=tally,
-                    skip_keys=saltear)
+                    skip_keys=saltear, exempt=exentas)
             else:
                 data, ph_to_orig = await policy.mask_body(data, _contando(_analyze), pmap)
         except policy.NlpUnavailableError:
