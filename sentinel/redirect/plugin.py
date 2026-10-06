@@ -45,7 +45,7 @@ from starlette.responses import JSONResponse
 
 from sentinel.access import bridge
 
-from . import authz, betas, credentials, residency, resolver, stream, token_estimate
+from . import authz, betas, credentials, residency, resolver, stream, thinking, token_estimate
 from .faces import claude as claude_face
 from .faces import generic as generic_face
 from .scopes import RequestScope, applicable
@@ -533,7 +533,8 @@ class RedirectPlugin:
             if resolver.fidelity("claude", dest) == "translated":
                 try:
                     out, removed = claude_face.normalize_for_translated(
-                        out, dest.get("capability_profile") or {}, max_output=max_output or 0)
+                        out, dest.get("capability_profile") or {}, max_output=max_output or 0,
+                        history_reasoning=thinking.history_filter(dest))
                 except claude_face.CapabilityRejected as exc:
                     plan.rejected = exc.capability
                     plan.decision["rejected"] = exc.capability
@@ -546,6 +547,11 @@ class RedirectPlugin:
                     plan.decision["omitted"] = ",".join(omitted)
                 # T139 de Sentinel: campos que la herramienta mandó y el destino no conoce (p. ej.
                 # `safeguards`): solo sus nombres, acotados (FR-033, FR-035)
+                for label, prefix in (("thinking_dropped", claude_face.THINKING_DROPPED),
+                                      ("thinking_replayed", claude_face.THINKING_REPLAYED)):
+                    count = claude_face.adjustment_count(removed, prefix)    # FR-036: solo cantidades
+                    if count:
+                        plan.decision[label] = count
                 dropped_fields = claude_face.dropped_field_names(removed)
                 if dropped_fields:
                     plan.decision["dropped_fields"] = _names_value(dropped_fields)
@@ -629,9 +635,13 @@ class RedirectPlugin:
         plan: Optional[Plan] = ctx.state.get(STATE_KEY)
         if plan is None or plan.shadow or plan.rejected:
             return iterator
+        signer = None
+        if plan.face == "claude" and resolver.fidelity("claude", plan.destination) == "translated":
+            dest_id = str(plan.destination.get("id"))
+            signer = lambda text: thinking.sign(dest_id, text)             # noqa: E731 — FR-036
         return stream.wrap_sse(iterator, public_model=plan.public_id,
                                face="claude" if plan.face == "claude" else "openai",
-                               ping_after=self.ping_after)
+                               ping_after=self.ping_after, thinking_signer=signer)
 
     def map_response(self, ctx, status, content):
         plan: Optional[Plan] = ctx.state.get(STATE_KEY)
@@ -646,6 +656,11 @@ class RedirectPlugin:
         body = generic_face.rewrite_response_model(body, plan.public_id)
         if plan.face == "claude" and body.get("type") == "message":
             body["usage"] = stream.complete_usage(body.get("usage"))      # FR-039: los cuatro contadores
+            if resolver.fidelity("claude", plan.destination) == "translated":
+                dest_id = str(plan.destination.get("id"))
+                for blk in body.get("content") if isinstance(body.get("content"), list) else ():
+                    if isinstance(blk, dict) and blk.get("type") == "thinking":
+                        blk["signature"] = thinking.sign(dest_id, str(blk.get("thinking") or ""))   # FR-036
         return status, json.dumps(body, ensure_ascii=False).encode(), None
 
     def map_error(self, ctx, status, content):
