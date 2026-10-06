@@ -57,6 +57,9 @@ STORE = None
 DPA_LOOKUP = None
 DPA_LIST = None
 TODAY = None
+# Prueba de despliegue de Azure (057 FR-020): `(entrada, credencial sin resolver) -> {"status": ok|not_found|error}`.
+DEPLOYMENT_PROBE = None
+DEPLOYMENT_KEY = "deployment_check"         # reservada de `provider_options`: la escribe la verificación, nunca el cliente
 
 
 def _session_factory():
@@ -320,6 +323,63 @@ def _check_public_id(public_id: str):
         _err(422, "el id público no puede estar vacío, tener espacios ni empezar con rdx-")
 
 
+# ── verificación del despliegue de Azure (057 FR-020; research R9) ─────────────────────────────
+
+def default_deployment_probe(entry, credential) -> dict:
+    """Prueba mínima de 16 tokens por la ruta del guard del motor, con la misma autorización firmada que usa la
+    pasarela: el motor resuelve las variables del servidor y manda al recurso configurado. Devuelve solo el
+    estado (`ok`, `not_found`, `error`); sin motor o sin clave interna, `error` (no se afirma nada). No lleva ni
+    registra contenido: un «ping» fijo."""
+    try:
+        import httpx
+        from src.services import ai_engine_client as engine
+        from sentinel.redirect import authz
+        model = rc.family_model(entry.provider, entry.real_model)
+        token = authz.issue(request_id=str(uuid.uuid4()), scope="catalog-check", destination_id=str(entry.id),
+                            model=model, provider=entry.provider, credential=dict(credential),
+                            api_base=entry.api_base, decision={"public_id": "deployment-check", "face": "openai_generic"})
+        headers = {"Authorization": f"Bearer {engine._MASTER_KEY}", authz.HEADER: token,
+                   "Content-Type": "application/json"}
+        body = {"model": model, "messages": [{"role": "user", "content": "ping"}], "max_completion_tokens": 16}
+    except Exception:  # noqa: BLE001 — sin clave interna o sin motor configurado
+        return {"status": "error"}
+    try:
+        with httpx.Client(timeout=20.0) as client:
+            resp = client.post(f"{engine._BASE_URL}/v1/chat/completions", json=body, headers=headers)
+    except Exception:  # noqa: BLE001
+        return {"status": "error"}
+    return {"status": cv.classify_deployment_response(resp.status_code, resp.text)}
+
+
+def _verify_deployment(db, user, e: cm.CatalogEntry) -> dict:
+    """Verifica que `real_model` sea un despliegue del recurso y deja el resultado en la entrada: `not_found` la
+    apaga (con el motivo legible); `ok` la enciende si estaba apagada por esa causa; `error` no cambia su estado."""
+    cred_row = cs.credential_of(db, e)
+    try:
+        cred = cr.resolve(cred_row, _decrypt) if cred_row is not None else {}
+        out = (DEPLOYMENT_PROBE or default_deployment_probe)(e, cred) or {}
+    except Exception:  # noqa: BLE001 — una prueba que falla no apaga ni enciende nada
+        out = {"status": "error"}
+    status = out.get("status") if out.get("status") in ("ok", "not_found", "error") else "error"
+    previous = (e.provider_options or {}).get(DEPLOYMENT_KEY) or {}
+    check = {"status": status, "checked_at": datetime.now(timezone.utc).isoformat()}
+    if status == "not_found":
+        check["message"] = cv.deployment_not_found_message(e.real_model)
+        if e.status == "active":
+            e.status = "inactive"
+    elif status == "ok" and e.status == "inactive" and previous.get("status") == "not_found":
+        e.status = "active"
+    e.provider_options = {**(e.provider_options or {}), DEPLOYMENT_KEY: check}
+    _audit(db, user, entity="catalog_entry", entity_id=e.id, action="deployment_check",
+           after={"status": status, "entry_status": e.status}, tenant_id=e.tenant_id)
+    return check
+
+
+def _check_provider_options(options) -> None:
+    if isinstance(options, dict) and DEPLOYMENT_KEY in options:
+        _err(422, f"provider_options.{DEPLOYMENT_KEY} es de la verificación del despliegue: no se escribe a mano")
+
+
 # ── cuerpos (extra=forbid: el semáforo y cualquier campo desconocido son 422) ──────
 
 class _Body(BaseModel):
@@ -495,6 +555,7 @@ def _create_one(db, user, body: EntryIn, cred_of) -> dict:
     _check_vocab(body.provider, body.protocol_family, body.role, body.capability, body.features,
                  body.level)
     _check_extras(body.limits, body.advanced, body.price_tiers)
+    _check_provider_options(body.provider_options)
     unsupported = _unsupported(body.unsupported_params)
     tenant = None if body.level == "installation" else user.tenant_id
     if _name_taken(db, body.level, tenant, body.name):
@@ -527,6 +588,9 @@ def _create_one(db, user, body: EntryIn, cred_of) -> dict:
     db.flush()
     db.add(cm.ComplianceSheet(entry_id=e.id))               # nace sin clasificar (FR-039)
     db.flush()
+    if e.provider == "azure":                                 # FR-020: ¿existe ese despliegue en el recurso?
+        _verify_deployment(db, user, e)
+        db.flush()
     after = _view(db, user, e)
     _audit(db, user, entity="catalog_entry", entity_id=e.id, action="create",
            after=_audit_view(after), tenant_id=e.tenant_id)
@@ -572,6 +636,7 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
             if k in changes and changes[k] is None:      # `null` = vaciar (la columna no admite NULL)
                 changes[k] = empty
         _check_extras(changes.get("limits"), changes.get("advanced"), changes.get("price_tiers"))
+        _check_provider_options(changes.get("provider_options"))
         if "unsupported_params" in changes:
             changes["unsupported_params"] = _unsupported(changes["unsupported_params"])
         if "status" in changes and changes["status"] not in ("active", "inactive"):
@@ -585,19 +650,31 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
         before = _audit_view(_view(db, user, e))
         stale = any(k in changes and changes[k] != getattr(e, k) for k in _STALE_FIELDS)
         identity_before = (e.provider, e.api_base)
+        deployment_before = (e.provider, e.real_model, e.api_base)
+        old_check = (e.provider_options or {}).get(DEPLOYMENT_KEY)
         price_changed = any(k in changes for k in ("price_input", "price_output", "price_cache_read",
                                                    "price_cache_write", "price_tiers"))
         for k, v in changes.items():
             setattr(e, k, v)
         if price_changed:
             e.price_at = _today()
+        if "provider_options" in changes and old_check is not None and e.provider == "azure":
+            e.provider_options = {**(e.provider_options or {}), DEPLOYMENT_KEY: old_check}    # el resultado no se pisa
         cred = cs.credential_of(db, e)
         if cred_spec is not None:
             cred = _new_credential(db, user, cred_spec, level=e.level)
             e.credential_id = cred.id
         if cred_spec is not None or {"provider", "api_base"} & set(changes):
             _check_binding(e.provider, e.level, cred, e.api_base)
+        if e.provider != "azure" and DEPLOYMENT_KEY in (e.provider_options or {}):
+            e.provider_options = {k: v for k, v in e.provider_options.items() if k != DEPLOYMENT_KEY}
         e.updated_by = user.id
+        # FR-020: un cambio del despliegue (modelo real, base, credencial) o encender la entrada la verifica de nuevo;
+        # apagarla a mano no
+        if e.provider == "azure" and changes.get("status") != "inactive" and (
+                (e.provider, e.real_model, e.api_base) != deployment_before or cred_spec is not None
+                or changes.get("status") == "active"):
+            _verify_deployment(db, user, e)
         if stale:
             sheet = cs.sheet_of(db, e.id)
             if sheet is not None:
@@ -611,6 +688,25 @@ def update_entry(entry_id: str, body: EntryPatch, user=Depends(require_role(*ADM
             _audit_rule_changes(db, user, [(e, moved)])
         _audit(db, user, entity="catalog_entry", entity_id=e.id, action="update", before=before,
                after=_audit_view(after), reason=reason, tenant_id=e.tenant_id)
+        tenant = e.tenant_id
+    _bump_for(tenant)
+    return after
+
+
+@router.post("/entries/{entry_id}/check")
+def check_entry(entry_id: str, user=Depends(require_role(*ADMIN))):
+    """Verifica de nuevo que el modelo real de una entrada `azure` sea un despliegue del recurso (FR-020)."""
+    with _db(user, bypass=_is_super(user)) as db:
+        e = _load_entry(db, user, entry_id)
+        _can_write(user, e)
+        if e.status == "archived":
+            _err(409, "entrada archivada")
+        if e.provider != "azure":
+            _err(409, "la verificación de despliegue es solo de las entradas de Azure")
+        _verify_deployment(db, user, e)
+        e.updated_by = user.id
+        db.flush()
+        after = _view(db, user, e)
         tenant = e.tenant_id
     _bump_for(tenant)
     return after

@@ -118,6 +118,15 @@ export const ModelsTab: React.FC<{
     } catch (err) { fail(err); }
   };
 
+  const checkDeployment = async (e: EntryView) => {
+    try {
+      const r = await catalogApi.checkEntry(e.id);
+      await done(r.deployment_check?.status === "ok" ? `El despliegue de «${e.name}» existe en el recurso.`
+        : r.deployment_check?.status === "not_found" ? (r.deployment_check.message ?? "El despliegue no existe en el recurso configurado.")
+        : `No se pudo verificar el despliegue de «${e.name}».`);
+    } catch (err) { fail(err); }
+  };
+
   return (
     <div>
       {msg && <Notice tone={msg.tone} onClose={() => setMsg(null)}>{msg.text}</Notice>}
@@ -179,6 +188,12 @@ export const ModelsTab: React.FC<{
                     <td className={tdClass}>
                       <StatusBadge tone={st.tone} dot>{st.label}</StatusBadge>
                       {e.in_region && <div className="mt-1"><StatusBadge tone="ok">En región</StatusBadge></div>}
+                      {e.deployment_check?.status === "not_found" && (
+                        <div className="mt-1 text-xs text-warn">{e.deployment_check.message}</div>
+                      )}
+                      {e.deployment_check?.status === "error" && (
+                        <div className="mt-1 text-xs text-text-tertiary">No se pudo verificar el despliegue.</div>
+                      )}
                     </td>
                     <td className={tdClass}>
                       <SemaforoBadge semaforo={e.semaforo} />
@@ -200,6 +215,10 @@ export const ModelsTab: React.FC<{
                           <Button size="sm" variant="secondary" aria-label={`Ofrecer ${e.name}`} onClick={() => {
                             setTenantsText((e.offered_to ?? []).join(", ")); setDialog({ kind: "offers", entry: e });
                           }}>Ofrecer</Button>
+                        )}
+                        {writable && e.provider === "azure" && (
+                          <Button size="sm" variant="secondary" aria-label={`Verificar despliegue de ${e.name}`}
+                            onClick={() => checkDeployment(e)}>Verificar despliegue</Button>
                         )}
                         {canEnableEntry(perms, e) && (
                           <Button size="sm" variant="secondary" aria-label={`Habilitar ${e.name}`} onClick={() => setDialog({ kind: "enable", entry: e })}>Habilitar</Button>

@@ -98,6 +98,40 @@ def check_unsupported_params(params: Any) -> list:
     return out
 
 
+# ── verificación del despliegue de Azure (057 FR-020; research R9) ─────────────────────────────────
+
+DEPLOYMENT_NOT_FOUND = "deployment_not_found"
+_DEPLOYMENT_NOT_FOUND = re.compile(r"DeploymentNotFound|deployment.{0,40}(does not exist|not found)|Resource not found", re.I)
+
+
+def deployment_not_found_message(real_model: str) -> str:
+    """El texto que ve el administrador cuando `real_model` no es un despliegue del recurso (nunca el opaco del proveedor)."""
+    return f"El despliegue {real_model} no existe en el recurso configurado"
+
+
+def classify_deployment_response(status: int, body: Any) -> str:
+    """`ok` | `not_found` | `error` a partir de la respuesta de la prueba mínima de 16 tokens.
+
+    Solo la forma propia de «ese despliegue no existe» (404 o el código `DeploymentNotFound`) cuenta como `not_found`;
+    credenciales, cuota, red y cualquier otra cosa son `error` (no se puede afirmar nada del despliegue)."""
+    text = body if isinstance(body, str) else json_dumps_safe(body)
+    if isinstance(status, int) and 200 <= status < 300:
+        return "ok"
+    if re.search(r"DeploymentNotFound", text or "", re.I):
+        return "not_found"
+    if status == 404 and _DEPLOYMENT_NOT_FOUND.search(text or ""):
+        return "not_found"
+    return "error"
+
+
+def json_dumps_safe(value: Any) -> str:
+    import json
+    try:
+        return json.dumps(value, default=str)
+    except (TypeError, ValueError):
+        return str(value)
+
+
 _JURISDICTION = re.compile(r"^[A-Z][A-Z0-9_-]{0,7}$")
 
 

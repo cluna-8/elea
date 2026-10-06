@@ -77,6 +77,8 @@ export interface EntryView {
   max_output: number | null;
   blocked_by_default: boolean;
   enabled_at: string | null;
+  /** Última verificación del despliegue (solo entradas de Azure, 057 FR-020). */
+  deployment_check?: { status: "ok" | "not_found" | "error"; checked_at: string; message?: string } | null;
   /** Inferencia, entidad y control de la ficha están en la región efectiva (057 FR-028a); ausente en servidores viejos. */
   in_region?: boolean;
   status: EntryStatus;

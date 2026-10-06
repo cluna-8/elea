@@ -47,6 +47,8 @@ export const catalogApi = {
   createEntry: (body: Record<string, unknown>) => call<EntryView>("/entries", json("POST", body)),
   patchEntry: (id: string, body: Record<string, unknown>) => call<EntryView>(`/entries/${id}`, json("PATCH", body)),
   archiveEntry: (id: string, reason: string) => call<EntryView>(`/entries/${id}/archive`, json("POST", { reason })),
+  /** Verifica de nuevo que el modelo real de una entrada de Azure sea un despliegue del recurso. */
+  checkEntry: (id: string) => call<EntryView>(`/entries/${id}/check`, { method: "POST" }),
   /** Habilita una entrada bloqueada por defecto (motivo obligatorio; queda en el registro de cambios). */
   enableEntry: (id: string, reason: string) => call<EntryView>(`/entries/${id}/enable`, json("POST", { reason })),
   /** Reglas de habilitación explícita: las de instalación y las de la organización (057 FR-029). */

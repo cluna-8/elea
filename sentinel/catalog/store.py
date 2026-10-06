@@ -101,6 +101,8 @@ def entry_view(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
             "expiration_date": _iso(dpa.get("expiration_date")),
             "processing_region": dpa.get("processing_region"), "is_active": bool(dpa.get("is_active", True))},
     }
+    if entry.provider == "azure":                  # resultado de la última verificación del despliegue (FR-020)
+        out["deployment_check"] = (entry.provider_options or {}).get("deployment_check")
     if region_codes is not None:
         out["in_region"] = in_region(sheet, region_codes)
     if owner and credential is not None:

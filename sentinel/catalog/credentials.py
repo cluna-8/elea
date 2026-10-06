@@ -97,7 +97,9 @@ def resolve(row: cm.Credential, decrypt: Callable[[str], str]) -> dict:
 
 
 def validate_for(provider: str, cred: Mapping[str, Any], level: str) -> None:
-    rc.validate_credential(provider, cred, level=level)
+    """La forma del proveedor. En **instalación** (solo el operador) las referencias `env:NOMBRE` admiten cualquier
+    variable fuera de la lista negra (credencial adoptada, p. ej. `AZURE_API_KEY`, 057 FR-020); una empresa no las usa."""
+    rc.validate_credential(provider, cred, level=level, allow_any_env=(level == "installation"))
 
 
 def replace(db, row: cm.Credential, value: Any, *, encrypt: Callable[[str], str]) -> dict:
