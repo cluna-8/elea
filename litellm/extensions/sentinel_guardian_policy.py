@@ -367,7 +367,10 @@ HIGH_RISK_PATTERNS = [
 SECRET_PATTERNS = {
     # Límite izquierdo: sin él, `task-implementation` o `risk-assessment` (…`sk-` + 10 letras) eran «clave» y la capa
     # rechazaba pedidos sin credencial (057 R37). Una clave real no va pegada a una letra o dígito anteriores.
-    "OpenAI API Key": r"(?<![a-zA-Z0-9])sk-[a-zA-Z0-9]{10,}",
+    # Cuerpo: las llaves actuales (`sk-proj-…`, `sk-svcacct-…`, `sk-admin-…`) llevan guiones y guiones bajos, así que la rama
+    # larga acepta `[A-Za-z0-9_-]{20,}`; las viejas `sk-<alfanumérico>` (≥ 10) siguen por la rama corta. La larga va primero para
+    # que la redacción cubra la llave entera (057 R38). Mismo patrón que `OPENAI_KEY_PATTERN` de GuardianService (test de paridad).
+    "OpenAI API Key": r"(?<![a-zA-Z0-9])sk-(?:[A-Za-z0-9_-]{20,}|[A-Za-z0-9]{10,})",
     "Google API Key": r"AIzaSy[a-zA-Z0-9_-]{33}",
     "Generic Secret": r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}",
 }

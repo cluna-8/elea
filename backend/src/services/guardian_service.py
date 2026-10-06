@@ -9,6 +9,9 @@ from .presidio_service import PresidioService, NlpUnavailableError, policy
 
 logger = logging.getLogger("sentinel-secure-gateway.guardian")
 
+# Un solo criterio para la llave OpenAI en los dos caminos (backend y motor): la fuente es la librería compartida (057 R38).
+OPENAI_KEY_PATTERN = policy.SECRET_PATTERNS["OpenAI API Key"]
+
 class GuardianService:
     @staticmethod
     def get_or_create_default_guardians(db: Session) -> List[Guardian]:
@@ -227,10 +230,10 @@ class GuardianService:
 
         if is_secret_active:
             patterns = {
-                # Captura las keys clásicas `sk-<alfanum>` Y las nuevas `sk-proj-...`
-                # (llevan guiones y guiones bajos). Largo mínimo 20 para no dar falsos
-                # positivos con strings cortos tipo `sk-abc`.
-                "OpenAI API Key": r"sk-(?:proj-)?[A-Za-z0-9_-]{20,}",
+                # Captura las keys clásicas `sk-<alfanum>` y las actuales `sk-proj-`/`sk-svcacct-`/`sk-admin-`
+                # (llevan guiones y guiones bajos), con límite izquierdo: `task-…`/`ask-…` no son clave.
+                # Mismo criterio que `SECRET_PATTERNS` del motor (test de paridad).
+                "OpenAI API Key": OPENAI_KEY_PATTERN,
                 "Google API Key": r"AIzaSy[a-zA-Z0-9_-]{33}",
                 "Generic Secret": r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}"
             }
