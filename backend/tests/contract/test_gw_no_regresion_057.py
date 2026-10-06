@@ -265,7 +265,10 @@ def _fila_auditoria(args, kwargs):
         "capas": getattr(atribucion, "applied_layers", None),
         "bloqueada_por": getattr(atribucion, "blocked_by_layer", None),
         "tenant": ident.get("tenant_id"), "llave": ident.get("api_key_id"),
-        "extra": {k: v for k, v in kwargs.items() if k != "attribution"},
+        # Los kwargs con valor `None` son el default del escritor (`routing_decision=None` lo suma
+        # S2 en cada call-site, e3a5297): no cambian la fila escrita, así que no son contrato. Todo
+        # kwarg con valor sí se compara.
+        "extra": {k: v for k, v in kwargs.items() if k != "attribution" and v is not None},
     }
 
 
