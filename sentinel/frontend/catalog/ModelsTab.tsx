@@ -176,7 +176,10 @@ export const ModelsTab: React.FC<{
                         </div>
                       )}
                     </td>
-                    <td className={tdClass}><StatusBadge tone={st.tone} dot>{st.label}</StatusBadge></td>
+                    <td className={tdClass}>
+                      <StatusBadge tone={st.tone} dot>{st.label}</StatusBadge>
+                      {e.in_region && <div className="mt-1"><StatusBadge tone="ok">En región</StatusBadge></div>}
+                    </td>
                     <td className={tdClass}>
                       <SemaforoBadge semaforo={e.semaforo} />
                       {isStale(e) && <div className="text-xs text-warn mt-1">Ficha desactualizada</div>}

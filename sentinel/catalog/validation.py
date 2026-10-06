@@ -98,6 +98,24 @@ def check_unsupported_params(params: Any) -> list:
     return out
 
 
+_JURISDICTION = re.compile(r"^[A-Z][A-Z0-9_-]{0,7}$")
+
+
+def check_jurisdiction(value: Any) -> Optional[str]:
+    """Jurisdicción de la ficha (código ISO de país o zona, hasta 8 caracteres): en mayúscula; vacío ⇒ `None` (sin
+    cargar). El mensaje no repite el valor rechazado."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("la jurisdicción debe ser un código de país o zona")
+    code = value.strip().upper()
+    if not code:
+        return None
+    if not _JURISDICTION.match(code):
+        raise ValueError("la jurisdicción debe ser un código de país o zona de hasta 8 caracteres")
+    return code
+
+
 def check_tiers(tiers: Any) -> Optional[list]:
     if tiers is None:
         return None

@@ -15,10 +15,11 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 from sentinel.redirect.residency import satisfies
 
 from . import models as cm
+from .region import in_region
 from .semaforo import semaforo
 
 STALE = "stale"
-SHEET_FIELDS = ("provider_legal_entity", "entity_jurisdiction", "inference_jurisdiction",
+SHEET_FIELDS = ("provider_legal_entity", "entity_jurisdiction", "control_jurisdiction", "inference_jurisdiction",
                 "logs_jurisdiction", "zero_data_retention", "trains_on_data", "transfer_mechanism",
                 "dpa_registry_id", "eu_region_contracted", "notes")
 
@@ -71,8 +72,9 @@ def region_ue(sheet: Optional[cm.ComplianceSheet]) -> Optional[bool]:
 
 def entry_view(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
                credential: Optional[cm.Credential], dpa: Optional[Mapping[str, Any]], today: date,
-               *, owner: bool) -> dict:
-    """Vista de una entrada. `owner`: quien la administra (ve la huella de la credencial)."""
+               *, owner: bool, region_codes: Optional[frozenset] = None) -> dict:
+    """Vista de una entrada. `owner`: quien la administra (ve la huella de la credencial). `region_codes`: las
+    jurisdicciones de «mi región» (`region.effective_codes`); si llegan, la vista suma `in_region` (FR-028a)."""
     out = {
         "id": _s(entry.id), "level": entry.level, "tenant_id": _s(entry.tenant_id), "name": entry.name,
         "public_id": entry.public_id, "provider": entry.provider, "real_model": entry.real_model,
@@ -99,6 +101,8 @@ def entry_view(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSheet],
             "expiration_date": _iso(dpa.get("expiration_date")),
             "processing_region": dpa.get("processing_region"), "is_active": bool(dpa.get("is_active", True))},
     }
+    if region_codes is not None:
+        out["in_region"] = in_region(sheet, region_codes)
     if owner and credential is not None:
         out["credential"] = {"id": _s(credential.id), "name": credential.name,
                              "kind": credential.kind, "fingerprint": credential.fingerprint}
@@ -162,6 +166,7 @@ def entry_to_destination(entry: cm.CatalogEntry, sheet: Optional[cm.ComplianceSh
         "protocol_family": entry.protocol_family, "role": entry.role,
         "inference_jurisdiction": _jur(sheet.inference_jurisdiction if sheet else None),
         "entity_jurisdiction": _jur(sheet.entity_jurisdiction if sheet else None),
+        "control_jurisdiction": _jur(sheet.control_jurisdiction if sheet else None),
         "blocked_by_default": bool(entry.blocked_by_default), "enabled_at": _iso(entry.enabled_at),
         "enable_reason": entry.enable_reason,
         "has_credential": credential is not None and credential.status == "active",

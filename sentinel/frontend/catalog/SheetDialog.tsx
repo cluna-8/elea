@@ -86,11 +86,23 @@ export const SheetDialog: React.FC<{
         )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Entidad legal del proveedor" value={form.provider_legal_entity} disabled={ro}
-          onChange={e => set({ provider_legal_entity: e.target.value })} error={errors.provider_legal_entity} />
+        <Field label="Entidad responsable" value={form.provider_legal_entity} disabled={ro}
+          onChange={e => set({ provider_legal_entity: e.target.value })} error={errors.provider_legal_entity}
+          hint="Quien opera la inferencia de este modelo." />
         <SelectField label="Jurisdicción de la entidad" value={form.entity_jurisdiction} disabled={ro}
           onChange={v => set({ entity_jurisdiction: v })} placeholder="Sin declarar"
           options={jurisdictionOptions({ extra: form.entity_jurisdiction || null }).filter(o => o.value !== "unknown")} />
+        <SelectField label="Jurisdicción de control" value={form.control_jurisdiction} disabled={ro}
+          onChange={v => set({ control_jurisdiction: v })} placeholder="Sin declarar"
+          options={jurisdictionOptions({ extra: form.control_jurisdiction || null }).filter(o => o.value !== "unknown")}
+          hint="Jurisdicción de quien posee el 50 % o más de la entidad o la controla." />
+        {!form.control_jurisdiction && (
+          <div className="md:col-span-2">
+            <Notice tone="info">
+              Falta la jurisdicción de control: sin ella el modelo no cuenta como «en región», aunque su inferencia y su entidad lo estén.
+            </Notice>
+          </div>
+        )}
         <SelectField label="Jurisdicción de inferencia" value={form.inference_jurisdiction} disabled={ro}
           onChange={v => set({ inference_jurisdiction: v })}
           options={jurisdictionOptions({ extra: form.inference_jurisdiction })}

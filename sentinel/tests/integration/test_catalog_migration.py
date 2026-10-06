@@ -148,9 +148,9 @@ def test_precio_por_millon_se_guarda_por_token_y_vuelve_igual(db):
 # ── no-regresión (FR-039, SC-009) ─────────────────────────────────────────────────
 
 def _snapshot_dump(snap):
-    # `public_id` (069 US2), `unsupported_params` (enmienda 2-oct) y `role` (E3) son datos nuevos que solo traen
-    # los destinos del catálogo: no son parte de lo que la migración debe preservar de la 068.
-    nuevos = ("public_id", "unsupported_params", "role")
+    # `public_id` (069 US2), `unsupported_params` (enmienda 2-oct), `role` (E3) y `control_jurisdiction` (057 D12) son
+    # datos nuevos que solo traen los destinos del catálogo: no son parte de lo que la migración debe preservar de la 068.
+    nuevos = ("public_id", "unsupported_params", "role", "control_jurisdiction")
     dest = {k: {f: v for f, v in d.items() if f not in nuevos} for k, d in snap.destinations.items()}
     return json.dumps({"dest": dest, "offers": sorted(map(json.dumps, snap.offers)),
                        "creds": snap.credentials}, sort_keys=True, default=str)

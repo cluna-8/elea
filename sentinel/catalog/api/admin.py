@@ -32,6 +32,8 @@ from sentinel.redirect.api.admin import _is_super  # autoridad de instalación (
 from .. import credentials as cr
 from .. import habilitacion as hb
 from .. import models as cm
+from .. import region as cregion
+from .. import relaxation as crelax
 from .. import store as cs
 from .. import validation as cv
 
@@ -213,7 +215,8 @@ def _view(db, user, e: cm.CatalogEntry) -> dict:
     sheet = cs.sheet_of(db, e.id)
     cred = cs.credential_of(db, e)
     owner = e.tenant_id == user.tenant_id or (e.tenant_id is None and _is_super(user))
-    out = cs.entry_view(e, sheet, cred, _dpa(db, e, sheet), _today(), owner=owner)
+    out = cs.entry_view(e, sheet, cred, _dpa(db, e, sheet), _today(), owner=owner,
+                        region_codes=cregion.effective_codes(db, user.tenant_id))
     if e.level == "installation" and _is_super(user):
         out["offered_to"] = cs.offered_tenants(db, e.id)
     return out
@@ -381,6 +384,7 @@ class Reason(_Body):
 class SheetIn(_Body):
     provider_legal_entity: Optional[str] = Field(default=None, max_length=256)
     entity_jurisdiction: Optional[str] = Field(default=None, max_length=8)
+    control_jurisdiction: Optional[str] = Field(default=None, max_length=8)   # quién controla a la entidad (FR-028a)
     inference_jurisdiction: str = Field(default="unknown", max_length=16)
     logs_jurisdiction: str = Field(default="unknown", max_length=16)
     zero_data_retention: Optional[bool] = None
@@ -791,8 +795,13 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
             db.add(sheet)
         before = {"sheet": cs.sheet_view(sheet), "semaforo": cs.semaforo_of(e, sheet, _dpa(db, e, sheet), _today())}
         juris_before = tuple(getattr(sheet, f, None) for f in hb.JURISDICTION_FIELDS)
+        try:
+            control = cv.check_jurisdiction(body.control_jurisdiction)
+        except ValueError as exc:
+            _err(422, str(exc))
         for f in cs.SHEET_FIELDS:
             setattr(sheet, f, getattr(body, f))
+        sheet.control_jurisdiction = control
         sheet.dpa_registry_id = dpa_id
         for f in ("inference_jurisdiction", "logs_jurisdiction", "entity_jurisdiction"):
             v = getattr(sheet, f)
@@ -804,6 +813,8 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
         # FR-029: las jurisdicciones de la ficha entran en las reglas de habilitación
         moved = hb.reapply(db, e, hb.load_rules(db), sheet=sheet, identity_changed=tuple(
             getattr(sheet, f, None) for f in hb.JURISDICTION_FIELDS) != juris_before)
+        # FR-031a: una relajación por destino solo vale mientras la ficha cumpla sus precondiciones
+        crelax.revoke_unmet(db, e, sheet, user, audit=lambda **kw: _audit(db, user, **kw))
         db.flush()
         after = _view(db, user, e)
         if moved:

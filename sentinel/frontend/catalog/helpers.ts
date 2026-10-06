@@ -13,8 +13,11 @@ export type SemaforoState = "eu_ok" | "standard" | "unclassified";
 export interface Semaforo { estado: SemaforoState; motivos: string[] }
 
 export interface SheetView {
+  /** Entidad responsable: quien opera la inferencia (057 FR-028a). */
   provider_legal_entity: string | null;
   entity_jurisdiction: string | null;
+  /** Jurisdicción de quien posee el 50 % o más de la entidad o la controla; `null` = sin cargar. */
+  control_jurisdiction?: string | null;
   inference_jurisdiction: string;
   logs_jurisdiction: string;
   zero_data_retention: boolean | null;
@@ -74,6 +77,8 @@ export interface EntryView {
   max_output: number | null;
   blocked_by_default: boolean;
   enabled_at: string | null;
+  /** Inferencia, entidad y control de la ficha están en la región efectiva (057 FR-028a); ausente en servidores viejos. */
+  in_region?: boolean;
   status: EntryStatus;
   source: string;
   has_credential: boolean;
@@ -141,6 +146,7 @@ const SHEET_FIELD_LABELS: Record<string, string> = {
   eu_region_contracted: "región UE contratada",
   zero_data_retention: "retención cero",
   entity_jurisdiction: "jurisdicción de la entidad",
+  control_jurisdiction: "jurisdicción de control",
   dpa_registry_id: "DPA asociado",
 };
 
@@ -540,6 +546,7 @@ export function jurisdictionOptions(opts: { none?: boolean; extra?: string | nul
 export interface SheetForm {
   provider_legal_entity: string;
   entity_jurisdiction: string;
+  control_jurisdiction: string;
   inference_jurisdiction: string;
   logs_jurisdiction: string;
   zero_data_retention: Tri;
@@ -554,6 +561,7 @@ export function sheetToForm(s: SheetView): SheetForm {
   return {
     provider_legal_entity: s.provider_legal_entity ?? "",
     entity_jurisdiction: s.entity_jurisdiction ?? "",
+    control_jurisdiction: s.control_jurisdiction ?? "",
     inference_jurisdiction: s.inference_jurisdiction || "unknown",
     logs_jurisdiction: s.logs_jurisdiction || "unknown",
     zero_data_retention: triFrom(s.zero_data_retention),
@@ -578,6 +586,7 @@ export function buildSheetPayload(form: SheetForm, e: Pick<EntryView, "is_aggreg
     payload: {
       provider_legal_entity: form.provider_legal_entity.trim() || null,
       entity_jurisdiction: form.entity_jurisdiction || null,
+      control_jurisdiction: form.control_jurisdiction || null,
       inference_jurisdiction: form.inference_jurisdiction || "unknown",
       logs_jurisdiction: form.logs_jurisdiction || "unknown",
       zero_data_retention: triTo(form.zero_data_retention),
