@@ -238,3 +238,35 @@ resumidas en el PR. T082 sí queda cerrada.
 
 `docker compose -p elea057gate … down` (contenedores, red y volumen del proyecto propio), imagen `elea057gate-backend` y la creada por `docker compose` sin `-p`
 desde los checks (`057-gate-final-backend`, redes `057-gate-final_*`), todas creadas por esta corrida.
+
+## 8. Gate del cierre sobre la rama final (T015, T118) — corrida con Docker, 2026-10-07
+
+Rama `cluna-8/057-cierre` sobre `f58313e` (incluye R37 y R38). Docker con OK del owner, **proyecto de compose propio** `-p elea057gate` (`STACK_PREFIX=elea057gate`,
+`COMPOSE_PROJECT_NAME=elea057gate` también para el `docker compose` interno de los checks), solo `db` y `redis`, **sin puerto publicado al host** (override fuera del repo:
+`db: ports: !reset []`; `docker compose config` sin `published` para la base). El stack `elea057` y `sentinel-frontend` siguieron arriba sin tocarse. `free -h` antes de cada build/suite:
+disponible 2,1–2,8 GiB (≥ 1,5 GiB). Sin `.env` (no se leyó). Imágenes de `make check` con tags propios (`elea057gate-*-prod:check`) para no pisar los `sentinel-*:prod` que ya había.
+
+| Paso | Comando | Resultado |
+|---|---|---|
+| Suite del backend en contenedor, Postgres real | `docker compose -p elea057gate -f docker-compose.yml -f <override> run --rm --no-deps backend pytest tests/ -q` | **3562 passed, 25 skipped**, exit 0, 325,94 s (el gate del 2026-10-06 dio 3314 passed: la diferencia son los tests de R35–R38) |
+| Gate de artefactos, 1ª corrida | `make -C deploy build` + `make -C deploy check` (tags propios) | **exit 2** en `check-docs`: solo falló `test_docs_versioning.sh` («página sin traducción EN no degrada al contenido ES (¿404?)») |
+| Ese check solo, mismo `DOCS_IMG` | `DOCS_IMG=… deploy/release/checks/test_docs_versioning.sh` | **✅ pasa**, sin cambiar nada |
+| Gate de artefactos, 2ª corrida | `make -C deploy check` | **exit 0**: imágenes, white-label, secretos, tofu, **check-docs OK** (12 pasos, 14 rutas con `--network none`), trust-kit, Redis, admisión, límites locales, `category_file`, `EXTRA_ENV_FILE`, extensiones (T020), `test_standalone_heads.sh` (T088), variantes `-ext` (T091), región por defecto (T095: 4 mutaciones detectadas) |
+| Deriva de references | `make -C deploy docs-refs` | `git status` sin cambios en `docs/`: `openapi.json` y `configuration.md` (51 variables) idénticos, **no hay deriva** |
+| Hub | `cd client && npm ci && npm test` | 43 passed, 0 fallos |
+| Panel | `cd frontend && npm ci && npm test` | 9 archivos, **36 passed** |
+
+**El fallo de la primera corrida no se pudo reproducir.** Es el único paso rojo y pasó solo y en la corrida completa siguiente, con el mismo código y la misma imagen. No se tocó el check.
+*Hipótesis sin comprobar*: `test_docs_versioning.sh:44-45` hace `w … | grep -qi …` con `set -euo pipefail`; `grep -q` cierra la tubería al primer acierto y `wget` puede salir con
+error por la tubería cerrada, lo que `pipefail` cuenta como fallo aunque el contenido esté. Si se repite, ahí se mira primero; no se afirma como causa.
+(Una invocación previa de `make check` sin construir las imágenes con mis tags terminó en `check-images` por mi error de invocación, no por el código.)
+
+**No se corrió en este tramo** (el código no cambió desde `4bca8b0`, donde se registró): `pytest sentinel/tests` (2446 passed / 13 skipped, §6d) y Vitest de `sentinel/frontend` (264 passed, §7).
+**T065 y T086 siguen abiertas**: ver `tasks.md` (falta el `pip install --require-hashes`, la auditoría de SC-005/SC-006, los tests del instalador de T100/T101/T103 y T083/T102 con Azure).
+
+### Limpieza
+
+`docker compose -p elea057gate down -v` (contenedores, redes y volumen `elea057gate_pgdata`, todos del proyecto propio) y las imágenes `elea057gate-backend:latest`,
+`elea057gate-{backend,frontend,docs}-prod:check`, creadas por esta corrida. Sin `prune`. `test_docs_whitelabel.sh` fija sus tags (`sentinel-docs:wl-base`, `sentinel-docs:wl-aegis`): el check
+los (re)construye en cada corrida; ya existían de corridas anteriores y no se retiraron (no son de este proyecto de compose). Una invocación suelta de `make -C deploy check-docs` sin
+el proyecto propio creó la imagen `057-cierre-backend` y tres redes `057-cierre_*` vacías; se borraron al momento (solo esas).
