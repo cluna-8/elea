@@ -1,7 +1,10 @@
 """`masking_report`: el resumen del paso de PII que el guardrail SIEMPRE deja en la
 metadata interna del pedido (mismo home que `sentinel_compliance`).
 
-Contrato: ``{"completed": bool, "degraded": bool, "detected": int, "masked": int}``
+Contrato: ``{"completed": bool, "degraded": bool, "detected": int, "masked": int, "scope": "user"|"full",
+"unanalyzable": int, "unanalyzable_kinds": [str]}`` — los tres últimos los suma S14 (057 T097): sin la señal
+de forzado, ``scope = "user"`` y no hay no analizables (el alcance completo lo fija
+``test_masking_alcance_completo.py``).
 
 - ``completed``: el pre-call terminó y el pedido sigue hacia el proveedor con el paso de
   PII hecho (detección, y mask si la Connection lo tiene activo). False si se bloqueó o
@@ -75,20 +78,20 @@ async def _hook(data, **sentinel):
 @pytest.mark.asyncio
 async def test_mask_completo_cuenta_detectadas_y_enmascaradas():
     reporte = await _hook(_body(DOS_MAILS))
-    assert reporte == {"completed": True, "degraded": False, "detected": 3, "masked": 3}
+    assert reporte == {"completed": True, "degraded": False, "detected": 3, "masked": 3, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio
 async def test_sin_pii():
     reporte = await _hook(_body("resumime el acta"))
-    assert reporte == {"completed": True, "degraded": False, "detected": 0, "masked": 0}
+    assert reporte == {"completed": True, "degraded": False, "detected": 0, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio
 async def test_redact_desactivado_detecta_pero_no_enmascara():
     data = _body(DOS_MAILS)
     reporte = await _hook(data, redact_enabled=False)
-    assert reporte == {"completed": True, "degraded": False, "detected": 3, "masked": 0}
+    assert reporte == {"completed": True, "degraded": False, "detected": 3, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
     # Sin cambio de comportamiento: el body sale intacto y sin mapa reversible.
     assert data["messages"][0]["content"] == DOS_MAILS
     assert "pii_tokens" not in data["metadata"]
@@ -105,7 +108,7 @@ async def test_redact_desactivado_con_nlp_caido_no_bloquea(monkeypatch):
         _Identidad(redact_enabled=False), None, data, "acompletion")
     assert salida is data, "redact desactivado nunca bloqueó por NLP caído"
     assert data["metadata"]["masking_report"] == {
-        "completed": False, "degraded": False, "detected": 0, "masked": 0}
+        "completed": False, "degraded": False, "detected": 0, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio
@@ -115,7 +118,7 @@ async def test_degradado_a_regex(monkeypatch):
     monkeypatch.setattr(sentinel_guardrail, "_PRESIDIO_URL", "http://nlp")
     monkeypatch.setattr(policy, "presidio_analyze", _caido)
     reporte = await _hook(_body(DOS_MAILS), nlp_fail_mode="degrade")
-    assert reporte == {"completed": True, "degraded": True, "detected": 3, "masked": 3}
+    assert reporte == {"completed": True, "degraded": True, "detected": 3, "masked": 3, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio
@@ -127,7 +130,7 @@ async def test_bloqueo_por_tipo_deja_reporte_no_completado():
         None, data, "acompletion")
     assert isinstance(salida, str)
     assert data["metadata"]["masking_report"] == {
-        "completed": False, "degraded": False, "detected": 3, "masked": 0}
+        "completed": False, "degraded": False, "detected": 3, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio
@@ -143,7 +146,7 @@ async def test_valor_del_cliente_se_sobrescribe():
     data = _body("hola", metadata={"masking_report": {"completed": True, "detected": 99,
                                                       "masked": 99, "degraded": False}})
     reporte = await _hook(data)
-    assert reporte == {"completed": True, "degraded": False, "detected": 0, "masked": 0}
+    assert reporte == {"completed": True, "degraded": False, "detected": 0, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio

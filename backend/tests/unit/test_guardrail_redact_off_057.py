@@ -93,7 +93,7 @@ async def test_con_redact_apagado_el_analizador_corre_una_vez_y_solo_cuenta(rast
     assert len(rastros["analizados"]) == 1, "una sola pasada de detección, solo para contar"
     assert TEXTO in rastros["analizados"][0]
     assert data["metadata"]["masking_report"] == {
-        "completed": True, "degraded": False, "detected": 2, "masked": 0}
+        "completed": True, "degraded": False, "detected": 2, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
 
 
 @pytest.mark.asyncio
@@ -124,6 +124,6 @@ async def test_con_redact_apagado_y_analizador_caido_no_bloquea(rastros, monkeyp
     salida = await _correr(data, redact_enabled=False, **extra)
     assert salida is data, "con el enmascarado apagado un analizador caído jamás bloquea"
     assert data["metadata"]["masking_report"] == {
-        "completed": False, "degraded": False, "detected": 0, "masked": 0}
+        "completed": False, "degraded": False, "detected": 0, "masked": 0, "scope": "user", "unanalyzable": 0, "unanalyzable_kinds": []}
     assert data["messages"] == original["messages"]
     assert rastros["bloqueos"] == 0 and rastros["degradaciones"] == 0
