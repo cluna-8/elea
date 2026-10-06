@@ -1,0 +1,34 @@
+{
+  "_doc": "Patrón: uno o más spikes en paralelo que escriben conclusiones en un documento existente; Atlas integra con compuerta. Cada spike escribe una sección distinta para minimizar conflictos. Reemplazar todo {{...}}.",
+  "objetivo": "Spikes de {{tema}} sobre {{documento}}",
+  "rama_base": "origin/main",
+  "tareas": [
+    {
+      "clave": "spike-a",
+      "titulo": "SPIKE {{A}}: {{pregunta}}",
+      "rol": "spike",
+      "depende_de": [],
+      "worktree": "nuevo",
+      "rama": "spike-{{a}}",
+      "alcance": "{{documento de contexto y secciones a leer}}; código a investigar: {{rutas}}",
+      "cambio": "Responder con evidencia: (1) {{pregunta}} (2) {{pregunta}} ... (n) veredicto viable/viable con costura/no viable, tamaño S/M/L y riesgos.",
+      "restricciones": "{{decisiones del owner que acotan el spike}}",
+      "propiedad": "Solo la sección nueva '{{Parte N — Spike A}}' de {{documento}} y evidencia bajo {{carpeta de evidencia}}/spike-{{a}}/.",
+      "rutas": ["{{documento}}", "{{carpeta de evidencia}}/spike-{{a}}/*"],
+      "aceptacion": "Sección nueva con tabla, veredicto y evidencia reproducible (comando + salida)."
+    },
+    {
+      "clave": "integrar",
+      "titulo": "Integrar spikes en {{rama destino}}",
+      "rol": "atlas",
+      "depende_de": ["spike-a"],
+      "compuerta": {
+        "pregunta": "¿Se integran las conclusiones de los spikes en {{rama destino}}?",
+        "opciones": ["aprobado", "requiere_cambios", "descartar"]
+      },
+      "alcance": "Ramas spike-*",
+      "cambio": "Atlas verifica cada rama, las mergea en {{rama destino}} resolviendo el orden de secciones y pushea.",
+      "aceptacion": "Rama destino con todas las secciones y CI verde."
+    }
+  ]
+}

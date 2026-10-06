@@ -81,6 +81,29 @@ def _deployments_locales(catalogo: dict) -> list[dict]:
     ]
 
 
+MOTIVO_SIN_LOCAL = (
+    "el catálogo de dev (`litellm/config.yaml`) es solo Azure desde c9a98a8/484b5a9 y no "
+    "declara ningún deployment `ollama_chat/`: el runtime local vive en las plantillas "
+    "`deploy/clients/*/config.yaml.tmpl`, que pytest no ve (el contenedor monta solo "
+    "`backend/` y `litellm/`). Esos límites los verifica "
+    "`deploy/release/checks/test_engine_local_limits.sh` (`make check-engine-local-limits`), "
+    "que recorre el catálogo de dev y todas las plantillas de cliente")
+
+
+def _locales_o_skip() -> list[dict]:
+    """Deployments locales del catálogo de dev; si no hay ninguno, el test se SALTA.
+
+    Saltar y no pasar: iterar una lista vacía haría que los contratos de abajo aparentaran
+    cobertura sin mirar nada. El skip deja a la vista que esta superficie hoy la cubre el
+    gate de despliegue, no pytest. Si alguien vuelve a declarar un local en el catálogo de
+    dev, los contratos reviven solos.
+    """
+    locales = _deployments_locales(_catalogo_del_motor())
+    if not locales:
+        pytest.skip(MOTIVO_SIN_LOCAL)
+    return locales
+
+
 def _default_del_codigo(constante: str):
     """Valor de `constante` con las envs de admisión AUSENTES, o sea el default que se
     embarca.
@@ -105,7 +128,9 @@ def _default_del_codigo(constante: str):
 def test_el_catalogo_tiene_deployments_del_runtime_local():
     """Guarda anti-verde-por-casualidad: si el catálogo se reestructura o el prefijo cambia,
     los tests de abajo iterarían una lista vacía y pasarían sin mirar nada."""
-    assert _deployments_locales(_catalogo_del_motor()), (
+    catalogo = _catalogo_del_motor()
+    assert catalogo.get("model_list"), "el catálogo del motor no trae `model_list`"
+    assert _locales_o_skip(), (
         "ningún deployment `ollama_chat/` en el catálogo del motor — o cambió la forma del "
         "config, o este contrato dejó de mirar lo que dice mirar")
 
@@ -113,7 +138,7 @@ def test_el_catalogo_tiene_deployments_del_runtime_local():
 def test_el_deployment_local_declara_su_tope_de_paralelismo():
     """El techo del motor existe y es el valor sellado, en el sitio donde el motor lo lee
     (`litellm_params`, no `model_info`) y con el tipo que espera (entero, no `"20"`)."""
-    for deployment in _deployments_locales(_catalogo_del_motor()):
+    for deployment in _locales_o_skip():
         alias = deployment.get("model_name")
         params = deployment["litellm_params"]
         assert "max_parallel_requests" in params, (
@@ -142,7 +167,7 @@ def test_el_deployment_local_no_reintenta():
     el único que puede ser distinto del que necesita el cloud, y el global lo escribe/lee
     también el alta de modelos por panel.
     """
-    for deployment in _deployments_locales(_catalogo_del_motor()):
+    for deployment in _locales_o_skip():
         alias = deployment.get("model_name")
         params = deployment["litellm_params"]
         assert "num_retries" in params, (
