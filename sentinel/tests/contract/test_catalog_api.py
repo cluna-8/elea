@@ -222,7 +222,7 @@ def test_ficha_completa_con_dpa_vigente_es_admisible(api):
                 credential={"new": {"name": "ds", "value": "k"}})
     dpa = str(uuid.uuid4())
     api.dpas[dpa] = {"expiration_date": date(2027, 1, 1), "processing_region": "EU", "is_active": True}
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin",
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer",
                  json=_full_sheet(dpa_registry_id=dpa))
     assert r.status_code == 200, r.text
     assert r.json()["semaforo"] == {"estado": "eu_ok", "motivos": []}
@@ -234,7 +234,7 @@ def test_dpa_que_vence_cambia_el_semaforo_sin_editar_nada(api, monkeypatch):
                 credential={"new": {"name": "ds", "value": "k"}})
     dpa = str(uuid.uuid4())
     api.dpas[dpa] = {"expiration_date": date(2026, 10, 1), "processing_region": "EU", "is_active": True}
-    api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet(dpa_registry_id=dpa))
+    api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet(dpa_registry_id=dpa))
     assert api.call("GET", f"/entries/{d['id']}", "tenant_admin").json()["semaforo"]["estado"] == "eu_ok"
     monkeypatch.setattr(admin, "TODAY", lambda: date(2026, 10, 2))
     s = api.call("GET", f"/entries/{d['id']}", "tenant_admin").json()["semaforo"]
@@ -245,17 +245,17 @@ def test_openrouter_agregador_no_es_admisible_sin_region_ue_contratada(api):
     d = _create(api)
     dpa = str(uuid.uuid4())
     api.dpas[dpa] = {"expiration_date": date(2027, 1, 1), "processing_region": "EU", "is_active": True}
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin",
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer",
                  json=_full_sheet(dpa_registry_id=dpa, eu_region_contracted=False))
     assert r.json()["semaforo"] == {"estado": "standard", "motivos": ["agregador"]}
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin",
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer",
                  json=_full_sheet(dpa_registry_id=dpa, eu_region_contracted=True))
     assert r.json()["semaforo"]["estado"] == "eu_ok"
 
 
 def test_el_semaforo_no_se_puede_escribir(api):
     d = _create(api)
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin",
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer",
                  json=_full_sheet(semaforo={"estado": "eu_ok"}))
     assert r.status_code == 422
     r = api.call("PATCH", f"/entries/{d['id']}", "tenant_admin", json={"semaforo": "eu_ok"})
@@ -271,27 +271,27 @@ def test_cumplimiento_tambien_edita_la_ficha_pero_lectura_no(api):
 
 def test_la_ficha_registra_quien_y_cuando_y_versiona(api):
     d = _create(api)
-    r1 = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet()).json()
-    r2 = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet(trains_on_data=True)).json()
+    r1 = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet()).json()
+    r2 = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet(trains_on_data=True)).json()
     assert r1["sheet"]["classified_by"] and r1["sheet"]["classified_at"]
     assert r1["sheet"]["classification_version"] != r2["sheet"]["classification_version"]
 
 
 def test_dpa_inexistente_es_422(api):
     d = _create(api)
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin",
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer",
                  json=_full_sheet(dpa_registry_id=str(uuid.uuid4())))
     assert r.status_code == 422
 
 
 def test_cambiar_proveedor_o_modelo_deja_la_ficha_obsoleta(api):
     d = _create(api)
-    api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet())
+    api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet())
     r = api.call("PATCH", f"/entries/{d['id']}", "tenant_admin", json={"real_model": "otro/modelo"})
     assert r.status_code == 200
     assert r.json()["sheet"]["classification_version"] == "stale"
     assert r.json()["semaforo"] == {"estado": "unclassified", "motivos": ["ficha_desactualizada"]}
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet())
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet())
     assert r.json()["sheet"]["classification_version"] != "stale"
 
 
@@ -414,13 +414,13 @@ def test_reemplazo_de_otra_organizacion_no_vale(api):
 
 def test_cambios_quedan_en_el_registro_sin_secretos(api):
     d = _create(api)
-    api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet())
+    api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet())
     api.call("PATCH", f"/entries/{d['id']}", "tenant_admin", json={"status": "inactive"})
     with api.Session() as s:
         audits = [(a.entity, a.action, a.actor_role) for a in s.query(rm.RedirectConfigAudit)]
         todo = json.dumps([[a.before, a.after] for a in s.query(rm.RedirectConfigAudit)])
     assert ("catalog_entry", "create", "tenant_admin") in audits
-    assert ("catalog_sheet", "update", "tenant_admin") in audits
+    assert ("catalog_sheet", "update", "compliance_officer") in audits
     assert ("catalog_entry", "update", "tenant_admin") in audits
     assert SECRET not in todo
 
@@ -432,7 +432,7 @@ def test_la_vista_trae_vigencia_y_region_del_dpa_pero_no_el_documento(api):
     dpa = str(uuid.uuid4())
     api.dpas[dpa] = {"expiration_date": date(2027, 1, 1), "processing_region": "EU", "is_active": True,
                      "document_reference": "secreto-interno"}
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet(dpa_registry_id=dpa)).json()
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet(dpa_registry_id=dpa)).json()
     assert r["dpa"] == {"expiration_date": "2027-01-01", "processing_region": "EU", "is_active": True}
     assert "secreto-interno" not in json.dumps(r)
 
@@ -517,7 +517,7 @@ def test_la_ficha_rechaza_un_dpa_de_otra_organizacion(api):
     ajeno = str(uuid.uuid4())
     api.dpas[ajeno] = {"tenant_id": T2, "expiration_date": date(2027, 1, 1),
                        "processing_region": "EU", "is_active": True}
-    r = api.call("PUT", f"/entries/{d['id']}/sheet", "tenant_admin", json=_full_sheet(dpa_registry_id=ajeno))
+    r = api.call("PUT", f"/entries/{d['id']}/sheet", "compliance_officer", json=_full_sheet(dpa_registry_id=ajeno))
     assert r.status_code == 422
 
 

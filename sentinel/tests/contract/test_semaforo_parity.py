@@ -87,7 +87,7 @@ def _mk(api, name, tenant=T1, role="tenant_admin", **kw):
     return r.json()
 
 
-def _sheet(api, entry, role="tenant_admin", tenant=T1, **kw):
+def _sheet(api, entry, role="compliance_officer", tenant=T1, **kw):
     s = {"inference_jurisdiction": "EU", "logs_jurisdiction": "EU", "trains_on_data": False,
          "transfer_mechanism": "n/a"}
     s.update(kw)

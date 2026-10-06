@@ -215,6 +215,10 @@ export function permissionsFor(role: string, operator = false): Permissions {
   };
 }
 
+/** Campos de la ficha que alimentan la residencia y la relajación del enmascarado: solo cumplimiento y super-admin
+ *  (057 FR-023, QA A7). Decide qué se puede editar; el backend aplica el permiso igual. */
+export const canWriteResidencyFields = (role: string) => role === "compliance_officer" || role === "super_admin";
+
 /** Habilitar una entrada bloqueada por defecto: administración o cumplimiento, con motivo (el backend lo exige). */
 export const canEnableEntry = (p: Permissions, e: Pick<EntryView, "status" | "blocked_by_default" | "enabled_at">) =>
   p.canSheetRole && e.status === "active" && e.blocked_by_default && !e.enabled_at;

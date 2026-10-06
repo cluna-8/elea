@@ -2,11 +2,12 @@
 // derivado: se muestra el que calcula el backend y no hay ningún control para editarlo.
 import React, { useEffect, useState } from "react";
 import { Button, Field, inputBaseClass, cn } from "../../../frontend/src/components/ui";
-import { FieldErrors } from "../redirect/helpers";
+import { authStorage } from "../../../frontend/src/services/auth";
+import { FieldErrors, sessionRole } from "../redirect/helpers";
 import { Notice, SelectField } from "../redirect/ui";
 import { catalogApi } from "./api";
 import {
-  buildSheetPayload, dpaLabel, DpaRow, EntryView, isStale, jurisdictionOptions, SheetForm, sheetToForm, Tri, TRI_LABELS,
+  buildSheetPayload, canWriteResidencyFields, dpaLabel, DpaRow, EntryView, isStale, jurisdictionOptions, SheetForm, sheetToForm, Tri, TRI_LABELS,
   TRANSFER_LABELS, TRANSFER_MECHANISMS, suggestDpa,
 } from "./helpers";
 import { Modal, SemaforoBadge } from "./ui";
@@ -28,6 +29,8 @@ export const SheetDialog: React.FC<{
   const [busy, setBusy] = useState(false);
   const [dpas, setDpas] = useState<DpaRow[]>([]);
   const ro = !canEdit;
+  // residencia y retención: solo cumplimiento y super-admin (057 FR-023); el admin de empresa edita el resto
+  const roRes = ro || !canWriteResidencyFields(sessionRole(authStorage.getToken(), authStorage.getUser()?.role));
   useEffect(() => {
     let vivo = true;
     catalogApi.dpas().then(r => { if (vivo) setDpas(r); }).catch(() => { /* sin lista: queda «Sin DPA» y el actual */ });
@@ -72,6 +75,11 @@ export const SheetDialog: React.FC<{
           La ficha está desactualizada: cambió el proveedor o el modelo real desde que se clasificó. Revisá los datos y guardala de nuevo para recalcular el semáforo.
         </Notice>
       )}
+      {!ro && roRes && (
+        <Notice tone="info">
+          La entidad responsable, las jurisdicciones de inferencia, de la entidad y de control y la retención cero son solo cumplimiento: las ves, pero no las editás.
+        </Notice>
+      )}
       {ro && <Notice tone="info">Estás en modo consulta: la ficha solo puede editarla administración o cumplimiento.</Notice>}
       <div className="mb-4 rounded-md border border-border bg-surface-2 px-4 py-3" aria-live="polite">
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-secondary">
@@ -86,13 +94,13 @@ export const SheetDialog: React.FC<{
         )}
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Entidad responsable" value={form.provider_legal_entity} disabled={ro}
+        <Field label="Entidad responsable" value={form.provider_legal_entity} disabled={roRes}
           onChange={e => set({ provider_legal_entity: e.target.value })} error={errors.provider_legal_entity}
           hint="Quien opera la inferencia de este modelo." />
-        <SelectField label="Jurisdicción de la entidad" value={form.entity_jurisdiction} disabled={ro}
+        <SelectField label="Jurisdicción de la entidad" value={form.entity_jurisdiction} disabled={roRes}
           onChange={v => set({ entity_jurisdiction: v })} placeholder="Sin declarar"
           options={jurisdictionOptions({ extra: form.entity_jurisdiction || null }).filter(o => o.value !== "unknown")} />
-        <SelectField label="Jurisdicción de control" value={form.control_jurisdiction} disabled={ro}
+        <SelectField label="Jurisdicción de control" value={form.control_jurisdiction} disabled={roRes}
           onChange={v => set({ control_jurisdiction: v })} placeholder="Sin declarar"
           options={jurisdictionOptions({ extra: form.control_jurisdiction || null }).filter(o => o.value !== "unknown")}
           hint="Jurisdicción de quien posee el 50 % o más de la entidad o la controla." />
@@ -103,7 +111,7 @@ export const SheetDialog: React.FC<{
             </Notice>
           </div>
         )}
-        <SelectField label="Jurisdicción de inferencia" value={form.inference_jurisdiction} disabled={ro}
+        <SelectField label="Jurisdicción de inferencia" value={form.inference_jurisdiction} disabled={roRes}
           onChange={v => set({ inference_jurisdiction: v })}
           options={jurisdictionOptions({ extra: form.inference_jurisdiction })}
           hint="Dónde se procesan los datos al responder." />
@@ -111,7 +119,7 @@ export const SheetDialog: React.FC<{
           onChange={v => set({ logs_jurisdiction: v })}
           options={jurisdictionOptions({ none: true, extra: form.logs_jurisdiction })}
           hint="Dónde se guardan los registros del proveedor." />
-        <SelectField label="Retención cero" value={form.zero_data_retention} disabled={ro}
+        <SelectField label="Retención cero" value={form.zero_data_retention} disabled={roRes}
           onChange={v => set({ zero_data_retention: v as Tri })} options={TRI_OPTIONS} />
         <SelectField label="Entrena con datos" value={form.trains_on_data} disabled={ro}
           onChange={v => set({ trains_on_data: v as Tri })} options={TRI_OPTIONS} />

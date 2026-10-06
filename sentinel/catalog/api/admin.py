@@ -42,6 +42,12 @@ router = APIRouter(prefix="/catalog", tags=["catalog"])
 ADMIN = ("admin",)                                  # tenant_admin y super_admin (alias de la base)
 READERS = ("admin", "compliance_officer", "lectura")
 SHEET_WRITERS = ("admin", "compliance_officer")
+# Campos de la ficha que alimentan la residencia y la relajación del enmascarado forzado (057 FR-023, R30; QA A7):
+# solo cumplimiento y super-admin, por rol real (la autoridad de instalación derivada de REDIRECT_OPERATOR_TENANT no
+# alcanza). El admin de empresa edita el resto de la ficha.
+RESIDENCY_FIELDS = ("provider_legal_entity", "entity_jurisdiction", "control_jurisdiction", "inference_jurisdiction",
+                    "zero_data_retention")
+RESIDENCY_WRITERS = ("compliance_officer", "super_admin")
 
 # Inyectables para tests (sin Postgres): sesiones, cifrado, caché del plano de datos, DPA y reloj.
 SESSION_FACTORY = None
@@ -793,6 +799,10 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
         if sheet is None:
             sheet = cm.ComplianceSheet(entry_id=e.id)
             db.add(sheet)
+        changed = _residency_changes(sheet, body)
+        if changed and getattr(user, "role", None) not in RESIDENCY_WRITERS:
+            _err(403, "los datos de residencia y retención de la ficha son de cumplimiento: solo cumplimiento o el "
+                      f"super-admin pueden cambiar {', '.join(changed)}")
         before = {"sheet": cs.sheet_view(sheet), "semaforo": cs.semaforo_of(e, sheet, _dpa(db, e, sheet), _today())}
         juris_before = tuple(getattr(sheet, f, None) for f in hb.JURISDICTION_FIELDS)
         try:
@@ -824,6 +834,26 @@ def put_sheet(entry_id: str, body: SheetIn, user=Depends(require_role(*SHEET_WRI
         tenant = e.tenant_id
     _bump_for(tenant)
     return after
+
+
+def _residency_value(field: str, value):
+    """Valor de un campo de residencia en su forma canónica (para decidir si el cuerpo lo **cambia**)."""
+    if field == "zero_data_retention":
+        return value
+    text = (str(value).strip() if value is not None else "")
+    if field == "provider_legal_entity":
+        return text or None
+    if field == "inference_jurisdiction":
+        text = text or "unknown"
+    if not text:
+        return None
+    return text.upper() if len(text) <= 3 else text.lower()
+
+
+def _residency_changes(sheet: cm.ComplianceSheet, body: "SheetIn") -> list:
+    """Campos de residencia/retención que el cuerpo cambia respecto de la ficha vigente."""
+    return [f for f in RESIDENCY_FIELDS
+            if _residency_value(f, getattr(body, f)) != _residency_value(f, getattr(sheet, f, None))]
 
 
 def _next_version(prev: Optional[str]) -> str:

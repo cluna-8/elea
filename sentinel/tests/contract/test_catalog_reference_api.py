@@ -307,7 +307,7 @@ def test_patch_de_los_campos_nuevos(api):
 
 def _sheet(api, entry_id, **kw):
     s = {"inference_jurisdiction": "unknown"} | kw
-    r = api.call("PUT", f"/entries/{entry_id}/sheet", "tenant_admin", json=s)
+    r = api.call("PUT", f"/entries/{entry_id}/sheet", "compliance_officer", json=s)
     assert r.status_code == 200, r.text
 
 
