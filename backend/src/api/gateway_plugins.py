@@ -32,6 +32,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+# El nombre se lee con el literal en `_load_from_env` (el gate de deriva doc↔código solo ve
+# literales); esta constante es la que usan los tests.
 PLUGINS_ENV = "GATEWAY_PLUGINS"
 # Estado con el que se audita un corte decidido por un plugin. Es un literal YA inventariado
 # en el clasificador de retención (seguridad, bloqueo por política): inventar uno nuevo acá
@@ -76,7 +78,7 @@ def _load_from_env() -> None:
     mejor un 500 ruidoso que un pedido que pasa sin la política que se creía activa."""
     if _env_loaded["hecho"]:
         return
-    for nombre in filter(None, (m.strip() for m in os.getenv(PLUGINS_ENV, "").split(","))):
+    for nombre in filter(None, (m.strip() for m in os.getenv("GATEWAY_PLUGINS", "").split(","))):
         register_gateway_plugin(importlib.import_module(nombre).gateway_plugin)
     _env_loaded["hecho"] = True
 
