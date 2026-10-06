@@ -11,6 +11,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 const { execSync } = require('child_process');
+const sso = require('./sso'); // ingreso corporativo (spec 056): piezas puras del flujo
 
 const app = express();
 const PORT = process.env.PORT || 8095;
@@ -75,14 +76,44 @@ app.use(express.json());
 const sessions = new Map(); // sid -> { token, user: {id, username, role, email} }
 const SID_COOKIE = 'elea_rag_sid';
 
+// Ingreso corporativo (spec 056, contracts/hub-sso.md): flujos pendientes por `sid` y límite de
+// ritmo de `/sso/login`, en memoria como las sesiones. El reloj es inyectable para los tests.
+const SSO_ATADURA_COOKIE = '__Host-sso_flow';
+const SSO_STATE_COOKIE = 'sentinel_sso_state'; // cookie de estado que emite el backend
+const SSO_BACKEND_TIMEOUT_MS = 15000;
+const relojSso = { ahora: () => Date.now() };
+const pendingSso = sso.crearAlmacenPendientes({ ahora: () => relojSso.ahora() });
+const ssoLoginLimite = sso.crearLimiteRitmo({ ahora: () => relojSso.ahora() });
+app.locals.sso = { pendientes: pendingSso, limite: ssoLoginLimite, reloj: relojSso };
+
 function parseCookies(header) {
   const out = {};
   (header || '').split(';').forEach((part) => {
     const idx = part.indexOf('=');
     if (idx === -1) return;
-    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    // Una cookie con `%` mal formado se ignora como si no estuviera (spec 056, T049: antes
+    // `decodeURIComponent` lanzaba y cualquier ruta respondía 500); las demás se leen igual.
+    try {
+      out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+    } catch (err) { /* cookie mal formada: se ignora */ }
   });
   return out;
+}
+
+// Atributos de la cookie de sesión: `Secure` solo cuando el ingreso corporativo volvió por
+// HTTPS (spec 056, research D12); el camino con contraseña sigue sin `Secure`.
+function sidCookie(sid, { secure = false } = {}) {
+  return `${SID_COOKIE}=${sid}; HttpOnly; Path=/; SameSite=Lax${secure ? '; Secure' : ''}`;
+}
+
+// `Set-Cookie` es una LISTA: varias cookies en una respuesta (sid del middleware, atadura del
+// ingreso corporativo, sid rotado) no se pisan entre sí (spec 056, N8 del QA v2).
+function listaSetCookie(res) {
+  const actual = res.getHeader('Set-Cookie');
+  return actual === undefined ? [] : [].concat(actual);
+}
+function agregarSetCookie(res, cookie) {
+  res.setHeader('Set-Cookie', [...listaSetCookie(res), cookie]);
 }
 
 app.use((req, res, next) => {
@@ -90,7 +121,7 @@ app.use((req, res, next) => {
   let sid = cookies[SID_COOKIE];
   if (!sid) {
     sid = crypto.randomBytes(24).toString('hex');
-    res.setHeader('Set-Cookie', `${SID_COOKIE}=${sid}; HttpOnly; Path=/; SameSite=Lax`);
+    agregarSetCookie(res, sidCookie(sid));
   }
   req.sid = sid;
   next();
@@ -102,6 +133,18 @@ function getSession(req) {
 function setSession(req, value) {
   if (value) sessions.set(req.sid, value);
   else sessions.delete(req.sid);
+}
+
+// Rotación del `sid` al emitir una sesión (spec 056, research D1 requisito 4): un `sid` fijado de
+// antemano no hereda la sesión. Guarda la sesión bajo un `sid` nuevo, borra la del viejo y
+// reemplaza SOLO la entrada `elea_rag_sid` de la lista de `Set-Cookie` (las demás se conservan).
+function emitirSesionRotada(req, res, sesion, { secure = false } = {}) {
+  const nuevo = crypto.randomBytes(24).toString('hex');
+  sessions.delete(req.sid);
+  sessions.set(nuevo, sesion);
+  const resto = listaSetCookie(res).filter((c) => !c.startsWith(`${SID_COOKIE}=`));
+  res.setHeader('Set-Cookie', [...resto, sidCookie(nuevo, { secure })]);
+  req.sid = nuevo;
 }
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -265,7 +308,9 @@ app.post('/api/auth/login', async (req, res) => {
     if (!ok) {
       return res.status(status).json({ error: data.detail || 'Credenciales incorrectas.' });
     }
-    setSession(req, { token: data.access_token, user: data.user });
+    // Spec 056 (T049, N7 del QA v2): el `sid` se renueva al emitir la sesión, así un `sid`
+    // plantado antes del ingreso no hereda la sesión. Lo visible no cambia: sin `Secure`.
+    emitirSesionRotada(req, res, { token: data.access_token, user: data.user });
     res.json({ success: true, user: data.user });
   } catch (err) {
     res.status(502).json({ error: 'No se pudo contactar al backend de Guardian. Intentá de nuevo en unos minutos.' });
@@ -284,6 +329,10 @@ app.post('/api/auth/logout', (req, res) => {
 app.post('/api/auth/change-password', async (req, res) => {
   const session = getSession(req);
   if (!session) return res.status(401).json({ error: 'Sin sesión activa.' });
+  // Spec 056 (FR-008): quien entró con su cuenta corporativa no gestiona la contraseña acá.
+  if (session.auth_method === 'sso') {
+    return res.status(409).json({ error: 'Ingresaste con tu cuenta corporativa: la contraseña se gestiona en Microsoft.' });
+  }
   const { current_password, new_password } = req.body || {};
   if (!current_password || !new_password) {
     return res.status(400).json({ error: 'Contraseña actual y nueva son obligatorias.' });
@@ -315,6 +364,149 @@ app.get('/api/branding', (req, res) => {
   res.json(HUB_BRAND);
 });
 
+// =========================================================================
+// INGRESO CORPORATIVO (spec 056, contracts/hub-sso.md) — el Hub es el intermediario del lado
+// del servidor: habla SOLO con la API de Guardian (FR-003), nunca decodifica tokens ni el JWT
+// de estado, y el `access_token` jamás sale al navegador (FR-004). El flujo pendiente queda
+// atado al `sid` y, con retorno HTTPS, a la cookie `__Host-sso_flow` (FR-016).
+// =========================================================================
+function ssoSinCache(res) {
+  res.set('Cache-Control', 'no-store');
+  res.set('Referrer-Policy', 'no-referrer');
+}
+
+// Todo fallo del camino corporativo termina en la pantalla de ingreso con un código de lista
+// cerrada (§4); el `detail` del backend nunca se copia a la URL.
+function ssoIrAError(res, codigo) {
+  res.status(302).set('Location', `/?sso_error=${codigo}`).end();
+}
+
+function valorDeCookie(setCookies, nombre) {
+  const entrada = (setCookies || []).find((c) => c.startsWith(`${nombre}=`));
+  if (!entrada) return null;
+  return entrada.slice(nombre.length + 1).split(';')[0].trim() || null;
+}
+
+// Llamada de servidor al callback del backend. Los valores ya vienen decodificados del query y
+// se re-codifican con `URLSearchParams` (B3): un `code` con `&`, `=` o `#` no inyecta parámetros.
+function ssoLlamarCallback({ state, code, error }, stateCookie) {
+  const params = new URLSearchParams();
+  if (state) params.set('state', state);
+  if (code) params.set('code', code);
+  if (error) params.set('error', error);
+  return fetch(`${ELEA_BACKEND_URL}/auth/sso/callback?${params.toString()}`, {
+    headers: stateCookie ? { Cookie: `${SSO_STATE_COOKIE}=${stateCookie}` } : {},
+    redirect: 'manual',
+    signal: AbortSignal.timeout(SSO_BACKEND_TIMEOUT_MS)
+  });
+}
+
+// ¿Se ofrece el botón? Fail-closed: cualquier cosa distinta de `enabled === true` es "no".
+// No expone `provider_type` ni `config`. Timeout corto para no demorar la pantalla de ingreso.
+app.get('/api/auth/sso/available', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const cerrado = { enabled: false, return_origin: null };
+  try {
+    const r = await fetch(`${ELEA_BACKEND_URL}/auth/sso/available`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return res.json(cerrado);
+    const data = await r.json();
+    if (!data || data.enabled !== true) return res.json(cerrado);
+    return res.json({
+      enabled: true,
+      return_origin: typeof data.return_origin === 'string' ? data.return_origin : null
+    });
+  } catch (err) {
+    return res.json(cerrado);
+  }
+});
+
+app.get('/sso/login', async (req, res) => {
+  ssoSinCache(res);
+  if (!ssoLoginLimite.permitir()) return ssoIrAError(res, 'sso_reintentar');
+
+  let r;
+  try {
+    r = await fetch(`${ELEA_BACKEND_URL}/auth/sso/login`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(SSO_BACKEND_TIMEOUT_MS)
+    });
+  } catch (err) {
+    return ssoIrAError(res, sso.codigoError({ red: true }));
+  }
+  if (r.status !== 302) {
+    const data = await r.json().catch(() => null);
+    return ssoIrAError(res, sso.codigoError({ status: r.status, detail: data && data.detail }));
+  }
+  if (r.body) r.body.cancel().catch(() => {});
+
+  const location = r.headers.get('location');
+  const stateCookie = valorDeCookie(r.headers.getSetCookie(), SSO_STATE_COOKIE);
+  let state = null;
+  let redirectUri = null;
+  try {
+    const u = new URL(location);
+    if (u.protocol === 'https:' || u.protocol === 'http:') {
+      state = u.searchParams.get('state');
+      redirectUri = u.searchParams.get('redirect_uri');
+    }
+  } catch (err) { /* Location ausente o relativa: cae abajo */ }
+  if (!stateCookie || !state || !redirectUri) return ssoIrAError(res, 'sso_error');
+
+  // Con retorno HTTPS se emite la cookie de atadura `__Host-` (research D12); con `http://`
+  // (desarrollo en localhost) el flujo queda atado solo al `sid`.
+  const atadura = redirectUri.startsWith('https://') ? crypto.randomBytes(24).toString('hex') : null;
+  if (!pendingSso.guardar(req.sid, { stateCookie, state, atadura })) {
+    return ssoIrAError(res, 'sso_reintentar'); // almacén lleno: no se expulsa a nadie (F5)
+  }
+  if (atadura) {
+    agregarSetCookie(res, `${SSO_ATADURA_COOKIE}=${atadura}; Secure; HttpOnly; Path=/; SameSite=Lax; Max-Age=600`);
+  }
+  res.status(302).set('Location', location).end();
+});
+
+app.get('/sso/callback', async (req, res) => {
+  ssoSinCache(res);
+  // Un solo uso: el pendiente se toma y se borra SIEMPRE, salga bien o mal.
+  const pendiente = pendingSso.tomar(req.sid);
+  const ataduraCookie = parseCookies(req.headers.cookie)[SSO_ATADURA_COOKIE];
+  if (ataduraCookie !== undefined || (pendiente && pendiente.atadura)) {
+    agregarSetCookie(res, `${SSO_ATADURA_COOKIE}=; Secure; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+  }
+
+  const texto = (v) => (typeof v === 'string' ? v : '');
+  const entrada = { state: texto(req.query.state), code: texto(req.query.code), error: texto(req.query.error) };
+
+  const coincide = pendiente
+    && sso.iguales(entrada.state, pendiente.state)
+    && (!pendiente.atadura || sso.iguales(ataduraCookie, pendiente.atadura));
+  if (!coincide) {
+    // Sin pendiente, vencido, `state` o atadura distintos: se llama igual al backend, SIN la
+    // cookie de estado, solo para que registre el rechazo (research D6). Nunca se canjea.
+    await ssoLlamarCallback(entrada, null).then((r) => r.body && r.body.cancel(), () => {}).catch(() => {});
+    return ssoIrAError(res, 'sso_reintentar');
+  }
+
+  let r;
+  try {
+    r = await ssoLlamarCallback(entrada, pendiente.stateCookie);
+  } catch (err) {
+    return ssoIrAError(res, sso.codigoError({ red: true }));
+  }
+  // El cuerpo trae el token: se lee, nunca se loguea ni se reenvía.
+  const data = await r.json().catch(() => null);
+  if (entrada.error) return ssoIrAError(res, 'sso_cancelado'); // la persona canceló en el directorio
+  if (!r.ok) return ssoIrAError(res, sso.codigoError({ status: r.status, detail: data && data.detail }));
+  if (!data || typeof data.access_token !== 'string' || !data.access_token) return ssoIrAError(res, 'sso_error');
+
+  emitirSesionRotada(
+    req,
+    res,
+    { token: data.access_token, user: data.user, auth_method: 'sso' },
+    { secure: Boolean(pendiente.atadura) }
+  );
+  res.status(302).set('Location', '/').end();
+});
+
 app.get('/api/user/current', async (req, res) => {
   const session = getSession(req);
   if (!session) return res.json({ isAuthenticated: false });
@@ -326,7 +518,7 @@ app.get('/api/user/current', async (req, res) => {
 
   res.json({
     isAuthenticated: true,
-    user: session.user,
+    user: { ...session.user, auth_method: session.auth_method || 'password' },
     budget,
     workspaces
   });

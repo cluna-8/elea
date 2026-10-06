@@ -1,0 +1,60 @@
+{
+  "_doc": "Tramo 1b de la 056: corregir plan/tasks según qa-plan.md (compuerta del owner: requiere_cambios, 5-oct-2026). Se copia a specs/056-sso-entra-id-hub/ al integrar.",
+  "objetivo": "056-sso-entra-id-hub: resolver F1–F10 de qa-plan.md (enmienda de spec + plan + tasks) y revalidar",
+  "rama_base": "origin/cluna-8/056-sso-entra-id-hub-plan",
+  "tareas": [
+    {
+      "clave": "enmienda",
+      "titulo": "056: corregir plan, tasks y spec según qa-plan.md",
+      "rol": "redactor-spec",
+      "depende_de": [],
+      "worktree": "nuevo",
+      "rama": "056-sso-entra-id-hub-plan-v2",
+      "alcance": "specs/056-sso-entra-id-hub/: qa-plan.md (reporte de la revisión crítica, commit 001f6c3) contra spec.md, research.md, contracts/, data-model.md, quickstart.md y tasks.md. Código de referencia de solo lectura: backend/src/sso/ (api.py, entra.py), client/server.js, client/public/index.html, deploy/Makefile y deploy/release/checks/.",
+      "cambio": "Resolver los hallazgos de qa-plan.md en el orden de su §'Orden recomendado para destrabar'. (1) F1: el owner decidió extender el tope de D6 al canje fallido (api.py:297-302): pasado el tope por minuto y por proceso, el rechazo por canje fallido no escribe fila y NO hace la llamada al token_endpoint de Microsoft. Los rechazos que exigen una identidad real de Entra (api.py:313, :379) siguen sin tope. Corregí la frase falsa de research.md:147-148 y sumá a T005/T007 el test 'cookie válida + code basura, tope+5 veces → tope eventos y tope llamadas al proveedor, 401 intacto'. (2) F7+F8: una sola enmienda de spec.md con el skill .agents/skills/speckit-clarify/SKILL.md, registrando como Clarifications las decisiones ya tomadas por el owner (D1–D6 y D8 en A, D7 en B: HTTPS por el proxy de Elea, solo documentado; tope de D6 extendido al canje fallido; return_origin en /available). Ajustá FR-010, FR-012 (con su excepción por tope y los 404/500 del callback) y agregá el FR de return_origin. (3) F2+F3: tareas de test para la pantalla del Hub (index.html: FR-001, FR-006, FR-008, US1 AS5, US2 AS2/AS3) y un gate automático de marca blanca que mire client/ (FR-013/FR-014), integrado a make -C deploy check. (4) F4, F5, F6, F9 y F10: ajustes de contrato y tareas según lo que sugiere qa-plan.md para cada uno. (5) Hallazgos bajos: absorbelos en tasks o dejalos anotados como riesgo. Después re-corré speckit-plan (si cambia el diseño), speckit-tasks y speckit-analyze, siguiendo sus SKILL.md en .agents/skills/.",
+      "restricciones": "Encuadre del owner: Eleia es la adaptación para América de la base Guardian (perfil Argentina). NO rigen GDPR ni la EU AI Act: el Principio II se lee como Ley 25.326/AAIP. Las actualizaciones de la base vienen de cluna-8/sentinel, que tiene su propio coordinador, así que los cambios a backend/ y frontend/ son mínimos y retrocompatibles y quedan listos para el HANDOFF. Las decisiones D1–D8 y F1 ya están tomadas: no se reabren. Si algún arreglo de F4–F10 exige una decisión de diseño nueva (no un ajuste), preguntá con ask y esperá la respuesta; no cierres con worker_done mientras haya una pregunta abierta. Mantené los tramos con archivos exclusivos y las marcas [repo: …]. No se escribe código de producto. Regla del owner: todo en local y NADA de Docker (docker/docker compose, make -C deploy check o check-docs que construyen imágenes, pytest del backend en contenedor) sin aviso previo: si lo necesitás, preguntá con ask y esperá; el owner prepara la PC.",
+      "propiedad": "Artefactos de Spec-Kit de la 056 (spec.md vía speckit-clarify, plan.md, research.md, data-model.md, contracts/, quickstart.md, tasks.md) y el bloque SPECKIT de AGENTS.md. No edita qa-plan.md.",
+      "rutas": [
+        "specs/056-sso-entra-id-hub/*",
+        "AGENTS.md"
+      ],
+      "aceptacion": "Cada F1–F10 de qa-plan.md tiene su resolución trazada (archivo:línea del artefacto que lo resuelve) en una tabla nueva al final de research.md; spec.md enmendada con Clarifications fechadas 2026-10-05; speckit-analyze con 0 CRITICAL y 0 HIGH (resumen en el worker_done); commit local en la rama 056-sso-entra-id-hub-plan-v2; worker_done con --outcome explícito."
+    },
+    {
+      "clave": "revision",
+      "titulo": "056: segunda revisión crítica (cierre de F1–F10)",
+      "rol": "qa-critico",
+      "depende_de": [
+        "enmienda"
+      ],
+      "worktree": "de:enmienda",
+      "alcance": "La rama 056-sso-entra-id-hub-plan-v2 (mismo worktree): la tabla de resolución de research.md y los artefactos que cita, contra qa-plan.md, spec.md, la constitución y el código real de backend/src/sso/ y client/.",
+      "cambio": "Reporte specs/056-sso-entra-id-hub/qa-plan-v2.md: para cada F1–F10, cerrado/abierto con archivo:línea; cualquier hallazgo nuevo con severidad. Revisión acotada: no se reabre el diseño central, que ya está verificado como sólido.",
+      "restricciones": "Solo lectura y el reporte. Encuadre del owner: Eleia es América (Ley 25.326/AAIP, no GDPR ni AI Act); los cambios a la base tienen que ser mínimos por Sentinel; las decisiones D1–D8 y F1 son del owner y no se reabren salvo un problema de seguridad concreto con archivo:línea. Regla del owner: todo en local y NADA de Docker (docker/docker compose, make -C deploy check o check-docs que construyen imágenes, pytest del backend en contenedor) sin aviso previo: si lo necesitás, preguntá con ask y esperá; el owner prepara la PC.",
+      "propiedad": "Solo specs/056-sso-entra-id-hub/qa-plan-v2.md.",
+      "rutas": [
+        "specs/056-sso-entra-id-hub/qa-plan-v2.md"
+      ],
+      "aceptacion": "qa-plan-v2.md commiteado local; worker_done --outcome succeeded si F1–F3 están cerrados y no hay hallazgos altos nuevos, failed si no."
+    },
+    {
+      "clave": "integrar",
+      "titulo": "056: integrar plan corregido en la rama de la spec",
+      "rol": "atlas",
+      "depende_de": [
+        "revision"
+      ],
+      "compuerta": {
+        "pregunta": "¿Se aprueban spec enmendada, plan y tasks de la 056 (con qa-plan-v2.md) para integrarlos a 056-sso-entra-id-hub y pasar a implementar por tramos?",
+        "opciones": [
+          "aprobado",
+          "requiere_cambios",
+          "descartar"
+        ]
+      },
+      "alcance": "Rama 056-sso-entra-id-hub-plan-v2 → 056-sso-entra-id-hub",
+      "cambio": "Atlas verifica, integra a 056-sso-entra-id-hub, copia los dos planes de orquestación a la carpeta de la spec, pushea y arma el plan de implementación (Tramo 0, después A–D en paralelo, D con repo elea-installer).",
+      "aceptacion": "Rama 056-sso-entra-id-hub en origin con plan y tasks corregidos; plan de implementación listo para el dry-run."
+    }
+  ]
+}

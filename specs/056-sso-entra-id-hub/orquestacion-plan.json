@@ -1,0 +1,47 @@
+{
+  "_doc": "Tramo 1 de la 056: plan.md + tasks.md con Spec-Kit, revisión crítica y compuerta del owner. Se copia a specs/056-sso-entra-id-hub/ al integrar.",
+  "objetivo": "056-sso-entra-id-hub: plan, tasks y analyze (Spec-Kit) listos para implementar, revisados contra la constitución",
+  "rama_base": "origin/056-sso-entra-id-hub",
+  "tareas": [
+    {
+      "clave": "plan",
+      "titulo": "056: plan + tasks + analyze (Spec-Kit)",
+      "rol": "redactor-spec",
+      "depende_de": [],
+      "worktree": "nuevo",
+      "rama": "056-sso-entra-id-hub-plan",
+      "alcance": "specs/056-sso-entra-id-hub/ (spec.md ya revisada; leer también DESPLIEGUE-Y-REVERSION.md, SOLICITUD-A-ELEA.md y GUIA-PRUEBA-LOCAL-SSO.md de esa carpeta). Código de referencia (solo lectura): backend/src/sso/ (api.py: _redirect_uri en :127, sso_login :204, sso_callback :250; entra.py, jit.py, admin_api.py), client/server.js (login del Hub en :258, sesiones en memoria), client/public/index.html, frontend/src/pages/UsersPage.tsx (pestaña Autenticación & SSO), backend/config/licenses/. Precedente completo de Spec-Kit: specs/017-auth-rbac-sso/ (plan, research, contracts, RUNBOOK-e2e-sso.md). Instalador (otro repo, solo lectura): /home/drexgen/Documents/ELEA/LLMADMIN-Elea/elea-installer (docker-compose.yml, .env.example, install.sh). Espejo en Sentinel (solo lectura): /home/drexgen/Documents/EVIDENZE/SENTINEL rama 067-porte-elea-sso-entra-hub.",
+      "cambio": "Correr en orden los skills de Spec-Kit del repo, leyendo y siguiendo al pie de la letra .agents/skills/speckit-plan/SKILL.md, después .agents/skills/speckit-tasks/SKILL.md y por último .agents/skills/speckit-analyze/SKILL.md (la integración instalada es agy, así que no aparecen como skills de Claude: se ejecutan siguiendo esos archivos y sus scripts de .specify/scripts/). Resultado: plan.md, research.md, data-model.md (si aplica), contracts/ (flujo SSO del Hub: rutas nuevas de client/server.js y lo que consume de la API de Guardian), quickstart.md y tasks.md en specs/056-sso-entra-id-hub/; hallazgos CRITICAL/HIGH del analyze corregidos en los artefactos. tasks.md tiene que: (a) marcar con [repo: elea-installer] las tareas del instalador (SENTINEL_SSO_REDIRECT_URI en compose y .env.example, ELEA_TAG para fijar imagen, licencia montada desde el host) y con [repo: elea] el resto; (b) incluir las tareas previas de DESPLIEGUE-Y-REVERSION.md (publish-elea.sh sin mover latest, licencia con permiso sso); (c) tener en Polish la task de docs (docs/docs/install-deploy/sso.md + make -C deploy check-docs) y la de HANDOFF-elea-a-sentinel.md separando commits de base y del Hub; (d) agrupar en tramos de ≤15 tareas que se puedan despachar a workers distintos sin pisar archivos (anotar el tramo en cada fase).",
+      "restricciones": "No se escribe código de producto: solo artefactos de Spec-Kit en specs/056-sso-entra-id-hub/ (y el bloque SPECKIT de AGENTS.md si el script de contexto de agente lo actualiza). La spec está revisada y NO se vuelve a correr specify ni clarify; si plan o analyze muestran que la spec tiene que cambiar, se pregunta con ask antes de tocar spec.md. Decisiones de diseño abiertas (p. ej. cómo el Hub intermedia el login y el callback con la cookie de estado firmada que hoy pone el backend, cómo sabe el Hub si mostrar el botón, cómo se evita que el token viaje en la URL — FR-004 —, qué pasa con la URI de retorno única de _redirect_uri) se resuelven en research.md con opciones y recomendación, y la elección final se pregunta con ask; no se cierran en silencio. Invariantes: FR-003 (el Hub solo habla con la API de Guardian, sin validar tokens de Microsoft), FR-005/006 (login con contraseña intacto, SSO degradable), FR-007 (reglas JIT de la 017 intactas), FR-013/014 (white-label y portable a Sentinel), auditoría metadata-only. Fuera de alcance de fase 1: SSO en el panel, mapeo de grupos, SCIM.",
+      "propiedad": "Artefactos de Spec-Kit de la 056 y el bloque <!-- SPECKIT START/END --> de AGENTS.md.",
+      "rutas": ["specs/056-sso-entra-id-hub/*", "AGENTS.md"],
+      "aceptacion": "Existen plan.md, research.md, contracts/, quickstart.md y tasks.md en specs/056-sso-entra-id-hub/; el Constitution Check del plan está completo; el reporte de speckit-analyze (pegado resumido en el worker_done) sin CRITICAL ni HIGH abiertos; tasks.md con tramos, marcas de repo y la task de docs y de handoff. Commit local en la rama 056-sso-entra-id-hub-plan. Evidencia: lista de archivos creados (git show --stat) y las decisiones que se preguntaron por ask con la respuesta recibida."
+    },
+    {
+      "clave": "revision",
+      "titulo": "056: revisión crítica de plan y tasks",
+      "rol": "qa-critico",
+      "depende_de": ["plan"],
+      "worktree": "de:plan",
+      "alcance": "La rama 056-sso-entra-id-hub-plan (mismo worktree): plan.md, research.md, contracts/ y tasks.md contra spec.md, .specify/memory/constitution.md y el código real de backend/src/sso/ y client/server.js.",
+      "cambio": "Reporte specs/056-sso-entra-id-hub/qa-plan.md con hallazgos ordenados por severidad, cada uno con archivo:línea y el FR o principio que viola. Foco: seguridad del flujo (state/nonce/CSRF de login a través del Hub, token fuera de la URL, cookies, sesiones en memoria del Hub), que JIT y la 055 queden intactos, degradación cuando falla Microsoft, auditoría metadata-only, white-label, portabilidad a Sentinel, y que cada FR y escenario de aceptación tenga al menos una tarea y un test.",
+      "restricciones": "Solo lectura y el reporte. No edita los artefactos del plan: los desvíos se reportan. Distinguir lo verificado en código de lo inferido.",
+      "propiedad": "Solo specs/056-sso-entra-id-hub/qa-plan.md.",
+      "rutas": ["specs/056-sso-entra-id-hub/qa-plan.md"],
+      "aceptacion": "qa-plan.md commiteado local; worker_done con outcome failed si hay hallazgos bloqueantes (seguridad o FR sin cubrir), succeeded si no; resumen de hallazgos en el worker_done."
+    },
+    {
+      "clave": "integrar",
+      "titulo": "056: integrar plan y tasks en la rama de la spec",
+      "rol": "atlas",
+      "depende_de": ["revision"],
+      "compuerta": {
+        "pregunta": "¿Se aprueban plan.md y tasks.md de la 056 (con el reporte de revisión) para integrarlos a la rama 056-sso-entra-id-hub y pasar a implementar por tramos?",
+        "opciones": ["aprobado", "requiere_cambios", "descartar"]
+      },
+      "alcance": "Rama 056-sso-entra-id-hub-plan → 056-sso-entra-id-hub",
+      "cambio": "Atlas verifica (orquestar.sh verificar), integra a 056-sso-entra-id-hub, copia este plan a specs/056-sso-entra-id-hub/orquestacion-plan.json, pushea y arma el plan del primer tramo de implementación (multi-repo: elea + elea-installer).",
+      "aceptacion": "Rama 056-sso-entra-id-hub en origin con plan y tasks; siguiente plan listo para el dry-run."
+    }
+  ]
+}
