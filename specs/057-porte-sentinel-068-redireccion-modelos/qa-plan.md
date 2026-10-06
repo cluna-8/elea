@@ -6,15 +6,14 @@
 constitución 2.2.0, HANDOFF de Sentinel (`docs/handoff-068-elea`, 572 líneas), spike de bases (`cluna-8/spike-separar-bases-motor`),
 código de Eleia y el paquete `sentinel/` de Sentinel `6a70855` (extraído a un directorio temporal).
 
-> **Cobertura honesta**: la revisión se cortó por límite de uso. **Hecho**: citas de Eleia y de Sentinel, hashes, orden de
-> cherry-picks, imports del paquete contra el backend de Eleia, trazabilidad FR→tarea (nominal), lógica de residencia/guard,
-> migraciones y entrega. **No hecho**: contraste escenario por escenario de US1–US5 y de los Edge Cases contra tareas/tests
-> (solo muestreado), SC-001…SC-014 uno a uno, verificación de las ~25 citas de `data-model.md`/`research.md` a `sentinel:…` fuera de
-> las listadas en §4, y la revisión de `contracts/admin-api.md` contra RBAC real (`backend/src/models/user.py:9`).
+> **Cobertura**: la primera pasada se cortó por límite de uso y se completó en una segunda (esta versión). **Hecho**: citas de
+> Eleia y de Sentinel (incluidas las de `data-model.md`/`research.md`), hashes, orden de cherry-picks, imports del paquete contra el
+> backend de Eleia, trazabilidad FR→tarea, lógica de residencia/guard, migraciones, entrega, RBAC de la API contra el código de
+> Sentinel, y contraste de US1–US5, Edge Cases y SC contra las tareas (ver §6). **Límite**: todo es lectura; nada se ejecutó.
 
 ## Veredicto
 
-**Hay 2 bloqueantes** (B1, B2) y 4 hallazgos altos. Ninguno reabre una decisión del owner: son huecos de entrega y de
+**Hay 2 bloqueantes** (B1, B2) y 6 hallazgos altos (A2–A7; A6 y A7 tocan FR-023 y deben corregirse antes de integrar T-E). Ninguno reabre una decisión del owner: son huecos de entrega y de
 fail-safe del default que el owner decidió (`masked_all`). Se recomienda corregirlos por `speckit-tasks`/`speckit-plan`
 (no a mano) antes de despachar T-A (B1) y antes de integrar T-E (B2). Las decisiones D1/D2/D5/D12/D3/D10 y la enmienda del 403 **no se tocan**.
 
@@ -78,6 +77,20 @@ fail-safe del default que el owner decidió (`masked_all`). Se recomienda correg
   mitigaciones de R5 son coherentes (FKs solo a `tenants`/`groups`; sin cambio de imagen). Nota: el instalador usa `:latest` del motor
   (spike §1.4), fuera del control de esta feature pero relevante para el rollback (FR-004b).
 
+- **A6 — `REDIRECT_OPERATOR_TENANT` desarma la separación de FR-023**: `sentinel:sentinel/redirect/api/admin.py:84-100` declara «autoridad de
+  instalación» (`_is_super`) al `tenant_admin` del tenant operador cuando esa variable está definida, y `_manages_postures` (`:99-100`) le da el mismo
+  poder que a cumplimiento. HANDOFF §2.1 la lista para instalaciones de un solo tenant —el caso de Eleia— y T021/`extensions.env.example` toman
+  «las variables de HANDOFF §2.1». Ningún artefacto de la 057 la menciona (`grep` = 0). Si se define, el administrador de la empresa puede
+  cambiar `default_posture` y crear relajaciones (FR-031a), contra FR-023 y US3 esc. 7. Decidir explícitamente (no definirla; o limitar las
+  relajaciones a `super_admin`/`compliance_officer` reales) y agregar un test de rol con la variable definida a T055.
+- **A7 — El administrador de empresa puede falsear los datos de los que depende la relajación**: `sentinel:sentinel/catalog/api/admin.py:41,668-672`
+  (`SHEET_WRITERS = ("admin","compliance_officer")`, `PUT /entries/{id}/sheet`). La ficha fija `inference/entity/control_jurisdiction` y
+  `zero_data_retention`, que deciden `in_region` (FR-028a) y las precondiciones de la relajación por destino (data-model §3). `tenant_admin` no
+  puede relajar, pero sí cargar «control = US, retención cero» y, con una relajación por región ya hecha por cumplimiento, dejar un destino sin
+  enmascarar; en el quickstart §2.3 la carga la hace «en Modelos» un administrador. Ni `contracts/admin-api.md` (§Ficha) ni T087 restringen el rol
+  de escritura de estos campos. Propuesta: campos de residencia/retención editables solo por cumplimiento o super-admin, con registro (FR-008), o que
+  un cambio que mejora la clasificación exija confirmación de cumplimiento; test en T087.
+
 ## 3. Medios y bajos
 
 - **M1 — T-A usa Docker en su gate** (T015, 🐳): correcto y marcado; recordar que `make -C deploy docs-refs` regenera `openapi.json` y debe correrse con aviso al owner.
@@ -92,6 +105,14 @@ fail-safe del default que el owner decidió (`masked_all`). Se recomienda correg
 - **M5 — FR-005/FR-006/FR-013/FR-016 con test solo heredado**: sin tarea de test propia (el chat de la consola intacto; credenciales no visibles
   en API/logs; permisos por alcance). Aceptable por ser copia, pero T030 debería listar los archivos de test heredados que los cubren.
 - **M6 — Piso con fila explícita `off`**: T053/T055 prueban `allowlist` bajo `masked_all`; agregar el caso de una fila `off` («apagada», FR-022) bajo el piso.
+- **M7 — SC-006 y los patrones del perfil**: `litellm/extensions/sentinel_guardian_policy.py:143` detecta CUIL/CUIT solo con guiones
+  (`\b\d{2}-\d{8}-\d\b`); un CUIT de 11 dígitos corridos no se enmascara. La batería de T056 debe fijar los formatos válidos y T080 documentarlos;
+  si no, «100 % de los identificadores del perfil» (SC-006) no es medible.
+- **M8 — Texto del bloqueo por enmascarado**: el contrato (`contracts/cara-claude.md` §7, `cara-generica.md`) fija «El pedido no pudo protegerse para este
+  destino y fue bloqueado.», pero `sentinel:sentinel/redirect/faces/generic.py:40-42` agrega «Probá en una conversación nueva.». Alinear contrato y
+  test T047.
+- **M9 — Habilitación de entradas bloqueadas**: `enable_entry` (`sentinel:sentinel/catalog/api/admin.py:608-609`) deja habilitar a `admin`; con reglas
+  vacías (D1) es moot, pero si cumplimiento carga reglas `jurisdiction`, el administrador de empresa puede deshabilitar el bloqueo con motivo. Confirmar que es lo deseado.
 - **B-1 (bajo)** `control_jurisdiction String(16)` vs `entity_jurisdiction String(8)` (`sentinel/catalog/models.py:152`): unificar.
 - **B-2 (bajo)** `spec.md:67`: `gw_messages` está en `gateway.py:1636` (decorador); la función arranca después. Cita aproximada, sin consecuencia.
 
@@ -128,6 +149,17 @@ trazabilidad (`tasks.md:297-351`) — cobertura nominal; la calidad por FR está
   pendientes). No se empeora, pero tampoco se mitiga: ver A5 y la advertencia de rollback.
 - Riesgo de orden: T001 (constitución) debe ir antes de integrar T-B (el código copiado ya responde 403); está bien planteado.
 
-## 6. Qué verificar a continuación (no hecho)
+## 6. Cobertura de escenarios, Edge Cases y SC contra tareas
 
-US1–US5 y Edge Cases escenario por escenario; SC-001…SC-014; `contracts/admin-api.md` contra roles reales; citas restantes de `data-model.md`/`research.md`.
+- **US1** esc. 1–8 → T035/T038/T039/T040/T045 (+ T032/T033). **US2** esc. 1–4 → T003, T018, T014. **US3** esc. 1–11 → T053–T059 (esc. 10–11: T053/T054/T057).
+  **US4** esc. 1–5, 7 → T035–T037, T042–T043, T067–T078; esc. 6 (destino nativo) **sin tarea ni test**: deliberado por Clarifications P5, queda 🟡 (coherente con SC-004).
+  **US5** esc. 1–5 → T046–T049, T051.
+- **Edge Cases sin tarea propia** (cubiertos solo por tests heredados de Sentinel, no listados en T030): «id publicado sin destino activo», «id en dos alcances»,
+  «formato inesperado a mitad de stream» (parcial en T036). Pedir en T030 la lista de archivos heredados que los cubren (ver M5).
+- **SC**: SC-001/002 → T003/T015/T018; SC-003 → T083 (medición manual); SC-004 → T045 (solo traducido); SC-005/006 → T054/T056/T065 (ver M7); SC-007 → T036;
+  SC-008 → T035; SC-009 → T030/T045; SC-010 → T044 (mide solo el plugin contra upstream instantáneo, no la ruta real: aceptable pero decirlo);
+  SC-011/012 → T066/T078; SC-013 → T015/T082; SC-014 → T051. Todos tienen tarea; los de Docker/vivo (SC-003, 004, 011, 012, 014) dependen de aviso al owner.
+- **RBAC de `contracts/admin-api.md`** contra `sentinel:sentinel/redirect/api/admin.py` y `catalog/api/admin.py`: el alias `admin` = `tenant_admin`/`super_admin`
+  (`backend/src/auth/rbac.py:23-26`) existe y los roles de la spec (`backend/src/models/user.py:9`) cubren la matriz; las escrituras nuevas de regiones/relajaciones
+  (T060) deben quedar en `("compliance_officer","super_admin")`; ver A6/A7 para los dos agujeros.
+- **Citas de `data-model.md`/`research.md` a Sentinel**: `residency.py:19/26-27/37/90/98/122-135`, `semaforo.py:47-118`, `models.py:31/43` verificadas (rangos aproximados pero correctos).
