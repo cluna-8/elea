@@ -21,6 +21,15 @@ tarea **nueva T049** del tramo B, agregada al final para no renumerar; línea ba
 el CI en T002. Resolución con
 `archivo:línea` en research.md, §Trazabilidad del QA v2.
 
+**Enmendado el 2026-10-06** por el QA del Tramo B ([qa-tramo-b.md](qa-tramo-b.md)), **sin
+renumerar**: O4 parte T003 (queda T003 con `.gitignore`, hecha, y la tarea **nueva T050** con el
+directorio Entra de prueba, a cargo del owner, pendiente); O2 queda como la tarea **nueva T051**
+del tramo B (solo tests, hecha en el commit `f1c5403`, despachada aparte y después del gate T023, así que el paquete que se despachó del tramo B sigue siendo de 15 tareas); O1 y O3 se resuelven en
+[hub-sso.md](contracts/hub-sso.md) (§6 y test 17, referencias de línea). Las referencias
+`archivo:línea` de `client/` dentro de las tareas ya hechas del Tramo B (T017 a T021 y T049)
+señalan el Hub **previo** al cambio, que es dónde había que tocar; las vigentes están en el
+contrato. Resolución en research.md, §Trazabilidad del QA del Tramo B.
+
 **Tests**: **obligatorios** (AGENTS.md: TDD donde hay código nuevo). En cada tramo los tests se
 escriben primero y **tienen que fallar** antes de la implementación. Eso incluye la pantalla del
 Hub (research D13) y la marca blanca (research D14).
@@ -49,9 +58,9 @@ igual al de hoy. Los tramos B y D (Hub e instalador) pueden divergir de Sentinel
 
 | Tramo | Fases | Tareas | Repo | Archivos (exclusivos del tramo) | Puede correr en paralelo con |
 |---|---|---|---|---|---|
-| **0** Setup | 1 | T001–T003 (3) | elea | rama; `.gitignore` (solo las dos entradas de prueba local). Licencia y compose de prueba quedan fuera de git | — (va primero) |
+| **0** Setup | 1 | T001–T003 + T050 (4) | elea | rama; `.gitignore` (solo las dos entradas de prueba local). Licencia y compose de prueba quedan fuera de git. T050 (directorio Entra de prueba) es del owner y no toca archivos del repo | — (va primero; T050 solo bloquea la prueba real) |
 | **A** Base Guardian | 2 | T004–T009 (6) | elea | `backend/src/sso/api.py`, `backend/tests/integration/test_sso_api.py` | B, C, D |
-| **B** Hub | 3, 4 | T010–T023 + T049 (15) | elea | `client/sso.js` (nuevo), `client/server.js`, `client/public/sso-ui.js` (nuevo), `client/public/index.html`, `client/README.md`, `client/tests/unit/sso-pendientes-056.test.js`, `client/tests/unit/sso-ui-056.test.js`, `client/tests/unit/whitelabel-hub-056.test.js`, `client/tests/contract/test_sso_hub_056.test.js`, `client/tests/integration/test_sso_flujo_056.test.js`, `client/tests/contract/test_login_sid_056.test.js` (nuevo, T049) | A, C, D |
+| **B** Hub | 3, 4 | T010–T023 + T049 + T051 (16) | elea | `client/sso.js` (nuevo), `client/server.js`, `client/public/sso-ui.js` (nuevo), `client/public/index.html`, `client/README.md`, `client/tests/unit/sso-pendientes-056.test.js`, `client/tests/unit/sso-ui-056.test.js`, `client/tests/unit/whitelabel-hub-056.test.js`, `client/tests/contract/test_sso_hub_056.test.js`, `client/tests/integration/test_sso_flujo_056.test.js`, `client/tests/contract/test_login_sid_056.test.js` (nuevo, T049) | A, C, D |
 | **C** Panel | 5 | T024–T029 (6) | elea | `frontend/src/services/api.ts`, `frontend/src/pages/LoginPage.tsx`, `frontend/src/pages/UsersPage.tsx`, `frontend/tests/contract/UsersPage.sso-config.test.tsx`, `frontend/tests/contract/LoginPage.sso-origin.test.tsx` | A, B, D |
 | **D** Instalador y release | 6 | T030–T038 (9) | elea-installer + elea | `elea-installer/{docker-compose.yml,.env.example,install.sh,README.md,.gitignore,license/.gitkeep}`, `deploy/release/publish-elea.sh`, `deploy/release/checks/test_publish_elea_latest.sh` (nuevo), `deploy/Makefile` (target `check-release-publish`) | A, B, C |
 | **E** Guía, docs y cierre | 7, 8 | T039–T048 (10) | elea | `docs/docs/install-deploy/sso.md`, `docs/docs/api-reference/openapi.json` (generado), `deploy/Makefile` (target `check-hub-whitelabel`; E corre después de D, nunca en paralelo), `specs/056-sso-entra-id-hub/{SOLICITUD-A-ELEA.md,DESPLIEGUE-Y-REVERSION.md,RESULTADOS-PRUEBA-LOCAL.md,HANDOFF-elea-a-sentinel.md}`, `specs/017-auth-rbac-sso/RUNBOOK-e2e-sso.md` | — (va al final) |
@@ -71,14 +80,14 @@ de despachar A a D.
 - [ ] T002 [repo: elea] Anotar la línea base de gates para comparar al cierre (T044):
   - **en local, sin Docker**: `cd client && npm test` y `cd frontend && npm test`, con sus conteos;
   - **partes con Docker** (`docker compose run --rm --no-deps backend pytest tests/ -q` y `make -C deploy check`): la línea base sale del **último run del CI de `main`**, run `35871397897`: **18 fallas conocidas** de la suite del backend más `check-docs` en rojo, que se arregla aparte. **No** se corren en local para la línea base. Anotar en la tarea los 18 tests que fallan (los nombres, del log del run), para que T044 compare contra esa lista y no contra cero
-- [x] T003 [P] [repo: elea] Preparar el entorno de prueba de GUIA-PRUEBA-LOCAL-SSO.md §1 a §3:
-  - directorio Entra **de prueba**, con las URIs Web `http://localhost:8090/sso/callback`, `http://localhost:8095/sso/callback` y `https://localhost:8443/sso/callback` (esta, para el ingreso por HTTPS local de quickstart §3b);
+- [x] T003 [P] [repo: elea] Preparar en el repo el entorno de prueba de GUIA-PRUEBA-LOCAL-SSO.md §1 a §3 (el directorio Entra de prueba es T050, partida por O4 del QA del Tramo B):
   - agregar a `.gitignore` las entradas `backend/config/licenses/dev-sso-local.lic` y `docker-compose.sso-local.yml` (B9 del QA: hoy no están ignoradas);
   - verificar con `git check-ignore -v` que las dos quedan ignoradas, y con `git status` que no aparecen.
 
-  Commit `chore: …` aparte
+  Commit `chore: …` aparte (hecho: `c60d55f`, `.gitignore:91-92`; verificado con `git check-ignore -v` en [qa-tramo-b.md](qa-tramo-b.md) §Comandos corridos)
+- [ ] T050 [P] [repo: — (owner, fuera de git)] Crear el directorio Entra **de prueba** (nunca el de Elea) con la aplicación y las URIs Web `http://localhost:8090/sso/callback`, `http://localhost:8095/sso/callback` y `https://localhost:8443/sso/callback` (esta, para el ingreso por HTTPS local de quickstart §3b), y dejar el `tenant_id`, el `client_id` y el secreto **fuera del repo**, solo en la config local de la prueba (GUIA-PRUEBA-LOCAL-SSO.md §1 a §3). A cargo del owner: no hay artefacto versionado que lo pruebe. **Bloquea** la prueba local de GUIA-PRUEBA-LOCAL-SSO.md §1 a §3 y la punta a punta de T046 (quickstart §3 y §3b); no bloquea a los tramos A a D, que prueban con dobles
 
-**Checkpoint**: rama creada, línea base anotada, A a D despachables en paralelo.
+**Checkpoint**: rama creada, línea base anotada, A a D despachables en paralelo. T050 puede llegar después, pero antes de T046.
 
 ---
 
@@ -143,7 +152,7 @@ FR-013 a FR-016).
 **Independent Test**: con la config cargada, un usuario existente entra por Microsoft y usa chat,
 Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quickstart §3, casos 1 a 5).
 
-**Tramo B** (fases 3 y 4) · repo elea · 15 tareas (T010–T023 y T049) · contrato: [hub-sso.md](contracts/hub-sso.md)
+**Tramo B** (fases 3 y 4) · repo elea · 16 tareas (T010–T023, T049 y T051) · contrato: [hub-sso.md](contracts/hub-sso.md)
 
 ### Tests (escribir primero; deben fallar)
 
@@ -178,7 +187,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - `error=access_denied` del directorio → `sso_cancelado`
 - [x] T014 [P] [US1] [repo: elea] Tests de la **pantalla** (F2 del QA, research D13) en `client/tests/unit/sso-ui-056.test.js`, con `node --test` sobre `client/public/sso-ui.js` ([hub-sso.md](contracts/hub-sso.md) §7, tests 17 a 20):
   - `destinoBoton`: `enabled:false` → sin botón (US2 AS3); `enabled:true` + `return_origin:null` → sin botón (FR-001, F4); mismo origen → `/sso/login`; otro origen → `${return_origin}/sso/login`; origen que no es `http(s)` → sin botón;
-  - `destinoBoton` con origen **mal formado** (N5 del QA v2) → sin botón: con comilla (`https://a"onmouseover=x`), espacio (`https://a b`), `<`, `\\`, credenciales (`https://u@hub.ejemplo.local`), ruta o barra final. Regla: `new URL(x).origin === x` y protocolo `http:`/`https:` ([hub-sso.md](contracts/hub-sso.md) §6);
+  - `destinoBoton` con origen **mal formado** (N5 del QA v2) → sin botón: con comilla (`https://a"onmouseover=x`), espacio (`https://a b`), `<`, `\\`, credenciales (`https://u@hub.ejemplo.local`), ruta o barra final. Regla: `new URL(x).origin === x` y protocolo `http:`/`https:`, **más** la lista blanca estricta de host y puerto (O1 del QA del Tramo B; [hub-sso.md](contracts/hub-sso.md) §6). Los casos de la lista blanca, aceptados y rechazados, son T051;
   - `mensajeError`: cada código de §4 → su texto; desconocido, vacío y con HTML → el genérico, que no contiene el valor recibido; todos recuerdan el acceso con contraseña (FR-006, US2 AS2);
   - `ofrecerCambioContrasena`: `auth_method:'sso'` → `false` (FR-008, US1 AS5);
   - `TEXTO_BOTON` exportado y no vacío (N6 del QA v2);
@@ -188,7 +197,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - `client/public/index.html` y `client/server.js` no contienen ningún nombre de `prohibited_names.txt`;
   - `client/public/index.html` no contiene el literal "Ingresar con Microsoft" ni otro texto visible nuevo de la 056: todo sale de `sso-ui.js` (N6 del QA v2, [hub-sso.md](contracts/hub-sso.md) §7 test 23).
 
-  Límite honesto, sin tarea: `client/server.js` ya contiene `Elea`/`ELEA_*` (`client/server.js:19`), así que sus rutas nuevas no se verifican contra FR-014 por lectura de marca; las cubre la revisión del PR. Debe **fallar** mientras los dos archivos nuevos no existan
+  Límite honesto, sin tarea: `client/server.js` ya contiene `Elea`/`ELEA_*` (`client/server.js:20`), así que sus rutas nuevas no se verifican contra FR-014 por lectura de marca; las cubre la revisión del PR. Debe **fallar** mientras los dos archivos nuevos no existan
 
 ### Implementación
 
@@ -220,7 +229,7 @@ Documentos, Planillas y Presentaciones con su rol, grupo y presupuesto (quicksta
   - 409 en `POST /api/auth/change-password` (`:284-309`) para sesiones SSO.
 
   `POST /api/auth/login` (`:258-273`) **no se toca en esta tarea**: su rotación de `sid` es T049, en commit aparte. T011 y T012 en verde
-- [x] T021 [US1] [repo: elea] Crear `client/public/sso-ui.js` (módulo puro: `destinoBoton` con la regla de origen bien formado de N5, `mensajeError` con la tabla de §4 y el texto neutro de `sso_identidad_no_verificada` de research D15, `ofrecerCambioContrasena` y la constante `TEXTO_BOTON`; exporta por `module.exports` y por `window.SsoUi`) y cablearlo en `client/public/index.html` ([hub-sso.md](contracts/hub-sso.md) §6). **Todo** texto nuevo visible, incluida la etiqueta del botón, vive en `sso-ui.js` y no en `index.html` (N6 del QA v2):
+- [x] T021 [US1] [repo: elea] Crear `client/public/sso-ui.js` (módulo puro: `destinoBoton` con la regla de origen bien formado de N5 más la lista blanca estricta de host y puerto de [hub-sso.md](contracts/hub-sso.md) §6 (O1 del QA del Tramo B; hecha en `client/public/sso-ui.js:44-54`), `mensajeError` con la tabla de §4 y el texto neutro de `sso_identidad_no_verificada` de research D15, `ofrecerCambioContrasena` y la constante `TEXTO_BOTON`; exporta por `module.exports` y por `window.SsoUi`) y cablearlo en `client/public/index.html` ([hub-sso.md](contracts/hub-sso.md) §6). **Todo** texto nuevo visible, incluida la etiqueta del botón, vive en `sso-ui.js` y no en `index.html` (N6 del QA v2):
   - `<script src="/sso-ui.js">` antes del script inline (`:976`);
   - al mostrar el overlay (`boot`, `:1051-1056`), consultar `/api/auth/sso/available` y dibujar el botón bajo el formulario (`:444-455`) solo si `destinoBoton` devuelve un destino. El botón se arma con `document.createElement`, la etiqueta con `textContent = SsoUi.TEXTO_BOTON` y el destino como propiedad, **nunca** con `innerHTML` ni con una plantilla de texto que lleve el origen (N5 del QA v2);
   - `?sso_error=` → `mensajeError` en `#login-error` con `textContent`, y limpiar la barra con `history.replaceState`;
@@ -259,6 +268,11 @@ degradable sin afectar el resto (FR-005, FR-006).
     - login fallido (401 del backend) → sin rotación ni sesión;
     - `Cookie: x=%E0%A4%A; elea_rag_sid=<válido>` contra `/api/user/current`, `/api/branding` y `/sso/callback` → nunca 500; la cookie mala se ignora y el `sid` válido se respeta;
   - implementación en `client/server.js`: rotar el `sid` en `POST /api/auth/login` (`:258-273`) con los atributos de `:93` y sin `Secure`, reemplazando solo la entrada `elea_rag_sid` de la lista de `Set-Cookie`; y en `parseCookies` (`:78-86`), `decodeURIComponent` dentro de `try` (si lanza, esa cookie se ignora). Tests en verde y suite completa del Hub en verde
+- [x] T051 [US1] [repo: elea] **Casos de la lista blanca de origen** (O2 del QA del Tramo B; [hub-sso.md](contracts/hub-sso.md) §6 y test 17). Solo tests, sin cambio de código: `client/public/sso-ui.js` ya cumple (`:44-54`). En `client/tests/unit/sso-ui-056.test.js`:
+  - lado **aceptado**: IPv4 con y sin puerto (`http://172.16.0.120:8095`, el caso de D4, y `http://192.168.1.10`), IPv6 entre corchetes con y sin puerto (`https://[::1]:8443`, `https://[2001:db8::1]`, `http://[::1]:8095`; FR-015 y N3) y nombre con puerto explícito o por defecto → botón hacia ese origen, o `/sso/login` si es el mismo;
+  - lado **rechazado**: `'`, `;`, `=`, `%22` y `` ` `` en el host; puerto vacío, no numérico o fuera de rango; corchetes mal cerrados; y el puerto por defecto escrito (`:443`, `:80`), porque `new URL` lo normaliza y `origin !== x`.
+
+  Hecho en el commit `test(hub): …` `f1c5403` (rama `cluna-8/056-tramo-b-o2`, la integra el coordinador): 6 tests nuevos, 25/25 en el archivo y 198/198 en `cd client && npm test`
 
 **Checkpoint**: US1 y US2 completas del lado del Hub.
 
@@ -407,7 +421,7 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
   - `cd client && npm test`;
   - `cd frontend && npm test`
 - [ ] T045 [repo: elea] Publicar candidatas `LATEST=0 VERSION=056-rc1 deploy/release/publish-elea.sh` (depende de T030 y T044) y verificar en el registro que existe `:056-rc1` y que `:latest` **no** se movió. Copiar las seis líneas `PINNED <imagen>=…@sha256:…` que imprime el script (`publish-elea.sh:43`) a `specs/056-sso-entra-id-hub/RESULTADOS-PRUEBA-LOCAL.md`: son los digests que T048 tiene que volver a ver (N2 del QA v2)
-- [ ] T046 [repo: elea] Ejecutar [quickstart.md](quickstart.md) §1 a §5 contra el directorio de prueba: ingreso real por el Hub, atadura al navegador, **ingreso por HTTPS local** (§3b: `__Host-sso_flow` y `Secure` en un navegador real, FR-010 y FR-016), regresión (incluido vaciar la URI y apagar a mitad del ingreso), apagado desde el panel, instalación desde cero con la config SSO cargada, actualización a `056-rc1` y vuelta atrás con `ELEA_TAG`. Medir SC-001 (tiempo e interacciones, §3 caso 2) y SC-004. Caso de diagnóstico de los topes (N1 del QA v2, quickstart §4 caso 8): con el doble o con pedidos a mano, agotar el tope de canje y verificar que se ve como corte por tope (filas `auth_sso_denied` hasta el tope y después el warning con el conteo omitido) y no como falla del directorio. El registro de la aplicación en el directorio de prueba lo hace, solo con la guía de T039 y T040, alguien que no participó del desarrollo (US4, test independiente). Volcar resultados y capturas en `specs/056-sso-entra-id-hub/RESULTADOS-PRUEBA-LOCAL.md` y marcar la fila `login-real` de `specs/017-auth-rbac-sso/RUNBOOK-e2e-sso.md`
+- [ ] T046 [repo: elea] Ejecutar [quickstart.md](quickstart.md) §1 a §5 contra el directorio de prueba (**depende de T050**, del owner): ingreso real por el Hub, atadura al navegador, **ingreso por HTTPS local** (§3b: `__Host-sso_flow` y `Secure` en un navegador real, FR-010 y FR-016), regresión (incluido vaciar la URI y apagar a mitad del ingreso), apagado desde el panel, instalación desde cero con la config SSO cargada, actualización a `056-rc1` y vuelta atrás con `ELEA_TAG`. Medir SC-001 (tiempo e interacciones, §3 caso 2) y SC-004. Caso de diagnóstico de los topes (N1 del QA v2, quickstart §4 caso 8): con el doble o con pedidos a mano, agotar el tope de canje y verificar que se ve como corte por tope (filas `auth_sso_denied` hasta el tope y después el warning con el conteo omitido) y no como falla del directorio. El registro de la aplicación en el directorio de prueba lo hace, solo con la guía de T039 y T040, alguien que no participó del desarrollo (US4, test independiente). Volcar resultados y capturas en `specs/056-sso-entra-id-hub/RESULTADOS-PRUEBA-LOCAL.md` y marcar la fila `login-real` de `specs/017-auth-rbac-sso/RUNBOOK-e2e-sso.md`
 - [ ] T047 [repo: elea] Crear `specs/056-sso-entra-id-hub/HANDOFF-elea-a-sentinel.md` para `cluna-8/sentinel` (spec espejo 067). Contenido:
   - **orden de cherry-pick con los commits de base separados de los del Hub**:
     1. `base(sso)` (backend `sso/api.py` + tests);
@@ -432,9 +446,9 @@ siguiendo solo la guía, y el ingreso por el Hub funciona (US4 AS1).
 ### Por tramo
 
 ```text
-Tramo 0 (T001–T003)
+Tramo 0 (T001–T003; T050 del owner, antes de T046)
    ├──► Tramo A (T004–T009)  base Guardian ──────────┐
-   ├──► Tramo B (T010–T023+T049) Hub, contra contrato ┤
+   ├──► Tramo B (T010–T023+T049+T051) Hub, contrato  ┤
    ├──► Tramo C (T024–T029)  panel, contra el contrato┼──► Tramo E (T039–T048)
    └──► Tramo D (T030–T038)  instalador + release ────┘
 ```
@@ -447,7 +461,7 @@ Tramo 0 (T001–T003)
 
 ### Por historia
 
-- **US1 (P1)**: T010–T021. Depende del contrato de A, no de su merge.
+- **US1 (P1)**: T010–T021 y T051. Depende del contrato de A, no de su merge.
 - **US2 (P1)**: T022, T049 y T023 (Hub). Más T027 del panel, que evita su botón roto, y T044/T046 en vivo.
 - **US3 (P1)**: T024–T029 (panel) y T030–T038 (instalador y release).
 - **US4 (P3)**: T039–T041.
@@ -456,7 +470,7 @@ Tramo 0 (T001–T003)
 
 Tests antes que implementación, y los tests fallan primero. En A: T006 → T007 → T008 (mismo
 archivo, en orden). En B: `sso.js` (T016) antes que las rutas (T017–T020); `server.js` antes que
-`sso-ui.js` e `index.html` (T021); regresión (T022), después T049 (`fix(hub)`, N7) y al final el gate (T023). En D: T030 antes que
+`sso-ui.js` e `index.html` (T021); regresión (T022), después T049 (`fix(hub)`, N7) y al final el gate (T023). T051 (O2, solo tests de `sso-ui.js`) llegó después del gate, en commit `test(hub)` aparte, y se integra con la suite del Hub en verde. En D: T030 antes que
 T031. En E: T039 → T040 → T041 → T042 → T043 (los docs antes de su check) → T044 a T048 en orden.
 Las tareas sin [P] del mismo archivo van en el orden de su ID.
 
@@ -465,7 +479,7 @@ Las tareas sin [P] del mismo archivo van en el orden de su ID.
 ```bash
 # Cuatro workers en paralelo después del Tramo 0:
 Worker A: "Tramo A — T004..T009 (backend/src/sso/api.py + test_sso_api.py)"
-Worker B: "Tramo B — T010..T023 + T049 (client/)"
+Worker B: "Tramo B — T010..T023 + T049 + T051 (client/)"
 Worker C: "Tramo C — T024..T029 (frontend/)"
 Worker D: "Tramo D — T030..T038 (elea-installer/ + deploy/release/ + deploy/Makefile)"
 

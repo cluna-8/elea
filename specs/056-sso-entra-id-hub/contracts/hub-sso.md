@@ -5,20 +5,28 @@ línea: en Sentinel se porta el **enfoque** (spec.md §Preparación para Sentine
 [research.md](../research.md) D1 a D5, D11 y D12, con F2, F4, F5, F6, F10, B3 y B6 de
 [qa-plan.md](../qa-plan.md).
 
+**Referencias de línea** (O3 del QA del Tramo B, [qa-tramo-b.md](../qa-tramo-b.md)): los
+`archivo:línea` de `client/` corresponden al código del Tramo B (commits `dba9212`, `18032e1` y
+`ee6733b`), no al Hub previo a la 056. Rutas: `GET /api/auth/sso/available` en
+`client/server.js:406-421`, `GET /sso/login` en `:423-465`, `GET /sso/callback` en `:467-508`
+y la llamada interna al callback del backend en `:392-402`. Almacén de pendientes, límite de
+ritmo, comparación y mapeo de errores en `client/sso.js` (`:10-13`, `:18-49`, `:53-68`, `:72-79`,
+`:94-124`); pantalla en `client/public/sso-ui.js:12-70`.
+
 **Invariantes**
 
 - **FR-003**: el Hub habla **solo** con la API de Guardian (`ELEA_BACKEND_URL`,
-  `client/server.js:19`). No decodifica ni valida tokens de Microsoft ni el JWT de estado.
+  `client/server.js:20`). No decodifica ni valida tokens de Microsoft ni el JWT de estado.
 - **FR-004**: el `access_token` nunca aparece en una URL, en una respuesta al navegador ni en un
-  log. Vive solo en `sessions` (`client/server.js:75`).
-- **FR-005**: `POST /api/auth/login` (`client/server.js:258-273`) no cambia lo visible (status,
+  log. Vive solo en `sessions` (`client/server.js:76`).
+- **FR-005**: `POST /api/auth/login` (`client/server.js:301-319`) no cambia lo visible (status,
   cuerpo, `must_change_password`). Única excepción, interna (N7 del QA v2, decisión del owner del
   2026-10-06): renueva el `sid` al emitir la sesión y `parseCookies` ignora una cookie mal formada
   (§5).
 - **FR-006**: cualquier fallo del camino SSO termina en la pantalla de ingreso con un mensaje que
   recuerda que el acceso con contraseña sigue disponible.
 - Sin variables de entorno nuevas en el Hub. Sin textos de marca fijos: la marca sale de
-  `/api/branding` (`client/server.js:314-316`).
+  `/api/branding` (`client/server.js:363-365`, marca de `HUB_BRAND`, `:47-53`).
 
 ## 1. `GET /api/auth/sso/available` (pre-auth, JSON)
 
@@ -63,8 +71,9 @@ El Hub pasa `return_origin` tal cual. La regla del botón (§6) trata `return_or
    - responde `302 Location: <Location del backend>` con `Cache-Control: no-store` y
      `Referrer-Policy: no-referrer`.
    - **Cookies sin pisarse**: en una primera visita sin `elea_rag_sid`, el middleware ya dejó un
-     `Set-Cookie` con el `sid` nuevo (`client/server.js:93`, `res.setHeader`). La cookie
-     `__Host-sso_flow` se **agrega** a ese encabezado (lista de `Set-Cookie`), nunca lo reemplaza:
+     `Set-Cookie` con el `sid` nuevo (middleware de `client/server.js:119-128`, que lo agrega con
+     `agregarSetCookie` en `:123`). La cookie
+     `__Host-sso_flow` se **agrega** a ese encabezado (lista de `Set-Cookie`, `:111-117` y `:462`), nunca lo reemplaza:
      si se pisara, el pendiente quedaría atado a un `sid` que el navegador nunca recibe y todo
      ingreso desde una primera visita fallaría (el caso de quien llega por `http://IP:8095` y el
      botón lo lleva al nombre HTTPS, D4).
@@ -133,11 +142,11 @@ solo se usa como clave de la lista cerrada, y el texto se escribe con `textConte
 
 | Ruta | Cambio |
 |---|---|
-| `GET /api/user/current` (`client/server.js:318`) | `user.auth_method` (`'sso'` o `'password'`). |
-| `POST /api/auth/change-password` (`client/server.js:284`) | Sesión con `auth_method === 'sso'` → `409 {"error": "Ingresaste con tu cuenta corporativa: la contraseña se gestiona en Microsoft."}` sin llamar al backend (FR-008). |
+| `GET /api/user/current` (`client/server.js:510-525`; el campo, en `:521`) | `user.auth_method` (`'sso'` o `'password'`). |
+| `POST /api/auth/change-password` (`client/server.js:329`; el 409, en `:333-335`) | Sesión con `auth_method === 'sso'` → `409 {"error": "Ingresaste con tu cuenta corporativa: la contraseña se gestiona en Microsoft."}` sin llamar al backend (FR-008). |
 | `POST /api/auth/logout` | Sin cambio (borra la sesión del `sid`). |
-| `POST /api/auth/login` (`client/server.js:258-273`) | **Rotación de `sid`** (N7 del QA v2): con login exitoso, `sid` nuevo de 24 bytes, `sessions[nuevo] = …`, `sessions[viejo]` borrada y `Set-Cookie: elea_rag_sid=<nuevo>; HttpOnly; Path=/; SameSite=Lax` (los atributos de `:93`, **sin** `Secure`, como hoy). Si el middleware ya puso un `elea_rag_sid` en la respuesta, se reemplaza solo esa entrada. Status y cuerpo idénticos a hoy. Con login fallido, nada cambia. |
-| `parseCookies` (`client/server.js:78-86`) | `decodeURIComponent` dentro de `try`: una cookie con `%` mal formado se **ignora** (como si no estuviera) y las demás se leen; nunca un 500 (N7 del QA v2). |
+| `POST /api/auth/login` (`client/server.js:301-319`; la rotación, `emitirSesionRotada` en `:141-148`, llamada en `:313`) | **Rotación de `sid`** (N7 del QA v2): con login exitoso, `sid` nuevo de 24 bytes, `sessions[nuevo] = …`, `sessions[viejo]` borrada y `Set-Cookie: elea_rag_sid=<nuevo>; HttpOnly; Path=/; SameSite=Lax` (los atributos de `sidCookie`, `:104-107`, **sin** `Secure`, como hoy). Si el middleware ya puso un `elea_rag_sid` en la respuesta, se reemplaza solo esa entrada. Status y cuerpo idénticos a hoy. Con login fallido, nada cambia. |
+| `parseCookies` (`client/server.js:89-101`) | `decodeURIComponent` dentro de `try`: una cookie con `%` mal formado se **ignora** (como si no estuviera) y las demás se leen; nunca un 500 (N7 del QA v2). |
 
 ## 6. Pantalla de ingreso (`client/public/index.html` + `client/public/sso-ui.js`)
 
@@ -148,21 +157,23 @@ cuando existe (tests con `node --test`) y por `window.SsoUi` en el navegador:
 
 | Función | Regla |
 |---|---|
-| `destinoBoton({enabled, return_origin}, origen)` | `null` (sin botón) si `enabled !== true` o `return_origin` es `null`, vacío o no es un origen `http(s)` **bien formado** (F4, FR-001/FR-015). Bien formado (N5 del QA v2) = `new URL(return_origin)` no lanza, su `protocol` es `http:` o `https:` y `new URL(return_origin).origin === return_origin`; eso descarta comillas, espacios, `<`, `\\`, credenciales `usuario@`, ruta y barra final. `'/sso/login'` si `return_origin === origen`. `` `${return_origin}/sso/login` `` si es otro origen. |
+| `destinoBoton({enabled, return_origin}, origen)` | `null` (sin botón) si `enabled !== true` o `return_origin` es `null`, vacío o no es un origen `http(s)` **bien formado** (F4, FR-001/FR-015). Bien formado = las **dos** condiciones juntas (`client/public/sso-ui.js:44-54`): **(a) lista blanca estricta de forma** (O1 del QA del Tramo B), `^https?://(host\|[ipv6])(:puerto)?$` anclada y sin bandera `m`: host en minúsculas con solo `[a-z0-9.-]` (empieza y termina en letra o dígito) o IPv6 entre corchetes con solo `[0-9a-f:.]`, y puerto opcional de 1 a 5 dígitos (`FORMA_ORIGEN`, `sso-ui.js:44`); **y (b)** (N5 del QA v2) `new URL(return_origin)` no lanza, su `protocol` es `http:` o `https:` y `new URL(return_origin).origin === return_origin` (`sso-ui.js:46-54`). (b) sola **no alcanza**: el parser de URL acepta en el host `"`, `'`, `;`, `=` y otros, así que `https://a"onmouseover=x` pasaría; (a) los descarta. Entre las dos descartan comillas, apóstrofos, `;`, `=`, `%`, `` ` ``, espacios, `<`, `\\`, credenciales `usuario@`, ruta, query, fragmento, barra final, mayúsculas, puerto vacío o no numérico y el puerto por defecto escrito (`:443`, `:80`, porque `origin` lo normaliza). `'/sso/login'` si `return_origin === origen`. `` `${return_origin}/sso/login` `` si es otro origen (`sso-ui.js:57-63`). |
 | `TEXTO_BOTON` | Constante con la etiqueta "Ingresar con Microsoft". **Todo** texto nuevo visible de la 056 vive en este módulo, incluida la etiqueta del botón, y no en `index.html` (N6 del QA v2: así lo cubre entero el test de marca blanca 21). |
 | `mensajeError(codigo)` | Texto de la tabla §4 para un código de la lista cerrada. Cualquier otro valor (desconocido, vacío, con HTML) → el texto de `sso_error`. Todo texto termina recordando el acceso con contraseña (FR-006). Sin marca fija (FR-013/FR-014). |
-| `ofrecerCambioContrasena(user)` | `false` si `user.auth_method === 'sso'` (FR-008), `true` en otro caso. Gobierna el botón "Contraseña" (`index.html:542`) y la apertura del modal (`:1067`). |
+| `ofrecerCambioContrasena(user)` | `false` si `user.auth_method === 'sso'` (FR-008), `true` en otro caso. Gobierna el botón "Contraseña" (`index.html:550`, vía `aplicarCambioContrasena` en `:1089-1092`) y la apertura del modal (`:1164-1165`). |
 
 `index.html` solo cablea:
 
-- Al mostrar el overlay de ingreso (`boot`, `index.html:1051-1056`) consulta
+- Al mostrar el overlay de ingreso (`boot`, `index.html:1096-1105`, que llama a
+  `mostrarIngresoCorporativo` en `:1064-1078`) consulta
   `/api/auth/sso/available` y llama a `destinoBoton(respuesta, window.location.origin)`. Con
   `null` no dibuja nada (US2 AS3): ni botón deshabilitado ni aviso. Con un destino, dibuja el
-  botón bajo el formulario (`:444-455`), que navega ahí. El botón se arma con
+  botón bajo el formulario (`:450-461`), en `#sso-login-slot` (`:462-463`), que navega ahí. El botón se arma con
   `document.createElement`, la etiqueta con `textContent = SsoUi.TEXTO_BOTON` y el destino con una
   propiedad (`href` o `location.assign`), **nunca** con `innerHTML` ni plantillas de texto con el
   origen adentro (N5 del QA v2).
-- Lee `?sso_error=` y escribe `mensajeError(valor)` en `#login-error` con **`textContent`**
+- Lee `?sso_error=` (`mostrarErrorCorporativo`, `index.html:1079-1088`) y escribe
+  `mensajeError(valor)` en `#login-error` (`:459`) con **`textContent`**
   (nunca `innerHTML`). Después limpia la barra con `history.replaceState`. El formulario de
   usuario y contraseña sigue visible y operativo siempre.
 - Usa `ofrecerCambioContrasena(currentUser)` para el botón "Contraseña" y el modal.
@@ -184,8 +195,13 @@ Servidor, con el doble HTTP de `client/tests/mock-servers.js`:
 6. Callback con el mismo `sid`, `state` y atadura correctos → sesión con `auth_method:'sso'`,
    `sid` rotado (con `Secure` si el retorno es `https://`) y `302 /`. Con `getSetCookie()`, la
    respuesta trae **exactamente** el `sid` rotado y el borrado de `__Host-sso_flow`, los dos, y
-   el `sid` viejo no aparece (N8 del QA v2); lo mismo en una primera visita, con el `Set-Cookie`
-   del middleware ya puesto.
+   el `sid` viejo no aparece (N8 del QA v2). La variante «primera visita» **no** se da con un
+   callback exitoso: sin `elea_rag_sid`, el middleware inventa un `sid` sin pendiente y el
+   callback cae siempre al rechazo (N1 del QA del Tramo B). Se cubre con lo alcanzable: un
+   callback fallido en primera visita deja una sola `elea_rag_sid` y no rota
+   (`client/tests/integration/test_sso_flujo_056.test.js:183`), y el filtro de
+   `emitirSesionRotada` con el `Set-Cookie` del middleware ya puesto lo prueba el test 24
+   (`client/tests/contract/test_login_sid_056.test.js:86`).
 7. Callback desde **otro** `sid` (otro navegador) → `sso_reintentar` y el backend recibe la
    llamada **sin** cookie.
 8. Callback con el `sid` correcto pero **sin** la cookie de atadura, o con otra (cookie `sid`
@@ -213,7 +229,15 @@ Pantalla, con `node --test` sobre `client/public/sso-ui.js` (sin `jsdom`, sin de
     mismo origen → `/sso/login`; otro origen → `${return_origin}/sso/login`; `return_origin` que no
     es `http(s)` (p. ej. `javascript:`) → `null`; `return_origin` mal formado → `null`: con comilla
     (`https://a"onmouseover=x`), con espacio (`https://a b`), con `<`, con `\\`, con credenciales
-    (`https://u@hub.ejemplo.local`), con ruta o con barra final (N5 del QA v2).
+    (`https://u@hub.ejemplo.local`), con ruta o con barra final (N5 del QA v2); con `'`, `;`,
+    `=`, `%22` o `` ` `` en el host (`https://a'b`, `https://a;b`, `https://a=b`, `https://a%22b`),
+    con puerto vacío, no numérico o de más de 5 dígitos, con corchetes mal cerrados y con el
+    puerto por defecto escrito (`https://hub.ejemplo.local:443`, `http://hub.ejemplo.local:80`)
+    (O1 y O2 del QA del Tramo B). Lado **aceptado** (O2): IPv4 con y sin puerto
+    (`http://172.16.0.120:8095`, el caso de D4, y `http://192.168.1.10`), IPv6 entre corchetes
+    con y sin puerto (`https://[::1]:8443`, `https://[2001:db8::1]`, el caso de FR-015) y nombre
+    con puerto explícito o por defecto → botón hacia ese origen, o `/sso/login` si es el mismo
+    (`client/tests/unit/sso-ui-056.test.js:62-123`; los casos de O2, commit `f1c5403`, T051).
 18. `mensajeError`: cada código de §4 → su texto; desconocido, vacío y `<img src=x onerror=…>` →
     el texto genérico, que no contiene el valor recibido; todos recuerdan la contraseña.
 19. `ofrecerCambioContrasena`: `sso` → `false`; `password` o ausente → `true`.
@@ -233,5 +257,5 @@ Marca blanca (FR-013/FR-014), `client/tests/unit/whitelabel-hub-056.test.js`, so
 23. `client/public/index.html` no contiene el literal "Ingresar con Microsoft" ni otro texto
     visible nuevo de la 056: la etiqueta sale de `SsoUi.TEXTO_BOTON` (N6 del QA v2). Así FR-013
     queda cubierto sin tocar la lista compartida. Límite honesto: `client/server.js` ya contiene
-    `Elea`/`ELEA_*` (`client/server.js:19`), así que sus rutas nuevas no se verifican contra
+    `Elea`/`ELEA_*` (`client/server.js:20`), así que sus rutas nuevas no se verifican contra
     FR-014 por lectura de marca; las cubre la revisión del PR.
