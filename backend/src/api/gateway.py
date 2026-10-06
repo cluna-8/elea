@@ -2198,7 +2198,7 @@ async def gw_info():
         "endpoints": ["/gw/v1/messages", "/gw/v1/messages/count_tokens", "/gw/v1/models"],
         "modes": {
             "subscription-passthrough": "OAuth del cliente verbatim → api.anthropic.com (la suscripción paga); política del gateway.",
-            "byok": "virtual key sk-sentinel-… → motor LiteLLM (cost tracking + budgets); la política la aplica el motor.",
+            "byok": "virtual key sk-sentinel-… → motor de IA de la plataforma (control de costos y presupuestos); la política la aplica el motor.",
         },
         "routing": "auto: sk-sentinel-… en header de auth (excl. x-sentinel-*) o en ?k=… → byok; si no, passthrough. Override: X-Sentinel-Upstream.",
         # La entrada de X-Sentinel-Redact cambió con la 027: prometía un override 1/0 y hoy
