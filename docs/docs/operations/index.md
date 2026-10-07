@@ -330,7 +330,7 @@ Los códigos **G#** refieren al detalle causa → fix en
 |---|---|---|
 | Claude Code ignora la identidad (aparece admin/default) | No reinició `claude` tras editar `settings.json`; o falta `X-Sentinel-Key` | Reiniciar `claude`; verificar con `curl …/api/v1/gw/whoami -H "X-Sentinel-Key: …"` |
 | Claude Desktop muestra «Failed to authenticate» seguido de «Modelo no disponible para tu región.» 🟡 | Rechazo de residencia de la [redirección de modelos](#7-redireccion-de-modelos): la aplicación antepone ese texto a todo `403`; no es un problema de credenciales | Cumplimiento revisa la postura y la ficha del destino ([Redirección de modelos](../administration/redireccionamiento.md)) |
-| «El pedido no pudo protegerse para este destino y fue bloqueado» (`400` en la cara Claude, `403` en la genérica) 🟡 | Enmascarado forzado: adjunto no analizable, analizador caído o dato en una posición que no se puede reescribir | Quitar el adjunto o abrir otra conversación; la auditoría guarda el tipo de causa (`unanalyzable_kinds`), nunca el contenido |
+| «El pedido no pudo protegerse para este destino y fue bloqueado» (`400` en la cara Claude, `403` en la genérica) 🟡 | Enmascarado forzado: adjunto no analizable (una imagen solo con `MASKING_IMAGES=filter`), analizador caído o dato en una posición que no se puede reescribir | Quitar el adjunto o abrir otra conversación; la auditoría guarda el tipo de causa (`unanalyzable_kinds`), nunca el contenido |
 | Copilot 401 / no autentica | `x-api-key` vacío, `apiKey` ignorado (G2) | Poner la key en la URL: `…/api/v1/gw/v1/messages?k=sk-sentinel-…` |
 | Copilot loopea, tarjetas `in=0 out=NN` repetidas (G1) | Modo Agent/Edit con modelo no-Claude | Cambiar a **modo Ask** |
 | El nombre real sale en el título de Claude.ai (G3) | Endpoint `/title` con prompt crudo | Confirmar que el adapter matchea `/title`; recargar la extensión (↻) |
@@ -760,6 +760,7 @@ y descripción de las comunes en la [referencia de configuración](../api-refere
 | `CATALOG_ALLOW_PRIVATE_API_BASE` | Apagada por defecto. Permite que una empresa cargue un modelo local (`http` o red interna). Solo para instalaciones de **una** empresa |
 | `FERNET_PREVIOUS_KEYS` | Rotación de la clave de cifrado: la anterior **solo descifra** |
 | `MASKING_ANALYSIS_CACHE_*`, `MASKING_EXEMPT_*`, `MASKING_PDF_*` | Opcionales del motor (caché de análisis, exenciones, topes de PDF); ver §7.4 |
+| `MASKING_IMAGES` | Opcional del motor: `pass` (por defecto; las imágenes salen tal cual y la auditoría las cuenta como `images_unmasked`) o `filter` (la adjunta bloquea y la de una herramienta se reemplaza por una nota). Un valor desconocido se trata como `filter`. Ver *Administración → Redireccionamiento de modelos* 🟡 |
 
 **No definir `REDIRECT_OPERATOR_TENANT`** en esta línea: daría autoridad de instalación a un
 administrador de empresa y desactivaría la garantía de quién relaja el enmascarado.

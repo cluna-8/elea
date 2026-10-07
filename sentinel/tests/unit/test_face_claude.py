@@ -329,3 +329,32 @@ def test_destino_con_vision_deja_pasar_la_captura_intacta():
     out, removed = face.normalize_for_translated(b, PROFILE_MIN, max_output=10)   # images: True
     assert out["messages"][2]["content"][0]["content"][0] == IMG
     assert "images_in_tool_result" not in removed
+
+
+# ── la capacidad del destino se respeta con cualquier ajuste de imágenes (S14, R43) ──────────────
+# `MASKING_IMAGES=pass` deja salir la imagen del enmascarado, pero NO se la manda a un destino que no declara `images`: la cara
+# resuelve por capacidad, antes del motor, y no lee el ajuste.
+
+@pytest.mark.parametrize("ajuste", ["pass", "filter"])
+def test_la_capacidad_del_destino_se_respeta_con_cualquier_ajuste_de_imagenes(monkeypatch, ajuste):
+    monkeypatch.setenv("MASKING_IMAGES", ajuste)
+    adjunta = body(messages=[{"role": "user", "content": [IMG, {"type": "text", "text": "mirá"}]}])
+    with pytest.raises(face.CapabilityRejected) as e:
+        face.normalize_for_translated(adjunta, NO_IMG, max_output=10)
+    assert e.value.capability == "images"
+    st, _, err = face.error_response("capability", capability="images")
+    assert st == 400 and err["error"]["message"].startswith("capability_rejected: images")
+
+    captura = _agente([_tool_result(IMG)])
+    out, removed = face.normalize_for_translated(captura, NO_IMG, max_output=10)
+    nota = out["messages"][2]["content"][0]["content"][0]["text"]
+    assert "no acepta imágenes" in nota and "images_in_tool_result" in removed
+
+
+@pytest.mark.parametrize("ajuste", ["pass", "filter"])
+def test_con_un_destino_que_declara_imagenes_la_cara_no_las_toca(monkeypatch, ajuste):
+    monkeypatch.setenv("MASKING_IMAGES", ajuste)
+    captura = _agente([_tool_result(IMG)])
+    out, removed = face.normalize_for_translated(captura, PROFILE_MIN | {"images": True}, max_output=10)
+    assert out["messages"][2]["content"][0]["content"] == [IMG]
+    assert "images_in_tool_result" not in removed

@@ -39,6 +39,13 @@ class _PluginForzado:
         return None
 
 
+@pytest.fixture(autouse=True)
+def _imagenes_filtradas(monkeypatch):
+    """Estos tests fijan el modo `filter` (R39): la imagen adjunta bloquea y la de una herramienta se reemplaza. El default de
+    Eleia es `pass` (R43, `test_masking_imagenes_pass.py`)."""
+    monkeypatch.setenv("MASKING_IMAGES", "filter")
+
+
 @pytest.fixture
 def forzado(bateria):                                           # noqa: F811
     gp.register_gateway_plugin(_PluginForzado())
@@ -92,6 +99,22 @@ def test_lo_no_analizable_se_bloquea_antes_de_llamar_al_proveedor(forzado, bloqu
     fila = forzado.auditorias[-1]
     assert fila["estado"] == "blocked_residency" and fila["bloqueada_por"] == "pii_masking"
     assert fila["entidades"] == [], "la fila no lleva contenido ni valores"
+
+
+def test_con_images_pass_la_imagen_adjunta_sale_tal_cual_y_el_texto_se_enmascara(forzado, monkeypatch):
+    """R43: el default de Eleia (`MASKING_IMAGES=pass`) vale también en la suscripción: la imagen no bloquea y viaja; el
+    texto del mismo mensaje sigue enmascarado."""
+    monkeypatch.setenv("MASKING_IMAGES", "pass")
+    cuerpo = _pedido()
+    cuerpo["messages"][0]["content"] = [
+        {"type": "text", "text": f"mirá {DNI}"},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}]
+    r = _publicar(forzado, cuerpo)
+    assert r.status_code == 200
+    enviado = forzado.upstream.llamadas[-1]["content"]
+    enviado = enviado.decode() if isinstance(enviado, bytes) else enviado
+    assert DNI not in enviado and '"AAAA"' in enviado
+    assert forzado.auditorias[-1]["estado"] != "blocked_residency"
 
 
 def test_un_dato_en_una_posicion_estructural_bloquea(forzado):

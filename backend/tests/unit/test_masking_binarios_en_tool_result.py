@@ -26,6 +26,13 @@ NOTA = policy.UNANALYZABLE_REPLACED_NOTE
 
 
 @pytest.fixture(autouse=True)
+def _imagenes_filtradas(monkeypatch):
+    """Estos tests fijan el modo `filter` (R39): la imagen adjunta bloquea y la de una herramienta se reemplaza. El default de
+    Eleia es `pass` (R43, `test_masking_imagenes_pass.py`)."""
+    monkeypatch.setenv("MASKING_IMAGES", "filter")
+
+
+@pytest.fixture(autouse=True)
 def _sin_resolutores():
     policy.clear_forced_masking_resolvers()
     yield

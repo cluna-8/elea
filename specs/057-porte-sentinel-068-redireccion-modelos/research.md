@@ -1092,6 +1092,45 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
 - **Alternativas descartadas**: migrar las filas existentes a `requested` (cambia en silencio una elección del administrador); sembrar un modo por instalación (la etiqueta es dato del administrador,
   no de la instalación); un modelo de datos de «grupos de modelos» (lo que hay alcanza).
 
+## R43. Imágenes bajo el forzado: el ajuste `MASKING_IMAGES=pass|filter` (default `pass`) — enmienda de S14 y de R39 (decisión del owner por el coordinador, 2026-10-07; FR-027, SC-006)
+
+- **Hechos**: R39 resolvió el corte de Cowork reemplazando por una nota solo lo que devuelve una herramienta; la imagen que adjunta la persona seguía
+  bloqueando (`403/400 masking_required`) y, con ella, cualquier uso de Claude Desktop con capturas o fotos. Una imagen sigue sin poder analizarse (no hay
+  reconocimiento de texto; R39, alternativa (a)). La decisión de qué hacer con ella es de la instalación, no del código ni del pedido.
+- **Decisión**: un ajuste de la instalación, `MASKING_IMAGES`, con dos valores (`litellm/extensions/sentinel_guardian_policy.py:1305-1317`, `images_mode()`):
+  - **`pass`** (**default de Eleia**; sin variable o vacía): las imágenes —`image` de Anthropic, `image_url` de OpenAI; adjuntas y dentro de un `tool_result`— salen **tal cual**.
+    `_w_unanalyzable` pregunta al conductor con la operación `("image", kind)` y, si responde que pasa, no bloquea ni reemplaza (`:1516-1517`; el conductor,
+    `_FullScopeMasker.handle`, `:2224-2228`). No suman a `unanalyzable`, no suman a `unanalyzable_replaced`, y quedan contadas aparte (`MaskingTally.pass_image`, `:1092`):
+    `images_unmasked` (entero) e `images_unmasked_kinds` (`["image"]`). **El texto se sigue enmascarando completo**; el contenido de la imagen **no** se enmascara
+    (se dice sin matices en la documentación). El resto de los binarios (audio, `document` por URL, PDF ilegible) **no cambia**.
+  - **`filter`**: el comportamiento de R39 tal cual (la adjunta bloquea; la de una herramienta se reemplaza por la nota).
+  - **Valor desconocido ⇒ `filter`** (el piso más alto ante la duda). Se lee del entorno en cada uso (como `optional_exemptions()`); `mask_body(..., images=)` acepta el valor
+    explícito (lo usan los tests; el pedido no tiene vía para cambiarlo: no llega al entorno del motor).
+- **Auditoría** (metadata-only): el guardrail suma al informe `images_unmasked` e `images_unmasked_kinds` solo si hubo imágenes sin enmascarar
+  (`litellm/extensions/sentinel_guardrail.py:745-748`); el guard los copia a la decisión (`sentinel/engine/redirect_guard.py:258-284`, `:678-683`) con el mismo
+  saneado que `unanalyzable_replaced` (entero positivo y nombres `[a-z0-9_]{1,32}`), el mismo canal que `masking_exempt`. `masking_ok` **no cambia**: como la imagen no cuenta como
+  no analizable, `unanalyzable == 0` y el pedido pasa; una imagen **no puede tapar** un no analizable de otro tipo (un audio sigue bloqueando).
+- **La capacidad del destino se respeta**: la cara Claude resuelve por capacidad **antes** del motor y no lee el ajuste (`sentinel/redirect/faces/claude.py:214-290`, `_check_blocks`,
+  `_omit_unsupported`): si la ficha del destino no declara `images`, la imagen que adjunta la persona da `400 capability_rejected: images` y la de una herramienta se cambia por
+  `_TOOL_NOTE` (etiqueta `images_in_tool_result`), con `pass` y con `filter`. **No se tocó `claude.py`**; un test lo fija con los dos valores.
+- **Por grupo/panel: no.** Llevarlo al grupo exigiría un campo nuevo en la autorización firmada del pedido (el grant), en el esquema de política y en el panel, con migración
+  (`sentinel/redirect/authz.py`, `sentinel/redirect/models.py`): no es un cambio simple ni mínimo en la base, y el brief pidió solo la variable si no lo era. Queda como mejora si un cliente
+  necesita imágenes para un grupo y no para otro. El ajuste vale **por instalación**; llega al motor por el archivo de entorno que arma el instalador (`EXTRA_ENV_FILE`), y como el default
+  está en el código, **una instalación existente cambia a `pass` al subir la imagen del motor, sin tocar su entorno**.
+- **Camino de suscripción**: `backend/src/api/gateway.py:488-494` llama a la misma `mask_body`: bajo el forzado de la pasarela rige el mismo ajuste (no se tocó `gateway.py`; no registra
+  `images_unmasked` en el log, solo el motor lo audita).
+- **Costo asumido (a decir en la documentación)**: con `pass` los datos personales **dentro de una imagen** (una foto de un DNI, una captura con datos) llegan al proveedor sin enmascarar. Es la
+  decisión del owner para Eleia; quien necesite el piso más alto pone `MASKING_IMAGES=filter`. Honesto: no es anonimización ni cobertura del 100 % (spec, «seudonimización reversible»).
+- **Alternativas descartadas**: (a) OCR de la imagen para analizarla: fase siguiente, no hay motor; (b) `pass` solo para las de herramientas: ya era R39, no resuelve las adjuntas; (c) decidirlo
+  por pedido o por cabecera: lo relajaría el cliente, contra el principio de que nada del pedido baja el piso (R29); (d) el default `filter`: lo decidió el owner al revés para Eleia.
+- **Tests**: `backend/tests/unit/test_masking_imagenes_pass.py` (27: modos, adjunta y de herramienta, OpenAI, conteo, marca de caché, texto vecino enmascarado, resto de binarios, `filter`,
+  desconocido ⇒ `filter`, informe, el pedido no cambia el ajuste, sin la señal); `sentinel/tests/unit/test_redirect_guard.py` (+4: la decisión lleva conteo y tipo, saneado, sin tapar un no analizable);
+  `sentinel/tests/integration/test_residency_forced_masking_multiturno.py` (+1: extremo a extremo con `pass`); `sentinel/tests/unit/test_face_claude.py` (+4: la capacidad del destino con los dos valores);
+  `backend/tests/unit/test_gateway_masking_scope_057.py` (+1: la suscripción con `pass`). Los tests de R39 y de la tabla fijan `MASKING_IMAGES=filter` (autouse).
+- **Para Sentinel**: costura S14 retrocompatible **solo si Sentinel elige su default**: acá `IMAGES_DEFAULT = "pass"` (`:1307`) es la decisión de Eleia; Sentinel (RGPD) puede fijarlo en `filter`
+  sin tocar nada más. Fila nueva en `HANDOFF-elea-a-sentinel.md` §2. Falta, en el instalador (`cluna-8/elea-installer`), documentar/exponer la variable en el archivo de entorno de la extensión
+  (opcional: sin ella rige el default).
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas

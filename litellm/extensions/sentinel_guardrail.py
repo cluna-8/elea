@@ -742,6 +742,10 @@ class SentinelGuardrail(CustomGuardrail):
                 # (el binario ya no sale) y solo se informan cuando los hubo: sin ellos el informe es el de siempre.
                 reporte.update(unanalyzable_replaced=tally.unanalyzable_replaced,
                                unanalyzable_replaced_kinds=tally.replaced_kinds)
+            if tally.images_unmasked:
+                # R43 (`MASKING_IMAGES=pass`): imágenes que salen tal cual. NO suman a `unanalyzable`; solo conteo y
+                # nombre de tipo, jamás contenido. Sin imágenes (o con `filter`) el informe es el de siempre.
+                reporte.update(images_unmasked=tally.images_unmasked, images_unmasked_kinds=tally.unmasked_image_kinds)
             if tally.signed_thinking_masked:
                 # Opcional: `thinking` con firma cuyo texto cambió al enmascarar. NO suma a `unanalyzable`:
                 # hacia un destino traducido la extensión reconstruye la firma (R10); el guard bloquea solo

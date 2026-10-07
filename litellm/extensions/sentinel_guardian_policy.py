@@ -1070,6 +1070,8 @@ class MaskingTally:
         self.signed_thinking_masked = 0
         self.unanalyzable_replaced = 0
         self._replaced_kinds: set = set()
+        self.images_unmasked = 0
+        self._unmasked_kinds: set = set()
 
     @property
     def kinds(self) -> list:
@@ -1079,9 +1081,19 @@ class MaskingTally:
     def replaced_kinds(self) -> list:
         return sorted(self._replaced_kinds)
 
+    @property
+    def unmasked_image_kinds(self) -> list:
+        return sorted(self._unmasked_kinds)
+
     def flag(self, kind: str) -> None:
         self.unanalyzable += 1
         self._kinds.add(kind)
+
+    def pass_image(self, kind: str) -> None:
+        """Una imagen que sale tal cual hacia el destino (`MASKING_IMAGES=pass`, R43): no es no analizable ni se reemplaza;
+        solo queda contada (cantidad y nombre de tipo) para la auditoría."""
+        self.images_unmasked += 1
+        self._unmasked_kinds.add(kind)
 
     def replace(self, kind: str) -> None:
         """Un binario que devolvió una HERRAMIENTA (`tool_result`) y no se pudo analizar: se cambió por una nota
@@ -1286,6 +1298,23 @@ def optional_exemptions() -> frozenset:
                      if os.environ.get(var, "").strip().lower() in _TRUE_WORDS)
 
 
+# Imágenes bajo el enmascarado forzado (057 R43; contracts/costuras-base.md §S14). Una imagen no se puede analizar (no hay
+# reconocimiento de texto): la INSTALACIÓN elige, por variable de entorno, qué pasa con ella. `pass`: sale tal cual (no
+# bloquea ni se reemplaza; se audita como `images_unmasked`). `filter`: la adjunta bloquea y la que devuelve una herramienta
+# se cambia por una nota (R39). Un valor desconocido se trata como `filter` (el piso más alto). El pedido no interviene.
+MASKING_IMAGES_ENV = "MASKING_IMAGES"
+IMAGES_PASS, IMAGES_FILTER = "pass", "filter"
+IMAGES_DEFAULT = IMAGES_PASS
+
+
+def images_mode() -> str:
+    """`pass` | `filter` según `MASKING_IMAGES` (leída en cada uso; sin valor ⇒ `IMAGES_DEFAULT`; valor desconocido ⇒ `filter`)."""
+    valor = os.environ.get(MASKING_IMAGES_ENV, "").strip().lower()
+    if not valor:
+        return IMAGES_DEFAULT
+    return IMAGES_PASS if valor == IMAGES_PASS else IMAGES_FILTER
+
+
 def _optionally_exempt(fmt: str, exempt, path: str, nodo: dict) -> bool:
     for opcion in exempt:
         for ruta in S14_EXEMPT_POSITIONS_OPTIONAL.get(opcion, {}).get(fmt, ()):
@@ -1329,6 +1358,7 @@ def _valid_cache_control(value) -> bool:
 #   ("scan_closed", (vocabulario, v)) → estructural de vocabulario cerrado: dentro del conjunto no se analiza; fuera, como "scan"
 #   ("scan_open", v) → estructural de vocabulario abierto (identificador): como "scan", ignorando los tipos de NER semántico
 #   ("flag", k)  → no analizable de tipo `k`
+#   ("image", k) → una imagen: el conductor responde `True` si sale tal cual (`MASKING_IMAGES=pass`, R43; ya contada) o falsy si sigue la vía de siempre
 #   ("replaced", k) → binario no analizable de una herramienta (dentro de `tool_result`) ya cambiado por una nota (R39)
 #   ("pdf", b64) → (texto|None, tipo_de_falla|None)
 #   ("signed_thinking", None) → un `thinking` con firma cambió de texto
@@ -1481,7 +1511,10 @@ def _replacement_note(kind: str) -> str:
 
 def _w_unanalyzable(blk: dict, kind: str, in_tool_result: bool):
     """Binario no analizable: dentro de un `tool_result` se cambia (en el lugar) por una nota de texto y cuenta como
-    reemplazado; en cualquier otro lugar es no analizable y bloquea. La marca de caché del bloque pasa a la nota."""
+    reemplazado; en cualquier otro lugar es no analizable y bloquea. La marca de caché del bloque pasa a la nota.
+    Una IMAGEN con `MASKING_IMAGES=pass` (R43) no llega a esto: sale tal cual y solo se cuenta (`MaskingTally.pass_image`)."""
+    if kind == "image" and (yield ("image", kind)):
+        return                                    # `MASKING_IMAGES=pass` (R43): la imagen sale tal cual y el conductor ya la contó
     if not in_tool_result:
         yield ("flag", kind)
         return
@@ -2098,8 +2131,9 @@ class _FullScopeMasker:
     """Conductor async del recorrido de alcance completo: analiza (con memoria por texto dentro del
     pedido), reemplaza por marcadores y cuenta."""
 
-    def __init__(self, analyze: AnalyzeFn, pmap: "PlaceholderMap", tally: MaskingTally):
+    def __init__(self, analyze: AnalyzeFn, pmap: "PlaceholderMap", tally: MaskingTally, images: str = IMAGES_FILTER):
         self.analyze, self.pmap, self.tally = analyze, pmap, tally
+        self.images = images
         self.budget = PdfRequestBudget()
         self._memo: dict = {}
 
@@ -2187,6 +2221,11 @@ class _FullScopeMasker:
         if tipo == "flag":
             self.tally.flag(valor)
             return None
+        if tipo == "image":
+            if self.images != IMAGES_PASS:
+                return False
+            self.tally.pass_image(valor)
+            return True
         if tipo == "replaced":
             self.tally.replace(valor)
             return None
@@ -2225,8 +2264,8 @@ async def analyze_segments(segmentos: list, analyze: AnalyzeFn) -> list:
 
 
 async def _mask_body_full(body: dict, analyze: AnalyzeFn, pmap: "PlaceholderMap", fmt: str,
-                          tally: MaskingTally, skip=(), exempt=frozenset()) -> None:
-    masker = _FullScopeMasker(analyze, pmap, tally)
+                          tally: MaskingTally, skip=(), exempt=frozenset(), images: str = IMAGES_FILTER) -> None:
+    masker = _FullScopeMasker(analyze, pmap, tally, images)
     await masker.prefetch(_collect_texts(body, fmt, with_scans=True, skip=skip, exempt=exempt))
     await _drive(_w_body(fmt, body, skip, exempt), masker.handle)
 
@@ -2234,7 +2273,7 @@ async def _mask_body_full(body: dict, analyze: AnalyzeFn, pmap: "PlaceholderMap"
 async def mask_body(body: dict, analyze: AnalyzeFn,
                     pmap: Optional[PlaceholderMap] = None, *, scope: str = MASKING_SCOPE_USER,
                     fmt: Optional[str] = None, tally: Optional[MaskingTally] = None,
-                    skip_keys=(), exempt=frozenset()) -> Tuple[dict, dict]:
+                    skip_keys=(), exempt=frozenset(), images: Optional[str] = None) -> Tuple[dict, dict]:
     """Enmascara la PII del request. Devuelve (body mutado, mapa placeholder→original).
 
     Sin `scope` (o `scope="user"`): solo los turnos USER, como siempre (no el system prompt ni las
@@ -2245,11 +2284,13 @@ async def mask_body(body: dict, analyze: AnalyzeFn,
     en `tally` (`MaskingTally`, solo conteos y nombres de tipo). `fmt` = `anthropic` | `openai`.
     `skip_keys`: claves de primer nivel internas del motor que no se recorren (metadata interna, copias de
     registro de la pasarela). `exempt`: exenciones opcionales de la instalación (`optional_exemptions()`; solo con
-    `scope="full"`), por defecto ninguna."""
+    `scope="full"`), por defecto ninguna. `images`: qué hacer con las imágenes bajo `scope="full"` (`pass` | `filter`;
+    sin valor, el ajuste de la instalación, `images_mode()`; R43)."""
     pmap = pmap or PlaceholderMap()
     if scope == MASKING_SCOPE_FULL:
         await _mask_body_full(body, analyze, pmap, fmt or detect_body_format(body),
-                              tally if tally is not None else MaskingTally(), skip=skip_keys, exempt=exempt)
+                              tally if tally is not None else MaskingTally(), skip=skip_keys, exempt=exempt,
+                              images=images if images in (IMAGES_PASS, IMAGES_FILTER) else images_mode())
     else:
         messages = body.get("messages")
         for msg in messages if isinstance(messages, list) else []:

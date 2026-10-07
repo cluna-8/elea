@@ -219,7 +219,7 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   (usuario y asistente: texto, entradas y resultados de herramientas, razonamiento) y las
   descripciones de herramientas. Los PDF se convierten a texto, se enmascaran y viajan al
   destino como texto enmascarado; un PDF sin texto extraíble (escaneado, protegido o corrupto),
-  las imágenes y los tipos desconocidos son no analizables y se bloquean (sin OCR en el MVP: fase
+  los tipos desconocidos son no analizables y se bloquean; las imágenes, según `MASKING_IMAGES` (Clarifications 2026-10-07, R43; sin OCR en el MVP: fase
   siguiente). Un razonamiento firmado con detecciones hacia un destino nativo se bloquea
   (FR-027, SC-006).
 - Q: ¿Puede el administrador de la empresa, con filas de postura o con la ficha del destino,
@@ -295,6 +295,17 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   uno extra que va a Kimi; un grupo «Solo Azure» solo ve los que van a Azure; `/v1/models` de cada llave lista solo lo suyo, un
   pedido al id de otro grupo da el error neutro sin nombrar destinos y un grupo restringido a Azure nunca llega a Kimi. No exige
   UI nueva ni modelo de datos nuevo.
+- Q: Bajo el forzado, ¿qué pasa con las imágenes (R43)? Con R39 la que adjunta la persona bloqueaba y la de una herramienta se
+  reemplazaba por una nota; cada instalación quiere decidirlo → A: Un ajuste de la instalación con dos valores, `MASKING_IMAGES`:
+  **`pass`** (el **default de Eleia**) deja salir las imágenes tal cual —adjuntas y dentro de un `tool_result`—: no cuentan como no
+  analizables, no bloquean y no se reemplazan; se auditan como `images_unmasked` (conteo y nombre de tipo, jamás contenido); el texto
+  se sigue enmascarando completo y el contenido de la imagen **no** se enmascara (se documenta sin matices). **`filter`** es el
+  comportamiento de R39. Un valor desconocido se trata como `filter`. El audio y los documentos no extraíbles siguen como hoy. La
+  capacidad del destino se respeta: si no declara `images`, la adjunta sigue dando `400 capability_rejected: images` y la de una
+  herramienta se cambia por la nota de capacidad, con cualquiera de los dos valores. Se configura **solo por instalación** (variable
+  de entorno del motor, `.env.example`); por grupo o desde el panel **no** (exigiría un campo nuevo en la autorización firmada, el
+  esquema y una migración: no es simple, queda como mejora). Vuelve a Sentinel por `HANDOFF` (costura S14, retrocompatible; allá
+  el default lo decide Sentinel).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -788,7 +799,7 @@ commits de Sentinel según HANDOFF §1(a))
   del asistente, incluido lo que la herramienta reenvía ya restaurado), las entradas y los
   resultados de herramientas, el razonamiento, las descripciones de herramientas y los
   adjuntos. Los PDF se convierten a texto, se enmascaran y salen como texto enmascarado; lo no
-  analizable (PDF sin texto extraíble, imágenes, tipos desconocidos, o un razonamiento firmado
+  analizable (PDF sin texto extraíble, imágenes con el ajuste `filter` —con `pass`, el default, salen tal cual—, tipos desconocidos, o un razonamiento firmado
   con identificadores hacia un destino nativo, que no se puede enmascarar sin invalidar la firma)
   bloquea el pedido (Clarifications, QA del plan, B3; el reconocimiento de texto en imágenes es
   una fase siguiente). **Excepción** (Clarifications 2026-10-07, R39): una imagen, un audio o un
@@ -796,7 +807,11 @@ commits de Sentinel según HANDOFF §1(a))
   Cowork revisa su resultado) NO bloquea: se reemplaza por una nota de texto neutra —el binario nunca
   sale hacia el destino— y la auditoría registra `unanalyzable_replaced` (conteo y nombres de tipo, sin
   contenido), que no suma a lo no analizable; lo que **adjunta la persona** en su mensaje sigue
-  bloqueando. (← 068 FR-016, FR-016a, D16; Clarifications D2)
+  bloqueando. **Ajuste de imágenes** (Clarifications 2026-10-07, R43): `MASKING_IMAGES` = `pass` (default de Eleia) o `filter`. Con
+  `pass`, las imágenes —adjuntas y dentro de un `tool_result`— salen tal cual: no son no analizables, no bloquean ni se
+  reemplazan, y la auditoría registra `images_unmasked` (conteo y tipo, sin contenido); el texto se sigue enmascarando completo.
+  Con `filter` rige lo anterior (la que adjunta la persona bloquea, la de una herramienta se reemplaza). Lo decide la
+  instalación, no el pedido; la capacidad `images` del destino se respeta con los dos valores. (← 068 FR-016, FR-016a, D16; Clarifications D2)
 - **FR-028** [BASE]: Cada destino DEBE registrar su jurisdicción de inferencia y la de su entidad
   responsable; sin jurisdicción de inferencia, no satisface ninguna lista y, con la postura por
   defecto, se rechaza; la categoría «procesado en región, entidad de otra jurisdicción» no
@@ -1056,7 +1071,8 @@ instalación de demo (FR-020).
   forzado en todo destino*) sale sin los datos personales detectables de la batería de prueba
   (incluidos los del perfil Argentina: DNI, CUIT/CUIL, CBU, en los formatos que la batería fija)
   en ninguna de sus partes (sistema, turnos del usuario y del asistente, herramientas, adjuntos
-  PDF), el 100 % de los pedidos con contenido no analizable se bloquea y el 100 % se bloquea con
+  PDF), el 100 % de los pedidos con contenido no analizable se bloquea (las imágenes quedan fuera de este conteo con `MASKING_IMAGES=pass`, el
+  default de Eleia: salen tal cual y se auditan como `images_unmasked`; R43) y el 100 % se bloquea con
   el analizador caído. (← 068 SC-006;
   [ELEIA] la batería incluye los identificadores del perfil `latam_ar`)
 - **SC-007** [BASE]: Ninguna sesión de streaming de la batería se corta por inactividad mientras
