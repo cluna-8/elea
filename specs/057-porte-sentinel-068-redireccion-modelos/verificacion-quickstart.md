@@ -270,3 +270,31 @@ error por la tubería cerrada, lo que `pipefail` cuenta como fallo aunque el con
 `elea057gate-{backend,frontend,docs}-prod:check`, creadas por esta corrida. Sin `prune`. `test_docs_whitelabel.sh` fija sus tags (`sentinel-docs:wl-base`, `sentinel-docs:wl-aegis`): el check
 los (re)construye en cada corrida; ya existían de corridas anteriores y no se retiraron (no son de este proyecto de compose). Una invocación suelta de `make -C deploy check-docs` sin
 el proyecto propio creó la imagen `057-cierre-backend` y tres redes `057-cierre_*` vacías; se borraron al momento (solo esas).
+
+## 9. Cowork, etiqueta y OpenRouter (T119–T123) — corrida sin Docker, 2026-10-07
+
+Rama `cluna-8/057-cowork-2` sobre `ef20722` (el WIP de un worker cortado por falta de memoria, retomado). **Sin Docker**: `make -C deploy check`/`check-docs` completos y la suite del
+backend en contenedor **no se corrieron** (T124, 🐳, lo hace el coordinador con el motor reconstruido). Venv de pruebas fuera del repo (`litellm 1.95.1`, `fastapi 0.111.0`,
+`starlette 0.37.2`, sin `NLP_ANALYZER_URL`/`INTERNAL_ALLOWED_CIDRS`); las suites de a un directorio por vez, con `PYTHONPATH=<raíz>:<raíz>/backend:<raíz>/litellm`.
+
+| Suite | Resultado |
+|---|---|
+| `backend/tests/unit` | **1845 passed, 4 skipped** |
+| `backend/tests/contract` (incluye T003 `test_gw_no_regresion_057.py`) | 111 passed, 9 skipped, **7 failed: los mismos 7 en la base `8b6ed5f`** (6 de `test_route_parity.py` piden el host `db`; 1 de `test_policy_module_identity.py` falla en la corrida del directorio y pasa aislado) |
+| `sentinel/tests/unit` · `contract` · `integration` · `perf` | 1577 · 526 · 397 · 4 passed (**2504 passed, 13 skipped** en total; antes 2446) |
+| `sentinel/frontend` (Vitest) + `tsc -p .` | **287 passed** (26 archivos); tipos sin errores |
+| `frontend` (Vitest) · `client` (`node --test`) | **36 passed** · **43 passed** |
+| `docs/test_gen_config_reference.py`, `docs/tools/test_drift_gate.py`, `docs/tools/drift_gate.py`, `deploy/release/checks/test_docs_structure.sh` | verdes (13 tests; 0 fallos de deriva; estructura y template GUÍA/RUNBOOK OK). Revisión manual de nombres prohibidos en las dos páginas: sin coincidencias |
+
+**Rojo→verde** (los tests nuevos copiados sobre el código de la base `8b6ed5f`, corridos en un árbol aparte): `test_masking_binarios_en_tool_result.py` (14) **no se puede ni importar** (error de
+colección: faltan las notas y el conteo); `test_redirect_etiqueta_solicitada.py` 3 de 9 en rojo; `test_migracion_etiqueta_solicitada.py` 4 de 4; `test_redirect_sonnet_azure_a_kimi.py` 2 de 3
+(la tercera, el selector, ya pasaba por el modo `requested` explícito); `test_redirect_guard.py` 2 en rojo (los reemplazos en la decisión); `test_catalog_reference_api.py` 3 en rojo
+(`provider_options`). `test_redirect_grupos_azure_y_todos.py` (8) **ya pasaba en la base**: es la prueba de que los grupos funcionan con lo que existe (sin código nuevo). Con el cambio, todos verdes.
+
+**Id de Kimi K3** (lista pública `https://openrouter.ai/api/v1/models`, consultada el 2026-10-07): **`moonshotai/kimi-k3`**; ventana 1 048 576, entrada texto/imagen/video,
+herramientas, 0,62 US$ de entrada y 15 US$ de salida por millón; 24 endpoints de proveedores finales (p. ej. Fireworks, Together, DeepInfra, Parasail, Moonshot AI). Existe también
+`moonshotai/kimi-k3:batch`, que no se usa.
+
+**Falta para la prueba en vivo (T124)**: reconstruir el motor `-ext` (cambió `litellm/extensions/*`) y la imagen del backend; aplicar la migración `0529902015ad`; una tarea de Cowork con
+capturas bajo el forzado (esperar `unanalyzable_replaced` en la auditoría), el selector con el id pedido, el alta de `moonshotai/kimi-k3` con «Proveedores permitidos» y su ficha, y la
+regla de Azure a Kimi.

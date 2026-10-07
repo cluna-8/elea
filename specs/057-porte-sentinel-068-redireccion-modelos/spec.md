@@ -991,11 +991,11 @@ commits de Sentinel según HANDOFF §1(a))
   compatibilidad por herramienta y proveedor sin declarar compatibilidad no verificada, en el
   template GUÍA/RUNBOOK; y la verificación de documentación del release DEBE quedar verde.
   (← 068 FR-036; Definition of Done de `AGENTS.md`)
-- **FR-053** [BASE]: La etiqueta de un id publicado DEBE ser, por defecto, el **id pedido** (`label_mode =
+- **FR-057** [BASE]: La etiqueta de un id publicado DEBE ser, por defecto, el **id pedido** (`label_mode =
   requested`): ni `/v1/models` ni las respuestas (cuerpo, `model` y eventos de *streaming*) DEBEN exponer el nombre ni el
   modelo real del destino salvo que el administrador elija mostrarlo por id (`destination`) o ponga una etiqueta propia
   (`custom`); cambiar el default NO DEBE alterar las filas existentes. (Clarifications 2026-10-07, R40)
-- **FR-054** [BASE]: El alta guiada de modelos («Dar de alta modelos») DEBE poder dar de alta un destino de un agregador
+- **FR-058** [BASE]: El alta guiada de modelos («Dar de alta modelos») DEBE poder dar de alta un destino de un agregador
   (OpenRouter) pidiendo y enviando los proveedores permitidos (FR-032); la ficha de ese destino DEBE llevar la jurisdicción de
   inferencia, de entidad y de control del proveedor final, no las del agregador; y una regla DEBE poder mover un id publicado
   de un destino a otro sin cambios en el cliente. Los ids publicados y las reglas con alcance de grupo, junto con el perfil de

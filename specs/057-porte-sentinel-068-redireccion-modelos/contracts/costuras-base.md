@@ -145,8 +145,24 @@ nombrar el motor interno (FR-004); describe los modos con texto neutro.
   `pdf_resource_limit`, `pdf_error`, `pdf_request_limit`) o sin `pypdf` instalado; una detección en una posición estructural
   (`structural_entity`); `document` por URL; `image`; audio; tipos
   desconocidos; `redacted_thinking`; `thinking` firmado con detecciones hacia un destino nativo.
+- **Excepción: binarios que devuelve una herramienta** (enmienda 2026-10-07; research R39; FR-027). Una `image`, un audio o un
+  documento no analizable (PDF ilegible, `document` por URL, `file` sin datos) que está **dentro de un `tool_result`** (Anthropic; en
+  OpenAI, el contenido de un mensaje de rol `tool`/`function`) **no** es no analizable: el recorrido lo cambia, en el lugar, por un
+  bloque de texto con una nota neutra («imagen/documento/audio omitido por la política de protección de datos: no se envía al
+  modelo»; pide no insistir con capturas), conserva la marca de caché válida del bloque y lo cuenta aparte. El binario **nunca** sale
+  hacia el destino. Vale en cualquier profundidad dentro del `tool_result` (`source.type = "content"` incluido). **No cambia**: un PDF
+  con texto devuelto por una herramienta sigue como texto enmascarado; lo que **adjunta la persona** en su mensaje (imagen, audio,
+  documento sueltos en un turno `user`) sigue siendo no analizable y bloquea; los no binarios (`redacted_thinking`, tipos
+  desconocidos, `structural_entity`, `cache_control` inválido, `too_deep`) siguen bloqueando también dentro de un `tool_result`. Sin la
+  señal de forzado, el cuerpo no se toca. Texto de las notas, `litellm/extensions/sentinel_guardian_policy.py:1460-1473`; la decisión,
+  `_w_unanalyzable` (`:1476`) y las rutas de `tool_result` (`_w_container`, `:1633-1638`).
 - **Informe**: `masking_report = {completed, degraded, detected, masked, scope, unanalyzable, unanalyzable_kinds}`
-  (`unanalyzable_kinds`: solo nombres de tipo). El guard de la
+  (`unanalyzable_kinds`: solo nombres de tipo). **Campos opcionales** (solo cuando hubo reemplazos; sin ellos el informe es el de
+  siempre): `unanalyzable_replaced` (entero ≥ 1) y `unanalyzable_replaced_kinds` (nombres de tipo, `[a-z0-9_]{1,32}`), de
+  `litellm/extensions/sentinel_guardrail.py:740-744`; **no suman a `unanalyzable`** (el binario ya no sale) y el guard los copia
+  a la decisión del pedido (`sentinel/engine/redirect_guard.py:258-271`, `:658-663`), de donde sale la auditoría
+  (`unanalyzable_replaced`, solo conteo y tipos; jamás contenido). El camino de suscripción solo lo registra en el log
+  (`backend/src/api/gateway.py:543-546`). El guard de la
   extensión exige, cuando el forzado rige, `completed ∧ ¬degraded ∧ detected = masked ∧ unanalyzable = 0 ∧
   scope = "full"`; si no, `masking_required` con el error de cada cara (cara Claude 400
   `invalid_request_error`, cara genérica 403; contracts/cara-claude.md §7, cara-generica.md). Un informe sin
