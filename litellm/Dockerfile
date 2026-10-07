@@ -7,5 +7,7 @@ FROM ghcr.io/berriai/litellm:main-latest@sha256:80ea654c506da9083503d00c1b323b2f
 
 COPY config.yaml /app/config.yaml
 COPY extensions/ /app/extensions/
+# Deriva ROUTER_EMBEDDINGS_MODEL de ROUTER_EMBEDDINGS_DEPLOYMENT (default text-embedding-3-large) y hace exec litellm.
+COPY --chmod=755 entrypoint.sh /app/entrypoint.sh
 
-ENTRYPOINT ["litellm", "--config", "/app/config.yaml"]
+ENTRYPOINT ["/app/entrypoint.sh", "--config", "/app/config.yaml"]

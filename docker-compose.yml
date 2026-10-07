@@ -127,6 +127,8 @@ services:
       - AZURE_API_BASE=${AZURE_OPENAI_ENDPOINT}
       - AZURE_API_VERSION=${AZURE_API_VERSION}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Nombre del DESPLIEGUE de embeddings en el recurso Azure (lo elige quien lo creó; ver .env.example)
+      - ROUTER_EMBEDDINGS_DEPLOYMENT=${ROUTER_EMBEDDINGS_DEPLOYMENT:-text-embedding-3-large}
       # nombre de servicio compose (DNS interno de la red), no container_name
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -150,9 +152,11 @@ services:
       - SENTINEL_AUDIT_FAIL=${SENTINEL_AUDIT_FAIL:-open}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml
+      # Arranque del motor: deriva ROUTER_EMBEDDINGS_MODEL de ROUTER_EMBEDDINGS_DEPLOYMENT (abajo)
+      - ./litellm/entrypoint.sh:/app/entrypoint.sh:ro
       # Extensiones Sentinel (spec 014): custom_auth se resuelve relativo al config.yaml
       - ./litellm/extensions:/app/extensions
-    entrypoint: ["litellm", "--config", "/app/config.yaml"]
+    entrypoint: ["/app/entrypoint.sh", "--config", "/app/config.yaml"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
