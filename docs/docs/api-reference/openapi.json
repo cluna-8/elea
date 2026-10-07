@@ -2113,6 +2113,37 @@
         "title": "KeyGeneratedResponse",
         "type": "object"
       },
+      "KeyLimitsUpdateSchema": {
+        "description": "Límites nuevos de una llave existente (al menos uno). Mínimo 1.",
+        "properties": {
+          "rpm_limit": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpm Limit"
+          },
+          "tpm_limit": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tpm Limit"
+          }
+        },
+        "title": "KeyLimitsUpdateSchema",
+        "type": "object"
+      },
       "KeyResponseSchema": {
         "properties": {
           "can_act_on_behalf": {
@@ -8313,6 +8344,69 @@
         ]
       }
     },
+    "/api/v1/gw/v1/chat/completions": {
+      "post": {
+        "operationId": "gw_chat_completions_api_v1_gw_v1_chat_completions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Sentinel-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sentinel-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Sentinel-Upstream",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Sentinel-Upstream"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gw Chat Completions",
+        "tags": [
+          "gateway"
+        ]
+      }
+    },
     "/api/v1/gw/v1/messages": {
       "post": {
         "operationId": "gw_messages_api_v1_gw_v1_messages_post",
@@ -8823,6 +8917,74 @@
           }
         },
         "summary": "Revoke Key",
+        "tags": [
+          "Virtual Keys"
+        ]
+      },
+      "patch": {
+        "description": "Cambia los límites de pedidos/min y tokens/min de una llave existente. Se aplican de inmediato; si el\nservicio de modelos no responde, responde 503 y no cambia nada.",
+        "operationId": "update_key_limits_api_v1_keys__key_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Key Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyLimitsUpdateSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyResponseSchema"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Key Limits",
         "tags": [
           "Virtual Keys"
         ]

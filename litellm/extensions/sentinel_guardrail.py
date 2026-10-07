@@ -26,6 +26,18 @@ el mapa no puede fugar; verificado en ``validate_anthropic_api_metadata``) o en
 ``metadata`` (rutas openai, que el motor no reenvía). JAMÁS se persiste (C1): el
 audit logger lo scrubbea explícitamente.
 
+``masking_report`` (en el mismo metadata-home que ``sentinel_compliance``): resumen SIEMPRE
+presente del paso de PII — ``{completed, degraded, detected, masked, scope, unanalyzable,
+unanalyzable_kinds}``, solo conteos y nombres de tipo (S5b + S14).
+
+**Enmascarado forzado de alcance completo (S14, 057)**: con la señal ``sentinel_forced_masking`` en la
+metadata interna —solo la escribe la pasarela, con marca de procedencia por tipo; la que mande el cliente se
+descarta— el guardrail enmascara TODO lo que sale (``system``, todos los turnos, herramientas, resultados,
+``thinking`` y todo valor de texto salvo las posiciones estructurales del protocolo), con el enmascarado
+encendido y ``nlp_fail_mode = block`` aunque la empresa diga otra cosa; los PDF con texto viajan como texto
+enmascarado (extracción en un proceso hijo con topes) y lo que no se puede analizar queda contado en el
+informe para que el guard de la extensión bloquee. Sin la señal, todo igual que antes (``scope = "user"``).
+
 GOTCHAS aplicados (research T005): NO definir ``apply_guardrail`` (redirigiría todo
 al unified_guardrail); el override del streaming hook debe estar en ESTA clase hoja.
 
@@ -56,6 +68,12 @@ logger = logging.getLogger("sentinel-guardrail")
 
 # call_types con body de mensajes que esta política inspecciona/enmascara
 _TEXT_CALL_TYPES = {"completion", "acompletion", "atext_completion", "anthropic_messages"}
+
+# Claves de primer nivel que el motor/la pasarela agregan al cuerpo y NO son del cliente: el alcance completo
+# no las recorre (registro, identidad, el propio informe). La metadata del cliente en la ruta Anthropic
+# (`metadata.user_id`) sí se enmascara; en las rutas OpenAI `metadata` ES el home interno (y el motor no la
+# reenvía), así que ahí también se salta.
+_INTERNAL_BODY_KEYS = ("litellm_metadata", "proxy_server_request", "secret_fields")
 
 # spec 016: motor de detección NLP real. Sin esta env var, el guardrail degrada a
 # `default_analyze` (regex) — modo dev/demo EXPLÍCITO, nunca el default de prod
@@ -469,6 +487,26 @@ class SentinelGuardrail(CustomGuardrail):
             return None
 
         inicio = time.monotonic()
+        # S14: la señal de forzado vale solo con la marca de procedencia (la escribe la pasarela); la que
+        # mande el cliente, en el cuerpo o en cualquier `metadata`, se descarta ANTES de todo lo demás.
+        forzado = policy.trusted_forced_masking(data.get("litellm_metadata"), data.get("metadata"))
+        policy.discard_untrusted_forced_masking(data, data.get("metadata"), data.get("litellm_metadata"))
+        home = _metadata_home(data, call_type)
+        if not forzado and policy.resolve_forced_masking(data, user_api_key_dict, call_type):
+            # Lo decide un resolutor registrado por una extensión (el token firmado del grant); la marca por
+            # tipo la pone ESTE código, dentro del motor.
+            policy.mark_forced_masking(home)
+            forzado = True
+        # Resumen del paso de PII, SIEMPRE presente (y sobrescrito: un valor sembrado por el
+        # cliente con esta clave no sobrevive). Solo conteos y nombres de tipo, jamás valores (C1). Se
+        # muta en el lugar a medida que avanza el hook; `completed` solo al final del camino feliz.
+        reporte = {"completed": False, "degraded": False, "detected": 0, "masked": 0,
+                   "scope": policy.MASKING_SCOPE_FULL if forzado else policy.MASKING_SCOPE_USER,
+                   "unanalyzable": 0, "unanalyzable_kinds": []}
+        home["masking_report"] = reporte
+        fmt = "anthropic" if call_type == "anthropic_messages" else "openai"
+        # Lo que el alcance completo no recorre: lo interno, y el home interno aunque se llame `metadata`.
+        saltear = _INTERNAL_BODY_KEYS + (("metadata",) if "litellm_metadata" not in data else ())
 
         async def _bloquear(mensaje: str, *, status: str, capa: str,
                             entidades: Optional[list] = None,
@@ -488,11 +526,18 @@ class SentinelGuardrail(CustomGuardrail):
             return _AUDIT_UNAVAILABLE_MSG
 
         identity = _sentinel_identity(user_api_key_dict)
-        inspect_text = policy.extract_inspect_text(data)
+        # Exenciones opcionales de S14 (research R34): solo la INSTALACIÓN las enciende (variables de entorno) y solo
+        # bajo el forzado; apagadas por defecto. Lo exento no se analiza ni se reescribe, pero los secretos y la Ley de
+        # IA (abajo) siguen mirando todo. El informe lista los nombres.
+        exentas = policy.optional_exemptions() if forzado else frozenset()
+        if exentas:
+            reporte["exempt"] = sorted(exentas)
+        inspect_text = (policy.extract_inspect_text(data, scope=policy.MASKING_SCOPE_FULL, fmt=fmt,
+                                                    skip_keys=saltear)
+                        if forzado else policy.extract_inspect_text(data))
 
         # 1) Enforcement duro: AI-Act Art.5 (400) — real hoy, nivel 1 de [D3]
         verdict = policy.evaluate_ai_act(inspect_text)
-        home = _metadata_home(data, call_type)
         home["sentinel_compliance"] = verdict
         if verdict["status"] == "blocked_prohibited":
             # str → HTTPException 400 (contrato del hook), con fila durable ya escrita.
@@ -518,126 +563,199 @@ class SentinelGuardrail(CustomGuardrail):
                 # el detalle vive en el mensaje al cliente, que no se persiste.
                 entidades=_conteo("SECRET", len(secrets)))
 
-        # 3) Mask PII reversible — toggle por Connection (NULL=heredar → True hoy)
-        if identity.get("redact_enabled", True):
-            custom_names = identity.get("custom_names") or []
-            custom_entities = identity.get("custom_entities") or []
+        # 3) PII — detección siempre (para `masking_report`); mask reversible según el
+        # toggle por Connection (NULL=heredar → True hoy).
+        custom_names = identity.get("custom_names") or []
+        custom_entities = identity.get("custom_entities") or []
 
-            # Región de patrones estructurados, por TENANT (spec 016 + extensión países
-            # reales, ADR pendiente). `SENTINEL_ENTITY_REGION` sigue siendo el default DE LA
-            # INSTALACIÓN (retrocompatible: una instalación existente que ya la fija
-            # sigue igual para todo tenant sin `region` propia); `identity.get("region")`
-            # la sobreescribe cuando el tenant tiene un país propio configurado — mismo
-            # mecanismo que `nlp_fail_mode` un poco más abajo.
-            region = policy.resolve_region(
-                identity, default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
+        # Región de patrones estructurados, por TENANT (spec 016 + extensión países
+        # reales, ADR pendiente). `SENTINEL_ENTITY_REGION` sigue siendo el default DE LA
+        # INSTALACIÓN (retrocompatible: una instalación existente que ya la fija
+        # sigue igual para todo tenant sin `region` propia); `identity.get("region")`
+        # la sobreescribe cuando el tenant tiene un país propio configurado — mismo
+        # mecanismo que `nlp_fail_mode` un poco más abajo.
+        region = policy.resolve_region(
+            identity, default=os.environ.get("SENTINEL_ENTITY_REGION", policy.DEFAULT_REGION))
 
-            async def _analyze_regex(texto: str) -> list:
-                """`default_analyze` con la región de ESTE tenant ya resuelta (H1 del gate
-                de #137): sin este binding, cualquier camino que caiga al regex de dev —sin
-                sidecar configurado, o degradado por el sidecar caído, más abajo— se
-                congelaba en `DEFAULT_REGION` (eu) aunque el NLP real ya resolviera por
-                tenant. Un degrade que pierde la región es la falla silenciosa clásica,
-                justo cuando el sistema ya está en problemas."""
-                return await policy.default_analyze(texto, region=region)
+        async def _analyze_regex(texto: str) -> list:
+            """`default_analyze` con la región de ESTE tenant ya resuelta (H1 del gate
+            de #137): sin este binding, cualquier camino que caiga al regex de dev —sin
+            sidecar configurado, o degradado por el sidecar caído, más abajo— se
+            congelaba en `DEFAULT_REGION` (eu) aunque el NLP real ya resolviera por
+            tenant. Un degrade que pierde la región es la falla silenciosa clásica,
+            justo cuando el sistema ya está en problemas."""
+            return await policy.default_analyze(texto, region=region)
 
-            if _PRESIDIO_URL:
-                async def _analyze(text: str) -> list:
-                    return await policy.presidio_analyze(
-                        text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
+        if _PRESIDIO_URL:
+            async def _analyze_nlp(text: str) -> list:
+                return await policy.presidio_analyze(
+                    text, _PRESIDIO_URL, custom_names, region, custom_entities=custom_entities)
+
+            # S17 (research R34): un segmento que ya se analizó con esta misma configuración y para esta empresa no
+            # vuelve al analizador. Solo se envuelve el analizador real: el regex de respaldo de `degrade` no entra.
+            _cfg_cache = policy.analysis_cache_config()
+            _analyze = policy.cached_analyze(
+                _analyze_nlp, cache=policy.get_analysis_cache() if _cfg_cache.enabled else None,
+                version=policy.analysis_config_version(
+                    region=region, custom_names=custom_names, custom_entities=custom_entities,
+                    analyzer_url=_PRESIDIO_URL, salt=_cfg_cache.salt),
+                scope=str(identity.get("tenant_id") or ""))
+        else:
+            logger.warning(
+                "NLP_ANALYZER_URL no configurada — usando detección regex de "
+                "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
+            )
+            _analyze = _analyze_regex
+
+        if not forzado and not identity.get("redact_enabled", True):
+            # Redact desactivado: solo se CUENTA lo detectado. (Bajo el forzado de S14 el enmascarado se
+            # enciende aunque la empresa lo haya apagado: la señal solo puede AGREGAR protección.) Sin cambio de
+            # comportamiento: jamás bloquea ni degrada por un NLP caído — el reporte
+            # queda `completed=False` (no se sabe qué había).
+            try:
+                reporte["detected"] = len(await _analyze(inspect_text))
+            except policy.NlpUnavailableError:
+                return data
+            reporte["completed"] = True
+            return data
+
+        # Postura ante el analyzer CAÍDO (issue #63). Viaja con la identidad de la
+        # Connection (`custom_auth` la trae del `Guardian.config` del guardián
+        # `pii_masking`, igual que `custom_names`), así los DOS planos obedecen la misma
+        # decisión del admin. Ausente ⇒ `block`: el comportamiento de la 016 no cambia
+        # para ninguna instalación existente.
+        nlp_fail_mode = policy.NLP_FAIL_BLOCK if forzado else policy.resolve_nlp_fail_mode(identity)
+
+        def _contando(analyze):
+            """El analyzer del masking, contando las entidades que reemplaza."""
+            async def _analyze_y_contar(texto: str) -> list:
+                entidades = await analyze(texto)
+                reporte["masked"] += len(policy.resolve_overlaps(entidades))
+                return entidades
+            return _analyze_y_contar
+
+        async def _degradar_a_regex(texto_o_body, *, es_body: bool, pmap=None):
+            """Rehace la detección con el regex de dev y deja los tres rastros del #63.
+
+            `pmap` se REUSA a propósito cuando se degrada en medio de `mask_body`: si se
+            creara un mapa nuevo, los placeholders que el NLP ya alcanzó a insertar antes
+            de caerse quedarían huérfanos (otro nonce) y saldrían crudos al cliente en el
+            unmask. Reusarlo mantiene UN solo mapa reversible por request.
+            """
+            logger.error(
+                "nlp: motor de detección NLP no disponible y la política de la "
+                "instalación es `degrade` — este pedido se sirve con detección REGEX de "
+                "dev (cobertura menor; Constraint SC-2). Queda marcado como %s.",
+                policy.STATUS_NLP_DEGRADED)
+            await _marcar_nlp_degradado()
+            reporte["degraded"] = True
+            home["sentinel_compliance"] = {
+                "status": policy.STATUS_NLP_DEGRADED, "risk_level": "unknown",
+                "reason": "nlp_unavailable_degraded_regex",
+            }
+            if es_body:
+                return await policy.mask_body(texto_o_body, _contando(_analyze_regex), pmap)
+            return await policy.default_analyze(texto_o_body, region=region)
+
+        # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
+        # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
+        # body — evita enmascarar parcialmente una request que después se
+        # bloquea, y evita una segunda ronda de red si hay que bloquear (spec
+        # 016 US2, FR-005/FR-006).
+        entity_configs = identity.get("entity_configs") or {}
+        try:
+            if forzado:
+                # Bajo el alcance completo el análisis previo por tipo corre por SEGMENTO (los mismos que recorre el
+                # enmascarado y por la misma caché, S17): sin una segunda pasada por un texto unido que cambia en
+                # cada turno, y sin el tope de `INSPECT_CAP` (el enmascarado analiza todo de todos modos).
+                preview_entities = await policy.analyze_segments(
+                    policy.inspect_segments(data, fmt, skip_keys=saltear, exempt=exentas), _analyze)
             else:
-                logger.warning(
-                    "NLP_ANALYZER_URL no configurada — usando detección regex de "
-                    "dev/demo (Constraint SC-2: NO usar en producción con PHI)."
-                )
-                _analyze = _analyze_regex
-
-            # Postura ante el analyzer CAÍDO (issue #63). Viaja con la identidad de la
-            # Connection (`custom_auth` la trae del `Guardian.config` del guardián
-            # `pii_masking`, igual que `custom_names`), así los DOS planos obedecen la misma
-            # decisión del admin. Ausente ⇒ `block`: el comportamiento de la 016 no cambia
-            # para ninguna instalación existente.
-            nlp_fail_mode = policy.resolve_nlp_fail_mode(identity)
-
-            async def _degradar_a_regex(texto_o_body, *, es_body: bool, pmap=None):
-                """Rehace la detección con el regex de dev y deja los tres rastros del #63.
-
-                `pmap` se REUSA a propósito cuando se degrada en medio de `mask_body`: si se
-                creara un mapa nuevo, los placeholders que el NLP ya alcanzó a insertar antes
-                de caerse quedarían huérfanos (otro nonce) y saldrían crudos al cliente en el
-                unmask. Reusarlo mantiene UN solo mapa reversible por request.
-                """
-                logger.error(
-                    "nlp: motor de detección NLP no disponible y la política de la "
-                    "instalación es `degrade` — este pedido se sirve con detección REGEX de "
-                    "dev (cobertura menor; Constraint SC-2). Queda marcado como %s.",
-                    policy.STATUS_NLP_DEGRADED)
-                await _marcar_nlp_degradado()
-                home["sentinel_compliance"] = {
-                    "status": policy.STATUS_NLP_DEGRADED, "risk_level": "unknown",
-                    "reason": "nlp_unavailable_degraded_regex",
-                }
-                if es_body:
-                    return await policy.mask_body(texto_o_body, _analyze_regex, pmap)
-                return await policy.default_analyze(texto_o_body, region=region)
-
-            # 3a) Preview de entidades sobre el texto completo (misma fuente que ya
-            # usan AI-Act/secretos): decide MASK vs BLOCK por tipo ANTES de tocar el
-            # body — evita enmascarar parcialmente una request que después se
-            # bloquea, y evita una segunda ronda de red si hay que bloquear (spec
-            # 016 US2, FR-005/FR-006).
-            entity_configs = identity.get("entity_configs") or {}
-            try:
                 preview_entities = await _analyze(inspect_text)
-            except policy.NlpUnavailableError:
-                if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
-                    return await _bloquear(_nlp_unavailable_block(home),
-                                           status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
-                # `degrade`: se sigue, pero con el detector de dev y marcado en los tres
-                # canales. El resto del hook (BLOCK por tipo, mask) corre igual sobre estas
-                # entidades — degradar no puede además saltearse la política por tipo.
-                preview_entities = await _degradar_a_regex(inspect_text, es_body=False)
-                _analyze = _analyze_regex
+        except policy.NlpUnavailableError:
+            if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
+                return await _bloquear(_nlp_unavailable_block(home),
+                                       status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
+            # `degrade`: se sigue, pero con el detector de dev y marcado en los tres
+            # canales. El resto del hook (BLOCK por tipo, mask) corre igual sobre estas
+            # entidades — degradar no puede además saltearse la política por tipo.
+            preview_entities = await _degradar_a_regex(inspect_text, es_body=False)
+            _analyze = _analyze_regex
+        reporte["detected"] = len(preview_entities)
 
-            blocked_types = sorted({
-                e["entity_type"] for e in preview_entities
-                if policy.resolve_entity_action(e["entity_type"], entity_configs) == "BLOCK"
-            })
-            if blocked_types:
-                home["sentinel_compliance"] = {
-                    "status": "blocked_entity_type", "risk_level": "high",
-                    "reason": f"tipos bloqueados por política: {', '.join(blocked_types)}",
-                }
-                return await _bloquear(
-                    (f"Petición bloqueada: se detectaron datos personales cuya política "
-                     f"exige bloquear, no enmascarar ({', '.join(blocked_types)})."),
-                    status="blocked_entity_type", capa=_LAYER_PII,
-                    entidades=_conteos_de_entidades(preview_entities),
-                    # Detección confirmada: la fila dice "había datos personales" aunque no
-                    # se enmascarara nada (el pedido se rechazó antes) — D8/FR-002.
-                    pii_detected=True)
+        blocked_types = sorted({
+            e["entity_type"] for e in preview_entities
+            if policy.resolve_entity_action(e["entity_type"], entity_configs) == "BLOCK"
+        })
+        if blocked_types:
+            home["sentinel_compliance"] = {
+                "status": "blocked_entity_type", "risk_level": "high",
+                "reason": f"tipos bloqueados por política: {', '.join(blocked_types)}",
+            }
+            return await _bloquear(
+                (f"Petición bloqueada: se detectaron datos personales cuya política "
+                 f"exige bloquear, no enmascarar ({', '.join(blocked_types)})."),
+                status="blocked_entity_type", capa=_LAYER_PII,
+                entidades=_conteos_de_entidades(preview_entities),
+                # Detección confirmada: la fila dice "había datos personales" aunque no
+                # se enmascarara nada (el pedido se rechazó antes) — D8/FR-002.
+                pii_detected=True)
 
-            # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
-            # El `PlaceholderMap` se crea ACÁ y no dentro de `mask_body` porque el camino de
-            # degradación (#63) necesita continuar con el MISMO mapa: `mask_body` recorre
-            # los turnos de a uno, así que una caída a mitad de camino deja parte del body ya
-            # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
-            # volver y saldrían crudos al cliente.
-            pmap = policy.PlaceholderMap()
-            try:
-                data, ph_to_orig = await policy.mask_body(data, _analyze, pmap)
-            except policy.NlpUnavailableError:
-                if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
-                    # Fail-closed (FR-004, default): sin detección NLP confiable no hay
-                    # garantía de protección — se rechaza en vez de degradar en silencio.
-                    return await _bloquear(_nlp_unavailable_block(home),
-                                           status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
-                data, ph_to_orig = await _degradar_a_regex(data, es_body=True, pmap=pmap)
+        # 3b) Sin bloqueos → enmascarar reversible las entidades restantes (MASK).
+        # El `PlaceholderMap` se crea ACÁ y no dentro de `mask_body` porque el camino de
+        # degradación (#63) necesita continuar con el MISMO mapa: `mask_body` recorre
+        # los turnos de a uno, así que una caída a mitad de camino deja parte del body ya
+        # enmascarada. Con un mapa nuevo esos placeholders no tendrían original al que
+        # volver y saldrían crudos al cliente.
+        pmap, nonce_scope = policy.new_placeholder_map(home, identity)             # S13: estable por conversación
+        if nonce_scope == policy.NONCE_SCOPE_CONVERSATION:
+            reporte["nonce_scope"] = nonce_scope        # solo cuando rige S13: sin ella el informe es el de siempre
+        tally = policy.MaskingTally() if forzado else None
+        try:
+            if forzado:
+                # Alcance completo (S14): el recorrido cuenta él mismo lo detectado, lo reemplazado y lo no
+                # analizable (un `_contando` sumaría como enmascaradas las detecciones estructurales).
+                data, ph_to_orig = await policy.mask_body(
+                    data, _analyze, pmap, scope=policy.MASKING_SCOPE_FULL, fmt=fmt, tally=tally,
+                    skip_keys=saltear, exempt=exentas)
+            else:
+                data, ph_to_orig = await policy.mask_body(data, _contando(_analyze), pmap)
+        except policy.NlpUnavailableError:
+            if nlp_fail_mode == policy.NLP_FAIL_BLOCK:
+                # Fail-closed (FR-004, default): sin detección NLP confiable no hay
+                # garantía de protección — se rechaza en vez de degradar en silencio.
+                return await _bloquear(_nlp_unavailable_block(home),
+                                       status=policy.STATUS_NLP_BLOCKED, capa=_LAYER_PII)
+            data, ph_to_orig = await _degradar_a_regex(data, es_body=True, pmap=pmap)
 
-            if ph_to_orig:
-                home["pii_tokens"] = ph_to_orig
-                home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
+        if ph_to_orig:
+            home["pii_tokens"] = ph_to_orig
+            home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
 
+        if forzado:
+            # La verdad del forzado es lo que el recorrido analizó pedazo por pedazo (el preview es un solo
+            # texto unido y con tope): `detected == masked` solo si nada quedó sin reescribir.
+            reporte.update(detected=tally.detected, masked=tally.masked, unanalyzable=tally.unanalyzable,
+                           unanalyzable_kinds=tally.kinds)
+            if tally.unanalyzable_replaced:
+                # R39: binarios de una herramienta (`tool_result`) cambiados por una nota; NO suman a `unanalyzable`
+                # (el binario ya no sale) y solo se informan cuando los hubo: sin ellos el informe es el de siempre.
+                reporte.update(unanalyzable_replaced=tally.unanalyzable_replaced,
+                               unanalyzable_replaced_kinds=tally.replaced_kinds)
+            if tally.images_unmasked:
+                # R43 (`MASKING_IMAGES=pass`): imágenes que salen tal cual. NO suman a `unanalyzable`; solo conteo y
+                # nombre de tipo, jamás contenido. Sin imágenes (o con `filter`) el informe es el de siempre.
+                reporte.update(images_unmasked=tally.images_unmasked, images_unmasked_kinds=tally.unmasked_image_kinds)
+            if tally.signed_thinking_masked:
+                # Opcional: `thinking` con firma cuyo texto cambió al enmascarar. NO suma a `unanalyzable`:
+                # hacia un destino traducido la extensión reconstruye la firma (R10); el guard bloquea solo
+                # si el destino es nativo (enmascararlo invalida la firma).
+                reporte["signed_thinking"] = tally.signed_thinking_masked
+        else:
+            # El preview mira el texto inspeccionado (con cap); el masking recorre el body
+            # entero, así que puede encontrar más. Lo enmascarado también fue detectado.
+            reporte["detected"] = max(reporte["detected"], reporte["masked"])
+        reporte["completed"] = True
         return data
 
     async def async_post_call_success_hook(self, data: dict, user_api_key_dict, response):

@@ -35,12 +35,22 @@ def _run_alembic_upgrade_head() -> None:
         backend_root = Path(__file__).resolve().parent.parent
         cfg = Config(str(backend_root / "alembic.ini"))
         cfg.set_main_option("script_location", str(backend_root / "alembic"))
-        command.upgrade(cfg, "head")
-        logger.info("Alembic migrations applied (upgrade head).")
+        # `heads` sólo con ramas de extensiones (ALEMBIC_EXTRA_VERSION_LOCATIONS); si no, `head`.
+        from .migration_locations import upgrade_target
+
+        target = upgrade_target()
+        command.upgrade(cfg, target)
+        logger.info("Alembic migrations applied (upgrade %s).", target)
     except Exception as e:
         # Do not crash startup: log loudly so ops notice. Inference will still fail fast
         # on schema mismatch, which is preferable to silent drift.
         logger.error("Alembic auto-run failed (schema may be stale): %s", e)
+        # Con ramas de extensión (ALEMBIC_EXTRA_VERSION_LOCATIONS) servir con el esquema a medias
+        # es peor que no servir: la extensión activa leería tablas que no existen. Se aborta.
+        from .migration_locations import extra_version_locations
+
+        if extra_version_locations():
+            raise
 
 
 def _create_tables_legacy() -> None:
@@ -87,6 +97,11 @@ async def _lifespan(_app: FastAPI):
     # compuerta propia: queda APAGADA salvo SENTINEL_PURGE_ENABLED=true, porque un job
     # que hace DELETE retroactivo no se enciende con un pull de imagen.
     retention_scheduler.start_scheduler()
+    # S16: arranque de extensiones (`on_startup()` opcional de cada PLUGIN_PACKAGES, src/plugins.py) antes
+    # de servir; sin la variable o sin enganche no hace nada. Un fallo se registra y no tira el arranque.
+    from .plugins import run_plugin_startup
+
+    await run_plugin_startup()
     try:
         yield
     finally:
@@ -118,6 +133,20 @@ app.include_router(governance_router, prefix="/api/v1")
 from .api.internal import router as internal_router  # noqa: E402
 
 app.include_router(internal_router, prefix="/api/v1")
+
+# Puerta del formato de chat estándar (spec 045 US3). Se monta acá por la MISMA razón que
+# gobernanza y el plano interno: router nuevo, sin competir por `api/__init__.py`. El archivo
+# es un preámbulo delgado sobre el proxy byok que ya existe — no lleva política propia.
+from .api.gateway_openai import router as gateway_openai_router  # noqa: E402
+
+app.include_router(gateway_openai_router, prefix="/api/v1")
+
+# Routers de plugins externos (PLUGIN_PACKAGES, ver src/plugins.py): sin la env no monta
+# nada. Un plugin declarado y roto levanta PluginLoadError y el arranque se cae (fail-loud).
+# Va después de todos los routers del core y antes de CORS (ADAPT-022 de Sentinel).
+from .plugins import mount_plugin_routers  # noqa: E402
+
+mount_plugin_routers(app)
 
 # Configure CORS
 app.add_middleware(

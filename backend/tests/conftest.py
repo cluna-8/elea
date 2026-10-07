@@ -102,11 +102,17 @@ def _reset_presidio_http_client_singleton():
         _mod = sys.modules.get(_modname)
         if _mod is not None:
             _mod._http_client = None
+            _reset = getattr(_mod, "reset_analysis_cache", None)   # S17: la caché de análisis es del proceso
+            if _reset is not None:
+                _reset()
     yield
     for _modname in ("sentinel_guardian_policy", "extensions.sentinel_guardian_policy"):
         _mod = sys.modules.get(_modname)
         if _mod is not None:
             _mod._http_client = None
+            _reset = getattr(_mod, "reset_analysis_cache", None)
+            if _reset is not None:
+                _reset()
 
 
 @pytest.fixture(autouse=True)

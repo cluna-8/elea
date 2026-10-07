@@ -96,6 +96,29 @@ Endpoints auxiliares de la superficie `base_url`: `GET /api/v1/gw` responde el *
 (estas dos rutas auxiliares no enmascaran: el conteo de tokens necesita el texto real y el
 destino es el propio upstream de la sesión).
 
+🟡 **Formato de chat estándar del sector** — `POST /api/v1/gw/v1/chat/completions` es una
+segunda puerta, junto a `/v1/messages`, para las herramientas que hablan ese formato. Está
+**siempre montada**, pero **solo sirve con una virtual key** (`sk-sentinel-…`, modo `byok`): sin
+llave responde `401` en el formato de error de esa API (no hay passthrough de suscripción por
+esta ruta, porque ese upstream no habla este formato). **Sin la redirección de modelos** no es un
+traductor ni una segunda política: aplica la misma política que las demás rutas (bloqueo,
+secretos, enmascarado reversible y auditoría) y, igual que ellas, no se atiende si el registro de
+auditoría no está disponible. **Con la redirección encendida** es la *cara genérica*: lista alias
+neutros en `GET /api/v1/gw/v1/models` y sirve cada alias con el destino que el administrador
+mapeó (ver [CLI de formato estándar](cli-formato-openai.md)). Estado honesto: cubierta por pruebas
+de contrato y de punta a punta con un destino simulado, **sin verificación en vivo todavía** — no
+se la promete como 🟢 hasta confirmarla con una herramienta real. La pantalla de discovery
+(`GET /api/v1/gw`) no la lista.
+
+🟡 **Redirección de modelos** — con la extensión activa y la política encendida para un alcance, la
+pasarela sirve los ids que pide la herramienta con **otro modelo** elegido por el administrador,
+con enmascarado forzado y residencia por defecto (ver
+[Redirección de modelos](../administration/redireccionamiento.md)). Tiene dos caras: la **cara
+Claude** (Claude Desktop y Claude Code, ver [Claude Desktop](claude-desktop.md) y
+[Claude Code](claude-code.md)) y la **cara genérica** (CLI de formato estándar). Sin la extensión o
+con la política apagada, nada de esto aplica y las superficies se comportan como se describe más
+abajo.
+
 ---
 
 ## 2. Tabla de compatibilidad
@@ -106,6 +129,9 @@ superficies principales.
 | Cliente | Estado | Superficie | Mecanismo | Gotcha clave |
 |---|---|---|---|---|
 | **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. Para trabajo agéntico: suscripción, o **modelo propio** (§3.5 — el modo Agent está verificado por esa vía; el límite de G1 es del loop agéntico de Copilot). |
+| **Claude Code → otros modelos (redirección)** | 🟡 Parcial — sin verificación en vivo | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw` con una llave virtual; los niveles `opus`/`sonnet`/`haiku` los sirven los destinos que mapeó el administrador, con enmascarado forzado y residencia. Ver [Claude Code](claude-code.md). | Los ids publicados tienen que ser ids que la versión instalada reconozca; un rechazo de residencia es un `403` y el bloqueo del enmascarado un `400` con su propio texto. |
+| **Claude Desktop → otros modelos (gateway de terceros)** | 🟢 Chat y Cowork con Azure, verificados en vivo el 7-oct-2026 · 🟡 el resto (otro proveedor, grupos, kit en una PC, Code) | `base_url` | Configuración de gateway de terceros de la aplicación (`bearer`, descubrimiento de modelos) → `/api/v1/gw`. Ver [Claude Desktop](claude-desktop.md). | La aplicación antepone «Failed to authenticate» a todo `403` (por ejemplo un rechazo de residencia); el bloqueo por enmascarado es un `400` sin ese prefijo. |
+| **CLI de formato de chat estándar** (opencode, Aider en ese modo, Continue, Cline/Roo, Zed) | 🟡 Parcial — sin verificación en vivo | `base_url` | Base `…/api/v1/gw/v1` + llave virtual + alias publicado. Ver [CLI de formato estándar](cli-formato-openai.md). | Sin la redirección sirve el modelo pedido con la política de siempre; con ella, solo los alias publicados para el alcance. |
 | **Claude Code → modelo propio** | 🟢 Funciona | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales) y el ciclo mask→restauración completa ([G9](gotchas.md): corregido). Con el cache del motor activo, repetir un prompt idéntico puede devolver placeholders de una respuesta cacheada (limitación conocida en evaluación). |
 | **Aider** | 🟢 Funciona | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-sentinel-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona, **no** se corrompe con el masking y los archivos quedan con los valores reales ([G9](gotchas.md): corregido). Misma nota de cache del motor que Claude Code → modelo propio. |
 | **Codex CLI** | 🔵 Objetivo (roadmap) | — | Codex ≥0.142 solo habla la Responses API (OpenAI) y el gateway **no expone esa superficie hoy** — no hay camino gobernado que ofrecer en una instalación estándar. | **No se ofrece hoy.** El camino identificado (roadmap) es exponer una superficie OpenAI/Responses gobernada en el propio gateway; hasta entonces, no conectar Codex por rutas internas del despliegue: quedan **fuera** de la política y la auditoría del firewall. |
@@ -114,7 +140,7 @@ superficies principales.
 | **Claude (web, claude.ai)** | 🟢 Funciona | `browser` | Extensión de navegador: hookea `fetch` sobre `.../completion` **y** `.../title`, enmascara `body.prompt` / `body.message_content`. | **Fuga de título**: el endpoint `/title` manda el prompt crudo → hay que enmascararlo también. **Artefactos** en `iframe` → el unmask del DOM no llega. |
 | **Gemini (web)** | 🔵 Objetivo (roadmap) | `browser` | **DOM-hook** sobre el editor **Quill** (`.ql-editor`) en `gemini.google.com`: enmascarar el texto del prompt en el editor antes del envío (no vía `fetch`). | **Aún sin verificar — no se ofrece todavía.** A diferencia de ChatGPT/Claude no se mapea endpoint/stream: el approach definido es hookear el editor Quill, no interceptar el POST. Los `content_scripts` del manifest deben matchear `gemini.google.com`. |
 | **Cursor** | 🟡 Parcial — **solo chat/plan** | `base_url` | **Override OpenAI Base URL** (settings de Cursor) → apunta el endpoint OpenAI-compatible del modelo al gateway. Gobierna el **chat** y el **modo plan**. | El **agente Composer** y el **autocomplete** **no** pasan por el override (enrutan por el backend propio de Cursor) → quedan fuera del firewall. **Misma casilla que Copilot en modo Ask** (ver §3.4 y [G1](gotchas.md)). |
-| **Claude Desktop** | ⚪ MCP tool-plane only | `mcp` | No expone override de `base_url`; la gobernanza entra por **MCP**: la DLP se aplica sobre los **results de las tools** MCP, **no** sobre el prompt del chat. | El prompt del usuario al modelo **no** es interceptable (fuera del reverse-proxy); sólo se gobierna el **plano de tools**. Fuera del scope de las dos superficies principales. |
+| **Claude Desktop (plano de tools)** | ⚪ MCP tool-plane only | `mcp` | Sin configurar el gateway de terceros, la aplicación no pasa por la pasarela: la gobernanza entra por **MCP** y la DLP se aplica sobre los **results de las tools** MCP, **no** sobre el prompt del chat. | Con la aplicación en modo de gateway de terceros el prompt sí pasa por la pasarela (fila de arriba, 🟡). Fuera de ese modo, el prompt del usuario **no** es interceptable y solo se gobierna el **plano de tools**. |
 
 **Cómo se detecta la herramienta.** El gateway mapea el `User-Agent` a un nombre amigable
 (`claude` → Claude Code, `copilot` → GitHub Copilot, `vscode` → VS Code, `cursor` → Cursor,
@@ -355,6 +381,25 @@ cloud — incluido el **modo Agent de Claude Code**, verificado en vivo. La guí
 (alta del modelo, configuración por herramienta, gotchas y límites) vive en su propia
 página: **[Modelo propio / local](modelo-propio.md)**.
 
+### 3.6 Redirección de modelos — Claude Desktop, Claude Code y CLI de formato estándar 🟡
+
+Para **servir lo que la herramienta pide con otro modelo** (un despliegue de la nube de la
+organización, un modelo económico, uno de pesos abiertos) con el enmascarado y la residencia del
+producto, el administrador activa la política y publica ids desde la sección **Modelos** del panel
+(ver [Redirección de modelos](../administration/redireccionamiento.md)) y reparte a cada persona un
+**kit** con la configuración de su herramienta. Una guía por herramienta, con sus síntomas
+conocidos:
+
+- [Claude Desktop](claude-desktop.md) — gateway de terceros, ids publicados y el «Failed to
+  authenticate» que antepone la aplicación a un `403`.
+- [Claude Code](claude-code.md) — llave virtual, ids por nivel, razonamiento y conteo de tokens.
+- [CLI de formato de chat estándar](cli-formato-openai.md) — alias, dirección base y llave.
+
+De estas tres guías, la de **Claude Desktop** está **🟢 verificada en vivo el 7-oct-2026** (Chat y Cowork
+contra Azure, instalación hecha con el instalador y `ELEA_REDIRECT=1`) salvo lo que su página marca 🟡;
+las de **Claude Code** y de la **CLI de formato estándar** siguen **🟡 sin verificación en vivo**. Son las
+únicas superficies de esta página que dependen de una extensión de la pasarela.
+
 ---
 
 ## 4. Límites verificados por superficie
@@ -387,6 +432,13 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
   el unmask dentro de iframes/artefactos es 🔵 roadmap.
 - 🔵 **Gemini web** — roadmap con approach definido (DOM-hook sobre el editor), **aún sin
   verificar** — no se ofrece todavía.
+- 🟢/🟡 **Redirección de modelos (Claude Desktop, Claude Code, CLI de formato estándar)** — implementada
+  y con pruebas de contrato con proveedor simulado. **Claude Desktop (Chat y Cowork) con Azure se
+  verificó en vivo el 7-oct-2026** 🟢; Claude Code, la CLI de formato estándar y los destinos que no son
+  Azure siguen **🟡 sin verificación en vivo**. El enmascarado forzado es seudonimización reversible de identificadores
+  detectados, no anonimización. Ver [Redirección de modelos](../administration/redireccionamiento.md).
+- 🔵 **Codex CLI con la redirección** — sigue sin camino gobernado: usa una superficie de
+  «Responses» que el producto no expone.
 - 🟡 **Plano MCP** — la DLP cubre los resultados de las tools; el prompt de chat de un cliente
   desktop sin override de `base_url` no es interceptable.
 - 🟡 **Cobertura de detección** — lo **detectado** se enmascara siempre; la cobertura depende del
@@ -398,6 +450,11 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
 
 ## Relacionado
 
+- [Redirección de modelos](../administration/redireccionamiento.md) — política, reglas, residencia
+  y enmascarado forzado de las tres guías nuevas.
+- [Claude Desktop](claude-desktop.md), [Claude Code](claude-code.md) y
+  [CLI de formato estándar](cli-formato-openai.md) — configuración y síntomas de cada herramienta
+  de la redirección.
 - [Códigos de error](../api-reference/errors.md) — qué status ve cada superficie, cuándo
   reintentar y cuándo no.
 - [Gotchas verificados](gotchas.md) — los límites G1–G10 de estas superficies con su síntoma,

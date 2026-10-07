@@ -21,6 +21,24 @@ PROJECT="${COMPOSE_PROJECT:-sentinel-guardian}"
 [ -f "$RENDERED/brand.json" ]  || { echo "❌ falta $RENDERED/brand.json (correr render_profile.sh $SLUG)"; exit 2; }
 [ -f "$LIC" ] || { echo "❌ no existe el archivo de licencia: $LIC"; exit 2; }
 
+# Extensiones extra del motor (costura S9): EXTRA_ENGINE_EXTENSIONS = rutas de archivos .py
+# separadas por espacios (absolutas, o relativas a la raíz del repo) que viajan al MISMO volumen
+# de extensiones que litellm/extensions/*.py. Vacía o sin definir ⇒ el volumen queda idéntico. Se
+# validan ANTES de tocar ningún volumen, y un archivo que repite el nombre de uno del motor (o de
+# otro extra) es un error: pisaría la política de la base en silencio.
+EXTRA_EXT=()
+for ext in ${EXTRA_ENGINE_EXTENSIONS:-}; do
+    case "$ext" in /*) ;; *) ext="$REPO_ROOT/$ext" ;; esac
+    [ -f "$ext" ] || { echo "❌ EXTRA_ENGINE_EXTENSIONS: no existe $ext"; exit 2; }
+    [ ! -e "$REPO_ROOT/litellm/extensions/$(basename "$ext")" ] \
+        || { echo "❌ EXTRA_ENGINE_EXTENSIONS: $(basename "$ext") pisaría una extensión del motor (litellm/extensions/)"; exit 2; }
+    for prev in ${EXTRA_EXT[@]+"${EXTRA_EXT[@]}"}; do
+        [ "$(basename "$prev")" != "$(basename "$ext")" ] \
+            || { echo "❌ EXTRA_ENGINE_EXTENSIONS: $(basename "$ext") figura dos veces"; exit 2; }
+    done
+    EXTRA_EXT+=("$ext")
+done
+
 copy_into() { # volumen destino_relativo archivo...
     local vol="$1"; shift
     local dest="$1"; shift
@@ -44,6 +62,10 @@ docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$RENDERED:/src:ro" \
 # Las extensiones del motor (guardrail/auth/logger) viajan junto al config:
 docker run --rm -v "${PROJECT}_litellm_config:/vol" -v "$REPO_ROOT/litellm/extensions:/ext:ro" \
     alpine:3 sh -c "mkdir -p /vol/extensions && cp /ext/*.py /vol/extensions/"
+for ext in ${EXTRA_EXT[@]+"${EXTRA_EXT[@]}"}; do
+    copy_into litellm_config extensions "$ext"
+    echo "✅ litellm_config ← extensions/$(basename "$ext") (EXTRA_ENGINE_EXTENSIONS)"
+done
 # El supervisor del motor (spec 033) viaja por el MISMO canal templado, no por imagen
 # nueva: la del motor es la stock pinneada. Va en la raíz del volumen porque el
 # entrypoint de compose.prod.yml lo invoca como /app/config/supervisor.py — el `cp`

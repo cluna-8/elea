@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..database import get_db
 from ..licensing.gate import enforce_seat_gate
@@ -45,6 +45,13 @@ class KeyCreateSchema(BaseModel):
     # afirmar "actúo en nombre del usuario X" vía X-Guardian-Acting-User. Default False
     # — solo las llaves de servicio del instalador (tool_type='servicio') la necesitan.
     can_act_on_behalf: bool = False
+
+
+class KeyLimitsUpdateSchema(BaseModel):
+    """Límites nuevos de una llave existente (al menos uno). Mínimo 1."""
+    # Mínimo 1: `check_rpm/tpm` leen `<= 0` como «sin límite» y la consola no debe poder apagar el tope con un cero.
+    rpm_limit: Optional[int] = Field(default=None, ge=1)
+    tpm_limit: Optional[int] = Field(default=None, ge=1)
 
 
 class KeyResponseSchema(BaseModel):
@@ -237,6 +244,50 @@ async def generate_key(key_in: KeyCreateSchema, db: Session = Depends(get_db)):
         compliance_project_id=db_key.compliance_project_id,
         created_at=db_key.created_at,
     )
+
+
+@router.patch("/{key_id}", response_model=KeyResponseSchema, dependencies=[Depends(require_role("admin"))])
+async def update_key_limits(key_id: UUID, body: KeyLimitsUpdateSchema, db: Session = Depends(get_db)):
+    """Cambia los límites de pedidos/min y tokens/min de una llave existente. Se aplican de inmediato; si el
+    servicio de modelos no responde, responde 503 y no cambia nada."""
+    # Los límites se hacen cumplir en DOS lugares: la fila `api_keys` (`check_rpm/check_tpm` de la pasarela) y la
+    # llave del motor (`/key/update`, que además invalida su caché). El motor va primero: si falla no se toca la
+    # fila (503), y si después falla el commit se devuelve el motor a los valores previos, para que no diverjan.
+    if body.rpm_limit is None and body.tpm_limit is None:
+        raise HTTPException(status_code=422, detail="Indicá rpm_limit, tpm_limit o ambos.")
+    db_key = db.query(APIKey).filter(APIKey.id == key_id).first()
+    if not db_key:
+        raise HTTPException(status_code=404, detail="Key not found")
+
+    old_rpm, old_tpm = db_key.rpm_limit, db_key.tpm_limit
+    if db_key.engine_key_token:
+        try:
+            await ai_engine_client.update_key(db_key.engine_key_token,
+                                              rpm_limit=body.rpm_limit, tpm_limit=body.tpm_limit)
+        except AIEngineClientError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="The AI engine is unavailable. The limits were not changed. Please try again.",
+            )
+
+    if body.rpm_limit is not None:
+        db_key.rpm_limit = body.rpm_limit
+    if body.tpm_limit is not None:
+        db_key.tpm_limit = body.tpm_limit
+    try:
+        db.commit()
+        db.refresh(db_key)
+    except Exception:
+        db.rollback()
+        if db_key.engine_key_token:
+            try:
+                await ai_engine_client.update_key(db_key.engine_key_token, rpm_limit=old_rpm, tpm_limit=old_tpm)
+            except AIEngineClientError:
+                pass
+        raise HTTPException(status_code=500, detail="Failed to save limits. Please contact the administrator.")
+
+    gasto = _gasto_por_llave(db, [db_key]).get(db_key.id)
+    return KeyResponseSchema.model_validate(db_key).model_copy(update={"spend_usd": gasto})
 
 
 @router.delete("/{key_id}", dependencies=[Depends(require_role("admin"))])

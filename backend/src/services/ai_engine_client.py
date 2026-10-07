@@ -180,6 +180,25 @@ async def generate_key(
     }
 
 
+async def update_key(
+    engine_key_token: str,
+    rpm_limit: Optional[int] = None,
+    tpm_limit: Optional[int] = None,
+) -> None:
+    """Actualiza los límites rpm/tpm de una llave ya emitida en el motor (`/key/update`, con la master key).
+
+    Solo viajan los campos que cambian. El motor guarda la llave en caché: `/key/update` es la vía que la
+    invalida, así que el cambio rige sin reiniciar nada (editar solo la fila de la pasarela dejaría al
+    motor aplicando el tope viejo).
+    """
+    payload: dict = {"key": engine_key_token}
+    if rpm_limit is not None:
+        payload["rpm_limit"] = rpm_limit
+    if tpm_limit is not None:
+        payload["tpm_limit"] = tpm_limit
+    await _post("/key/update", payload)
+
+
 async def get_key_spend(engine_key_token: str) -> dict:
     """Returns spend info for a key: {spend_usd, max_budget, remaining}."""
     data = await _get("/key/info", {"key": engine_key_token})

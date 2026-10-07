@@ -26,6 +26,12 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Migraciones de extensiones (ALEMBIC_EXTRA_VERSION_LOCATIONS, ver src/migration_locations.py):
+# sin la env no hace nada. Va acá para que valga igual desde el CLI y desde el arranque.
+from src.migration_locations import extend_script_directory  # noqa: E402
+
+extend_script_directory(context.script)
+
 
 def include_object(obj, name, type_, reflected, compare_to):
     """El motor LiteLLM comparte la misma DB: autogenerate/compare NO debe tocar

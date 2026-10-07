@@ -1,0 +1,107 @@
+{
+  "name": "cowork-multiturno",
+  "tool": "claude_desktop",
+  "synthetic": true,
+  "descripcion": "Cowork con varios turnos: razonamiento firmado de un turno anterior, herramientas, una captura devuelta por una herramienta y system intermedio.",
+  "method": "POST",
+  "path": "/v1/messages",
+  "query": {
+    "beta": "true"
+  },
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": "interleaved-thinking-2025-05-14,files-api-2025-04-14",
+    "authorization": "Bearer sk-sentinel-corpus-0002",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "claude-opus-4-1",
+    "max_tokens": 16000,
+    "stream": true,
+    "system": "Sos un asistente de escritorio. Ayudás con tareas de oficina.",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Armame un resumen de la reunión de ejemplo."
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "Primero busco las notas de ejemplo.",
+            "signature": "FIRMA-AJENA-DE-OTRO-PROVEEDOR"
+          },
+          {
+            "type": "text",
+            "text": "Busco las notas."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_02B",
+            "name": "computer",
+            "input": {
+              "action": "screenshot"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_02B",
+            "content": [
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgo="
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Ya tengo las notas."
+          }
+        ]
+      },
+      {
+        "role": "system",
+        "content": "Recordatorio intermedio: respondé en castellano."
+      },
+      {
+        "role": "user",
+        "content": "Ahora escribilo en tres puntos."
+      }
+    ],
+    "tools": [
+      {
+        "name": "computer",
+        "description": "Captura de pantalla",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    },
+    "output_config": {
+      "effort": "medium"
+    }
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "corpus_version": "2026.10.1",
+  "synthetic": true,
+  "tool": "codex",
+  "face": "codex",
+  "recorded_with": "forma de pedido de la herramienta, texto sintético escrito a mano; sin datos de usuarios",
+  "cases": [
+    {
+      "capability": "conversation",
+      "name": "conversacion-simple",
+      "request": {
+        "instructions": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+        "stream": true,
+        "max_output_tokens": 512,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Resume en una frase qué es una lista enlazada."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "capability": "tools",
+      "name": "llamada-de-herramienta",
+      "request": {
+        "instructions": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+        "stream": true,
+        "max_output_tokens": 512,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Lee el archivo README.md del proyecto de ejemplo usando la herramienta disponible."
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "name": "read_file",
+            "description": "Lee un archivo del proyecto de ejemplo",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "expect": {
+        "tool": "read_file"
+      }
+    },
+    {
+      "capability": "long_stream",
+      "name": "streaming-largo",
+      "request": {
+        "instructions": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+        "stream": true,
+        "max_output_tokens": 1024,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "Escribe una lista numerada de 30 ítems sobre buenas prácticas de pruebas, una línea por ítem."
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "min_events": 15,
+        "min_chars": 300
+      }
+    },
+    {
+      "capability": "errors",
+      "name": "pedido-invalido",
+      "request": {
+        "instructions": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+        "stream": true,
+        "max_output_tokens": 512,
+        "input": []
+      },
+      "expect": {
+        "error_class": [
+          "invalid_request"
+        ]
+      }
+    },
+    {
+      "capability": "context",
+      "name": "dato-en-contexto-largo",
+      "request": {
+        "instructions": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+        "stream": true,
+        "max_output_tokens": 64,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "{{CONTEXT}}\n\nPregunta: ¿cuál es el código que aparece en el texto anterior? Responde solo con el código."
+              }
+            ]
+          }
+        ]
+      },
+      "needle": "CLAVE-QZ-4417",
+      "fill_ratio": 0.5
+    }
+  ]
+}

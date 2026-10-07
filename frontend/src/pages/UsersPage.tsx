@@ -21,6 +21,7 @@ import {
   cn,
 } from "../components/ui";
 import type { BadgeTone } from "../components/ui";
+import { KeyLimitsModal } from "../components/KeyLimitsModal";
 import { ROLE_LABELS, authStorage, canAssignComplianceRoles } from "../services/auth";
 
 const LEGAL_BASIS_SHORT: Record<string, string> = {
@@ -176,6 +177,7 @@ export const UsersPage: React.FC = () => {
   const [showUserModal, setShowUserModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [editingKeyLimits, setEditingKeyLimits] = useState<{ id: string; name: string; rpm: number; tpm: number } | null>(null);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
@@ -479,6 +481,13 @@ export const UsersPage: React.FC = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleSaveKeyLimits = async (limits: { rpm_limit?: number; tpm_limit?: number }) => {
+    if (!editingKeyLimits) return;
+    await api.updateKeyLimits(editingKeyLimits.id, limits);    // si falla, el modal muestra el error y sigue abierto
+    setEditingKeyLimits(null);
+    await fetchData();
   };
 
   const handleRevokeKey = async (id: string) => {
@@ -1168,6 +1177,16 @@ export const UsersPage: React.FC = () => {
                       </Table.Cell>
                       <Table.Cell align="right" className="text-right">
                         <button
+                          onClick={() => setEditingKeyLimits({
+                            id: k.id, name: k.name,
+                            rpm: (k as any).rpm_limit ?? 60, tpm: (k as any).tpm_limit ?? 100000,
+                          })}
+                          disabled={actionLoading}
+                          className="text-primary hover:opacity-80 font-semibold text-xs transition-opacity disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded mr-3"
+                        >
+                          Editar límites
+                        </button>
+                        <button
                           onClick={() => handleRevokeKey(k.id)}
                           disabled={actionLoading}
                           className="text-danger hover:opacity-80 font-semibold text-xs transition-opacity disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
@@ -1555,6 +1574,16 @@ export const UsersPage: React.FC = () => {
             </div>
           </form>
         </ModalShell>
+      )}
+
+      {editingKeyLimits && (
+        <KeyLimitsModal
+          keyName={editingKeyLimits.name}
+          rpm={editingKeyLimits.rpm}
+          tpm={editingKeyLimits.tpm}
+          onSave={handleSaveKeyLimits}
+          onClose={() => setEditingKeyLimits(null)}
+        />
       )}
 
       {/* ── Generated Key Modal ──────────────────────────────────────────── */}

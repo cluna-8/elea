@@ -12,7 +12,10 @@ GUIAS=(overview/index.md install-deploy/index.md install-deploy/infrastructure.m
        install-deploy/licensing.md install-deploy/partner-enablement.md \
        install-deploy/sso.md \
        white-label/index.md administration/index.md administration/gobernanza.md \
+       administration/redireccionamiento.md \
        integrations/index.md integrations/modelo-propio.md \
+       integrations/claude-desktop.md integrations/claude-code.md \
+       integrations/cli-formato-openai.md \
        compliance/index.md compliance/dpa-dsr-retention.md)
 RUNBOOKS=(operations/index.md integrations/gotchas.md)
 

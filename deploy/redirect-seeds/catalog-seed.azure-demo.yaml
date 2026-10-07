@@ -1,0 +1,80 @@
+# [ELEIA] Catálogo de ejemplo con modelos de Azure OpenAI (057 FR-020; research R9). Es un DATO editable de la
+# instalación de demo, nunca código: se carga con
+#     python -m sentinel.catalog.seed deploy/redirect-seeds/catalog-seed.azure-demo.yaml
+# (idempotente: solo inserta lo que falta y nunca pisa lo que alguien editó en el panel).
+#
+# Sin secretos. La credencial es la ADOPTADA del motor: referencia a las variables que el motor ya recibe
+# (AZURE_API_KEY, AZURE_API_VERSION); el valor lo resuelve el motor, no se guarda ni se duplica acá.
+#
+# `real_model` es el NOMBRE DEL DESPLIEGUE en el recurso de Azure. Al cargarlo, «Verificar despliegue» (o el alta/edición
+# por el panel) comprueba que exista: si no, la entrada queda inactiva con «El despliegue <x> no existe en el recurso
+# configurado». `gpt-5.6-luna` se siembra porque el coordinador informó el 2026-10-06 que el despliegue existe;
+# si no existe, queda inactiva (opus → gpt-5.1-chat).
+#
+# OBLIGATORIO ANTES DE USAR cada destino (no se presumen, FR-028a): en «Modelos» → Ficha, cargar la jurisdicción de
+# inferencia (la región real del recurso), la entidad responsable y las jurisdicciones de la entidad y de control, y
+# en la entrada la dirección base (`api_base`) del recurso. Sin jurisdicción de inferencia el destino se rechaza.
+# Ventanas y precios: valores del mapa de costos del motor (precio de lista, USD por millón de tokens); donde no hay
+# dato real (gpt-5.6-luna) queda vacío y se carga el del contrato.
+entries:
+  - name: gpt-5.6-luna
+    public_id: gpt-5.6-luna
+    provider: azure
+    real_model: gpt-5.6-luna
+    protocol_family: openai_chat
+    # capacidades, ventana y precio: sin dato verificado en el repo; el operador los declara en «Modelos»
+    price_source: "PENDIENTE: cargar el precio real del despliegue (no hay dato en el repo)"
+    credential_ref: &azure_credencial
+      name: azure-recurso
+      env: {api_key: AZURE_API_KEY, api_version: AZURE_API_VERSION}
+    sheet: &ficha_obligatoria
+      notes: >-
+        OBLIGATORIO antes de usar: cargar jurisdicción de inferencia (región real del recurso), entidad responsable,
+        jurisdicción de la entidad y jurisdicción de control, y la dirección base del recurso. Ventana y precio del
+        despliegue: cargar los reales.
+
+  - name: gpt-5.1-chat
+    public_id: gpt-5.1-chat
+    provider: azure
+    real_model: gpt-5.1-chat
+    protocol_family: openai_chat
+    capability: standard
+    # `reasoning_efforts`: este despliegue solo acepta `medium` (400 con `low`); la pasarela ajusta al más cercano.
+    features: {tools: true, images: true, documents_pdf: false, reasoning_efforts: [medium]}
+    context_window: 128000
+    max_output: 16384
+    price_input_per_mtok: 1.25
+    price_output_per_mtok: 10.0
+    price_source: "mapa de costos del motor (azure/gpt-5.1-chat), precio de lista"
+    credential_ref: *azure_credencial
+    sheet: *ficha_obligatoria
+
+  - name: gpt-5.4-mini
+    public_id: gpt-5.4-mini
+    provider: azure
+    real_model: gpt-5.4-mini
+    protocol_family: openai_chat
+    capability: small
+    features: {tools: true, images: true, documents_pdf: false}
+    context_window: 400000
+    max_output: 128000
+    price_input_per_mtok: 0.75
+    price_output_per_mtok: 4.5
+    price_source: "mapa de costos del motor (azure/gpt-5.4-mini), precio de lista"
+    credential_ref: *azure_credencial
+    sheet: *ficha_obligatoria
+
+  - name: gpt-4o-mini
+    public_id: gpt-4o-mini
+    provider: azure
+    real_model: gpt-4o-mini
+    protocol_family: openai_chat
+    capability: small
+    features: {tools: true, images: true, documents_pdf: false}
+    context_window: 128000
+    max_output: 16384
+    price_input_per_mtok: 0.15
+    price_output_per_mtok: 0.6
+    price_source: "mapa de costos del motor (azure/gpt-4o-mini), precio de lista"
+    credential_ref: *azure_credencial
+    sheet: *ficha_obligatoria

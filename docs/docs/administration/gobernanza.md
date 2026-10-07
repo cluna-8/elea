@@ -220,6 +220,27 @@ herramienta se *deduce* del cliente —un dato que el cliente puede falsear— *
 nunca**: para ese tráfico la relajación se ignora y vale el nivel de abajo. Una relajación por
 herramienta jamás puede debilitar la protección base. 🟢
 
+## Cuando rige la redirección de modelos: el enmascarado forzado manda 🟡
+
+Si la **redirección de modelos** está encendida para un alcance, el enmascarado de lo que sale hacia
+un destino redirigido **no es una capa gobernable** de ese pedido: la postura de residencia lo
+**fuerza** y tiene precedencia sobre lo que diga la gobernanza. Concretamente, mientras rige el
+forzado:
+
+- el enmascarado se enciende aunque la capa esté **apagada** para ese modo, esa herramienta o esa
+  empresa, y aunque la redacción esté desactivada;
+- el analizador de entidades pasa a **fail-closed** aunque la instalación esté configurada para
+  *degradar*: si no responde, el pedido se bloquea, no se envía con patrones;
+- el alcance es **completo** (todo el historial, herramientas y PDF con texto) y lo que no se puede
+  analizar se bloquea; las **imágenes** se rigen por `MASKING_IMAGES` (por defecto salen sin enmascarar su
+  contenido y la auditoría las cuenta; con `filter` se bloquean o se reemplazan).
+
+El forzado solo lo quita una **relajación** explícita de cumplimiento o del super admin, con motivo
+y registrada. Todo el detalle —posturas, relajaciones, causas de bloqueo— está en
+[Redirección de modelos](redireccionamiento.md). El tráfico que **no** se redirige sigue las reglas
+de esta página, sin cambios. Estado: 🟡, con pruebas automatizadas; en vivo se verificó el 7-oct-2026 que
+un DNI de prueba sale enmascarado hacia Azure 🟢 y el resto sigue sin verificación en vivo.
+
 ---
 
 ## Límites honestos
@@ -249,5 +270,7 @@ capa figura *aplicándose* sin confirmación.
   propio* y por qué ahí solo protege el producto.
 - [Integraciones](../integrations/index.md) — las superficies (CLI, IDE, extensión de
   navegador) cuyo `tool_type` habilita el ajuste fino por herramienta.
+- [Redirección de modelos](redireccionamiento.md) — el enmascarado forzado y la residencia que, para
+  el tráfico redirigido, pasan por encima de estas capas.
 - [Operaciones & troubleshooting](../operations/index.md) — cómo se observa en vivo el efecto de
   las capas sobre el tráfico gobernado.

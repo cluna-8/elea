@@ -1,0 +1,51 @@
+# Entrega en DESARROLLO de la extensión `sentinel/` (spec 057 T021, research R6): override opcional
+# del docker-compose.yml de la raíz. No toca la base: sin `-f` este archivo no existe para compose.
+#
+#   1) cp sentinel/extensions.env.example sentinel/extensions.env   (ignorado por git; lo llenás vos)
+#   2) sentinel/docker/prepare-dev.sh     (extensiones del motor + config.yaml fusionado en .dev/;
+#                                          repetirlo si cambian litellm/extensions o sentinel/engine)
+#   3) docker compose --env-file .env --env-file sentinel/extensions.env \
+#        -f docker-compose.yml -f sentinel/docker/compose.dev.yml up -d
+#
+# Por qué dos veces el mismo archivo de entorno: `env_file:` (abajo) le da sus variables al
+# contenedor, pero lo que el `environment:` de la base ya declara con `${VAR:-default}` (p. ej.
+# SENTINEL_ENTITY_REGION) solo cambia por interpolación, y esa la hace `--env-file`.
+#
+# Qué suma (nada se ACTIVA por estar montado: la extensión se enciende con GATEWAY_PLUGINS /
+# PLUGIN_PACKAGES del archivo de entorno):
+#   · backend: ./sentinel visible como paquete `sentinel` (PYTHONPATH) y los seeds de
+#     deploy/redirect-seeds en la misma ruta que hornea la imagen -ext;
+#   · motor: los redirect_*.py junto a las extensiones de la base y el config.yaml con el
+#     fragmento de perfil fusionado, ambos generados por prepare-dev.sh.
+#
+# Sin DISABLE_SCHEMA_UPDATE en el motor: no se usa hasta que el spike D14 (T019) la valide sobre
+# una base existente (research R5). INTERNAL_ALLOWED_CIDRS no va acá: la fija el compose base (R31).
+services:
+  backend:
+    env_file:
+      - path: ${SENTINEL_EXTENSIONS_ENV_FILE:-./sentinel/extensions.env}
+        required: false
+    environment:
+      - PYTHONPATH=/opt/sentinel-ext
+      # S13: la deriva la pasarela (referencia de conversación) y la usa el motor (sufijo de los marcadores). Sin valor por
+      # defecto: la define sentinel/extensions.env; vacía o corta (< 32) ⇒ marcadores aleatorios.
+      - MASKING_NONCE_KEY=${MASKING_NONCE_KEY:-}
+      # Eleia es la línea de América (perfil Argentina): la región de la instalación en dev es latam_ar.
+      - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-latam_ar}
+    volumes:
+      - ./sentinel:/opt/sentinel-ext/sentinel
+      - ./deploy/redirect-seeds:/opt/sentinel-ext/seeds:ro
+
+  engine:
+    env_file:
+      - path: ${SENTINEL_EXTENSIONS_ENV_FILE:-./sentinel/extensions.env}
+        required: false
+    environment:
+      - SENTINEL_ENTITY_REGION=${SENTINEL_ENTITY_REGION:-latam_ar}
+      - MASKING_NONCE_KEY=${MASKING_NONCE_KEY:-}
+    volumes:
+      # Mismo destino que la base ⇒ reemplazan sus montajes. Se montan DIRECTORIOS generados y no
+      # los archivos sueltos: un bind mount dentro de `./litellm/extensions` haría que Docker
+      # creara archivos vacíos en el árbol versionado.
+      - ./sentinel/docker/.dev/config.yaml:/app/config.yaml
+      - ./sentinel/docker/.dev/extensions:/app/extensions

@@ -1262,6 +1262,21 @@ export const api = {
     return res.json();
   },
 
+  /** Cambia rpm/tpm de una llave existente (057). El servidor los aplica en la pasarela y en el motor: si el
+   *  motor no responde devuelve 503 y no cambia nada. */
+  updateKeyLimits: async (id: string, limits: { rpm_limit?: number; tpm_limit?: number }): Promise<any> => {
+    const res = await fetch(`${API_BASE}/keys/${id}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(limits),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new ApiError(detailMessage(err, "No se pudieron guardar los límites."), res.status);
+    }
+    return res.json();
+  },
+
   deleteKey: async (id: string): Promise<any> => {
     const res = await fetch(`${API_BASE}/keys/${id}`, { method: "DELETE", headers: authHeaders() });
     if (!res.ok) throw new Error("Failed to revoke key");

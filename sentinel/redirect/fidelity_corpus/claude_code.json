@@ -1,0 +1,149 @@
+{
+  "corpus_version": "2026.10.1",
+  "synthetic": true,
+  "tool": "claude_code",
+  "face": "claude",
+  "recorded_with": "forma de pedido de la herramienta, texto sintético escrito a mano; sin datos de usuarios",
+  "cases": [
+    {
+      "capability": "conversation",
+      "name": "conversacion-simple",
+      "request": {
+        "max_tokens": 512,
+        "system": [
+          {
+            "type": "text",
+            "text": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "Resume en una frase qué es una lista enlazada."
+          }
+        ]
+      }
+    },
+    {
+      "capability": "tools",
+      "name": "llamada-de-herramienta",
+      "request": {
+        "max_tokens": 512,
+        "system": [
+          {
+            "type": "text",
+            "text": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Lee un archivo del proyecto de ejemplo",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "auto"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "Lee el archivo README.md del proyecto de ejemplo usando la herramienta disponible."
+          }
+        ]
+      },
+      "expect": {
+        "tool": "read_file"
+      }
+    },
+    {
+      "capability": "long_stream",
+      "name": "streaming-largo",
+      "request": {
+        "max_tokens": 1024,
+        "system": [
+          {
+            "type": "text",
+            "text": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "stream": true,
+        "messages": [
+          {
+            "role": "user",
+            "content": "Escribe una lista numerada de 30 ítems sobre buenas prácticas de pruebas, una línea por ítem."
+          }
+        ]
+      },
+      "expect": {
+        "min_events": 15,
+        "min_chars": 300
+      }
+    },
+    {
+      "capability": "errors",
+      "name": "pedido-invalido",
+      "request": {
+        "max_tokens": 512,
+        "system": [
+          {
+            "type": "text",
+            "text": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "messages": []
+      },
+      "expect": {
+        "error_class": [
+          "invalid_request"
+        ]
+      }
+    },
+    {
+      "capability": "context",
+      "name": "dato-en-contexto-largo",
+      "request": {
+        "max_tokens": 64,
+        "system": [
+          {
+            "type": "text",
+            "text": "Eres un asistente de pruebas. Responde en español y con brevedad.",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "{{CONTEXT}}\n\nPregunta: ¿cuál es el código que aparece en el texto anterior? Responde solo con el código."
+          }
+        ]
+      },
+      "needle": "CLAVE-QZ-4417",
+      "fill_ratio": 0.5
+    }
+  ]
+}

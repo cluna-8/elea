@@ -3,15 +3,34 @@ import logging
 
 logger = logging.getLogger("sentinel-secure-gateway.encryption")
 
-_key = os.getenv("FERNET_SECRET_KEY", "").strip()
-_fernet = None
+def _construir(key: str, previous: list[str]):
+    """MultiFernet: cifra con `key`, descifra con `key` y con las `previous` (spec 069 D3).
 
-if _key:
+    Una clave previa inválida se ignora con aviso: no debe tumbar la actual. El formato del token
+    es el de Fernet, así que lo ya guardado con una sola clave sigue legible. `None` si no hay
+    clave actual o es inválida."""
+    if not key:
+        return None
     try:
-        from cryptography.fernet import Fernet
-        _fernet = Fernet(_key.encode())
+        from cryptography.fernet import Fernet, MultiFernet
+        olds = []
+        for k in previous:
+            try:
+                olds.append(Fernet(k.encode()))
+            except Exception:
+                logger.warning("FERNET_PREVIOUS_KEYS: se ignora una clave con formato inválido")
+        return MultiFernet([Fernet(key.encode()), *olds])
     except Exception as e:
         logger.warning("Fernet init failed, service_api_key_encrypted will be unavailable: %s", e)
+        return None
+
+
+# `FERNET_PREVIOUS_KEYS` (coma-separadas) SOLO descifra: permite rotar `FERNET_SECRET_KEY` sin
+# perder lo ya cifrado.
+_fernet = _construir(
+    os.getenv("FERNET_SECRET_KEY", "").strip(),
+    [k.strip() for k in os.getenv("FERNET_PREVIOUS_KEYS", "").split(",") if k.strip()],
+)
 
 
 class CifradoNoDisponible(RuntimeError):
@@ -64,3 +83,38 @@ def decrypt(value: str) -> str | None:
     except Exception:
         logger.warning("Failed to decrypt service API key")
         return None
+
+
+class ClaveDeCifradoFaltante(RuntimeError):
+    """Hay cifrado, pero ninguna de las claves cargadas descifra este valor.
+
+    Pasa tras rotar `FERNET_SECRET_KEY` olvidando poner la anterior en `FERNET_PREVIOUS_KEYS`.
+    `decrypt()` sigue devolviendo `None` (fail-closed, contrato histórico); quien necesite un error
+    visible —alta/reemplazo/rotación de credenciales del catálogo— usa `descifrar_estricto`.
+    """
+
+
+def descifrar_estricto(value: str) -> str:
+    """Como `decrypt`, pero la causa de un fallo es una excepción y no un `None` mudo."""
+    if _fernet is None:
+        raise CifradoNoDisponible(
+            "FERNET_SECRET_KEY ausente, vacía o inválida — no hay servicio de cifrado"
+        )
+    try:
+        return _fernet.decrypt(value.encode()).decode()
+    except Exception as e:
+        raise ClaveDeCifradoFaltante(
+            "ninguna clave cargada descifra el valor: ¿falta la clave anterior en "
+            "FERNET_PREVIOUS_KEYS?") from e
+
+
+def rotar(value: str) -> str:
+    """Recifra `value` con la clave actual (tras mover la anterior a `FERNET_PREVIOUS_KEYS`)."""
+    if _fernet is None:
+        raise CifradoNoDisponible(
+            "FERNET_SECRET_KEY ausente, vacía o inválida — no hay servicio de cifrado"
+        )
+    try:
+        return _fernet.rotate(value.encode()).decode()
+    except Exception as e:
+        raise ClaveDeCifradoFaltante("ninguna clave cargada descifra el valor a rotar") from e

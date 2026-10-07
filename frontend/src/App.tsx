@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { LayoutDashboard, FlaskConical, Activity, Boxes, Wallet, Users as UsersIcon, Scale, ShieldCheck, ClipboardCheck, ScrollText, BookOpen, FolderOpen } from "lucide-react";
+import { LayoutDashboard, FlaskConical, Activity, Boxes, Wallet, Users as UsersIcon, Scale, ShieldCheck, ClipboardCheck, ScrollText, BookOpen, FolderOpen, Puzzle } from "lucide-react";
 import { getBrand } from "./services/branding";
 import { UsersPage } from "./pages/UsersPage";
 import { WorkspacesUnassignedPage } from "./pages/WorkspacesUnassignedPage";
@@ -22,14 +22,22 @@ import { authStorage, SessionUser, ROLE_LABELS } from "./services/auth";
 // una tabla de roles hardcodeada que vuelva a driftear (Regla 5 aplicada al front): cada item
 // declara el GRUPO DE SUPERFICIE que representa y se muestra si el rol puede VERLO (`canView`).
 import { canView, SurfaceGroup } from "./services/roleMatrix";
+// Páginas de plugins resueltas en build (`@plugin-pages`); sin plugins es `[]` y nada cambia.
+import { pluginPages, canSeePluginPage, mergeNav, replacedBaseIds } from "./plugins/registry";
 
 // Agregar una sección son TRES ediciones sincronizadas en este archivo: este union, el item
 // de `navigation` y el render condicional de abajo. Si falta una, el usuario hace click y
-// ve una pantalla en blanco sin ningún error.
-type Page = "dashboard" | "playground" | "firewall" | "users" | "workspaces-unassigned" | "governance" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
+// ve una pantalla en blanco sin ningún error. Las páginas de plugins NO pasan por acá: se
+// registran solas (src/plugins/registry.ts) y viven bajo el id `plugin:<path>`.
+type PluginPageId = `plugin:${string}`;
+type Page = PluginPageId | "dashboard" | "playground" | "firewall" | "users" | "workspaces-unassigned" | "governance" | "security" | "compliance" | "audit" | "models" | "costs" | "docs";
 
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
+  // Un deep link a la ruta de un plugin (`/reportes`) abre esa página tras el login; el
+  // gate de roles se aplica igual al renderizar.
+  const [currentPage, setCurrentPage] = useState<Page>(() =>
+    pluginPages.some(p => p.path === window.location.pathname)
+      ? `plugin:${window.location.pathname}` : "dashboard");
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(authStorage.getUser());
   // El cambio de la propia contraseña vive acá y no en una página del nav: es de CUALQUIER
   // rol, y la única pantalla con campos de contraseña (Usuarios) es admin-only. Sin esto, la
@@ -55,7 +63,7 @@ export const App: React.FC = () => {
     // POST/PATCH/DELETE = require_role("admin","developer")). Mapearlo a config_producto le
     // quitaba el nav a `developer`, que el backend SÍ deja gestionar = under-permit. Gate
     // explícito = comportamiento previo, cero regresión. Pendiente decisión de contrato (follow-up).
-    { id: "models", name: "Modelos & Ollama", icon: Boxes, surface: null, legacyRoles: ["admin", "developer"] },
+    { id: "models", name: "Modelos", icon: Boxes, surface: null, legacyRoles: ["admin", "developer"] },
     { id: "costs", name: "Costos", icon: Wallet, surface: "vitrinas_lectura" },
     { id: "users", name: "Usuarios & Presupuestos", icon: UsersIcon, surface: "gestion_iam" },
     // Spec 044 (T044): mismo grupo de superficie que Usuarios — es gestión de identidad/
@@ -126,11 +134,22 @@ export const App: React.FC = () => {
     return <UserPortal user={currentUser} onLogout={handleLogout} />;
   }
 
-  const visibleNav = navigation.filter(item =>
-    item.legacyRoles
-      ? item.legacyRoles.includes(currentUser.role)
-      : item.surface === null || canView(currentUser.role, item.surface)
-  );
+  const visiblePlugins = pluginPages.filter(p => canSeePluginPage(p, currentUser.role));
+  // Un plugin con `replaces` ocupa el lugar del ítem base (spec 069); el ítem base se oculta para TODO rol
+  // (quien no ve la página nueva no ve esa pantalla). Sin plugin, `replaced` es vacío y nada cambia.
+  const replaced = replacedBaseIds(pluginPages);
+  const visibleNav = mergeNav(
+    navigation.filter(item =>
+      item.legacyRoles
+        ? item.legacyRoles.includes(currentUser.role)
+        : item.surface === null || canView(currentUser.role, item.surface)
+    ),
+    visiblePlugins.filter(p => p.menu).map(p => ({
+      item: { id: `plugin:${p.path}` as Page, name: p.menu!.label, icon: (p.menu!.icon ?? Puzzle) as typeof LayoutDashboard, surface: null },
+      section: p.menu!.section,
+      replaces: p.replaces,
+    })),
+  ).filter(item => !replaced.has(item.id));
 
   return (
     <div className="flex h-screen bg-canvas overflow-hidden font-sans">
@@ -198,7 +217,7 @@ export const App: React.FC = () => {
         {currentPage === "dashboard" && <DashboardPage />}
         {currentPage === "playground" && <PlaygroundPage />}
         {currentPage === "firewall" && <FirewallMonitorPage />}
-        {currentPage === "models" && <ModelsPage />}
+        {currentPage === "models" && !replaced.has("models") && <ModelsPage />}
         {currentPage === "costs" && <CostsPage />}
         {currentPage === "users" && <UsersPage />}
         {currentPage === "workspaces-unassigned" && <WorkspacesUnassignedPage />}
@@ -207,6 +226,7 @@ export const App: React.FC = () => {
         {currentPage === "compliance" && <CompliancePage />}
         {currentPage === "audit" && <AuditPage />}
         {currentPage === "docs" && <DocsPage />}
+        {visiblePlugins.map(p => currentPage === `plugin:${p.path}` && <p.Component key={p.path} />)}
       </main>
 
       {cambiarPassword && (

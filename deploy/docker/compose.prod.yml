@@ -10,11 +10,21 @@
 #     (profile "selfhosted")
 #   - TLS lo termina el ingress (Caddy, US4) por delante; acá nada escucha en 80/443
 #   - bloque de LICENCIA (spec 021, YA implementada): el perfil monta el .lic + claves
+#   - ENTORNO EXTRA opcional (EXTRA_ENV_FILE) en backend y engine: env_file con la sintaxis
+#     larga `path` + `required: false` — exige Docker Compose ≥ 2.24 (versiones anteriores
+#     rechazan el fichero). Sin la variable apunta a /dev/null: env efectivo idéntico. Un
+#     path relativo se resuelve contra el directorio del proyecto compose (el de este
+#     fichero). Precedencia de Compose: lo declarado en `environment:` GANA sobre el
+#     fichero — sirve para SUMAR variables, no para pisar las de acá.
 
 services:
   backend:
     image: "${BACKEND_IMAGE:?imagen pinneada por digest (publish.sh)}"
     restart: unless-stopped
+    env_file:
+      # Entorno extra opcional (ver cabecera: Compose ≥ 2.24, `environment:` gana).
+      - path: ${EXTRA_ENV_FILE:-/dev/null}
+        required: false
     environment:
       POSTGRES_HOST: "${POSTGRES_HOST:?}"
       POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
@@ -174,6 +184,10 @@ services:
   engine:
     image: "${SENTINEL_ENGINE_IMAGE:?imagen LiteLLM pinneada (014)}"
     restart: unless-stopped
+    env_file:
+      # Entorno extra opcional (ver cabecera: Compose ≥ 2.24, `environment:` gana).
+      - path: ${EXTRA_ENV_FILE:-/dev/null}
+        required: false
     depends_on:
       nlp-analyzer:
         condition: service_healthy

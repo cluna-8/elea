@@ -162,6 +162,14 @@ check-tofu:
 check-policy-files:
 	$(REPO_ROOT)/deploy/release/checks/test_content_policy_files.sh
 
+# Entorno extra opcional (EXTRA_ENV_FILE) de backend/engine en compose.prod.yml. Sin
+# contenedores: estructura con python3 + PyYAML y, si hay plugin, `docker compose config`.
+# Se suma a `check` en su propia línea (make acumula prerequisitos).
+.PHONY: check-compose-extra-env
+check: check-compose-extra-env
+check-compose-extra-env:
+	$(REPO_ROOT)/deploy/release/checks/test_compose_extra_env_file.sh
+
 # 026 T005 — targets de sentinel-admin-signer/sentinel-admin, delegando a cli/Makefile.
 # cli-check NO esta en el `check` agregado de arriba todavia: sus sub-targets de
 # contract/offline/artifact-boundary/bundle-contents son placeholders hasta que
@@ -177,3 +185,17 @@ cli-build-admin:
 
 cli-check:
 	$(MAKE) -C $(REPO_ROOT)/cli test
+
+# 057 T020/T088/T091 — entrega de extensiones (S9/S11), `heads` en la imagen publicada (S4) y variantes
+# `-ext` de las imágenes. Los tres corren SIN Docker (lectura estática y dobles de `docker`/`alembic`).
+.PHONY: check-extension-delivery check-standalone-heads check-ext-images check-entity-region-default
+check: check-extension-delivery check-standalone-heads check-ext-images check-entity-region-default
+check-extension-delivery:
+	$(REPO_ROOT)/deploy/release/checks/test_extension_delivery.sh
+check-standalone-heads:
+	$(REPO_ROOT)/deploy/release/checks/test_standalone_heads.sh
+check-ext-images:
+	$(REPO_ROOT)/deploy/release/checks/test_ext_images.sh
+# Región por defecto: latam_ar solo en el override de desarrollo de la extensión; la base y producción conservan eu (057 T095).
+check-entity-region-default:
+	$(REPO_ROOT)/deploy/release/checks/test_entity_region_default.sh

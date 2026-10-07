@@ -1,0 +1,24 @@
+{
+  "name": "claude-desktop-sondeo",
+  "tool": "claude_desktop",
+  "synthetic": true,
+  "descripcion": "Sondeo de arranque de Claude Desktop: max_tokens 1 (Azure exige >= 16) y la llave en x-api-key.",
+  "method": "POST",
+  "path": "/v1/messages",
+  "query": {},
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": "sk-sentinel-corpus-0001",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "claude-haiku-4-5",
+    "max_tokens": 1,
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  }
+}

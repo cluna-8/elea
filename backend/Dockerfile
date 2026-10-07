@@ -16,4 +16,5 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"]
+# `heads` sólo con migraciones de extensiones (ALEMBIC_EXTRA_VERSION_LOCATIONS); si no, `head`.
+CMD ["sh", "-c", "t=head; [ -n \"$ALEMBIC_EXTRA_VERSION_LOCATIONS\" ] && t=heads; alembic upgrade $t && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload"]

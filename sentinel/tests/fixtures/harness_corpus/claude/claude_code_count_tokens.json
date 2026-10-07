@@ -1,0 +1,77 @@
+{
+  "name": "claude-code-count-tokens",
+  "tool": "claude_code",
+  "synthetic": true,
+  "descripcion": "Conteo de tokens de Claude Code antes de compactar: mismo cuerpo que el pedido, sin max_tokens ni stream.",
+  "method": "POST",
+  "path": "/v1/messages/count_tokens",
+  "query": {
+    "beta": "true"
+  },
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05",
+    "x-app": "cli",
+    "user-agent": "claude-cli/2.1.0 (external, cli)",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "claude-sonnet-4-5",
+    "system": [
+      {
+        "type": "text",
+        "text": "Sos un asistente de programación."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Contá los tokens de esta conversación de ejemplo."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "Read",
+        "description": "Lee un archivo del proyecto",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "Bash",
+        "description": "Ejecuta un comando",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ]
+        },
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 8000
+    }
+  }
+}
