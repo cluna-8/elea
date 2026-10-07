@@ -55,7 +55,9 @@ flowchart TD
 ## Configuración
 
 **Kit del panel (recomendado)**: **Modelos → Kits → Claude Code** genera `claude-code.env` con la
-dirección de la pasarela, los ids por nivel y los ajustes que evitan fallas conocidas. 🟡
+dirección de la pasarela, los ids por nivel y los ajustes que evitan fallas conocidas. La llave
+nueva que emite el kit nace con 120 pedidos/min y 1 000 000 tokens/min; después se puede cambiar en
+*Usuarios & Presupuestos → Llaves Virtuales → Editar límites*. 🟡
 
 **A mano**:
 

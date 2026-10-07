@@ -43,6 +43,9 @@ TRANSFER_MECHANISMS = ("n/a", "dpf", "scc", "none", "unknown")
 RULE_KINDS = ("provider", "api_host", "jurisdiction")
 # Capacidades funcionales por entrada (FR-008a); la clave ausente = no declarada = sin la capacidad.
 FEATURES = ("images", "documents_pdf", "tools", "thinking", "cache_control", "mid_system_messages", "session_affinity")
+# Claves de `features` que no son booleanas: listas de valores admitidos (057). `reasoning_efforts`: los esfuerzos de
+# razonamiento que acepta el destino (`sentinel.redirect.effort.SCALE`); ausente o vacía = sin restricción conocida.
+FEATURE_LISTS = ("reasoning_efforts",)
 
 
 def slugify(name: str) -> str:

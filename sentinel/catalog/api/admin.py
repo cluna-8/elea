@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.auth.rbac import effective_roles, require_role
 
 from sentinel.redirect import credentials as rc
+from sentinel.redirect import effort
 from sentinel.redirect import models as rm
 from sentinel.redirect.api.admin import _is_super  # autoridad de instalación (operador)
 
@@ -527,9 +528,14 @@ def _check_vocab(provider=None, protocol=None, role=None, capability=None, featu
     if capability is not None and capability not in cm.CAPABILITIES:
         _err(422, "capacidad desconocida")
     if features is not None:
-        bad = set(features) - set(cm.FEATURES)
-        if bad or any(not isinstance(v, bool) for v in features.values()):
+        bad = set(features) - set(cm.FEATURES) - set(cm.FEATURE_LISTS)
+        if bad or any(not isinstance(v, bool) for k, v in features.items() if k not in cm.FEATURE_LISTS):
             _err(422, f"capacidades inválidas: {', '.join(sorted(bad)) or 'valores no booleanos'}")
+        efforts = features.get("reasoning_efforts")
+        if "reasoning_efforts" in features and not (
+                isinstance(efforts, list) and len(efforts) == len(set(efforts))
+                and all(isinstance(e, str) and e in effort.SCALE for e in efforts)):
+            _err(422, f"reasoning_efforts debe ser una lista sin repetidos de: {', '.join(effort.SCALE)}")
 
 
 def _check_extras(limits=None, advanced=None, tiers=None):

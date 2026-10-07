@@ -298,3 +298,58 @@ herramientas, 0,62 US$ de entrada y 15 US$ de salida por millón; 24 endpoints d
 **Falta para la prueba en vivo (T124)**: reconstruir el motor `-ext` (cambió `litellm/extensions/*`) y la imagen del backend; aplicar la migración `0529902015ad`; una tarea de Cowork con
 capturas bajo el forzado (esperar `unanalyzable_replaced` en la auditoría), el selector con el id pedido, el alta de `moonshotai/kimi-k3` con «Proveedores permitidos» y su ficha, y la
 regla de Azure a Kimi.
+
+## 10. Llaves de Kits con tope de agente y esfuerzo por destino (2026-10-07)
+
+Rama `cluna-8/057-llaves-esfuerzo` sobre `4bb87ea`. Datos que lo motivan (verificados por Sentinel): el default de llave es 60 rpm / 100 000 tpm
+(`backend/src/api/keys.py:40-41`, `:60-61`, `:212-213`; `backend/src/models/budget.py:57-58`; `backend/src/api/chat.py:997`, `:1714`) y cada pedido de Claude Desktop/Cowork
+pesa 35 000–67 000 tokens; la consola no dejaba editar los límites de una llave existente; Azure `gpt-5.1-chat` solo acepta `medium`.
+
+**Qué cambió**
+
+| Cambio | Dónde |
+|---|---|
+| El kit de `claude_desktop` y `claude_code` emite la llave con **120 rpm / 1 000 000 tpm**; `generate_key` los aplica en la fila `api_keys` (la que lee `check_tpm`) y en la llave del motor (`/key/generate`) | `sentinel/redirect/kits.py` (`KEY_LIMITS`), `sentinel/redirect/api/us5.py` (`_issue_key`); `codex` y `openai_generic` conservan el default |
+| `PATCH /api/v1/keys/{id}` (solo admin): rpm/tpm ≥ 1, motor primero por `/key/update` con la master key (invalida su caché), 503 sin tocar la fila si el motor falla, el motor vuelve al valor previo si falla el commit | `backend/src/api/keys.py` (`update_key_limits`), `backend/src/services/ai_engine_client.py` (`update_key`), fila nueva en `backend/tests/integration/test_role_matrix.py` |
+| Consola: «Editar límites» en *Llaves Virtuales* (rangos del alta: rpm 1–10 000, tpm 1 000–10 000 000; manda solo lo que cambió; muestra el error del servidor sin cerrarse) | `frontend/src/components/KeyLimitsModal.tsx`, `frontend/src/pages/UsersPage.tsx`, `frontend/src/services/api.ts` (`updateKeyLimits`) |
+| Esfuerzo por destino: el conjunto que admite el destino es `features.reasoning_efforts` de su ficha; sin él, el valor conocido (`gpt-5.1-chat` → `medium`); un esfuerzo no admitido se mapea al **más cercano** (empate: el más bajo) en `reasoning_effort` y en `reasoning.effort`, y queda `reasoning_effort` en `adjusted_params` (sin el valor). Sin dato, el pedido pasa tal cual | `sentinel/redirect/effort.py`, `sentinel/redirect/plugin.py` (tras `unsupported_params`), `sentinel/engine/redirect_guard.py` (el guard conserva el ajuste de la pasarela), `sentinel/catalog/models.py` (`FEATURE_LISTS`), `sentinel/catalog/api/admin.py` (validación), `deploy/redirect-seeds/catalog-seed.azure-demo.yaml` |
+
+**Rojo→verde** (tests escritos antes, corridos sobre el código sin el cambio): `backend/tests/unit/test_keys_limites_editables.py` 8 failed + 6 error de 16 (no existía `update_key` ni el endpoint);
+`sentinel/tests/unit/test_redirect_kits_limites_llave.py` 4 de 6 en rojo; `sentinel/tests/unit/test_redirect_esfuerzo_por_destino.py` no se podía importar (no existía `effort`);
+`frontend/tests/unit/KeyLimitsModal.test.tsx` y `UsersPage.key-limits.test.tsx` no cargaban (sin el componente). Con el cambio, todos verdes.
+
+**Sin Docker** (venv de pruebas fuera del repo, `fastapi 0.111.0`, `pydantic 2.13.4`; la salida de `export_openapi.py` solo suma `PATCH /keys/{id}` y `KeyLimitsUpdateSchema`: 99 líneas nuevas, ninguna cambiada):
+
+| Suite | Resultado |
+|---|---|
+| `backend/tests/unit` | **1877 passed, 4 skipped** |
+| `backend/tests/contract` (incluye T003) | 111 passed, 9 skipped, **7 failed: los mismos 7 que en `4bb87ea`** (6 de `test_route_parity.py` dan 503 sin Postgres; 1 de `test_policy_module_identity.py` pide `litellm`) |
+| `sentinel/tests` (todo) | **2566 passed, 13 skipped** (37 son de esta rama) |
+| `frontend` (Vitest) + `tsc --noEmit` | **47 passed** · tipos sin errores |
+| `sentinel/frontend` (Vitest) + `tsc -p .` | **287 passed** · tipos sin errores |
+| `client` (`npm test`) | **43 passed** |
+| `docs/test_gen_config_reference.py`, `docs/tools/test_drift_gate.py`, `docs/tools/drift_gate.py`, `deploy/release/checks/test_docs_structure.sh`, `docs/gen_config_reference.py` | verdes (deriva: 0 fallos) |
+
+**Estados honestos**: todo lo anterior está 🟡 (prueba con motor y proveedor simulados); la prueba en vivo la hace el owner (ver el cierre de esta sección).
+
+**Con Docker (OK del owner, solo estas imágenes y estos tres servicios)**: construidas de a una, con `free -h` antes de cada una (`available` ≥ 4,3 GB; el umbral era 1,5 GB), con los mismos
+Dockerfile, contexto, tags y `BASE_IMAGE` que `deploy/release/publish-elea.sh` y **sin `push`**: backend (`backend/Dockerfile.standalone`, raíz) → backend-ext → importación de la
+extensión dentro de la imagen (OK) → frontend (`frontend/`) → frontend-ext → engine (`litellm/`, sin cambios de política) → engine-ext, tag `2026-10-07` y `2026-10-07-ext`
+(las anteriores quedaron como `…-prev-llaves`). Ids: backend:2026-10-07=0024939e4df5 backend:2026-10-07-ext=2d31d84ae6a9 frontend:2026-10-07=05543242b3b5 frontend:2026-10-07-ext=e921776a884d engine:2026-10-07=63c9affb91cb engine:2026-10-07-ext=8c7f2e36e803 .
+Dentro de la imagen: `update_key_limits` en `src/api/keys.py`, `sentinel.redirect.effort` y `kits.KEY_LIMITS` importan desde `/opt/sentinel-ext`, la migración
+`0529902015ad_redirect_etiqueta_solicitada.py` está en `sentinel/migrations`, el guard del motor trae la fusión de `adjusted_params`, el panel trae `KeyLimitsModal.tsx`.
+Recreados en `~/elea057-t102/Eleia-cli` con `docker compose up -d --no-deps backend frontend engine` (nada más):
+
+| Control | Resultado |
+|---|---|
+| Arranque del backend | `Running upgrade 89a92524eef6 -> 0529902015ad` (aplicó la migración de la extensión) |
+| `alembic heads` / `alembic current` (en el backend) | dos cabezas por diseño, `3d1f1bd93c73` (base) y `0529902015ad` (extensión); `current` muestra las dos al día |
+| `/health` (backend, y por el proxy en `:8091`) | 200 `healthy` |
+| `/api/v1/redirect/health` (backend y proxy) | 200 `{"status":"ok"}` |
+| Consola (`:8090`) | 200; sirve `KeyLimitsModal.tsx`; `/openapi.json` lista `PATCH /api/v1/keys/{key_id}` |
+| Estado de los contenedores | backend y motor `healthy`, panel arriba; el resto de la instalación no se tocó |
+
+**Para probar en vivo (owner)**: (1) *Modelos → Kits → Claude Desktop* con credencial: la llave nueva sale con 120 rpm / 1 000 000 tpm (se ve en *Llaves Virtuales*); en el motor, `/key/info`
+de esa llave muestra los mismos límites. (2) En *Llaves Virtuales*, **Editar límites** en una llave vieja (60 / 100 000): guardar y recargar; con el motor apagado, el panel debe avisar y dejar los
+valores como estaban. (3) Un pedido por la cara genérica o por Claude Code con `reasoning_effort: low` hacia `gpt-5.1-chat` de Azure: debe responder 200 y la auditoría traer `adjusted_params`
+con `reasoning_effort`. **No se probó en vivo**: el PATCH contra el motor real (hace falta una sesión de administrador y la master key, que no se leyó) ni el pedido a Azure.

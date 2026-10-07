@@ -85,6 +85,7 @@ CATALOG = [
     ("GET",    "/api/v1/keys",                       "gestion_iam",           "read"),
     ("PUT",    "/api/v1/users/{ID}",                 "gestion_iam",           "write"),
     ("DELETE", "/api/v1/keys/{ID}",                  "gestion_iam",           "write"),
+    ("PATCH",  "/api/v1/keys/{ID}",                  "gestion_iam",           "write"),  # 057: editar rpm/tpm de una llave
     ("GET",    "/api/v1/groups",                      "gestion_iam",           "read"),   # #247: CO lee grupos
     ("PUT",    "/api/v1/groups/{ID}/compliance",      "gestion_iam",           "write"),  # #247: write admin-only
     # config_producto — guardians, policy, router_config, governance, budgets

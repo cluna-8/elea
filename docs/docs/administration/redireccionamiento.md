@@ -103,6 +103,15 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
   existente, la entrada queda **inactiva** con el motivo «El despliegue … no existe en el recurso
   configurado» hasta que **Verificar despliegue** pase. 🟡
 - **Versión de API (Azure)**: usá `2025-04-01-preview` o posterior; con una anterior el panel avisa (sin bloquear) y, para las herramientas y el razonamiento de Claude Desktop/Code, el producto sube la versión solo en esa llamada y deja la de la credencial para el chat. 🟡
+- **Esfuerzo de razonamiento admitido**: algunos modelos solo aceptan ciertos valores de esfuerzo
+  (el despliegue `gpt-5.1-chat` de Azure solo acepta `medium` y responde `400` con `low`). La entrada
+  puede declarar la lista de esfuerzos que acepta (`reasoning_efforts`, entre `none`, `minimal`,
+  `low`, `medium`, `high` y `xhigh`). Si la persona o la herramienta pide otro, la pasarela lo
+  cambia por el **más cercano que el destino acepta** (en un empate, el más bajo) y lo registra en
+  la auditoría como un ajuste de `reasoning_effort`, sin el valor: nunca un error por esto. Sin
+  lista declarada rige el valor conocido del modelo (hoy solo `gpt-5.1-chat`) y, si tampoco hay, el
+  pedido pasa tal cual. La lista se carga por la API del catálogo (en las claves de capacidades
+  de la entrada); la consola conserva el valor al editar el resto de la ficha. 🟡
 - **Ficha de cumplimiento**: por entrada, la **entidad responsable** (quien opera la inferencia),
   la **jurisdicción de la entidad**, la **jurisdicción de control** (la de quien posee el 50 % o más
   de la entidad o la controla), la **jurisdicción de inferencia** (dónde se procesa) y si hay
