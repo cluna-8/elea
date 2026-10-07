@@ -331,3 +331,25 @@ pesa 35 000–67 000 tokens; la consola no dejaba editar los límites de una lla
 | `docs/test_gen_config_reference.py`, `docs/tools/test_drift_gate.py`, `docs/tools/drift_gate.py`, `deploy/release/checks/test_docs_structure.sh`, `docs/gen_config_reference.py` | verdes (deriva: 0 fallos) |
 
 **Estados honestos**: todo lo anterior está 🟡 (prueba con motor y proveedor simulados); la prueba en vivo la hace el owner (ver el cierre de esta sección).
+
+**Con Docker (OK del owner, solo estas imágenes y estos tres servicios)**: construidas de a una, con `free -h` antes de cada una (`available` ≥ 4,3 GB; el umbral era 1,5 GB), con los mismos
+Dockerfile, contexto, tags y `BASE_IMAGE` que `deploy/release/publish-elea.sh` y **sin `push`**: backend (`backend/Dockerfile.standalone`, raíz) → backend-ext → importación de la
+extensión dentro de la imagen (OK) → frontend (`frontend/`) → frontend-ext → engine (`litellm/`, sin cambios de política) → engine-ext, tag `2026-10-07` y `2026-10-07-ext`
+(las anteriores quedaron como `…-prev-llaves`). Ids: backend:2026-10-07=0024939e4df5 backend:2026-10-07-ext=2d31d84ae6a9 frontend:2026-10-07=05543242b3b5 frontend:2026-10-07-ext=e921776a884d engine:2026-10-07=63c9affb91cb engine:2026-10-07-ext=8c7f2e36e803 .
+Dentro de la imagen: `update_key_limits` en `src/api/keys.py`, `sentinel.redirect.effort` y `kits.KEY_LIMITS` importan desde `/opt/sentinel-ext`, la migración
+`0529902015ad_redirect_etiqueta_solicitada.py` está en `sentinel/migrations`, el guard del motor trae la fusión de `adjusted_params`, el panel trae `KeyLimitsModal.tsx`.
+Recreados en `~/elea057-t102/Eleia-cli` con `docker compose up -d --no-deps backend frontend engine` (nada más):
+
+| Control | Resultado |
+|---|---|
+| Arranque del backend | `Running upgrade 89a92524eef6 -> 0529902015ad` (aplicó la migración de la extensión) |
+| `alembic heads` / `alembic current` (en el backend) | dos cabezas por diseño, `3d1f1bd93c73` (base) y `0529902015ad` (extensión); `current` muestra las dos al día |
+| `/health` (backend, y por el proxy en `:8091`) | 200 `healthy` |
+| `/api/v1/redirect/health` (backend y proxy) | 200 `{"status":"ok"}` |
+| Consola (`:8090`) | 200; sirve `KeyLimitsModal.tsx`; `/openapi.json` lista `PATCH /api/v1/keys/{key_id}` |
+| Estado de los contenedores | backend y motor `healthy`, panel arriba; el resto de la instalación no se tocó |
+
+**Para probar en vivo (owner)**: (1) *Modelos → Kits → Claude Desktop* con credencial: la llave nueva sale con 120 rpm / 1 000 000 tpm (se ve en *Llaves Virtuales*); en el motor, `/key/info`
+de esa llave muestra los mismos límites. (2) En *Llaves Virtuales*, **Editar límites** en una llave vieja (60 / 100 000): guardar y recargar; con el motor apagado, el panel debe avisar y dejar los
+valores como estaban. (3) Un pedido por la cara genérica o por Claude Code con `reasoning_effort: low` hacia `gpt-5.1-chat` de Azure: debe responder 200 y la auditoría traer `adjusted_params`
+con `reasoning_effort`. **No se probó en vivo**: el PATCH contra el motor real (hace falta una sesión de administrador y la master key, que no se leyó) ni el pedido a Azure.
