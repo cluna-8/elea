@@ -252,6 +252,24 @@ def masking_exemptions(report: Any) -> str:
     return ",".join(sorted({n for n in exempt if isinstance(n, str) and n in MASKING_EXEMPT_NAMES}))
 
 
+_KIND_NAME = re.compile(r"^[a-z0-9_]{1,32}$")
+
+
+def replaced_unanalyzables(report: Any) -> tuple:
+    """(cantidad, nombres de tipo `a,b`) de los binarios de una herramienta que el guardrail cambió por una nota (S14,
+    R39: la captura de Cowork dentro de un `tool_result`). No bloquea —el binario ya no sale— y se registra para la
+    auditoría. Solo un entero positivo y nombres de tipo cortos (`[a-z0-9_]`); lo demás se ignora. Nunca contenido."""
+    if not isinstance(report, Mapping):
+        return 0, ""
+    n = report.get("unanalyzable_replaced")
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        return 0, ""
+    kinds = report.get("unanalyzable_replaced_kinds")
+    names = sorted({k for k in (kinds if isinstance(kinds, (list, tuple)) else ())
+                    if isinstance(k, str) and _KIND_NAME.match(k)})
+    return n, ",".join(names)
+
+
 def masking_ok(report: Any, *, forced: bool = False) -> bool:
     """¿El informe del guardrail de la base (S5b) garantiza el enmascarado? Completo, no degradado y con todo lo
     detectado enmascarado. Con el forzado vigente (`forced`, 057 S14; QA B3) además exige **alcance completo**
@@ -638,6 +656,11 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
         exempt = masking_exemptions(_masking_report(data, call_type))
         if exempt:
             decision["masking_exempt"] = exempt           # la instalación relajó el piso (S14, opcional): queda registrado
+        replaced, replaced_kinds = replaced_unanalyzables(_masking_report(data, call_type))
+        if replaced:
+            decision["unanalyzable_replaced"] = replaced  # R39: binarios de herramientas cambiados por una nota
+            if replaced_kinds:
+                decision["unanalyzable_replaced_kinds"] = replaced_kinds
     _write_decision(data, call_type, decision)
     return data
 

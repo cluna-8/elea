@@ -1,4 +1,4 @@
-"""057 R39: los campos que la cara Claude ESCRIBE en el cuerpo hacia un destino traducido son del protocolo de la pasarela y el
+"""057 R42: los campos que la cara Claude ESCRIBE en el cuerpo hacia un destino traducido son del protocolo de la pasarela y el
 enmascarado de alcance completo del motor (S14) tiene que tenerlos en su tabla de posiciones.
 
 Hallazgo del 2026-10-07 (Claude Desktop, sonnet y opus, hasta un «hola» nuevo): con `thinking` u `output_config.effort` el normalizador

@@ -276,7 +276,7 @@ class PublishedIn(BaseModel):
     family_tier: Optional[str] = None
     is_family_default: bool = False
     label: Optional[str] = Field(default=None, max_length=256)
-    label_mode: str = "destination"
+    label_mode: str = "requested"
     scope_type: str = "tenant"
     scope_value: str = "*"
     reference_model: Optional[str] = Field(default=None, max_length=256)

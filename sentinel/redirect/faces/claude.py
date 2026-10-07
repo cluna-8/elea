@@ -27,7 +27,7 @@ _TIER_NAMES = {"opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku", "fable": "F
 
 
 def display_label(row: Mapping[str, Any]) -> str:
-    mode = row.get("label_mode") or "destination"
+    mode = row.get("label_mode") or "requested"       # sin modo: el que no cuenta el destino (057 R40)
     if mode == "custom" and row.get("label"):
         return str(row["label"])
     if mode == "requested":
@@ -42,7 +42,7 @@ def display_label(row: Mapping[str, Any]) -> str:
 
 def _model_entry(row: Mapping[str, Any], now_iso: str) -> dict:
     window = int(row.get("context_window") or 0)
-    shows_destination = (row.get("label_mode") or "destination") == "destination"
+    shows_destination = (row.get("label_mode") or "requested") == "destination"
     desc = f"Ventana: {window}." if window else "Ventana: sin declarar."
     if shows_destination and row.get("destination_name"):
         desc = f"Destino: {row['destination_name']}. {desc}"

@@ -42,9 +42,11 @@ def test_misma_rama_que_la_068_y_una_sola_cabeza_propia(tmp_path):
     assert "d5b8e3a1c742" not in script.get_heads()
     # parámetros no soportados de la ficha (069 enmienda) cuelgan de ella y son la cabeza actual
     assert script.get_revision("f7a3c1d9e508").down_revision == "d5b8e3a1c742"
-    # en Eleia la sigue la migración de región y habilitación (057 T026), que es la cabeza de la extensión
+    # en Eleia la sigue la migración de región y habilitación (057 T026); la cabeza de la extensión es hoy la del
+    # default de la etiqueta (057 R40, `0529902015ad`)
     assert script.get_revision("89a92524eef6").down_revision == "f7a3c1d9e508"
-    assert "f7a3c1d9e508" not in script.get_heads() and "89a92524eef6" in script.get_heads()
+    assert "f7a3c1d9e508" not in script.get_heads() and "89a92524eef6" not in script.get_heads()
+    assert script.get_revision("0529902015ad").down_revision == "89a92524eef6" and "0529902015ad" in script.get_heads()
 
 
 def test_crea_las_tablas_despues_de_las_de_la_068(sql):

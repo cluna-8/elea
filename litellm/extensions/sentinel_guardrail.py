@@ -737,6 +737,11 @@ class SentinelGuardrail(CustomGuardrail):
             # texto unido y con tope): `detected == masked` solo si nada quedó sin reescribir.
             reporte.update(detected=tally.detected, masked=tally.masked, unanalyzable=tally.unanalyzable,
                            unanalyzable_kinds=tally.kinds)
+            if tally.unanalyzable_replaced:
+                # R39: binarios de una herramienta (`tool_result`) cambiados por una nota; NO suman a `unanalyzable`
+                # (el binario ya no sale) y solo se informan cuando los hubo: sin ellos el informe es el de siempre.
+                reporte.update(unanalyzable_replaced=tally.unanalyzable_replaced,
+                               unanalyzable_replaced_kinds=tally.replaced_kinds)
             if tally.signed_thinking_masked:
                 # Opcional: `thinking` con firma cuyo texto cambió al enmascarar. NO suma a `unanalyzable`:
                 # hacia un destino traducido la extensión reconstruye la firma (R10); el guard bloquea solo

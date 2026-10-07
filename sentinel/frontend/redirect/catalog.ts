@@ -117,8 +117,8 @@ export type FamilyTier = (typeof FAMILY_TIERS)[number];
 export const LABEL_MODES = ["destination", "requested", "custom"] as const;
 export type LabelMode = (typeof LABEL_MODES)[number];
 export const LABEL_MODE_LABELS: Record<LabelMode, string> = {
-  destination: "Muestra el destino que sirve",
-  requested: "Muestra el id pedido",
+  destination: "Muestra el destino que sirve (el cliente lo ve)",
+  requested: "Muestra el id pedido (predeterminado)",
   custom: "Etiqueta propia",
 };
 

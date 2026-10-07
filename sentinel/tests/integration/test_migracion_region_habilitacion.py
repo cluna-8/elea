@@ -45,7 +45,7 @@ def _tabla(sql, nombre):
     return bloque[:bloque.index(";")]
 
 
-def test_la_migracion_es_la_cabeza_de_la_extension_y_cuelga_de_la_que_trae_sentinel():
+def test_la_migracion_cuelga_de_la_que_trae_sentinel_y_la_sigue_la_cabeza_actual():
     import os
     os.environ[ENV] = str(MIGR)
     try:
@@ -56,7 +56,9 @@ def test_la_migracion_es_la_cabeza_de_la_extension_y_cuelga_de_la_que_trae_senti
         os.environ.pop(ENV, None)
     rev = script.get_revision("89a92524eef6")
     assert rev.down_revision == "f7a3c1d9e508" and re.fullmatch(r"[0-9a-f]{12}", rev.revision)
-    assert "89a92524eef6" in script.get_heads() and "f7a3c1d9e508" not in script.get_heads()
+    # la cabeza de la extensión es hoy el default de la etiqueta (057 R40), que cuelga de esta
+    assert "89a92524eef6" not in script.get_heads() and "f7a3c1d9e508" not in script.get_heads()
+    assert script.get_revision("0529902015ad").down_revision == "89a92524eef6"
 
 
 def test_crea_las_tres_tablas_y_la_columna_de_control(sql):

@@ -1008,7 +1008,7 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   `test_secret_detection_limite_izquierdo.py` (R37, 73) y `test_pilot_fixes.py` (Bug 3) siguen verdes.
 - **Para Sentinel**: aplicar el mismo patrón en su `policy.py` y en su `guardian_service` (fila «Detector de secretos» del `HANDOFF-elea-a-sentinel.md`).
 
-## R39. `reasoning_effort`: el campo que la cara Claude agrega bloqueaba TODO pedido de sonnet y opus — hallazgo de Claude Desktop (2026-10-07; FR-027, SC-006)
+## R42. `reasoning_effort`: el campo que la cara Claude agrega bloqueaba TODO pedido de sonnet y opus — hallazgo de Claude Desktop (2026-10-07; FR-027, SC-006)
 
 - **Síntoma** (instalación de prueba de T102, Claude Desktop contra la pasarela local, destino traducido): sonnet y opus daban 403 `masking_required` hasta con un
   «hola» en una conversación nueva y con el esfuerzo en «Bajo»; haiku (que no muestra selector de esfuerzo) respondía. En los logs del motor solo estaba el 403 del
@@ -1041,6 +1041,56 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
 - **Observabilidad**: el guard rechazaba sin dejar nada de por qué. R39 no lo cambia (el informe tiene solo conteos y nombres de tipo, pero otro worker trabaja en el
   guard); queda como mejora a considerar: registrar en el log del motor, al rechazar con `masking_required`, los campos del informe (`completed`, `degraded`,
   `detected`, `masked`, `unanalyzable`, `unanalyzable_kinds`, `scope`, `signed_thinking`), jamás contenido.
+## R39. Un binario que devuelve una herramienta no se bloquea bajo el forzado: se reemplaza por una nota — enmienda de S14 (decisión del owner por el coordinador, 2026-10-07; FR-027, SC-006)
+
+- **Hechos**: Cowork crea archivos (presentaciones, PDF, documentos, imágenes) ejecutando código en su entorno y **verifica el resultado con capturas de pantalla que
+  vuelven como imágenes dentro de un `tool_result`**; además pide `max_tokens` ≈ 64 000. Bajo el enmascarado forzado (S14) una `image` es no analizable
+  (`litellm/extensions/sentinel_guardian_policy.py`, `_w_block`, antes `yield ("flag", "image")`), el guard exige `unanalyzable = 0` (`sentinel/engine/redirect_guard.py`, `masking_ok`)
+  y el pedido terminaba en `403/400 masking_required`: la tarea se cortaba en la primera captura. La cara Claude ya resolvía el mismo caso **por capacidad** del destino
+  (`sentinel/redirect/faces/claude.py:214-290`, `_TOOL_NOTE`/`_omit_unsupported`/`_check_blocks`, porte de Sentinel #46), pero **solo** cuando la ficha del destino no declara la capacidad:
+  con un destino que acepta imágenes la captura pasaba tal cual hasta S14, donde era no analizable.
+- **Decisión** (la más restrictiva que no rompe Cowork): bajo la señal de forzado, una imagen, un audio o un documento **no analizable que está dentro de un `tool_result`**
+  (Anthropic; en OpenAI, el contenido de un mensaje `tool`/`function`) se **reemplaza en el lugar por un bloque de texto con una nota neutra**; el binario **nunca** sale hacia el
+  proveedor. Se cuenta aparte (`MaskingTally.replace`, `…policy.py:1086`) y **no suma a `unanalyzable`**. La nota reutiliza el criterio de la de la cara Claude (pide no
+  volver a pedir capturas, para no entrar en un bucle) con texto neutro de marca blanca (sin nombres de componentes); la marca de caché válida del bloque pasa a la nota (FR-044).
+  `_w_unanalyzable` (`:1476`) decide por el contexto (`in_tool_result`) que `_w_container` fija en las dos rutas de `tool_result` (`:1633-1638`).
+- **Auditoría**: el informe del guardrail suma `unanalyzable_replaced` y `unanalyzable_replaced_kinds` solo cuando hubo reemplazos (`sentinel_guardrail.py:740-744`); el guard los
+  copia a la decisión (`redirect_guard.py:258-271`, `:658-663`) con conteo entero y nombres de tipo `[a-z0-9_]{1,32}`: nunca contenido. Es el mismo canal de `masking_exempt`. El
+  camino de suscripción del backend lo deja en el log, también con solo conteo y tipos (`backend/src/api/gateway.py:543-546`).
+- **Lo que no cambia**: lo que **adjunta la persona** en su mensaje (imagen, audio o documento sueltos en un turno `user`) sigue bloqueando; un PDF con texto devuelto por una herramienta
+  sigue como texto enmascarado (se ve y se enmascara); `redacted_thinking`, tipos desconocidos, `structural_entity`, `cache_control` inválido y `too_deep` siguen bloqueando dentro de un
+  `tool_result`; sin la señal no se toca nada.
+- **Costo asumido**: el agente **no revisa su resultado con la vista** bajo el forzado (revisa con texto). Es la contrapartida de que ningún binario salga sin analizar.
+- **Alternativas descartadas**: (a) reconocimiento de texto en la imagen (OCR) para analizarla: fase siguiente, no hay motor; (b) permitir el binario hacia destinos «de confianza»: rompe
+  el principio de que el forzado no tiene excepciones por destino para lo no analizable; (c) bloquear (lo que había): corta Cowork; (d) quitar el bloque sin nota: el modelo reintentaría
+  la captura en bucle.
+- **Tests**: `backend/tests/unit/test_masking_binarios_en_tool_result.py` (imagen/documento por URL/PDF ilegible en `tool_result` reemplazados; el texto vecino se enmascara; la marca de
+  caché pasa; turnos anteriores; OpenAI `tool`; el PDF con texto sigue como texto; la imagen de la persona bloquea aun junto a un `tool_result`; los no binarios bloquean; el informe cuenta aparte
+  y no lleva contenido; sin señal no se toca), `backend/tests/unit/test_masking_posiciones_exentas.py` (la tabla no cambia) y `sentinel/tests/unit/test_redirect_guard.py` (el guard acepta y
+  registra `unanalyzable_replaced`; sigue bloqueando con `unanalyzable > 0`).
+- **Para Sentinel**: costura S14 retrocompatible; fila nueva en `HANDOFF-elea-a-sentinel.md` §2. La cara Claude y la genérica no cambian.
+
+## R40. Etiqueta por defecto `requested`, Kimi K3 por OpenRouter y modelos distintos por grupo — decisiones del owner por el coordinador (2026-10-07; FR-057, FR-058)
+
+- **Etiqueta** (FR-057). Hechos: el default era `destination` (`models.py`, `admin.py`, formulario del panel), así que el selector de Claude Desktop mostraba «Sonnet · servido por <destino>» y
+  el nombre del destino llegaba al cliente. **Decisión**: el default pasa a `requested` (el cliente ve el id Claude que pidió; nunca el destino) en tres lugares que deben coincidir: la columna
+  (`sentinel/redirect/models.py:138`, con `server_default`), el esquema de la API (`sentinel/redirect/api/admin.py:279`) y el formulario (`sentinel/frontend/redirect/helpers.ts`, `PublishedTab`);
+  y el recorrido de una fila sin modo (`faces/claude.py:30`, `:45`; la fila inferida de `plugin.py:423`). **Migración** `0529902015ad` (id por hash, rama `sentinel_redirect`, sigue a `89a92524eef6`):
+  solo `alter_column … server_default`; **las filas existentes no se tocan** (`destination` y `custom` son una elección del administrador). Mostrar el destino o una etiqueta propia sigue siendo
+  una elección **por id**. No hay seed que fije el modo (el administrador publica por la API). Tests: `sentinel/tests/unit/test_redirect_etiqueta_solicitada.py` (default; `/v1/models` y respuestas,
+  cuerpo y eventos de *streaming*, sin el nombre ni el modelo real del destino; `destination` sigue mostrándolo porque es explícito) y `sentinel/tests/integration/test_migracion_etiqueta_solicitada.py`
+  (sube, baja, no toca filas). Para Sentinel: cambio de default **opcional** (retrocompatible; lo que ya tenga publicado no cambia).
+- **Kimi K3 por OpenRouter** (FR-058). El id real en la lista pública de OpenRouter (`https://openrouter.ai/api/v1/models`, 2026-10-07) es **`moonshotai/kimi-k3`**: ventana 1 048 576, entrada
+  texto/imagen/video, herramientas, precio 0,62 / 15 US$ por millón; existe además la variante `:batch`, que no se usa. **Hallazgo**: el alta guiada **no podía** dar de alta ningún modelo de OpenRouter,
+  porque este exige los proveedores permitidos (`providers_allowlist`, FR-032) y el formulario no los pedía ni los mandaba. **Arreglo mínimo y retrocompatible**: `provider_options` compartido en el
+  alta en lote (`sentinel/catalog/api/reference.py`) y el campo «Proveedores permitidos» solo para OpenRouter (`sentinel/frontend/models/guided.ts`, `GuidedEntryForm.tsx`). La **ficha** lleva la jurisdicción de
+  inferencia, de entidad y de control del **proveedor final**, no las del agregador ni las de quien desarrolló el modelo (ejemplo en `docs/docs/administration/redireccionamiento.md`). Una regla mueve
+  `claude-sonnet-…` de Azure a Kimi sin tocar el cliente: `sentinel/tests/integration/test_redirect_sonnet_azure_a_kimi.py` (guard real con dos destinos: mismo id, mismo `model` en la respuesta, otro destino).
+- **Grupos** (FR-058). No siempre son tres modelos: con lo que ya existe (ids publicados y reglas con alcance de grupo + perfil de acceso por proveedor) un grupo «Todos» ve tres ids más uno
+  extra hacia Kimi y un grupo «Solo Azure» solo los que van a Azure. `/v1/models` de cada llave lista solo lo suyo; el id de otro grupo da el error neutro sin nombrar destinos; un grupo
+  restringido a Azure nunca llega a Kimi, ni siquiera por una regla de la empresa. **Sin UI ni modelo de datos nuevos.** Test: `sentinel/tests/integration/test_redirect_grupos_azure_y_todos.py`.
+- **Alternativas descartadas**: migrar las filas existentes a `requested` (cambia en silencio una elección del administrador); sembrar un modo por instalación (la etiqueta es dato del administrador,
+  no de la instalación); un modelo de datos de «grupos de modelos» (lo que hay alcanza).
 
 ## Resolución del QA
 

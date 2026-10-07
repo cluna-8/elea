@@ -445,7 +445,7 @@ async def test_un_campo_desconocido_cuyo_nombre_es_semantico_se_sigue_analizando
     assert tally.kinds == ["structural_entity"]
 
 
-# ── el pedido de sonnet/opus hacia un destino TRADUCIDO: `reasoning_effort` (057, R39) ──────────────────────────────────
+# ── el pedido de sonnet/opus hacia un destino TRADUCIDO: `reasoning_effort` (057, R42) ──────────────────────────────────
 
 def _pedido_de_sonnet_hacia_destino_traducido(esfuerzo="medium"):
     """Lo que el motor recibe de la cara Claude cuando el pedido trae `thinking` o `output_config.effort` (sonnet y opus lo mandan

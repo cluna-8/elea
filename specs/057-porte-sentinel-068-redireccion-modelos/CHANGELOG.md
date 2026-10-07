@@ -129,6 +129,18 @@ están en el HANDOFF; acá solo el registro.
   (`docs/tools/drift_gate.py`, «declarada y ningún plano la consume»). Cuando T100 las pase por el compose, T082 las
   descomenta y regenera la referencia.
 
+## 4b. Cowork, etiqueta y OpenRouter (2026-10-07; research R39 y R40; T119–T123)
+
+Desvíos de Eleia respecto de la base, todos retrocompatibles y registrados en `HANDOFF-elea-a-sentinel.md`:
+
+- **Binarios de herramienta bajo el forzado** (R39): una imagen, un audio o un documento no analizable dentro de un `tool_result` se cambia por una nota y no bloquea
+  (`litellm/extensions/sentinel_guardian_policy.py:1476`); la auditoría registra `unanalyzable_replaced` (`sentinel/engine/redirect_guard.py:658-663`). Lo que adjunta la persona
+  sigue bloqueando. Plan de salida: ninguno; es una excepción de S14 que Sentinel puede adoptar tal cual.
+- **Etiqueta por defecto `requested`** (R40): `sentinel/redirect/models.py:138`, `sentinel/redirect/api/admin.py:279`, migración `0529902015ad`. Sentinel conserva `destination`
+  si quiere. Plan de salida: cambiar el default de vuelta (otra migración de default); las filas no se tocaron.
+- **Alta guiada de OpenRouter** (R40): `provider_options.providers_allowlist` desde el formulario. Plan de salida: ninguno; corrige un hueco de la base.
+- **Numeración**: FR-057 y FR-058 de esta spec son los de la etiqueta y el alta de OpenRouter; los FR-053 a FR-056 siguen siendo los de la cara genérica.
+
 ## 5. Documentación de producto (T079, T080, T081)
 
 | Página | Cambio |

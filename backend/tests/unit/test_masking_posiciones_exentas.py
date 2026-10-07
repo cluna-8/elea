@@ -195,7 +195,9 @@ async def test_d_bloques_anidados_en_tool_result_siguen_las_posiciones_de_bloque
     anidados = cuerpo["messages"][0]["content"][0]["content"]
     assert DNI not in _plano(cuerpo) and anidados[0]["type"] == "text"
     assert anidados[0]["cache_control"] == {"type": "ephemeral"}
-    assert tally.kinds == ["image"], "la imagen anidada también es no analizable (j)"
+    # (j) + R39: la imagen anidada en un `tool_result` la devolvió una herramienta: se reemplaza por una nota (no bloquea);
+    # la imagen suelta de la persona sigue siendo no analizable (test_masking_binarios_en_tool_result.py).
+    assert tally.kinds == [] and tally.unanalyzable_replaced == 1 and anidados[1]["type"] == "text"
 
 
 # ── (e) contrabando en una posición estructural ───────────────────────────────────────

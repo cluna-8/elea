@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBulkPayload, bulkRows, buildLimits, featureList, filterProviders, formatContext, formatPrice,
-  newGuidedState, parseAdvanced, ProviderInfo, roleLabel, toFieldSpecs, toggleModel,
+  newGuidedState, parseAdvanced, parseProvidersAllowlist, ProviderInfo, roleLabel, toFieldSpecs, toggleModel,
 } from "../guided";
 
 const ANTHROPIC: ProviderInfo = {
@@ -171,5 +171,54 @@ describe("resultado por modelo", () => {
     ]);
     expect(bulkRows({ data: [{ real_model: "z", status: 201 }] })).toEqual([{ model: "z", ok: true, message: "Creado" }]);
     expect(bulkRows(null)).toEqual([]);
+  });
+});
+
+// ── OpenRouter (057 R40): el enrutador exige la lista de proveedores permitidos ──────────────────────────
+
+const OPENROUTER: ProviderInfo = {
+  provider: "openrouter", display_name: "OpenRouter", supported: true,
+  credential_fields: [{ key: "api_key", label: "Clave de API", required: true, field_type: "password" }],
+};
+
+describe("alta de un destino OpenRouter (Kimi K3)", () => {
+  const SECRET = "sk-or-SECRETO";
+  const armado = () => {
+    const st = newGuidedState("openrouter");
+    st.selected = toggleModel(st.selected, "moonshotai/kimi-k3");
+    st.values = { api_key: SECRET };
+    return st;
+  };
+  const specs = toFieldSpecs(OPENROUTER.credential_fields);
+
+  it("parseProvidersAllowlist: separa por comas, espacios o líneas, sin vacíos ni repetidos", () => {
+    expect(parseProvidersAllowlist("fireworks, together\nfireworks  deepinfra,,")).toEqual(["fireworks", "together", "deepinfra"]);
+    expect(parseProvidersAllowlist("  ")).toEqual([]);
+  });
+
+  it("sin proveedores permitidos no hay payload y el error cuenta por qué", () => {
+    const built = buildBulkPayload(armado(), specs, { operator: false });
+    expect(built.payload).toBeNull();
+    expect(built.errors.providers_allowlist).toMatch(/proveedores permitidos/i);
+  });
+
+  it("con la lista, el payload lleva provider_options y el id real de OpenRouter", () => {
+    const st = armado();
+    st.providersAllowlist = "fireworks, together";
+    const built = buildBulkPayload(st, specs, { operator: false });
+    expect(built.payload).toMatchObject({
+      provider: "openrouter", provider_options: { providers_allowlist: ["fireworks", "together"] },
+      models: [{ real_model: "moonshotai/kimi-k3", accept_suggestion: true }],
+    });
+  });
+
+  it("los demás proveedores no mandan provider_options ni piden la lista", () => {
+    const st = newGuidedState("anthropic");
+    st.selected = toggleModel(st.selected, "claude-sonnet-4");
+    st.values = { api_key: SECRET };
+    st.providersAllowlist = "cualquiera";
+    const built = buildBulkPayload(st, toFieldSpecs(ANTHROPIC.credential_fields), { operator: false });
+    expect(built.errors.providers_allowlist).toBeUndefined();
+    expect(built.payload).not.toHaveProperty("provider_options");
   });
 });

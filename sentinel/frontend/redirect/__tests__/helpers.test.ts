@@ -113,6 +113,11 @@ describe("formulario de destino → cuerpo", () => {
 });
 
 describe("publicados, reglas, política y postura", () => {
+  it("publicado: la etiqueta por defecto es el id pedido, nunca el destino (057 R40)", () => {
+    expect(newPublishedForm().label_mode).toBe("requested");
+    const r = buildPublishedPayload({ ...newPublishedForm(), face: "claude", public_id: "claude-sonnet-4-6", family_tier: "sonnet" });
+    expect(r.payload).toMatchObject({ label_mode: "requested", label: null });
+  });
   it("publicado: tier solo en cara claude, alcance tenant = *", () => {
     const r = buildPublishedPayload({ ...newPublishedForm(), face: "claude", public_id: "pro", family_tier: "sonnet", is_family_default: true });
     expect(r.payload).toMatchObject({ face: "claude", public_id: "pro", family_tier: "sonnet", is_family_default: true, scope_type: "tenant", scope_value: "*", label: null });

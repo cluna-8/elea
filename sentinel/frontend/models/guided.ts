@@ -173,11 +173,20 @@ export interface GuidedState {
   advancedText: string;
   limits: LimitsForm;
   baseModel: string;
+  /** Solo OpenRouter (agregador): los proveedores finales a los que se permite mandar el pedido. */
+  providersAllowlist: string;
 }
+
+/** Proveedores permitidos de un agregador: separados por coma, espacio o línea; sin vacíos ni repetidos. */
+export function parseProvidersAllowlist(text: string): string[] {
+  return [...new Set(text.split(/[\s,]+/).map(t => t.trim()).filter(Boolean))];
+}
+
+export const providerNeedsAllowlist = (provider: string) => provider === "openrouter";
 
 export const newGuidedState = (provider = ""): GuidedState => ({
   provider, level: "tenant", selected: [], credMode: "new", credentialId: "", newName: "", values: {},
-  apiBase: "", advancedText: "", limits: emptyLimits(), baseModel: "",
+  apiBase: "", advancedText: "", limits: emptyLimits(), baseModel: "", providersAllowlist: "",
 });
 
 export function buildBulkPayload(
@@ -211,6 +220,11 @@ export function buildBulkPayload(
     errors.credential = "Este proveedor requiere credencial.";
   }
 
+  const allowlist = providerNeedsAllowlist(st.provider) ? parseProvidersAllowlist(st.providersAllowlist) : [];
+  if (providerNeedsAllowlist(st.provider) && !allowlist.length) {
+    errors.providers_allowlist = "OpenRouter necesita los proveedores permitidos: la lista de a quién se le puede mandar el pedido.";
+  }
+
   const advanced = parseAdvanced(st.advancedText);
   if (advanced.error) errors.advanced = advanced.error;
   const limits = buildLimits(st.limits);
@@ -232,6 +246,7 @@ export function buildBulkPayload(
     })),
   };
   if (apiBase) payload.api_base = apiBase;
+  if (allowlist.length) payload.provider_options = { providers_allowlist: allowlist };
   return { payload, errors };
 }
 
