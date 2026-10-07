@@ -102,6 +102,7 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
   producto hace una prueba mínima contra el recurso; si el nombre no corresponde a un despliegue
   existente, la entrada queda **inactiva** con el motivo «El despliegue … no existe en el recurso
   configurado» hasta que **Verificar despliegue** pase. 🟡
+- **Versión de API (Azure)**: usá `2025-04-01-preview` o posterior; con una anterior el panel avisa (sin bloquear) y, para las herramientas y el razonamiento de Claude Desktop/Code, el producto sube la versión solo en esa llamada y deja la de la credencial para el chat. 🟡
 - **Ficha de cumplimiento**: por entrada, la **entidad responsable** (quien opera la inferencia),
   la **jurisdicción de la entidad**, la **jurisdicción de control** (la de quien posee el 50 % o más
   de la entidad o la controla), la **jurisdicción de inferencia** (dónde se procesa) y si hay

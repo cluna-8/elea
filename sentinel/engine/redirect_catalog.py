@@ -182,6 +182,7 @@ class CatalogDirect:
         adjusted += _guard.bridge_to_responses(
             data, provider, call_type, (entry.get("features") or {}).get("thinking") is True)  # T193
         data.update(params)
+        adjusted += _guard.raise_responses_api_version(data, provider, call_type)    # piso solo para Responses
         per_mtok = price_per_mtok(entry.get("price"))
         pricing, source = credentials.cost_params(per_mtok, provider, entry["real_model"],
                                                   _guard._engine_cost_map())

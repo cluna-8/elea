@@ -344,6 +344,23 @@ falsos positivos no está medida).
 
 ---
 
+### Piso de `api_version` de Azure solo para Responses — [BASE] (oct-2026)
+
+El puente a Responses (T193, `bridge_to_responses`) escribe `rdx-<fam>/responses/<m>` ANTES de que se escriba la credencial, así que
+la `api_version` de la credencial Azure (p. ej. `2024-10-21`) viajaba también a Responses. Responses nace en `2025-03-01-preview` y
+`2025-04-01-preview` suma el resumen de razonamiento (changelog de Microsoft, *api-version-lifecycle*; hoy Microsoft documenta la API v1
+sin `api-version` para lo nuevo). Qué portar, todo retrocompatible:
+
+- `sentinel/engine/redirect_guard.py`: `AZURE_RESPONSES_MIN_API_VERSION`, `raise_responses_api_version(data, provider, call_type)` — solo `azure`,
+  solo si el modelo ya es `/responses/` o la cara es `responses`/`aresponses`, y solo si la versión es una fecha anterior al piso (`v1`, `latest`,
+  vacío no se tocan). Se llama **después** de `data.update(to_litellm_params(...))` en `apply_redirect`; chat/completions conserva la de la credencial.
+  Auditoría: el nombre `api_version` en `adjusted_params`, nunca un valor.
+- `sentinel/engine/redirect_catalog.py`: la misma llamada, tras `data.update(params)` en la ruta directa del catálogo.
+- `sentinel/frontend/catalog/{helpers.ts,ui.tsx}`: `apiVersionBelowResponsesFloor` y el aviso (`role="status"`, no bloquea) en `SecretFields`,
+  que usan las tres entradas de credencial (Credenciales, ficha, alta guiada).
+- Tests: `sentinel/tests/unit/test_guard_azure_responses_api_version.py`, `sentinel/frontend/catalog/__tests__/azure.apiVersion.test.tsx`.
+- Doc: una línea en `administration/redireccionamiento.md` y una fila en `integrations/claude-desktop.md` (🟡: sin prueba en vivo contra Azure).
+
 ## 10. Cómo verificar después de portar
 
 Con el venv del backend, sin Docker:

@@ -263,6 +263,19 @@ export function valueFields(provider: Provider | null): CredentialFieldSpec[] {
   return credentialFields(provider);
 }
 
+/** Piso de `api_version` de Azure OpenAI para Responses (herramientas + razonamiento de Claude Desktop/Code);
+ *  el mismo valor que `AZURE_RESPONSES_MIN_API_VERSION` del guard del motor. */
+export const AZURE_RESPONSES_MIN_API_VERSION = "2025-04-01-preview";
+
+const API_VERSION_DATE = /^(\d{4})-(\d{2})-(\d{2})/;
+
+/** ¿La versión es una fecha completa anterior al piso? Lo que no es fecha (`v1`, `latest`, vacío) no avisa. */
+export function apiVersionBelowResponsesFloor(value: string | undefined): boolean {
+  const date = (v: string) => API_VERSION_DATE.exec(v.trim())?.slice(1).join("");
+  const current = value ? date(value) : undefined;
+  return current !== undefined && current < date(AZURE_RESPONSES_MIN_API_VERSION)!;
+}
+
 /** Valor para la API: una cadena si es solo `api_key`; un objeto si hay varios campos. `null` si no
  *  se tipeó nada. Los errores salen por campo (`cred.<campo>`). */
 export function buildSecretValue(
