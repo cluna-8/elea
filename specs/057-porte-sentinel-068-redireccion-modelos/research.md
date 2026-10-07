@@ -1008,6 +1008,40 @@ Decisión del owner por el coordinador (Clarifications, QA del plan, pregunta 5 
   `test_secret_detection_limite_izquierdo.py` (R37, 73) y `test_pilot_fixes.py` (Bug 3) siguen verdes.
 - **Para Sentinel**: aplicar el mismo patrón en su `policy.py` y en su `guardian_service` (fila «Detector de secretos» del `HANDOFF-elea-a-sentinel.md`).
 
+## R39. `reasoning_effort`: el campo que la cara Claude agrega bloqueaba TODO pedido de sonnet y opus — hallazgo de Claude Desktop (2026-10-07; FR-027, SC-006)
+
+- **Síntoma** (instalación de prueba de T102, Claude Desktop contra la pasarela local, destino traducido): sonnet y opus daban 403 `masking_required` hasta con un
+  «hola» en una conversación nueva y con el esfuerzo en «Bajo»; haiku (que no muestra selector de esfuerzo) respondía. En los logs del motor solo estaba el 403 del
+  guard (`sentinel/engine/redirect_guard.py:558`): un pedido bloqueado por el guard no deja fila con el informe del enmascarado (`audit_logs` solo traía los pasados).
+- **Método**: el de R36. `claude -p` con `CLAUDE_CONFIG_DIR` propio, `--model claude-sonnet-5-5` y thinking encendido contra un servidor local en el scratchpad
+  (fuera del repo; sin llave ni Docker) que contesta con un bloque `thinking` firmado y un `tool_use`, para tener el turno 2; y la conversación `claude-haiku-4-5`
+  → `--resume` con `claude-sonnet-5-5`. Cada pedido capturado se pasó por **lo que hace la pasarela antes del motor** (`normalize_for_translated`, con la ficha de
+  un destino que razona) y por el recorrido real (`_w_body`/`mask_body`) con el analizador real del stack, registrando por cada no analizable la posición, la
+  operación y los tipos de NER.
+- **Hechos**: el pedido TAL CUAL lo manda la herramienta (con `thinking`, `output_config`, `context_management`) pasa con 0 no analizables, también el de
+  haiku→sonnet y el turno 2 con `thinking` firmado: por eso no se reproducía sin el paso de la pasarela. Con él, sonnet da **1 `structural_entity`**
+  (`detected = 180`, `masked = 179`), siempre la misma: la CLAVE `reasoning_effort` del primer nivel, clasificada LOCATION (0,85); sin `thinking` ni esfuerzo (haiku)
+  son 0. Los valores `low`, `medium` y `high` no se marcan. `signed_thinking` es 0 en todos los casos (el destino es traducido: no bloquea).
+- **Causa**: con `thinking` u `output_config.effort` la cara Claude quita esos campos y escribe `reasoning_effort` en el primer nivel
+  (`sentinel/redirect/faces/claude.py:359-373`; valores de `_EFFORT`, `:186`: `low`/`medium`/`high`). El guardrail de la base lo ve como campo desconocido: su clave se
+  analiza estricta (`_w_container`, rama «campo desconocido») y una detección en una posición estructural no se puede reescribir, así que es `structural_entity`
+  y `masking_ok` falla (`unanalyzable != 0`). Mismo patrón que R36 (`is_error`): un nombre de campo del protocolo que el NER toma por un lugar. Un cliente de
+  formato OpenAI que manda `reasoning_effort` tenía el mismo defecto.
+- **Decisión (A, vocabulario cerrado del protocolo)**: `reasoning_effort` entra como posición estructural en los dos formatos, con el conjunto cerrado
+  `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (los niveles del protocolo). La clave no se analiza (posición, no nombre), un valor del conjunto no se analiza
+  y uno de afuera, sí, estricto: un DNI, un nombre o un número bloquean como antes. No se exime nada más: un campo desconocido parecido sigue estricto, y el texto
+  de mensajes, `tool_result`, `thinking`, `system` no cambia. `signed_thinking` no interviene (sigue bloqueando solo con destino nativo; R10).
+- **Alternativas descartadas**: (a) eximir por nombre de clave (`*_effort`): exención por nombre; (b) analizar las claves de la cara solo con (B): la clave de un
+  campo del protocolo no es un identificador abierto; (c) quitar `reasoning_effort` de la cara y mandarlo por otro canal: cambia el contrato con el motor y los
+  destinos que lo entienden; (d) no mandar esfuerzo a los destinos: pierde el nivel que el usuario eligió.
+- **Tests**: rojo primero. `backend/tests/unit/test_masking_vocabulario_estructural.py` (el pedido de sonnet hacia un destino traducido con un NER que marca la clave
+  como LOCATION; los seis niveles en los dos formatos; valores fuera del conjunto —DNI, nombre, número— siguen bloqueando; un campo parecido sigue estricto;
+  instantáneas del vocabulario) y `test_masking_posiciones_exentas.py` (tabla de posiciones); `sentinel/tests/unit/test_face_claude_campos_propios_s14.py` ata los dos
+  planos: todo campo que la cara agrega tiene posición estructural en la base y su valor cae en el vocabulario.
+- **Observabilidad**: el guard rechazaba sin dejar nada de por qué. R39 no lo cambia (el informe tiene solo conteos y nombres de tipo, pero otro worker trabaja en el
+  guard); queda como mejora a considerar: registrar en el log del motor, al rechazar con `masking_required`, los campos del informe (`completed`, `degraded`,
+  `detected`, `masked`, `unanalyzable`, `unanalyzable_kinds`, `scope`, `signed_thinking`), jamás contenido.
+
 ## Resolución del QA
 
 Resolución de `qa-plan.md` (`3537847`, QA crítico del plan, tercera pasada) por `speckit-clarify` (5 preguntas

@@ -316,7 +316,7 @@ POSICIONES_DEL_CONTRATO = {
         ],
         "structural": [
             "stream", "max_tokens", "temperature", "top_p", "top_k",
-            "thinking.type", "thinking.budget_tokens",
+            "thinking.type", "thinking.budget_tokens", "reasoning_effort",
             "tool_choice.type", "tool_choice.name", "tool_choice.disable_parallel_tool_use",
             "messages.*.role",
             "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result", "….is_error@tool_result",
@@ -333,7 +333,7 @@ POSICIONES_DEL_CONTRATO = {
         ],
         "structural": [
             "stream", "stream_options.*", "max_tokens", "max_completion_tokens", "temperature", "top_p", "n",
-            "seed", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs",
+            "seed", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs", "reasoning_effort",
             "parallel_tool_calls", "response_format.type", "response_format.json_schema.name",
             "tool_choice", "tool_choice.type", "tool_choice.function.name",
             "messages.*.role", "messages.*.tool_call_id",

@@ -1101,7 +1101,7 @@ S14_EXEMPT_POSITIONS = {
         ),
         "structural": (
             "stream", "max_tokens", "temperature", "top_p", "top_k",
-            "thinking.type", "thinking.budget_tokens",
+            "thinking.type", "thinking.budget_tokens", "reasoning_effort",
             "tool_choice.type", "tool_choice.name", "tool_choice.disable_parallel_tool_use",
             "messages.*.role",
             "….type", "….id@tool_use", "….name@tool_use", "….tool_use_id@tool_result", "….is_error@tool_result",
@@ -1118,7 +1118,7 @@ S14_EXEMPT_POSITIONS = {
         ),
         "structural": (
             "stream", "stream_options.*", "max_tokens", "max_completion_tokens", "temperature", "top_p", "n",
-            "seed", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs",
+            "seed", "presence_penalty", "frequency_penalty", "logprobs", "top_logprobs", "reasoning_effort",
             "parallel_tool_calls", "response_format.type", "response_format.json_schema.name",
             "tool_choice", "tool_choice.type", "tool_choice.function.name",
             "messages.*.role", "messages.*.tool_call_id",
@@ -1180,6 +1180,10 @@ _ANTHROPIC_BLOCK_TYPES = frozenset((
     "text", "image", "document", "tool_use", "server_tool_use", "tool_result", "thinking", "redacted_thinking",
     "search_result", "web_search_tool_result", "web_search_result"))
 _OPENAI_PART_TYPES = frozenset(("text", "refusal", "image_url", "input_audio", "file"))
+# Niveles de esfuerzo de razonamiento del protocolo (`reasoning_effort`). La cara Claude lo escribe en el cuerpo hacia un destino
+# traducido cuando el pedido trae `thinking` u `output_config.effort` (sonnet y opus lo mandan siempre); un cliente de formato
+# OpenAI lo manda tal cual. El NER real marca el NOMBRE del campo como LOCATION (0,85).
+_REASONING_EFFORT_LEVELS = frozenset(("none", "minimal", "low", "medium", "high", "xhigh"))
 
 S14_CLOSED_VOCABULARY = {
     "anthropic": {
@@ -1188,6 +1192,7 @@ S14_CLOSED_VOCABULARY = {
         "….source.type": frozenset(("base64", "url", "text", "file", "content")),
         "….source.media_type": _MIME_RE,
         "thinking.type": frozenset(("enabled", "disabled", "adaptive")),
+        "reasoning_effort": _REASONING_EFFORT_LEVELS,
         "tool_choice.type": frozenset(("auto", "any", "tool", "none")),
         "tools.*.type": _ANTHROPIC_TOOL_TYPE_RE,
     },
@@ -1195,6 +1200,7 @@ S14_CLOSED_VOCABULARY = {
         "messages.*.role": frozenset(("system", "developer", "user", "assistant", "tool", "function")),
         "messages.*.tool_calls.*.type": frozenset(("function",)),
         "….type": _OPENAI_PART_TYPES,
+        "reasoning_effort": _REASONING_EFFORT_LEVELS,
         "response_format.type": frozenset(("text", "json_object", "json_schema")),
         "tool_choice": frozenset(("none", "auto", "required")),
         "tool_choice.type": frozenset(("function", "allowed_tools", "custom")),
