@@ -76,13 +76,29 @@ def _price(model: str, prompt: int, completion: int) -> Decimal:
     return BudgetService.calculate_cost(model, prompt, completion)       # la ÚNICA fuente de precios
 
 
-def _gateway_url(request: Request) -> str:
+_INTERNAL_HOSTS = frozenset({"backend", "engine", "db", "redis", "nlp-analyzer", "nlp_analyzer",
+                             "db-engine-init", "frontend", "anythingllm", "tabular", "presenton",
+                             "client", "api-proxy"})
+
+
+def _gateway_url(request: Request) -> tuple[str, bool]:
+    """Resuelve la URL pública de la pasarela para los kits.
+
+    Orden: (1) ``REDIRECT_GATEWAY_URL`` del entorno; (2) los encabezados del pedido
+    (``X-Forwarded-Proto``/``X-Forwarded-Host`` o ``Host``); (3) nunca un hostname
+    interno de compose (``backend``, ``engine``, …): si no puede resolverla, devuelve
+    el marcador ``kits.URL_PLACEHOLDER`` y el segundo elemento a ``False`` para que el
+    panel lo avise.
+    """
     fixed = os.environ.get("REDIRECT_GATEWAY_URL", "").strip()
     if fixed:
-        return fixed.rstrip("/")
+        return fixed.rstrip("/"), True
     proto = request.headers.get("x-forwarded-proto") or request.url.scheme
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    return f"{proto}://{host}/api/v1/gw"
+    hostname = host.split(":")[0].lower()
+    if hostname in _INTERNAL_HOSTS:
+        return kits.URL_PLACEHOLDER, False
+    return f"{proto}://{host}/api/v1/gw", True
 
 
 # ── kits ──────────────────────────────────────────────────────────────────────────────────
@@ -131,7 +147,7 @@ async def get_kit(tool: str, request: Request, scope: Optional[str] = None,
     mine = [p for p in catalog if p.get("face") == face]
     window = kits.min_context_window(mine, snap.rules, snap.destinations)
     brand = os.environ.get("BRAND_NAME", "Gateway")
-    gateway = _gateway_url(request)
+    gateway, gateway_resolved = _gateway_url(request)
 
     def build(api_key=None):
         try:
@@ -151,7 +167,8 @@ async def get_kit(tool: str, request: Request, scope: Optional[str] = None,
     version = hashlib.sha256(json.dumps([[p["face"], p["public_id"], p.get("family_tier"), p.get("label")]
                                          for p in mine] + [window], sort_keys=True).encode()).hexdigest()[:12]
     return {**kit, "scope": f"{sc[0]}:{sc[1]}", "catalog_version": version, "issued_key_id": key_id,
-            "context_window": window, "generated_at": datetime.now(timezone.utc).isoformat()}
+            "context_window": window, "gateway_url_resolved": gateway_resolved,
+            "generated_at": datetime.now(timezone.utc).isoformat()}
 
 
 # ── prueba de fidelidad ─────────────────────────────────────────────────────────────────

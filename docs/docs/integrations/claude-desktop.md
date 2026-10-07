@@ -123,6 +123,12 @@ Claude Desktop **sin iniciar sesión**, en el equipo de la persona:
     nace con **120 pedidos/min y 1 000 000 tokens/min** (los de la tabla de arriba), aplicados en la
     pasarela y en el motor; con una llave generada a mano hay que cargarlos. 🟡
 
+    La dirección del gateway sale de la variable `REDIRECT_GATEWAY_URL` del entorno (la URL pública
+    de la pasarela con su puerto, p. ej. `https://elea.example.com:8091/api/v1/gw`). Sin esa
+    variable, la ruta la deduce de los encabezados del pedido; si no puede resolverla (el host es
+    interno de compose), el kit sale con el marcador `REEMPLAZAR_CON_LA_URL_DE_LA_PASARELA` y el
+    panel lo avisa. Configurá la variable para que el kit salga listo para repartir. 🟡
+
 !!! tip "Cambiar los límites de una llave que ya existe"
     *Usuarios & Presupuestos → Llaves Virtuales → Editar límites* cambia los pedidos/min y los
     tokens/min de la llave sin emitir otra. El cambio rige de inmediato en la pasarela y en el motor;
