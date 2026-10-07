@@ -518,6 +518,37 @@ def bridge_to_responses(data: dict, provider: Any, call_type: Optional[str] = No
     return ["chat->responses"]
 
 
+# Piso de `api_version` de Azure OpenAI para llamar a Responses. El changelog de Microsoft (api-version-lifecycle)
+# introduce Responses en 2025-03-01-preview; 2025-04-01-preview suma el resumen de razonamiento y es el piso que
+# usamos (herramientas + razonamiento de Claude Desktop/Code). Microsoft documenta hoy la API v1 (`/openai/v1/`,
+# sin `api-version`) para las funciones nuevas; el motor aún habla por fecha, de ahí este piso.
+AZURE_RESPONSES_MIN_API_VERSION = "2025-04-01-preview"
+RESPONSES_CALL_TYPES = ("responses", "aresponses")
+_API_VERSION_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+
+
+def _api_version_date(version: Any):
+    m = _API_VERSION_DATE_RE.match(version) if isinstance(version, str) else None
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def raise_responses_api_version(data: dict, provider: Any, call_type: Optional[str] = None) -> list:
+    """Sube al piso la `api_version` de la credencial Azure SOLO cuando la llamada va por Responses (modelo ya
+    puenteado `rdx-<fam>/responses/<m>`, o cara nativa de Responses); chat/completions conserva la de la credencial.
+    Va DESPUÉS de escribir los parámetros de la credencial (el puente corre antes). Una versión que no es fecha
+    (`v1`, `latest`) o ausente no se toca. Devuelve `["api_version"]` (solo el nombre se audita) o `[]`."""
+    if provider != "azure":
+        return []
+    model = data.get("model")
+    if not (call_type in RESPONSES_CALL_TYPES or (isinstance(model, str) and "/responses/" in model)):
+        return []
+    current = _api_version_date(data.get("api_version"))
+    if current is None or current >= _api_version_date(AZURE_RESPONSES_MIN_API_VERSION):
+        return []
+    data["api_version"] = AZURE_RESPONSES_MIN_API_VERSION
+    return ["api_version"]
+
+
 def _engine_cost_map() -> Mapping[str, Any]:
     try:
         import litellm
@@ -574,6 +605,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
     try:
         cred = credentials.resolve_env_refs(grant.credential, environ)
         data.update(credentials.to_litellm_params(grant.provider, cred, grant.api_base))
+        adjusted += raise_responses_api_version(data, grant.provider, call_type)
     except credentials.CredentialError:
         raise GuardRejection(503, "destination_misconfigured",
                              "Modelo no disponible temporalmente.") from None

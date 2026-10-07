@@ -4,7 +4,7 @@ import React, { useEffect, useId } from "react";
 import { Button, Field, StatusBadge, cn, inputBaseClass } from "../../../frontend/src/components/ui";
 import type { CredentialFieldSpec, FieldErrors } from "../redirect/helpers";
 import {
-  motivoLabel, semaforoLabel, SEMAFORO_TONES, Semaforo,
+  apiVersionBelowResponsesFloor, AZURE_RESPONSES_MIN_API_VERSION, motivoLabel, semaforoLabel, SEMAFORO_TONES, Semaforo,
 } from "./helpers";
 
 /** Insignia del semáforo; con `detail`, lista los motivos en castellano debajo. */
@@ -99,16 +99,26 @@ export const SecretFields: React.FC<{
           </label>
         );
       }
+      // Aviso, no bloqueo: la credencial se guarda igual; el motor sube la versión solo para la llamada a Responses.
+      // El envoltorio es el mismo con y sin aviso: si cambiara, el campo se remontaría y perdería el foco al tipear.
+      const stale = f.name === "api_version" && apiVersionBelowResponsesFloor(values[f.name]);
       return (
-        <Field
-          key={f.name}
-          label={label}
-          type={f.secret ? "password" : "text"}
-          autoComplete="off"
-          value={values[f.name] ?? ""}
-          onChange={e => set(e.target.value)}
-          error={err}
-        />
+        <div key={f.name} className="flex flex-col gap-1.5">
+          <Field
+            label={label}
+            type={f.secret ? "password" : "text"}
+            autoComplete="off"
+            value={values[f.name] ?? ""}
+            onChange={e => set(e.target.value)}
+            error={err}
+          />
+          {stale && (
+            <p role="status" className="text-xs text-warning">
+              Con una versión anterior a {AZURE_RESPONSES_MIN_API_VERSION}, las herramientas y el razonamiento
+              (Claude Desktop/Code) pueden no funcionar en este destino. Se recomienda usar esa versión o una posterior.
+            </p>
+          )}
+        </div>
       );
     })}
   </div>

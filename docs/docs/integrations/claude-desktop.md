@@ -91,6 +91,7 @@ aplicación reconozca. La etiqueta visible es del tipo «Sonnet · servido por *
 | La aplicación no lista modelos o muestra un solo nivel | La política está apagada para ese alcance, o no hay reglas para un nivel | Encender la política y mapear los tres niveles |
 | Una función no responde (búsqueda web, apertura de páginas, ejecución de código del proveedor original) | Esas funciones son exclusivas del proveedor original; hacia un destino traducido se rechazan con un `400` `capability_rejected`, nunca se ignoran en silencio | Es un límite del destino; usar un destino nativo si la función es imprescindible |
 | Un PDF o una imagen «no se puede enviar» | Destino sin visión (rechazo claro) o, con el enmascarado forzado, adjunto no analizable | Convertir el adjunto a texto o quitarlo |
+| El panel avisa de la versión de API al cargar una credencial de Azure | La versión es anterior a `2025-04-01-preview`, la mínima para las herramientas y el razonamiento por Responses | No bloquea: el producto usa esa versión solo en la llamada a Responses; conviene actualizar la credencial |
 | El sondeo de arranque (`max_tokens` mínimo) no falla | Es lo esperado: la pasarela sube el mínimo a 16 y usa el parámetro que el destino exige; queda en la auditoría como parámetro ajustado | — |
 
 ## Límites 🟡
