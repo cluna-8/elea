@@ -187,6 +187,10 @@ entorno y revisa el resultado con **capturas de pantalla**. Pide respuestas larg
     sale, la tarea sigue y la auditoría lo registra (`unanalyzable_replaced`, solo el conteo y el tipo).
     El agente **no revisa su resultado con la vista**; lo revisa con el texto que tenga. La imagen
     que adjunta la persona bloquea el pedido: ver el síntoma «El pedido no pudo protegerse…».
+- **Una imagen o un PDF de un mensaje anterior no corta la conversación.** Si el modelo del destino no
+  los acepta, los de los mensajes previos se reemplazan por una nota («imagen omitida: este modelo no
+  acepta imágenes») y la conversación sigue; solo el adjunto del último mensaje se rechaza. La auditoría
+  registra el tipo y la cantidad (`images_in_history`, `documents_in_history`), nunca el contenido.
 
 ## Probar que quedó bien
 

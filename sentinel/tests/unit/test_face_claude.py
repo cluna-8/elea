@@ -1,4 +1,6 @@
 """Cara Claude: /v1/models, errores y normalizador (contracts/cara-claude.md; D5/D6; T081/T083)."""
+import json
+
 import pytest
 
 from sentinel.redirect.faces import claude as face
@@ -226,9 +228,37 @@ def test_imagen_en_turno_anterior_se_omite_y_el_chat_sigue():
     out, removed = face.normalize_for_translated(b, NO_IMG, max_output=10)
     viejo = out["messages"][0]["content"]
     assert all(blk.get("type") == "text" for blk in viejo)
-    assert any("imagen omitida" in blk["text"] for blk in viejo)
+    assert any(blk["text"] == "[imagen omitida: este modelo no acepta imágenes]" for blk in viejo)
     assert out["messages"][2]["content"] == "hola"
-    assert "images_in_history" in removed
+    assert "images_in_history:1" in removed
+
+
+def test_historia_se_audita_por_tipo_y_con_conteo():
+    """El ajuste dice qué tipo y cuántos bloques de turnos anteriores se reemplazaron (solo
+    cantidades, nunca contenido); un PDF de la historia no se cuenta como imagen."""
+    doc = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBER"}}
+    b = body(messages=[
+        {"role": "user", "content": [IMG, IMG, doc, {"type": "text", "text": "mirá"}]},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": [IMG]},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "hola"}])
+    out, removed = face.normalize_for_translated(b, {**NO_IMG, "documents_pdf": False}, max_output=10)
+    assert [r for r in removed if "_in_history" in r] == ["images_in_history:3", "documents_in_history:1"]
+    textos = [blk["text"] for m in out["messages"][:3] if isinstance(m["content"], list) for blk in m["content"]]
+    assert "[documento omitido: este modelo no acepta documentos]" in textos
+    assert '"type": "image"' not in json.dumps(out) and '"type": "document"' not in json.dumps(out)
+
+
+def test_historia_solo_audita_lo_que_el_destino_no_acepta():
+    doc = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBER"}}
+    b = body(messages=[{"role": "user", "content": [IMG, doc]},
+                       {"role": "assistant", "content": "ok"},
+                       {"role": "user", "content": "hola"}])
+    out, removed = face.normalize_for_translated(b, {**PROFILE_MIN, "images": True, "documents_pdf": False},
+                                                 max_output=10)
+    assert "documents_in_history:1" in removed and not any(r.startswith("images_in_history") for r in removed)
+    assert out["messages"][0]["content"][0] == IMG
 
 
 def test_imagen_en_el_turno_actual_se_rechaza():

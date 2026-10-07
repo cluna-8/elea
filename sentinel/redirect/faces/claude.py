@@ -15,6 +15,7 @@ import copy
 import json
 import math
 import re
+from collections import Counter
 from typing import Any, Iterable, Mapping, Optional
 
 from .. import credentials
@@ -207,8 +208,8 @@ def _as_blocks(content) -> list:
     return []
 
 
-_OMITTED_NOTE = {"images": "[imagen omitida: el modelo de este chat no acepta imágenes]",
-                 "documents_pdf": "[documento omitido: el modelo de este chat no acepta documentos]"}
+_OMITTED_NOTE = {"images": "[imagen omitida: este modelo no acepta imágenes]",
+                 "documents_pdf": "[documento omitido: este modelo no acepta documentos]"}
 # Lo que devolvió una herramienta en el turno actual (la captura con la que Cowork revisa su
 # resultado): la nota le pide al agente que no insista, para que no entre en un bucle de capturas.
 _TOOL_NOTE = {"images": "[imagen omitida: el modelo de este chat no acepta imágenes. No vuelvas a "
@@ -216,13 +217,16 @@ _TOOL_NOTE = {"images": "[imagen omitida: el modelo de este chat no acepta imág
               "documents_pdf": "[documento omitido: el modelo de este chat no acepta documentos. No "
                                "vuelvas a pedir el documento; pedí su contenido como texto.]"}
 _TOOL_LABEL = {"images": "images_in_tool_result", "documents_pdf": "documents_in_tool_result"}
+# Turnos anteriores del usuario: un ajuste por tipo con la cantidad de bloques (`<etiqueta>:<n>`, solo
+# números: nunca contenido), como los de razonamiento de la historia.
+_HISTORY_LABEL = {"images": "images_in_history", "documents_pdf": "documents_in_history"}
 
 
-def _omit_unsupported(content: list, profile: Mapping[str, Any], notes: Mapping[str, str]) -> set:
+def _omit_unsupported(content: list, profile: Mapping[str, Any], notes: Mapping[str, str]) -> Counter:
     """Reemplaza, en el lugar y uno por uno, los bloques sin soporte por una nota de texto
     (recursivo en `tool_result`): un contenido que era solo la imagen queda con la nota, nunca
-    vacío. Devuelve las capacidades omitidas."""
-    omitted = set()
+    vacío. Devuelve cuántos bloques se omitieron por capacidad."""
+    omitted: Counter = Counter()
     for i, blk in enumerate(content):
         if not isinstance(blk, dict):
             continue
@@ -231,9 +235,9 @@ def _omit_unsupported(content: list, profile: Mapping[str, Any], notes: Mapping[
             content[i] = {"type": "text", "text": notes[cap]}
             if blk.get("cache_control") is not None:         # FR-044: la marca de caché del bloque pasa a la nota
                 content[i]["cache_control"] = blk["cache_control"]
-            omitted.add(cap)
+            omitted[cap] += 1
         elif isinstance(blk.get("content"), list):          # tool_result con bloques anidados
-            omitted |= _omit_unsupported(blk["content"], profile, notes)
+            omitted += _omit_unsupported(blk["content"], profile, notes)
     return omitted
 
 
@@ -265,13 +269,13 @@ def _check_blocks(messages: list, profile: Mapping[str, Any]) -> list:
     Cowork, F5 del 29-sep) y se reemplaza, para no cortar la tarea. Devuelve qué se omitió."""
     last_user = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1)
     labels = []
+    history: Counter = Counter()
     for i, m in enumerate(messages):
         content = m.get("content")
         if not isinstance(content, list):
             continue
         if i != last_user:
-            if _omit_unsupported(content, profile, _OMITTED_NOTE) and "images_in_history" not in labels:
-                labels.append("images_in_history")
+            history += _omit_unsupported(content, profile, _OMITTED_NOTE)
             continue
         for blk in content:
             if not isinstance(blk, dict):
@@ -279,12 +283,12 @@ def _check_blocks(messages: list, profile: Mapping[str, Any]) -> list:
             cap = _BLOCK_CAPABILITY.get(blk.get("type"))
             if cap and not profile.get(cap, False):
                 raise CapabilityRejected(cap)
-        tool_omitted = set()
+        tool_omitted: Counter = Counter()
         for blk in content:
             if isinstance(blk, dict) and isinstance(blk.get("content"), list):
-                tool_omitted |= _omit_unsupported(blk["content"], profile, _TOOL_NOTE)
+                tool_omitted += _omit_unsupported(blk["content"], profile, _TOOL_NOTE)
         labels += [_TOOL_LABEL[c] for c in sorted(tool_omitted)]
-    return labels
+    return [f"{_HISTORY_LABEL[c]}:{history[c]}" for c in _HISTORY_LABEL if history[c]] + labels
 
 
 def _dropped_field_entries(names: Iterable[str]) -> list:

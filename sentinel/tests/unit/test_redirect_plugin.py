@@ -331,7 +331,7 @@ async def test_captura_del_agente_se_omite_y_queda_en_routing_decision():
     assert out["model"] == "rdx-chatcompat/qwen-destino" and authz.HEADER in headers
     assert '"type": "image"' not in json.dumps(out)
     red = c.routing_decision["extensions"]["redirect"]
-    assert set(red["omitted"].split(",")) == {"images_in_history", "images_in_tool_result"}
+    assert set(red["omitted"].split(",")) == {"images_in_history:1", "images_in_tool_result"}
     data = {**out, "proxy_server_request": {"headers": headers}, "metadata": {}}
     res = guard.apply_redirect(data, environ={})
     signed = res["metadata"]["_internal_routing_decision"]["extensions"]["redirect"]
