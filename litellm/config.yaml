@@ -66,7 +66,13 @@ model_list:
     api_base: os.environ/AZURE_API_BASE
     api_key: os.environ/AZURE_API_KEY
     api_version: os.environ/AZURE_API_VERSION
-    model: azure/text-embedding-3-large
+    # El despliegue de Azure lo elige quien crea el recurso: sale de ROUTER_EMBEDDINGS_DEPLOYMENT
+    # (default text-embedding-3-large). LiteLLM no interpola dentro de `azure/…`, así que el
+    # valor completo lo arma litellm/entrypoint.sh en ROUTER_EMBEDDINGS_MODEL antes de lanzar el motor.
+    # Cualquier otro arranque del motor con ESTE config tiene que definir ROUTER_EMBEDDINGS_MODEL
+    # (sin ella `model` queda en None). Mismo riesgo de nombre de despliegue en los azure-gpt-* de
+    # arriba (el nombre es literal); no se tocan: el alta de modelos nuevos usa su propia credencial.
+    model: os.environ/ROUTER_EMBEDDINGS_MODEL
   model_info:
     input_cost_per_token: 0
     mode: embedding

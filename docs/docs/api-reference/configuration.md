@@ -69,6 +69,7 @@ La retención ya no es sólo una DECLARACIÓN: el DPO fija los plazos, la pantal
 | `AZURE_OPENAI_API_KEY` | — | Azure OpenAI (el compose las mapea a AZURE_API_KEY/AZURE_API_BASE del motor) |
 | `AZURE_OPENAI_ENDPOINT` | — | — |
 | `AZURE_API_VERSION` | — | — |
+| `ROUTER_EMBEDDINGS_DEPLOYMENT` | — | Nombre del DESPLIEGUE de embeddings en el recurso Azure (lo elige quien lo creó; no es el nombre del modelo). Alimenta el ruteo semántico del auto-router. Vacío = text-embedding-3-large. |
 
 ### ── SSO: entrar con la identidad corporativa del cliente (spec 017 US2) ──────────────
 
