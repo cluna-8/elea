@@ -16,11 +16,12 @@
 
 - **Hecho**: T079, T080, T081 (documentación de producto), T084 (este archivo) y T085 (HANDOFF). Marcados
   `[x]` con evidencia en `tasks.md`.
-- **Pendiente del coordinador, con Docker** (T082, T083, T086) **y de las pruebas en vivo** (T019, T045, T051, T066,
+- **Pendiente del coordinador, con Docker** (T082, T083, T086) **y de las pruebas en vivo** (T019 —hecha el 2026-10-06, `verificacion-d14.md`—, T045, T051, T066,
   T078): hasta que se corran, **toda la sección de residencia, las dos caras y la caché del proveedor figuran 🟡
   en la documentación**, y ninguna página sube un estado que el código no respalde.
 - **Pendiente de T-H** (repo `cluna-8/elea-installer`: T089, T100–T103): el instalador no activa todavía la
-  extensión; la documentación lo marca 🔵.
+  extensión; la documentación lo marca 🔵. **Superado el 2026-10-07**: T100, T101 y T103 están hechas en el
+  instalador y T102 se probó con contenedores reales; queda abierta T089 (ver §4d).
 
 ## 1. Adaptaciones al traer las costuras de base (T-A)
 
@@ -149,6 +150,37 @@ Desvío de Eleia respecto de la base, retrocompatible y registrado en `HANDOFF-e
   con `filter`, R39. Valor desconocido ⇒ `filter`. `litellm/extensions/sentinel_guardian_policy.py:1305-1317`, `:1516`, `:2224`; `sentinel_guardrail.py:745`; `sentinel/engine/redirect_guard.py:258-284`, `:678`.
   Solo por instalación (variable de entorno); por grupo/panel no (R43). Plan de salida: Sentinel fija su propio `IMAGES_DEFAULT`; si Eleia quisiera volver al comportamiento de R39, `MASKING_IMAGES=filter`.
   La cara Claude (`sentinel/redirect/faces/claude.py`) no cambió: la capacidad `images` del destino se respeta antes del motor.
+
+## 4d. Revisión de punta a punta de la documentación y estado en vivo (2026-10-07)
+
+Revisión de `docs/docs/**` contra el código de `cluna-8/057-int` y contra el README del instalador. Es solo documentación, specs y los
+tests de runbook del instalador: no cambia código de producto.
+
+**Pasó a 🟢 (verificado en vivo el 7-oct-2026, Claude Desktop contra Azure, instalación de prueba con el instalador y `ELEA_REDIRECT=1`)**: conexión por gateway
+(URL `/api/v1/gw`, `bearer`, llave estática, descubrimiento); chat con `haiku` → `gpt-5.4-mini`, `sonnet` → `gpt-5.1-chat` y `opus` → `gpt-5.6-luna`; cambio de destino de `sonnet` en *Reglas*
+sin tocar el cliente; DNI enmascarado hacia Azure; Cowork con PDF y presentación; diseño SVG; lectura de imágenes (`MASKING_IMAGES=pass`; `sonnet` tras marcar *Imágenes*); llave con 1 000 000 tpm / 120 rpm por *Editar límites*;
+esfuerzo ajustado (`gpt-5.1-chat` solo `medium`); etiqueta «id pedido»; credencial de Azure del catálogo con `api_version` `2025-04-01-preview`; alta de modelos y ficha; instalación con el instalador y `ELEA_REDIRECT=1` (T102: activación,
+salud, `404` del canal interno, nivel 1).
+**Sigue 🟡/🔵 (no probado en vivo)**: OpenRouter/Kimi u otro proveedor que no sea Azure, Bedrock, grupos «Todos» y «Solo Azure» (solo tests), kit `managed-settings.json` instalado en una PC, Claude Code real, la cara genérica, el filtro de imágenes
+(`MASKING_IMAGES=filter`), la llave que emite el kit, la vuelta atrás de nivel 2, la región real del recurso de Azure (US, a confirmar); 🔵 generación de imágenes (no existe) y OCR (no existe).
+
+**Contradicciones corregidas** (doc ↔ doc y doc ↔ código):
+
+| Dónde | Decía | Ahora |
+|---|---|---|
+| `administration/redireccionamiento.md` (límites) y `integrations/claude-desktop.md` (límites) | «OCR no existe; las imágenes se bloquean / se omiten» | Con `MASKING_IMAGES=pass` (default) salen sin enmascarar su contenido (`litellm/extensions/sentinel_guardian_policy.py:1305-1317`, R43); OCR y generación de imágenes no existen; el PDF escaneado sigue bloqueándose |
+| `redireccionamiento.md` (Destinos) | La credencial de Azure «se adopta» de una variable del servidor | La credencial se carga desde el panel (clave + versión de API), la dirección va en cada modelo y es de solo escritura; la adopción por `env:` queda para el catálogo de ejemplo del operador (`sentinel/catalog/credentials.py:101`, `deploy/redirect-seeds/catalog-seed.azure-demo.yaml`) |
+| `redireccionamiento.md`, `administration/index.md`, README del instalador | El administrador ve y archiva los destinos de ejemplo | Las entradas de **instalación** solo las ven y administran cumplimiento o el super admin hasta que las ofrece (`sentinel/catalog/store.py:124-137`, `sentinel/catalog/api/admin.py:221-222`, `:1012-1017`; EVIDENCIA T102: `admin` → vacío, cumplimiento → 4) |
+| `claude-desktop.md` | Cada pedido manda 35 000–40 000 tokens | 35 000–67 000 (§10 de `verificacion-quickstart.md`); el default de 100 000 tpm / 60 rpm es el de la llave generada a mano (`backend/src/api/keys.py:40-41`), no el del kit (`sentinel/redirect/kits.py:28`) |
+| `redireccionamiento.md` (ids publicados) | Frase rota sobre la etiqueta («es del tipo el id pedido») | La etiqueta por defecto es el id pedido (`sentinel/redirect/models.py:138`) |
+| `claude-desktop.md` | Cowork crea «imágenes»; las skills de documentos «no llegan» | Crea documentos y diseños SVG/HTML (los modelos no generan imágenes); las skills del proveedor original no llegan, pero Cowork igual crea PDF y presentaciones ejecutando código 🟢 |
+| `claude-desktop.md` (síntomas) | La nota «imagen omitida» se atribuía al enmascarado forzado | Solo con destino sin visión, ficha sin *Imágenes* o `filter` |
+| `operations/index.md` §7, `install-deploy/index.md` (fila y paso 11), `operations` §7.5 | Instalador, proxy y servidor «🔵 en curso» | 🟢 activación local con contenedores reales (7-oct-2026); 🟡 servidor real y nivel 2 |
+| `administration/gobernanza.md` | «Lo no analizable se bloquea», sin matiz | Las imágenes se rigen por `MASKING_IMAGES` |
+| `integrations/index.md`, `overview/index.md`, `release-notes/index.md` | Toda la redirección «sin verificación en vivo» | Claude Desktop (Chat y Cowork) con Azure 🟢; el resto 🟡 |
+| README del instalador (Paso 9), vs `claude-desktop.md` | 35 000–67 000 vs 35 000–40 000; «Estado 🟡 nada verificado en vivo» | Unificados (ver el commit del instalador) |
+
+**Abierto** (no se cierra acá): T089 (falta `sentinel/tests/unit/test_internal_rutas_extension_origen.py`); T102 (nivel 2, respaldo en código, migración rota); T045 (Claude Code y Code de Claude Desktop), T051, T066, T078, T083, T086.
 
 ## 5. Documentación de producto (T079, T080, T081)
 

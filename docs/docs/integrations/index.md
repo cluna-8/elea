@@ -130,7 +130,7 @@ superficies principales.
 |---|---|---|---|---|
 | **Claude Code** | 🟢 Funciona | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw/v1/messages`. Passthrough de **suscripción** (OAuth reenviado verbatim por el gateway) **o** `byok` al motor del gateway. | Hay que **reiniciar `claude`** para tomar `ANTHROPIC_CUSTOM_HEADERS`. Para trabajo agéntico: suscripción, o **modelo propio** (§3.5 — el modo Agent está verificado por esa vía; el límite de G1 es del loop agéntico de Copilot). |
 | **Claude Code → otros modelos (redirección)** | 🟡 Parcial — sin verificación en vivo | `base_url` | `ANTHROPIC_BASE_URL` → `/api/v1/gw` con una llave virtual; los niveles `opus`/`sonnet`/`haiku` los sirven los destinos que mapeó el administrador, con enmascarado forzado y residencia. Ver [Claude Code](claude-code.md). | Los ids publicados tienen que ser ids que la versión instalada reconozca; un rechazo de residencia es un `403` y el bloqueo del enmascarado un `400` con su propio texto. |
-| **Claude Desktop → otros modelos (gateway de terceros)** | 🟡 Parcial — sin verificación en vivo | `base_url` | Configuración de gateway de terceros de la aplicación (`bearer`, descubrimiento de modelos) → `/api/v1/gw`. Ver [Claude Desktop](claude-desktop.md). | La aplicación antepone «Failed to authenticate» a todo `403` (por ejemplo un rechazo de residencia); el bloqueo por enmascarado es un `400` sin ese prefijo. |
+| **Claude Desktop → otros modelos (gateway de terceros)** | 🟢 Chat y Cowork con Azure, verificados en vivo el 7-oct-2026 · 🟡 el resto (otro proveedor, grupos, kit en una PC, Code) | `base_url` | Configuración de gateway de terceros de la aplicación (`bearer`, descubrimiento de modelos) → `/api/v1/gw`. Ver [Claude Desktop](claude-desktop.md). | La aplicación antepone «Failed to authenticate» a todo `403` (por ejemplo un rechazo de residencia); el bloqueo por enmascarado es un `400` sin ese prefijo. |
 | **CLI de formato de chat estándar** (opencode, Aider en ese modo, Continue, Cline/Roo, Zed) | 🟡 Parcial — sin verificación en vivo | `base_url` | Base `…/api/v1/gw/v1` + llave virtual + alias publicado. Ver [CLI de formato estándar](cli-formato-openai.md). | Sin la redirección sirve el modelo pedido con la política de siempre; con ella, solo los alias publicados para el alcance. |
 | **Claude Code → modelo propio** | 🟢 Funciona | `base_url` | `byok` + el modelo del cliente servido por su runtime local (p. ej. **Ollama**) registrado en el motor del gateway — ver §3.5. | **El modo Agent funciona** (verificado con tools reales) y el ciclo mask→restauración completa ([G9](gotchas.md): corregido). Con el cache del motor activo, repetir un prompt idéntico puede devolver placeholders de una respuesta cacheada (limitación conocida en evaluación). |
 | **Aider** | 🟢 Funciona | `base_url` | `ANTHROPIC_API_BASE` → `…/api/v1/gw` + `ANTHROPIC_API_KEY=sk-sentinel-…` + `--model anthropic/<modelo-del-motor>`. Cero config extra. | El flujo editor completo (diff-apply) funciona, **no** se corrompe con el masking y los archivos quedan con los valores reales ([G9](gotchas.md): corregido). Misma nota de cache del motor que Claude Code → modelo propio. |
@@ -395,8 +395,10 @@ conocidos:
 - [Claude Code](claude-code.md) — llave virtual, ids por nivel, razonamiento y conteo de tokens.
 - [CLI de formato de chat estándar](cli-formato-openai.md) — alias, dirección base y llave.
 
-Estas tres guías están **🟡 sin verificación en vivo**: son las únicas superficies de esta página
-que dependen de una extensión de la pasarela y todavía no se probaron contra un proveedor real.
+De estas tres guías, la de **Claude Desktop** está **🟢 verificada en vivo el 7-oct-2026** (Chat y Cowork
+contra Azure, instalación hecha con el instalador y `ELEA_REDIRECT=1`) salvo lo que su página marca 🟡;
+las de **Claude Code** y de la **CLI de formato estándar** siguen **🟡 sin verificación en vivo**. Son las
+únicas superficies de esta página que dependen de una extensión de la pasarela.
 
 ---
 
@@ -430,9 +432,10 @@ documentados) · 🔵 **OBJETIVO** (roadmap explícito, no implementado).
   el unmask dentro de iframes/artefactos es 🔵 roadmap.
 - 🔵 **Gemini web** — roadmap con approach definido (DOM-hook sobre el editor), **aún sin
   verificar** — no se ofrece todavía.
-- 🟡 **Redirección de modelos (Claude Desktop, Claude Code, CLI de formato estándar)** — implementada
-  y con pruebas de contrato con proveedor simulado; **sin verificación en vivo** (Azure es el primer
-  destino a probar). El enmascarado forzado es seudonimización reversible de identificadores
+- 🟢/🟡 **Redirección de modelos (Claude Desktop, Claude Code, CLI de formato estándar)** — implementada
+  y con pruebas de contrato con proveedor simulado. **Claude Desktop (Chat y Cowork) con Azure se
+  verificó en vivo el 7-oct-2026** 🟢; Claude Code, la CLI de formato estándar y los destinos que no son
+  Azure siguen **🟡 sin verificación en vivo**. El enmascarado forzado es seudonimización reversible de identificadores
   detectados, no anonimización. Ver [Redirección de modelos](../administration/redireccionamiento.md).
 - 🔵 **Codex CLI con la redirección** — sigue sin camino gobernado: usa una superficie de
   «Responses» que el producto no expone.

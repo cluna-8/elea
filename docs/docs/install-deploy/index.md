@@ -100,7 +100,7 @@ Los tres actores y su frontera de responsabilidad:
 | Bootstrap de admin | Primer login `admin` crea `tenant_admin` **sólo mientras la instalación no tenga dueño** (ningún usuario con rol administrativo) y con un mínimo de 12 caracteres; email `admin@sentinel.com.ar`. En el camino IaC la credencial inicial se emite **una sola vez** como output sensible | Igual + rotación de credencial obligatoria post-instalación | 🟢 (rotación por API/UI: `POST /users/me/password` y reseteo de admin `POST /users/{id}/password`) |
 | Branding white-label | Naming neutro en el código (`AIEngineClient`/`engine_*`, errores del motor reescritos a naming neutro); el render del perfil produce el `brand.json` del cliente | Branding pack (nombre/logo/paleta) por cliente como **config-as-data en runtime** (sin recompilar) | 🟡 |
 | Licenciamiento offline | **Implementado fail-closed**: verificación Ed25519 offline al arranque; gate de seats en las altas (`402` seats agotados / `403` licencia no activa); estados `active`/`grace`/`expired`; `SENTINEL_LICENSE_HARD_BLOCK` corta las rutas de servicio; `GET /api/v1/health/license`; auditoría hash-chained + true-up firmado; sin phone-home | Igual | 🟢 |
-| Redirección de modelos (extensión opcional) | Imágenes **`-ext`** derivadas de las publicadas (mismo digest, tag propio `<versión>-ext`, sin tocar `latest`), entrega por perfil de cliente (`EXTRA_ENV_FILE`, `EXTRA_ENGINE_EXTENSIONS`, `PROFILE_FRAGMENTS`) y arranque que **aborta** ante una migración fallida; probado **sin contenedores**. Apagada por defecto y sin efecto en una instalación que no la activa | Activación opt-in por el instalador (`ELEA_REDIRECT=1`) detrás del proxy del canal interno, con prueba local y runbook de servidor; ver [Operaciones §7](../operations/index.md#7-redireccion-de-modelos) | 🟡 (entrega) / 🔵 (instalador y servidor) |
+| Redirección de modelos (extensión opcional) | Imágenes **`-ext`** derivadas de las publicadas (mismo digest, tag propio `<versión>-ext`, sin tocar `latest`), entrega por perfil de cliente (`EXTRA_ENV_FILE`, `EXTRA_ENGINE_EXTENSIONS`, `PROFILE_FRAGMENTS`) y arranque que **aborta** ante una migración fallida; probado **sin contenedores**. Apagada por defecto y sin efecto en una instalación que no la activa | Activación opt-in por el instalador (`ELEA_REDIRECT=1`) detrás del proxy del canal interno, con runbook de servidor; probada con contenedores reales el 7-oct-2026 en una instalación local; ver [Operaciones §7](../operations/index.md#7-redireccion-de-modelos) | 🟡 (entrega) / 🟢 (instalador, prueba local del 7-oct-2026) / 🟡 (servidor real y nivel 2, sin probar) |
 | Bundle air-gapped | Herramienta de bundle en el árbol de release: tarball autocontenido con **todas** las imágenes + compose de producción + perfil renderizado + checks + manifiesto con digests; validada en el gate del release | Igual, por release; v2 con bundle firmado para k8s | 🟢 |
 
 ---
@@ -360,9 +360,10 @@ sequenceDiagram
     `200`. **No hay downgrade de migraciones**: la vuelta atrás es apagar la política (conservando la
     imagen `-ext`) o restaurar el respaldo. Detalle, variables y síntomas en
     [Operaciones §7](../operations/index.md#7-redireccion-de-modelos) y, para qué hace, en
-    [Redirección de modelos](../administration/redireccionamiento.md). 🟡 La activación por el
-    instalador y el runbook de servidor son 🔵 (en curso); nada se probó todavía de punta a punta
-    con contenedores.
+    [Redirección de modelos](../administration/redireccionamiento.md). 🟢 La activación por el
+    instalador (`ELEA_REDIRECT=1`), la salud en `200`, el `404` del canal interno y la vuelta atrás de
+    nivel 1 se probaron con contenedores reales el 7-oct-2026, con Claude Desktop contra Azure encima.
+    🟡 El runbook en el servidor real de Elea y la vuelta atrás de nivel 2 no se probaron.
 
 ---
 

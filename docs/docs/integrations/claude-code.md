@@ -10,8 +10,10 @@ trabajar con **otros modelos** de forma gobernada.
 
 !!! warning "Estado: 🟡 sin verificación en vivo"
     Probado con pruebas de contrato y un corpus sintético de pedidos de la herramienta contra un
-    proveedor **simulado**. No hay todavía una sesión real de Claude Code contra un destino real
-    (Azure es el primero): nada de esta página está 🟢.
+    proveedor **simulado**. No hay todavía una sesión real de Claude Code contra un destino real:
+    nada de esta página está 🟢. La prueba en vivo con Azure del 7-oct-2026 fue con **Claude Desktop**
+    (ver [su guía](claude-desktop.md)); comparte la pasarela y el mapeo de niveles, pero no prueba a
+    Claude Code.
 
 !!! note "Leyenda de estado"
     🟢 **HOY** — funciona y está verificado en vivo · 🟡 **PARCIAL** — existe, con pruebas

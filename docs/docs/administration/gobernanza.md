@@ -232,12 +232,14 @@ forzado:
 - el analizador de entidades pasa a **fail-closed** aunque la instalación esté configurada para
   *degradar*: si no responde, el pedido se bloquea, no se envía con patrones;
 - el alcance es **completo** (todo el historial, herramientas y PDF con texto) y lo que no se puede
-  analizar se bloquea.
+  analizar se bloquea; las **imágenes** se rigen por `MASKING_IMAGES` (por defecto salen sin enmascarar su
+  contenido y la auditoría las cuenta; con `filter` se bloquean o se reemplazan).
 
 El forzado solo lo quita una **relajación** explícita de cumplimiento o del super admin, con motivo
 y registrada. Todo el detalle —posturas, relajaciones, causas de bloqueo— está en
 [Redirección de modelos](redireccionamiento.md). El tráfico que **no** se redirige sigue las reglas
-de esta página, sin cambios. Estado: 🟡, con pruebas automatizadas y sin verificación en vivo.
+de esta página, sin cambios. Estado: 🟡, con pruebas automatizadas; en vivo se verificó el 7-oct-2026 que
+un DNI de prueba sale enmascarado hacia Azure 🟢 y el resto sigue sin verificación en vivo.
 
 ---
 
