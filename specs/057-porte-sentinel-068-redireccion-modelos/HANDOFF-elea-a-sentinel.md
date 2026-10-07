@@ -120,6 +120,10 @@ bloquea” no tenía tarea»). Con `masked_all` y Claude Code, el cliente reenv�
   también vocabulario abierto: `_w_scan` lo emite como `scan_open` (mismo descarte de tipos semánticos, patrón sigue bloqueando). Con el NER real la
   cadena `1` sale LOCATION y los esquemas de herramientas de Claude Code (`minLength: 1`, 14 veces) bloqueaban todo pedido. Test:
   `test_pedido_real_de_claude_code_con_numeros_de_esquema_no_se_bloquea`.
+  **Ampliación (research R39)**: `reasoning_effort` (primer nivel, los dos formatos) es posición estructural de vocabulario cerrado (`none`, `minimal`,
+  `low`, `medium`, `high`, `xhigh`). La cara de la pasarela lo escribe hacia un destino traducido con `thinking` u `output_config.effort` (sonnet/opus
+  siempre) y el NER real marca su NOMBRE como LOCATION (0,85): sin la posición, todo pedido con esfuerzo era `structural_entity`. Si Sentinel tiene una
+  cara que agrega campos de primer nivel, cada uno entra a la tabla S14 (el test `sentinel/tests/unit/test_face_claude_campos_propios_s14.py` ata los dos planos).
 - **CUIT/CUIL sin guiones** en `latam_ar` (`policy.py:151`, `\b\d{2}-?\d{8}-?\d\b`): el paracaídas regex lo hereda. **Es del perfil `latam_ar`**: a
   Sentinel solo le sirve si usa ese perfil.
 

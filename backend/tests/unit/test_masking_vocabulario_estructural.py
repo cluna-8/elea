@@ -445,6 +445,70 @@ async def test_un_campo_desconocido_cuyo_nombre_es_semantico_se_sigue_analizando
     assert tally.kinds == ["structural_entity"]
 
 
+# ── el pedido de sonnet/opus hacia un destino TRADUCIDO: `reasoning_effort` (057, R39) ──────────────────────────────────
+
+def _pedido_de_sonnet_hacia_destino_traducido(esfuerzo="medium"):
+    """Lo que el motor recibe de la cara Claude cuando el pedido trae `thinking` o `output_config.effort` (sonnet y opus lo mandan
+    SIEMPRE, también en un «hola» nuevo; haiku no) y el destino es traducido: `normalize_for_translated` quita `thinking`,
+    `output_config` y `context_management` y escribe `reasoning_effort` en el primer nivel (`faces/claude.py`). Sin datos
+    reales: solo la forma, derivada del pedido real de Claude Code."""
+    cuerpo = _pedido_real_de_claude_code()
+    for campo in ("thinking", "output_config", "context_management", "safeguards"):
+        del cuerpo[campo]
+    cuerpo["reasoning_effort"] = esfuerzo
+    return cuerpo
+
+
+async def _ner_con_reasoning_effort(texto):
+    """Como `_ner_con_numeros`, más lo que el NER real hace con el NOMBRE del campo `reasoning_effort`: LOCATION 0,85 (medido
+    en el analizador del stack, 2026-10-07; los valores `low`/`medium`/`high` no se marcan)."""
+    if texto == "reasoning_effort":
+        return [{"start": 0, "end": len(texto), "entity_type": "LOCATION", "score": 0.85}]
+    return await _ner_con_numeros(texto)
+
+
+@pytest.mark.asyncio
+async def test_pedido_de_sonnet_hacia_un_destino_traducido_con_reasoning_effort_no_se_bloquea():
+    cuerpo, _, tally = await _enmascarar(_pedido_de_sonnet_hacia_destino_traducido(), analizar=_ner_con_reasoning_effort)
+    assert tally.unanalyzable == 0 and tally.kinds == [], tally.kinds
+    assert tally.detected == tally.masked, "ninguna detección quedó sin reescribir"
+    assert cuerpo["reasoning_effort"] == "medium", "el campo del protocolo viaja intacto (ni se renombra ni se enmascara)"
+    assert DNI not in _plano(cuerpo), "el texto de los mensajes sigue enmascarándose"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("esfuerzo", ["none", "minimal", "low", "medium", "high", "xhigh"])
+@pytest.mark.parametrize("fmt", ["anthropic", "openai"])
+async def test_reasoning_effort_de_cualquier_nivel_del_protocolo_no_bloquea(fmt, esfuerzo):
+    cuerpo = {"model": "m", "max_tokens": 32, "reasoning_effort": esfuerzo, "messages": [{"role": "user", "content": "hola"}]}
+    cuerpo, _, tally = await _enmascarar(cuerpo, fmt=fmt, analizar=_ner_con_reasoning_effort)
+    assert tally.unanalyzable == 0, tally.kinds
+    assert cuerpo["reasoning_effort"] == esfuerzo
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valor", [DNI, "Juan Pérez", f"low {DNI}", 30123456])
+async def test_reasoning_effort_fuera_del_vocabulario_se_sigue_analizando(valor):
+    """A: el valor dentro del conjunto cerrado no se analiza; uno de afuera sí (un patrón o un nombre bloquean: la posición no se reescribe)."""
+    cuerpo = _pedido_de_sonnet_hacia_destino_traducido(esfuerzo=valor)
+    _, _, tally = await _enmascarar(cuerpo, analizar=_ner_con_reasoning_effort)
+    assert tally.kinds == ["structural_entity"], tally.kinds
+
+
+@pytest.mark.asyncio
+async def test_un_campo_desconocido_del_primer_nivel_sigue_estricto_aunque_se_parezca_a_reasoning_effort():
+    """Sin exención por nombre parecido: solo la posición exacta de la tabla (contrato S14, punto 3)."""
+    cuerpo = _pedido_de_sonnet_hacia_destino_traducido()
+    cuerpo["reasoning_effort_extra"] = "low"
+
+    async def ner(texto):
+        if texto == "reasoning_effort_extra":
+            return [{"start": 0, "end": len(texto), "entity_type": "LOCATION", "score": 0.85}]
+        return await _ner_con_reasoning_effort(texto)
+    _, _, tally = await _enmascarar(cuerpo, analizar=ner)
+    assert tally.kinds == ["structural_entity"]
+
+
 def test_el_prefetch_pide_al_analizador_los_numeros_estructurales():
     textos = policy._collect_texts(_pedido_real_de_claude_code(), "anthropic", with_scans=True)
     assert "1" in textos and "256" in textos and "9007199254740991" in textos
@@ -460,6 +524,7 @@ VOCABULARIO_DEL_CONTRATO = {
         "….source.type": ["base64", "content", "file", "text", "url"],
         "….source.media_type": "re:[a-z]+/[a-z0-9][a-z0-9.+-]{0,99}",
         "thinking.type": ["adaptive", "disabled", "enabled"],
+        "reasoning_effort": ["high", "low", "medium", "minimal", "none", "xhigh"],
         "tool_choice.type": ["any", "auto", "none", "tool"],
         "tools.*.type": "re:(custom|[a-z][a-z0-9_]*_\\d{8})",
     },
@@ -467,6 +532,7 @@ VOCABULARIO_DEL_CONTRATO = {
         "messages.*.role": ["assistant", "developer", "function", "system", "tool", "user"],
         "messages.*.tool_calls.*.type": ["function"],
         "….type": ["file", "image_url", "input_audio", "refusal", "text"],
+        "reasoning_effort": ["high", "low", "medium", "minimal", "none", "xhigh"],
         "response_format.type": ["json_object", "json_schema", "text"],
         "tool_choice": ["auto", "none", "required"],
         "tool_choice.type": ["allowed_tools", "custom", "function"],
