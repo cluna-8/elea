@@ -255,19 +255,32 @@ def masking_exemptions(report: Any) -> str:
 _KIND_NAME = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
-def replaced_unanalyzables(report: Any) -> tuple:
-    """(cantidad, nombres de tipo `a,b`) de los binarios de una herramienta que el guardrail cambió por una nota (S14,
-    R39: la captura de Cowork dentro de un `tool_result`). No bloquea —el binario ya no sale— y se registra para la
-    auditoría. Solo un entero positivo y nombres de tipo cortos (`[a-z0-9_]`); lo demás se ignora. Nunca contenido."""
+def _count_and_kinds(report: Any, count_key: str, kinds_key: str) -> tuple:
+    """(cantidad, nombres de tipo `a,b`) de un par de campos del informe. Solo un entero positivo y nombres de tipo cortos
+    (`[a-z0-9_]`); lo demás se ignora. Nunca contenido."""
     if not isinstance(report, Mapping):
         return 0, ""
-    n = report.get("unanalyzable_replaced")
+    n = report.get(count_key)
     if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
         return 0, ""
-    kinds = report.get("unanalyzable_replaced_kinds")
+    kinds = report.get(kinds_key)
     names = sorted({k for k in (kinds if isinstance(kinds, (list, tuple)) else ())
                     if isinstance(k, str) and _KIND_NAME.match(k)})
     return n, ",".join(names)
+
+
+def replaced_unanalyzables(report: Any) -> tuple:
+    """(cantidad, nombres de tipo `a,b`) de los binarios de una herramienta que el guardrail cambió por una nota (S14,
+    R39: la captura de Cowork dentro de un `tool_result`). No bloquea —el binario ya no sale— y se registra para la
+    auditoría."""
+    return _count_and_kinds(report, "unanalyzable_replaced", "unanalyzable_replaced_kinds")
+
+
+def unmasked_images(report: Any) -> tuple:
+    """(cantidad, nombres de tipo `a,b`) de las imágenes que el guardrail dejó salir tal cual (S14, R43:
+    `MASKING_IMAGES=pass`, el default de Eleia). No bloquean —no cuentan como no analizables, es el ajuste de la
+    instalación— y se registran para la auditoría."""
+    return _count_and_kinds(report, "images_unmasked", "images_unmasked_kinds")
 
 
 def masking_ok(report: Any, *, forced: bool = False) -> bool:
@@ -662,6 +675,11 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
             decision["unanalyzable_replaced"] = replaced  # R39: binarios de herramientas cambiados por una nota
             if replaced_kinds:
                 decision["unanalyzable_replaced_kinds"] = replaced_kinds
+        images, image_kinds = unmasked_images(_masking_report(data, call_type))
+        if images:
+            decision["images_unmasked"] = images          # R43: imágenes que salieron tal cual (ajuste de la instalación)
+            if image_kinds:
+                decision["images_unmasked_kinds"] = image_kinds
     _write_decision(data, call_type, decision)
     return data
 

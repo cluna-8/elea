@@ -589,6 +589,39 @@ def test_un_reemplazo_no_tapa_un_no_analizable():
     assert e.value.code == "masking_required"
 
 
+# ── imágenes sin enmascarar bajo el forzado (S14; 057 R43: MASKING_IMAGES=pass) ─────────────────────────────
+
+def test_las_imagenes_sin_enmascarar_no_bloquean_y_quedan_en_la_decision_solo_conteo_y_tipo():
+    informe = {**GOOD_REPORT, "images_unmasked": 3, "images_unmasked_kinds": ["image"]}
+    assert g.masking_ok(informe, forced=True), "no cuentan como no analizables"
+    rd = _decision(apply(_forzado_en("openrouter", informe)))
+    assert rd["images_unmasked"] == 3 and rd["images_unmasked_kinds"] == "image"
+    assert rd["masking_scope"] == "full" and rd["masking_verified"] is True
+
+
+@pytest.mark.parametrize("n,kinds", [(0, []), (None, None), (True, ["image"]), ("2", ["image"]), (-1, ["image"])])
+def test_sin_imagenes_validas_la_decision_no_lleva_el_campo(n, kinds):
+    informe = dict(GOOD_REPORT)
+    if n is not None:
+        informe.update(images_unmasked=n, images_unmasked_kinds=kinds)
+    rd = _decision(apply(_forzado_en("openrouter", informe)))
+    assert "images_unmasked" not in rd and "images_unmasked_kinds" not in rd
+
+
+def test_los_nombres_de_tipo_de_las_imagenes_se_acotan_a_identificadores_cortos():
+    informe = {**GOOD_REPORT, "images_unmasked": 1,
+               "images_unmasked_kinds": ["image", "Juan Pérez 30123456", "x" * 80, 7]}
+    assert _decision(apply(_forzado_en("openrouter", informe)))["images_unmasked_kinds"] == "image"
+
+
+def test_las_imagenes_sin_enmascarar_no_tapan_un_no_analizable():
+    informe = {**GOOD_REPORT, "unanalyzable": 1, "unanalyzable_kinds": ["audio"],
+               "images_unmasked": 2, "images_unmasked_kinds": ["image"]}
+    with pytest.raises(g.GuardRejection) as e:
+        apply(_forzado_en("openrouter", informe))
+    assert e.value.code == "masking_required"
+
+
 # ── alcance del sufijo de los marcadores en la auditoría (S13; 057 T073) ───────────────────────────
 
 @pytest.mark.parametrize("informe,esperado", [

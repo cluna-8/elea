@@ -160,7 +160,8 @@ async def test_un_pdf_con_texto_viaja_como_texto_enmascarado():
 
 
 @pytest.mark.asyncio
-async def test_una_imagen_es_no_analizable_y_el_guard_bloquea_con_masking_required():
+async def test_una_imagen_es_no_analizable_y_el_guard_bloquea_con_masking_required(monkeypatch):
+    monkeypatch.setenv("MASKING_IMAGES", "filter")      # R39: el modo `filter`; el default de Eleia es `pass` (R43, abajo)
     img = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
     data, _ = await _pedido([{"role": "user", "content": [{"type": "text", "text": "mirá"}, img]}])
     with pytest.raises(guard.GuardRejection) as e:
@@ -175,7 +176,8 @@ def _captura():
 
 
 @pytest.mark.asyncio
-async def test_la_captura_de_cowork_en_un_tool_result_no_corta_la_tarea_y_queda_en_la_auditoria():
+async def test_la_captura_de_cowork_en_un_tool_result_no_corta_la_tarea_y_queda_en_la_auditoria(monkeypatch):
+    monkeypatch.setenv("MASKING_IMAGES", "filter")      # R39: el modo `filter`; el default de Eleia es `pass` (R43, abajo)
     """R39: Cowork verifica su PDF con una captura que vuelve como imagen dentro de un `tool_result`. Bajo el forzado
     el binario nunca sale: se reemplaza por una nota, el guard deja pasar y la auditoría lo registra."""
     data, _ = await _pedido([
@@ -194,7 +196,8 @@ async def test_la_captura_de_cowork_en_un_tool_result_no_corta_la_tarea_y_queda_
 
 
 @pytest.mark.asyncio
-async def test_la_imagen_que_adjunta_la_persona_junto_al_tool_result_sigue_bloqueando():
+async def test_la_imagen_que_adjunta_la_persona_junto_al_tool_result_sigue_bloqueando(monkeypatch):
+    monkeypatch.setenv("MASKING_IMAGES", "filter")      # R39: el modo `filter`; el default de Eleia es `pass` (R43, abajo)
     data, _ = await _pedido([
         {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0003", "name": "screenshot", "input": {}}]},
         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_0003", "content": [_captura()]},
@@ -203,6 +206,27 @@ async def test_la_imagen_que_adjunta_la_persona_junto_al_tool_result_sigue_bloqu
         await _motor(data)
     assert e.value.code == "masking_required"
     assert data["litellm_metadata"]["masking_report"]["unanalyzable_kinds"] == ["image"]
+
+
+@pytest.mark.asyncio
+async def test_con_images_pass_la_captura_y_la_imagen_adjunta_salen_tal_cual_y_quedan_en_la_auditoria(monkeypatch):
+    """R43: el default de Eleia. La imagen no es no analizable: el guard deja pasar, no se reemplaza nada y la decisión de
+    auditoría lleva solo conteo y tipo. El texto del mismo pedido sale enmascarado."""
+    monkeypatch.delenv("MASKING_IMAGES", raising=False)
+    data, _ = await _pedido([
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0004", "name": "screenshot", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_0004",
+                                      "content": [{"type": "text", "text": f"Listo, DNI {DNI_PUNTOS}"}, _captura()]},
+                                     _captura(), {"type": "text", "text": "mirá"}]}])
+    salida, informe = await _motor(data)
+    saliente = _saliente(salida)
+    assert saliente.count("iVBOR") == 2 and DNI_PUNTOS not in saliente
+    assert policy.UNANALYZABLE_REPLACED_NOTE not in saliente
+    assert informe["unanalyzable"] == 0 and "unanalyzable_replaced" not in informe
+    assert informe["images_unmasked"] == 2 and informe["images_unmasked_kinds"] == ["image"]
+    rd = data["litellm_metadata"]["_internal_routing_decision"]["extensions"]["redirect"]
+    assert rd["images_unmasked"] == 2 and rd["images_unmasked_kinds"] == "image"
+    assert rd["masking_verified"] is True and "iVBOR" not in json.dumps(rd)
 
 
 @pytest.mark.asyncio
