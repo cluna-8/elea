@@ -46,7 +46,7 @@ from starlette.responses import JSONResponse
 
 from sentinel.access import bridge
 
-from . import authz, betas, credentials, residency, resolver, session_ids, stream, thinking, token_estimate
+from . import authz, betas, credentials, effort, residency, resolver, session_ids, stream, thinking, token_estimate
 from .faces import claude as claude_face
 from .faces import generic as generic_face
 from .scopes import RequestScope, applicable
@@ -631,6 +631,11 @@ class RedirectPlugin:
             out.pop(n)
         if dropped:
             plan.decision["dropped_params"] = ",".join(dropped)       # FR-033: solo nombres, escalar
+        # Esfuerzo de razonamiento (057): el pedido se ajusta al conjunto que el destino admite (p. ej. gpt-5.1-chat solo
+        # `medium`); nunca un 400 por esto. Va después de `unsupported_params` (si el campo se quitó, no hay qué ajustar).
+        adjusted = effort.adjust(out, dest)
+        if adjusted:
+            plan.decision["adjusted_params"] = ",".join(adjusted)    # FR-033: solo el nombre del campo, nunca el valor
         # S13/FR-043 (057 T073/T074): referencia de conversación para los marcadores y afinidad de sesión, derivadas con la
         # clave del servidor del identificador de sesión de la herramienta; el original no sale de la pasarela.
         tenant = str(plan.scope_label).split("/", 1)[0]

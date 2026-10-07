@@ -21,6 +21,10 @@ TOOLS = ("claude_desktop", "claude_code", "codex", "openai_generic")
 TOOL_FACE = {"claude_desktop": "claude", "claude_code": "claude", "codex": "codex",
              "openai_generic": "openai_generic"}
 KEY_PLACEHOLDER = "REEMPLAZAR_CON_LA_LLAVE_DE_LA_CONEXION"
+# Tope (rpm, tpm) con el que nace la llave que emite el kit. Cada pedido de Claude Desktop/Cowork pesa 35 000–67 000
+# tokens: con el default de la base (60 / 100 000) el segundo pedido del minuto ya lo excede. Las demás herramientas
+# conservan el default de la base (no figuran acá).
+KEY_LIMITS = {"claude_desktop": (120, 1_000_000), "claude_code": (120, 1_000_000)}
 CLAUDE_TIERS = ("opus", "sonnet", "haiku", "fable")
 STREAM_IDLE_SEC = 600
 

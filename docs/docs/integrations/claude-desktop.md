@@ -63,7 +63,7 @@ En la consola, antes de tocar el equipo de la persona.
 1. **Una llave por conexión, con dueño**: *Usuarios & Presupuestos → Llaves Virtuales → Generar Llave Virtual*,
    herramienta **Claude Desktop**, asignada a la persona o al equipo responsable. Una llave por
    conexión permite que la política, la residencia y la auditoría se apliquen a esa conexión y no a
-   todo el tenant. **Cargá estos límites**:
+   todo el tenant. **Cargá estos límites** (la llave que emite el kit del panel ya nace con ellos, ver más abajo):
 
     | Campo | Valor recomendado | Por qué |
     |---|---|---|
@@ -119,7 +119,15 @@ Claude Desktop **sin iniciar sesión**, en el equipo de la persona:
 !!! tip "Alternativa: el kit del panel"
     En **Modelos → Kits** se genera un `managed-settings.json` con la dirección, el esquema, los
     modelos del alcance y los ajustes que evitan fallas conocidas, para repartirlo con la gestión de
-    dispositivos. Si lleva credencial, emite una **llave nueva** del alcance y queda auditado. 🟡
+    dispositivos. Si lleva credencial, emite una **llave nueva** del alcance y queda auditado. Esa llave
+    nace con **120 pedidos/min y 1 000 000 tokens/min** (los de la tabla de arriba), aplicados en la
+    pasarela y en el motor; con una llave generada a mano hay que cargarlos. 🟡
+
+!!! tip "Cambiar los límites de una llave que ya existe"
+    *Usuarios & Presupuestos → Llaves Virtuales → Editar límites* cambia los pedidos/min y los
+    tokens/min de la llave sin emitir otra. El cambio rige de inmediato en la pasarela y en el motor;
+    si el motor no responde, el panel lo avisa y no cambia nada (los dos lugares nunca quedan con
+    valores distintos). Solo el rol administrador puede hacerlo. 🟡
 
 ### Conexión
 
@@ -193,7 +201,7 @@ de cada una está cubierto por pruebas automatizadas con un proveedor simulado.
 | Error «El pedido no pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.» | Bloqueo del enmascarado forzado: algo no analizable que **adjuntó la persona** (imagen, PDF escaneado, adjunto por dirección), el analizador caído, o un dato en una posición que no se puede reescribir. Es un **`400`** con su propio texto, no un `403` (por eso no lleva «Failed to authenticate»). Las imágenes que devuelve una herramienta del agente **no** causan este error: se reemplazan por una nota | Quitar el adjunto o abrir una conversación nueva; si se repite sin adjuntos, avisar al administrador (la auditoría muestra el tipo de causa, no el contenido) |
 | «Modelo no disponible para tu organización.» (`404`) | El id no está publicado para el alcance (empresa o grupo) de esa llave, o la llave tiene una lista de modelos que no lo incluye. No nombra destinos | Publicar el id para ese alcance o ajustar la llave |
 | La aplicación no lista modelos o muestra un solo nivel | La política está apagada para ese alcance, no hay reglas para un nivel, la residencia descarta el destino, o el id solo está publicado para otro grupo | Encender la política, mapear los tres niveles y revisar la vista previa |
-| «Límite de solicitudes alcanzado. Reintentando… (intento 3 de 10)» | La llave tiene los límites por defecto (100 000 tokens/min), bajos para un agente | Llave con 1 000 000 tokens/min y 120 pedidos/min |
+| «Límite de solicitudes alcanzado. Reintentando… (intento 3 de 10)» | La llave tiene los límites por defecto (100 000 tokens/min), bajos para un agente | Llave con 1 000 000 tokens/min y 120 pedidos/min (las del kit del panel ya los traen; a una anterior se los cambia *Editar límites*) |
 | `FileNotFoundError` al guardar el archivo en Cowork | Tarea sin carpeta de trabajo | Elegir una carpeta al crear la tarea |
 | No lee páginas web | Sin hosts de egreso o sin omitir la verificación de WebFetch | Las dos opciones de *Espacio de trabajo* |
 | El selector muestra un solo modelo | Ids publicados que no son de la familia Claude | Publicar con ids de Claude, o cargar la *Lista de modelos* a mano con cada id |

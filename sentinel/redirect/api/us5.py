@@ -104,10 +104,15 @@ async def _issue_key(db, user, *, tool: str, scope: tuple, models: list):
     from src.api import keys as keys_api
     kind, ident = scope
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    # Tope propio de la herramienta (`kits.KEY_LIMITS`); sin entrada, el default de la base. `generate_key` lo aplica
+    # en la fila `api_keys` (la pasarela) y en la llave del motor.
+    limits = {}
+    if tool in kits.KEY_LIMITS:
+        limits = dict(zip(("rpm_limit", "tpm_limit"), kits.KEY_LIMITS[tool]))
     created = await keys_api.generate_key(keys_api.KeyCreateSchema(
         name=f"Kit {tool}", user_id=ident if kind == "user" else None,
         group_id=ident if kind == "group" else None, models=models,
-        tool_type=tool.replace("_", "-"), tool_label=f"kit-{tool}-{stamp}"), db)
+        tool_type=tool.replace("_", "-"), tool_label=f"kit-{tool}-{stamp}", **limits), db)
     return str(created.id), created.plain_key
 
 

@@ -39,7 +39,8 @@ entries:
     real_model: gpt-5.1-chat
     protocol_family: openai_chat
     capability: standard
-    features: {tools: true, images: true, documents_pdf: false}
+    # `reasoning_efforts`: este despliegue solo acepta `medium` (400 con `low`); la pasarela ajusta al más cercano.
+    features: {tools: true, images: true, documents_pdf: false, reasoning_efforts: [medium]}
     context_window: 128000
     max_output: 16384
     price_input_per_mtok: 1.25

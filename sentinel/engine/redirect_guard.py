@@ -639,6 +639,7 @@ def apply_redirect(data: dict, *, environ: Optional[Mapping[str, str]] = None,
 
     decision = dict(grant.decision)
     _merge_dropped(decision, dropped)
+    adjusted = [n for n in str(decision.get(ADJUSTED_KEY) or "").split(",") if n] + adjusted    # los de la pasarela (esfuerzo)
     if adjusted:
         decision[ADJUSTED_KEY] = ",".join(adjusted)
     if grant.provider == OPENROUTER:
