@@ -135,7 +135,7 @@ class RedirectPublishedModel(RedirectBase):
     family_tier = Column(String(16))
     is_family_default = Column(Boolean, nullable=False, default=False)
     label = Column(String(256))
-    label_mode = Column(String(16), nullable=False, default="destination")
+    label_mode = Column(String(16), nullable=False, default="requested", server_default="requested")
     scope_type = Column(String(16), nullable=False, default="tenant")
     scope_value = Column(String(64), nullable=False, default="*")
     reference_model = Column(String(256))

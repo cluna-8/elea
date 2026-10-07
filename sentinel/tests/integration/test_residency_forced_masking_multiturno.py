@@ -170,6 +170,41 @@ async def test_una_imagen_es_no_analizable_y_el_guard_bloquea_con_masking_requir
     assert "iVBOR" not in str(e.value.message)
 
 
+def _captura():
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+
+
+@pytest.mark.asyncio
+async def test_la_captura_de_cowork_en_un_tool_result_no_corta_la_tarea_y_queda_en_la_auditoria():
+    """R39: Cowork verifica su PDF con una captura que vuelve como imagen dentro de un `tool_result`. Bajo el forzado
+    el binario nunca sale: se reemplaza por una nota, el guard deja pasar y la auditoría lo registra."""
+    data, _ = await _pedido([
+        {"role": "user", "content": "creame un pdf con mis datos"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0002", "name": "screenshot", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_0002",
+                                      "content": [{"type": "text", "text": f"Listo, DNI {DNI_PUNTOS}"}, _captura()]}]}])
+    salida, informe = await _motor(data)
+    saliente = _saliente(salida)
+    assert "iVBOR" not in saliente and DNI_PUNTOS not in saliente
+    assert policy.UNANALYZABLE_REPLACED_NOTE in saliente
+    assert informe["unanalyzable"] == 0 and informe["unanalyzable_replaced"] == 1
+    rd = data["litellm_metadata"]["_internal_routing_decision"]["extensions"]["redirect"]
+    assert rd["unanalyzable_replaced"] == 1 and rd["unanalyzable_replaced_kinds"] == "image"
+    assert rd["masking_verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_la_imagen_que_adjunta_la_persona_junto_al_tool_result_sigue_bloqueando():
+    data, _ = await _pedido([
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_0003", "name": "screenshot", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_0003", "content": [_captura()]},
+                                     _captura()]}])
+    with pytest.raises(guard.GuardRejection) as e:
+        await _motor(data)
+    assert e.value.code == "masking_required"
+    assert data["litellm_metadata"]["masking_report"]["unanalyzable_kinds"] == ["image"]
+
+
 @pytest.mark.asyncio
 async def test_sin_el_resolutor_registrado_el_pedido_forzado_se_bloquea_falla_cerrado():
     for mod in (policy, sys.modules.get("sentinel_guardian_policy")):

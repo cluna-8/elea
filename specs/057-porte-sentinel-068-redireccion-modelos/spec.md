@@ -269,6 +269,33 @@ Se hereda el vocabulario de la 068 (§Contexto y vocabulario) sin cambios:
   CUIT, CBU, email, teléfono, tarjeta, IBAN…) y los propios de la empresa siguen bloqueando. Mensajes, `tool_result`, `thinking`,
   `system` y los subárboles libres no cambian. Vuelve a Sentinel por `HANDOFF` (costura S14, retrocompatible).
 
+### Session 2026-10-07 (Cowork, etiqueta, OpenRouter y grupos)
+
+<!-- Decisiones del owner por el coordinador Atlas tras la prueba de Claude Desktop/Cowork contra la guía y los arreglos
+     de Sentinel. No reabren ninguna decisión anterior. Pregunta resuelta por el coordinador. -->
+
+- Q: Bajo enmascarado forzado una imagen no es analizable y bloqueaba con `masking_required`: Cowork, que verifica su
+  resultado con capturas devueltas dentro de un `tool_result`, se cortaba. ¿Qué se hace (R39)? → A: La alternativa más
+  restrictiva que no rompe Cowork: las imágenes, los audios y los adjuntos binarios no analizables **dentro de un
+  `tool_result`** (Anthropic; en OpenAI, el contenido de un mensaje `tool`) se reemplazan por una nota de texto neutra y el
+  binario nunca sale hacia el proveedor; la auditoría lo registra como `unanalyzable_replaced` (conteo y nombres de tipo, sin
+  contenido), que no suma a `unanalyzable`. Un PDF con texto devuelto por una herramienta sigue como texto enmascarado. Lo que
+  adjunta la persona en su mensaje sigue bloqueando como hoy. Vuelve a Sentinel por `HANDOFF` (costura S14, retrocompatible).
+- Q: ¿Qué etiqueta ve la persona por defecto en el selector de Claude Desktop (R40)? → A: El **id pedido** (`label_mode =
+  requested`): nunca el destino. Cambia el default de la columna y del formulario del panel (migración que solo toca el
+  default; las filas con `destination` o `custom` no se tocan) y ni `/v1/models` ni las respuestas filtran el nombre ni el
+  modelo real del destino. Mostrar el destino o una etiqueta propia sigue siendo una elección por id.
+- Q: ¿Se puede dar de alta Kimi K3 por OpenRouter desde «Dar de alta modelos» y moverle un id de Claude con una regla (R40)? → A:
+  Sí, con el id real de la lista pública de OpenRouter, `moonshotai/kimi-k3`. El alta guiada tenía un hueco: OpenRouter exige
+  los proveedores permitidos (FR-032) y el formulario no podía mandarlos; ahora los pide y los envía como
+  `provider_options.providers_allowlist`. La ficha lleva la jurisdicción del proveedor final de esa lista, no la del agregador.
+  Una regla mueve `claude-sonnet-…` de Azure a Kimi sin tocar el cliente.
+- Q: No siempre son tres modelos: ¿cómo ven y usan modelos distintos los grupos de personas (R40)? → A: Con lo que ya existe, como
+  dato: ids publicados y reglas con alcance de grupo, más el perfil de acceso por proveedor. Un grupo «Todos» ve los tres ids más
+  uno extra que va a Kimi; un grupo «Solo Azure» solo ve los que van a Azure; `/v1/models` de cada llave lista solo lo suyo, un
+  pedido al id de otro grupo da el error neutro sin nombrar destinos y un grupo restringido a Azure nunca llega a Kimi. No exige
+  UI nueva ni modelo de datos nuevo.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Claude Desktop y Claude Code con el modelo que elige la empresa (Priority: P1)
@@ -764,7 +791,12 @@ commits de Sentinel según HANDOFF §1(a))
   analizable (PDF sin texto extraíble, imágenes, tipos desconocidos, o un razonamiento firmado
   con identificadores hacia un destino nativo, que no se puede enmascarar sin invalidar la firma)
   bloquea el pedido (Clarifications, QA del plan, B3; el reconocimiento de texto en imágenes es
-  una fase siguiente). (← 068 FR-016, FR-016a, D16; Clarifications D2)
+  una fase siguiente). **Excepción** (Clarifications 2026-10-07, R39): una imagen, un audio o un
+  documento ilegible que **devuelve una herramienta dentro de un `tool_result`** (la captura con la que
+  Cowork revisa su resultado) NO bloquea: se reemplaza por una nota de texto neutra —el binario nunca
+  sale hacia el destino— y la auditoría registra `unanalyzable_replaced` (conteo y nombres de tipo, sin
+  contenido), que no suma a lo no analizable; lo que **adjunta la persona** en su mensaje sigue
+  bloqueando. (← 068 FR-016, FR-016a, D16; Clarifications D2)
 - **FR-028** [BASE]: Cada destino DEBE registrar su jurisdicción de inferencia y la de su entidad
   responsable; sin jurisdicción de inferencia, no satisface ninguna lista y, con la postura por
   defecto, se rechaza; la categoría «procesado en región, entidad de otra jurisdicción» no
@@ -959,6 +991,16 @@ commits de Sentinel según HANDOFF §1(a))
   compatibilidad por herramienta y proveedor sin declarar compatibilidad no verificada, en el
   template GUÍA/RUNBOOK; y la verificación de documentación del release DEBE quedar verde.
   (← 068 FR-036; Definition of Done de `AGENTS.md`)
+- **FR-053** [BASE]: La etiqueta de un id publicado DEBE ser, por defecto, el **id pedido** (`label_mode =
+  requested`): ni `/v1/models` ni las respuestas (cuerpo, `model` y eventos de *streaming*) DEBEN exponer el nombre ni el
+  modelo real del destino salvo que el administrador elija mostrarlo por id (`destination`) o ponga una etiqueta propia
+  (`custom`); cambiar el default NO DEBE alterar las filas existentes. (Clarifications 2026-10-07, R40)
+- **FR-054** [BASE]: El alta guiada de modelos («Dar de alta modelos») DEBE poder dar de alta un destino de un agregador
+  (OpenRouter) pidiendo y enviando los proveedores permitidos (FR-032); la ficha de ese destino DEBE llevar la jurisdicción de
+  inferencia, de entidad y de control del proveedor final, no las del agregador; y una regla DEBE poder mover un id publicado
+  de un destino a otro sin cambios en el cliente. Los ids publicados y las reglas con alcance de grupo, junto con el perfil de
+  acceso por proveedor, DEBEN permitir que cada grupo vea y use modelos distintos sin código nuevo (Clarifications 2026-10-07,
+  R40).
 
 ### Key Entities
 

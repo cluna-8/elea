@@ -540,6 +540,10 @@ async def evaluate_request_policy(body: dict, profile=None, nlp: Optional[dict] 
             verdicts["pii_masking"] = _verdict(VERDICT_BLOCK, tally.unanalyzable)
             return (policy.MASKING_REQUIRED_MESSAGE, "blocked_residency", {}, [],
                     build_attribution(profile, verdicts))
+        if forzado_total and tally.unanalyzable_replaced:
+            # R39: binarios de una herramienta (`tool_result`) cambiados por una nota; no bloquea. Solo conteos y tipos.
+            logger.info("gateway: enmascarado forzado — %d binario(s) de herramienta reemplazado(s) por una nota: %s",
+                        tally.unanalyzable_replaced, ",".join(tally.replaced_kinds))
         if ph_to_orig:
             masked_entities = _entity_counts(ph_to_orig)
         detected: Optional[int] = len(ph_to_orig)

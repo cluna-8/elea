@@ -420,7 +420,7 @@ class RedirectPlugin:
         tier = infer_tier(ctx.model)
         return {"id": f"inferred:{tier or 'unknown'}", "tenant_id": scope.tenant_id, "scope_type": "tenant",
                 "scope_value": "*", "face": "claude", "public_id": ctx.model, "family_tier": tier,
-                "is_family_default": False, "label_mode": "destination"}
+                "is_family_default": False, "label_mode": "requested"}
 
     async def _resolve(self, ctx, snap, scope, face, state, permitidos=None, extra=None):
         request_class = ctx.request_headers.get(REQUEST_CLASS_HEADER) if ctx.request_headers else None

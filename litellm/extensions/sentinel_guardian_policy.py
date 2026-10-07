@@ -1068,14 +1068,26 @@ class MaskingTally:
         self.unanalyzable = 0
         self._kinds: set = set()
         self.signed_thinking_masked = 0
+        self.unanalyzable_replaced = 0
+        self._replaced_kinds: set = set()
 
     @property
     def kinds(self) -> list:
         return sorted(self._kinds)
 
+    @property
+    def replaced_kinds(self) -> list:
+        return sorted(self._replaced_kinds)
+
     def flag(self, kind: str) -> None:
         self.unanalyzable += 1
         self._kinds.add(kind)
+
+    def replace(self, kind: str) -> None:
+        """Un binario que devolvió una HERRAMIENTA (`tool_result`) y no se pudo analizar: se cambió por una nota
+        (R39). No cuenta como no analizable —el binario ya no sale—, pero queda contado para la auditoría."""
+        self.unanalyzable_replaced += 1
+        self._replaced_kinds.add(kind)
 
 
 # ── Tabla de posiciones exentas (QA v2 N8) ─────────────────────────────────────────────
@@ -1311,6 +1323,7 @@ def _valid_cache_control(value) -> bool:
 #   ("scan_closed", (vocabulario, v)) → estructural de vocabulario cerrado: dentro del conjunto no se analiza; fuera, como "scan"
 #   ("scan_open", v) → estructural de vocabulario abierto (identificador): como "scan", ignorando los tipos de NER semántico
 #   ("flag", k)  → no analizable de tipo `k`
+#   ("replaced", k) → binario no analizable de una herramienta (dentro de `tool_result`) ya cambiado por una nota (R39)
 #   ("pdf", b64) → (texto|None, tipo_de_falla|None)
 #   ("signed_thinking", None) → un `thinking` con firma cambió de texto
 # El conductor de enmascarado (`_mask_body_full`) es async; el de inspección (`_collect_texts`) es síncrono.
@@ -1440,8 +1453,44 @@ def _w_cache_control(owner: dict, key: str):
         yield ("flag", "cache_control")
 
 
-def _w_blocks(fmt, content, depth):
-    """Contenido de un mensaje o de `system`/`tool_result`: cadena, o lista de bloques."""
+# Binarios que devolvió una HERRAMIENTA dentro de un `tool_result` y no se pueden analizar (R39; la captura con la que
+# Cowork revisa su resultado): bajo el forzado se reemplazan por una nota de texto neutra —el binario nunca sale hacia el
+# destino— en vez de bloquear el pedido. Lo que adjunta la PERSONA en su mensaje sigue siendo no analizable (bloquea).
+# Texto neutro (marca blanca): sin nombres de componentes; pide no insistir para no entrar en un bucle de capturas.
+UNANALYZABLE_REPLACED_NOTE = ("[imagen omitida por la política de protección de datos: no se envía al modelo. No vuelvas "
+                              "a pedir capturas ni imágenes; seguí con lo que tengas en texto.]")
+UNANALYZABLE_REPLACED_NOTE_DOCUMENT = ("[documento omitido por la política de protección de datos: no se envía al modelo. "
+                                       "No vuelvas a pedir el documento; pedí su contenido como texto.]")
+UNANALYZABLE_REPLACED_NOTE_AUDIO = ("[audio omitido por la política de protección de datos: no se envía al modelo. "
+                                    "No vuelvas a pedir audio; seguí con lo que tengas en texto.]")
+
+
+def _replacement_note(kind: str) -> str:
+    if kind == "image":
+        return UNANALYZABLE_REPLACED_NOTE
+    if kind == "audio":
+        return UNANALYZABLE_REPLACED_NOTE_AUDIO
+    return UNANALYZABLE_REPLACED_NOTE_DOCUMENT
+
+
+def _w_unanalyzable(blk: dict, kind: str, in_tool_result: bool):
+    """Binario no analizable: dentro de un `tool_result` se cambia (en el lugar) por una nota de texto y cuenta como
+    reemplazado; en cualquier otro lugar es no analizable y bloquea. La marca de caché del bloque pasa a la nota."""
+    if not in_tool_result:
+        yield ("flag", kind)
+        return
+    nota = {"type": "text", "text": _replacement_note(kind)}
+    keep_cache = blk.get("cache_control")
+    if keep_cache is not None and _valid_cache_control(keep_cache):
+        nota["cache_control"] = keep_cache
+    blk.clear()
+    blk.update(nota)
+    yield ("replaced", kind)
+
+
+def _w_blocks(fmt, content, depth, in_tool_result=False):
+    """Contenido de un mensaje o de `system`/`tool_result`: cadena, o lista de bloques. `in_tool_result`: lo devolvió
+    una herramienta (bloques de un `tool_result`; en OpenAI, el contenido de un mensaje `tool`)."""
     if isinstance(content, str):
         return (yield ("text", content))
     if isinstance(content, list):
@@ -1449,17 +1498,18 @@ def _w_blocks(fmt, content, depth):
             if isinstance(blk, str):
                 content[i] = yield ("text", blk)
             else:
-                yield from _w_block(fmt, blk, depth + 1)
+                yield from _w_block(fmt, blk, depth + 1, in_tool_result)
     elif content is not None and not isinstance(content, bool):
         yield from _w_free(content, depth + 1)
     return content
 
 
-def _w_pdf_block(blk: dict, b64_data, keep_cache):
-    """Bloque PDF → bloque de texto con el texto extraído (que el conductor enmascara) o no analizable."""
+def _w_pdf_block(blk: dict, b64_data, keep_cache, in_tool_result=False):
+    """Bloque PDF → bloque de texto con el texto extraído (que el conductor enmascara) o no analizable (dentro de un
+    `tool_result`, reemplazado por una nota)."""
     texto, falla = yield ("pdf", b64_data)
     if falla is not None:
-        yield ("flag", falla)
+        yield from _w_unanalyzable(blk, falla, in_tool_result)
         return
     masked = yield ("text", texto)
     nuevo = {"type": "text", "text": masked}
@@ -1469,7 +1519,7 @@ def _w_pdf_block(blk: dict, b64_data, keep_cache):
     blk.update(nuevo)
 
 
-def _w_block(fmt, blk, depth=0):
+def _w_block(fmt, blk, depth=0, in_tool_result=False):
     if depth > _MAX_DEPTH:
         yield ("flag", "too_deep")
         return
@@ -1479,26 +1529,26 @@ def _w_block(fmt, blk, depth=0):
     tipo = blk.get("type")
     if fmt == "anthropic":
         if tipo == "image":
-            yield ("flag", "image")
+            yield from _w_unanalyzable(blk, "image", in_tool_result)
             return
         if tipo == "redacted_thinking":
             yield ("flag", "redacted_thinking")
             return
         if tipo == "document":
-            yield from _w_document_anthropic(blk, depth)
+            yield from _w_document_anthropic(blk, depth, in_tool_result)
             return
         if tipo not in ("text", "tool_use", "server_tool_use", "tool_result", "thinking"):
             yield ("flag", "unknown_block")
             return
     else:
         if tipo == "image_url":
-            yield ("flag", "image")
+            yield from _w_unanalyzable(blk, "image", in_tool_result)
             return
         if tipo == "input_audio":
-            yield ("flag", "audio")
+            yield from _w_unanalyzable(blk, "audio", in_tool_result)
             return
         if tipo == "file":
-            yield from _w_file_openai(blk, depth)
+            yield from _w_file_openai(blk, depth, in_tool_result)
             return
         if tipo not in ("text", "refusal"):
             yield ("flag", "unknown_block")
@@ -1509,17 +1559,17 @@ def _w_block(fmt, blk, depth=0):
         yield ("signed_thinking", None)
 
 
-def _w_document_anthropic(blk, depth):
+def _w_document_anthropic(blk, depth, in_tool_result=False):
     fuente = blk.get("source")
     if not isinstance(fuente, dict):
         yield ("flag", "unknown_block")
         return
     tipo = fuente.get("type")
     if tipo == "base64" and fuente.get("media_type") == "application/pdf" and isinstance(fuente.get("data"), str):
-        yield from _w_pdf_block(blk, fuente["data"], blk.get("cache_control"))
+        yield from _w_pdf_block(blk, fuente["data"], blk.get("cache_control"), in_tool_result)
         return
     if tipo in ("url", "file"):
-        yield ("flag", "document_url")
+        yield from _w_unanalyzable(blk, "document_url", in_tool_result)
         return
     if tipo == "text" and isinstance(fuente.get("data"), str):
         # Texto plano en el cuerpo: es texto, no base64 opaco. Más estricto que la tabla, no menos.
@@ -1527,24 +1577,24 @@ def _w_document_anthropic(blk, depth):
         yield from _w_container("anthropic", blk, _BLOCK, depth)
         return
     if tipo == "content":
-        yield from _w_blocks("anthropic", fuente.get("content"), depth)
+        yield from _w_blocks("anthropic", fuente.get("content"), depth, in_tool_result)
         yield from _w_container("anthropic", blk, _BLOCK, depth, skip=("source",))
         return
-    yield ("flag", "document")
+    yield from _w_unanalyzable(blk, "document", in_tool_result)
 
 
-def _w_file_openai(blk, depth):
+def _w_file_openai(blk, depth, in_tool_result=False):
     archivo = blk.get("file")
     if not isinstance(archivo, dict):
         yield ("flag", "unknown_block")
         return
     datos = archivo.get("file_data")
     if isinstance(datos, str) and datos.startswith("data:application/pdf;base64,"):
-        yield from _w_pdf_block(blk, datos.split(",", 1)[1], None)
+        yield from _w_pdf_block(blk, datos.split(",", 1)[1], None, in_tool_result)
     elif archivo.get("file_id") is not None or (isinstance(datos, str) and not datos.startswith("data:")):
-        yield ("flag", "document_url")
+        yield from _w_unanalyzable(blk, "document_url", in_tool_result)
     else:
-        yield ("flag", "document")
+        yield from _w_unanalyzable(blk, "document", in_tool_result)
 
 
 def _w_arguments(owner: dict, key: str, depth):
@@ -1580,10 +1630,11 @@ def _w_container(fmt, nodo, path, depth, skip=(), exempt=frozenset()):
             nodo[clave] = yield from _w_blocks(fmt, valor, depth)
             continue
         if path == "messages.*" and clave == "content":
-            nodo[clave] = yield from _w_blocks(fmt, valor, depth)
+            devuelto = fmt == "openai" and nodo.get("role") in ("tool", "function")   # lo devolvió una herramienta
+            nodo[clave] = yield from _w_blocks(fmt, valor, depth, devuelto)
             continue
         if path == _BLOCK and clave == "content" and tipo_bloque == "tool_result":
-            nodo[clave] = yield from _w_blocks(fmt, valor, depth)
+            nodo[clave] = yield from _w_blocks(fmt, valor, depth, True)
             continue
         if path == "messages.*.tool_calls.*.function" and clave == "arguments":
             yield from _w_arguments(nodo, clave, depth)
@@ -2129,6 +2180,9 @@ class _FullScopeMasker:
             return None
         if tipo == "flag":
             self.tally.flag(valor)
+            return None
+        if tipo == "replaced":
+            self.tally.replace(valor)
             return None
         if tipo == "pdf":
             # Tope de tamaño ANTES de decodificar: no se materializan 75 MB de un base64 de 100 MB.

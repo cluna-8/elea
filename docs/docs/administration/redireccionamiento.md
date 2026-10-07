@@ -116,6 +116,37 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
   fuente de precios (la del catálogo). Sin precio cargado, la entrada queda al final de cualquier
   regla «más barato». 🟡
 
+### Ejemplo: Kimi K3 por OpenRouter
+
+OpenRouter es un **agregador**: una sola clave y una sola dirección que reparte el pedido entre
+varios proveedores finales. Se da de alta desde **Modelos → Dar de alta modelos**:
+
+1. **Proveedor**: OpenRouter. **Modelo**: `moonshotai/kimi-k3` (el id exacto que figura en la lista
+   pública de OpenRouter; si el motor no lista el modelo, se escribe a mano).
+2. **Credencial**: la clave de OpenRouter (solo escritura).
+3. **Proveedores permitidos** (obligatorio): la lista de proveedores finales a los que se puede
+   mandar el pedido, por ejemplo `fireworks, together`. Sin la lista, el alta se rechaza con un `422`
+   que lo explica. Cada pedido sale además con **retención cero** y sin recolección de datos, y
+   **solo** hacia esa lista; nada de eso lo puede relajar el cliente ni la entrada.
+4. **Ficha de cumplimiento** (después del alta, por cumplimiento): la **jurisdicción de inferencia,
+   la entidad y el control son los del proveedor final de la lista, no los de OpenRouter** ni los de
+   quien desarrolló el modelo: el país de la empresa que creó Kimi K3 no dice dónde se procesa el
+   pedido. Con proveedores finales en jurisdicciones distintas, la ficha se carga por el más
+   restrictivo o se separa en una entrada por proveedor. Sin jurisdicción de inferencia, el destino
+   se rechaza.
+
+| Dato | Valor de ejemplo (lista pública de OpenRouter, 7-oct-2026; verificá los vigentes) |
+|---|---|
+| Ventana de contexto | 1 048 576 tokens |
+| Imágenes | sí (marcar *Imágenes* en las capacidades) |
+| Herramientas | sí |
+| Precio por millón de tokens | entrada 0,62 US$ · salida 15 US$ |
+
+Con la entrada dada de alta y su ficha cargada, una **regla** puede mover un id de Claude de Azure a
+este destino sin tocar el cliente (ver [Ids publicados y reglas](#ids-publicados-y-reglas)). 🟡
+(el alta, la regla y el pedido están cubiertos por pruebas con un proveedor simulado; sin
+credencial ni prueba en vivo)
+
 ---
 
 ## Ids publicados y reglas
@@ -123,8 +154,12 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
 1. **Publicar** un id para una cara y un alcance. En la cara Claude, el id tiene que ser uno que la
    **versión instalada** de la herramienta reconozca (el panel exige el prefijo `claude`): Claude
    Code descarta los ids que no reconoce. La etiqueta que ve la persona es del tipo
-   «Sonnet · servido por *destino*», con la ventana real del destino. En la cara genérica, el id
-   es un alias neutro («rápido», «pro»).
+   el **id pedido**: por defecto la persona no ve a qué destino va (ni en la lista de modelos ni en
+   las respuestas, que siempre traen el id público). Mostrar el destino
+   («Sonnet · servido por *destino*») o una etiqueta propia son opciones **por id**, en *Modelos
+   publicados → Etiqueta*; las filas que ya tenían una elección la conservan. En ambos casos la
+   lista lleva la ventana real del destino. En la cara genérica, el id es un alias neutro
+   («rápido», «pro»).
 2. **Regla**: id público (o nivel) → destino principal y fallbacks. Si el principal falla, no tiene
    credencial o la residencia lo excluye, responde el siguiente; la auditoría registra la
    sustitución y su motivo.
@@ -136,6 +171,46 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
 5. **Llaves con lista de modelos permitidos**: la lista se evalúa contra el **id público**; el
    nombre interno del destino nunca se evalúa ni se acepta de un cliente. Un cliente tampoco puede
    mandar su propia dirección de API ni credenciales hacia el destino: se ignoran. 🟡
+
+### Modelos por grupo de personas
+
+Los ids publicados y las reglas tienen **alcance**: toda la empresa, un **grupo**, una persona o una
+conexión (gana el más específico). Con eso se arma, sin código, que cada grupo vea y use modelos
+distintos. Ejemplo de dos grupos de una misma empresa, con los tres niveles de Claude sirviéndose desde
+Azure y un cuarto id que va a Kimi K3:
+
+| Pieza | **Grupo «Todos»** | **Grupo «Solo Azure»** |
+|---|---|---|
+| Ids de la familia (`claude-opus-…`, `claude-sonnet-…`, `claude-haiku-…`) | publicados para **toda la empresa**, con una regla de empresa hacia Azure | los mismos (los hereda de la empresa) |
+| Id extra (por ejemplo `claude-sonnet-…-kimi`) | publicado con **alcance de grupo «Todos»** y una regla del mismo alcance hacia Kimi K3 | no existe para este grupo |
+| Perfil de acceso | sin restricción de proveedor | perfil de empresa que **incluye solo el proveedor Azure**, asignado al grupo |
+
+Qué ve y qué recibe cada grupo:
+
+- **La lista de modelos** de la llave de cada persona trae solo lo suyo: «Todos» ve los tres ids más
+  el extra; «Solo Azure» ve únicamente los tres que van a Azure.
+- **Un pedido de «Solo Azure» al id del otro grupo** recibe el error neutro «Modelo no disponible
+  para tu organización.» (`404`), que no nombra ni destinos ni proveedores: para ese grupo el id no
+  existe.
+- **Una regla de un grupo no aplica a otro**: mover el nivel *Sonnet* a Kimi con una regla de alcance
+  «Todos» deja a «Solo Azure» en Azure con el mismo id.
+- **El perfil de acceso es el cinturón de seguridad**: un grupo restringido a Azure por su perfil
+  **nunca llega a Kimi**, aunque una regla de la empresa (por error) lo mande ahí. Si detrás de esa
+  regla hay un destino de Azure, el pedido cae a él; si no lo hay, la persona recibe «Este modelo
+  no está permitido para tu perfil.» (`403`) y no sale nada hacia el destino. La lista de modelos
+  tampoco muestra el id que solo iría a un destino no permitido.
+
+Cómo armarlo, en orden: (1) dar de alta los dos destinos y cargar sus fichas; (2) en *Modelos
+publicados*, publicar los tres ids con alcance **Empresa** y el extra con alcance **Grupo**; (3) en
+*Reglas*, una regla por id con el mismo alcance que su id; (4) en la pestaña *Acceso*, crear el
+perfil «Solo Azure» (incluir el proveedor Azure) y asignarlo al grupo; (5) comprobar con la
+**vista previa** y con la lista de modelos de una llave de cada grupo. 🟡 (cubierto por pruebas de
+integración con dos grupos y proveedores simulados; sin prueba en vivo)
+
+!!! note "Qué grupo cuenta"
+    La pasarela toma el grupo de la persona a la que pertenece la llave. Una llave o una persona sin
+    grupo solo ve lo publicado con alcance de la llave, de la persona o de la empresa: no hay un
+    «grupo por defecto» implícito.
 
 ---
 
@@ -249,14 +324,21 @@ Lo no detectado no se enmascara; ningún detector garantiza un recall del 100 %.
 - **PDF**: un PDF con texto se **convierte a texto**, se enmascara y viaja como texto. La lectura
   corre en un proceso aparte, con topes de memoria, de tiempo y de expansión, para que un PDF hostil
   no afecte al resto del servicio.
-- **Lo que no se puede analizar se bloquea**: nunca se «envía igual». Un pedido con algo no analizable
+- **Binarios que devuelve una herramienta se reemplazan, no se envían**: una imagen, un audio o un
+  documento que **una herramienta del agente devuelve dentro de un `tool_result`** y no se puede
+  analizar (la captura con la que Cowork revisa su resultado, por ejemplo) se cambia por una nota de
+  texto neutra y el binario **nunca sale** hacia el destino; la tarea sigue. La auditoría registra
+  `unanalyzable_replaced` (cuántos) y los nombres de tipo, sin contenido. Un PDF con texto devuelto
+  por una herramienta sigue el camino normal (se convierte a texto y se enmascara). Es una decisión
+  de la instalación: la alternativa más estricta (bloquear) cortaba las tareas de Cowork. 🟡
+- **Lo que adjunta la persona y no se puede analizar se bloquea**: nunca se «envía igual». Un pedido con algo no analizable
   recibe un bloqueo: `400` en la cara Claude y `403` en la cara genérica, con el texto *«El pedido no
   pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.»* La auditoría
   guarda solo el **nombre del tipo** (nunca contenido):
 
 | Causa (nombre en la auditoría) | En lenguaje de administrador |
 |---|---|
-| `image`, `audio` | el pedido trae una imagen o un audio: no se analizan |
+| `image`, `audio` | la **persona** adjuntó una imagen o un audio: no se analizan (los de una herramienta se reemplazan por una nota) |
 | `pdf_no_text` | PDF escaneado o sin capa de texto (no hay lectura de imágenes) |
 | `pdf_error` | PDF corrupto o protegido |
 | `pdf_timeout` | el PDF tardó más del plazo en leerse (por defecto 20 s) |
@@ -334,7 +416,7 @@ La auditoría es **solo metadatos**: jamás texto de pedidos, datos personales, 
 pedido redirigido registra el id pedido y el destino real, la cara, la fidelidad, la regla aplicada,
 la postura (`default_posture_applied`), si el destino estaba en región, el alcance del enmascarado
 (`masking_scope`), la relajación aplicada si la hubo (`masking_relaxation`), los **nombres** de campos
-quitados, las causas de no analizable, la sustitución por fallback con su motivo y, si el destino
+quitados, las causas de no analizable, los binarios de herramientas reemplazados por una nota (`unanalyzable_replaced`, solo conteo y tipo), la sustitución por fallback con su motivo y, si el destino
 informa caché, los tokens de lectura y escritura de caché. Los cambios de política, regiones,
 posturas, relajaciones y fichas quedan en el registro de cambios con quién, qué rol y el motivo.
 

@@ -12,14 +12,15 @@ import { Notice, SelectField } from "../redirect/ui";
 import { modelsApi } from "./api";
 import {
   BulkRow, buildBulkPayload, bulkRows, featureList, filterProviders, formatContext, formatFetchedAt, formatPrice,
-  GuidedState, localProviders, newGuidedState, providerNeedsApiBase, ProviderInfo, RefModel, roleLabel, toFieldSpecs,
+  GuidedState, localProviders, newGuidedState, providerNeedsAllowlist, providerNeedsApiBase, ProviderInfo, RefModel, roleLabel, toFieldSpecs,
   toggleModel,
 } from "./guided";
 
 const STEPS = ["Proveedor", "Modelos", "Credencial", "Confirmar"] as const;
 const PAGE = 50;
 /** Errores que pertenecen al paso Credencial (para frenar el «Siguiente»). */
-const isCredentialError = (k: string) => k === "credential" || k === "api_base" || k === "level" || k.startsWith("cred.");
+const isCredentialError = (k: string) => k === "credential" || k === "api_base" || k === "level" || k === "providers_allowlist"
+  || k.startsWith("cred.");
 
 const Stepper: React.FC<{ step: number }> = ({ step }) => (
   <ol className="mb-4 flex flex-wrap gap-2 text-xs" aria-label="Pasos del alta">
@@ -355,6 +356,12 @@ export const GuidedEntryForm: React.FC<{
           </fieldset>
           <Field label={providerNeedsApiBase(st.provider) ? "Dirección base" : "Dirección base (opcional)"}
             value={st.apiBase} onChange={e => set({ apiBase: e.target.value })} error={errors.api_base} placeholder="https://…" />
+          {providerNeedsAllowlist(st.provider) && (
+            <Field label="Proveedores permitidos" value={st.providersAllowlist}
+              onChange={e => set({ providersAllowlist: e.target.value })} error={errors.providers_allowlist}
+              placeholder="fireworks, together"
+              hint="OpenRouter es un agregador: elegí los proveedores finales a los que se puede mandar el pedido (separados por coma). La jurisdicción de inferencia de la ficha es la de ellos, no la de OpenRouter." />
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-4">

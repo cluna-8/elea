@@ -558,6 +558,37 @@ def test_sin_exenciones_validas_la_decision_no_lleva_el_campo(exempt):
     assert "masking_exempt" not in _decision(apply(_forzado_en("openrouter", informe)))
 
 
+# ── binarios de una herramienta reemplazados por una nota (S14; 057 R39) ─────────────────────────────
+
+def test_los_binarios_reemplazados_quedan_en_la_decision_solo_conteo_y_nombres_de_tipo():
+    informe = {**GOOD_REPORT, "unanalyzable_replaced": 2, "unanalyzable_replaced_kinds": ["image", "pdf_no_text"]}
+    out = apply(_forzado_en("openrouter", informe))                  # no bloquea: el binario ya no sale
+    rd = _decision(out)
+    assert rd["unanalyzable_replaced"] == 2 and rd["unanalyzable_replaced_kinds"] == "image,pdf_no_text"
+
+
+@pytest.mark.parametrize("n,kinds", [(0, []), (None, None), (True, ["image"]), ("2", ["image"]), (-1, ["image"])])
+def test_sin_reemplazos_validos_la_decision_no_lleva_el_campo(n, kinds):
+    informe = dict(GOOD_REPORT)
+    if n is not None:
+        informe.update(unanalyzable_replaced=n, unanalyzable_replaced_kinds=kinds)
+    rd = _decision(apply(_forzado_en("openrouter", informe)))
+    assert "unanalyzable_replaced" not in rd and "unanalyzable_replaced_kinds" not in rd
+
+
+def test_los_nombres_de_tipo_del_informe_se_acotan_a_identificadores_cortos():
+    informe = {**GOOD_REPORT, "unanalyzable_replaced": 1,
+               "unanalyzable_replaced_kinds": ["image", "Juan Pérez 30123456", "x" * 80, 7]}
+    assert _decision(apply(_forzado_en("openrouter", informe)))["unanalyzable_replaced_kinds"] == "image"
+
+
+def test_un_reemplazo_no_tapa_un_no_analizable():
+    informe = {**GOOD_REPORT, "unanalyzable": 1, "unanalyzable_replaced": 3, "unanalyzable_replaced_kinds": ["image"]}
+    with pytest.raises(g.GuardRejection) as e:
+        apply(_forzado_en("openrouter", informe))
+    assert e.value.code == "masking_required"
+
+
 # ── alcance del sufijo de los marcadores en la auditoría (S13; 057 T073) ───────────────────────────
 
 @pytest.mark.parametrize("informe,esperado", [

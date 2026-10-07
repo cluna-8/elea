@@ -335,3 +335,55 @@ def test_filtro_region_ue_en_la_lista(api):
     assert names() == ["m0", "m1", "m2"]
     assert names(region_ue="true") == ["m0"]
     assert names(region_ue="false") == ["m1"]                                # «desconocida» no es «no»
+
+
+# ── alta de un destino OpenRouter desde «Dar de alta modelos» (057 R40; Kimi K3) ─────────────────
+
+KIMI_K3 = "moonshotai/kimi-k3"           # id real en la lista pública de OpenRouter (verificado el 2026-10-07)
+
+
+def _bulk_openrouter(**kw):
+    body = {"provider": "openrouter", "credential": {"new": {"name": "or", "value": SECRET}},
+            "models": [{"real_model": KIMI_K3, "name": "Kimi K3", "context_window": 1048576, "max_output": 943718,
+                        "price_input": 0.62e-6, "price_output": 15e-6, "features": {"images": True, "tools": True}}]}
+    body.update(kw)
+    return body
+
+
+def test_bulk_openrouter_sin_lista_de_proveedores_se_rechaza_por_modelo_con_el_motivo(api):
+    r = api.call("POST", "/entries/bulk", "tenant_admin", json=_bulk_openrouter())
+    assert r.status_code == 207 and r.json()["created"] == 0
+    assert r.json()["data"][0]["status"] == 422 and "providers_allowlist" in r.json()["data"][0]["error"]
+
+
+def test_bulk_openrouter_con_proveedores_permitidos_da_de_alta_kimi_k3(api):
+    body = _bulk_openrouter(provider_options={"providers_allowlist": ["fireworks"]})
+    r = api.call("POST", "/entries/bulk", "tenant_admin", json=body)
+    assert r.status_code == 207, r.text
+    res = r.json()["data"][0]
+    assert res["status"] == 201, res
+    e = res["entry"]
+    assert e["real_model"] == KIMI_K3 and e["provider"] == "openrouter" and e["is_aggregator"] is True
+    with api.Session() as sess:
+        guardada = sess.query(cm.CatalogEntry).filter_by(real_model=KIMI_K3).one()
+        assert guardada.provider_options["providers_allowlist"] == ["fireworks"]
+    assert e["features"]["images"] is True and e["price"]["input"] == 0.62e-6 and e["price"]["output"] == 15e-6
+    assert e["semaforo"]["estado"] == "unclassified", "nace sin clasificar: la ficha se carga después"
+    assert SECRET not in r.text
+
+
+def test_bulk_openrouter_no_acepta_ir_en_contra_del_cero_retencion(api):
+    body = _bulk_openrouter(provider_options={"providers_allowlist": ["fireworks"], "zdr": False})
+    r = api.call("POST", "/entries/bulk", "tenant_admin", json=body)
+    assert r.json()["data"][0]["status"] == 422 and r.json()["created"] == 0
+
+
+def test_la_ficha_de_kimi_k3_lleva_la_jurisdiccion_del_proveedor_final_no_la_del_agregador(api):
+    body = _bulk_openrouter(provider_options={"providers_allowlist": ["fireworks"]})
+    eid = api.call("POST", "/entries/bulk", "tenant_admin", json=body).json()["data"][0]["entry"]["id"]
+    ficha = {"provider_legal_entity": "Fireworks AI, Inc.", "entity_jurisdiction": "US", "control_jurisdiction": "US",
+             "inference_jurisdiction": "US", "zero_data_retention": True, "trains_on_data": False}
+    r = api.call("PUT", f"/entries/{eid}/sheet", "compliance_officer", json=ficha)
+    assert r.status_code == 200, r.text
+    sheet = api.call("GET", f"/entries/{eid}/sheet", "compliance_officer").json()["sheet"]
+    assert sheet["inference_jurisdiction"] == "US" and sheet["provider_legal_entity"] == "Fireworks AI, Inc."

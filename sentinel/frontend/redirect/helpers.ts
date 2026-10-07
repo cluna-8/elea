@@ -482,7 +482,7 @@ export interface PublishedForm {
 
 export const newPublishedForm = (): PublishedForm => ({
   face: "openai_generic", public_id: "", family_tier: "", is_family_default: false,
-  label_mode: "destination", label: "", scope_type: "tenant", scope_value: "", reference_model: "",
+  label_mode: "requested", label: "", scope_type: "tenant", scope_value: "", reference_model: "",
 });
 
 export function buildPublishedPayload(form: PublishedForm): Built<Record<string, unknown>> {

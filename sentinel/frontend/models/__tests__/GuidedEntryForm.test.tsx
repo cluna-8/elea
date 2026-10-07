@@ -132,6 +132,32 @@ describe("alta guiada", () => {
     expect(onDone).toHaveBeenCalledWith(expect.stringMatching(/^1 modelo dado de alta/));
   });
 
+  it("OpenRouter (Kimi K3): pide los proveedores permitidos y los manda como provider_options", async () => {
+    const OPENROUTER = { provider: "openrouter", display_name: "OpenRouter", supported: true, example_model: "moonshotai/kimi-k3",
+      credential_fields: [{ key: "api_key", label: "Clave de API", required: true, field_type: "password" }] };
+    const calls = setup({ providers: { available: true, fetched_at: null, data: [OPENROUTER] } });
+    renderForm();
+    fireEvent.click(await screen.findByRole("radio", { name: /OpenRouter/ }));
+    next();
+    // la lista del motor no responde para este proveedor: se carga el id real a mano
+    fireEvent.change(await screen.findByLabelText("Modelo real"), { target: { value: "moonshotai/kimi-k3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar modelo" }));
+    next();
+    fireEvent.change(screen.getByLabelText("Clave de API"), { target: { value: SECRET } });
+    next();                                                       // sin la lista, no avanza
+    expect(screen.getByText(/necesita los proveedores permitidos/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Proveedores permitidos"), { target: { value: "fireworks, together" } });
+    next();
+    fireEvent.click(screen.getByRole("button", { name: "Dar de alta 1 modelo" }));
+    await screen.findByText("Resultado por modelo");
+    const post = calls.find(c => c.url === "/api/v1/catalog/entries/bulk");
+    expect(JSON.parse(String(post?.init?.body))).toMatchObject({
+      provider: "openrouter", provider_options: { providers_allowlist: ["fireworks", "together"] },
+      models: [{ real_model: "moonshotai/kimi-k3" }],
+    });
+    expect(document.body.textContent).not.toContain(SECRET);
+  });
+
   it("el valor tipeado no se muestra en ningún texto, ni siquiera tras un error del servidor", async () => {
     setup();
     renderForm();

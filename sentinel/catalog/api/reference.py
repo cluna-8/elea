@@ -87,6 +87,9 @@ class BulkIn(_Body):
     credential: Optional[dict] = None
     api_base: Optional[str] = Field(default=None, max_length=512)
     protocol_family: Optional[str] = None            # por defecto, la del proveedor
+    # Compartido por todos los modelos del alta. OpenRouter lo exige (`providers_allowlist`, FR-032): sin él, el alta
+    # guiada no podía dar de alta ningún modelo de ese enrutador.
+    provider_options: dict = Field(default_factory=dict)
     models: List[BulkModel] = Field(min_length=1, max_length=MAX_BULK)
 
 
@@ -112,7 +115,8 @@ def _entry_body(bulk: BulkIn, m: BulkModel, suggestion: Optional[dict]) -> Entry
     return EntryIn(
         level=bulk.level, name=m.name or m.real_model, public_id=m.public_id, provider=bulk.provider,
         real_model=m.real_model, protocol_family=bulk.protocol_family or _PROTOCOL.get(bulk.provider, "openai_chat"),
-        api_base=bulk.api_base, price_source=ref.SOURCE if suggested_price else None, **fields)
+        api_base=bulk.api_base, provider_options=dict(bulk.provider_options),
+        price_source=ref.SOURCE if suggested_price else None, **fields)
 
 
 @router.post("/entries/bulk")
