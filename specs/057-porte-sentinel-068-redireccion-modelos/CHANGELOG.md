@@ -141,6 +141,15 @@ Desvíos de Eleia respecto de la base, todos retrocompatibles y registrados en `
 - **Alta guiada de OpenRouter** (R40): `provider_options.providers_allowlist` desde el formulario. Plan de salida: ninguno; corrige un hueco de la base.
 - **Numeración**: FR-057 y FR-058 de esta spec son los de la etiqueta y el alta de OpenRouter; los FR-053 a FR-056 siguen siendo los de la cara genérica.
 
+## 4c. Ajuste de imágenes bajo el forzado (2026-10-07; research R43; T125–T128)
+
+Desvío de Eleia respecto de la base, retrocompatible y registrado en `HANDOFF-elea-a-sentinel.md`:
+
+- **`MASKING_IMAGES=pass|filter`** (R43): con `pass` —**default de Eleia**— las imágenes salen tal cual bajo el forzado y la auditoría las cuenta (`images_unmasked`, solo conteo y tipo);
+  con `filter`, R39. Valor desconocido ⇒ `filter`. `litellm/extensions/sentinel_guardian_policy.py:1305-1317`, `:1516`, `:2224`; `sentinel_guardrail.py:745`; `sentinel/engine/redirect_guard.py:258-284`, `:678`.
+  Solo por instalación (variable de entorno); por grupo/panel no (R43). Plan de salida: Sentinel fija su propio `IMAGES_DEFAULT`; si Eleia quisiera volver al comportamiento de R39, `MASKING_IMAGES=filter`.
+  La cara Claude (`sentinel/redirect/faces/claude.py`) no cambió: la capacidad `images` del destino se respeta antes del motor.
+
 ## 5. Documentación de producto (T079, T080, T081)
 
 | Página | Cambio |

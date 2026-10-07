@@ -333,21 +333,34 @@ Lo no detectado no se enmascara; ningún detector garantiza un recall del 100 %.
 - **PDF**: un PDF con texto se **convierte a texto**, se enmascara y viaja como texto. La lectura
   corre en un proceso aparte, con topes de memoria, de tiempo y de expansión, para que un PDF hostil
   no afecte al resto del servicio.
-- **Binarios que devuelve una herramienta se reemplazan, no se envían**: una imagen, un audio o un
-  documento que **una herramienta del agente devuelve dentro de un `tool_result`** y no se puede
-  analizar (la captura con la que Cowork revisa su resultado, por ejemplo) se cambia por una nota de
-  texto neutra y el binario **nunca sale** hacia el destino; la tarea sigue. La auditoría registra
-  `unanalyzable_replaced` (cuántos) y los nombres de tipo, sin contenido. Un PDF con texto devuelto
-  por una herramienta sigue el camino normal (se convierte a texto y se enmascara). Es una decisión
-  de la instalación: la alternativa más estricta (bloquear) cortaba las tareas de Cowork. 🟡
-- **Lo que adjunta la persona y no se puede analizar se bloquea**: nunca se «envía igual». Un pedido con algo no analizable
+- **Imágenes: las elige la instalación (`MASKING_IMAGES`)**. Una imagen no se puede analizar (no hay
+  reconocimiento de texto), así que la instalación decide qué pasa con ella bajo el enmascarado forzado:
+  - **`pass` (valor por defecto)**: las imágenes —las que adjunta la persona y las que **devuelve una
+    herramienta del agente dentro de un `tool_result`**, como la captura con la que Cowork revisa su
+    resultado— **salen tal cual** hacia el modelo. No bloquean, no se reemplazan y no cuentan como «no
+    analizable». **El contenido de la imagen no se enmascara**: si trae datos personales, viajan. El
+    texto del pedido se sigue enmascarando completo. La auditoría registra `images_unmasked` (cuántas
+    imágenes salieron sin enmascarar) y su tipo, nunca el contenido. 🟡
+  - **`filter`**: el comportamiento más estricto. Una imagen que **adjunta la persona** bloquea el
+    pedido; una que **devuelve una herramienta** se cambia por una nota de texto neutra y el binario
+    **nunca sale**; la auditoría registra `unanalyzable_replaced` (cuántos) y el tipo, sin contenido. 🟡
+  - Un valor desconocido se trata como `filter`. Lo decide la instalación (variable de entorno del
+    motor, `.env.example`); **un pedido no puede cambiarlo**. Hoy no es un ajuste por grupo ni desde el
+    panel. El ajuste solo cubre las imágenes: el audio y los documentos que no se pueden leer siguen
+    como siempre (el adjunto bloquea; el que devuelve una herramienta se reemplaza por una nota).
+  - **El destino manda**: si el modelo de destino no acepta imágenes, la imagen adjunta se rechaza con
+    el error `capability_rejected: images` (`400`) y la de una herramienta se cambia por una nota,
+    con cualquiera de los dos valores.
+  - Un PDF con texto devuelto por una herramienta sigue el camino normal (se convierte a texto y se
+    enmascara).
+- **Lo que adjunta la persona y no se puede analizar se bloquea**: nunca se «envía igual» (las imágenes se rigen por `MASKING_IMAGES`, arriba). Un pedido con algo no analizable
   recibe un bloqueo: `400` en la cara Claude y `403` en la cara genérica, con el texto *«El pedido no
   pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.»* La auditoría
   guarda solo el **nombre del tipo** (nunca contenido):
 
 | Causa (nombre en la auditoría) | En lenguaje de administrador |
 |---|---|
-| `image`, `audio` | la **persona** adjuntó una imagen o un audio: no se analizan (los de una herramienta se reemplazan por una nota) |
+| `image`, `audio` | la **persona** adjuntó un audio, o una imagen con `MASKING_IMAGES=filter` (con `pass`, el valor por defecto, las imágenes no son causa): no se analizan (los de una herramienta se reemplazan por una nota) |
 | `pdf_no_text` | PDF escaneado o sin capa de texto (no hay lectura de imágenes) |
 | `pdf_error` | PDF corrupto o protegido |
 | `pdf_timeout` | el PDF tardó más del plazo en leerse (por defecto 20 s) |
@@ -425,7 +438,7 @@ La auditoría es **solo metadatos**: jamás texto de pedidos, datos personales, 
 pedido redirigido registra el id pedido y el destino real, la cara, la fidelidad, la regla aplicada,
 la postura (`default_posture_applied`), si el destino estaba en región, el alcance del enmascarado
 (`masking_scope`), la relajación aplicada si la hubo (`masking_relaxation`), los **nombres** de campos
-quitados, las causas de no analizable, los binarios de herramientas reemplazados por una nota (`unanalyzable_replaced`, solo conteo y tipo), la sustitución por fallback con su motivo y, si el destino
+quitados, las causas de no analizable, las imágenes que salieron sin enmascarar (`images_unmasked`) y los binarios de herramientas reemplazados por una nota (`unanalyzable_replaced`), siempre solo conteo y tipo, la sustitución por fallback con su motivo y, si el destino
 informa caché, los tokens de lectura y escritura de caché. Los cambios de política, regiones,
 posturas, relajaciones y fichas quedan en el registro de cambios con quién, qué rol y el motivo.
 

@@ -353,3 +353,28 @@ Recreados en `~/elea057-t102/Eleia-cli` con `docker compose up -d --no-deps back
 de esa llave muestra los mismos límites. (2) En *Llaves Virtuales*, **Editar límites** en una llave vieja (60 / 100 000): guardar y recargar; con el motor apagado, el panel debe avisar y dejar los
 valores como estaban. (3) Un pedido por la cara genérica o por Claude Code con `reasoning_effort: low` hacia `gpt-5.1-chat` de Azure: debe responder 200 y la auditoría traer `adjusted_params`
 con `reasoning_effort`. **No se probó en vivo**: el PATCH contra el motor real (hace falta una sesión de administrador y la master key, que no se leyó) ni el pedido a Azure.
+
+## 11. Ajuste de imágenes `MASKING_IMAGES` (T125–T128; research R43) — 2026-10-07
+
+Rama `cluna-8/057-imagenes` sobre `a508559`. **Sin Docker salvo la reconstrucción del motor y su recreación** (lo demás corrió en un venv local con `requirements.txt`).
+
+**Rojo→verde**: antes del código, `backend/tests/unit/test_masking_imagenes_pass.py` 23 de 27 en rojo (faltaban `images_mode`, el conteo y el parámetro) y `sentinel/tests/unit/test_redirect_guard.py` 2 en rojo (la decisión sin `images_unmasked`);
+con el cambio, 27/27 y 110 passed. El default pasó a `pass`, así que los tests de R39 y de la tabla (`test_masking_alcance_completo.py`, `test_masking_binarios_en_tool_result.py`, `test_masking_posiciones_exentas.py`,
+`test_gateway_masking_scope_057.py`, `test_residency_forced_masking_multiturno.py`: 13 tests de backend y 3 de integración) fijan `MASKING_IMAGES=filter` con un `autouse`: el comportamiento de R39 sigue cubierto.
+
+| Suite | Resultado |
+|---|---|
+| `backend/tests/unit` + `tests/contract` (venv local, sin base de datos) | **2018 passed**, 12 skipped; fallan solo los 6 de `tests/contract/test_route_parity.py` que piden el host `db` (los mismos 6 de T065; corren en la suite del contenedor) |
+| `sentinel/tests` (todo) | **2579 passed, 13 skipped** (los mismos 13 de T065, ninguno crítico) |
+| `harness/tests` (los 4 archivos de cableado: compose, `docs-refs`, canal interno, separación de bases) | 52 passed (`harness/tests/unit` pide el paquete `sentinel_harness`, que no está en el venv local; no depende de este cambio) |
+| `docs/test_gen_config_reference.py`, `docs/tools/test_drift_gate.py`, `docs/tools/drift_gate.py`, `deploy/release/checks/test_docs_structure.sh`, `docs/gen_config_reference.py` | verdes (13 tests; 0 fallos de deriva; estructura OK; `configuration.md` sin cambios: las variables comentadas no entran) |
+| Revisión de nombres prohibidos (`deploy/release/checks/prohibited_names.txt`) sobre lo agregado a `docs/` y `.env.example` | sin coincidencias |
+
+**Con Docker (solo esto, con el OK del brief; `free -h` antes: 4,1–4,3 GiB disponibles)**: `litellm/Dockerfile` → `ghcr.io/cluna-8/elea-guardian-engine:2026-10-07` (`5436ec453344`) y `sentinel/docker/engine.Dockerfile`
+(`BASE_IMAGE=…:2026-10-07`) → `:2026-10-07-ext` (`1503a4ef2f20`), sin `push`; las anteriores, `…-prev-imagenes` (`63c9affb91cb`, `8c7f2e36e803`). Dentro de la imagen: `images_mode`/`images_unmasked` en la política, el guardrail y `redirect_guard.py`; `pypdf` importa.
+`cd ~/elea057-t102/Eleia-cli && docker compose up -d --no-deps engine` recreó **solo** `elea-engine`: `healthy` (`ghcr.io/cluna-8/elea-guardian-engine:2026-10-07-ext`); backend y panel siguieron arriba sin tocar.
+Humo adentro del contenedor (`mask_body` con una imagen adjunta, analizador vacío): sin variable ⇒ `unanalyzable=0`, `images_unmasked=1`, tipo `image`; `images="filter"` ⇒ `unanalyzable=1`, `images_unmasked=0`; `images_mode()` = `pass`.
+
+**No corrido (Docker; queda para el coordinador)**: `make -C deploy check`, `make -C deploy check-docs` y `docs-refs` (la API no cambió y `.env.example` solo suma una variable comentada que la referencia no lista; el generador no tiene deriva), la suite del backend en contenedor
+(`docker compose run --rm --no-deps backend pytest tests/ -q`), `cd frontend && npm test`, `cd client && npm test` (no se tocó nada de eso).
+**Para probar en vivo (owner)**: Claude Desktop/Cowork con una imagen adjunta y con una captura del agente: la auditoría debe traer `images_unmasked` (conteo y tipo); con `MASKING_IMAGES=filter` en el entorno del motor, la adjunta da el bloqueo y la captura la nota.

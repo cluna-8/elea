@@ -151,7 +151,7 @@ nombrar el motor interno (FR-004); describe los modos con texto neutro.
 - **No analizable** (cuenta en `unanalyzable`, con su nombre de tipo en `unanalyzable_kinds`): PDF sin texto,
   protegido, corrupto, sobre los topes, con plazo vencido, memoria agotada o expansión excesiva (`pdf_timeout`,
   `pdf_resource_limit`, `pdf_error`, `pdf_request_limit`) o sin `pypdf` instalado; una detección en una posición estructural
-  (`structural_entity`); `document` por URL; `image`; audio; tipos
+  (`structural_entity`); `document` por URL; `image` (solo con `MASKING_IMAGES=filter`, R43); audio; tipos
   desconocidos; `redacted_thinking`; `thinking` firmado con detecciones hacia un destino nativo.
 - **Excepción: binarios que devuelve una herramienta** (enmienda 2026-10-07; research R39; FR-027). Una `image`, un audio o un
   documento no analizable (PDF ilegible, `document` por URL, `file` sin datos) que está **dentro de un `tool_result`** (Anthropic; en
@@ -164,13 +164,26 @@ nombrar el motor interno (FR-004); describe los modos con texto neutro.
   desconocidos, `structural_entity`, `cache_control` inválido, `too_deep`) siguen bloqueando también dentro de un `tool_result`. Sin la
   señal de forzado, el cuerpo no se toca. Texto de las notas, `litellm/extensions/sentinel_guardian_policy.py:1460-1473`; la decisión,
   `_w_unanalyzable` (`:1476`) y las rutas de `tool_result` (`_w_container`, `:1633-1638`).
+- **Ajuste de imágenes** (enmienda 2026-10-07; research R43; FR-027). Variable de entorno del motor **`MASKING_IMAGES`** = `pass` | `filter`
+  (`litellm/extensions/sentinel_guardian_policy.py:1305-1317`, `images_mode()`; se lee en cada uso; solo la instalación la fija, el pedido no
+  interviene). **Sin valor: `pass`** (default de Eleia; `IMAGES_DEFAULT`, Sentinel puede fijar el suyo); **valor desconocido: `filter`**.
+  - `pass`: una `image` (Anthropic) o `image_url` (OpenAI), adjunta o dentro de un `tool_result`, **sale tal cual**: no es no analizable, no bloquea, no se
+    reemplaza (el bloque no se toca, la marca de caché queda) y se cuenta aparte. El texto del cuerpo se enmascara completo; el contenido de la imagen no.
+    Audio, `document` por URL y PDF ilegible no cambian (la adjunta bloquea, la de una herramienta se reemplaza, R39).
+  - `filter`: la excepción de R39 de arriba, tal cual.
+  El recorrido le pide la decisión al conductor con la operación `("image", kind)` (`_w_unanalyzable`, `:1516`); el conductor de enmascarado responde según el ajuste y cuenta
+  (`_FullScopeMasker.handle`, `:2224`); el de inspección (`_collect_texts`) no responde (no afecta al texto). `mask_body(..., images="pass"|"filter")` acepta el valor explícito;
+  sin él, el del entorno. **La capacidad del destino no la lee esta costura**: la cara resuelve por capacidad antes del motor (`400 capability_rejected: images` /
+  nota de capacidad), con los dos valores.
 - **Informe**: `masking_report = {completed, degraded, detected, masked, scope, unanalyzable, unanalyzable_kinds}`
   (`unanalyzable_kinds`: solo nombres de tipo). **Campos opcionales** (solo cuando hubo reemplazos; sin ellos el informe es el de
   siempre): `unanalyzable_replaced` (entero ≥ 1) y `unanalyzable_replaced_kinds` (nombres de tipo, `[a-z0-9_]{1,32}`), de
   `litellm/extensions/sentinel_guardrail.py:740-744`; **no suman a `unanalyzable`** (el binario ya no sale) y el guard los copia
   a la decisión del pedido (`sentinel/engine/redirect_guard.py:258-271`, `:658-663`), de donde sale la auditoría
   (`unanalyzable_replaced`, solo conteo y tipos; jamás contenido). El camino de suscripción solo lo registra en el log
-  (`backend/src/api/gateway.py:543-546`). El guard de la
+  (`backend/src/api/gateway.py:543-546`). **Campos opcionales de R43** (solo con `MASKING_IMAGES=pass` y solo si salió alguna imagen): `images_unmasked` (entero ≥ 1) e `images_unmasked_kinds`
+  (`["image"]`, nombres `[a-z0-9_]{1,32}`), de `litellm/extensions/sentinel_guardrail.py:745-748`; **no suman a `unanalyzable`**, el guard los copia a la decisión
+  (`sentinel/engine/redirect_guard.py:258-284`, `:678-683`) y de ahí sale la auditoría (`images_unmasked`, solo conteo y tipo; jamás contenido). El guard de la
   extensión exige, cuando el forzado rige, `completed ∧ ¬degraded ∧ detected = masked ∧ unanalyzable = 0 ∧
   scope = "full"`; si no, `masking_required` con el error de cada cara (cara Claude 400
   `invalid_request_error`, cara genérica 403; contracts/cara-claude.md §7, cara-generica.md). Un informe sin

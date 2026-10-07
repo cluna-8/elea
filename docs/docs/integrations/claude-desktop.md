@@ -169,14 +169,18 @@ entorno y revisa el resultado con **capturas de pantalla**. Pide respuestas larg
 - **Cada modelo en su tarea**: si una tarea falla por el modelo, se abre una tarea nueva con otro; no
   se reintenta en la misma.
 - **Las capturas del propio agente no cortan la tarea.** Con el enmascarado forzado una imagen no se
-  puede analizar y, hasta ahora, bloqueaba el pedido. Ahora, una imagen o un adjunto binario que
-  **devuelve una herramienta del agente** (por ejemplo la captura con la que revisa el PDF) se
-  **reemplaza por una nota** («imagen omitida por la política de protección de datos… no vuelvas a
-  pedir capturas»): el binario nunca sale hacia el proveedor, la tarea sigue y la auditoría lo
-  registra (`unanalyzable_replaced`, solo el conteo y el tipo). La consecuencia es que el agente
-  **no revisa su resultado con la vista**; lo revisa con el texto que tenga.
-- **Las imágenes que adjunta la persona en su mensaje siguen bloqueándose** bajo enmascarado
-  forzado (no se pueden analizar): ver el síntoma «El pedido no pudo protegerse…».
+  puede analizar. Qué pasa con ella lo decide la instalación (`MASKING_IMAGES`):
+  - **`pass` (por defecto)**: las imágenes —la captura con la que el agente revisa su PDF y las que
+    adjunta la persona— **viajan tal cual** al modelo y el agente sí **revisa su resultado con la
+    vista**. **El contenido de la imagen no se enmascara**; el texto del pedido sí, completo. La
+    auditoría registra `images_unmasked` (solo el conteo y el tipo). Si el modelo del destino no acepta
+    imágenes, la adjunta se rechaza (`capability_rejected: images`) y la captura del agente se cambia
+    por una nota.
+  - **`filter`**: la imagen que **devuelve una herramienta** se **reemplaza por una nota** («imagen
+    omitida por la política de protección de datos… no vuelvas a pedir capturas»); el binario nunca
+    sale, la tarea sigue y la auditoría lo registra (`unanalyzable_replaced`, solo el conteo y el tipo).
+    El agente **no revisa su resultado con la vista**; lo revisa con el texto que tenga. La imagen
+    que adjunta la persona bloquea el pedido: ver el síntoma «El pedido no pudo protegerse…».
 
 ## Probar que quedó bien
 
@@ -186,8 +190,8 @@ entorno y revisa el resultado con **capturas de pantalla**. Pide respuestas larg
 | Selector | Abrir Chat y desplegar el selector de modelos | Aparecen los ids publicados, con el id como etiqueta y sin el destino |
 | Chat | Mandar «hola» con cada modelo | Responde; en la auditoría figura el destino real |
 | Cowork | Tarea nueva, carpeta elegida, «creame un pdf de una página sobre …» | El PDF queda en la carpeta, sin avisos de «Reintentando» |
-| Captura del agente | Lo mismo con enmascarado forzado | La tarea termina aunque el agente saque una captura; la auditoría registra `unanalyzable_replaced` |
-| Imagen adjunta | Adjuntar una imagen en el Chat con enmascarado forzado | Rechazo con el texto de la pasarela; el mensaje siguiente («hola») responde normal |
+| Captura del agente | Lo mismo con enmascarado forzado | La tarea termina aunque el agente saque una captura; con `pass` la auditoría registra `images_unmasked`, con `filter`, `unanalyzable_replaced` |
+| Imagen adjunta | Adjuntar una imagen en el Chat con enmascarado forzado | Con `pass` (por defecto) la imagen llega al modelo (si acepta imágenes); con `filter`, rechazo con el texto de la pasarela y el mensaje siguiente («hola») responde normal |
 
 Estas pruebas están pendientes de correrse **en vivo** en esta instalación (🟡); el comportamiento
 de cada una está cubierto por pruebas automatizadas con un proveedor simulado.
@@ -198,7 +202,7 @@ de cada una está cubierto por pruebas automatizadas con un proveedor simulado.
 |---|---|---|
 | **«Failed to authenticate»** seguido de «Modelo no disponible para tu región.» | Rechazo de residencia: el destino queda fuera de la postura vigente, o no tiene jurisdicción de inferencia cargada, o el respaldo de región rige. La aplicación **antepone** «Failed to authenticate» a **todo** `403`; el texto que sigue es el de la pasarela | No es un problema de credenciales. El responsable de cumplimiento revisa la postura y la ficha del destino; el administrador, la regla (otro destino o un fallback) |
 | «Este modelo no está permitido para tu perfil.» (`403`) | El perfil de acceso del grupo no admite el destino al que va ese id (por ejemplo, un grupo solo Azure ante una regla que lleva a otro proveedor) | Corregir la regla o el perfil del grupo; ver [Modelos por grupo de personas](../administration/redireccionamiento.md#modelos-por-grupo-de-personas) |
-| Error «El pedido no pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.» | Bloqueo del enmascarado forzado: algo no analizable que **adjuntó la persona** (imagen, PDF escaneado, adjunto por dirección), el analizador caído, o un dato en una posición que no se puede reescribir. Es un **`400`** con su propio texto, no un `403` (por eso no lleva «Failed to authenticate»). Las imágenes que devuelve una herramienta del agente **no** causan este error: se reemplazan por una nota | Quitar el adjunto o abrir una conversación nueva; si se repite sin adjuntos, avisar al administrador (la auditoría muestra el tipo de causa, no el contenido) |
+| Error «El pedido no pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.» | Bloqueo del enmascarado forzado: algo no analizable que **adjuntó la persona** (una imagen solo si la instalación usa `MASKING_IMAGES=filter`; también un PDF escaneado, un adjunto por dirección o un audio), el analizador caído, o un dato en una posición que no se puede reescribir. Es un **`400`** con su propio texto, no un `403` (por eso no lleva «Failed to authenticate»). Las imágenes que devuelve una herramienta del agente **no** causan este error: salen tal cual (`pass`) o se reemplazan por una nota (`filter`) | Quitar el adjunto o abrir una conversación nueva; si se repite sin adjuntos, avisar al administrador (la auditoría muestra el tipo de causa, no el contenido) |
 | «Modelo no disponible para tu organización.» (`404`) | El id no está publicado para el alcance (empresa o grupo) de esa llave, o la llave tiene una lista de modelos que no lo incluye. No nombra destinos | Publicar el id para ese alcance o ajustar la llave |
 | La aplicación no lista modelos o muestra un solo nivel | La política está apagada para ese alcance, no hay reglas para un nivel, la residencia descarta el destino, o el id solo está publicado para otro grupo | Encender la política, mapear los tres niveles y revisar la vista previa |
 | «Límite de solicitudes alcanzado. Reintentando… (intento 3 de 10)» | La llave tiene los límites por defecto (100 000 tokens/min), bajos para un agente | Llave con 1 000 000 tokens/min y 120 pedidos/min (las del kit del panel ya los traen; a una anterior se los cambia *Editar límites*) |

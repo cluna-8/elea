@@ -78,7 +78,7 @@ de la tabla. 🟡
 | `401` en el formato de error de la API | Falta la llave virtual o es inválida | Cargar la llave virtual como API key |
 | `404` con `model_not_found` | El alias no existe para el alcance de la llave (otro grupo, o no publicado) | Publicar el alias para ese alcance; pedir la lista con `GET /models` |
 | `403` con `region_not_allowed` | Rechazo de residencia: ningún destino cumple la postura, destino sin jurisdicción de inferencia o respaldo de región | Cumplimiento revisa la postura y la ficha; no depende de la herramienta |
-| `403` con `masking_required` y el texto «El pedido no pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.» | Enmascarado forzado: contenido no analizable (imagen, PDF escaneado), analizador caído o dato en una posición que no se puede reescribir | Quitar el adjunto o empezar otra conversación; si persiste, avisar al administrador |
+| `403` con `masking_required` y el texto «El pedido no pudo protegerse para este destino y fue bloqueado. Probá en una conversación nueva.» | Enmascarado forzado: contenido no analizable (PDF escaneado; una imagen solo con `MASKING_IMAGES=filter`), analizador caído o dato en una posición que no se puede reescribir | Quitar el adjunto o empezar otra conversación; si persiste, avisar al administrador |
 | La herramienta muestra «error de red» en vez del motivo | Algunas herramientas no leen el cuerpo del error | Mirar la respuesta cruda; el motivo está en `error.code` y `error.message` |
 | `/models` vacío | La política está apagada para ese alcance, o no hay alias publicados | Publicar alias de cara genérica para el alcance |
 
