@@ -73,7 +73,7 @@ REQUEST_CLASS_HEADER = "x-request-class"
 MASKING_SCOPE_FULL = "full"       # S14 (QA B3): con el forzado vigente, el enmascarado alcanza todo el cuerpo
 STATUS_REJECTED = "blocked_by_policy"
 STATUS_PASSED = "passed"        # tráfico que la política resolvió sin impedirlo (inventariado en el clasificador de retención)
-OMITTED_AUDIT = ("images_in_history", "images_in_tool_result", "documents_in_tool_result")
+OMITTED_AUDIT = ("images_in_history", "documents_in_history", "images_in_tool_result", "documents_in_tool_result")
 
 
 @dataclass
@@ -605,7 +605,7 @@ class RedirectPlugin:
                     return out, headers
                 # imágenes/documentos reemplazados por una nota: quedan en la decisión (la de la
                 # pasarela comparte el dict; la del motor viaja firmada abajo) — FR-033: escalar
-                omitted = [r for r in removed if r in OMITTED_AUDIT]
+                omitted = [r for r in removed if r.partition(":")[0] in OMITTED_AUDIT]   # historia: `<etiqueta>:<n>`
                 if omitted:
                     plan.decision["omitted"] = ",".join(omitted)
                 # razonamiento de la historia que se descartó o se reconstruyó (FR-036): solo cantidades
