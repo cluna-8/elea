@@ -218,6 +218,27 @@ def test_kit_alcance_usuario_ve_el_id_mas_especifico(api):
     assert [x["labelOverride"] for x in cfg["inferenceModels"]] == ["Sonnet del usuario"]
 
 
+def test_kit_resuelve_la_url_de_la_pasarela_del_entorno(api):
+    dest = _dest(api)
+    _publish(api, dest)
+    r = api.call("GET", "/kits/claude_code", "tenant_admin")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["gateway_url_resolved"] is True
+    assert "https://gw.acme.test/api/v1/gw" in "\n".join(f["content"] for f in body["files"])
+
+
+def test_kit_con_host_interno_deja_marcador_y_avisa(api, monkeypatch):
+    monkeypatch.delenv("REDIRECT_GATEWAY_URL", raising=False)
+    dest = _dest(api)
+    _publish(api, dest)
+    r = api.call("GET", "/kits/claude_code", "tenant_admin", headers={"Host": "backend:8000"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["gateway_url_resolved"] is False
+    assert us5.kits.URL_PLACEHOLDER in "\n".join(f["content"] for f in body["files"])
+
+
 # ── fidelidad ─────────────────────────────────────────────────────────────────────────
 
 def _run(api, dest, tool="openai_generic", role="tenant_admin", **kw):
