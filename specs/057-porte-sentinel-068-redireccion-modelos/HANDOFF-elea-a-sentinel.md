@@ -1,9 +1,10 @@
 # Handoff — spec 057 (Elea) para llevar a Sentinel: lo nuevo de la base que salió del porte de la 068
 
 **Fecha**: 6-oct-2026. **Origen**: `github.com/cluna-8/elea`, rama de integración `cluna-8/057-int` (tramos
-T-A a T-F y la documentación de T-G; la entrega por el instalador, T-H, sigue abierta). **Destino**:
-`cluna-8/sentinel` (producto base, «Guardian»). **Instalador**: `cluna-8/elea-installer` **sí** se toca (T089,
-T100–T103, todavía sin hacer) pero no es parte de este handoff. Este documento **no edita nada del repo de
+T-A a T-F y la documentación de T-G; la entrega por el instalador, T-H, quedó hecha salvo T089 y lo que
+T102 no probó: ver §11). **Destino**:
+`cluna-8/sentinel` (producto base, «Guardian»). **Instalador**: `cluna-8/elea-installer` **sí** se toca (T100,
+T101, T103 hechas; T102 con prueba local) pero no es parte de este handoff. Este documento **no edita nada del repo de
 Sentinel**: lo entrega el coordinador de Elea y lo toma la sesión de Sentinel.
 
 Eleia es la adaptación para América de la base Guardian (perfil Argentina, Ley 25.326/AAIP); Sentinel es la
@@ -14,9 +15,11 @@ adaptaciones (lo que se tocó al traer sus commits) está en [`CHANGELOG.md`](./
 **Elea agregó y tiene que volver**.
 
 > **Estado honesto de la verificación.** Todo lo que sigue tiene pruebas automatizadas sin contenedores
-> (proveedor simulado, motor falso). **Ninguna prueba en vivo se corrió** (T019, T045, T051, T066, T078,
-> T083) y el gate con Docker (`make -C deploy check`, la suite del backend en contenedor, `docs-refs`) está
-> pendiente: los resultados de esas corridas **no existen todavía** y no se inventan acá. Donde este
+> (proveedor simulado, motor falso). **Actualización del 7-oct-2026**: el spike D14 (T019) se corrió y pasó
+> (`verificacion-d14.md`), y Claude Desktop (Chat y Cowork) se verificó en vivo contra Azure en una
+> instalación hecha con el instalador (ver §11). **Siguen sin correrse en vivo** T045 (Claude Code y *Code*),
+> T051, T066, T078 y T083, y el gate final con Docker (`make -C deploy check`, la suite del backend en
+> contenedor) para este handoff: sus resultados **no existen todavía** y no se inventan acá. Donde este
 > documento diga «se midió», es con el analizador simulado.
 
 ---
@@ -316,9 +319,9 @@ Migración nueva y tablas en §6. Reemplaza como fuente de verdad a `_ZONES`/`_R
 
 **El riesgo de la base compartida**: la base del motor y la del producto pueden vivir en el mismo Postgres. El migrador del motor compara la base a la que apunta con su esquema y
 **elimina toda tabla ajena** como «deriva» (reproducido en ensayo; `specs/ANALISIS-SEPARAR-BASES-MOTOR-2026-10.md`). Por eso: (a) **nunca** arrancar una base nueva con el backend antes
-que el motor; (b) no cambiar la versión ni el digest base del motor (la variante `-ext` deriva de él); (c) `DISABLE_SCHEMA_UPDATE=true` en el motor es una **hipótesis sin ensayar**
-(spike D14, T019, sin correr): no se usa; (d) respaldo de las dos bases antes de aplicar las migraciones, porque **volver a una versión sin la extensión después de aplicarlas no
-está soportado** (FR-004b). Ninguna migración de la extensión toca `_prisma_migrations` (T102 lo verifica con Docker, sin correr).
+que el motor; (b) no cambiar la versión ni el digest base del motor (la variante `-ext` deriva de él); (c) `DISABLE_SCHEMA_UPDATE=true` en el motor se **ensayó** sobre copias (spike D14, T019,
+`verificacion-d14.md`): no toca tablas ajenas, pero tampoco crea las del motor, así que no hace falta y no se usa; (d) respaldo de las dos bases antes de aplicar las migraciones, porque **volver a una versión sin la extensión después de aplicarlas no
+está soportado** (FR-004b). Ninguna migración de la extensión toca `_prisma_migrations` (la prueba local de T102 del 7-oct-2026 lo comprobó: `--verificar` del libro del motor dio OK tras activar).
 
 ---
 
@@ -421,8 +424,10 @@ la suite del backend en contenedor, `make -C deploy check`, las migraciones de l
 
 ## 11. Pendientes que este handoff NO cierra
 
-- **T-H** (instalador): activación opt-in (`ELEA_REDIRECT=1`), proxy del canal interno y su gate (T089, T100–T103). La documentación los marca 🔵.
-- **Verificación en vivo** (🐳, aviso previo al owner de Elea): T019 (spike D14 del motor fijado), T045, T051, T066, T078, T083, T102; y el gate final (T082, T086).
+- **T-H** (instalador): la activación opt-in (`ELEA_REDIRECT=1`), el gate del proxy del canal interno y el runbook (T100, T101, T103) están hechos en `cluna-8/elea-installer`, y T102 se probó con contenedores reales el 7-oct-2026 (activación, salud `200`,
+  `/api/v1/internal/*` `404` desde la red local, vuelta atrás de nivel 1). **Siguen abiertos**: T089 (el test de origen `sentinel/tests/unit/test_internal_rutas_extension_origen.py` no existe) y, de T102, la vuelta atrás de nivel 2, el respaldo en código con la fila de región borrada y el arranque abortado por una migración rota.
+- **Verificación en vivo** (🐳, aviso previo al owner de Elea): el 7-oct-2026 se verificó Claude Desktop (Chat y Cowork) contra Azure (conexión por gateway, los tres niveles, cambio de destino de un nivel sin tocar el cliente, DNI enmascarado, PDF y presentación en Cowork,
+  imágenes con `MASKING_IMAGES=pass`, llave con límites editables, ajuste de esfuerzo, etiqueta del id pedido). **Sigue sin verificarse en vivo**: T051 (cara genérica con opencode y Aider), T066 y T078 (caché), un proveedor que no sea Azure (OpenRouter/Kimi), los grupos, el kit instalado en una PC, `MASKING_IMAGES=filter`, Claude Code real, y el gate final completo (T082, T086).
 - **Tokens de caché en las filas byok**: el logger de auditoría del motor sigue sin sumarlos (§1).
 - **Afinidad de sesión y marcas de caché por proveedor**: el efecto real sobre los aciertos (SC-011: ≥ 60 % desde el 2.º paso; SC-012) **no se midió**; solo el mecanismo está probado.
 - **Latencia del forzado completo con el analizador real** (§2, §3): la cifra existe solo con el analizador simulado.

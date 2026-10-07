@@ -73,8 +73,9 @@ reversible que nunca la abandona.
   sirve lo que pide una herramienta (Claude Desktop, Claude Code, CLI de formato de chat estándar)
   con **otro modelo** elegido por el administrador, con **enmascarado forzado de alcance completo** y
   residencia por región (`AMERICAS` en esta línea; criterio de riesgo, no de legalidad). Implementada
-  y con pruebas automatizadas con proveedor simulado; **sin verificación en vivo todavía**. Ver
-  [Redirección de modelos](../administration/redireccionamiento.md).
+  y con pruebas automatizadas con proveedor simulado; **Claude Desktop (Chat y Cowork) con Azure se
+  verificó en vivo el 7-oct-2026** 🟢 y lo demás (otros proveedores, Claude Code, grupos) sigue 🟡 sin
+  verificación en vivo. Ver [Redirección de modelos](../administration/redireccionamiento.md).
 - **Gobernanza de costes** 🟢 — ninguna request pasa sin una key válida (fail-closed: nada cae a un
   usuario por defecto). Presupuestos en USD con corte **HTTP 402 pre-request** y contabilidad
   post-request, en doble capa persona → grupo, con techo duro y límites rpm/tpm como red de
@@ -287,8 +288,8 @@ configurables**, no roles del sistema. La administración del día a día está 
   Ningún modo garantiza un recall del 100 %.
 - 🟡 **Row-Level Security**: cableado en PostgreSQL, pero el contexto por request aún no se
   establece — el aislamiento efectivo es a nivel de aplicación.
-- 🟡 **Redirección de modelos**: implementada y probada con proveedor simulado; sin verificación en
-  vivo. El enmascarado es seudonimización reversible de identificadores detectados, no
+- 🟡 **Redirección de modelos**: implementada y probada con proveedor simulado; verificada en vivo solo
+  para Claude Desktop (Chat y Cowork) con Azure el 7-oct-2026 🟢. El enmascarado es seudonimización reversible de identificadores detectados, no
   anonimización, y la residencia por región es 🟡 hasta la revisión legal.
 - 🟡 **Modo interceptación** (herramientas que operan dentro de su propio cliente): el enrutado de
   residencia EU no aplica ahí — la garantía se traslada a masking, auditoría y allowlist de

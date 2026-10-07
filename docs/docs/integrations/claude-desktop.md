@@ -9,13 +9,15 @@ configuración, los ids publicados y los síntomas que se conocen por contrato.
 **Para quién**: el administrador que prepara la configuración de las personas y el soporte que
 atiende tickets de Claude Desktop.
 
-!!! warning "Estado: 🟡 pasos verificados en la misma base, sin prueba en vivo en esta instalación"
-    Los pasos del cliente de esta página (dirección, esquema, descubrimiento, espacio de trabajo y
-    carpeta de Cowork) se verificaron en vivo con la aplicación real sobre la **misma base** del
-    producto, con destinos fuera de la UE. En **esta** instalación la cara Claude está cubierta por
-    pruebas de contrato con una pasarela real y un proveedor **simulado**: la prueba en vivo con la
-    aplicación y un destino real (Azure primero) está pendiente, así que lo que depende del destino
-    real figura como 🟡 y no como 🟢.
+!!! warning "Estado: 🟢 Chat y Cowork con Azure, verificados en vivo el 7-oct-2026; el resto 🟡"
+    El 7-oct-2026 se probó **en vivo** Claude Desktop con la aplicación real, conectado por la
+    pasarela de una instalación hecha con el instalador (`ELEA_REDIRECT=1`) a **Azure**: conexión por
+    gateway (URL `/api/v1/gw`, `bearer`, llave estática, descubrimiento de modelos), chat con los tres
+    niveles, cambio de destino de un nivel, DNI enmascarado, Cowork creando PDF y presentaciones,
+    diseño de SVG, lectura de imágenes y la llave con límites propios. Eso figura 🟢 con la fecha.
+    Sigue 🟡 lo que se cubrió solo con pruebas contra un proveedor **simulado**, y no se probó en
+    vivo: otro proveedor que no sea Azure (OpenRouter/Kimi), los grupos, el kit
+    `managed-settings.json` instalado en una PC, Claude Desktop Code y el filtro de imágenes.
 
 !!! note "Leyenda de estado"
     🟢 **HOY** — funciona y está verificado en vivo · 🟡 **PARCIAL** — existe, con pruebas
@@ -67,7 +69,7 @@ En la consola, antes de tocar el equipo de la persona.
 
     | Campo | Valor recomendado | Por qué |
     |---|---|---|
-    | Límite TPM (tokens/min) | **1 000 000** | Cada pedido de Claude Desktop manda 35 000–40 000 tokens (instrucciones, herramientas e historial). Con el valor por defecto de 100 000 entran 2 o 3 pedidos por minuto y el agente de Cowork, que encadena varios, recibe `429` y reintenta hasta 10 veces |
+    | Límite TPM (tokens/min) | **1 000 000** | Cada pedido de Claude Desktop manda 35 000–67 000 tokens (instrucciones, herramientas e historial). Una llave generada a mano nace con **100 000 tokens/min y 60 pedidos/min** (`backend/src/api/keys.py:40-41`): entran 2 o 3 pedidos por minuto y el agente de Cowork, que encadena varios, recibe `429` y reintenta hasta 10 veces |
     | Límite RPM (pedidos/min) | **120** | Cowork y Code hacen ráfagas de pedidos cortos (herramientas, subagentes) |
 
 2. **Destinos con su ficha** (*Modelos*): en cada modelo que va a servir a Claude Desktop, declarar
@@ -96,14 +98,18 @@ El administrador mueve, por ejemplo, `claude-sonnet-…` de Azure a Kimi K3 edit
 ese id en *Modelos → Routing → Reglas* (cambiar el destino principal) y comprobando la vista previa.
 El cliente sigue pidiendo el mismo id, ve la misma etiqueta y recibe en `model` el mismo id: nada se
 reinstala ni se reconfigura. Lo único que cambia para la aplicación es la ventana de contexto del
-destino nuevo. La auditoría registra, pedido por pedido, el destino real. 🟡 (cubierto por una
-prueba de integración con un proveedor simulado; sin prueba en vivo)
+destino nuevo. La auditoría registra, pedido por pedido, el destino real. 🟢 (verificado en vivo el
+7-oct-2026 con Azure: `claude-sonnet-…` pasó de `gpt-5.1-chat` a `gpt-5.6-luna` editando solo la regla,
+confirmado en los registros y en la auditoría.) Hacia un destino de **otro proveedor** (por ejemplo
+Kimi K3 por OpenRouter) 🟡: cubierto por una prueba de integración con un proveedor simulado, sin prueba
+en vivo.
 
 ### Quién ve qué: grupos
 
 No siempre son tres modelos ni los ve toda la empresa. Con **grupos** se arma, por ejemplo, un grupo
 *Todos* y un grupo *Solo Azure*; el procedimiento está en
 [Modelos por grupo de personas](../administration/redireccionamiento.md#modelos-por-grupo-de-personas). 🟡
+(solo pruebas de integración: no se probó en vivo)
 
 ## Configurar el cliente paso a paso
 
@@ -121,21 +127,27 @@ Claude Desktop **sin iniciar sesión**, en el equipo de la persona:
     modelos del alcance y los ajustes que evitan fallas conocidas, para repartirlo con la gestión de
     dispositivos. Si lleva credencial, emite una **llave nueva** del alcance y queda auditado. Esa llave
     nace con **120 pedidos/min y 1 000 000 tokens/min** (los de la tabla de arriba), aplicados en la
-    pasarela y en el motor; con una llave generada a mano hay que cargarlos. 🟡
+    pasarela y en el motor; con una llave generada a mano hay que cargarlos (*Editar límites*, abajo). 🟡
+    (la llave que emite el kit no se probó en vivo)
 
     La dirección del gateway sale de la variable `REDIRECT_GATEWAY_URL` del entorno (la URL pública
     de la pasarela con su puerto, p. ej. `https://elea.example.com:8091/api/v1/gw`). Sin esa
     variable, la ruta la deduce de los encabezados del pedido; si no puede resolverla (el host es
     interno de compose), el kit sale con el marcador `REEMPLAZAR_CON_LA_URL_DE_LA_PASARELA` y el
-    panel lo avisa. Configurá la variable para que el kit salga listo para repartir. 🟡
+    panel lo avisa; **nunca** lleva la dirección interna del contenedor. Configurá la variable para que
+    el kit salga listo para repartir. Antes de repartirlo, abrilo y comprobá que
+    `inferenceGatewayBaseUrl` sea la del servidor. 🟡 (el kit instalado en una PC no se probó en vivo)
 
 !!! tip "Cambiar los límites de una llave que ya existe"
     *Usuarios & Presupuestos → Llaves Virtuales → Editar límites* cambia los pedidos/min y los
     tokens/min de la llave sin emitir otra. El cambio rige de inmediato en la pasarela y en el motor;
     si el motor no responde, el panel lo avisa y no cambia nada (los dos lugares nunca quedan con
-    valores distintos). Solo el rol administrador puede hacerlo. 🟡
+    valores distintos). Solo el rol administrador puede hacerlo. 🟢 (verificado en vivo el 7-oct-2026:
+    una llave con 1 000 000 tokens/min y 120 pedidos/min con Cowork sin `429`)
 
 ### Conexión
+
+Verificado en vivo con la aplicación real el 7-oct-2026 🟢.
 
 | Campo | Valor | Para qué |
 |---|---|---|
@@ -149,7 +161,9 @@ Claude Desktop **sin iniciar sesión**, en el equipo de la persona:
 | Usar 1M de contexto por defecto | Desactivado | Evita que arranque en la variante de 1M si el destino no la tiene |
 
 !!! info "Conexión remota"
-    Fuera de un entorno local, la dirección debe ser `https://`: la llave viaja en cada pedido.
+    Fuera de un entorno local, la dirección debe ser `https://`: la llave viaja en cada pedido. Una
+    instalación que solo se alcanza por una VPN o una red privada de la organización puede usar `http://`
+    (así se probó en vivo el 7-oct-2026), a sabiendas de que la llave viaja sin cifrar dentro de esa red.
 
 ### Espacio de trabajo
 
@@ -166,9 +180,10 @@ británico…») son **ejemplos**, no valores: no hace falta borrarlos.
 
 ### Al usar Cowork
 
-Cowork crea archivos (presentaciones, PDF, documentos, imágenes) ejecutando código en su propio
-entorno y revisa el resultado con **capturas de pantalla**. Pide respuestas largas (hasta unos
-64 000 tokens de salida).
+Cowork crea archivos (presentaciones, PDF, documentos y diseños en SVG o HTML) ejecutando código en su
+propio entorno y revisa el resultado con **capturas de pantalla**. Pide respuestas largas (hasta unos
+64 000 tokens de salida). 🟢 (verificado en vivo el 7-oct-2026: un PDF, una presentación y un SVG).
+Los modelos **no generan imágenes**: lo que Cowork produce son documentos y diseños de código.
 
 - **Elegí una carpeta de trabajo** en cada tarea, mejor una vacía y dedicada. Sin carpeta, el
   agente no tiene dónde escribir y falla al guardar el archivo (`FileNotFoundError`).
@@ -203,8 +218,12 @@ entorno y revisa el resultado con **capturas de pantalla**. Pide respuestas larg
 | Captura del agente | Lo mismo con enmascarado forzado | La tarea termina aunque el agente saque una captura; con `pass` la auditoría registra `images_unmasked`, con `filter`, `unanalyzable_replaced` |
 | Imagen adjunta | Adjuntar una imagen en el Chat con enmascarado forzado | Con `pass` (por defecto) la imagen llega al modelo (si acepta imágenes); con `filter`, rechazo con el texto de la pasarela y el mensaje siguiente («hola») responde normal |
 
-Estas pruebas están pendientes de correrse **en vivo** en esta instalación (🟡); el comportamiento
-de cada una está cubierto por pruebas automatizadas con un proveedor simulado.
+Verificado **en vivo el 7-oct-2026** con Azure 🟢: vista previa, selector, chat con los tres niveles
+(`haiku` → `gpt-5.4-mini`, `sonnet` → `gpt-5.1-chat`, `opus` → `gpt-5.6-luna`), DNI enmascarado hacia el
+modelo, Cowork (PDF y presentación, con carpeta elegida) e imagen adjunta (con `pass`, el valor por
+defecto; `haiku`, `opus` y `sonnet` la leyeron, `sonnet` después de marcar *Imágenes* en su ficha). Sigue
+🟡, sin prueba en vivo: la captura del agente bajo `filter` y la imagen adjunta bajo `filter`; el
+comportamiento de cada una está cubierto por pruebas automatizadas con un proveedor simulado.
 
 ## Qué se conoce que pasa (síntomas por contrato) 🟡
 
@@ -220,26 +239,34 @@ de cada una está cubierto por pruebas automatizadas con un proveedor simulado.
 | No lee páginas web | Sin hosts de egreso o sin omitir la verificación de WebFetch | Las dos opciones de *Espacio de trabajo* |
 | El selector muestra un solo modelo | Ids publicados que no son de la familia Claude | Publicar con ids de Claude, o cargar la *Lista de modelos* a mano con cada id |
 | Una función no responde (búsqueda web, apertura de páginas, ejecución de código del proveedor original) | Esas funciones son exclusivas del proveedor original; hacia un destino traducido se rechazan con un `400` `capability_rejected`, nunca se ignoran en silencio | Es un límite del destino; usar un destino nativo si la función es imprescindible |
-| Un PDF o una imagen «no se puede enviar» | Destino sin visión (rechazo claro) o, con el enmascarado forzado, adjunto no analizable | Convertir el adjunto a texto o quitarlo |
-| Cowork dice que no pudo ver la captura de su resultado | La captura le llegó como una nota «imagen omitida» (destino sin visión o enmascarado forzado) y la tarea siguió sin revisión visual | Es lo esperado. Con un modelo con visión y sin enmascarado forzado el agente revisa con la vista |
+| Un PDF o una imagen «no se puede enviar» | Destino sin visión (rechazo claro), PDF escaneado (sin capa de texto) o, con `MASKING_IMAGES=filter`, una imagen adjunta | Convertir el adjunto a texto o quitarlo; si es un modelo con visión, marcar *Imágenes* en su ficha |
+| El modelo dice que no ve la imagen o la pasarela la reemplazó por una nota «imagen omitida» | La ficha del destino no tiene marcado *Imágenes* (pasó con `sonnet` el 7-oct-2026 hasta marcarlo) | *Modelos → Destinos →* el modelo *→ capacidades*: marcar **Imágenes** (solo si el modelo las acepta) |
+| Cowork dice que no pudo ver la captura de su resultado | La captura le llegó como una nota «imagen omitida» (destino sin visión o ficha sin *Imágenes*, o la instalación usa `MASKING_IMAGES=filter`) y la tarea siguió sin revisión visual | Es lo esperado en esos casos. Con un modelo con visión y `pass` (el valor por defecto) el agente revisa con la vista |
 | El panel avisa de la versión de API al cargar una credencial de Azure | La versión es anterior a `2025-04-01-preview`, la mínima para las herramientas y el razonamiento por Responses | No bloquea: el producto usa esa versión solo en la llamada a Responses; conviene actualizar la credencial |
 | El sondeo de arranque (`max_tokens` mínimo) no falla | Es lo esperado: la pasarela sube el mínimo a 16 y usa el parámetro que el destino exige; queda en la auditoría como parámetro ajustado | — |
 
 ## Límites 🟡
 
-- 🟡 **Verificación**: los pasos del cliente se verificaron en vivo sobre la misma base del producto;
-  en esta instalación el contrato y las pruebas con proveedor simulado están hechos y la prueba con la
-  aplicación real y Azure está pendiente.
+- 🟢 **Verificación**: Chat y Cowork con Azure se probaron en vivo con la aplicación real el 7-oct-2026
+  (ver arriba). 🟡 Lo que depende de otro proveedor, de los grupos, del kit instalado en una PC y de
+  Claude Desktop Code está cubierto por pruebas con proveedor simulado y sin prueba en vivo. 🟡 La región
+  real del recurso de Azure (US) está por confirmar en el portal; es un dato de la ficha.
 - 🟡 **Cobertura del enmascarado**: seudonimización reversible de identificadores **detectados**; con
   el enmascarado forzado el alcance es completo (todo el historial, herramientas y PDF con texto). Lo
-  no analizable que adjunta la persona se bloquea; lo que devuelve una herramienta del agente se
-  reemplaza por una nota.
+  no analizable que adjunta la persona se bloquea (salvo las imágenes con `MASKING_IMAGES=pass`, el valor
+  por defecto, que salen con su contenido sin enmascarar); lo que devuelve una herramienta del agente se
+  reemplaza por una nota (las imágenes, con `pass`, salen tal cual). El DNI de prueba se enmascaró hacia
+  Azure en vivo el 7-oct-2026 🟢.
 - 🟡 **Caché**: los marcadores son estables por conversación para que el proveedor pueda reutilizar
   su caché; el efecto real sobre los aciertos no está medido.
-- 🔵 **Lectura de imágenes (OCR)**: no existe; las imágenes que adjunta la persona se bloquean bajo
-  enmascarado forzado y las del agente se omiten.
-- 🔵 **Skills de documentos** (PDF, Word, Excel, PowerPoint): en modo gateway no llegan las que la
-  aplicación trae con el proveedor original; la entrega como plugin de la organización está en estudio.
+- 🟢 **Lectura de imágenes**: con `MASKING_IMAGES=pass` (por defecto) el modelo las lee, siempre que la
+  ficha del destino tenga marcado *Imágenes* (verificado en vivo el 7-oct-2026). 🔵 El **análisis del
+  contenido** de la imagen (OCR) no existe: ese contenido sale **sin enmascarar**; el filtro de imágenes
+  (`filter`) está implementado pero no se probó en vivo y es la opción para quien no quiera que salgan.
+- 🔵 **Generación de imágenes**: no existe; los modelos diseñan SVG o HTML, no imágenes.
+- 🔵 **Skills de documentos** (PDF, Word, Excel, PowerPoint) **del proveedor original**: en modo gateway no
+  llegan; la entrega como plugin de la organización está en estudio. Aun así Cowork crea PDF y
+  presentaciones ejecutando código 🟢 (verificado en vivo el 7-oct-2026).
 - 🔵 **Búsqueda web**: es una herramienta del lado del servidor del proveedor original; en modo
   gateway requiere un conector de búsqueda.
 

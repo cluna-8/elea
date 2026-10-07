@@ -10,12 +10,15 @@ sujeto a una **postura de residencia** que decide cumplimiento, no el administra
 **Para quién**: el administrador de empresa que publica y mapea modelos, el responsable de
 cumplimiento que fija la residencia y las relajaciones, y el super admin de la instalación.
 
-!!! warning "Estado: 🟡 hasta la verificación en vivo"
+!!! warning "Estado: 🟡 salvo lo probado en vivo el 7-oct-2026"
     Todo lo que describe esta página está cubierto por pruebas automatizadas con un proveedor
-    **simulado**; **ninguna** integración se probó todavía en vivo contra un proveedor real, y la
-    extensión no está activada en ninguna instalación entregada. Por eso nada de lo que sigue se
-    marca 🟢: lo que se probó en vivo, y solo eso, pasará a 🟢 cuando exista la evidencia. Lo
-    único 🟢 hoy es lo que la base garantiza **sin** la extensión (ver [Límites](#limites-y-estado)).
+    **simulado**. Lo que además se **probó en vivo el 7-oct-2026** —Claude Desktop (Chat y Cowork)
+    conectado por la pasarela a **Azure** en una instalación de prueba hecha con el instalador y
+    `ELEA_REDIRECT=1`— figura 🟢 con esa fecha, y solo eso. Sigue 🟡 o 🔵 lo que **no** se
+    probó en vivo: otro proveedor que no sea Azure (OpenRouter/Kimi, Bedrock), los grupos, el kit
+    `managed-settings.json` instalado en una PC, el filtro de imágenes, la vuelta atrás de nivel 2 y
+    la región real del recurso de Azure (US, a confirmar). Lo 🟢 de la base **sin** la extensión está
+    en [Límites](#limites-y-estado). La extensión no se activa sola: se enciende por instalación.
 
 !!! note "Leyenda de estado"
     🟢 **HOY** — funciona y está verificado en vivo · 🟡 **PARCIAL** — existe y tiene pruebas
@@ -71,7 +74,7 @@ pestañas del catálogo y las de la redirección:
 
 | Pestaña | Para qué sirve | Quién escribe |
 |---|---|---|
-| **Destinos** | Las entradas del catálogo: modelo real, proveedor, ventana, precio, capacidades, ficha de cumplimiento, semáforo. | Admin de empresa (la ficha de residencia, solo cumplimiento) |
+| **Destinos** | Las entradas del catálogo: modelo real, proveedor, ventana, precio, capacidades, ficha de cumplimiento, semáforo. | Admin de empresa (las de su empresa; la ficha de residencia, solo cumplimiento). Las de **instalación**, el operador (ver abajo) |
 | **Modelos publicados** | Los ids públicos por cara y alcance, con etiqueta. | Admin de empresa |
 | **Reglas** | Id público o nivel → destino + fallbacks, con estrategia. | Admin de empresa |
 | **Política** | Encendida o apagada por alcance. | Admin de empresa |
@@ -96,13 +99,24 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
 
 - **Credenciales**: se guardan cifradas (con rotación de clave), son de **solo escritura** (el panel
   y la API nunca las devuelven) y se referencian por nombre. Una credencial puede ser de la empresa
-  o de la instalación (se comparte entre las entradas que la usan). Para Azure se **adopta** la de la
-  instalación por referencia a una variable del servidor, sin copiar el secreto. 🟡
+  o de la instalación (se comparte entre las entradas que la usan).
+  - **Azure, el camino normal**: la credencial se carga **desde el panel** (*Modelos → Credenciales*): la
+    **clave** del recurso y la **versión de API**; la **dirección del recurso** va en cada modelo
+    (*Editar → Dirección base*), no en la credencial. No se edita: para rotarla o cambiar la versión se
+    crea otra y se reasigna a los modelos que usaban la anterior. 🟢 (verificado en vivo el 7-oct-2026
+    con la versión `2025-04-01-preview`)
+  - **Azure, por referencia (solo para el operador)**: el catálogo de ejemplo de la instalación puede
+    **adoptar** una credencial por referencia a una variable del servidor (`env:…`), sin copiar el
+    secreto. Es el camino de los datos de ejemplo del operador; el administrador de empresa carga la
+    suya con el camino normal. 🟡
 - **Verificación de despliegue (Azure)**: al dar de alta o editar una entrada de Azure, el
   producto hace una prueba mínima contra el recurso; si el nombre no corresponde a un despliegue
   existente, la entrada queda **inactiva** con el motivo «El despliegue … no existe en el recurso
   configurado» hasta que **Verificar despliegue** pase. 🟡
-- **Versión de API (Azure)**: usá `2025-04-01-preview` o posterior; con una anterior el panel avisa (sin bloquear) y, para las herramientas y el razonamiento de Claude Desktop/Code, el producto sube la versión solo en esa llamada y deja la de la credencial para el chat. 🟡
+- **Versión de API (Azure)**: usá `2025-04-01-preview` o posterior (la que se usó en la prueba en vivo del
+  7-oct-2026 🟢). Con una anterior el panel avisa (sin bloquear) y, para las herramientas y el razonamiento de
+  Claude Desktop/Code, el producto sube la versión solo en esa llamada y deja la de la credencial para el
+  chat. 🟡 (el aviso y la subida no se probaron en vivo)
 - **Esfuerzo de razonamiento admitido**: algunos modelos solo aceptan ciertos valores de esfuerzo
   (el despliegue `gpt-5.1-chat` de Azure solo acepta `medium` y responde `400` con `low`). La entrada
   puede declarar la lista de esfuerzos que acepta (`reasoning_efforts`, entre `none`, `minimal`,
@@ -111,7 +125,8 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
   la auditoría como un ajuste de `reasoning_effort`, sin el valor: nunca un error por esto. Sin
   lista declarada rige el valor conocido del modelo (hoy solo `gpt-5.1-chat`) y, si tampoco hay, el
   pedido pasa tal cual. La lista se carga por la API del catálogo (en las claves de capacidades
-  de la entrada); la consola conserva el valor al editar el resto de la ficha. 🟡
+  de la entrada); la consola conserva el valor al editar el resto de la ficha. 🟢 (verificado en vivo el
+  7-oct-2026 con `gpt-5.1-chat`, que solo acepta `medium`)
 - **Ficha de cumplimiento**: por entrada, la **entidad responsable** (quien opera la inferencia),
   la **jurisdicción de la entidad**, la **jurisdicción de control** (la de quien posee el 50 % o más
   de la entidad o la controla), la **jurisdicción de inferencia** (dónde se procesa) y si hay
@@ -124,6 +139,15 @@ si el proveedor lo informa, lectura y escritura de caché) y las **capacidades**
 - **Gasto**: el costo se descuenta del presupuesto con el precio del **destino real**, de una única
   fuente de precios (la del catálogo). Sin precio cargado, la entrada queda al final de cualquier
   regla «más barato». 🟡
+- **Dos niveles: empresa e instalación**: las entradas de **empresa** las da de alta el administrador de
+  esa empresa. Las de **instalación** (por ejemplo los destinos de ejemplo de Azure que siembra el instalador)
+  las carga el operador: **solo cumplimiento o el super admin las ven y las administran**; el administrador de
+  empresa no las ve (la lista le sale vacía) hasta que el operador se las **ofrece** (botón *Ofrecer*, a una
+  empresa o a todas) y, aun ofrecidas, no las puede editar ni archivar (`403`). Por eso el administrador da de
+  alta **sus propios** destinos y, si no usa los de ejemplo, es el operador quien los archiva.
+  Comprobado en una instalación real el 7-oct-2026 (`GET /api/v1/catalog/entries`: `admin` → vacío,
+  cumplimiento → 4) 🟢; el código en `sentinel/catalog/store.py:124-137` y `sentinel/catalog/api/admin.py:221-222`
+  y `:1012-1017`.
 
 ### Ejemplo: Kimi K3 por OpenRouter
 
@@ -162,16 +186,21 @@ credencial ni prueba en vivo)
 
 1. **Publicar** un id para una cara y un alcance. En la cara Claude, el id tiene que ser uno que la
    **versión instalada** de la herramienta reconozca (el panel exige el prefijo `claude`): Claude
-   Code descarta los ids que no reconoce. La etiqueta que ve la persona es del tipo
-   el **id pedido**: por defecto la persona no ve a qué destino va (ni en la lista de modelos ni en
-   las respuestas, que siempre traen el id público). Mostrar el destino
+   Code descarta los ids que no reconoce. La etiqueta que ve la persona es, por defecto, el
+   **id pedido**: la persona no ve a qué destino va (ni en la lista de modelos ni en
+   las respuestas, que siempre traen el id público). 🟢 (verificado en vivo el 7-oct-2026: el cliente ve
+   `claude-*`.) Mostrar el destino
    («Sonnet · servido por *destino*») o una etiqueta propia son opciones **por id**, en *Modelos
    publicados → Etiqueta*; las filas que ya tenían una elección la conservan. En ambos casos la
-   lista lleva la ventana real del destino. En la cara genérica, el id es un alias neutro
+   lista lleva la ventana real del destino. 🟡 En la cara genérica, el id es un alias neutro
    («rápido», «pro»).
 2. **Regla**: id público (o nivel) → destino principal y fallbacks. Si el principal falla, no tiene
    credencial o la residencia lo excluye, responde el siguiente; la auditoría registra la
-   sustitución y su motivo.
+   sustitución y su motivo. 🟢 El mapeo `claude-haiku-…` → `gpt-5.4-mini`, `claude-sonnet-…` →
+   `gpt-5.1-chat` y `claude-opus-…` → `gpt-5.6-luna` (Azure) y **cambiar el destino de un nivel**
+   (`sonnet`: de `gpt-5.1-chat` a `gpt-5.6-luna`, editando solo la regla en *Reglas*) sin tocar el
+   cliente, con el cambio confirmado en los registros y en la auditoría, se verificaron en vivo el
+   7-oct-2026. Los respaldos (*fallbacks*) y la estrategia «más barato» siguen 🟡.
 3. **Estrategia** de la regla: **en orden** (el orden de la lista) o **más barato** (el de menor
    precio del catálogo; el costo registrado es siempre el del destino que respondió).
 4. **Id no publicado**: `404` «Modelo no disponible para tu organización.», sin revelar el motivo.
@@ -254,7 +283,10 @@ de la empresa (si no tiene, la de la instalación):
 
 En esta línea la instalación se siembra con `masked_all`: **todo lo redirigido sale enmascarado**,
 dentro o fuera de `AMERICAS`, con el analizador en modo **fail-closed** (si el analizador no
-responde, el pedido se bloquea, aunque la instalación esté configurada para «degradar»). 🟡
+responde, el pedido se bloquea, aunque la instalación esté configurada para «degradar»). 🟡 Lo que sí se
+verificó en vivo el 7-oct-2026 es el efecto: un **DNI** de prueba escrito en Claude Desktop sale
+**enmascarado** hacia Azure y vuelve restaurado 🟢. El fail-closed con el analizador caído, las
+demás posturas y las relajaciones no se probaron en vivo.
 
 Reglas que valen con **cualquier** valor:
 
@@ -340,10 +372,15 @@ Lo no detectado no se enmascara; ningún detector garantiza un recall del 100 %.
     resultado— **salen tal cual** hacia el modelo. No bloquean, no se reemplazan y no cuentan como «no
     analizable». **El contenido de la imagen no se enmascara**: si trae datos personales, viajan. El
     texto del pedido se sigue enmascarando completo. La auditoría registra `images_unmasked` (cuántas
-    imágenes salieron sin enmascarar) y su tipo, nunca el contenido. 🟡
+    imágenes salieron sin enmascarar) y su tipo, nunca el contenido. 🟢 (verificado en vivo el
+    7-oct-2026 con Claude Desktop: lectura de imágenes con `haiku`, `opus` y `sonnet`; el modelo del
+    destino tiene que tener marcado *Imágenes* en su ficha —sin eso la pasarela las reemplaza por una
+    nota—, y `sonnet` las leyó después de marcarlo.)
   - **`filter`**: el comportamiento más estricto. Una imagen que **adjunta la persona** bloquea el
     pedido; una que **devuelve una herramienta** se cambia por una nota de texto neutra y el binario
     **nunca sale**; la auditoría registra `unanalyzable_replaced` (cuántos) y el tipo, sin contenido. 🟡
+    (con pruebas automatizadas; el filtro **no** se probó en vivo y es el camino a futuro para quien quiera
+    que ninguna imagen salga)
   - Un valor desconocido se trata como `filter`. Lo decide la instalación (variable de entorno del
     motor, `.env.example`); **un pedido no puede cambiarlo**. Hoy no es un ajuste por grupo ni desde el
     panel. El ajuste solo cubre las imágenes: el audio y los documentos que no se pueden leer siguen
@@ -410,7 +447,8 @@ empresa y solo **agregan** (endurecen). 🟡
 
 | Herramienta | Cara | Estado |
 |---|---|---|
-| Claude Desktop (Chat, Cowork, Code) | Claude | 🟡 [guía](../integrations/claude-desktop.md) |
+| Claude Desktop (Chat y Cowork) | Claude | 🟢 verificado en vivo el 7-oct-2026 con Azure · [guía](../integrations/claude-desktop.md) |
+| Claude Desktop (Code) | Claude | 🟡 [guía](../integrations/claude-desktop.md) |
 | Claude Code | Claude | 🟡 [guía](../integrations/claude-code.md) |
 | CLI de formato de chat estándar (opencode, Aider en modo estándar, Continue, Cline/Roo, Zed) | Genérica | 🟡 [guía](../integrations/cli-formato-openai.md) |
 | Codex CLI | — (requiere una superficie de «Responses» que el producto no expone) | 🔵 |
@@ -419,9 +457,10 @@ empresa y solo **agregan** (endurecen). 🟡
 
 | Proveedor | Estado | Qué respalda esa marca |
 |---|---|---|
-| Azure (despliegues propios de la organización) | 🟡 | Es el **primer** destino a probar en vivo; hoy, solo pruebas con proveedor simulado y la verificación de despliegue |
-| DeepSeek, Qwen, GLM, Kimi, MiniMax (API oficial o `openai_compatible`) | 🟡 | Dados de alta y ruteados en pruebas con proveedor simulado; **sin credencial real**, sin verificación |
-| OpenRouter | 🟡 | Cada pedido sale con retención cero, sin recolección de datos y solo hacia la lista de proveedores permitidos de la entrada; **sin credencial real**, sin verificación |
+| Azure (despliegues propios de la organización) | 🟢 | Verificado en vivo el 7-oct-2026 con `gpt-5.4-mini`, `gpt-5.1-chat` y `gpt-5.6-luna`: credencial del catálogo, verificación de despliegue, ficha, enmascarado, esfuerzo e imágenes. La **región real del recurso** (US) está por confirmar en el portal de Azure; la ficha de cumplimiento es un dato que carga cumplimiento |
+| DeepSeek, Qwen, GLM, Kimi, MiniMax (API oficial o `openai_compatible`) | 🟡 | Dados de alta y ruteados en pruebas con proveedor simulado; **sin credencial real**, sin verificación en vivo |
+| OpenRouter | 🟡 | Cada pedido sale con retención cero, sin recolección de datos y solo hacia la lista de proveedores permitidos de la entrada; **sin credencial real**: el alta, la regla y el pedido a Kimi K3 no se probaron en vivo |
+| Bedrock | 🟡 | El catálogo lo admite como proveedor (alta y credencial con pruebas automatizadas, `sentinel/catalog/models.py:31`); el pedido hacia él no se probó, ni simulado ni en vivo |
 | Modelos locales (servidor propio) | 🟡 | Solo con el interruptor de la instalación (`CATALOG_ALLOW_PRIVATE_API_BASE`, pensado para una sola empresa); las empresas cargan únicamente `https` hacia hosts públicos |
 
 Los modelos chinos y económicos son un caso de uso de primera clase. Con las listas de bloqueo
@@ -447,8 +486,18 @@ posturas, relajaciones y fichas quedan en el registro de cambios con quién, qu�
 - 🟢 **Sin la extensión, la pasarela es la de siempre**: mismas respuestas, errores, lista de
   modelos y filas de auditoría, con una batería de no-regresión de 26 casos y la pantalla de
   descubrimiento sin nombres de componentes internos.
-- 🟡 **La política, las dos caras, el catálogo y las posturas** están implementados y con pruebas
-  automatizadas con proveedor simulado; **faltan las pruebas en vivo** (Azure primero).
+- 🟢 **Probado en vivo el 7-oct-2026 (Claude Desktop y Azure, instalación de prueba hecha con el
+  instalador y `ELEA_REDIRECT=1`)**: gateway de terceros (URL `/api/v1/gw`, `bearer`, llave estática,
+  descubrimiento de modelos); chat con `haiku` → `gpt-5.4-mini`, `sonnet` → `gpt-5.1-chat` y `opus` →
+  `gpt-5.6-luna`; cambio de destino de `sonnet` en *Reglas* sin tocar el cliente; DNI enmascarado hacia
+  Azure; Cowork creando PDF y presentaciones; diseño de SVG; lectura de imágenes; llave con
+  1 000 000 tokens/min y 120 pedidos/min por *Editar límites*; ajuste del esfuerzo de razonamiento;
+  etiqueta «id pedido»; credencial de Azure del catálogo; alta de modelos y ficha.
+- 🟡 **Lo demás de la política, las dos caras, el catálogo y las posturas** está implementado y con pruebas
+  automatizadas con proveedor simulado; **faltan las pruebas en vivo** de: otro proveedor que no sea Azure
+  (OpenRouter/Kimi), los grupos (solo pruebas), Claude Code, la cara genérica, el kit
+  `managed-settings.json` instalado en una PC, Bedrock, la vuelta atrás de nivel 2 y la región real del
+  recurso de Azure (US, a confirmar).
 - 🟡 **Residencia**: toda esta sección está 🟡 hasta la **revisión legal**. `AMERICAS` es un criterio
   de riesgo; el producto no afirma que una transferencia sea lícita ni que se «cumpla» una norma.
 - 🟡 **Perfiles de acceso**: rigen en la **pasarela** (las herramientas externas), **no** en el chat de
@@ -462,7 +511,10 @@ posturas, relajaciones y fichas quedan en el registro de cambios con quién, qu�
 - 🟡 **Tokens de caché en la auditoría**: figuran en las filas del camino de suscripción; las filas del
   camino con llave del producto (el motor las escribe antes de la respuesta) todavía **no** los
   llevan — 🔵 pendiente de un cambio chico de la base.
-- 🔵 **Lectura de imágenes (OCR)**: no existe; imágenes y PDF escaneados se bloquean.
+- 🔵 **Análisis del contenido de las imágenes (OCR)**: no existe. Bajo el enmascarado forzado las imágenes
+  salen con su contenido **sin enmascarar** (`MASKING_IMAGES=pass`, por defecto) o, con `filter`, se
+  bloquean o se reemplazan; el PDF escaneado (sin capa de texto) se bloquea siempre.
+- 🔵 **Generación de imágenes**: no existe. Los modelos no generan imágenes; sí diseñan SVG o HTML.
 - 🔵 **Codex CLI**: sin camino gobernado (el producto no expone la superficie «Responses»), aunque la
   pestaña **Kits** pueda generar un kit con ese nombre: no usarlo contra esta pasarela.
 - 🔵 **Modo sombra** (calcular el destino sin servirlo): reservado, no se ofrece.

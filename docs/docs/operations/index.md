@@ -716,12 +716,16 @@ una base vacía, aplica sus migraciones sobre ella y no toca el producto.
 sana y saber volver atrás. La política de producto está en
 [Redirección de modelos](../administration/redireccionamiento.md); esta sección es la operación.
 
-!!! warning "Estado: 🟡 sin verificación en vivo"
-    La entrega por el instalador (`ELEA_REDIRECT=1`) y los perfiles de cliente están implementados
-    en este repositorio y probados **sin contenedores**; la activación por el instalador, su proxy y
-    la prueba en un servidor real son 🔵 **OBJETIVO** (en curso en el repositorio del instalador).
-    Hasta entonces, **no hay una instalación entregada con la extensión activa**, y nada de esta
-    sección se probó de punta a punta con contenedores.
+!!! warning "Estado: 🟢 activación local con contenedores reales (7-oct-2026); servidor real y nivel 2 sin probar"
+    La entrega por el instalador (`ELEA_REDIRECT=1`) y los perfiles de cliente están implementados y
+    probados **sin contenedores**. Además, el **7-oct-2026** se instaló y se activó la extensión con el
+    instalador en una **instalación de prueba con contenedores reales** 🟢: imágenes `-ext`, entorno
+    con modo 600 fuera del repositorio, `GET /api/v1/redirect/health` en `200` al primer intento,
+    `/api/v1/internal/*` en `404` también desde la IP de la red local, la vuelta atrás de nivel 1
+    (apagar y volver a encender) y, sobre esa instalación, Claude Desktop contra Azure (ver
+    [Claude Desktop](../integrations/claude-desktop.md)). Sigue 🟡 **sin probar**: el servidor real de
+    Elea por VPN, la vuelta atrás de **nivel 2** (restaurar el respaldo), el respaldo en código con la
+    fila de región borrada (`503`) y el arranque abortado por una migración rota.
 
 **Prerrequisitos**
 
@@ -741,7 +745,7 @@ ellas, las imágenes `-ext` se comportan como las base.
 
 | Camino | Cómo | Estado |
 |---|---|---|
-| **Instalador** | `ELEA_REDIRECT=1` elige las imágenes `-ext`, crea el archivo de entorno de la extensión **fuera del repositorio con modo 600**, genera las claves y consulta `GET /api/v1/redirect/health` al terminar (falla visible ante cualquier respuesta que no sea 200). **No activa** la extensión si falta el proxy delante del backend (§7.5) | 🔵 en curso |
+| **Instalador** | `ELEA_REDIRECT=1` elige las imágenes `-ext`, crea el archivo de entorno de la extensión **fuera del repositorio con modo 600**, genera las claves y consulta `GET /api/v1/redirect/health` al terminar (falla visible ante cualquier respuesta que no sea 200). **No activa** la extensión si falta el proxy delante del backend (§7.5). Con `ELEA_REDIRECT=1` se pide también `ELEA_EXT_VERSION` (el tag de las imágenes `-ext`, no menor que el mínimo que fija el instalador) y, para que los kits lleven la dirección pública, `REDIRECT_GATEWAY_URL` | 🟢 probado con contenedores reales el 7-oct-2026 (activación, salud, apagar y volver a encender); el runbook de servidor, 🟡 sin probar en el servidor real |
 | **Perfil de cliente** (compose de producción) | `EXTRA_ENV_FILE=<archivo>` suma las variables al backend y al motor; `EXTRA_ENGINE_EXTENSIONS` copia al volumen de extensiones del motor (y al paquete air-gapped) los archivos extra; `PROFILE_FRAGMENTS` fusiona fragmentos YAML al `config.yaml` del motor renderizado (`model_list` y `guardrails` se agregan; un nombre duplicado hace **fallar** el render). Sin esas variables, la salida es idéntica byte a byte | 🟡 probado sin contenedores |
 | **Desarrollo** | Un override opcional de compose monta la extensión y sus seeds, con un script que prepara las extensiones del motor y el `config.yaml` fusionado. Plantilla de entorno **sin secretos**: `extensions.env.example` | 🟡 |
 
@@ -755,7 +759,7 @@ y descripción de las comunes en la [referencia de configuración](../api-refere
 | `MASKING_NONCE_KEY` | Clave del servidor (≥ 32 caracteres, **distinta de las demás y propia de cada instalación**) de la que se derivan los marcadores estables por conversación, la referencia de conversación y la afinidad de sesión. La genera el release (`openssl rand -hex 32`); va a backend **y** motor; no se puede usar como credencial de un modelo. Sin ella (o más corta) los marcadores son aleatorios: la caché del proveedor rinde menos, la protección no cambia |
 | `SENTINEL_ENTITY_REGION` | Perfil de país de la instalación (`latam_ar` en esta línea). El compose lo fija con un valor por defecto de perfil europeo: **hay que pasarlo por el entorno** (ver §7.3) |
 | `REDIRECT_SEED_FILES` | Archivos de datos (región y reglas de habilitación) que la extensión carga **al arrancar** |
-| `REDIRECT_CRED_<NOMBRE>` | Credenciales de los destinos **de instalación** (una por destino); nunca se versionan |
+| `REDIRECT_CRED_<NOMBRE>` | Credenciales de los destinos **de instalación** por referencia a una variable (una por destino); nunca se versionan. La credencial de Azure de los modelos que da de alta el administrador **no** va acá: se carga desde el panel (*Modelos → Credenciales*, clave y versión de API) y es de solo escritura. Las variables `AZURE_OPENAI_*` del `.env` quedan para lo heredado |
 | `REDIRECT_CACHE_TTL_S`, `REDIRECT_FIDELITY_BUDGET_USD`, `REDIRECT_GATEWAY_URL`, `REDIRECT_BETA_ALLOWLIST` | Opcionales: caché de política (5 s), presupuesto de cada prueba de fidelidad (0,50 USD), dirección pública que llevan los kits, lista de cabeceras beta permitidas hacia destinos nativos |
 | `CATALOG_ALLOW_PRIVATE_API_BASE` | Apagada por defecto. Permite que una empresa cargue un modelo local (`http` o red interna). Solo para instalaciones de **una** empresa |
 | `FERNET_PREVIOUS_KEYS` | Rotación de la clave de cifrado: la anterior **solo descifra** |
@@ -788,9 +792,11 @@ un archivo inválido se registra con su nombre sin frenar a los demás ni al arr
 rige el respaldo (§7.2). 🟡
 
 Datos de fábrica de esta línea: la región `AMERICAS` con postura por defecto **`masked_all`** y las
-reglas de habilitación **vacías**. El catálogo de ejemplo de Azure se carga aparte, con el cargador de
-datos de la extensión, y exige que el administrador complete en cada entrada las jurisdicciones y la
-entidad responsable (no se presumen).
+reglas de habilitación **vacías**. El catálogo de ejemplo de Azure se carga aparte (el instalador lo
+siembra al activar, como entradas de **instalación**: solo cumplimiento o el super admin las ven hasta
+que las ofrece a una empresa) y exige completar en cada entrada las jurisdicciones y la entidad
+responsable (no se presumen); el administrador de empresa da de alta **sus** modelos con su propia
+credencial (ver [Redirección de modelos](../administration/redireccionamiento.md#destinos-el-catalogo)).
 
 ### 7.4 Topes del lector de PDF del enmascarado forzado
 
@@ -818,8 +824,11 @@ fuera de la red de compose**: lo niega el proxy delante del backend con `404`, e
 compartido y acepta solo conexiones de `INTERNAL_ALLOWED_CIDRS` (ver §6.3). Las rutas de la
 extensión usan **la misma** comprobación. La ruta que entregaría una credencial descifrada devuelve
 `404` aunque el secreto sea correcto, salvo con `CATALOG_DIRECT_ENABLED` (vacía en esta línea).
-**Si el proxy no está, el instalador no activa la extensión.** Estado: la capa de origen está en el
-código de este repositorio 🟡; el proxy y su verificación en el instalador son 🔵 en curso.
+**Si el proxy no está, el instalador no activa la extensión.** Estado: el proxy y su verificación en el
+instalador se probaron con contenedores reales el 7-oct-2026 🟢 (`404` desde el servidor y desde la IP
+de la red local); la capa de origen (`INTERNAL_ALLOWED_CIDRS`) está en el código de este repositorio 🟡
+y su test de origen (`sentinel/tests/unit/test_internal_rutas_extension_origen.py`, tarea T089) **todavía
+no existe**.
 
 ### 7.6 Base compartida con el motor y vuelta atrás
 
@@ -846,8 +855,9 @@ código de este repositorio 🟡; el proxy y su verificación en el instalador s
 | Pedidos grandes tardan y se bloquean en cadena | Un analizador de entidades lento y el análisis de alcance completo de todo el historial | La caché de análisis ayuda desde el segundo turno; medir con el analizador real (🟡: la cifra no existe todavía) |
 | El panel «Modelos» no muestra las pestañas de redirección | La extensión no está activa en el backend o en el panel | Comprobar `PLUGIN_PACKAGES` y la imagen del panel `-ext` |
 
-**Rollback y límites**: no hay downgrade de migraciones; la activación por el instalador, la prueba
-local con un destino real y el runbook del servidor son 🔵 hasta completarse.
+**Rollback y límites**: no hay downgrade de migraciones. 🟢 La activación por el instalador, la prueba
+local con Azure y la vuelta atrás de nivel 1 se verificaron el 7-oct-2026; 🟡 el nivel 2 y el runbook en
+el servidor real no se probaron.
 
 ## Relacionado
 

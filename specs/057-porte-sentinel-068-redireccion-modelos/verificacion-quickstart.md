@@ -378,3 +378,29 @@ Humo adentro del contenedor (`mask_body` con una imagen adjunta, analizador vac�
 **No corrido (Docker; queda para el coordinador)**: `make -C deploy check`, `make -C deploy check-docs` y `docs-refs` (la API no cambió y `.env.example` solo suma una variable comentada que la referencia no lista; el generador no tiene deriva), la suite del backend en contenedor
 (`docker compose run --rm --no-deps backend pytest tests/ -q`), `cd frontend && npm test`, `cd client && npm test` (no se tocó nada de eso).
 **Para probar en vivo (owner)**: Claude Desktop/Cowork con una imagen adjunta y con una captura del agente: la auditoría debe traer `images_unmasked` (conteo y tipo); con `MASKING_IMAGES=filter` en el entorno del motor, la adjunta da el bloqueo y la captura la nota.
+
+## 12. Revisión de la documentación y verificación en vivo del 7-oct-2026 (docs, specs 057 y runbook del instalador)
+
+Rama `cluna-8/057-revision-manuales` sobre `9ae8563` (= `cluna-8/057-int`); solo `docs/docs/**`, `specs/057-…/` y, en `cluna-8/elea-installer` (rama `cluna-8/057-runbook-vpn`), `README.md` y `tests/test-runbook-*.sh`. Sin código de producto.
+
+**Verificado en vivo por el owner (Claude Desktop contra Azure, instalación hecha con el instalador y `ELEA_REDIRECT=1`, 7-oct-2026)**: conexión por gateway (URL `/api/v1/gw`, `bearer`, llave estática, descubrimiento); chat con
+`haiku` → `gpt-5.4-mini`, `sonnet` → `gpt-5.1-chat` y `opus` → `gpt-5.6-luna`; cambio de destino de `sonnet` (`gpt-5.1-chat` → `gpt-5.6-luna`) en *Reglas* sin tocar el cliente, confirmado en logs y auditoría; DNI enmascarado hacia Azure;
+Cowork con PDF y presentación; diseño SVG; lectura de imágenes con `haiku`, `opus` y `sonnet` (esta tras marcar *Imágenes* en su ficha); llave con 1 000 000 tpm / 120 rpm por *Editar límites*; esfuerzo ajustado (`gpt-5.1-chat` solo `medium`);
+etiqueta «id pedido» (el cliente ve `claude-*`); credencial de Azure del catálogo con `api_version` `2025-04-01-preview`; alta de modelos y ficha; instalación con el instalador y `ELEA_REDIRECT=1` (T102, `verificacion-instalador-local.md`).
+**No verificado en vivo (sigue 🟡/🔵)**: OpenRouter/Kimi u otro proveedor que no sea Azure, grupos «Todos»/«Solo Azure» (solo tests), el kit `managed-settings.json` instalado en una PC, Bedrock, el filtro de imágenes, la generación de imágenes (no existe),
+la vuelta atrás de nivel 2, Claude Code real, la cara genérica y la región real del recurso de Azure (US, a confirmar).
+
+**Qué cambió en la documentación** (detalle y tabla de contradicciones: `CHANGELOG.md` §4d): subieron a 🟢, citando la fecha, solo los ítems de la lista de arriba; se corrigieron las menciones viejas (imágenes bloqueadas / OCR, credencial de Azure «del `.env»`,
+destinos de instalación y quién los ve, 35 000–40 000 tokens, instalador y proxy «🔵 en curso», «sin verificación en vivo» general). En `tasks.md` quedan `[x]` T019, T100, T101 y T103 con su evidencia; siguen abiertas, con la nota de lo parcial, T045, T102 y T124
+(y, sin cambios, T051, T066, T078, T083, T086, T089).
+
+**Validaciones de esta revisión (2026-10-07)**:
+
+| Comando | Resultado |
+|---|---|
+| `python3 docs/tools/drift_gate.py` · `python3 docs/tools/test_drift_gate.py` · `python3 docs/test_gen_config_reference.py` | `VERDE — 0 fallo(s)` · 13 tests OK · OK |
+| `make -C deploy check-docs` (Docker, con el OK del owner para este comando; `free -h` antes: 4,0 GiB disponibles, umbral 1,5 GiB) | **verde** (`EXIT=0`: imagen de docs, build estricto, contenido con leyenda 🟢/🟡/🔵, naming neutro, white-label, búsqueda offline, referencias de API/config al día, estructura de GUÍA/RUNBOOK, versionado + i18n). La primera corrida falló **solo** en `test_docs_versioning.sh` («página sin traducción EN no degrada al contenido ES»): el contenido de la página era correcto y el check pasó 3 de 3 al repetirlo suelto y en la segunda corrida completa; parece una carrera del script (`wget … \| grep -q` con `pipefail`), no de la documentación. No se tocó el script |
+| Las 7 suites del instalador, sin Docker real: `bash tests/test-{base-motor,brand-name,proxy,redirect-optin,runbook-actualizar,runbook-redirect,super-admin}.sh` | las 7 con `TODO OK` (rc 0); `test-proxy.sh` salta la parte que corre el proxy de verdad por no haber binario `caddy` y lo dice |
+| Nombres de `deploy/release/checks/prohibited_names.txt` y secretos sobre las líneas agregadas a `docs/docs/**` | sin coincidencias |
+
+No se corrieron `make -C deploy check` completo, `docs-refs` (la API y `.env.example` no cambiaron), la suite del backend en contenedor ni `npm test`: esta revisión no toca código.

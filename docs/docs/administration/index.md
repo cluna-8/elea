@@ -94,7 +94,8 @@ super admin puede todas):
 
 | Acción | Tenant admin | Compliance officer | Client |
 |---|:---:|:---:|:---:|
-| Alta de destinos, ids publicados y reglas; encender la política por alcance | ✅ | ❌ (solo lectura) | ❌ |
+| Alta de destinos **de la empresa**, ids publicados y reglas; encender la política por alcance | ✅ | ❌ (solo lectura) | ❌ |
+| Ver, administrar y ofrecer los destinos **de instalación** (los de ejemplo que siembra el instalador) | ❌ (no los ve hasta que se le ofrecen, y aun así no los edita) | ✅ | ❌ |
 | Fijar regiones, la postura por defecto y las relajaciones del enmascarado forzado | ❌ | ✅ | ❌ |
 | Escribir en la ficha de un destino la entidad responsable, las jurisdicciones y la retención cero | ❌ | ✅ | ❌ |
 | Endurecer una postura de residencia (nunca relajarla) | ✅ | ✅ | ❌ |
@@ -292,6 +293,13 @@ petición. 🟢
 | `models` | Lista blanca de modelos que la key puede usar | todos |
 | `rpm_limit` / `tpm_limit` | Rate limit (requests y tokens por minuto) | `60` / `100000` |
 | `expires_at` | Expiración de la key | sin expiración |
+
+Los límites de una llave **existente** se cambian en *Usuarios & Presupuestos → Llaves Virtuales →
+Editar límites* (solo el rol administrador; rige de inmediato y, si el motor no responde, no cambia nada).
+Para **Claude Desktop** y **Cowork**, que mandan 35 000–67 000 tokens por pedido, los de fábrica son
+bajos: la llave que emite el kit del panel nace con **120 pedidos/min y 1 000 000 tokens/min** 🟡 (sin
+prueba en vivo); una generada a mano se corrige con *Editar límites* 🟢 (verificado en vivo el 7-oct-2026;
+ver [Claude Desktop](../integrations/claude-desktop.md)).
 
 **Por usuario o por grupo** — un presupuesto (`/api/v1/budgets`, solo tenant admin) se
 asigna a *un* usuario **o** a *un* grupo (nunca ambos, y a lo sumo uno por
