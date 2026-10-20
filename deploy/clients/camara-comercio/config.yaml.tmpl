@@ -31,7 +31,7 @@ model_list:
 # propósito POR ENCIMA: el que rechaza tiene que ser el backend, con su 503 honesto y
 # auditado, no el motor con un error opaco que nadie audita.
 #
-# `num_retries: 0` (issue #151, decisión #134-② sellada por JF el 12-ago): el candado más
+# `num_retries: 0` (issue #151, decisión #134-② sellada por el owner el 12-ago): el candado más
 # barato de los tres. El `num_retries: 2` de `router_settings` es sano contra un proveedor
 # cloud, pero contra el runtime local —que serializa y encola FIFO— es amplificación pura:
 # cada generación que expira vuelve a la MISMA cola dos veces más (×3 trabajo por pedido)

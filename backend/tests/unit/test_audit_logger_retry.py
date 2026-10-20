@@ -337,7 +337,7 @@ async def test_sin_identidad_de_connection_no_se_registra(monkeypatch, contador,
     """Llamada INTERNA con la master key (chat de la consola, generación de frases del
     router, embeddings): NO lleva identidad Sentinel y su plano de origen ya escribe la fila
     canónica. Registrarla acá también duplicaba cada petición del Playground en Logs
-    (hallazgo JF 29-jul: 2 llamadas → 3 filas, costo contado dos veces). Cero POST, cero
+    (hallazgo del equipo 29-jul: 2 llamadas → 3 filas, costo contado dos veces). Cero POST, cero
     pérdida contada: no es un fallo, es tráfico que no le pertenece a este plano."""
     monkeypatch.setenv("SENTINEL_AUDIT_URL", AUDIT_URL)
     plano = _PlanoInterno([200]).instalar(monkeypatch)

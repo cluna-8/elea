@@ -56,9 +56,9 @@ Router de responsabilidades y reglas de operación (el owner es Cristian; Atlas 
 
 `docker-compose.yml` fija `container_name: ${STACK_PREFIX:-sentinel}-<svc>`. El default `sentinel-*` deja intactos a los lectores (`deploy/release/checks/test_profile_renders.sh`, `backend/tests/e2e/test_guardrail_behavior_e2e.py`).
 
-- Un worktree paralelo: `STACK_PREFIX=<id> docker compose up …` (p. ej. `jeff223`, `qa`). **No quitar** `container_name`: Compose pasaría a `<proyecto>-<svc>-N` y rompe esos scripts.
+- Un worktree paralelo: `STACK_PREFIX=<id> docker compose up …` (p. ej. `qa1`, `qa`). **No quitar** `container_name`: Compose pasaría a `<proyecto>-<svc>-N` y rompe esos scripts.
 - `-p <proyecto>` solo aísla red y volúmenes. No despega nombres ni puertos de host.
-- Los puertos publicados (5433/8091/8090/4010) siguen globales. Si chocan, override **local no commiteado** de `ports` (`!reset []` o reasignar). Ya no hace falta override de `container_name` (el patrón `docker-compose.jeff018.yml`).
+- Los puertos publicados (5433/8091/8090/4010) siguen globales. Si chocan, override **local no commiteado** de `ports` (`!reset []` o reasignar). Ya no hace falta override de `container_name` (el patrón `docker-compose.qa018.yml`).
 - Los `sentinel-backend:prod` de `deploy/` son tags de imagen, no `container_name`.
 
 Detalle operativo: `tech-team/DevFlow-SentinelGuardian.md` § 8. Check: `scripts/check_stack_prefix.sh` (CI lo corre antes de `docker compose up`).

@@ -90,7 +90,7 @@ class ContentPolicyCreateSchema(BaseModel):
     def _al_menos_una_regla(self):
         # A NIVEL MODELO, no `field_validator("categories")`: un field validator NO corre
         # cuando el campo viene AUSENTE y toma su default, así que el guard sólo disparaba
-        # con `categories: []` explícito — justo la forma que ningún cliente manda (Jeff,
+        # con `categories: []` explícito — justo la forma que ningún cliente manda (el equipo,
         # 26-ago-2026, bloqueante #315: `update_content_policy` es borra+crea, así que un
         # PUT de sólo `description` pasaba este guard y borraba las reglas en silencio).
         if not self.categories and not self.blocked_words:

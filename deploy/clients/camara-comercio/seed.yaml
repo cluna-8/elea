@@ -1,4 +1,4 @@
-# Seed del PILOTO Cámara de Comercio — deliberadamente VACÍO (decisión JF,
+# Seed del PILOTO Cámara de Comercio — deliberadamente VACÍO (decisión del owner,
 # 2026-07-22): la aplicación se entrega 0km, "vacía pelada". Departamentos,
 # usuarios, Connections y presupuestos se dan de alta EN VIVO con el cliente
 # durante el onboarding (los crea el alta por UI/API, no este seed).

@@ -59,7 +59,7 @@ router = APIRouter(
 # (FR-013 de la 027). Constitución VII: ni el ``engine_guardrail_name`` ni ningún nombre de
 # proveedor viajan en la respuesta o en el error.
 
-# Copy del rechazo. Marco de JF: son **features incoming del catálogo**, no promesas rotas —
+# Copy del rechazo. Marco del owner: son **features incoming del catálogo**, no promesas rotas —
 # el mensaje explica por qué el interruptor no existe, sin pedir perdón y sin insinuar avería.
 DETALLE_CATALOGO_INCOMING = (
     "Este guardián es parte del catálogo incoming del producto: en esta instalación no hay "

@@ -608,7 +608,7 @@ async def test_fallback_tarjeta_valida_es_credit_card_luhn():
 
 @pytest.mark.asyncio
 async def test_fallback_numero_largo_sin_luhn_se_enmascara_fail_safe():
-    """CAMBIO DE COMPORTAMIENTO (opción A, decisión JF): el fallback ya NO usa Luhn. Una
+    """CAMBIO DE COMPORTAMIENTO (opción A, decisión del owner): el fallback ya NO usa Luhn. Una
     corrida de ≥13 dígitos (un nº de pedido) se enmascara como CREDIT_CARD aunque NO sea una
     tarjeta — over-mask deliberado, «ruidoso pero seguro». Antes (R1-R3, con checksum) quedaba
     intacta; el checksum + búsqueda de fronteras era justo el origen de las 3 fugas."""
@@ -622,7 +622,7 @@ async def test_fallback_numero_largo_sin_luhn_se_enmascara_fail_safe():
 async def test_fallback_iban_shape_sin_checksum_se_enmascara_fail_safe():
     """CAMBIO DE COMPORTAMIENTO (opción A): sin mod-97, cualquier corrida con forma de IBAN
     (país + 2 dígitos de control + ≥15 alnum) se enmascara como IBAN_CODE aunque el checksum
-    no cuadre. Antes quedaba intacta. Over-mask deliberado para no fugar (JF)."""
+    no cuadre. Antes quedaba intacta. Over-mask deliberado para no fugar (del owner)."""
     text = "El codigo interno ES00 1111 1111 1111 1111 1111 no es una cuenta"
     masked, types, _ = await _fallback_mask(text)
     assert types == ["IBAN_CODE"]
@@ -909,10 +909,10 @@ async def test_fallback_fuzz_tarjeta_agrupada_importe_cero_fugas():
     assert leaks == 0, f"{leaks}/{checked} inputs con dígitos del PAN en claro"
 
 
-# ── Fail-safe over-mask sin checksum (opción A, decisión JF) — 3ª variante de fuga (R3) ──
+# ── Fail-safe over-mask sin checksum (opción A, decisión del owner) — 3ª variante de fuga (R3) ──
 #
 # El re-review encontró que checksum+fronteras NO puede ser leak-free: un dígito pegado al
-# PRIMER grupo (la tarjeta ya no arranca en un inicio de token) fugaba el PAN entero. JF
+# PRIMER grupo (la tarjeta ya no arranca en un inicio de token) fugaba el PAN entero. el owner
 # eligió la opción A: enmascarar la CORRIDA entera que PODRÍA ser tarjeta/IBAN, sin checksum.
 # Ruidoso pero imposible de fugar por construcción.
 
@@ -973,7 +973,7 @@ async def test_fallback_iban_grouping_no_estandar_se_enmascara(grouped):
 
 @pytest.mark.asyncio
 async def test_fallback_over_mask_numero_legitimo_es_aceptado():
-    """Precio ACEPTADO del fail-safe (JF «ruidoso pero seguro»): un número largo legítimo
+    """Precio ACEPTADO del fail-safe (del owner «ruidoso pero seguro»): un número largo legítimo
     de ≥13 dígitos cae como CREDIT_CARD en degrade/dev. Se documenta como comportamiento
     esperado, NO como bug. (Los cortos <13 —factura, expediente, DNI— siguen intactos.)"""
     masked, types, _ = await _fallback_mask("El pedido 1234567890123456 se envió")   # 16 díg
@@ -1068,7 +1068,7 @@ async def test_fallback_intl_no_reintroduce_sobre_matcheo(text):
 # generalizó el separador a `[^0-9A-Za-z]?` (cualquier no-alfanumérico de 1 char): con eso
 # NINGÚN separador de 1 char puede fracturar la corrida — cierre del family POR CONSTRUCCIÓN.
 # Este test PARAMETRIZADO fija ese family: cada variante DEBE enmascarar la corrida entera,
-# cero dígitos del secreto en claro. Residual EXPLÍCITAMENTE aceptado (JF, «ruidoso pero
+# cero dígitos del secreto en claro. Residual EXPLÍCITAMENTE aceptado (el owner, «ruidoso pero
 # seguro»): separadores de 2+ chars/code-points (doble espacio, ` - `, emoji multi-codepoint)
 # todavía fracturan — NO se cubren acá porque son el precio documentado del paracaídas de
 # degrade/dev; el NLP real es el detector de producción.

@@ -12,7 +12,7 @@
 #   2. Sustituye en el manifest de la COPIA: name, description, action.default_title
 #      (= name), icons, action.default_icon (= icons) desde el brand-pack.
 #      NO hornea NINGUNA URL de gateway (host_permissions/config.js quedan intactos:
-#      la URL la pone el usuario en runtime — decisión JF, US2).
+#      la URL la pone el usuario en runtime — decisión del owner, US2).
 #   3. Embebe manifest.key (clave PÚBLICA base64 del par RSA del partner) para un ID
 #      de extensión ESTABLE entre carpetas/re-renders. La PRIVADA se escribe FUERA de
 #      git en deploy/clients/<slug>/secrets/extension_key.pem (gitignore: clients/*/secrets*)

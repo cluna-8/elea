@@ -404,7 +404,7 @@ def test_invariante_5b_el_secreto_no_aparece_ni_en_el_camino_feliz_seguido_de_un
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════
-# (c) P1 post-#260 (Jeff, sonda de ataque en vivo): allowlist de algoritmo
+# (c) P1 post-#260 (el equipo, sonda de ataque en vivo): allowlist de algoritmo
 #
 # `authlib.jose.jwt` (el objeto de módulo, ya sacado de este archivo) no tiene allowlist de
 # `alg` — decodifica con lo que el TOKEN declara, `none` incluido. Los 5 invariantes de la
@@ -415,7 +415,7 @@ def test_invariante_5b_el_secreto_no_aparece_ni_en_el_camino_feliz_seguido_de_un
 
 
 def test_invariante_6_alg_none_se_rechaza():
-    """El bypass que reportó Jeff: id_token SIN FIRMA (`alg=none`), con claims elegidos por el
+    """El bypass que reportó el equipo: id_token SIN FIRMA (`alg=none`), con claims elegidos por el
     atacante — email, subject, todo. Sin allowlist, `claims.validate()` los aprueba contento
     porque el contenido es "válido" a propósito."""
     _, jwks = _generar_par_rsa_y_jwks()

@@ -10,7 +10,7 @@ key del motor (ops/admin del proxy).
 
 **Presupuesto (#76, 2026-07-28)**: la misma resolución de identidad trae el tope y el
 gasto acumulado del dueño de la Connection (``max_budget_usd`` / ``spend_usd``), y una
-llave agotada se rechaza acá con **402 antes de llamar al proveedor** (decisión A de JF:
+llave agotada se rechaza acá con **402 antes de llamar al proveedor** (decisión A del owner:
 rechazo duro, no degradar a local). Es el único punto del plano motor donde el corte no
 cuesta dinero — el guardrail y el logger corren cuando el pedido ya está en vuelo.
 
@@ -393,7 +393,7 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     if not row.get("is_active"):
         raise Exception("Sentinel Gateway: la Connection está revocada.")
 
-    # ── Presupuesto agotado: rechazo DURO antes del proveedor (#76, decisión A de JF) ──
+    # ── Presupuesto agotado: rechazo DURO antes del proveedor (#76, decisión A del owner) ──
     # Hasta acá, /gw no tenía enforcement NINGUNO: el tope sólo cortaba en el Playground
     # (chat.py:646) y el `max_budget` por-llave viajaba a un provisionador del motor que
     # en selfhosted no existe. O sea: una herramienta con virtual key gastaba sin techo.

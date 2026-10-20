@@ -1,5 +1,5 @@
 """Contract test de los CANDADOS DEL MOTOR sobre el runtime local: tope de paralelismo y
-reintentos (#151; decisiones ② y ③ del #134, selladas por JF el 12-ago — ver ADR-0003).
+reintentos (#151; decisiones ② y ③ del #134, selladas por el owner el 12-ago — ver ADR-0003).
 
 Lo que se fija acá es el lado del MOTOR del nodo C1. El primer candado —el tope de admisión
 del backend (`engine_gate.py`)— ya tiene sus tests; éstos protegen el caso en que aquél no
@@ -40,7 +40,7 @@ from src.services import engine_gate
 # Tope sellado en el #151 (propuesta técnica del #134): «~20 = tope backend total + margen».
 TOPE_PARALELISMO_LOCAL = 20
 
-# Reintentos del router contra el runtime local (decisión #134-②, JF 12-ago). CERO, y no «los
+# Reintentos del router contra el runtime local (decisión #134-②, el owner 12-ago). CERO, y no «los
 # del global»: reintentar contra una cola FIFO que serializa es ×3 trabajo por pedido en el
 # peor momento posible. No apaga los fallbacks —son otra capa— ni toca a los proveedores
 # cloud, que conservan los 2 reintentos globales.
@@ -179,7 +179,7 @@ def test_el_deployment_local_no_reintenta():
             f"`{alias}`: num_retries={reintentos!r} no es un entero")
         assert reintentos == REINTENTOS_LOCAL, (
             f"`{alias}`: num_retries={reintentos}, esperado {REINTENTOS_LOCAL} (#134-②, "
-            "sellado por JF el 12-ago; ver ADR-0003)")
+            "sellado por el owner el 12-ago; ver ADR-0003)")
 
 
 def test_el_techo_del_motor_queda_por_encima_del_tope_total_del_backend():

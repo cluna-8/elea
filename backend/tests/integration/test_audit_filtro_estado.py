@@ -29,7 +29,7 @@ Los invariantes que se fijan acá:
    Consecuencia para este archivo: hay que sembrar las DOS formas de licencia que existen —la
    vigente por su emisor real y la histórica a mano, que ningún emisor de hoy puede producir—
    y exigir que las dos queden fuera de los dos baldes. Ver `sembrar`.
-3. **Los rechazos por capacidad quedan fuera de los DOS baldes** (gate #135 H4, decisión JF
+3. **Los rechazos por capacidad quedan fuera de los DOS baldes** (gate #135 H4, decisión del owner
    12-ago). `rejected_saturated` (`services/engine_gate.py`) no empieza con `blocked` a
    propósito —capacidad no es política—, así que sin exclusión explícita caería en el `else`
    y se contaría como PERMITIDO: un pedido que nunca se sirvió, por causa nuestra, informado

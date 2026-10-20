@@ -6,7 +6,7 @@ onboarding, que es justo lo que el nodo «el partner configura TODO solo» prome
 no hace falta. Es además el prerrequisito del E2E contra un tenant Entra real: sin
 una fila, `/auth/sso/login` no tiene a dónde ir.
 
-**API-first, no pantalla-first** (principio wizardable de JF): esto es un `PUT` que el
+**API-first, no pantalla-first** (principio wizardable del owner): esto es un `PUT` que el
 wizard de onboarding podrá disparar sin UI, y sobre el que la pantalla de admin se
 apoyará después. La superficie es el contrato; la UI, un cliente más.
 

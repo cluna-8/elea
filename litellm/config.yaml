@@ -85,7 +85,7 @@ router_settings:
   # serializa, reintentar es multiplicar el trabajo que ya no entra (#134-②).
   num_retries: 2
   timeout: 30
-  # Fallback por modelo — DECIDIDO (JF, 12-ago; ADR-0003): el producto cambia de modelo sólo
+  # Fallback por modelo — DECIDIDO (el owner, 12-ago; ADR-0003): el producto cambia de modelo sólo
   # donde hay un fallback configurado PARA ESE MODELO, como los de acá abajo o los que
   # escribe el panel (feature 010). Sin fallback configurado el error viaja explícito: queda
   # prohibida cualquier degradación hacia un modelo que nadie eligió. Ojo con lo que ya

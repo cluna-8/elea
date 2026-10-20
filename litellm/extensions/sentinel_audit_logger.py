@@ -331,7 +331,7 @@ class SentinelAuditLogger(CustomLogger):
         # consola, la generación de frases del router, embeddings…): ese tráfico ya lo
         # registra el plano que lo originó (chat.py escribe su propia fila) y registrarlo
         # acá también DUPLICABA cada petición del Playground en Logs de Auditoría, con el
-        # costo contado dos veces en los agregados (hallazgo de JF, 29-jul: 2 llamadas →
+        # costo contado dos veces en los agregados (hallazgo del equipo, 29-jul: 2 llamadas →
         # 3 filas; qwen3:4b anónima + camara-comercio-local con usuario eran EL MISMO
         # pedido). Cada plano registra solo su propio tráfico: este logger existe para el
         # byok de herramientas, que siempre llega con identidad resuelta por custom_auth.

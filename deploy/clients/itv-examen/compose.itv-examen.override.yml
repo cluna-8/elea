@@ -3,7 +3,7 @@
 # Por qué existe: gateway.py:125 lee SENTINEL_GW_ANTHROPIC_BASE (default api.anthropic.com)
 # para el passthrough de suscripción Anthropic, pero compose.prod.yml NO lo pasa al
 # backend (hallazgo R2 — "NO está en ningún compose, agregarla al overlay"). Este override
-# lo cablea al STUB del harness SIN editar el compose compartido (territorio Falime,
+# lo cablea al STUB del harness SIN editar el compose compartido (territorio de deploy/,
 # CODEOWNERS): se aplica como capa adicional.
 #
 #   docker compose --env-file deploy/clients/itv-examen/rendered/instance.env \

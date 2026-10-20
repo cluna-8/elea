@@ -99,7 +99,7 @@ FROM api_keys k
 LEFT JOIN users u ON u.id = k.user_id
 LEFT JOIN groups g ON g.id = k.group_id
 LEFT JOIN tenants t ON t.id = k.tenant_id
--- Presupuesto APLICABLE a esta Connection (issue #76, decisión A de JF = rechazo duro):
+-- Presupuesto APLICABLE a esta Connection (issue #76, decisión A del owner = rechazo duro):
 -- el motor no puede frenar el gasto de lo que no ve, y hasta acá la identidad no llevaba
 -- ni el techo ni el gasto, así que TODO el tráfico byok gastaba sin límite mientras el
 -- Playground sí frenaba. Se elige UNA fila —la misma que `BudgetService.update_budget`

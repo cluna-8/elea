@@ -1,9 +1,9 @@
-"""Enforcement de presupuesto en el plano MOTOR (issue #76, decisión A de JF).
+"""Enforcement de presupuesto en el plano MOTOR (issue #76, decisión A del owner).
 
 Hasta este fix, `/gw` no tenía enforcement NINGUNO: el tope sólo cortaba en el Playground
 (`chat.py:646`) y el `max_budget` por-llave viajaba a un provisionador del motor que en
 selfhosted no existe. O sea: una herramienta con virtual key gastaba sin techo — el
-hallazgo que JF marcó como CLAVE ("IMPORTANTE QUE FUNCIONE EL CONTROLADOR DE PRESUPUESTO").
+hallazgo que el owner marcó como CLAVE ("IMPORTANTE QUE FUNCIONE EL CONTROLADOR DE PRESUPUESTO").
 
 Qué se ancla acá, y por qué cada cosa:
 

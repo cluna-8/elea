@@ -29,7 +29,7 @@ verificar".
 
 Algoritmo fijado por ALLOWLIST (`JsonWebToken(["RS256"])`, no el objeto de módulo
 `authlib.jose.jwt` — ese no tiene allowlist y honra el `alg` que el TOKEN declara, `none`
-incluido: bypass de autenticación completo, hallado por Jeff sobre #260). Firma verificada
+incluido: bypass de autenticación completo, hallado por el equipo sobre #260). Firma verificada
 contra el JWKS del IdP (nunca `verify=False`). `iss` debe ser EXACTAMENTE el `issuer` que el
 propio discovery reportó; `aud` debe ser EXACTAMENTE el `client_id` de la config; expiración
 estándar (`exp`); `nonce` se compara a mano contra el que `exchange_code` recibió (no es un
@@ -87,7 +87,7 @@ _MAX_ESCANEO_ERROR_CODES = 50
 # que llegue al callback con un id_token `{"alg":"none"}` (sin firma) o `{"alg":"HS256"}`
 # (confusión de algoritmo, firmando con la clave PÚBLICA RSA del IdP como si fuera un secreto
 # HMAC compartido) pasa `claims.validate()` con total normalidad porque el contenido lo elige
-# él mismo. Hallazgo de Jeff sobre #260 (P1): bypass de autenticación completo, encadenado con
+# él mismo. Hallazgo del equipo sobre #260 (P1): bypass de autenticación completo, encadenado con
 # T015/T016 es sesión con el email que el atacante quiera, sin secretos ni clave del IdP. Fijar
 # la allowlist es el fix — `JsonWebToken(["RS256"]).decode()` levanta `UnsupportedAlgorithmError`
 # (subclase de `JoseError`) ante cualquier `alg` que no sea RS256, cae en el mismo `except`.

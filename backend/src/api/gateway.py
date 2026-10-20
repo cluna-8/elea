@@ -1416,7 +1416,7 @@ async def _rechazo_por_capacidad(request: Request, sentinel_key: Optional[str], 
     tool = policy.detect_tool(request.headers.get("user-agent"))
     # `await` y no `create_task`: la fila durable se escribe ANTES de responder (registrar →
     # rechazar). Lo que cambia es DÓNDE corre —un hilo— y no CUÁNDO. Diferir la fila para
-    # contestar antes es otra decisión, con semántica de pérdida propia, y es de JF.
+    # contestar antes es otra decisión, con semántica de pérdida propia, y es del owner.
     await run_in_threadpool(_registrar_rechazo_por_capacidad, sentinel_key, model, tool, latency)
     logger.warning("gateway byok: pedido rechazado por capacidad (tool=%s model=%s)", tool, model)
     # `error_fn`: la forma del error la pone la RUTA, no este helper. La ruta de mensajes

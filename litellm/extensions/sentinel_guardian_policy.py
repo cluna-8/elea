@@ -240,7 +240,7 @@ FALLBACK_STRUCTURED_BY_REGION = {
 # internacional se detecta con un patrón propio pero cuenta como PHONE_NUMBER en auditoría.
 _FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
 
-# Corridas estructuradas del fallback fail-safe (decisión JF, opción A — ver
+# Corridas estructuradas del fallback fail-safe (decisión del owner, opción A — ver
 # `_structured_id_spans`). NO se busca dónde empieza/termina el identificador dentro de la
 # corrida (eso, con checksum + fronteras, fue el origen de TRES variantes de fuga: R1 sufijo,
 # R2/R3 partición de grupos, R3 dígito pegado al primer grupo). Se enmascara la corrida
@@ -256,7 +256,7 @@ _FALLBACK_LABEL = {"PHONE_INTL": "PHONE_NUMBER"}
 #     fugar IBANs en grupos no estándar (`MT 84 …`, `MT8 4…`) que parten el par de control;
 #     NO relaja las 2 letras iniciales, así una palabra en mayúsculas delante (`IBAN ES91…`)
 #     no se traga el identificador (el ancla arranca en `ES91`, no en `IB`).
-# Residual ACEPTADO (JF, «ruidoso pero seguro»): un separador de ≥2 code-points (doble
+# Residual ACEPTADO (el owner, «ruidoso pero seguro»): un separador de ≥2 code-points (doble
 # espacio, ` - `, ` . `, `\r\n`, un emoji multi-codepoint —bandera/ZWJ/keycap—, o una LETRA
 # ASCII intercalada entre dígitos) todavía fractura la corrida, porque `[^0-9A-Za-z]?` consume
 # UN solo carácter. Sólo cruza el umbral de fuga (≥6 díg en claro) con un PAN SIN agrupar
@@ -325,14 +325,14 @@ def _structured_id_spans(text: str, run_re, min_units: int) -> list:
     """`[(start, end)]` a enmascarar: cada CORRIDA de `run_re` cuyo nº de unidades (chars no
     separador: dígitos para tarjeta, alnum para IBAN) alcance `min_units` se enmascara ENTERA.
 
-    FAIL-SAFE (decisión JF, opción A). No hay checksum ni sub-escaneo de fronteras: buscar
+    FAIL-SAFE (decisión del owner, opción A). No hay checksum ni sub-escaneo de fronteras: buscar
     dónde empieza/termina el identificador DENTRO de la corrida fue el origen de las tres
     variantes de fuga (R1 sufijo colgando; R2/R3 partición entre grupos; R3 dígito pegado al
     primer grupo). Al tapar la corrida completa es IMPOSIBLE, por construcción, dejar un tramo
     del PAN/IBAN en claro. Umbral por longitud (≥13 díg / ≥15 alnum) SIN tope superior: una
     corrida larga (dos tarjetas pegadas, un ID de 40 dígitos) se enmascara igual, entera.
 
-    Precio ACEPTADO (JF, «ruidoso pero seguro»): un número legítimo largo (un nº de pedido de
+    Precio ACEPTADO (el owner, «ruidoso pero seguro»): un número legítimo largo (un nº de pedido de
     16 dígitos) cae como CREDIT_CARD en el camino de degrade/dev. Sobre-enmascara, nunca fuga.
     El NLP real (camino de producción) es quien distingue con precisión; esto es el paracaídas.
 
@@ -452,7 +452,7 @@ async def default_analyze(text: str, region: str = DEFAULT_REGION) -> list:
 
     `region` (opcional, retrocompatible) elige los estructurados por-país; IBAN y tarjeta
     son internacionales y se detectan siempre. IBAN y tarjeta van por FAIL-SAFE (opción A,
-    decisión JF): se enmascara la corrida entera que PODRÍA ser una tarjeta/IBAN, sin
+    decisión del owner): se enmascara la corrida entera que PODRÍA ser una tarjeta/IBAN, sin
     checksum — ruidoso pero imposible de fugar (ver `_structured_id_spans`). NIF/NIE por
     formato. `resolve_overlaps` desempata solapes (gana el más largo → el IBAN, que contiene
     a la corrida de dígitos de su cuerpo, tapa el falso CREDIT_CARD sobre esos mismos dígitos).
