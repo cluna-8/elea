@@ -1,11 +1,11 @@
 # COORDINATION 029 — Rediseño UI Azure Foundry (claro, lean)
 
-**Orquestador**: Claude (srdev-claude). **Rama**: `029-ui-foundry` (worktree desde `dev-fran`).
-**Regla dura**: NUNCA commit directo a `dev-fran`/`main`. Minions en worktrees; el orquestador integra + verifica.
+**Orquestador**: Claude (srdev-claude). **Rama**: `029-ui-foundry` (worktree desde la rama de desarrollo de Sentinel).
+**Regla dura**: NUNCA commit directo a la rama de desarrollo de Sentinel ni a `main`. Minions en worktrees; el orquestador integra + verifica.
 Artefactos SDD: [spec.md](../specs/029-ui-foundry/spec.md) · [plan.md](../specs/029-ui-foundry/plan.md) · [tasks.md](../specs/029-ui-foundry/tasks.md).
 
 ## Objetivo
-Panel admin (React+Vite+Tailwind) de OSCURO → CLARO estilo Azure AI Foundry, para el piloto Cámara (martes). 6 páginas: Login, Dashboard, Firewall, Users, Models, Playground + shell + fix auto-save del toggle headroom. JF aprueba el look FINAL cuando vuelve.
+Panel admin (React+Vite+Tailwind) de OSCURO → CLARO estilo Azure AI Foundry, para el piloto Cámara (martes). 6 páginas: Login, Dashboard, Firewall, Users, Models, Playground + shell + fix auto-save del toggle headroom. El owner aprueba el look FINAL cuando vuelve.
 
 ## Design tokens (FUENTE ÚNICA — la fundación los fija; las páginas SOLO los consumen)
 
@@ -65,7 +65,7 @@ Cada uno: reemplazar clases oscuras hardcodeadas (`slate-700/800`, `text-white`,
 1. Integro FND primero, verifico build + shell claro (Playwright screenshot).
 2. Reviso cada page-minion, integro, verifico build.
 3. Playwright: dev server, screenshots de las 6 páginas, 0 errores de consola, 0 requests a Google Fonts, auto-save del toggle headroom, override de marca (brand oscuro → sigue claro).
-4. Codex review. NO merge a dev-fran (paso 3 joint con JF). Screenshots para su OK final.
+4. Codex review. NO merge a la rama de desarrollo de Sentinel (paso 3 joint con el owner). Screenshots para su OK final.
 
 ## Verificación de integración (orquestador, 2026-07-24)
 
@@ -92,5 +92,5 @@ Cada uno: reemplazar clases oscuras hardcodeadas (`slate-700/800`, `text-white`,
 - [ ] Fuentes auto-hospedadas, 0 requests a Google Fonts (air-gap).
 - [ ] Brand oscuro no rompe el tema claro; acento del brand aplicado; logo del cliente en sidebar.
 - [ ] Toggle headroom auto-guarda + sobrevive reload.
-- [ ] `npm run build` + lint verdes. Codex sin P1. Screenshots para JF.
-- [ ] Rama `029-ui-foundry` PR-ready contra `dev-fran` (NO mergeada).
+- [ ] `npm run build` + lint verdes. Codex sin P1. Screenshots para el owner.
+- [ ] Rama `029-ui-foundry` PR-ready contra la rama de desarrollo de Sentinel (NO mergeada).

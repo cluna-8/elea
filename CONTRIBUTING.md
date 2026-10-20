@@ -42,7 +42,7 @@ Ejemplo: `fix(presidio): fallar en voz alta cuando NLP degrada a regex (#63)`
 
 ## Licencias e instalaciones
 
-La emisión de licencias es de **Falime** (Install & Factory), con gate de Cristian cuando toca custodia o claves. Cristian define las políticas de compliance por país (policy packs). Runbook completo de instalación: `Structure/guardian-metodologia/references/organizacion.md`.
+La emisión de licencias es de Cristian (el owner), que también custodia las claves; Atlas (el orquestador, que administra a los workers) no emite ni custodia. Cristian define las políticas de compliance por país (policy packs). Runbook completo de instalación: `Structure/guardian-metodologia/references/organizacion.md`.
 
 ## Ciclos
 
@@ -50,7 +50,7 @@ Trabajamos en ciclos de 2 semanas con fecha fija: se recorta alcance, no se muev
 
 ## Organización
 
-División de departamentos, router de responsabilidades y reglas de operación: `Structure/ManosALaObra-SentinelGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto, JF) y `deploy/ROADMAP-factory.md` (Factory, Falime).
+Router de responsabilidades y reglas de operación (el owner es Cristian; Atlas orquesta a los workers): `Structure/ManosALaObra-SentinelGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto) y `deploy/ROADMAP-factory.md` (Factory, `deploy/`).
 
 ## Entorno local (varios worktrees)
 

@@ -252,7 +252,7 @@ nota de dos generaciones en el paso 2).
 ## Anexo · Sin pendrive
 
 Los mismos 4 ficheros viven en DOS sitios más: la carpeta `~/piloto-camara-sede/` del Mac
-de JF, y `/root/piloto-camara/` del VPS de sentinel-dev.
+del owner, y `/root/piloto-camara/` del VPS de sentinel-dev.
 
 ### A · Desde el Mac, por la LAN de la sede (vía preferida)
 
@@ -286,7 +286,7 @@ instalación, no viaja en claro por HTTP). Servirla temporal:
 ssh vps 'cd /root/piloto-camara && timeout 1800 python3 -m http.server 3004'
 ```
 
-En el servidor de la sede (la passphrase la tiene JF):
+En el servidor de la sede (la passphrase la custodia Cristian, el owner):
 
 ```bash
 wget http://95.217.129.250:3004/bundle-camara-comercio.tar.gz.enc && openssl enc -d -aes-256-cbc -pbkdf2 -in bundle-camara-comercio.tar.gz.enc -out bundle-camara-comercio.tar.gz
