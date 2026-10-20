@@ -33,5 +33,5 @@
 
 - Alcance del piloto acotado explícitamente: Claude + ChatGPT; Gemini diferido (fast-follow) en Supuestos.
 - Decisiones de owner ya cerradas listadas en Supuestos para no re-litigarlas en plan/tasks.
-- Dependencia de la 027 (motivo de bloqueo, US4) resuelta vía la rama de integración `dev-fran` — no espera merge externo.
+- Dependencia de la 027 (motivo de bloqueo, US4) resuelta vía la rama de integración la rama de desarrollo de Sentinel — no espera merge externo.
 - US7 (superficie canónica de navegador) y telemetría de adapter quedan fuera de esta spec por requerir coordinación con el dueño del módulo de seguridad antes del freeze de la 027; documentado en Supuestos.

@@ -8,7 +8,7 @@ Lectura: en cada decisión de ruteo. Escritura: PUT admin, atómica (tmp + `os.r
 
 ```jsonc
 {
-  "enabled": true,                      // switch global (pedido explícito de JF)
+  "enabled": true,                      // switch global (pedido explícito del owner)
   "default_model": "camara-comercio-local",  // referencia EXPLÍCITA a un modelo del catálogo
   "timeout_seconds": 5,                 // timeout de la llamada de embeddings (panel)
   "embedding_model": "router-embeddings",    // nombre en el catálogo del motor

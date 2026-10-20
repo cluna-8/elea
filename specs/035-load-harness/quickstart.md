@@ -10,7 +10,7 @@ en orden de construcción. Referencias: [contracts/](contracts/) y
    Verificar ANTES: cuota de vCPU de la cuenta ≥12 en la región.
 2. **Licencias ITV**: emitidas in-house con `backend/scripts/issue_license.py`
    (kid `sentinel-dev-2026b`; una de 300 y una de 500 seats; requiere la clave privada —
-   custodia a confirmar con JF). Montadas como `client.lic` +
+   custodia a confirmar con Cristian (el owner)). Montadas como `client.lic` +
    `SENTINEL_ALLOW_DEV_LICENSE=true`. JAMÁS `issue_dev_license.py` sobre stack vivo.
 3. **SUT**: `compose.prod.yml --profile selfhosted` con el perfil
    `deploy/clients/itv-examen/` (model_list → stub, `SENTINEL_GW_ANTHROPIC_BASE` → stub,

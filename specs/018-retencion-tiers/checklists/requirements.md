@@ -31,5 +31,5 @@
 
 ## Notes
 
-- ✅ Gate de producto SELLADO (JF, 13-ago-2026): (1) DSAR fuera — dueño Guardian, spec propia C3, fix del 500 (#193) como tarea suelta del encargo; (2) tiers `estricto`/`estándar` sobre el registry 027 confirmados.
+- ✅ Gate de producto SELLADO (del owner, 13-ago-2026): (1) DSAR fuera — dueño Guardian, spec propia C3, fix del 500 (#193) como tarea suelta del encargo; (2) tiers `estricto`/`estándar` sobre el registry 027 confirmados.
 - La decisión FR-009 es conjunta con la 017 — si la 017 cambia la semántica del auditor, revalidar ese FR antes de tasks.

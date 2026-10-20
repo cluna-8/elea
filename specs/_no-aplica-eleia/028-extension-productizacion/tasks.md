@@ -13,7 +13,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: puede correr en paralelo (archivo distinto, sin dependencia)
-- Rama: `028-extension-productizacion` (worktree desde `dev-fran`). Nunca commit directo a `main`.
+- Rama: `028-extension-productizacion` (worktree desde la rama de desarrollo de Sentinel). Nunca commit directo a `main`.
 
 ---
 
@@ -22,9 +22,9 @@ description: "Task list — 028 Productización de la extensión de navegador"
 - [ ] **T001** [Setup] Crear/actualizar `deploy/clients/camara-comercio/brand.json` con la marca **cc-guardian**: nombre visible, descripción (≤132 chars, sin "PoC"), íconos 16/48/128 del partner. Es la fuente del render de la extensión (US1).
 - [ ] **T002** [P] [Setup] Generar par RSA por partner para `manifest.key` (ID estable); pública base64 → al render, privada **fuera del repo** (misma custodia que las claves de licencia). Documentar dónde vive.
 
-## Phase 2: Foundational (baseline verificado en dev-fran)
+## Phase 2: Foundational (baseline verificado en la rama de desarrollo de Sentinel)
 
-- [ ] **T003** [Foundational] Confirmar en `dev-fran` el baseline que la 028 asume: `gw_inspect` bloquea con `{ok:false, blocked, blocked_by_layer, motivo}` (027, inspect.py) y `whoami` existe (inspect.py:134). Si algo no está, es dependencia de la 027, no de esta feature.
+- [ ] **T003** [Foundational] Confirmar en la rama de desarrollo de Sentinel el baseline que la 028 asume: `gw_inspect` bloquea con `{ok:false, blocked, blocked_by_layer, motivo}` (027, inspect.py) y `whoami` existe (inspect.py:134). Si algo no está, es dependencia de la 027, no de esta feature.
 
 **Checkpoint**: base lista — las historias pueden arrancar.
 
@@ -135,7 +135,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 - [ ] **T025** [P] **Docs DoD (OBLIGATORIO)**: actualizar `docs/docs/integrations/index.md` §3.3 + `docs/docs/operations/index.md` (config URL+key, prompt de permiso de host, chip de honestidad, motivos de bloqueo, offboarding) marca-neutro; `make -C deploy check-docs` 9/9.
 - [ ] **T026** `speckit-analyze` — consistencia spec↔plan↔tasks antes de implementar.
 - [ ] **T027** Validar `quickstart.md` end-to-end en `camara-ensayo` (compose selfhosted con 027 + extensión cargada).
-- [ ] **T028** [P] Revisión adversarial (Codex local) + gate white-label + suite backend verde antes de merge a dev-fran.
+- [ ] **T028** [P] Revisión adversarial (Codex local) + gate white-label + suite backend verde antes de merge a la rama de desarrollo de Sentinel.
 
 ---
 
@@ -165,7 +165,7 @@ description: "Task list — 028 Productización de la extensión de navegador"
 4. US4+US5 → honestidad + bloqueos.
 5. US6 → sesión/offboarding.
 6. US8a si hay tiempo.
-7. Polish (docs, analyze, ensayo, review) → merge a `dev-fran`.
+7. Polish (docs, analyze, ensayo, review) → merge a la rama de desarrollo de Sentinel.
 
 ## Fuera de alcance (recordatorio)
 

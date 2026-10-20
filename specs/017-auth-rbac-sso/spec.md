@@ -4,9 +4,9 @@
 
 **Created**: 2026-08-13
 
-**Status**: Draft — pendiente gate de producto (JF): 3 confirmaciones, ver Checklist
+**Status**: Draft — pendiente gate de producto (del owner): 3 confirmaciones, ver Checklist
 
-**Input**: Roadmap piso 0 (promesa API/BYOK, «SSO escalonado MS+Google, rol Lectura nuevo») + recorte de alcance sellado por JF el 13-ago-2026 + mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago).
+**Input**: Roadmap piso 0 (promesa API/BYOK, «SSO escalonado MS+Google, rol Lectura nuevo») + recorte de alcance sellado por el owner el 13-ago-2026 + mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago).
 
 ---
 
@@ -26,7 +26,7 @@ Todo lo de abajo está leído en el código de `main` (HEAD 81ea8ce), no en docs
 
 **Licencias.** `feature_flags` existe dentro de la licencia firmada Ed25519, con `feature_enabled` fail-closed («ausente = OFF») y **cero consumidores** (token.py:111-113). Las licencias emitidas hoy van con `flags=[]`. El seat es la Connection activa, no el User (seat_counter.py:20-32).
 
-### El recorte sellado (JF, 13-ago-2026)
+### El recorte sellado (del owner, 13-ago-2026)
 
 La 017 enunciada entera (matriz + auditor + Lectura + SSO MS **y** Google + cierre RLS completo + hardening) **no cabe en C2**. El recorte acordado:
 
@@ -39,7 +39,7 @@ La 017 enunciada entera (matriz + auditor + Lectura + SSO MS **y** Google + cier
 
 - **Con la 018 (PR #192)**: los auth events de esta spec caen en la clase `security_events` (365 d) del clasificador único de la 018 (su FR-002) — esta spec **emite**, la 018 **clasifica y purga**. El contrato de identidad de jobs batch (018 FR-006, `tenant_context`) es el mismo que esta spec exige a seeds y jobs. Y la decisión conjunta ya sellada en 018 FR-009: post-017, retención la escribe **solo tenant_admin**.
 - **Con Cristian**: el #137 toca `custom_auth._IDENTITY_SQL` — el corazón fail-closed del plano motor que esta spec también toca (FR-017); el #147 crea un router que nace con `require_role` legacy. **Precondición de tasks: orden de merge acordado con Cristian antes del 24-ago** (esta spec se resentinel sobre ellos, o ellos sobre esta — pero decidido, no descubierto en semana 1). Con la 036: nada de esta spec toca políticas de contenido.
-- **Con la 037 (wizard, Cristian) y el perfil de cliente (Falime)**: forma del bloque `sso` sellada por JF (14-ago, review del #206): `provider` con enum cerrado (v1: solo `entra`) + directory/tenant ID + client ID. **El client secret NO viaja en el perfil** (el perfil viaja en claro en el tarball): se introduce en el momento del install (checklist del instalador). El wizard **escribe la config no sensible**; la licencia **autoriza el uso** (FR-010). El perfil configura, la licencia autoriza.
+- **Con la 037 (wizard, Cristian) y el perfil de cliente (deploy/ (Factory))**: forma del bloque `sso` sellada por el owner (14-ago, review del #206): `provider` con enum cerrado (v1: solo `entra`) + directory/tenant ID + client ID. **El client secret NO viaja en el perfil** (el perfil viaja en claro en el tarball): se introduce en el momento del install (checklist del instalador). El wizard **escribe la config no sensible**; la licencia **autoriza el uso** (FR-010). El perfil configura, la licencia autoriza.
 - **Con la 021**: esta spec es el **primer consumidor** de `feature_enabled` — estrena el mecanismo que la 021 dejó listo.
 
 ---
@@ -139,7 +139,7 @@ Como responsable de seguridad del cliente, quiero que el login resista fuerza br
 
 **Capítulo B — SSO como contrato de proveedor; Entra primer módulo**
 
-- **FR-006**: Se define un contrato de proveedor SSO extensible (tipo + config por tenant), registry-style como las capas 027: agregar un proveedor nuevo = implementar el contrato + alta en el registro, sin tocar el flujo común. Proveedor v1: Microsoft Entra (OIDC authorization code). La config vive EN el tenant (los 3 datos del cliente: directory/tenant ID, client ID, client secret cifrado con el precedente Fernet de la instalación). El reparto de escritura quedó sellado por JF (14-ago, review del #206): el wizard 037 escribe en el perfil solo lo **no sensible** — bloque `sso` con `provider` (enum cerrado, v1: `entra`), directory/tenant ID y client ID —; **el client secret jamás viaja en el perfil** (viaja en claro en el tarball): se introduce en el momento del install y se persiste cifrado. *(Enmienda 14-ago; la redacción original le asignaba al wizard los 3 datos.)*
+- **FR-006**: Se define un contrato de proveedor SSO extensible (tipo + config por tenant), registry-style como las capas 027: agregar un proveedor nuevo = implementar el contrato + alta en el registro, sin tocar el flujo común. Proveedor v1: Microsoft Entra (OIDC authorization code). La config vive EN el tenant (los 3 datos del cliente: directory/tenant ID, client ID, client secret cifrado con el precedente Fernet de la instalación). El reparto de escritura quedó sellado por el owner (14-ago, review del #206): el wizard 037 escribe en el perfil solo lo **no sensible** — bloque `sso` con `provider` (enum cerrado, v1: `entra`), directory/tenant ID y client ID —; **el client secret jamás viaja en el perfil** (viaja en claro en el tarball): se introduce en el momento del install y se persiste cifrado. *(Enmienda 14-ago; la redacción original le asignaba al wizard los 3 datos.)*
 - **FR-007**: El callback SSO termina emitiendo EL MISMO token de sesión que el login local (`create_session_token`, session.py:30-37), con el tenant claim de FR-011 — cero bifurcación de sesión aguas abajo.
 - **FR-008**: Aprovisionamiento JIT mínimo: (a) matching por email a User existente — si es un sembrado con centinela `!seeded-client-no-login`, se activa ese mismo User sin duplicar y sin consumir seat por existir; (b) identidad nueva → alta con rol `client` por el MISMO camino de alta actual, seat gate incluido. Jamás re-asigna rol/tenant de un User existente.
 - **FR-009**: El login local por password es fallback PERMANENTE, declarado en las docs vendibles: SSO nunca es el único camino (posicionamiento air-gap: en sede sin salida el IdP no existe). La caída del IdP o una config rota degradan SOLO el camino SSO, con error claro y auditado.
@@ -194,12 +194,12 @@ Como responsable de seguridad del cliente, quiero que el login resista fuerza br
 - Instalaciones vivas son single-tenant (Cámara); la ventana de rotación de tokens de 24 h con tenant por defecto no rompe a nadie.
 - El tenant Entra de prueba llega de DevOps antes del 24-ago (encargo cursado 13-ago); sus credenciales van a custodia estándar de DevOps — jamás por chat; a la spec solo llegan dominio/directory ID/emails de test.
 - La infraestructura de rate-limit existente (Redis) está disponible en todos los perfiles de deploy donde hay login.
-- El equipo de Jeff implementa (regla JF 13-ago); Cristian hace gate de review de seguridad; el manager gatea y mergea.
+- El equipo implementa (regla del owner 13-ago); Cristian hace gate de review de seguridad; el manager gatea y mergea.
 
 ## Dependencies
 
 - **018 (PR #192)**: clasificador de clases de fila (FR-002 de aquella) para los auth events; contrato de identidad batch (su FR-006); decisión conjunta FR-009 (retención = tenant_admin) ya reflejada aquí en FR-002.
 - **Cristian #137/#147**: orden de merge sellado antes del 24-ago — precondición de tasks (FR-017 toca `custom_auth.py`; #147 nace con matriz vieja).
-- **037/perfil (Cristian/Falime)**: bloque `sso` opcional con forma sellada 14-ago (`provider` enum `entra` + IDs; el secret fuera del perfil, al checklist del install) — comunicada en el review del PR #206.
+- **037/perfil (Cristian + deploy/ (Factory))**: bloque `sso` opcional con forma sellada 14-ago (`provider` enum `entra` + IDs; el secret fuera del perfil, al checklist del install) — comunicada en el review del PR #206.
 - **DevOps**: tenant Entra de prueba (24-ago).
-- **Gate de producto (JF), 3 confirmaciones antes del 24-ago**: (1) Auditor read-only con única excepción reviews y sin probar dueño; (2) rol `lectura` con la superficie propuesta (no chatea, no seat, no dueño); (3) SSO gateado por flag de licencia firmada — primer consumidor de feature_flags; la Cámara queda con SSO apagado sin re-emisión.
+- **Gate de producto (del owner), 3 confirmaciones antes del 24-ago**: (1) Auditor read-only con única excepción reviews y sin probar dueño; (2) rol `lectura` con la superficie propuesta (no chatea, no seat, no dueño); (3) SSO gateado por flag de licencia firmada — primer consumidor de feature_flags; la Cámara queda con SSO apagado sin re-emisión.

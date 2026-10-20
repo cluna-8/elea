@@ -2,7 +2,7 @@
 
 **Branch**: `017-auth-rbac-sso` | **Date**: 2026-08-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/017-auth-rbac-sso/spec.md` — gate de producto SELLADO (JF, 13-ago): (1) auditor read-only con única excepción resolver reviews, sin probar dueño; (2) rol `lectura` de consulta pura (no chatea, no seat, no dueño); (3) SSO gateado por `feature_flags` de la licencia firmada (primer consumidor del mecanismo 021).
+**Input**: Feature specification from `/specs/017-auth-rbac-sso/spec.md` — gate de producto SELLADO (del owner, 13-ago): (1) auditor read-only con única excepción resolver reviews, sin probar dueño; (2) rol `lectura` de consulta pura (no chatea, no seat, no dueño); (3) SSO gateado por `feature_flags` de la licencia firmada (primer consumidor del mecanismo 021).
 
 ## Summary
 

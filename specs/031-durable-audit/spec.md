@@ -7,7 +7,7 @@
 **Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
 
 **Input**: User description: "Lo de auditoría sí o sí arreglar, es un problemón. Somos un
-producto de auditoría. (JF, 28-jul — decisión: sin coordinación con Cristian, deducir el
+producto de auditoría. (del owner, 28-jul — decisión: sin coordinación con Cristian, deducir el
 contrato del código y aplicar buenas prácticas de auditoría.) Para la demo del jueves
 30-jul. La purga automática de retención (spec 018) queda explícitamente FUERA."
 
@@ -40,7 +40,7 @@ contrato del código y aplicar buenas prácticas de auditoría.) Para la demo de
    licencias (`main.py:80-88`).
 6. **Guardianes**: de los 9 `guardian_type` sembrados, solo el plano regex/NLP ejecuta hoy
    (pii_masking/secret_detection/sensitive_routing, y solo en el plano chat); los 5 cloud
-   son **features opcionales incoming por diseño de producto** (aclaración JF 28-jul) — el
+   son **features opcionales incoming por diseño de producto** (aclaración del owner 28-jul) — el
    defecto NO es que existan sino que la UI los muestra como toggles activables cuando el
    motor descarta sus nombres en silencio (`ai_engine_client.py:201-204`,
    `governance_status.py:24-26`); `fail_mode`/`apply_on` no los lee ningún plano.
@@ -119,11 +119,11 @@ automática aún no ejecuta (estado «programada — pendiente de activación»,
 enforcement); la página «Seguridad y Guardianes» presenta el guardián regex/NLP como EL
 guardián activo de la instalación, y los 5 cloud como lo que son por diseño de producto:
 **opciones futuras del catálogo** («próximamente» / «no instalado», no activables) —
-aclaración de JF 28-jul: son features incoming, no promesas rotas; lo que corrige esta US
+aclaración del owner 28-jul: son features incoming, no promesas rotas; lo que corrige esta US
 es que hoy se pintan como toggles operativos. Los que sí ejecutan declaran su alcance
 («aplica en el chat interno», no «en todo»).
 
-**Why this priority**: JF lo definió como «governance configurable + UI honesta». Vender
+**Why this priority**: el owner lo definió como «governance configurable + UI honesta». Vender
 con una marquesina que promete 9 guardianes y entrega 3 es un riesgo comercial y de
 confianza mayor que decir la verdad bien dicha.
 
@@ -223,11 +223,11 @@ esta spec): cero afirmaciones de la UI sin respaldo en un plano de ejecución.
 
 - La tabla `audit_logs` existente alcanza para el evento de bloqueo (estado + metadatos);
   si el estado necesita un valor nuevo, es un valor de columna, no una tabla nueva.
-- El default del piloto es `audit_fail=open` (continuidad primero, señal visible) — JF
+- El default del piloto es `audit_fail=open` (continuidad primero, señal visible) — el owner
   puede cambiarlo a `closed` por perfil de instalación; la Cámara se instala con `open`.
 - El evento del plano motor viaja por el plano interno HTTP existente (el motor no tiene
   driver de DB — restricción conocida de la imagen LiteLLM).
-- La decisión JF 28-jul aplica: sin coordinación previa con el owner del módulo de
+- La decisión del owner 28-jul aplica: sin coordinación previa con el owner del módulo de
   seguridad; el contrato del evento se deduce del verdict del guardrail y de las columnas
   existentes; su review llega vía PR como cualquier cambio.
 - El monitor efímero (TTL 300 s) NO cambia: es vitrina, la durabilidad es de esta spec.

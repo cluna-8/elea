@@ -100,7 +100,7 @@ checkbox mentiroso.
       (usar `governance_status`/`probe_loaded_guardrails` — FR-007) + frontend (página de
       guardianes, nombre real a localizar): 5 cloud como tarjetas «próximamente / no
       instalado» SIN toggle; 3 reales con badge de plano(s) («chat interno + API byok» /
-      «chat interno»). Copy: features incoming del catálogo, no promesas rotas (marco JF).
+      «chat interno»). Copy: features incoming del catálogo, no promesas rotas (marco del owner).
 - [x] T013 [P] [US3] Retención (frontend pestaña en CompliancePage o equivalente): chip
       «purga automática: llega con la 018», política editable intacta, sin fecha inventada.
 - [x] T014 [US3] **CHECKPOINT**: checklist SC-004 página por página.
@@ -126,6 +126,6 @@ T015 al final
 - US3 es paralelizable con US1/US2 (ficheros disjuntos: guardianes/retención vs audit).
 - Los checkpoints vivos los corre el orquestador contra el stack camara; los agentes NO
   tocan contenedores camara-*.
-- Coordinación 016/Cristian: NO se coordina antes (decisión JF) — la review llega vía PR.
+- Coordinación 016/Cristian: NO se coordina antes (decisión del owner) — la review llega vía PR.
   Los ficheros de Cristian que se tocan (guardrail/logger) se tocan quirúrgicamente y con
   tests, deduciendo el contrato del código (D3/D5).

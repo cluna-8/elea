@@ -13,14 +13,14 @@
 
 ## Requirement Completeness
 
-- [x] No [NEEDS CLARIFICATION] markers remain — las decisiones abiertas del research se resolvieron con el recorte sellado por JF (13-ago) o quedaron como confirmaciones nombradas del gate de producto (ver Notes), no como huecos anónimos.
+- [x] No [NEEDS CLARIFICATION] markers remain — las decisiones abiertas del research se resolvieron con el recorte sellado por el owner (13-ago) o quedaron como confirmaciones nombradas del gate de producto (ver Notes), no como huecos anónimos.
 - [x] Requirements are testable and unambiguous — cada FR tiene verbo verificable; FR-005 y FR-013 son los dos harnesses que hacen falsables al resto.
 - [x] Success criteria are measurable — SC-001..007 con condiciones binarias.
 - [x] Success criteria are technology-agnostic — se miden por API/suite/dump sin conocer implementación.
 - [x] All acceptance scenarios are defined — 4 historias, 18 escenarios Given/When/Then.
 - [x] Edge cases are identified — 7, incluidos los tres que cruzan specs/planos (bootstrap sin dueño creable, purga 018 vs auth events, token sin tenant en rotación).
 - [x] Scope is clearly bounded — Out of scope con 7 exclusiones nombradas, cada una con destino (C3, release siguiente, 018, o «cuando haya segundo tenant»).
-- [x] Dependencies and assumptions identified — costura 018 (3 puntos), merge-order Cristian #137/#147, tenant Entra de DevOps, gate de producto JF.
+- [x] Dependencies and assumptions identified — costura 018 (3 puntos), merge-order Cristian #137/#147, tenant Entra de DevOps, gate de producto del owner.
 
 ## Feature Readiness
 
@@ -31,6 +31,6 @@
 
 ## Notes
 
-- Pendiente de gate de producto (JF), 3 confirmaciones: (1) auditor read-only con única excepción reviews y sin probar dueño; (2) rol `lectura` con superficie propuesta (no chatea, no seat, no dueño); (3) SSO gateado por feature_flag de licencia firmada (primer consumidor; Cámara sigue sin re-emisión).
+- Pendiente de gate de producto (del owner), 3 confirmaciones: (1) auditor read-only con única excepción reviews y sin probar dueño; (2) rol `lectura` con superficie propuesta (no chatea, no seat, no dueño); (3) SSO gateado por feature_flag de licencia firmada (primer consumidor; Cámara sigue sin re-emisión).
 - Precondición de tasks (no de spec): orden de merge #137/#147 sellado con Cristian antes del 24-ago — FR-017 toca `custom_auth.py`.
 - La decisión FR-002 es conjunta con la 018 (su FR-009): si una cambia la semántica del auditor o del escritor de retención, revalidar ambas antes de tasks.

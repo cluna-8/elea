@@ -1,16 +1,16 @@
 # Research (Fase 0): Productización de la extensión de navegador (028)
 
-Insumo primario: **issue #46** (brief de handoff). Este documento registra lo **verificado contra el código** de `dev-fran` (2026-07-24), que corrige varios supuestos del brief — sobre todo cuánto del lado servidor ya lo dejó hecho la 027.
+Insumo primario: **issue #46** (brief de handoff). Este documento registra lo **verificado contra el código** de la rama de desarrollo de Sentinel (2026-07-24), que corrige varios supuestos del brief — sobre todo cuánto del lado servidor ya lo dejó hecho la 027.
 
 ## D1 — Modelo de conexión: URL la pone el usuario, sin CORS, con permiso de host en runtime
 
-**Decisión (JF, revierte el brief):** el paquete hornea solo la marca; la URL + key las ingresa el usuario (editable, agnóstica, default opcional); el acceso al host se concede en tiempo de ejecución con `optional_host_permissions`.
+**Decisión (del owner, revierte el brief):** el paquete hornea solo la marca; la URL + key las ingresa el usuario (editable, agnóstica, default opcional); el acceso al host se concede en tiempo de ejecución con `optional_host_permissions`.
 
 **Por qué funciona sí o sí (verificado):** el único componente que hace fetch al gateway es el **service worker** — `extension/background.js` (no existe en este repositorio — ver ../README.md) lo dice explícito: *"Único que habla con el gateway (tiene host_permissions → sin CORS)"*. El content script `guardia-main.js` (MAIN, reescribe el HTML al enmascarar/desenmascarar) **no** hace fetch: manda el texto por `postMessage` → `bridge.js` (ISOLATED) → `chrome.runtime` → SW → `fetch(/inspect|/whoami)`. Un fetch del SW a un host con permiso **no pasa por CORS**. Conclusión: no hay CORS que resolver, no hace falta microservicio/proxy; el único portón es el permiso de host.
 
 **El problema real de hoy:** `manifest.json` clava `host_permissions: ["http://localhost:8091/*"]`. La URL del popup es editable pero es "libertad falsa": el SW no alcanza ningún otro host. `optional_host_permissions` + `chrome.permissions.request({origins})` en el gesto de "Conectar" lo resuelve (prompt nativo, una vez por host). Patrón MV3 estándar y privacy-preserving.
 
-**Alternativas descartadas:** (a) `host_permissions` amplio / `<all_urls>` — mala postura de seguridad, review de la tienda lo marca; (b) hornear la URL por deploy (modelo del brief) — reintroduce dependencia de conocer la URL al empaquetar, que es justo lo que JF quiere evitar; (c) microservicio/proxy server-side — no cambia el modelo de permisos del navegador, no resuelve nada.
+**Alternativas descartadas:** (a) `host_permissions` amplio / `<all_urls>` — mala postura de seguridad, review de la tienda lo marca; (b) hornear la URL por deploy (modelo del brief) — reintroduce dependencia de conocer la URL al empaquetar, que es justo lo que el owner quiere evitar; (c) microservicio/proxy server-side — no cambia el modelo de permisos del navegador, no resuelve nada.
 
 ## D2 — La 027 ya implementó el lado servidor de los bloqueos (US5)
 

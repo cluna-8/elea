@@ -8,7 +8,7 @@
 > motor incompatible con masking reversible → issue #30. Este documento conserva la
 > evidencia y las hipótesis ORIGINALES del spike sin reescribirlas.
 
-**Spec**: 019 · **Issue**: #15 · **Origen**: reunión JF+Cristian 2026-07-20 (Ollama como
+**Spec**: 019 · **Issue**: #15 · **Origen**: reunión del owner+Cristian 2026-07-20 (Ollama como
 entorno controlado para clientes de infraestructura) + candidatos ya registrados.
 
 Protocolo por spike (criterios de `compatibility.md` §T005): mecanismo de enganche →
@@ -171,7 +171,7 @@ identidad custom_auth — verificado en vivo), (c) el agéntico no dispara tools
 
 **PENDIENTE — requiere sesión GUI** (VS Code interactivo; no evidenciable headless con
 el protocolo de este batch). Mecanismo identificado: base URL configurable en settings
-(camino byok). Queda **EN SPIKE** en el registro para una sesión en vivo con JF.
+(camino byok). Queda **EN SPIKE** en el registro para una sesión en vivo con el owner.
 
 ---
 
@@ -190,8 +190,8 @@ el protocolo de este batch). Mecanismo identificado: base URL configurable en se
    comunes — territorio Presidio/016 (módulo seguridad), avisar a Cristian.
 4. **Docs**: guía de onboarding «modelo propio via Ollama» con los gotchas de contexto
    (`OLLAMA_CONTEXT_LENGTH`), login de suscripción y config por herramienta. ✅ En este PR.
-5. **Decisión de producto abierta (JF)**: el fallback cloud→local sustituye el modelo en
+5. **Decisión de producto abierta (del owner)**: el fallback cloud→local sustituye el modelo en
    silencio (la respuesta conserva el nombre pedido) — ¿aceptable para un producto de
    auditoría, o se quita/etiqueta? Documentado con ⚠ en `litellm/config.yaml`.
-6. **Tensión con la 023 (Falime)**: modelo local a costo 0 + fallback silencioso afecta
+6. **Tensión con la 023 (deploy/ (Factory))**: modelo local a costo 0 + fallback silencioso afecta
    el tracking de ahorro (FR-012/FR-013 de la 023) — mencionado en el PR.

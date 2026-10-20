@@ -100,7 +100,7 @@ El MVP es la US1 sola (streaming = el camino de todas las coding tools).
       con la evidencia nueva; actualizar `spikes-batch1.md` (Spike 1 veredicto) y cerrar
       el issue #27 desde el PR.
 - [x] T017 Review adversarial del branch (ultracode) + PR con review pedida a @cluna-8
-      (superficie compartida `litellm/`, frontera con seguridad) y merge solo con OK de JF.
+      (superficie compartida `litellm/`, frontera con seguridad) y merge solo con OK del owner.
 
 ## Dependencies & Execution Order
 

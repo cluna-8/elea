@@ -4,7 +4,7 @@
 `wf_601e144b`), cada uno con verificación empírica el mismo día (builds ejecutados,
 benchmarks corridos, precios consultados con fecha, file:line del repo en rama
 `035-load-harness` @ 31374a8). Consolidado por la sesión ITV.
-**Restricciones del owner (JF, 07-ago)**: open-source auto-hosteado en infra propia;
+**Restricciones del owner (del owner, 07-ago)**: open-source auto-hosteado en infra propia;
 pagar solo con justificación; entorno de examen = instancia dedicada AWS; licencias de
 test se emiten in-house; estrés observable en vivo.
 
@@ -123,7 +123,7 @@ self-hosted, $0/mes en el caso base:
 1. **Centro** (en el servidor AWS de contenedores donde ya viven Plane/Bitwarden):
    compose `harness/observability/` con **Prometheus** (`--web.enable-remote-write-receiver`,
    retención larga ~400d) + **Grafana OSS** (dashboards como código) tras el patrón
-   Caddy+auth de la casa. Es el tablero EN VIVO (pedido JF) y la memoria que sobrevive a
+   Caddy+auth de la casa. Es el tablero EN VIVO (pedido del owner) y la memoria que sobrevive a
    la instancia efímera.
 2. **Sonda** (en el SUT): node_exporter + cadvisor + postgres_exporter + redis_exporter
    + Prometheus en **agent mode** con remote_write SALIENTE al centro (push ⇒ sin
@@ -152,7 +152,7 @@ dashboard vivo + colector de logs + runs/ en git). Difiere sin dolor: redis_expo
 Loki, comparador automático, alerting.
 
 **Open questions**: headroom real del servidor de contenedores (pedir `docker stats`/
-`df -h` a JF); ¿VPC/SG compartidos centro↔SUT? (si remote_write viaja público: TLS +
+`df -h` al owner); ¿VPC/SG compartidos centro↔SUT? (si remote_write viaja público: TLS +
 basic auth obligatorio); estabilidad del flag `experimental-prometheus-rw` (pinnear k6 y
 registrar en fingerprint); dashboard comunitario k6 vs propio; cardinalidad real de
 series (acotar tags, sin tag por URL); tamaño real del tarball de logs (¿bajar log level
@@ -205,7 +205,7 @@ hardware fuera de versionado — justo lo que FR-009 prohíbe) · root de client
 paridad) · t3/flex (prohibido: burstable = no repetible).
 
 **Open questions**: ¿la sede termina TLS en Caddy o HTTP plano en LAN? (define
-INGRESS_HOST del examen; con TLS la tormenta de login paga handshakes — preguntar a JF);
+INGRESS_HOST del examen; con TLS la tormenta de login paga handshakes — preguntar al owner);
 specs reales de delorean/t800 para calcar la "sede razonable"; cuota de vCPU on-demand
 de la cuenta en eu-central-1 (el par pide 12 — verificar ANTES del primer run);
 credenciales de registry para pull de imágenes desde la VPC; disponibilidad c6i en la AZ
@@ -252,7 +252,7 @@ CLI sentinel-admin 026 (no implementada — no crear dependencia; migrar la emis
 exista) · UI/Playwright (lento y frágil; descartado).
 
 **Open questions**: **custodia de la privada de `sentinel-dev-2026b`** — license_out/ está
-gitignored y NO existe en este worktree: confirmar con JF que la tiene (si se perdió:
+gitignored y NO existe en este worktree: confirmar con Cristian (el owner) que la tiene (si se perdió:
 kid nuevo = rebuild de imagen); medir latencia real de /user/new y /key/generate en el
 primer run del seeder; tool_type canónico de la extensión (¿chatgpt/copilot/
 claude-desktop?) — copiar la distribución real de la Cámara; mapping client_type
@@ -285,7 +285,7 @@ harness/
 ```
 
 - **CODEOWNERS**: sin precedente de "equipo" (solo handles; @org/team imposible en
-  cuenta personal) → sección propia `harness/ @DrZuzzjen` con comentario del team.
+  cuenta personal) → sección propia `harness/ @owner` con comentario del team.
   Recomendado: **ADR corto `docs/adr/0002-harness-modulo-monorepo.md`** (CONTRIBUTING
   pide ADR para decisiones estructurales).
 - **Corpus**: se genera de cero (NO existe corpus reutilizable en el repo — verificado),
@@ -307,16 +307,16 @@ harness/
   TechTree cuando haya números medidos; AGENTS.md cuando el comando entre al gate común).
 
 **Alternatives**: repo propio (viola CONTRIBUTING; desincroniza contra el stack) ·
-backend/tests/load/ o deploy/ (contamina suite por-PR / territorio Falime) · layout
+backend/tests/load/ o deploy/ (contamina suite por-PR / territorio de deploy/) · layout
 plano sin src/ (rompe precedente backend) · dataset PII externo (sin canarios únicos ni
 densidades; riesgo de PII real residual — constitución exige 100% sintético).
 
 **Open questions**: confirmar Faker es_ES + python-stdnum (cobertura y licencias); ¿ADR
-0002 obligatorio o basta #95+spec? (decisión JF — recomendación: escribirlo, es 1
+0002 obligatorio o basta #95+spec? (decisión del owner — recomendación: escribirlo, es 1
 página); ¿reportes de gates oficiales commiteados al repo o solo plataforma R3?
 (fallback si la plataforma tarda: `harness/runs-official/` temporal); ¿job harness-tests
 en el PR del scaffold o diferido? (toca ci.yml recién mergeado); nombre `harness/` vs
-`itv/` (mantengo la propuesta literal del #95; decisión estética de JF); CODEOWNERS es
+`itv/` (mantengo la propuesta literal del #95; decisión estética del owner); CODEOWNERS es
 documental hasta que haya branch protection (plan free).
 
 **Coste**: $0.
@@ -347,7 +347,7 @@ documental hasta que haya branch protection (plan free).
   (chat ya lo hacía; ext y coding se suman) — el muro nº 1 del dossier del 04-ago se
   ejercita de lleno. La definición del gate fija `nlp_fail_mode`, exige imagen con #97,
   y la sonda/evaluador leen el bloque `nlp`. (Absorbido en spec y contrato de gate.)
-- **Corpus compartido (#107, decidido con JF 08-ago)**: el corpus de la 035 sube a
+- **Corpus compartido (#107, decidido con el owner 08-ago)**: el corpus de la 035 sube a
   artefacto del departamento — dataset etiquetado versionado (spans por entidad) +
   generador determinista; consumidores: harness (mezclas/canarios runtime-only) y gate
   de calidad de detección del core (precision/recall por entidad contra la imagen real
@@ -357,7 +357,7 @@ documental hasta que haya branch protection (plan free).
   entidades) y #106 (DoS de threadpool del guard ReDoS) — restricciones de guion
   registradas como edge case en la spec.
 
-## Addendum 08-ago (tarde) — provider swap AWS → Hetzner Cloud (aprobado por JF vía DevOps)
+## Addendum 08-ago (tarde) — provider swap AWS → Hetzner Cloud (aprobado por el owner vía DevOps)
 
 - **Motivo**: recon real de la sesión DevOps — la única cuenta AWS accesible
   (530084040072) hospeda producción legal de un cliente (Amplify + DynamoDB con leads
@@ -389,9 +389,9 @@ documental hasta que haya branch protection (plan free).
   registrado en fingerprint + jamás el VPS de prod — CCX lo cumple mejor. Confirmado a
   DevOps por el canal cross-session el 08-ago. Coste total real: 15-25 €/mes.
 
-## Addendum 12-ago — métricas nativas del stack y benchmarks publicados (research post-examen, pedido JF)
+## Addendum 12-ago — métricas nativas del stack y benchmarks publicados (research post-examen, pedido del owner)
 
-Pregunta de JF tras el examen: «¿reinventamos métricas que las librerías ya traen?
+Pregunta del owner tras el examen: «¿reinventamos métricas que las librerías ya traen?
 ¿Hay rangos publicados que nos ahorren escalar 125/250/500?». Research verificado
 contra el código de cada tag y fuentes primarias; consolidado operativo en #168.
 

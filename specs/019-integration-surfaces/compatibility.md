@@ -2,7 +2,7 @@
 
 **Spec**: 019 · **Estado**: viva (se actualiza al sumar/validar superficies) · **Última**: 2026-07-20
 
-Este documento es **el registro oficial de superficies cliente** (decisión JF 2026-07-20): toda
+Este documento es **el registro oficial de superficies cliente** (decisión del owner 2026-07-20): toda
 herramienta candidata a hablar con el gateway vive acá con su estado de ciclo de vida — se añade,
 se pospone o se cancela ACÁ, nunca en un canal lateral. La matriz de abajo guarda la evidencia
 técnica de las evaluadas; el sitio de docs (`docs/docs/integrations/`) publica el subconjunto
@@ -54,16 +54,16 @@ Estados del registro (ortogonales al veredicto técnico de la matriz):
 | VS Code / GitHub Copilot | EN MATRIZ | 2026-07-14 | PARCIAL — solo Ask |
 | Cursor | EN MATRIZ | 2026-07-15 | PARCIAL — solo chat/plan |
 | Claude Desktop | EN MATRIZ | 2026-07-14 | MCP-ONLY — tool-plane |
-| **Ollama como upstream** (modelos propios/locales) | EN MATRIZ | 2026-07-20 | FUNCIONA — spike batch 1 + spec 024 (#27 cierra con su PR); origen: reunión JF+Cristian 2026-07-20 (clientes infra = modelos propios en entorno controlado); nota cache #30 |
+| **Ollama como upstream** (modelos propios/locales) | EN MATRIZ | 2026-07-20 | FUNCIONA — spike batch 1 + spec 024 (#27 cierra con su PR); origen: reunión del owner+Cristian 2026-07-20 (clientes infra = modelos propios en entorno controlado); nota cache #30 |
 | **Claude Code → modelo propio** (byok→motor→Ollama) | EN MATRIZ | 2026-07-20 | FUNCIONA — **aguanta Agent** + round-trip completo (spec 024) |
 | Aider | EN MATRIZ | 2026-07-20 | FUNCIONA — diff-apply con valores reales (spec 024) |
 | Codex CLI | EN MATRIZ | 2026-07-20 | NO (roadmap, viable — issue #28): ruta Responses del motor sin política (verificado) + sin superficie en gateway ni endpoint en prod |
-| Cline / Continue | EN SPIKE · batch 1 | 2026-07-20 | Pendiente sesión GUI con JF (extensiones VS Code, no evidenciable headless) |
+| Cline / Continue | EN SPIKE · batch 1 | 2026-07-20 | Pendiente sesión GUI con el owner (extensiones VS Code, no evidenciable headless) |
 | Zed | PLANIFICADA · batch 2 | 2026-07-20 | Anuncia base URL OpenAI-compat; barato de probar tras batch 1 |
 | Gemini CLI | PLANIFICADA · batch 2 | 2026-07-20 | Confirmar si siquiera expone base URL |
 | OpenCode | PLANIFICADA · batch 2 | 2026-07-20 | Integración oficial de Ollama (descubierta en research 2026-07-20) → candidata natural al mismo camino byok |
 | Gemini web | EN MATRIZ | 2026-07-14 | NO (roadmap, viable) — con veredicto en la matriz; 2 gaps identificados (ver "Gemini — roadmap" abajo) |
-| Windsurf / JetBrains AI | POSPUESTA | 2026-07-20 | Decisión JF: fortalecer la base y testear la v1 con clientes reales antes de ampliar; además requieren cuenta/licencia. **Reapertura**: tras feedback de clientes de la v1 |
+| Windsurf / JetBrains AI | POSPUESTA | 2026-07-20 | Decisión del owner: fortalecer la base y testear la v1 con clientes reales antes de ampliar; además requieren cuenta/licencia. **Reapertura**: tras feedback de clientes de la v1 |
 | ChatGPT Desktop (app nativa) | POSPUESTA | 2026-07-14 | Sin camino técnico hoy: app nativa sin base_url ni hook interceptable (cert-pinning, mismo gap que el chat-plane de Claude Desktop). **Reapertura**: si aparece mecanismo de override |
 
 > Promover una superficie = correr su spike y moverla a **EN MATRIZ** con evidencia (FUNCIONA /

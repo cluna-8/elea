@@ -20,7 +20,7 @@ sueltos con foot-guns por comandos guiados (decisión definitiva, spec.md § Cla
   custodia de la privada de Sentinel, ni comandos exclusivos de firma — ni como módulo
   transitivamente importable.
 
-Decisión de lenguaje (JF): **Python** para ambos artefactos — el emisor (`sentinel-admin-signer`)
+Decisión de lenguaje (del owner): **Python** para ambos artefactos — el emisor (`sentinel-admin-signer`)
 **importa la lib de licensing existente** (`canonical_payload_bytes`, `verifier.py`), así
 que el riesgo de divergencia emisor↔verificador desaparece **por construcción** (la
 alternativa Go quedó evaluada, verificada y archivada en research). Distribución: **dos

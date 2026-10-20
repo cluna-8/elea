@@ -2,7 +2,7 @@
 
 **Branch**: `028-extension-productizacion` | **Date**: 2026-07-24 | **Spec**: [spec.md](./spec.md)
 
-**Input**: [spec.md](./spec.md) + [research.md](./research.md) (verificaciones contra `dev-fran`) + issue #46 (brief).
+**Input**: [spec.md](./spec.md) + [research.md](./research.md) (verificaciones contra la rama de desarrollo de Sentinel) + issue #46 (brief).
 
 ## Summary
 
@@ -36,7 +36,7 @@ Productizar la extensión MV3 (superficie navegador: Claude + ChatGPT) para el p
 ```text
 specs/028-extension-productizacion/
 ├── spec.md
-├── research.md          # verificaciones contra dev-fran
+├── research.md          # verificaciones contra la rama de desarrollo de Sentinel
 ├── plan.md              # este archivo
 ├── data-model.md        # entidades: brand-pack, paquete, proteccion, conexión
 ├── quickstart.md        # armar el zip del partner + probar conexión

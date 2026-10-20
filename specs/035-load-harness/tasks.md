@@ -7,8 +7,8 @@ data-model.md, contracts/, quickstart.md — todos sellados 07/08-ago)
 PR») — cada módulo lleva su pytest en `harness/tests/`.
 
 **Contexto de secuenciación (08-ago)**: el lado cloud está **bloqueado hasta que
-exista el project Hetzner `guardian-itv` + token** (Cris crea, JF genera; ~lunes 11).
-⚠️ Provider swap 08-ago aprobado por JF: **Hetzner Cloud, NO AWS** (CCX33 SUT + CCX23
+exista el project Hetzner `guardian-itv` + token** (Cris crea, el owner genera; ~lunes 11).
+⚠️ Provider swap 08-ago aprobado por el owner: **Hetzner Cloud, NO AWS** (CCX33 SUT + CCX23
 generador + CPX21 observabilidad; ver Addendum de research.md). TODO lo demás es
 construible y testeable en local (compose dev del repo). Las tareas bloqueadas llevan
 **[BLOQ-DEVOPS]**. El **corpus es el entregable compartido con el core (#107)** — va
@@ -29,12 +29,12 @@ módulo coherente.
       reporting,observe}/ + observability/ + infra/ + tests/ + runs/ en .gitignore) +
       `harness/pyproject.toml` (Python 3.12, deps: fastapi, uvicorn, httpx, pyyaml,
       zstandard; dev: pytest)
-- [ ] T002 [P] `.github/CODEOWNERS`: sección La ITV (`harness/ @DrZuzzjen`) — mismo PR
+- [ ] T002 [P] `.github/CODEOWNERS`: sección La ITV (`harness/ @owner`) — mismo PR
       que T001 (regla CONTRIBUTING)
 - [ ] T003 [P] `docs/adr/0002-harness-modulo-monorepo.md` (template 0000; registra
-      módulo + decisiones R1/R4/R6; pendiente OK de JF sobre ADR — si dice no, se cae)
+      módulo + decisiones R1/R4/R6; pendiente OK del owner sobre ADR — si dice no, se cae)
 - [ ] T004 [P] Job `harness-tests` en `.github/workflows/ci.yml` (pytest sin stack;
-      confirmar con JF antes de tocar el workflow recién mergeado de #93)
+      confirmar con el owner antes de tocar el workflow recién mergeado de #93)
 
 **Checkpoint**: PR de scaffold abierto (solo estructura + docs — codex-gate exento si
 no hay lógica).
@@ -108,14 +108,14 @@ AWS después. **Independent Test**: quickstart escenarios 1-3.
 - [ ] T019 [P] [US1] `deploy/clients/itv-examen/`: config.yaml.tmpl (model_list 100%
       `openai/<alias>` → stub, fallbacks stub-backed) + overlay env
       (`SENTINEL_GW_ANTHROPIC_BASE`→stub, provider keys vacías, `SENTINEL_ALLOW_DEV_LICENSE=true`)
-      — OJO: toca `deploy/` (CODEOWNERS Falime) → su review en el PR
+      — OJO: toca `deploy/` (CODEOWNERS de deploy/ (Factory)) → su review en el PR
 - [ ] T020 [P] [US1] `harness/src/seeder/`: cliente API (bootstrap admin → pre-check
       seats vía /api/v1/health/license fail-fast → users → keys → budgets), poblaciones
       `populations/gate-{125,250,500}.yaml` (distribución R5), idempotente + verify-only
 - [ ] T021 [US1] Tests seeder en `harness/tests/unit/test_seeder.py` (pre-check con
       población>seats → falla ANTES; orden users→keys; distribución suma exacta)
 - [ ] T022 [US1] Emitir licencias ITV (300 y 500 seats) con
-      `backend/scripts/issue_license.py` — **requiere la privada sentinel-dev-2026b (JF)**;
+      `backend/scripts/issue_license.py` — **requiere la privada sentinel-dev-2026b (Cristian, el owner)**;
       guardarlas FUERA del repo; documentar comando exacto en harness/README
 
 ### Escenarios k6 y orquestador
@@ -219,7 +219,7 @@ AWS después. **Independent Test**: quickstart escenarios 1-3.
 - **Corpus (2a) primero**: es el entregable compartido del #107 — T005 (esquema a
   review del core) es el primer commit de la fase 2.
 - **Gate oficial 125 (T031) requiere**: #97 mergeado en la imagen + licencia ITV
-  (T022, bloqueada por la privada de JF) + cajas Hetzner arriba con imágenes
+  (T022, bloqueada por la privada de Cristian, el owner) + cajas Hetzner arriba con imágenes
   precargadas.
 - Orquestación agéntica (DevFlow): Fable orquesta y verifica; agentes Opus codean una
   tarea acotada por brief. Review adversarial en T016/T025 (área de riesgo:

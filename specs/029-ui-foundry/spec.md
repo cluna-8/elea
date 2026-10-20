@@ -3,7 +3,7 @@
 **Feature Branch**: `029-ui-foundry`
 **Created**: 2026-07-24
 **Status**: Implementada — estado canónico en [`ROADMAP-guardian.md`](../ROADMAP-guardian.md)
-**Input**: Pedido de JF — "la UI es muy horrible; quiero algo más como Azure Foundry, blanco, tipografías normales de Google Fonts, lean. EN/ES eventual. Piloto Cámara el martes." + 4 screenshots de Azure AI Foundry como referencia.
+**Input**: Pedido del owner — "la UI es muy horrible; quiero algo más como Azure Foundry, blanco, tipografías normales de Google Fonts, lean. EN/ES eventual. Piloto Cámara el martes." + 4 screenshots de Azure AI Foundry como referencia.
 
 ## Contexto
 
@@ -94,11 +94,11 @@ En Seguridad, el toggle de headroom (y toggles de la misma familia) persiste al 
 - **SC-002**: Con un brand.json de colores oscuros, el panel sigue claro (solo el acento cambia).
 - **SC-003**: 0 requests a dominios de Google Fonts al cargar; la tipografía diseñada renderiza sin red externa.
 - **SC-004**: El toggle de headroom persiste solo (verificado en vivo) y sobrevive un reload.
-- **SC-005**: Screenshots de las 6 páginas para aprobación del look FINAL por JF.
+- **SC-005**: Screenshots de las 6 páginas para aprobación del look FINAL por el owner.
 
 ## Assumptions
-- **Aprobación final**: JF revisa y aprueba el look FINAL cuando vuelve (esta feature deja las 6 páginas implementadas y screenshoteadas, listas para su OK y ajustes).
-- **EN/ES**: los textos quedan en ES (como hoy); la i18n EN/ES completa es fast-follow (JF: "eventualmente").
+- **Aprobación final**: el owner revisa y aprueba el look FINAL cuando vuelve (esta feature deja las 6 páginas implementadas y screenshoteadas, listas para su OK y ajustes).
+- **EN/ES**: los textos quedan en ES (como hoy); la i18n EN/ES completa es fast-follow (del owner: "eventualmente").
 - **Router**: se mantiene el router por estado de `App.tsx` (no se migra a react-router en esta feature).
 - **Páginas no-piloto**: heredan tokens/shell; su restyle fino es fast-follow, no bloquea el martes.
-- **Referencia visual**: los 4 screenshots de Azure AI Foundry de JF (canvas claro, cards blancas con borde, nav lateral, acento azul, pills, mucho aire).
+- **Referencia visual**: los 4 screenshots de Azure AI Foundry del owner (canvas claro, cards blancas con borde, nav lateral, acento azul, pills, mucho aire).

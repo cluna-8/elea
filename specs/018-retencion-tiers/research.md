@@ -43,7 +43,7 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 ## D7 — Tier de enforcement: capa booleana sobre el registry 027
 
 - **Decision**: `enforcement_tier_estricto` como capa booleana del registry 027 (on = estricto; off/ausente = estándar). Alta de la clave en el registry puro compartido (`sentinel_governance.py`) — cambio solo-código; el resolutor del motor ignora claves que no consume. Consumidores (backend): pisos de retención en FR-007, aserción de postura `SENTINEL_AUDIT_FAIL` (incoherencia → health degradado + evento auditado, SIN reescribir el env ni tocar el espejo triple), consecuencias de capas con grado. La capa de piso AI-Act se evalúa SIEMPRE (invariante 027, sentinel_governance.py:272-283).
-- **Rationale**: `governance_profiles.decision` tiene CHECK `on/off` y `layer_key` va sin FK/CHECK a propósito — capa nueva sin migración (≈1 semana menos que migrar el CHECK a vocabulario no binario y renegociar el contrato serializado entre planos). Es la opción sellada por JF (13-ago).
+- **Rationale**: `governance_profiles.decision` tiene CHECK `on/off` y `layer_key` va sin FK/CHECK a propósito — capa nueva sin migración (≈1 semana menos que migrar el CHECK a vocabulario no binario y renegociar el contrato serializado entre planos). Es la opción sellada por el owner (13-ago).
 - **Alternatives considered**: migrar el CHECK a vocabulario de tiers (caro, toca librería compartida entre planos); tabla/dominio propio (más aún); env var (no auditable ni gobernable por UI).
 
 ### Pisos/topes por tier (defaults del plan, ajustables en tasks)
@@ -63,5 +63,5 @@ Fuente: mapa as-is verificado en fuente (workflow de 6 agentes, 13-ago-2026, ~87
 ## D9 — Fronteras confirmadas
 
 - **036 (Cristian)**: la 018 = ENFORCEMENT; la 036 = futura FUENTE de configuración (retention_days en PolicyBundle, su FR-003). Esta spec consume la fuente vigente (`retention_policies`) y define el contrato de lectura.
-- **DSAR**: fuera — dueño Guardian, spec propia C3 (decisión JF 13-ago, registrada en spec.md); fix del 500 (#193) = tarea suelta del encargo.
+- **DSAR**: fuera — dueño Guardian, spec propia C3 (decisión del owner 13-ago, registrada en spec.md); fix del 500 (#193) = tarea suelta del encargo.
 - **017 (paralela)**: FR-006 (identidad batch) y FR-009 (escritura de retención = tenant_admin) sellados en ambas specs; implementables en cualquier orden de merge gracias al criterio verificable de FR-006.

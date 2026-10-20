@@ -1,6 +1,6 @@
 # Research — 017 Identidad con dientes
 
-Fuente: mapa as-is verificado en fuente (workflow 6 agentes, 13-ago, ~876k tokens; `path:line` leídos en main @ 81ea8ce) + decisiones de producto selladas por JF el mismo día. Cero NEEDS CLARIFICATION.
+Fuente: mapa as-is verificado en fuente (workflow 6 agentes, 13-ago, ~876k tokens; `path:line` leídos en main @ 81ea8ce) + decisiones de producto selladas por el owner el mismo día. Cero NEEDS CLARIFICATION.
 
 ## D1 — Matriz sobre el shim; PERMISSIONS muere
 
@@ -17,7 +17,7 @@ Fuente: mapa as-is verificado en fuente (workflow 6 agentes, 13-ago, ~876k token
 ## D3 — Config SSO: tabla por tenant, secret Fernet
 
 - **Decision**: tabla `sso_providers` (tenant_id, provider_type, config JSONB, client_secret cifrado Fernet, enabled) bajo RLS — patrón GovernanceProfile (migración 012); en on-prem single-tenant colapsa a una fila.
-- **Rationale**: la config es DEL cliente (sus 3 datos + su redirect URI) y el wizard 037 la escribe vía el bloque `sso` del perfil (sellado con Cristian/Falime 13-ago) — una tabla por tenant es lo que el perfil siembra. Precedente Fernet ya existe (`oauth_credential_ref`, 010:216-222).
+- **Rationale**: la config es DEL cliente (sus 3 datos + su redirect URI) y el wizard 037 la escribe vía el bloque `sso` del perfil (sellado con Cristian y deploy/ (Factory) 13-ago) — una tabla por tenant es lo que el perfil siembra. Precedente Fernet ya existe (`oauth_credential_ref`, 010:216-222).
 - **Alternatives**: env por instalación (no gobernable por UI ni sembrable por perfil versionado; muere en multi-tenant cloud).
 
 ## D4 — JIT y el centinela
@@ -28,7 +28,7 @@ Fuente: mapa as-is verificado en fuente (workflow 6 agentes, 13-ago, ~876k token
 ## D5 — Flag de licencia `sso` (primer consumidor de la 021)
 
 - **Decision**: superficie SSO entera detrás de `feature_enabled('sso')` (token.py:111-113, fail-closed) — gate en el router de `sso/api.py` + botón del frontend condicionado. Config del tenant puede persistir con flag apagado.
-- **Rationale**: decisión de JF (13-ago) + principio sellado públicamente con Cristian: «el perfil configura, la licencia autoriza». Cámara (`flags=[]`) sigue igual sin re-emisión.
+- **Rationale**: decisión del owner (13-ago) + principio sellado públicamente con Cristian: «el perfil configura, la licencia autoriza». Cámara (`flags=[]`) sigue igual sin re-emisión.
 - **Alternatives**: sin gate (contradice el principio recién sellado; quitar después algo ya usado es peor); re-emitir a Cámara ya (no lo pidió; el backup de la privada #65 sigue pendiente).
 
 ## D6 — Tenant claim y rotación

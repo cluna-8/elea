@@ -28,10 +28,10 @@ script mide lo que tiene que valer en ese estado y deja la captura.
 
 | # | Qué | Quién | Estado |
 |---|---|---|---|
-| 1 | Tenant Entra de prueba, con la app registrada | DevOps (Fran) | ✅ existe desde el 18-ago |
-| 2 | **URI de retorno registrada en el portal = `http://localhost:8090/sso/callback`** | Fran | ⚠️ **verificar** — ver más abajo |
-| 3 | Client secret vigente de esa app | Fran, por vía segura | ⏳ pendiente |
-| 4 | Usuario piloto del directorio, con su segundo factor | Fran | ⏳ pendiente |
+| 1 | Tenant Entra de prueba, con la app registrada | DevOps | ✅ existe desde el 18-ago |
+| 2 | **URI de retorno registrada en el portal = `http://localhost:8090/sso/callback`** | owner | ⚠️ **verificar** — ver más abajo |
+| 3 | Client secret vigente de esa app | Cristian (el owner), por vía segura | ⏳ pendiente |
+| 4 | Usuario piloto del directorio, con su segundo factor | owner | ⏳ pendiente |
 | 5 | Licencia con el flag `sso` | Emisión del fabricante | ✅ desbloqueado (`issue_license.py --feature-flags sso`, #281) |
 | 6 | Stack local en los puertos estándar | Quien corre el E2E | — |
 
@@ -74,7 +74,7 @@ es exactamente el falso verde que la sonda parece descartar.
 
 Quedan dos formas honestas de verificarla, y ninguna es un `curl`:
 
-1. **Mirarla en el portal** (Fran, *App registrations → Authentication → Redirect URIs*).
+1. **Mirarla en el portal** (*App registrations → Authentication → Redirect URIs*).
    Es la única que no necesita credenciales del piloto.
 2. **Completar la fase `login-real`** de abajo. Si la URI no coincide, el `AADSTS50011`
    aparece **después** de tipear las credenciales, y la captura del paso lo deja probado.
@@ -164,7 +164,7 @@ devuelve `403` y se lee como un problema de permisos que no es.
 > **El secreto real hace falta más tarde de lo que parece.** El alta **no** valida el
 > secreto contra el directorio: lo cifra y lo guarda. Con un secreto de relleno esta fase
 > pasa entera y el navegador llega hasta la **pantalla de acceso real del directorio** —
-> porque el `discovery` y el `authorize` son públicos. El secreto de Fran recién es
+> porque el `discovery` y el `authorize` son públicos. El secreto recién es
 > imprescindible en la fase 5, en el canje del código.
 
 ```bash
@@ -245,7 +245,7 @@ buena pinta» no es una medición.
 | `licenciado-sin-config` | 2026-08-24 | ✅ **5/5** |
 | `sembrado` | 2026-08-24 | ✅ **13/13** — el navegador llegó a la pantalla de acceso real de Microsoft |
 | `degradacion` | 2026-08-24 | ✅ **5/5** — canje rechazado por Microsoft, degradó a 401 y el login local siguió |
-| `login-real` | — | ⛔ **bloqueada**: falta el client secret y el usuario piloto (Fran) |
+| `login-real` | — | ⛔ **bloqueada**: falta el client secret y el usuario piloto |
 
 Se actualiza esta tabla con la fecha y el veredicto de cada corrida. Una fase sin fila
 llena es una fase **no corrida** — no una fase que pasó.
