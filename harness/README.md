@@ -171,12 +171,12 @@ existía y la key no es recuperable— el seeder sale con **exit ≠ 0**: el exa
 medias con dos superficies mudas. En `--verify-only` el material se recupera del pool ya
 emitido y se comprueba contra `/gw/whoami` sobre una muestra.
 
-### Licencias in-house — ⚠️ PENDIENTE (T022, requiere la privada de JF)
+### Licencias in-house — ⚠️ PENDIENTE (T022, requiere la clave privada del owner)
 
 Los gates necesitan DOS licencias: **300 seats** (125/250) y **500 seats** (500). Se
 emiten con `backend/scripts/issue_license.py` reusando el kid horneado `sentinel-dev-2026b`,
-cuya **clave privada NO está en el repo** (custodia de JF; `issue_license.py` está bajo
-gate de Cristian en CODEOWNERS). El comando exacto — a correr cuando JF aporte la privada
+cuya **clave privada NO está en el repo** (custodia de Cristian (el owner); `issue_license.py` está bajo
+gate de Cristian en CODEOWNERS). El comando exacto — a correr cuando el owner aporte la privada
 — está documentado en
 [`deploy/clients/itv-examen/README.md`](../deploy/clients/itv-examen/README.md). El
 pre-check del seeder ya maneja el caso "licencia insuficiente/ausente" con mensaje
