@@ -34,6 +34,15 @@ que NO nacieron en el request actual. Default: **OFF** — ningún despliegue ex
 cambia de comportamiento sin fijar la env var explícitamente. Best-effort en los dos
 sentidos (falla silenciosa con log si Redis no está, nunca rompe el masking ni deja
 un placeholder sin resolver como error 500).
+
+**Desenmascarado robusto ante modelos chicos** (tres piezas, en capas): (1) *prevención* —
+``inject_marker_instruction`` suma al mensaje de sistema, SOLO si el pedido tiene etiquetas, una instrucción FIJA que
+pide copiarlas tal cual (``SENTINEL_PLACEHOLDER_HINT=0|false|off|no`` la apaga para el despliegue que no tolere ningún
+cambio en su ``system``; por defecto ENCENDIDA); (2) *tolerancia* — ``unmask_text`` hace una segunda pasada, acotada a las
+etiquetas ACTIVAS del pedido (tipo, índice y nonce exactos), que restituye la etiqueta sin corchetes, con ``<>``, con un
+entero extra tras el índice o en otras mayúsculas; jamás distancia de edición (todas las etiquetas de un pedido comparten
+nonce: ``[PERSON_1_…]`` y ``[PERSON_4_…]`` quedan a distancia 1); (3) *detección* — ``residual_marker_summary`` cuenta, solo
+por tipo, lo que quedó sin restituir.
 """
 from __future__ import annotations
 
@@ -936,6 +945,80 @@ class PlaceholderMap:
         self.orig_to_ph[value] = ph
         self.ph_to_orig[ph] = value
         return ph
+
+
+# Instrucción ESTÁTICA que viaja en el mensaje de sistema cuando el pedido lleva al menos una etiqueta: los modelos chicos
+# alteran la etiqueta al copiarla dentro de argumentos de herramienta (sin corchetes, con un entero de más) y el dato
+# original no vuelve. Texto fijo —sin el nonce del pedido ni datos del usuario—: no invalida la caché de prefijo del
+# proveedor entre turnos y no ayuda a fabricar una etiqueta válida. El sistema le gana al mensaje de usuario (medido).
+MARKER_INSTRUCTION = (
+    "Los marcadores con formato [TIPO_n_xxxx] (por ejemplo [PERSON_0_a1b2] o [DNI_0_c3d4]) representan datos "
+    "protegidos del usuario. Cuando debas usarlos en tu respuesta o en argumentos de herramientas (JSON, consultas o "
+    "código), copialos exactamente carácter por carácter, incluyendo los corchetes [ y ], sin quitar ni agregar "
+    "números ni guiones bajos."
+)
+_SYSTEM_ROLES = ("system", "developer")
+_HINT_OFF_VALUES = ("0", "false", "off", "no")
+
+
+def placeholder_hint_enabled() -> bool:
+    """``SENTINEL_PLACEHOLDER_HINT`` (por defecto ENCENDIDA): ``0``/``false``/``off``/``no`` apagan la instrucción. Se lee por
+    llamada (no se congela al importar): un ``compose up -d`` con el valor cambiado surte efecto sin rebuild."""
+    return os.environ.get("SENTINEL_PLACEHOLDER_HINT", "").strip().lower() not in _HINT_OFF_VALUES
+
+
+def _carries_marker_instruction(value) -> bool:
+    if isinstance(value, str):
+        return MARKER_INSTRUCTION in value
+    if isinstance(value, list):
+        return any(_carries_marker_instruction(v) for v in value)
+    if isinstance(value, dict):
+        return _carries_marker_instruction(value.get("text")) or _carries_marker_instruction(value.get("content"))
+    return False
+
+
+def inject_marker_instruction(body: dict, fmt: str) -> bool:
+    """Agrega ``MARKER_INSTRUCTION`` al mensaje de sistema del pedido (al FINAL, para no mover el prefijo del cliente).
+
+    Se llama SOLO cuando el pedido tiene etiquetas (``bool(ph_to_orig)``). ``fmt`` = ``anthropic`` (campo ``system`` como
+    cadena, lista de bloques o ausente) | ``openai`` (primer mensaje ``system``/``developer``; sin ninguno, uno nuevo al
+    principio). Idempotente: si algún sistema ya la lleva no hace nada. Devuelve True si cambió el cuerpo. Forma
+    desconocida → no-op (jamás rompe el pedido)."""
+    if not isinstance(body, dict) or not placeholder_hint_enabled():
+        return False
+    if fmt == "anthropic":
+        system = body.get("system")
+        if _carries_marker_instruction(system):
+            return False
+        if system is None or system == "":
+            body["system"] = MARKER_INSTRUCTION
+        elif isinstance(system, str):
+            body["system"] = system + "\n\n" + MARKER_INSTRUCTION
+        elif isinstance(system, list):
+            body["system"] = [*system, {"type": "text", "text": MARKER_INSTRUCTION}]
+        else:
+            return False
+        return True
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return False
+    sistemas = [m for m in messages if isinstance(m, dict) and m.get("role") in _SYSTEM_ROLES]
+    if any(_carries_marker_instruction(m.get("content")) for m in sistemas):
+        return False
+    if not sistemas:
+        messages.insert(0, {"role": "system", "content": MARKER_INSTRUCTION})
+        return True
+    primero = sistemas[0]
+    contenido = primero.get("content")
+    if contenido is None or contenido == "":
+        primero["content"] = MARKER_INSTRUCTION
+    elif isinstance(contenido, str):
+        primero["content"] = contenido + "\n\n" + MARKER_INSTRUCTION
+    elif isinstance(contenido, list):
+        primero["content"] = [*contenido, {"type": "text", "text": MARKER_INSTRUCTION}]
+    else:
+        return False
+    return True
 
 
 async def mask_text(text: str, analyze: AnalyzeFn, pmap: PlaceholderMap) -> str:

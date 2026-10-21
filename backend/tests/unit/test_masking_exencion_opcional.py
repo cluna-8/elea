@@ -135,7 +135,10 @@ async def test_system_en_bloques_exento(monkeypatch):
     monkeypatch.setenv(SISTEMA, "true")
     sistema = [{"type": "text", "text": f"Cliente {DNI_PUNTOS}", "cache_control": {"type": "ephemeral"}}]
     salida, informe = await _hook(_anthropic(system=copy.deepcopy(sistema)))
-    assert salida["system"] == sistema
+    # El bloque del cliente (y su marca de caché) sale intacto; solo se suma, al final, un bloque FIJO con la instrucción
+    # de conservar los marcadores (el pedido tiene etiquetas).
+    assert salida["system"][:-1] == sistema
+    assert salida["system"][-1] == {"type": "text", "text": policy.MARKER_INSTRUCTION}
     assert informe["exempt"] == ["system_prompt"] and informe["unanalyzable"] == 0 and informe["scope"] == "full"
 
 
@@ -164,7 +167,10 @@ async def test_openai_exime_los_turnos_system_y_developer_pero_no_los_demas(monk
     monkeypatch.setenv(SISTEMA, "true")
     original = _openai()
     salida, informe = await _hook(copy.deepcopy(original), call_type="completion")
-    assert salida["messages"][0] == original["messages"][0] and salida["messages"][1] == original["messages"][1]
+    # El texto del cliente en `system` sale intacto; solo se suma, al final, la instrucción FIJA de conservar los marcadores.
+    assert salida["messages"][0]["content"] == original["messages"][0]["content"] + "\n\n" + policy.MARKER_INSTRUCTION
+    assert salida["messages"][0]["role"] == original["messages"][0]["role"]
+    assert salida["messages"][1] == original["messages"][1]
     assert DNI_PUNTOS not in _txt(salida["messages"][2:]) and DNI_PUNTOS not in _txt(salida["tools"])
     assert informe["exempt"] == ["system_prompt"]
 

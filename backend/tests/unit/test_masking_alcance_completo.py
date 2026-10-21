@@ -102,8 +102,10 @@ async def test_sin_senal_solo_el_turno_user_y_scope_user():
     assert informe["scope"] == "user"
     assert informe["unanalyzable"] == 0 and informe["unanalyzable_kinds"] == []
     assert DNI_PUNTOS not in _texto(salida["messages"][0]), "el turno user sí se enmascara"
-    # Lo demás, byte a byte como antes: system, turno assistant y herramientas siguen en claro.
-    assert salida["system"] == original["system"]
+    # Lo demás, byte a byte como antes: system, turno assistant y herramientas siguen en claro. El texto del cliente en
+    # `system` no se toca; lo único que se suma, al final, es la instrucción FIJA de conservar los marcadores (el pedido
+    # tiene etiquetas), que no lleva datos del pedido.
+    assert salida["system"] == original["system"] + "\n\n" + policy.MARKER_INSTRUCTION
     assert salida["messages"][1] == original["messages"][1]
     assert salida["tools"] == original["tools"]
 

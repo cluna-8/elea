@@ -731,6 +731,8 @@ class SentinelGuardrail(CustomGuardrail):
         if ph_to_orig:
             home["pii_tokens"] = ph_to_orig
             home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
+            # Prevención del desenmascarado fallido: solo si el pedido tiene etiquetas (0 tokens sin datos protegidos).
+            policy.inject_marker_instruction(data, fmt)
 
         if forzado:
             # La verdad del forzado es lo que el recorrido analizó pedazo por pedazo (el preview es un solo
