@@ -2,9 +2,9 @@
 
 **Input**: spec.md (D1-D5 selladas 18-ago) + plan.md (anclas medidas @85c9c55)
 
-**Ejecuta**: equipo de Jeff (Ola 2, sprint al 5-sep). Jeff descompone entre sus coders con
+**Ejecuta**: el equipo (Ola 2, sprint al 5-sep). El lead descompone entre sus coders con
 la regla de siempre: brief cerrado + worktree propio + tests RED→verde en el MISMO PR +
-1ª línea merged-green de Jeff antes del gate cross-familia del manager.
+1ª línea merged-green del equipo antes del gate cross-familia del manager.
 
 **Tests**: obligatorios en cada PR (código nuevo = tests nuevos, backend sin excepciones).
 
@@ -238,7 +238,7 @@ comportamiento (suite completa verde lo demuestra).
       (tercer modo + puntero a esta spec) · **`frontend/src/services/api.ts`** (lector
       encontrado en el barrido del 18-ago — verificar qué muestra y actualizar).
 - [ ] T015 Actualización de `specs/ROADMAP-pisos.md` (`:32`, `:115`, `:129`: la pregunta
-      abierta queda respondida por esta spec) — coordinar con el tracking visual de Jeff
+      abierta queda respondida por esta spec) — coordinar con el tracking visual del equipo
       (doble escritor conocido).
 
 ---
@@ -254,7 +254,7 @@ comportamiento (suite completa verde lo demuestra).
   (no depende de la matriz).
 - **Phase 5**: T013/T014 en el PR que cambia cada superficie (no un PR-escoba al final);
   T015 al flip del nodo.
-- **Slicing sugerido para PRs** (Jeff decide el corte final): PR-A = Phase 1 completa ·
+- **Slicing sugerido para PRs** (el equipo decide el corte final): PR-A = Phase 1 completa ·
   PR-B = US1 backend (T006+T007) + US2 (T010) · PR-C = motor (T008) + SC-001 (T009) ·
   PR-D = T011+T012+docs. Cada PR con su tajada de T013/T014.
 

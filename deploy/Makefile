@@ -123,7 +123,7 @@ check-extension-whitelabel:
 check-secrets:
 	$(REPO_ROOT)/deploy/release/checks/test_no_default_secrets.sh
 
-# costura → Falime (Factory): backend y motor escriben/leen las MISMAS claves de Redis
+# costura → deploy/ (Factory): backend y motor escriben/leen las MISMAS claves de Redis
 # (`sentinel:audit:*` de la 031, `sentinel:nlp:*` del #63). Si el perfil no le cablea REDIS_HOST al
 # motor —o los defaults del código divergen—, el health cuenta cero mientras el otro plano
 # registra: la degradación vuelve a ser silenciosa sin ningún síntoma visible.

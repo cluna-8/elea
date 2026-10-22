@@ -1,8 +1,8 @@
 # harness/infra — entorno de examen (Hetzner Cloud, project `guardian-itv`)
 
 Root OpenTofu mínimo del entorno de examen de La ITV. **Autorable ya; el `apply` está
-BLOQUEADO** hasta que exista el project `guardian-itv` + token (lo crea Cris, JF genera
-el token a Vaultwarden). Decisión de provider en el addendum de
+BLOQUEADO** hasta que exista el project `guardian-itv` + token (lo crea Cris (el owner),
+que genera el token a Vaultwarden). Decisión de provider en el addendum de
 [`research.md`](../../specs/035-load-harness/research.md) (swap AWS→Hetzner, 08-ago).
 
 ## Qué levanta

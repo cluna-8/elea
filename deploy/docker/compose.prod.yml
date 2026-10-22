@@ -32,7 +32,7 @@ services:
       POSTGRES_USER: "${POSTGRES_USER:?}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?generado por instalación (US5), jamás default}"
       REDIS_HOST: "${REDIS_HOST:?}"
-      # costura → Falime (Factory): el puerto viajaba sólo por default. Se declara explícito
+      # costura → deploy/ (Factory): el puerto viajaba sólo por default. Se declara explícito
       # para que backend y motor resuelvan el MISMO endpoint — los dos escriben y leen las
       # mismas claves (`sentinel:audit:*`, `sentinel:nlp:*`) y apuntar a instancias distintas hace
       # que el health cuente cero mientras el otro plano registra.
@@ -206,7 +206,7 @@ services:
       # Detección NLP real (016): nombre de servicio compose + puerto interno del
       # sidecar. Sin esta línea el motor enmascara con regex y el cliente no se entera.
       NLP_ANALYZER_URL: "http://nlp-analyzer:3000"
-      # costura → Falime (Factory): el motor ESCRIBE en Redis las mismas claves que el
+      # costura → deploy/ (Factory): el motor ESCRIBE en Redis las mismas claves que el
       # backend LEE — contador de eventos de auditoría perdidos (031) y marca de degradación
       # de la detección NLP (#63) —, pero este servicio no recibía `REDIS_HOST`. En nube,
       # donde Redis es gestionado y no existe ningún host llamado `redis`, el motor escribía

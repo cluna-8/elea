@@ -2,8 +2,8 @@
 
 **Input**: spec.md (D1=a sellada 24-ago) + plan.md (anclas medidas @5fae89a)
 
-**Ejecuta**: equipo de Jeff. Regla de siempre: brief cerrado + worktree propio + tests RED→verde
-en el MISMO PR + 1ª línea merged-green de Jeff antes del gate del manager.
+**Ejecuta**: el equipo. Regla de siempre: brief cerrado + worktree propio + tests RED→verde
+en el MISMO PR + 1ª línea merged-green del equipo antes del gate del manager.
 
 **Tests**: obligatorios en cada PR (código nuevo = tests nuevos, backend sin excepciones).
 
@@ -16,7 +16,7 @@ en el MISMO PR + 1ª línea merged-green de Jeff antes del gate del manager.
 
 ## Phase 1: Foundational — el supervisor existe y es inofensivo (bloquea todo)
 
-- [ ] T001 **Supervisor** (`litellm/supervisor.py`) — **lo escribe Jeff** (drenaje de streams =
+- [ ] T001 **Supervisor** (`litellm/supervisor.py`) — **lo escribe el equipo** (drenaje de streams =
       streaming-adyacente): watch mtime `config.yaml` + sentinel → coalescencia
       (`SENTINEL_ENGINE_APPLY_DEBOUNCE_SECONDS=5`) → `yaml.safe_load` → `SIGTERM` + drenaje
       (`SENTINEL_ENGINE_DRAIN_SECONDS=30`) → relanzamiento; `SENTINEL_ENGINE_AUTORELOAD=off` ⇒ solo
@@ -71,24 +71,24 @@ hoy (suite completa verde + smoke del stack).
 - [ ] T008 `INSTALL-CAMARA.md` pierde el paso de restart manual (`:115`) y la fila de
       troubleshooting (`:207`) **EN el PR que lo hace verdad**; el GOTCHA de `chat.py:2154` se
       reescribe apuntando al supervisor. Issue #70 se cierra acá.
-- [ ] T009 [GATE] **Retest E2E del bundle amd64** (Factory/Falime): el próximo drop lleva
+- [ ] T009 [GATE] **Retest E2E del bundle amd64** (deploy/ (Factory)): el próximo drop lleva
       JUNTAS `1151b1e` + supervisor (la Cámara corre la imagen anterior). Lo coordina el
       manager — no bloquea los merges, SÍ el cierre de la spec.
 - [ ] T010 Flip de los 2 nodos en `specs/ROADMAP-pisos.md` al mergear el último PR — coordinar
-      con el tracking visual de Jeff (doble escritor conocido).
+      con el tracking visual del equipo (doble escritor conocido).
 
 ---
 
 ## Dependencies & Execution Order
 
-- **Phase 1**: T001 → T002 (el compose apunta a un script que ya existe). Arranca cuando Jeff
+- **Phase 1**: T001 → T002 (el compose apunta a un script que ya existe). Arranca cuando el equipo
   libere manos del SSO — el SSO no se frena por esto.
 - **Phase 2**: T003 tras Phase 1 (es la evidencia del PR que la cierra).
 - **Phase 3**: T004/T005 paralelos tras T002 (necesitan los volúmenes definidos); T006 tras
-  T004/T005. No-caliente: Junior puede tomarlos con 1ª línea de Jeff.
+  T004/T005. No-caliente: Junior puede tomarlos con 1ª línea del equipo.
 - **Phase 4**: T007/T008 en el PR que cambia cada superficie (no PR-escoba); T009/T010 al cierre.
-- **Slicing sugerido** (corte final lo decide Jeff): **PR-A** = T001+T002+T003 (motor+compose+E2E,
-  Jeff) · **PR-B** = T004+T005 + su tajada de T007 (backend, Junior) · **PR-C** = T006+T008
+- **Slicing sugerido** (corte final lo decide el equipo): **PR-A** = T001+T002+T003 (motor+compose+E2E,
+  equipo) · **PR-B** = T004+T005 + su tajada de T007 (backend, Junior) · **PR-C** = T006+T008
   (UI+docs, Junior; QA Bob). GLM: NO en esta spec (supervisor = proceso/streaming; backend =
   filas de matriz auth-adyacentes).
 

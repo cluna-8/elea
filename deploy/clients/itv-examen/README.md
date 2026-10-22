@@ -14,7 +14,7 @@ detrás ni ningún dato de cliente: la población y el corpus son 100% sintétic
    con api_key dummy; los `fallbacks` sólo caen entre aliases stub-backed.
 2. **`compose.itv-examen.override.yml`** — cablea `SENTINEL_GW_ANTHROPIC_BASE` (passthrough de
    suscripción Anthropic) al stub. compose.prod.yml no la pasa al backend (hallazgo R2) y
-   no editamos ese archivo (territorio Falime): la agregamos como override.
+   no editamos ese archivo (territorio de `deploy/`): la agregamos como override.
 3. **provider keys VACÍAS** en `client.env` (`OPENAI_API_KEY=`, `ANTHROPIC_API_KEY=`, …) —
    un alias mal apuntado a un proveedor real falla RUIDOSO en vez de gastar o fugar.
 4. **egress bloqueado en el firewall** del SUT (Hetzner cloud firewall, deny de salida):
@@ -49,17 +49,17 @@ docker compose --env-file rendered/instance.env \
 Después se siembra la población y se corre el gate: ver
 [`harness/README.md`](../../../harness/README.md) § *Seeder + licencias del examen*.
 
-## Licencias del examen — ⚠️ PENDIENTE (T022, requiere la privada de JF)
+## Licencias del examen — ⚠️ PENDIENTE (T022, requiere la privada del owner)
 
 Los gates necesitan DOS licencias in-house (R5): **300 seats** (gates 125/250) y **500
 seats** (gate 500). Se emiten con `backend/scripts/issue_license.py` (no destructivo:
 verifica contra el keyset antes de escribir), reusando el **kid ya horneado
 `sentinel-dev-2026b`**. La **clave privada de ese kid NO está en el repo** (`license_out/` es
-gitignored, custodia de JF) y `issue_license.py` está bajo gate de Cristian en CODEOWNERS:
+gitignored, custodia de Cristian, el owner) y `issue_license.py` está bajo gate de Cristian en CODEOWNERS:
 **este comando NO se ejecuta acá**, queda documentado como la operación exacta a correr.
 
 ```bash
-# 300 seats — gates 125 y 250 (PENDIENTE: requiere signing_key_sentinel-dev-2026b.pem de JF)
+# 300 seats — gates 125 y 250 (PENDIENTE: requiere signing_key_sentinel-dev-2026b.pem, custodia del owner)
 python backend/scripts/issue_license.py \
   --key backend/scripts/license_out/signing_key_sentinel-dev-2026b.pem \
   --kid sentinel-dev-2026b \

@@ -1,10 +1,10 @@
 # Tasks: Identidad con dientes — matriz RBAC, SSO Entra, RLS partida, hardening de 4
 
-**Input**: Design documents de `/specs/017-auth-rbac-sso/` (plan, research, data-model, contracts/matriz-roles + proveedor-sso, quickstart — sellados 13-ago; gate de producto JF sellado 13-ago: auditor read-only + reviews, `lectura` sin chat/seat/dueño, SSO por flag de licencia).
+**Input**: Design documents de `/specs/017-auth-rbac-sso/` (plan, research, data-model, contracts/matriz-roles + proveedor-sso, quickstart — sellados 13-ago; gate de producto del owner sellado 13-ago: auditor read-only + reviews, `lectura` sin chat/seat/dueño, SSO por flag de licencia).
 
 **Tests**: OBLIGATORIOS (DevFlow: código nuevo = tests nuevos en el mismo PR; codex-gate en cada PR con código — esta spec es TODA superficie de seguridad).
 
-**Quién**: implementa el equipo de **Jeff 2** (coders Opus 5) DESPUÉS de cerrar el MVP de la 018 (US1); Cristian = gate de review de seguridad; el manager gatea y mergea.
+**Quién**: implementa el equipo (coders Opus 5) DESPUÉS de cerrar el MVP de la 018 (US1); Cristian = gate de review de seguridad; el manager gatea y mergea.
 
 **⚠️ Precondiciones externas (no arrancar la tarea marcada sin esto):**
 - **[BLOQ-CRIS]** T024: orden de merge con #137 sellado (toca `custom_auth.py`) — el manager lo negocia antes del 24-ago.
@@ -70,4 +70,4 @@
 - [ ] T026 [P] Docs vendibles: matriz de roles publicada + página SSO + release notes del cambio de matriz (SC-007) — el CHANGELOG canónico de la raíz es la fuente (regla del manager).
 - [ ] T027 [P] ROADMAP-guardian: 017 en implementación; diferidos con nombre registrados (Google C3, revocación server-side, drop activo, multi-tenant real).
 
-**Dependencias**: Setup → Foundational → US1 → US2 (necesita tenant claim T005 + matriz T006); US3 en paralelo con US2 tras Foundational; US4 al final (T024 además espera merge-order). La 018-US1 (purga MVP) va ANTES que todo esto en la cola de Jeff 2 — el clasificador de la 018 es dependencia de T023.
+**Dependencias**: Setup → Foundational → US1 → US2 (necesita tenant claim T005 + matriz T006); US3 en paralelo con US2 tras Foundational; US4 al final (T024 además espera merge-order). La 018-US1 (purga MVP) va ANTES que todo esto en la cola del equipo — el clasificador de la 018 es dependencia de T023.

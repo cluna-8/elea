@@ -4,13 +4,13 @@
 
 **Created**: 2026-08-18
 
-**Status**: Sellada — D1 = a (JF, 24-ago-2026; constancia en PR #242, comment 5392294627) · plan.md + tasks.md en este directorio
+**Status**: Sellada — D1 = a (del owner, 24-ago-2026; constancia en PR #242, comment 5392294627) · plan.md + tasks.md en este directorio
 
 **Anclas**: las citas `archivo:línea` de este documento están medidas contra `origin/main@5fae89a`. Una cita sin su árbol es ambigua: `compose.prod.yml` ya corrió +7 líneas una vez (#267). Ante «esa línea dice otra cosa», comparar contra ESTE árbol antes de dudar del diseño.
 
-**Input**: research del 30-jul sellado en el issue [#50](https://github.com/DrZuzzjen/sentinel-guardian/issues/50)
+**Input**: research del 30-jul sellado en el issue #50 de Sentinel
 (veredicto: wrapper-supervisor; socket-proxy DESCARTADO por seguridad) + issue
-[#70](https://github.com/DrZuzzjen/sentinel-guardian/issues/70) (botón de reinicio, puente a la 033) +
+issue #70 de Sentinel (botón de reinicio, puente a la 033) +
 prerrequisito de escritura atómica YA PAGO (`1151b1e`, en `main`) + dolor documentado del piloto
 (`deploy/release/INSTALL-CAMARA.md`).
 
@@ -120,7 +120,7 @@ nada» (un 400 que la UI no muestra, `INSTALL-CAMARA.md` troubleshooting).
   de `deploy/clients/` y la página de docs de producto correspondiente (superficie 1 del DevFlow).
 - **FR-006 — Alcance del botón = D1** (menú al pie). Con la reco (a), el issue #70 se cierra con
   esta spec y el nodo del tech tree se re-lee como «aplicar cambios del motor desde la UI».
-- **FR-007 — Costura Factory/Falime**: el supervisor viaja en la imagen del motor ⇒ retest E2E del
+- **FR-007 — Costura deploy/ (Factory)**: el supervisor viaja en la imagen del motor ⇒ retest E2E del
   bundle amd64. La Cámara corre hoy la imagen ANTERIOR a `1151b1e`: el próximo drop lleva las dos
   piezas JUNTAS (escritura atómica + supervisor) — un supervisor sobre escritura no-atómica leería
   YAML cortado. `INSTALL-CAMARA.md` pierde el paso de restart manual EN el mismo PR de
@@ -142,7 +142,7 @@ nada» (un 400 que la UI no muestra, `INSTALL-CAMARA.md` troubleshooting).
 
 ---
 
-## Decisión — SELLADA por JF el 24-ago-2026: **D1 = a**
+## Decisión — SELLADA por el owner el 24-ago-2026: **D1 = a**
 
 (Canal guardian-manager, msg `c929cbb0`; constancia en PR #242, comment 5392294627. Menú
 original conservado como registro de la decisión.)
@@ -173,8 +173,8 @@ Sello esperado: **«033: tu reco»** o **«D1: b»**.
 ## Dependencies
 
 - `1151b1e` (escritura atómica) — **pago, en `main`**.
-- Retest E2E del bundle amd64 — costura con Factory/Falime (FR-007).
-- Issue [#70](https://github.com/DrZuzzjen/sentinel-guardian/issues/70) — lo cierra esta spec (D1=a).
+- Retest E2E del bundle amd64 — costura con deploy/ (Factory) (FR-007).
+- issue #70 de Sentinel — lo cierra esta spec (D1=a).
 - Nodos del tech tree: «Alta de modelos sin reiniciar (y completa)» + «Reinicio de contenedores
   desde la UI» (`specs/ROADMAP-pisos.md`).
 

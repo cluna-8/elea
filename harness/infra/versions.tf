@@ -3,7 +3,7 @@
 # Root NUEVO y mínimo (research R4): NO reutiliza el root de clientes (ese provisiona
 # RDS/ElastiCache y rompería la paridad con la sede — FR-011). Se ejecuta con `tofu`, no
 # terraform. El apply queda BLOQUEADO hasta que exista el project guardian-itv + token
-# (lo crea Cris, JF genera el token a Vaultwarden).
+# (lo crea Cris, el owner genera el token a Vaultwarden).
 terraform {
   required_version = ">= 1.8.0"
   required_providers {

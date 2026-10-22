@@ -10,7 +10,7 @@
 simula usuarios reales (chat + extensión + coding tools SSE + admin) contra el stack de
 producción para medir los gates 125/250/500 del tech tree (`ROADMAP-pisos.md`) con SLO de
 pérdida de auditoría cero, corpus PII español con canarios, stub de proveedor y validación
-smoke con modelos reales vía OpenRouter; reportes comparables entre runs. Aclaración JF
+smoke con modelos reales vía OpenRouter; reportes comparables entre runs. Aclaración del owner
 07-ago: preferencia por herramientas open-source auto-hosteadas en infra propia; pagar un
 servicio solo si no hay alternativa razonable."
 
@@ -279,7 +279,7 @@ verificar que el gasto real no lo supera y que el reporte contrasta las métrica
   escenario** (incluyendo 0 — tráfico limpio) y **canarios únicos por run** (valores
   imposibles de confundir con datos legítimos, distintos en cada ejecución para que una
   detección nunca sea residuo de un run anterior). *Enmienda 08-ago (issue #107,
-  decidido con JF)*: el corpus es además un **artefacto compartido del departamento** —
+  decidido con el owner)*: el corpus es además un **artefacto compartido del departamento** —
   un dataset etiquetado versionado (spans por tipo de entidad, formato consumible por
   máquina) con dos consumidores: este harness (mezclas de tráfico y canarios) y el gate
   de calidad de detección NLP del core (precision/recall por entidad contra el
@@ -293,7 +293,7 @@ verificar que el gasto real no lo supera y que el reporte contrasta las métrica
   por herramienta y presupuestos, hasta 500 seats. **Un seat = una llave/Connection
   activa, no un usuario**: los gates 125 y 250 corren con la licencia existente de 300
   seats; el gate 500 requiere la **licencia de test de 500 seats**, que se emite
-  in-house con los scripts de licencias existentes (confirmación JF 07-ago — no es
+   in-house con los scripts de licencias existentes (confirmación del owner 07-ago — no es
   dependencia externa bloqueante). El seeder verifica la capacidad de seats disponible
   ANTES de aprovisionar.
 - **FR-006**: Los **gates 125/250/500 DEBEN existir como definiciones versionadas** en el
@@ -336,7 +336,7 @@ verificar que el gasto real no lo supera y que el reporte contrasta las métrica
   diagnosticar un FAIL sin tener que reproducirlo, y la señal con la que la búsqueda de
   rodilla (US4) declara «degradado» un escalón (señal concreta a definir en plan).
   Durante el run, el estrés del stack DEBE ser observable **en vivo** por el equipo
-  (tablero), no solo post-mortem (pedido JF 07-ago).
+  (tablero), no solo post-mortem (pedido del owner 07-ago).
 - **FR-011**: Los gates DEBEN correr contra un **stack de producción completo**
   (composición de producción, imágenes reales, analizador NLP real activo — no atajos de
   dev) desplegado en un **entorno dedicado**. La única sustitución permitida es la del
@@ -351,7 +351,7 @@ verificar que el gasto real no lo supera y que el reporte contrasta las métrica
   explícito y cortarse al alcanzarlo.
 - **FR-013**: Resultados, reportes y logs de todos los runs DEBEN quedar **persistidos y
   accesibles al equipo** (histórico consultable, no archivos sueltos en el laptop de
-  nadie). La plataforma concreta es decisión del plan, con el sesgo declarado por JF:
+  nadie). La plataforma concreta es decisión del plan, con el sesgo declarado por el owner:
   open-source auto-hosteado en infra propia; pagar solo si no hay alternativa razonable.
 - **FR-014**: El harness DEBE poder **probar su propio detector** mediante inyección de
   fallo controlada: un modo de examen con el enmascarado deliberadamente desactivado (en
@@ -435,7 +435,7 @@ verificar que el gasto real no lo supera y que el reporte contrasta las métrica
   declara la usada (ancla operativa de «sesión activa», FR-001).
 - Dimensionamiento: 500 usuarios activos ≈ 40-80 requests en vuelo (~150 en pico), por
   ley de Little con los tiempos de interacción asumidos.
-- Plataforma de resultados/observabilidad: sesgo explícito de JF (07-ago) por open-source
+- Plataforma de resultados/observabilidad: sesgo explícito del owner (07-ago) por open-source
   auto-hosteado en el contenedor AWS propio (donde ya viven Plane, Bitwarden…); un
   servicio pago solo con justificación.
 
@@ -453,12 +453,12 @@ verificar que el gasto real no lo supera y que el reporte contrasta las métrica
 **Dependencias y supuestos de entorno:**
 
 - **Licencia de test de 500 seats**: se emite in-house con los scripts de licencias
-  existentes (confirmación JF 07-ago; gate de Cristian solo si toca custodia de claves).
+  existentes (confirmación del owner 07-ago; gate de Cristian solo si toca custodia de claves).
   Un seat cuenta llaves/Connections ACTIVAS, no usuarios (semántica verificada de la
   spec 021): con la licencia existente de 300 el tope muerde al crear la llave 301 — los
   gates 125 y 250 corren con la de 300; para el 500 se emite la de test.
 - **Entorno de examen**: Hetzner Cloud, project dedicado `guardian-itv` (decisión
-  08-ago aprobada por JF vía DevOps — supersede la dirección AWS del 07-ago: la única
+  08-ago aprobada por el owner vía DevOps — supersede la dirección AWS del 07-ago: la única
   cuenta AWS accesible hospeda producción legal de un cliente, radio de explosión
   inaceptable). Cajas de vCPU **dedicadas** (SUT CCX33 8 vCPU/32 GB, generador CCX23
   4 vCPU/16 GB) — mejor para la repetibilidad que la tenancy compartida del diseño

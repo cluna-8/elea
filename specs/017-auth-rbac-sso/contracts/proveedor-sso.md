@@ -22,7 +22,7 @@ Alta de un proveedor nuevo = implementar el contrato + registrarlo. El flujo com
 | `client_secret_encrypted` | Fernet (precedente 010:216-222) — jamás en claro, jamás en logs |
 | `enabled` | interruptor operativo del tenant |
 
-La escribe: el wizard 037 vía el bloque `sso` del perfil (sellado con Cristian/Falime 13-ago) o el tenant_admin por UI/API. La redirect URI se registra en el IdP DEL cliente (operatoria de instalación, documentada en docs vendibles).
+La escribe: el wizard 037 vía el bloque `sso` del perfil (sellado con Cristian y deploy/ (Factory) 13-ago) o el tenant_admin por UI/API. La redirect URI se registra en el IdP DEL cliente (operatoria de instalación, documentada en docs vendibles).
 
 ## El flujo, de punta a punta
 

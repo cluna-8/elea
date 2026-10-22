@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# issue #151 (decisiones ② y ③ del #134, selladas por JF el 12-ago — ver ADR-0003): los
+# issue #151 (decisiones ② y ③ del #134, selladas por el owner el 12-ago — ver ADR-0003): los
 # LÍMITES DEL MOTOR sobre el runtime local, y que la imagen pinneada de verdad los honre.
 #
 # Son el segundo y el tercer candado del nodo C1. El primero es el tope de admisión del

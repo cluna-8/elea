@@ -6,7 +6,7 @@ at specs/057-porte-sentinel-068-redireccion-modelos/plan.md
 
 # Acuerdo de trabajo del equipo (humanos + agentes)
 
-Reglas que TODA sesión de trabajo en este repo respeta, sea de JF, Cristian o Falime
+Reglas que TODA sesión de trabajo en este repo respeta, sea de Cristian o de Atlas (el orquestador, que administra a los workers)
 (módulos y ownership: `.github/CODEOWNERS`; roadmap: `specs/ROADMAP-guardian.md`).
 
 ## SDD cuando amerita (pragmático)

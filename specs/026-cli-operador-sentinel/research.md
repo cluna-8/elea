@@ -4,7 +4,7 @@
 clarificación que fijó la separación física en dos artefactos — spec.md § Clarifications).
 **Método**: 4 investigaciones en paralelo (firma cross-lenguaje, custodia de clave,
 arquitectura, mapa de integración con el stack), la de firma **verificada empíricamente
-en Docker** contra el `verifier.py` real del repo. **Decisión de lenguaje (JF, 22-jul):
+en Docker** contra el `verifier.py` real del repo. **Decisión de lenguaje (del owner, 22-jul):
 Python.** La alternativa Go fue evaluada a fondo y es viable (ver "Alternativa Go" al
 final — la evidencia se conserva por trazabilidad SDD); se eligió Python por reuso directo
 de la lib de licensing y por ser el lenguaje nativo del equipo. No quedan NEEDS

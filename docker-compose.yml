@@ -2,7 +2,7 @@ version: '3.8'
 
 # STACK_PREFIX aísla container_name entre worktrees en el mismo demonio Docker.
 # Default `sentinel` → los lectores (`docker exec sentinel-db`, `docker exec sentinel-engine`)
-# siguen funcionando. En un worktree paralelo: STACK_PREFIX=jeff223 docker compose up.
+# siguen funcionando. En un worktree paralelo: STACK_PREFIX=qa1 docker compose up.
 # `-p` NO basta: solo scopea red/volúmenes. Los puertos de host siguen globales
 # (5433/8091/8090/4010); si chocan, override local de `ports` (no de nombres).
 # Convención: CONTRIBUTING.md § Entorno local + tech-team/DevFlow-SentinelGuardian.md § 8.

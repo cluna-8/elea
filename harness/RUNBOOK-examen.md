@@ -94,8 +94,8 @@ $DC up -d
 
 ### 4b. Par de firma EFÍMERO + licencia de 130 seats
 
-La privada del kid `sentinel-dev-2026b` (licencia de la Cámara: 25 seats) está bajo custodia de
-JF y **no se usa acá**. Se genera un par propio dentro del SUT: la pública entra al keyset
+La privada del kid `sentinel-dev-2026b` (licencia de la Cámara: 25 seats) está bajo custodia del
+owner y **no se usa acá**. Se genera un par propio dentro del SUT: la pública entra al keyset
 del contenedor y la privada vive en `/tmp` del contenedor — muere con él.
 
 `kid = itv-examen-2026` a propósito **no** empieza con `sentinel-dev-`, así que no depende del

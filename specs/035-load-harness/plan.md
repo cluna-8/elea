@@ -46,7 +46,7 @@ runs prueban el producto; SC-004 (inyección de fallo) se ejecuta como run.
 **Target Platform**: Linux x86_64 — SUT en Hetzner Cloud CCX33 (8 vCPU dedicadas /
 32 GB, project `guardian-itv`, `compose.prod.yml --profile selfhosted`, medido a través
 de Caddy); generador+stub en CCX23 separada, misma red privada; centro de observabilidad
-en una CPX21 fija del mismo project (decisión 08-ago aprobada por JF — supersede el
+en una CPX21 fija del mismo project (decisión 08-ago aprobada por el owner — supersede el
 diseño AWS de R4; detalle en el Addendum de research.md).
 
 **Project Type**: módulo de tooling del monorepo (`harness/`) — no es código de
@@ -138,7 +138,7 @@ harness/                       # módulo nuevo del monorepo (dueño en CODEOWNER
 └── runs/                      # scratch local (.gitignore)
 
 deploy/clients/itv-examen/     # perfil de cliente del examen (config.yaml.tmpl → stub, overlay env)
-.github/CODEOWNERS             # + sección La ITV: harness/ @DrZuzzjen
+.github/CODEOWNERS             # + sección La ITV: harness/ @owner
 docs/adr/0002-harness-modulo-monorepo.md
 ```
 
@@ -146,7 +146,7 @@ docs/adr/0002-harness-modulo-monorepo.md
 CONTRIBUTING, propuesta literal del #95, precedente de layout backend/ con src+tests
 espejo y config-as-data). El entorno de examen se materializa como perfil de cliente
 (`deploy/clients/itv-examen/`) usando la maquinaria de deploy existente — costura con
-territorio Factory (deploy/ es de @FalimeJ en CODEOWNERS): el PR que lo cree pide su
+territorio de deploy/ (Factory) (deploy/ es territorio de Factory en CODEOWNERS): el PR que lo cree pide su
 review por el CODEOWNERS vigente.
 
 ## Complexity Tracking

@@ -35,9 +35,9 @@ sobre algo que ocurrió**, que es exactamente la clase de deshonestidad que esta
 Se cierra con T025, después del merge de la 016.
 
 **Otros hallazgos levantados como issue** (fuera del alcance de esta rama):
-[#40](https://github.com/DrZuzzjen/sentinel-guardian/issues/40) identidad del motor en prod ·
-[#41](https://github.com/DrZuzzjen/sentinel-guardian/issues/41) e2e flaky (**cerrado en esta rama**: causa raíz era una carrera del teardown con el logger del motor) ·
-[#42](https://github.com/DrZuzzjen/sentinel-guardian/issues/42) **la cobertura de patrones de secretos es de 2023 y 4 formatos vigentes pasan sin bloquear** — capa de piso, prioridad alta.
+issue #40 de Sentinel identidad del motor en prod ·
+issue #41 de Sentinel e2e flaky (**cerrado en esta rama**: causa raíz era una carrera del teardown con el logger del motor) ·
+issue #42 de Sentinel **la cobertura de patrones de secretos es de 2023 y 4 formatos vigentes pasan sin bloquear** — capa de piso, prioridad alta.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -132,7 +132,7 @@ Se cierra con T025, después del merge de la 016.
 - [ ] T034 [P] Correr `quickstart.md` completo contra el stack dev y anotar desvíos (es el gate de la feature).
 - [x] T035 [P] Test negativo white-label sobre `/governance/*`: **VERIFICADO en vivo** — 401 sin token, 422 (scope_type/decision/layer_key inválidos), rechazo del piso y `mode` con path-traversal: todas las respuestas son copy de producto. Cero nombres de proveedor/motor, cero traceback, cero rutas o SQL internos.
 - [ ] T036 Decidir y documentar P3 (auditoría histórica con `DELEGATED` fabricados: marcar como no confiable vs purgar) — coordinar con Cristian, es frontera con su módulo.
-- [x] T037 `speckit-analyze` CORRIDO (cobertura 100% sobre 22 requisitos / 37 tareas, 0 duplicados, 1 CRITICAL + 2 HIGH). **Sync hecho**: terminología "pasarela"→"Modelo propio" en spec/quickstart/contracts/research (token de wire `gateway-models` intacto), SC-002/FR-010 realineados a la frase que rinde la UI, taxonomía de superficies acotada al enum declarado (navegador/API resuelven por modo — issue #28), `data-model.md` sincronizado con el RLS real de la migración 012, `plan.md` apuntando a `sentinel_governance.py`. **CRITICAL F1 CERRADO (2026-08-04, OK explícito de JF)**: enmienda D8 sellada — constitución **2.0.0→2.1.0** con Sync Impact Report; el Principio I ahora parte el mandato en piso no-negociable (detectar/evaluar/registrar) y transformar gobernable (capa `pii_masking`, jamás silencioso).
+- [x] T037 `speckit-analyze` CORRIDO (cobertura 100% sobre 22 requisitos / 37 tareas, 0 duplicados, 1 CRITICAL + 2 HIGH). **Sync hecho**: terminología "pasarela"→"Modelo propio" en spec/quickstart/contracts/research (token de wire `gateway-models` intacto), SC-002/FR-010 realineados a la frase que rinde la UI, taxonomía de superficies acotada al enum declarado (navegador/API resuelven por modo — issue #28), `data-model.md` sincronizado con el RLS real de la migración 012, `plan.md` apuntando a `sentinel_governance.py`. **CRITICAL F1 CERRADO (2026-08-04, OK explícito del owner)**: enmienda D8 sellada — constitución **2.0.0→2.1.0** con Sync Impact Report; el Principio I ahora parte el mandato en piso no-negociable (detectar/evaluar/registrar) y transformar gobernable (capa `pii_masking`, jamás silencioso).
 
 ---
 

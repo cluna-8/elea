@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# costura → Falime (Factory): invariante de CABLEADO, no de código.
+# costura → deploy/ (Factory): invariante de CABLEADO, no de código.
 #
 # issue #63 (hallazgo del review adversarial): el motor ESCRIBE en Redis claves que el
 # backend LEE — el contador de eventos de auditoría perdidos (`sentinel:audit:*`, spec 031) y la

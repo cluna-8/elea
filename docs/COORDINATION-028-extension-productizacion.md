@@ -1,7 +1,7 @@
 # COORDINATION 028 — Productización de la extensión de navegador
 
-**Orquestador**: Claude (srdev-claude). **Rama feature**: `028-extension-productizacion` (worktree base desde `dev-fran` @ ca3725b + specs).
-**Deadline**: install del piloto Cámara **martes 28-jul**. **Regla dura**: NUNCA commit directo a `dev-fran`/`main`. Cada minion trabaja en su worktree y su rama; el orquestador integra a la rama feature y verifica antes de PR.
+**Orquestador**: Claude (srdev-claude). **Rama feature**: `028-extension-productizacion` (worktree base desde la rama de desarrollo de Sentinel @ ca3725b + specs).
+**Deadline**: install del piloto Cámara **martes 28-jul**. **Regla dura**: NUNCA commit directo a la rama de desarrollo de Sentinel ni a `main`. Cada minion trabaja en su worktree y su rama; el orquestador integra a la rama feature y verifica antes de PR.
 
 Artefactos SDD (fuente de verdad, ya escritos y commiteados): [spec.md](../specs/_no-aplica-eleia/028-extension-productizacion/spec.md) · [plan.md](../specs/_no-aplica-eleia/028-extension-productizacion/plan.md) · [tasks.md](../specs/_no-aplica-eleia/028-extension-productizacion/tasks.md) · [research.md](../specs/_no-aplica-eleia/028-extension-productizacion/research.md) · [contracts/whoami-proteccion.md](../specs/_no-aplica-eleia/028-extension-productizacion/contracts/whoami-proteccion.md).
 
@@ -22,12 +22,12 @@ La extensión MV3 (superficie navegador: **Claude + ChatGPT**; Gemini fuera de a
 
 El grueso del lado servidor de bloqueos (US5) **ya lo trajo la 027** (`gw_inspect` devuelve `{ok:false, blocked:true, blocked_by_layer, motivo}` con catálogo cerrado). Ver `backend/src/api/inspect.py:197-208`.
 
-## Locked design decisions (confirmadas por JF — no re-litigar)
+## Locked design decisions (confirmadas por el owner — no re-litigar)
 
 - **URL la pone el usuario** (editable, agnóstica, default opcional pre-cargable), NO horneada. Revierte el brief #46.
 - **`optional_host_permissions` + `chrome.permissions.request({origins})`** en el gesto Conectar → el host se concede en runtime. El SW (que tiene el permiso) hace el fetch → **sin CORS, sin microservicio**. Revierte el brief #46.
 - **HTTPS obligatorio** para URL remota; `http` solo local.
-- **White-label**: cero marca del fabricante en el zip del partner. Nombre publicado de la extensión de Cámara = **`cc-guardian`** (aprobado por JF).
+- **White-label**: cero marca del fabricante en el zip del partner. Nombre publicado de la extensión de Cámara = **`cc-guardian`** (aprobado por el owner).
 - **Gemini**: fuera (fast-follow). **FR-028** (rechazo por superficie navegador): diferido (falta enum de navegador, coord con Cristian).
 - **Hardening #45 NO se regresa**: el mapa token→PII vive en el closure (nunca `window`/DOM/`document.title`); handshake de nonce bridge↔MAIN; enmascarado no desactivable; la key no se persiste ni re-inyecta antes de validar.
 
@@ -233,9 +233,9 @@ command -v shellcheck >/dev/null && shellcheck deploy/release/render_extension_b
    - Backend: `pytest` de los módulos tocados (conteo esperado, sin inflar).
    - Deploy: re-corro `render_extension_brand.sh` + `test_extension_whitelabel.sh` sobre el `extension/` YA integrado de B → **debe quedar verde** (si no, hotfix a B).
    - Extensión: cargo el zip en Chrome vía Playwright contra un gateway real (compose con 027) → conectar con permiso, ver chip ámbar, disparar un bloqueo y ver el motivo, revocar y ver desconexión.
-5. Codex review (`codex review --base 028-extension-productizacion` o vs dev-fran) → hotfix minions por hallazgo (§11.5), budget 5 pases.
+5. Codex review (`codex review --base 028-extension-productizacion` o vs la rama de desarrollo de Sentinel) → hotfix minions por hallazgo (§11.5), budget 5 pases.
 6. Docs DoD (T025): actualizar `docs/docs/integrations/index.md` §3.3 + `docs/docs/operations/index.md`, `make -C deploy check-docs` 9/9.
-7. **NO merge a dev-fran** — 028 queda en su rama, verificada y PR-ready. La integración a dev-fran + bundle + ensayo es el paso 3, JOINT con JF.
+7. **NO merge a la rama de desarrollo de Sentinel** — 028 queda en su rama, verificada y PR-ready. La integración a la rama de desarrollo de Sentinel + bundle + ensayo es el paso 3, JOINT con el owner.
 
 ## Verificación de integración (orquestador, 2026-07-24)
 
@@ -267,4 +267,4 @@ command -v shellcheck >/dev/null && shellcheck deploy/release/render_extension_b
 - [ ] US8a: key vencida → 401 indistinguible; test de regresión verde.
 - [ ] Hardening #45 preservado; fail-closed intacto.
 - [ ] Codex sin P1; docs DoD 9/9.
-- [ ] Rama `028-extension-productizacion` PR-ready contra `dev-fran` (NO mergeada).
+- [ ] Rama `028-extension-productizacion` PR-ready contra la rama de desarrollo de Sentinel (NO mergeada).

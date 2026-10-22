@@ -110,7 +110,7 @@ corrigieron: `tests/contract/test_route_parity.py`, `tests/integration/test_gw_i
 - Gap PHI clínico español (CIE-10, nº historia clínica) queda fuera de alcance — no pedido
   en las user stories de esta spec.
 
-## Cierre de bloqueantes de la review (2026-07-23, lado JF)
+## Cierre de bloqueantes de la review (2026-07-23, lado del owner)
 
 Los dos bloqueantes del review del PR #21 se cerraron desde este lado para no frenar
 el merge — el primero era íntegramente de `deploy/`, módulo nuestro.

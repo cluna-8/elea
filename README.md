@@ -152,7 +152,7 @@ litellm/           Motor LiteLLM + extensiones nativas (014):
 frontend/          React + Vite + Tailwind (panel, playground, monitor)
 extension/         Extensión MV3 Sentinel Guard (browser-DLP: ChatGPT/Claude web)
 specs/             SDD — una spec por feature (spec/plan/tasks/research); ver ROADMAP-guardian.md
-deploy/            Install & Factory (depto Falime): bundles white-label, perfiles de clientes,
+deploy/            Install & Factory (`deploy/`): bundles white-label, perfiles de clientes,
                    imágenes prod, checks de release — en mudanza a repo propio guardian-factory
 docs/              Docs de operación: integration-surfaces, whitelabel-deployment, compliance-policies
 docs-cliente/      Sitio de docs para el cliente final (viaja en el kit de sede)
@@ -185,9 +185,9 @@ ediciones manuales; `speckit-analyze` valida consistencia spec↔plan↔tasks.
 - **Estado y secuencia**: [`specs/ROADMAP-guardian.md`](specs/ROADMAP-guardian.md) — 013–014, 016,
   019–022, 024 y 027–031 implementadas en `main`; 017/018, 023 y 033/034 en roadmap. El tech tree con
   fases y gates 125/250/500: [`specs/ROADMAP-pisos.md`](specs/ROADMAP-pisos.md).
-- **Departamentos** (decisión 2026-08-03, supera la división por módulos del 15-jul): Guardian App
-  Ecosystem (JF, el producto) e Install & Factory (Falime, `deploy/`); Cristian = gate de seguridad, no
-  departamento. Convención de trabajo: [CONTRIBUTING.md](CONTRIBUTING.md) + [CODEOWNERS](.github/CODEOWNERS);
+- **Responsables** (decisión 2026-08-03, supera la división por módulos del 15-jul): un solo dueño
+  humano, Cristian (owner y gate de seguridad); Atlas es el orquestador y administra a los workers.
+  No hay departamentos por persona. Convención de trabajo: [CONTRIBUTING.md](CONTRIBUTING.md) + [CODEOWNERS](.github/CODEOWNERS);
   operativa del depto Guardian: [tech-team/DevFlow-SentinelGuardian.md](tech-team/DevFlow-SentinelGuardian.md).
 - **Gobernanza**: [`.specify/memory/constitution.md`](.specify/memory/constitution.md) (principios I–VIII;
   fail-closed, audit metadata-only, white-label config-as-data, never fork).

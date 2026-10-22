@@ -1,7 +1,7 @@
 """Registro de proveedores SSO (spec 017 US2, `contracts/proveedor-sso.md`, T014).
 
 Cubre el registro puro (`register`/`get_provider`/`known_types`) y el auto-abastecimiento de
-los built-ins (enmienda de Jeff sobre el brief original: `get_provider`/`known_types` cargan
+los built-ins (enmienda del owner sobre el brief original: `get_provider`/`known_types` cargan
 `entra` con un import perezoso INTERNO — ningún consumidor externo necesita
 `from src.sso import entra` sólo por el side-effect del registro).
 

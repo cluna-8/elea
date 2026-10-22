@@ -98,7 +98,7 @@ hardcodeada. Al elegir "Automático", el mensaje viaja a `elea` con `model="auto
    auto-router), no desde un array fijo en `index.html`.
 2. La respuesta del chat simple muestra qué modelo respondió realmente (transparencia,
    igual que hace el portal nativo de `elea` — "decisión de Elea" documentada en
-   `HANDOFF-FALIME-2026-08-14.md §3.4`), sin exponer el nombre del motor subyacente
+   `HANDOFF-FACTORY-2026-08-14.md §3.4`), sin exponer el nombre del motor subyacente
    (ver spec 039).
 3. Ningún nombre de proveedor de motor ("litellm") aparece en la UI ni en las respuestas
    de la API del cliente — solo nombres de modelo (`azure-gpt-4o-mini`, etc.) y

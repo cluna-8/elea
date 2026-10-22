@@ -18,7 +18,7 @@ la matriz nueva. **Eso es esperado y es el entregable**: el rojo ES el diff docu
 test roto. Las divergencias vivas están enumeradas una por una en
 ``DIVERGENCIAS_CONOCIDAS_PRE_T006`` y ``test_las_divergencias_rojas_son_exactamente_las_documentadas``
 prueba que el rojo actual == esa lista (ni una de más = regresión; ni una de menos = ya la cerró
-T006). Las cierra Jeff en T006 (auth caliente): mover las 8 escrituras del compliance_officer a
+T006). Las cierra el owner en T006 (auth caliente): mover las 8 escrituras del compliance_officer a
 tenant_admin (Regla 1 del contrato) y abrirle la lectura de IAM/config.
 
 Las divergencias vivas son TODAS de ``compliance_officer`` y de dos clases:
@@ -242,8 +242,8 @@ def motor(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _content_policies_mockeadas(monkeypatch):
-    """GET y DELETE de content-policies pegan la red real — NO sólo GET (corrección de
-    Jeff, 26-ago-2026, medida con canario que hace explotar `_get`): `mock_engine`
+    """GET y DELETE de content-policies pegan la red real — NO sólo GET (corrección del
+    owner, 26-ago-2026, medida con canario que hace explotar `_get`): `mock_engine`
     (arriba) sólo patchea `generate_key`/`create_user`/`delete_key`, nada de
     `list_content_policies`/`create_content_policy`/`update_content_policy`/
     `delete_content_policy`. GET nunca tiene body que Pydantic pueda rechazar, así que
@@ -255,7 +255,7 @@ def _content_policies_mockeadas(monkeypatch):
     menos una regla" no corría con el body vacío) — canario con el bug presente: 7/28
     celdas tocan `_get` (GET×3 + PUT×2 + DELETE×2, por los roles que tienen ese acceso).
     Con el fix, PUT vuelve a cortar en 422 antes del handler: quedan 5/28 celdas del
-    CATALOG (GET×3 + DELETE×2) — pero **6 tests en total** (Jeff, medido con canario,
+    CATALOG (GET×3 + DELETE×2) — pero **6 tests en total** (el equipo, medido con canario,
     26-ago-2026): `test_las_divergencias_rojas_son_exactamente_las_documentadas`
     recorre el mismo CATALOG × MINTABLES A MANO (loop propio, no vía
     `@pytest.mark.parametrize`) para comparar las divergencias vivas contra
@@ -459,7 +459,7 @@ def test_rol_lectura_lee_vitrinas_y_nada_mas(harness):
 
 
 def test_put_content_policy_sin_reglas_da_422_no_borra_en_silencio(sesiones, harness):
-    """Bloqueante #315 (Jeff, 26-ago-2026): `_al_menos_una_regla` era un
+    """Bloqueante #315 (el owner, 26-ago-2026): `_al_menos_una_regla` era un
     `@field_validator("categories")`, y en Pydantic 2 un field validator NO corre cuando el
     campo viene AUSENTE y toma su default — sólo disparaba con `categories: []` EXPLÍCITO, la
     forma que ningún cliente manda. Como `update_content_policy` es borra+crea (hallazgo del

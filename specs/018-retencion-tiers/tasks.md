@@ -1,10 +1,10 @@
 # Tasks: Retención con dientes — purga programada + tiers de enforcement
 
-**Input**: Design documents from `/specs/018-retencion-tiers/` (plan.md, research.md, data-model.md, contracts/, quickstart.md — sellados 13-ago; gate de producto JF sellado 13-ago).
+**Input**: Design documents from `/specs/018-retencion-tiers/` (plan.md, research.md, data-model.md, contracts/, quickstart.md — sellados 13-ago; gate de producto del owner sellado 13-ago).
 
 **Tests**: OBLIGATORIOS por DevFlow del depto («código nuevo = tests nuevos en el mismo PR», tests-que-muerden verificados por mutación donde aplique). Codex-gate en cada PR con código.
 
-**Quién**: implementa el equipo de **Jeff 2** (coders Opus 5); Cristian = gate de review de seguridad; el manager gatea y mergea. Frontera: NADA de `litellm/extensions/` salvo el alta de UNA clave en el registry de `sentinel_governance.py` (T016 — cambio de código puro, sin lógica de motor). El terreno 036/037 de Cristian no se toca.
+**Quién**: implementa el equipo (coders Opus 5); Cristian = gate de review de seguridad; el manager gatea y mergea. Frontera: NADA de `litellm/extensions/` salvo el alta de UNA clave en el registry de `sentinel_governance.py` (T016 — cambio de código puro, sin lógica de motor). El terreno 036/037 de Cristian no se toca.
 
 **Ramas/PRs**: ramas cortas colgadas de main (la spec ya está mergeada), PR < 400 líneas, un PR por fase o módulo coherente. `Closes #NNN` en inglés donde aplique.
 

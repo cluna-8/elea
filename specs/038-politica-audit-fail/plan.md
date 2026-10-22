@@ -2,7 +2,7 @@
 
 **Branch**: `038-politica-audit-fail` | **Date**: 2026-08-18 | **Spec**: [spec.md](./spec.md)
 
-**Input**: spec.md con D1–D5 **selladas por JF el 18-ago** (todas con la recomendación del
+**Input**: spec.md con D1–D5 **selladas por el owner el 18-ago** (todas con la recomendación del
 manager; constancia en PR #221). La evidencia de código de la spec fue re-verificada contra
 `origin/main@85c9c55` al escribir este plan; donde una línea derivó, acá va la vigente.
 
@@ -97,7 +97,7 @@ no vuelve) · overrides `open`/`closed` sin cambio de semántica (SC-002) · lec
 specs/038-politica-audit-fail/
 ├── spec.md              # sellada 18-ago (D1-D5)
 ├── plan.md              # este archivo
-└── tasks.md             # descomposición para el equipo de Jeff (Ola 2)
+└── tasks.md             # descomposición para el equipo (Ola 2)
 ```
 
 (Sin `research.md`/`data-model.md` propios: la evidencia vive en spec §«El problema» y fue

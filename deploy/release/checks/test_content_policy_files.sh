@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Invariante category_file (#143, brief de Jeff): un guardrail de LiteLLM cuyo
+# Invariante category_file (#143, brief del owner): un guardrail de LiteLLM cuyo
 # archivo de categorías no existe NO falla — deja pasar el tráfico sin filtrar
-# (fail-open, medido por Jeff en contenedores reales). Este check es la red que
+# (fail-open, medido por el equipo en contenedores reales). Este check es la red que
 # impide que eso llegue a un cliente.
 #
 # Verifica, en los DOS planos que declaran guardrails:

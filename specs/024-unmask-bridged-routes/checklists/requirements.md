@@ -32,7 +32,7 @@
 ## Notes
 
 - Sin [NEEDS CLARIFICATION]: el alcance viene completamente definido por la evidencia del
-  spike batch 1 (root cause verificado en vivo) y el OK explícito de JF (orden #27 → #28,
+  spike batch 1 (root cause verificado en vivo) y el OK explícito del owner (orden #27 → #28,
   2026-07-20). Los baselines "hoy: 0% / hoy: null" de los SC provienen de esa evidencia.
 - FR-008 y las menciones a `litellm/`/CODEOWNERS en Assumptions son restricciones de
   gobernanza (constitución VI, ownership), no elecciones de implementación.

@@ -400,7 +400,7 @@ PREFIJO_BLOQUEADO = "blocked"
 # hacia el motor—, y el de presupuesto es un tope ADMINISTRATIVO nuestro, no una infracción
 # del usuario: el pedido era perfectamente lícito y aun así no se sirvió. Contarlos entre los
 # bloqueos inflaría «cuántos intentos bloqueó el firewall» con pedidos que nadie bloqueó.
-# Ref: gate adversarial del PR #135 (H4), decisión JF 12-ago-2026; issue #157.
+# Ref: gate adversarial del PR #135 (H4), decisión del owner 12-ago-2026; issue #157.
 #
 # Para la VITRINA eso los deja fuera de los dos baldes del filtro binario (ni bloqueados ni
 # permitidos) — de ahí que esta primitiva exista aunque no delimite ninguna clase.

@@ -2,7 +2,7 @@
 
 **Branch**: `018-retencion-tiers` | **Date**: 2026-08-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/018-retencion-tiers/spec.md` — gate de producto SELLADO (JF, 13-ago): DSAR fuera (spec propia Guardian en C3; fix del 500 #193 como tarea suelta), tiers `estricto`/`estándar` sobre el registry 027.
+**Input**: Feature specification from `/specs/018-retencion-tiers/spec.md` — gate de producto SELLADO (del owner, 13-ago): DSAR fuera (spec propia Guardian en C3; fix del 500 #193 como tarea suelta), tiers `estricto`/`estándar` sobre el registry 027.
 
 ## Summary
 

@@ -36,7 +36,7 @@
   SCs se mantienen agnósticos de implementación.
 - 0 marcadores [NEEDS CLARIFICATION]: los defaults elegidos (passthrough fuera de alcance, estrategia
   LLM de 012-US5 no portada, ruteo opt-in P3) quedan documentados en **Assumptions** — son las 3
-  decisiones a validar por el owner (Falime) en `/speckit-clarify` o review de la PR antes de
+  decisiones a validar por el owner en `/speckit-clarify` o review de la PR antes de
   `/speckit-plan`.
 - Dependencia blanda con 015 (patrón de resolución por scope) anotada en Assumptions: coordinar orden
   de merge entre módulos seguridad ↔ costes.

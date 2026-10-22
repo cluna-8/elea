@@ -269,7 +269,7 @@ release — ningún build puede violar la frontera signer/admin sin fallar CI
       de superficies si aplica — en el MISMO PR (regla de mantenimiento del roadmap)
 - [ ] T039 Quickstart completo de punta a punta (pasos 0-7 de quickstart.md, ambos
       artefactos + gates de separación + `install.sh` en un host limpio) como validación
-      final + STOP & VALIDATE con JF antes del merge
+      final + STOP & VALIDATE con el owner antes del merge
 
 ## Dependencies & Execution Order
 
@@ -305,5 +305,5 @@ artefacto que nunca sale de su estación — desbloquea el piloto aunque la inst
 semi-manual). US2 completa el camino humano del lado partner/cliente. La fase de
 empaquetado/frontera (T031-T035) es **no negociable antes de distribuir nada** — es la
 única garantía de que `sentinel-admin` no arrastra el signer, y debe estar en verde antes de
-armar el primer bundle real. Cada checkpoint es demostrable a JF por separado; STOP &
+armar el primer bundle real. Cada checkpoint es demostrable al owner por separado; STOP &
 VALIDATE antes del merge (T039).

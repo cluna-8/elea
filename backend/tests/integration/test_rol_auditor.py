@@ -6,7 +6,7 @@ entrar a modelos, llaves ni administración. Ese usuario ya existía en el códi
 alta con el nombre que pide el cliente y **no le cambia un solo permiso**.
 
 Por eso este archivo no es un test de permisos nuevos: es el ancla de un texto que se le
-muestra a quien da el alta y que después JF le repite al cliente. Si mañana alguien mueve
+muestra a quien da el alta y que después el owner le repite al cliente. Si mañana alguien mueve
 un gate, el que falla es este test y el copy se corrige con él, en vez de quedar una
 consola que promete solo lectura y un backend que acepta escrituras.
 

@@ -4,8 +4,8 @@
 
 **Created**: 2026-08-17
 
-**Status**: Sellada — D1–D5 aprobadas por JF el 18-ago (todas con la recomendación ★;
-constancia en PR #221). `plan.md` + `tasks.md` listos; construye el equipo de Jeff (Ola 2)
+**Status**: Sellada — D1–D5 aprobadas por el owner el 18-ago (todas con la recomendación ★;
+constancia en PR #221). `plan.md` + `tasks.md` listos; construye el equipo (Ola 2)
 
 **Input**: Dirección sellada en el weekly 05-ago: «política por nivel de riesgo/rol del
 usuario (alta prioridad corta, baja prioridad sirve)» (`ROADMAP-pisos.md:32` y `:115`).
@@ -111,7 +111,7 @@ contrato `specs/031-durable-audit/contracts/audit-durable.md:31-35`.
 - **SC-003**: 400/422 de validación previa: cero filas nuevas en `audit_logs` + contador
   por tenant/endpoint observable.
 
-## ⚖️ Menú de sellos — SELLADO 18-ago (JF aprobó la recomendación ★ en las cinco)
+## ⚖️ Menú de sellos — SELLADO 18-ago (el owner aprobó la recomendación ★ en las cinco)
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
@@ -122,4 +122,4 @@ contrato `specs/031-durable-audit/contracts/audit-durable.md:31-35`.
 | D5 | Marcador machine-readable en `/gw` al servir sin fila | a) sí · b) no | ★ **a**: honestidad a máquina, precedente #166 / `X-Sentinel-Rejected` |
 
 Sello registrado en PR #221 (comment del 18-ago). `plan.md` y `tasks.md` viven en este
-mismo directorio. Construye el equipo de Jeff (Ola 2 del sprint al 5-sep).
+mismo directorio. Construye el equipo (Ola 2 del sprint al 5-sep).

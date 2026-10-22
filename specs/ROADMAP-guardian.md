@@ -1,16 +1,16 @@
 # Roadmap — Guardian App Ecosystem
 
 **Última actualización**: 2026-08-13 — **arranca Fase 0 + recambio de tareas**: specs **017 y 018 EN MAIN**
-con plan+tasks y las 6 decisiones de producto selladas por JF (PRs [#192](https://github.com/DrZuzzjen/sentinel-guardian/pull/192)/[#194](https://github.com/DrZuzzjen/sentinel-guardian/pull/194));
-implementación de la 018 **en curso** (equipo Jeff, [#11](https://github.com/DrZuzzjen/sentinel-guardian/issues/11)); recambio del weekly: Falime→instalaciones,
+con plan+tasks y las 6 decisiones de producto selladas por el owner (PRs PR #192 de Sentinel/PR #194 de Sentinel);
+implementación de la 018 **en curso** (el equipo, issue #11 de Sentinel); recambio del weekly: el responsable de deploy/ (Factory)→instalaciones,
 Cristian→wizard 037 full ownership (**Fase 0 + wizard = v1.0**, ver sección Departamentos); DevRel
-estrenada y parkeada (norma+drift gate en main, [PR #188](https://github.com/DrZuzzjen/sentinel-guardian/pull/188)). Actualización anterior (2026-08-12) — **el examen**: el **gate 125 PASÓ** (primer número oficial: run
+estrenada y parkeada (norma+drift gate en main, PR #188 de Sentinel). Actualización anterior (2026-08-12) — **el examen**: el **gate 125 PASÓ** (primer número oficial: run
 `20260812-g125-02` sobre main `52e694b`, 4/4 SLOs de oro, chat p95 151 ms; evidencia firmada en
 `tech-team/examenes/20260812/`), la deuda #63/#64 de la 016 quedó **CERRADA** (PRs #97/#111 + hardening),
 la **035** (harness) está en `main` y estrenada en examen real, el fix del pool está mergeado y **verificado
 bajo overload** (#135/#159, rodilla medida 10–25× la carga de sede), y el re-corte de ciclos al **5-SEP**
-quedó sellado por JF (ver ciclos en ROADMAP-pisos). Actualización anterior (2026-08-04, la mudanza):
-`main` promovido por FF de `dev-fran` (`78637e6`, tag **`checkpoint-camara-2026-08`**); las filas de
+quedó sellado por el owner (ver ciclos en ROADMAP-pisos). Actualización anterior (2026-08-04, la mudanza):
+`main` promovido por FF de la rama de desarrollo de Sentinel (`78637e6`, tag **`checkpoint-camara-2026-08`**); las filas de
 Install & Factory viven en [`deploy/ROADMAP-factory.md`](../deploy/ROADMAP-factory.md).
 **Base**: forkeado de gatelite "Sentinel Secure AI Gateway" v1.0.0 + feature/012 (ver [`ROADMAP.md`](./ROADMAP.md) para la deuda heredada A–F).
 **Gobierna**: [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) v2.2.0 (enmienda D10: `nlp_fail_mode`).
@@ -28,26 +28,26 @@ SSO, D5 env vars).
 
 ## Departamentos (decisión 2026-08-03 — supera la división por módulos del 15-jul)
 
-- **Guardian App Ecosystem — JF (@DrZuzzjen), responsable total**: todo lo de este roadmap. Dentro del
-  ecosistema ya no hay sub-owners por persona: 023 pasa a JF por herencia (regla 2 del acuerdo) y las
-  filas 015/017/018 son producto con responsable JF.
-- **Install & Factory — Falime (@FalimeJ)**: `deploy/` entero + su roadmap propio en
+- **Guardian App Ecosystem — el owner, responsable total**: todo lo de este roadmap. Dentro del
+  ecosistema ya no hay sub-owners por persona: 023 pasa al owner por herencia (regla 2 del acuerdo) y las
+  filas 015/017/018 son producto con responsable owner.
+- **Install & Factory — el equipo de deploy/ (Factory)**: `deploy/` entero + su roadmap propio en
   [`deploy/ROADMAP-factory.md`](../deploy/ROADMAP-factory.md). En mudanza a repo propio
   (`guardian-factory`), desprendiéndose del tag `checkpoint-camara-2026-08`.
 - **Cristian (@cluna-8) — gate de review, no departamento**: custodia/rotación de claves de firma,
   RBAC de firma y auth (ver [CODEOWNERS](../.github/CODEOWNERS)).
 
-**Recambio del 2026-08-13 (weekly JF↔Cristian↔Falime) — ajusta el reparto de arriba sin
+**Recambio del 2026-08-13 (weekly del owner↔Cristian↔deploy/ (Factory)) — ajusta el reparto de arriba sin
 disolverlo:**
 
-- **Falime pasa a INSTALACIONES**: sedes de cliente (drops de imagen, accesos remotos, operativa
+- **El responsable de deploy/ (Factory) pasa a INSTALACIONES**: sedes de cliente (drops de imagen, accesos remotos, operativa
   Hetzner). Sigue siendo el dueño de `deploy/` como operador; el desarrollo que tenía en curso se
   redistribuye.
 - **Cristian toma el wizard de onboarding (`SENTINEL-037`, no está en este repo) con full ownership**, dentro del Guardian
-  ecosystem — hereda de Falime el esqueleto CLI ([PR #103](https://github.com/DrZuzzjen/sentinel-guardian/pull/103))
+  ecosystem — hereda de deploy/ (Factory) el esqueleto CLI (PR #103 de Sentinel)
   y el encargo del schema del perfil (validador + bloques reservados `sso`/`compliance_tier`,
   contrato en `specs/037-wizard-onboarding/`). Mantiene además su gate de review.
-- **Guardian (equipos Claude, manager + Jeff) = delivery de Fase 0** (017/018 en implementación).
+- **Guardian (equipos Claude, manager + el equipo) = delivery de Fase 0** (017/018 en implementación).
 - **Definición de release: Fase 0 + wizard = el v1.0.** Primer objetivo del wizard: Evidenze
   (sanitario). Principio sellado en ADR-0004: *el perfil configura, la licencia autoriza* —
   todo lo vendible se gatea por `feature_flags` de la licencia firmada (021).
@@ -62,32 +62,32 @@ artefacto versionado, el otro lo consume pinneado. El doc canónico es «Manos a
 |------|--------|-------|-----------|--------|--------------|----------------|
 | **013** | **Multi-Tenant Foundation & Client Model** | — (core) | P1 | **Implementada** (2026-07-10, ver [implementation-notes](./013-multi-tenant-foundation/implementation-notes.md)) — desbloquea 014/015/017 | III, IV, VII | — |
 | **014** | **LiteLLM-Native Firewall (base_url clients)** | — (core) | P1 | **Implementada** (US1-US5, 2026-07-10, [notes](./014-litellm-native-firewall/implementation-notes.md)); sólo resta Polish T034-T037 | I, II(exc.), VI, VIII | — |
-| 015 | Scoped SecurityPolicy (per-group/per-client) | JF | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
-| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | JF | P2 | **Implementada en `main`** ([PR #21](https://github.com/DrZuzzjen/sentinel-guardian/pull/21) absorbido por el FF 2026-08-04). ✅ Deuda #63/#64 **CERRADA** (2026-08-12): paridad NLP en `/gw` + `nlp_fail_mode` gobernable ([PR #97](https://github.com/DrZuzzjen/sentinel-guardian/pull/97), D10 constitución 2.2.0) + paracaídas regex honesto ([PR #111](https://github.com/DrZuzzjen/sentinel-guardian/pull/111)) + hardening #98/#104/#105/#106/#119/#124. Verificado bajo carga: 0 canarios crudos en el gate 125. ⚠️ Deuda nueva con evidencia de run: [#167](https://github.com/DrZuzzjen/sentinel-guardian/issues/167) — fail-closed bloquea tráfico legítimo en arranque-en-frío + ráfaga de logins (confirmar mecanismo ANTES del gate 250) | I, SC-2 | **C2** |
-| 017 | Auth hardening & Multi-Tenant RBAC + SSO | JF (gate: Cristian) | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** ([PR #194](https://github.com/DrZuzzjen/sentinel-guardian/pull/194), 13-ago) con recorte sellado por JF: matriz sobre el shim + auditor read-only (absorbe 034) + rol `lectura` + SSO **solo Entra** por contrato de proveedor gateado por licencia (Google→C3) + RLS partida + hardening cerrado de 4. **Implementación en cola tras el MVP de la 018** (equipo Jeff). Precondiciones 24-ago: merge-order [#137](https://github.com/DrZuzzjen/sentinel-guardian/pull/137) con Cristian + tenant Entra de prueba (DevOps) | III, SC-3 | **C3, C4, C5**, D5, absorbe **034** |
-| 018 | Compliance Enforcement Tiers + retention purge | JF | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** ([PR #192](https://github.com/DrZuzzjen/sentinel-guardian/pull/192), 13-ago; gate de producto sellado: DSAR fuera → spec propia C3 en Guardian, tiers `estricto`/`estándar` sobre el registry 027) — **implementación EN CURSO, equipo Jeff** ([#11](https://github.com/DrZuzzjen/sentinel-guardian/issues/11)): Foundational → MVP purga (gate manager) → tiers. ⚠️ El gate 250 lo destraba la **implementación**, no la spec | II [D3] | A4 |
-| 019 | Integration Surfaces & Client Compatibility | JF | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados ([PR #29](https://github.com/DrZuzzjen/sentinel-guardian/pull/29)) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
-| 021 | Licensing & Seat Enforcement (offline Ed25519) — **lib runtime** | JF (gate: Cristian) | P2 | **Implementada** (US1-US5, 2026-07-20, stack [PR #18](https://github.com/DrZuzzjen/sentinel-guardian/pull/18)→#19→#20→[#22](https://github.com/DrZuzzjen/sentinel-guardian/pull/22)). **Mixta**: acá vive solo la lib (`backend/src/licensing`, fuente única); la operativa de emisión/cupos/true-up es de Factory ([roadmap](../deploy/ROADMAP-factory.md)) | VII, III, II | — |
-| 022 | Product Documentation Site — **contenido** | JF | P2 | **Implementada** (US1-US7, 2026-07-20, [PR #25](https://github.com/DrZuzzjen/sentinel-guardian/pull/25) + [#26](https://github.com/DrZuzzjen/sentinel-guardian/pull/26) docs-en-DoD). **Mixta**: contenido acá; build+entrega brandeada = Factory. Contrato: `openapi.json` single-source | VII, VIII, II | — |
-| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | JF (herencia 03-ago) | P2 | **Spec mergeada** ([PR #6](https://github.com/DrZuzzjen/sentinel-guardian/pull/6)); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
-| 024 | Unmask + atribución en respuestas byok (rutas bridged) | JF | P2 | **Implementada** (2026-07-21, [PR #31](https://github.com/DrZuzzjen/sentinel-guardian/pull/31), cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
-| 027 | Gobernanza configurable + enforcement honesto del firewall | JF | **P1** | **Implementada en `main`** (Foundational+US1+US2; [PR #43](https://github.com/DrZuzzjen/sentinel-guardian/pull/43) absorbido por el fast-forward 2026-08-04). `tasks.md` declara **parciales por diseño** SC-003/SC-005/SC-006; restan T024/T025 (plano motor — **desbloqueadas**: la 016 ya está en `main`), T034 (quickstart e2e) y T036 (P3). **T037 CERRADA**: enmienda D8 sellada el 2026-08-04 — constitución **2.1.0** | I [D8], II, VI, VIII | — |
-| 028 | Productización de la extensión de navegador — **features** | JF | P1 | **Implementada en `main`** (US1-US8; fast-forward 2026-08-04, incl. hardening [#44](https://github.com/DrZuzzjen/sentinel-guardian/issues/44)/[PR #45](https://github.com/DrZuzzjen/sentinel-guardian/pull/45) integrado). **Mixta**: features acá; white-label/zip/distribución = Factory. Contratos: `contracts/whoami-proteccion.md` + checksum en MANIFEST. Siguiente: Firefox ([#65](https://github.com/DrZuzzjen/sentinel-guardian/issues/65), nivel 2) | VII, I, C1 | — |
-| 029 | Rediseño de la UI del panel — estilo Azure Foundry (claro, lean) | JF | P2 | **Implementada en `main`** (US1-US4; fast-forward 2026-08-04); 6 páginas del piloto + shell | VII, VIII | — |
-| 030 | Auto-router semántico + rediseño «Modelos & Ollama» | JF | **P1** | **Implementada en `main`** (US1-US3, 20/20 tareas; fast-forward 2026-08-04); verificada en vivo sobre el stack del piloto (SC-001 = **9/9** contra el seed) | II, V, VI, VIII | — |
-| 031 | Auditoría durable de bloqueos (motor/chat/gateway) + UI honesta | JF | **P1** | **Implementada en `main`** (US1-US3, 15/15 tareas; fast-forward 2026-08-04); paga el corte D6 que la 027 había diferido "a la 018"; la **purga de retención sigue en la 018** | II, VIII, I, VI | — |
-| 033 | Engine reload sin restart manual + feedback en UI | JF | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#50](https://github.com/DrZuzzjen/sentinel-guardian/issues/50)). Prerrequisito de escritura atómica **ya pago** (`1151b1e`, en `main`). Est. ~2-2.5 d con retest E2E del bundle amd64 (retest = costura con Factory) | VI, VIII, VII | — |
-| 034 | Rol `auditor` canónico read-only | JF | P2 | **ABSORBIDA por la 017** (13-ago): la matriz canónica de [PR #194](https://github.com/DrZuzzjen/sentinel-guardian/pull/194) define `compliance_officer` read-only con única excepción (resolver human reviews) y sin probar «dueño» — no lleva spec propia; se entrega con la implementación de la 017 | III, SC-3, II | absorbida por **017** |
-| **035** | Load harness + gates de carga 125/250/500 — instrumento de La ITV | JF (ejecuta La ITV) | **P1** | **Implementada en `main`** (spec+plan por speckit; consolidada [PR #122](https://github.com/DrZuzzjen/sentinel-guardian/pull/122), corridas reales [PR #163](https://github.com/DrZuzzjen/sentinel-guardian/pull/163)+[#164](https://github.com/DrZuzzjen/sentinel-guardian/pull/164) con doble gate adversarial). **Estrenada el 12-ago: gate 125 PASS** (4/4 SLOs de oro; evidencia firmada `tech-team/examenes/20260812/`) + rodilla de capacidad medida (10–25× sede en ccx33). Deuda del instrumento consolidada: [#168](https://github.com/DrZuzzjen/sentinel-guardian/issues/168) (ciclo 250). Encargo de dimensionamiento **PAUSADO 13-ago** (JF): el sizing envejece igual que el gate (compresor/NLP cambian el perfil de recursos) — corre en el mismo batch que el **gate 250**, cuyo disparador sellado es contenido, no fecha: implementación 018 + [#178](https://github.com/DrZuzzjen/sentinel-guardian/issues/178)/[#147](https://github.com/DrZuzzjen/sentinel-guardian/pull/147) + compresor [#16](https://github.com/DrZuzzjen/sentinel-guardian/issues/16) en main | II, VIII, I | los gates son el pilar de ESCALA del DoD de Fase 0 |
-| **036** | Políticas de compliance por cliente/país (region-aware) | Cristian @cluna-8 (gate: manager) | P2 | **En PRs** (stack [#141](https://github.com/DrZuzzjen/sentinel-guardian/pull/141) spec → [#137](https://github.com/DrZuzzjen/sentinel-guardian/pull/137) region por tenant → [#143](https://github.com/DrZuzzjen/sentinel-guardian/pull/143) content filter → [#147](https://github.com/DrZuzzjen/sentinel-guardian/pull/147) API+pantalla+docs). Freeze del examen levantado 12-ago: gates adversariales en ese orden, CI rojos (#143/#147) son tarea de Cristian. Decisiones de producto selladas por JF 12-ago: superficie tal cual · solo admins aprueban · paralelo best-effort | II, III, VII | — |
+| 015 | Scoped SecurityPolicy (per-group/per-client) | owner | P2 | Roadmap | I, II | gap "SecurityPolicy global" |
+| 016 | Real NLP Masking (Presidio) + streaming unmask hardening | owner | P2 | **Implementada en `main`** (PR #21 de Sentinel absorbido por el FF 2026-08-04). ✅ Deuda #63/#64 **CERRADA** (2026-08-12): paridad NLP en `/gw` + `nlp_fail_mode` gobernable (PR #97 de Sentinel, D10 constitución 2.2.0) + paracaídas regex honesto (PR #111 de Sentinel) + hardening #98/#104/#105/#106/#119/#124. Verificado bajo carga: 0 canarios crudos en el gate 125. ⚠️ Deuda nueva con evidencia de run: issue #167 de Sentinel — fail-closed bloquea tráfico legítimo en arranque-en-frío + ráfaga de logins (confirmar mecanismo ANTES del gate 250) | I, SC-2 | **C2** |
+| 017 | Auth hardening & Multi-Tenant RBAC + SSO | owner (gate: Cristian) | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** (PR #194 de Sentinel, 13-ago) con recorte sellado por el owner: matriz sobre el shim + auditor read-only (absorbe 034) + rol `lectura` + SSO **solo Entra** por contrato de proveedor gateado por licencia (Google→C3) + RLS partida + hardening cerrado de 4. **Implementación en cola tras el MVP de la 018** (el equipo). Precondiciones 24-ago: merge-order PR #137 de Sentinel con Cristian + tenant Entra de prueba (DevOps) | III, SC-3 | **C3, C4, C5**, D5, absorbe **034** |
+| 018 | Compliance Enforcement Tiers + retention purge | owner | **P1** (re-priorizada 12-ago) | **Spec+plan+tasks EN MAIN** (PR #192 de Sentinel, 13-ago; gate de producto sellado: DSAR fuera → spec propia C3 en Guardian, tiers `estricto`/`estándar` sobre el registry 027) — **implementación EN CURSO, el equipo** (issue #11 de Sentinel): Foundational → MVP purga (gate manager) → tiers. ⚠️ El gate 250 lo destraba la **implementación**, no la spec | II [D3] | A4 |
+| 019 | Integration Surfaces & Client Compatibility | owner | P2 | **Implementada** (US1-US5, 2026-07-14, [notes](./019-integration-surfaces/implementation-notes.md)); spikes batch 1 mergeados (PR #29 de Sentinel) + registro de superficies vivo; resta E2E de la extensión en navegador + spike Cline/Continue en vivo (#15) | VI, VIII, II(exc.), IV | promueve browser-DLP del "later" |
+| 021 | Licensing & Seat Enforcement (offline Ed25519) — **lib runtime** | owner (gate: Cristian) | P2 | **Implementada** (US1-US5, 2026-07-20, stack PR #18 de Sentinel→#19→#20→PR #22 de Sentinel). **Mixta**: acá vive solo la lib (`backend/src/licensing`, fuente única); la operativa de emisión/cupos/true-up es de Factory ([roadmap](../deploy/ROADMAP-factory.md)) | VII, III, II | — |
+| 022 | Product Documentation Site — **contenido** | owner | P2 | **Implementada** (US1-US7, 2026-07-20, PR #25 de Sentinel + PR #26 de Sentinel docs-en-DoD). **Mixta**: contenido acá; build+entrega brandeada = Factory. Contrato: `openapi.json` single-source | VII, VIII, II | — |
+| 023 | Ahorro de Costes IA en el plano firewall (perfiles + ruteo coste-consciente) | owner (herencia 03-ago) | P2 | **Spec mergeada** (PR #6 de Sentinel); implementación pendiente (#16) | II, IV, VI | generaliza **012** al plano firewall |
+| 024 | Unmask + atribución en respuestas byok (rutas bridged) | owner | P2 | **Implementada** (2026-07-21, PR #31 de Sentinel, cierra #27); promueve 3 superficies de 019 a FUNCIONA | I, VI, VIII | fix-spec de #27 |
+| 027 | Gobernanza configurable + enforcement honesto del firewall | owner | **P1** | **Implementada en `main`** (Foundational+US1+US2; PR #43 de Sentinel absorbido por el fast-forward 2026-08-04). `tasks.md` declara **parciales por diseño** SC-003/SC-005/SC-006; restan T024/T025 (plano motor — **desbloqueadas**: la 016 ya está en `main`), T034 (quickstart e2e) y T036 (P3). **T037 CERRADA**: enmienda D8 sellada el 2026-08-04 — constitución **2.1.0** | I [D8], II, VI, VIII | — |
+| 028 | Productización de la extensión de navegador — **features** | owner | P1 | **Implementada en `main`** (US1-US8; fast-forward 2026-08-04, incl. hardening issue #44 de Sentinel/PR #45 de Sentinel integrado). **Mixta**: features acá; white-label/zip/distribución = Factory. Contratos: `contracts/whoami-proteccion.md` + checksum en MANIFEST. Siguiente: Firefox (issue #65 de Sentinel, nivel 2) | VII, I, C1 | — |
+| 029 | Rediseño de la UI del panel — estilo Azure Foundry (claro, lean) | owner | P2 | **Implementada en `main`** (US1-US4; fast-forward 2026-08-04); 6 páginas del piloto + shell | VII, VIII | — |
+| 030 | Auto-router semántico + rediseño «Modelos & Ollama» | owner | **P1** | **Implementada en `main`** (US1-US3, 20/20 tareas; fast-forward 2026-08-04); verificada en vivo sobre el stack del piloto (SC-001 = **9/9** contra el seed) | II, V, VI, VIII | — |
+| 031 | Auditoría durable de bloqueos (motor/chat/gateway) + UI honesta | owner | **P1** | **Implementada en `main`** (US1-US3, 15/15 tareas; fast-forward 2026-08-04); paga el corte D6 que la 027 había diferido "a la 018"; la **purga de retención sigue en la 018** | II, VIII, I, VI | — |
+| 033 | Engine reload sin restart manual + feedback en UI | owner | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en issue #50 de Sentinel). Prerrequisito de escritura atómica **ya pago** (`1151b1e`, en `main`). Est. ~2-2.5 d con retest E2E del bundle amd64 (retest = costura con Factory) | VI, VIII, VII | — |
+| 034 | Rol `auditor` canónico read-only | owner | P2 | **ABSORBIDA por la 017** (13-ago): la matriz canónica de PR #194 de Sentinel define `compliance_officer` read-only con única excepción (resolver human reviews) y sin probar «dueño» — no lleva spec propia; se entrega con la implementación de la 017 | III, SC-3, II | absorbida por **017** |
+| **035** | Load harness + gates de carga 125/250/500 — instrumento de La ITV | owner (ejecuta La ITV) | **P1** | **Implementada en `main`** (spec+plan por speckit; consolidada PR #122 de Sentinel, corridas reales PR #163 de Sentinel+PR #164 de Sentinel con doble gate adversarial). **Estrenada el 12-ago: gate 125 PASS** (4/4 SLOs de oro; evidencia firmada `tech-team/examenes/20260812/`) + rodilla de capacidad medida (10–25× sede en ccx33). Deuda del instrumento consolidada: issue #168 de Sentinel (ciclo 250). Encargo de dimensionamiento **PAUSADO 13-ago** (del owner): el sizing envejece igual que el gate (compresor/NLP cambian el perfil de recursos) — corre en el mismo batch que el **gate 250**, cuyo disparador sellado es contenido, no fecha: implementación 018 + issue #178 de Sentinel/PR #147 de Sentinel + compresor issue #16 de Sentinel en main | II, VIII, I | los gates son el pilar de ESCALA del DoD de Fase 0 |
+| **036** | Políticas de compliance por cliente/país (region-aware) | Cristian @cluna-8 (gate: manager) | P2 | **En PRs** (stack PR #141 de Sentinel spec → PR #137 de Sentinel region por tenant → PR #143 de Sentinel content filter → PR #147 de Sentinel API+pantalla+docs). Freeze del examen levantado 12-ago: gates adversariales en ese orden, CI rojos (#143/#147) son tarea de Cristian. Decisiones de producto selladas por el owner 12-ago: superficie tal cual · solo admins aprueban · paralelo best-effort | II, III, VII | — |
 | **050** | IA Hub: Hub conector fino + Guardian firewall + motores (tabular DuckDB, Presenton, docs 049) | Cristian | **P1** | **Implementada** (hitos 1-6, 12/14-sep-2026, rama `050-ia-hub-conector-motores` de `cluna-8/elea`; [CHANGELOG](./050-ia-hub-conector-motores/CHANGELOG.md), [handoff a Sentinel](./050-ia-hub-conector-motores/HANDOFF-elea-a-sentinel.md)). Incluye fix del firewall: restitución en streaming OpenAI. **Pendiente**: instalador probado desde cero en máquina limpia; atribución de gasto por persona en el engine; allow-list NLP por tenant; specs 047 y 049 | I, VI, VII, VIII | absorbe 046, 048; recorta 045, 049 |
 | **051** | Historial de conversaciones en Planillas — investigación de la mejor opción (motor guarda por hilo + registro de hilos en Guardian, hipótesis D) | Cristian | P2 | **Implementada** (14-sep-2026; [spec](./051-historial-planillas/spec.md), [resultados](./051-historial-planillas/RESULTADOS.md), [CHANGELOG](./051-historial-planillas/CHANGELOG.md): hilos con historial y resumen en Planillas, "Mi chat" con historial; tabular 79 tests, Hub 40; probado en vivo con planillas reales y dos personas) | I, VII | depende de 050 |
 | **056** | Ingreso con Microsoft Entra ID (SSO) en Eleia Hub — activar el SSO de la 017 y llevarlo al Hub | Cristian | P1 | **Draft** (23-sep-2026; [spec](./056-sso-entra-id-hub/spec.md)). Fase 1: 4-6 días. Preparada para handoff a Sentinel | III, VII | reutiliza 017; respeta 051 y 055 |
 
 ### 033/034 — Paquete «onboarding v2», lado producto (post-instalación Cámara, sin arrancar)
 Salen del **research del 2026-07-30** (4 minions + síntesis) sobre el feedback en vivo de Rafa y Javi
-durante la instalación del piloto — issues [#49](https://github.com/DrZuzzjen/sentinel-guardian/issues/49)–[#52](https://github.com/DrZuzzjen/sentinel-guardian/issues/52).
-Diagnóstico de JF: «el onboarding **es** cargar modelos; urge que tenga sentido o parece amateur».
+durante la instalación del piloto — issues issue #49 de Sentinel–issue #52 de Sentinel.
+Diagnóstico del owner: «el onboarding **es** cargar modelos; urge que tenga sentido o parece amateur».
 La tercera pata del paquete —**032 ingress cert modes**— es de Install & Factory y vive en
 [su roadmap](../deploy/ROADMAP-factory.md).
 
@@ -97,7 +97,7 @@ La tercera pata del paquete —**032 ingress cert modes**— es de Install & Fac
   código de la imagen pinneada: LiteLLM NO tiene reload sin DB**, así que «que lo haga el motor» no existe
   como opción. Su prerrequisito —escritura atómica del `config.yaml`— **ya está pago** (commit `1151b1e`).
 - **034 — Rol `auditor` canónico read-only**: migración del CHECK + gates + deny explícito de chat +
-  navegación reducida. El quick-win ([PR #54](https://github.com/DrZuzzjen/sentinel-guardian/pull/54), mergeado)
+  navegación reducida. El quick-win (PR #54 de Sentinel, mergeado)
   sólo hizo creable el `compliance_officer` existente y **declara honestamente que no es read-only**: hoy ese
   rol puede desactivar la política de protección activa y acortar la retención de los registros que audita.
   No consume seats (argumento comercial) y la futura **017** lo absorbe en su matriz definitiva.
@@ -168,7 +168,7 @@ al **plano byok del firewall**, donde pasa el tráfico real: la cascada `compres
 tenant) ya se resuelve en la identidad del motor pero **nada la consume**. Perfiles de optimización por
 scope (default developer: coding tools intocables), ahorro medible en presupuesto + audit metadata-only,
 y **ruteo coste-consciente** opt-in por reglas de equivalencia con guardia de calidad (nunca sustitución
-silenciosa). Plano passthrough fuera de alcance (coste de suscripción fijo). Spec: [PR #6](https://github.com/DrZuzzjen/sentinel-guardian/pull/6).
+silenciosa). Plano passthrough fuera de alcance (coste de suscripción fijo). Spec: PR #6 de Sentinel.
 
 ### 024 — Unmask + atribución en respuestas byok, rutas bridged (P2, fix-spec de #27)
 Cerrar el round-trip mask→unmask en el camino byok del **motor** para modelos no-Claude (local vía Ollama
@@ -204,10 +204,10 @@ usuario, lo que la hace agnóstica al despliegue), el paquete **viaja dentro del
 con su checksum en el manifiesto, la extensión **declara su nivel real de protección** y **explica el motivo
 real** de un bloqueo reusando el catálogo cerrado de la 027, y la sesión **distingue "sin red" de "sin
 permiso"** revalidándose sola. Gate de release que verifica el white-label (US7) y rechazo de keys vencidas o
-de otra superficie en el backend (US8). Brief de handoff en [#46](https://github.com/DrZuzzjen/sentinel-guardian/issues/46);
+de otra superficie en el backend (US8). Brief de handoff en issue #46 de Sentinel;
 NEXT en `extension/NEXT-028.md`. **Canónica única**: `sentinel-guardian/extension/` (las copias divergentes se
-borraron). Precedida por el hardening [#44](https://github.com/DrZuzzjen/sentinel-guardian/issues/44) /
-[PR #45](https://github.com/DrZuzzjen/sentinel-guardian/pull/45), que sacó el mapa reversible token→PII del alcance
+borraron). Precedida por el hardening issue #44 de Sentinel /
+PR #45 de Sentinel, que sacó el mapa reversible token→PII del alcance
 del proveedor y cerró el bridge que aceptaba mensajes de la página: la 028 **preserva ese hardening, no lo regresa**.
 
 ### 029 — Rediseño de la UI del panel, estilo Azure Foundry (P2)
@@ -255,8 +255,8 @@ Esta tabla es la **fuente de verdad del estado** y debe actualizarse en el **mis
 con `Closes #NN`). Un roadmap que dice "Roadmap (greenfield)" sobre algo ya mergeado es un bug de proceso.
 
 **Dónde vive cada cosa (desde el 2026-08-04)**: `main` es la **única rama de verdad** — el fast-forward
-`78637e6` absorbió todo `dev-fran` (016+fixes, 027-031, los 4 PRs del gate #53-#56) y quedó taggeado como
-**`checkpoint-camara-2026-08`**, el punto de desprendimiento del repo de Install & Factory. `dev-fran`
+`78637e6` absorbió todo la rama de desarrollo de Sentinel (016+fixes, 027-031, los 4 PRs del gate #53-#56) y quedó taggeado como
+**`checkpoint-camara-2026-08`**, el punto de desprendimiento del repo de Install & Factory. La rama de desarrollo de Sentinel
 queda **jubilada** (puntero histórico; no recibirá más trabajo). Flujo desde hoy: ramas cortas de feature
 contra `main` + gate `/codex-gate` antes de mergear. Ojo: la **sede** de la Cámara corre la imagen de un
 bundle anterior a los últimos fixes — el estado exacto instalado es el MANIFEST de ese bundle, no el tag;

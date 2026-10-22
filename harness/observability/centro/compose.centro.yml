@@ -1,7 +1,7 @@
 # Centro de observabilidad de La ITV — vive en la CPX21 fija del project guardian-itv
 # (NO en el VPS compartido: ese no tiene headroom, df 55% con los Postgres de Plane/Twenty).
 # Prometheus (receiver on, retención larga) + Grafana OSS. Es el tablero EN VIVO del run
-# (pedido JF) y la memoria que sobrevive a las cajas de examen efímeras (FR-013).
+# (pedido del owner) y la memoria que sobrevive a las cajas de examen efímeras (FR-013).
 #
 # REGLA DURA (R3): el veredicto por SLO se computa del JSON de k6 + health del producto +
 # detector del stub — NUNCA de Prometheus/Grafana. Esta caja caída invalida el tablero,

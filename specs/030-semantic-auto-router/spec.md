@@ -9,7 +9,7 @@
 **Input**: User description: "Portar el auto-router semántico de llm-guardian y mejorar
 «Modelos & Ollama» para alojarlo: switch on/off, timeout si hace falta, y pensar bien qué
 pasa con N modelos de Ollama (¿a cuál va?). Agregar un par de modelos además de gpt-4o-mini
-para probarlo bien. Fallback siempre a local por defecto (decisión JF 28-jul). Demo en la
+para probarlo bien. Fallback siempre a local por defecto (decisión del owner 28-jul). Demo en la
 sede el jueves 30-jul."
 
 ## Contexto y evidencia previa (28-jul)
@@ -63,7 +63,7 @@ muestra 3 modelos destino distintos; la batería de 9 queries del benchmark acie
 ### User Story 2 - Panel de ruteo en «Modelos & Ollama» con switch on/off (Priority: P2)
 
 El admin gestiona el ruteo desde la página «Modelos & Ollama» rediseñada: un **switch
-global on/off** (pedido explícito de JF), las rutas con sus utterances/umbral/modelo
+global on/off** (pedido explícito del owner), las rutas con sus utterances/umbral/modelo
 destino (elegido del catálogo real — resuelve «¿y si hay N modelos de Ollama, a cuál
 va?»: al que la ruta declare, y el **default configurable** apunta a UNO explícito),
 timeout del ruteo, y el modelo de embeddings en uso con su estado (cargado/ausente).
@@ -91,7 +91,7 @@ destino sin reiniciar nada (config caliente, como las ediciones de rutas en llm-
 ### User Story 3 - Fallback siempre-a-local + honestidad del modelo real (Priority: P3)
 
 Todo modelo cloud del catálogo lleva **fallback automático al modelo local** por defecto
-(decisión sellada de JF 28-jul: «que siempre vaya a local, sí»). Verificado en vivo el
+(decisión sellada del owner 28-jul: «que siempre vaya a local, sí»). Verificado en vivo el
 28-jul: OpenAI caído → 200 en 11 s respondido por el local, y el campo `model` de la
 respuesta dice el modelo REAL que contestó. La UI conserva esa honestidad: el badge del
 modelo en la respuesta y el registro reflejan quién contestó de verdad, con señal visible

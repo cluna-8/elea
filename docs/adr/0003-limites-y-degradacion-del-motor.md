@@ -1,7 +1,7 @@
 # ADR-0003: Qué protege el tope de admisión y cuándo el producto puede cambiar de modelo
 
 **Fecha:** 2026-08-12 · **Estado:** aceptado
-**Decisores:** JF (issue #134, puntos ② y ③) · propuesto desde el nodo C1 (PR #135, issue #151)
+**Decisores:** el owner (issue #134, puntos ② y ③) · propuesto desde el nodo C1 (PR #135, issue #151)
 
 ## Contexto
 
@@ -16,7 +16,7 @@ Al escribir ese fix quedaron dos preguntas que no son técnicas sino de producto
 sellan acá porque de otro modo las decide sin querer el próximo que toque una config: **hasta
 dónde llega el tope** (¿también al tráfico que no usa el motor local?) y **cuándo el producto
 puede servir una respuesta de un modelo distinto al pedido**. La segunda venía marcada como
-«decisión de JF» en el `config.yaml` desde el spike 019, con el mecanismo ya construido en la
+«decisión del owner» en el `config.yaml` desde el spike 019, con el mecanismo ya construido en la
 feature 010 (fallback por modelo, configurable desde el panel).
 
 ## Decisión
@@ -64,7 +64,7 @@ inventada — silenciosa o no— hacia un modelo que nadie eligió.
   configurado sigue cayendo a él tras el único intento fallido.
 - Un fallback nuevo se agrega desde el panel y queda escrito en la config del cliente: es
   auditable quién lo puso.
-- **Sembrar fallbacks por default en una plantilla de perfil queda prohibido** (JF, 12-ago):
+- **Sembrar fallbacks por default en una plantilla de perfil queda prohibido** (el owner, 12-ago):
   las plantillas van limpias porque los modelos del cliente **no se conocen de antemano** —
   configurarlos es un acto explícito del operador AL INSTALAR, no un default que viaja en el
   repo.

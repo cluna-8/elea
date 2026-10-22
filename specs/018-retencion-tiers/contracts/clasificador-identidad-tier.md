@@ -175,7 +175,7 @@ Reglas:
   2. **Postura de auditoría**: tier `estricto` exige `SENTINEL_AUDIT_FAIL=closed`; incoherencia → health degradado + evento auditado. **No** se reescribe el env ni se toca el espejo triple del motor.
   3. Consecuencias de capas con grado (bloquear vs registrar) según resolución 027 vigente.
 - Cambio de tier: auditado con valor anterior y nuevo (SC-006). El plano motor no consume esta capa en v1 (decisión de diseño — evita rebundle).
-- **Costura 037/perfil**: el bloque `compliance_tier` reservado en el schema del perfil (sellado con Cristian/Falime 13-ago) escribe esta capa al instalar; la licencia autoriza los juguetes, el perfil solo configura.
+- **Costura 037/perfil**: el bloque `compliance_tier` reservado en el schema del perfil (sellado con Cristian y deploy/ (Factory) 13-ago) escribe esta capa al instalar; la licencia autoriza los juguetes, el perfil solo configura.
 
 ## Contrato 4 · Arranque seguro del purgador (FR-001) *(enmienda aprobada por el manager 13-ago)*
 

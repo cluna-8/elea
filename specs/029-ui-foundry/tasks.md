@@ -1,7 +1,7 @@
 # Tasks: Rediseño UI Azure Foundry (029)
 
 **Input**: [spec.md](./spec.md), [plan.md](./plan.md). **Orden**: Fundación (A) → Páginas (B) → verificación.
-Rama `029-ui-foundry` (worktree desde `dev-fran`). Nunca commit directo a `dev-fran`/`main`.
+Rama `029-ui-foundry` (worktree desde la rama de desarrollo de Sentinel). Nunca commit directo a la rama de desarrollo de Sentinel/`main`.
 
 ## Fase A — Fundación (bloqueante)
 - [ ] **T001** [A] `index.css`: reemplazar el `@import` del CDN por `@font-face` local (Inter + mono woff2); redefinir CSS vars a la paleta CLARA (canvas/surface/border/text*/semánticos); body a canvas claro + Inter. (FR-001/003/006)
@@ -22,7 +22,7 @@ Rama `029-ui-foundry` (worktree desde `dev-fran`). Nunca commit directo a `dev-f
 - [ ] **T012** Playwright: levantar dev server, screenshots de las 6 páginas, **0 errores de consola**, **0 requests a Google Fonts**, tema claro coherente. (SC-001/003/005)
 - [ ] **T013** Playwright: auto-save del toggle de headroom en vivo + sobrevive reload. (SC-004)
 - [ ] **T014** Verificar override de marca: brand.json con colores oscuros → panel sigue claro, acento cambia. (SC-002)
-- [ ] **T015** Review Codex + suite frontend (`npm run build` + lint) verde antes de dejar PR-ready. Screenshots para OK final de JF.
+- [ ] **T015** Review Codex + suite frontend (`npm run build` + lint) verde antes de dejar PR-ready. Screenshots para OK final del owner.
 
 ## Fuera de alcance (fast-follow)
 - i18n EN/ES completa. Restyle fino de las páginas no-piloto (Costs, Governance, Compliance, Audit, Docs) — heredan tokens/shell, no se rompen.

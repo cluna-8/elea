@@ -95,7 +95,7 @@ La instrumentación de T002 (temporal, revertida) refutó la hipótesis de D2 y 
    valor guarda la respuesta con los placeholders del request que la pobló → el unmask del
    request siguiente jamás matchea. Aun con el fix de safe_split, un cache hit devuelve
    placeholders ajenos (sin PII — los placeholders son opacos — pero rompe el round-trip).
-   Se registra como issue aparte (tensión con cache/costes → módulo 023 de Falime); NO se
+   Se registra como issue aparte (tensión con cache/costes → módulo 023); NO se
    resuelve en esta spec. Mitigación de la evidencia e2e: prompts únicos por corrida.
 
 - Gateway passthrough: round-trip ya cubierto por contract tests — sin cambios.

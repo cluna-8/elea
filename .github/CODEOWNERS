@@ -1,32 +1,15 @@
-# CODEOWNERS — 2 departamentos (decisión 2026-08-03, "Manos a la obra")
-#   Guardian App Ecosystem = JF (@DrZuzzjen) — responsable total del producto
-#   Install & Factory      = Falime (@FalimeJ) — deploy/ entero, en mudanza a repo propio
-#                            (desprendimiento desde el tag checkpoint-camara-2026-08)
-#   Cristian (@cluna-8)    = GATE de review (custodia/rotación de claves de firma,
-#                            RBAC de firma y auth), NO departamento.
-# Orden: la ÚLTIMA regla que matchea gana.
+# CODEOWNERS — un solo dueño humano: Cristian (@cluna-8).
+#   Atlas es el orquestador: recibe los pedidos y administra a los workers (agentes en
+#   worktrees). No es una cuenta de GitHub, por eso no figura como dueño acá.
+#   No hay departamentos por persona: todo el repo tiene el mismo responsable.
+#
+# Áreas sensibles (piden cuidado extra al revisar: custodia, firma y auth):
+#   backend/src/licensing/
+#   backend/src/keys/
+#   backend/src/auth/
+#   backend/scripts/issue_license.py
+#   backend/scripts/issue_dev_license.py
+#
 # Regla de la casa: todo PR que mueva ficheros entre áreas actualiza este archivo en el mismo PR.
 
-# ── Guardian App Ecosystem (default) ──
-* @DrZuzzjen
-
-# ── Install & Factory ──
-deploy/ @FalimeJ
-
-# ── Wizard-install: CLI sentinel-admin/signer (recambio weekly 13-ago, full ownership Cristian) ──
-cli/ @cluna-8
-
-# ── La ITV (harness de carga, spec 035 — label team:itv) ──
-harness/ @DrZuzzjen
-
-# ── Gate de Cristian: custodia, firma y auth ──
-backend/src/licensing/ @DrZuzzjen @cluna-8
-backend/src/keys/ @DrZuzzjen @cluna-8
-backend/src/auth/ @DrZuzzjen @cluna-8
-backend/scripts/issue_license.py @DrZuzzjen @cluna-8
-backend/scripts/issue_dev_license.py @DrZuzzjen @cluna-8
-
-# ── Gobernanza del propio reparto ──
-.github/CODEOWNERS @DrZuzzjen
-# La convención operativa es de Cristian: cambios con su aprobación (regla del propio doc)
-CONTRIBUTING.md @cluna-8
+* @cluna-8

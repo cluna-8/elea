@@ -131,7 +131,7 @@ local, si no el primer ollama del catálogo. (b) El template del piloto
 los fallbacks solo podían nacer del PUT). (c) Sin fallback local→cloud: el writer se niega
 si el modelo origen es ollama (regla existente que se conserva, ahora enforced en el write).
 
-**Racional**: decisión sellada de JF 28-jul («que siempre vaya a local, sí»). El motor lee
+**Racional**: decisión sellada del owner 28-jul («que siempre vaya a local, sí»). El motor lee
 config.yaml solo al arrancar → el fallback escrito EN el alta viaja en el mismo restart que
 el alta misma exige (gotcha operativo ya documentado en INSTALL). Verificado en vivo: caída
 de OpenAI → 200 en 11,4 s por qwen local, campo `model` honesto.

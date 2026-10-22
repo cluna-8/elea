@@ -663,7 +663,7 @@ def test_ventana_cerrada_sobre_una_clase_al_dia_no_es_partial(factory, monkeypat
 #    de una corrida hoy es el objeto devuelto y la línea de log; cuando T010 entre, el contador
 #    ya tiene forma y hogar (la fila resumen es POR CORRIDA, como el contador).
 #
-# 3. Costo del contador, MEDIDO el 14-ago sobre Postgres 16 (compose jeff018), `audit_logs`
+# 3. Costo del contador, MEDIDO el 14-ago sobre Postgres 16 (compose qa018), `audit_logs`
 #    cargada a 200.000 filas repartidas en 900 días y con `ANALYZE` corrido: 7,4 ms el conteo
 #    con el backlog entero vencido (Bitmap Index Scan sobre `ix_audit_logs_timestamp`) y 3,3 ms
 #    después de los DELETE, contra 12,2 ms que cuesta el conteo de UNA sola clase (Parallel Seq

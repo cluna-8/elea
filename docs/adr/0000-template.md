@@ -1,7 +1,7 @@
 # ADR-NNNN: [título de la decisión]
 
 **Fecha:** AAAA-MM-DD · **Estado:** propuesto | aceptado | reemplazado por ADR-XXXX
-**Decisores:** [Cristian, JF, Falime]
+**Decisores:** [Cristian]
 
 ## Contexto
 

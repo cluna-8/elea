@@ -20,7 +20,7 @@ Virar el panel admin (React+Vite+Tailwind) de OSCURO a un tema CLARO tipo Azure 
 ## Fases
 - **Fase A — Fundación (bloqueante, 1 minion)**: `index.css` (vars claras + @font-face), `tailwind.config.js` (paleta clara + tokens semánticos + Inter), fuentes woff2 en `assets/fonts/`, `services/branding.ts` (solo `primary`), kit `components/ui/*` (Card, Pill/StatusBadge, PageHeader, Button, Table), y `App.tsx` (shell Foundry). Debe landear antes que las páginas.
 - **Fase B — Páginas (paralelo, minions por página/grupo)**: Login+Dashboard · Firewall+Models · Playground+Security(+fix headroom) · Users (grande, solo). Cada uno reusa la fundación; cero solape de archivos.
-- **Verificación**: dev server + Playwright (screenshots 6 páginas, consola limpia, sin Google Fonts, auto-save headroom); review Codex; screenshots para el OK final de JF.
+- **Verificación**: dev server + Playwright (screenshots 6 páginas, consola limpia, sin Google Fonts, auto-save headroom); review Codex; screenshots para el OK final del owner.
 
 ## Project Structure
 ```

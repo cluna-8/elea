@@ -37,7 +37,7 @@ const PLANO_LABELS: Record<string, string> = {
   api_byok: "API con llave propia",
 };
 
-// Encuadre del catálogo incoming (marco de JF): los guardianes de nube son **features que
+// Encuadre del catálogo incoming (marco del owner): los guardianes de nube son **features que
 // vienen**, no promesas rotas. El copy lo dice en positivo —qué son y qué falta para que
 // corran— sin pedir perdón y sin insinuar que la pantalla está averiada.
 const CATALOGO_TITULO = "Próximamente · no instalado";

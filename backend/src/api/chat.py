@@ -2318,7 +2318,7 @@ async def register_model(model_in: ModelCreateSchema):
 
     config_data["model_list"].append(new_model_entry)
 
-    # Fallback siempre-a-local (spec 030 US3 / FR-007, decisión sellada de JF 28-jul).
+    # Fallback siempre-a-local (spec 030 US3 / FR-007, decisión sellada del owner 28-jul).
     #
     # Un modelo cloud nace con respaldo al modelo local del cliente: si el proveedor se cae,
     # su gente sigue trabajando en el hardware propio y a coste 0, sin que nadie configure

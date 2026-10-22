@@ -1,12 +1,12 @@
 # Roadmap — Install & Factory
 
-**Jefe técnico**: Falime (@FalimeJ) · **Creado**: 2026-08-04 (la mudanza)
+**Responsable**: Cristian (@cluna-8, el owner) · **Creado**: 2026-08-04 (la mudanza)
 **Punto de desprendimiento**: tag **`checkpoint-camara-2026-08`** en `main` (`78637e6`) — el estado
 instalado y probado en la sede de la Cámara + fixes post-install + los 4 PRs del gate (#53-#56).
 Cuando este departamento migre a su repo propio (`guardian-factory`), este archivo viaja con `deploy/`.
 
 Este roadmap vive **dentro de `deploy/`** a propósito: es el territorio de Install & Factory. El roadmap
-del producto (Guardian App Ecosystem, JF) sigue en [`specs/ROADMAP-guardian.md`](../specs/ROADMAP-guardian.md).
+del producto (Guardian App Ecosystem) sigue en [`specs/ROADMAP-guardian.md`](../specs/ROADMAP-guardian.md).
 Los dos se conectan por **contratos**, no por acceso: el dueño publica el artefacto versionado, el otro lo
 consume pinneado.
 
@@ -27,11 +27,11 @@ consume pinneado.
 
 | Spec | Título | Prioridad | Estado |
 |------|--------|-----------|--------|
-| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | **Implementada** (US1-US6, 2026-07-20, [PR #23](https://github.com/DrZuzzjen/sentinel-guardian/pull/23)); resta T040 (tofu apply e2e sandbox) |
-| 025 | Partner Enablement (capacitación + certificación del partner) | P2 | **Implementada** (2026-07-22, [PR #36](https://github.com/DrZuzzjen/sentinel-guardian/pull/36)); doc oficial del ciclo de onboarding |
+| 020 | White-Label Packaging & Deploy (OpenTofu + k3s/Zarf) | P2 | **Implementada** (US1-US6, 2026-07-20, PR #23 de Sentinel); resta T040 (tofu apply e2e sandbox) |
+| 025 | Partner Enablement (capacitación + certificación del partner) | P2 | **Implementada** (2026-07-22, PR #36 de Sentinel); doc oficial del ciclo de onboarding |
 | 026 | CLI de operador `sentinel-admin` — firma de licencias e instalación guiada offline | **P1** | **Spec+plan completos, implementación EN CERO** — habilitador del partner instalando en septiembre |
-| 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en [#51](https://github.com/DrZuzzjen/sentinel-guardian/issues/51)); primer ladrillo del plano de control del futuro Vendor Portal |
-| — | Trust-kit TLS del certificado | **P1** | Mergeado ([PR #55](https://github.com/DrZuzzjen/sentinel-guardian/pull/55)); **pendiente: pasada en VM Windows real** (UAC, almacén de máquina, GPO, `IsInputRedirected` como SYSTEM) antes de entregarlo a la sede; instaladores sin firma → [#61](https://github.com/DrZuzzjen/sentinel-guardian/issues/61) |
+| 032 | Ingress cert modes (`managed` \| `byo` \| `internal`) | **P1** | **Roadmap — sin spec** (research 2026-07-30, veredicto en issue #51 de Sentinel); primer ladrillo del plano de control del futuro Vendor Portal |
+| — | Trust-kit TLS del certificado | **P1** | Mergeado (PR #55 de Sentinel); **pendiente: pasada en VM Windows real** (UAC, almacén de máquina, GPO, `IsInputRedirected` como SYSTEM) antes de entregarlo a la sede; instaladores sin firma → issue #61 de Sentinel |
 | — | Camino de update v0 (bundle-parche + procedimiento) | **P1** | No existe — hoy solo reinstalación fresca. Prerrequisito del zero-day O(N) del partner |
 | — | CI/CD y convención de releases | **P1** | No existe (`.github/` = solo CODEOWNERS); los 20 checks de `deploy/release/checks/` corren a mano |
 | — | Vendor Portal | oct+ | Su lógica se entrega vía CLI 026; la cara web llega sobre la CLI probada en campo. 100% Factory |
@@ -84,7 +84,7 @@ sólo agrega **un registro A** en su DNS interno y **no se instala nada en ning�
 (CSR / AD CS) es la única vía air-gap sostenible con la vida de los certs cayendo a 47 días en 2029;
 `internal` es lo de hoy, productizado. Las tres convergen en el mismo cambio del `Caddyfile.ingress`.
 **Es además el primer ladrillo real del portal de partners**: usa el mismo plano de control que el
-«firmante central» de FR-030. Research completo en [#51](https://github.com/DrZuzzjen/sentinel-guardian/issues/51).
+«firmante central» de FR-030. Research completo en issue #51 de Sentinel.
 
 ## Mantenimiento
 

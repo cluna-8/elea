@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-08-11 (propuesto) · **Adoptado:** 2026-08-24 (stack 036, #137)
 **Estado:** aceptado
-**Decisores:** Cristian (autor) · JF (sello de canon, 12-ago y 24-ago) · adoptado por el equipo Jeff
+**Decisores:** Cristian (autor) · el owner (sello de canon, 12-ago y 24-ago) · adoptado por el equipo
 
 ## Contexto
 
@@ -12,7 +12,7 @@ surgió la pregunta de dónde vive la política de compliance/entidades PII por 
 empresas y países se puedan actualizar sin tocar el resto del stack.
 
 Hasta este ADR, `region` se leía SOLO de `SENTINEL_ENTITY_REGION`, una env var fija por
-contenedor (`litellm/extensions/sentinel_guardrail.py`), con un comentario del propio JF
+contenedor (`litellm/extensions/sentinel_guardrail.py`), con un comentario del owner
 marcándola como YAGNI deliberado "mientras solo exista Europa" — condición ya vencida.
 
 En paralelo, el equipo cerró la constitución D10 (`nlp_fail_mode`, issue #63/#104):
@@ -20,7 +20,7 @@ un ajuste gobernable por tenant, resuelto desde `Guardian.config` vía el mismo 
 `identity` que ya carga `entity_configs`/`custom_names`/`custom_entities`, sin
 contenedor nuevo. Es el mismo tipo de decisión que `region`, resuelta días antes.
 
-## Canon sellado (JF, 12-ago — ver #137 para la discusión completa)
+## Canon sellado (el owner, 12-ago — ver #137 para la discusión completa)
 
 Dos modelos que en un primer momento parecían competir en realidad se **componen**:
 
@@ -69,7 +69,7 @@ no un problema de wiring. La región LLEGA; poblar `FALLBACK_STRUCTURED_BY_REGIO
 más países es trabajo futuro cuando haya un despliegue `latam_ar` real con el detector
 NLP degradado.
 
-### Escritura por tenant no-default: parcial a propósito (H2, decisión de JF)
+### Escritura por tenant no-default: parcial a propósito (H2, decisión del owner)
 
 `region` vive en `Guardian.config`, pero hoy no existe una superficie (UI ni API) para
 dar de alta guardianes en un tenant *no-default* — el alta/PUT actual siempre opera
@@ -77,7 +77,7 @@ sobre el tenant por defecto o sobre una fila ya existente. Un tenant nuevo,
 multi-inquilino en la misma instalación, no tiene hoy cómo fijar su propia región sin
 tocar la base a mano.
 
-**Decisión explícita de JF (12-ago):** NO se construye ese camino en este ciclo
+**Decisión explícita del owner (12-ago):** NO se construye ese camino en este ciclo
 (`POST /guardians` con `tenant_id`, filtro en el `GET`, etc.) — se parkea como mejora
 futura, a construir cuando aparezca el primer partner con clientes de más de un país en
 la misma instalación. Hoy, con una instalación = un tenant, el mecanismo por-tenant y el
@@ -125,7 +125,7 @@ mecanismo por-instalación son observacionalmente el mismo, así que no bloquea 
 
 ## Adopción (24-ago-2026)
 
-Sello de JF (canal guardian-manager, `c929cbb0`): el stack 036 se adopta al equipo Jeff.
+Sello del owner (canal guardian-manager, `c929cbb0`): el stack 036 se adopta al equipo.
 Mecánica: cherry-pick del commit original de Cristian (`44d6cb0`, autoría preservada) +
 dos PRs de cierre sobre rama propia (`adopcion/137-region-por-tenant` →
 `adopcion/137-region-4-planos`), gate cross-familia por PR:

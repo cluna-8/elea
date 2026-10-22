@@ -1,7 +1,7 @@
 # ADR-0002: El harness de carga vive como módulo del monorepo (`harness/`)
 
 **Fecha:** 2026-08-08 · **Estado:** aceptado
-**Decisores:** JF · propuesto por La ITV (spec 035, issue #95)
+**Decisores:** el owner · propuesto por La ITV (spec 035, issue #95)
 
 ## Contexto
 
@@ -15,8 +15,8 @@ integraciones/módulos nuevos viven en el monorepo con dueño en CODEOWNERS.
 
 ## Decisión
 
-El harness es un **módulo raíz del monorepo: `harness/`**, con dueño propio en CODEOWNERS
-(`harness/ @DrZuzzjen`, label de equipo `team:itv`). Layout coherente con el precedente
+El harness es un **módulo raíz del monorepo: `harness/`**, con label de equipo `team:itv`
+(el owner es Cristian, único dueño en CODEOWNERS). Layout coherente con el precedente
 `backend/` (src + tests espejo + config-as-data): gates y corpus como datos versionados,
 código Python en `src/`, tests del instrumento en `tests/`.
 
@@ -28,9 +28,9 @@ código Python en `src/`, tests del instrumento en `tests/`.
   el compose de test y el oráculo compartido con `sentinel_guardian_policy`.
 - **Bajo `backend/tests/load/`**: descartada — es la suite que CI corre por-PR; los
   gates de carga explícitamente NO aplican por-PR (DevFlow §3) y contaminarían la suite.
-- **Bajo `deploy/`**: descartada — es territorio de Factory (@FalimeJ); mezclaría
-  departamentos en cada PR del harness. (El perfil de cliente del examen,
-  `deploy/clients/itv-examen/`, sí vive ahí por ser deploy — con review de Falime.)
+- **Bajo `deploy/`**: descartada — es territorio de `deploy/` (Factory); mezclaría
+  áreas en cada PR del harness. (El perfil de cliente del examen,
+  `deploy/clients/itv-examen/`, sí vive ahí por ser deploy — con review del owner.)
 
 ## Consecuencias
 

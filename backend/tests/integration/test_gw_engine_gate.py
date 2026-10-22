@@ -943,7 +943,7 @@ async def test_el_rechazo_por_capacidad_no_bloquea_el_event_loop(
     # DÓNDE corre, no cuándo. Por eso el pedido tarda lo que tarda la base...
     assert tardanza >= ESPERA_DE_LA_BASE, (
         "el rechazo contestó sin esperar el registro — eso sería la fila diferida, que es otra "
-        "decisión (y es de JF)")
+        "decisión (y es del owner)")
     # ...pero el resto del producto no se entera.
     assert hueco_maximo < 0.05, (
         f"el event loop quedó bloqueado {hueco_maximo:.3f}s escribiendo la fila del rechazo: "

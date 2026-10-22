@@ -42,7 +42,7 @@ Ejemplo: `fix(presidio): fallar en voz alta cuando NLP degrada a regex (#63)`
 
 ## Licencias e instalaciones
 
-La emisión de licencias es de **Falime** (Install & Factory), con gate de Cristian cuando toca custodia o claves. Cristian define las políticas de compliance por país (policy packs). Runbook completo de instalación: `Structure/guardian-metodologia/references/organizacion.md`.
+La emisión de licencias es de Cristian (el owner), que también custodia las claves; Atlas (el orquestador, que administra a los workers) no emite ni custodia. Cristian define las políticas de compliance por país (policy packs). Runbook completo de instalación: `Structure/guardian-metodologia/references/organizacion.md`.
 
 ## Ciclos
 
@@ -50,15 +50,15 @@ Trabajamos en ciclos de 2 semanas con fecha fija: se recorta alcance, no se muev
 
 ## Organización
 
-División de departamentos, router de responsabilidades y reglas de operación: `Structure/ManosALaObra-SentinelGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto, JF) y `deploy/ROADMAP-factory.md` (Factory, Falime).
+Router de responsabilidades y reglas de operación (el owner es Cristian; Atlas orquesta a los workers): `Structure/ManosALaObra-SentinelGuardian.html`. Roadmaps: `specs/ROADMAP-guardian.md` (producto) y `deploy/ROADMAP-factory.md` (Factory, `deploy/`).
 
 ## Entorno local (varios worktrees)
 
 `docker-compose.yml` fija `container_name: ${STACK_PREFIX:-sentinel}-<svc>`. El default `sentinel-*` deja intactos a los lectores (`deploy/release/checks/test_profile_renders.sh`, `backend/tests/e2e/test_guardrail_behavior_e2e.py`).
 
-- Un worktree paralelo: `STACK_PREFIX=<id> docker compose up …` (p. ej. `jeff223`, `qa`). **No quitar** `container_name`: Compose pasaría a `<proyecto>-<svc>-N` y rompe esos scripts.
+- Un worktree paralelo: `STACK_PREFIX=<id> docker compose up …` (p. ej. `qa1`, `qa`). **No quitar** `container_name`: Compose pasaría a `<proyecto>-<svc>-N` y rompe esos scripts.
 - `-p <proyecto>` solo aísla red y volúmenes. No despega nombres ni puertos de host.
-- Los puertos publicados (5433/8091/8090/4010) siguen globales. Si chocan, override **local no commiteado** de `ports` (`!reset []` o reasignar). Ya no hace falta override de `container_name` (el patrón `docker-compose.jeff018.yml`).
+- Los puertos publicados (5433/8091/8090/4010) siguen globales. Si chocan, override **local no commiteado** de `ports` (`!reset []` o reasignar). Ya no hace falta override de `container_name` (el patrón `docker-compose.qa018.yml`).
 - Los `sentinel-backend:prod` de `deploy/` son tags de imagen, no `container_name`.
 
 Detalle operativo: `tech-team/DevFlow-SentinelGuardian.md` § 8. Check: `scripts/check_stack_prefix.sh` (CI lo corre antes de `docker compose up`).

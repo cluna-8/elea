@@ -1,7 +1,7 @@
 """Registro de proveedores SSO (spec 017 US2, `contracts/proveedor-sso.md`).
 
-Contrato CONGELADO (Jeff, 017-auth-rbac-sso): nombres y firmas son ley — hay código en
-paralelo (`sso/api.py`, `sso/jit.py`, ambos de Jeff) que importa este módulo tal cual. Alta
+Contrato CONGELADO (el owner, 017-auth-rbac-sso): nombres y firmas son ley — hay código en
+paralelo (`sso/api.py`, `sso/jit.py`, ambos del owner) que importa este módulo tal cual. Alta
 de un proveedor nuevo (Google, C3; research D2) = implementar `SsoProvider` + `register(...)`;
 el flujo común (rutas, JIT, emisión de sesión, flag de licencia) no se toca.
 
@@ -48,7 +48,7 @@ def _cargar_builtins() -> None:
     El registro se AUTO-ABASTECE: ningún consumidor externo necesita `from . import entra`
     sólo por el efecto de lado del import (frágil — cualquier linter que ordene/pode imports
     lo puede borrar por "no usado", y acopla `sso/api.py` a este archivo sin necesidad; enmienda
-    de Jeff sobre el brief original de T014). El import de `entra` va DENTRO de la función y no
+    del owner sobre el brief original de T014). El import de `entra` va DENTRO de la función y no
     a nivel de módulo: `entra.py` importa `register`/`SsoProvider`/`Identity` de ACÁ, así que un
     import a nivel de módulo en este archivo crearía un ciclo.
     """
