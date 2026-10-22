@@ -34,12 +34,22 @@ que NO nacieron en el request actual. Default: **OFF** — ningún despliegue ex
 cambia de comportamiento sin fijar la env var explícitamente. Best-effort en los dos
 sentidos (falla silenciosa con log si Redis no está, nunca rompe el masking ni deja
 un placeholder sin resolver como error 500).
+
+**Desenmascarado robusto ante modelos chicos** (tres piezas, en capas): (1) *prevención* —
+``inject_marker_instruction`` suma al mensaje de sistema, SOLO si el pedido tiene etiquetas, una instrucción FIJA que
+pide copiarlas tal cual (``SENTINEL_PLACEHOLDER_HINT=0|false|off|no`` la apaga para el despliegue que no tolere ningún
+cambio en su ``system``; por defecto ENCENDIDA); (2) *tolerancia* — ``unmask_text`` hace una segunda pasada, acotada a las
+etiquetas ACTIVAS del pedido (tipo, índice y nonce exactos), que restituye la etiqueta sin corchetes, con ``<>``, con un
+entero extra tras el índice o en otras mayúsculas; jamás distancia de edición (todas las etiquetas de un pedido comparten
+nonce: ``[PERSON_1_…]`` y ``[PERSON_4_…]`` quedan a distancia 1); (3) *detección* — ``residual_marker_summary`` cuenta, solo
+por tipo, lo que quedó sin restituir.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import copy
+import functools
 import hashlib
 import hmac
 import importlib.util
@@ -936,6 +946,80 @@ class PlaceholderMap:
         self.orig_to_ph[value] = ph
         self.ph_to_orig[ph] = value
         return ph
+
+
+# Instrucción ESTÁTICA que viaja en el mensaje de sistema cuando el pedido lleva al menos una etiqueta: los modelos chicos
+# alteran la etiqueta al copiarla dentro de argumentos de herramienta (sin corchetes, con un entero de más) y el dato
+# original no vuelve. Texto fijo —sin el nonce del pedido ni datos del usuario—: no invalida la caché de prefijo del
+# proveedor entre turnos y no ayuda a fabricar una etiqueta válida. El sistema le gana al mensaje de usuario (medido).
+MARKER_INSTRUCTION = (
+    "Los marcadores con formato [TIPO_n_xxxx] (por ejemplo [PERSON_0_a1b2] o [DNI_0_c3d4]) representan datos "
+    "protegidos del usuario. Cuando debas usarlos en tu respuesta o en argumentos de herramientas (JSON, consultas o "
+    "código), copialos exactamente carácter por carácter, incluyendo los corchetes [ y ], sin quitar ni agregar "
+    "números ni guiones bajos."
+)
+_SYSTEM_ROLES = ("system", "developer")
+_HINT_OFF_VALUES = ("0", "false", "off", "no")
+
+
+def placeholder_hint_enabled() -> bool:
+    """``SENTINEL_PLACEHOLDER_HINT`` (por defecto ENCENDIDA): ``0``/``false``/``off``/``no`` apagan la instrucción. Se lee por
+    llamada (no se congela al importar): un ``compose up -d`` con el valor cambiado surte efecto sin rebuild."""
+    return os.environ.get("SENTINEL_PLACEHOLDER_HINT", "").strip().lower() not in _HINT_OFF_VALUES
+
+
+def _carries_marker_instruction(value) -> bool:
+    if isinstance(value, str):
+        return MARKER_INSTRUCTION in value
+    if isinstance(value, list):
+        return any(_carries_marker_instruction(v) for v in value)
+    if isinstance(value, dict):
+        return _carries_marker_instruction(value.get("text")) or _carries_marker_instruction(value.get("content"))
+    return False
+
+
+def inject_marker_instruction(body: dict, fmt: str) -> bool:
+    """Agrega ``MARKER_INSTRUCTION`` al mensaje de sistema del pedido (al FINAL, para no mover el prefijo del cliente).
+
+    Se llama SOLO cuando el pedido tiene etiquetas (``bool(ph_to_orig)``). ``fmt`` = ``anthropic`` (campo ``system`` como
+    cadena, lista de bloques o ausente) | ``openai`` (primer mensaje ``system``/``developer``; sin ninguno, uno nuevo al
+    principio). Idempotente: si algún sistema ya la lleva no hace nada. Devuelve True si cambió el cuerpo. Forma
+    desconocida → no-op (jamás rompe el pedido)."""
+    if not isinstance(body, dict) or not placeholder_hint_enabled():
+        return False
+    if fmt == "anthropic":
+        system = body.get("system")
+        if _carries_marker_instruction(system):
+            return False
+        if system is None or system == "":
+            body["system"] = MARKER_INSTRUCTION
+        elif isinstance(system, str):
+            body["system"] = system + "\n\n" + MARKER_INSTRUCTION
+        elif isinstance(system, list):
+            body["system"] = [*system, {"type": "text", "text": MARKER_INSTRUCTION}]
+        else:
+            return False
+        return True
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return False
+    sistemas = [m for m in messages if isinstance(m, dict) and m.get("role") in _SYSTEM_ROLES]
+    if any(_carries_marker_instruction(m.get("content")) for m in sistemas):
+        return False
+    if not sistemas:
+        messages.insert(0, {"role": "system", "content": MARKER_INSTRUCTION})
+        return True
+    primero = sistemas[0]
+    contenido = primero.get("content")
+    if contenido is None or contenido == "":
+        primero["content"] = MARKER_INSTRUCTION
+    elif isinstance(contenido, str):
+        primero["content"] = contenido + "\n\n" + MARKER_INSTRUCTION
+    elif isinstance(contenido, list):
+        primero["content"] = [*contenido, {"type": "text", "text": MARKER_INSTRUCTION}]
+    else:
+        return False
+    return True
 
 
 async def mask_text(text: str, analyze: AnalyzeFn, pmap: PlaceholderMap) -> str:
@@ -2386,7 +2470,216 @@ def unmask_text(text: str, ph_to_orig: dict) -> str:
     for ph, orig in ph_to_orig.items():
         if ph in text:
             text = text.replace(ph, orig)
+    return _unmask_tolerant(text, ph_to_orig)
+
+
+# ── Desenmascarado tolerante (segunda pasada, acotada a las etiquetas ACTIVAS del pedido) ───────────────────────
+#
+# Un modelo chico copia `[DNI_0_b1c0]` como `DNI_0_b1c0` (sin corchetes) o `[PERSON_4_0a81]` como `[PERSON_4_0_0a81]` (un
+# entero de más) dentro de argumentos de herramienta, y la coincidencia exacta no la restituye. La segunda pasada exige
+# TIPO, ÍNDICE y NONCE exactos de una clave de `ph_to_orig` (la del pedido/conversación en curso): tolera corchetes
+# ausentes o `<>`, un entero extra tras el índice y mayúsculas/minúsculas. JAMÁS distancia de edición: todas las etiquetas
+# de un pedido comparten nonce, y `[PERSON_1_…]` / `[PERSON_4_…]` quedan a distancia 1 (cruzaría datos de dos personas). A
+# diferencia de una estrategia sin nonce, una etiqueta de otro pedido, otro índice u otro tipo NO coincide.
+_PH_PARTS_RE = re.compile(r"^\[(.+)_(\d+)_([0-9A-Za-z]+)\]$")
+
+
+@functools.lru_cache(maxsize=16384)
+def _parse_ph(ph) -> Optional[tuple]:
+    """``(tipo, idx, nonce, base, completa, tipo_original)`` de una clave ``[TIPO_idx_nonce]`` (todo en minúsculas salvo
+    ``tipo_original``); None si no tiene esa forma."""
+    m = _PH_PARTS_RE.match(ph) if isinstance(ph, str) else None
+    if m is None:
+        return None
+    tipo, idx, nonce = m.group(1).lower(), m.group(2), m.group(3).lower()
+    base = f"{tipo}_{idx}_"
+    return tipo, idx, nonce, base, base + nonce, m.group(1)
+
+
+@functools.lru_cache(maxsize=1024)
+def _tolerant_pattern(types: tuple, nonce: str):
+    """Regex de los tipos (``types``, minúsculas) con ese ``nonce``: ``[``|``<`` opcional, TIPO, ``_idx``, entero extra
+    opcional, ``_nonce``, sin pegarse a otra palabra, ``]``|``>`` opcional. ASCII + IGNORECASE (sin plegado Unicode)."""
+    alternativas = "|".join(re.escape(t) for t in sorted(types, key=len, reverse=True))
+    return re.compile(
+        r"(?:(?P<a>[\[<])|(?<![A-Za-z0-9_]))(?P<tipo>" + alternativas + r")_(?P<idx>\d+)(?:_\d+)?_" + re.escape(nonce)
+        + r"(?![A-Za-z0-9_])(?P<z>[\]>])?", re.IGNORECASE | re.ASCII)
+
+
+def _unmask_tolerant(text: str, ph_to_orig: dict) -> str:
+    """Segunda pasada de ``unmask_text``: solo si la exacta dejó una etiqueta activa sin restituir (su nonce sigue en el
+    texto). Los corchetes se toleran en pareja (``[…]``, ``<…>``, ``[…>``) o ausentes; un corchete SUELTO (un stream
+    truncado, el ``[…]`` de una lista) no se interpreta y la etiqueta queda como llegó."""
+    if not ph_to_orig or "_" not in text:
+        return text
+    bajo = text.lower()
+    presentes: dict = {}                    # nonce → ¿aparece en el texto?
+    tablas: dict = {}                       # nonce → {(tipo, idx): original}
+    for ph, orig in ph_to_orig.items():
+        parsed = _parse_ph(ph)
+        if parsed is None:
+            continue
+        tipo, idx, nonce = parsed[0], parsed[1], parsed[2]
+        if nonce not in presentes:
+            presentes[nonce] = nonce in bajo
+        if presentes[nonce]:
+            tablas.setdefault(nonce, {})[(tipo, idx)] = orig
+    for nonce, tabla in tablas.items():
+        patron = _tolerant_pattern(tuple(sorted({t for t, _ in tabla})), nonce)
+
+        def _restituir(m, _tabla=tabla):
+            orig = _tabla.get((m.group("tipo").lower(), m.group("idx")))
+            if orig is None:
+                return m.group(0)
+            if bool(m.group("a")) != bool(m.group("z")):
+                return m.group(0)               # un corchete suelto no se interpreta (truncado, o el `[…]` de una lista)
+            return orig
+
+        text = patron.sub(_restituir, text)
     return text
+
+
+# ── Detección metadata-only de lo que NO se pudo restituir ───────────────────────────────────────────────────────
+#
+# Después de desenmascarar, un resto `TIPO_idx_nonce` (con o sin corchetes) con el NONCE de este pedido es, sin falso
+# positivo posible, una etiqueta alterada que ni la pasada tolerante pudo resolver (índice inventado, otro formato): el
+# cliente va a ejecutar su herramienta con el marcador en vez del dato y NADIE se entera (la fila dice `passed`). Se cuenta
+# solo TIPO y CANTIDAD (los tipos salen de las claves del pedido, no del texto): jamás texto de prompt, valores ni nonce.
+@functools.lru_cache(maxsize=1024)
+def _residue_pattern(types: tuple, nonce: str):
+    alternativas = "|".join(re.escape(t) for t in sorted(types, key=len, reverse=True))
+    return re.compile(r"(?<![A-Za-z])(?P<tipo>" + alternativas + r")_\d+(?:_\d+)?_" + re.escape(nonce) + r"(?![A-Za-z0-9])",
+                      re.IGNORECASE | re.ASCII)
+
+
+def _residue_tables(ph_to_orig: dict) -> dict:
+    """``{nonce: {tipo_en_minúsculas: tipo}}`` de las claves del pedido."""
+    tablas: dict = {}
+    for ph in ph_to_orig or ():
+        parsed = _parse_ph(ph)
+        if parsed is not None:
+            tablas.setdefault(parsed[2], {})[parsed[0]] = parsed[5]
+    return tablas
+
+
+def _count_residue(text: str, tablas: dict, cuentas: dict, desde: int = 0) -> None:
+    """Suma a ``cuentas`` los restos de ``text`` cuyo final cae después de ``desde`` (ventana de streaming)."""
+    if not text or "_" not in text:
+        return
+    bajo = text.lower()
+    for nonce, tipos in tablas.items():
+        if nonce not in bajo:
+            continue
+        for m in _residue_pattern(tuple(sorted(tipos)), nonce).finditer(text):
+            if m.end() > desde:
+                tipo = tipos[m.group("tipo").lower()]
+                cuentas[tipo] = cuentas.get(tipo, 0) + 1
+
+
+def _count_residue_deep(obj, tablas: dict, cuentas: dict, depth: int = 0) -> None:
+    if isinstance(obj, str):
+        _count_residue(obj, tablas, cuentas)
+    elif depth < 64 and isinstance(obj, (list, tuple)):
+        for x in obj:
+            _count_residue_deep(x, tablas, cuentas, depth + 1)
+    elif depth < 64 and isinstance(obj, dict):
+        for k, v in obj.items():
+            _count_residue_deep(k, tablas, cuentas, depth + 1)
+            _count_residue_deep(v, tablas, cuentas, depth + 1)
+
+
+def _residue_summary(cuentas: dict) -> list:
+    return [{"type": t, "count": cuentas[t]} for t in sorted(cuentas)]
+
+
+def residual_marker_summary(obj, ph_to_orig: dict) -> list:
+    """Restos de etiquetas del pedido activo en ``obj`` (texto o estructura, ya desenmascarado): ``[{"type", "count"}]``
+    ordenado por tipo, ``[]`` si no queda ninguno. Solo tipos de entidad y un entero (metadata-only)."""
+    tablas = _residue_tables(ph_to_orig)
+    cuentas: dict = {}
+    if tablas:
+        _count_residue_deep(obj, tablas, cuentas)
+    return _residue_summary(cuentas)
+
+
+class ResidueCounter:
+    """Lo mismo para STREAMING: cuenta los restos de lo que se EMITE al cliente (``feed*``), con una ventana por flujo
+    para ver el resto partido entre deltas sin contarlo dos veces. Metadata-only; no guarda el texto, solo su cola."""
+    WINDOW = 64        # > MAX_CARRY: cabe una etiqueta entera
+
+    def __init__(self, ph_to_orig: dict):
+        self._tablas = _residue_tables(ph_to_orig)
+        self._cuentas: dict = {}
+        self._ventanas: dict = {}
+
+    def feed(self, text, key="") -> None:
+        if not self._tablas or not isinstance(text, str) or not text:
+            return
+        previo = self._ventanas.get(key, "")
+        buf = previo + text
+        _count_residue(buf, self._tablas, self._cuentas, desde=len(previo))
+        self._ventanas[key] = buf[-self.WINDOW:]
+
+    def feed_openai_chunk(self, chunk) -> None:
+        try:
+            for i, choice in enumerate(_get(chunk, "choices") or []):
+                delta = _get(choice, "delta")
+                if delta is None:
+                    continue
+                self.feed(_get(delta, "content"), ("c", i))
+                for j, tc in enumerate(_get(delta, "tool_calls") or []):
+                    fn = _get(tc, "function")
+                    if fn is not None:
+                        idx = _get(tc, "index", None)
+                        self.feed(_get(fn, "arguments"), ("t", i, idx if idx is not None else j))
+        except Exception:  # noqa: BLE001 — best-effort: la detección jamás rompe el stream
+            logger.debug("residue: chunk ilegible", exc_info=True)
+
+    def feed_sse_block(self, block) -> None:
+        if isinstance(block, (bytes, bytearray)):
+            block = bytes(block).decode("utf-8", errors="replace")
+        if not isinstance(block, str):
+            return
+        for linea in block.split("\n"):
+            if not linea.startswith("data:"):
+                continue
+            try:
+                data = json.loads(linea[5:].strip())
+                delta = data.get("delta") if isinstance(data, dict) and data.get("type") == "content_block_delta" else None
+                if isinstance(delta, dict):
+                    for campo in DELTA_FIELDS.values():
+                        self.feed(delta.get(campo), (campo, data.get("index", 0)))
+            except Exception:  # noqa: BLE001 — un frame que no es JSON no es texto del modelo; la detección es best-effort
+                continue
+
+    def summary(self) -> list:
+        return _residue_summary(self._cuentas)
+
+
+_ROUTING_RESIDUE_NS = "unmask"
+_ROUTING_MAX_STR = 128      # el plano interno descarta los valores de `extensions` de más de 128 caracteres
+
+
+def record_unmask_residue(home: dict, summary: list) -> None:
+    """Deja el resumen en el metadata-home (``unmask_residue``) y en la decisión de procedencia del motor
+    (``routing_decision.extensions.unmask = {residual_count, residual_types}``), SUMANDO a la decisión previa (auto-router,
+    redirección) sin pisarla. Solo tipos de entidad y un entero. Sin restos, no hace nada."""
+    if not summary or not isinstance(home, dict):
+        return
+    tipos, largo = [], 0
+    for item in summary:
+        extra = len(item["type"]) + (1 if tipos else 0)
+        if largo + extra > _ROUTING_MAX_STR:
+            break
+        tipos.append(item["type"])
+        largo += extra
+    home["unmask_residue"] = [dict(item) for item in summary]
+    merged = dict(trusted_routing_decision(home) or {})
+    ext = dict(merged.get("extensions") or {})
+    ext[_ROUTING_RESIDUE_NS] = {"residual_count": sum(item["count"] for item in summary),
+                                "residual_types": ",".join(tipos)}
+    merged["extensions"] = ext
+    mark_routing_decision(home, merged)
 
 
 def unmask_deep(obj, ph_to_orig):
@@ -2404,17 +2697,55 @@ def unmask_deep(obj, ph_to_orig):
     return obj
 
 
-def safe_split(combined: str) -> Tuple[str, str]:
+def safe_split(combined: str, ph_to_orig: Optional[dict] = None) -> Tuple[str, str]:
     """Retiene un sufijo SOLO si todavía puede ser un placeholder a medio llegar
     (un [PERSON_0_ab12] real puede venir partido en dos deltas). Un '[' suelto en
     prosa/código (arr[i, [1,2, markdown) se emite ya mismo — el streaming no se
-    frena. Devuelve (texto_seguro, carry)."""
+    frena. Devuelve (texto_seguro, carry).
+
+    Con ``ph_to_orig`` retiene además la cola SIN corchete (o con ``<``, o con ``[`` y minúsculas) que todavía puede
+    ser el comienzo de una etiqueta ACTIVA, para que la segunda pasada de ``unmask_text`` la vea entera: un prefijo de
+    ``tipo_idx_nonce`` de alguna clave del pedido (con el entero extra opcional). Mismo ``MAX_CARRY``; la prosa que no se
+    parece a ninguna etiqueta activa se emite ya mismo."""
     idx = combined.rfind("[")
     if idx != -1 and "]" not in combined[idx:]:
         tail = combined[idx:]
         if PH_TAIL_RE.match(tail) and len(tail) <= MAX_CARRY:
             return combined[:idx], tail
+    if ph_to_orig:
+        inicio = _tag_tail_start(combined, ph_to_orig)
+        if inicio is not None:
+            return combined[:inicio], combined[inicio:]
     return combined, ""
+
+
+def _tag_tail_start(combined: str, ph_to_orig: dict) -> Optional[int]:
+    """Índice donde empieza la cola de ``combined`` que aún puede ser (el comienzo de) una etiqueta activa, o None."""
+    n = len(combined)
+    i = n
+    tope = max(0, n - (MAX_CARRY + 1))
+    while i > tope and combined[i - 1].isascii() and (combined[i - 1].isalnum() or combined[i - 1] == "_"):
+        i -= 1
+    if i == tope and tope > 0 and combined[i - 1].isascii() and (combined[i - 1].isalnum() or combined[i - 1] == "_"):
+        return None                                   # una "palabra" más larga que MAX_CARRY nunca es una etiqueta
+    if i > 0 and combined[i - 1] in "[<":
+        i -= 1
+    cola = combined[i:]
+    if not cola or len(cola) > MAX_CARRY:
+        return None
+    t = (cola[1:] if cola[:1] in ("[", "<") else cola).lower()
+    for ph in ph_to_orig:
+        parsed = _parse_ph(ph)
+        if parsed is None:
+            continue
+        nonce, base, completa = parsed[2], parsed[3], parsed[4]
+        if completa.startswith(t):
+            return i
+        if t.startswith(base):
+            partes = t[len(base):].split("_")             # entero extra en curso: `\d+` | `\d+_` | `\d+_<prefijo del nonce>`
+            if partes[0].isdigit() and partes[0].isascii() and (len(partes) == 1 or (len(partes) == 2 and nonce.startswith(partes[1]))):
+                return i
+    return None
 
 
 def unmask_delta_event(data: dict, carry: str, carry_field: Optional[str],
@@ -2434,7 +2765,7 @@ def unmask_delta_event(data: dict, carry: str, carry_field: Optional[str],
         field = DELTA_FIELDS.get((data.get("delta") or {}).get("type"))
         if field:
             combined = carry + (data["delta"].get(field) or "")
-            safe, new_carry = safe_split(combined)
+            safe, new_carry = safe_split(combined, ph_to_orig)
             data["delta"][field] = unmask_text(safe, ph_to_orig)
             return [data], new_carry, field
         return [data], carry, carry_field
@@ -2512,7 +2843,7 @@ def unmask_openai_chunk(chunk, carries: dict, ph_to_orig: dict, *, final: bool =
             if fin:
                 safe, carry = combined, ""
             else:
-                safe, carry = safe_split(combined)
+                safe, carry = safe_split(combined, ph_to_orig)
             if carry:
                 carries[key] = carry
             if safe or content is not None:
@@ -2528,7 +2859,7 @@ def unmask_openai_chunk(chunk, carries: dict, ph_to_orig: dict, *, final: bool =
                 if fin:
                     safe, carry = combined, ""
                 else:
-                    safe, carry = safe_split(combined)
+                    safe, carry = safe_split(combined, ph_to_orig)
                 if carry:
                     carries[tkey] = carry
                 _set(fn, "arguments", unmask_text(safe, args_map))

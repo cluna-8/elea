@@ -51,6 +51,7 @@ POSTea al plano interno del backend antes de devolver el rechazo.
 """
 import asyncio
 import codecs
+import json
 import logging
 import os
 import sys
@@ -731,6 +732,8 @@ class SentinelGuardrail(CustomGuardrail):
         if ph_to_orig:
             home["pii_tokens"] = ph_to_orig
             home["sentinel_masked_entities"] = _entity_counts(ph_to_orig)
+            # Prevención del desenmascarado fallido: solo si el pedido tiene etiquetas (0 tokens sin datos protegidos).
+            policy.inject_marker_instruction(data, fmt)
 
         if forzado:
             # La verdad del forzado es lo que el recorrido analizó pedazo por pedazo (el preview es un solo
@@ -771,6 +774,10 @@ class SentinelGuardrail(CustomGuardrail):
         if not ph_to_orig:
             return response
         _unmask_response_inplace(response, ph_to_orig)
+        try:
+            _registrar_restos(data, policy.residual_marker_summary(_response_text_preview(response), ph_to_orig))
+        except Exception:  # noqa: BLE001 — la detección es best-effort: jamás toca ni demora la respuesta
+            logger.debug("desenmascarado: no se pudo detectar restos", exc_info=True)
         return response
 
     async def async_post_call_streaming_iterator_hook(
@@ -795,6 +802,8 @@ class SentinelGuardrail(CustomGuardrail):
         openai_carries: dict = {}
         last_openai_chunk = None
         json_content = policy.request_wants_json(request_data)
+        # Restos de etiquetas sin restituir en lo que se EMITE (metadata-only; no cambia lo que se entrega).
+        restos = policy.ResidueCounter(ph_to_orig)
 
         async for item in response:
             if isinstance(item, bytes):
@@ -803,7 +812,9 @@ class SentinelGuardrail(CustomGuardrail):
                 buffer += item
             else:
                 last_openai_chunk = item
-                yield policy.unmask_openai_chunk(item, openai_carries, ph_to_orig, json_content=json_content)
+                salida = policy.unmask_openai_chunk(item, openai_carries, ph_to_orig, json_content=json_content)
+                restos.feed_openai_chunk(salida)
+                yield salida
                 continue
 
             while "\n\n" in buffer:
@@ -814,6 +825,7 @@ class SentinelGuardrail(CustomGuardrail):
                     block, carry, carry_field, ph_to_orig
                 )
                 for ob in out_blocks:
+                    restos.feed_sse_block(ob)
                     yield (ob + "\n\n").encode("utf-8")
 
         # Fin del stream: procesar resto + flush del carry (stream truncado — 0 texto perdido)
@@ -823,14 +835,41 @@ class SentinelGuardrail(CustomGuardrail):
                 buffer, carry, carry_field, ph_to_orig
             )
             for ob in out_blocks:
+                restos.feed_sse_block(ob)
                 yield (ob + "\n\n").encode("utf-8")
         if carry:
             # Framed (review 024): un flush crudo lo descarta el parser SSE del cliente.
-            yield policy.flush_carry_sse_block(carry, carry_field, ph_to_orig).encode("utf-8")
+            bloque = policy.flush_carry_sse_block(carry, carry_field, ph_to_orig)
+            restos.feed_sse_block(bloque)
+            yield bloque.encode("utf-8")
+        flushed = None
         if openai_carries:
             flushed = policy.flush_openai_carries(last_openai_chunk, openai_carries, ph_to_orig, json_content=json_content)
             if flushed is not None:
-                yield flushed
+                restos.feed_openai_chunk(flushed)
+        # Antes del último yield: el log de éxito del motor corre al terminar el stream.
+        _registrar_restos(request_data, restos.summary())
+        if flushed is not None:
+            yield flushed
+
+
+def _registrar_restos(data: dict, resumen: list) -> None:
+    """Etiquetas del pedido que NO se pudieron restituir: lo deja visible sin tocar el comportamiento. Metadata-only —solo
+    TIPO y CANTIDAD, jamás texto, valores ni nonce—: resumen en el metadata-home, decisión de procedencia del motor
+    (``routing_decision.extensions.unmask``, que el plano interno persiste) y un warning. Best-effort."""
+    if not resumen:
+        return
+    try:
+        home = next((data[k] for k in ("litellm_metadata", "metadata")
+                     if isinstance(data.get(k), dict) and isinstance(data[k].get("pii_tokens"), dict)), None)
+        if home is None:
+            home = next((data[k] for k in ("litellm_metadata", "metadata") if isinstance(data.get(k), dict)), None)
+        if home is not None:
+            policy.record_unmask_residue(home, resumen)
+        logger.warning("desenmascarado: %d etiqueta(s) del pedido no se restituyeron en la respuesta (tipos: %s)",
+                       sum(item["count"] for item in resumen), ",".join(item["type"] for item in resumen))
+    except Exception:  # noqa: BLE001 — jamás rompe la respuesta ni el stream
+        logger.debug("desenmascarado: no se pudo registrar los restos", exc_info=True)
 
 
 def _entity_counts(ph_to_orig: dict) -> list:
